@@ -18,6 +18,8 @@ class ErrorCode:
     TASK_NOT_FOUND = "task_not_found"
     BRANCH_NOT_FOUND = "branch_not_found"
     NO_PULL_REQUEST = "no_pull_request"
+    NOTHING_TO_SUBMIT = "nothing_to_submit"
+    PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
     ALREADY_EXISTS = "already_exists"
     CONFIRMATION_REQUIRED = "confirmation_required"
     TOOL_MISSING = "tool_missing"

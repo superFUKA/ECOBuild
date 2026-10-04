@@ -11,7 +11,7 @@ from pathlib import Path
 from . import _process
 from .errors import EcoBuildError, ErrorCode
 
-_ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0"}
+_ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true"}
 REMOTE = "origin"
 
 
@@ -220,6 +220,36 @@ class Git:
 
     def merge_abort(self) -> None:
         self.run("merge", "--abort")
+
+    def count(self, revision_range: str) -> int:
+        return int(self.output("rev-list", "--count", revision_range))
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        return self.run("merge-base", "--is-ancestor", ancestor, descendant, check=False).ok
+
+    def is_rebasing(self) -> bool:
+        for name in ("rebase-merge", "rebase-apply"):
+            if (self.root / self.output("rev-parse", "--git-path", name)).exists():
+                return True
+        return False
+
+    def rebase_continue(self) -> MergeOutcome:
+        if self.working_tree().conflicted:
+            raise EcoBuildError(
+                ErrorCode.MERGE_CONFLICT,
+                "まだ解決していない衝突があります。",
+                hint="ファイルを直してから ecobuild add で登録してください。",
+            )
+        completed = self.run("rebase", "--continue", check=False)
+        if completed.ok:
+            return MergeOutcome(True)
+        conflicted = self.working_tree().conflicted
+        if conflicted:
+            return MergeOutcome(False, conflicted)
+        raise _git_error(completed)
+
+    def rebase_abort(self) -> None:
+        self.run("rebase", "--abort")
 
     def rebase_onto(self, new_base: str, upstream: str, branch: str) -> MergeOutcome:
         completed = self.run("rebase", "--quiet", "--autostash", "--onto", new_base, upstream, branch, check=False)

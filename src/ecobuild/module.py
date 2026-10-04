@@ -172,7 +172,171 @@ class Module:
             raise ws.not_in_workspace(action)
         return workspace
 
+    def pull_request(self, number: int | None = None) -> ws.PullRequest:
+        """PRを返す。番号を省略すると、今の作業空間の開いているPR。"""
+        if number is not None:
+            return ws.PullRequest._from(self, self._github.get_pull_request(self.root, number))
+        workspace = self.require_workspace("番号を省略したPRの指定")
+        pulls = [p for p in self._github.pull_requests_for_branch(self.root, workspace.branch) if p.state == "open"]
+        if not pulls:
+            raise EcoBuildError(ErrorCode.NO_PULL_REQUEST, f"{workspace.branch} の開いているPRがありません。",
+                                hint="ecobuild task submit でPRを作成してください。")
+        return ws.PullRequest._from(self, max(pulls, key=lambda p: p.number))
+
+    def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
+        """Issueが閉じた作業空間のブランチを片付ける。未pushの変更がある作業空間は残す。"""
+        self._git.fetch()
+        current = self._git.current_branch()
+        removed, skipped, switched_to = [], [], None
+        for branch in self._git.local_branches():
+            match = ws._WORKSPACE.fullmatch(branch)
+            if match is None:
+                continue
+            number = int(match.group(1))
+            try:
+                issue = self._github.get_issue(self.root, number)
+            except EcoBuildError:
+                skipped.append(ws.SkippedWorkspace(branch, "Issueを取得できません"))
+                continue
+            if issue.state != "closed":
+                continue
+            reason = self._unsafe_to_remove(branch)
+            if reason is not None:
+                skipped.append(ws.SkippedWorkspace(branch, reason))
+                continue
+            if dry_run:
+                removed.append(branch)
+                continue
+            if branch == current:
+                if not self._git.working_tree().clean:
+                    skipped.append(ws.SkippedWorkspace(branch, "今いる作業空間に未コミットの変更があります"))
+                    continue
+                switched_to = self._git.get_config(ws.base_key(branch)) or self.config.default_base
+                self._switch_to_latest(switched_to)
+            self._git.delete_branch(branch, force=True)
+            if self._git.has_remote_branch(branch):
+                self._git.push_delete(branch)
+            self._git.unset_config(ws.base_key(branch))
+            removed.append(branch)
+        return ws.CleanResult(tuple(removed), tuple(skipped), switched_to, dry_run)
+
     # 内部 -----------------------------------------------------------------
+
+    def _unsafe_to_remove(self, branch: str) -> str | None:
+        """消すと失われるコミットがあれば理由を返す。"""
+        tip = self._git.rev_parse(branch)
+        if self._git.has_remote_branch(branch) and self._git.is_ancestor(tip, f"{_git.REMOTE}/{branch}"):
+            return None
+        merged_heads = [p.head_sha for p in self._github.pull_requests_for_branch(self.root, branch)
+                        if p.state == "merged" and p.head_sha]
+        if any(self._git.rev_parse(sha) and self._git.is_ancestor(tip, sha) for sha in merged_heads):
+            return None
+        return "GitHubにないコミットがあります"
+
+    def _switch_to_latest(self, name: str) -> None:
+        if self._git.has_local_branch(name):
+            self._git.switch(name)
+            if self._git.has_remote_branch(name):
+                self._git.merge(f"{_git.REMOTE}/{name}", ff_only=True)
+        else:
+            self._git.create_branch(name, f"{_git.REMOTE}/{name}", switch=True)
+            self._git.set_upstream(name)
+
+    def _check_generated_files(self) -> None:
+        """CppBuildで生成し直し、生成・管理ファイルに未コミットの変更があれば止める。"""
+        if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
+            return
+        _cppbuild.update(self.root)
+        tree = self._git.working_tree()
+        changed = sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked)
+                          if _cppbuild.is_generated_or_managed(p)})
+        if changed:
+            raise EcoBuildError(
+                ErrorCode.GENERATED_FILES_OUTDATED,
+                "CppBuildの生成ファイル・管理ファイルがコミットされていません。",
+                hint="ecobuild add --all でステージし、ecobuild commit でコミットしてから再実行してください。",
+                details=changed,
+            )
+
+    def _submit_workspace(self, workspace: ws.Workspace, *, title: str | None, partial: bool) -> ws.PullRequest:
+        self._check_generated_files()
+        self._git.fetch()
+        base_ref = f"{_git.REMOTE}/{workspace.base}"
+        if self._git.count(f"{base_ref}..{workspace.branch}") == 0:
+            raise EcoBuildError(ErrorCode.NOTHING_TO_SUBMIT, f"{workspace.base} へ反映するコミットがありません。",
+                                hint="変更をコミットしてから再実行してください。")
+        workspace.push()
+        opened = [p for p in self._github.pull_requests_for_branch(self.root, workspace.branch) if p.state == "open"]
+        if opened:
+            # 既にあるPRには、pushしたコミットがそのまま加わる。
+            return ws.PullRequest._from(self, max(opened, key=lambda p: p.number))
+        issue = self._github.get_issue(self.root, workspace.number)
+        keyword = "Refs" if partial else "Closes"
+        info = self._github.create_pull_request(
+            self.root, head=workspace.branch, base=workspace.base,
+            title=title or issue.title, body=f"{keyword} #{workspace.number}\n",
+        )
+        return ws.PullRequest._from(self, info)
+
+    def _submit_branch(self, branch: ws.Branch, *, into: str, title: str | None) -> ws.PullRequest:
+        if branch.is_workspace:
+            raise EcoBuildError(ErrorCode.PROTECTED_BRANCH, f"{branch.name} は作業空間です。",
+                                hint="作業空間の反映は ecobuild task submit で行います。")
+        self._git.fetch()
+        for name in (branch.name, into):
+            if not self._git.has_remote_branch(name):
+                raise EcoBuildError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {name} がありません。")
+        if self._git.count(f"{_git.REMOTE}/{into}..{_git.REMOTE}/{branch.name}") == 0:
+            raise EcoBuildError(ErrorCode.NOTHING_TO_SUBMIT, f"{branch.name} から {into} へ反映するコミットがありません。")
+        info = self._github.create_pull_request(
+            self.root, head=branch.name, base=into, title=title or f"{branch.name} を {into} へ反映", body="",
+        )
+        return ws.PullRequest._from(self, info)
+
+    def _merge_pull_request(self, pr: ws.PullRequest) -> ws.MergeResult:
+        current = self._github.get_pull_request(self.root, pr.number)
+        if current.state != "open":
+            raise EcoBuildError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{current.state}）。")
+        match = ws._WORKSPACE.fullmatch(pr.head)
+        if match is None:
+            # ブランチ同士はマージコミットで履歴を残す。
+            self._github.merge_pull_request(self.root, pr.number, squash=False, subject=None)
+            return ws.MergeResult(pr.number, "merge", None, False)
+        number = int(match.group(1))
+        self._github.merge_pull_request(self.root, pr.number, squash=True, subject=f"{pr.title} (#{pr.number})")
+        if pr.partial:
+            rebuilt = self._rebuild_workspace(pr.head, current.head_sha)
+            return ws.MergeResult(pr.number, "squash", None, rebuilt)
+        if self._github.get_issue(self.root, number).state == "open":
+            self._github.close_issue(self.root, number)
+        self._git.fetch()
+        if self._git.has_remote_branch(pr.head):
+            self._git.push_delete(pr.head)
+        return ws.MergeResult(pr.number, "squash", number, False)
+
+    def _rebuild_workspace(self, branch: str, merged_head: str | None) -> bool:
+        """--partialのPRをsquashマージした後、作業空間を作成元の最新から作り直す。
+
+        PRに含まれなかった続きのコミットは載せ替える（git rebase --onto と同じ）。
+        """
+        if merged_head is None or not self._git.has_local_branch(branch):
+            return False
+        self._git.fetch()
+        base = self._git.get_config(ws.base_key(branch)) or self.config.default_base
+        previous = self._git.current_branch()
+        outcome = self._git.rebase_onto(f"{_git.REMOTE}/{base}", merged_head, branch)
+        if not outcome.merged:
+            raise EcoBuildError(
+                ErrorCode.MERGE_CONFLICT,
+                "作業空間の作り直しで衝突しました。",
+                hint="ファイルを直して ecobuild add で登録し、ecobuild sync --continue で続けてください"
+                     "（やめる場合は ecobuild sync --abort）。",
+                details=list(outcome.conflicted),
+            )
+        self._git.push(branch, force=True)
+        if previous is not None and previous != branch:
+            self._git.switch(previous)  # rebaseで移った作業空間から、元のブランチへ戻る
+        return True
 
     def _branch(self, name: str, local: bool, remote: bool) -> ws.Branch:
         is_workspace = ws.is_workspace_branch(name)

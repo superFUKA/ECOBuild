@@ -145,6 +145,20 @@ class MergeResult:
 
 
 @dataclass(frozen=True)
+class SkippedWorkspace:
+    branch: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CleanResult:
+    removed: tuple[str, ...]
+    skipped: tuple[SkippedWorkspace, ...]
+    switched_to: str | None          # 片付けた作業空間にいた場合、移った先
+    dry_run: bool
+
+
+@dataclass(frozen=True)
 class PullRequestState:
     number: int
     url: str

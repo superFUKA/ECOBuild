@@ -61,13 +61,19 @@ class FakeGitHub:
     def get_pull_request(self, repo, number):
         if number not in self.pulls:
             raise EcoBuildError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。")
-        return self.pulls[number]
+        return self._current(self.pulls[number])
 
     def pull_requests_for_branch(self, repo, head):
-        return [pr for pr in self.pulls.values() if pr.head == head]
+        return [self._current(pr) for pr in self.pulls.values() if pr.head == head]
+
+    def _current(self, pr):
+        """開いているPRの先頭は、GitHubと同じくブランチの最新を指す。"""
+        if pr.state != "open":
+            return pr
+        return replace(pr, head_sha=git(self.bare, "rev-parse", pr.head))
 
     def merge_pull_request(self, repo, number, *, squash, subject):
-        pr = self.pulls[number]
+        pr = self._current(self.pulls[number])
         scratch = self.root / f"merge-{next(self._scratch)}"
         git(self.root, "clone", "--quiet", str(self.bare), str(scratch))
         git(scratch, "switch", "--quiet", pr.base)

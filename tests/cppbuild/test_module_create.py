@@ -58,3 +58,21 @@ def test_invalid_name(short_tmp):
     with pytest.raises(EcoBuildError) as error:
         Module.create("1bad-name", directory=short_tmp, github=FakeGitHub(short_tmp / "gh"))
     assert error.value.code == ErrorCode.INVALID_CONFIG
+
+
+def test_submit_requires_generated_files(short_tmp):
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("Calc", directory=short_tmp, github=github)
+    workspace = module.create_task("ファイル追加").start()
+    extra = module.root / "Calc" / "src" / "Extra.cpp"
+    extra.write_text("int extra() { return 1; }\n", encoding="utf-8")
+    workspace.stage("Calc/src/Extra.cpp")
+    workspace.commit("ソースを追加")
+    with pytest.raises(EcoBuildError) as error:
+        workspace.submit()
+    assert error.value.code == ErrorCode.GENERATED_FILES_OUTDATED
+    assert "Calc/CMakeLists.txt" in error.value.details
+    workspace.stage(all=True)
+    workspace.commit("生成ファイルを更新")
+    pr = workspace.submit()
+    assert pr.head == "task/1"

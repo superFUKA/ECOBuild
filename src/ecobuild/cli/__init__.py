@@ -3,6 +3,7 @@
 from cli_framework import create_cli
 
 from . import commands
+from ._output import use_utf8_when_redirected
 
 
 def build_cli():
@@ -10,4 +11,5 @@ def build_cli():
 
 
 def main() -> None:
+    use_utf8_when_redirected()
     build_cli()()

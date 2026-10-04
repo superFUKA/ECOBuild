@@ -7,7 +7,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
-from conftest import git
+from helpers import git
 from ecobuild._github import IssueInfo, PullRequestInfo, RepositoryInfo
 from ecobuild.errors import EcoBuildError, ErrorCode
 

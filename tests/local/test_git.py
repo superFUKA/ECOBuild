@@ -1,6 +1,6 @@
 import pytest
 
-from conftest import git, write
+from helpers import git, write
 from ecobuild._git import Git
 from ecobuild.errors import EcoBuildError, ErrorCode
 

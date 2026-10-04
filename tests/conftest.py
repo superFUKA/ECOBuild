@@ -1,28 +1,12 @@
-import os
-import subprocess
-from pathlib import Path
-
 import pytest
 
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "ECOBuild Test",
-    "GIT_AUTHOR_EMAIL": "test@example.com",
-    "GIT_COMMITTER_NAME": "ECOBuild Test",
-    "GIT_COMMITTER_EMAIL": "test@example.com",
-}
+from helpers import GIT_ENV, git
 
 
 @pytest.fixture(autouse=True)
 def _git_identity(monkeypatch):
     for key, value in GIT_ENV.items():
         monkeypatch.setenv(key, value)
-
-
-def git(cwd: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, encoding="utf-8",
-        env={**os.environ, **GIT_ENV},
-    ).stdout.strip()
 
 
 @pytest.fixture
@@ -42,6 +26,18 @@ def remote_and_clone(tmp_path):
     return remote, work
 
 
-def write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
+@pytest.fixture
+def module(remote_and_clone, tmp_path):
+    """CppBuildを使わない、gitだけのモジュール（ブランチ・作業空間の試験用）。"""
+    from ecobuild import config
+    from ecobuild.module import Module
+    from fakes import FakeGitHub
+
+    remote, work = remote_and_clone
+    config.save(config.ModuleConfig.for_new_module("Calc", app=False), work / config.FILE_NAME)
+    git(work, "add", config.FILE_NAME)
+    git(work, "commit", "--quiet", "-m", "設定")
+    git(work, "push", "--quiet", "origin", "main")
+    github = FakeGitHub(tmp_path / "gh")
+    github.use_bare(remote)
+    return Module.find(work, github=github)

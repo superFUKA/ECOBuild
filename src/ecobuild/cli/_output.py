@@ -85,7 +85,8 @@ def execute(
 
 def to_data(value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {field.name: to_data(getattr(value, field.name)) for field in dataclasses.fields(value)}
+        return {field.name: to_data(getattr(value, field.name))
+                for field in dataclasses.fields(value) if not field.name.startswith("_")}
     if isinstance(value, enum.Enum):
         return value.value
     if isinstance(value, Path):

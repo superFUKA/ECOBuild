@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import git
+from helpers import git
 from fakes import FakeGitHub
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode

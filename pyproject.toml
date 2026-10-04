@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecobuild"
+version = "0.1.0"
+description = "GitHubとCppBuildをつなぐ、C++モジュールの開発管理CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # 依存はGitHubのURLとコミットIDで固定する（リポジトリの外のファイルは参照しない）。
+    "cppbuild @ git+https://github.com/superFUKA/CppBuild@94ea09274125a706cdde441e60af1f2e8b028e44",
+    "cli-framework @ git+https://github.com/superFUKA/CLIFrameWork@e1091bf435e4baada26e01687b3f06bd7497999d",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
+[project.scripts]
+ecobuild = "ecobuild.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ecobuild = ["templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "local: 本物のgitと手元のbareリポジトリを使う",
+    "cppbuild: 本物のCppBuild・CMake・コンパイラを使う（時間がかかる）",
+    "github: 本物のGitHubを使う（ECOBUILD_GITHUB_TESTS=1のときだけ実行）",
+]

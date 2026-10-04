@@ -1,0 +1,8 @@
+# 設計用のメモ（アイデア・API検討・調査）。成果物ではないため管理しない
+/memo/
+
+# Python
+/.venv/
+__pycache__/
+*.egg-info/
+/.pytest_cache/

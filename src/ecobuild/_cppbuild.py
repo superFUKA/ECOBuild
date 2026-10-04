@@ -209,11 +209,12 @@ def _register_templates(solution: Solution) -> None:
 def _target(root: Path, project: str | None, configuration: str, *, run_arguments=None):
     solution = open_solution(root)
     try:
+        # 構成（Debug／Release）はSolution全体で1つ。Projectは対象を絞るだけで、構成は引き継ぐ。
+        solution.set_build_settings(SolutionBuildSettings(configuration=configuration))
         if project is None:
-            solution.set_build_settings(SolutionBuildSettings(configuration=configuration))
             return solution
         target = solution.get_project(project)
-        settings = ProjectBuildSettings(configuration=configuration)
+        settings = ProjectBuildSettings()
         if run_arguments is not None:
             settings.run_arguments = list(run_arguments)
         target.set_build_settings(settings)

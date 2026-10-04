@@ -220,6 +220,29 @@ class Module:
             removed.append(branch)
         return ws.CleanResult(tuple(removed), tuple(skipped), switched_to, dry_run)
 
+    # ビルド ---------------------------------------------------------------
+
+    def project_at(self, path: Path | str) -> str | None:
+        """pathが属するProjectの名前。どのProjectにも属さなければNone（全体が対象）。"""
+        return _cppbuild.project_at(self.root, Path(path))
+
+    def build(self, *, project: str | None = None, configuration: str = "Debug") -> ws.BuildResult:
+        outcome = _cppbuild.build(self.root, project=project, configuration=configuration)
+        return ws.BuildResult(project, configuration, tuple(Path(a).as_posix() for a in outcome.artifacts))
+
+    def test(self, *, project: str | None = None, configuration: str = "Debug") -> ws.TestResult:
+        outcome = _cppbuild.test(self.root, project=project, configuration=configuration)
+        cases = tuple(ws.TestCaseResult(c.name, c.status) for c in outcome.cases)
+        count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
+        failed = len(cases) - count("passed") - count("skipped")
+        return ws.TestResult(project, configuration, count("passed"), failed, count("skipped"), cases)
+
+    def run(self, *, project: str | None = None, configuration: str = "Debug", arguments: str = "") -> ws.RunResult:
+        outcome = _cppbuild.run(self.root, project=project, configuration=configuration, arguments=arguments)
+        last = outcome.processes[-1] if outcome.processes else None
+        return ws.RunResult(project, configuration, 0 if last is None else last.returncode,
+                            "" if last is None else last.output)
+
     # 最新化・退避・取り消し ------------------------------------------------------
 
     def sync(self) -> ws.SyncResult:

@@ -186,6 +186,37 @@ class RestoreResult:
 
 
 @dataclass(frozen=True)
+class BuildResult:
+    project: str | None              # Noneは全体
+    configuration: str
+    artifacts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TestCaseResult:
+    name: str
+    status: str
+
+
+@dataclass(frozen=True)
+class TestResult:
+    project: str | None
+    configuration: str
+    passed: int
+    failed: int
+    skipped: int
+    cases: tuple[TestCaseResult, ...]
+
+
+@dataclass(frozen=True)
+class RunResult:
+    project: str | None
+    configuration: str
+    returncode: int
+    output: str
+
+
+@dataclass(frozen=True)
 class PullRequestState:
     number: int
     url: str

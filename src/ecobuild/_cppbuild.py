@@ -152,6 +152,25 @@ def run(root: Path, *, project: str | None, configuration: str, arguments: str) 
     return outcome
 
 
+@dataclass(frozen=True)
+class DependencySource:
+    name: str
+    directory: Path
+    revision: str           # 記録されたコミット
+    present: bool
+
+
+def fetch_dependencies(root: Path) -> tuple[tuple[str, ...], tuple[DependencySource, ...]]:
+    """足りない依存先を記録の版でcloneし、（今回cloneした名前, 全依存先）を返す。"""
+    solution = open_solution(root)
+    try:
+        report = solution.fetch_git_sources()
+    except Exception as error:
+        raise _cppbuild_error("依存先を取得できません。", error) from error
+    sources = tuple(DependencySource(s.name, Path(s.directory), s.revision, True) for s in report.sources)
+    return tuple(report.fetched), sources
+
+
 def project_at(root: Path, path: Path) -> str | None:
     """pathが属するProjectの名前。どのProjectにも属さなければNone。"""
     solution = open_solution(root)

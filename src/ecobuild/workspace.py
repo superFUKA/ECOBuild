@@ -159,6 +159,33 @@ class CleanResult:
 
 
 @dataclass(frozen=True)
+class DependencyChange:
+    name: str
+    action: str                      # cloned / aligned / unchanged / skipped
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    branch: str
+    merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照
+    dependencies: tuple[DependencyChange, ...]
+    regenerated: bool
+
+
+@dataclass(frozen=True)
+class StashResult:
+    stashed: bool
+    entries: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    paths: tuple[str, ...]
+    staged: bool
+
+
+@dataclass(frozen=True)
 class PullRequestState:
     number: int
     url: str

@@ -220,7 +220,128 @@ class Module:
             removed.append(branch)
         return ws.CleanResult(tuple(removed), tuple(skipped), switched_to, dry_run)
 
+    # 最新化・退避・取り消し ------------------------------------------------------
+
+    def sync(self) -> ws.SyncResult:
+        """GitHubの最新を取り込み、依存先の版と生成ファイルを最新にする。"""
+        if self._git.is_merging() or self._git.is_rebasing():
+            raise self._in_progress_error()
+        branch = self._git.current_branch()
+        if branch is None:
+            raise EcoBuildError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。")
+        self._git.fetch()
+        merged = []
+        workspace = self.current_workspace()
+        refs = [f"{_git.REMOTE}/{branch}"]
+        if workspace is not None:
+            refs.append(f"{_git.REMOTE}/{workspace.base}")
+        for ref in refs:
+            if self._git.rev_parse(ref) is None:
+                continue
+            # 作業空間でないブランチは早送りだけ（コミットはPRのマージでだけ入る）。
+            outcome = self._git.merge(ref, ff_only=workspace is None,
+                                      message=None if workspace is None else f"{ref} を取り込み")
+            if not outcome.merged:
+                raise EcoBuildError(
+                    ErrorCode.MERGE_CONFLICT,
+                    f"{ref} の取り込みで衝突しました。",
+                    hint="衝突したファイルを直して ecobuild add で登録し、ecobuild sync --continue"
+                         "（または ecobuild commit）で完了してください。やめる場合は ecobuild sync --abort。",
+                    details=list(outcome.conflicted),
+                )
+            if not outcome.already_up_to_date:
+                merged.append(ref)
+        dependencies: tuple[ws.DependencyChange, ...] = ()
+        regenerated = False
+        if (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
+            dependencies = self._sync_dependencies()
+            _cppbuild.update(self.root)
+            regenerated = True
+        return ws.SyncResult(branch, tuple(merged), dependencies, regenerated)
+
+    def continue_sync(self) -> ws.SyncResult:
+        """衝突を解決した後、止まっている取り込み（または作業空間の作り直し）を完了する。"""
+        branch = self._git.current_branch() or ""
+        if self._git.is_rebasing():
+            outcome = self._git.rebase_continue()
+            if not outcome.merged:
+                raise EcoBuildError(ErrorCode.MERGE_CONFLICT, "続きの載せ替えで衝突しました。",
+                                    hint="ファイルを直して ecobuild add で登録し、もう一度 ecobuild sync --continue。",
+                                    details=list(outcome.conflicted))
+            branch = self._git.current_branch() or branch
+            return ws.SyncResult(branch, ("rebase",), (), False)
+        if self._git.is_merging():
+            self._git.merge_continue()
+            return ws.SyncResult(branch, ("merge",), (), False)
+        raise EcoBuildError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている取り込みはありません。")
+
+    def abort_sync(self) -> None:
+        if self._git.is_rebasing():
+            self._git.rebase_abort()
+        elif self._git.is_merging():
+            self._git.merge_abort()
+        else:
+            raise EcoBuildError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている取り込みはありません。")
+
+    def stash(self) -> ws.StashResult:
+        stashed = self._git.stash_push()
+        return ws.StashResult(stashed, self._stash_messages())
+
+    def stash_pop(self) -> ws.StashResult:
+        if not self._git.stash_list():
+            raise EcoBuildError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
+        outcome = self._git.stash_pop()
+        if not outcome.merged:
+            raise EcoBuildError(ErrorCode.MERGE_CONFLICT, "退避した変更を戻すときに衝突しました。",
+                                hint="衝突したファイルを直して ecobuild add で登録してください"
+                                     "（退避した変更は ecobuild stash list に残っています）。",
+                                details=list(outcome.conflicted))
+        return ws.StashResult(True, self._stash_messages())
+
+    def stashes(self) -> tuple[str, ...]:
+        return self._stash_messages()
+
+    def restore(self, *paths: str, staged: bool = False) -> ws.RestoreResult:
+        self._git.restore(paths, staged=staged)
+        return ws.RestoreResult(paths, staged)
+
     # 内部 -----------------------------------------------------------------
+
+    def _stash_messages(self) -> tuple[str, ...]:
+        return tuple(entry.message for entry in self._git.stash_list())
+
+    def _in_progress_error(self) -> EcoBuildError:
+        return EcoBuildError(
+            ErrorCode.MERGE_CONFLICT,
+            "前回の取り込みが衝突で止まっています。",
+            hint="ファイルを直して ecobuild add で登録し、ecobuild sync --continue で続けるか、"
+                 "ecobuild sync --abort でやめてください。",
+            details=list(self._git.working_tree().conflicted),
+        )
+
+    def _sync_dependencies(self) -> tuple[ws.DependencyChange, ...]:
+        """依存先を記録の版に合わせる。手元で変更・コミットしているものは触らない。"""
+        fetched, sources = _cppbuild.fetch_dependencies(self.root)
+        changes = []
+        for source in sources:
+            if source.name in fetched:
+                changes.append(ws.DependencyChange(source.name, "cloned"))
+                continue
+            clone = _git.Git(source.directory)
+            head = clone.rev_parse("HEAD")
+            if head == source.revision:
+                changes.append(ws.DependencyChange(source.name, "unchanged"))
+                continue
+            if not clone.working_tree().clean:
+                changes.append(ws.DependencyChange(source.name, "skipped", "未コミットの変更があります"))
+                continue
+            clone.fetch()
+            if not clone.output("branch", "--remotes", "--contains", head):
+                changes.append(ws.DependencyChange(source.name, "skipped", "GitHubにないコミットがあります"))
+                continue
+            clone.run("switch", "--quiet", "--detach", source.revision)
+            changes.append(ws.DependencyChange(source.name, "aligned"))
+        return tuple(changes)
 
     def _unsafe_to_remove(self, branch: str) -> str | None:
         """消すと失われるコミットがあれば理由を返す。"""

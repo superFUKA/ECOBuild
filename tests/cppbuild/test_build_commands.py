@@ -1,10 +1,7 @@
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
 
-from helpers import write
+from helpers import write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.module import Module
@@ -14,13 +11,13 @@ pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 
 @pytest.fixture(scope="module")
 def module():
-    base = Path(tempfile.mkdtemp(prefix="eb"))
+    base = short_temporary_directory()
     module = Module.create("Calc", directory=base, app=True, github=FakeGitHub(base / "gh"))
     write(module.root / "CalcApp/src/main.cpp",
           '#include <iostream>\n#include "Calc/Calc.h"\n\n'
           'int main(int argc, char** argv) {\n    std::cout << "args=" << argc - 1 << std::endl;\n    return 0;\n}\n')
     yield module
-    shutil.rmtree(base, ignore_errors=True)
+    remove_tree(base)
 
 
 def test_project_at(module):

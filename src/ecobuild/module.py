@@ -24,6 +24,17 @@ ecobuild.local.toml
 """
 
 
+# CppBuildは生成・管理ファイルをLFで書く。gitの改行変換（Windowsのcore.autocrlf=true等）で
+# CRLFにされると、生成し直すたびに「変更あり」になるため、LFに固定する。
+GITATTRIBUTES = """\
+# ECOBuild：CppBuildの生成ファイル・管理ファイルの改行をLFに固定する
+CMakeLists.txt text eol=lf
+*.cmake text eol=lf
+.cppbuild/** text eol=lf
+ecobuild.toml text eol=lf
+"""
+
+
 class Module:
     def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None):
         self.root = Path(root)
@@ -74,6 +85,7 @@ class Module:
             module_config = _config.ModuleConfig.for_new_module(name, app=app)
             _config.save(module_config, root / _config.FILE_NAME)
             (root / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
+            (root / ".gitattributes").write_text(GITATTRIBUTES, encoding="utf-8", newline="\n")
             _cppbuild.create_module_solution(root, name, module_config.projects)
             _cppbuild.update(root)
             repo.add(all=True)

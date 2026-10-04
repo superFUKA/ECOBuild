@@ -1,8 +1,7 @@
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
+
+from helpers import remove_tree, short_temporary_directory
 
 from ecobuild import _cppbuild
 from ecobuild.config import ModuleConfig
@@ -14,13 +13,13 @@ pytestmark = pytest.mark.cppbuild
 @pytest.fixture(scope="module")
 def module_root():
     # Windowsのパス長の制限を避けるため、短い一時ディレクトリを使う。
-    base = Path(tempfile.mkdtemp(prefix="eb"))
+    base = short_temporary_directory()
     root = base / "Calc"
     root.mkdir()
     _cppbuild.create_module_solution(root, "Calc", ModuleConfig.for_new_module("Calc", app=True).projects)
     _cppbuild.update(root)
     yield root
-    shutil.rmtree(base, ignore_errors=True)
+    remove_tree(base)
 
 
 def test_layout_and_templates(module_root):

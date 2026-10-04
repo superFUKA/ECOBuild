@@ -57,3 +57,14 @@ def test_confirmation_required_without_yes_in_json(tmp_path):
         Invocation(json_output=True, cwd=tmp_path).confirm("消しますか")
     assert error.value.code == ErrorCode.CONFIRMATION_REQUIRED
     Invocation(json_output=True, yes=True, cwd=tmp_path).confirm("消しますか")
+
+
+def test_human_failure_shows_details_tail(tmp_path, capsys):
+    output = "\n".join(f"line {i}" for i in range(100))
+
+    def action(inv):
+        raise EcoBuildError(ErrorCode.BUILD_FAILED, "ビルドに失敗しました。", details=output)
+
+    assert execute("build", Invocation(json_output=False, cwd=tmp_path), action) == FAILURE
+    err = capsys.readouterr().err
+    assert "line 99" in err and "line 0\n" not in err and "省略" in err

@@ -71,6 +71,9 @@ def execute(
             _emit_json(command, invocation, None, error)
         else:
             click.echo(f"エラー：{error.message}", err=True)
+            detail = _detail_text(error.details)
+            if detail:
+                click.echo(detail, err=True)
             if error.hint:
                 click.echo(f"ヒント：{error.hint}", err=True)
         return FAILURE
@@ -106,6 +109,24 @@ def missing(option: str) -> int:
 
 def lines(*parts: str | None) -> str:
     return "\n".join(part for part in parts if part)
+
+
+DETAIL_LINES = 30
+
+
+def _detail_text(details: Any) -> str:
+    """人向けに、詳細（外部ツールの出力等）の末尾だけを表示する。全文は --json の error.details にある。"""
+    if not details:
+        return ""
+    if isinstance(details, (list, tuple)):
+        return "\n".join(f"  {item}" for item in details)
+    if isinstance(details, dict):
+        details = details.get("output") or json.dumps(to_data(details), ensure_ascii=False)
+    text_lines = str(details).rstrip().splitlines()
+    shown = text_lines[-DETAIL_LINES:]
+    omitted = len(text_lines) - len(shown)
+    return "\n".join(([f"  …（前の{omitted}行は省略。全文は --json で確認できます）"] if omitted else [])
+                     + [f"  {line}" for line in shown])
 
 
 def to_data(value: Any) -> Any:

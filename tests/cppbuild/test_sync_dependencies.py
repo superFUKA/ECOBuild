@@ -1,11 +1,9 @@
-import shutil
-import tempfile
 from pathlib import Path
 
 import pytest
 from cppbuild import ProjectType
 
-from helpers import git, write
+from helpers import git, write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecobuild import _cppbuild
 from ecobuild.module import Module
@@ -15,9 +13,9 @@ pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 
 @pytest.fixture
 def short_tmp():
-    base = Path(tempfile.mkdtemp(prefix="eb"))
+    base = short_temporary_directory()
     yield base
-    shutil.rmtree(base, ignore_errors=True)
+    remove_tree(base)
 
 
 def url(path: Path) -> str:
@@ -58,6 +56,6 @@ def test_sync_aligns_dependencies(short_tmp):
 
     # 消した依存先は取り直す
     git(clone, "checkout", "--quiet", "--", ".")
-    shutil.rmtree(clone, onerror=lambda f, p, e: (Path(p).chmod(0o700), f(p)))
+    remove_tree(clone)
     result = ecs.sync()
     assert [(d.name, d.action) for d in result.dependencies] == [("STL", "cloned")]

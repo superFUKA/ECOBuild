@@ -83,6 +83,31 @@ def execute(
     return SUCCESS
 
 
+def run_command(
+    command: str,
+    action: Callable[[Invocation], Any],
+    render: Callable[[Any], str | None] | None = None,
+    *,
+    json_output: bool,
+    yes: bool = False,
+) -> int:
+    """各コマンドの入口。対象のモジュールは今いるディレクトリから探す。"""
+    return execute(command, Invocation(json_output=json_output, yes=yes), action, render)
+
+
+USAGE_ERROR = 2
+
+
+def missing(option: str) -> int:
+    """必須のオプションがない（CLIFrameWorkでは既定値付き＝省略可能になるため、ここで確かめる）。"""
+    click.echo(f"エラー：{option} を指定してください。", err=True)
+    return USAGE_ERROR
+
+
+def lines(*parts: str | None) -> str:
+    return "\n".join(part for part in parts if part)
+
+
 def to_data(value: Any) -> Any:
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {field.name: to_data(getattr(value, field.name))

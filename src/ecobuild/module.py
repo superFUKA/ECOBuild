@@ -28,7 +28,7 @@ class Module:
     def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None):
         self.root = Path(root)
         self.config = module_config
-        self._github = github if github is not None else _github.GhCli()
+        self._github = github if github is not None else _github.default()
         self._git = _git.Git(self.root)
 
     @property
@@ -66,7 +66,7 @@ class Module:
         root = Path(directory).resolve() / name
         if root.exists():
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{root} は既に存在します。")
-        github = github if github is not None else _github.GhCli()
+        github = github if github is not None else _github.default()
         repository = github.create_repository(name, owner=owner, private=not public, description=description)
         try:
             repo = _git.clone(repository.clone_url, root)

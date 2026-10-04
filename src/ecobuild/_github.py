@@ -136,3 +136,8 @@ def _number_from_url(url: str) -> int:
     if match is None:
         raise EcoBuildError(ErrorCode.GITHUB_ERROR, f"gh の出力からURLを読み取れません：{url!r}")
     return int(match.group(1))
+
+
+def default() -> GitHub:
+    """GitHubへの接続の既定。試験ではこの関数を差し替える。"""
+    return GhCli()

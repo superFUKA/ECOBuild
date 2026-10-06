@@ -2,6 +2,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -32,7 +33,10 @@ def remove_tree(path: Path) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
 
-    shutil.rmtree(path, onexc=make_writable)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=make_writable)
+    else:
+        shutil.rmtree(path, onerror=make_writable)
 
 
 def short_temporary_directory() -> Path:

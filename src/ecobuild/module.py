@@ -178,6 +178,9 @@ class Module:
     def stash_pop(self) -> ws.StashResult:
         return self.repository.stash_pop()
 
+    def stash_drop(self) -> ws.StashResult:
+        return self.repository.stash_drop()
+
     def stashes(self) -> tuple[str, ...]:
         return self.repository.stashes()
 

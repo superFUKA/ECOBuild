@@ -49,10 +49,27 @@ def test_pull_request_fields(monkeypatch, tmp_path):
 
 
 def test_missing_issue_is_task_not_found(monkeypatch, tmp_path):
-    monkeypatch.setattr(_process, "run", Recorder({"issue view": (1, "")}))
+    message = "GraphQL: Could not resolve to an issue or pull request with the number of 99."
+    monkeypatch.setattr(_process, "run", Recorder({"issue view": (1, message)}))
     with pytest.raises(WorkError) as error:
         _github.GhCli().get_issue(tmp_path, 99)
     assert error.value.code == ErrorCode.TASK_NOT_FOUND
+
+
+def test_authentication_failure_is_not_task_not_found(monkeypatch, tmp_path):
+    """認証の失敗を「Issueがない」と取り違えない（仮運用で見つかった）。"""
+    monkeypatch.setattr(_process, "run", Recorder({"issue view": (1, "HTTP 401: Bad credentials")}))
+    with pytest.raises(WorkError) as error:
+        _github.GhCli().get_issue(tmp_path, 99)
+    assert error.value.code == ErrorCode.GITHUB_ERROR and "gh auth status" in error.value.hint
+
+
+def test_conflicting_merge_is_pull_request_conflict(monkeypatch, tmp_path):
+    message = "X Pull request o/r#9 is not mergeable: the merge commit cannot be cleanly created."
+    monkeypatch.setattr(_process, "run", Recorder({"pr merge": (1, message)}))
+    with pytest.raises(WorkError) as error:
+        _github.GhCli().merge_pull_request(tmp_path, 9, squash=True, subject=None)
+    assert error.value.code == ErrorCode.PULL_REQUEST_CONFLICT
 
 
 def test_gh_failure_is_github_error(monkeypatch, tmp_path):

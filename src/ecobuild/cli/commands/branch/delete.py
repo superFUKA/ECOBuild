@@ -12,6 +12,7 @@ def command(
 
     def action(inv):
         branch = inv.module.branch(name)
+        branch.delete(dry_run=True)  # 消せないものは確認の前に知らせる
         inv.confirm(f"ブランチ {name} を手元とGitHubから削除しますか？")
         branch.delete()
         return {"deleted": name}

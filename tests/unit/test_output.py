@@ -68,3 +68,12 @@ def test_human_failure_shows_details_tail(tmp_path, capsys):
     assert execute("build", Invocation(json_output=False, cwd=tmp_path), action) == FAILURE
     err = capsys.readouterr().err
     assert "line 99" in err and "line 0\n" not in err and "省略" in err
+
+
+def test_detail_keeps_error_lines_before_the_tail():
+    """並列ビルドでエラーの行が末尾30行より前にあっても、人向けの表示に残す（仮運用で見つかった）。"""
+    from ecobuild.cli._output import _detail_text
+    lines = ["building"] * 5 + ["Vec2.cpp(24,1): error C2059: 構文エラー"] + ["gtest.vcxproj -> gtest.lib"] * 40
+    text = _detail_text("\n".join(lines))
+    assert "error C2059" in text and "前の16行は省略。そのうちエラーの行" in text
+    assert text.count("gtest.lib") == 30

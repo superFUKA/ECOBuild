@@ -18,6 +18,8 @@ CONFIG_DIRECTORY = ".cppbuild"
 # CppBuildの設定は.cppbuildからの相対で、保存されないため、Solutionを開くたびに設定する。
 BUILD_DIRECTORY = "build"
 GENERATED_FILE_NAMES = ("CMakeLists.txt", "CppBuildTopLevel.cmake")
+# CppBuildが扱うビルド構成（CMakeの標準の4つ）
+CONFIGURATIONS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 # CppBuildのファイルテンプレートとして登録する既定の素材（名前 → 素材ファイル）
 TEMPLATES = {
@@ -154,7 +156,13 @@ def run(root: Path, *, project: str | None, configuration: str, arguments: str) 
         raise _cppbuild_error("実行できません。", error) from error
     outcome = BuildOutcome(report.success, tuple(_process(p) for p in report.processes))
     if not outcome.success:
-        raise EcoBuildError(ErrorCode.RUN_FAILED, "実行に失敗しました。", details=_joined(outcome.processes))
+        failed = next(i for i, p in enumerate(outcome.processes) if p.returncode != 0)
+        if failed < len(outcome.processes) - 1:
+            # 実行の前のビルド（構成）で失敗した。
+            raise EcoBuildError(ErrorCode.BUILD_FAILED, "ビルドに失敗しました。", details=_joined(outcome.processes))
+        program = outcome.processes[failed]
+        raise EcoBuildError(ErrorCode.RUN_FAILED, f"{name} が終了コード {program.returncode} で終了しました。",
+                            details={"returncode": program.returncode, "output": program.output})
     return outcome
 
 
@@ -218,6 +226,13 @@ def _solution_settings(**values) -> SolutionBuildSettings:
 
 def _target(root: Path, project: str | None, configuration: str, *, run_arguments=None):
     solution = open_solution(root)
+    if configuration not in CONFIGURATIONS:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {configuration} はありません。",
+                            hint=f"{'・'.join(CONFIGURATIONS)} のどれかを指定してください。")
+    projects = solution.settings.get().projects
+    if project is not None and project not in projects:
+        raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
+                            hint=f"モジュールのProject：{'、'.join(projects)}")
     try:
         # 構成（Debug／Release）はSolution全体で1つ。Projectは対象を絞るだけで、構成は引き継ぐ。
         solution.set_build_settings(_solution_settings(configuration=configuration))

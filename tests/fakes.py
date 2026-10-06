@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 
@@ -80,15 +81,21 @@ class FakeGitHub:
 
     def merge_pull_request(self, repo, number, *, squash, subject):
         pr = self._current(self.pulls[number])
+        # GitHubと同じく、PRの最後のコミットは refs/pull/<番号>/head で取得できる
+        git(self.bare, "update-ref", f"refs/pull/{number}/head", pr.head_sha)
         scratch = self.root / f"merge-{next(self._scratch)}"
         git(self.root, "clone", "--quiet", str(self.bare), str(scratch))
         git(scratch, "switch", "--quiet", pr.base)
         message = subject or f"{pr.title} (#{number})"
-        if squash:
-            git(scratch, "merge", "--squash", f"origin/{pr.head}")
-            git(scratch, "commit", "--quiet", "-m", message)
-        else:
-            git(scratch, "merge", "--no-ff", "-m", message, f"origin/{pr.head}")
+        try:
+            if squash:
+                git(scratch, "merge", "--squash", f"origin/{pr.head}")
+                git(scratch, "commit", "--quiet", "-m", message)
+            else:
+                git(scratch, "merge", "--no-ff", "-m", message, f"origin/{pr.head}")
+        except subprocess.CalledProcessError:
+            # GitHubと同じく、作成元と衝突するPRはマージできない
+            raise WorkError(ErrorCode.PULL_REQUEST_CONFLICT, f"PR #{number} は作成元と衝突しています。") from None
         git(scratch, "push", "--quiet", "origin", pr.base)
         self.pulls[number] = replace(pr, state="merged")
         # GitHubと同じく、既定ブランチへのマージなら本文のClosesでIssueを閉じる

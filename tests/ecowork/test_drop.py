@@ -78,3 +78,12 @@ def test_drop_after_partial_merge_loses_only_the_rest(repository):
     workspace.submit(partial=True).merge()
     commit_file(workspace, root, "b.txt", "2\n", "続き")
     assert repository.drop_workspace(dry_run=True).lost_commits == ("続き",)
+
+
+def test_drop_close_unstarted_issue(repository):
+    """作業空間のない（開始していない）Issueも --close で「対応しない」として閉じられる。"""
+    task = repository.create_task("やめる")
+    assert code_of(lambda: repository.drop_workspace(task.number)) == ErrorCode.BRANCH_NOT_FOUND
+    result = repository.drop_workspace(task.number, close=True)
+    assert result.issue_closed and result.lost_commits == ()
+    assert repository.github.issues[task.number].state == "closed" and task.number in repository.github.not_planned

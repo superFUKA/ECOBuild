@@ -61,7 +61,12 @@ class GhCli:
         args = ["repo", "create", full_name, "--private" if private else "--public"]
         if description:
             args += ["--description", description]
-        self._gh(args, cwd=None)
+        completed = self._gh(args, cwd=None, check=False)
+        if not completed.ok:
+            if "already exists" in completed.output:
+                raise WorkError(ErrorCode.ALREADY_EXISTS, f"GitHubにリポジトリ {full_name} が既にあります。",
+                                hint="別の名前にしてください。", details=completed.output)
+            raise _gh_error(args, completed)
         data = self._json(["repo", "view", full_name, "--json", "nameWithOwner,url"], cwd=None)
         return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"])
 
@@ -73,6 +78,8 @@ class GhCli:
         completed = self._gh(["issue", "view", str(number), "--json", "number,title,url,state,body"],
                              cwd=repo, check=False)
         if not completed.ok:
+            if not _not_found(completed):
+                raise _gh_error(["issue", "view"], completed)
             raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。",
                                 details=completed.output)
         data = json.loads(completed.stdout)
@@ -90,6 +97,8 @@ class GhCli:
     def get_pull_request(self, repo, number):
         completed = self._gh(["pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo, check=False)
         if not completed.ok:
+            if not _not_found(completed):
+                raise _gh_error(["pr", "view"], completed)
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。",
                                 details=completed.output)
         return _pull_request(json.loads(completed.stdout))
@@ -102,7 +111,13 @@ class GhCli:
         args = ["pr", "merge", str(number), "--squash" if squash else "--merge"]
         if subject:
             args += ["--subject", subject]
-        self._gh(args, cwd=repo)
+        completed = self._gh(args, cwd=repo, check=False)
+        if completed.ok:
+            return
+        if re.search(r"merge conflict|not mergeable", completed.output, re.IGNORECASE):
+            raise WorkError(ErrorCode.PULL_REQUEST_CONFLICT,
+                            f"PR #{number} は作成元と衝突しているため、マージできません。", details=completed.output)
+        raise _gh_error(args, completed)
 
     def close_pull_request(self, repo, number):
         self._gh(["pr", "close", str(number)], cwd=repo)
@@ -117,12 +132,21 @@ class GhCli:
         try:
             return _process.run(["gh", *args], cwd=cwd, check=check, env={"GH_PROMPT_DISABLED": "1"})
         except _process.ProcessFailed as failure:
-            raise WorkError(
-                ErrorCode.GITHUB_ERROR,
-                f"gh {' '.join(args[:2])} に失敗しました。",
-                hint="gh auth status で認証を確認してください。",
-                details=failure.completed.output,
-            ) from None
+            raise _gh_error(args, failure.completed) from None
+
+
+def _not_found(completed: _process.Completed) -> bool:
+    return re.search(r"could not resolve|not found|no pull requests? found", completed.output, re.IGNORECASE) is not None
+
+
+def _gh_error(args, completed: _process.Completed) -> WorkError:
+    authentication = re.search(r"auth|401|credentials", completed.output, re.IGNORECASE)
+    return WorkError(
+        ErrorCode.GITHUB_ERROR,
+        f"gh {' '.join(args[:2])} に失敗しました。",
+        hint="gh auth status で認証を確認してください。" if authentication else None,
+        details=completed.output,
+    )
 
 
 _PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid"

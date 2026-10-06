@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from . import github as _github
+from .errors import ErrorCode, WorkError
 
 if TYPE_CHECKING:
     from .repository import Repository
@@ -71,6 +72,12 @@ class Workspace:
 
     def commit(self, message: str, *, all: bool = False, amend: bool = False) -> "CommitResult":
         repo = self._repository.git
+        tree = repo.working_tree()
+        if not (amend or repo.is_merging() or tree.staged or (all and tree.unstaged)):
+            add = self._repository._op("add")
+            raise WorkError(ErrorCode.NOTHING_TO_COMMIT, "コミットする変更がありません（ステージされていません）。",
+                            hint=f"{add} <パス> か {add} --all でステージしてから実行してください"
+                                 "（追跡中のファイルの変更だけなら commit --all でも構いません）。")
         if repo.is_merging():
             # 衝突を解決してのコミット（sync continue の代わり）。印が残ったままなら止める。
             self._repository._refuse_conflict_markers(
@@ -102,8 +109,9 @@ class Branch:
     def submit(self, *, into: str, title: str | None = None) -> "PullRequest":
         return self._repository._submit_branch(self, into=into, title=title)
 
-    def delete(self) -> None:
-        self._repository._delete_branch(self)
+    def delete(self, *, dry_run: bool = False) -> None:
+        """dry_runは消せるかを確かめるだけ（消せなければ例外）。"""
+        self._repository._delete_branch(self, dry_run=dry_run)
 
 
 @dataclass(frozen=True)
@@ -217,3 +225,4 @@ class Status:
     behind: int
     merging: bool
     pull_request: PullRequestState | None
+    upstream_gone: bool = False      # GitHubのブランチが削除された（別の場所での反映・中止など）

@@ -133,3 +133,20 @@ def test_sync_refuses_closed_workspace(repository):
     with pytest.raises(WorkError) as error:
         repository.sync()
     assert error.value.code == ErrorCode.TASK_CLOSED and "ecobuild task clean" in error.value.hint
+
+
+def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_path):
+    """作業空間でないブランチでは add できないので、restore --staged で解決し、stash drop で片付ける。"""
+    remote, _ = remote_and_clone
+    write(repository.root / "README.md", "local\n")
+    repository.stash()
+    push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
+    repository.sync()
+    with pytest.raises(WorkError) as error:
+        repository.stash_pop()
+    assert "ecobuild restore --staged" in error.value.hint and "ecobuild stash drop" in error.value.hint
+    write(repository.root / "README.md", "resolved\n")
+    repository.restore("README.md", staged=True)
+    assert repository.status().conflicted == ()
+    assert repository.stash_drop().entries == ()
+    assert code_of(repository.stash_drop) == ErrorCode.NO_SYNC_IN_PROGRESS

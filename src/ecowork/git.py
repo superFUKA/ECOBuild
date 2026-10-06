@@ -25,6 +25,7 @@ class WorkingTree:
     unstaged: tuple[str, ...] = ()
     untracked: tuple[str, ...] = ()
     conflicted: tuple[str, ...] = ()
+    upstream_gone: bool = False        # 追跡先が設定されているが、リモートにない（削除された）
 
     @property
     def clean(self) -> bool:
@@ -74,6 +75,7 @@ class Git:
         text = self.run("status", "--porcelain=v2", "--branch", "--untracked-files=all").stdout
         branch = upstream = None
         ahead = behind = 0
+        has_counts = False
         staged, unstaged, untracked, conflicted = [], [], [], []
         for line in text.splitlines():
             if line.startswith("# branch.head "):
@@ -84,6 +86,7 @@ class Git:
             elif line.startswith("# branch.ab "):
                 plus, minus = line[len("# branch.ab "):].split()
                 ahead, behind = int(plus), -int(minus)
+                has_counts = True
             elif line.startswith(("1 ", "2 ")):
                 parts = line.split(" ", 8 if line[0] == "1" else 9)
                 xy = parts[1]
@@ -97,7 +100,8 @@ class Git:
             elif line.startswith("? "):
                 untracked.append(line[2:])
         return WorkingTree(branch, upstream, ahead, behind,
-                           tuple(staged), tuple(unstaged), tuple(untracked), tuple(conflicted))
+                           tuple(staged), tuple(unstaged), tuple(untracked), tuple(conflicted),
+                           upstream_gone=upstream is not None and not has_counts)
 
     # ブランチ -------------------------------------------------------------
 
@@ -240,6 +244,10 @@ class Git:
         suffix = ": leftover conflict marker"
         text = self.run(*args, check=False).stdout
         return tuple(line[:-len(suffix)] for line in text.splitlines() if line.endswith(suffix))
+
+    def has_changes(self, base: str, head: str) -> bool:
+        """headに、baseとの分岐点からのファイルの変更があるか（PRの差分と同じ見方）。"""
+        return not self.run("diff", "--quiet", f"{base}...{head}", check=False).ok
 
     def count(self, revision_range: str) -> int:
         return int(self.output("rev-list", "--count", revision_range))

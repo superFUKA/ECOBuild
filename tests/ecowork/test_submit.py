@@ -103,3 +103,41 @@ def test_submit_refuses_committed_conflict_markers(repository):
     assert repository.github.pulls == {}
     commit_file(workspace, root, "a.cpp", "int a;\n", "印を取り除く")
     assert workspace.submit().number
+
+
+def test_merge_conflicting_pull_request_guides_sync(repository):
+    """作成元と衝突するPRは、マージできない理由と sync での解決を案内する。"""
+    root = repository.root
+    first = repository.create_task("a").start()
+    commit_file(first, root, "README.md", "a\n", "a")
+    first.submit()
+    git(root, "switch", "--quiet", "main")
+    second = repository.create_task("b").start()
+    commit_file(second, root, "README.md", "b\n", "b")
+    pr = second.submit()
+    repository.pull_request(1 + 1).merge()  # 先のPR（#2）
+    with pytest.raises(WorkError) as error:
+        repository.pull_request(pr.number).merge()
+    assert error.value.code == ErrorCode.PULL_REQUEST_CONFLICT
+    assert "ecobuild sync" in error.value.hint and "ecobuild push" in error.value.hint
+
+
+def test_clean_after_other_clone_merged_shared_workspace(repository, remote_and_clone, tmp_path):
+    """2つのcloneで同じ作業空間にpushし、片方がマージした後、もう片方も片付けられる。"""
+    from ecowork import Repository
+    remote, _ = remote_and_clone
+    other_root = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other_root))
+    other = Repository(other_root, github=repository.github, command="ecobuild")
+    task = repository.create_task("共同作業")
+    mine = task.start()
+    commit_file(mine, repository.root, "a.txt", "a\n", "a")
+    mine.push()
+    theirs = other.task(task.number).start()
+    commit_file(theirs, other_root, "b.txt", "b\n", "b")
+    theirs.push()
+    commit_file(mine, repository.root, "c.txt", "c\n", "c")
+    repository.sync()  # もう片方のpushを取り込む（マージコミットは手元だけ）
+    mine.submit()
+    repository.pull_request().merge()
+    assert other.clean_workspaces().removed == ("task/1",)

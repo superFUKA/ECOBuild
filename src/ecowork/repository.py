@@ -110,6 +110,7 @@ class Repository:
             base=None if workspace is None else workspace.base,
             staged=tree.staged, unstaged=tree.unstaged, untracked=tree.untracked, conflicted=tree.conflicted,
             ahead=tree.ahead, behind=tree.behind, merging=self.git.is_merging(), pull_request=pull_request,
+            upstream_gone=tree.upstream_gone,
         )
 
     # ブランチ ---------------------------------------------------------------
@@ -240,7 +241,13 @@ class Repository:
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if not (local or remote):
-            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作業空間 {branch} がありません。")
+            if close:
+                # 開始していない（作業空間のない）Issueを「対応しない」として閉じる。
+                if not dry_run and self.github.get_issue(self.root, number).state == "open":
+                    self.github.close_issue(self.root, number, not_planned=True)
+                return ws.DropResult(number, branch, (), (), None, close, dry_run)
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作業空間 {branch} がありません。",
+                            hint="開始していないIssueをやめる場合は --close を付けてください（「対応しない」として閉じます）。")
         base = self.git.get_config(ws.base_key(branch)) or self.default_base
         lost = self._lost_commits(branch, base, local=local, remote=remote)
         pulls = tuple(p.number for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "open")
@@ -344,11 +351,20 @@ class Repository:
             raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
         outcome = self.git.stash_pop()
         if not outcome.merged:
+            # 作業空間でないブランチでは add できない。登録を外せば（restore --staged）解決済みになる。
+            mark = (f"{self._op('add')} で登録" if self.current_workspace() is not None
+                    else f"{self._op('restore')} --staged <パス> で解決済みに")
             raise WorkError(ErrorCode.MERGE_CONFLICT, "退避した変更を戻すときに衝突しました。",
-                            hint=f"衝突したファイルを直して {self._op('add')} で登録してください"
-                                 f"（退避した変更は {self._op('stash list')} に残っています）。",
+                            hint=f"衝突したファイルを直して {mark}してください。退避した変更は残っているので、"
+                                 f"解決したら {self._op('stash drop')} で捨ててください。",
                             details=list(outcome.conflicted))
         return ws.StashResult(True, self._stash_messages())
+
+    def stash_drop(self) -> ws.StashResult:
+        if not self.git.stash_list():
+            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
+        self.git.run("stash", "drop", "--quiet")
+        return ws.StashResult(False, self._stash_messages())
 
     def stashes(self) -> tuple[str, ...]:
         return self._stash_messages()
@@ -392,18 +408,27 @@ class Repository:
         tip = self.git.rev_parse(branch)
         if self.git.has_remote_branch(branch) and self.git.is_ancestor(tip, f"{_git.REMOTE}/{branch}"):
             return None
-        merged_heads = [p.head_sha for p in self.github.pull_requests_for_branch(self.root, branch)
-                        if p.state == "merged" and p.head_sha]
-        if any(self.git.rev_parse(sha) and self.git.is_ancestor(tip, sha) for sha in merged_heads):
+        if any(self.git.is_ancestor(tip, sha) for sha in self._merged_heads(branch)):
             return None
         return "GitHubにないコミットがあります"
+
+    def _merged_heads(self, branch: str) -> list[str]:
+        """マージ済みのPRの最後のコミット。別のcloneでpushされて手元にないものは、GitHubのPRの参照から取得する。"""
+        heads = []
+        for pull in self.github.pull_requests_for_branch(self.root, branch):
+            if pull.state != "merged" or not pull.head_sha:
+                continue
+            if self.git.rev_parse(pull.head_sha) is None:
+                self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{pull.number}/head", check=False)
+            if self.git.rev_parse(pull.head_sha) is not None:
+                heads.append(pull.head_sha)
+        return heads
 
     def _lost_commits(self, branch: str, base: str, *, local: bool, remote: bool) -> tuple[str, ...]:
         """作業空間を消すと失われるコミット（作成元にも、マージ済みのPRにも入っていないもの）の件名。"""
         tips = ([branch] if local else []) + ([f"{_git.REMOTE}/{branch}"] if remote else [])
         kept = [f"{_git.REMOTE}/{base}" if self.git.has_remote_branch(base) else base]
-        kept += [p.head_sha for p in self.github.pull_requests_for_branch(self.root, branch)
-                 if p.state == "merged" and p.head_sha and self.git.rev_parse(p.head_sha)]
+        kept += self._merged_heads(branch)
         kept = [ref for ref in kept if self.git.rev_parse(ref)]
         return tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
 
@@ -420,8 +445,9 @@ class Repository:
         self.hooks.before_submit(self)
         self.git.fetch()
         base_ref = f"{_git.REMOTE}/{workspace.base}"
-        if self.git.count(f"{base_ref}..{workspace.branch}") == 0:
-            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{workspace.base} へ反映するコミットがありません。",
+        if (self.git.count(f"{base_ref}..{workspace.branch}") == 0
+                or not self.git.has_changes(base_ref, workspace.branch)):
+            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{workspace.base} へ反映する変更がありません。",
                             hint="変更をコミットしてから再実行してください。")
         self._refuse_conflict_markers(self.git.conflict_markers(f"{base_ref}...{workspace.branch}"), committed=True)
         workspace.push()
@@ -445,8 +471,10 @@ class Repository:
         for name in (branch.name, into):
             if not self.git.has_remote_branch(name):
                 raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {name} がありません。")
-        if self.git.count(f"{_git.REMOTE}/{into}..{_git.REMOTE}/{branch.name}") == 0:
-            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{branch.name} から {into} へ反映するコミットがありません。")
+        head, base = f"{_git.REMOTE}/{branch.name}", f"{_git.REMOTE}/{into}"
+        # 取り込みのマージコミットだけ（ファイルの変更なし）でも反映しない（空のPRになる）。
+        if self.git.count(f"{base}..{head}") == 0 or not self.git.has_changes(base, head):
+            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{branch.name} から {into} へ反映する変更がありません。")
         info = self.github.create_pull_request(
             self.root, head=branch.name, base=into, title=title or f"{branch.name} を {into} へ反映", body="",
         )
@@ -457,11 +485,20 @@ class Repository:
         if current.state != "open":
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{current.state}）。")
         number = ws.workspace_number(pr.head)
-        if number is None:
-            # ブランチ同士はマージコミットで履歴を残す。
-            self.github.merge_pull_request(self.root, pr.number, squash=False, subject=None)
-            return ws.MergeResult(pr.number, "merge", None, False)
-        self.github.merge_pull_request(self.root, pr.number, squash=True, subject=f"{pr.title} (#{pr.number})")
+        try:
+            if number is None:
+                # ブランチ同士はマージコミットで履歴を残す。
+                self.github.merge_pull_request(self.root, pr.number, squash=False, subject=None)
+                return ws.MergeResult(pr.number, "merge", None, False)
+            self.github.merge_pull_request(self.root, pr.number, squash=True,
+                                           subject=f"{pr.title} (#{pr.number})")
+        except WorkError as error:
+            if error.code == ErrorCode.PULL_REQUEST_CONFLICT:
+                error.hint = (
+                    f"作業空間 {pr.head} で {self._op('sync')} を実行して {pr.base} を取り込み、衝突を解決して、"
+                    f"{self._op('push')} してから、もう一度実行してください。" if number is not None else
+                    f"{pr.base} の変更を {pr.head} へ取り込んで衝突を解決してから、もう一度実行してください。")
+            raise
         if pr.partial:
             rebuilt = self._rebuild_workspace(pr.head, current.head_sha)
             return ws.MergeResult(pr.number, "squash", None, rebuilt)
@@ -517,7 +554,7 @@ class Repository:
             return base
         raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作成元のブランチ {base} がありません。")
 
-    def _delete_branch(self, branch: ws.Branch) -> None:
+    def _delete_branch(self, branch: ws.Branch, *, dry_run: bool = False) -> None:
         if branch.is_workspace:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch.name} は作業空間です。",
                             hint=f"作業空間は {self._op('task clean')} で片付けます。")
@@ -533,6 +570,8 @@ class Repository:
         if self.git.current_branch() == branch.name:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"今いるブランチ {branch.name} は消せません。",
                             hint="別のブランチへ移ってから実行してください。")
+        if dry_run:
+            return
         if branch.local:
             self.git.delete_branch(branch.name, force=True)
         if branch.remote:
@@ -540,7 +579,7 @@ class Repository:
 
     def _start_workspace(self, task: ws.Task, base: str | None) -> ws.Workspace:
         if task.state != "open":
-            raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{task.number} は閉じています。",
+            raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
                             hint="作業を再開するには、GitHubでIssueを開き直してください。")
         if not self.git.working_tree().clean:
             raise WorkError(

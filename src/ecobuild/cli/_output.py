@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 import json
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -127,8 +128,16 @@ def _detail_text(details: Any) -> str:
     text_lines = str(details).rstrip().splitlines()
     shown = text_lines[-DETAIL_LINES:]
     omitted = len(text_lines) - len(shown)
-    return "\n".join(([f"  …（前の{omitted}行は省略。全文は --json で確認できます）"] if omitted else [])
+    if not omitted:
+        return "\n".join(f"  {line}" for line in shown)
+    # 並列ビルド等でエラーの行が末尾より前にあっても見えるよう、省略した部分のエラーの行は残す。
+    errors = [line for line in text_lines[:omitted] if _ERROR_LINE.search(line)][:DETAIL_LINES]
+    head = f"  …（前の{omitted}行は省略" + ("。そのうちエラーの行" if errors else "") + "。全文は --json で確認できます）"
+    return "\n".join([head] + [f"  {line}" for line in errors] + (["  …"] if errors else [])
                      + [f"  {line}" for line in shown])
+
+
+_ERROR_LINE = re.compile(r"\b(error|fatal error)\b|FAILED", re.IGNORECASE)
 
 
 def to_data(value: Any) -> Any:

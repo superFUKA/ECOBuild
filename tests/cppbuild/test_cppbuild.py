@@ -56,6 +56,30 @@ def test_build_failure_is_reported(module_root):
         source.write_text(original, encoding="utf-8")
 
 
+
+def test_unknown_project_and_configuration(module_root):
+    with pytest.raises(EcoBuildError) as error:
+        _cppbuild.build(module_root, project="Nope", configuration="Debug")
+    assert error.value.code == ErrorCode.PROJECT_NOT_FOUND and "CalcTest" in error.value.hint
+    with pytest.raises(EcoBuildError) as error:
+        _cppbuild.build(module_root, project=None, configuration="Foo")
+    assert error.value.code == ErrorCode.INVALID_CONFIGURATION
+
+
+def test_run_failure_reports_exit_code(module_root):
+    """プログラムが0以外で終わったら、終了コードとプログラムの出力だけを返す（ビルドの出力は含めない）。"""
+    main = module_root / "CalcApp/src/main.cpp"
+    original = main.read_text(encoding="utf-8")
+    main.write_text('#include <cstdio>\nint main() { std::puts("bye"); return 3; }\n', encoding="utf-8")
+    try:
+        with pytest.raises(EcoBuildError) as error:
+            _cppbuild.run(module_root, project=None, configuration="Debug", arguments="")
+        assert error.value.code == ErrorCode.RUN_FAILED and "終了コード 3" in error.value.message
+        assert error.value.details["returncode"] == 3 and error.value.details["output"].strip() == "bye"
+    finally:
+        main.write_text(original, encoding="utf-8")
+
+
 def test_generated_file_classification():
     assert _cppbuild.is_generated_or_managed("CMakeLists.txt")
     assert _cppbuild.is_generated_or_managed("Calc/CMakeLists.txt")

@@ -75,4 +75,28 @@ def test_branch_rules(repository):
 def test_closed_task_cannot_start(repository):
     task = repository.create_task("t")
     repository.github.close_issue(repository.root, task.number)
-    assert code_of(repository.task(task.number).start) == ErrorCode.TASK_NOT_FOUND
+    assert code_of(repository.task(task.number).start) == ErrorCode.TASK_CLOSED
+
+
+def test_commit_without_staged_changes(repository):
+    from helpers import write
+    workspace = repository.create_task("t").start()
+    assert code_of(lambda: workspace.commit("空")) == ErrorCode.NOTHING_TO_COMMIT
+    write(repository.root / "README.md", "changed\n")
+    assert code_of(lambda: workspace.commit("未ステージ")) == ErrorCode.NOTHING_TO_COMMIT
+    workspace.commit("追跡中の変更", all=True)
+    workspace.commit("やり直し", amend=True)  # 変更がなくても書き換えはできる
+
+
+def test_status_reports_deleted_upstream(repository, remote_and_clone):
+    """別の場所で作業空間のGitHubのブランチが消された（task drop等）ことを status で示す。"""
+    remote, _ = remote_and_clone
+    workspace = repository.create_task("t").start()
+    write(repository.root / "a.txt", "a\n")
+    workspace.stage("a.txt")
+    workspace.commit("a")
+    workspace.push()
+    assert not repository.status().upstream_gone
+    git(remote, "branch", "-D", "task/1")
+    repository.git.fetch()
+    assert repository.status().upstream_gone

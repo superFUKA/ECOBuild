@@ -9,7 +9,7 @@ def command(
     build: Annotated[bool, "ビルドとテストも行う"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """PRを出す前の確認：生成ファイルがコミット済みか、衝突の印がないか、ビルド・テストが通るか。"""
+    """PRを出す前の確認：生成ファイルが最新か、衝突の印がないか、ビルド・テストが通るか（コミット前でも使えます）。"""
 
     def action(inv):
         inv.info("確認しています…")

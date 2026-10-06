@@ -20,7 +20,7 @@ from ecowork.git import Git
 from . import _cppbuild
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, DependencyChange, ModuleCloned, ModuleCreated, RunResult, SyncResult, TestCaseResult, TestResult
+from .results import BuildResult, DependencyChange, FilesChanged, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
 
 COMMAND = "ecobuild"
 
@@ -243,22 +243,181 @@ class Module:
         """pathが属するProjectの名前。どのProjectにも属さなければNone（全体が対象）。"""
         return _cppbuild.project_at(self.root, Path(path))
 
-    def build(self, *, project: str | None = None, configuration: str = "Debug") -> BuildResult:
-        outcome = _cppbuild.build(self.root, project=project, configuration=configuration)
-        return BuildResult(project, configuration, tuple(Path(a).as_posix() for a in outcome.artifacts))
+    def executable_at(self, path: Path | str) -> str | None:
+        """run の既定：pathが実行ファイルのProjectの中ならそれ、それ以外はNone（唯一の実行ファイル）。"""
+        project = self.project_at(path)
+        executables = {p.name for p in self.projects() if p.kind == "executable"}
+        return project if project in executables else None
 
-    def test(self, *, project: str | None = None, configuration: str = "Debug") -> TestResult:
-        outcome = _cppbuild.test(self.root, project=project, configuration=configuration)
+    def build(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
+              action: str = "build") -> BuildResult:
+        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければDebug）の構成。"""
+        options, name = self.build_options(configuration, profile)
+        outcome = _cppbuild.build(self.root, project=project, options=options, action=action)
+        return BuildResult(project, options.configuration, tuple(Path(a).as_posix() for a in outcome.artifacts),
+                           name, action)
+
+    def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestResult:
+        options, _ = self.build_options(configuration, profile)
+        outcome = _cppbuild.test(self.root, project=project, options=options)
         cases = tuple(TestCaseResult(c.name, c.status) for c in outcome.cases)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         failed = len(cases) - count("passed") - count("skipped")
-        return TestResult(project, configuration, count("passed"), failed, count("skipped"), cases)
+        return TestResult(project, options.configuration, count("passed"), failed, count("skipped"), cases)
 
-    def run(self, *, project: str | None = None, configuration: str = "Debug", arguments: str = "") -> RunResult:
-        outcome = _cppbuild.run(self.root, project=project, configuration=configuration, arguments=arguments)
+    def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
+            arguments: str = "") -> RunResult:
+        options, _ = self.build_options(configuration, profile)
+        outcome = _cppbuild.run(self.root, project=project, options=options, arguments=arguments)
         last = outcome.processes[-1] if outcome.processes else None
-        return RunResult(project, configuration, 0 if last is None else last.returncode,
+        return RunResult(project, options.configuration, 0 if last is None else last.returncode,
                          "" if last is None else last.output)
+
+    # 名前付きビルド設定 ---------------------------------------------------------
+
+    def build_options(self, configuration: str = "", profile: str | None = None
+                      ) -> tuple[_cppbuild.BuildOptions, str | None]:
+        """使うビルド設定。profileを省略すると、このPCで選んだ設定（ecobuild profile use）。"""
+        name = profile or _config.load_local(self.root).get("profile")
+        selected = _config.Profile()
+        if name:
+            if name not in self.config.profiles:
+                raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
+                                    hint=f"{COMMAND} profile list で一覧、{COMMAND} profile add で追加できます。")
+            selected = self.config.profiles[name]
+        return _cppbuild.BuildOptions(configuration or selected.configuration, selected.parallel,
+                                      selected.shared), name
+
+    def profiles(self) -> ProfileList:
+        return ProfileList(dict(self.config.profiles), _config.load_local(self.root).get("profile"))
+
+    def add_profile(self, name: str, profile: _config.Profile) -> ProfileList:
+        if not _NAME.fullmatch(name):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"ビルド設定の名前 {name!r} は使えません。",
+                                hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
+        if profile.configuration not in _config.CONFIGURATIONS:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {profile.configuration} はありません。",
+                                hint=f"{'・'.join(_config.CONFIGURATIONS)} のどれかを指定してください。")
+        if profile.parallel < 1:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "並列数は1以上にしてください。")
+        self._save_config(self.config.with_profiles({**self.config.profiles, name: profile}))
+        return self.profiles()
+
+    def remove_profile(self, name: str) -> ProfileList:
+        if name not in self.config.profiles:
+            raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。")
+        self._save_config(self.config.with_profiles({k: v for k, v in self.config.profiles.items() if k != name}))
+        if _config.load_local(self.root).get("profile") == name:
+            self.use_profile(None)
+        return self.profiles()
+
+    def use_profile(self, name: str | None) -> ProfileList:
+        """このPCで使うビルド設定を選ぶ（Noneで選択を外し、Debugに戻す）。"""
+        if name is not None and name not in self.config.profiles:
+            raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
+                                hint=f"{COMMAND} profile list で一覧を確認してください。")
+        local = _config.load_local(self.root)
+        local["profile"] = name
+        _config.save_local(self.root, local)
+        return self.profiles()
+
+    # Project・ファイル ---------------------------------------------------------
+
+    @property
+    def library_header(self) -> str:
+        library = self.config.projects.library
+        return f"{library}/{library}.h"
+
+    def projects(self) -> tuple[_cppbuild.ProjectSummary, ...]:
+        return _cppbuild.list_projects(self.root)
+
+    def add_project(self, name: str, kind: str) -> FilesChanged:
+        if not _NAME.fullmatch(name):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
+                                hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
+        files = _cppbuild.add_project(self.root, name, kind, library=self.config.projects.library,
+                                      library_header=self.library_header)
+        return FilesChanged("project add", files, name)
+
+    def remove_project(self, name: str) -> FilesChanged:
+        projects = self.config.projects
+        if name in (projects.library, projects.test, projects.app):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"Project {name} は {_config.FILE_NAME} の [projects] にある基本のProjectです。",
+                                hint="基本のProject（ライブラリ・テスト・実行ファイル）は外せません。")
+        directory = _cppbuild.project_root(self.root, name)
+        _cppbuild.remove_project(self.root, name)
+        if directory.is_dir():
+            _remove_tree(directory)
+        return FilesChanged("project remove", (directory.relative_to(self.root).as_posix(),), name)
+
+    def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
+        header = _cppbuild.set_pch(self.root, project, enable=enable)
+        return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
+
+    def add_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
+        """Projectにファイルを足す。ライブラリのソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。"""
+        project, relative = self._in_project(path)
+        header = self._header_for(project, relative)
+        added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
+        mirror = self._test_mirror(project, relative)
+        if test and mirror is not None:
+            added.append(_cppbuild.add_file(self.root, self.config.projects.test, mirror, template="unit_test",
+                                            replacements={"header": header, "suite": Path(relative).stem}))
+        return FilesChanged("file add", tuple(added), project)
+
+    def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
+        project, relative = self._in_project(path)
+        removed = [_cppbuild.remove_file(self.root, project, relative)]
+        mirror = self._test_mirror(project, relative)
+        test_root = None if mirror is None else _cppbuild.project_root(self.root, self.config.projects.test)
+        if test and mirror is not None and (test_root / mirror).is_file():
+            removed.append(_cppbuild.remove_file(self.root, self.config.projects.test, mirror))
+        return FilesChanged("file remove", tuple(removed), project)
+
+    def move_file(self, source: Path | str, destination: Path | str, *, test: bool = True) -> FilesChanged:
+        project, relative = self._in_project(source)
+        other, target = self._in_project(destination)
+        if other != project:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "別のProjectへは移動できません。",
+                                hint="移動先も同じProjectのディレクトリの中にしてください。")
+        moved = list(_cppbuild.move_file(self.root, project, relative, target))
+        mirror, mirror_target = self._test_mirror(project, relative), self._test_mirror(project, target)
+        test_project = self.config.projects.test
+        if test and mirror and mirror_target and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
+            moved += _cppbuild.move_file(self.root, test_project, mirror, mirror_target)
+        return FilesChanged("file move", tuple(moved), project)
+
+    def _in_project(self, path: Path | str) -> tuple[str, str]:
+        """パス（今いるディレクトリからの相対か絶対）から、Projectとその中の相対パスを決める（I-027）。"""
+        absolute = (Path.cwd() / Path(path)).resolve() if not Path(path).is_absolute() else Path(path).resolve()
+        project = _cppbuild.project_at(self.root, absolute)
+        if project is None:
+            raise EcoBuildError(ErrorCode.NOT_IN_PROJECT, f"{path} はどのProjectの中でもありません。",
+                                hint="Projectのディレクトリの中のパスを指定してください（ecobuild project list で一覧）。")
+        relative = absolute.relative_to(_cppbuild.project_root(self.root, project).resolve()).as_posix()
+        return project, relative
+
+    def _header_for(self, project: str, relative: str) -> str:
+        """ソースが読み込むヘッダー：include/ の同じ構成の場所にあればそれ、なければライブラリのヘッダー。"""
+        path = Path(relative)
+        if path.parts[:1] == ("src",):
+            candidate = Path("include", project, *path.parts[1:]).with_suffix(".h")
+            if (_cppbuild.project_root(self.root, project) / candidate).is_file():
+                return Path(project, *path.parts[1:]).with_suffix(".h").as_posix()
+        return self.library_header
+
+    def _test_mirror(self, project: str, relative: str) -> str | None:
+        """ライブラリの src/ のソースに対応する、テスト用Projectのテストファイル（src/... /<名前>Test.cpp）。"""
+        path = Path(relative)
+        if project != self.config.projects.library or path.parts[:1] != ("src",) \
+                or path.suffix.lower() not in _cppbuild.SOURCE_SUFFIXES:
+            return None
+        return path.with_name(f"{path.stem}Test{path.suffix}").as_posix()
+
+    def _save_config(self, module_config: _config.ModuleConfig) -> None:
+        _config.save(module_config, self.root / _config.FILE_NAME)
+        self.config = module_config
 
     # 内部 -----------------------------------------------------------------
 

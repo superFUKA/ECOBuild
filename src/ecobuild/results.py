@@ -46,6 +46,22 @@ class BuildResult:
     project: str | None              # Noneは全体
     configuration: str
     artifacts: tuple[str, ...]
+    profile: str | None = None       # 使った名前付きビルド設定
+    action: str = "build"            # build / clean / rebuild
+
+
+@dataclass(frozen=True)
+class ProfileList:
+    profiles: dict                   # 名前 → Profile
+    selected: str | None             # このPCで選んでいる設定（ecobuild.local.toml）
+
+
+@dataclass(frozen=True)
+class FilesChanged:
+    """ファイル・Projectの操作で変わったファイル（モジュールからの相対パス）。"""
+    action: str
+    paths: tuple[str, ...]
+    project: str | None = None
 
 
 @dataclass(frozen=True)

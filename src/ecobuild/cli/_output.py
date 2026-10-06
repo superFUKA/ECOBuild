@@ -103,6 +103,24 @@ def run_command(
 
 USAGE_ERROR = 2
 
+_BUILD_WORDS = {"build": ("ビルド中", "ビルドしました"), "clean": ("クリーン中", "クリーンしました"),
+                "rebuild": ("リビルド中", "リビルドしました")}
+
+
+def build_like(command: str, project: str, configuration: str, profile: str, json_output: bool) -> int:
+    """build・clean・rebuild の共通の入口。"""
+    doing, done = _BUILD_WORDS[command]
+
+    def action(inv):
+        module = inv.module
+        target = project or module.project_at(inv.cwd)
+        options, name = module.build_options(configuration, profile or None)
+        inv.info(f"{doing}：{target or '全体'}（{options.configuration}" + (f"、{name}" if name else "") + "）")
+        return module.build(project=target, configuration=configuration, profile=profile or None, action=command)
+
+    return run_command(command, action, lambda r: f"{done}：{r.project or '全体'}（{r.configuration}）",
+                       json_output=json_output)
+
 
 def missing(option: str) -> int:
     """必須のオプションがない（CLIFrameWorkでは既定値付き＝省略可能になるため、ここで確かめる）。"""

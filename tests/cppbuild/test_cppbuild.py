@@ -33,10 +33,10 @@ def test_layout_and_templates(module_root):
 
 
 def test_build_test_run(module_root):
-    assert _cppbuild.build(module_root, project=None, configuration="Debug").success
-    outcome = _cppbuild.test(module_root, project=None, configuration="Debug")
+    assert _cppbuild.build(module_root, project=None, options=_cppbuild.BuildOptions()).success
+    outcome = _cppbuild.test(module_root, project=None, options=_cppbuild.BuildOptions())
     assert [c.status for c in outcome.cases] == ["passed"]
-    assert _cppbuild.run(module_root, project=None, configuration="Debug", arguments="").success
+    assert _cppbuild.run(module_root, project=None, options=_cppbuild.BuildOptions(), arguments="").success
 
 
 def test_project_at(module_root):
@@ -50,7 +50,7 @@ def test_build_failure_is_reported(module_root):
     source.write_text(original + "this is not C++;\n", encoding="utf-8")
     try:
         with pytest.raises(EcoBuildError) as error:
-            _cppbuild.build(module_root, project="Calc", configuration="Debug")
+            _cppbuild.build(module_root, project="Calc", options=_cppbuild.BuildOptions())
         assert error.value.code == ErrorCode.BUILD_FAILED
     finally:
         source.write_text(original, encoding="utf-8")
@@ -59,13 +59,13 @@ def test_build_failure_is_reported(module_root):
 
 def test_unknown_project_and_configuration(module_root):
     with pytest.raises(EcoBuildError) as error:
-        _cppbuild.build(module_root, project="Nope", configuration="Debug")
+        _cppbuild.build(module_root, project="Nope", options=_cppbuild.BuildOptions())
     assert error.value.code == ErrorCode.PROJECT_NOT_FOUND and "CalcTest" in error.value.hint
     with pytest.raises(EcoBuildError) as error:
-        _cppbuild.build(module_root, project=None, configuration="Foo")
+        _cppbuild.build(module_root, project=None, options=_cppbuild.BuildOptions("Foo"))
     assert error.value.code == ErrorCode.INVALID_CONFIGURATION
     with pytest.raises(EcoBuildError) as error:
-        _cppbuild.run(module_root, project="Calc", configuration="Debug", arguments="")
+        _cppbuild.run(module_root, project="Calc", options=_cppbuild.BuildOptions(), arguments="")
     assert error.value.code == ErrorCode.RUN_FAILED and "CalcApp" in error.value.hint
 
 
@@ -76,7 +76,7 @@ def test_run_failure_reports_exit_code(module_root):
     main.write_text('#include <cstdio>\nint main() { std::puts("bye"); return 3; }\n', encoding="utf-8")
     try:
         with pytest.raises(EcoBuildError) as error:
-            _cppbuild.run(module_root, project=None, configuration="Debug", arguments="")
+            _cppbuild.run(module_root, project=None, options=_cppbuild.BuildOptions(), arguments="")
         assert error.value.code == ErrorCode.RUN_FAILED and "終了コード 3" in error.value.message
         assert error.value.details["returncode"] == 3 and error.value.details["output"].strip() == "bye"
     finally:

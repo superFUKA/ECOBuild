@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .errors import EcoBuildError, ErrorCode
 
 FILE_NAME = "ecobuild.toml"
+LOCAL_FILE_NAME = "ecobuild.local.toml"   # このPC用（.gitignore対象）
 FORMAT = 1
 DEPENDENCY_DIRECTORY = "deps"
+CONFIGURATIONS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
+
+
+@dataclass(frozen=True)
+class Profile:
+    """名前付きビルド設定（I-002・I-024）。CppBuildが保存しない設定をECOBuildが保存する。"""
+    configuration: str = "Debug"
+    shared: bool = False          # ライブラリ（依存先を含む）を共有ライブラリとしてビルド・リンクする
+    parallel: int = 1             # 並列ビルドの数
 
 
 @dataclass(frozen=True)
@@ -28,6 +38,10 @@ class ModuleConfig:
     type: str = "cpp"
     default_base: str = "main"
     format: int = FORMAT
+    profiles: dict[str, Profile] = field(default_factory=dict)
+
+    def with_profiles(self, profiles: dict[str, Profile]) -> "ModuleConfig":
+        return replace(self, profiles=dict(sorted(profiles.items())))
 
     @classmethod
     def for_new_module(cls, name: str, *, app: bool) -> "ModuleConfig":
@@ -50,6 +64,7 @@ def load(path: Path) -> ModuleConfig:
                 test=_text(projects, "test"),
                 app=_text(projects, "app") if "app" in projects else None,
             ),
+            profiles={name: _profile(name, table) for name, table in data.get("profiles", {}).items()},
         )
     except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ValueError) as error:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path} を読み込めません：{error}") from error
@@ -77,6 +92,16 @@ def dump(config: ModuleConfig) -> str:
     ]
     if config.projects.app is not None:
         lines.append(f"app = {_quote(config.projects.app)}")
+    if config.profiles:
+        lines += ["", "# 名前付きビルド設定（ecobuild profile）。選択は ecobuild.local.toml（このPC用）"]
+    for name, profile in config.profiles.items():
+        lines += [
+            "",
+            f"[profiles.{_quote(name)}]",
+            f"configuration = {_quote(profile.configuration)}",
+            f"shared = {'true' if profile.shared else 'false'}",
+            f"parallel = {profile.parallel}",
+        ]
     return "\n".join(lines) + "\n"
 
 
@@ -95,6 +120,36 @@ def find_root(start: Path) -> Path:
         f"{start} はECOBuildのモジュールの中ではありません（{FILE_NAME} が見つかりません）。",
         hint="モジュールのディレクトリへ移動するか、ecobuild new <名前> で作成してください。",
     )
+
+
+def load_local(root: Path) -> dict:
+    """このPC用の設定（ecobuild.local.toml）。なければ空。"""
+    path = root / LOCAL_FILE_NAME
+    if not path.is_file():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path} を読み込めません：{error}") from error
+
+
+def save_local(root: Path, values: dict) -> None:
+    lines = ["# ECOBuildのこのPC用の設定（コミットしない）。"]
+    lines += [f"{key} = {_quote(value)}" for key, value in sorted(values.items()) if value is not None]
+    (root / LOCAL_FILE_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def _profile(name: str, table: dict) -> Profile:
+    profile = Profile(
+        configuration=table.get("configuration", "Debug"),
+        shared=table.get("shared", False),
+        parallel=table.get("parallel", 1),
+    )
+    if profile.configuration not in CONFIGURATIONS:
+        raise ValueError(f"profiles.{name}.configuration は {'・'.join(CONFIGURATIONS)} のどれかです")
+    if not isinstance(profile.shared, bool) or not isinstance(profile.parallel, int) or profile.parallel < 1:
+        raise ValueError(f"profiles.{name} の shared は真偽値、parallel は1以上の整数です")
+    return profile
 
 
 def _text(table: dict, key: str) -> str:

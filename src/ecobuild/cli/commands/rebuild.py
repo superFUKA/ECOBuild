@@ -9,5 +9,5 @@ def command(
     profile: Annotated[str, "名前付きビルド設定（既定：ecobuild profile use で選んだもの）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ビルドします。"""
-    return build_like("build", project, configuration, profile, json)
+    """クリーンしてからビルドし直します。"""
+    return build_like("rebuild", project, configuration, profile, json)

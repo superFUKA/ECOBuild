@@ -15,8 +15,9 @@ def command(
     """GitHubリポジトリとC++のSolution・Projectを作り、初回コミットをpushします。"""
 
     def action(inv):
+        from ... import tooling
         module = Module.create(name, directory=inv.cwd, description=description, public=public,
-                               app=app, owner=owner or None)
+                               app=app, owner=owner or tooling.load_config().get("owner"))
         inv.use_module(module)
         return module.summary()
 

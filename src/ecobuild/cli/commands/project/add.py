@@ -10,6 +10,6 @@ def command(
 ) -> int:
     """Projectを追加します。library以外は、モジュールのライブラリをリンクします。"""
     if not kind:
-        return missing("--kind")
+        return missing("--kind", json)
     return run_command("project add", lambda inv: inv.module.add_project(name, kind),
                        lambda r: f"Project {r.project} を追加しました：" + ", ".join(r.paths), json_output=json)

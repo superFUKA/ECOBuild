@@ -11,7 +11,7 @@ def command(
 ) -> int:
     """ブランチ同士のPRを作成します（例：develop を main へ）。"""
     if not into:
-        return missing("--into")
+        return missing("--into", json)
     return run_command("branch submit",
                        lambda inv: inv.module.branch(name).submit(into=into, title=title or None),
                        lambda r: f"PR #{r.number} を作成しました：{r.url}", json_output=json)

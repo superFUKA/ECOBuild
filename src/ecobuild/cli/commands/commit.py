@@ -11,7 +11,7 @@ def command(
 ) -> int:
     """コミットします（作業空間でのみ）。"""
     if not message:
-        return missing("--message")
+        return missing("--message", json)
 
     def action(inv):
         return inv.module.require_workspace("コミット").commit(message, all=all, amend=amend)

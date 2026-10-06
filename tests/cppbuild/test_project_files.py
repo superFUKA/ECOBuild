@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from helpers import remove_tree, short_temporary_directory, write
+from helpers import git, remove_tree, short_temporary_directory, write
 from fakes import FakeGitHub
 from ecobuild.config import Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
@@ -108,3 +108,29 @@ def test_shared_profile(module):
         assert module.test(profile="dll").failed == 0
     finally:
         module.remove_profile("dll")
+
+
+def test_docs_ci_and_check(module):
+    root = module.root
+    git(root, "add", "--all")
+    git(root, "commit", "--quiet", "--allow-empty", "-m", "前の試験の変更")  # 生成ファイルをコミット済みにする
+    assert "ecobuild task new" in (root / "AGENTS.md").read_text(encoding="utf-8")
+    assert "cmake -S . -B build" in (root / "README.md").read_text(encoding="utf-8")
+    (root / "AGENTS.md").unlink()
+    assert module.write_agents().paths == ("AGENTS.md",) and (root / "AGENTS.md").exists()
+    assert module.write_ci().paths == (".github/workflows/ecobuild.yml",)
+    assert "windows-latest" in (root / ".github/workflows/ecobuild.yml").read_text(encoding="utf-8")
+
+    report = module.check()
+    assert [(i.name, i.ok) for i in report.items] == [("generated", True), ("conflict_markers", True),
+                                                      ("build", True), ("test", True)]
+    source = root / "Geo/src/Geo.cpp"
+    original = source.read_text(encoding="utf-8")
+    source.write_text(original + "<<<<<<< HEAD\n=======\n>>>>>>> origin/main\n", encoding="utf-8")
+    try:
+        with pytest.raises(EcoBuildError) as error:
+            module.check(build=False)
+        assert error.value.code == ErrorCode.CHECK_FAILED
+        assert [d["name"] for d in error.value.details if not d["ok"]] == ["conflict_markers"]
+    finally:
+        source.write_text(original, encoding="utf-8")

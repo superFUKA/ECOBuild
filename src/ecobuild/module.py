@@ -17,10 +17,10 @@ from ecowork import github as _github
 from ecowork import workspace as ws
 from ecowork.git import Git
 
-from . import _cppbuild
+from . import _cppbuild, _docs
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
+from .results import BuildResult, CheckItem, CheckReport, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
 
 COMMAND = "ecobuild"
 
@@ -114,6 +114,8 @@ class Module:
             _config.save(module_config, root / _config.FILE_NAME)
             (root / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
             (root / ".gitattributes").write_text(GITATTRIBUTES, encoding="utf-8", newline="\n")
+            (root / "README.md").write_text(_docs.readme(module_config), encoding="utf-8", newline="\n")
+            (root / "AGENTS.md").write_text(_docs.agents(module_config), encoding="utf-8", newline="\n")
             _cppbuild.create_module_solution(root, name, module_config.projects)
             _cppbuild.update(root)
 
@@ -605,6 +607,51 @@ class Module:
         else:
             state = "aligned" if head == source.revision else "differs"
         return DependencyState(source.name, source.url, source.revision, head, state, branch)
+
+    # 文書・CI・確認 -------------------------------------------------------------
+
+    def write_agents(self) -> FilesChanged:
+        """AGENTS.md（エージェント向けの使い方）を作り直す。"""
+        (self.root / "AGENTS.md").write_text(_docs.agents(self.config), encoding="utf-8", newline="\n")
+        return FilesChanged("agent init", ("AGENTS.md",))
+
+    def write_ci(self) -> FilesChanged:
+        """GitHub Actions のワークフローを作る（ECOBuildなしでCMakeだけで構成・ビルド・テスト）。"""
+        path = self.root / _docs.CI_WORKFLOW
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_docs.ci_workflow(self.config), encoding="utf-8", newline="\n")
+        return FilesChanged("ci init", (_docs.CI_WORKFLOW,))
+
+    def check(self, *, build: bool = True) -> CheckReport:
+        """PRを出す前の確認：生成ファイル・衝突の印・ビルド・テスト。失敗があれば check_failed。"""
+        items = []
+        try:
+            self._check_generated_files()
+            items.append(CheckItem("generated", True))
+        except EcoBuildError as error:
+            items.append(CheckItem("generated", False, f"{error.message} {', '.join(error.details or [])}"))
+        git = self.repository.git
+        workspace = self.current_workspace()
+        markers = git.conflict_markers("HEAD")
+        if workspace is not None and git.rev_parse(f"origin/{workspace.base}"):
+            markers += git.conflict_markers(f"origin/{workspace.base}...HEAD")
+        items.append(CheckItem("conflict_markers", not markers, ", ".join(dict.fromkeys(markers))))
+        if build:
+            for name, action in (("build", lambda: self.build()), ("test", lambda: self.test())):
+                try:
+                    result = action()
+                    detail = f"成功 {result.passed}" if name == "test" else ""
+                    items.append(CheckItem(name, True, detail))
+                except EcoBuildError as error:
+                    items.append(CheckItem(name, False, error.message))
+                    break
+        report = CheckReport(tuple(items))
+        if not report.ok:
+            raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
+                                "、".join(i.name for i in items if not i.ok),
+                                hint=f"内容を直して、もう一度 {COMMAND} check を実行してください。",
+                                details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
+        return report
 
     def _check_generated_files(self) -> None:
         """CppBuildで生成し直し、生成・管理ファイルに未コミットの変更があれば止める。"""

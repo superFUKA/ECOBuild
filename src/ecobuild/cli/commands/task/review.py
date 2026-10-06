@@ -10,7 +10,7 @@ def command(
 ) -> int:
     """他人のPRを手元に取り出して確認します（build・test・run ができます。コミットはできません）。"""
     if not pr and not done:
-        return missing("--pr か --done")
+        return missing("--pr か --done", json)
 
     def action(inv):
         return inv.module.end_review() if done else inv.module.review(pr)

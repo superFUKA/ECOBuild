@@ -11,7 +11,8 @@ def command(
     """GitHubにあるモジュールを今いるディレクトリへcloneし、依存先と生成ファイルを用意します。"""
 
     def action(inv):
-        module, dependencies = Module.clone(repository, directory=inv.cwd)
+        from ... import tooling
+        module, dependencies = Module.clone(tooling.qualify(repository), directory=inv.cwd)
         inv.use_module(module)
         return module.cloned(dependencies)
 

@@ -9,7 +9,7 @@ def command(
 ) -> int:
     """マージ済みのPRを取り消す作業空間を作ります（Issue作成→取り消しのコミット）。ecobuild task submit でPRを出します。"""
     if not pr:
-        return missing("--pr")
+        return missing("--pr", json)
     return run_command(
         "revert", lambda inv: inv.module.revert(pr),
         lambda r: f"PR #{r.pull_request} を取り消すコミットを作りました：作業空間 {r.branch}（Issue #{r.task}）。"

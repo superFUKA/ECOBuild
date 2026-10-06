@@ -44,6 +44,22 @@ class LinkResult:
 
 
 @dataclass(frozen=True)
+class CheckItem:
+    name: str                        # generated / conflict_markers / build / test
+    ok: bool
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class CheckReport:
+    items: tuple[CheckItem, ...]
+
+    @property
+    def ok(self) -> bool:
+        return all(item.ok for item in self.items)
+
+
+@dataclass(frozen=True)
 class ModuleCloned:
     name: str
     root: Path

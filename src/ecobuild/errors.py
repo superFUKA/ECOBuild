@@ -24,6 +24,8 @@ class ErrorCode(_WorkErrorCode):
     DEPENDENCY_NOT_FOUND = "dependency_not_found"
     PROFILE_NOT_FOUND = "profile_not_found"
     NOT_IN_PROJECT = "not_in_project"
+    CHECK_FAILED = "check_failed"
+    USAGE_ERROR = "usage_error"
 
 
 class EcoBuildError(WorkError):

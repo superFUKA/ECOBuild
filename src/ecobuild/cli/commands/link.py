@@ -13,7 +13,8 @@ def command(
 
     def action(inv):
         module = inv.module
-        return module.link(repository, project=project or module.project_at(inv.cwd), shared=shared)
+        from ... import tooling
+        return module.link(tooling.qualify(repository), project=project or module.project_at(inv.cwd), shared=shared)
 
     return run_command("link", action,
                        lambda r: f"{r.projects[0]} に {r.name}（{r.revision[:7]}）をリンクしました：deps/{r.name}",

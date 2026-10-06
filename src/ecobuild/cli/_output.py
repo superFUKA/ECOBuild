@@ -122,9 +122,16 @@ def build_like(command: str, project: str, configuration: str, profile: str, jso
                        json_output=json_output)
 
 
-def missing(option: str) -> int:
+def missing(option: str, json_output: bool = False) -> int:
     """必須のオプションがない（CLIFrameWorkでは既定値付き＝省略可能になるため、ここで確かめる）。"""
-    click.echo(f"エラー：{option} を指定してください。", err=True)
+    message = f"{option} を指定してください。"
+    if json_output:
+        click.echo(json.dumps({"ok": False, "command": None, "module": None, "result": None,
+                               "error": {"code": "usage_error", "message": message,
+                                         "hint": "ecobuild <コマンド> --help で使い方を確認してください。",
+                                         "details": None}}, ensure_ascii=False))
+    else:
+        click.echo(f"エラー：{message}", err=True)
     return USAGE_ERROR
 
 

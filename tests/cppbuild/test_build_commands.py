@@ -28,6 +28,9 @@ def test_project_at(module):
 def test_build_whole_and_one_project(module):
     assert module.build().project is None
     assert module.build(project="Calc", configuration="Release").configuration == "Release"
+    # 中間ファイルはモジュール直下の build/ に置く（Windowsのパス長の対策）
+    assert any((module.root / "build").iterdir())
+    assert not (module.root / ".cppbuild" / "output" / "intermediate").exists()
 
 
 def test_test(module):

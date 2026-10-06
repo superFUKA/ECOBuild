@@ -13,6 +13,10 @@ from .config import DEPENDENCY_DIRECTORY, ProjectNames
 from .errors import EcoBuildError, ErrorCode
 
 CONFIG_DIRECTORY = ".cppbuild"
+# CMakeのビルドツリー（中間ファイル）の置き場所。CppBuildの既定（.cppbuild/output/intermediate）より
+# 約25文字短い、モジュール直下の build/ にする（Windowsの260文字の制限への対策）。
+# CppBuildの設定は.cppbuildからの相対で、保存されないため、Solutionを開くたびに設定する。
+BUILD_DIRECTORY = "build"
 GENERATED_FILE_NAMES = ("CMakeLists.txt", "CppBuildTopLevel.cmake")
 
 # CppBuildのファイルテンプレートとして登録する既定の素材（名前 → 素材ファイル）
@@ -55,7 +59,9 @@ class TestOutcome:
 
 def open_solution(root: Path) -> Solution:
     try:
-        return Solution.open(root / CONFIG_DIRECTORY)
+        solution = Solution.open(root / CONFIG_DIRECTORY)
+        solution.set_build_settings(_solution_settings())
+        return solution
     except Exception as error:  # CppBuildの例外は種類が多いので、まとめて変換する
         raise _cppbuild_error("CppBuildのSolutionを開けません。", error) from error
 
@@ -206,11 +212,15 @@ def _register_templates(solution: Solution) -> None:
             staging.unlink()
 
 
+def _solution_settings(**values) -> SolutionBuildSettings:
+    return SolutionBuildSettings(intermediate_directory=f"../{BUILD_DIRECTORY}", **values)
+
+
 def _target(root: Path, project: str | None, configuration: str, *, run_arguments=None):
     solution = open_solution(root)
     try:
         # 構成（Debug／Release）はSolution全体で1つ。Projectは対象を絞るだけで、構成は引き継ぐ。
-        solution.set_build_settings(SolutionBuildSettings(configuration=configuration))
+        solution.set_build_settings(_solution_settings(configuration=configuration))
         if project is None:
             return solution
         target = solution.get_project(project)

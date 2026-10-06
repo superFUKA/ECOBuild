@@ -12,8 +12,6 @@ from .errors import EcoBuildError, ErrorCode
 FILE_NAME = "ecobuild.toml"
 LOCAL_FILE_NAME = "ecobuild.local.toml"   # このPC用（.gitignore対象）
 FORMAT = 1
-DEPENDENCY_DIRECTORY = "deps"
-CONFIGURATIONS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")
 
 
 @dataclass(frozen=True)
@@ -145,8 +143,8 @@ def _profile(name: str, table: dict) -> Profile:
         shared=table.get("shared", False),
         parallel=table.get("parallel", 1),
     )
-    if profile.configuration not in CONFIGURATIONS:
-        raise ValueError(f"profiles.{name}.configuration は {'・'.join(CONFIGURATIONS)} のどれかです")
+    if not isinstance(profile.configuration, str) or not profile.configuration:
+        raise ValueError(f"profiles.{name}.configuration は空でない文字列です")  # 値の確認は型が行う
     if not isinstance(profile.shared, bool) or not isinstance(profile.parallel, int) or profile.parallel < 1:
         raise ValueError(f"profiles.{name} の shared は真偽値、parallel は1以上の整数です")
     return profile

@@ -71,6 +71,19 @@ class PullRequestActivity:
 
 
 @dataclass(frozen=True)
+class RunInfo:
+    """CI（GitHub Actions）の1回の実行。"""
+    id: int
+    workflow: str
+    branch: str
+    event: str            # push / pull_request / workflow_dispatch 等
+    status: str           # queued / in_progress / completed
+    conclusion: str       # success / failure 等（終わっていなければ空）
+    url: str
+    created: str
+
+
+@dataclass(frozen=True)
 class ReleaseInfo:
     tag: str
     name: str
@@ -91,6 +104,12 @@ class GitHub(Protocol):
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
     def create_release(self, repo: Path, *, tag: str, title: str, notes: str, target: str) -> ReleaseInfo: ...
     def list_releases(self, repo: Path) -> list[ReleaseInfo]: ...
+    def list_runs(self, repo: Path, *, branch: str | None, limit: int) -> list[RunInfo]: ...
+    def failed_log(self, repo: Path, run_id: int) -> str: ...
+    def rerun(self, repo: Path, run_id: int, *, failed_only: bool) -> None: ...
+    def dispatch(self, repo: Path, workflow: str, *, ref: str) -> None: ...
+    def set_secret(self, repo: Path, name: str, value: str) -> None: ...
+    def list_secrets(self, repo: Path) -> list[str]: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
     def create_pull_request(self, repo: Path, *, head: str, base: str, title: str, body: str) -> PullRequestInfo: ...
     def get_pull_request(self, repo: Path, number: int) -> PullRequestInfo: ...
@@ -192,6 +211,34 @@ class GhCli:
                                 details=completed.output)
             raise _gh_error(["release", "create"], completed)
         return next(r for r in self.list_releases(repo) if r.tag == tag)
+
+    def list_runs(self, repo, *, branch, limit):
+        args = ["run", "list", "--limit", str(limit),
+                "--json", "databaseId,workflowName,headBranch,event,status,conclusion,url,createdAt"]
+        if branch:
+            args += ["--branch", branch]
+        return [RunInfo(d["databaseId"], d.get("workflowName") or "", d.get("headBranch") or "", d.get("event") or "",
+                        (d.get("status") or "").lower(), (d.get("conclusion") or "").lower(), d.get("url") or "",
+                        d.get("createdAt") or "") for d in self._json(args, cwd=repo)]
+
+    def failed_log(self, repo, run_id):
+        return self._gh(["run", "view", str(run_id), "--log-failed"], cwd=repo).stdout
+
+    def rerun(self, repo, run_id, *, failed_only):
+        self._gh(["run", "rerun", str(run_id)] + (["--failed"] if failed_only else []), cwd=repo)
+
+    def dispatch(self, repo, workflow, *, ref):
+        self._gh(["workflow", "run", workflow, "--ref", ref], cwd=repo)
+
+    def set_secret(self, repo, name, value):
+        # 値は標準入力で渡す（コマンドの引数に残さない）
+        try:
+            _process.run(["gh", "secret", "set", name], cwd=repo, input=value, env={"GH_PROMPT_DISABLED": "1"})
+        except _process.ProcessFailed as failure:
+            raise _gh_error(["secret", "set"], failure.completed) from None
+
+    def list_secrets(self, repo):
+        return [d["name"] for d in self._json(["secret", "list", "--json", "name"], cwd=repo)]
 
     def list_releases(self, repo):
         data = self._json(["release", "list", "--limit", "100", "--json", "tagName,name,isLatest"], cwd=repo)

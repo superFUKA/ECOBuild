@@ -49,7 +49,7 @@ def test_tool_config(tmp_path, monkeypatch):
 def test_doctor_reports_missing_tools(monkeypatch):
     """ツールが見つからなければ必須の項目がNGになり、setup が導入コマンドを示す。"""
     monkeypatch.setattr(tooling.shutil, "which", lambda name: None)
-    monkeypatch.setattr(tooling, "_toolchain", lambda: [])
+    monkeypatch.setattr(tooling._module_type, "available", lambda: [])
     report = tooling.doctor()
     names = {i.name: i.ok for i in report.items}
     assert names["git"] is False and names["gh"] is False and not report.ok

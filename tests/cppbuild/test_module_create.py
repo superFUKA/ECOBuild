@@ -40,7 +40,7 @@ def test_create_module(short_tmp):
     clone = short_tmp / "c"
     git(short_tmp, "clone", "--quiet", "--config", "core.autocrlf=true", str(github.bare), str(clone))
     # 改行を変換する設定でcloneしても、生成し直した生成ファイルが「変更あり」にならない
-    from ecobuild import _cppbuild
+    from ecobuild_cpp import _cppbuild
     _cppbuild.update(clone)
     assert git(clone, "status", "--porcelain") == ""
     for args in (["cmake", "-S", ".", "-B", "b"], ["cmake", "--build", "b", "--config", "Debug"],

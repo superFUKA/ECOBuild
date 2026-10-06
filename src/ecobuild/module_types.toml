@@ -1,0 +1,12 @@
+# モジュールの型の登録。ECOBuildはここにある型だけを使う（ecobuild.toml の [module] type で選ぶ）。
+# 型を足すときは、ModuleType（ecobuild.module_type）の子クラスを実装し、ここに追記する。
+#
+# [<型の名前>]
+# module = "<実装のPythonモジュール>"
+# class = "<ModuleType の子クラス>"
+# description = "<説明>"
+
+[cpp]
+module = "ecobuild_cpp"
+class = "CppType"
+description = "C++。CppBuildでProject・ファイル・ビルド・テスト・依存先を管理する"

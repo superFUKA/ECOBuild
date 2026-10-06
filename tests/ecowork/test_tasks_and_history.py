@@ -181,3 +181,23 @@ def test_merge_stops_when_checks_failed(repository):
         repository.pull_request().merge()
     assert error.value.code == ErrorCode.CHECKS_FAILED and "--ignore-checks" in error.value.hint
     assert repository.pull_request().merge(ignore_checks=True).closed_issue == 1
+
+
+def test_ci_operations(repository):
+    """CI（GitHub Actions）の実行・ログ・再実行・手動実行・シークレット。"""
+    from ecowork.github import RunInfo
+    github = repository.github
+    assert code_of(lambda: repository.ci_failed_log()) == ErrorCode.NO_CI_RUN
+    assert code_of(lambda: repository.ci_rerun()) == ErrorCode.NO_CI_RUN
+    github.runs = [RunInfo(2, "build", "main", "push", "completed", "failure", "u2", "2026-10-06T12:00:00Z"),
+                   RunInfo(1, "build", "main", "push", "completed", "success", "u1", "2026-10-06T11:00:00Z"),
+                   RunInfo(3, "build", "task/9", "pull_request", "completed", "failure", "u3", "")]
+    assert [r.id for r in repository.ci_runs()] == [2, 1]  # 今いるブランチ（main）だけ
+    assert repository.ci_failed_log() == (2, "run 2: error")
+    assert repository.ci_rerun(failed_only=True) == 2 and github.reruns == [(2, True)]
+    assert repository.ci_dispatch("ecobuild.yml") == "main" and github.dispatched == [("ecobuild.yml", "main")]
+    repository.create_task("未push").start()
+    assert code_of(lambda: repository.ci_dispatch("ecobuild.yml")) == ErrorCode.BRANCH_NOT_FOUND
+    assert repository.set_secret("ECOBUILD_DEPS_TOKEN", "secret") == "ECOBUILD_DEPS_TOKEN"
+    assert repository.secrets() == ["ECOBUILD_DEPS_TOKEN"]
+    assert code_of(lambda: repository.set_secret("X", "")) == ErrorCode.INVALID_ARGUMENT

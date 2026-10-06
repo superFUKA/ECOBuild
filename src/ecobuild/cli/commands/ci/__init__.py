@@ -1,1 +1,1 @@
-"""CI（GitHub Actions）を扱います。"""
+"""CI（GitHub Actions）を扱います。ワークフローの中身はモジュールの型が用意します。"""

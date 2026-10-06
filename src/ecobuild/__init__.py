@@ -1,7 +1,8 @@
-"""ECOBuild：GitHubとCppBuildをつなぐ、C++モジュールの開発管理ライブラリ。
+"""ECOBuild：作業空間（GitHub Issue）を中心にした、モジュールの開発管理の本体。
 
-作業の進め方（作業空間・ブランチ・PR・最新化）はライブラリ ecowork が受け持ち、
-ECOBuildはそれにCppBuildの処理を組み合わせる。CppBuildの呼び出しは非公開のモジュール（_cppbuild）に閉じ込めている。
+作業の進め方（作業空間・ブランチ・PR・最新化）はライブラリ ecowork が受け持つ。
+言語ごとの処理（ビルド・Project・ファイル・依存先）はモジュールの型が受け持ち、
+型は登録ファイル（module_types.toml）に書いたものだけを使う。本体は型の中身（CppBuild等）を知らない。
 """
 
 from ecowork import Branch, PullRequest, Task, Workspace

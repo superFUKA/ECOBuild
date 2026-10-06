@@ -16,6 +16,7 @@ from pathlib import Path
 from ecowork import _process
 
 from . import _gui
+from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 
 # config で扱う項目 → 説明
@@ -136,29 +137,13 @@ def doctor() -> DoctorReport:
         items.append(CheckItem("git の名前・メール", bool(name and email), True,
                                f"{name} <{email}>" if name and email else "設定されていません",
                                "ecobuild setup --name <名前> --email <メール> で設定できます。", "identity"))
-    items += _toolchain()
+    for module_type in _module_type.available():  # 型が使うツール（cpp：CMake・コンパイラ）
+        items += module_type.doctor_items()
     tortoise = _gui.find()
     if os.name == "nt":
         items.append(CheckItem("TortoiseGit", tortoise is not None, False, tortoise or "見つかりません（任意）",
                                "log・diff・blame の --gui に使います。"))
     return DoctorReport(tuple(items))
-
-
-def _toolchain() -> list[CheckItem]:
-    try:
-        from cppbuild import Environment, EnvironmentOptions
-        report = Environment.check(EnvironmentOptions(require_ctest=True))
-    except Exception as error:  # CppBuildの診断そのものが失敗した
-        return [CheckItem("CMake・コンパイラ", False, True, f"{type(error).__name__}: {error}",
-                          "CMake と C++ コンパイラをインストールしてください。", "install")]
-    result = []
-    for item in report.items:
-        label = {"cmake": "cmake", "ctest": "ctest"}.get(item.name, item.name)
-        detail = " ".join(part for part in (item.version or "", item.path or "") if part) or item.detail
-        result.append(CheckItem(label, item.success, True, detail if item.success else (item.detail or detail),
-                                item.action or "CMake と C++ コンパイラ（Windows：Visual Studio のC++、Linux：g++）が必要です。",
-                                "install"))
-    return result
 
 
 # 設定 -------------------------------------------------------------------------

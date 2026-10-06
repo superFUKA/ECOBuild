@@ -3,7 +3,7 @@ import pytest
 
 from helpers import remove_tree, short_temporary_directory
 
-from ecobuild import _cppbuild
+from ecobuild_cpp import _cppbuild
 from ecobuild.config import ModuleConfig
 from ecobuild.errors import EcoBuildError, ErrorCode
 

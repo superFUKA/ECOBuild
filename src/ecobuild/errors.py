@@ -26,6 +26,7 @@ class ErrorCode(_WorkErrorCode):
     NOT_IN_PROJECT = "not_in_project"
     CHECK_FAILED = "check_failed"
     USAGE_ERROR = "usage_error"
+    NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
 
 
 class EcoBuildError(WorkError):

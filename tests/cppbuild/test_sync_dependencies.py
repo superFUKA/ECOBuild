@@ -5,7 +5,7 @@ from cppbuild import ProjectType
 
 from helpers import git, write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
-from ecobuild import _cppbuild
+from ecobuild_cpp import _cppbuild
 from ecobuild.module import Module
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]

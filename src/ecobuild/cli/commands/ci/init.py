@@ -4,7 +4,7 @@ from ..._output import lines, run_command
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """GitHub Actions のワークフロー（Windows・Linuxで、CMakeだけで構成・ビルド・テスト）を作ります。"""
+    """CI（GitHub Actions）のワークフローを作ります。中身はモジュールの型が用意します（cpp：Windows・Linuxで構成・ビルド・テスト）。"""
     def render(r):
         return lines(
             f"{r.path} を作りました。作業空間でコミットし、PRで反映すると動きます",

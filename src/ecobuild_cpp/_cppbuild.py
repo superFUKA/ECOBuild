@@ -1,4 +1,4 @@
-"""CppBuild の呼び出し（非公開）。"""
+"""CppBuild の呼び出し（cpp 型の内部）。"""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ from pathlib import Path
 
 from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings
 
-from .config import CONFIGURATIONS, DEPENDENCY_DIRECTORY, ProjectNames
-from .errors import EcoBuildError, ErrorCode
+from ecobuild.config import ProjectNames
+from ecobuild.errors import EcoBuildError, ErrorCode
 
 CONFIG_DIRECTORY = ".cppbuild"
+DEPENDENCY_DIRECTORY = "deps"   # 依存先のcloneの置き場所（.gitignore で除外）
+CONFIGURATIONS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")   # CMakeの標準の構成
 # CMakeのビルドツリー（中間ファイル）の置き場所。CppBuildの既定（.cppbuild/output/intermediate）より
 # 約25文字短い、モジュール直下の build/ にする（Windowsの260文字の制限への対策）。
 # CppBuildの設定は.cppbuildからの相対で、保存されないため、Solutionを開くたびに設定する。
@@ -495,7 +497,7 @@ def _ensure_templates(solution: Solution) -> None:
         _register_templates(solution, missing)
 
 def _register_templates(solution: Solution, templates: dict[str, str] = TEMPLATES) -> None:
-    materials = resources.files("ecobuild") / "templates"
+    materials = resources.files("ecobuild_cpp") / "templates"
     for name, file_name in templates.items():
         # CppBuildは素材をSolutionの中から読み込むので、いったんSolutionの中へ置く。
         staging = solution.root / f".ecobuild-template-{file_name}"

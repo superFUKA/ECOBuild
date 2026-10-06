@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecowork.github import IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo
+from ecowork.github import IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
 from ecowork.errors import ErrorCode, WorkError
 
 
@@ -24,6 +24,10 @@ class FakeGitHub:
         self.others: dict[str, Path] = {}    # 名前 → 別のリポジトリ（bare）
         self.activity: dict[int, PullRequestActivity] = {}
         self.releases: list[ReleaseInfo] = []
+        self.runs: list[RunInfo] = []          # 新しい順
+        self.reruns: list[tuple[int, bool]] = []
+        self.dispatched: list[tuple[str, str]] = []
+        self.secrets: dict[str, str] = {}
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -91,6 +95,24 @@ class FakeGitHub:
         self.releases = [replace(r, latest=False) for r in self.releases]
         self.releases.insert(0, ReleaseInfo(tag, title or tag, f"https://example.invalid/releases/tag/{tag}", True))
         return self.releases[0]
+
+    def list_runs(self, repo, *, branch, limit):
+        return [r for r in self.runs if branch is None or r.branch == branch][:limit]
+
+    def failed_log(self, repo, run_id):
+        return f"run {run_id}: error"
+
+    def rerun(self, repo, run_id, *, failed_only):
+        self.reruns.append((run_id, failed_only))
+
+    def dispatch(self, repo, workflow, *, ref):
+        self.dispatched.append((workflow, ref))
+
+    def set_secret(self, repo, name, value):
+        self.secrets[name] = value
+
+    def list_secrets(self, repo):
+        return sorted(self.secrets)
 
     def list_releases(self, repo):
         return list(self.releases)

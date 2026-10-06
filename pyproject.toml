@@ -28,7 +28,8 @@ ecobuild = "ecobuild.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ecobuild = ["templates/*"]
+ecobuild = ["module_types.toml"]
+ecobuild_cpp = ["templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

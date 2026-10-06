@@ -24,6 +24,7 @@ class ErrorCode:
     PULL_REQUEST_CONFLICT = "pull_request_conflict"
     CHECKS_FAILED = "checks_failed"
     UNFINISHED_WORK = "unfinished_work"
+    NO_CI_RUN = "no_ci_run"
     ALREADY_EXISTS = "already_exists"
     REPOSITORY_NOT_FOUND = "repository_not_found"
     COMMITS_WOULD_BE_LOST = "commits_would_be_lost"

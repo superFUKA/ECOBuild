@@ -1,26 +1,27 @@
-"""モジュール：ECOBuildの管理単位（GitHubリポジトリ＋CppBuildのSolution）。
+"""モジュール：ECOBuildの管理単位（GitHubリポジトリ）。
 
 作業の進め方（作業空間・ブランチ・PR・最新化）は ecowork.Repository が受け持つ。
-Moduleはそれに、ecobuild.toml とCppBuildの処理（Solutionの作成・依存先・生成ファイル・ビルド）を組み合わせる。
+言語ごとの処理（ビルド・Project・ファイル・依存先・生成ファイル）は、モジュールの型（module_type）が受け持つ。
+Moduleはそれらを、ecobuild.toml と作業の流れの約束（ファイルを変える操作は作業空間でだけ等）でつなぐ。
 """
 
 from __future__ import annotations
 
-import os
 import re
-import shutil
-import stat
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import workspace as ws
-from ecowork.git import Git
 
-from . import _cppbuild, _docs
+from . import _docs
 from . import config as _config
+from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
+from .fsutil import remove_tree
+from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
+                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult,
+                      TestResult)
 
 COMMAND = "ecobuild"
 
@@ -28,36 +29,12 @@ _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
 GITIGNORE = """\
 # ECOBuild
-/deps/
-/build/
 ecobuild.local.toml
-
-# CppBuildの中間ファイル・成果物
-.cppbuild/output/
 """
 
 
-# CppBuildは生成・管理ファイルをLFで書く。gitの改行変換（Windowsのcore.autocrlf=true等）で
-# CRLFにされると、生成し直すたびに「変更あり」になるため、LFに固定する。
-GITATTRIBUTES = """\
-# ECOBuild：CppBuildの生成ファイル・管理ファイルの改行をLFに固定する
-CMakeLists.txt text eol=lf
-*.cmake text eol=lf
-.cppbuild/** text eol=lf
-ecobuild.toml text eol=lf
-"""
-
-
-def _remove_tree(path: Path) -> None:
-    """gitの読み取り専用ファイル（Windows）も含めて削除する。"""
-    def retry(function, target, _):
-        os.chmod(target, stat.S_IWRITE)
-        function(target)
-    shutil.rmtree(path, onerror=retry)
-
-
-class _CppBuildHooks(Hooks):
-    """作業の流れの途中で、CppBuildの依存先と生成ファイルを扱う。"""
+class _TypeHooks(Hooks):
+    """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。"""
 
     def __init__(self, module: "Module"):
         self._module = module
@@ -66,7 +43,7 @@ class _CppBuildHooks(Hooks):
         return self._module._after_sync()
 
     def after_switch(self, repository: Repository) -> None:
-        # 切り替えた先の記録に、手元の依存先と生成ファイルを合わせる（作業版・変更のある依存先は触らない）。
+        # 切り替えた先の記録に、手元をそろえる（作業版・変更のある依存先は型が触らない）。
         self._module._after_sync()
 
     def before_submit(self, repository: Repository) -> None:
@@ -78,7 +55,8 @@ class Module:
         self.root = Path(root)
         self.config = module_config
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
-                                     command=COMMAND, hooks=_CppBuildHooks(self))
+                                     command=COMMAND, hooks=_TypeHooks(self))
+        self.type = _module_type.load(module_config.type)(self)
 
     @property
     def name(self) -> str:
@@ -100,9 +78,10 @@ class Module:
         public: bool = False,
         app: bool = False,
         owner: str | None = None,
+        type: str = "cpp",
         github: _github.GitHub | None = None,
     ) -> "Module":
-        """GitHubリポジトリとCppBuildのSolutionを作り、初回コミットをpushする。
+        """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。
 
         githubは試験でGitHubへの接続を差し替えるためのもの。
         """
@@ -112,16 +91,18 @@ class Module:
                 f"モジュール名 {name!r} は使えません。",
                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。",
             )
-        module_config = _config.ModuleConfig.for_new_module(name, app=app)
+        type_class = _module_type.load(type)
+        module_config = type_class.new_config(name, app=app)
 
         def populate(root: Path) -> None:
             _config.save(module_config, root / _config.FILE_NAME)
-            (root / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
-            (root / ".gitattributes").write_text(GITATTRIBUTES, encoding="utf-8", newline="\n")
-            (root / "README.md").write_text(_docs.readme(module_config), encoding="utf-8", newline="\n")
-            (root / "AGENTS.md").write_text(_docs.agents(module_config), encoding="utf-8", newline="\n")
-            _cppbuild.create_module_solution(root, name, module_config.projects)
-            _cppbuild.update(root)
+            (root / ".gitignore").write_text(GITIGNORE + _with_gap(type_class.gitignore()),
+                                             encoding="utf-8", newline="\n")
+            if type_class.gitattributes():
+                (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
+            (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
+            (root / "AGENTS.md").write_text(_docs.agents(module_config, type_class), encoding="utf-8", newline="\n")
+            type_class.populate(root, module_config)
 
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,
@@ -140,7 +121,7 @@ class Module:
         """
         repository = Repository.clone(name, directory=directory, github=github, command=COMMAND)
         if not (repository.root / _config.FILE_NAME).is_file():
-            _remove_tree(repository.root)  # 今cloneしたもの
+            remove_tree(repository.root)  # 今cloneしたもの
             raise EcoBuildError(
                 ErrorCode.NOT_IN_MODULE,
                 f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
@@ -169,8 +150,6 @@ class Module:
 
     def status(self, *, fetch: bool = False) -> ws.Status:
         return self.repository.status(fetch=fetch)
-
-    # タスクの管理・履歴（ecowork） ---------------------------------------------------
 
     def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
         return self.repository.tasks(closed=closed)
@@ -214,7 +193,6 @@ class Module:
         return self.repository.revert(number)
 
     def ignore(self, *patterns: str) -> tuple[str, ...]:
-        self.require_workspace("管理から外すファイルの指定")
         return self.repository.ignore(*patterns)
 
     def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
@@ -262,7 +240,7 @@ class Module:
         return self.repository.drop_workspace(number, close=close, discard=discard, dry_run=dry_run)
 
     def sync(self) -> SyncResult:
-        """GitHubの最新を取り込み、依存先の版と生成ファイルを最新にする。
+        """GitHubの最新を取り込み、手元（依存先・生成ファイル）をそろえる。
 
         衝突したのが生成ファイルだけなら、管理ファイルから作り直して取り込みを完了する。
         """
@@ -275,13 +253,13 @@ class Module:
                 return self.continue_sync()
             conflicted = self.repository.git.working_tree().conflicted
             error.details = list(conflicted)
-            if any(_cppbuild.is_generated(p) for p in conflicted):
-                error.hint = (f"{error.hint}\nCppBuildの生成ファイル（{'・'.join(_cppbuild.GENERATED_FILE_NAMES)}）は"
-                              f"直さなくて構いません。{COMMAND} sync continue で管理ファイルから作り直します。")
+            if any(self.type.is_generated(p) for p in conflicted):
+                error.hint = (f"{error.hint}\n{self.type.generated_note}は直さなくて構いません。"
+                              f"{COMMAND} sync continue で管理ファイルから作り直します。")
             raise
 
     def continue_sync(self) -> SyncResult:
-        """衝突を解決した後、止まっている取り込みを完了し、依存先の版と生成ファイルを最新にする。"""
+        """衝突を解決した後、止まっている取り込みを完了し、手元をそろえる。"""
         self._regenerate_conflicted_files()
         return self._sync_result(self.repository.continue_sync())
 
@@ -303,56 +281,44 @@ class Module:
     def restore(self, *paths: str, staged: bool = False) -> ws.RestoreResult:
         return self.repository.restore(*paths, staged=staged)
 
-    # ビルド ---------------------------------------------------------------
+    # ビルド（型） -----------------------------------------------------------------
 
     def project_at(self, path: Path | str) -> str | None:
         """pathが属するProjectの名前。どのProjectにも属さなければNone（全体が対象）。"""
-        return _cppbuild.project_at(self.root, Path(path))
+        return self.type.project_at(Path(path))
 
     def executable_at(self, path: Path | str) -> str | None:
         """run の既定：pathが実行ファイルのProjectの中ならそれ、それ以外はNone（唯一の実行ファイル）。"""
-        project = self.project_at(path)
-        executables = {p.name for p in self.projects() if p.kind == "executable"}
-        return project if project in executables else None
+        return self.type.executable_at(Path(path))
 
     def build(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
               action: str = "build") -> BuildResult:
-        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければDebug）の構成。"""
+        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。"""
         options, name = self.build_options(configuration, profile)
-        outcome = _cppbuild.build(self.root, project=project, options=options, action=action)
-        return BuildResult(project, options.configuration, tuple(Path(a).as_posix() for a in outcome.artifacts),
-                           name, action)
+        result = self.type.build(project, options, action)
+        return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestResult:
         options, _ = self.build_options(configuration, profile)
-        outcome = _cppbuild.test(self.root, project=project, options=options)
-        cases = tuple(TestCaseResult(c.name, c.status) for c in outcome.cases)
-        count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
-        failed = len(cases) - count("passed") - count("skipped")
-        return TestResult(project, options.configuration, count("passed"), failed, count("skipped"), cases)
+        return self.type.test(project, options)
 
     def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
             arguments: str = "") -> RunResult:
         options, _ = self.build_options(configuration, profile)
-        outcome = _cppbuild.run(self.root, project=project, options=options, arguments=arguments)
-        last = outcome.processes[-1] if outcome.processes else None
-        return RunResult(project, options.configuration, 0 if last is None else last.returncode,
-                         "" if last is None else last.output)
+        return self.type.run(project, options, arguments)
 
     # 名前付きビルド設定 ---------------------------------------------------------
 
-    def build_options(self, configuration: str = "", profile: str | None = None
-                      ) -> tuple[_cppbuild.BuildOptions, str | None]:
-        """使うビルド設定。profileを省略すると、このPCで選んだ設定（ecobuild profile use）。"""
+    def build_options(self, configuration: str = "", profile: str | None = None):
+        """使うビルド設定と、その名前。profileを省略すると、このPCで選んだ設定（ecobuild profile use）。"""
         name = profile or _config.load_local(self.root).get("profile")
-        selected = _config.Profile()
+        selected = None
         if name:
             if name not in self.config.profiles:
                 raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
                                     hint=f"{COMMAND} profile list で一覧、{COMMAND} profile add で追加できます。")
             selected = self.config.profiles[name]
-        return _cppbuild.BuildOptions(configuration or selected.configuration, selected.parallel,
-                                      selected.shared), name
+        return self.type.build_options(selected, configuration), name
 
     def profiles(self) -> ProfileList:
         return ProfileList(dict(self.config.profiles), _config.load_local(self.root).get("profile"))
@@ -362,11 +328,7 @@ class Module:
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"ビルド設定の名前 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        if profile.configuration not in _config.CONFIGURATIONS:
-            raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {profile.configuration} はありません。",
-                                hint=f"{'・'.join(_config.CONFIGURATIONS)} のどれかを指定してください。")
-        if profile.parallel < 1:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "並列数は1以上にしてください。")
+        self.type.validate_profile(profile)
         self._save_config(self.config.with_profiles({**self.config.profiles, name: profile}))
         return self.profiles()
 
@@ -380,7 +342,7 @@ class Module:
         return self.profiles()
 
     def use_profile(self, name: str | None) -> ProfileList:
-        """このPCで使うビルド設定を選ぶ（Noneで選択を外し、Debugに戻す）。"""
+        """このPCで使うビルド設定を選ぶ（Noneで選択を外し、型の既定に戻す）。"""
         if name is not None and name not in self.config.profiles:
             raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
                                 hint=f"{COMMAND} profile list で一覧を確認してください。")
@@ -389,267 +351,121 @@ class Module:
         _config.save_local(self.root, local)
         return self.profiles()
 
-    # Project・ファイル ---------------------------------------------------------
+    # Project・ファイル（型） ---------------------------------------------------------
 
-    @property
-    def library_header(self) -> str:
-        library = self.config.projects.library
-        return f"{library}/{library}.h"
-
-    def projects(self) -> tuple[_cppbuild.ProjectSummary, ...]:
-        return _cppbuild.list_projects(self.root)
+    def projects(self) -> tuple:
+        return self.type.projects()
 
     def add_project(self, name: str, kind: str) -> FilesChanged:
         self.require_workspace("Projectの追加")
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        files = _cppbuild.add_project(self.root, name, kind, library=self.config.projects.library,
-                                      library_header=self.library_header)
-        return FilesChanged("project add", files, name)
+        return self.type.add_project(name, kind)
 
     def remove_project(self, name: str) -> FilesChanged:
         self.require_workspace("Projectの削除")
-        projects = self.config.projects
-        if name in (projects.library, projects.test, projects.app):
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
-                                f"Project {name} は {_config.FILE_NAME} の [projects] にある基本のProjectです。",
-                                hint="基本のProject（ライブラリ・テスト・実行ファイル）は外せません。")
-        directory = _cppbuild.project_root(self.root, name)
-        _cppbuild.remove_project(self.root, name)
-        if directory.is_dir():
-            _remove_tree(directory)
-        return FilesChanged("project remove", (directory.relative_to(self.root).as_posix(),), name)
+        return self.type.remove_project(name)
 
     def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
         self.require_workspace("PCHの設定")
-        header = _cppbuild.set_pch(self.root, project, enable=enable)
-        return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
+        return self.type.set_pch(project, enable=enable)
 
     def add_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
-        """Projectにファイルを足す。ライブラリのソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。"""
+        """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。"""
         self.require_workspace("ファイルの追加")
-        project, relative = self._in_project(path)
-        header = self._header_for(project, relative)
-        added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
-        mirror = self._test_mirror(project, relative)
-        if test and mirror is not None:
-            added.append(_cppbuild.add_file(self.root, self.config.projects.test, mirror, template="unit_test",
-                                            replacements={"header": header, "suite": Path(relative).stem}))
-        return FilesChanged("file add", tuple(added), project)
+        return self.type.add_file(Path(path), test=test)
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの削除")
-        project, relative = self._in_project(path)
-        removed = [_cppbuild.remove_file(self.root, project, relative)]
-        mirror = self._test_mirror(project, relative)
-        test_root = None if mirror is None else _cppbuild.project_root(self.root, self.config.projects.test)
-        if test and mirror is not None and (test_root / mirror).is_file():
-            removed.append(_cppbuild.remove_file(self.root, self.config.projects.test, mirror))
-        return FilesChanged("file remove", tuple(removed), project)
+        return self.type.remove_file(Path(path), test=test)
 
     def move_file(self, source: Path | str, destination: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの移動")
-        project, relative = self._in_project(source)
-        other, target = self._in_project(destination)
-        if other != project:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "別のProjectへは移動できません。",
-                                hint="移動先も同じProjectのディレクトリの中にしてください。")
-        moved = list(_cppbuild.move_file(self.root, project, relative, target))
-        mirror, mirror_target = self._test_mirror(project, relative), self._test_mirror(project, target)
-        test_project = self.config.projects.test
-        if test and mirror and mirror_target and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
-            moved += _cppbuild.move_file(self.root, test_project, mirror, mirror_target)
-        return FilesChanged("file move", tuple(moved), project)
+        return self.type.move_file(Path(source), Path(destination), test=test)
 
-    def _in_project(self, path: Path | str) -> tuple[str, str]:
-        """パス（今いるディレクトリからの相対か絶対）から、Projectとその中の相対パスを決める（I-027）。"""
-        absolute = (Path.cwd() / Path(path)).resolve() if not Path(path).is_absolute() else Path(path).resolve()
-        project = _cppbuild.project_at(self.root, absolute)
-        if project is None:
-            raise EcoBuildError(ErrorCode.NOT_IN_PROJECT, f"{path} はどのProjectの中でもありません。",
-                                hint="Projectのディレクトリの中のパスを指定してください（ecobuild project list で一覧）。")
-        relative = absolute.relative_to(_cppbuild.project_root(self.root, project).resolve()).as_posix()
-        return project, relative
-
-    def _header_for(self, project: str, relative: str) -> str:
-        """ソースが読み込むヘッダー：include/ の同じ構成の場所にあればそれ、なければライブラリのヘッダー。"""
-        path = Path(relative)
-        if path.parts[:1] == ("src",):
-            candidate = Path("include", project, *path.parts[1:]).with_suffix(".h")
-            if (_cppbuild.project_root(self.root, project) / candidate).is_file():
-                return Path(project, *path.parts[1:]).with_suffix(".h").as_posix()
-        return self.library_header
-
-    def _test_mirror(self, project: str, relative: str) -> str | None:
-        """ライブラリの src/ のソースに対応する、テスト用Projectのテストファイル（src/... /<名前>Test.cpp）。"""
-        path = Path(relative)
-        if project != self.config.projects.library or path.parts[:1] != ("src",) \
-                or path.suffix.lower() not in _cppbuild.SOURCE_SUFFIXES:
-            return None
-        return path.with_name(f"{path.stem}Test{path.suffix}").as_posix()
-
-    def _save_config(self, module_config: _config.ModuleConfig) -> None:
-        _config.save(module_config, self.root / _config.FILE_NAME)
-        self.config = module_config
-
-    # 内部 -----------------------------------------------------------------
-
-    @staticmethod
-    def _sync_result(result: ws.SyncResult) -> SyncResult:
-        dependencies, regenerated = result.extra if result.extra is not None else ((), False)
-        return SyncResult(result.branch, result.merged, dependencies, regenerated)
-
-    def _after_sync(self) -> tuple[tuple[DependencyChange, ...], bool]:
-        if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
-            return (), False
-        dependencies = self._sync_dependencies()
-        _cppbuild.update(self.root)
-        return dependencies, True
-
-    def _sync_dependencies(self) -> tuple[DependencyChange, ...]:
-        """依存先を記録の版に合わせる。手元で変更・コミットしているものは触らない。"""
-        fetched, sources = _cppbuild.fetch_dependencies(self.root)
-        changes = []
-        for source in sources:
-            if source.name in fetched:
-                changes.append(DependencyChange(source.name, "cloned"))
-                continue
-            clone = Git(source.directory, command=COMMAND)
-            head = clone.rev_parse("HEAD")
-            branch = clone.current_branch()
-            if branch is not None and ws.is_workspace_branch(branch):
-                # 依存先の中で task start をした作業版（I-019）。記録の版へ切り替えない。
-                changes.append(DependencyChange(source.name, "skipped", f"作業版です（{branch}）"))
-                continue
-            if head == source.revision and branch is None:
-                changes.append(DependencyChange(source.name, "unchanged"))
-                continue
-            if not clone.working_tree().clean:
-                changes.append(DependencyChange(source.name, "skipped", "未コミットの変更があります"))
-                continue
-            clone.fetch()
-            if not clone.output("branch", "--remotes", "--contains", head):
-                changes.append(DependencyChange(source.name, "skipped", "GitHubにないコミットがあります"))
-                continue
-            clone.run("switch", "--quiet", "--detach", source.revision)
-            changes.append(DependencyChange(source.name, "aligned"))
-        return tuple(changes)
-
-    def _regenerate_conflicted_files(self) -> bool:
-        """衝突した生成ファイルを、（衝突の解決済みの）管理ファイルから作り直して登録する。"""
-        git = self.repository.git
-        conflicted = git.working_tree().conflicted
-        generated = [p for p in conflicted if _cppbuild.is_generated(p)]
-        if not generated or any(_cppbuild.is_generated_or_managed(p) and p not in generated for p in conflicted):
-            return False  # 管理ファイルの衝突が残っていると作り直せない
-        git.run("checkout", "--ours", "--", *generated)
-        _cppbuild.update(self.root)
-        git.add(tuple(generated))
-        return True
-
-    # 依存先 -----------------------------------------------------------------
+    # 依存先（型） -----------------------------------------------------------------
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:
-        """GitHubにあるモジュール（「名前」か「所有者/名前」）をリンクし、deps/ へcloneする。"""
+        """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。"""
         self.require_workspace("依存先のリンク")
         url = self.repository.github.get_repository(repository).clone_url
-        target = project or self.config.projects.library
-        name = _cppbuild.link(self.root, target, url, shared=shared)
-        revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
-        return LinkResult(name, url, revision, (target,))
+        return self.type.link(url, project=project, shared=shared)
 
     def unlink(self, name: str) -> LinkResult:
-        """依存先のリンクを外す。手元のcloneは、失われる変更がなければ消す。"""
         self.require_workspace("依存先のリンクの解除")
-        source = self._source(name)
-        projects = _cppbuild.unlink(self.root, name)
-        directory = Path(source.directory)
-        removable = directory.is_dir() and self._dependency_state(source).state == "aligned"
-        if removable:
-            _remove_tree(directory)
-        return LinkResult(name, source.url, source.revision, projects, removable)
+        return self.type.unlink(name)
 
     def dependencies(self) -> tuple[DependencyState, ...]:
-        return tuple(self._dependency_state(s) for s in _cppbuild.git_sources(self.root))
+        return self.type.dependencies()
 
     def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
-        """依存先の記録を、GitHubの最新にする（I-018）。手元のcloneも合わせ、生成ファイルを更新する。"""
+        """依存先の記録を、GitHubの最新にする（I-018）。"""
         self.require_workspace("依存先の更新")
-        names = [name] if name else [s.name for s in _cppbuild.git_sources(self.root)]
-        if name:
-            self._source(name)
-        updated = {}
-        for each in names:
-            before = self._source(each).revision
-            after = _cppbuild.record_latest(self.root, each)
-            updated[each] = (before, after)
-        changes = []
-        for change in self._sync_dependencies():
-            if change.name not in updated:
-                continue
-            before, after = updated[change.name]
-            note = "最新です" if before == after else f"{before[:7]} → {after[:7]}"
-            changes.append(DependencyChange(change.name, change.action,
-                                            note if change.reason is None else f"{note}（{change.reason}）"))
-        _cppbuild.update(self.root)
-        return tuple(changes)
+        return self.type.update_dependencies(name)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
-        changes = self._sync_dependencies()
-        _cppbuild.update(self.root)
-        return changes
-
-    def _source(self, name: str):
-        source = next((s for s in _cppbuild.git_sources(self.root) if s.name == name), None)
-        if source is None:
-            names = [s.name for s in _cppbuild.git_sources(self.root)]
-            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。",
-                                hint=f"依存先：{'、'.join(names) or 'なし'}（{COMMAND} deps list）")
-        return source
-
-    def _dependency_state(self, source) -> DependencyState:
-        directory = Path(source.directory)
-        if not (directory / ".git").exists():
-            return DependencyState(source.name, source.url, source.revision, None, "missing")
-        clone = Git(directory, command=COMMAND)
-        head = clone.rev_parse("HEAD")
-        branch = clone.current_branch()
-        if branch is not None and ws.is_workspace_branch(branch):
-            state = "working"
-        elif not clone.working_tree().clean:
-            state = "modified"
-        else:
-            state = "aligned" if head == source.revision else "differs"
-        return DependencyState(source.name, source.url, source.revision, head, state, branch)
+        return self.type.sync_dependencies()
 
     # 文書・CI・確認 -------------------------------------------------------------
 
     def write_agents(self) -> FilesChanged:
         """AGENTS.md（エージェント向けの使い方）を作り直す。"""
         self.require_workspace("AGENTS.md の作成")
-        (self.root / "AGENTS.md").write_text(_docs.agents(self.config), encoding="utf-8", newline="\n")
+        (self.root / "AGENTS.md").write_text(_docs.agents(self.config, type(self.type)), encoding="utf-8",
+                                             newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
 
     def write_ci(self) -> CiInitResult:
-        """GitHub Actions のワークフローを作る（ECOBuildなしでCMakeだけで構成・ビルド・テスト）。
+        """GitHub Actions のワークフロー（中身は型が用意する）を作る。
 
         非公開の依存先は、CIの GITHUB_TOKEN では取得できない。その依存先を返す（案内に使う）。
         """
         self.require_workspace("CIの設定の作成")
+        workflow = self.type.ci_workflow(self.config)
+        if workflow is None:
+            raise self.type.not_supported("CI")
         path = self.root / _docs.CI_WORKFLOW
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_docs.ci_workflow(self.config), encoding="utf-8", newline="\n")
+        path.write_text(workflow, encoding="utf-8", newline="\n")
         private = []
-        for source in _cppbuild.git_sources(self.root):
-            name = source.url.removesuffix(".git").split("github.com/")[-1]
+        for dependency in self.type.dependencies():
+            name = dependency.url.removesuffix(".git").split("github.com/")[-1]
             try:
                 if self.repository.github.is_private(name):
-                    private.append(source.name)
+                    private.append(dependency.name)
             except Exception:  # GitHub以外・見つからない等は案内しない
                 continue
         return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
+
+    def remove_ci(self) -> FilesChanged:
+        """CI（ecobuild ci init で作ったワークフロー）をやめる。"""
+        self.require_workspace("CIの設定の削除")
+        path = self.root / _docs.CI_WORKFLOW
+        if not path.is_file():
+            raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{_docs.CI_WORKFLOW} はありません。")
+        path.unlink()
+        return FilesChanged("ci remove", (_docs.CI_WORKFLOW,))
+
+    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5) -> list:
+        return self.repository.ci_runs(pull_request=pull_request, limit=limit)
+
+    def ci_failed_log(self, run_id: int | None = None) -> tuple[int, str]:
+        return self.repository.ci_failed_log(run_id)
+
+    def ci_rerun(self, run_id: int | None = None, *, failed_only: bool = False) -> int:
+        return self.repository.ci_rerun(run_id, failed_only=failed_only)
+
+    def set_secret(self, name: str, value: str) -> str:
+        return self.repository.set_secret(name, value)
+
+    def secrets(self) -> list[str]:
+        return self.repository.secrets()
+
+    def ci_dispatch(self) -> str:
+        """今いるブランチで、ECOBuildのCIを手動で実行する。"""
+        return self.repository.ci_dispatch(Path(_docs.CI_WORKFLOW).name)
 
     def check(self, *, build: bool = True) -> CheckReport:
         """PRを出す前の確認：生成ファイル・衝突の印・ビルド・テスト。失敗があれば check_failed。
@@ -658,10 +474,8 @@ class Module:
         """
         items = []
         try:
-            _cppbuild.update(self.root)
-            tree = self.repository.git.working_tree()
-            pending = sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked)
-                              if _cppbuild.is_generated_or_managed(p)})
+            self.type.refresh()
+            pending = self._uncommitted_managed_files()
             items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
                                                       f"{COMMAND} add --all でコミットに含めてください）" if pending else ""))
         except EcoBuildError as error:
@@ -679,6 +493,8 @@ class Module:
                     detail = f"成功 {result.passed}" if name == "test" else ""
                     items.append(CheckItem(name, True, detail))
                 except EcoBuildError as error:
+                    if error.code == ErrorCode.NOT_SUPPORTED:
+                        continue  # ビルド・テストのない型
                     items.append(CheckItem(name, False, error.message))
                     break
         report = CheckReport(tuple(items))
@@ -689,21 +505,52 @@ class Module:
                                 details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
         return report
 
-    def _check_generated_files(self) -> None:
-        """CppBuildで生成し直し、生成・管理ファイルに未コミットの変更があれば止める。"""
-        if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
-            return
-        _cppbuild.update(self.root)
+    # 内部 -----------------------------------------------------------------
+
+    def _save_config(self, module_config: _config.ModuleConfig) -> None:
+        _config.save(module_config, self.root / _config.FILE_NAME)
+        self.config = module_config
+
+    @staticmethod
+    def _sync_result(result: ws.SyncResult) -> SyncResult:
+        dependencies, regenerated = result.extra if result.extra is not None else ((), False)
+        return SyncResult(result.branch, result.merged, dependencies, regenerated)
+
+    def _after_sync(self) -> tuple[tuple[DependencyChange, ...], bool]:
+        return self.type.prepare()
+
+    def _uncommitted_managed_files(self) -> list[str]:
         tree = self.repository.git.working_tree()
-        changed = sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked)
-                          if _cppbuild.is_generated_or_managed(p)})
+        return sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked) if self.type.is_managed(p)})
+
+    def _regenerate_conflicted_files(self) -> bool:
+        """衝突した生成ファイルを、（衝突の解決済みの）管理ファイルから作り直して登録する。"""
+        git = self.repository.git
+        conflicted = git.working_tree().conflicted
+        generated = [p for p in conflicted if self.type.is_generated(p)]
+        if not generated or any(self.type.is_managed(p) and p not in generated for p in conflicted):
+            return False  # 管理ファイルの衝突が残っていると作り直せない
+        git.run("checkout", "--ours", "--", *generated)
+        self.type.refresh()
+        git.add(tuple(generated))
+        return True
+
+    def _check_generated_files(self) -> None:
+        """生成ファイルを作り直し、生成・管理ファイルに未コミットの変更があれば止める（task submit の前）。"""
+        if not self.type.refresh():
+            return
+        changed = self._uncommitted_managed_files()
         if changed:
             raise EcoBuildError(
                 ErrorCode.GENERATED_FILES_OUTDATED,
-                "CppBuildの生成ファイル・管理ファイルがコミットされていません。",
+                f"{self.type.generated_note or '生成ファイル'}・管理ファイルがコミットされていません。",
                 hint=f"{COMMAND} add --all でステージし、{COMMAND} commit でコミットしてから再実行してください。",
                 details=changed,
             )
 
     def __repr__(self) -> str:
         return f"Module({self.name!r}, {str(self.root)!r})"
+
+
+def _with_gap(text: str) -> str:
+    return "\n" + text if text else ""

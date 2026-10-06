@@ -161,8 +161,67 @@ class Module:
 
     # 作業の進め方（ecowork） ---------------------------------------------------
 
-    def status(self) -> ws.Status:
-        return self.repository.status()
+    def status(self, *, fetch: bool = False) -> ws.Status:
+        return self.repository.status(fetch=fetch)
+
+    # タスクの管理・履歴（ecowork） ---------------------------------------------------
+
+    def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
+        return self.repository.tasks(closed=closed)
+
+    def task_status(self, number: int | None = None) -> ws.TaskStatus:
+        return self.repository.task_status(number)
+
+    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None) -> ws.Task:
+        return self.repository.edit_task(number, title=title, body=body)
+
+    def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
+        return self.repository.close_task(number, not_planned=not_planned)
+
+    def reopen_task(self, number: int) -> ws.Task:
+        return self.repository.reopen_task(number)
+
+    def review(self, number: int) -> ws.ReviewResult:
+        """他人のPRを手元に取り出す。依存先・生成ファイルもそのPRの記録に合わせる。"""
+        result = self.repository.review(number)
+        self._after_sync()
+        return result
+
+    def end_review(self) -> ws.ReviewResult:
+        result = self.repository.end_review()
+        self._after_sync()
+        return result
+
+    def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False) -> list[ws.LogEntry]:
+        return self.repository.log(count=count, paths=paths, all_branches=all_branches)
+
+    def show(self, revision: str = "HEAD") -> str:
+        return self.repository.show(revision)
+
+    def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
+        return self.repository.diff(paths, staged=staged, base=base)
+
+    def blame(self, path: str) -> str:
+        return self.repository.blame(path)
+
+    def revert(self, number: int) -> ws.RevertResult:
+        return self.repository.revert(number)
+
+    def ignore(self, *patterns: str) -> tuple[str, ...]:
+        return self.repository.ignore(*patterns)
+
+    def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
+        return self.repository.create_release(tag, title=title, notes=notes, target=target)
+
+    def releases(self):
+        return self.repository.releases()
+
+    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None) -> "Module":
+        """作業空間を専用のcloneで作り（I-007）、依存先と生成ファイルを用意する。"""
+        repository = self.repository.clone_workspace(number, directory, base=base)
+        module = Module.find(repository.root, github=self.repository.github)
+        module._after_sync()
+        return module
 
     def branches(self) -> list[ws.Branch]:
         return self.repository.branches()

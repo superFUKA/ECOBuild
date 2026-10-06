@@ -20,7 +20,6 @@ class ErrorCode(_WorkErrorCode):
     RUN_FAILED = "run_failed"
     PROJECT_NOT_FOUND = "project_not_found"
     INVALID_CONFIGURATION = "invalid_configuration"
-    INVALID_ARGUMENT = "invalid_argument"
     FILE_NOT_FOUND = "file_not_found"
     DEPENDENCY_NOT_FOUND = "dependency_not_found"
     PROFILE_NOT_FOUND = "profile_not_found"

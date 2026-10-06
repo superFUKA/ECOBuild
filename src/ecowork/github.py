@@ -38,6 +38,44 @@ class PullRequestInfo:
     base: str
     body: str = ""
     head_sha: str | None = None
+    merge_commit: str | None = None     # マージ済みなら、作成元に入ったコミット
+
+
+@dataclass(frozen=True)
+class Review:
+    author: str
+    state: str            # APPROVED / CHANGES_REQUESTED / COMMENTED 等
+    body: str
+
+
+@dataclass(frozen=True)
+class Comment:
+    author: str
+    body: str
+
+
+@dataclass(frozen=True)
+class Check:
+    name: str
+    status: str           # completed / in_progress / queued 等
+    conclusion: str       # success / failure 等（終わっていなければ空）
+
+
+@dataclass(frozen=True)
+class PullRequestActivity:
+    """PRのレビュー・コメント・CIの結果（I-035）。"""
+    reviews: tuple[Review, ...]
+    comments: tuple[Comment, ...]
+    checks: tuple[Check, ...]
+    mergeable: str        # MERGEABLE / CONFLICTING / UNKNOWN
+
+
+@dataclass(frozen=True)
+class ReleaseInfo:
+    tag: str
+    name: str
+    url: str
+    latest: bool = False
 
 
 class GitHub(Protocol):
@@ -45,6 +83,13 @@ class GitHub(Protocol):
     def get_repository(self, name: str) -> RepositoryInfo: ...
     def create_issue(self, repo: Path, title: str, body: str) -> IssueInfo: ...
     def get_issue(self, repo: Path, number: int) -> IssueInfo: ...
+    def list_issues(self, repo: Path, *, closed: bool) -> list[IssueInfo]: ...
+    def edit_issue(self, repo: Path, number: int, *, title: str | None, body: str | None) -> None: ...
+    def reopen_issue(self, repo: Path, number: int) -> None: ...
+    def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
+    def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
+    def create_release(self, repo: Path, *, tag: str, title: str, notes: str, target: str) -> ReleaseInfo: ...
+    def list_releases(self, repo: Path) -> list[ReleaseInfo]: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
     def create_pull_request(self, repo: Path, *, head: str, base: str, title: str, body: str) -> PullRequestInfo: ...
     def get_pull_request(self, repo: Path, number: int) -> PullRequestInfo: ...
@@ -100,6 +145,55 @@ class GhCli:
     def close_issue(self, repo, number, *, not_planned=False):
         reason = "not planned" if not_planned else "completed"
         self._gh(["issue", "close", str(number), "--reason", reason], cwd=repo)
+
+    def list_issues(self, repo, *, closed):
+        args = ["issue", "list", "--state", "all" if closed else "open", "--limit", "200",
+                "--json", "number,title,url,state,body"]
+        return [IssueInfo(d["number"], d["title"], d["url"], d["state"].lower(), d.get("body") or "")
+                for d in self._json(args, cwd=repo)]
+
+    def edit_issue(self, repo, number, *, title, body):
+        args = ["issue", "edit", str(number)]
+        if title is not None:
+            args += ["--title", title]
+        if body is not None:
+            args += ["--body", body]
+        self._gh(args, cwd=repo)
+
+    def reopen_issue(self, repo, number):
+        self._gh(["issue", "reopen", str(number)], cwd=repo)
+
+    def pull_request_activity(self, repo, number):
+        data = self._json(["pr", "view", str(number), "--json", "reviews,comments,statusCheckRollup,mergeable"],
+                          cwd=repo)
+        reviews = tuple(Review((r.get("author") or {}).get("login", ""), r.get("state", ""), r.get("body") or "")
+                        for r in data.get("reviews") or [])
+        comments = tuple(Comment((c.get("author") or {}).get("login", ""), c.get("body") or "")
+                         for c in data.get("comments") or [])
+        checks = tuple(Check(c.get("name") or c.get("context") or "", (c.get("status") or c.get("state") or "").lower(),
+                             (c.get("conclusion") or "").lower())
+                       for c in data.get("statusCheckRollup") or [])
+        return PullRequestActivity(reviews, comments, checks, data.get("mergeable") or "UNKNOWN")
+
+    def merged_pull_requests(self, repo):
+        data = self._json(["pr", "list", "--state", "merged", "--limit", "200", "--json", _PR_FIELDS], cwd=repo)
+        return [_pull_request(item) for item in data]
+
+    def create_release(self, repo, *, tag, title, notes, target):
+        completed = self._gh(["release", "create", tag, "--title", title or tag, "--notes", notes,
+                              "--target", target], cwd=repo, check=False)
+        if not completed.ok:
+            if "already exists" in completed.output:
+                raise WorkError(ErrorCode.ALREADY_EXISTS, f"リリース（タグ）{tag} は既にあります。",
+                                details=completed.output)
+            raise _gh_error(["release", "create"], completed)
+        return next(r for r in self.list_releases(repo) if r.tag == tag)
+
+    def list_releases(self, repo):
+        data = self._json(["release", "list", "--limit", "100", "--json", "tagName,name,isLatest"], cwd=repo)
+        url = self._json(["repo", "view", "--json", "url"], cwd=repo)["url"]
+        return [ReleaseInfo(d["tagName"], d.get("name") or d["tagName"], f"{url}/releases/tag/{d['tagName']}",
+                            bool(d.get("isLatest"))) for d in data]
 
     def create_pull_request(self, repo, *, head, base, title, body):
         url = self._gh(["pr", "create", "--head", head, "--base", base, "--title", title, "--body", body],
@@ -161,7 +255,7 @@ def _gh_error(args, completed: _process.Completed) -> WorkError:
     )
 
 
-_PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid"
+_PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit"
 
 
 def _pull_request(data: dict) -> PullRequestInfo:
@@ -169,6 +263,7 @@ def _pull_request(data: dict) -> PullRequestInfo:
         number=data["number"], title=data["title"], url=data["url"], state=data["state"].lower(),
         head=data["headRefName"], base=data["baseRefName"], body=data.get("body") or "",
         head_sha=data.get("headRefOid"),
+        merge_commit=(data.get("mergeCommit") or {}).get("oid"),
     )
 
 

@@ -25,6 +25,7 @@ class ErrorCode:
     ALREADY_EXISTS = "already_exists"
     REPOSITORY_NOT_FOUND = "repository_not_found"
     COMMITS_WOULD_BE_LOST = "commits_would_be_lost"
+    INVALID_ARGUMENT = "invalid_argument"
     TOOL_MISSING = "tool_missing"
     GIT_ERROR = "git_error"
     GITHUB_ERROR = "github_error"

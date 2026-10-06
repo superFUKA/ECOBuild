@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,6 +14,10 @@ from . import git as _git
 from . import github as _github
 from . import workspace as ws
 from .errors import ErrorCode, WorkError, operation
+
+_REVIEW_KEY = "ecowork.review"              # task review で確認中のPR（手元だけ）
+_REVIEW_RETURN_KEY = "ecowork.review-return"
+_PR_IN_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")
 
 
 class Hooks:
@@ -116,7 +121,10 @@ class Repository:
 
     # 状態 -----------------------------------------------------------------
 
-    def status(self) -> ws.Status:
+    def status(self, *, fetch: bool = False) -> ws.Status:
+        """fetch：GitHubの最新を取得してから調べる（作成元の遅れも数える）。"""
+        if fetch:
+            self.git.fetch()
         tree = self.git.working_tree()
         workspace = self.current_workspace()
         pull_request = None
@@ -131,8 +139,180 @@ class Repository:
             base=None if workspace is None else workspace.base,
             staged=tree.staged, unstaged=tree.unstaged, untracked=tree.untracked, conflicted=tree.conflicted,
             ahead=tree.ahead, behind=tree.behind, merging=self.git.is_merging(), pull_request=pull_request,
-            upstream_gone=tree.upstream_gone,
+            upstream_gone=tree.upstream_gone, reviewing=self._reviewing(),
+            base_behind=self._base_behind(workspace) if fetch and workspace is not None else None,
         )
+
+    def _base_behind(self, workspace: ws.Workspace) -> int | None:
+        base = f"{_git.REMOTE}/{workspace.base}"
+        return self.git.count(f"HEAD..{base}") if self.git.rev_parse(base) else None
+
+    def _reviewing(self) -> int | None:
+        value = self.git.get_config(_REVIEW_KEY)
+        return int(value) if value else None
+
+    # タスクの管理 -----------------------------------------------------------------
+
+    def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
+        local = set(self.git.local_branches())
+        current = self.git.current_branch()
+        return [ws.TaskSummary(i.number, i.title, i.state, i.url, ws.workspace_branch(i.number) in local,
+                               ws.workspace_branch(i.number) == current)
+                for i in sorted(self.github.list_issues(self.root, closed=closed), key=lambda i: i.number)]
+
+    def task_status(self, number: int | None = None) -> ws.TaskStatus:
+        """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
+        if number is None:
+            number = self.require_workspace("番号を省略したタスクの指定").number
+        issue = self.github.get_issue(self.root, number)
+        branch = ws.workspace_branch(number)
+        pulls = self.github.pull_requests_for_branch(self.root, branch)
+        latest = max(pulls, key=lambda p: p.number) if pulls else None
+        activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
+        return ws.TaskStatus(
+            number, issue.title, issue.state, issue.url, issue.body, self.git.has_local_branch(branch),
+            self.git.get_config(ws.base_key(branch)),
+            None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity)
+
+    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None) -> ws.Task:
+        if title is None and body is None:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
+                            hint="--title か --body を指定してください。")
+        self.github.edit_issue(self.root, number, title=title, body=body)
+        return self.task(number)
+
+    def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
+        if self.task(number).state != "open":
+            raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{number} は既に閉じています。")
+        self.github.close_issue(self.root, number, not_planned=not_planned)
+        return self.task(number)
+
+    def reopen_task(self, number: int) -> ws.Task:
+        if self.task(number).state == "open":
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"Issue #{number} は開いています。")
+        self.github.reopen_issue(self.root, number)
+        return self.task(number)
+
+    # 他人のPRの確認 -----------------------------------------------------------------
+
+    def review(self, number: int) -> ws.ReviewResult:
+        """PRの内容を手元に取り出して確認する（切り離された状態。コミットはできない）。"""
+        if not self.git.working_tree().clean:
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、PRを取り出せません。",
+                            hint=f"{self._op('commit')} か {self._op('stash')} で片付けてから実行してください。")
+        pr = self.github.get_pull_request(self.root, number)
+        self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{number}/head")
+        sha = self.git.output("rev-parse", "FETCH_HEAD")
+        if self._reviewing() is None:
+            self.git.set_config(_REVIEW_RETURN_KEY, self.git.current_branch() or self.default_base)
+        self.git.run("switch", "--quiet", "--detach", sha)
+        self.git.set_config(_REVIEW_KEY, str(number))
+        return ws.ReviewResult(number, pr.head, sha)
+
+    def end_review(self) -> ws.ReviewResult:
+        number = self._reviewing()
+        if number is None:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "確認中のPRはありません。",
+                            hint=f"{self._op('task review')} --pr <番号> で確認を始めます。")
+        if not self.git.working_tree().clean:
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "確認中に変更したファイルがあります。",
+                            hint=f"{self._op('restore')} で戻してから実行してください。")
+        back = self.git.get_config(_REVIEW_RETURN_KEY) or self.default_base
+        sha = self.git.output("rev-parse", "HEAD")
+        self.git.switch(back)
+        self.git.unset_config(_REVIEW_KEY)
+        self.git.unset_config(_REVIEW_RETURN_KEY)
+        return ws.ReviewResult(number, "", sha, back)
+
+    # 履歴・取り消し・その他 -----------------------------------------------------------
+
+    def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False) -> list[ws.LogEntry]:
+        """履歴。件名の (#N) からPRを、そのPRの作業空間からIssueを添える。"""
+        args = ["log", f"--max-count={count}", "--format=%H%x1f%s%x1f%an%x1f%ad", "--date=iso-strict"]
+        if all_branches:
+            args.append("--all")
+        rows = [line.split("\x1f") for line in self.git.output(*args, "--", *paths).splitlines()]
+        matches = [_PR_IN_SUBJECT.search(row[1]) for row in rows]
+        pull_issue = {}
+        if any(matches):
+            pull_issue = {p.number: ws.workspace_number(p.head) for p in self.github.merged_pull_requests(self.root)}
+        entries = []
+        for match, (sha, subject, author, date) in zip(matches, rows):
+            pr = int(match.group(1)) if match else None
+            entries.append(ws.LogEntry(sha, subject, author, date, pr, pull_issue.get(pr)))
+        return entries
+
+    def show(self, revision: str = "HEAD") -> str:
+        return self.git.output("show", "--stat", "--patch", revision)
+
+    def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
+        """未コミットの変更の差分。staged：ステージ済みだけ。base：作業空間の作成元との差分（PRの差分）。"""
+        args = ["diff"]
+        if base:
+            workspace = self.require_workspace("作成元との差分")
+            self.git.fetch()
+            args.append(f"{_git.REMOTE}/{workspace.base}...HEAD")
+        elif staged:
+            args.append("--cached")
+        return self.git.output(*args, "--", *paths)
+
+    def blame(self, path: str) -> str:
+        return self.git.output("blame", "--date=short", "--", path)
+
+    def revert(self, number: int) -> ws.RevertResult:
+        """マージ済みのPRを取り消す作業空間を作る（Issue作成→作業空間→取り消しのコミット）。PRは task submit で出す。"""
+        pr = self.github.get_pull_request(self.root, number)
+        if pr.state != "merged" or not pr.merge_commit:
+            raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{number} はマージされていません（{pr.state}）。",
+                            hint="取り消せるのはマージ済みのPRだけです。")
+        task = self.create_task(f"「{pr.title}」を取り消す", body=f"#{number} を取り消す。\n")
+        workspace = task.start(base=pr.base)
+        self.git.fetch()
+        parents = self.git.output("rev-list", "--parents", "-n", "1", pr.merge_commit).split()
+        args = ["revert", "--no-edit"] + (["-m", "1"] if len(parents) > 2 else []) + [pr.merge_commit]
+        completed = self.git.run(*args, check=False)
+        if not completed.ok:
+            conflicted = self.git.working_tree().conflicted
+            if conflicted:
+                raise WorkError(ErrorCode.MERGE_CONFLICT, f"PR #{number} の取り消しで衝突しました。",
+                                hint=f"作業空間 {workspace.branch} で、衝突したファイルを直して {self._op('add')} し、"
+                                     f"{self._op('commit')} --message で記録してください。",
+                                details=list(conflicted))
+            raise _git._git_error(completed)
+        return ws.RevertResult(number, task.number, workspace.branch, self.git.output("rev-parse", "HEAD"))
+
+    def ignore(self, *patterns: str) -> tuple[str, ...]:
+        """.gitignore に追加する（既にあるものは足さない）。足したものを返す。"""
+        path = self.root / ".gitignore"
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        existing = {line.strip() for line in text.splitlines()}
+        added = tuple(dict.fromkeys(p for p in patterns if p.strip() and p.strip() not in existing))
+        if added:
+            prefix = "" if not text or text.endswith("\n") else "\n"
+            path.write_text(text + prefix + "\n".join(added) + "\n", encoding="utf-8", newline="\n")
+        return added
+
+    def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
+        return self.github.create_release(self.root, tag=tag, title=title, notes=notes,
+                                          target=target or self.default_base)
+
+    def releases(self):
+        return self.github.list_releases(self.root)
+
+    def clone_workspace(self, number: int, directory: Path | str, *, base: str | None = None) -> "Repository":
+        """作業空間を専用のcloneで作る（I-007）。directoryは新しく作るcloneの場所。"""
+        target = Path(directory).resolve()
+        if target.exists():
+            raise WorkError(ErrorCode.ALREADY_EXISTS, f"{target} は既に存在します。")
+        url = self.remote_url
+        if url is None:
+            raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
+        self.task(number)  # Issueがあるか先に確かめる
+        _git.clone(url, target)
+        other = Repository(target, github=self.github, default_base=self.default_base, command=self.command,
+                           hooks=self.hooks)
+        other.task(number).start(base=base)
+        return other
 
     # ブランチ ---------------------------------------------------------------
 

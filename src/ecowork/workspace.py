@@ -226,3 +226,55 @@ class Status:
     merging: bool
     pull_request: PullRequestState | None
     upstream_gone: bool = False      # GitHubのブランチが削除された（別の場所での反映・中止など）
+    reviewing: int | None = None     # task review で確認中のPR
+    base_behind: int | None = None   # status --fetch：作業空間が作成元より遅れているコミット数
+
+
+@dataclass(frozen=True)
+class TaskSummary:
+    number: int
+    title: str
+    state: str
+    url: str
+    workspace: bool                  # 手元に作業空間（task/<番号>）があるか
+    current: bool                    # 今いる作業空間か
+
+
+@dataclass(frozen=True)
+class TaskStatus:
+    """Issue・作業空間・PR（レビュー・コメント・CI）の状態（I-035）。"""
+    number: int
+    title: str
+    state: str
+    url: str
+    body: str
+    workspace: bool
+    base: str | None
+    pull_request: PullRequestState | None
+    activity: _github.PullRequestActivity | None
+
+
+@dataclass(frozen=True)
+class ReviewResult:
+    number: int                      # 確認するPR
+    head: str                        # PRのブランチ
+    sha: str
+    returned_to: str | None = None   # --done で戻ったブランチ
+
+
+@dataclass(frozen=True)
+class LogEntry:
+    sha: str
+    subject: str
+    author: str
+    date: str
+    pull_request: int | None         # 件名の (#N)
+    issue: int | None                # そのPRの作業空間のIssue
+
+
+@dataclass(frozen=True)
+class RevertResult:
+    pull_request: int
+    task: int
+    branch: str
+    sha: str | None                  # 衝突で止まった場合はNone

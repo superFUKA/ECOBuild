@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecowork.github import IssueInfo, PullRequestInfo, RepositoryInfo
+from ecowork.github import IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo
 from ecowork.errors import ErrorCode, WorkError
 
 
@@ -22,6 +22,8 @@ class FakeGitHub:
         self.pulls: dict[int, PullRequestInfo] = {}
         self.not_planned: set[int] = set()   # 「対応しない」として閉じたIssue
         self.others: dict[str, Path] = {}    # 名前 → 別のリポジトリ（bare）
+        self.activity: dict[int, PullRequestActivity] = {}
+        self.releases: list[ReleaseInfo] = []
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -61,6 +63,35 @@ class FakeGitHub:
             raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
         return self.issues[number]
 
+    def list_issues(self, repo, *, closed):
+        return [i for i in self.issues.values() if closed or i.state == "open"]
+
+    def edit_issue(self, repo, number, *, title, body):
+        issue = self.get_issue(repo, number)
+        self.issues[number] = replace(issue, title=issue.title if title is None else title,
+                                      body=issue.body if body is None else body)
+
+    def reopen_issue(self, repo, number):
+        self.issues[number] = replace(self.get_issue(repo, number), state="open")
+        self.not_planned.discard(number)
+
+    def pull_request_activity(self, repo, number):
+        return self.activity.get(number, PullRequestActivity((), (), (), "MERGEABLE"))
+
+    def merged_pull_requests(self, repo):
+        return [pr for pr in self.pulls.values() if pr.state == "merged"]
+
+    def create_release(self, repo, *, tag, title, notes, target):
+        if any(r.tag == tag for r in self.releases):
+            raise WorkError(ErrorCode.ALREADY_EXISTS, f"リリース（タグ）{tag} は既にあります。")
+        git(self.bare, "tag", tag, target)
+        self.releases = [replace(r, latest=False) for r in self.releases]
+        self.releases.insert(0, ReleaseInfo(tag, title or tag, f"https://example.invalid/releases/tag/{tag}", True))
+        return self.releases[0]
+
+    def list_releases(self, repo):
+        return list(self.releases)
+
     def close_issue(self, repo, number, *, not_planned=False):
         self.issues[number] = replace(self.issues[number], state="closed")
         if not_planned:
@@ -72,7 +103,7 @@ class FakeGitHub:
         sha = git(self.bare, "rev-parse", head)
         self.pulls[number] = PullRequestInfo(number, title, f"https://example.invalid/pull/{number}", "open",
                                              head, base, body, sha)
-        return self.pulls[number]
+        return self._current(self.pulls[number])
 
     def get_pull_request(self, repo, number):
         if number not in self.pulls:
@@ -83,10 +114,12 @@ class FakeGitHub:
         return [self._current(pr) for pr in self.pulls.values() if pr.head == head]
 
     def _current(self, pr):
-        """開いているPRの先頭は、GitHubと同じくブランチの最新を指す。"""
+        """開いているPRの先頭は、GitHubと同じくブランチの最新を指す（refs/pull/<番号>/head も）。"""
         if pr.state != "open":
             return pr
-        return replace(pr, head_sha=git(self.bare, "rev-parse", pr.head))
+        sha = git(self.bare, "rev-parse", pr.head)
+        git(self.bare, "update-ref", f"refs/pull/{pr.number}/head", sha)
+        return replace(pr, head_sha=sha)
 
     def close_pull_request(self, repo, number):
         self.pulls[number] = replace(self._current(self.pulls[number]), state="closed")
@@ -109,7 +142,7 @@ class FakeGitHub:
             # GitHubと同じく、作成元と衝突するPRはマージできない
             raise WorkError(ErrorCode.PULL_REQUEST_CONFLICT, f"PR #{number} は作成元と衝突しています。") from None
         git(scratch, "push", "--quiet", "origin", pr.base)
-        self.pulls[number] = replace(pr, state="merged")
+        self.pulls[number] = replace(pr, state="merged", merge_commit=git(scratch, "rev-parse", "HEAD"))
         # GitHubと同じく、既定ブランチへのマージなら本文のClosesでIssueを閉じる
         if pr.base == "main":
             for match in re.finditer(r"(?i)\bcloses #(\d+)", pr.body):

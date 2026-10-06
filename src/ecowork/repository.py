@@ -397,6 +397,11 @@ class Repository:
     def secrets(self) -> list[str]:
         return self.github.list_secrets(self.root)
 
+    def _has_workflows(self) -> bool:
+        """GitHub Actions のワークフローがあるか（あればPRにCIの結果が付くはず）。"""
+        directory = self.root / ".github" / "workflows"
+        return directory.is_dir() and (any(directory.glob("*.yml")) or any(directory.glob("*.yaml")))
+
     def _ci_branch(self, pull_request: int | None) -> str:
         if pull_request is not None:
             return self.github.get_pull_request(self.root, pull_request).head
@@ -823,12 +828,20 @@ class Repository:
         if current.state != "open":
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{current.state}）。")
         if not ignore_checks:
-            failed = [c.name for c in self.github.pull_request_activity(self.root, pr.number).checks
-                      if c.conclusion in ("failure", "cancelled", "timed_out", "action_required")]
+            checks = self.github.pull_request_activity(self.root, pr.number).checks
+            failed = [c.name for c in checks if c.conclusion in ("failure", "cancelled", "timed_out", "action_required")]
             if failed:
                 raise WorkError(ErrorCode.CHECKS_FAILED, f"PR #{pr.number} のCIが失敗しています：{', '.join(failed)}",
                                 hint=f"直してpushし、CIが通ってから実行してください（{self._op('task status')} で確認）。"
                                      "失敗を承知でマージする場合は --ignore-checks。")
+            running = [c.name for c in checks if not c.conclusion and c.status not in ("completed", "")]
+            if not checks and self._has_workflows():
+                running = ["（まだ始まっていません。PRを出した直後など）"]
+            if running:
+                # 実行中のCI（ci rerun の直後等）を待たずにマージすると、失敗する変更が入りうる
+                raise WorkError(ErrorCode.CHECKS_PENDING, f"PR #{pr.number} のCIが実行中です：{', '.join(running)}",
+                                hint=f"結果を待ってから実行してください（{self._op('ci status')}）。"
+                                     "待たずにマージする場合は --ignore-checks。")
         number = ws.workspace_number(pr.head)
         try:
             if number is None:

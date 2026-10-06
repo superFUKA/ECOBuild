@@ -180,6 +180,14 @@ def test_merge_stops_when_checks_failed(repository):
     with pytest.raises(WorkError) as error:
         repository.pull_request().merge()
     assert error.value.code == ErrorCode.CHECKS_FAILED and "--ignore-checks" in error.value.hint
+    # 実行中（ci rerun の直後等）も待つ。仮運用で、再実行中に失敗する変更がマージされた
+    repository.github.activity[pr.number] = PullRequestActivity((), (), (Check("build", "in_progress", ""),),
+                                                                "MERGEABLE")
+    assert code_of(lambda: repository.pull_request().merge()) == ErrorCode.CHECKS_PENDING
+    # ワークフローがあるのに結果がまだない（PRを出した直後）も待つ
+    repository.github.activity[pr.number] = PullRequestActivity((), (), (), "MERGEABLE")
+    write(repository.root / ".github/workflows/ecobuild.yml", "name: build\n")
+    assert code_of(lambda: repository.pull_request().merge()) == ErrorCode.CHECKS_PENDING
     assert repository.pull_request().merge(ignore_checks=True).closed_issue == 1
 
 

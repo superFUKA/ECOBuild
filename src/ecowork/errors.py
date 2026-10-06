@@ -23,6 +23,7 @@ class ErrorCode:
     PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
     PULL_REQUEST_CONFLICT = "pull_request_conflict"
     CHECKS_FAILED = "checks_failed"
+    CHECKS_PENDING = "checks_pending"
     UNFINISHED_WORK = "unfinished_work"
     NO_CI_RUN = "no_ci_run"
     ALREADY_EXISTS = "already_exists"

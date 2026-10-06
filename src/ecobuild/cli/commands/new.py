@@ -25,5 +25,5 @@ def command(
     return run_command("new", action, lambda r: lines(
         f"モジュール {r.name} を作成しました：{r.root}",
         f"リポジトリ：{r.remote_url}",
-        f"Project：{', '.join(r.projects)}",
+        f"Project：{', '.join(r.projects)}" if r.projects else None,
     ), json_output=json)

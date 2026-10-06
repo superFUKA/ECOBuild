@@ -12,7 +12,7 @@ def command(
     owner: Annotated[str, "リポジトリの所有者（組織名など。既定はログイン中のユーザー）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """GitHubリポジトリとC++のSolution・Projectを作り、初回コミットをpushします。"""
+    """モジュール（GitHubリポジトリ）を作り、ライブラリ・テスト用のProjectを用意して初回コミットをpushします。"""
 
     def action(inv):
         from ... import tooling

@@ -45,6 +45,20 @@ def test_run_captures_output(module):
     assert "args=2" in result.output
 
 
+def test_build_error_output_is_readable(module):
+    """コンパイラ・MSBuildの出力（日本語環境ではメッセージも日本語）が文字化けしない（CppBuild 2bbbfb5）。"""
+    path = module.root / "Calc/src/Calc.cpp"
+    original = path.read_text(encoding="utf-8")
+    write(path, original + "\nint broken() { return undefined_name; }\n")
+    try:
+        with pytest.raises(EcoBuildError) as error:
+            module.build(project="Calc")
+        assert error.value.code == ErrorCode.BUILD_FAILED
+        assert "undefined_name" in error.value.details and "�" not in error.value.details
+    finally:
+        write(path, original)
+
+
 def test_failing_test_is_reported(module):
     path = module.root / "CalcTest/src/CalcTest.cpp"
     original = path.read_text(encoding="utf-8")

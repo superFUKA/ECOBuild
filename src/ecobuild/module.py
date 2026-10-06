@@ -6,7 +6,10 @@ Moduleはそれに、ecobuild.toml とCppBuildの処理（Solutionの作成・�
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import stat
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
@@ -17,7 +20,7 @@ from ecowork.git import Git
 from . import _cppbuild
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, DependencyChange, ModuleCreated, RunResult, SyncResult, TestCaseResult, TestResult
+from .results import BuildResult, DependencyChange, ModuleCloned, ModuleCreated, RunResult, SyncResult, TestCaseResult, TestResult
 
 COMMAND = "ecobuild"
 
@@ -43,6 +46,14 @@ CMakeLists.txt text eol=lf
 .cppbuild/** text eol=lf
 ecobuild.toml text eol=lf
 """
+
+
+def _remove_tree(path: Path) -> None:
+    """gitの読み取り専用ファイル（Windows）も含めて削除する。"""
+    def retry(function, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+    shutil.rmtree(path, onerror=retry)
 
 
 class _CppBuildHooks(Hooks):
@@ -112,6 +123,29 @@ class Module:
             default_base=module_config.default_base, command=COMMAND,
         )
         return cls(repository.root, module_config, github=repository.github)
+
+    @classmethod
+    def clone(
+        cls, name: str, *, directory: Path | str = ".", github: _github.GitHub | None = None,
+    ) -> tuple["Module", tuple[DependencyChange, ...]]:
+        """GitHubにあるモジュールをcloneし、依存先と生成ファイルを用意する（sync と同じ）。
+
+        name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。
+        """
+        repository = Repository.clone(name, directory=directory, github=github, command=COMMAND)
+        if not (repository.root / _config.FILE_NAME).is_file():
+            _remove_tree(repository.root)  # 今cloneしたもの
+            raise EcoBuildError(
+                ErrorCode.NOT_IN_MODULE,
+                f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
+                hint=f"ECOBuildで作ったリポジトリ（{COMMAND} new）を指定してください。",
+            )
+        module = cls.find(repository.root, github=repository.github)
+        dependencies, _ = module._after_sync()
+        return module, dependencies
+
+    def cloned(self, dependencies: tuple[DependencyChange, ...]) -> ModuleCloned:
+        return ModuleCloned(self.name, self.root, self.remote_url or "", self.project_names, dependencies)
 
     @property
     def remote_url(self) -> str | None:

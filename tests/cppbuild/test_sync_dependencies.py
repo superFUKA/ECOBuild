@@ -79,3 +79,45 @@ def test_sync_regenerates_conflicted_generated_files(short_tmp):
     assert result.merged == ("merge",) and result.regenerated
     assert (module.root / top).read_text(encoding="utf-8") == expected
     assert not module.status().merging
+
+
+def test_clone_module_prepares_dependencies(short_tmp):
+    """clone はモジュールをcloneし、依存先と生成ファイルを sync と同じく用意する。"""
+    stl_github = FakeGitHub(short_tmp / "gh1")
+    Module.create("STL", directory=short_tmp, github=stl_github)
+    ecs_github = FakeGitHub(short_tmp / "gh2")
+    ecs = Module.create("ECS", directory=short_tmp, github=ecs_github)
+    workspace = ecs.create_task("STLを使う").start()
+    _cppbuild.open_solution(ecs.root).get_project("ECS").settings.link_git(
+        url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    _cppbuild.update(ecs.root)
+    workspace.stage(all=True)
+    workspace.commit("STLを依存先にする")
+    workspace.submit()
+    ecs.pull_request().merge()
+
+    second = short_tmp / "second"
+    second.mkdir()
+    module, dependencies = Module.clone("ECS", directory=second, github=ecs_github)
+    assert module.root == (second / "ECS").resolve() and module.name == "ECS"
+    assert [(d.name, d.action) for d in dependencies] == [("STL", "cloned")]
+    assert (module.root / "deps" / "STL" / "ecobuild.toml").exists()
+    assert module.status().branch == "main" and not module.status().unstaged
+
+
+def test_clone_refuses_non_module(short_tmp):
+    github = FakeGitHub(short_tmp / "gh")
+    bare = short_tmp / "Plain.git"
+    git(short_tmp, "init", "--quiet", "--bare", "--initial-branch=main", str(bare))
+    seed = short_tmp / "seed"
+    git(short_tmp, "clone", "--quiet", str(bare), str(seed))
+    write(seed / "README.md", "plain\n")
+    git(seed, "add", "--all")
+    git(seed, "commit", "--quiet", "-m", "init")
+    git(seed, "push", "--quiet", "origin", "main")
+    github.use_bare(bare)
+    target = short_tmp / "target"
+    target.mkdir()
+    with pytest.raises(Exception) as error:
+        Module.clone("Plain", directory=target, github=github)
+    assert error.value.code == "not_in_module" and not (target / "Plain").exists()

@@ -32,6 +32,13 @@ class FakeGitHub:
         self.private = private
         return RepositoryInfo(full, str(self.bare), f"https://example.invalid/{full}")
 
+    def get_repository(self, name):
+        bare = getattr(self, "bare", None)
+        if bare is None or name.split("/")[-1] != bare.stem:
+            raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。")
+        full = name if "/" in name else f"{self.owner}/{name}"
+        return RepositoryInfo(full, str(bare), f"https://example.invalid/{full}")
+
     def use_bare(self, bare: Path) -> None:
         self.bare = bare
 

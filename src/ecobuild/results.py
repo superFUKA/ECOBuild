@@ -25,6 +25,15 @@ class DependencyChange:
 
 
 @dataclass(frozen=True)
+class ModuleCloned:
+    name: str
+    root: Path
+    remote_url: str
+    projects: tuple[str, ...]
+    dependencies: tuple[DependencyChange, ...]
+
+
+@dataclass(frozen=True)
 class SyncResult:
     branch: str
     merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照。sync continueでは merge／rebase

@@ -42,6 +42,7 @@ class PullRequestInfo:
 
 class GitHub(Protocol):
     def create_repository(self, name: str, *, owner: str | None, private: bool, description: str) -> RepositoryInfo: ...
+    def get_repository(self, name: str) -> RepositoryInfo: ...
     def create_issue(self, repo: Path, title: str, body: str) -> IssueInfo: ...
     def get_issue(self, repo: Path, number: int) -> IssueInfo: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
@@ -68,6 +69,17 @@ class GhCli:
                                 hint="別の名前にしてください。", details=completed.output)
             raise _gh_error(args, completed)
         data = self._json(["repo", "view", full_name, "--json", "nameWithOwner,url"], cwd=None)
+        return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"])
+
+    def get_repository(self, name):
+        """name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。"""
+        completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url"], cwd=None, check=False)
+        if not completed.ok:
+            if not _not_found(completed):
+                raise _gh_error(["repo", "view"], completed)
+            raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。",
+                            details=completed.output)
+        data = json.loads(completed.stdout)
         return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"])
 
     def create_issue(self, repo, title, body):

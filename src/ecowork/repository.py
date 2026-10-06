@@ -89,6 +89,27 @@ class Repository:
             raise
         return cls(root, github=github, default_base=default_base, command=command, hooks=hooks)
 
+    @classmethod
+    def clone(
+        cls,
+        name: str,
+        *,
+        directory: Path | str = ".",
+        github: _github.GitHub | None = None,
+        default_base: str = "main",
+        command: str = "",
+        hooks: Hooks | None = None,
+    ) -> "Repository":
+        """GitHubのリポジトリ（「名前」か「所有者/名前」）を directory/<名前> へcloneする。"""
+        github = github if github is not None else _github.default()
+        info = github.get_repository(name)
+        root = Path(directory).resolve() / info.full_name.split("/")[-1]
+        if root.exists():
+            raise WorkError(ErrorCode.ALREADY_EXISTS, f"{root} は既に存在します。",
+                            hint="別の場所で実行するか、既にあるcloneを使ってください。")
+        _git.clone(info.clone_url, root)
+        return cls(root, github=github, default_base=default_base, command=command, hooks=hooks)
+
     @property
     def remote_url(self) -> str | None:
         return self.git.get_config("remote.origin.url")
@@ -301,8 +322,16 @@ class Repository:
             if self.git.rev_parse(ref) is None:
                 continue
             # 作業空間でないブランチは早送りだけ（コミットはPRのマージでだけ入る）。
-            outcome = self.git.merge(ref, ff_only=workspace is None,
-                                     message=None if workspace is None else f"{ref} を取り込み")
+            try:
+                outcome = self.git.merge(ref, ff_only=workspace is None,
+                                         message=None if workspace is None else f"{ref} を取り込み")
+            except WorkError as error:
+                if error.code == ErrorCode.NOT_FAST_FORWARD:
+                    # ECOBuildの操作では起きない（作業空間でないブランチにはコミットしない）。
+                    error.hint = ("ECOBuildでは作業空間でないブランチにコミットしないため、gitを直接使った結果と"
+                                  "考えられます。gitで直してください（手元にだけあるコミットは details）。")
+                    error.details = self.git.output("log", "--format=%h %s", f"{ref}..{branch}").splitlines()
+                raise
             if not outcome.merged:
                 raise WorkError(
                     ErrorCode.MERGE_CONFLICT,

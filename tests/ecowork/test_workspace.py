@@ -118,3 +118,16 @@ def test_start_existing_workspace_fast_forwards(repository, remote_and_clone, tm
     git(other, "push", "--quiet", "origin", "task/1")
     repository.task(1).start()
     assert (repository.root / "b.txt").exists()
+
+
+def test_clone_repository(repository, tmp_path):
+    from ecowork import Repository
+    target = tmp_path / "second"
+    target.mkdir()
+    cloned = Repository.clone("remote", directory=target, github=repository.github, command="ecobuild")
+    assert cloned.root == (target / "remote").resolve() and (cloned.root / "README.md").exists()
+    assert cloned.status().branch == "main"
+    assert code_of(lambda: Repository.clone("remote", directory=target, github=repository.github)) \
+        == ErrorCode.ALREADY_EXISTS
+    assert code_of(lambda: Repository.clone("nosuch", directory=target, github=repository.github)) \
+        == ErrorCode.REPOSITORY_NOT_FOUND

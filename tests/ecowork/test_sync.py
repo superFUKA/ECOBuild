@@ -150,3 +150,14 @@ def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_
     assert repository.status().conflicted == ()
     assert repository.stash_drop().entries == ()
     assert code_of(repository.stash_drop) == ErrorCode.NO_SYNC_IN_PROGRESS
+
+
+def test_sync_explains_local_commits_on_main(repository, remote_and_clone, tmp_path):
+    """gitを直接使って main にコミットした場合は、ECOBuildの操作では起きないことと、そのコミットを示す。"""
+    remote, _ = remote_and_clone
+    git(repository.root, "commit", "--quiet", "--allow-empty", "-m", "直接のコミット")
+    push_from_other_clone(remote, tmp_path, "new.txt", "new\n")
+    with pytest.raises(WorkError) as error:
+        repository.sync()
+    assert error.value.code == ErrorCode.NOT_FAST_FORWARD and "gitを直接使った" in error.value.hint
+    assert [line.split(" ", 1)[1] for line in error.value.details] == ["直接のコミット"]

@@ -59,3 +59,23 @@ def test_sync_aligns_dependencies(short_tmp):
     remove_tree(clone)
     result = ecs.sync()
     assert [(d.name, d.action) for d in result.dependencies] == [("STL", "cloned")]
+
+
+def test_sync_regenerates_conflicted_generated_files(short_tmp):
+    """生成ファイルだけが衝突したら、管理ファイルから作り直して取り込みを完了する。"""
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("Calc", directory=short_tmp, github=github)
+    top = "CppBuildTopLevel.cmake"
+    expected = (module.root / top).read_text(encoding="utf-8")
+    workspace = module.create_task("t").start()
+    write(module.root / top, expected + "# 手元\n")
+    workspace.commit("手元で生成ファイルを変えた", all=True)
+    other = short_tmp / "other"
+    git(short_tmp, "clone", "--quiet", str(github.bare), str(other))
+    write(other / top, expected + "# GitHub\n")
+    git(other, "commit", "--quiet", "-am", "GitHubで生成ファイルを変えた")
+    git(other, "push", "--quiet", "origin", "main")
+    result = module.sync()
+    assert result.merged == ("merge",) and result.regenerated
+    assert (module.root / top).read_text(encoding="utf-8") == expected
+    assert not module.status().merging

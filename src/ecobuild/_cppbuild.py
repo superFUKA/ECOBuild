@@ -148,6 +148,10 @@ def test(root: Path, *, project: str | None, configuration: str) -> TestOutcome:
 def run(root: Path, *, project: str | None, configuration: str, arguments: str) -> BuildOutcome:
     solution = open_solution(root)
     name = project or _single_executable(solution)
+    if (project is not None and project in solution.settings.get().projects
+            and ProjectType.EXECUTABLE not in solution.get_project(project).settings.get().types):
+        raise EcoBuildError(ErrorCode.RUN_FAILED, f"Project {project} は実行ファイルではありません。",
+                            hint=f"実行ファイルのProject：{'、'.join(_executables(solution)) or 'なし'}")
     target = _target(root, name, configuration, run_arguments=shlex.split(arguments))
     try:
         report = target.run()
@@ -194,6 +198,12 @@ def project_at(root: Path, path: Path) -> str | None:
         if path == directory or directory in path.parents:
             return name
     return None
+
+
+def is_generated(relative_path: str) -> bool:
+    """CppBuildの生成ファイル（管理ファイルから作り直せるもの）か。"""
+    parts = Path(relative_path).parts
+    return bool(parts) and parts[0] != DEPENDENCY_DIRECTORY and parts[-1] in GENERATED_FILE_NAMES
 
 
 def is_generated_or_managed(relative_path: str) -> bool:
@@ -248,9 +258,13 @@ def _target(root: Path, project: str | None, configuration: str, *, run_argument
         raise _cppbuild_error(f"Project {project!r} を準備できません。", error) from error
 
 
+def _executables(solution: Solution) -> list[str]:
+    return [name for name in solution.settings.get().projects
+            if ProjectType.EXECUTABLE in solution.get_project(name).settings.get().types]
+
+
 def _single_executable(solution: Solution) -> str:
-    executables = [name for name in solution.settings.get().projects
-                   if ProjectType.EXECUTABLE in solution.get_project(name).settings.get().types]
+    executables = _executables(solution)
     if len(executables) != 1:
         raise EcoBuildError(
             ErrorCode.RUN_FAILED,

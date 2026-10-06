@@ -100,3 +100,21 @@ def test_status_reports_deleted_upstream(repository, remote_and_clone):
     git(remote, "branch", "-D", "task/1")
     repository.git.fetch()
     assert repository.status().upstream_gone
+
+
+def test_start_existing_workspace_fast_forwards(repository, remote_and_clone, tmp_path):
+    """手元に古い作業空間があるとき、task start で別の場所からpushされた続きを取り込む。"""
+    remote, _ = remote_and_clone
+    workspace = repository.create_task("t").start()
+    write(repository.root / "a.txt", "a\n")
+    workspace.stage("a.txt")
+    workspace.commit("a")
+    workspace.push()
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", "--branch", "task/1", str(remote), str(other))
+    write(other / "b.txt", "b\n")
+    git(other, "add", "b.txt")
+    git(other, "commit", "--quiet", "-m", "b")
+    git(other, "push", "--quiet", "origin", "task/1")
+    repository.task(1).start()
+    assert (repository.root / "b.txt").exists()

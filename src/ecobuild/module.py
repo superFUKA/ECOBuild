@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ecowork import Hooks, Repository
+from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import workspace as ws
 from ecowork.git import Git
@@ -162,11 +162,27 @@ class Module:
         return self.repository.drop_workspace(number, close=close, discard=discard, dry_run=dry_run)
 
     def sync(self) -> SyncResult:
-        """GitHubの最新を取り込み、依存先の版と生成ファイルを最新にする。"""
-        return self._sync_result(self.repository.sync())
+        """GitHubの最新を取り込み、依存先の版と生成ファイルを最新にする。
+
+        衝突したのが生成ファイルだけなら、管理ファイルから作り直して取り込みを完了する。
+        """
+        try:
+            return self._sync_result(self.repository.sync())
+        except WorkError as error:
+            if error.code != ErrorCode.MERGE_CONFLICT or not self.repository.git.is_merging():
+                raise
+            if self._regenerate_conflicted_files() and not self.repository.git.working_tree().conflicted:
+                return self.continue_sync()
+            conflicted = self.repository.git.working_tree().conflicted
+            error.details = list(conflicted)
+            if any(_cppbuild.is_generated(p) for p in conflicted):
+                error.hint = (f"{error.hint}\nCppBuildの生成ファイル（{'・'.join(_cppbuild.GENERATED_FILE_NAMES)}）は"
+                              f"直さなくて構いません。{COMMAND} sync continue で管理ファイルから作り直します。")
+            raise
 
     def continue_sync(self) -> SyncResult:
         """衝突を解決した後、止まっている取り込みを完了し、依存先の版と生成ファイルを最新にする。"""
+        self._regenerate_conflicted_files()
         return self._sync_result(self.repository.continue_sync())
 
     def abort_sync(self) -> None:
@@ -247,6 +263,18 @@ class Module:
             clone.run("switch", "--quiet", "--detach", source.revision)
             changes.append(DependencyChange(source.name, "aligned"))
         return tuple(changes)
+
+    def _regenerate_conflicted_files(self) -> bool:
+        """衝突した生成ファイルを、（衝突の解決済みの）管理ファイルから作り直して登録する。"""
+        git = self.repository.git
+        conflicted = git.working_tree().conflicted
+        generated = [p for p in conflicted if _cppbuild.is_generated(p)]
+        if not generated or any(_cppbuild.is_generated_or_managed(p) and p not in generated for p in conflicted):
+            return False  # 管理ファイルの衝突が残っていると作り直せない
+        git.run("checkout", "--ours", "--", *generated)
+        _cppbuild.update(self.root)
+        git.add(tuple(generated))
+        return True
 
     def _check_generated_files(self) -> None:
         """CppBuildで生成し直し、生成・管理ファイルに未コミットの変更があれば止める。"""

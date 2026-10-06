@@ -589,8 +589,13 @@ class Repository:
             )
         branch = ws.workspace_branch(task.number)
         if self.git.has_local_branch(branch):
-            # 既にある作業空間へ戻る
+            # 既にある作業空間へ戻る。別の場所でpushされた続きがあれば早送りで取り込む
+            # （手元にだけのコミットもあって早送りできないときは、sync で取り込む）。
             self.git.switch(branch)
+            self.git.fetch()
+            remote = f"{_git.REMOTE}/{branch}"
+            if self.git.has_remote_branch(branch) and self.git.is_ancestor(branch, remote):
+                self.git.merge(remote, ff_only=True)
         else:
             start = self._base_start_point(base)
             if self.git.has_remote_branch(branch):

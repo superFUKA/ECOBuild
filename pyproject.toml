@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
     # 依存はGitHubのURLとコミットIDで固定する（リポジトリの外のファイルは参照しない）。
     "cppbuild @ git+https://github.com/superFUKA/CppBuild@3d78db5e9b743eb9b66ce5aecc42f9eca98f5e86",
-    "cli-framework @ git+https://github.com/superFUKA/CLIFrameWork@e1091bf435e4baada26e01687b3f06bd7497999d",
+    "cli-framework @ git+https://github.com/superFUKA/CLIFrameWork@dba38127be5c1778d1b183ab015f2ec5758ded54",
     # ツールの設定の置き場所（OSの慣例、I-030）
     "platformdirs>=4,<5",
 ]

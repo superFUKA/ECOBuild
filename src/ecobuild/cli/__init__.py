@@ -28,19 +28,28 @@ def main(argv: list[str] | None = None) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    if not json_output:
+        # 人向け：エラーの表示（日本語）と終了コードは CLIFrameWork に任せる。
+        build_cli().main(args, prog_name="ecobuild")
+        return
     try:
         code = build_cli().main(args, prog_name="ecobuild", standalone_mode=False)
     except click.UsageError as error:
-        if not json_output:
-            error.show()
-            sys.exit(USAGE_ERROR)
-        _usage_error(error.format_message(), json_output)
+        _usage_error(_usage_message(error), json_output)
     except click.exceptions.Abort:
-        click.echo("中止しました。", err=True)
         sys.exit(1)
     except click.exceptions.Exit as exit_error:
         sys.exit(exit_error.exit_code)
     sys.exit(code if isinstance(code, int) else 0)
+
+
+def _usage_message(error: click.UsageError) -> str:
+    """引数の誤りの説明。人向けの表示と同じ日本語の文（CLIFrameWork）を使う。"""
+    try:
+        from cli_framework.click_localization import _usage_message as localized
+        return localized(error)
+    except ImportError:  # 日本語化のない版
+        return error.format_message()
 
 
 def _usage_error(message: str, json_output: bool) -> None:

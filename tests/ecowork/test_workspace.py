@@ -131,3 +131,34 @@ def test_clone_repository(repository, tmp_path):
         == ErrorCode.ALREADY_EXISTS
     assert code_of(lambda: Repository.clone("nosuch", directory=target, github=repository.github)) \
         == ErrorCode.REPOSITORY_NOT_FOUND
+
+
+def test_hooks_block_direct_commit_and_push(repository, remote_and_clone):
+    """gitを直接使っても、作業空間でないブランチへはコミット・pushできない（ルールではなく仕組みで）。"""
+    import os
+    import subprocess
+    remote, _ = remote_and_clone
+    root = repository.root
+    env = {k: v for k, v in os.environ.items() if k != "ECOWORK_ALLOW"}
+
+    def raw(*args):
+        return subprocess.run(["git", *args], cwd=root, env=env, capture_output=True, text=True, encoding="utf-8")
+
+    workspace = repository.create_task("t").start()  # 作業を始めるときにフックを入れる
+    hooks = repository.git.hooks_directory()
+    assert (hooks / "pre-commit").exists() and (hooks / "pre-push").exists()
+    write(root / "a.txt", "a\n")
+    workspace.stage("a.txt")
+    assert raw("commit", "-m", "作業空間では通る").returncode == 0
+    assert raw("push", "--quiet", "origin", "task/1:task/1").returncode == 0
+    git(root, "switch", "--quiet", "main")
+    write(root / "b.txt", "b\n")
+    raw("add", "b.txt")
+    result = raw("commit", "-m", "mainへ直接")
+    assert result.returncode != 0 and "直接コミットできません" in result.stderr
+    result = raw("push", "origin", "task/1:main")
+    assert result.returncode != 0 and "直接pushできません" in result.stderr
+    assert raw("push", "origin", "--delete", "main").returncode != 0
+    # 利用者のフックは上書きしない
+    (hooks / "pre-commit").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    assert repository.install_hooks() == ()

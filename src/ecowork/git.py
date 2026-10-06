@@ -11,7 +11,8 @@ from pathlib import Path
 from . import _process
 from .errors import ErrorCode, WorkError, operation
 
-_ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true"}
+# ECOWORK_ALLOW：ecowork 自身の呼び出しは、作業空間を守るフック（hooks）を通す。
+_ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "ECOWORK_ALLOW": "1"}
 REMOTE = "origin"
 
 
@@ -59,6 +60,9 @@ class Git:
 
     def run(self, *args: str, check: bool = True) -> _process.Completed:
         return _run(["git", "-c", "core.quotepath=false", *args], cwd=self.root, check=check)
+
+    def hooks_directory(self) -> Path:
+        return self.root / self.output("rev-parse", "--git-path", "hooks")
 
     def output(self, *args: str) -> str:
         return self.run(*args).stdout.strip()

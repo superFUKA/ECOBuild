@@ -11,6 +11,8 @@ GIT_ENV = {
     "GIT_AUTHOR_EMAIL": "test@example.com",
     "GIT_COMMITTER_NAME": "ECOBuild Test",
     "GIT_COMMITTER_EMAIL": "test@example.com",
+    # 試験の git は「別の人・別の場所」の操作を真似るため、作業空間を守るフック（ecowork.hooks）を通す
+    "ECOWORK_ALLOW": "1",
 }
 
 

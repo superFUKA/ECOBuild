@@ -12,6 +12,7 @@ from pathlib import Path
 
 from . import git as _git
 from . import github as _github
+from . import hooks as _hooks
 from . import workspace as ws
 from .errors import ErrorCode, WorkError, operation
 
@@ -101,6 +102,7 @@ class Repository:
             repo.add(all=True)
             repo.commit(message, allow_empty=populate is None)
             repo.push(default_base, set_upstream=True)
+            _hooks.install(repo.hooks_directory())
         except WorkError as error:
             error.hint = (error.hint + "\n" if error.hint else "") + (
                 f"GitHubのリポジトリ {repository.full_name} は作成済みです。"
@@ -127,8 +129,13 @@ class Repository:
         if root.exists():
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"{root} は既に存在します。",
                             hint="別の場所で実行するか、既にあるcloneを使ってください。")
-        _git.clone(info.clone_url, root)
+        repo = _git.clone(info.clone_url, root)
+        _hooks.install(repo.hooks_directory())
         return cls(root, github=github, default_base=default_base, command=command, hooks=hooks)
+
+    def install_hooks(self) -> tuple[str, ...]:
+        """作業空間でないブランチへの直接のコミット・pushを止めるフックを入れる（hooks）。"""
+        return _hooks.install(self.git.hooks_directory())
 
     @property
     def remote_url(self) -> str | None:
@@ -408,7 +415,7 @@ class Repository:
         if url is None:
             raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
         self.task(number)  # Issueがあるか先に確かめる
-        _git.clone(url, target)
+        _hooks.install(_git.clone(url, target).hooks_directory())
         other = Repository(target, github=self.github, default_base=self.default_base, command=self.command,
                            hooks=self.hooks)
         other.task(number).start(base=base)
@@ -925,6 +932,7 @@ class Repository:
                 "未コミットの変更があるため、作業空間を作れません（別のIssueの作業に混ざるのを防ぐため）。",
                 hint=f"変更をコミットするか、{self._op('stash')} で退避してから実行してください。",
             )
+        self.install_hooks()  # 前からあるcloneにも、作業を始めるときに入れる
         branch = ws.workspace_branch(task.number)
         if self.git.has_local_branch(branch):
             # 既にある作業空間へ戻る。別の場所でpushされた続きがあれば早送りで取り込む

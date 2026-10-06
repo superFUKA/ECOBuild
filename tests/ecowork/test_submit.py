@@ -91,3 +91,15 @@ def test_clean_keeps_unpushed_work(repository):
     github.close_issue(root, workspace.number)
     result = repository.clean_workspaces()
     assert result.removed == () and result.skipped[0].branch == "task/1"
+
+
+def test_submit_refuses_committed_conflict_markers(repository):
+    root = repository.root
+    workspace = repository.create_task("t").start()
+    commit_file(workspace, root, "a.cpp", "<<<<<<< HEAD\nint a;\n=======\nint b;\n>>>>>>> origin/main\n", "印")
+    with pytest.raises(WorkError) as error:
+        workspace.submit()
+    assert error.value.code == ErrorCode.CONFLICT_MARKERS and len(error.value.details) == 3
+    assert repository.github.pulls == {}
+    commit_file(workspace, root, "a.cpp", "int a;\n", "印を取り除く")
+    assert workspace.submit().number

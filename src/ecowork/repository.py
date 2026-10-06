@@ -276,9 +276,17 @@ class Repository:
         branch = self.git.current_branch()
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。")
+        workspace = self.current_workspace()
+        if workspace is not None and self.github.get_issue(self.root, workspace.number).state != "open":
+            # 反映済みの作業空間へ作成元を取り込むと、squashマージのため衝突や余分なコミットになる。
+            raise WorkError(
+                ErrorCode.TASK_CLOSED,
+                f"Issue #{workspace.number} は閉じているため、作業空間 {workspace.branch} は取り込みの対象外です。",
+                hint=f"{self._op('task clean')} で片付けて {workspace.base} へ移ってください。"
+                     "続きの作業は新しいIssueで行います。",
+            )
         self.git.fetch()
         merged = []
-        workspace = self.current_workspace()
         refs = [f"{_git.REMOTE}/{branch}"]
         if workspace is not None:
             refs.append(f"{_git.REMOTE}/{workspace.base}")
@@ -303,6 +311,8 @@ class Repository:
     def continue_sync(self) -> ws.SyncResult:
         """衝突を解決した後、止まっている取り込み（または作業空間の作り直し）を完了する。"""
         branch = self.git.current_branch() or ""
+        if self.git.is_rebasing() or self.git.is_merging():
+            self._refuse_conflict_markers(self.git.conflict_markers(cached=True))
         if self.git.is_rebasing():
             outcome = self.git.rebase_continue()
             if not outcome.merged:
@@ -364,6 +374,19 @@ class Repository:
             details=list(self.git.working_tree().conflicted),
         )
 
+    def _refuse_conflict_markers(self, markers: tuple[str, ...], *, committed: bool = False) -> None:
+        """衝突の印が残っていれば止める（gitは印が残ったままでも登録・コミットできてしまう）。"""
+        if not markers:
+            return
+        then = (f"{self._op('commit')} でコミットしてから、もう一度実行してください" if committed
+                else f"{self._op('add')} で登録してから、もう一度実行してください")
+        raise WorkError(
+            ErrorCode.CONFLICT_MARKERS,
+            f"衝突の印（<<<<<<< 等）が残っています（{len(markers)} か所）。",
+            hint=f"印の場所を直して {then}。",
+            details=list(markers),
+        )
+
     def _unsafe_to_remove(self, branch: str) -> str | None:
         """消すと失われるコミットがあれば理由を返す。"""
         tip = self.git.rev_parse(branch)
@@ -400,6 +423,7 @@ class Repository:
         if self.git.count(f"{base_ref}..{workspace.branch}") == 0:
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{workspace.base} へ反映するコミットがありません。",
                             hint="変更をコミットしてから再実行してください。")
+        self._refuse_conflict_markers(self.git.conflict_markers(f"{base_ref}...{workspace.branch}"), committed=True)
         workspace.push()
         opened = [p for p in self.github.pull_requests_for_branch(self.root, workspace.branch) if p.state == "open"]
         if opened:

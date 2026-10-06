@@ -14,6 +14,8 @@ class ErrorCode:
     NOT_FAST_FORWARD = "not_fast_forward"
     LOCAL_CHANGES_WOULD_BE_OVERWRITTEN = "local_changes_would_be_overwritten"
     TASK_NOT_FOUND = "task_not_found"
+    TASK_CLOSED = "task_closed"
+    CONFLICT_MARKERS = "conflict_markers"
     BRANCH_NOT_FOUND = "branch_not_found"
     NO_PULL_REQUEST = "no_pull_request"
     NOTHING_TO_SUBMIT = "nothing_to_submit"

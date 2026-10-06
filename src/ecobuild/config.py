@@ -68,7 +68,7 @@ def dump(config: ModuleConfig) -> str:
         f"type = {_quote(config.type)}",
         "",
         "[branches]",
-        "# task start の --from を省略したときの作成元",
+        "# task start の --base を省略したときの作成元",
         f"default_base = {_quote(config.default_base)}",
         "",
         "[projects]",

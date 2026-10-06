@@ -168,7 +168,19 @@ class Git:
             args.insert(2, "--set-upstream")
         if force:
             args.insert(2, "--force-with-lease")
-        self.run(*args, f"{branch}:{branch}")
+        completed = self.run(*args, f"{branch}:{branch}", check=False)
+        if completed.ok:
+            return
+        if "[rejected]" in completed.output or "stale info" in completed.output:
+            raise WorkError(
+                ErrorCode.NOT_FAST_FORWARD,
+                f"GitHubの {branch} に手元にないコミットがあるため、pushできません。",
+                hint=f"別の場所からpushされた変更なら {operation(self.command, 'sync')} で取り込んでから、"
+                     f"手元でコミットを書き換えた（--amend等）なら {operation(self.command, 'push --force')} で"
+                     "pushしてください。",
+                details=completed.output,
+            )
+        raise _git_error(completed)
 
     def push_delete(self, branch: str) -> None:
         self.run("push", "--quiet", REMOTE, "--delete", branch)
@@ -221,6 +233,13 @@ class Git:
 
     def merge_abort(self) -> None:
         self.run("merge", "--abort")
+
+    def conflict_markers(self, *revisions: str, cached: bool = False) -> tuple[str, ...]:
+        """差分に残っている衝突の印（<<<<<<< 等）の場所（「パス:行」）。"""
+        args = ["diff", "--check", *(["--cached"] if cached else []), *revisions]
+        suffix = ": leftover conflict marker"
+        text = self.run(*args, check=False).stdout
+        return tuple(line[:-len(suffix)] for line in text.splitlines() if line.endswith(suffix))
 
     def count(self, revision_range: str) -> int:
         return int(self.output("rev-list", "--count", revision_range))

@@ -155,3 +155,31 @@ def test_rebase_onto_after_squash(remote_and_clone):
     assert outcome.merged
     log = git(work, "log", "--format=%s", "main..task/7").splitlines()
     assert log == ["続き"]
+
+
+def test_push_rejected_when_remote_has_other_commits(remote_and_clone):
+    """コミットを書き換えた後の通常のpushは、gitのメッセージでなく次の操作の案内で止まる。"""
+    _, work = remote_and_clone
+    repo = Git(work, command="ecobuild")
+    repo.create_branch("task/7", "main", switch=True)
+    write(work / "a.cpp", "int a;\n")
+    repo.add(all=True)
+    repo.commit("a を追加")
+    repo.push("task/7", set_upstream=True)
+    repo.commit("a を追加（直し）", all=True, amend=True, allow_empty=True)
+    with pytest.raises(WorkError) as error:
+        repo.push("task/7")
+    assert error.value.code == ErrorCode.NOT_FAST_FORWARD
+    assert "ecobuild sync" in error.value.hint and "ecobuild push --force" in error.value.hint
+    repo.push("task/7", force=True)
+
+
+def test_conflict_markers(remote_and_clone):
+    _, work = remote_and_clone
+    repo = Git(work)
+    write(work / "a.cpp", "int a;\n<<<<<<< HEAD\nint b;\n=======\nint c;\n>>>>>>> origin/main\n")
+    repo.add(all=True)
+    assert repo.conflict_markers(cached=True) == ("a.cpp:2", "a.cpp:4", "a.cpp:6")
+    repo.commit("印が残った")
+    assert repo.conflict_markers("HEAD~1...HEAD") == ("a.cpp:2", "a.cpp:4", "a.cpp:6")
+    assert repo.conflict_markers(cached=True) == ()

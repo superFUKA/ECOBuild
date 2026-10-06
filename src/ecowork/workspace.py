@@ -70,7 +70,12 @@ class Workspace:
         return StageResult(self.branch, repo.working_tree().staged)
 
     def commit(self, message: str, *, all: bool = False, amend: bool = False) -> "CommitResult":
-        sha = self._repository.git.commit(message, all=all, amend=amend)
+        repo = self._repository.git
+        if repo.is_merging():
+            # 衝突を解決してのコミット（sync continue の代わり）。印が残ったままなら止める。
+            self._repository._refuse_conflict_markers(
+                repo.conflict_markers("HEAD") if all else repo.conflict_markers(cached=True))
+        sha = repo.commit(message, all=all, amend=amend)
         return CommitResult(self.branch, sha, message)
 
     def push(self, *, force: bool = False) -> "PushResult":

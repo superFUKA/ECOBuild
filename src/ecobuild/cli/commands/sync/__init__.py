@@ -9,7 +9,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
     """GitHubの最新を取り込み、依存先と生成ファイルを最新にします。
 
     作業空間でないブランチは早送り、作業空間は作成元の最新を取り込みます。
-    衝突したら、直して ecobuild add の後に ecobuild sync continue（やめるなら ecobuild sync abort）。
+    衝突したら、直して ecobuild task add の後に ecobuild sync continue（やめるなら ecobuild sync abort）。
     """
 
     def render(r):

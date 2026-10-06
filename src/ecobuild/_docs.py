@@ -33,7 +33,7 @@ ecobuild build
 ecobuild test
 ```
 
-作業はIssueごとの作業空間で行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild commit` → `ecobuild task submit` → `ecobuild task merge`）。
+作業はIssueごとの作業空間で行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit` → `ecobuild task submit` → `ecobuild task merge`）。
 """ + ("\n" + usage if usage else "")
 
 
@@ -51,7 +51,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 1. `ecobuild task new "<題名>" --body "<内容>" --start`（既存のIssueなら `ecobuild task start <番号>`）
 2. 編集する。ファイルの追加は `ecobuild file add <パス>`
 3. `ecobuild build`・`ecobuild test`（PR前の確認は `ecobuild check`）
-4. `ecobuild add --all` → `ecobuild commit --message "<内容>"`
+4. `ecobuild task add --all` → `ecobuild task commit --message "<内容>"`
 5. `ecobuild task submit`（途中の反映なら `--partial`）→ `ecobuild task merge`
 6. `ecobuild task clean`
 
@@ -59,7 +59,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 - ファイルを変える操作とコミットは、作業空間（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。
-- 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild add` → `ecobuild sync continue`（やめるなら `ecobuild sync abort`）。{regenerate}
+- 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild task add` → `ecobuild sync continue`（やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。
 - ソースはUTF-8で書きます。
 """

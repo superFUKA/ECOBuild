@@ -74,7 +74,7 @@ class Workspace:
         repo = self._repository.git
         tree = repo.working_tree()
         if not (amend or repo.is_merging() or tree.staged or (all and tree.unstaged)):
-            add = self._repository._op("add")
+            add = self._repository._op("task add")
             raise WorkError(ErrorCode.NOTHING_TO_COMMIT, "コミットする変更がありません（ステージされていません）。",
                             hint=f"{add} <パス> か {add} --all でステージしてから実行してください"
                                  "（追跡中のファイルの変更だけなら commit --all でも構いません）。")

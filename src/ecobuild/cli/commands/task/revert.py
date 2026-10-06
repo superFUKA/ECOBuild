@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from .._output import missing, run_command
+from ..._output import missing, run_command
 
 
 def command(
@@ -11,6 +11,6 @@ def command(
     if not pr:
         return missing("--pr", json)
     return run_command(
-        "revert", lambda inv: inv.module.revert(pr),
+        "task revert", lambda inv: inv.module.revert(pr),
         lambda r: f"PR #{r.pull_request} を取り消すコミットを作りました：作業空間 {r.branch}（Issue #{r.task}）。"
                   "確かめてから ecobuild task submit", json_output=json)

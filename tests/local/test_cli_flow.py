@@ -28,7 +28,7 @@ def as_json(result):
 
 def test_every_command_has_help():
     runner = CliRunner()
-    for args in (["new"], ["build"], ["test"], ["run"], ["status"], ["add"], ["commit"], ["push"], ["restore"],
+    for args in (["new"], ["build"], ["test"], ["run"], ["status"], ["task", "add"], ["task", "commit"], ["task", "push"], ["restore"],
                  ["sync"], ["sync", "continue"], ["sync", "abort"], ["stash"], ["stash", "pop"], ["stash", "list"],
                  ["branch", "create"], ["branch", "list"], ["branch", "delete"], ["branch", "submit"],
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "merge"],
@@ -46,8 +46,8 @@ def test_cli_full_cycle(cli, module):
     assert "_module" not in document["result"]["task"]
 
     write(module.root / "calc.cpp", "int calc;\n")
-    assert cli("add", "calc.cpp", "--json").exit_code == 0
-    assert as_json(cli("commit", "--message", "計算を追加", "--json"))["result"]["branch"] == "task/1"
+    assert cli("task", "add", "calc.cpp", "--json").exit_code == 0
+    assert as_json(cli("task", "commit", "--message", "計算を追加", "--json"))["result"]["branch"] == "task/1"
     status = as_json(cli("status", "--json"))["result"]
     assert status["workspace"] == 1 and status["staged"] == []
 
@@ -67,8 +67,8 @@ def test_cli_full_cycle(cli, module):
 def test_task_drop_confirms_lost_commits(cli, module):
     as_json(cli("task", "new", "やめる作業", "--start", "--json"))
     write(module.root / "a.txt", "a\n")
-    assert cli("add", "a.txt").exit_code == 0
-    assert cli("commit", "--message", "途中").exit_code == 0
+    assert cli("task", "add", "a.txt").exit_code == 0
+    assert cli("task", "commit", "--message", "途中").exit_code == 0
     refused = cli("task", "drop", "--json")
     assert refused.exit_code == 1 and as_json(refused)["error"]["code"] == "confirmation_required"
     dropped = as_json(cli("task", "drop", "--close", "--yes", "--json"))["result"]
@@ -78,7 +78,7 @@ def test_task_drop_confirms_lost_commits(cli, module):
 
 
 def test_errors_are_reported_as_json(cli, module):
-    result = cli("commit", "--message", "x", "--json")
+    result = cli("task", "commit", "--message", "x", "--json")
     assert result.exit_code == 1
     document = as_json(result)
     assert document["ok"] is False and document["error"]["code"] == "not_in_workspace"
@@ -87,7 +87,7 @@ def test_errors_are_reported_as_json(cli, module):
 
 
 def test_human_output_and_usage_error(cli):
-    result = cli("commit")
+    result = cli("task", "commit")
     assert result.exit_code == 2  # --message がない
     result = cli("branch", "create", "develop")
     assert result.exit_code == 0 and "develop" in result.stdout

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from .._output import run_command
+from ..._output import run_command
 
 
 def command(
@@ -13,4 +13,4 @@ def command(
     def action(inv):
         return inv.module.require_workspace("ステージ").stage(*paths, all=all)
 
-    return run_command("add", action, lambda r: f"ステージ済み：{len(r.staged)} ファイル", json_output=json)
+    return run_command("task add", action, lambda r: f"ステージ済み：{len(r.staged)} ファイル", json_output=json)

@@ -119,7 +119,7 @@ def test_merge_conflicting_pull_request_guides_sync(repository):
     with pytest.raises(WorkError) as error:
         repository.pull_request(pr.number).merge()
     assert error.value.code == ErrorCode.PULL_REQUEST_CONFLICT
-    assert "ecobuild sync" in error.value.hint and "ecobuild push" in error.value.hint
+    assert "ecobuild sync" in error.value.hint and "ecobuild task push" in error.value.hint
 
 
 def test_clean_after_other_clone_merged_shared_workspace(repository, remote_and_clone, tmp_path):

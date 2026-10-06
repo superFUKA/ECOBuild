@@ -236,7 +236,7 @@ class Repository:
         """PRの内容を手元に取り出して確認する（切り離された状態。コミットはできない）。"""
         if not self.git.working_tree().clean:
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、PRを取り出せません。",
-                            hint=f"{self._op('commit')} か {self._op('stash')} で片付けてから実行してください。")
+                            hint=f"{self._op('task commit')} か {self._op('stash')} で片付けてから実行してください。")
         pr = self.github.get_pull_request(self.root, number)
         self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{number}/head")
         sha = self.git.output("rev-parse", "FETCH_HEAD")
@@ -312,8 +312,8 @@ class Repository:
             conflicted = self.git.working_tree().conflicted
             if conflicted:
                 raise WorkError(ErrorCode.MERGE_CONFLICT, f"PR #{number} の取り消しで衝突しました。",
-                                hint=f"作業空間 {workspace.branch} で、衝突したファイルを直して {self._op('add')} し、"
-                                     f"{self._op('commit')} --message で記録してください。",
+                                hint=f"作業空間 {workspace.branch} で、衝突したファイルを直して {self._op('task add')} し、"
+                                     f"{self._op('task commit')} --message で記録してください。",
                                 details=list(conflicted))
             raise _git._git_error(completed)
         self.hooks.after_switch(self)  # 取り消しで依存先の記録等が戻ることがある
@@ -377,7 +377,7 @@ class Repository:
         self.git.fetch()
         if not self.git.has_remote_branch(branch):
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。",
-                            hint=f"{self._op('push')} してから実行してください。")
+                            hint=f"{self._op('task push')} してから実行してください。")
         self.github.dispatch(self.root, workflow, ref=branch)
         return branch
 
@@ -536,7 +536,7 @@ class Repository:
             raise WorkError(
                 ErrorCode.DIRTY_WORKING_TREE,
                 "未コミットの変更があるため、作業空間を捨てられません。",
-                hint=f"残す変更は {self._op('commit')} か {self._op('stash')}、"
+                hint=f"残す変更は {self._op('task commit')} か {self._op('stash')}、"
                      f"捨てる変更は {self._op('restore')} で片付けてから実行してください。",
             )
         self.git.fetch()
@@ -616,8 +616,8 @@ class Repository:
                 raise WorkError(
                     ErrorCode.MERGE_CONFLICT,
                     f"{ref} の取り込みで衝突しました。",
-                    hint=f"衝突したファイルを直して {self._op('add')} で登録し、{self._op('sync continue')}"
-                         f"（または {self._op('commit')}）で完了してください。やめる場合は {self._op('sync abort')}。",
+                    hint=f"衝突したファイルを直して {self._op('task add')} で登録し、{self._op('sync continue')}"
+                         f"（または {self._op('task commit')}）で完了してください。やめる場合は {self._op('sync abort')}。",
                     details=list(outcome.conflicted),
                 )
             if not outcome.already_up_to_date:
@@ -633,7 +633,7 @@ class Repository:
             outcome = self.git.rebase_continue()
             if not outcome.merged:
                 raise WorkError(ErrorCode.MERGE_CONFLICT, "続きの載せ替えで衝突しました。",
-                                hint=f"ファイルを直して {self._op('add')} で登録し、"
+                                hint=f"ファイルを直して {self._op('task add')} で登録し、"
                                      f"もう一度 {self._op('sync continue')}。",
                                 details=list(outcome.conflicted))
             branch = self.git.current_branch() or branch
@@ -676,7 +676,7 @@ class Repository:
         outcome = self.git.stash_pop()
         if not outcome.merged:
             # 作業空間でないブランチでは add できない。登録を外せば（restore --staged）解決済みになる。
-            mark = (f"{self._op('add')} で登録" if self.current_workspace() is not None
+            mark = (f"{self._op('task add')} で登録" if self.current_workspace() is not None
                     else f"{self._op('restore')} --staged <パス> で解決済みに")
             raise WorkError(ErrorCode.MERGE_CONFLICT, "退避した変更を戻すときに衝突しました。",
                             hint=f"衝突したファイルを直して {mark}してください。退避した変更は残っているので、"
@@ -709,7 +709,7 @@ class Repository:
         return WorkError(
             ErrorCode.MERGE_CONFLICT,
             "前回の取り込みが衝突で止まっています。",
-            hint=f"ファイルを直して {self._op('add')} で登録し、{self._op('sync continue')} で続けるか、"
+            hint=f"ファイルを直して {self._op('task add')} で登録し、{self._op('sync continue')} で続けるか、"
                  f"{self._op('sync abort')} でやめてください。",
             details=list(self.git.working_tree().conflicted),
         )
@@ -718,8 +718,8 @@ class Repository:
         """衝突の印が残っていれば止める（gitは印が残ったままでも登録・コミットできてしまう）。"""
         if not markers:
             return
-        then = (f"{self._op('commit')} でコミットしてから、もう一度実行してください" if committed
-                else f"{self._op('add')} で登録してから、もう一度実行してください")
+        then = (f"{self._op('task commit')} でコミットしてから、もう一度実行してください" if committed
+                else f"{self._op('task add')} で登録してから、もう一度実行してください")
         raise WorkError(
             ErrorCode.CONFLICT_MARKERS,
             f"衝突の印（<<<<<<< 等）が残っています（{len(markers)} か所）。",
@@ -834,7 +834,7 @@ class Repository:
             if error.code == ErrorCode.PULL_REQUEST_CONFLICT:
                 error.hint = (
                     f"作業空間 {pr.head} で {self._op('sync')} を実行して {pr.base} を取り込み、衝突を解決して、"
-                    f"{self._op('push')} してから、もう一度実行してください。" if number is not None else
+                    f"{self._op('task push')} してから、もう一度実行してください。" if number is not None else
                     f"{pr.base} の変更を {pr.head} へ取り込んで衝突を解決してから、もう一度実行してください。")
             raise
         if pr.partial:
@@ -862,7 +862,7 @@ class Repository:
             raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "作業空間の作り直しで衝突しました。",
-                hint=f"ファイルを直して {self._op('add')} で登録し、{self._op('sync continue')} で続けてください"
+                hint=f"ファイルを直して {self._op('task add')} で登録し、{self._op('sync continue')} で続けてください"
                      f"（やめる場合は {self._op('sync abort')}）。",
                 details=list(outcome.conflicted),
             )

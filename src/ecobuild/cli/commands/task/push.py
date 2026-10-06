@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from .._output import run_command
+from ..._output import run_command
 
 
 def command(
@@ -12,4 +12,4 @@ def command(
     def action(inv):
         return inv.module.require_workspace("push").push(force=force)
 
-    return run_command("push", action, lambda r: f"pushしました：{r.branch} → {r.remote}", json_output=json)
+    return run_command("task push", action, lambda r: f"pushしました：{r.branch} → {r.remote}", json_output=json)

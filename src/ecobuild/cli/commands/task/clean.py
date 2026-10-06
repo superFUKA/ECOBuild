@@ -8,7 +8,7 @@ def command(
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """Issueが閉じた作業空間を片付けます（GitHubにないコミットがある作業空間は残します）。"""
+    """Issueが閉じた作業空間を片付けます（マージしていないコミットがある作業空間は残します）。"""
 
     def action(inv):
         module = inv.module

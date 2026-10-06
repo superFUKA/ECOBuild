@@ -170,7 +170,7 @@ def test_push_rejected_when_remote_has_other_commits(remote_and_clone):
     with pytest.raises(WorkError) as error:
         repo.push("task/7")
     assert error.value.code == ErrorCode.NOT_FAST_FORWARD
-    assert "ecobuild sync" in error.value.hint and "ecobuild push --force" in error.value.hint
+    assert "ecobuild sync" in error.value.hint and "ecobuild task push --force" in error.value.hint
     repo.push("task/7", force=True)
 
 

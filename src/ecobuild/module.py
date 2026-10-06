@@ -477,7 +477,7 @@ class Module:
             self.type.refresh()
             pending = self._uncommitted_managed_files()
             items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
-                                                      f"{COMMAND} add --all でコミットに含めてください）" if pending else ""))
+                                                      f"{COMMAND} task add --all でコミットに含めてください）" if pending else ""))
         except EcoBuildError as error:
             items.append(CheckItem("generated", False, error.message))
         git = self.repository.git
@@ -544,7 +544,7 @@ class Module:
             raise EcoBuildError(
                 ErrorCode.GENERATED_FILES_OUTDATED,
                 f"{self.type.generated_note or '生成ファイル'}・管理ファイルがコミットされていません。",
-                hint=f"{COMMAND} add --all でステージし、{COMMAND} commit でコミットしてから再実行してください。",
+                hint=f"{COMMAND} task add --all でステージし、{COMMAND} task commit でコミットしてから再実行してください。",
                 details=changed,
             )
 

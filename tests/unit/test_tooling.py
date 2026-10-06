@@ -18,7 +18,7 @@ def test_usage_errors_are_json_with_json_flag(capsys):
     code, out = run_main(["nosuch", "--json"], capsys)
     document = json.loads(out.out)
     assert code == 2 and document["error"]["code"] == "usage_error"
-    code, out = run_main(["commit", "--json"], capsys)
+    code, out = run_main(["task", "commit", "--json"], capsys)
     assert code == 2 and json.loads(out.out)["error"]["message"] == "--message を指定してください。"
     code, out = run_main(["nosuch"], capsys)
     assert code == 2 and out.out == ""

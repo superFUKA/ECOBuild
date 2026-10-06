@@ -180,7 +180,7 @@ class Git:
                 ErrorCode.NOT_FAST_FORWARD,
                 f"GitHubの {branch} に手元にないコミットがあるため、pushできません。",
                 hint=f"別の場所からpushされた変更なら {operation(self.command, 'sync')} で取り込んでから、"
-                     f"手元でコミットを書き換えた（--amend等）なら {operation(self.command, 'push --force')} で"
+                     f"手元でコミットを書き換えた（--amend等）なら {operation(self.command, 'task push --force')} で"
                      "pushしてください。",
                 details=completed.output,
             )
@@ -230,7 +230,7 @@ class Git:
             raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint=f"ファイルを直してから {operation(self.command, 'add')} で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'task add')} で登録してください。",
             )
         self.run("commit", "--quiet", "--no-edit")
         return self.output("rev-parse", "HEAD")
@@ -266,7 +266,7 @@ class Git:
             raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint=f"ファイルを直してから {operation(self.command, 'add')} で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'task add')} で登録してください。",
             )
         completed = self.run("rebase", "--continue", check=False)
         if completed.ok:

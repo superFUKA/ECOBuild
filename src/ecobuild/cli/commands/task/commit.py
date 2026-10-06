@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from .._output import missing, run_command
+from ..._output import missing, run_command
 
 
 def command(
@@ -16,4 +16,4 @@ def command(
     def action(inv):
         return inv.module.require_workspace("コミット").commit(message, all=all, amend=amend)
 
-    return run_command("commit", action, lambda r: f"コミットしました：{r.sha[:8]} {r.message}", json_output=json)
+    return run_command("task commit", action, lambda r: f"コミットしました：{r.sha[:8]} {r.message}", json_output=json)

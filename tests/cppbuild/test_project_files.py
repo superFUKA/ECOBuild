@@ -15,6 +15,7 @@ pytestmark = pytest.mark.cppbuild
 def module():
     base = short_temporary_directory()
     module = Module.create("Geo", directory=base, github=FakeGitHub(base / "gh"), app=True)
+    module.create_task("Project・ファイルの試験").start()  # ファイルを変える操作は作業空間でだけ
     yield module
     remove_tree(base)
 

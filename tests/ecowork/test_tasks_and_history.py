@@ -102,13 +102,59 @@ def test_log_revert_ignore_release(repository):
     repository.clean_workspaces()
     assert code_of(lambda: repository.revert(99)) == ErrorCode.NO_PULL_REQUEST
 
+    assert code_of(lambda: repository.ignore("*.log")) == ErrorCode.NOT_IN_WORKSPACE  # main では変えない
+    workspace = repository.create_task("除外").start()
     assert repository.ignore("*.log", "out/", "*.log") == ("*.log", "out/")
     assert repository.ignore("*.log") == ()
     assert (root / ".gitignore").read_text(encoding="utf-8").splitlines()[-2:] == ["*.log", "out/"]
+    finish(repository, workspace, "b.txt", "b\n", "除外")
 
     release = repository.create_release("v1.0.0", title="最初", notes="")
     assert release.tag == "v1.0.0" and [r.tag for r in repository.releases()] == ["v1.0.0"]
     assert code_of(lambda: repository.create_release("v1.0.0")) == ErrorCode.ALREADY_EXISTS
+    assert code_of(lambda: repository.create_release("v2", target="task/9")) == ErrorCode.INVALID_BASE
+
+
+def test_close_and_clean_keep_unfinished_work(repository):
+    """Issueを閉じるだけでは、マージしていない作業は消えない（作業の終わり方は merge か drop）。"""
+    root = repository.root
+    workspace = repository.create_task("途中").start()
+    commit_file(workspace, root, "a.txt", "a\n", "途中の変更")
+    workspace.push()
+    with pytest.raises(WorkError) as error:
+        repository.close_task(1)
+    assert error.value.code == ErrorCode.UNFINISHED_WORK and "task drop" in error.value.hint
+    pr = workspace.submit()
+    assert code_of(lambda: repository.close_task(1)) == ErrorCode.UNFINISHED_WORK  # 開いているPR
+    # GitHubで直接閉じられても、task clean はマージしていない作業空間を残す
+    repository.github.close_issue(root, 1)
+    result = repository.clean_workspaces()
+    assert result.removed == () and "マージしていないコミット" in result.skipped[0].reason
+    assert repository.github.pulls[pr.number].state == "open"
+    # 作業空間のないIssue・作業の終わったIssueは閉じられる
+    repository.create_task("作業なし")
+    assert repository.close_task(3).state == "closed"
+
+
+def test_stash_pop_stays_in_its_workspace(repository):
+    """別の作業空間で退避した変更は戻さない。main で退避した変更は作業空間へ持ち込める。"""
+    root = repository.root
+    write(root / "main.txt", "main\n")
+    repository.stash()
+    first = repository.create_task("一つ目").start()
+    repository.stash_pop()  # main で始めてしまった変更を、作業空間へ持ち込む
+    assert (root / "main.txt").exists()
+    first.stage(all=True)
+    first.commit("持ち込んだ変更")
+    write(root / "first.txt", "first\n")
+    repository.stash()
+    repository.create_task("二つ目").start()
+    with pytest.raises(WorkError) as error:
+        repository.stash_pop()
+    assert error.value.code == ErrorCode.UNFINISHED_WORK and "ecobuild task start 1" in error.value.hint
+    repository.task(1).start()
+    repository.stash_pop()
+    assert (root / "first.txt").exists()
 
 
 def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path):

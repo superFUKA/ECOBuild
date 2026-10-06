@@ -214,6 +214,7 @@ class Module:
         return self.repository.revert(number)
 
     def ignore(self, *patterns: str) -> tuple[str, ...]:
+        self.require_workspace("管理から外すファイルの指定")
         return self.repository.ignore(*patterns)
 
     def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
@@ -357,6 +358,7 @@ class Module:
         return ProfileList(dict(self.config.profiles), _config.load_local(self.root).get("profile"))
 
     def add_profile(self, name: str, profile: _config.Profile) -> ProfileList:
+        self.require_workspace("ビルド設定の追加")
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"ビルド設定の名前 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
@@ -369,6 +371,7 @@ class Module:
         return self.profiles()
 
     def remove_profile(self, name: str) -> ProfileList:
+        self.require_workspace("ビルド設定の削除")
         if name not in self.config.profiles:
             raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。")
         self._save_config(self.config.with_profiles({k: v for k, v in self.config.profiles.items() if k != name}))
@@ -397,6 +400,7 @@ class Module:
         return _cppbuild.list_projects(self.root)
 
     def add_project(self, name: str, kind: str) -> FilesChanged:
+        self.require_workspace("Projectの追加")
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
@@ -405,6 +409,7 @@ class Module:
         return FilesChanged("project add", files, name)
 
     def remove_project(self, name: str) -> FilesChanged:
+        self.require_workspace("Projectの削除")
         projects = self.config.projects
         if name in (projects.library, projects.test, projects.app):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
@@ -417,11 +422,13 @@ class Module:
         return FilesChanged("project remove", (directory.relative_to(self.root).as_posix(),), name)
 
     def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
+        self.require_workspace("PCHの設定")
         header = _cppbuild.set_pch(self.root, project, enable=enable)
         return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
 
     def add_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         """Projectにファイルを足す。ライブラリのソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。"""
+        self.require_workspace("ファイルの追加")
         project, relative = self._in_project(path)
         header = self._header_for(project, relative)
         added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
@@ -432,6 +439,7 @@ class Module:
         return FilesChanged("file add", tuple(added), project)
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
+        self.require_workspace("ファイルの削除")
         project, relative = self._in_project(path)
         removed = [_cppbuild.remove_file(self.root, project, relative)]
         mirror = self._test_mirror(project, relative)
@@ -441,6 +449,7 @@ class Module:
         return FilesChanged("file remove", tuple(removed), project)
 
     def move_file(self, source: Path | str, destination: Path | str, *, test: bool = True) -> FilesChanged:
+        self.require_workspace("ファイルの移動")
         project, relative = self._in_project(source)
         other, target = self._in_project(destination)
         if other != project:
@@ -543,6 +552,7 @@ class Module:
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:
         """GitHubにあるモジュール（「名前」か「所有者/名前」）をリンクし、deps/ へcloneする。"""
+        self.require_workspace("依存先のリンク")
         url = self.repository.github.get_repository(repository).clone_url
         target = project or self.config.projects.library
         name = _cppbuild.link(self.root, target, url, shared=shared)
@@ -551,6 +561,7 @@ class Module:
 
     def unlink(self, name: str) -> LinkResult:
         """依存先のリンクを外す。手元のcloneは、失われる変更がなければ消す。"""
+        self.require_workspace("依存先のリンクの解除")
         source = self._source(name)
         projects = _cppbuild.unlink(self.root, name)
         directory = Path(source.directory)
@@ -564,6 +575,7 @@ class Module:
 
     def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
         """依存先の記録を、GitHubの最新にする（I-018）。手元のcloneも合わせ、生成ファイルを更新する。"""
+        self.require_workspace("依存先の更新")
         names = [name] if name else [s.name for s in _cppbuild.git_sources(self.root)]
         if name:
             self._source(name)
@@ -616,6 +628,7 @@ class Module:
 
     def write_agents(self) -> FilesChanged:
         """AGENTS.md（エージェント向けの使い方）を作り直す。"""
+        self.require_workspace("AGENTS.md の作成")
         (self.root / "AGENTS.md").write_text(_docs.agents(self.config), encoding="utf-8", newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
 
@@ -624,6 +637,7 @@ class Module:
 
         非公開の依存先は、CIの GITHUB_TOKEN では取得できない。その依存先を返す（案内に使う）。
         """
+        self.require_workspace("CIの設定の作成")
         path = self.root / _docs.CI_WORKFLOW
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_docs.ci_workflow(self.config), encoding="utf-8", newline="\n")

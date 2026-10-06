@@ -17,6 +17,15 @@ from .errors import ErrorCode, WorkError, operation
 
 _REVIEW_KEY = "ecowork.review"              # task review で確認中のPR（手元だけ）
 _REVIEW_RETURN_KEY = "ecowork.review-return"
+_STASH_BRANCH = re.compile(r"^(?:WIP on|On) ([^:]+):")
+
+
+def _stash_branch(message: str) -> str | None:
+    """退避した変更のメッセージ（git stash list の %gs）から、退避したブランチ。"""
+    match = _STASH_BRANCH.match(message)
+    return None if match is None or match.group(1) == "(no branch)" else match.group(1)
+
+
 _PR_IN_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")
 
 
@@ -188,8 +197,30 @@ class Repository:
         return self.task(number)
 
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
+        """Issueを閉じる。作業空間に、開いているPRかマージしていないコミットがあれば止める。
+
+        作業の終わり方は「task merge で反映する」か「task drop で捨てる」のどちらか（Issueだけ閉じると、
+        作業空間の変更が宙に浮く）。
+        """
         if self.task(number).state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{number} は既に閉じています。")
+        branch = ws.workspace_branch(number)
+        self.git.fetch()
+        local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
+        if local or remote:
+            base = self.git.get_config(ws.base_key(branch)) or self.default_base
+            opened = [p.number for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "open"]
+            lost = self._lost_commits(branch, base, local=local, remote=remote)
+            if opened or lost:
+                raise WorkError(
+                    ErrorCode.UNFINISHED_WORK,
+                    f"Issue #{number} の作業空間 {branch} に、" +
+                    ("開いているPR（" + ", ".join(f"#{n}" for n in opened) + "）" if opened else "マージしていないコミット") +
+                    "があります。",
+                    hint=f"反映するなら {self._op('task merge')}、やめるなら {self._op('task drop')} --issue {number} "
+                         "--close で閉じてください。",
+                    details=list(lost),
+                )
         self.github.close_issue(self.root, number, not_planned=not_planned)
         return self.task(number)
 
@@ -289,7 +320,8 @@ class Repository:
         return ws.RevertResult(number, task.number, workspace.branch, self.git.output("rev-parse", "HEAD"))
 
     def ignore(self, *patterns: str) -> tuple[str, ...]:
-        """.gitignore に追加する（既にあるものは足さない）。足したものを返す。"""
+        """.gitignore に追加する（既にあるものは足さない）。足したものを返す。作業空間でだけ。"""
+        self.require_workspace("管理から外すファイルの指定")
         path = self.root / ".gitignore"
         text = path.read_text(encoding="utf-8") if path.exists() else ""
         existing = {line.strip() for line in text.splitlines()}
@@ -300,8 +332,12 @@ class Repository:
         return added
 
     def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
-        return self.github.create_release(self.root, tag=tag, title=title, notes=notes,
-                                          target=target or self.default_base)
+        """リリースを作る。タグを付けられるのは作業空間でないブランチ（PRで反映済みの内容）だけ。"""
+        target = target or self.default_base
+        if ws.is_workspace_branch(target):
+            raise WorkError(ErrorCode.INVALID_BASE, f"作業空間 {target} にはリリースのタグを付けられません。",
+                            hint="PRで反映した、作業空間でないブランチ（main・develop等）を指定してください。")
+        return self.github.create_release(self.root, tag=tag, title=title, notes=notes, target=target)
 
     def releases(self):
         return self.github.list_releases(self.root)
@@ -563,8 +599,23 @@ class Repository:
         return ws.StashResult(stashed, self._stash_messages())
 
     def stash_pop(self) -> ws.StashResult:
-        if not self.git.stash_list():
+        """最後に退避した変更を戻す。
+
+        別の作業空間で退避したものは戻さない（変更が別のIssueの作業に混ざるのを防ぐ。task start と同じ考え方）。
+        作業空間でないブランチ（main等）で退避したものは、作業空間へ戻してよい（誤って始めた変更の持ち込み）。
+        """
+        entries = self.git.stash_list()
+        if not entries:
             raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
+        source = _stash_branch(entries[0].message)
+        current = self.git.current_branch()
+        if source is not None and ws.is_workspace_branch(source) and source != current:
+            raise WorkError(
+                ErrorCode.UNFINISHED_WORK,
+                f"最後に退避した変更は作業空間 {source} のものです（今は {current or '切り離された状態'}）。",
+                hint=f"{self._op('task start')} {ws.workspace_number(source)} で戻ってから {self._op('stash pop')} "
+                     "してください。",
+            )
         outcome = self.git.stash_pop()
         if not outcome.merged:
             # 作業空間でないブランチでは add できない。登録を外せば（restore --staged）解決済みになる。
@@ -620,13 +671,19 @@ class Repository:
         )
 
     def _unsafe_to_remove(self, branch: str) -> str | None:
-        """消すと失われるコミットがあれば理由を返す。"""
+        """消すと失われるコミット（作成元にもマージ済みのPRにも入っていないもの）があれば理由を返す。
+
+        GitHubにpush済みでも、マージしていなければ消さない（片付けは反映した作業空間だけが対象）。
+        """
+        base = self.git.get_config(ws.base_key(branch)) or self.default_base
+        remote = self.git.has_remote_branch(branch)
+        if not self._lost_commits(branch, base, local=True, remote=remote):
+            return None
         tip = self.git.rev_parse(branch)
-        if self.git.has_remote_branch(branch) and self.git.is_ancestor(tip, f"{_git.REMOTE}/{branch}"):
-            return None
-        if any(self.git.is_ancestor(tip, sha) for sha in self._merged_heads(branch)):
-            return None
-        return "GitHubにないコミットがあります"
+        pushed = remote and self.git.is_ancestor(tip, f"{_git.REMOTE}/{branch}")
+        number = ws.workspace_number(branch)
+        return ("マージしていないコミットがあります" if pushed else "GitHubにないコミットがあります") + \
+            f"（捨てる場合は {self._op('task drop')} --issue {number}）"
 
     def _merged_heads(self, branch: str) -> list[str]:
         """マージ済みのPRの最後のコミット。別のcloneでpushされて手元にないものは、GitHubのPRの参照から取得する。"""

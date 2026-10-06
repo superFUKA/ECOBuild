@@ -131,6 +131,10 @@ def test_link_deps_and_work_version(short_tmp):
     github.others["STL"] = stl_github.bare
     ecs = Module.create("ECS", directory=short_tmp, github=github)
     with pytest.raises(Exception) as error:
+        ecs.link("STL")
+    assert error.value.code == "not_in_workspace"  # 管理ファイルを変える操作は作業空間でだけ
+    ecs.create_task("STLを使う").start()
+    with pytest.raises(Exception) as error:
         ecs.link("NoSuch")
     assert error.value.code == "repository_not_found"
 

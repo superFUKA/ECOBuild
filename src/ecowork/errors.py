@@ -23,6 +23,7 @@ class ErrorCode:
     PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
     PULL_REQUEST_CONFLICT = "pull_request_conflict"
     CHECKS_FAILED = "checks_failed"
+    UNFINISHED_WORK = "unfinished_work"
     ALREADY_EXISTS = "already_exists"
     REPOSITORY_NOT_FOUND = "repository_not_found"
     COMMITS_WOULD_BE_LOST = "commits_would_be_lost"

@@ -1,5 +1,5 @@
 #pragma once
 
-// プリコンパイル済みヘッダー：よく使う標準ライブラリのヘッダーをここに書く。
+// Precompiled header: list the standard library headers used often in this Project.
 #include <string>
 #include <vector>

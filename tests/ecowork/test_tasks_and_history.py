@@ -122,3 +122,16 @@ def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path
     finish(repository, repository.create_task("先に入る").start(), "b.txt", "b\n", "b")
     assert dedicated.status().base_behind is None
     assert dedicated.status(fetch=True).base_behind == 1
+
+
+def test_merge_stops_when_checks_failed(repository):
+    """CIが失敗したPRはマージしない（--ignore-checks で続ける）。仮運用3回目で追加。"""
+    workspace = repository.create_task("t").start()
+    commit_file(workspace, repository.root, "a.txt", "a\n", "a")
+    pr = workspace.submit()
+    repository.github.activity[pr.number] = PullRequestActivity((), (), (Check("build", "completed", "failure"),),
+                                                                "MERGEABLE")
+    with pytest.raises(WorkError) as error:
+        repository.pull_request().merge()
+    assert error.value.code == ErrorCode.CHECKS_FAILED and "--ignore-checks" in error.value.hint
+    assert repository.pull_request().merge(ignore_checks=True).closed_issue == 1

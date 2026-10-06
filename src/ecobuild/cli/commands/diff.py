@@ -15,4 +15,5 @@ def command(
     if gui:
         return open_window("diff", paths, json)
     return run_command("diff", lambda inv: inv.module.diff(paths, staged=staged, base=base),
-                       lambda r: r or "差分はありません", json_output=json)
+                       lambda r: r or ("作成元からのコミットの差分はありません（未コミットの変更は ecobuild diff）"
+                                       if base else "差分はありません"), json_output=json)

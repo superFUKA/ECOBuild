@@ -130,8 +130,9 @@ class PullRequest:
         partial = re.search(r"(?im)^refs #\d+", info.body) is not None
         return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, repository)
 
-    def merge(self) -> "MergeResult":
-        return self._repository._merge_pull_request(self)
+    def merge(self, *, ignore_checks: bool = False) -> "MergeResult":
+        """ignore_checks：CIが失敗していてもマージする。"""
+        return self._repository._merge_pull_request(self, ignore_checks=ignore_checks)
 
 
 @dataclass(frozen=True)

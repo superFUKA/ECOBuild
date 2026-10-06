@@ -20,7 +20,7 @@ from ecowork.git import Git
 from . import _cppbuild, _docs
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, CheckItem, CheckReport, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
+from .results import BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
 
 COMMAND = "ecobuild"
 
@@ -64,6 +64,10 @@ class _CppBuildHooks(Hooks):
 
     def after_sync(self, repository: Repository) -> tuple[tuple[DependencyChange, ...], bool]:
         return self._module._after_sync()
+
+    def after_switch(self, repository: Repository) -> None:
+        # 切り替えた先の記録に、手元の依存先と生成ファイルを合わせる（作業版・変更のある依存先は触らない）。
+        self._module._after_sync()
 
     def before_submit(self, repository: Repository) -> None:
         self._module._check_generated_files()
@@ -505,11 +509,11 @@ class Module:
             clone = Git(source.directory, command=COMMAND)
             head = clone.rev_parse("HEAD")
             branch = clone.current_branch()
-            if branch is not None:
-                # 依存先の中で task start 等をした作業版（I-019）。記録の版へ切り替えない。
+            if branch is not None and ws.is_workspace_branch(branch):
+                # 依存先の中で task start をした作業版（I-019）。記録の版へ切り替えない。
                 changes.append(DependencyChange(source.name, "skipped", f"作業版です（{branch}）"))
                 continue
-            if head == source.revision:
+            if head == source.revision and branch is None:
                 changes.append(DependencyChange(source.name, "unchanged"))
                 continue
             if not clone.working_tree().clean:
@@ -600,7 +604,7 @@ class Module:
         clone = Git(directory, command=COMMAND)
         head = clone.rev_parse("HEAD")
         branch = clone.current_branch()
-        if branch is not None:
+        if branch is not None and ws.is_workspace_branch(branch):
             state = "working"
         elif not clone.working_tree().clean:
             state = "modified"
@@ -615,21 +619,39 @@ class Module:
         (self.root / "AGENTS.md").write_text(_docs.agents(self.config), encoding="utf-8", newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
 
-    def write_ci(self) -> FilesChanged:
-        """GitHub Actions のワークフローを作る（ECOBuildなしでCMakeだけで構成・ビルド・テスト）。"""
+    def write_ci(self) -> CiInitResult:
+        """GitHub Actions のワークフローを作る（ECOBuildなしでCMakeだけで構成・ビルド・テスト）。
+
+        非公開の依存先は、CIの GITHUB_TOKEN では取得できない。その依存先を返す（案内に使う）。
+        """
         path = self.root / _docs.CI_WORKFLOW
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_docs.ci_workflow(self.config), encoding="utf-8", newline="\n")
-        return FilesChanged("ci init", (_docs.CI_WORKFLOW,))
+        private = []
+        for source in _cppbuild.git_sources(self.root):
+            name = source.url.removesuffix(".git").split("github.com/")[-1]
+            try:
+                if self.repository.github.is_private(name):
+                    private.append(source.name)
+            except Exception:  # GitHub以外・見つからない等は案内しない
+                continue
+        return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
 
     def check(self, *, build: bool = True) -> CheckReport:
-        """PRを出す前の確認：生成ファイル・衝突の印・ビルド・テスト。失敗があれば check_failed。"""
+        """PRを出す前の確認：生成ファイル・衝突の印・ビルド・テスト。失敗があれば check_failed。
+
+        コミットの前に使ってよい：生成ファイルは最新にし、未コミットなら知らせるだけ（コミットは task submit が確かめる）。
+        """
         items = []
         try:
-            self._check_generated_files()
-            items.append(CheckItem("generated", True))
+            _cppbuild.update(self.root)
+            tree = self.repository.git.working_tree()
+            pending = sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked)
+                              if _cppbuild.is_generated_or_managed(p)})
+            items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
+                                                      f"{COMMAND} add --all でコミットに含めてください）" if pending else ""))
         except EcoBuildError as error:
-            items.append(CheckItem("generated", False, f"{error.message} {', '.join(error.details or [])}"))
+            items.append(CheckItem("generated", False, error.message))
         git = self.repository.git
         workspace = self.current_workspace()
         markers = git.conflict_markers("HEAD")

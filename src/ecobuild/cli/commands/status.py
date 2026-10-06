@@ -14,6 +14,8 @@ def command(
             where = f"PR #{r.reviewing} を確認中（ecobuild task review --done で戻る）"
         elif r.workspace:
             where = f"作業空間 #{r.workspace}（{r.branch}、作成元 {r.base}）"
+        elif r.branch is None:
+            where = "ブランチにいません（切り離された状態。依存先のcloneなら記録の版。作業は ecobuild task start）"
         else:
             where = f"ブランチ {r.branch}"
         files = [f"  ステージ済み：{p}" for p in r.staged] + [f"  変更：{p}" for p in r.unstaged] \

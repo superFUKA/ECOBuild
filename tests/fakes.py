@@ -46,6 +46,9 @@ class FakeGitHub:
         full = name if "/" in name else f"{self.owner}/{name}"
         return RepositoryInfo(full, str(bare), f"https://example.invalid/{full}")
 
+    def is_private(self, name):
+        return self.private if getattr(self, "bare", None) is not None and name.endswith(self.bare.stem) else True
+
     def use_bare(self, bare: Path) -> None:
         self.bare = bare
 

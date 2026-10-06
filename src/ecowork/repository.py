@@ -30,6 +30,12 @@ class Hooks:
         """
         return None
 
+    def after_switch(self, repository: "Repository") -> None:
+        """作業空間の作成・切り替え・片付け等で、手元の内容（ブランチ）が変わった後。
+
+        依存先の版の記録等が変わることがあるため、利用側が手元を合わせる口（sync の after_sync と同じ考え方）。
+        """
+
     def before_submit(self, repository: "Repository") -> None:
         """作業空間の反映（submit）で、pushする前。止めるときは WorkError を投げる。"""
 
@@ -279,6 +285,7 @@ class Repository:
                                      f"{self._op('commit')} --message で記録してください。",
                                 details=list(conflicted))
             raise _git._git_error(completed)
+        self.hooks.after_switch(self)  # 取り消しで依存先の記録等が戻ることがある
         return ws.RevertResult(number, task.number, workspace.branch, self.git.output("rev-parse", "HEAD"))
 
     def ignore(self, *patterns: str) -> tuple[str, ...]:
@@ -649,6 +656,7 @@ class Repository:
         else:
             self.git.create_branch(name, f"{_git.REMOTE}/{name}", switch=True)
             self.git.set_upstream(name)
+        self.hooks.after_switch(self)
 
     def _submit_workspace(self, workspace: ws.Workspace, *, title: str | None, partial: bool) -> ws.PullRequest:
         self.hooks.before_submit(self)
@@ -689,10 +697,17 @@ class Repository:
         )
         return ws.PullRequest._from(self, info)
 
-    def _merge_pull_request(self, pr: ws.PullRequest) -> ws.MergeResult:
+    def _merge_pull_request(self, pr: ws.PullRequest, *, ignore_checks: bool = False) -> ws.MergeResult:
         current = self.github.get_pull_request(self.root, pr.number)
         if current.state != "open":
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{current.state}）。")
+        if not ignore_checks:
+            failed = [c.name for c in self.github.pull_request_activity(self.root, pr.number).checks
+                      if c.conclusion in ("failure", "cancelled", "timed_out", "action_required")]
+            if failed:
+                raise WorkError(ErrorCode.CHECKS_FAILED, f"PR #{pr.number} のCIが失敗しています：{', '.join(failed)}",
+                                hint=f"直してpushし、CIが通ってから実行してください（{self._op('task status')} で確認）。"
+                                     "失敗を承知でマージする場合は --ignore-checks。")
         number = ws.workspace_number(pr.head)
         try:
             if number is None:
@@ -815,6 +830,7 @@ class Repository:
                 self.git.set_upstream(branch)
         workspace = self.current_workspace()
         assert workspace is not None
+        self.hooks.after_switch(self)
         return workspace
 
     def __repr__(self) -> str:

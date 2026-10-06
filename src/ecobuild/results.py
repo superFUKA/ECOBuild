@@ -44,6 +44,12 @@ class LinkResult:
 
 
 @dataclass(frozen=True)
+class CiInitResult:
+    path: str
+    private_dependencies: tuple[str, ...]   # CIで取得するにはトークンが要る依存先
+
+
+@dataclass(frozen=True)
 class CheckItem:
     name: str                        # generated / conflict_markers / build / test
     ok: bool

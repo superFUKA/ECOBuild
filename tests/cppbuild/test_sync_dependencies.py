@@ -165,3 +165,36 @@ def test_link_deps_and_work_version(short_tmp):
     with pytest.raises(Exception) as error:
         ecs.unlink("STL")
     assert error.value.code == "dependency_not_found"
+
+
+def test_switching_aligns_dependencies(short_tmp):
+    """task start・task clean で記録が変わる先へ移ったら、手元の依存先も合わせる（仮運用3回目で見つかった）。"""
+    stl_github = FakeGitHub(short_tmp / "gh1")
+    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["STL"] = stl_github.bare
+    ecs = Module.create("ECS", directory=short_tmp, github=github)
+    workspace = ecs.create_task("STLを使う").start()
+    ecs.link("STL")
+    workspace.stage(all=True)
+    workspace.commit("STLをリンク")
+    workspace.submit()
+    ecs.pull_request().merge()
+    ecs.clean_workspaces()
+
+    second = short_tmp / "second"
+    second.mkdir()
+    other, _ = Module.clone("ECS", directory=second, github=github)
+    first = git(other.root / "deps" / "STL", "rev-parse", "HEAD")
+
+    newer = new_stl_commit(stl.root, "#pragma once\n// v2\n")
+    update = ecs.create_task("STLを最新に").start()
+    ecs.update_dependencies()
+    update.stage(all=True)
+    update.commit("STLを最新に")
+    update.submit()
+    ecs.pull_request().merge()
+
+    assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == first
+    other.create_task("続きの作業").start()  # 最新のmainから作業空間を作る → 依存先も新しい記録へ
+    assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == newer

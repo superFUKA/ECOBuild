@@ -250,6 +250,10 @@ class ProjectSummary:
 def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
     solution = open_solution(root)
     by_guid = _guid_names(solution)
+    for source in solution.git_sources():
+        if source.present:  # 依存先のProjectは「依存先の名前/Project名」で示す
+            by_guid.update({guid: f"{source.name}/{name}"
+                            for guid, name in _guid_names(Solution.open(source.config)).items()})
     result = []
     for name, directory in solution.settings.get().projects.items():
         data = solution.get_project(name).settings.get()

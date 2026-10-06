@@ -1,7 +1,5 @@
 """Project・ファイル・名前付きビルド設定（範囲外の機能）。本物のCppBuildでビルドまで確かめる。"""
 
-import os
-
 import pytest
 
 from helpers import git, remove_tree, short_temporary_directory, write
@@ -101,11 +99,16 @@ def test_profiles_clean_and_rebuild(module):
     assert module.profiles().selected is None and module.build_options()[0].configuration == "Debug"
 
 
-@pytest.mark.skipif(os.name != "nt", reason="共有ライブラリの書き出しの確認はWindowsのみ")
-def test_shared_profile(module):
+def test_shared_profile_builds_library_as_shared(module):
+    """共有ライブラリにする設定は、ライブラリを共有ライブラリとしてビルドする。
+
+    Windowsで関数を持つライブラリを使う側までリンクするには、CppBuildが書き出し（WINDOWS_EXPORT_ALL_SYMBOLS）を
+    設定する必要がある（CppBuildへの依頼。仮運用3回目で見つかった）。ここではライブラリのビルドまでを確かめる。
+    """
     module.add_profile("dll", Profile("Debug", True, 1))
     try:
-        assert module.test(profile="dll").failed == 0
+        artifacts = module.build(project="Geo", profile="dll").artifacts
+        assert any(a.endswith((".dll", ".so")) for a in artifacts)
     finally:
         module.remove_profile("dll")
 
@@ -118,12 +121,17 @@ def test_docs_ci_and_check(module):
     assert "cmake -S . -B build" in (root / "README.md").read_text(encoding="utf-8")
     (root / "AGENTS.md").unlink()
     assert module.write_agents().paths == ("AGENTS.md",) and (root / "AGENTS.md").exists()
-    assert module.write_ci().paths == (".github/workflows/ecobuild.yml",)
+    ci = module.write_ci()
+    assert (ci.path, ci.private_dependencies) == (".github/workflows/ecobuild.yml", ())
     assert "windows-latest" in (root / ".github/workflows/ecobuild.yml").read_text(encoding="utf-8")
 
     report = module.check()
     assert [(i.name, i.ok) for i in report.items] == [("generated", True), ("conflict_markers", True),
                                                       ("build", True), ("test", True)]
+    module.add_project("GeoTool", "app")  # 生成ファイルが未コミットでも、コミット前の確認は通る（知らせるだけ）
+    report = module.check(build=False)
+    assert report.ok and "未コミット" in report.items[0].detail
+    module.remove_project("GeoTool")
     source = root / "Geo/src/Geo.cpp"
     original = source.read_text(encoding="utf-8")
     source.write_text(original + "<<<<<<< HEAD\n=======\n>>>>>>> origin/main\n", encoding="utf-8")

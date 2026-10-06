@@ -163,6 +163,17 @@ class CleanResult:
 
 
 @dataclass(frozen=True)
+class DropResult:
+    number: int
+    branch: str
+    lost_commits: tuple[str, ...]    # 作成元に入っていないため失われるコミット（件名）
+    closed_pull_requests: tuple[int, ...]
+    switched_to: str | None          # 今いる作業空間を捨てた場合、移った先
+    issue_closed: bool               # 「対応しない」として閉じたか
+    dry_run: bool
+
+
+@dataclass(frozen=True)
 class SyncResult:
     branch: str
     merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照。sync continueでは merge／rebase

@@ -19,6 +19,7 @@ class FakeGitHub:
         self.root.mkdir(parents=True, exist_ok=True)
         self.issues: dict[int, IssueInfo] = {}
         self.pulls: dict[int, PullRequestInfo] = {}
+        self.not_planned: set[int] = set()   # 「対応しない」として閉じたIssue
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -47,8 +48,10 @@ class FakeGitHub:
             raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
         return self.issues[number]
 
-    def close_issue(self, repo, number):
+    def close_issue(self, repo, number, *, not_planned=False):
         self.issues[number] = replace(self.issues[number], state="closed")
+        if not_planned:
+            self.not_planned.add(number)
 
     # PR
     def create_pull_request(self, repo, *, head, base, title, body):
@@ -71,6 +74,9 @@ class FakeGitHub:
         if pr.state != "open":
             return pr
         return replace(pr, head_sha=git(self.bare, "rev-parse", pr.head))
+
+    def close_pull_request(self, repo, number):
+        self.pulls[number] = replace(self._current(self.pulls[number]), state="closed")
 
     def merge_pull_request(self, repo, number, *, squash, subject):
         pr = self._current(self.pulls[number])

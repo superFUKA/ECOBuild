@@ -157,6 +157,10 @@ class Module:
     def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
         return self.repository.clean_workspaces(dry_run=dry_run)
 
+    def drop_workspace(self, number: int | None = None, *, close: bool = False, discard: bool = False,
+                       dry_run: bool = False) -> ws.DropResult:
+        return self.repository.drop_workspace(number, close=close, discard=discard, dry_run=dry_run)
+
     def sync(self) -> SyncResult:
         """GitHubの最新を取り込み、依存先の版と生成ファイルを最新にする。"""
         return self._sync_result(self.repository.sync())

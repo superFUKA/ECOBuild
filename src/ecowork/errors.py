@@ -19,6 +19,7 @@ class ErrorCode:
     NOTHING_TO_SUBMIT = "nothing_to_submit"
     PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
     ALREADY_EXISTS = "already_exists"
+    COMMITS_WOULD_BE_LOST = "commits_would_be_lost"
     TOOL_MISSING = "tool_missing"
     GIT_ERROR = "git_error"
     GITHUB_ERROR = "github_error"

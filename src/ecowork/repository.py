@@ -215,6 +215,58 @@ class Repository:
             removed.append(branch)
         return ws.CleanResult(tuple(removed), tuple(skipped), switched_to, dry_run)
 
+    def drop_workspace(self, number: int | None = None, *, close: bool = False, discard: bool = False,
+                       dry_run: bool = False) -> ws.DropResult:
+        """PRを出さずに作業をやめる：開いているPRを閉じ、作業空間を手元とGitHubから消す。
+
+        numberを省略すると今いる作業空間。今いる作業空間なら作成元へ移って最新にする。
+        Issueは既定で開いたまま（後で task start で最初からやり直せる）。closeで「対応しない」として閉じる。
+        作成元に入っていないコミットは失われるため、discardがなければ止める。
+        dry_runは何もせず、行う内容（失われるコミット等）を返す。
+        """
+        if number is None:
+            workspace = self.require_workspace("作業の中断")
+            number, branch = workspace.number, workspace.branch
+        else:
+            branch = ws.workspace_branch(number)
+        current = self.git.current_branch()
+        if current == branch and not self.git.working_tree().clean:
+            raise WorkError(
+                ErrorCode.DIRTY_WORKING_TREE,
+                "未コミットの変更があるため、作業空間を捨てられません。",
+                hint=f"残す変更は {self._op('commit')} か {self._op('stash')}、"
+                     f"捨てる変更は {self._op('restore')} で片付けてから実行してください。",
+            )
+        self.git.fetch()
+        local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
+        if not (local or remote):
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作業空間 {branch} がありません。")
+        base = self.git.get_config(ws.base_key(branch)) or self.default_base
+        lost = self._lost_commits(branch, base, local=local, remote=remote)
+        pulls = tuple(p.number for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "open")
+        switched_to = base if current == branch else None
+        if dry_run:
+            return ws.DropResult(number, branch, lost, pulls, switched_to, close, True)
+        if lost and not discard:
+            raise WorkError(
+                ErrorCode.COMMITS_WOULD_BE_LOST,
+                f"{branch} には {base} に入っていないコミットが {len(lost)} 件あり、捨てると失われます。",
+                hint="捨ててよいか確認してから実行してください。",
+                details=list(lost),
+            )
+        for pull in pulls:
+            self.github.close_pull_request(self.root, pull)
+        if switched_to is not None:
+            self._switch_to_latest(switched_to)
+        if local:
+            self.git.delete_branch(branch, force=True)
+        if remote:
+            self.git.push_delete(branch)
+        self.git.unset_config(ws.base_key(branch))
+        if close and self.github.get_issue(self.root, number).state == "open":
+            self.github.close_issue(self.root, number, not_planned=True)
+        return ws.DropResult(number, branch, lost, pulls, switched_to, close, False)
+
     # 最新化・退避・取り消し ------------------------------------------------------
 
     def sync(self) -> ws.SyncResult:
@@ -322,6 +374,15 @@ class Repository:
         if any(self.git.rev_parse(sha) and self.git.is_ancestor(tip, sha) for sha in merged_heads):
             return None
         return "GitHubにないコミットがあります"
+
+    def _lost_commits(self, branch: str, base: str, *, local: bool, remote: bool) -> tuple[str, ...]:
+        """作業空間を消すと失われるコミット（作成元にも、マージ済みのPRにも入っていないもの）の件名。"""
+        tips = ([branch] if local else []) + ([f"{_git.REMOTE}/{branch}"] if remote else [])
+        kept = [f"{_git.REMOTE}/{base}" if self.git.has_remote_branch(base) else base]
+        kept += [p.head_sha for p in self.github.pull_requests_for_branch(self.root, branch)
+                 if p.state == "merged" and p.head_sha and self.git.rev_parse(p.head_sha)]
+        kept = [ref for ref in kept if self.git.rev_parse(ref)]
+        return tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
 
     def _switch_to_latest(self, name: str) -> None:
         if self.git.has_local_branch(name):

@@ -32,7 +32,7 @@ def test_every_command_has_help():
                  ["sync"], ["sync", "continue"], ["sync", "abort"], ["stash"], ["stash", "pop"], ["stash", "list"],
                  ["branch", "create"], ["branch", "list"], ["branch", "delete"], ["branch", "submit"],
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "merge"],
-                 ["task", "clean"]):
+                 ["task", "clean"], ["task", "drop"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -62,6 +62,19 @@ def test_cli_full_cycle(cli, module):
     cleaned = as_json(cli("task", "clean", "--yes", "--json"))["result"]
     assert cleaned["removed"] == ["task/1"] and cleaned["switched_to"] == "main"
     assert git(module.root, "branch", "--show-current") == "main"
+
+
+def test_task_drop_confirms_lost_commits(cli, module):
+    as_json(cli("task", "new", "やめる作業", "--start", "--json"))
+    write(module.root / "a.txt", "a\n")
+    assert cli("add", "a.txt").exit_code == 0
+    assert cli("commit", "--message", "途中").exit_code == 0
+    refused = cli("task", "drop", "--json")
+    assert refused.exit_code == 1 and as_json(refused)["error"]["code"] == "confirmation_required"
+    dropped = as_json(cli("task", "drop", "--close", "--yes", "--json"))["result"]
+    assert dropped["lost_commits"] == ["途中"] and dropped["switched_to"] == "main" and dropped["issue_closed"]
+    human = cli("task", "drop")
+    assert human.exit_code == 1  # もう作業空間にいない
 
 
 def test_errors_are_reported_as_json(cli, module):

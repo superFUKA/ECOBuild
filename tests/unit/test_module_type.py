@@ -19,7 +19,7 @@ def test_core_does_not_import_cppbuild():
         for node in ast.walk(tree):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module or ""] if isinstance(node, ast.ImportFrom) else []
-            assert not any(n.split(".")[0] in ("cppbuild", "ecobuild_cpp") for n in names), path
+            assert not any(n.split(".")[0] in ("cppbuild", "ecobuild_cpp", "ecobuild_generic") for n in names), path
 
 
 def test_registry_lists_cpp():

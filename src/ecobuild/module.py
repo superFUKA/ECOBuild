@@ -141,6 +141,8 @@ class Module:
     @property
     def project_names(self) -> tuple[str, ...]:
         projects = self.config.projects
+        if projects is None:
+            return ()
         return tuple(p for p in (projects.library, projects.test, projects.app) if p is not None)
 
     def summary(self) -> ModuleCreated:

@@ -10,3 +10,8 @@
 module = "ecobuild_cpp"
 class = "CppType"
 description = "C++。CppBuildでProject・ファイル・ビルド・テスト・依存先を管理する"
+
+[generic]
+module = "ecobuild_generic"
+class = "GenericType"
+description = "言語を問わない。ビルド・テスト・実行のコマンドを ecobuild.toml の [commands] に書く"

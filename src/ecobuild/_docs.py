@@ -14,17 +14,21 @@ CI_WORKFLOW = ".github/workflows/ecobuild.yml"
 
 def readme(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
     projects = config.projects
-    app = f"\n- `{projects.app}`：実行ファイル（`main`だけ）" if projects.app else ""
     usage = module_type.readme_usage(config)
-    return f"""# {config.name}
-
-[ECOBuild](https://github.com/superFUKA/ECOBuild)で管理しているモジュールです（型：{module_type.name}）。
-
+    if projects is None:
+        structure = ""
+    else:
+        app = f"\n- `{projects.app}`：実行ファイル（`main`だけ）" if projects.app else ""
+        structure = f"""
 ## 構成
 
 - `{projects.library}`：ライブラリ（処理の本体）
 - `{projects.test}`：テスト{app}
+"""
+    return f"""# {config.name}
 
+[ECOBuild](https://github.com/superFUKA/ECOBuild)で管理しているモジュールです（型：{module_type.name}）。
+{structure}
 ## ECOBuildで使う
 
 ```sh

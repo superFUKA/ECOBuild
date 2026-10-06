@@ -29,14 +29,19 @@ class ProjectNames:
     app: str | None = None
 
 
+_KNOWN_TABLES = ("format", "module", "branches", "projects", "profiles")
+
+
 @dataclass(frozen=True)
 class ModuleConfig:
     name: str
-    projects: ProjectNames
+    projects: ProjectNames | None      # 基本のProject（型が使わなければNone）
     type: str = "cpp"
     default_base: str = "main"
     format: int = FORMAT
     profiles: dict[str, Profile] = field(default_factory=dict)
+    # 型ごとの表（例：generic 型の [commands]）。本体は中身を知らず、そのまま読み書きする
+    extra: dict[str, dict] = field(default_factory=dict)
 
     def with_profiles(self, profiles: dict[str, Profile]) -> "ModuleConfig":
         return replace(self, profiles=dict(sorted(profiles.items())))
@@ -52,22 +57,21 @@ def load(path: Path) -> ModuleConfig:
         if data.get("format") != FORMAT:
             raise ValueError(f"format は {FORMAT} である必要があります")
         module = data["module"]
-        projects = data["projects"]
+        projects = data.get("projects")
         config = ModuleConfig(
             name=_text(module, "name"),
-            type=_text(module, "type"),
+            type=_text(module, "type"),  # 型があるかは本体が登録ファイルで確かめる
             default_base=_text(data.get("branches", {"default_base": "main"}), "default_base"),
-            projects=ProjectNames(
+            projects=None if projects is None else ProjectNames(
                 library=_text(projects, "library"),
                 test=_text(projects, "test"),
                 app=_text(projects, "app") if "app" in projects else None,
             ),
             profiles={name: _profile(name, table) for name, table in data.get("profiles", {}).items()},
+            extra={key: _simple_table(key, value) for key, value in data.items() if key not in _KNOWN_TABLES},
         )
     except (OSError, tomllib.TOMLDecodeError, KeyError, TypeError, ValueError) as error:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path} を読み込めません：{error}") from error
-    if config.type != "cpp":
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path}：型 {config.type!r} には対応していません。")
     return config
 
 
@@ -83,13 +87,15 @@ def dump(config: ModuleConfig) -> str:
         "[branches]",
         "# task start の --base を省略したときの作成元",
         f"default_base = {_quote(config.default_base)}",
-        "",
-        "[projects]",
-        f"library = {_quote(config.projects.library)}",
-        f"test = {_quote(config.projects.test)}",
     ]
-    if config.projects.app is not None:
-        lines.append(f"app = {_quote(config.projects.app)}")
+    if config.projects is not None:
+        lines += ["", "[projects]",
+                  f"library = {_quote(config.projects.library)}",
+                  f"test = {_quote(config.projects.test)}"]
+        if config.projects.app is not None:
+            lines.append(f"app = {_quote(config.projects.app)}")
+    for table, values in config.extra.items():
+        lines += ["", f"[{table}]"] + [f"{key} = {_value(value)}" for key, value in values.items()]
     if config.profiles:
         lines += ["", "# 名前付きビルド設定（ecobuild profile）。選択は ecobuild.local.toml（このPC用）"]
     for name, profile in config.profiles.items():
@@ -148,6 +154,25 @@ def _profile(name: str, table: dict) -> Profile:
     if not isinstance(profile.shared, bool) or not isinstance(profile.parallel, int) or profile.parallel < 1:
         raise ValueError(f"profiles.{name} の shared は真偽値、parallel は1以上の整数です")
     return profile
+
+
+def _simple_table(name: str, value: object) -> dict:
+    """型ごとの表。値は文字列・整数・真偽値・文字列の並びだけ（そのまま書き戻せる形）。"""
+    if not isinstance(value, dict) or not all(_value_ok(v) for v in value.values()):
+        raise ValueError(f"[{name}] の値は文字列・整数・真偽値・文字列の並びにしてください")
+    return dict(value)
+
+
+def _value_ok(value: object) -> bool:
+    return isinstance(value, (str, int, bool)) or (isinstance(value, list) and all(isinstance(v, str) for v in value))
+
+
+def _value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return "[" + ", ".join(_quote(v) for v in value) + "]"
+    return str(value) if isinstance(value, int) else _quote(value)
 
 
 def _text(table: dict, key: str) -> str:

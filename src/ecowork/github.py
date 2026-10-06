@@ -1,4 +1,4 @@
-"""GitHub の呼び出し（非公開）。本物は gh を使う。試験では同じメソッドを持つ偽物に差し替える。"""
+"""GitHub の呼び出し。本物は gh を使う。試験では同じメソッドを持つ偽物に差し替える。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import _process
-from .errors import EcoBuildError, ErrorCode
+from .errors import ErrorCode, WorkError
 
 
 @dataclass(frozen=True)
@@ -72,7 +72,7 @@ class GhCli:
         completed = self._gh(["issue", "view", str(number), "--json", "number,title,url,state,body"],
                              cwd=repo, check=False)
         if not completed.ok:
-            raise EcoBuildError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。",
+            raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。",
                                 details=completed.output)
         data = json.loads(completed.stdout)
         return IssueInfo(data["number"], data["title"], data["url"], data["state"].lower(), data.get("body") or "")
@@ -88,7 +88,7 @@ class GhCli:
     def get_pull_request(self, repo, number):
         completed = self._gh(["pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo, check=False)
         if not completed.ok:
-            raise EcoBuildError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。",
+            raise WorkError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。",
                                 details=completed.output)
         return _pull_request(json.loads(completed.stdout))
 
@@ -112,7 +112,7 @@ class GhCli:
         try:
             return _process.run(["gh", *args], cwd=cwd, check=check, env={"GH_PROMPT_DISABLED": "1"})
         except _process.ProcessFailed as failure:
-            raise EcoBuildError(
+            raise WorkError(
                 ErrorCode.GITHUB_ERROR,
                 f"gh {' '.join(args[:2])} に失敗しました。",
                 hint="gh auth status で認証を確認してください。",
@@ -134,7 +134,7 @@ def _pull_request(data: dict) -> PullRequestInfo:
 def _number_from_url(url: str) -> int:
     match = re.search(r"/(?:issues|pull)/(\d+)\s*$", url)
     if match is None:
-        raise EcoBuildError(ErrorCode.GITHUB_ERROR, f"gh の出力からURLを読み取れません：{url!r}")
+        raise WorkError(ErrorCode.GITHUB_ERROR, f"gh の出力からURLを読み取れません：{url!r}")
     return int(match.group(1))
 
 

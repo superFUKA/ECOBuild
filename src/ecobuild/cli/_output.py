@@ -15,6 +15,8 @@ from typing import Any
 
 import click
 
+from ecowork import WorkError
+
 from ..errors import EcoBuildError, ErrorCode
 from ..module import Module
 
@@ -66,7 +68,7 @@ def execute(
 ) -> int:
     try:
         result = action(invocation)
-    except EcoBuildError as error:
+    except WorkError as error:
         if invocation.json_output:
             _emit_json(command, invocation, None, error)
         else:
@@ -144,7 +146,7 @@ def to_data(value: Any) -> Any:
     return value
 
 
-def _emit_json(command: str, invocation: Invocation, result: Any, error: EcoBuildError | None) -> None:
+def _emit_json(command: str, invocation: Invocation, result: Any, error: WorkError | None) -> None:
     module = invocation._module
     document = {
         "ok": error is None,

@@ -1,4 +1,4 @@
-"""タスク（GitHub Issue）、作業空間、ブランチ、PR。"""
+"""タスク（GitHub Issue）、作業空間、ブランチ、PRと、操作の結果。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,10 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from . import _github
-from .errors import EcoBuildError, ErrorCode
+from . import github as _github
 
 if TYPE_CHECKING:
-    from .module import Module
+    from .repository import Repository
 
 WORKSPACE_PREFIX = "task/"
 _WORKSPACE = re.compile(r"task/(\d+)")
@@ -24,9 +23,14 @@ def is_workspace_branch(name: str) -> bool:
     return name.startswith(WORKSPACE_PREFIX)
 
 
+def workspace_number(name: str) -> int | None:
+    match = _WORKSPACE.fullmatch(name)
+    return None if match is None else int(match.group(1))
+
+
 def base_key(branch: str) -> str:
     """作業空間の作成元を記録するgitの設定のキー（手元だけ、コミットしない）。"""
-    return f"branch.{branch}.ecobuild-base"
+    return f"branch.{branch}.ecowork-base"
 
 
 @dataclass(frozen=True)
@@ -37,14 +41,14 @@ class Task:
     title: str
     url: str
     state: str
-    _module: "Module" = field(repr=False, compare=False)
+    _repository: "Repository" = field(repr=False, compare=False)
 
     @classmethod
-    def _from(cls, module: "Module", info: _github.IssueInfo) -> "Task":
-        return cls(info.number, info.title, info.url, info.state, module)
+    def _from(cls, repository: "Repository", info: _github.IssueInfo) -> "Task":
+        return cls(info.number, info.title, info.url, info.state, repository)
 
     def start(self, *, base: str | None = None) -> "Workspace":
-        return self._module._start_workspace(self, base)
+        return self._repository._start_workspace(self, base)
 
 
 @dataclass(frozen=True)
@@ -54,29 +58,29 @@ class Workspace:
     number: int
     branch: str
     base: str
-    _module: "Module" = field(repr=False, compare=False)
+    _repository: "Repository" = field(repr=False, compare=False)
 
     @property
     def task(self) -> Task:
-        return self._module.task(self.number)
+        return self._repository.task(self.number)
 
     def stage(self, *paths: str, all: bool = False) -> "StageResult":
-        repo = self._module._git
+        repo = self._repository.git
         repo.add(paths, all=all)
         return StageResult(self.branch, repo.working_tree().staged)
 
     def commit(self, message: str, *, all: bool = False, amend: bool = False) -> "CommitResult":
-        sha = self._module._git.commit(message, all=all, amend=amend)
+        sha = self._repository.git.commit(message, all=all, amend=amend)
         return CommitResult(self.branch, sha, message)
 
     def push(self, *, force: bool = False) -> "PushResult":
-        repo = self._module._git
+        repo = self._repository.git
         tree = repo.working_tree()
         repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
         return PushResult(self.branch, f"origin/{self.branch}")
 
     def submit(self, *, title: str | None = None, partial: bool = False) -> "PullRequest":
-        return self._module._submit_workspace(self, title=title, partial=partial)
+        return self._repository._submit_workspace(self, title=title, partial=partial)
 
 
 @dataclass(frozen=True)
@@ -88,13 +92,13 @@ class Branch:
     base: str | None
     local: bool
     remote: bool
-    _module: "Module" = field(repr=False, compare=False)
+    _repository: "Repository" = field(repr=False, compare=False)
 
     def submit(self, *, into: str, title: str | None = None) -> "PullRequest":
-        return self._module._submit_branch(self, into=into, title=title)
+        return self._repository._submit_branch(self, into=into, title=title)
 
     def delete(self) -> None:
-        self._module._delete_branch(self)
+        self._repository._delete_branch(self)
 
 
 @dataclass(frozen=True)
@@ -106,15 +110,15 @@ class PullRequest:
     head: str
     base: str
     partial: bool
-    _module: "Module" = field(repr=False, compare=False)
+    _repository: "Repository" = field(repr=False, compare=False)
 
     @classmethod
-    def _from(cls, module: "Module", info: _github.PullRequestInfo) -> "PullRequest":
+    def _from(cls, repository: "Repository", info: _github.PullRequestInfo) -> "PullRequest":
         partial = re.search(r"(?im)^refs #\d+", info.body) is not None
-        return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, module)
+        return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, repository)
 
     def merge(self) -> "MergeResult":
-        return self._module._merge_pull_request(self)
+        return self._repository._merge_pull_request(self)
 
 
 @dataclass(frozen=True)
@@ -159,18 +163,10 @@ class CleanResult:
 
 
 @dataclass(frozen=True)
-class DependencyChange:
-    name: str
-    action: str                      # cloned / aligned / unchanged / skipped
-    reason: str | None = None
-
-
-@dataclass(frozen=True)
 class SyncResult:
     branch: str
-    merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照
-    dependencies: tuple[DependencyChange, ...]
-    regenerated: bool
+    merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照。sync continueでは merge／rebase
+    extra: object = None             # Hooks.after_sync の戻り値
 
 
 @dataclass(frozen=True)
@@ -186,37 +182,6 @@ class RestoreResult:
 
 
 @dataclass(frozen=True)
-class BuildResult:
-    project: str | None              # Noneは全体
-    configuration: str
-    artifacts: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class TestCaseResult:
-    name: str
-    status: str
-
-
-@dataclass(frozen=True)
-class TestResult:
-    project: str | None
-    configuration: str
-    passed: int
-    failed: int
-    skipped: int
-    cases: tuple[TestCaseResult, ...]
-
-
-@dataclass(frozen=True)
-class RunResult:
-    project: str | None
-    configuration: str
-    returncode: int
-    output: str
-
-
-@dataclass(frozen=True)
 class PullRequestState:
     number: int
     url: str
@@ -224,7 +189,7 @@ class PullRequestState:
 
 
 @dataclass(frozen=True)
-class ModuleStatus:
+class Status:
     branch: str | None
     workspace: int | None            # 作業空間ならIssue番号
     base: str | None
@@ -236,11 +201,3 @@ class ModuleStatus:
     behind: int
     merging: bool
     pull_request: PullRequestState | None
-
-
-def not_in_workspace(action: str) -> EcoBuildError:
-    return EcoBuildError(
-        ErrorCode.NOT_IN_WORKSPACE,
-        f"{action}は作業空間（task/<番号>のブランチ）でだけ行えます。",
-        hint="ecobuild task start <Issue番号> で作業空間を作るか、作業空間へ切り替えてください。",
-    )

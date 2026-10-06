@@ -1,8 +1,8 @@
 import pytest
 
 from helpers import git, write
-from ecobuild._git import Git
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecowork.git import Git
+from ecowork.errors import ErrorCode, WorkError
 
 pytestmark = pytest.mark.local
 
@@ -44,10 +44,10 @@ def test_branch_commit_push_and_ahead(remote_and_clone):
 def test_branch_config_records_base(remote_and_clone):
     _, work = remote_and_clone
     repo = Git(work)
-    repo.set_config("branch.task/7.ecobuild-base", "develop")
-    assert repo.get_config("branch.task/7.ecobuild-base") == "develop"
-    repo.unset_config("branch.task/7.ecobuild-base")
-    assert repo.get_config("branch.task/7.ecobuild-base") is None
+    repo.set_config("branch.task/7.ecowork-base", "develop")
+    assert repo.get_config("branch.task/7.ecowork-base") == "develop"
+    repo.unset_config("branch.task/7.ecowork-base")
+    assert repo.get_config("branch.task/7.ecowork-base") is None
 
 
 def _diverge(remote, work, tmp_path, *, conflict):
@@ -80,7 +80,7 @@ def test_merge_conflict_continue_and_abort(remote_and_clone, tmp_path):
     outcome = repo.merge("origin/main")
     assert not outcome.merged and outcome.conflicted == ("README.md",)
     assert repo.is_merging()
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:
         repo.merge_continue()
     assert error.value.code == ErrorCode.MERGE_CONFLICT
     repo.merge_abort()
@@ -96,7 +96,7 @@ def test_local_changes_would_be_overwritten(remote_and_clone, tmp_path):
     remote, work = remote_and_clone
     repo = _diverge(remote, work, tmp_path, conflict=False)
     write(work / "README.md", "uncommitted\n")
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:
         repo.merge("origin/main")
     assert error.value.code == ErrorCode.LOCAL_CHANGES_WOULD_BE_OVERWRITTEN
 
@@ -115,7 +115,7 @@ def test_fast_forward_only(remote_and_clone, tmp_path):
     git(other, "commit", "--quiet", "-m", "more")
     git(other, "push", "--quiet", "origin", "main")
     repo.fetch()
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:
         repo.merge("origin/main", ff_only=True)
     assert error.value.code == ErrorCode.NOT_FAST_FORWARD
 

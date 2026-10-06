@@ -41,3 +41,15 @@ def module(remote_and_clone, tmp_path):
     github = FakeGitHub(tmp_path / "gh")
     github.use_bare(remote)
     return Module.find(work, github=github)
+
+
+@pytest.fixture
+def repository(remote_and_clone, tmp_path):
+    """ecoworkのリポジトリ（偽のGitHub＋手元のbare）。CLIのコマンド名は ecobuild とする。"""
+    from ecowork import Repository
+    from fakes import FakeGitHub
+
+    remote, work = remote_and_clone
+    github = FakeGitHub(tmp_path / "gh")
+    github.use_bare(remote)
+    return Repository(work, github=github, command="ecobuild")

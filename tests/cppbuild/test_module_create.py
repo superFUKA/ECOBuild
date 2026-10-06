@@ -4,6 +4,7 @@ import pytest
 
 from helpers import git, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
+from ecowork import WorkError
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.module import Module
@@ -50,7 +51,7 @@ def test_create_module(short_tmp):
 
 def test_existing_directory_is_rejected(short_tmp):
     (short_tmp / "Calc").mkdir()
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:  # 作業の進め方（ecowork）のエラー
         Module.create("Calc", directory=short_tmp, github=FakeGitHub(short_tmp / "gh"))
     assert error.value.code == ErrorCode.ALREADY_EXISTS
 

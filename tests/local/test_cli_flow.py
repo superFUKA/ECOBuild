@@ -4,7 +4,7 @@ import pytest
 from click.testing import CliRunner
 
 from helpers import git, write
-from ecobuild import _github
+from ecowork import github as _github
 from ecobuild.cli import build_cli
 
 pytestmark = pytest.mark.local
@@ -12,7 +12,7 @@ pytestmark = pytest.mark.local
 
 @pytest.fixture
 def cli(module, monkeypatch):
-    monkeypatch.setattr(_github, "default", lambda: module._github)
+    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
     monkeypatch.chdir(module.root)
     runner = CliRunner()
 

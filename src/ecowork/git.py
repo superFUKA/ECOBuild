@@ -1,4 +1,4 @@
-"""git の呼び出し（非公開）。ECOBuildの公開APIにはGitの概念を出さない。
+"""git の呼び出し。作業の流れ（Repository）の土台で、利用側が別のclone（依存先等）を扱うのにも使う。
 
 git のメッセージで状況を判定する箇所があるため、メッセージは英語に固定して実行する。
 """
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import _process
-from .errors import EcoBuildError, ErrorCode
+from .errors import ErrorCode, WorkError, operation
 
 _ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true"}
 REMOTE = "origin"
@@ -50,8 +50,9 @@ def clone(url: str, destination: Path) -> "Git":
 
 
 class Git:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, command: str = ""):
         self.root = Path(root)
+        self.command = command          # ヒントに書くCLIのコマンド名（errors.operation）
 
     # 基本 ----------------------------------------------------------------
 
@@ -188,14 +189,14 @@ class Git:
             return MergeOutcome(True, already_up_to_date="Already up to date" in completed.stdout)
         text = completed.output
         if "would be overwritten" in text:
-            raise EcoBuildError(
+            raise WorkError(
                 ErrorCode.LOCAL_CHANGES_WOULD_BE_OVERWRITTEN,
                 "取り込みで上書きされるファイルに、未コミットの変更があります。",
-                hint="変更をコミットするか、ecobuild stash で退避してから再実行してください。",
+                hint=f"変更をコミットするか、{operation(self.command, 'stash')} で退避してから再実行してください。",
                 details=text,
             )
         if ff_only and ("Not possible to fast-forward" in text or "not possible to fast-forward" in text):
-            raise EcoBuildError(
+            raise WorkError(
                 ErrorCode.NOT_FAST_FORWARD,
                 f"{ref} まで早送りできません（手元にだけあるコミットがあります）。",
                 details=text,
@@ -210,10 +211,10 @@ class Git:
 
     def merge_continue(self) -> str:
         if self.working_tree().conflicted:
-            raise EcoBuildError(
+            raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint="ファイルを直してから ecobuild add で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'add')} で登録してください。",
             )
         self.run("commit", "--quiet", "--no-edit")
         return self.output("rev-parse", "HEAD")
@@ -235,10 +236,10 @@ class Git:
 
     def rebase_continue(self) -> MergeOutcome:
         if self.working_tree().conflicted:
-            raise EcoBuildError(
+            raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint="ファイルを直してから ecobuild add で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'add')} で登録してください。",
             )
         completed = self.run("rebase", "--continue", check=False)
         if completed.ok:
@@ -291,8 +292,8 @@ def _run(args: list[str], *, cwd: Path | None, check: bool = True) -> _process.C
         raise _git_error(failure.completed) from None
 
 
-def _git_error(completed: _process.Completed) -> EcoBuildError:
-    return EcoBuildError(
+def _git_error(completed: _process.Completed) -> WorkError:
+    return WorkError(
         ErrorCode.GIT_ERROR,
         f"git {' '.join(completed.args[1:])} に失敗しました。",
         details=completed.output,

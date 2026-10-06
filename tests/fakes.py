@@ -8,8 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecobuild._github import IssueInfo, PullRequestInfo, RepositoryInfo
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecowork.github import IssueInfo, PullRequestInfo, RepositoryInfo
+from ecowork.errors import ErrorCode, WorkError
 
 
 class FakeGitHub:
@@ -44,7 +44,7 @@ class FakeGitHub:
 
     def get_issue(self, repo, number):
         if number not in self.issues:
-            raise EcoBuildError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
+            raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
         return self.issues[number]
 
     def close_issue(self, repo, number):
@@ -60,7 +60,7 @@ class FakeGitHub:
 
     def get_pull_request(self, repo, number):
         if number not in self.pulls:
-            raise EcoBuildError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。")
+            raise WorkError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。")
         return self._current(self.pulls[number])
 
     def pull_requests_for_branch(self, repo, head):

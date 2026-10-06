@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import EcoBuildError, ErrorCode
+from .errors import ErrorCode, WorkError
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class Completed:
 
 
 class ProcessFailed(Exception):
-    """終了コードが0以外だった。呼び出し側がECOBuildのエラーへ変換する。"""
+    """終了コードが0以外だった。呼び出し側が作業のエラーへ変換する。"""
 
     def __init__(self, completed: Completed):
         super().__init__(completed.output)
@@ -38,7 +38,7 @@ class ProcessFailed(Exception):
 def find_tool(name: str) -> str:
     path = shutil.which(name)
     if path is None:
-        raise EcoBuildError(
+        raise WorkError(
             ErrorCode.TOOL_MISSING,
             f"{name} が見つかりません。",
             hint=f"{name} をインストールし、PATHから実行できるようにしてください。",

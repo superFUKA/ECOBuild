@@ -2,8 +2,9 @@ import json
 
 import pytest
 
-from ecobuild import _github, _process
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecowork import _process
+from ecowork import github as _github
+from ecowork.errors import ErrorCode, WorkError
 
 
 class Recorder:
@@ -49,13 +50,13 @@ def test_pull_request_fields(monkeypatch, tmp_path):
 
 def test_missing_issue_is_task_not_found(monkeypatch, tmp_path):
     monkeypatch.setattr(_process, "run", Recorder({"issue view": (1, "")}))
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:
         _github.GhCli().get_issue(tmp_path, 99)
     assert error.value.code == ErrorCode.TASK_NOT_FOUND
 
 
 def test_gh_failure_is_github_error(monkeypatch, tmp_path):
     monkeypatch.setattr(_process, "run", Recorder({"issue close": (1, "")}))
-    with pytest.raises(EcoBuildError) as error:
+    with pytest.raises(WorkError) as error:
         _github.GhCli().close_issue(tmp_path, 1)
     assert error.value.code == ErrorCode.GITHUB_ERROR

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
+from importlib import metadata
 from pathlib import Path
 
 from ecowork import workspace as ws
@@ -36,6 +39,34 @@ GITIGNORE = """\
 # CppBuildの中間ファイル・成果物
 .cppbuild/output/
 """
+
+
+def _cppbuild_version() -> str:
+    try:
+        distribution = metadata.distribution("cppbuild")
+        return distribution.read_text("direct_url.json") or distribution.version
+    except metadata.PackageNotFoundError:
+        return ""
+
+
+def _fingerprint(root: Path) -> str:
+    """CppBuildの update の結果を左右するものの要約。"""
+    digest = hashlib.sha256(_cppbuild_version().encode("utf-8"))
+    for directory, children, files in os.walk(root):
+        relative = Path(directory).relative_to(root)
+        parts = relative.parts
+        # .git、ビルドの中間ファイル（build/、依存先の build/）、CppBuildの出力（.cppbuild/output）は見ない
+        children[:] = sorted(c for c in children
+                             if c != ".git"
+                             and not (c == _cppbuild.BUILD_DIRECTORY
+                                      and (parts == () or (len(parts) == 2 and parts[0] == _cppbuild.DEPENDENCY_DIRECTORY)))
+                             and not (c == "output" and parts[-1:] == (_cppbuild.CONFIG_DIRECTORY,)))
+        for name in sorted(files):
+            path = relative / name
+            digest.update(path.as_posix().encode("utf-8") + b"\0")
+            if _cppbuild.CONFIG_DIRECTORY in parts or name in _cppbuild.GENERATED_FILE_NAMES:
+                digest.update((root / path).read_bytes())
+    return digest.hexdigest()
 
 
 class CppType(ModuleType):
@@ -139,14 +170,14 @@ jobs:
     def refresh(self) -> bool:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
             return False
-        _cppbuild.update(self.root)
+        self._update()
         return True
 
     def prepare(self) -> tuple[tuple[DependencyChange, ...], bool]:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
             return (), False
         changes = self._align_dependencies()
-        _cppbuild.update(self.root)
+        self._update()
         return changes, True
 
     # ビルド ---------------------------------------------------------------------
@@ -282,6 +313,24 @@ jobs:
             return None
         return path.with_name(f"{path.stem}Test{path.suffix}").as_posix()
 
+    # 生成ファイルの更新（変わっていなければ飛ばす） ---------------------------------------
+
+    def _update(self) -> None:
+        """CppBuildの update（構成と生成ファイルの作り直し。約1秒）を、入力が前回から変わったときだけ行う。
+
+        入力：管理ファイル・生成ファイルの中身、ファイルの一覧（CppBuildはソースを探して生成する）、
+        依存先の同じもの、CppBuildの版。記録は build/ に置く（git の管理外。消えれば必ず行う）。
+        """
+        stamp = self.root / _cppbuild.BUILD_DIRECTORY / ".ecobuild-update"
+        try:
+            if stamp.is_file() and stamp.read_text(encoding="utf-8") == _fingerprint(self.root):
+                return
+        except OSError:
+            pass
+        _cppbuild.update(self.root)
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(_fingerprint(self.root), encoding="utf-8")  # 作り直した後の生成ファイルで記録する
+
     # 依存先 ------------------------------------------------------------------------
 
     def link(self, url: str, *, project: str | None, shared: bool) -> LinkResult:
@@ -320,12 +369,12 @@ jobs:
             note = "最新です" if before == after else f"{before[:7]} → {after[:7]}"
             changes.append(DependencyChange(change.name, change.action,
                                             note if change.reason is None else f"{note}（{change.reason}）"))
-        _cppbuild.update(self.root)
+        self._update()
         return tuple(changes)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         changes = self._align_dependencies()
-        _cppbuild.update(self.root)
+        self._update()
         return changes
 
     def _align_dependencies(self) -> tuple[DependencyChange, ...]:

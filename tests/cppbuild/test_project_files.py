@@ -143,3 +143,21 @@ def test_docs_ci_and_check(module):
         assert [d["name"] for d in error.value.details if not d["ok"]] == ["conflict_markers"]
     finally:
         source.write_text(original, encoding="utf-8")
+
+
+def test_update_is_skipped_when_nothing_changed(module, monkeypatch):
+    """生成ファイルの作り直し（CppBuildの update）は、入力が変わったときだけ行う。"""
+    from ecobuild_cpp import _cppbuild
+    calls = []
+    original = _cppbuild.update
+    monkeypatch.setattr(_cppbuild, "update", lambda root: (calls.append(root), original(root))[1])
+    module.type.refresh()
+    module.type.refresh()
+    assert len(calls) <= 1  # 2回目は変化なしで飛ばす
+    calls.clear()
+    (module.root / "Geo/src/Skip.cpp").write_text('#include "Geo/Geo.h"\n', encoding="utf-8")
+    module.type.refresh()
+    assert len(calls) == 1 and "src/Skip.cpp" in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    (module.root / "Geo/src/Skip.cpp").unlink()
+    module.type.refresh()
+    assert len(calls) == 2 and "src/Skip.cpp" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")

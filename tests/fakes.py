@@ -21,6 +21,7 @@ class FakeGitHub:
         self.issues: dict[int, IssueInfo] = {}
         self.pulls: dict[int, PullRequestInfo] = {}
         self.not_planned: set[int] = set()   # 「対応しない」として閉じたIssue
+        self.others: dict[str, Path] = {}    # 名前 → 別のリポジトリ（bare）
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -33,6 +34,10 @@ class FakeGitHub:
         return RepositoryInfo(full, str(self.bare), f"https://example.invalid/{full}")
 
     def get_repository(self, name):
+        short = name.split("/")[-1]
+        if short in self.others:  # 試験で登録した別のリポジトリ（link の相手等）
+            full = name if "/" in name else f"{self.owner}/{short}"
+            return RepositoryInfo(full, "file:///" + self.others[short].as_posix(), f"https://example.invalid/{full}")
         bare = getattr(self, "bare", None)
         if bare is None or name.split("/")[-1] != bare.stem:
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。")

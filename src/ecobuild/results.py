@@ -25,6 +25,25 @@ class DependencyChange:
 
 
 @dataclass(frozen=True)
+class DependencyState:
+    name: str
+    url: str
+    recorded: str                    # 記録された版（コミット）
+    local: str | None                # 手元のcloneの版（なければNone）
+    state: str                       # aligned / differs / modified / working / missing
+    branch: str | None = None        # 作業版ならそのブランチ
+
+
+@dataclass(frozen=True)
+class LinkResult:
+    name: str                        # 依存先の名前（deps/<名前>）
+    url: str
+    revision: str
+    projects: tuple[str, ...]        # リンクした（外した）Project
+    clone_removed: bool = False      # unlink：手元のcloneを消したか（作業中・変更ありなら残す）
+
+
+@dataclass(frozen=True)
 class ModuleCloned:
     name: str
     root: Path

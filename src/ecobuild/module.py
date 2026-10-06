@@ -20,7 +20,7 @@ from ecowork.git import Git
 from . import _cppbuild
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
-from .results import BuildResult, DependencyChange, FilesChanged, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
+from .results import BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult, TestCaseResult, TestResult
 
 COMMAND = "ecobuild"
 
@@ -443,6 +443,11 @@ class Module:
                 continue
             clone = Git(source.directory, command=COMMAND)
             head = clone.rev_parse("HEAD")
+            branch = clone.current_branch()
+            if branch is not None:
+                # 依存先の中で task start 等をした作業版（I-019）。記録の版へ切り替えない。
+                changes.append(DependencyChange(source.name, "skipped", f"作業版です（{branch}）"))
+                continue
             if head == source.revision:
                 changes.append(DependencyChange(source.name, "unchanged"))
                 continue
@@ -468,6 +473,79 @@ class Module:
         _cppbuild.update(self.root)
         git.add(tuple(generated))
         return True
+
+    # 依存先 -----------------------------------------------------------------
+
+    def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:
+        """GitHubにあるモジュール（「名前」か「所有者/名前」）をリンクし、deps/ へcloneする。"""
+        url = self.repository.github.get_repository(repository).clone_url
+        target = project or self.config.projects.library
+        name = _cppbuild.link(self.root, target, url, shared=shared)
+        revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
+        return LinkResult(name, url, revision, (target,))
+
+    def unlink(self, name: str) -> LinkResult:
+        """依存先のリンクを外す。手元のcloneは、失われる変更がなければ消す。"""
+        source = self._source(name)
+        projects = _cppbuild.unlink(self.root, name)
+        directory = Path(source.directory)
+        removable = directory.is_dir() and self._dependency_state(source).state == "aligned"
+        if removable:
+            _remove_tree(directory)
+        return LinkResult(name, source.url, source.revision, projects, removable)
+
+    def dependencies(self) -> tuple[DependencyState, ...]:
+        return tuple(self._dependency_state(s) for s in _cppbuild.git_sources(self.root))
+
+    def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
+        """依存先の記録を、GitHubの最新にする（I-018）。手元のcloneも合わせ、生成ファイルを更新する。"""
+        names = [name] if name else [s.name for s in _cppbuild.git_sources(self.root)]
+        if name:
+            self._source(name)
+        updated = {}
+        for each in names:
+            before = self._source(each).revision
+            after = _cppbuild.record_latest(self.root, each)
+            updated[each] = (before, after)
+        changes = []
+        for change in self._sync_dependencies():
+            if change.name not in updated:
+                continue
+            before, after = updated[change.name]
+            note = "最新です" if before == after else f"{before[:7]} → {after[:7]}"
+            changes.append(DependencyChange(change.name, change.action,
+                                            note if change.reason is None else f"{note}（{change.reason}）"))
+        _cppbuild.update(self.root)
+        return tuple(changes)
+
+    def sync_dependencies(self) -> tuple[DependencyChange, ...]:
+        """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
+        changes = self._sync_dependencies()
+        _cppbuild.update(self.root)
+        return changes
+
+    def _source(self, name: str):
+        source = next((s for s in _cppbuild.git_sources(self.root) if s.name == name), None)
+        if source is None:
+            names = [s.name for s in _cppbuild.git_sources(self.root)]
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。",
+                                hint=f"依存先：{'、'.join(names) or 'なし'}（{COMMAND} deps list）")
+        return source
+
+    def _dependency_state(self, source) -> DependencyState:
+        directory = Path(source.directory)
+        if not (directory / ".git").exists():
+            return DependencyState(source.name, source.url, source.revision, None, "missing")
+        clone = Git(directory, command=COMMAND)
+        head = clone.rev_parse("HEAD")
+        branch = clone.current_branch()
+        if branch is not None:
+            state = "working"
+        elif not clone.working_tree().clean:
+            state = "modified"
+        else:
+            state = "aligned" if head == source.revision else "differs"
+        return DependencyState(source.name, source.url, source.revision, head, state, branch)
 
     def _check_generated_files(self) -> None:
         """CppBuildで生成し直し、生成・管理ファイルに未コミットの変更があれば止める。"""

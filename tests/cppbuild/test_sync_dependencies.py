@@ -121,3 +121,47 @@ def test_clone_refuses_non_module(short_tmp):
     with pytest.raises(Exception) as error:
         Module.clone("Plain", directory=target, github=github)
     assert error.value.code == "not_in_module" and not (target / "Plain").exists()
+
+
+def test_link_deps_and_work_version(short_tmp):
+    """link → deps list → 依存先が進む → deps update → 作業版は触らない → unlink。"""
+    stl_github = FakeGitHub(short_tmp / "gh1")
+    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["STL"] = stl_github.bare
+    ecs = Module.create("ECS", directory=short_tmp, github=github)
+    with pytest.raises(Exception) as error:
+        ecs.link("NoSuch")
+    assert error.value.code == "repository_not_found"
+
+    linked = ecs.link("STL")
+    assert (linked.name, linked.projects) == ("STL", ("ECS",))
+    assert (ecs.root / "deps/STL/ecobuild.toml").exists()
+    assert [(d.name, d.state) for d in ecs.dependencies()] == [("STL", "aligned")]
+    with pytest.raises(Exception) as error:
+        ecs.link("STL")
+    assert error.value.code == "already_exists"
+    assert ecs.test().failed == 0
+
+    second = new_stl_commit(stl.root, "#pragma once\n// v2\n")
+    assert [d.state for d in ecs.dependencies()] == ["aligned"]  # 記録はまだ古い
+    changes = ecs.update_dependencies()
+    assert [(c.name, c.action) for c in changes] == [("STL", "aligned")] and "→" in changes[0].reason
+    assert ecs.dependencies()[0].recorded == second and ecs.dependencies()[0].state == "aligned"
+
+    # 依存先の中で作業する（作業版）：sync・deps sync・deps update は触らない
+    clone = ecs.root / "deps" / "STL"
+    git(clone, "switch", "--quiet", "-c", "task/9")
+    write(clone / "STL/include/STL/STL.h", "#pragma once\n// 作業中\n")
+    git(clone, "commit", "--quiet", "-am", "作業中")
+    state = ecs.dependencies()[0]
+    assert (state.state, state.branch) == ("working", "task/9")
+    assert [(c.action, c.reason) for c in ecs.sync_dependencies()] == [("skipped", "作業版です（task/9）")]
+    assert git(clone, "branch", "--show-current") == "task/9"
+
+    removed = ecs.unlink("STL")
+    assert removed.projects == ("ECS",) and not removed.clone_removed and clone.exists()  # 作業版は残す
+    assert ecs.dependencies() == ()
+    with pytest.raises(Exception) as error:
+        ecs.unlink("STL")
+    assert error.value.code == "dependency_not_found"

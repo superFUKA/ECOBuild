@@ -278,7 +278,7 @@ class GhCli:
     def delete_secret(self, repo, name):
         completed = self._gh(["secret", "delete", name], cwd=repo, check=False)
         if not completed.ok:
-            if _not_found(completed):
+            if _not_found(completed) or "HTTP 404" in completed.output:
                 raise WorkError(ErrorCode.INVALID_ARGUMENT, f"シークレット {name} はありません。", details=completed.output)
             raise _gh_error(["secret", "delete"], completed)
 

@@ -108,3 +108,12 @@ def test_issue_filters_and_edits_become_gh_options(monkeypatch, tmp_path):
     assert recorder.calls[-1] == ("gh", "issue", "edit", "3", "--add-label", "x", "--remove-assignee", "@me")
     gh.comment_issue(tmp_path, 3, "メモ")
     assert recorder.calls[-1] == ("gh", "issue", "comment", "3", "--body", "メモ")
+
+
+def test_missing_secret_is_invalid_argument(monkeypatch, tmp_path):
+    """本物のGitHubは、ないシークレットの削除に HTTP 404 を返す（仮運用4回目で見つかった）。"""
+    message = "failed to delete secret X: HTTP 404 (https://api.github.com/repos/o/r/actions/secrets/X)"
+    monkeypatch.setattr(_process, "run", Recorder({"secret delete": (1, message)}))
+    with pytest.raises(WorkError) as error:
+        _github.GhCli().delete_secret(tmp_path, "X")
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT

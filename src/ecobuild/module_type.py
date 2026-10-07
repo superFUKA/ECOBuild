@@ -83,7 +83,7 @@ class ModuleType:
 
     @classmethod
     def ci_workflow(cls, config: "ModuleConfig") -> str | None:
-        """CI（GitHub Actions）のワークフロー。Noneなら CI に対応しない。"""
+        """CI（GitHub Actions）のワークフロー。Noneなら CI に対応しない。設定は config.ci（[ci]）。"""
         return None
 
     @classmethod

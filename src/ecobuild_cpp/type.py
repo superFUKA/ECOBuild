@@ -10,7 +10,7 @@ from pathlib import Path
 from ecowork import workspace as ws
 from ecowork.git import Git
 
-from ecobuild.config import ModuleConfig, Profile, ProjectNames
+from ecobuild.config import CI_RUNNERS, ModuleConfig, Profile, ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import ModuleType
@@ -109,7 +109,12 @@ ctest --test-dir build -C Debug --output-on-failure
 
     @classmethod
     def ci_workflow(cls, config: ModuleConfig) -> str:
+        ci = config.ci
+        runners = ", ".join(CI_RUNNERS[name] for name in (ci.os or ("windows", "linux")))
+        configurations = ", ".join(ci.configurations)
+        libraries = "OFF, ON" if ci.shared else "OFF"
         return f"""# ECOBuild（ecobuild ci init）が作成：ECOBuildなしで、CMakeだけで構成・ビルド・テストする。
+# 変えるときは ecobuild ci init の --os・--configuration・--shared（設定は ecobuild.toml の [ci]）。
 name: build
 
 on:
@@ -123,12 +128,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [{runners}]
+        configuration: [{configurations}]
+        shared: [{libraries}]     # ON：ライブラリを共有ライブラリにする（BUILD_SHARED_LIBS）
     runs-on: ${{{{ matrix.os }}}}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{{{ matrix.configuration }}}} -DBUILD_SHARED_LIBS=${{{{ matrix.shared }}}}
         env:
           # 非公開の依存先を構成時にcloneするため。GITHUB_TOKEN はこのリポジトリしか読めないので、
           # 別の非公開リポジトリに依存するときは、それを読めるトークンを secrets.ECOBUILD_DEPS_TOKEN に登録する
@@ -137,9 +144,9 @@ jobs:
           GIT_CONFIG_KEY_0: url.https://x-access-token:${{{{ secrets.ECOBUILD_DEPS_TOKEN || secrets.GITHUB_TOKEN }}}}@github.com/.insteadOf
           GIT_CONFIG_VALUE_0: https://github.com/
       - name: Build
-        run: cmake --build build --config Debug
+        run: cmake --build build --config ${{{{ matrix.configuration }}}}
       - name: Test
-        run: ctest --test-dir build -C Debug --output-on-failure
+        run: ctest --test-dir build -C ${{{{ matrix.configuration }}}} --output-on-failure
 """
 
     @classmethod

@@ -95,3 +95,33 @@ def test_check_is_reused_while_unchanged(tmp_path):
     with pytest.raises(EcoBuildError):
         module.check()
     assert not module.checked()
+
+
+def test_ci_settings_and_hand_edited_workflow(tmp_path):
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    module.create_task("CI").start()
+    commands = {"build": "make {configuration}", "test": "make test"}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    path = module.root / ".github/workflows/ecobuild.yml"
+
+    module.write_ci()
+    workflow = path.read_text(encoding="utf-8")
+    assert "os: [ubuntu-latest]" in workflow and "configuration: [Debug]" in workflow
+    assert "make ${{ matrix.configuration }}" in workflow
+
+    settings = config.CiSettings(os=("linux", "windows"), configurations=("Debug", "Release"))
+    module.write_ci(settings)
+    reloaded = Module.find(module.root, github=module.repository.github)
+    assert reloaded.config.ci == settings  # ecobuild.toml の [ci] に残る
+    workflow = path.read_text(encoding="utf-8")
+    assert "os: [ubuntu-latest, windows-latest]" in workflow and "configuration: [Debug, Release]" in workflow
+    reloaded.write_ci()  # 設定のまま作り直す（編集していなければ上書きしてよい）
+
+    path.write_text(path.read_text(encoding="utf-8") + "# 手で足した\n", encoding="utf-8")
+    assert code_of(reloaded.write_ci) == ErrorCode.ALREADY_EXISTS
+    reloaded.write_ci(force=True)
+    assert "# 手で足した" not in path.read_text(encoding="utf-8")
+
+    assert code_of(lambda: reloaded.write_ci(config.CiSettings(shared=True))) == ErrorCode.NOT_SUPPORTED
+    assert code_of(lambda: reloaded.write_ci(config.CiSettings(os=("macos",)))) == ErrorCode.INVALID_ARGUMENT
+    assert Module.find(module.root, github=module.repository.github).config.ci == settings  # 失敗したら変えない

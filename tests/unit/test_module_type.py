@@ -50,3 +50,14 @@ def test_unsupported_operations_are_reported(monkeypatch, module):
         module.add_file("x.txt")
     assert error.value.code == ErrorCode.NOT_SUPPORTED
     assert module.dependencies() == () and module.sync().merged == ()
+
+
+def test_cpp_ci_workflow_follows_ci_settings():
+    from ecobuild.config import CiSettings, ModuleConfig
+    from ecobuild_cpp.type import CppType
+    base = ModuleConfig.for_new_module("Calc", app=False)
+    default = CppType.ci_workflow(base)
+    assert "os: [windows-latest, ubuntu-latest]" in default and "shared: [OFF]" in default
+    assert "-DCMAKE_BUILD_TYPE=${{ matrix.configuration }}" in default
+    custom = CppType.ci_workflow(base.with_ci(CiSettings(os=("linux",), configurations=("Release",), shared=True)))
+    assert "os: [ubuntu-latest]" in custom and "configuration: [Release]" in custom and "shared: [OFF, ON]" in custom

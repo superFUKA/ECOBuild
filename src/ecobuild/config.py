@@ -31,6 +31,18 @@ class ProjectNames:
 
 _KNOWN_TABLES = ("format", "module", "branches", "projects", "profiles")
 
+# CI（ecobuild ci init）で選べるOS → GitHub Actions のランナー
+CI_RUNNERS = {"windows": "windows-latest", "linux": "ubuntu-latest"}
+CI_TABLE = "ci"
+
+
+@dataclass(frozen=True)
+class CiSettings:
+    """CIの設定（ecobuild.toml の [ci]）。ワークフローは ecobuild ci init でこの設定から作り直す。"""
+    os: tuple[str, ...] | None = None              # None：型の既定（cpp：windows・linux、generic：linux）
+    configurations: tuple[str, ...] = ("Debug",)
+    shared: bool = False                           # ライブラリを共有ライブラリにした構成でもビルド・テストする
+
 
 @dataclass(frozen=True)
 class ModuleConfig:
@@ -46,9 +58,38 @@ class ModuleConfig:
     def with_profiles(self, profiles: dict[str, Profile]) -> "ModuleConfig":
         return replace(self, profiles=dict(sorted(profiles.items())))
 
+    @property
+    def ci(self) -> CiSettings:
+        table = self.extra.get(CI_TABLE, {})
+        settings = CiSettings(
+            os=tuple(table["os"]) if "os" in table else None,
+            configurations=tuple(table.get("configurations", ("Debug",))),
+            shared=table.get("shared", False),
+        )
+        validate_ci(settings)
+        return settings
+
+    def with_ci(self, settings: CiSettings) -> "ModuleConfig":
+        validate_ci(settings)
+        table = {"configurations": list(settings.configurations), "shared": settings.shared}
+        if settings.os is not None:
+            table = {"os": list(settings.os), **table}
+        return replace(self, extra={**self.extra, CI_TABLE: table})
+
     @classmethod
     def for_new_module(cls, name: str, *, app: bool) -> "ModuleConfig":
         return cls(name=name, projects=ProjectNames(name, name + "Test", name + "App" if app else None))
+
+
+def validate_ci(settings: CiSettings) -> None:
+    unknown = [name for name in settings.os or () if name not in CI_RUNNERS]
+    if unknown or settings.os == ():
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"CIのOS {', '.join(unknown) or '（空）'} は使えません。",
+                            hint=f"{'・'.join(CI_RUNNERS)} から選んでください（カンマ区切り）。")
+    if not settings.configurations or not all(isinstance(c, str) and c for c in settings.configurations):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIの構成を1つ以上指定してください（例：Debug,Release）。")
+    if not isinstance(settings.shared, bool):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です。")
 
 
 def load(path: Path) -> ModuleConfig:

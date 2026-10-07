@@ -149,7 +149,7 @@ def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_
     repository.restore("README.md", staged=True)
     assert repository.status().conflicted == ()
     assert repository.stash_drop().entries == ()
-    assert code_of(repository.stash_drop) == ErrorCode.NO_SYNC_IN_PROGRESS
+    assert code_of(repository.stash_drop) == ErrorCode.NO_STASH
 
 
 def test_sync_explains_local_commits_on_main(repository, remote_and_clone, tmp_path):

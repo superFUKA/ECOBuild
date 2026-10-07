@@ -11,6 +11,7 @@ class ErrorCode:
     DIRTY_WORKING_TREE = "dirty_working_tree"
     MERGE_CONFLICT = "merge_conflict"
     NO_SYNC_IN_PROGRESS = "no_sync_in_progress"
+    NO_STASH = "no_stash"
     NOT_FAST_FORWARD = "not_fast_forward"
     LOCAL_CHANGES_WOULD_BE_OVERWRITTEN = "local_changes_would_be_overwritten"
     TASK_NOT_FOUND = "task_not_found"

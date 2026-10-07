@@ -224,7 +224,7 @@ class Repository:
                     f"Issue #{number} の作業空間 {branch} に、" +
                     ("開いているPR（" + ", ".join(f"#{n}" for n in opened) + "）" if opened else "マージしていないコミット") +
                     "があります。",
-                    hint=f"反映するなら {self._op('task merge')}、やめるなら {self._op('task drop')} --issue {number} "
+                    hint=f"反映するなら {self._op('task merge')}、やめるなら {self._op('task drop')} {number} "
                          "--close で閉じてください。",
                     details=list(lost),
                 )
@@ -257,7 +257,7 @@ class Repository:
         number = self._reviewing()
         if number is None:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "確認中のPRはありません。",
-                            hint=f"{self._op('task review')} --pr <番号> で確認を始めます。")
+                            hint=f"{self._op('task review')} <PRの番号> で確認を始めます。")
         if not self.git.working_tree().clean:
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "確認中に変更したファイルがあります。",
                             hint=f"{self._op('restore')} で戻してから実行してください。")
@@ -408,7 +408,7 @@ class Repository:
         branch = self.git.current_branch()
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。",
-                            hint="--pr でPRを指定してください。")
+                            hint="PRの番号を指定してください。")
         return branch
 
     def clone_workspace(self, number: int, directory: Path | str, *, base: str | None = None) -> "Repository":
@@ -675,7 +675,7 @@ class Repository:
         """
         entries = self.git.stash_list()
         if not entries:
-            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
+            raise WorkError(ErrorCode.NO_STASH, "退避した変更はありません。")
         source = _stash_branch(entries[0].message)
         current = self.git.current_branch()
         if source is not None and ws.is_workspace_branch(source) and source != current:
@@ -698,7 +698,7 @@ class Repository:
 
     def stash_drop(self) -> ws.StashResult:
         if not self.git.stash_list():
-            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "退避した変更はありません。")
+            raise WorkError(ErrorCode.NO_STASH, "退避した変更はありません。")
         self.git.run("stash", "drop", "--quiet")
         return ws.StashResult(False, self._stash_messages())
 
@@ -752,7 +752,7 @@ class Repository:
         pushed = remote and self.git.is_ancestor(tip, f"{_git.REMOTE}/{branch}")
         number = ws.workspace_number(branch)
         return ("マージしていないコミットがあります" if pushed else "GitHubにないコミットがあります") + \
-            f"（捨てる場合は {self._op('task drop')} --issue {number}）"
+            f"（捨てる場合は {self._op('task drop')} {number}）"
 
     def _merged_heads(self, branch: str) -> list[str]:
         """マージ済みのPRの最後のコミット。別のcloneでpushされて手元にないものは、GitHubのPRの参照から取得する。"""

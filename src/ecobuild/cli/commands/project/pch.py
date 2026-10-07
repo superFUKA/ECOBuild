@@ -1,14 +1,17 @@
 from typing import Annotated
 
-from ..._output import run_command
+from ..._output import optional_argument, run_command
 
 
 def command(
+    *projects: Annotated[str, "対象のProject（--project と同じ）"],
     project: Annotated[str, "対象のProject（既定：今いるProject）"] = "",
     off: Annotated[bool, "PCHを使わないようにする"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """プリコンパイル済みヘッダー（include/<Project>/pch.h）を使うようにします。"""
+
+    project = optional_argument(projects, project, "--project", json)
 
     def action(inv):
         module = inv.module
@@ -16,7 +19,7 @@ def command(
         if target is None:
             from ....errors import EcoBuildError, ErrorCode
             raise EcoBuildError(ErrorCode.NOT_IN_PROJECT, "対象のProjectが決まりません。",
-                                hint="Projectのディレクトリの中で実行するか、--project を指定してください。")
+                                hint="Projectのディレクトリの中で実行するか、Project名を指定してください。")
         return module.set_pch(target, enable=not off)
 
     return run_command("project pch", action,

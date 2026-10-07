@@ -1,15 +1,18 @@
 from typing import Annotated
 
-from ..._output import lines, run_command
+from ..._output import lines, optional_argument, run_command
 
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 
 
 def command(
+    *number: Annotated[int, "Issueの番号（--issue と同じ）"],
     issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクの状態：Issue、作業空間、PRのレビュー・コメント・CIの結果を表示します。"""
+
+    issue = optional_argument(number, issue, "--issue", json)
 
     def render(r):
         a = r.activity

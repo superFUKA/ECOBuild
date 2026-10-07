@@ -106,3 +106,22 @@ def test_not_in_module(tmp_path, monkeypatch):
     result = CliRunner().invoke(build_cli(), ["status", "--json"])
     assert result.exit_code == 1
     assert json.loads(result.stdout)["error"]["code"] == "not_in_module"
+
+
+def test_optional_arguments_are_also_positional(cli, module):
+    """省略可能な引数は、位置引数でもオプションでも指定できる（task status 1 と task status --issue 1）。"""
+    as_json(cli("task", "new", "位置引数", "--start", "--json"))
+    by_position = as_json(cli("task", "status", "1", "--json"))["result"]
+    assert by_position["number"] == 1
+    assert as_json(cli("task", "status", "--issue", "1", "--json"))["result"]["number"] == 1
+    for args in (["task", "status", "1", "2"], ["task", "status", "1", "--issue", "1"]):
+        result = cli(*args, "--json")
+        assert result.exit_code == 2 and as_json(result)["error"]["code"] == "usage_error", args
+    assert cli("task", "status", "1", "2").exit_code == 2  # 人向けでも用法エラー
+    assert cli("show", "HEAD", "--json").exit_code == 0
+    assert as_json(cli("task", "revert", "--json"))["error"]["code"] == "usage_error"
+
+
+def test_task_clean_without_targets(cli):
+    result = cli("task", "clean")
+    assert result.exit_code == 0 and "片付ける作業空間はありません" in result.stdout

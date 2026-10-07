@@ -1,14 +1,16 @@
 from typing import Annotated
 
-from ..._output import lines, run_command
+from ..._output import lines, optional_argument, run_command
 
 
 def command(
+    *number: Annotated[int, "マージするPRの番号（--pr と同じ）"],
     pr: Annotated[int, "マージするPRの番号（既定は今の作業空間のPR）"] = 0,
     ignore_checks: Annotated[bool, "CIが失敗していてもマージする"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """作業空間のPRをsquashでマージし、Issueを閉じます（途中の反映なら作業空間を作り直します）。"""
+    pr = optional_argument(number, pr, "--pr", json)
     return run_command(
         "task merge",
         lambda inv: inv.module.pull_request(pr or None).merge(ignore_checks=ignore_checks),

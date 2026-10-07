@@ -65,3 +65,33 @@ def test_generic_module(tmp_path):
     workspace.stage(all=True)
     workspace.commit("コマンドとCI")
     assert workspace.submit().number
+
+
+def test_check_is_reused_while_unchanged(tmp_path):
+    """ビルド・テストを含む check を通った版は、task submit --check で繰り返さない。変更・コミットで無効になる。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    workspace = module.create_task("確認の使い回し").start()
+    commands = {"build": python("print('built')"), "test": python("print('tested')")}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    module.check()
+    assert not module.checked()  # 変更が残っている（コミット前）
+    workspace.stage(all=True)
+    workspace.commit("コマンド")
+    assert not module.checked()  # コミットした版はまだ確かめていない
+    module.check()
+    assert module.checked()
+    module.check(build=False)
+    assert not module.checked()  # ビルド・テストを省いた確認は記録しない
+
+    module.check()
+    (module.root / "note.txt").write_text("作業中\n", encoding="utf-8")
+    assert not module.checked()
+    (module.root / "note.txt").unlink()
+    assert module.checked()
+    failing = {**commands, "test": python("import sys; sys.exit(3)")}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": failing}}))
+    workspace.stage(all=True)
+    workspace.commit("失敗するテスト")
+    with pytest.raises(EcoBuildError):
+        module.check()
+    assert not module.checked()

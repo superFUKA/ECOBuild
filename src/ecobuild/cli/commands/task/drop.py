@@ -1,15 +1,18 @@
 from typing import Annotated
 
-from ..._output import lines, run_command
+from ..._output import lines, optional_argument, run_command
 
 
 def command(
+    *number: Annotated[int, "やめる作業空間のIssue番号（--issue と同じ）"],
     issue: Annotated[int, "やめる作業空間のIssue番号（既定は今いる作業空間）"] = 0,
     close: Annotated[bool, "Issueも「対応しない」として閉じる（既定は開いたまま。後で task start でやり直せる）"] = False,
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """PRを出さずに作業をやめます。開いているPRを閉じ、作業空間を手元とGitHubから消し、作成元へ戻ります。"""
+
+    issue = optional_argument(number, issue, "--issue", json)
 
     def action(inv):
         module = inv.module

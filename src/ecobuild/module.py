@@ -500,6 +500,7 @@ class Module:
                     items.append(CheckItem(name, False, error.message))
                     break
         report = CheckReport(tuple(items))
+        self._record_check(report.ok and build)
         if not report.ok:
             raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
                                 "、".join(i.name for i in items if not i.ok),
@@ -507,7 +508,33 @@ class Module:
                                 details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
         return report
 
+    def checked(self) -> bool:
+        """今の版が、ビルド・テストを含む check を通ったままか（task submit --check で繰り返さないため）。"""
+        key = self._check_key()
+        record = self._check_record()
+        return key is not None and record.is_file() and record.read_text(encoding="utf-8").strip() == key
+
     # 内部 -----------------------------------------------------------------
+
+    def _check_record(self) -> Path:
+        return self.root / self.repository.git.output("rev-parse", "--git-path", "ecobuild-checked")
+
+    def _check_key(self) -> str | None:
+        """check の結果を使い回せる状態：コミットの版と、このPCで選んだビルド設定。変更が残っていれば使い回さない。"""
+        git = self.repository.git
+        tree = git.working_tree()
+        if tree.staged or tree.unstaged or tree.untracked or tree.conflicted:
+            return None
+        return f"{git.rev_parse('HEAD')} {_config.load_local(self.root).get('profile') or '-'}"
+
+    def _record_check(self, passed: bool) -> None:
+        record = self._check_record()
+        key = self._check_key() if passed else None
+        if key is None:
+            record.unlink(missing_ok=True)
+        else:
+            record.write_text(key + "\n", encoding="utf-8")
+
 
     def _save_config(self, module_config: _config.ModuleConfig) -> None:
         _config.save(module_config, self.root / _config.FILE_NAME)

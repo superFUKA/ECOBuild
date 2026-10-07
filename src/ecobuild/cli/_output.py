@@ -124,7 +124,11 @@ def build_like(command: str, project: str, configuration: str, profile: str, jso
 
 def missing(option: str, json_output: bool = False) -> int:
     """必須のオプションがない（CLIFrameWorkでは既定値付き＝省略可能になるため、ここで確かめる）。"""
-    message = f"{option} を指定してください。"
+    return usage_error(f"{option} を指定してください。", json_output)
+
+
+def usage_error(message: str, json_output: bool) -> int:
+    """引数の誤り。--json ならJSONで返す。終了コードは2。"""
     if json_output:
         click.echo(json.dumps({"ok": False, "command": None, "module": None, "result": None,
                                "error": {"code": "usage_error", "message": message,
@@ -133,6 +137,21 @@ def missing(option: str, json_output: bool = False) -> int:
     else:
         click.echo(f"エラー：{message}", err=True)
     return USAGE_ERROR
+
+
+def optional_argument(values: tuple, option_value: Any, option: str, json_output: bool) -> Any:
+    """省略可能な引数は、位置引数でもオプションでも受ける（task status 12 と task status --issue 12）。
+
+    CLIFrameWorkでは省略可能な位置引数を作れないため、可変長の位置引数で受けて0個か1個に限る。
+    誤りは用法エラー（終了コード2）にする。
+    """
+    if len(values) > 1:
+        message = f"引数は1つだけ指定してください：{' '.join(map(str, values))}"
+    elif values and option_value:
+        message = f"引数 {values[0]} と {option} の両方は指定できません。どちらか1つにしてください。"
+    else:
+        return values[0] if values else option_value
+    raise click.exceptions.Exit(usage_error(message, json_output))
 
 
 def lines(*parts: str | None) -> str:

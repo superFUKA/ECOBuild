@@ -19,8 +19,12 @@ def command(
         return module.clean_workspaces()
 
     def render(r):
+        if not r.removed:
+            done = "片付ける作業空間はありません"
+        else:
+            done = ("片付ける対象：" if r.dry_run else "片付けました：") + ", ".join(r.removed)
         return lines(
-            ("片付ける対象：" if r.dry_run else "片付けました：") + (", ".join(r.removed) or "なし"),
+            done,
             "\n".join(f"残しました：{s.branch}（{s.reason}）" for s in r.skipped) or None,
             f"{r.switched_to} に移りました" if r.switched_to else None,
         )

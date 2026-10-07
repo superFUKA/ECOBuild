@@ -13,7 +13,9 @@ def command(
 
     def action(inv):
         workspace = inv.module.require_workspace("PRの作成")
-        if check:
+        if check and inv.module.checked():
+            inv.info("この版は ecobuild check で確認済みです（ビルド・テストを省きます）")
+        elif check:
             inv.info("確認しています（生成ファイル・衝突の印・ビルド・テスト）…")
             inv.module.check()
         inv.info("生成ファイルを確認しています…")

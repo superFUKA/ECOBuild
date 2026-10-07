@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import shlex
 from dataclasses import dataclass
 from importlib import resources
@@ -25,7 +24,6 @@ GENERATED_FILE_NAMES = ("CMakeLists.txt", "CppBuildTopLevel.cmake")
 # CppBuildのファイルテンプレートとして登録する既定の素材（名前 → 素材ファイル）
 TEMPLATES = {
     "header": "header.h",
-    "library": "library.h",
     "source": "source.cpp",
     "pch": "pch.h",
     "test": "test.cpp",
@@ -492,19 +490,11 @@ def _shared_capable(solution: Solution) -> list[str]:
 
 
 def _add_library_header(project, path: str) -> None:
-    """ライブラリの見出しのヘッダー。書き出しのマクロ（<名前>_API）を定義する。
-
-    Windowsで共有ライブラリ（DLL）にすると、マクロを付けたものだけが書き出される。マクロの切り替えに使う定義は
-    共有ライブラリのときだけ付ける：ライブラリ自身には <名前>_EXPORTS、使う側には <名前>_SHARED。
+    """ライブラリの見出しのヘッダー。共有ライブラリ（DLL）にしてもソースを変えずに使えるよう、
+    Windowsですべての関数を書き出す（CppBuildの windows_export_all_symbols。変数は書き出されない）。
     """
-    prefix = re.sub(r"[^A-Za-z0-9]", "_", project.name).upper()
-    names = {"api": f"{prefix}_API", "exports": f"{prefix}_EXPORTS", "shared": f"{prefix}_SHARED"}
-    project.add_file(path, template_name="library", replacements=names, auto_update=False)
-    data = project.settings.get()
-    shared = data.types[ProjectType.SHARED_LIBRARY]
-    shared.compile_definitions.append(names["exports"])
-    shared.public_definitions.append(names["shared"])
-    project.settings.save(data)
+    project.add_file(path, template_name="header", auto_update=False)
+    project.settings.set_windows_export_all_symbols()
 
 
 def _ensure_templates(solution: Solution) -> None:

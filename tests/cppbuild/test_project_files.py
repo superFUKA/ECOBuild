@@ -103,14 +103,14 @@ def test_profiles_clean_and_rebuild(module):
 def test_shared_profile_builds_library_as_shared(module):
     """共有ライブラリにする設定は、ライブラリを共有ライブラリとしてビルドし、使う側もリンクできる。
 
-    Windowsでは書き出しのマクロ（GEO_API）を付けた関数だけが書き出される（付けないとインポートライブラリが
-    できず、使う側のリンクが失敗する。仮運用3回目で見つかった）。
+    Windowsでは __declspec(dllexport) のない関数は書き出されず、インポートライブラリができずに使う側のリンクが
+    失敗していた（仮運用3回目）。ライブラリにCppBuildの windows_export_all_symbols を設定し、ソースのまま使える。
     """
     header = module.root / "Geo/include/Geo/Geo.h"
     source = module.root / "Geo/src/Geo.cpp"
     originals = {path: path.read_text(encoding="utf-8") for path in (header, source)}
-    assert "#define GEO_API __declspec(dllexport)" in originals[header]
-    write(header, originals[header] + "GEO_API int geo_value();\n")
+    assert "dllexport" not in originals[header]
+    write(header, originals[header] + "int geo_value();\n")
     write(source, originals[source] + "int geo_value() { return 42; }\n")
     module.add_profile("dll", Profile("Debug", True, 1))
     try:

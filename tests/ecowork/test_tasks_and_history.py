@@ -204,7 +204,8 @@ def test_ci_operations(repository):
     assert repository.ci_failed_log() == (2, "run 2: error")
     assert repository.ci_rerun(failed_only=True) == 2 and github.reruns == [(2, True)]
     assert repository.ci_dispatch("ecobuild.yml") == "main" and github.dispatched == [("ecobuild.yml", "main")]
-    repository.create_task("未push").start()
+    repository.create_task("GitHubにない").start()
+    git(repository.root, "push", "--quiet", "origin", "--delete", "task/1")
     assert code_of(lambda: repository.ci_dispatch("ecobuild.yml")) == ErrorCode.BRANCH_NOT_FOUND
     assert repository.set_secret("ECOBUILD_DEPS_TOKEN", "secret") == "ECOBUILD_DEPS_TOKEN"
     assert repository.secrets() == ["ECOBUILD_DEPS_TOKEN"]

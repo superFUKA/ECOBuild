@@ -9,7 +9,7 @@ def command(
     dir: Annotated[str, "作業空間を、このディレクトリへの専用のcloneで作る（並行作業用。例：../Calc-7）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """Issueの作業空間（task/<番号>）を作り、切り替えます。既にあれば切り替えるだけです。"""
+    """Issueの作業空間（task/<番号>）を作ってGitHubにも置き、切り替えます。既にあれば切り替え、手元になければGitHubから再開します。"""
 
     def action(inv):
         if not dir:

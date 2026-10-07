@@ -1023,10 +1023,18 @@ class Repository:
             if remote:
                 start = f"{_git.REMOTE}/{branch}"
             base = base or self.default_base
-            self.git.create_branch(branch, start, switch=True)
-            self.git.set_config(ws.base_key(branch), base)
+            self.git.create_branch(branch, start, switch=False)
             if remote:
                 self.git.set_upstream(branch)
+            else:
+                # 新しい作業空間は、作った時点でGitHubにも置く（本体はGitHub、手元はその写し）。
+                try:
+                    self.git.push(branch, set_upstream=True)
+                except WorkError:
+                    self.git.delete_branch(branch, force=True)
+                    raise
+            self.git.switch(branch)
+            self.git.set_config(ws.base_key(branch), base)
             self._record_base(task.number, base)
         workspace = self.current_workspace()
         assert workspace is not None

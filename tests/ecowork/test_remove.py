@@ -64,12 +64,19 @@ def test_remove_refuses_what_github_does_not_have(repository):
     assert repository.remove_workspace(1).remote
 
 
+def test_start_puts_new_workspace_on_github(repository):
+    workspace = repository.create_task("すぐGitHubへ").start()
+    assert repository.git.has_remote_branch(workspace.branch)
+    assert repository.git.rev_parse("origin/task/1") == repository.git.rev_parse("origin/main")
+    assert repository.git.output("rev-parse", "--abbrev-ref", "task/1@{upstream}") == "origin/task/1"
+
+
 def test_remove_other_workspace_without_commits(repository):
     repository.create_task("1つ目").start()
     git(repository.root, "switch", "--quiet", "main")
     repository.create_task("2つ目").start()
     result = repository.remove_workspace(1)
-    assert result.switched_to is None and not result.remote  # pushしていなければ作成元の最新から再開する
+    assert result.switched_to is None and result.remote  # 作った時点でGitHubにある
     assert git(repository.root, "branch", "--show-current") == "task/2"
     assert code_of(lambda: repository.remove_workspace(1)) == ErrorCode.BRANCH_NOT_FOUND
 
@@ -88,3 +95,12 @@ def test_another_clone_resumes_with_recorded_base(repository, remote_and_clone, 
     other = Repository(other_root, github=repository.github, command="ecobuild")
     resumed = other.task(1).start()
     assert resumed.base == "develop" and (other_root / "a.txt").exists()
+
+
+def test_start_leaves_nothing_when_push_fails(repository, remote_and_clone):
+    remote, _ = remote_and_clone
+    task = repository.create_task("GitHubに置けない")
+    (remote / "hooks" / "pre-receive").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+    with pytest.raises(WorkError):
+        task.start()
+    assert not repository.git.has_local_branch("task/1") and repository.git.current_branch() == "main"

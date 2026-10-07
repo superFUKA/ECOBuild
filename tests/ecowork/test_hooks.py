@@ -65,7 +65,7 @@ def test_before_submit_can_stop_before_push(repository):
     with pytest.raises(WorkError) as error:
         workspace.submit()
     assert error.value.code == "stopped" and hooks.calls == ["before_submit"]
-    assert not repo.git.has_remote_branch("task/1") and not repo.github.pulls
+    assert repo.git.rev_parse("origin/task/1") != repo.git.rev_parse("task/1") and not repo.github.pulls  # pushしていない
 
 
 def test_hints_use_command_name(repository):

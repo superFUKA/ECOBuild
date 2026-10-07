@@ -77,3 +77,34 @@ def test_gh_failure_is_github_error(monkeypatch, tmp_path):
     with pytest.raises(WorkError) as error:
         _github.GhCli().close_issue(tmp_path, 1)
     assert error.value.code == ErrorCode.GITHUB_ERROR
+
+
+def test_labels_are_created_before_use(monkeypatch, tmp_path):
+    recorder = Recorder({
+        "label list": (0, json.dumps([{"name": "bug"}])),
+        "label create": (0, ""),
+        "issue create": (0, "https://github.com/o/r/issues/7\n"),
+        "issue view": (0, json.dumps({"number": 7, "title": "x", "url": "u", "state": "OPEN", "body": "",
+                                      "labels": [{"name": "bug"}, {"name": "docs"}],
+                                      "assignees": [{"login": "me"}]})),
+    })
+    monkeypatch.setattr(_process, "run", recorder)
+    issue = _github.GhCli().create_issue(tmp_path, "x", "", labels=("bug", "docs"), assignees=("@me",))
+    assert issue.labels == ("bug", "docs") and issue.assignees == ("me",)
+    assert ("gh", "label", "create", "docs") in recorder.calls
+    assert not any(call[:4] == ("gh", "label", "create", "bug") for call in recorder.calls)
+    create = next(call for call in recorder.calls if call[1:3] == ("issue", "create"))
+    assert create[-6:] == ("--label", "bug", "--label", "docs", "--assignee", "@me")
+
+
+def test_issue_filters_and_edits_become_gh_options(monkeypatch, tmp_path):
+    recorder = Recorder({"issue list": (0, "[]"), "issue edit": (0, ""), "issue comment": (0, ""),
+                         "label list": (0, "[]"), "label create": (0, "")})
+    monkeypatch.setattr(_process, "run", recorder)
+    gh = _github.GhCli()
+    gh.list_issues(tmp_path, closed=False, label="bug", assignee="@me", search="crash")
+    assert recorder.calls[0][-6:] == ("--label", "bug", "--assignee", "@me", "--search", "crash")
+    gh.edit_issue(tmp_path, 3, add_labels=("x",), remove_assignees=("@me",))
+    assert recorder.calls[-1] == ("gh", "issue", "edit", "3", "--add-label", "x", "--remove-assignee", "@me")
+    gh.comment_issue(tmp_path, 3, "メモ")
+    assert recorder.calls[-1] == ("gh", "issue", "comment", "3", "--body", "メモ")

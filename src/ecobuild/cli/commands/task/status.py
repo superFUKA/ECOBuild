@@ -10,7 +10,7 @@ def command(
     issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスクの状態：Issue、作業空間、PRのレビュー・コメント・CIの結果を表示します。"""
+    """タスクの状態：Issue（ラベル・担当者・コメント）、作業空間、PRのレビュー・コメント・CIの結果を表示します。"""
 
     issue = optional_argument(number, issue, "--issue", json)
 
@@ -24,6 +24,9 @@ def command(
         opened = r.pull_request is not None and r.pull_request.state == "open"
         return lines(
             f"#{r.number} {r.title}（{'開いています' if r.state == 'open' else '閉じています'}）{r.url}",
+            f"ラベル：{', '.join(r.labels)}" if r.labels else None,
+            f"担当者：{', '.join(r.assignees)}" if r.assignees else "担当者：なし",
+            "Issueのコメント：\n" + "\n".join(f"  {c.author}：{c.body}" for c in r.comments) if r.comments else None,
             f"作業空間：task/{r.number}（作成元 {r.base}）" if r.workspace
             else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
             else "作業空間：なし",

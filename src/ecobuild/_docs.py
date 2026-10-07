@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING
 
 from .config import ModuleConfig
@@ -10,6 +11,21 @@ if TYPE_CHECKING:
     from .module_type import ModuleType
 
 CI_WORKFLOW = ".github/workflows/ecobuild.yml"
+_CI_STAMP = "# ecobuild-ci-init: "   # 作ったときの内容の印（手で編集したかを見分ける）
+
+
+def stamp_ci(workflow: str) -> str:
+    return f"{_CI_STAMP}{_digest(workflow)}\n{workflow}"
+
+
+def ci_edited(text: str) -> bool:
+    """ecobuild ci init で作った後に手で編集されたか。印のない（古い・手で書いた）ものも編集されたとみなす。"""
+    first, _, rest = text.partition("\n")
+    return not first.startswith(_CI_STAMP) or first[len(_CI_STAMP):].strip() != _digest(rest)
+
+
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:16]
 
 
 def readme(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
@@ -56,13 +72,14 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 2. 編集する。ファイルの追加は `ecobuild file add <パス>`
 3. `ecobuild build`・`ecobuild test`（PR前の確認は `ecobuild check`）
 4. `ecobuild task add --all` → `ecobuild task commit --message "<内容>"`
-5. `ecobuild task submit`（途中の反映なら `--partial`）→ `ecobuild task merge`
+5. `ecobuild task submit`（途中の反映なら `--partial`）→ CIがあれば `ecobuild ci wait` → `ecobuild task merge`
 6. `ecobuild task clean`
 
 ## 守ること
 
 - ファイルを変える操作とコミットは、作業空間（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。
+- 途中経過・申し送りは `ecobuild task comment --message "<内容>"` でIssueに残します（`ecobuild task status` で読めます）。`task start` すると担当者になります。ほかの担当者がいるタスクは `ecobuild task list` で確かめ、重ねて始めないでください。
 - 作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task remove` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別のcloneでも同じ）。
 - 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild task add` → `ecobuild sync continue`（やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。

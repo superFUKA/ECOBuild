@@ -26,6 +26,8 @@ class IssueInfo:
     url: str
     state: str            # open / closed
     body: str = ""
+    labels: tuple[str, ...] = ()
+    assignees: tuple[str, ...] = ()     # ログイン名
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,7 @@ class RunInfo:
     conclusion: str       # success / failure 等（終わっていなければ空）
     url: str
     created: str
+    head_sha: str = ""    # 実行したコミット
 
 
 @dataclass(frozen=True)
@@ -95,10 +98,17 @@ class GitHub(Protocol):
     def create_repository(self, name: str, *, owner: str | None, private: bool, description: str) -> RepositoryInfo: ...
     def get_repository(self, name: str) -> RepositoryInfo: ...
     def is_private(self, name: str) -> bool: ...
-    def create_issue(self, repo: Path, title: str, body: str) -> IssueInfo: ...
+    def create_issue(self, repo: Path, title: str, body: str, *, labels: tuple[str, ...] = (),
+                     assignees: tuple[str, ...] = ()) -> IssueInfo: ...
     def get_issue(self, repo: Path, number: int) -> IssueInfo: ...
-    def list_issues(self, repo: Path, *, closed: bool) -> list[IssueInfo]: ...
-    def edit_issue(self, repo: Path, number: int, *, title: str | None, body: str | None) -> None: ...
+    def list_issues(self, repo: Path, *, closed: bool, label: str | None = None, assignee: str | None = None,
+                    search: str | None = None) -> list[IssueInfo]: ...
+    def edit_issue(self, repo: Path, number: int, *, title: str | None = None, body: str | None = None,
+                   add_labels: tuple[str, ...] = (), remove_labels: tuple[str, ...] = (),
+                   add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = ()) -> None: ...
+    def comment_issue(self, repo: Path, number: int, body: str) -> None: ...
+    def issue_comments(self, repo: Path, number: int) -> list[Comment]: ...
+    def delete_secret(self, repo: Path, name: str) -> None: ...
     def reopen_issue(self, repo: Path, number: int) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
@@ -150,38 +160,66 @@ class GhCli:
     def is_private(self, name):
         return bool(self._json(["repo", "view", name, "--json", "isPrivate"], cwd=None)["isPrivate"])
 
-    def create_issue(self, repo, title, body):
-        url = self._gh(["issue", "create", "--title", title, "--body", body], cwd=repo).stdout.strip()
+    def create_issue(self, repo, title, body, *, labels=(), assignees=()):
+        self._ensure_labels(repo, labels)
+        args = ["issue", "create", "--title", title, "--body", body]
+        for label in labels:
+            args += ["--label", label]
+        for assignee in assignees:
+            args += ["--assignee", assignee]
+        url = self._gh(args, cwd=repo).stdout.strip()
         return self.get_issue(repo, _number_from_url(url))
 
     def get_issue(self, repo, number):
-        completed = self._gh(["issue", "view", str(number), "--json", "number,title,url,state,body"],
+        completed = self._gh(["issue", "view", str(number), "--json", _ISSUE_FIELDS],
                              cwd=repo, check=False)
         if not completed.ok:
             if not _not_found(completed):
                 raise _gh_error(["issue", "view"], completed)
             raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。",
                                 details=completed.output)
-        data = json.loads(completed.stdout)
-        return IssueInfo(data["number"], data["title"], data["url"], data["state"].lower(), data.get("body") or "")
+        return _issue(json.loads(completed.stdout))
 
     def close_issue(self, repo, number, *, not_planned=False):
         reason = "not planned" if not_planned else "completed"
         self._gh(["issue", "close", str(number), "--reason", reason], cwd=repo)
 
-    def list_issues(self, repo, *, closed):
-        args = ["issue", "list", "--state", "all" if closed else "open", "--limit", "200",
-                "--json", "number,title,url,state,body"]
-        return [IssueInfo(d["number"], d["title"], d["url"], d["state"].lower(), d.get("body") or "")
-                for d in self._json(args, cwd=repo)]
+    def list_issues(self, repo, *, closed, label=None, assignee=None, search=None):
+        args = ["issue", "list", "--state", "all" if closed else "open", "--limit", "200", "--json", _ISSUE_FIELDS]
+        for option, value in (("--label", label), ("--assignee", assignee), ("--search", search)):
+            if value:
+                args += [option, value]
+        return [_issue(d) for d in self._json(args, cwd=repo)]
 
-    def edit_issue(self, repo, number, *, title, body):
+    def edit_issue(self, repo, number, *, title=None, body=None, add_labels=(), remove_labels=(),
+                   add_assignees=(), remove_assignees=()):
+        self._ensure_labels(repo, add_labels)
         args = ["issue", "edit", str(number)]
         if title is not None:
             args += ["--title", title]
         if body is not None:
             args += ["--body", body]
+        for option, values in (("--add-label", add_labels), ("--remove-label", remove_labels),
+                               ("--add-assignee", add_assignees), ("--remove-assignee", remove_assignees)):
+            for value in values:
+                args += [option, value]
         self._gh(args, cwd=repo)
+
+    def comment_issue(self, repo, number, body):
+        self._gh(["issue", "comment", str(number), "--body", body], cwd=repo)
+
+    def issue_comments(self, repo, number):
+        data = self._json(["issue", "view", str(number), "--json", "comments"], cwd=repo)
+        return [Comment((c.get("author") or {}).get("login", ""), c.get("body") or "") for c in data.get("comments") or []]
+
+    def _ensure_labels(self, repo, labels):
+        """ラベルはリポジトリにないと付けられないため、なければ作る。"""
+        if not labels:
+            return
+        existing = {d["name"] for d in self._json(["label", "list", "--limit", "500", "--json", "name"], cwd=repo)}
+        for label in labels:
+            if label not in existing:
+                self._gh(["label", "create", label], cwd=repo)
 
     def reopen_issue(self, repo, number):
         self._gh(["issue", "reopen", str(number)], cwd=repo)
@@ -214,12 +252,12 @@ class GhCli:
 
     def list_runs(self, repo, *, branch, limit):
         args = ["run", "list", "--limit", str(limit),
-                "--json", "databaseId,workflowName,headBranch,event,status,conclusion,url,createdAt"]
+                "--json", "databaseId,workflowName,headBranch,event,status,conclusion,url,createdAt,headSha"]
         if branch:
             args += ["--branch", branch]
         return [RunInfo(d["databaseId"], d.get("workflowName") or "", d.get("headBranch") or "", d.get("event") or "",
                         (d.get("status") or "").lower(), (d.get("conclusion") or "").lower(), d.get("url") or "",
-                        d.get("createdAt") or "") for d in self._json(args, cwd=repo)]
+                        d.get("createdAt") or "", d.get("headSha") or "") for d in self._json(args, cwd=repo)]
 
     def failed_log(self, repo, run_id):
         return self._gh(["run", "view", str(run_id), "--log-failed"], cwd=repo).stdout
@@ -236,6 +274,13 @@ class GhCli:
             _process.run(["gh", "secret", "set", name], cwd=repo, input=value, env={"GH_PROMPT_DISABLED": "1"})
         except _process.ProcessFailed as failure:
             raise _gh_error(["secret", "set"], failure.completed) from None
+
+    def delete_secret(self, repo, name):
+        completed = self._gh(["secret", "delete", name], cwd=repo, check=False)
+        if not completed.ok:
+            if _not_found(completed):
+                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"シークレット {name} はありません。", details=completed.output)
+            raise _gh_error(["secret", "delete"], completed)
 
     def list_secrets(self, repo):
         return [d["name"] for d in self._json(["secret", "list", "--json", "name"], cwd=repo)]
@@ -307,6 +352,13 @@ def _gh_error(args, completed: _process.Completed) -> WorkError:
 
 
 _PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit"
+_ISSUE_FIELDS = "number,title,url,state,body,labels,assignees"
+
+
+def _issue(data: dict) -> IssueInfo:
+    return IssueInfo(data["number"], data["title"], data["url"], data["state"].lower(), data.get("body") or "",
+                     tuple(label["name"] for label in data.get("labels") or []),
+                     tuple(user["login"] for user in data.get("assignees") or []))
 
 
 def _pull_request(data: dict) -> PullRequestInfo:

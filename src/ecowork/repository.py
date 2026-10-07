@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -175,13 +176,17 @@ class Repository:
 
     # タスクの管理 -----------------------------------------------------------------
 
-    def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
+    def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
+              search: str | None = None) -> list[ws.TaskSummary]:
+        """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）で絞り込む。"""
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
+        issues = self.github.list_issues(self.root, closed=closed, label=label, assignee=assignee, search=search)
         return [ws.TaskSummary(i.number, i.title, i.state, i.url, ws.workspace_branch(i.number) in local,
-                               ws.workspace_branch(i.number) == current, ws.workspace_branch(i.number) in remote)
-                for i in sorted(self.github.list_issues(self.root, closed=closed), key=lambda i: i.number)]
+                               ws.workspace_branch(i.number) == current, ws.workspace_branch(i.number) in remote,
+                               i.labels, i.assignees)
+                for i in sorted(issues, key=lambda i: i.number)]
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
@@ -197,16 +202,31 @@ class Repository:
             number, issue.title, issue.state, issue.url, ws.without_base(issue.body), self.git.has_local_branch(branch),
             self.git.get_config(ws.base_key(branch)) or ws.issue_base(issue.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
-            self.git.has_remote_branch(branch))
+            self.git.has_remote_branch(branch), issue.labels, issue.assignees,
+            tuple(self.github.issue_comments(self.root, number)))
 
-    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None) -> ws.Task:
-        if title is None and body is None:
+    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None,
+                  add_labels: tuple[str, ...] = (), remove_labels: tuple[str, ...] = (),
+                  add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = ()) -> ws.Task:
+        """題名・本文・ラベル・担当者（@me は自分）を変える。"""
+        if title is None and body is None and not (add_labels or remove_labels or add_assignees or remove_assignees):
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
-                            hint="--title か --body を指定してください。")
+                            hint="題名・本文・ラベル・担当者のどれかを指定してください。")
         if body is not None:
             recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
             body = body if recorded is None else ws.with_base(body, recorded)  # 作成元の記録は残す
-        self.github.edit_issue(self.root, number, title=title, body=body)
+        self.github.edit_issue(self.root, number, title=title, body=body, add_labels=add_labels,
+                               remove_labels=remove_labels, add_assignees=add_assignees,
+                               remove_assignees=remove_assignees)
+        return self.task(number)
+
+    def comment_task(self, number: int | None, body: str) -> ws.Task:
+        """タスク（Issue）にコメントを残す（作業の記録・申し送り）。省略時は今いる作業空間のタスク。"""
+        if not body.strip():
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "コメントが空です。")
+        if number is None:
+            number = self.require_workspace("番号を省略したタスクの指定").number
+        self.github.comment_issue(self.root, number, body)
         return self.task(number)
 
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
@@ -394,6 +414,50 @@ class Repository:
         self.github.dispatch(self.root, workflow, ref=branch)
         return branch
 
+    def ci_wait(self, pull_request: int | None = None, *, timeout: float = 1800, interval: float = 15,
+                start_grace: float = 120, sleep: Callable[[float], None] = time.sleep,
+                clock: Callable[[], float] = time.monotonic) -> list:
+        """GitHubにある最新のコミット（今いるブランチ、またはPR）のCIが終わるまで待ち、実行を返す。
+
+        失敗があれば checks_failed、時間内に終わらなければ checks_pending。push の直後は実行が現れるまで
+        start_grace 秒待ち、現れなければ no_ci_run。
+        """
+        if pull_request is not None:
+            pr = self.github.get_pull_request(self.root, pull_request)
+            branch, sha = pr.head, pr.head_sha
+        else:
+            branch = self._ci_branch(None)
+            self.git.fetch()
+            sha = self.git.rev_parse(f"{_git.REMOTE}/{branch}")
+            if sha is None:
+                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。",
+                                hint=f"{self._op('task push')} してから実行してください。")
+        started = clock()
+        while True:
+            runs = [r for r in self.github.list_runs(self.root, branch=branch, limit=20) if r.head_sha == sha]
+            elapsed = clock() - started
+            if runs and all(r.status == "completed" for r in runs):
+                failed = [r for r in runs if r.conclusion not in ("success", "skipped", "neutral")]
+                if failed:
+                    raise WorkError(ErrorCode.CHECKS_FAILED,
+                                    f"{branch} のCIが失敗しました：" + ", ".join(f"#{r.id} {r.workflow}" for r in failed),
+                                    hint=f"{self._op('ci logs')} で失敗した手順のログを確認できます。",
+                                    details=[{"id": r.id, "workflow": r.workflow, "conclusion": r.conclusion,
+                                              "url": r.url} for r in runs])
+                return runs
+            if not runs and elapsed >= min(start_grace, timeout):
+                raise WorkError(ErrorCode.NO_CI_RUN, f"{branch} の最新のコミット（{(sha or '')[:7]}）のCIの実行がありません。",
+                                hint=f"CIがなければ {self._op('ci init')} で用意できます。手動で動かすなら {self._op('ci run')}。")
+            if elapsed >= timeout:
+                raise WorkError(ErrorCode.CHECKS_PENDING, f"{branch} のCIが {int(timeout)} 秒で終わりませんでした。",
+                                hint=f"もう一度 {self._op('ci wait')} で待つか、{self._op('ci status')} で確認してください。",
+                                details=[{"id": r.id, "workflow": r.workflow, "status": r.status} for r in runs])
+            sleep(interval)
+
+    def delete_secret(self, name: str) -> str:
+        self.github.delete_secret(self.root, name)
+        return name
+
     def set_secret(self, name: str, value: str) -> str:
         if not name or not value:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "シークレットの名前と値が必要です。")
@@ -464,8 +528,10 @@ class Repository:
 
     # タスクと作業空間 ---------------------------------------------------------
 
-    def create_task(self, title: str, *, body: str = "") -> ws.Task:
-        return ws.Task._from(self, self.github.create_issue(self.root, title, body))
+    def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
+                    assignees: tuple[str, ...] = ()) -> ws.Task:
+        return ws.Task._from(self, self.github.create_issue(self.root, title, body, labels=labels,
+                                                            assignees=assignees))
 
     def task(self, number: int) -> ws.Task:
         return ws.Task._from(self, self.github.get_issue(self.root, number))
@@ -545,11 +611,16 @@ class Repository:
             return max(opened, key=lambda p: p.number).base
         return ws.issue_base(self.github.get_issue(self.root, number).body)
 
-    def _record_base(self, number: int, base: str) -> None:
-        """作成元をIssueの本文に記録する（手元の作業空間を消しても、同じ作成元で再開できるように）。"""
+    def _record_base(self, number: int, base: str, *, claim: bool = False) -> None:
+        """作成元をIssueの本文に記録する（手元の作業空間を消しても、同じ作成元で再開できるように）。
+
+        claim：担当者がいなければ自分を担当者にする（誰が作業しているかをGitHubで分かるように）。
+        """
         issue = self.github.get_issue(self.root, number)
-        if ws.issue_base(issue.body) != base:
-            self.github.edit_issue(self.root, number, title=None, body=ws.with_base(issue.body, base))
+        body = None if ws.issue_base(issue.body) == base else ws.with_base(issue.body, base)
+        assignees = ("@me",) if claim and not issue.assignees else ()
+        if body is not None or assignees:
+            self.github.edit_issue(self.root, number, body=body, add_assignees=assignees)
 
     def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
         """Issueが閉じた作業空間のブランチを片付ける。未pushの変更がある作業空間は残す。"""
@@ -1035,7 +1106,7 @@ class Repository:
                     raise
             self.git.switch(branch)
             self.git.set_config(ws.base_key(branch), base)
-            self._record_base(task.number, base)
+            self._record_base(task.number, base, claim=True)
         workspace = self.current_workspace()
         assert workspace is not None
         self.hooks.after_switch(self)

@@ -154,6 +154,11 @@ def optional_argument(values: tuple, option_value: Any, option: str, json_output
     raise click.exceptions.Exit(usage_error(message, json_output))
 
 
+def split_list(text: str) -> tuple[str, ...]:
+    """カンマ区切りの値（--label bug,docs 等）。空なら空。"""
+    return tuple(part.strip() for part in text.split(",") if part.strip())
+
+
 def lines(*parts: str | None) -> str:
     return "\n".join(part for part in parts if part)
 

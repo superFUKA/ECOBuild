@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecowork.github import IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
+from ecowork.github import Comment, IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
 from ecowork.errors import ErrorCode, WorkError
 
 
@@ -28,6 +28,7 @@ class FakeGitHub:
         self.reruns: list[tuple[int, bool]] = []
         self.dispatched: list[tuple[str, str]] = []
         self.secrets: dict[str, str] = {}
+        self.comments: dict[int, list[Comment]] = {}   # Issueのコメント
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -60,23 +61,44 @@ class FakeGitHub:
         return "main"
 
     # Issue
-    def create_issue(self, repo, title, body):
+    def create_issue(self, repo, title, body, *, labels=(), assignees=()):
         number = next(self._numbers)
-        self.issues[number] = IssueInfo(number, title, f"https://example.invalid/issues/{number}", "open", body)
+        self.issues[number] = IssueInfo(number, title, f"https://example.invalid/issues/{number}", "open", body,
+                                        tuple(labels), tuple(self._user(a) for a in assignees))
         return self.issues[number]
+
+    def _user(self, name):
+        return self.owner if name == "@me" else name
 
     def get_issue(self, repo, number):
         if number not in self.issues:
             raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
         return self.issues[number]
 
-    def list_issues(self, repo, *, closed):
-        return [i for i in self.issues.values() if closed or i.state == "open"]
+    def list_issues(self, repo, *, closed, label=None, assignee=None, search=None):
+        return [i for i in self.issues.values() if (closed or i.state == "open")
+                and (label is None or label in i.labels)
+                and (assignee is None or self._user(assignee) in i.assignees)
+                and (search is None or search in i.title or search in i.body)]
 
-    def edit_issue(self, repo, number, *, title, body):
+    def edit_issue(self, repo, number, *, title=None, body=None, add_labels=(), remove_labels=(),
+                   add_assignees=(), remove_assignees=()):
         issue = self.get_issue(repo, number)
+        labels = [l for l in issue.labels if l not in remove_labels] + [l for l in add_labels if l not in issue.labels]
+        removed = {self._user(a) for a in remove_assignees}
+        assignees = [a for a in issue.assignees if a not in removed]
+        assignees += [self._user(a) for a in add_assignees if self._user(a) not in assignees]
         self.issues[number] = replace(issue, title=issue.title if title is None else title,
-                                      body=issue.body if body is None else body)
+                                      body=issue.body if body is None else body,
+                                      labels=tuple(labels), assignees=tuple(assignees))
+
+    def comment_issue(self, repo, number, body):
+        self.get_issue(repo, number)
+        self.comments.setdefault(number, []).append(Comment(self.owner, body))
+
+    def issue_comments(self, repo, number):
+        self.get_issue(repo, number)
+        return list(self.comments.get(number, []))
 
     def reopen_issue(self, repo, number):
         self.issues[number] = replace(self.get_issue(repo, number), state="open")
@@ -110,6 +132,11 @@ class FakeGitHub:
 
     def set_secret(self, repo, name, value):
         self.secrets[name] = value
+
+    def delete_secret(self, repo, name):
+        if name not in self.secrets:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"シークレット {name} はありません。")
+        del self.secrets[name]
 
     def list_secrets(self, repo):
         return sorted(self.secrets)

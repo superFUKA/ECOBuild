@@ -1,14 +1,29 @@
 from typing import Annotated
 
-from ..._output import run_command
+from ..._output import lines, run_command, split_list
 
 
 def command(
     issue: Annotated[int, "Issueの番号"],
     title: Annotated[str, "新しい題名"] = "",
     body: Annotated[str, "新しい本文"] = "",
+    add_label: Annotated[str, "付けるラベル（カンマ区切り。なければ作る）"] = "",
+    remove_label: Annotated[str, "外すラベル（カンマ区切り）"] = "",
+    add_assignee: Annotated[str, "加える担当者（カンマ区切り。@me は自分）"] = "",
+    remove_assignee: Annotated[str, "外す担当者（カンマ区切り。@me は自分）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスク（Issue）の題名・本文を変えます。"""
-    return run_command("task edit", lambda inv: inv.module.edit_task(issue, title=title or None, body=body or None),
-                       lambda r: f"#{r.number} {r.title} を更新しました", json_output=json)
+    """タスク（Issue）の題名・本文・ラベル・担当者を変えます。"""
+
+    def action(inv):
+        return inv.module.edit_task(issue, title=title or None, body=body or None,
+                                    add_labels=split_list(add_label), remove_labels=split_list(remove_label),
+                                    add_assignees=split_list(add_assignee),
+                                    remove_assignees=split_list(remove_assignee))
+
+    def render(r):
+        return lines(f"#{r.number} {r.title} を更新しました",
+                     f"  ラベル：{', '.join(r.labels)}" if r.labels else None,
+                     f"  担当者：{', '.join(r.assignees)}" if r.assignees else None)
+
+    return run_command("task edit", action, render, json_output=json)

@@ -153,14 +153,19 @@ class Module:
     def status(self, *, fetch: bool = False) -> ws.Status:
         return self.repository.status(fetch=fetch)
 
-    def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
-        return self.repository.tasks(closed=closed)
+    def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
+              search: str | None = None) -> list[ws.TaskSummary]:
+        return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search)
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         return self.repository.task_status(number)
 
-    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None) -> ws.Task:
-        return self.repository.edit_task(number, title=title, body=body)
+    def edit_task(self, number: int, **changes) -> ws.Task:
+        """title・body・add_labels・remove_labels・add_assignees・remove_assignees（ecowork と同じ）。"""
+        return self.repository.edit_task(number, **changes)
+
+    def comment_task(self, number: int | None, body: str) -> ws.Task:
+        return self.repository.comment_task(number, body)
 
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
         return self.repository.close_task(number, not_planned=not_planned)
@@ -219,8 +224,9 @@ class Module:
     def create_branch(self, name: str, *, base: str | None = None) -> ws.Branch:
         return self.repository.create_branch(name, base=base)
 
-    def create_task(self, title: str, *, body: str = "") -> ws.Task:
-        return self.repository.create_task(title, body=body)
+    def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
+                    assignees: tuple[str, ...] = ()) -> ws.Task:
+        return self.repository.create_task(title, body=body, labels=labels, assignees=assignees)
 
     def task(self, number: int) -> ws.Task:
         return self.repository.task(number)
@@ -422,18 +428,25 @@ class Module:
                                              newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
 
-    def write_ci(self) -> CiInitResult:
-        """GitHub Actions のワークフロー（中身は型が用意する）を作る。
+    def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
+        """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。
 
-        非公開の依存先は、CIの GITHUB_TOKEN では取得できない。その依存先を返す（案内に使う）。
+        settings を渡すと [ci] に保存してから作る。手で編集したワークフロー（作ったときの印と内容が合わない）は、
+        force がなければ上書きしない。非公開の依存先は、CIの GITHUB_TOKEN では取得できない。その依存先を返す。
         """
         self.require_workspace("CIの設定の作成")
-        workflow = self.type.ci_workflow(self.config)
+        path = self.root / _docs.CI_WORKFLOW
+        if path.is_file() and not force and _docs.ci_edited(path.read_text(encoding="utf-8")):
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{_docs.CI_WORKFLOW} は手で編集されています。",
+                                hint="上書きしてよければ --force を付けてください（編集した内容は失われます）。")
+        new_config = self.config if settings is None else self.config.with_ci(settings)
+        workflow = self.type.ci_workflow(new_config)
         if workflow is None:
             raise self.type.not_supported("CI")
-        path = self.root / _docs.CI_WORKFLOW
+        if new_config is not self.config:
+            self._save_config(new_config)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(workflow, encoding="utf-8", newline="\n")
+        path.write_text(_docs.stamp_ci(workflow), encoding="utf-8", newline="\n")
         private = []
         for dependency in self.type.dependencies():
             name = dependency.url.removesuffix(".git").split("github.com/")[-1]
@@ -443,6 +456,12 @@ class Module:
             except Exception:  # GitHub以外・見つからない等は案内しない
                 continue
         return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
+
+    def ci_wait(self, pull_request: int | None = None, *, timeout: float = 1800) -> list:
+        return self.repository.ci_wait(pull_request, timeout=timeout)
+
+    def delete_secret(self, name: str) -> str:
+        return self.repository.delete_secret(name)
 
     def remove_ci(self) -> FilesChanged:
         """CI（ecobuild ci init で作ったワークフロー）をやめる。"""

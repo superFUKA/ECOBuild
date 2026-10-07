@@ -62,10 +62,12 @@ class Task:
     url: str
     state: str
     _repository: "Repository" = field(repr=False, compare=False)
+    labels: tuple[str, ...] = ()
+    assignees: tuple[str, ...] = ()  # 担当者（ログイン名）
 
     @classmethod
     def _from(cls, repository: "Repository", info: _github.IssueInfo) -> "Task":
-        return cls(info.number, info.title, info.url, info.state, repository)
+        return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees)
 
     def start(self, *, base: str | None = None) -> "Workspace":
         return self._repository._start_workspace(self, base)
@@ -269,6 +271,8 @@ class TaskSummary:
     workspace: bool                  # 手元に作業空間（task/<番号>）があるか
     current: bool                    # 今いる作業空間か
     remote: bool = False             # GitHubに作業空間のブランチがあるか（手元になくても task start で再開できる）
+    labels: tuple[str, ...] = ()
+    assignees: tuple[str, ...] = ()  # 担当者（ログイン名）
 
 
 @dataclass(frozen=True)
@@ -284,6 +288,9 @@ class TaskStatus:
     pull_request: PullRequestState | None
     activity: _github.PullRequestActivity | None
     remote: bool = False             # GitHubに作業空間のブランチがあるか
+    labels: tuple[str, ...] = ()
+    assignees: tuple[str, ...] = ()
+    comments: tuple[_github.Comment, ...] = ()   # Issueのコメント（作業の記録・申し送り）
 
 
 @dataclass(frozen=True)

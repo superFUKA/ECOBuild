@@ -140,3 +140,17 @@ def test_task_remove_and_resume(cli, module):
 def test_task_clean_without_targets(cli):
     result = cli("task", "clean")
     assert result.exit_code == 0 and "片付ける作業空間はありません" in result.stdout
+
+
+def test_task_labels_assignees_and_comments(cli, module):
+    as_json(cli("task", "new", "落ちる", "--label", "bug,urgent", "--start", "--json"))
+    as_json(cli("task", "new", "説明", "--label", "docs", "--json"))
+    listed = cli("task", "list", "--label", "bug")
+    assert "#1 落ちる [bug] [urgent]（担当：tester）" in listed.stdout and "#2" not in listed.stdout
+    assert [t["number"] for t in as_json(cli("task", "list", "--assignee", "@me", "--json"))["result"]] == [1]
+    assert cli("task", "comment", "--message", "計算は済み").exit_code == 0
+    assert cli("task", "edit", "2", "--add-assignee", "@me", "--remove-label", "docs").exit_code == 0
+    status = cli("task", "status")
+    assert "ラベル：bug, urgent" in status.stdout and "tester：計算は済み" in status.stdout
+    assert as_json(cli("task", "comment", "--json"))["error"]["code"] == "usage_error"
+    assert as_json(cli("ci", "init", "--shared", "yes", "--json"))["error"]["code"] == "usage_error"

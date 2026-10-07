@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass
 from importlib import resources
@@ -24,6 +25,7 @@ GENERATED_FILE_NAMES = ("CMakeLists.txt", "CppBuildTopLevel.cmake")
 # CppBuildのファイルテンプレートとして登録する既定の素材（名前 → 素材ファイル）
 TEMPLATES = {
     "header": "header.h",
+    "library": "library.h",
     "source": "source.cpp",
     "pch": "pch.h",
     "test": "test.cpp",
@@ -99,7 +101,7 @@ def create_module_solution(root: Path, name: str, projects: ProjectNames) -> Sol
         # ライブラリを最初に作り、相手からのリンク先（main_project）にする。
         library = solution.add_project(projects.library, projects.library, ProjectType.STATIC_LIBRARY)
         header = f"{projects.library}/{projects.library}.h"
-        library.add_file(f"include/{header}", template_name="header", auto_update=False)
+        _add_library_header(library, f"include/{header}")
         library.add_file(f"src/{projects.library}.cpp", template_name="source",
                          replacements={"header": header}, auto_update=False)
         test = solution.add_project(projects.test, projects.test, ProjectType.TEST)
@@ -282,7 +284,7 @@ def add_project(root: Path, name: str, kind: str, *, library: str, library_heade
         if kind == "library":
             header = f"{name}/{name}.h"
             files += [f"include/{header}", f"src/{name}.cpp"]
-            project.add_file(files[0], template_name="header", auto_update=False)
+            _add_library_header(project, files[0])
             project.add_file(files[1], template_name="source", replacements={"header": header}, auto_update=False)
         else:
             project.settings.link_project(solution.get_project(library), ProjectType.STATIC_LIBRARY)
@@ -489,6 +491,22 @@ def _shared_capable(solution: Solution) -> list[str]:
             if ProjectType.SHARED_LIBRARY in s.get_project(name).settings.get().types]
 
 
+def _add_library_header(project, path: str) -> None:
+    """ライブラリの見出しのヘッダー。書き出しのマクロ（<名前>_API）を定義する。
+
+    Windowsで共有ライブラリ（DLL）にすると、マクロを付けたものだけが書き出される。マクロの切り替えに使う定義は
+    共有ライブラリのときだけ付ける：ライブラリ自身には <名前>_EXPORTS、使う側には <名前>_SHARED。
+    """
+    prefix = re.sub(r"[^A-Za-z0-9]", "_", project.name).upper()
+    names = {"api": f"{prefix}_API", "exports": f"{prefix}_EXPORTS", "shared": f"{prefix}_SHARED"}
+    project.add_file(path, template_name="library", replacements=names, auto_update=False)
+    data = project.settings.get()
+    shared = data.types[ProjectType.SHARED_LIBRARY]
+    shared.compile_definitions.append(names["exports"])
+    shared.public_definitions.append(names["shared"])
+    project.settings.save(data)
+
+
 def _ensure_templates(solution: Solution) -> None:
     """後から増えたテンプレート（bench等）を、古いモジュールにも登録する。"""
     existing = set(solution.settings.get().file_templates)
@@ -550,7 +568,7 @@ def _single_executable(solution: Solution) -> str:
         raise EcoBuildError(
             ErrorCode.RUN_FAILED,
             "実行するProjectを決められません。" if executables else "実行ファイルのProjectがありません。",
-            hint="--project で実行するProjectを指定してください。" if executables else None,
+            hint="実行するProjectの名前を指定してください。" if executables else None,
             details=executables,
         )
     return executables[0]

@@ -101,17 +101,27 @@ def test_profiles_clean_and_rebuild(module):
 
 
 def test_shared_profile_builds_library_as_shared(module):
-    """共有ライブラリにする設定は、ライブラリを共有ライブラリとしてビルドする。
+    """共有ライブラリにする設定は、ライブラリを共有ライブラリとしてビルドし、使う側もリンクできる。
 
-    Windowsで関数を持つライブラリを使う側までリンクするには、CppBuildが書き出し（WINDOWS_EXPORT_ALL_SYMBOLS）を
-    設定する必要がある（CppBuildへの依頼。仮運用3回目で見つかった）。ここではライブラリのビルドまでを確かめる。
+    Windowsでは書き出しのマクロ（GEO_API）を付けた関数だけが書き出される（付けないとインポートライブラリが
+    できず、使う側のリンクが失敗する。仮運用3回目で見つかった）。
     """
+    header = module.root / "Geo/include/Geo/Geo.h"
+    source = module.root / "Geo/src/Geo.cpp"
+    originals = {path: path.read_text(encoding="utf-8") for path in (header, source)}
+    assert "#define GEO_API __declspec(dllexport)" in originals[header]
+    write(header, originals[header] + "GEO_API int geo_value();\n")
+    write(source, originals[source] + "int geo_value() { return 42; }\n")
     module.add_profile("dll", Profile("Debug", True, 1))
     try:
-        artifacts = module.build(project="Geo", profile="dll").artifacts
+        artifacts = module.build(profile="dll").artifacts  # 使う側（GeoTest・GeoApp）のリンクまで
         assert any(a.endswith((".dll", ".so")) for a in artifacts)
+        assert module.test(profile="dll").failed == 0
+        assert module.build().artifacts  # 静的ライブラリのままでもビルドできる
     finally:
         module.remove_profile("dll")
+        for path, text in originals.items():
+            write(path, text)
 
 
 def test_docs_ci_and_check(module):

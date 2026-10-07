@@ -30,8 +30,27 @@ def workspace_number(name: str) -> int | None:
 
 
 def base_key(branch: str) -> str:
-    """作業空間の作成元を記録するgitの設定のキー（手元だけ、コミットしない）。"""
+    """作業空間の作成元を記録するgitの設定のキー（手元の写し。本体はIssueの本文の印）。"""
     return f"branch.{branch}.ecowork-base"
+
+
+# 作業空間の本体はGitHubにあり、手元はその写し（消しても task start で作り直せる）。
+# 作成元もGitHubに残すため、Issueの本文の末尾に印（表示されないHTMLのコメント）を書く。
+_BASE_MARK = re.compile(r"\s*<!-- ecowork-base: (\S+) -->\s*$")
+
+
+def issue_base(body: str) -> str | None:
+    match = _BASE_MARK.search(body or "")
+    return None if match is None else match.group(1)
+
+
+def without_base(body: str) -> str:
+    return _BASE_MARK.sub("", body or "")
+
+
+def with_base(body: str, base: str) -> str:
+    text = without_base(body)
+    return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base} -->"
 
 
 @dataclass(frozen=True)
@@ -188,6 +207,16 @@ class DropResult:
 
 
 @dataclass(frozen=True)
+class RemoveResult:
+    """手元の作業空間を消した結果。GitHubのブランチ・PR・Issueはそのまま。"""
+    number: int
+    branch: str
+    base: str                        # 作成元（Issueに記録済み。再開すると同じ作成元になる）
+    remote: bool                     # GitHubにブランチがあるか（なければ再開すると作成元の最新から）
+    switched_to: str | None          # 今いる作業空間を消した場合、移った先
+
+
+@dataclass(frozen=True)
 class SyncResult:
     branch: str
     merged: tuple[str, ...]          # 取り込んだ（または早送りした）参照。sync continueでは merge／rebase
@@ -239,6 +268,7 @@ class TaskSummary:
     url: str
     workspace: bool                  # 手元に作業空間（task/<番号>）があるか
     current: bool                    # 今いる作業空間か
+    remote: bool = False             # GitHubに作業空間のブランチがあるか（手元になくても task start で再開できる）
 
 
 @dataclass(frozen=True)
@@ -253,6 +283,7 @@ class TaskStatus:
     base: str | None
     pull_request: PullRequestState | None
     activity: _github.PullRequestActivity | None
+    remote: bool = False             # GitHubに作業空間のブランチがあるか
 
 
 @dataclass(frozen=True)

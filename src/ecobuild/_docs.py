@@ -63,6 +63,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 - ファイルを変える操作とコミットは、作業空間（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。
+- 作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task remove` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別のcloneでも同じ）。
 - 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild task add` → `ecobuild sync continue`（やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。
 - ソースはUTF-8で書きます。

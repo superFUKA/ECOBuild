@@ -176,10 +176,11 @@ class Repository:
     # タスクの管理 -----------------------------------------------------------------
 
     def tasks(self, *, closed: bool = False) -> list[ws.TaskSummary]:
-        local = set(self.git.local_branches())
+        self.git.fetch()
+        local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
         return [ws.TaskSummary(i.number, i.title, i.state, i.url, ws.workspace_branch(i.number) in local,
-                               ws.workspace_branch(i.number) == current)
+                               ws.workspace_branch(i.number) == current, ws.workspace_branch(i.number) in remote)
                 for i in sorted(self.github.list_issues(self.root, closed=closed), key=lambda i: i.number)]
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
@@ -191,15 +192,20 @@ class Repository:
         pulls = self.github.pull_requests_for_branch(self.root, branch)
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
+        self.git.fetch()
         return ws.TaskStatus(
-            number, issue.title, issue.state, issue.url, issue.body, self.git.has_local_branch(branch),
-            self.git.get_config(ws.base_key(branch)),
-            None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity)
+            number, issue.title, issue.state, issue.url, ws.without_base(issue.body), self.git.has_local_branch(branch),
+            self.git.get_config(ws.base_key(branch)) or ws.issue_base(issue.body),
+            None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
+            self.git.has_remote_branch(branch))
 
     def edit_task(self, number: int, *, title: str | None = None, body: str | None = None) -> ws.Task:
         if title is None and body is None:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
                             hint="--title か --body を指定してください。")
+        if body is not None:
+            recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
+            body = body if recorded is None else ws.with_base(body, recorded)  # 作成元の記録は残す
         self.github.edit_issue(self.root, number, title=title, body=body)
         return self.task(number)
 
@@ -492,6 +498,58 @@ class Repository:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"{workspace.branch} の開いているPRがありません。",
                             hint=f"{self._op('task submit')} でPRを作成してください。")
         return ws.PullRequest._from(self, max(pulls, key=lambda p: p.number))
+
+    def remove_workspace(self, number: int | None = None) -> ws.RemoveResult:
+        """手元の作業空間だけを消す。GitHubのブランチ・PR・Issueはそのまま。
+
+        作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写し。task start で、pushした所から
+        同じ作成元で再開できる。GitHubにないもの（未コミットの変更・未pushのコミット）があれば止める。
+        """
+        if number is None:
+            number = self.require_workspace("番号を省略した作業空間の指定").number
+        branch = ws.workspace_branch(number)
+        if not self.git.has_local_branch(branch):
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元に作業空間 {branch} はありません。")
+        current = self.git.current_branch() == branch
+        if current and not self.git.working_tree().clean:
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、手元の作業空間を消せません。",
+                            hint=f"{self._op('task commit')} と {self._op('task push')} でGitHubへ送るか、"
+                                 f"{self._op('restore')} で戻してから実行してください。")
+        self.git.fetch()
+        remote = self.git.has_remote_branch(branch)
+        base = self.git.get_config(ws.base_key(branch)) or self.default_base
+        if remote:
+            unpushed = tuple(self.git.output("log", "--format=%s", branch, "--not",
+                                             f"{_git.REMOTE}/{branch}").splitlines())
+        else:
+            unpushed = self._lost_commits(branch, base, local=True, remote=False)
+        if unpushed:
+            raise WorkError(ErrorCode.COMMITS_WOULD_BE_LOST,
+                            f"作業空間 {branch} に、GitHubにないコミットが {len(unpushed)} 件あります。",
+                            hint=f"{self._op('task push')} でGitHubへ送ってから実行してください"
+                                 f"（作業をやめるなら {self._op('task drop')} {number}）。",
+                            details=list(unpushed))
+        self._record_base(number, base)
+        switched_to = None
+        if current:
+            switched_to = base
+            self._switch_to_latest(base)
+        self.git.delete_branch(branch, force=True)
+        self.git.unset_config(ws.base_key(branch))
+        return ws.RemoveResult(number, branch, base, remote, switched_to)
+
+    def _recorded_base(self, number: int, branch: str) -> str | None:
+        """GitHubに残した作成元：開いているPRの向き先、なければIssueの本文の印。"""
+        opened = [p for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "open"]
+        if opened:
+            return max(opened, key=lambda p: p.number).base
+        return ws.issue_base(self.github.get_issue(self.root, number).body)
+
+    def _record_base(self, number: int, base: str) -> None:
+        """作成元をIssueの本文に記録する（手元の作業空間を消しても、同じ作成元で再開できるように）。"""
+        issue = self.github.get_issue(self.root, number)
+        if ws.issue_base(issue.body) != base:
+            self.github.edit_issue(self.root, number, title=None, body=ws.with_base(issue.body, base))
 
     def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
         """Issueが閉じた作業空間のブランチを片付ける。未pushの変更がある作業空間は残す。"""
@@ -956,13 +1014,20 @@ class Repository:
             if self.git.has_remote_branch(branch) and self.git.is_ancestor(branch, remote):
                 self.git.merge(remote, ff_only=True)
         else:
+            # 手元にない作業空間：GitHubにあればそこから再開し、作成元も記録したものにする。
+            self.git.fetch()
+            remote = self.git.has_remote_branch(branch)
+            if base is None and remote:
+                base = self._recorded_base(task.number, branch)
             start = self._base_start_point(base)
-            if self.git.has_remote_branch(branch):
+            if remote:
                 start = f"{_git.REMOTE}/{branch}"
+            base = base or self.default_base
             self.git.create_branch(branch, start, switch=True)
-            self.git.set_config(ws.base_key(branch), (base or self.default_base))
-            if self.git.has_remote_branch(branch):
+            self.git.set_config(ws.base_key(branch), base)
+            if remote:
                 self.git.set_upstream(branch)
+            self._record_base(task.number, base)
         workspace = self.current_workspace()
         assert workspace is not None
         self.hooks.after_switch(self)

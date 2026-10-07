@@ -237,6 +237,9 @@ class Module:
     def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
         return self.repository.clean_workspaces(dry_run=dry_run)
 
+    def remove_workspace(self, number: int | None = None) -> ws.RemoveResult:
+        return self.repository.remove_workspace(number)
+
     def drop_workspace(self, number: int | None = None, *, close: bool = False, discard: bool = False,
                        dry_run: bool = False) -> ws.DropResult:
         return self.repository.drop_workspace(number, close=close, discard=discard, dry_run=dry_run)

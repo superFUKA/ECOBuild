@@ -24,7 +24,9 @@ def command(
         opened = r.pull_request is not None and r.pull_request.state == "open"
         return lines(
             f"#{r.number} {r.title}（{'開いています' if r.state == 'open' else '閉じています'}）{r.url}",
-            f"作業空間：task/{r.number}（作成元 {r.base}）" if r.workspace else "作業空間：手元になし",
+            f"作業空間：task/{r.number}（作成元 {r.base}）" if r.workspace
+            else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
+            else "作業空間：なし",
             f"PR #{r.pull_request.number}（{r.pull_request.state}）{r.pull_request.url}" if r.pull_request
             else "PR：なし",
             f"  マージ：{MERGEABLE.get(a.mergeable, '確認中')}" if a is not None and opened else None,

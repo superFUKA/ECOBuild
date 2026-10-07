@@ -122,6 +122,21 @@ def test_optional_arguments_are_also_positional(cli, module):
     assert as_json(cli("task", "revert", "--json"))["error"]["code"] == "usage_error"
 
 
+def test_task_remove_and_resume(cli, module):
+    as_json(cli("task", "new", "手元を消す", "--start", "--json"))
+    write(module.root / "a.txt", "a\n")
+    assert cli("task", "add", "a.txt").exit_code == 0
+    assert cli("task", "commit", "--message", "途中").exit_code == 0
+    refused = as_json(cli("task", "remove", "--json"))
+    assert refused["error"]["code"] == "commits_would_be_lost"
+    assert cli("task", "push").exit_code == 0
+    removed = cli("task", "remove")
+    assert removed.exit_code == 0 and "ecobuild task start 1" in removed.stdout
+    assert "- #1" in cli("task", "list").stdout  # GitHubにだけある
+    resumed = as_json(cli("task", "start", "1", "--json"))["result"]
+    assert resumed["branch"] == "task/1" and (module.root / "a.txt").exists()
+
+
 def test_task_clean_without_targets(cli):
     result = cli("task", "clean")
     assert result.exit_code == 0 and "片付ける作業空間はありません" in result.stdout

@@ -11,7 +11,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from . import board as _board
+from ecotask import board as _board
+from ecotask import tracker as _tracker
 from . import git as _git
 from . import github as _github
 from . import hooks as _hooks
@@ -21,18 +22,6 @@ from .errors import ErrorCode, WorkError, operation
 _REVIEW_KEY = "ecowork.review"              # task review で確認中のPR（手元だけ）
 _REVIEW_RETURN_KEY = "ecowork.review-return"
 _STASH_BRANCH = re.compile(r"^(?:WIP on|On) ([^:]+):")
-
-
-def _sort_key(field: _board.BoardField, value: str | None) -> tuple:
-    """ボードのフィールドの値で並べるときの順（値のないものは後ろ）。"""
-    if value is None:
-        return (1, 0, "")
-    if field.type in ("SINGLE_SELECT", "ITERATION"):
-        names = [o.name for o in field.options]
-        return (0, names.index(value) if value in names else len(names), value)
-    if field.type == "NUMBER":
-        return (0, float(value), value)
-    return (0, 0, value)  # 日付（YYYY-MM-DD）・テキストは文字の順
 
 
 def _stash_branch(message: str) -> str | None:
@@ -82,15 +71,35 @@ class Repository:
         board：タスクの計画の情報を置くボード（GitHub Projects）。あれば作業の段階をボードの状態に反映する。
         """
         self.root = Path(root)
-        self.board = board
-        self._board_info: _board.BoardInfo | None = None
         self.default_base = default_base
         self.command = command
         self.hooks = hooks if hooks is not None else Hooks()
-        self.github = github if github is not None else _github.default()
+        self.tracker = _tracker.Tracker(self.root, github=github if github is not None else _github.default(),
+                                        command=command, board=board)
         self.git = _git.Git(self.root, command=command)
-        # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた等）。CLIは結果と一緒に表示する
-        self.notices: list[str] = []
+
+    @property
+    def github(self) -> _github.GitHub:
+        return self.tracker.github
+
+    @github.setter
+    def github(self, value: _github.GitHub) -> None:
+        self.tracker.github = value
+
+    @property
+    def board(self) -> _board.BoardSettings | None:
+        """タスクの計画を置くボード。あれば作業の段階をボードの状態に反映する（ecotask の Tracker が持つ）。"""
+        return self.tracker.board
+
+    @board.setter
+    def board(self, value: _board.BoardSettings | None) -> None:
+        self.tracker.board = value
+        self.tracker._board_info = None
+
+    @property
+    def notices(self) -> list[str]:
+        """操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた等）。CLIは結果と一緒に表示する。"""
+        return self.tracker.notices
 
     @classmethod
     def create(
@@ -193,136 +202,69 @@ class Repository:
         value = self.git.get_config(_REVIEW_KEY)
         return int(value) if value else None
 
-    # タスクの管理 -----------------------------------------------------------------
+    # タスクの管理（ecotask に任せ、作業空間・PRのことを足す） -------------------------------
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
-              sort: str | None = None) -> list[ws.TaskSummary]:
-        """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）・milestone で絞り込む。
+              sort: str | None = None, sprint: str | None = None) -> list[ws.TaskSummary]:
+        """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）・milestone・sprint
+        （スプリントの名前か current）で絞り込む。
 
         ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・開いている子タスクがない・
         作業空間がまだない。ボードがあれば状態が未着手か未設定のもの。Backlog 等の計画中のものは除く）。
         sort：ボードのフィールドで並べる（単一選択は選択肢の順、日付・数値は小さい順。値のないものは後ろ）。
         """
-        sort_field = None if sort is None else self.board_info().field(sort)
+        if sort is not None:
+            self.tracker.board_info().field(sort)  # 一覧を取る前に、フィールドがあるか確かめる
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
-        issues = self.github.list_issues(self.root, closed=closed, label=label, assignee=assignee, search=search)
-        relations = self.github.issue_relations(self.root, closed=closed)
         result = []
-        items, status_name, started = {}, None, set()
-        if self.board is not None:
-            info = self.board_info()
-            items = self.github.board_items(self.root, info.id, closed=closed)
-            status_name = info.field(self.board.status_field).name
-            startable = {None, self.board.option(_board.TODO)}
-        for i in sorted(issues, key=lambda i: i.number):
-            if milestone is not None and i.milestone != milestone:
-                continue
-            r = relations.get(i.number, _github.IssueRelations())
+        for row in self.tracker.rows(closed=closed, label=label, assignee=assignee, search=search,
+                                     milestone=milestone, sprint=sprint):
+            i, r = row.issue, row.relations
             branch = ws.workspace_branch(i.number)
-            item = items.get(i.number)
-            values = {} if item is None else dict(item.values)
             summary = ws.TaskSummary(i.number, i.title, i.state, i.url, branch in local, branch == current,
                                      branch in remote, i.labels, i.assignees, i.milestone, r.parent, r.sub_total,
-                                     r.sub_completed, r.blocked_by,
-                                     None if status_name is None else values.pop(status_name, None), values)
-            if ready and not (summary.state == "open" and not summary.blocked_by
-                              and summary.subtasks == summary.subtasks_done
-                              and not (summary.workspace or summary.remote)
-                              and (status_name is None or summary.status in startable)):
+                                     r.sub_completed, r.blocked_by, row.status, row.fields)
+            if ready and not (self.tracker.startable(row) and not (summary.workspace or summary.remote)):
                 continue
             result.append(summary)
-        if sort_field is not None:
-            result.sort(key=lambda t: _sort_key(sort_field, t.status if sort_field.name == status_name
-                                                else t.fields.get(sort_field.name)))
+        if sort is not None:
+            result = self.tracker.sort(result, sort, value=lambda t, name: t.status if name == self._status_name()
+                                       else t.fields.get(name))
         return result
+
+    def _status_name(self) -> str:
+        info = self.tracker.board_info()
+        return info.field(self.tracker.board.status_field).name
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
         if number is None:
             number = self.require_workspace("番号を省略したタスクの指定").number
-        issue = self.github.get_issue(self.root, number)
+        details = self.tracker.details(number)
+        issue = details.issue
         branch = ws.workspace_branch(number)
         pulls = self.github.pull_requests_for_branch(self.root, branch)
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
         self.git.fetch()
-        relation = self.github.issue_relation(self.root, number)
-        parent = None
-        if relation.parent is not None:
-            parent = ws.TaskRef._from(self.github.get_issue(self.root, relation.parent))
-
-        def refs(infos):
-            return tuple(ws.TaskRef._from(i) for i in sorted(infos, key=lambda i: i.number))
-
         return ws.TaskStatus(
             number, issue.title, issue.state, issue.url, ws.without_base(issue.body), self.git.has_local_branch(branch),
             self.git.get_config(ws.base_key(branch)) or ws.issue_base(issue.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
-            self.git.has_remote_branch(branch), issue.labels, issue.assignees,
-            tuple(self.github.issue_comments(self.root, number)), issue.milestone, parent,
-            refs(self.github.sub_issues(self.root, number)), refs(self.github.blocked_by(self.root, number)),
-            refs(self.github.blocking(self.root, number)), self._board_values(number))
+            self.git.has_remote_branch(branch), issue.labels, issue.assignees, details.comments, issue.milestone,
+            details.parent, details.subtasks, details.blocked_by, details.blocking, details.board)
 
-    def _board_values(self, number: int) -> dict[str, str] | None:
-        """ボード上の値（フィールドの名前 → 値）。ボードがなければNone、ボードにないタスクは空。"""
-        if self.board is None:
-            return None
-        item = self.github.board_item(self.root, number, self.board_info().id)
-        return {} if item is None else dict(item.values)
-
-    def edit_task(self, number: int, *, title: str | None = None, body: str | None = None,
-                  add_labels: tuple[str, ...] = (), remove_labels: tuple[str, ...] = (),
-                  add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = (),
-                  parent: int | None = None, clear_parent: bool = False, add_blocked_by: tuple[int, ...] = (),
-                  remove_blocked_by: tuple[int, ...] = (), milestone: str | None = None,
-                  clear_milestone: bool = False) -> ws.Task:
-        """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える。"""
-        if title is None and body is None and parent is None and milestone is None and not (
-                add_labels or remove_labels or add_assignees or remove_assignees or clear_parent
-                or add_blocked_by or remove_blocked_by or clear_milestone):
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
-                            hint="題名・本文・ラベル・担当者・親・依存・マイルストーンのどれかを指定してください。")
-        if parent is not None and clear_parent:
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, "親の指定と解除は同時にできません。")
-        if milestone is not None and clear_milestone:
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, "マイルストーンの指定と解除は同時にできません。")
-        if title is not None or body is not None or add_labels or remove_labels or add_assignees or remove_assignees:
-            if body is not None:
-                recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
-                body = body if recorded is None else ws.with_base(body, recorded)  # 作成元の記録は残す
-            self.github.edit_issue(self.root, number, title=title, body=body, add_labels=add_labels,
-                                   remove_labels=remove_labels, add_assignees=add_assignees,
-                                   remove_assignees=remove_assignees)
-        self._set_relations(number, parent=parent, clear_parent=clear_parent, add_blocked_by=add_blocked_by,
-                            remove_blocked_by=remove_blocked_by, milestone=milestone, clear_milestone=clear_milestone)
+    def edit_task(self, number: int, *, body: str | None = None, **changes) -> ws.Task:
+        """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える
+        （ecotask の Tracker.edit と同じ）。本文を変えても、作成元の記録（本文の末尾の印）は残す。"""
+        if body is not None:
+            recorded = ws.issue_base(self.tracker.issue(number).body)
+            body = body if recorded is None else ws.with_base(body, recorded)
+        self.tracker.edit(number, body=body, **changes)
         return self.task(number)
-
-    def _set_relations(self, number: int, *, parent: int | None = None, clear_parent: bool = False,
-                       add_blocked_by: tuple[int, ...] = (), remove_blocked_by: tuple[int, ...] = (),
-                       milestone: str | None = None, clear_milestone: bool = False) -> None:
-        """親子・依存・マイルストーンを設定する。別の親からの付け替えは暗黙に行わない。"""
-        for other in (parent, *add_blocked_by):
-            if other == number:
-                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"#{number} 自身は指定できません。")
-        if parent is not None or clear_parent:
-            current = self.github.issue_relation(self.root, number).parent
-            if parent is not None and current not in (None, parent):
-                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"#{number} には既に親 #{current} があります。",
-                                hint=f"付け替えるなら、先に {self._op('task edit')} {number} --clear-parent で外してください。")
-            if clear_parent and current is not None:
-                self.github.remove_sub_issue(self.root, current, number)
-            if parent is not None and current is None:
-                self.github.add_sub_issue(self.root, parent, number)
-        for other in add_blocked_by:
-            self.github.add_blocked_by(self.root, number, other)
-        for other in remove_blocked_by:
-            self.github.remove_blocked_by(self.root, number, other)
-        if milestone is not None or clear_milestone:
-            self.github.set_issue_milestone(self.root, number,
-                                            None if clear_milestone else self._milestone_number(milestone))
 
     def comment_task(self, number: int | None, body: str) -> ws.Task:
         """タスク（Issue）にコメントを残す（作業の記録・申し送り）。省略時は今いる作業空間のタスク。"""
@@ -330,24 +272,16 @@ class Repository:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "コメントが空です。")
         if number is None:
             number = self.require_workspace("番号を省略したタスクの指定").number
-        self.github.comment_issue(self.root, number, body)
+        self.tracker.comment(number, body)
         return self.task(number)
 
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
-        """Issueを閉じる。作業空間に、開いているPRかマージしていないコミットがあれば止める。
+        """Issueを閉じる。開いている子タスク、作業空間に開いているPRかマージしていないコミットがあれば止める。
 
         作業の終わり方は「task merge で反映する」か「task drop で捨てる」のどちらか（Issueだけ閉じると、
         作業空間の変更が宙に浮く）。
         """
-        if self.task(number).state != "open":
-            raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{number} は既に閉じています。")
-        opened_subtasks = sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"),
-                                 key=lambda s: s.number)
-        if opened_subtasks:
-            raise WorkError(ErrorCode.OPEN_SUBTASKS, f"#{number} には開いている子タスクがあります。",
-                            hint="子タスクを先に終えるか閉じてください（親子をやめるなら "
-                                 f"{self._op('task edit')} <子の番号> --clear-parent）。",
-                            details=[f"#{s.number} {s.title}" for s in opened_subtasks])
+        self.tracker.check_closable(number)
         branch = ws.workspace_branch(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
@@ -365,209 +299,68 @@ class Repository:
                          "--close で閉じてください。",
                     details=list(lost),
                 )
-        self.github.close_issue(self.root, number, not_planned=not_planned)
-        self._stage(number, _board.DONE)
-        self._after_task_closed(number)
+        self.tracker.close(number, not_planned=not_planned)
         return self.task(number)
 
     def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
         """作業空間を作らずに作業を始める（調査・設計等、コードを変えないタスク）。担当者がいなければ自分にし、
         ボードの状態を作業中にする。親タスク・依存待ちの確かめは task start と同じ。"""
-        task = self.task(number)
-        if task.state != "open":
-            raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{number} は閉じています。")
-        self._check_startable(number, ignore_blocked=ignore_blocked)
-        if not task.assignees:
-            self.github.edit_issue(self.root, number, add_assignees=("@me",))
-        self._stage(number, _board.IN_PROGRESS)
-        return self.task(number)
-
-    # ボード（GitHub Projects） ---------------------------------------------------------
-
-    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
-        """つなげるボードの一覧（owner を省略するとリポジトリの所有者のもの）。"""
-        return self.github.list_boards(self.root, owner)
-
-    def check_board(self, settings: _board.BoardSettings) -> _board.BoardStatus:
-        """ボードを使えるか確かめる：状態のフィールドが単一選択で、段階に当てた選択肢があるか。"""
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        status = info.field(settings.status_field)
-        if status.type != "SINGLE_SELECT":
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"フィールド {status.name} は単一選択ではありません。",
-                            hint="--status-field で、状態を表す単一選択のフィールドを指定してください。")
-        missing = [stage for stage in (_board.TODO, _board.IN_PROGRESS, _board.DONE) if not settings.stages.get(stage)]
-        if missing:
-            raise WorkError(ErrorCode.INVALID_ARGUMENT,
-                            f"作業の段階（{', '.join(missing)}）に当てる {status.name} の選択肢が決まっていません。",
-                            hint="--todo・--in-progress・--done（任意で --in-review）で選択肢を指定してください。",
-                            details=[o.name for o in status.options])
-        for stage, name in settings.stages.items():
-            if stage not in _board.STAGES:
-                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"作業の段階 {stage} はありません。")
-            if name:
-                _board.find_option(status, name)
-        return _board.BoardStatus(info.url, info.title, status.name, dict(settings.stages), info.fields)
-
-    def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
-        """GitHub側でも、ボードをこのリポジトリにつなぐ（外す）。ボード自体は消さない。"""
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        self.github.link_board(self.root, info.id, link=link)
-
-    def board_status(self) -> _board.BoardStatus:
-        return self.check_board(self._require_board())
-
-    def board_info(self) -> _board.BoardInfo:
-        settings = self._require_board()
-        if self._board_info is None or self._board_info.number != settings.number:
-            self._board_info = self.github.get_board(self.root, settings.owner, settings.number)
-        return self._board_info
-
-    def set_task_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
-        """ボードのフィールドを設定する（型に従って確かめる）。作業の段階に当てた状態は操作で変わるため設定しない。"""
-        settings, info = self._require_board(), self.board_info()
-        target = info.field(name)
-        if target.name == info.field(settings.status_field).name:
-            option = _board.find_option(target, value)
-            if option.name in settings.stage_options:
-                raise self._stage_field_error(target.name, option.name)
-        item = self._board_item(number)
-        self.github.set_board_value(self.root, info.id, item.id, target, value)
-        return _board.TaskBoard(number, item.id, self._board_values(number) or {})
-
-    def clear_task_field(self, number: int, name: str) -> _board.TaskBoard:
-        settings, info = self._require_board(), self.board_info()
-        target = info.field(name)
-        item = self._board_item(number)
-        if target.name == info.field(settings.status_field).name and item.values.get(target.name) in settings.stage_options:
-            raise self._stage_field_error(target.name, item.values[target.name])
-        self.github.clear_board_value(self.root, info.id, item.id, target.id)
-        return _board.TaskBoard(number, item.id, self._board_values(number) or {})
-
-    def sync_board(self, *, dry_run: bool = False) -> _board.BoardSyncResult:
-        """ボードを実際の状態に合わせる：開いているタスクでボードにないものを加え、状態を作業の段階
-        （Issueの開閉・PR・作業空間）に合わせる。計画の段階（段階に当てていない選択肢）は変えない。"""
-        settings, info = self._require_board(), self.board_info()
-        status_name = info.field(settings.status_field).name
-        self.git.fetch()
-        remote = set(self.git.remote_branches())
-        items = self.github.board_items(self.root, info.id, closed=True)
-        pulls = {ws.workspace_number(p.head): p for p in self.github.list_pull_requests(self.root, closed=False)}
-        added, changed = [], []
-        for issue in sorted(self.github.list_issues(self.root, closed=True), key=lambda i: i.number):
-            item = items.get(issue.number)
-            if item is None and issue.state != "open":
-                continue  # 閉じたタスクは、ボードにあるものだけ合わせる
-            current = None if item is None else item.values.get(status_name)
-            stage = self._expected_stage(issue.state, current, pulls.get(issue.number),
-                                         ws.workspace_branch(issue.number) in remote)
-            target = None if stage is None else settings.option(stage)
-            if item is None:
-                added.append(issue.number)
-            if target is not None and target != current:
-                changed.append(_board.BoardChange(issue.number, issue.title, current, target))
-            if dry_run:
-                continue
-            if item is None:
-                item = self.github.add_board_item(self.root, issue.number, info.id)
-            if target is not None and target != current:
-                self.github.set_board_value(self.root, info.id, item.id, info.field(status_name), target)
-        return _board.BoardSyncResult(tuple(added), tuple(changed), dry_run)
-
-    def _expected_stage(self, state: str, current: str | None, pull, has_branch: bool) -> str | None:
-        """Issue・PR・作業空間から決まる作業の段階。決まらなければ（計画の段階・作業空間なしの作業中）None。"""
-        settings = self.board
-        if state != "open":
-            return _board.DONE
-        if pull is not None:
-            return _board.IN_PROGRESS if pull.draft else _board.IN_REVIEW
-        if has_branch:
-            return _board.IN_PROGRESS
-        if current is None or current in (settings.option(_board.DONE), settings.stages.get(_board.IN_REVIEW)):
-            return _board.TODO
-        return None
-
-    def _stage(self, number: int, stage: str) -> None:
-        """作業の段階をボードの状態に反映する。失敗しても操作は成功のまま、知らせて board sync を案内する。"""
-        if self.board is None:
-            return
-        option = self.board.option(stage)
-        try:
-            info = self.board_info()
-            item = self.github.add_board_item(self.root, number, info.id)
-            status = info.field(self.board.status_field)
-            if item.values.get(status.name) != option:
-                self.github.set_board_value(self.root, info.id, item.id, status, option)
-        except WorkError as error:
-            self.notices.append(f"ボードの #{number} を {option} にできませんでした（{error.message}）。"
-                                f"{self._op('board sync')} で合わせられます。")
-
-    def _board_item(self, number: int) -> _board.BoardItem:
-        item = self.github.board_item(self.root, number, self.board_info().id)
-        if item is None:
-            raise WorkError(ErrorCode.NOT_ON_BOARD, f"#{number} はボードにありません。",
-                            hint=f"{self._op('board sync')} で、開いているタスクをボードに加えられます。")
-        return item
-
-    def _require_board(self) -> _board.BoardSettings:
-        if self.board is None:
-            raise WorkError(ErrorCode.NO_BOARD, "ボード（GitHub Projects）をつないでいません。",
-                            hint=f"{self._op('board list')} で一覧を見て、{self._op('board use')} <URL> でつなぎます。")
-        return self.board
-
-    def _stage_field_error(self, field_name: str, option: str) -> WorkError:
-        settings = self.board
-        command = {settings.option(_board.TODO): "task reopen／task drop",
-                   settings.option(_board.IN_PROGRESS): "task start（コードを変えないタスクは --no-workspace）",
-                   settings.option(_board.DONE): "task merge／task close"}.get(option, "task submit")
-        return WorkError(ErrorCode.STAGE_FIELD, f"{field_name} の {option} は作業の段階なので、手では設定しません。",
-                         hint=f"{self._op(command)} で変わります。計画の段階（段階に当てていない選択肢）は設定できます。")
-
-    def _after_task_closed(self, number: int) -> None:
-        """タスクを閉じた後：親タスクの子がすべて閉じたら知らせる（親は自動で閉じない）。"""
-        try:
-            parent = self.github.issue_relation(self.root, number).parent
-            if parent is None:
-                return
-            subtasks = self.github.sub_issues(self.root, parent)
-            if subtasks and all(s.state == "closed" or s.number == number for s in subtasks):
-                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました"
-                                    f"（親も終わりなら {self._op('task close')} {parent}）。")
-        except WorkError:
-            pass  # 知らせるだけなので、失敗しても操作は成功のまま
-
-    # マイルストーン（リリースの目標と期日） ---------------------------------------------
-
-    def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
-        return self.github.list_milestones(self.root, closed=closed)
-
-    def create_milestone(self, title: str, *, due: str | None = None, description: str = "") -> _github.MilestoneInfo:
-        if not title.strip():
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, "マイルストーンの題名が必要です。")
-        if any(m.title == title for m in self.milestones(closed=True)):
-            raise WorkError(ErrorCode.ALREADY_EXISTS, f"マイルストーン {title} は既にあります。")
-        return self.github.create_milestone(self.root, title, due=due, description=description)
-
-    def edit_milestone(self, title: str, *, new_title: str | None = None, due: str | None = None,
-                       description: str | None = None, state: str | None = None) -> _github.MilestoneInfo:
-        """due="" で期日を消す。state：open／closed。"""
-        if new_title is None and due is None and description is None and state is None:
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。")
-        return self.github.edit_milestone(self.root, self._milestone_number(title), title=new_title, due=due,
-                                          description=description, state=state)
-
-    def _milestone_number(self, title: str) -> int:
-        for m in self.milestones(closed=True):
-            if m.title == title:
-                return m.number
-        raise WorkError(ErrorCode.MILESTONE_NOT_FOUND, f"マイルストーン {title} がありません。",
-                        hint=f"{self._op('milestone list')} --all で一覧、{self._op('milestone create')} で作成できます。")
+        return ws.Task._from(self, self.tracker.start_without_workspace(number, ignore_blocked=ignore_blocked))
 
     def reopen_task(self, number: int) -> ws.Task:
-        if self.task(number).state == "open":
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"Issue #{number} は開いています。")
-        self.github.reopen_issue(self.root, number)
-        self._stage(number, _board.TODO)
+        self.tracker.reopen(number)
         return self.task(number)
+
+    # マイルストーン・ボード（ecotask と同じ） ---------------------------------------------
+
+    def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
+        return self.tracker.milestones(closed=closed)
+
+    def create_milestone(self, title: str, *, due: str | None = None, description: str = "") -> _github.MilestoneInfo:
+        return self.tracker.create_milestone(title, due=due, description=description)
+
+    def edit_milestone(self, title: str, **changes) -> _github.MilestoneInfo:
+        return self.tracker.edit_milestone(title, **changes)
+
+    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
+        return self.tracker.boards(owner)
+
+    def create_board(self, title: str, **options) -> _board.BoardInfo:
+        return self.tracker.create_board(title, **options)
+
+    def check_board(self, settings: _board.BoardSettings) -> _board.BoardStatus:
+        return self.tracker.check_board(settings)
+
+    def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
+        self.tracker.link_board(settings, link=link)
+
+    def board_status(self) -> _board.BoardStatus:
+        return self.tracker.board_status()
+
+    def board_info(self) -> _board.BoardInfo:
+        return self.tracker.board_info()
+
+    def set_task_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
+        return self.tracker.set_field(number, name, value)
+
+    def clear_task_field(self, number: int, name: str) -> _board.TaskBoard:
+        return self.tracker.clear_field(number, name)
+
+    def sync_board(self, *, dry_run: bool = False) -> _board.BoardSyncResult:
+        """ボードを実際の状態に合わせる（ecotask の Tracker.sync_board）。作業空間・PRの事実をここで調べて渡す。"""
+        self.tracker.require_board()
+        self.git.fetch()
+        remote = set(self.git.remote_branches())
+        work = {}
+        for branch in remote:
+            number = ws.workspace_number(branch)
+            if number is not None:
+                work[number] = _tracker.WorkState(branch=True)
+        for pull in self.github.list_pull_requests(self.root, closed=False):
+            number = ws.workspace_number(pull.head)
+            if number is not None:
+                work[number] = _tracker.WorkState(branch=True, pull_request=True, draft=pull.draft)
+        return self.tracker.sync_board(work, dry_run=dry_run)
 
     # 他人のPRの確認 -----------------------------------------------------------------
 
@@ -847,19 +640,8 @@ class Repository:
                     assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
                     milestone: str | None = None) -> ws.Task:
         """タスク（Issue）を作る。parent：親タスク、blocked_by：先に終わるべきタスク、milestone：題名。"""
-        if milestone is not None:
-            self._milestone_number(milestone)  # 作る前に確かめる
-        info = self.github.create_issue(self.root, title, body, labels=labels, assignees=assignees)
-        self._stage(info.number, _board.TODO)
-        if parent is None and not blocked_by and milestone is None:
-            return ws.Task._from(self, info)
-        try:
-            self._set_relations(info.number, parent=parent, add_blocked_by=blocked_by, milestone=milestone)
-        except WorkError as error:
-            error.hint = ((error.hint + "\n") if error.hint else "") + (
-                f"Issue #{info.number} は作成済みです。{self._op('task edit')} {info.number} で設定し直してください。")
-            raise
-        return self.task(info.number)
+        return ws.Task._from(self, self.tracker.create(title, body=body, labels=labels, assignees=assignees,
+                                                       parent=parent, blocked_by=blocked_by, milestone=milestone))
 
     def task(self, number: int) -> ws.Task:
         return ws.Task._from(self, self.github.get_issue(self.root, number))
@@ -895,9 +677,9 @@ class Repository:
 
     # PRの処理（レビュー・変更・状態） ------------------------------------------------
 
-    def pull_requests(self, *, closed: bool = False) -> list[ws.PullRequest]:
-        """PRの一覧（新しい順）。closed なら閉じた・マージ済みも。"""
-        infos = self.github.list_pull_requests(self.root, closed=closed)
+    def pull_requests(self, *, closed: bool = False, review_requested: str | None = None) -> list[ws.PullRequest]:
+        """PRの一覧（新しい順）。closed なら閉じた・マージ済みも。review_requested：レビューを頼まれている人（@me）。"""
+        infos = self.github.list_pull_requests(self.root, closed=closed, review_requested=review_requested)
         return [ws.PullRequest._from(self, i) for i in sorted(infos, key=lambda i: i.number, reverse=True)]
 
     def pull_request_status(self, number: int | None = None) -> ws.PullRequestStatus:
@@ -930,7 +712,7 @@ class Repository:
         self.github.review_pull_request(self.root, pr.number, event=event, body=body)
         task = ws.workspace_number(pr.head)
         if event == "request_changes" and task is not None:
-            self._stage(task, _board.IN_PROGRESS)  # 直すのは作成者。出し直し（task submit）でレビュー待ちに戻る
+            self.tracker.set_stage(task, _board.IN_PROGRESS)  # 直すのは作成者。出し直し（task submit）でレビュー待ちに戻る
         return pr
 
     def edit_pull_request(self, number: int | None = None, *, title: str | None = None, body: str | None = None,
@@ -976,7 +758,7 @@ class Repository:
         self.github.close_pull_request(self.root, pr.number)
         task = ws.workspace_number(pr.head)
         if task is not None:
-            self._stage(task, _board.IN_PROGRESS)  # 作業空間は残っている（やめるなら task drop）
+            self.tracker.set_stage(task, _board.IN_PROGRESS)  # 作業空間は残っている（やめるなら task drop）
         return self.pull_request(pr.number)
 
     def reopen_pull_request(self, number: int) -> ws.PullRequest:
@@ -986,7 +768,7 @@ class Repository:
         self.github.reopen_pull_request(self.root, pr.number)
         task = ws.workspace_number(pr.head)
         if task is not None:
-            self._stage(task, _board.IN_PROGRESS if pr.draft else _board.IN_REVIEW)
+            self.tracker.set_stage(task, _board.IN_PROGRESS if pr.draft else _board.IN_REVIEW)
         return self.pull_request(pr.number)
 
     def set_pull_request_draft(self, number: int | None = None, *, draft: bool) -> ws.PullRequest:
@@ -998,7 +780,7 @@ class Repository:
             self.github.set_pull_request_draft(self.root, pr.number, draft)
         task = ws.workspace_number(pr.head)
         if task is not None:
-            self._stage(task, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
+            self.tracker.set_stage(task, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
         return self.pull_request(pr.number)
 
     def remove_workspace(self, number: int | None = None) -> ws.RemoveResult:
@@ -1123,7 +905,7 @@ class Repository:
                 # 開始していない（作業空間のない）Issueを「対応しない」として閉じる。
                 if not dry_run and self.github.get_issue(self.root, number).state == "open":
                     self.github.close_issue(self.root, number, not_planned=True)
-                    self._stage(number, _board.DONE)
+                    self.tracker.closed(number)
                 return ws.DropResult(number, branch, (), (), None, close, dry_run)
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作業空間 {branch} がありません。",
                             hint="開始していないIssueをやめる場合は --close を付けてください（「対応しない」として閉じます）。")
@@ -1151,10 +933,9 @@ class Repository:
         self.git.unset_config(ws.base_key(branch))
         if close and self.github.get_issue(self.root, number).state == "open":
             self.github.close_issue(self.root, number, not_planned=True)
-            self._stage(number, _board.DONE)
-            self._after_task_closed(number)
+            self.tracker.closed(number)
         elif not close:
-            self._stage(number, _board.TODO)  # Issueは開いたまま：最初からやり直せる
+            self.tracker.set_stage(number, _board.TODO)  # Issueは開いたまま：最初からやり直せる
         return ws.DropResult(number, branch, lost, pulls, switched_to, close, False)
 
     # 最新化・退避・取り消し ------------------------------------------------------
@@ -1369,14 +1150,14 @@ class Repository:
         if opened:
             # 既にあるPRには、pushしたコミットがそのまま加わる（修正依頼の後の出し直し等）。
             latest = max(opened, key=lambda p: p.number)
-            self._stage(workspace.number, _board.IN_PROGRESS if latest.draft else _board.IN_REVIEW)
+            self.tracker.set_stage(workspace.number, _board.IN_PROGRESS if latest.draft else _board.IN_REVIEW)
             return ws.PullRequest._from(self, latest)
         issue = self.github.get_issue(self.root, workspace.number)
         info = self.github.create_pull_request(
             self.root, head=workspace.branch, base=workspace.base,
             title=title or issue.title, body=ws.with_task_link("", workspace.number, partial=partial), draft=draft,
         )
-        self._stage(workspace.number, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
+        self.tracker.set_stage(workspace.number, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
         return ws.PullRequest._from(self, info)
 
     def _submit_branch(self, branch: ws.Branch, *, into: str, title: str | None,
@@ -1461,7 +1242,7 @@ class Repository:
                 if resumed and not self._needs_rebuild(pr.head, info.head_sha):
                     raise done
                 rebuilt = self._rebuild_workspace(pr.head, info.head_sha)
-                self._stage(task, _board.IN_PROGRESS)  # 途中の反映：作業は続く
+                self.tracker.set_stage(task, _board.IN_PROGRESS)  # 途中の反映：作業は続く
                 return ws.MergeResult(pr.number, method, None, rebuilt, resumed)
             issue_open = self.github.get_issue(self.root, task).state == "open"
             # 消すのは、マージしたときのままのブランチだけ（後からpushされたコミットを失わないように）
@@ -1473,8 +1254,7 @@ class Repository:
                 self.github.close_issue(self.root, task)
             if stale_branch:
                 self.git.push_delete(pr.head)
-            self._stage(task, _board.DONE)
-            self._after_task_closed(task)
+            self.tracker.closed(task)
             return ws.MergeResult(pr.number, method, task, False, resumed)
         except WorkError as error:
             if error is not done:
@@ -1555,21 +1335,6 @@ class Repository:
         if branch.remote:
             self.git.push_delete(branch.name)
 
-    def _check_startable(self, number: int, *, ignore_blocked: bool) -> None:
-        """新しく作業を始めてよいか：親タスク（開いている子がある）では作業しない。先に終わるべきタスクを待つ。"""
-        opened = sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"), key=lambda s: s.number)
-        if opened:
-            raise WorkError(ErrorCode.OPEN_SUBTASKS, f"#{number} は親タスクです（開いている子タスクがあります）。",
-                            hint=f"作業は子タスクで行ってください（{self._op('task start')} <子の番号>）。",
-                            details=[f"#{s.number} {s.title}" for s in opened])
-        if ignore_blocked:
-            return
-        blockers = sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"), key=lambda b: b.number)
-        if blockers:
-            raise WorkError(ErrorCode.TASK_BLOCKED, f"#{number} は、先に終わるべきタスクを待っています。",
-                            hint="先にそちらを終えてください。待たずに始めるなら --ignore-blocked。",
-                            details=[f"#{b.number} {b.title}" for b in blockers])
-
     def _start_workspace(self, task: ws.Task, base: str | None, *, ignore_blocked: bool = False) -> ws.Workspace:
         if task.state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
@@ -1595,7 +1360,7 @@ class Repository:
             self.git.fetch()
             remote = self.git.has_remote_branch(branch)
             if not remote:
-                self._check_startable(task.number, ignore_blocked=ignore_blocked)
+                self.tracker.check_startable(task.number, ignore_blocked=ignore_blocked)
             if base is None and remote:
                 base = self._recorded_base(task.number, branch)
             start = self._base_start_point(base)
@@ -1616,7 +1381,7 @@ class Repository:
             self.git.set_config(ws.base_key(branch), base)
             self._record_base(task.number, base, claim=True)
             if not remote:
-                self._stage(task.number, _board.IN_PROGRESS)
+                self.tracker.set_stage(task.number, _board.IN_PROGRESS)
         workspace = self.current_workspace()
         assert workspace is not None
         self.hooks.after_switch(self)

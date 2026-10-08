@@ -36,7 +36,7 @@ def test_every_command_has_help():
                  ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
                  ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["board", "list"], ["board", "use"], ["board", "show"],
-                 ["board", "unset"], ["board", "sync"], ["task", "field", "set"], ["task", "field", "clear"]):
+                 ["board", "unset"], ["board", "sync"], ["board", "create"], ["task", "field", "set"], ["task", "field", "clear"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -212,3 +212,16 @@ def test_board_from_cli(cli, module):
     assert refused["error"]["code"] == "stage_field"
     assert as_json(cli("task", "status", "2", "--json"))["result"]["board"] == {"Status": "In Progress"}
     assert cli("board", "unset").exit_code == 0 and board.id not in github.linked_boards
+
+
+def test_standard_board_from_cli(cli, module):
+    created = as_json(cli("board", "create", "計画", "--sprint-start", "2026-10-05", "--json"))["result"]
+    assert [f["name"] for f in created["fields"] if f["type"] == "ITERATION"] == ["Sprint"]
+    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
+    used = as_json(cli("board", "use", created["url"], "--json"))["result"]
+    assert used["stages"]["in_review"] == "In Review"
+    assert cli("task", "new", "子", "--parent", "1").exit_code == 0
+    assert cli("task", "field", "set", "2", "--field", "Sprint", "--value", "Sprint 2").exit_code == 0
+    assert [t["number"] for t in as_json(cli("task", "list", "--sprint", "Sprint 2", "--json"))["result"]] == [2]
+    assert [t["number"] for t in as_json(cli("task", "list", "--mine", "--json"))["result"]] == [1]
+    assert as_json(cli("pr", "list", "--review-requested", "--json"))["result"] == []

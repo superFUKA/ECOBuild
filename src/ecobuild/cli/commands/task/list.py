@@ -7,9 +7,11 @@ def command(
     all: Annotated[bool, "閉じたIssueも表示する"] = False,
     label: Annotated[str, "このラベルのタスクだけ"] = "",
     assignee: Annotated[str, "この担当者のタスクだけ（@me は自分）"] = "",
+    mine: Annotated[bool, "自分が担当のタスクだけ（--assignee @me と同じ）"] = False,
     search: Annotated[str, "題名・本文の検索（GitHubの検索の書き方）"] = "",
     milestone: Annotated[str, "このマイルストーンのタスクだけ"] = "",
     ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がなく、ボードでは未着手のもの）"] = False,
+    sprint: Annotated[str, "このスプリントのタスクだけ（スプリントの名前。current は今日を含むもの）"] = "",
     sort: Annotated[str, "ボードのフィールドで並べる（例：Priority。単一選択は選択肢の順、日付・数値は小さい順）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -30,7 +32,8 @@ def command(
             "着手できるタスクはありません" if ready else "タスクはありません")
 
     return run_command("task list", lambda inv: inv.module.tasks(closed=all, label=label or None,
-                                                                 assignee=assignee or None, search=search or None,
+                                                                 assignee="@me" if mine else (assignee or None),
+                                                                 search=search or None,
                                                                  milestone=milestone or None, ready=ready,
-                                                                 sort=sort or None),
+                                                                 sort=sort or None, sprint=sprint or None),
                        render, json_output=json)

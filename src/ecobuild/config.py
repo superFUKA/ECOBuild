@@ -7,7 +7,7 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from ecowork.board import BoardSettings
+from ecotask.board import BoardSettings
 
 from .errors import EcoBuildError, ErrorCode
 

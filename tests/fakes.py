@@ -11,9 +11,9 @@ from pathlib import Path
 from helpers import git
 from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
                             PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
-from ecowork.board import BoardField, BoardInfo, BoardItem, BoardOption
+from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption
 from ecowork.errors import ErrorCode, WorkError
-from ecowork.github import _field_value
+from ecotask.github import _field_value
 
 
 class FakeGitHub:
@@ -234,6 +234,27 @@ class FakeGitHub:
                                         (BoardField("F_title", "Title", "TITLE"), status, *extra))
         return self.boards[number]
 
+    def create_board(self, repo, owner, title):
+        board = self.add_board(title, statuses=("Todo", "In Progress", "Done"))   # GitHubの既定の Status
+        return replace(board, fields=())
+
+    def set_board_options(self, repo, field_id, options):
+        for number, board in self.boards.items():
+            fields = tuple(replace(f, options=tuple(BoardOption(f"{field_id}_{i}", name)
+                                                    for i, (name, _, _) in enumerate(options)))
+                           if f.id == field_id else f for f in board.fields)
+            self.boards[number] = replace(board, fields=fields)
+        for key, item in self.items.items():   # GitHubと同じく、選択肢を作り直すと値は消える
+            self.items[key] = BoardItem(item.id, {k: v for k, v in item.values.items() if k != "Status"})
+
+    def create_board_field(self, repo, board_id, name, type, *, options=(), iterations=()):
+        number = next(n for n, b in self.boards.items() if b.id == board_id)
+        board = self.boards[number]
+        field_id = f"F_{name}"
+        choices = tuple(BoardOption(f"{field_id}_{i}", n) for i, (n, _, _) in enumerate(options))
+        choices += tuple(BoardOption(f"{field_id}_{i}", t, s, d) for i, (t, s, d) in enumerate(iterations))
+        self.boards[number] = replace(board, fields=board.fields + (BoardField(field_id, name, type, choices),))
+
     def list_boards(self, repo, owner):
         return [replace(b, fields=()) for b in self.boards.values()]
 
@@ -283,8 +304,10 @@ class FakeGitHub:
                                              head, base, body, sha, author=self.owner, draft=draft)
         return self._current(self.pulls[number])
 
-    def list_pull_requests(self, repo, *, closed):
-        return [self._current(pr) for pr in self.pulls.values() if closed or pr.state == "open"]
+    def list_pull_requests(self, repo, *, closed, review_requested=None):
+        wanted = None if review_requested is None else self._user(review_requested)
+        return [self._current(pr) for pr in self.pulls.values() if (closed or pr.state == "open")
+                and (wanted is None or wanted in self.reviewers.get(pr.number, []))]
 
     def pull_request_diff(self, repo, number):
         pr = self.get_pull_request(repo, number)

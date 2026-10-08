@@ -158,3 +158,10 @@ def test_dedicated_clone_does_not_use_original_hooks(repository, tmp_path):
     other = repo.clone_workspace(task.number, tmp_path / "hooked",
                                  open=lambda root: Repository(root, github=repo.github, hooks=clone_hooks))
     assert original.roots == [] and clone_hooks.roots == [other.root]
+
+
+def test_review_requested_pull_requests(repository):
+    _, pr = submitted(repository)
+    assert repository.pull_requests(review_requested="@me") == []
+    repository.edit_pull_request(pr.number, add_reviewers=(repository.github.owner,))
+    assert [p.number for p in repository.pull_requests(review_requested="@me")] == [pr.number]

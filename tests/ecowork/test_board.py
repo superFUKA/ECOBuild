@@ -4,7 +4,7 @@ import pytest
 
 from helpers import write
 from ecowork import Repository
-from ecowork.board import BoardField, BoardOption, BoardSettings
+from ecotask.board import BoardField, BoardOption, BoardSettings
 from ecowork.errors import ErrorCode, WorkError
 
 pytestmark = pytest.mark.local

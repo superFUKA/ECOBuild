@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .errors import ErrorCode, WorkError
+from .errors import ErrorCode, TaskError
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class ProcessFailed(Exception):
 def find_tool(name: str) -> str:
     path = shutil.which(name)
     if path is None:
-        raise WorkError(
+        raise TaskError(
             ErrorCode.TOOL_MISSING,
             f"{name} が見つかりません。",
             hint=f"{name} をインストールし、PATHから実行できるようにしてください。",

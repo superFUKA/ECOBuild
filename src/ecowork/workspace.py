@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ecotask.tracker import TaskRef  # 親子・依存の相手（互換のため、ここからも使える）
+
 from . import github as _github
 from .errors import ErrorCode, WorkError
 
@@ -355,18 +357,6 @@ class TaskStatus:
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
     board: dict[str, str] | None = None          # ボード上の値（状態・優先度等）。ボードがなければNone
-
-
-@dataclass(frozen=True)
-class TaskRef:
-    """他のタスク（親子・依存の相手）。"""
-    number: int
-    title: str
-    state: str
-
-    @classmethod
-    def _from(cls, info: _github.IssueInfo) -> "TaskRef":
-        return cls(info.number, info.title, info.state)
 
 
 @dataclass(frozen=True)

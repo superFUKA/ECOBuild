@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .errors import ErrorCode, WorkError
+from .errors import ErrorCode, TaskError
 
 # 作業の段階
 TODO, IN_PROGRESS, IN_REVIEW, DONE = "todo", "in_progress", "in_review", "done"
@@ -23,6 +23,11 @@ DEFAULT_OPTIONS = {
     IN_REVIEW: ("In Review", "Review", "レビュー待ち"),
     DONE: ("Done", "Completed", "完了"),
 }
+
+# 標準のボード（board create）：Status と Priority の選択肢（名前・色・説明）
+STANDARD_STATUS = (("Backlog", "GRAY", "計画中"), ("Todo", "BLUE", "未着手"), ("In Progress", "YELLOW", "作業中"),
+                   ("In Review", "PURPLE", "レビュー待ち"), ("Done", "GREEN", "完了"))
+STANDARD_PRIORITY = (("High", "RED", "高"), ("Middle", "YELLOW", "中"), ("Low", "GRAY", "低"))
 
 # task field set で設定できるフィールドの型（担当者・ラベル等は task edit で変える）
 SETTABLE = ("TEXT", "NUMBER", "DATE", "SINGLE_SELECT", "ITERATION")
@@ -59,7 +64,7 @@ class BoardSettings:
 def parse_url(url: str) -> tuple[str, int]:
     match = _URL.fullmatch(url.strip())
     if match is None:
-        raise WorkError(ErrorCode.INVALID_ARGUMENT, f"ボードのURL {url} が読めません。",
+        raise TaskError(ErrorCode.INVALID_ARGUMENT, f"ボードのURL {url} が読めません。",
                         hint="https://github.com/users/<所有者>/projects/<番号>（組織なら /orgs/）の形で指定してください。")
     return match.group(1), int(match.group(2))
 
@@ -68,6 +73,8 @@ def parse_url(url: str) -> tuple[str, int]:
 class BoardOption:
     id: str
     name: str
+    start: str | None = None                   # イテレーションの期間の始まり（YYYY-MM-DD）
+    duration: int | None = None                # イテレーションの日数
 
 
 @dataclass(frozen=True)
@@ -96,9 +103,9 @@ class BoardInfo:
         if len(named) == 1:
             return named[0]
         if len(named) > 1:
-            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"フィールド {name_or_id} が複数あります。IDで指定してください。",
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"フィールド {name_or_id} が複数あります。IDで指定してください。",
                             details=[f"{f.id} {f.name}（{f.type}）" for f in named])
-        raise WorkError(ErrorCode.FIELD_NOT_FOUND, f"ボードにフィールド {name_or_id} がありません。",
+        raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードにフィールド {name_or_id} がありません。",
                         details=[f"{f.name}（{f.type}）" for f in self.fields if f.type in SETTABLE])
 
 
@@ -107,7 +114,7 @@ def find_option(field_: BoardField, value: str) -> BoardOption:
     for option in field_.options:
         if option.id == value or option.name.casefold() == value.casefold():
             return option
-    raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{field_.name} に選択肢 {value} はありません。",
+    raise TaskError(ErrorCode.INVALID_ARGUMENT, f"{field_.name} に選択肢 {value} はありません。",
                     details=[o.name for o in field_.options])
 
 

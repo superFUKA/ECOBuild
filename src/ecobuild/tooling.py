@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from ecowork import _process
+from ecotask import _process
 
 from . import _gui
 from . import module_type as _module_type

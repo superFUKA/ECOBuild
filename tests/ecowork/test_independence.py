@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 
+import ecotask
 import ecowork
 
 FORBIDDEN = {"ecobuild", "cppbuild", "cli_framework", "click"}
@@ -24,3 +25,11 @@ def test_ecowork_imports_only_itself_and_standard_library():
     assert sources
     for path in sources:
         assert not imported_modules(path) & FORBIDDEN, path.name
+
+
+def test_ecotask_imports_only_itself_and_standard_library():
+    """ecotask はタスク管理だけを持ち、作業の流れ（ecowork）も知らない。"""
+    sources = sorted(Path(ecotask.__file__).parent.glob("*.py"))
+    assert sources
+    for path in sources:
+        assert not imported_modules(path) & (FORBIDDEN | {"ecowork"}), path.name

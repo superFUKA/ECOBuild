@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
-from ecowork import board as _board
+from ecotask import board as _board
 from ecowork import github as _github
 from ecowork import workspace as ws
 
@@ -159,9 +159,9 @@ class Module:
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
-              sort: str | None = None) -> list[ws.TaskSummary]:
+              sort: str | None = None, sprint: str | None = None) -> list[ws.TaskSummary]:
         return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
-                                     milestone=milestone, ready=ready, sort=sort)
+                                     milestone=milestone, ready=ready, sort=sort, sprint=sprint)
 
     def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
         return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked)
@@ -170,6 +170,10 @@ class Module:
 
     def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
         return self.repository.boards(owner)
+
+    def create_board(self, title: str, **options) -> _board.BoardInfo:
+        """標準のボードを作る（ecotask の Tracker.create_board と同じ。owner・sprint_start・sprint_days・sprints）。"""
+        return self.repository.create_board(title, **options)
 
     def use_board(self, url: str, *, status_field: str = "Status",
                   stages: dict[str, str] | None = None) -> _board.BoardStatus:
@@ -241,8 +245,8 @@ class Module:
 
     # PRの処理（ecowork と同じ） ---------------------------------------------------
 
-    def pull_requests(self, *, closed: bool = False) -> list[ws.PullRequest]:
-        return self.repository.pull_requests(closed=closed)
+    def pull_requests(self, *, closed: bool = False, review_requested: str | None = None) -> list[ws.PullRequest]:
+        return self.repository.pull_requests(closed=closed, review_requested=review_requested)
 
     def pull_request_status(self, number: int | None = None) -> ws.PullRequestStatus:
         return self.repository.pull_request_status(number)

@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import _process
+from ecotask import _process
 from .errors import ErrorCode, WorkError, operation
 
 # ECOWORK_ALLOW：ecowork 自身の呼び出しは、作業空間を守るフック（hooks）を通す。

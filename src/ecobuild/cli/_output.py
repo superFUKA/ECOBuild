@@ -82,11 +82,20 @@ def execute(
         return FAILURE
     if invocation.json_output:
         _emit_json(command, invocation, result, None)
-    elif render is not None:
-        text = render(result)
-        if text:
-            click.echo(text)
+    else:
+        if render is not None:
+            text = render(result)
+            if text:
+                click.echo(text)
+        for notice in _notices(invocation):
+            click.echo(f"お知らせ：{notice}", err=True)
     return SUCCESS
+
+
+def _notices(invocation: Invocation) -> list[str]:
+    """操作は成功したが知らせておくこと（親タスクの子がすべて閉じた等）。"""
+    module = invocation._module
+    return [] if module is None else list(module.repository.notices)
 
 
 def run_command(
@@ -159,6 +168,17 @@ def split_list(text: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in text.split(",") if part.strip())
 
 
+def split_numbers(text: str, option: str, json_output: bool) -> tuple[int, ...]:
+    """カンマ区切りのIssueの番号（--blocked-by 3,5 等。# は付けても付けなくてもよい）。誤りは用法エラー。"""
+    numbers = []
+    for part in split_list(text):
+        value = part.removeprefix("#")
+        if not value.isdigit():
+            raise click.exceptions.Exit(usage_error(f"{option} にはIssueの番号を指定してください：{part}", json_output))
+        numbers.append(int(value))
+    return tuple(numbers)
+
+
 def lines(*parts: str | None) -> str:
     return "\n".join(part for part in parts if part)
 
@@ -211,6 +231,7 @@ def _emit_json(command: str, invocation: Invocation, result: Any, error: WorkErr
         "command": command,
         "module": None if module is None else module.root.as_posix(),
         "result": None if error is not None else to_data(result),
+        "notices": _notices(invocation),
         "error": None if error is None else {
             "code": error.code,
             "message": error.message,

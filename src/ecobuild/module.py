@@ -157,8 +157,19 @@ class Module:
         return self.repository.status(fetch=fetch)
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
-              search: str | None = None) -> list[ws.TaskSummary]:
-        return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search)
+              search: str | None = None, milestone: str | None = None, ready: bool = False) -> list[ws.TaskSummary]:
+        return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
+                                     milestone=milestone, ready=ready)
+
+    def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
+        return self.repository.milestones(closed=closed)
+
+    def create_milestone(self, title: str, *, due: str | None = None, description: str = "") -> _github.MilestoneInfo:
+        return self.repository.create_milestone(title, due=due, description=description)
+
+    def edit_milestone(self, title: str, **changes) -> _github.MilestoneInfo:
+        """new_title・due（"" で消す）・description・state（open／closed）（ecowork と同じ）。"""
+        return self.repository.edit_milestone(title, **changes)
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         return self.repository.task_status(number)
@@ -240,7 +251,8 @@ class Module:
     def releases(self):
         return self.repository.releases()
 
-    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None) -> "Module":
+    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None,
+                      ignore_blocked: bool = False) -> "Module":
         """作業空間を専用のcloneで作り（I-007）、依存先と生成ファイルを用意する。
 
         準備（型の prepare）はclone先のモジュールでだけ行う（元のcloneの依存先・生成ファイルは変えない）。
@@ -251,7 +263,7 @@ class Module:
             opened.append(Module.find(root, github=self.repository.github))
             return opened[0].repository
 
-        self.repository.clone_workspace(number, directory, base=base, open=open_clone)
+        self.repository.clone_workspace(number, directory, base=base, open=open_clone, ignore_blocked=ignore_blocked)
         return opened[0]
 
     def branches(self) -> list[ws.Branch]:
@@ -264,8 +276,10 @@ class Module:
         return self.repository.create_branch(name, base=base)
 
     def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
-                    assignees: tuple[str, ...] = ()) -> ws.Task:
-        return self.repository.create_task(title, body=body, labels=labels, assignees=assignees)
+                    assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
+                    milestone: str | None = None) -> ws.Task:
+        return self.repository.create_task(title, body=body, labels=labels, assignees=assignees, parent=parent,
+                                           blocked_by=blocked_by, milestone=milestone)
 
     def task(self, number: int) -> ws.Task:
         return self.repository.task(number)

@@ -28,6 +28,29 @@ class IssueInfo:
     body: str = ""
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()     # ログイン名
+    milestone: str | None = None        # マイルストーンの題名
+
+
+@dataclass(frozen=True)
+class IssueRelations:
+    """Issueの親子・依存の要約（一覧1回で取れる分）。"""
+    parent: int | None = None           # 親のIssue
+    sub_total: int = 0                  # 子のIssueの数
+    sub_completed: int = 0              # そのうち閉じたもの
+    blocked_by: int = 0                 # 先に終わるべきIssueのうち、開いているものの数
+    blocking: int = 0                   # このIssueを待っているIssueのうち、開いているものの数
+
+
+@dataclass(frozen=True)
+class MilestoneInfo:
+    number: int
+    title: str
+    state: str            # open / closed
+    url: str
+    due: str | None = None              # 期日（YYYY-MM-DD）
+    description: str = ""
+    open_issues: int = 0
+    closed_issues: int = 0
 
 
 @dataclass(frozen=True)
@@ -155,6 +178,21 @@ class GitHub(Protocol):
     def merge_pull_request(self, repo: Path, number: int, *, squash: bool, subject: str | None) -> None: ...
     def close_pull_request(self, repo: Path, number: int) -> None: ...
     def default_branch(self, repo: Path) -> str: ...
+    # 親子（Sub-issues）・依存（Issue dependencies）・マイルストーン
+    def issue_relations(self, repo: Path, *, closed: bool) -> dict[int, IssueRelations]: ...
+    def issue_relation(self, repo: Path, number: int) -> IssueRelations: ...
+    def sub_issues(self, repo: Path, number: int) -> list[IssueInfo]: ...
+    def add_sub_issue(self, repo: Path, parent: int, child: int) -> None: ...
+    def remove_sub_issue(self, repo: Path, parent: int, child: int) -> None: ...
+    def blocked_by(self, repo: Path, number: int) -> list[IssueInfo]: ...
+    def blocking(self, repo: Path, number: int) -> list[IssueInfo]: ...
+    def add_blocked_by(self, repo: Path, number: int, blocker: int) -> None: ...
+    def remove_blocked_by(self, repo: Path, number: int, blocker: int) -> None: ...
+    def list_milestones(self, repo: Path, *, closed: bool) -> list[MilestoneInfo]: ...
+    def create_milestone(self, repo: Path, title: str, *, due: str | None, description: str) -> MilestoneInfo: ...
+    def edit_milestone(self, repo: Path, number: int, *, title: str | None = None, due: str | None = None,
+                       description: str | None = None, state: str | None = None) -> MilestoneInfo: ...
+    def set_issue_milestone(self, repo: Path, number: int, milestone: int | None) -> None: ...
 
 
 class GhCli:
@@ -366,11 +404,15 @@ class GhCli:
 
     def _api(self, method, path, payload, *, cwd):
         """REST API（repos/<所有者>/<名前>/<path>）を呼ぶ。payload はJSONで標準入力から渡す。"""
-        args = ["api", "--method", method, f"repos/{{owner}}/{{repo}}/{path}", "--input", "-"]
+        args = ["api", "--method", method, f"repos/{{owner}}/{{repo}}/{path}"]
+        if payload is not None:
+            args += ["--input", "-"]
         try:
-            _process.run(["gh", *args], cwd=cwd, input=json.dumps(payload), env={"GH_PROMPT_DISABLED": "1"})
+            completed = _process.run(["gh", *args], cwd=cwd, input=None if payload is None else json.dumps(payload),
+                                     env={"GH_PROMPT_DISABLED": "1"})
         except _process.ProcessFailed as failure:
-            raise _gh_error(args, failure.completed) from None
+            raise _api_error(failure.completed) from None
+        return json.loads(completed.stdout) if completed.stdout.strip() else None
 
     def reopen_pull_request(self, repo, number):
         self._gh(["pr", "reopen", str(number)], cwd=repo)
@@ -409,6 +451,92 @@ class GhCli:
     def default_branch(self, repo):
         return self._json(["repo", "view", "--json", "defaultBranchRef"], cwd=repo)["defaultBranchRef"]["name"]
 
+    # 親子・依存・マイルストーン（REST。gh に専用のコマンドがない） -----------------------------
+
+    def issue_relations(self, repo, *, closed):
+        query = (".[] | select(.pull_request == null) | {number, parent: .parent_issue_url, "
+                 "sub: .sub_issues_summary, dep: .issue_dependencies_summary}")
+        state = "all" if closed else "open"
+        output = self._gh(["api", "--paginate", f"repos/{{owner}}/{{repo}}/issues?state={state}&per_page=100",
+                           "--jq", query], cwd=repo).stdout
+        result = {}
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            d = json.loads(line)
+            sub, dep = d.get("sub") or {}, d.get("dep") or {}
+            result[d["number"]] = IssueRelations(
+                _number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
+                sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
+        return result
+
+    def issue_relation(self, repo, number):
+        d = self._json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq",
+                        "{parent: .parent_issue_url, sub: .sub_issues_summary, dep: .issue_dependencies_summary}"],
+                       cwd=repo)
+        sub, dep = d.get("sub") or {}, d.get("dep") or {}
+        return IssueRelations(_number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
+                              sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
+
+    def sub_issues(self, repo, number):
+        return self._rest_issues(repo, f"issues/{number}/sub_issues")
+
+    def add_sub_issue(self, repo, parent, child):
+        self._api("POST", f"issues/{parent}/sub_issues", {"sub_issue_id": self._issue_id(repo, child)}, cwd=repo)
+
+    def remove_sub_issue(self, repo, parent, child):
+        self._api("DELETE", f"issues/{parent}/sub_issue", {"sub_issue_id": self._issue_id(repo, child)}, cwd=repo)
+
+    def blocked_by(self, repo, number):
+        return self._rest_issues(repo, f"issues/{number}/dependencies/blocked_by")
+
+    def blocking(self, repo, number):
+        return self._rest_issues(repo, f"issues/{number}/dependencies/blocking")
+
+    def add_blocked_by(self, repo, number, blocker):
+        self._api("POST", f"issues/{number}/dependencies/blocked_by", {"issue_id": self._issue_id(repo, blocker)},
+                  cwd=repo)
+
+    def remove_blocked_by(self, repo, number, blocker):
+        self._api("DELETE", f"issues/{number}/dependencies/blocked_by/{self._issue_id(repo, blocker)}", None, cwd=repo)
+
+    def list_milestones(self, repo, *, closed):
+        state = "all" if closed else "open"
+        output = self._gh(["api", "--paginate", f"repos/{{owner}}/{{repo}}/milestones?state={state}&per_page=100"
+                           "&sort=due_on", "--jq", ".[]"], cwd=repo).stdout
+        return [_milestone(json.loads(line)) for line in output.splitlines() if line.strip()]
+
+    def create_milestone(self, repo, title, *, due, description):
+        payload = {"title": title, "description": description}
+        if due:
+            payload["due_on"] = _due_on(due)
+        return _milestone(self._api("POST", "milestones", payload, cwd=repo))
+
+    def edit_milestone(self, repo, number, *, title=None, due=None, description=None, state=None):
+        payload = {key: value for key, value in (("title", title), ("description", description), ("state", state))
+                   if value is not None}
+        if due is not None:
+            payload["due_on"] = _due_on(due) if due else None
+        return _milestone(self._api("PATCH", f"milestones/{number}", payload, cwd=repo))
+
+    def set_issue_milestone(self, repo, number, milestone):
+        self._api("PATCH", f"issues/{number}", {"milestone": milestone}, cwd=repo)
+
+    def _issue_id(self, repo, number):
+        """親子・依存のAPIが使う、Issueの内部のID（番号ではない）。"""
+        completed = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq", ".id"], cwd=repo,
+                             check=False)
+        if not completed.ok:
+            if _not_found(completed):
+                raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。", details=completed.output)
+            raise _gh_error(["api", "issues"], completed)
+        return int(completed.stdout.strip())
+
+    def _rest_issues(self, repo, path):
+        output = self._gh(["api", "--paginate", f"repos/{{owner}}/{{repo}}/{path}?per_page=100", "--jq", ".[]"],
+                          cwd=repo).stdout
+        return [_rest_issue(json.loads(line)) for line in output.splitlines() if line.strip()]
+
     def _json(self, args, *, cwd):
         return json.loads(self._gh(args, cwd=cwd).stdout)
 
@@ -434,13 +562,43 @@ def _gh_error(args, completed: _process.Completed) -> WorkError:
 
 
 _PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit,author,isDraft"
-_ISSUE_FIELDS = "number,title,url,state,body,labels,assignees"
+_ISSUE_FIELDS = "number,title,url,state,body,labels,assignees,milestone"
 
 
 def _issue(data: dict) -> IssueInfo:
     return IssueInfo(data["number"], data["title"], data["url"], data["state"].lower(), data.get("body") or "",
                      tuple(label["name"] for label in data.get("labels") or []),
-                     tuple(user["login"] for user in data.get("assignees") or []))
+                     tuple(user["login"] for user in data.get("assignees") or []),
+                     (data.get("milestone") or {}).get("title"))
+
+
+def _rest_issue(data: dict) -> IssueInfo:
+    """REST API の形のIssue（gh issue view とは項目の名前が違う）。"""
+    return IssueInfo(data["number"], data["title"], data.get("html_url") or "", data["state"], data.get("body") or "",
+                     tuple(label["name"] for label in data.get("labels") or []),
+                     tuple(user["login"] for user in data.get("assignees") or []),
+                     (data.get("milestone") or {}).get("title"))
+
+
+def _milestone(data: dict) -> MilestoneInfo:
+    return MilestoneInfo(data["number"], data["title"], data["state"], data.get("html_url") or "",
+                         (data.get("due_on") or "")[:10] or None, data.get("description") or "",
+                         data.get("open_issues", 0), data.get("closed_issues", 0))
+
+
+def _due_on(date: str) -> str:
+    """期日（YYYY-MM-DD）を、APIの日時の形にする。"""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise WorkError(ErrorCode.INVALID_ARGUMENT, f"期日 {date} は YYYY-MM-DD の形で指定してください。")
+    return f"{date}T23:59:59Z"
+
+
+def _api_error(completed: _process.Completed) -> WorkError:
+    """REST API の失敗。GitHubが返した理由（message）を見せる（親子・依存の循環・重複等）。"""
+    match = re.search(r'"message"\s*:\s*"([^"]+)"', completed.output)
+    if match and not re.search(r"HTTP 401|Bad credentials", completed.output):
+        return WorkError(ErrorCode.GITHUB_ERROR, f"GitHubに断られました：{match.group(1)}", details=completed.output)
+    return _gh_error(["api"], completed)
 
 
 def _check(data: dict) -> Check:

@@ -9,7 +9,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecowork.github import Comment, IssueInfo, Review, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
+from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
+                            PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
 from ecowork.errors import ErrorCode, WorkError
 
 
@@ -31,6 +32,9 @@ class FakeGitHub:
         self.comments: dict[int, list[Comment]] = {}   # Issueのコメント
         self.reviewers: dict[int, list[str]] = {}       # PRのレビュアー
         self.pr_labels: dict[int, list[str]] = {}
+        self.parents: dict[int, int] = {}               # 子 → 親
+        self.blockers: dict[int, list[int]] = {}        # Issue → 先に終わるべきIssue
+        self.milestones: dict[int, MilestoneInfo] = {}
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -150,6 +154,73 @@ class FakeGitHub:
         self.issues[number] = replace(self.issues[number], state="closed")
         if not_planned:
             self.not_planned.add(number)
+
+    # 親子・依存・マイルストーン
+    def issue_relation(self, repo, number):
+        self.get_issue(repo, number)
+        children = [self.issues[c] for c, p in self.parents.items() if p == number]
+        return IssueRelations(self.parents.get(number), len(children),
+                              sum(1 for c in children if c.state == "closed"),
+                              sum(1 for b in self.blockers.get(number, []) if self.issues[b].state == "open"),
+                              sum(1 for n, bs in self.blockers.items() if number in bs
+                                  and self.issues[n].state == "open"))
+
+    def issue_relations(self, repo, *, closed):
+        return {n: self.issue_relation(repo, n) for n, i in self.issues.items() if closed or i.state == "open"}
+
+    def sub_issues(self, repo, number):
+        return [self.issues[c] for c, p in sorted(self.parents.items()) if p == number]
+
+    def add_sub_issue(self, repo, parent, child):
+        self.get_issue(repo, parent), self.get_issue(repo, child)
+        if child in self.parents:  # GitHubも、親のあるIssueは付け替えの指定がなければ断る
+            raise WorkError(ErrorCode.GITHUB_ERROR, "GitHubに断られました：Sub issue may only have one parent")
+        self.parents[child] = parent
+
+    def remove_sub_issue(self, repo, parent, child):
+        if self.parents.get(child) == parent:
+            del self.parents[child]
+
+    def blocked_by(self, repo, number):
+        return [self.issues[b] for b in self.blockers.get(number, [])]
+
+    def blocking(self, repo, number):
+        return [self.issues[n] for n, bs in sorted(self.blockers.items()) if number in bs]
+
+    def add_blocked_by(self, repo, number, blocker):
+        self.get_issue(repo, number), self.get_issue(repo, blocker)
+        if blocker in self.blockers.get(number, []):
+            raise WorkError(ErrorCode.GITHUB_ERROR, "GitHubに断られました：Dependency already exists")
+        self.blockers.setdefault(number, []).append(blocker)
+
+    def remove_blocked_by(self, repo, number, blocker):
+        if blocker in self.blockers.get(number, []):
+            self.blockers[number].remove(blocker)
+
+    def list_milestones(self, repo, *, closed):
+        return [m for m in self.milestones.values() if closed or m.state == "open"]
+
+    def create_milestone(self, repo, title, *, due, description):
+        number = len(self.milestones) + 1
+        self.milestones[number] = MilestoneInfo(number, title, "open", f"https://example.invalid/milestone/{number}",
+                                                due, description)
+        return self.milestones[number]
+
+    def edit_milestone(self, repo, number, *, title=None, due=None, description=None, state=None):
+        m = self.milestones[number]
+        self.milestones[number] = replace(m, title=m.title if title is None else title,
+                                          due=m.due if due is None else (due or None),
+                                          description=m.description if description is None else description,
+                                          state=m.state if state is None else state)
+        old, new = m.title, self.milestones[number].title
+        for n, issue in self.issues.items():
+            if issue.milestone == old:
+                self.issues[n] = replace(issue, milestone=new)
+        return self.milestones[number]
+
+    def set_issue_milestone(self, repo, number, milestone):
+        title = None if milestone is None else self.milestones[milestone].title
+        self.issues[number] = replace(self.get_issue(repo, number), milestone=title)
 
     # PR
     def create_pull_request(self, repo, *, head, base, title, body, draft=False):

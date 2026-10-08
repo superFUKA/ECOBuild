@@ -24,6 +24,9 @@ class ErrorCode:
     PULL_REQUEST_NOT_OPEN = "pull_request_not_open"
     PULL_REQUEST_CONFLICT = "pull_request_conflict"
     PULL_REQUEST_DRAFT = "pull_request_draft"
+    TASK_BLOCKED = "task_blocked"            # 先に終わるべきタスク（blocked by）が開いている
+    OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親では作業しない・閉じない）
+    MILESTONE_NOT_FOUND = "milestone_not_found"
     OWN_PULL_REQUEST = "own_pull_request"
     CHECKS_FAILED = "checks_failed"
     CHECKS_PENDING = "checks_pending"

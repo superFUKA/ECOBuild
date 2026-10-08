@@ -5,6 +5,14 @@ from ..._output import lines, optional_argument, run_command
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 
 
+def refs(label, tasks):
+    """親子・依存の相手の一覧（なければ表示しない）。"""
+    if not tasks:
+        return None
+    return f"{label}：\n" + "\n".join(f"  #{t.number} {t.title}" + ("（閉じています）" if t.state == "closed" else "")
+                                      for t in tasks)
+
+
 def command(
     *number: Annotated[int, "Issueの番号（--issue と同じ）"],
     issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
@@ -26,6 +34,10 @@ def command(
             f"#{r.number} {r.title}（{'開いています' if r.state == 'open' else '閉じています'}）{r.url}",
             f"ラベル：{', '.join(r.labels)}" if r.labels else None,
             f"担当者：{', '.join(r.assignees)}" if r.assignees else "担当者：なし",
+            f"マイルストーン：{r.milestone}" if r.milestone else None,
+            f"親タスク：#{r.parent.number} {r.parent.title}" if r.parent else None,
+            refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),
+            refs("このタスクを待っているタスク", r.blocking),
             "Issueのコメント：\n" + "\n".join(f"  {c.author}：{c.body}" for c in r.comments) if r.comments else None,
             f"作業空間：task/{r.number}（作成元 {r.base}）" if r.workspace
             else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote

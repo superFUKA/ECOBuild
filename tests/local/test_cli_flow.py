@@ -34,7 +34,8 @@ def test_every_command_has_help():
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "merge"],
                  ["task", "clean"], ["task", "drop"], ["pr", "list"], ["pr", "status"], ["pr", "diff"],
                  ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
-                 ["pr", "draft"]):
+                 ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
+                 ["milestone", "close"], ["milestone", "reopen"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -174,3 +175,18 @@ def test_draft_pull_request_can_be_made_ready(cli, module):
     assert (status["number"], status["task"], status["draft"]) == (pr["number"], 1, False)
     assert cli("pr", "edit", "--clear-body", "--json").exit_code == 0
     assert as_json(cli("task", "merge", "--json"))["result"]["closed_issue"] == 1
+
+
+def test_task_relations_from_cli(cli):
+    assert cli("milestone", "create", "v1", "--due", "2026-10-31").exit_code == 0
+    assert cli("task", "new", "親").exit_code == 0
+    assert cli("task", "new", "先", "--parent", "1").exit_code == 0
+    assert cli("task", "new", "後", "--parent", "1", "--blocked-by", "#2", "--milestone", "v1").exit_code == 0
+    assert cli("task", "new", "誤り", "--blocked-by", "x").exit_code == 2
+    ready = as_json(cli("task", "list", "--ready", "--json"))["result"]
+    assert [t["number"] for t in ready] == [2]
+    blocked = as_json(cli("task", "start", "3", "--json"))
+    assert blocked["error"]["code"] == "task_blocked" and "--ignore-blocked" in blocked["error"]["hint"]
+    status = as_json(cli("task", "status", "1", "--json"))["result"]
+    assert [s["number"] for s in status["subtasks"]] == [2, 3]
+    assert "v1" in cli("milestone", "list").output

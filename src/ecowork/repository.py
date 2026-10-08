@@ -72,6 +72,8 @@ class Repository:
         self.hooks = hooks if hooks is not None else Hooks()
         self.github = github if github is not None else _github.default()
         self.git = _git.Git(self.root, command=command)
+        # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた等）。CLIは結果と一緒に表示する
+        self.notices: list[str] = []
 
     @classmethod
     def create(
@@ -177,16 +179,32 @@ class Repository:
     # タスクの管理 -----------------------------------------------------------------
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
-              search: str | None = None) -> list[ws.TaskSummary]:
-        """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）で絞り込む。"""
+              search: str | None = None, milestone: str | None = None, ready: bool = False) -> list[ws.TaskSummary]:
+        """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）・milestone で絞り込む。
+
+        ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・開いている子タスクがない・
+        作業空間がまだない）。
+        """
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
         issues = self.github.list_issues(self.root, closed=closed, label=label, assignee=assignee, search=search)
-        return [ws.TaskSummary(i.number, i.title, i.state, i.url, ws.workspace_branch(i.number) in local,
-                               ws.workspace_branch(i.number) == current, ws.workspace_branch(i.number) in remote,
-                               i.labels, i.assignees)
-                for i in sorted(issues, key=lambda i: i.number)]
+        relations = self.github.issue_relations(self.root, closed=closed)
+        result = []
+        for i in sorted(issues, key=lambda i: i.number):
+            if milestone is not None and i.milestone != milestone:
+                continue
+            r = relations.get(i.number, _github.IssueRelations())
+            branch = ws.workspace_branch(i.number)
+            summary = ws.TaskSummary(i.number, i.title, i.state, i.url, branch in local, branch == current,
+                                     branch in remote, i.labels, i.assignees, i.milestone, r.parent, r.sub_total,
+                                     r.sub_completed, r.blocked_by)
+            if ready and not (summary.state == "open" and not summary.blocked_by
+                              and summary.subtasks == summary.subtasks_done
+                              and not (summary.workspace or summary.remote)):
+                continue
+            result.append(summary)
+        return result
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
@@ -198,27 +216,73 @@ class Repository:
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
         self.git.fetch()
+        relation = self.github.issue_relation(self.root, number)
+        parent = None
+        if relation.parent is not None:
+            parent = ws.TaskRef._from(self.github.get_issue(self.root, relation.parent))
+
+        def refs(infos):
+            return tuple(ws.TaskRef._from(i) for i in sorted(infos, key=lambda i: i.number))
+
         return ws.TaskStatus(
             number, issue.title, issue.state, issue.url, ws.without_base(issue.body), self.git.has_local_branch(branch),
             self.git.get_config(ws.base_key(branch)) or ws.issue_base(issue.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
             self.git.has_remote_branch(branch), issue.labels, issue.assignees,
-            tuple(self.github.issue_comments(self.root, number)))
+            tuple(self.github.issue_comments(self.root, number)), issue.milestone, parent,
+            refs(self.github.sub_issues(self.root, number)), refs(self.github.blocked_by(self.root, number)),
+            refs(self.github.blocking(self.root, number)))
 
     def edit_task(self, number: int, *, title: str | None = None, body: str | None = None,
                   add_labels: tuple[str, ...] = (), remove_labels: tuple[str, ...] = (),
-                  add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = ()) -> ws.Task:
-        """題名・本文・ラベル・担当者（@me は自分）を変える。"""
-        if title is None and body is None and not (add_labels or remove_labels or add_assignees or remove_assignees):
+                  add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = (),
+                  parent: int | None = None, clear_parent: bool = False, add_blocked_by: tuple[int, ...] = (),
+                  remove_blocked_by: tuple[int, ...] = (), milestone: str | None = None,
+                  clear_milestone: bool = False) -> ws.Task:
+        """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える。"""
+        if title is None and body is None and parent is None and milestone is None and not (
+                add_labels or remove_labels or add_assignees or remove_assignees or clear_parent
+                or add_blocked_by or remove_blocked_by or clear_milestone):
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
-                            hint="題名・本文・ラベル・担当者のどれかを指定してください。")
-        if body is not None:
-            recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
-            body = body if recorded is None else ws.with_base(body, recorded)  # 作成元の記録は残す
-        self.github.edit_issue(self.root, number, title=title, body=body, add_labels=add_labels,
-                               remove_labels=remove_labels, add_assignees=add_assignees,
-                               remove_assignees=remove_assignees)
+                            hint="題名・本文・ラベル・担当者・親・依存・マイルストーンのどれかを指定してください。")
+        if parent is not None and clear_parent:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "親の指定と解除は同時にできません。")
+        if milestone is not None and clear_milestone:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "マイルストーンの指定と解除は同時にできません。")
+        if title is not None or body is not None or add_labels or remove_labels or add_assignees or remove_assignees:
+            if body is not None:
+                recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
+                body = body if recorded is None else ws.with_base(body, recorded)  # 作成元の記録は残す
+            self.github.edit_issue(self.root, number, title=title, body=body, add_labels=add_labels,
+                                   remove_labels=remove_labels, add_assignees=add_assignees,
+                                   remove_assignees=remove_assignees)
+        self._set_relations(number, parent=parent, clear_parent=clear_parent, add_blocked_by=add_blocked_by,
+                            remove_blocked_by=remove_blocked_by, milestone=milestone, clear_milestone=clear_milestone)
         return self.task(number)
+
+    def _set_relations(self, number: int, *, parent: int | None = None, clear_parent: bool = False,
+                       add_blocked_by: tuple[int, ...] = (), remove_blocked_by: tuple[int, ...] = (),
+                       milestone: str | None = None, clear_milestone: bool = False) -> None:
+        """親子・依存・マイルストーンを設定する。別の親からの付け替えは暗黙に行わない。"""
+        for other in (parent, *add_blocked_by):
+            if other == number:
+                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"#{number} 自身は指定できません。")
+        if parent is not None or clear_parent:
+            current = self.github.issue_relation(self.root, number).parent
+            if parent is not None and current not in (None, parent):
+                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"#{number} には既に親 #{current} があります。",
+                                hint=f"付け替えるなら、先に {self._op('task edit')} {number} --clear-parent で外してください。")
+            if clear_parent and current is not None:
+                self.github.remove_sub_issue(self.root, current, number)
+            if parent is not None and current is None:
+                self.github.add_sub_issue(self.root, parent, number)
+        for other in add_blocked_by:
+            self.github.add_blocked_by(self.root, number, other)
+        for other in remove_blocked_by:
+            self.github.remove_blocked_by(self.root, number, other)
+        if milestone is not None or clear_milestone:
+            self.github.set_issue_milestone(self.root, number,
+                                            None if clear_milestone else self._milestone_number(milestone))
 
     def comment_task(self, number: int | None, body: str) -> ws.Task:
         """タスク（Issue）にコメントを残す（作業の記録・申し送り）。省略時は今いる作業空間のタスク。"""
@@ -237,6 +301,13 @@ class Repository:
         """
         if self.task(number).state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{number} は既に閉じています。")
+        opened_subtasks = sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"),
+                                 key=lambda s: s.number)
+        if opened_subtasks:
+            raise WorkError(ErrorCode.OPEN_SUBTASKS, f"#{number} には開いている子タスクがあります。",
+                            hint="子タスクを先に終えるか閉じてください（親子をやめるなら "
+                                 f"{self._op('task edit')} <子の番号> --clear-parent）。",
+                            details=[f"#{s.number} {s.title}" for s in opened_subtasks])
         branch = ws.workspace_branch(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
@@ -255,7 +326,48 @@ class Repository:
                     details=list(lost),
                 )
         self.github.close_issue(self.root, number, not_planned=not_planned)
+        self._after_task_closed(number)
         return self.task(number)
+
+    def _after_task_closed(self, number: int) -> None:
+        """タスクを閉じた後：親タスクの子がすべて閉じたら知らせる（親は自動で閉じない）。"""
+        try:
+            parent = self.github.issue_relation(self.root, number).parent
+            if parent is None:
+                return
+            subtasks = self.github.sub_issues(self.root, parent)
+            if subtasks and all(s.state == "closed" or s.number == number for s in subtasks):
+                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました"
+                                    f"（親も終わりなら {self._op('task close')} {parent}）。")
+        except WorkError:
+            pass  # 知らせるだけなので、失敗しても操作は成功のまま
+
+    # マイルストーン（リリースの目標と期日） ---------------------------------------------
+
+    def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
+        return self.github.list_milestones(self.root, closed=closed)
+
+    def create_milestone(self, title: str, *, due: str | None = None, description: str = "") -> _github.MilestoneInfo:
+        if not title.strip():
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "マイルストーンの題名が必要です。")
+        if any(m.title == title for m in self.milestones(closed=True)):
+            raise WorkError(ErrorCode.ALREADY_EXISTS, f"マイルストーン {title} は既にあります。")
+        return self.github.create_milestone(self.root, title, due=due, description=description)
+
+    def edit_milestone(self, title: str, *, new_title: str | None = None, due: str | None = None,
+                       description: str | None = None, state: str | None = None) -> _github.MilestoneInfo:
+        """due="" で期日を消す。state：open／closed。"""
+        if new_title is None and due is None and description is None and state is None:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。")
+        return self.github.edit_milestone(self.root, self._milestone_number(title), title=new_title, due=due,
+                                          description=description, state=state)
+
+    def _milestone_number(self, title: str) -> int:
+        for m in self.milestones(closed=True):
+            if m.title == title:
+                return m.number
+        raise WorkError(ErrorCode.MILESTONE_NOT_FOUND, f"マイルストーン {title} がありません。",
+                        hint=f"{self._op('milestone list')} --all で一覧、{self._op('milestone create')} で作成できます。")
 
     def reopen_task(self, number: int) -> ws.Task:
         if self.task(number).state == "open":
@@ -483,7 +595,8 @@ class Repository:
         return branch
 
     def clone_workspace(self, number: int, directory: Path | str, *, base: str | None = None,
-                        open: Callable[[Path], "Repository"] | None = None) -> "Repository":
+                        open: Callable[[Path], "Repository"] | None = None,
+                        ignore_blocked: bool = False) -> "Repository":
         """作業空間を専用のcloneで作る（I-007）。directoryは新しく作るcloneの場所。
 
         open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
@@ -501,7 +614,7 @@ class Repository:
             other = open(target)
         else:
             other = Repository(target, github=self.github, default_base=self.default_base, command=self.command)
-        other.task(number).start(base=base)
+        other.task(number).start(base=base, ignore_blocked=ignore_blocked)
         return other
 
     # ブランチ ---------------------------------------------------------------
@@ -537,9 +650,21 @@ class Repository:
     # タスクと作業空間 ---------------------------------------------------------
 
     def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
-                    assignees: tuple[str, ...] = ()) -> ws.Task:
-        return ws.Task._from(self, self.github.create_issue(self.root, title, body, labels=labels,
-                                                            assignees=assignees))
+                    assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
+                    milestone: str | None = None) -> ws.Task:
+        """タスク（Issue）を作る。parent：親タスク、blocked_by：先に終わるべきタスク、milestone：題名。"""
+        if milestone is not None:
+            self._milestone_number(milestone)  # 作る前に確かめる
+        info = self.github.create_issue(self.root, title, body, labels=labels, assignees=assignees)
+        if parent is None and not blocked_by and milestone is None:
+            return ws.Task._from(self, info)
+        try:
+            self._set_relations(info.number, parent=parent, add_blocked_by=blocked_by, milestone=milestone)
+        except WorkError as error:
+            error.hint = ((error.hint + "\n") if error.hint else "") + (
+                f"Issue #{info.number} は作成済みです。{self._op('task edit')} {info.number} で設定し直してください。")
+            raise
+        return self.task(info.number)
 
     def task(self, number: int) -> ws.Task:
         return ws.Task._from(self, self.github.get_issue(self.root, number))
@@ -818,6 +943,7 @@ class Repository:
         self.git.unset_config(ws.base_key(branch))
         if close and self.github.get_issue(self.root, number).state == "open":
             self.github.close_issue(self.root, number, not_planned=True)
+            self._after_task_closed(number)
         return ws.DropResult(number, branch, lost, pulls, switched_to, close, False)
 
     # 最新化・退避・取り消し ------------------------------------------------------
@@ -1132,6 +1258,7 @@ class Repository:
                 self.github.close_issue(self.root, task)
             if stale_branch:
                 self.git.push_delete(pr.head)
+            self._after_task_closed(task)
             return ws.MergeResult(pr.number, method, task, False, resumed)
         except WorkError as error:
             if error is not done:
@@ -1212,7 +1339,22 @@ class Repository:
         if branch.remote:
             self.git.push_delete(branch.name)
 
-    def _start_workspace(self, task: ws.Task, base: str | None) -> ws.Workspace:
+    def _check_startable(self, number: int, *, ignore_blocked: bool) -> None:
+        """新しく作業を始めてよいか：親タスク（開いている子がある）では作業しない。先に終わるべきタスクを待つ。"""
+        opened = sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"), key=lambda s: s.number)
+        if opened:
+            raise WorkError(ErrorCode.OPEN_SUBTASKS, f"#{number} は親タスクです（開いている子タスクがあります）。",
+                            hint=f"作業は子タスクで行ってください（{self._op('task start')} <子の番号>）。",
+                            details=[f"#{s.number} {s.title}" for s in opened])
+        if ignore_blocked:
+            return
+        blockers = sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"), key=lambda b: b.number)
+        if blockers:
+            raise WorkError(ErrorCode.TASK_BLOCKED, f"#{number} は、先に終わるべきタスクを待っています。",
+                            hint="先にそちらを終えてください。待たずに始めるなら --ignore-blocked。",
+                            details=[f"#{b.number} {b.title}" for b in blockers])
+
+    def _start_workspace(self, task: ws.Task, base: str | None, *, ignore_blocked: bool = False) -> ws.Workspace:
         if task.state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
                             hint="作業を再開するには、GitHubでIssueを開き直してください。")
@@ -1236,6 +1378,8 @@ class Repository:
             # 手元にない作業空間：GitHubにあればそこから再開し、作成元も記録したものにする。
             self.git.fetch()
             remote = self.git.has_remote_branch(branch)
+            if not remote:
+                self._check_startable(task.number, ignore_blocked=ignore_blocked)
             if base is None and remote:
                 base = self._recorded_base(task.number, branch)
             start = self._base_start_point(base)

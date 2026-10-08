@@ -88,13 +88,17 @@ class Task:
     _repository: "Repository" = field(repr=False, compare=False)
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()  # 担当者（ログイン名）
+    milestone: str | None = None
 
     @classmethod
     def _from(cls, repository: "Repository", info: _github.IssueInfo) -> "Task":
-        return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees)
+        return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees,
+                   info.milestone)
 
-    def start(self, *, base: str | None = None) -> "Workspace":
-        return self._repository._start_workspace(self, base)
+    def start(self, *, base: str | None = None, ignore_blocked: bool = False) -> "Workspace":
+        """作業空間を作る。新しく作るときは、開いている子タスクがあれば止め（親では作業しない）、先に終わるべき
+        タスクが開いていれば止める（ignore_blocked で続ける）。"""
+        return self._repository._start_workspace(self, base, ignore_blocked=ignore_blocked)
 
 
 @dataclass(frozen=True)
@@ -320,6 +324,11 @@ class TaskSummary:
     remote: bool = False             # GitHubに作業空間のブランチがあるか（手元になくても task start で再開できる）
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()  # 担当者（ログイン名）
+    milestone: str | None = None
+    parent: int | None = None        # 親タスク
+    subtasks: int = 0                # 子タスクの数
+    subtasks_done: int = 0           # そのうち閉じたもの
+    blocked_by: int = 0              # 先に終わるべきタスクのうち、開いているものの数
 
 
 @dataclass(frozen=True)
@@ -338,6 +347,23 @@ class TaskStatus:
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()
     comments: tuple[_github.Comment, ...] = ()   # Issueのコメント（作業の記録・申し送り）
+    milestone: str | None = None
+    parent: "TaskRef | None" = None
+    subtasks: tuple["TaskRef", ...] = ()
+    blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
+    blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
+
+
+@dataclass(frozen=True)
+class TaskRef:
+    """他のタスク（親子・依存の相手）。"""
+    number: int
+    title: str
+    state: str
+
+    @classmethod
+    def _from(cls, info: _github.IssueInfo) -> "TaskRef":
+        return cls(info.number, info.title, info.state)
 
 
 @dataclass(frozen=True)

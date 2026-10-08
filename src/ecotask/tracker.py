@@ -287,6 +287,14 @@ class Tracker:
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:
         """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（作業空間があるもの等）。"""
         today = today or _datetime.date.today()
+        if self.board is None:
+            self.notices.append("ボードをつないでいないので、優先度・期限・スプリントは使わずに並べています"
+                                f"（{self._op('board create')}・{self._op('board use')}）。")
+        else:
+            missing = [_model.ROLE_NAMES[r] for r in _model.ROLES if self.store.role_field(r) is None]
+            if missing:
+                self.notices.append(f"ボードに{'・'.join(missing)}の項目が当てられていないので、使わずに並べています"
+                                    f"（項目を足して、作業空間で {self._op('board use')} をやり直してください）。")
         tasks = self.tasks(assignee=assignee) if assignee else self.store.tasks()
         return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
 

@@ -142,3 +142,15 @@ def test_next_and_sprint_status_from_github(tracker):
     summary = tracker.sprint_status("current")
     assert (summary.sprint.name, summary.total, summary.estimate_remaining) == ("Sprint 1", 1, 1)
     assert [t.number for t in tracker.deadlines().overdue] == [overdue.number]
+
+
+def test_next_tells_what_is_not_used(tracker):
+    """計画の値の項目を当てていなければ、使わずに並べたことを知らせる（黙って順位が変わらないように）。"""
+    tracker.create("t")
+    tracker.next_tasks()
+    assert any("ボードをつないでいない" in n for n in tracker.notices)
+    connect(tracker)
+    tracker.board = BoardSettings(tracker.board.url, "Status", tracker.board.stages, {"priority": "Priority"})
+    tracker.notices.clear()
+    tracker.next_tasks()
+    assert any("期限・見積もり・スプリント" in n for n in tracker.notices)

@@ -77,7 +77,7 @@ def test_sprints(tracker):
     connect(tracker, sprint_start=(monday - datetime.timedelta(days=14)).isoformat())
     last, now, later = (tracker.create(t) for t in ("前", "今", "次"))
     tracker.set_field(last.number, "Sprint", "Sprint 1")
-    tracker.set_field(now.number, "Sprint", "Sprint 2")
+    tracker.set_field(now.number, "Sprint", "current")              # 今日を含むスプリント（Sprint 2）
     tracker.set_field(later.number, "Sprint", "Sprint 3")
     assert [r.issue.number for r in tracker.rows(sprint="current")] == [now.number]
     assert [r.issue.number for r in tracker.rows(sprint="sprint 3")] == [later.number]

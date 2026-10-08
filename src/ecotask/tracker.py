@@ -387,6 +387,8 @@ class Tracker:
         """ボードのフィールドを設定する（型に従って確かめる）。作業の段階に当てた状態は操作で変わるため設定しない。"""
         settings, info = self.require_board(), self.board_info()
         target = info.field(name)
+        if target.type == "ITERATION" and value == "current":
+            value = self.sprint("current")[1]  # 今日を含むスプリント
         if target.name == info.field(settings.status_field).name:
             option = _board.find_option(target, value)
             if option.name in settings.stage_options:

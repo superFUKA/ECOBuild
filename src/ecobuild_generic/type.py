@@ -9,7 +9,8 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
-from ecobuild.config import CI_RUNNERS, ModuleConfig, Profile
+from ecobuild import ci_workflow
+from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.module_type import ModuleType
 from ecobuild.results import BuildResult, RunResult, TestCaseResult, TestResult
@@ -54,18 +55,17 @@ class GenericType(ModuleType):
                  for label, command in steps if command]
         if not steps:
             return None
-        runners = ", ".join(CI_RUNNERS[name] for name in (ci.os or ("linux",)))
         lines = [
             "# ECOBuild（ecobuild ci init）が作成：ecobuild.toml の [commands] の build・test を実行する。",
-            "# 変えるときは ecobuild ci init の --os・--configuration（設定は ecobuild.toml の [ci]）。",
-            "name: build", "", "on:", "  push:", f"    branches: [{config.default_base}]", "  pull_request:",
-            "  workflow_dispatch:      # ecobuild ci run（手動での実行）", "",
+            "# 変えるときは ecobuild ci init の --os・--configuration・--branches（設定は ecobuild.toml の [ci]）。",
+            "name: build", "", *ci_workflow.trigger(config), "",
             "jobs:", "  build:", "    strategy:", "      fail-fast: false", "      matrix:",
-            f"        os: [{runners}]", f"        configuration: [{', '.join(ci.configurations)}]",
+            f"        os: {ci_workflow.runners(ci, ('linux',))}",
+            f"        configuration: {ci_workflow.yaml_list(ci.configurations)}",
             "    runs-on: ${{ matrix.os }}", "    steps:", "      - uses: actions/checkout@v4",
         ]
         for label, command in steps:
-            lines += [f"      - name: {label}", f"        run: {command}"]
+            lines += [f"      - name: {label}", f"        run: {ci_workflow.yaml_text(command)}"]
         return "\n".join(lines) + "\n"
 
     # ビルド ---------------------------------------------------------------------

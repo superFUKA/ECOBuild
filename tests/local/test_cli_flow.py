@@ -32,7 +32,9 @@ def test_every_command_has_help():
                  ["sync"], ["sync", "continue"], ["sync", "abort"], ["stash"], ["stash", "pop"], ["stash", "list"],
                  ["branch", "create"], ["branch", "list"], ["branch", "delete"], ["branch", "submit"],
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "merge"],
-                 ["task", "clean"], ["task", "drop"]):
+                 ["task", "clean"], ["task", "drop"], ["pr", "list"], ["pr", "status"], ["pr", "diff"],
+                 ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
+                 ["pr", "draft"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -154,3 +156,21 @@ def test_task_labels_assignees_and_comments(cli, module):
     assert "ラベル：bug, urgent" in status.stdout and "tester：計算は済み" in status.stdout
     assert as_json(cli("task", "comment", "--json"))["error"]["code"] == "usage_error"
     assert as_json(cli("ci", "init", "--shared", "yes", "--json"))["error"]["code"] == "usage_error"
+
+
+def test_draft_pull_request_can_be_made_ready(cli, module):
+    """下書きのPRはマージできず、案内される ecobuild pr ready で解除してからマージできる。"""
+    assert cli("task", "new", "下書き", "--start").exit_code == 0
+    write(module.root / "a.txt", "a\n")
+    cli("task", "add", "a.txt")
+    cli("task", "commit", "--message", "a")
+    pr = as_json(cli("task", "submit", "--draft", "--json"))["result"]
+    assert pr["draft"]
+    refused = as_json(cli("task", "merge", "--json"))
+    assert refused["error"]["code"] == "pull_request_draft" and "ecobuild pr ready" in refused["error"]["hint"]
+    assert as_json(cli("pr", "list", "--json"))["result"][0]["number"] == pr["number"]
+    assert not as_json(cli("pr", "ready", str(pr["number"]), "--json"))["result"]["draft"]
+    status = as_json(cli("pr", "status", "--json"))["result"]
+    assert (status["number"], status["task"], status["draft"]) == (pr["number"], 1, False)
+    assert cli("pr", "edit", "--clear-body", "--json").exit_code == 0
+    assert as_json(cli("task", "merge", "--json"))["result"]["closed_issue"] == 1

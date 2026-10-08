@@ -20,8 +20,8 @@ from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
-                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ProfileList, RunResult, SyncResult,
-                      TestResult)
+                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, PrepareResult, ProfileList,
+                      ProjectSummary, RunResult, SyncResult, TestResult)
 
 COMMAND = "ecobuild"
 
@@ -34,12 +34,15 @@ ecobuild.local.toml
 
 
 class _TypeHooks(Hooks):
-    """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。"""
+    """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。
+
+    1つの Module（そのclone）に結び付く。別のcloneの Repository には渡さない（start_task_in を参照）。
+    """
 
     def __init__(self, module: "Module"):
         self._module = module
 
-    def after_sync(self, repository: Repository) -> tuple[tuple[DependencyChange, ...], bool]:
+    def after_sync(self, repository: Repository) -> PrepareResult:
         return self._module._after_sync()
 
     def after_switch(self, repository: Repository) -> None:
@@ -167,6 +170,35 @@ class Module:
     def comment_task(self, number: int | None, body: str) -> ws.Task:
         return self.repository.comment_task(number, body)
 
+    # PRの処理（ecowork と同じ） ---------------------------------------------------
+
+    def pull_requests(self, *, closed: bool = False) -> list[ws.PullRequest]:
+        return self.repository.pull_requests(closed=closed)
+
+    def pull_request_status(self, number: int | None = None) -> ws.PullRequestStatus:
+        return self.repository.pull_request_status(number)
+
+    def pull_request_diff(self, number: int | None = None) -> str:
+        return self.repository.pull_request_diff(number)
+
+    def comment_pull_request(self, number: int | None, body: str) -> ws.PullRequest:
+        return self.repository.comment_pull_request(number, body)
+
+    def review_pull_request(self, number: int, event: str, body: str = "") -> ws.PullRequest:
+        return self.repository.review_pull_request(number, event, body)
+
+    def edit_pull_request(self, number: int | None = None, **changes) -> ws.PullRequest:
+        return self.repository.edit_pull_request(number, **changes)
+
+    def close_pull_request(self, number: int | None = None) -> ws.PullRequest:
+        return self.repository.close_pull_request(number)
+
+    def reopen_pull_request(self, number: int) -> ws.PullRequest:
+        return self.repository.reopen_pull_request(number)
+
+    def set_pull_request_draft(self, number: int | None = None, *, draft: bool) -> ws.PullRequest:
+        return self.repository.set_pull_request_draft(number, draft=draft)
+
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
         return self.repository.close_task(number, not_planned=not_planned)
 
@@ -209,11 +241,18 @@ class Module:
         return self.repository.releases()
 
     def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None) -> "Module":
-        """作業空間を専用のcloneで作り（I-007）、依存先と生成ファイルを用意する。"""
-        repository = self.repository.clone_workspace(number, directory, base=base)
-        module = Module.find(repository.root, github=self.repository.github)
-        module._after_sync()
-        return module
+        """作業空間を専用のcloneで作り（I-007）、依存先と生成ファイルを用意する。
+
+        準備（型の prepare）はclone先のモジュールでだけ行う（元のcloneの依存先・生成ファイルは変えない）。
+        """
+        opened: list[Module] = []
+
+        def open_clone(root: Path) -> Repository:
+            opened.append(Module.find(root, github=self.repository.github))
+            return opened[0].repository
+
+        self.repository.clone_workspace(number, directory, base=base, open=open_clone)
+        return opened[0]
 
     def branches(self) -> list[ws.Branch]:
         return self.repository.branches()
@@ -276,12 +315,18 @@ class Module:
 
     def abort_sync(self) -> None:
         self.repository.abort_sync()
+        self._reload()
 
     def stash(self) -> ws.StashResult:
-        return self.repository.stash()
+        result = self.repository.stash()
+        self._reload()
+        return result
 
     def stash_pop(self) -> ws.StashResult:
-        return self.repository.stash_pop()
+        try:
+            return self.repository.stash_pop()
+        finally:
+            self._reload()
 
     def stash_drop(self) -> ws.StashResult:
         return self.repository.stash_drop()
@@ -290,7 +335,9 @@ class Module:
         return self.repository.stashes()
 
     def restore(self, *paths: str, staged: bool = False) -> ws.RestoreResult:
-        return self.repository.restore(*paths, staged=staged)
+        result = self.repository.restore(*paths, staged=staged)
+        self._reload()
+        return result
 
     # ビルド（型） -----------------------------------------------------------------
 
@@ -364,7 +411,7 @@ class Module:
 
     # Project・ファイル（型） ---------------------------------------------------------
 
-    def projects(self) -> tuple:
+    def projects(self) -> tuple[ProjectSummary, ...]:
         return self.type.projects()
 
     def add_project(self, name: str, kind: str) -> FilesChanged:
@@ -567,8 +614,26 @@ class Module:
         dependencies, regenerated = result.extra if result.extra is not None else ((), False)
         return SyncResult(result.branch, result.merged, dependencies, regenerated)
 
-    def _after_sync(self) -> tuple[tuple[DependencyChange, ...], bool]:
-        return self.type.prepare()
+    def _after_sync(self) -> PrepareResult:
+        """Git操作（切り替え・取り込み・確認の開始と終了・取り消し）の後：設定を読み直し、型に手元をそろえさせる。"""
+        self._reload()
+        return PrepareResult(*self.type.prepare())
+
+    def _reload(self) -> None:
+        """ecobuild.toml が変わっていれば、設定・型・作成元の既定を読み直す（同じ Module を使い続けるため）。
+
+        読めない（衝突の印が残っている等）ときは前の設定のまま（取り込みを終えた後にもう一度読む）。
+        """
+        try:
+            new_config = _config.load(self.root / _config.FILE_NAME)
+        except EcoBuildError:
+            return
+        if new_config == self.config:
+            return
+        if new_config.type != self.config.type:
+            self.type = _module_type.load(new_config.type)(self)
+        self.config = new_config
+        self.repository.default_base = new_config.default_base
 
     def _uncommitted_managed_files(self) -> list[str]:
         tree = self.repository.git.working_tree()

@@ -61,3 +61,26 @@ def test_cpp_ci_workflow_follows_ci_settings():
     assert "-DCMAKE_BUILD_TYPE=${{ matrix.configuration }}" in default
     custom = CppType.ci_workflow(base.with_ci(CiSettings(os=("linux",), configurations=("Release",), shared=True)))
     assert "os: [ubuntu-latest]" in custom and "configuration: [Release]" in custom and "shared: [OFF, ON]" in custom
+
+
+@pytest.mark.parametrize("type_name", ["cpp", "generic"])
+def test_ci_branch_patterns_are_quoted(type_name):
+    """** や ! で始まるパターンも、正しいYAMLになるよう引用符で囲む（両方の型で同じ規則）。"""
+    from ecobuild.config import CiSettings, ModuleConfig
+    from ecobuild_cpp.type import CppType
+    from ecobuild_generic.type import GenericType
+    if type_name == "cpp":
+        base, type_class = ModuleConfig.for_new_module("Calc", app=False), CppType
+    else:
+        base = ModuleConfig("Plain", None, type="generic", extra={"commands": {"build": "make all: x"}})
+        type_class = GenericType
+    workflow = type_class.ci_workflow(base.with_ci(CiSettings(branches=("main", "**", "!release/*", "on"))))
+    assert 'branches: [main, "**", "!release/*", "on"]' in workflow
+    if type_name == "generic":
+        assert 'run: "make all: x"' in workflow
+
+
+def test_yaml_text():
+    from ecobuild.ci_workflow import yaml_list, yaml_text
+    assert yaml_text("release/1.0") == "release/1.0" and yaml_text("1.0") == '"1.0"'
+    assert yaml_text('a "b"') == '"a \\"b\\""' and yaml_list(()) == "[]"

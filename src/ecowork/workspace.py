@@ -53,6 +53,30 @@ def with_base(body: str, base: str) -> str:
     return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base} -->"
 
 
+# 作業空間のPRとIssueのつながり：本文の行 Closes #<番号>（マージでIssueを閉じる）か Refs #<番号>（途中の反映）。
+# 本文の作成・書き換え・途中の反映かの判定は、すべてこの関数で行う。
+_LINK = re.compile(r"(?im)^(closes|refs) #(\d+)\s*$")
+
+
+def task_link(body: str, task: int) -> str | None:
+    """本文にある、そのIssueとのつながり（"closes"／"refs"）。複数あれば最初のもの。"""
+    for match in _LINK.finditer(body or ""):
+        if int(match.group(2)) == task:
+            return match.group(1).lower()
+    return None
+
+
+def link_line(task: int, *, partial: bool) -> str:
+    return f"{'Refs' if partial else 'Closes'} #{task}"
+
+
+def with_task_link(body: str, task: int, *, partial: bool) -> str:
+    """そのIssueとのつながりの行がなければ、先頭に足す（あれば本文のまま）。"""
+    if task_link(body, task) is not None:
+        return body
+    return link_line(task, partial=partial) + ("\n\n" + body if body else "\n")
+
+
 @dataclass(frozen=True)
 class Task:
     """GitHub Issue。"""
@@ -112,8 +136,8 @@ class Workspace:
         repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
         return PushResult(self.branch, f"origin/{self.branch}")
 
-    def submit(self, *, title: str | None = None, partial: bool = False) -> "PullRequest":
-        return self._repository._submit_workspace(self, title=title, partial=partial)
+    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False) -> "PullRequest":
+        return self._repository._submit_workspace(self, title=title, partial=partial, draft=draft)
 
 
 @dataclass(frozen=True)
@@ -127,8 +151,8 @@ class Branch:
     remote: bool
     _repository: "Repository" = field(repr=False, compare=False)
 
-    def submit(self, *, into: str, title: str | None = None) -> "PullRequest":
-        return self._repository._submit_branch(self, into=into, title=title)
+    def submit(self, *, into: str, title: str | None = None, draft: bool = False) -> "PullRequest":
+        return self._repository._submit_branch(self, into=into, title=title, draft=draft)
 
     def delete(self, *, dry_run: bool = False) -> None:
         """dry_runは消せるかを確かめるだけ（消せなければ例外）。"""
@@ -137,6 +161,8 @@ class Branch:
 
 @dataclass(frozen=True)
 class PullRequest:
+    """PR。値は取得した時点のもの。操作（merge）はPRの番号で、GitHubの最新の内容から判断する。"""
+
     number: int
     title: str
     url: str
@@ -145,15 +171,19 @@ class PullRequest:
     base: str
     partial: bool
     _repository: "Repository" = field(repr=False, compare=False)
+    author: str = ""
+    draft: bool = False
 
     @classmethod
     def _from(cls, repository: "Repository", info: _github.PullRequestInfo) -> "PullRequest":
-        partial = re.search(r"(?im)^refs #\d+", info.body) is not None
-        return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, repository)
+        task = workspace_number(info.head)
+        partial = task is not None and task_link(info.body, task) == "refs"
+        return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, repository,
+                   info.author, info.draft)
 
     def merge(self, *, ignore_checks: bool = False) -> "MergeResult":
         """ignore_checks：CIが失敗していてもマージする。"""
-        return self._repository._merge_pull_request(self, ignore_checks=ignore_checks)
+        return self._repository._merge_pull_request(self.number, ignore_checks=ignore_checks)
 
 
 @dataclass(frozen=True)
@@ -181,6 +211,7 @@ class MergeResult:
     method: str                      # squash / merge
     closed_issue: int | None
     workspace_rebuilt: bool          # --partialの後、作業空間を作り直したか
+    resumed: bool = False            # マージ済みのPRで、途中で止まった後処理だけを行ったか
 
 
 @dataclass(frozen=True)
@@ -206,6 +237,22 @@ class DropResult:
     switched_to: str | None          # 今いる作業空間を捨てた場合、移った先
     issue_closed: bool               # 「対応しない」として閉じたか
     dry_run: bool
+
+
+@dataclass(frozen=True)
+class PullRequestStatus:
+    """PRの状態：内容・レビュー・コメント・CIの結果・マージできるか。"""
+    number: int
+    title: str
+    url: str
+    state: str
+    head: str
+    base: str
+    author: str
+    draft: bool
+    body: str
+    task: int | None                 # 作業空間のPRなら、そのIssueの番号
+    activity: _github.PullRequestActivity
 
 
 @dataclass(frozen=True)

@@ -117,3 +117,33 @@ def test_missing_secret_is_invalid_argument(monkeypatch, tmp_path):
     with pytest.raises(WorkError) as error:
         _github.GhCli().delete_secret(tmp_path, "X")
     assert error.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_status_contexts_are_normalized(monkeypatch, tmp_path):
+    """コミットの状態（state）も Check Run と同じ形にする（失敗を「実行中」と取り違えない）。"""
+    rollup = [{"name": "build", "status": "COMPLETED", "conclusion": "SUCCESS"},
+              {"context": "ci/legacy", "state": "FAILURE"}, {"context": "ci/slow", "state": "PENDING"}]
+    monkeypatch.setattr(_process, "run", Recorder({"pr view": (0, json.dumps(
+        {"reviews": [], "comments": [], "statusCheckRollup": rollup, "mergeable": "MERGEABLE"}))}))
+    checks = _github.GhCli().pull_request_activity(tmp_path, 9).checks
+    assert [(c.name, _github.ci_result(c.status, c.conclusion)) for c in checks] == [
+        ("build", _github.PASSED), ("ci/legacy", _github.FAILED), ("ci/slow", _github.PENDING)]
+
+
+def test_edit_pull_request_uses_rest_api(monkeypatch, tmp_path):
+    """gh pr edit は使わない（gh 2.65 で Projects (classic) のエラーになる。仮運用5回目）。本文の空も送る。"""
+    calls = []
+
+    def run(args, *, cwd=None, check=True, input=None, env=None):
+        calls.append((tuple(args), None if input is None else json.loads(input)))
+        stdout = json.dumps([{"name": "old"}, {"name": "keep"}]) if args[-1].endswith("/labels") else ""
+        return _process.Completed(tuple(args), 0, stdout, "")
+
+    monkeypatch.setattr(_process, "run", run)
+    monkeypatch.setattr(_github.GhCli, "_ensure_labels", lambda self, repo, labels: None)
+    _github.GhCli().edit_pull_request(tmp_path, 9, body="", base="develop", add_labels=("new",),
+                                      remove_labels=("old",))
+    assert all("edit" not in args for args, _ in calls)
+    assert calls[0] == (("gh", "api", "--method", "PATCH", "repos/{owner}/{repo}/pulls/9", "--input", "-"),
+                        {"body": "", "base": "develop"})
+    assert calls[-1][1] == {"labels": ["keep", "new"]}

@@ -52,3 +52,20 @@ def test_not_in_module(tmp_path):
         Module.find(tmp_path)
     assert error.value.code == ErrorCode.NOT_IN_MODULE
     assert error.value.hint
+
+
+@pytest.mark.parametrize("table", [{"branches": "main"}, {"os": "linux"}, {"configurations": [1]},
+                                   {"branches": [1]}, {"shared": "yes"}])
+def test_invalid_ci_table_is_invalid_config(table):
+    """[ci] の型の誤りは、変換の前に設定の誤りにする（文字列が1文字ずつに分かれる・TypeError にならない）。"""
+    settings = config.ModuleConfig.for_new_module("Calc", app=False)
+    broken = config.ModuleConfig(**{**settings.__dict__, "extra": {config.CI_TABLE: table}})
+    with pytest.raises(EcoBuildError) as error:
+        broken.ci
+    assert error.value.code == ErrorCode.INVALID_CONFIG
+
+
+def test_ci_branches_roundtrip():
+    settings = config.ModuleConfig.for_new_module("Calc", app=False)
+    saved = settings.with_ci(config.CiSettings(branches=("main", "release/**")))
+    assert saved.ci.branches == ("main", "release/**") and saved.ci.configurations == ("Debug",)

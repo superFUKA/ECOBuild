@@ -11,6 +11,7 @@ from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildS
 
 from ecobuild.config import ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.results import ProjectSummary
 
 CONFIG_DIRECTORY = ".cppbuild"
 DEPENDENCY_DIRECTORY = "deps"   # 依存先のcloneの置き場所（.gitignore で除外）
@@ -240,14 +241,6 @@ def is_generated_or_managed(relative_path: str) -> bool:
 
 
 # Project ---------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class ProjectSummary:
-    name: str
-    kind: str                 # static_library / executable / test 等（CppBuildの種類）
-    directory: str            # モジュールからの相対
-    links: tuple[str, ...]    # リンクしているProject（同じSolution）と依存先のモジュール
-
 
 def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
     solution = open_solution(root)

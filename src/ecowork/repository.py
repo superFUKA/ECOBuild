@@ -386,7 +386,7 @@ class Repository:
         """失敗した手順のログ。run_idを省略すると、今いるブランチの最新の失敗した実行。"""
         if run_id is None:
             failed = [r for r in self.github.list_runs(self.root, branch=self._ci_branch(None), limit=20)
-                      if r.conclusion in ("failure", "cancelled", "timed_out")]
+                      if _github.ci_result(r.status, r.conclusion) == _github.FAILED]
             if not failed:
                 raise WorkError(ErrorCode.NO_CI_RUN, "失敗したCIの実行はありません。",
                                 hint=f"{self._op('ci status')} で実行の一覧を確認できます。")
@@ -436,8 +436,9 @@ class Repository:
         while True:
             runs = [r for r in self.github.list_runs(self.root, branch=branch, limit=20) if r.head_sha == sha]
             elapsed = clock() - started
-            if runs and all(r.status == "completed" for r in runs):
-                failed = [r for r in runs if r.conclusion not in ("success", "skipped", "neutral")]
+            results = [_github.ci_result(r.status, r.conclusion) for r in runs]
+            if runs and _github.PENDING not in results:
+                failed = [r for r, result in zip(runs, results) if result == _github.FAILED]
                 if failed:
                     raise WorkError(ErrorCode.CHECKS_FAILED,
                                     f"{branch} のCIが失敗しました：" + ", ".join(f"#{r.id} {r.workflow}" for r in failed),
@@ -481,8 +482,13 @@ class Repository:
                             hint="PRの番号を指定してください。")
         return branch
 
-    def clone_workspace(self, number: int, directory: Path | str, *, base: str | None = None) -> "Repository":
-        """作業空間を専用のcloneで作る（I-007）。directoryは新しく作るcloneの場所。"""
+    def clone_workspace(self, number: int, directory: Path | str, *, base: str | None = None,
+                        open: Callable[[Path], "Repository"] | None = None) -> "Repository":
+        """作業空間を専用のcloneで作る（I-007）。directoryは新しく作るcloneの場所。
+
+        open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
+        省略するとフックなし。この Repository のフックは元のcloneに結び付いているため、clone先には渡さない。
+        """
         target = Path(directory).resolve()
         if target.exists():
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"{target} は既に存在します。")
@@ -491,8 +497,10 @@ class Repository:
             raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
         self.task(number)  # Issueがあるか先に確かめる
         _hooks.install(_git.clone(url, target).hooks_directory())
-        other = Repository(target, github=self.github, default_base=self.default_base, command=self.command,
-                           hooks=self.hooks)
+        if open is not None:
+            other = open(target)
+        else:
+            other = Repository(target, github=self.github, default_base=self.default_base, command=self.command)
         other.task(number).start(base=base)
         return other
 
@@ -564,6 +572,102 @@ class Repository:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"{workspace.branch} の開いているPRがありません。",
                             hint=f"{self._op('task submit')} でPRを作成してください。")
         return ws.PullRequest._from(self, max(pulls, key=lambda p: p.number))
+
+    # PRの処理（レビュー・変更・状態） ------------------------------------------------
+
+    def pull_requests(self, *, closed: bool = False) -> list[ws.PullRequest]:
+        """PRの一覧（新しい順）。closed なら閉じた・マージ済みも。"""
+        infos = self.github.list_pull_requests(self.root, closed=closed)
+        return [ws.PullRequest._from(self, i) for i in sorted(infos, key=lambda i: i.number, reverse=True)]
+
+    def pull_request_status(self, number: int | None = None) -> ws.PullRequestStatus:
+        """PRの内容・レビュー・コメント・CIの結果・マージできるか。省略時は今の作業空間のPR。"""
+        info = self.github.get_pull_request(self.root, self.pull_request(number).number)
+        return ws.PullRequestStatus(info.number, info.title, info.url, info.state, info.head, info.base, info.author,
+                                    info.draft, info.body, ws.workspace_number(info.head),
+                                    self.github.pull_request_activity(self.root, info.number))
+
+    def pull_request_diff(self, number: int | None = None) -> str:
+        return self.github.pull_request_diff(self.root, self.pull_request(number).number)
+
+    def comment_pull_request(self, number: int | None, body: str) -> ws.PullRequest:
+        if not body.strip():
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "コメントが空です。")
+        pr = self.pull_request(number)
+        self.github.comment_pull_request(self.root, pr.number, body)
+        return pr
+
+    def review_pull_request(self, number: int, event: str, body: str = "") -> ws.PullRequest:
+        """レビューの結果を返す。event：approve（承認）・request_changes（修正依頼）・comment（コメント）。"""
+        if event not in ("approve", "request_changes", "comment"):
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"レビューの種類 {event} はありません。")
+        if event != "approve" and not body.strip():
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "修正依頼・コメントには内容が必要です。",
+                            hint="--message で内容を書いてください。")
+        pr = self.pull_request(number)
+        if pr.state != "open":
+            raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{pr.state}）。")
+        self.github.review_pull_request(self.root, pr.number, event=event, body=body)
+        return pr
+
+    def edit_pull_request(self, number: int | None = None, *, title: str | None = None, body: str | None = None,
+                          base: str | None = None, add_reviewers: tuple[str, ...] = (),
+                          remove_reviewers: tuple[str, ...] = (), add_labels: tuple[str, ...] = (),
+                          remove_labels: tuple[str, ...] = ()) -> ws.PullRequest:
+        """PRの題名・本文・向き先・レビュアー・ラベルを変える。
+
+        None は変えない。body="" で本文を消す。作業空間のPRでは、そのIssueとのつながり（本文の Closes／Refs #<番号>）を
+        残す（新しい本文に書けば、それで通常の反映と途中の反映を切り替えられる）。向き先を変えたら作業空間の作成元も
+        そろえる（途中で失敗しても、同じ向き先でもう一度実行すれば残りがそろう）。
+        """
+        if title is None and body is None and base is None and not (
+                add_reviewers or remove_reviewers or add_labels or remove_labels):
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。")
+        if title is not None and not title.strip():
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "PRの題名は空にできません。")
+        pr = self.pull_request(number)
+        task = ws.workspace_number(pr.head)
+        if body is not None and task is not None:
+            current = self.github.get_pull_request(self.root, pr.number)
+            body = ws.with_task_link(body, task, partial=ws.PullRequest._from(self, current).partial)
+        if base is not None:
+            if ws.is_workspace_branch(base):
+                raise WorkError(ErrorCode.INVALID_BASE, f"作業空間 {base} は向き先にできません。")
+            self.git.fetch()
+            if not self.git.has_remote_branch(base):
+                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {base} がありません。")
+        self.github.edit_pull_request(self.root, pr.number, title=title, body=body, base=base,
+                                      add_reviewers=add_reviewers, remove_reviewers=remove_reviewers,
+                                      add_labels=add_labels, remove_labels=remove_labels)
+        if base is not None and task is not None:
+            if self.git.has_local_branch(pr.head):
+                self.git.set_config(ws.base_key(pr.head), base)
+            self._record_base(task, base)
+        return self.pull_request(pr.number)
+
+    def close_pull_request(self, number: int | None = None) -> ws.PullRequest:
+        """PRを閉じる（ブランチ・作業空間・Issueはそのまま。作業をやめるなら task drop）。"""
+        pr = self.pull_request(number)
+        if pr.state != "open":
+            raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{pr.state}）。")
+        self.github.close_pull_request(self.root, pr.number)
+        return self.pull_request(pr.number)
+
+    def reopen_pull_request(self, number: int) -> ws.PullRequest:
+        pr = self.pull_request(number)
+        if pr.state != "closed":
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"PR #{pr.number} は閉じていません（{pr.state}）。")
+        self.github.reopen_pull_request(self.root, pr.number)
+        return self.pull_request(pr.number)
+
+    def set_pull_request_draft(self, number: int | None = None, *, draft: bool) -> ws.PullRequest:
+        """下書きにする（draft=True）・下書きを解除してレビューを頼める状態にする（False）。"""
+        pr = self.pull_request(number)
+        if pr.state != "open":
+            raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{pr.state}）。")
+        if pr.draft != draft:
+            self.github.set_pull_request_draft(self.root, pr.number, draft)
+        return self.pull_request(pr.number)
 
     def remove_workspace(self, number: int | None = None) -> ws.RemoveResult:
         """手元の作業空間だけを消す。GitHubのブランチ・PR・Issueはそのまま。
@@ -913,7 +1017,8 @@ class Repository:
             self.git.set_upstream(name)
         self.hooks.after_switch(self)
 
-    def _submit_workspace(self, workspace: ws.Workspace, *, title: str | None, partial: bool) -> ws.PullRequest:
+    def _submit_workspace(self, workspace: ws.Workspace, *, title: str | None, partial: bool,
+                          draft: bool = False) -> ws.PullRequest:
         self.hooks.before_submit(self)
         self.git.fetch()
         base_ref = f"{_git.REMOTE}/{workspace.base}"
@@ -928,14 +1033,14 @@ class Repository:
             # 既にあるPRには、pushしたコミットがそのまま加わる。
             return ws.PullRequest._from(self, max(opened, key=lambda p: p.number))
         issue = self.github.get_issue(self.root, workspace.number)
-        keyword = "Refs" if partial else "Closes"
         info = self.github.create_pull_request(
             self.root, head=workspace.branch, base=workspace.base,
-            title=title or issue.title, body=f"{keyword} #{workspace.number}\n",
+            title=title or issue.title, body=ws.with_task_link("", workspace.number, partial=partial), draft=draft,
         )
         return ws.PullRequest._from(self, info)
 
-    def _submit_branch(self, branch: ws.Branch, *, into: str, title: str | None) -> ws.PullRequest:
+    def _submit_branch(self, branch: ws.Branch, *, into: str, title: str | None,
+                       draft: bool = False) -> ws.PullRequest:
         if branch.is_workspace:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch.name} は作業空間です。",
                             hint=f"作業空間の反映は {self._op('task submit')} で行います。")
@@ -949,21 +1054,34 @@ class Repository:
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{branch.name} から {into} へ反映する変更がありません。")
         info = self.github.create_pull_request(
             self.root, head=branch.name, base=into, title=title or f"{branch.name} を {into} へ反映", body="",
+            draft=draft,
         )
         return ws.PullRequest._from(self, info)
 
-    def _merge_pull_request(self, pr: ws.PullRequest, *, ignore_checks: bool = False) -> ws.MergeResult:
-        current = self.github.get_pull_request(self.root, pr.number)
+    def _merge_pull_request(self, number: int, *, ignore_checks: bool = False) -> ws.MergeResult:
+        """PRをマージし、後処理（Issueを閉じる・ブランチを消す、途中の反映なら作業空間の作り直し）を行う。
+
+        判断はすべて、ここで取得したGitHubの最新の内容で行う（呼び出し側が持つ古い PullRequest の値は使わない）。
+        マージ済みのPRなら、途中で止まった後処理の残りだけを行う（もう一度実行すれば続きから終えられる）。
+        """
+        current = self.github.get_pull_request(self.root, number)
+        pr = ws.PullRequest._from(self, current)
+        if current.state == "merged":
+            return self._finish_merge(pr, current, resumed=True)
         if current.state != "open":
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は開いていません（{current.state}）。")
+        if current.draft:
+            raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"PR #{pr.number} は下書きです。",
+                            hint=f"準備ができたら {self._op('pr ready')} {pr.number} で下書きを解除してください。")
         if not ignore_checks:
             checks = self.github.pull_request_activity(self.root, pr.number).checks
-            failed = [c.name for c in checks if c.conclusion in ("failure", "cancelled", "timed_out", "action_required")]
+            results = [(c.name, _github.ci_result(c.status, c.conclusion)) for c in checks]
+            failed = [name for name, result in results if result == _github.FAILED]
             if failed:
                 raise WorkError(ErrorCode.CHECKS_FAILED, f"PR #{pr.number} のCIが失敗しています：{', '.join(failed)}",
                                 hint=f"直してpushし、CIが通ってから実行してください（{self._op('task status')} で確認）。"
                                      "失敗を承知でマージする場合は --ignore-checks。")
-            running = [c.name for c in checks if not c.conclusion and c.status not in ("completed", "")]
+            running = [name for name, result in results if result == _github.PENDING]
             if not checks and self._has_workflows():
                 running = ["（まだ始まっていません。PRを出した直後など）"]
             if running:
@@ -971,9 +1089,9 @@ class Repository:
                 raise WorkError(ErrorCode.CHECKS_PENDING, f"PR #{pr.number} のCIが実行中です：{', '.join(running)}",
                                 hint=f"結果を待ってから実行してください（{self._op('ci status')}）。"
                                      "待たずにマージする場合は --ignore-checks。")
-        number = ws.workspace_number(pr.head)
+        task = ws.workspace_number(pr.head)
         try:
-            if number is None:
+            if task is None:
                 # ブランチ同士はマージコミットで履歴を残す。
                 self.github.merge_pull_request(self.root, pr.number, squash=False, subject=None)
                 return ws.MergeResult(pr.number, "merge", None, False)
@@ -983,27 +1101,57 @@ class Repository:
             if error.code == ErrorCode.PULL_REQUEST_CONFLICT:
                 error.hint = (
                     f"作業空間 {pr.head} で {self._op('sync')} を実行して {pr.base} を取り込み、衝突を解決して、"
-                    f"{self._op('task push')} してから、もう一度実行してください。" if number is not None else
+                    f"{self._op('task push')} してから、もう一度実行してください。" if task is not None else
                     f"{pr.base} の変更を {pr.head} へ取り込んで衝突を解決してから、もう一度実行してください。")
             raise
-        if pr.partial:
-            rebuilt = self._rebuild_workspace(pr.head, current.head_sha)
-            return ws.MergeResult(pr.number, "squash", None, rebuilt)
-        if self.github.get_issue(self.root, number).state == "open":
-            self.github.close_issue(self.root, number)
-        self.git.fetch()
-        if self.git.has_remote_branch(pr.head):
-            self.git.push_delete(pr.head)
-        return ws.MergeResult(pr.number, "squash", number, False)
+        return self._finish_merge(pr, current, resumed=False)
+
+    def _finish_merge(self, pr: ws.PullRequest, info: _github.PullRequestInfo, *, resumed: bool) -> ws.MergeResult:
+        """マージした後の処理。今の状態を見て、終わっていない手順だけを行う（何度呼んでもよい）。"""
+        task = ws.workspace_number(pr.head)
+        method = "merge" if task is None else "squash"
+        done = WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"PR #{pr.number} は既にマージ済みです（後処理も済んでいます）。")
+        if task is None:
+            if resumed:
+                raise done  # ブランチ同士のPRには後処理がない
+            return ws.MergeResult(pr.number, method, None, False)
+        try:
+            self.git.fetch()
+            if pr.partial:
+                if resumed and not self._needs_rebuild(pr.head, info.head_sha):
+                    raise done
+                rebuilt = self._rebuild_workspace(pr.head, info.head_sha)
+                return ws.MergeResult(pr.number, method, None, rebuilt, resumed)
+            issue_open = self.github.get_issue(self.root, task).state == "open"
+            # 消すのは、マージしたときのままのブランチだけ（後からpushされたコミットを失わないように）
+            stale_branch = (self.git.has_remote_branch(pr.head) and info.head_sha is not None
+                            and self.git.rev_parse(f"{_git.REMOTE}/{pr.head}") == info.head_sha)
+            if resumed and not (issue_open or stale_branch):
+                raise done
+            if issue_open:
+                self.github.close_issue(self.root, task)
+            if stale_branch:
+                self.git.push_delete(pr.head)
+            return ws.MergeResult(pr.number, method, task, False, resumed)
+        except WorkError as error:
+            if error is not done:
+                error.hint = ((error.hint + "\n") if error.hint else "") + (
+                    f"PR #{pr.number} はマージ済みです。もう一度 {self._op('task merge')} {pr.number} を実行すると、"
+                    "残りの後処理（Issueを閉じる・ブランチを消す・作業空間の作り直し）だけを行います。")
+            raise
+
+    def _needs_rebuild(self, branch: str, merged_head: str | None) -> bool:
+        """途中の反映をマージした後、作業空間をまだ作り直していないか（マージした版を含んだままか）。"""
+        return (merged_head is not None and self.git.has_local_branch(branch)
+                and self.git.rev_parse(merged_head) is not None and self.git.is_ancestor(merged_head, branch))
 
     def _rebuild_workspace(self, branch: str, merged_head: str | None) -> bool:
         """--partialのPRをsquashマージした後、作業空間を作成元の最新から作り直す。
 
         PRに含まれなかった続きのコミットは載せ替える（git rebase --onto と同じ）。
         """
-        if merged_head is None or not self.git.has_local_branch(branch):
+        if not self._needs_rebuild(branch, merged_head):
             return False
-        self.git.fetch()
         base = self.git.get_config(ws.base_key(branch)) or self.default_base
         previous = self.git.current_branch()
         outcome = self.git.rebase_onto(f"{_git.REMOTE}/{base}", merged_head, branch)

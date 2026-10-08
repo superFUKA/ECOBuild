@@ -9,13 +9,17 @@ def command(
     ignore_checks: Annotated[bool, "CIが失敗していてもマージする"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """作業空間のPRをsquashでマージし、Issueを閉じます（途中の反映なら作業空間を作り直します）。"""
+    """作業空間のPRをsquashでマージし、Issueを閉じます（途中の反映なら作業空間を作り直します）。
+
+    マージの後で止まった場合は、同じPRの番号でもう一度実行すると、残りの後処理だけを行います。
+    """
     pr = optional_argument(number, pr, "--pr", json)
     return run_command(
         "task merge",
         lambda inv: inv.module.pull_request(pr or None).merge(ignore_checks=ignore_checks),
         lambda r: lines(
-            f"PR #{r.number} をマージしました（{r.method}）",
+            f"PR #{r.number} はマージ済みでした。止まっていた後処理を行いました" if r.resumed
+            else f"PR #{r.number} をマージしました（{r.method}）",
             f"Issue #{r.closed_issue} を閉じました。ecobuild task clean で片付けられます" if r.closed_issue else None,
             "作業空間を作成元の最新から作り直しました" if r.workspace_rebuilt else None,
         ),

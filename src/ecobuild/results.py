@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple, Protocol
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,26 @@ class DependencyChange:
     name: str
     action: str                      # cloned / aligned / unchanged / skipped
     reason: str | None = None
+
+
+class PrepareResult(NamedTuple):
+    """型の prepare（取り込み・切り替えの後に手元をそろえる）の結果。"""
+    dependencies: tuple[DependencyChange, ...]   # 依存先の変化
+    regenerated: bool                            # 生成ファイルを作り直したか
+
+
+@dataclass(frozen=True)
+class ProjectSummary:
+    """Projectの一覧（型の projects）の1件。CLIの表示とJSONはこの形を使う。"""
+    name: str
+    kind: str                 # 種類（型が決める。cpp：static_library / executable / test 等）
+    directory: str            # モジュールからの相対
+    links: tuple[str, ...]    # リンクしているProjectと依存先のモジュール
+
+
+class BuildOptions(Protocol):
+    """型の build_options が返すビルド設定のうち、本体が読むもの（それ以外は型が決める）。"""
+    configuration: str
 
 
 @dataclass(frozen=True)

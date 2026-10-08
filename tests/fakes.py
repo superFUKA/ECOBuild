@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecowork.github import Comment, IssueInfo, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
+from ecowork.github import Comment, IssueInfo, Review, PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo
 from ecowork.errors import ErrorCode, WorkError
 
 
@@ -29,6 +29,8 @@ class FakeGitHub:
         self.dispatched: list[tuple[str, str]] = []
         self.secrets: dict[str, str] = {}
         self.comments: dict[int, list[Comment]] = {}   # Issueのコメント
+        self.reviewers: dict[int, list[str]] = {}       # PRのレビュアー
+        self.pr_labels: dict[int, list[str]] = {}
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -150,12 +152,51 @@ class FakeGitHub:
             self.not_planned.add(number)
 
     # PR
-    def create_pull_request(self, repo, *, head, base, title, body):
+    def create_pull_request(self, repo, *, head, base, title, body, draft=False):
         number = next(self._numbers)
         sha = git(self.bare, "rev-parse", head)
         self.pulls[number] = PullRequestInfo(number, title, f"https://example.invalid/pull/{number}", "open",
-                                             head, base, body, sha)
+                                             head, base, body, sha, author=self.owner, draft=draft)
         return self._current(self.pulls[number])
+
+    def list_pull_requests(self, repo, *, closed):
+        return [self._current(pr) for pr in self.pulls.values() if closed or pr.state == "open"]
+
+    def pull_request_diff(self, repo, number):
+        pr = self.get_pull_request(repo, number)
+        return git(self.bare, "diff", f"{pr.base}...{pr.head_sha}")
+
+    def _activity(self, number):
+        return self.activity.get(number, PullRequestActivity((), (), (), "MERGEABLE"))
+
+    def comment_pull_request(self, repo, number, body):
+        self.get_pull_request(repo, number)
+        a = self._activity(number)
+        self.activity[number] = replace(a, comments=a.comments + (Comment(self.owner, body),))
+
+    def review_pull_request(self, repo, number, *, event, body):
+        pr = self.get_pull_request(repo, number)
+        if event != "comment" and pr.author == self.owner:
+            raise WorkError(ErrorCode.OWN_PULL_REQUEST, f"自分のPR #{number} は承認・修正依頼できません（GitHubの制限）。")
+        state = {"approve": "APPROVED", "request_changes": "CHANGES_REQUESTED", "comment": "COMMENTED"}[event]
+        a = self._activity(number)
+        self.activity[number] = replace(a, reviews=a.reviews + (Review(self.owner, state, body),))
+
+    def edit_pull_request(self, repo, number, *, title=None, body=None, base=None, add_reviewers=(),
+                          remove_reviewers=(), add_labels=(), remove_labels=()):
+        pr = self.get_pull_request(repo, number)
+        self.pulls[number] = replace(self.pulls[number], title=pr.title if title is None else title,
+                                     body=pr.body if body is None else body, base=pr.base if base is None else base)
+        reviewers = [r for r in self.reviewers.get(number, []) if r not in remove_reviewers]
+        self.reviewers[number] = reviewers + [r for r in add_reviewers if r not in reviewers]
+        labels = [l for l in self.pr_labels.get(number, []) if l not in remove_labels]
+        self.pr_labels[number] = labels + [l for l in add_labels if l not in labels]
+
+    def reopen_pull_request(self, repo, number):
+        self.pulls[number] = replace(self.pulls[number], state="open")
+
+    def set_pull_request_draft(self, repo, number, draft):
+        self.pulls[number] = replace(self.pulls[number], draft=draft)
 
     def get_pull_request(self, repo, number):
         if number not in self.pulls:

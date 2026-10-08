@@ -10,12 +10,13 @@ from pathlib import Path
 from ecowork import workspace as ws
 from ecowork.git import Git
 
-from ecobuild.config import CI_RUNNERS, ModuleConfig, Profile, ProjectNames
+from ecobuild import ci_workflow
+from ecobuild.config import ModuleConfig, Profile, ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import ModuleType
-from ecobuild.results import (BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult, RunResult,
-                              TestCaseResult, TestResult)
+from ecobuild.results import (BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult,
+                              PrepareResult, ProjectSummary, RunResult, TestCaseResult, TestResult)
 
 from . import _cppbuild
 
@@ -110,26 +111,23 @@ ctest --test-dir build -C Debug --output-on-failure
     @classmethod
     def ci_workflow(cls, config: ModuleConfig) -> str:
         ci = config.ci
-        runners = ", ".join(CI_RUNNERS[name] for name in (ci.os or ("windows", "linux")))
-        configurations = ", ".join(ci.configurations)
+        runners = ci_workflow.runners(ci, ("windows", "linux"))
+        configurations = ci_workflow.yaml_list(ci.configurations)
         libraries = "OFF, ON" if ci.shared else "OFF"
+        on = "\n".join(ci_workflow.trigger(config))
         return f"""# ECOBuild（ecobuild ci init）が作成：ECOBuildなしで、CMakeだけで構成・ビルド・テストする。
-# 変えるときは ecobuild ci init の --os・--configuration・--shared（設定は ecobuild.toml の [ci]）。
+# 変えるときは ecobuild ci init の --os・--configuration・--shared・--branches（設定は ecobuild.toml の [ci]）。
 name: build
 
-on:
-  push:
-    branches: [{config.default_base}]
-  pull_request:
-  workflow_dispatch:      # ecobuild ci run（手動での実行）
+{on}
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [{runners}]
-        configuration: [{configurations}]
+        os: {runners}
+        configuration: {configurations}
         shared: [{libraries}]     # ON：ライブラリを共有ライブラリにする（BUILD_SHARED_LIBS）
     runs-on: ${{{{ matrix.os }}}}
     steps:
@@ -180,12 +178,12 @@ jobs:
         self._update()
         return True
 
-    def prepare(self) -> tuple[tuple[DependencyChange, ...], bool]:
+    def prepare(self) -> PrepareResult:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
-            return (), False
+            return PrepareResult((), False)
         changes = self._align_dependencies()
         self._update()
-        return changes, True
+        return PrepareResult(changes, True)
 
     # ビルド ---------------------------------------------------------------------
 
@@ -233,7 +231,7 @@ jobs:
         executables = {p.name for p in self.projects() if p.kind == "executable"}
         return project if project in executables else None
 
-    def projects(self) -> tuple[_cppbuild.ProjectSummary, ...]:
+    def projects(self) -> tuple[ProjectSummary, ...]:
         return _cppbuild.list_projects(self.root)
 
     def add_project(self, name: str, kind: str) -> FilesChanged:

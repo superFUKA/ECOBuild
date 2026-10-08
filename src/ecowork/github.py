@@ -41,6 +41,8 @@ class PullRequestInfo:
     body: str = ""
     head_sha: str | None = None
     merge_commit: str | None = None     # マージ済みなら、作成元に入ったコミット
+    author: str = ""
+    draft: bool = False                 # 下書き（マージできない。pr ready で解除）
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,21 @@ class Check:
     name: str
     status: str           # completed / in_progress / queued 等
     conclusion: str       # success / failure 等（終わっていなければ空）
+
+
+PASSED, FAILED, PENDING = "passed", "failed", "pending"
+_PASSED_CONCLUSIONS = ("success", "skipped", "neutral")
+
+
+def ci_result(status: str, conclusion: str) -> str:
+    """CIの結果（Check・RunInfo の status と conclusion）を、通った・失敗・終わっていない に分ける。
+
+    待機（ci wait）・マージの判定・失敗のログの案内で同じ規則を使う。終わっているのに success・skipped・
+    neutral でないもの（failure・cancelled・timed_out・stale・action_required・未知の値・結果なし）は失敗とする。
+    """
+    if status != "completed" and not conclusion:
+        return PENDING
+    return PASSED if conclusion in _PASSED_CONCLUSIONS else FAILED
 
 
 @dataclass(frozen=True)
@@ -121,7 +138,18 @@ class GitHub(Protocol):
     def set_secret(self, repo: Path, name: str, value: str) -> None: ...
     def list_secrets(self, repo: Path) -> list[str]: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
-    def create_pull_request(self, repo: Path, *, head: str, base: str, title: str, body: str) -> PullRequestInfo: ...
+    def create_pull_request(self, repo: Path, *, head: str, base: str, title: str, body: str,
+                            draft: bool = False) -> PullRequestInfo: ...
+    def list_pull_requests(self, repo: Path, *, closed: bool) -> list[PullRequestInfo]: ...
+    def pull_request_diff(self, repo: Path, number: int) -> str: ...
+    def comment_pull_request(self, repo: Path, number: int, body: str) -> None: ...
+    def review_pull_request(self, repo: Path, number: int, *, event: str, body: str) -> None: ...
+    def edit_pull_request(self, repo: Path, number: int, *, title: str | None = None, body: str | None = None,
+                          base: str | None = None, add_reviewers: tuple[str, ...] = (),
+                          remove_reviewers: tuple[str, ...] = (), add_labels: tuple[str, ...] = (),
+                          remove_labels: tuple[str, ...] = ()) -> None: ...
+    def reopen_pull_request(self, repo: Path, number: int) -> None: ...
+    def set_pull_request_draft(self, repo: Path, number: int, draft: bool) -> None: ...
     def get_pull_request(self, repo: Path, number: int) -> PullRequestInfo: ...
     def pull_requests_for_branch(self, repo: Path, head: str) -> list[PullRequestInfo]: ...
     def merge_pull_request(self, repo: Path, number: int, *, squash: bool, subject: str | None) -> None: ...
@@ -231,9 +259,7 @@ class GhCli:
                         for r in data.get("reviews") or [])
         comments = tuple(Comment((c.get("author") or {}).get("login", ""), c.get("body") or "")
                          for c in data.get("comments") or [])
-        checks = tuple(Check(c.get("name") or c.get("context") or "", (c.get("status") or c.get("state") or "").lower(),
-                             (c.get("conclusion") or "").lower())
-                       for c in data.get("statusCheckRollup") or [])
+        checks = tuple(_check(c) for c in data.get("statusCheckRollup") or [])
         return PullRequestActivity(reviews, comments, checks, data.get("mergeable") or "UNKNOWN")
 
     def merged_pull_requests(self, repo):
@@ -291,10 +317,66 @@ class GhCli:
         return [ReleaseInfo(d["tagName"], d.get("name") or d["tagName"], f"{url}/releases/tag/{d['tagName']}",
                             bool(d.get("isLatest"))) for d in data]
 
-    def create_pull_request(self, repo, *, head, base, title, body):
-        url = self._gh(["pr", "create", "--head", head, "--base", base, "--title", title, "--body", body],
-                       cwd=repo).stdout.strip()
+    def create_pull_request(self, repo, *, head, base, title, body, draft=False):
+        args = ["pr", "create", "--head", head, "--base", base, "--title", title, "--body", body]
+        url = self._gh(args + (["--draft"] if draft else []), cwd=repo).stdout.strip()
         return self.get_pull_request(repo, _number_from_url(url))
+
+    def list_pull_requests(self, repo, *, closed):
+        data = self._json(["pr", "list", "--state", "all" if closed else "open", "--limit", "200",
+                           "--json", _PR_FIELDS], cwd=repo)
+        return [_pull_request(item) for item in data]
+
+    def pull_request_diff(self, repo, number):
+        return self._gh(["pr", "diff", str(number)], cwd=repo).stdout
+
+    def comment_pull_request(self, repo, number, body):
+        self._gh(["pr", "comment", str(number), "--body", body], cwd=repo)
+
+    def review_pull_request(self, repo, number, *, event, body):
+        flag = {"approve": "--approve", "request_changes": "--request-changes", "comment": "--comment"}[event]
+        args = ["pr", "review", str(number), flag] + (["--body", body] if body else [])
+        completed = self._gh(args, cwd=repo, check=False)
+        if completed.ok:
+            return
+        if re.search(r"your own pull request", completed.output, re.IGNORECASE):
+            raise WorkError(ErrorCode.OWN_PULL_REQUEST, f"自分のPR #{number} は承認・修正依頼できません（GitHubの制限）。",
+                            hint="コメントとして返すなら --comment を使ってください。", details=completed.output)
+        raise _gh_error(args, completed)
+
+    def edit_pull_request(self, repo, number, *, title=None, body=None, base=None, add_reviewers=(),
+                          remove_reviewers=(), add_labels=(), remove_labels=()):
+        # gh pr edit は使わない：gh 2.65 等では、廃止された Projects (classic) を問い合わせて失敗する（仮運用で確認）。
+        # REST API で直接変える。
+        fields = {key: value for key, value in (("title", title), ("body", body), ("base", base)) if value is not None}
+        if fields:
+            self._api("PATCH", f"pulls/{number}", fields, cwd=repo)
+        if add_reviewers:
+            self._api("POST", f"pulls/{number}/requested_reviewers", {"reviewers": list(add_reviewers)}, cwd=repo)
+        if remove_reviewers:
+            self._api("DELETE", f"pulls/{number}/requested_reviewers", {"reviewers": list(remove_reviewers)},
+                      cwd=repo)
+        if add_labels or remove_labels:
+            self._ensure_labels(repo, add_labels)
+            current = [d["name"] for d in self._json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}/labels"],
+                                                     cwd=repo)]
+            labels = [name for name in current if name not in remove_labels]
+            self._api("PUT", f"issues/{number}/labels",
+                      {"labels": labels + [name for name in add_labels if name not in labels]}, cwd=repo)
+
+    def _api(self, method, path, payload, *, cwd):
+        """REST API（repos/<所有者>/<名前>/<path>）を呼ぶ。payload はJSONで標準入力から渡す。"""
+        args = ["api", "--method", method, f"repos/{{owner}}/{{repo}}/{path}", "--input", "-"]
+        try:
+            _process.run(["gh", *args], cwd=cwd, input=json.dumps(payload), env={"GH_PROMPT_DISABLED": "1"})
+        except _process.ProcessFailed as failure:
+            raise _gh_error(args, failure.completed) from None
+
+    def reopen_pull_request(self, repo, number):
+        self._gh(["pr", "reopen", str(number)], cwd=repo)
+
+    def set_pull_request_draft(self, repo, number, draft):
+        self._gh(["pr", "ready", str(number)] + (["--undo"] if draft else []), cwd=repo)
 
     def get_pull_request(self, repo, number):
         completed = self._gh(["pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo, check=False)
@@ -351,7 +433,7 @@ def _gh_error(args, completed: _process.Completed) -> WorkError:
     )
 
 
-_PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit"
+_PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit,author,isDraft"
 _ISSUE_FIELDS = "number,title,url,state,body,labels,assignees"
 
 
@@ -361,12 +443,24 @@ def _issue(data: dict) -> IssueInfo:
                      tuple(user["login"] for user in data.get("assignees") or []))
 
 
+def _check(data: dict) -> Check:
+    """statusCheckRollup の1件。Check Run（status・conclusion）とコミットの状態（state）を同じ形にそろえる。"""
+    name = data.get("name") or data.get("context") or ""
+    if "status" not in data and "state" in data:
+        state = (data.get("state") or "").lower()          # SUCCESS / FAILURE / ERROR / PENDING / EXPECTED
+        if state in ("pending", "expected", ""):
+            return Check(name, "pending", "")
+        return Check(name, "completed", state)
+    return Check(name, (data.get("status") or "").lower(), (data.get("conclusion") or "").lower())
+
+
 def _pull_request(data: dict) -> PullRequestInfo:
     return PullRequestInfo(
         number=data["number"], title=data["title"], url=data["url"], state=data["state"].lower(),
         head=data["headRefName"], base=data["baseRefName"], body=data.get("body") or "",
         head_sha=data.get("headRefOid"),
         merge_commit=(data.get("mergeCommit") or {}).get("oid"),
+        author=(data.get("author") or {}).get("login", ""), draft=bool(data.get("isDraft")),
     )
 
 

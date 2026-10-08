@@ -19,8 +19,8 @@ from .errors import EcoBuildError, ErrorCode
 if TYPE_CHECKING:
     from .config import ModuleConfig, Profile
     from .module import Module
-    from .results import (BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult, RunResult,
-                          TestResult)
+    from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult,
+                          PrepareResult, ProjectSummary, RunResult, TestResult)
     from .tooling import CheckItem as DoctorItem
 
 REGISTRY = "module_types.toml"
@@ -105,17 +105,17 @@ class ModuleType:
         """生成ファイルを作り直す。作り直したらTrue。"""
         return False
 
-    def prepare(self) -> tuple[tuple["DependencyChange", ...], bool]:
+    def prepare(self) -> "PrepareResult | tuple[tuple[DependencyChange, ...], bool]":
         """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。
 
-        （依存先の変化, 生成ファイルを作り直したか）を返す。
+        （依存先の変化, 生成ファイルを作り直したか）を返す（PrepareResult か同じ並びのタプル）。
         """
         return (), False
 
     # ビルド ---------------------------------------------------------------------
 
-    def build_options(self, profile: "Profile | None", configuration: str) -> Any:
-        """ビルド設定と、指定した構成から、ビルド等に渡す設定を作る（.configuration を持つ）。"""
+    def build_options(self, profile: "Profile | None", configuration: str) -> "BuildOptions":
+        """ビルド設定と、指定した構成から、ビルド等に渡す設定を作る（本体は .configuration を読む。他は型が決める）。"""
         raise self.not_supported("ビルド")
 
     def validate_profile(self, profile: "Profile") -> None:
@@ -138,7 +138,8 @@ class ModuleType:
     def executable_at(self, path: Path) -> str | None:
         return None
 
-    def projects(self) -> tuple:
+    def projects(self) -> "tuple[ProjectSummary, ...]":
+        """Projectの一覧。results.ProjectSummary の形で返す（CLIの表示とJSONに使う）。"""
         raise self.not_supported("Project の一覧")
 
     def add_project(self, name: str, kind: str) -> "FilesChanged":

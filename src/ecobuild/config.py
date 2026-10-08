@@ -42,6 +42,7 @@ class CiSettings:
     os: tuple[str, ...] | None = None              # None：型の既定（cpp：windows・linux、generic：linux）
     configurations: tuple[str, ...] = ("Debug",)
     shared: bool = False                           # ライブラリを共有ライブラリにした構成でもビルド・テストする
+    branches: tuple[str, ...] | None = None        # pushでCIを動かすブランチ。None：default_base（PRでは常に動く）
 
 
 @dataclass(frozen=True)
@@ -61,10 +62,14 @@ class ModuleConfig:
     @property
     def ci(self) -> CiSettings:
         table = self.extra.get(CI_TABLE, {})
+        if not isinstance(table.get("shared", False), bool):
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です（true／false）。")
+        configurations = _ci_strings(table, "configurations")
         settings = CiSettings(
-            os=tuple(table["os"]) if "os" in table else None,
-            configurations=tuple(table.get("configurations", ("Debug",))),
+            os=_ci_strings(table, "os"),
+            configurations=("Debug",) if configurations is None else configurations,
             shared=table.get("shared", False),
+            branches=_ci_strings(table, "branches"),
         )
         validate_ci(settings)
         return settings
@@ -74,11 +79,23 @@ class ModuleConfig:
         table = {"configurations": list(settings.configurations), "shared": settings.shared}
         if settings.os is not None:
             table = {"os": list(settings.os), **table}
+        if settings.branches is not None:
+            table["branches"] = list(settings.branches)
         return replace(self, extra={**self.extra, CI_TABLE: table})
 
     @classmethod
     def for_new_module(cls, name: str, *, app: bool) -> "ModuleConfig":
         return cls(name=name, projects=ProjectNames(name, name + "Test", name + "App" if app else None))
+
+
+def _ci_strings(table: dict, key: str) -> tuple[str, ...] | None:
+    """[ci] の文字列の配列（なければNone）。配列でない・文字列でない要素は設定の誤り。"""
+    if key not in table:
+        return None
+    value = table[key]
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[ci] の {key} は文字列の配列です（例：{key} = [\"...\"]）。")
+    return tuple(value)
 
 
 def validate_ci(settings: CiSettings) -> None:
@@ -88,6 +105,9 @@ def validate_ci(settings: CiSettings) -> None:
                             hint=f"{'・'.join(CI_RUNNERS)} から選んでください（カンマ区切り）。")
     if not settings.configurations or not all(isinstance(c, str) and c for c in settings.configurations):
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIの構成を1つ以上指定してください（例：Debug,Release）。")
+    if settings.branches is not None and (not settings.branches or not all(
+            isinstance(b, str) and b and not b.startswith("task/") for b in settings.branches)):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIを動かすブランチを1つ以上指定してください（作業空間は除く）。")
     if not isinstance(settings.shared, bool):
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です。")
 

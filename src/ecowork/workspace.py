@@ -329,6 +329,8 @@ class TaskSummary:
     subtasks: int = 0                # 子タスクの数
     subtasks_done: int = 0           # そのうち閉じたもの
     blocked_by: int = 0              # 先に終わるべきタスクのうち、開いているものの数
+    status: str | None = None        # ボードの状態（ボードがなければNone）
+    fields: dict[str, str] = field(default_factory=dict)   # ボードの他のフィールド（優先度・期限等）
 
 
 @dataclass(frozen=True)
@@ -352,6 +354,7 @@ class TaskStatus:
     subtasks: tuple["TaskRef", ...] = ()
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
+    board: dict[str, str] | None = None          # ボード上の値（状態・優先度等）。ボードがなければNone
 
 
 @dataclass(frozen=True)

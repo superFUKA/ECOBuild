@@ -7,6 +7,8 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from ecowork.board import BoardSettings
+
 from .errors import EcoBuildError, ErrorCode
 
 FILE_NAME = "ecobuild.toml"
@@ -34,6 +36,8 @@ _KNOWN_TABLES = ("format", "module", "branches", "projects", "profiles")
 # CI（ecobuild ci init）で選べるOS → GitHub Actions のランナー
 CI_RUNNERS = {"windows": "windows-latest", "linux": "ubuntu-latest"}
 CI_TABLE = "ci"
+BOARD_TABLE = "board"
+BOARD_STAGES = ("todo", "in_progress", "in_review", "done")   # 作業の段階（ecowork.board と同じ）
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,25 @@ class ModuleConfig:
         )
         validate_ci(settings)
         return settings
+
+    @property
+    def board(self) -> BoardSettings | None:
+        """タスクの計画を置くボード（[board]）。なければNone。"""
+        table = self.extra.get(BOARD_TABLE)
+        if table is None:
+            return None
+        url, status = table.get("url"), table.get("status_field", "Status")
+        stages = {stage: table[stage] for stage in BOARD_STAGES if table.get(stage)}
+        if not isinstance(url, str) or not isinstance(status, str) or not all(isinstance(v, str) for v in stages.values()):
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[board] の url・status_field・段階の選択肢は文字列です。")
+        return BoardSettings(url, status, stages)
+
+    def with_board(self, settings: BoardSettings | None) -> "ModuleConfig":
+        extra = {k: v for k, v in self.extra.items() if k != BOARD_TABLE}
+        if settings is not None:
+            extra[BOARD_TABLE] = {"url": settings.url, "status_field": settings.status_field,
+                                  **{stage: settings.stages[stage] for stage in BOARD_STAGES if settings.stages.get(stage)}}
+        return replace(self, extra=extra)
 
     def with_ci(self, settings: CiSettings) -> "ModuleConfig":
         validate_ci(settings)

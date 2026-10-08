@@ -17,6 +17,8 @@ def command(
     def render(r):
         return "\n".join(("* " if t.current else "+ " if t.workspace else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
+                         + (f"〈{t.status}〉" if t.status else "")
+                         + "".join(f" {k}:{v}" for k, v in t.fields.items())
                          + "".join(f" [{name}]" for name in t.labels)
                          + (f"（担当：{', '.join(t.assignees)}）" if t.assignees else "")
                          + (f"（親 #{t.parent}）" if t.parent else "")

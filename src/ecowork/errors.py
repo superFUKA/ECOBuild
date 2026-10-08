@@ -27,6 +27,11 @@ class ErrorCode:
     TASK_BLOCKED = "task_blocked"            # 先に終わるべきタスク（blocked by）が開いている
     OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親では作業しない・閉じない）
     MILESTONE_NOT_FOUND = "milestone_not_found"
+    NO_BOARD = "no_board"                    # ボード（GitHub Projects）をつないでいない
+    BOARD_PERMISSION = "board_permission"    # ghのトークンに project の権限がない
+    FIELD_NOT_FOUND = "field_not_found"
+    NOT_ON_BOARD = "not_on_board"            # タスクがボードにない
+    STAGE_FIELD = "stage_field"              # 作業の段階は操作で変わる（手では設定しない）
     OWN_PULL_REQUEST = "own_pull_request"
     CHECKS_FAILED = "checks_failed"
     CHECKS_PENDING = "checks_pending"

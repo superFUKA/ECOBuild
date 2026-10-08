@@ -11,7 +11,9 @@ from pathlib import Path
 from helpers import git
 from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
                             PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
+from ecowork.board import BoardField, BoardInfo, BoardItem, BoardOption
 from ecowork.errors import ErrorCode, WorkError
+from ecowork.github import _field_value
 
 
 class FakeGitHub:
@@ -35,6 +37,9 @@ class FakeGitHub:
         self.parents: dict[int, int] = {}               # 子 → 親
         self.blockers: dict[int, list[int]] = {}        # Issue → 先に終わるべきIssue
         self.milestones: dict[int, MilestoneInfo] = {}
+        self.boards: dict[int, BoardInfo] = {}
+        self.items: dict[tuple[str, int], BoardItem] = {}   # (ボード, Issue) → 項目
+        self.linked_boards: set[str] = set()
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -217,6 +222,54 @@ class FakeGitHub:
             if issue.milestone == old:
                 self.issues[n] = replace(issue, milestone=new)
         return self.milestones[number]
+
+    # ボード（GitHub Projects）
+    def add_board(self, title="計画", *, statuses=("Todo", "In Progress", "Done"), extra=()):
+        """試験用のボードを作る。extra：追加のフィールド（BoardField）。"""
+        number = len(self.boards) + 1
+        status = BoardField("F_status", "Status", "SINGLE_SELECT",
+                            tuple(BoardOption(f"O_{i}", name) for i, name in enumerate(statuses)))
+        self.boards[number] = BoardInfo(f"PVT_{number}", number, title,
+                                        f"https://github.com/users/{self.owner}/projects/{number}",
+                                        (BoardField("F_title", "Title", "TITLE"), status, *extra))
+        return self.boards[number]
+
+    def list_boards(self, repo, owner):
+        return [replace(b, fields=()) for b in self.boards.values()]
+
+    def get_board(self, repo, owner, number):
+        if number not in self.boards:
+            raise WorkError(ErrorCode.NO_BOARD, f"ボード {owner} の {number} 番が見つかりません。")
+        return self.boards[number]
+
+    def link_board(self, repo, board_id, *, link):
+        (self.linked_boards.add if link else self.linked_boards.discard)(board_id)
+
+    def board_items(self, repo, board_id, *, closed):
+        return {n: item for (b, n), item in self.items.items()
+                if b == board_id and (closed or self.issues[n].state == "open")}
+
+    def board_item(self, repo, number, board_id):
+        self.get_issue(repo, number)
+        return self.items.get((board_id, number))
+
+    def add_board_item(self, repo, number, board_id):
+        self.get_issue(repo, number)
+        return self.items.setdefault((board_id, number), BoardItem(f"PVTI_{board_id}_{number}", {}))
+
+    def _board_by_id(self, board_id):
+        return next(b for b in self.boards.values() if b.id == board_id)
+
+    def set_board_value(self, repo, board_id, item_id, field, value):
+        converted = _field_value(field, value)  # 本物と同じく型を確かめる
+        shown = next((o.name for o in field.options if o.id in converted.values()), value)
+        key = next(k for k, item in self.items.items() if item.id == item_id)
+        self.items[key] = BoardItem(item_id, {**self.items[key].values, field.name: shown})
+
+    def clear_board_value(self, repo, board_id, item_id, field_id):
+        name = next(f.name for f in self._board_by_id(board_id).fields if f.id == field_id)
+        key = next(k for k, item in self.items.items() if item.id == item_id)
+        self.items[key] = BoardItem(item_id, {k: v for k, v in self.items[key].values.items() if k != name})
 
     def set_issue_milestone(self, repo, number, milestone):
         title = None if milestone is None else self.milestones[milestone].title

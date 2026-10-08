@@ -124,6 +124,12 @@ def doctor() -> DoctorReport:
                         if "Logged in to github.com account" in line), "")
         items.append(CheckItem("gh の認証", status.ok, True, f"ログイン中：{account}" if status.ok else "ログインしていません",
                                "gh auth login を実行してください（ブラウザでログインします）。"))
+        if status.ok:
+            scopes = next((line.split(":", 1)[1] for line in status.output.splitlines() if "Token scopes" in line), "")
+            board = "'project'" in scopes
+            items.append(CheckItem("ボードの権限（GitHub Projects）", board, False,
+                                   "あります" if board else "ありません（ボードを使うときだけ必要）",
+                                   "gh auth refresh -s project を実行してください（ブラウザで承認します）。"))
         if git is not None:
             helpers = _run(["git", "config", "--get-urlmatch", "credential.helper", "https://github.com"]).stdout
             uses_gh = "auth git-credential" in helpers  # gh auth setup-git が設定するヘルパー

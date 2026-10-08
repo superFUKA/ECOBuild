@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import _process
+from . import board as _board
 from .errors import ErrorCode, WorkError
 
 
@@ -193,6 +194,15 @@ class GitHub(Protocol):
     def edit_milestone(self, repo: Path, number: int, *, title: str | None = None, due: str | None = None,
                        description: str | None = None, state: str | None = None) -> MilestoneInfo: ...
     def set_issue_milestone(self, repo: Path, number: int, milestone: int | None) -> None: ...
+    # ボード（GitHub Projects。ghのトークンに project の権限が必要）
+    def list_boards(self, repo: Path, owner: str | None) -> list[_board.BoardInfo]: ...
+    def get_board(self, repo: Path, owner: str, number: int) -> _board.BoardInfo: ...
+    def link_board(self, repo: Path, board_id: str, *, link: bool) -> None: ...
+    def board_items(self, repo: Path, board_id: str, *, closed: bool) -> dict[int, _board.BoardItem]: ...
+    def board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem | None: ...
+    def add_board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem: ...
+    def set_board_value(self, repo: Path, board_id: str, item_id: str, field: _board.BoardField, value: str) -> None: ...
+    def clear_board_value(self, repo: Path, board_id: str, item_id: str, field_id: str) -> None: ...
 
 
 class GhCli:
@@ -522,6 +532,138 @@ class GhCli:
     def set_issue_milestone(self, repo, number, milestone):
         self._api("PATCH", f"issues/{number}", {"milestone": milestone}, cwd=repo)
 
+    # ボード（GraphQL。gh project は使わない：gh の版で壊れやすいため） ----------------------------
+
+    def list_boards(self, repo, owner):
+        owner = owner or self._repo_name(repo)[0]
+        data = self._graphql(repo, """
+            query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
+              projectsV2(first: 100) { nodes { id number title url closed } } } } }""", login=owner)
+        owner_data = data.get("repositoryOwner")
+        if owner_data is None:
+            raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubに所有者 {owner} が見つかりません。")
+        return [_board.BoardInfo(n["id"], n["number"], n["title"], n["url"], (), n["closed"])
+                for n in owner_data["projectsV2"]["nodes"]]
+
+    def get_board(self, repo, owner, number):
+        data = self._graphql(repo, """
+            query($login: String!, $number: Int!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
+              projectV2(number: $number) { id number title url closed fields(first: 100) { nodes {
+                ... on ProjectV2Field { id name dataType }
+                ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+                ... on ProjectV2IterationField { id name dataType
+                    configuration { iterations { id title } completedIterations { id title } } } } } } } } }""",
+                             login=owner, number=number)
+        project = (data.get("repositoryOwner") or {}).get("projectV2")
+        if project is None:
+            raise WorkError(ErrorCode.NO_BOARD, f"ボード {owner} の {number} 番が見つかりません。",
+                            hint="URLと、そのボードを見られるアカウントか確かめてください。")
+        fields = []
+        for node in project["fields"]["nodes"]:
+            if not node:
+                continue
+            options = [_board.BoardOption(o["id"], o["name"]) for o in node.get("options") or []]
+            configuration = node.get("configuration") or {}
+            options += [_board.BoardOption(i["id"], i["title"])
+                        for i in (configuration.get("iterations") or []) + (configuration.get("completedIterations") or [])]
+            fields.append(_board.BoardField(node["id"], node["name"], node["dataType"], tuple(options)))
+        return _board.BoardInfo(project["id"], project["number"], project["title"], project["url"], tuple(fields),
+                                project["closed"])
+
+    def link_board(self, repo, board_id, *, link):
+        repository_id = self._graphql(repo, """
+            query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { id } }""",
+                                      **self._repo_vars(repo))["repository"]["id"]
+        mutation = "linkProjectV2ToRepository" if link else "unlinkProjectV2FromRepository"
+        self._graphql(repo, f"""
+            mutation($project: ID!, $repository: ID!) {{
+              {mutation}(input: {{projectId: $project, repositoryId: $repository}}) {{ repository {{ id }} }} }}""",
+                      project=board_id, repository=repository_id)
+
+    def board_items(self, repo, board_id, *, closed):
+        result, after = {}, None
+        while True:
+            data = self._graphql(repo, """
+                query($owner: String!, $name: String!, $states: [IssueState!], $after: String) {
+                  repository(owner: $owner, name: $name) { issues(first: 50, after: $after, states: $states) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes { number projectItems(first: 20) { nodes { id project { id } """ + _VALUES + """ } } } } } }""",
+                                 states=None if closed else ["OPEN"], after=after, **self._repo_vars(repo))
+            issues = data["repository"]["issues"]
+            for node in issues["nodes"]:
+                item = _board_item(node["projectItems"]["nodes"], board_id)
+                if item is not None:
+                    result[node["number"]] = item
+            if not issues["pageInfo"]["hasNextPage"]:
+                return result
+            after = issues["pageInfo"]["endCursor"]
+
+    def board_item(self, repo, number, board_id):
+        return _board_item(self._issue_items(repo, number)["projectItems"]["nodes"], board_id)
+
+    def add_board_item(self, repo, number, board_id):
+        issue = self._issue_items(repo, number)
+        item = _board_item(issue["projectItems"]["nodes"], board_id)
+        if item is not None:
+            return item
+        data = self._graphql(repo, """
+            mutation($project: ID!, $content: ID!) {
+              addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } } }""",
+                             project=board_id, content=issue["id"])
+        return _board.BoardItem(data["addProjectV2ItemById"]["item"]["id"], {})
+
+    def set_board_value(self, repo, board_id, item_id, field, value):
+        self._graphql(repo, """
+            mutation($project: ID!, $item: ID!, $field: ID!, $value: ProjectV2FieldValue!) {
+              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
+                                                    value: $value}) { projectV2Item { id } } }""",
+                      project=board_id, item=item_id, field=field.id, value=_field_value(field, value))
+
+    def clear_board_value(self, repo, board_id, item_id, field_id):
+        self._graphql(repo, """
+            mutation($project: ID!, $item: ID!, $field: ID!) {
+              clearProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field}) {
+                projectV2Item { id } } }""", project=board_id, item=item_id, field=field_id)
+
+    def _issue_items(self, repo, number):
+        data = self._graphql(repo, """
+            query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+              issue(number: $number) { id projectItems(first: 20) { nodes { id project { id } """ + _VALUES + """ } } } } }""",
+                             number=number, **self._repo_vars(repo))
+        issue = data["repository"]["issue"]
+        if issue is None:
+            raise WorkError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
+        return issue
+
+    def _repo_name(self, repo):
+        names = self.__dict__.setdefault("_names", {})
+        if repo not in names:
+            data = self._json(["repo", "view", "--json", "owner,name"], cwd=repo)
+            names[repo] = (data["owner"]["login"], data["name"])
+        return names[repo]
+
+    def _repo_vars(self, repo):
+        owner, name = self._repo_name(repo)
+        return {"owner": owner, "name": name}
+
+    def _graphql(self, repo, query, **variables):
+        """GraphQL を呼ぶ（本文はJSONで標準入力から渡す）。権限が足りなければ board_permission。"""
+        args = ["api", "graphql", "--input", "-"]
+        completed = _process.run(["gh", *args], cwd=repo, check=False,
+                                 input=json.dumps({"query": query, "variables": variables}),
+                                 env={"GH_PROMPT_DISABLED": "1"})
+        if "INSUFFICIENT_SCOPES" in completed.output or "required scopes" in completed.output:
+            raise WorkError(ErrorCode.BOARD_PERMISSION, "ghのトークンに、ボード（GitHub Projects）を使う権限がありません。",
+                            hint="gh auth refresh -s project を実行してください（ブラウザで承認します）。",
+                            details=completed.output)
+        if not completed.ok:
+            match = re.search(r'"message"\s*:\s*"([^"]+)"', completed.output)
+            if match and not re.search(r"HTTP 401|Bad credentials", completed.output):
+                raise WorkError(ErrorCode.GITHUB_ERROR, f"GitHubに断られました：{match.group(1)}",
+                                details=completed.output)
+            raise _gh_error(args, completed)
+        return json.loads(completed.stdout)["data"]
+
     def _issue_id(self, repo, number):
         """親子・依存のAPIが使う、Issueの内部のID（番号ではない）。"""
         completed = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq", ".id"], cwd=repo,
@@ -578,6 +720,59 @@ def _rest_issue(data: dict) -> IssueInfo:
                      tuple(label["name"] for label in data.get("labels") or []),
                      tuple(user["login"] for user in data.get("assignees") or []),
                      (data.get("milestone") or {}).get("title"))
+
+
+_FIELD_NAME = "field { ... on ProjectV2FieldCommon { name } }"
+_VALUES = ("fieldValues(first: 50) { nodes { "
+           f"... on ProjectV2ItemFieldTextValue {{ text {_FIELD_NAME} }} "
+           f"... on ProjectV2ItemFieldNumberValue {{ number {_FIELD_NAME} }} "
+           f"... on ProjectV2ItemFieldDateValue {{ date {_FIELD_NAME} }} "
+           f"... on ProjectV2ItemFieldSingleSelectValue {{ name {_FIELD_NAME} }} "
+           f"... on ProjectV2ItemFieldIterationValue {{ title {_FIELD_NAME} }} "
+           "} }")
+
+
+def _board_item(nodes: list, board_id: str) -> _board.BoardItem | None:
+    """Issueのボードの項目のうち、そのボードのもの。値はフィールドの名前 → 表示の値（題名は除く）。"""
+    for node in nodes:
+        if node and node["project"]["id"] == board_id:
+            values = {}
+            for value in node["fieldValues"]["nodes"]:
+                if not value or not value.get("field"):
+                    continue
+                name = value["field"]["name"]
+                if name == "Title":
+                    continue
+                for key in ("name", "title", "text", "date", "number"):
+                    if value.get(key) is not None:
+                        shown = value[key]
+                        if key == "number" and float(shown).is_integer():
+                            shown = int(shown)
+                        values[name] = str(shown)
+                        break
+            return _board.BoardItem(node["id"], values)
+    return None
+
+
+def _field_value(field: _board.BoardField, value: str) -> dict:
+    """フィールドの型に合わせた値（ProjectV2FieldValue）。型に合わなければ invalid_argument。"""
+    if field.type == "SINGLE_SELECT":
+        return {"singleSelectOptionId": _board.find_option(field, value).id}
+    if field.type == "ITERATION":
+        return {"iterationId": _board.find_option(field, value).id}
+    if field.type == "TEXT":
+        return {"text": value}
+    if field.type == "NUMBER":
+        try:
+            return {"number": float(value)}
+        except ValueError:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{field.name} は数値です：{value}") from None
+    if field.type == "DATE":
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{field.name} は日付（YYYY-MM-DD）です：{value}")
+        return {"date": value}
+    raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{field.name}（{field.type}）は設定できません。",
+                    hint="担当者・ラベル・マイルストーン等は ecobuild task edit で変えてください。")
 
 
 def _milestone(data: dict) -> MilestoneInfo:

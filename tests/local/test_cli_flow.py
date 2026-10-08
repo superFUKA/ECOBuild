@@ -35,7 +35,8 @@ def test_every_command_has_help():
                  ["task", "clean"], ["task", "drop"], ["pr", "list"], ["pr", "status"], ["pr", "diff"],
                  ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
                  ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
-                 ["milestone", "close"], ["milestone", "reopen"]):
+                 ["milestone", "close"], ["milestone", "reopen"], ["board", "list"], ["board", "use"], ["board", "show"],
+                 ["board", "unset"], ["board", "sync"], ["task", "field", "set"], ["task", "field", "clear"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -190,3 +191,24 @@ def test_task_relations_from_cli(cli):
     status = as_json(cli("task", "status", "1", "--json"))["result"]
     assert [s["number"] for s in status["subtasks"]] == [2, 3]
     assert "v1" in cli("milestone", "list").output
+
+
+def test_board_from_cli(cli, module):
+    github = module.repository.github
+    board = github.add_board(statuses=("Todo", "In Progress", "Done"))
+    assert as_json(cli("board", "use", board.url, "--json"))["error"]["code"] == "not_in_workspace"
+    assert cli("task", "new", "ボードをつなぐ", "--start").exit_code == 0
+    used = as_json(cli("board", "use", board.url, "--json"))["result"]
+    assert used["stages"] == {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}
+    assert "[board]" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+    assert board.id in github.linked_boards
+    assert "In Progress" in cli("board", "show").output
+    synced = as_json(cli("board", "sync", "--json"))["result"]
+    assert synced["added"] == [1] and synced["changed"][0]["after"] == "In Progress"
+    assert cli("task", "new", "調べる").exit_code == 0
+    assert as_json(cli("task", "list", "--json"))["result"][1]["status"] == "Todo"
+    assert cli("task", "start", "2", "--no-workspace").exit_code == 0
+    refused = as_json(cli("task", "field", "set", "2", "--field", "Status", "--value", "Done", "--json"))
+    assert refused["error"]["code"] == "stage_field"
+    assert as_json(cli("task", "status", "2", "--json"))["result"]["board"] == {"Status": "In Progress"}
+    assert cli("board", "unset").exit_code == 0 and board.id not in github.linked_boards

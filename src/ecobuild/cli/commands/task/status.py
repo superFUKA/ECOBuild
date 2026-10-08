@@ -35,6 +35,8 @@ def command(
             f"ラベル：{', '.join(r.labels)}" if r.labels else None,
             f"担当者：{', '.join(r.assignees)}" if r.assignees else "担当者：なし",
             f"マイルストーン：{r.milestone}" if r.milestone else None,
+            ("ボード：" + (", ".join(f"{k}={v}" for k, v in r.board.items()) or "まだありません（ecobuild board sync）"))
+            if r.board is not None else None,
             f"親タスク：#{r.parent.number} {r.parent.title}" if r.parent else None,
             refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),
             refs("このタスクを待っているタスク", r.blocking),

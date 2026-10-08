@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
+from ecowork import board as _board
 from ecowork import github as _github
 from ecowork import workspace as ws
 
@@ -58,7 +59,7 @@ class Module:
         self.root = Path(root)
         self.config = module_config
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
-                                     command=COMMAND, hooks=_TypeHooks(self))
+                                     command=COMMAND, hooks=_TypeHooks(self), board=module_config.board)
         self.type = _module_type.load(module_config.type)(self)
 
     @property
@@ -160,6 +161,62 @@ class Module:
               search: str | None = None, milestone: str | None = None, ready: bool = False) -> list[ws.TaskSummary]:
         return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
                                      milestone=milestone, ready=ready)
+
+    def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
+        return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked)
+
+    # ボード（GitHub Projects） ---------------------------------------------------------
+
+    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
+        return self.repository.boards(owner)
+
+    def use_board(self, url: str, *, status_field: str = "Status",
+                  stages: dict[str, str] | None = None) -> _board.BoardStatus:
+        """このモジュールのボードにする（ecobuild.toml の [board]。作業空間で行い、PRで反映する）。
+
+        作業の段階に当てる選択肢は、省略すると既定の名前（Todo・In Progress・In Review・Done 等）で探す。
+        GitHub側でもボードをリポジトリにつなぐ。
+        """
+        self.require_workspace("ボードの接続")
+        settings = _board.BoardSettings(url, status_field)
+        github = self.repository.github
+        info = github.get_board(self.root, settings.owner, settings.number)
+        given = {stage: name for stage, name in (stages or {}).items() if name}
+        settings = _board.BoardSettings(url, status_field, {**_board.default_stages(info.field(status_field)), **given})
+        status = self.repository.check_board(settings)
+        self._save_config(self.config.with_board(settings))
+        self.repository.board = settings
+        try:
+            github.link_board(self.root, info.id, link=True)
+        except WorkError as error:
+            self.repository.notices.append(f"GitHub側でボードをリポジトリにつなげませんでした（{error.message}）。")
+        return status
+
+    def unset_board(self) -> FilesChanged:
+        """ボードとの接続を外す（[board] を消す。GitHubのボードとその項目は消さない）。"""
+        self.require_workspace("ボードの接続の解除")
+        settings = self.config.board
+        if settings is None:
+            raise EcoBuildError(ErrorCode.NO_BOARD, "ボードをつないでいません。")
+        self._save_config(self.config.with_board(None))
+        self.repository.board = None
+        try:
+            self.repository.link_board(settings, link=False)
+        except WorkError as error:
+            self.repository.notices.append(f"GitHub側でボードとリポジトリのつながりを外せませんでした（{error.message}）。")
+        return FilesChanged("board unset", (_config.FILE_NAME,))
+
+    def board_status(self) -> _board.BoardStatus:
+        return self.repository.board_status()
+
+    def sync_board(self, *, dry_run: bool = False) -> _board.BoardSyncResult:
+        return self.repository.sync_board(dry_run=dry_run)
+
+    def set_task_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
+        return self.repository.set_task_field(number, name, value)
+
+    def clear_task_field(self, number: int, name: str) -> _board.TaskBoard:
+        return self.repository.clear_task_field(number, name)
 
     def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
         return self.repository.milestones(closed=closed)
@@ -648,6 +705,7 @@ class Module:
             self.type = _module_type.load(new_config.type)(self)
         self.config = new_config
         self.repository.default_base = new_config.default_base
+        self.repository.board = new_config.board
 
     def _uncommitted_managed_files(self) -> list[str]:
         tree = self.repository.git.working_tree()

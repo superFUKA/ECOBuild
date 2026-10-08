@@ -133,3 +133,13 @@ def test_checking_board_settings(boarded):
     assert code_of(lambda: boarded.check_board(bad)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: boarded.check_board(BoardSettings(board.url, "Priority", STAGES))) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: Repository(boarded.root, github=boarded.github).board_status()) == ErrorCode.NO_BOARD
+
+
+def test_ready_tasks_are_sorted_and_exclude_planning(boarded):
+    low, high, later, none = (boarded.create_task(t) for t in ("低", "高", "後で", "未設定"))
+    boarded.set_task_field(low.number, "Priority", "Low")
+    boarded.set_task_field(high.number, "Priority", "High")
+    boarded.set_task_field(later.number, "Status", "Backlog")      # 計画中は着手できる一覧に出さない
+    ready = boarded.tasks(ready=True, sort="Priority")
+    assert [t.number for t in ready] == [high.number, low.number, none.number]
+    assert [t.number for t in boarded.tasks(sort="Status")][0] == later.number   # 選択肢の順（Backlog が先頭）

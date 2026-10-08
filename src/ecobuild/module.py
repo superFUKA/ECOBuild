@@ -158,9 +158,10 @@ class Module:
         return self.repository.status(fetch=fetch)
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
-              search: str | None = None, milestone: str | None = None, ready: bool = False) -> list[ws.TaskSummary]:
+              search: str | None = None, milestone: str | None = None, ready: bool = False,
+              sort: str | None = None) -> list[ws.TaskSummary]:
         return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
-                                     milestone=milestone, ready=ready)
+                                     milestone=milestone, ready=ready, sort=sort)
 
     def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
         return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked)

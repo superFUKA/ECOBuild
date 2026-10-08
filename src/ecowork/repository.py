@@ -23,6 +23,18 @@ _REVIEW_RETURN_KEY = "ecowork.review-return"
 _STASH_BRANCH = re.compile(r"^(?:WIP on|On) ([^:]+):")
 
 
+def _sort_key(field: _board.BoardField, value: str | None) -> tuple:
+    """ボードのフィールドの値で並べるときの順（値のないものは後ろ）。"""
+    if value is None:
+        return (1, 0, "")
+    if field.type in ("SINGLE_SELECT", "ITERATION"):
+        names = [o.name for o in field.options]
+        return (0, names.index(value) if value in names else len(names), value)
+    if field.type == "NUMBER":
+        return (0, float(value), value)
+    return (0, 0, value)  # 日付（YYYY-MM-DD）・テキストは文字の順
+
+
 def _stash_branch(message: str) -> str | None:
     """退避した変更のメッセージ（git stash list の %gs）から、退避したブランチ。"""
     match = _STASH_BRANCH.match(message)
@@ -184,12 +196,15 @@ class Repository:
     # タスクの管理 -----------------------------------------------------------------
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
-              search: str | None = None, milestone: str | None = None, ready: bool = False) -> list[ws.TaskSummary]:
+              search: str | None = None, milestone: str | None = None, ready: bool = False,
+              sort: str | None = None) -> list[ws.TaskSummary]:
         """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）・milestone で絞り込む。
 
         ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・開いている子タスクがない・
-        作業空間がまだない）。
+        作業空間がまだない。ボードがあれば状態が未着手か未設定のもの。Backlog 等の計画中のものは除く）。
+        sort：ボードのフィールドで並べる（単一選択は選択肢の順、日付・数値は小さい順。値のないものは後ろ）。
         """
+        sort_field = None if sort is None else self.board_info().field(sort)
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
@@ -201,7 +216,7 @@ class Repository:
             info = self.board_info()
             items = self.github.board_items(self.root, info.id, closed=closed)
             status_name = info.field(self.board.status_field).name
-            started = {self.board.option(s) for s in (_board.IN_PROGRESS, _board.IN_REVIEW, _board.DONE)} - {None}
+            startable = {None, self.board.option(_board.TODO)}
         for i in sorted(issues, key=lambda i: i.number):
             if milestone is not None and i.milestone != milestone:
                 continue
@@ -215,9 +230,13 @@ class Repository:
                                      None if status_name is None else values.pop(status_name, None), values)
             if ready and not (summary.state == "open" and not summary.blocked_by
                               and summary.subtasks == summary.subtasks_done
-                              and not (summary.workspace or summary.remote) and summary.status not in started):
+                              and not (summary.workspace or summary.remote)
+                              and (status_name is None or summary.status in startable)):
                 continue
             result.append(summary)
+        if sort_field is not None:
+            result.sort(key=lambda t: _sort_key(sort_field, t.status if sort_field.name == status_name
+                                                else t.fields.get(sort_field.name)))
         return result
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:

@@ -24,6 +24,9 @@ DEFAULT_OPTIONS = {
     DONE: ("Done", "Completed", "完了"),
 }
 
+# task field set で設定できるフィールドの型（担当者・ラベル等は task edit で変える）
+SETTABLE = ("TEXT", "NUMBER", "DATE", "SINGLE_SELECT", "ITERATION")
+
 _URL = re.compile(r"https://github\.com/(?:users|orgs)/([^/]+)/projects/(\d+)/?")
 
 
@@ -96,7 +99,7 @@ class BoardInfo:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, f"フィールド {name_or_id} が複数あります。IDで指定してください。",
                             details=[f"{f.id} {f.name}（{f.type}）" for f in named])
         raise WorkError(ErrorCode.FIELD_NOT_FOUND, f"ボードにフィールド {name_or_id} がありません。",
-                        details=[f"{f.name}（{f.type}）" for f in self.fields])
+                        details=[f"{f.name}（{f.type}）" for f in self.fields if f.type in SETTABLE])
 
 
 def find_option(field_: BoardField, value: str) -> BoardOption:

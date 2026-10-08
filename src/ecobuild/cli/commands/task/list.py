@@ -9,7 +9,8 @@ def command(
     assignee: Annotated[str, "この担当者のタスクだけ（@me は自分）"] = "",
     search: Annotated[str, "題名・本文の検索（GitHubの検索の書き方）"] = "",
     milestone: Annotated[str, "このマイルストーンのタスクだけ"] = "",
-    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がないもの）"] = False,
+    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がなく、ボードでは未着手のもの）"] = False,
+    sort: Annotated[str, "ボードのフィールドで並べる（例：Priority。単一選択は選択肢の順、日付・数値は小さい順）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（Issue）の一覧を表示します（* は今いる作業空間、+ は手元に作業空間があるもの、- はGitHubにだけあるもの）。"""
@@ -30,5 +31,6 @@ def command(
 
     return run_command("task list", lambda inv: inv.module.tasks(closed=all, label=label or None,
                                                                  assignee=assignee or None, search=search or None,
-                                                                 milestone=milestone or None, ready=ready),
+                                                                 milestone=milestone or None, ready=ready,
+                                                                 sort=sort or None),
                        render, json_output=json)

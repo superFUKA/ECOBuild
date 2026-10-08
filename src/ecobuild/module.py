@@ -195,17 +195,19 @@ class Module:
     def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
         return self.repository.boards(owner)
 
-    def create_board(self, title: str, **options) -> _board.BoardInfo:
-        """標準のボードを作る（ecotask の Tracker.create_board と同じ。owner・sprint_start・sprint_days・sprints）。"""
+    def create_board(self, title: str | None = None, **options) -> _board.BoardInfo:
+        """このリポジトリ専用の標準のボードを作ってリンクする（ecotask の Tracker.create_board と同じ。
+        題名を省略すると「<リポジトリ名> タスク」。owner・sprint_start・sprint_days・sprints）。"""
         return self.repository.create_board(title, **options)
 
     def use_board(self, url: str, *, status_field: str = "Status", stages: dict[str, str] | None = None,
-                  schema: dict[str, str] | None = None) -> _board.BoardStatus:
+                  schema: dict[str, str] | None = None, shared: bool = False) -> _board.BoardStatus:
         """このモジュールのボードにする（ecobuild.toml の [board]。作業空間で行い、PRで反映する）。
 
         作業の段階に当てる選択肢は、省略すると既定の名前（Todo・In Progress・In Review・Done 等）で探す。
         計画の値の役割（priority・due・estimate・sprint）に当てる項目は、省略すると既定の名前（Priority 等）か、
         その型の項目が1つだけならそれ。GitHub側でもボードをリポジトリにつなぐ。
+        ボードはこのリポジトリ専用にする（他のリポジトリと共有されていれば止める。shared で許す）。
         """
         self.require_workspace("ボードの接続")
         settings = _board.BoardSettings(url, status_field)
@@ -214,8 +216,8 @@ class Module:
         given = {stage: name for stage, name in (stages or {}).items() if name}
         roles = {role: name for role, name in (schema or {}).items() if name}
         settings = _board.BoardSettings(url, status_field, {**_board.default_stages(info.field(status_field)), **given},
-                                        {**_board.default_schema(info, status_field=status_field), **roles})
-        status = self.repository.check_board(settings)
+                                        {**_board.default_schema(info, status_field=status_field), **roles}, shared)
+        status = self.repository.check_board(settings, exclusive=True)
         self._save_config(self.config.with_board(settings))
         self.repository.board = settings
         try:

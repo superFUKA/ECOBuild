@@ -17,6 +17,7 @@ class ErrorCode:
     FIELD_NOT_FOUND = "field_not_found"
     NOT_ON_BOARD = "not_on_board"            # タスクがボードにない
     STAGE_FIELD = "stage_field"              # 作業の段階は操作で変わる（手では設定しない）
+    BOARD_SHARED = "board_shared"            # ボードが他のリポジトリと共有されている（専用でない）
     ALREADY_EXISTS = "already_exists"
     REPOSITORY_NOT_FOUND = "repository_not_found"
     INVALID_ARGUMENT = "invalid_argument"

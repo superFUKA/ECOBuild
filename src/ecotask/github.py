@@ -100,6 +100,9 @@ class TaskGitHub(Protocol):
     def get_board(self, repo: Path, owner: str, number: int) -> _board.BoardInfo: ...
     def link_board(self, repo: Path, board_id: str, *, link: bool) -> None: ...
     def create_board(self, repo: Path, owner: str | None, title: str) -> _board.BoardInfo: ...
+    def repository_name(self, repo: Path) -> str: ...
+    def repository_private(self, repo: Path) -> bool: ...
+    def board_item_repositories(self, repo: Path, board_id: str) -> dict[str, int]: ...
     def set_board_options(self, repo: Path, field_id: str, options: tuple[tuple[str, str, str], ...]) -> None: ...
     def create_board_field(self, repo: Path, board_id: str, name: str, type: str, *,
                            options: tuple[tuple[str, str, str], ...] = (),
@@ -114,7 +117,44 @@ class TaskGitHub(Protocol):
 
 
 class GhCli:
-    """gh コマンドによる実装。repoは手元のcloneのパス（originからリポジトリを決める）。"""
+    """gh コマンドによる実装。repoは手元のcloneのパス（originからリポジトリを決める）。
+
+    repository（所有者/名前）を渡すと、手元のcloneがなくてもそのリポジトリを使う（gh の GH_REPO）。
+    """
+
+    def __init__(self, repository: str | None = None):
+        self.repository = repository
+
+    def _env(self) -> dict[str, str]:
+        env = {"GH_PROMPT_DISABLED": "1"}
+        if self.repository:
+            env["GH_REPO"] = self.repository
+        return env
+
+    def repository_name(self, repo):
+        owner, name = self._repo_name(repo)
+        return f"{owner}/{name}"
+
+    def repository_private(self, repo):
+        return bool(self._json(["repo", "view", self.repository_name(repo), "--json", "isPrivate"],
+                               cwd=repo)["isPrivate"])
+
+    def board_item_repositories(self, repo, board_id):
+        """ボードの項目のリポジトリごとの数（下書きは "" に数える）。"""
+        counts, after = {}, None
+        while True:
+            data = self._graphql(repo, """
+                query($board: ID!, $after: String) { node(id: $board) { ... on ProjectV2 {
+                  items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { content {
+                    ... on Issue { repository { nameWithOwner } }
+                    ... on PullRequest { repository { nameWithOwner } } } } } } } }""", board=board_id, after=after)
+            items = data["node"]["items"]
+            for node in items["nodes"]:
+                name = ((node.get("content") or {}).get("repository") or {}).get("nameWithOwner", "")
+                counts[name] = counts.get(name, 0) + 1
+            if not items["pageInfo"]["hasNextPage"]:
+                return counts
+            after = items["pageInfo"]["endCursor"]
 
     def create_issue(self, repo, title, body, *, labels=(), assignees=()):
         self._ensure_labels(repo, labels)
@@ -187,7 +227,7 @@ class GhCli:
             args += ["--input", "-"]
         try:
             completed = _process.run(["gh", *args], cwd=cwd, input=None if payload is None else json.dumps(payload),
-                                     env={"GH_PROMPT_DISABLED": "1"})
+                                     env=self._env())
         except _process.ProcessFailed as failure:
             raise _api_error(failure.completed) from None
         return json.loads(completed.stdout) if completed.stdout.strip() else None
@@ -275,7 +315,8 @@ class GhCli:
     def get_board(self, repo, owner, number):
         data = self._graphql(repo, """
             query($login: String!, $number: Int!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
-              projectV2(number: $number) { id number title url closed fields(first: 100) { nodes {
+              projectV2(number: $number) { id number title url closed public
+                repositories(first: 20) { nodes { nameWithOwner } } fields(first: 100) { nodes {
                 ... on ProjectV2Field { id name dataType }
                 ... on ProjectV2SingleSelectField { id name dataType options { id name } }
                 ... on ProjectV2IterationField { id name dataType
@@ -297,7 +338,8 @@ class GhCli:
                         for i in sorted(iterations, key=lambda i: i.get("startDate") or "")]
             fields.append(_board.BoardField(node["id"], node["name"], node["dataType"], tuple(options)))
         return _board.BoardInfo(project["id"], project["number"], project["title"], project["url"], tuple(fields),
-                                project["closed"])
+                                project["closed"], project.get("public", False),
+                                tuple(r["nameWithOwner"] for r in (project.get("repositories") or {}).get("nodes") or []))
 
     def create_board(self, repo, owner, title):
         owner = owner or self._repo_name(repo)[0]
@@ -430,6 +472,9 @@ class GhCli:
         return issue
 
     def _repo_name(self, repo):
+        if self.repository:
+            owner, _, name = self.repository.partition("/")
+            return owner, name
         names = self.__dict__.setdefault("_names", {})
         if repo not in names:
             data = self._json(["repo", "view", "--json", "owner,name"], cwd=repo)
@@ -445,7 +490,7 @@ class GhCli:
         args = ["api", "graphql", "--input", "-"]
         completed = _process.run(["gh", *args], cwd=repo, check=False,
                                  input=json.dumps({"query": query, "variables": variables}),
-                                 env={"GH_PROMPT_DISABLED": "1"})
+                                 env=self._env())
         if "INSUFFICIENT_SCOPES" in completed.output or "required scopes" in completed.output:
             raise TaskError(ErrorCode.BOARD_PERMISSION, "ghのトークンに、ボード（GitHub Projects）を使う権限がありません。",
                             hint="gh auth refresh -s project を実行してください（ブラウザで承認します）。",
@@ -478,7 +523,7 @@ class GhCli:
 
     def _gh(self, args, *, cwd, check=True):
         try:
-            return _process.run(["gh", *args], cwd=cwd, check=check, env={"GH_PROMPT_DISABLED": "1"})
+            return _process.run(["gh", *args], cwd=cwd, check=check, env=self._env())
         except _process.ProcessFailed as failure:
             raise _gh_error(args, failure.completed) from None
 

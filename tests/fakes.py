@@ -41,6 +41,7 @@ class FakeGitHub:
         self.boards: dict[int, BoardInfo] = {}
         self.items: dict[tuple[str, int], BoardItem] = {}   # (ボード, Issue) → 項目
         self.linked_boards: set[str] = set()
+        self.foreign_items: dict[str, dict[str, int]] = {}   # ボード → 他のリポジトリ → 項目の数
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -266,6 +267,27 @@ class FakeGitHub:
 
     def link_board(self, repo, board_id, *, link):
         (self.linked_boards.add if link else self.linked_boards.discard)(board_id)
+        name = self.repository_name(repo)
+        for number, board in self.boards.items():
+            if board.id == board_id:
+                others = tuple(r for r in board.repositories if r != name)
+                self.boards[number] = replace(board, repositories=others + ((name,) if link else ()))
+
+    def repository_name(self, repo):
+        bare = getattr(self, "bare", None)
+        return f"{self.owner}/{'repo' if bare is None else bare.stem.removesuffix('.git')}"
+
+    def repository_private(self, repo):
+        return getattr(self, "private", True)
+
+    def board_item_repositories(self, repo, board_id):
+        counts = {}
+        for (b, _), _item in self.items.items():
+            if b == board_id:
+                counts[self.repository_name(repo)] = counts.get(self.repository_name(repo), 0) + 1
+        for name, count in self.foreign_items.get(board_id, {}).items():   # 試験で入れる、他のリポジトリの項目
+            counts[name] = counts.get(name, 0) + count
+        return counts
 
     def task_records(self, repo, *, closed, board_id, number=None):
         numbers = [number] if number is not None else [n for n, i in self.issues.items() if closed or i.state == "open"]

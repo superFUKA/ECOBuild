@@ -91,7 +91,10 @@ class ModuleConfig:
         if not isinstance(url, str) or not isinstance(status, str) or not all(
                 isinstance(v, str) for v in (*stages.values(), *schema.values())):
             raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[board] の url・status_field・段階の選択肢・項目の名前は文字列です。")
-        return BoardSettings(url, status, stages, schema)
+        shared = table.get("shared", False)
+        if not isinstance(shared, bool):
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[board] の shared は真偽値です。")
+        return BoardSettings(url, status, stages, schema, shared)
 
     def with_board(self, settings: BoardSettings | None) -> "ModuleConfig":
         extra = {k: v for k, v in self.extra.items() if k != BOARD_TABLE}
@@ -99,7 +102,8 @@ class ModuleConfig:
             extra[BOARD_TABLE] = {"url": settings.url, "status_field": settings.status_field,
                                   **{stage: settings.stages[stage] for stage in BOARD_STAGES if settings.stages.get(stage)},
                                   **{f"{role}_field": settings.schema[role] for role in BOARD_ROLES
-                                     if settings.schema.get(role)}}
+                                     if settings.schema.get(role)},
+                                  **({"shared": True} if settings.shared else {})}
         return replace(self, extra=extra)
 
     def with_ci(self, settings: CiSettings) -> "ModuleConfig":

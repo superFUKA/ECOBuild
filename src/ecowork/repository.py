@@ -350,11 +350,11 @@ class Repository:
     def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
         return self.tracker.boards(owner)
 
-    def create_board(self, title: str, **options) -> _board.BoardInfo:
+    def create_board(self, title: str | None = None, **options) -> _board.BoardInfo:
         return self.tracker.create_board(title, **options)
 
-    def check_board(self, settings: _board.BoardSettings) -> _board.BoardStatus:
-        return self.tracker.check_board(settings)
+    def check_board(self, settings: _board.BoardSettings, *, exclusive: bool = False) -> _board.BoardStatus:
+        return self.tracker.check_board(settings, exclusive=exclusive)
 
     def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
         self.tracker.link_board(settings, link=link)

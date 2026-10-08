@@ -254,3 +254,17 @@ def test_planning_from_cli(cli, module):
     assert sum(w["open"] for w in load) == 4
     assert as_json(cli("task", "list", "--sort", "priority", "--json"))["result"][0]["number"] == 3
     assert as_json(cli("task", "status", "4", "--json"))["result"]["task"]["due"] == yesterday
+
+
+def test_board_is_dedicated_from_cli(cli, module):
+    github = module.repository.github
+    created = as_json(cli("board", "create", "--json"))["result"]
+    assert created["repositories"] == [github.repository_name(module.root)]
+    github.foreign_items[created["id"]] = {"tester/other": 1}
+    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
+    refused = as_json(cli("board", "use", created["url"], "--json"))
+    assert refused["error"]["code"] == "board_shared" and "--shared" in refused["error"]["hint"]
+    assert cli("board", "use", created["url"], "--shared").exit_code == 0
+    assert "shared = true" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+    shown = cli("board", "show")
+    assert "共有" in shown.output and "tester/other 1" in shown.output

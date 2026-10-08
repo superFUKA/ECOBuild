@@ -365,10 +365,12 @@ class Tracker:
         """つなげるボードの一覧（owner を省略するとリポジトリの所有者のもの）。"""
         return self.github.list_boards(self.root, owner)
 
-    def create_board(self, title: str, *, owner: str | None = None, sprint_start: str | None = None,
+    def create_board(self, title: str | None = None, *, owner: str | None = None, sprint_start: str | None = None,
                      sprint_days: int = 14, sprints: int = 3) -> _board.BoardInfo:
-        """標準のボードを作る：Status（Backlog・Todo・In Progress・In Review・Done）・Priority・Estimate・Due・
-        Sprint。どのモジュールでも同じ形にする（board use で既定の対応がそのまま使える）。"""
+        """このリポジトリ専用の標準のボードを作り、リポジトリにリンクする：Status（Backlog・Todo・In Progress・
+        In Review・Done）・Priority・Estimate・Due・Sprint。題名を省略すると「<リポジトリ名> タスク」。"""
+        if title is None:
+            title = f"{self.github.repository_name(self.root).split('/')[-1]} タスク"
         if not title.strip():
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "ボードの題名が必要です。")
         start = _parse_date(sprint_start) if sprint_start else _monday(_datetime.date.today())
@@ -384,11 +386,30 @@ class Tracker:
         iterations = tuple((f"Sprint {i + 1}", (start + _datetime.timedelta(days=sprint_days * i)).isoformat(),
                             sprint_days) for i in range(sprints))
         self.github.create_board_field(self.root, created.id, "Sprint", "ITERATION", iterations=iterations)
+        self.github.link_board(self.root, created.id, link=True)   # 作った時点でこのリポジトリ専用にする
         return self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number)
 
-    def check_board(self, settings: _board.BoardSettings) -> _board.BoardStatus:
-        """ボードを使えるか確かめる：状態の項目が単一選択で段階に当てた選択肢があり、役割に当てた項目の型が合うか。"""
+    def board_scope(self, settings: _board.BoardSettings | None = None) -> _board.BoardScope:
+        """ボードがこのリポジトリ専用か（リンクしているリポジトリ・項目のリポジトリ・公開）。"""
+        settings = settings or self.require_board()
         info = self.github.get_board(self.root, settings.owner, settings.number)
+        repository = self.github.repository_name(self.root)
+        return _board.BoardScope(repository, info.repositories, self.github.board_item_repositories(self.root, info.id),
+                                 info.public, self.github.repository_private(self.root), settings.shared)
+
+    def check_board(self, settings: _board.BoardSettings, *, exclusive: bool = False) -> _board.BoardStatus:
+        """ボードを使えるか確かめる：状態の項目が単一選択で段階に当てた選択肢があり、役割に当てた項目の型が合うか。
+
+        exclusive：このリポジトリ専用か確かめる（他のリポジトリにリンク・他のリポジトリの項目があれば止める。
+        settings.shared なら止めない）。つなぐとき（board use）に使う。
+        """
+        info = self.github.get_board(self.root, settings.owner, settings.number)
+        scope = self.board_scope(settings)
+        if exclusive and not settings.shared and (scope.other_links or scope.foreign_items):
+            raise TaskError(ErrorCode.BOARD_SHARED, "このボードは、他のリポジトリと共有されています。",
+                            hint="このリポジトリ専用のボードを board create で作るか、共有してよければ --shared を"
+                                 "付けてください。",
+                            details=[p for p in scope.problems if "リンクしていません" not in p])
         status = info.field(settings.status_field)
         if status.type != "SINGLE_SELECT":
             raise TaskError(ErrorCode.INVALID_ARGUMENT, f"フィールド {status.name} は単一選択ではありません。",
@@ -414,7 +435,7 @@ class Tracker:
                                     f"{_model.ROLE_NAMES[role]}に当てた項目 {target.name} の型が {target.type} です"
                                     f"（{_model.ROLE_TYPES[role]} が必要）。")
         return _board.BoardStatus(info.url, info.title, status.name, dict(settings.stages), info.fields,
-                                  {r: n for r, n in settings.schema.items() if n})
+                                  {r: n for r, n in settings.schema.items() if n}, scope)
 
     def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
         """GitHub側でも、ボードをこのリポジトリにつなぐ（外す）。ボード自体は消さない。"""
@@ -422,7 +443,9 @@ class Tracker:
         self.github.link_board(self.root, info.id, link=link)
 
     def board_status(self) -> _board.BoardStatus:
-        return self.check_board(self.require_board())
+        status = self.check_board(self.require_board())
+        self.notices += [f"ボードの範囲：{p}" for p in status.scope.problems]
+        return status
 
     def board_info(self) -> _board.BoardInfo:
         return self.store.info()
@@ -497,6 +520,10 @@ class Tracker:
             if parent is not None and parent.open and (targets[t.number] or t.status) in started:
                 if self._parent_follows(targets[parent.number] or parent.status):
                     targets[parent.number] = settings.option(_model.IN_PROGRESS)
+        try:
+            self.notices += [f"ボードの範囲：{p}" for p in self.board_scope(settings).problems]
+        except TaskError:
+            pass  # 範囲の確かめは知らせるだけ
         added, changed = [], []
         for t in tasks:
             if not t.on_board and not t.open:

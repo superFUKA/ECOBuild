@@ -43,6 +43,7 @@ class BoardSettings:
     status_field: str = "Status"
     stages: dict[str, str] = field(default_factory=dict)   # 段階 → 選択肢の名前（in_review は省略可）
     schema: dict[str, str] = field(default_factory=dict)   # 役割（priority・due・estimate・sprint）→ 項目の名前
+    shared: bool = False                       # 他のリポジトリと共有するボード（専用でなくてよい）
 
     @property
     def owner(self) -> str:
@@ -95,6 +96,8 @@ class BoardInfo:
     url: str
     fields: tuple[BoardField, ...] = ()
     closed: bool = False
+    public: bool = False                       # 公開のボード（誰でも見られる）
+    repositories: tuple[str, ...] = ()         # リンクしているリポジトリ（所有者/名前）
 
     def field(self, name_or_id: str) -> BoardField:
         """名前かIDでフィールドを探す。名前は大文字・小文字を区別しない（同じ名前が複数あればIDを求める）。"""
@@ -174,6 +177,41 @@ class BoardStatus:
     stages: dict[str, str]
     fields: tuple[BoardField, ...]
     schema: dict[str, str] = field(default_factory=dict)   # 役割 → 項目の名前（当てていない役割は使わない）
+    scope: "BoardScope | None" = None          # このリポジトリ専用か（リンク・項目のリポジトリ・公開）
+
+
+@dataclass(frozen=True)
+class BoardScope:
+    """ボードがこのリポジトリ専用か。GitHubでは制限できないので、ECOBuildが確かめて守る。"""
+    repository: str                            # このリポジトリ（所有者/名前）
+    linked: tuple[str, ...]                    # ボードがリンクしているリポジトリ
+    items: dict[str, int]                      # 項目のリポジトリごとの数（"" は下書き）
+    public: bool                               # ボードが公開
+    repository_private: bool
+    shared: bool                               # 共有を許した（[board] の shared）
+
+    @property
+    def other_links(self) -> tuple[str, ...]:
+        return tuple(r for r in self.linked if r != self.repository)
+
+    @property
+    def foreign_items(self) -> int:
+        """このリポジトリ以外（他のリポジトリ・下書き）の項目の数。"""
+        return sum(n for r, n in self.items.items() if r != self.repository)
+
+    @property
+    def problems(self) -> tuple[str, ...]:
+        """専用でない・公開しすぎている点（共有を許していれば、共有の点は除く）。"""
+        result = []
+        if not self.shared and self.other_links:
+            result.append(f"他のリポジトリにもリンクしています：{', '.join(self.other_links)}")
+        if not self.shared and self.foreign_items:
+            result.append(f"他のリポジトリの項目・下書きが {self.foreign_items} 件あります")
+        if self.repository not in self.linked:
+            result.append(f"このリポジトリ（{self.repository}）にリンクしていません")
+        if self.public and self.repository_private:
+            result.append("リポジトリは非公開ですが、ボードは公開されています（ボードの設定で非公開にしてください）")
+        return tuple(result)
 
 
 @dataclass(frozen=True)

@@ -154,3 +154,24 @@ def test_next_tells_what_is_not_used(tracker):
     tracker.notices.clear()
     tracker.next_tasks()
     assert any("期限・見積もり・スプリント" in n for n in tracker.notices)
+
+
+def test_board_is_dedicated_to_the_repository(tracker):
+    """ボードはこのリポジトリ専用：作ったらリンクし、他のリポジトリと共有されたボードは、つなぐときに止める。"""
+    board = tracker.create_board()
+    repository = tracker.github.repository_name(tracker.root)
+    assert board.title == f"{repository.split('/')[-1]} タスク" and board.repositories == (repository,)
+    settings = BoardSettings(board.url, "Status", default_stages(board.field("Status")), default_schema(board))
+    assert tracker.check_board(settings, exclusive=True).scope.problems == ()
+
+    tracker.github.foreign_items[board.id] = {"tester/other": 2}
+    assert code_of(lambda: tracker.check_board(settings, exclusive=True)) == ErrorCode.BOARD_SHARED
+    shared = BoardSettings(board.url, "Status", settings.stages, settings.schema, shared=True)
+    assert tracker.check_board(shared, exclusive=True).scope.foreign_items == 2      # 共有を許せば止めない
+
+    tracker.board = settings
+    tracker.github.boards[board.number] = tracker.github.boards[board.number].__class__(
+        **{**tracker.github.boards[board.number].__dict__, "public": True})
+    tracker.board_status()
+    assert any("他のリポジトリの項目" in n for n in tracker.notices)
+    assert any("公開されています" in n for n in tracker.notices)

@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
+from ecotask.github import TaskRecord
 from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
                             PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
 from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption
@@ -265,6 +266,18 @@ class FakeGitHub:
 
     def link_board(self, repo, board_id, *, link):
         (self.linked_boards.add if link else self.linked_boards.discard)(board_id)
+
+    def task_records(self, repo, *, closed, board_id, number=None):
+        numbers = [number] if number is not None else [n for n, i in self.issues.items() if closed or i.state == "open"]
+        records = []
+        for n in numbers:
+            issue = self.get_issue(repo, n)
+            milestone = next((m for m in self.milestones.values() if m.title == issue.milestone), None)
+            reason = None if issue.state == "open" else ("not_planned" if n in self.not_planned else "completed")
+            records.append(TaskRecord(issue, self.issue_relation(repo, n), reason,
+                                      None if milestone is None else milestone.due,
+                                      None if board_id is None else self.items.get((board_id, n))))
+        return records
 
     def board_items(self, repo, board_id, *, closed):
         return {n: item for (b, n), item in self.items.items()

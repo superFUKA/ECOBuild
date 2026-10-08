@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import enum
 import json
 import re
@@ -217,6 +218,8 @@ def to_data(value: Any) -> Any:
         return value.value
     if isinstance(value, Path):
         return value.as_posix()
+    if isinstance(value, datetime.date):
+        return value.isoformat()
     if isinstance(value, dict):
         return {str(key): to_data(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

@@ -40,6 +40,16 @@ class IssueRelations:
 
 
 @dataclass(frozen=True)
+class TaskRecord:
+    """保存の層が読む、タスク1件分のGitHubのデータ（Issue・親子と依存の要約・マイルストーン・ボードの値）。"""
+    issue: IssueInfo
+    relations: IssueRelations
+    closed_reason: str | None = None    # completed / not_planned
+    milestone_due: str | None = None    # YYYY-MM-DD
+    item: "_board.BoardItem | None" = None
+
+
+@dataclass(frozen=True)
 class MilestoneInfo:
     number: int
     title: str
@@ -95,6 +105,8 @@ class TaskGitHub(Protocol):
                            options: tuple[tuple[str, str, str], ...] = (),
                            iterations: tuple[tuple[str, str, int], ...] = ()) -> None: ...
     def board_items(self, repo: Path, board_id: str, *, closed: bool) -> dict[int, _board.BoardItem]: ...
+    def task_records(self, repo: Path, *, closed: bool, board_id: str | None,
+                     number: int | None = None) -> list[TaskRecord]: ...
     def board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem | None: ...
     def add_board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem: ...
     def set_board_value(self, repo: Path, board_id: str, item_id: str, field: _board.BoardField, value: str) -> None: ...
@@ -335,6 +347,33 @@ class GhCli:
               {mutation}(input: {{projectId: $project, repositoryId: $repository}}) {{ repository {{ id }} }} }}""",
                       project=board_id, repository=repository_id)
 
+    def task_records(self, repo, *, closed, board_id, number=None):
+        """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""
+        items = (" projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }") if board_id else ""
+        fields = ("number title url state stateReason body parent { number } subIssuesSummary { total completed } "
+                  "issueDependenciesSummary { blockedBy blocking } milestone { title dueOn } "
+                  "assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }" + items)
+        if number is not None:
+            data = self._graphql(repo, """
+                query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+                  issue(number: $number) { """ + fields + " } } }", number=number, **self._repo_vars(repo))
+            node = data["repository"]["issue"]
+            if node is None:
+                raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
+            return [_task_record(node, board_id)]
+        records, after = [], None
+        while True:
+            data = self._graphql(repo, """
+                query($owner: String!, $name: String!, $states: [IssueState!], $after: String) {
+                  repository(owner: $owner, name: $name) { issues(first: 50, after: $after, states: $states) {
+                    pageInfo { hasNextPage endCursor } nodes { """ + fields + " } } } }",
+                                 states=None if closed else ["OPEN"], after=after, **self._repo_vars(repo))
+            issues = data["repository"]["issues"]
+            records += [_task_record(node, board_id) for node in issues["nodes"]]
+            if not issues["pageInfo"]["hasNextPage"]:
+                return records
+            after = issues["pageInfo"]["endCursor"]
+
     def board_items(self, repo, board_id, *, closed):
         result, after = {}, None
         while True:
@@ -486,6 +525,21 @@ _VALUES = ("fieldValues(first: 50) { nodes { "
            f"... on ProjectV2ItemFieldSingleSelectValue {{ name {_FIELD_NAME} }} "
            f"... on ProjectV2ItemFieldIterationValue {{ title {_FIELD_NAME} }} "
            "} }")
+
+
+def _task_record(node: dict, board_id: str | None) -> TaskRecord:
+    sub, dep = node.get("subIssuesSummary") or {}, node.get("issueDependenciesSummary") or {}
+    milestone = node.get("milestone") or {}
+    issue = IssueInfo(node["number"], node["title"], node["url"], node["state"].lower(), node.get("body") or "",
+                      tuple(label["name"] for label in (node.get("labels") or {}).get("nodes") or []),
+                      tuple(user["login"] for user in (node.get("assignees") or {}).get("nodes") or []),
+                      milestone.get("title"))
+    relations = IssueRelations((node.get("parent") or {}).get("number"), sub.get("total", 0), sub.get("completed", 0),
+                               dep.get("blockedBy", 0), dep.get("blocking", 0))
+    reason = (node.get("stateReason") or "").lower() or None
+    item = None if not board_id else _board_item((node.get("projectItems") or {}).get("nodes") or [], board_id)
+    return TaskRecord(issue, relations, reason if issue.state == "closed" else None,
+                      (milestone.get("dueOn") or "")[:10] or None, item)
 
 
 def _board_item(nodes: list, board_id: str) -> _board.BoardItem | None:

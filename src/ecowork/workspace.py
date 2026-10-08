@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import datetime as _datetime
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ecotask import model as _model
 from ecotask.tracker import TaskRef  # 親子・依存の相手（互換のため、ここからも使える）
 
 from . import github as _github
@@ -332,7 +334,21 @@ class TaskSummary:
     subtasks_done: int = 0           # そのうち閉じたもの
     blocked_by: int = 0              # 先に終わるべきタスクのうち、開いているものの数
     status: str | None = None        # ボードの状態（ボードがなければNone）
-    fields: dict[str, str] = field(default_factory=dict)   # ボードの他のフィールド（優先度・期限等）
+    fields: dict[str, str] = field(default_factory=dict)   # ボードの、役割に当てていない項目
+    stage: str | None = None         # 作業の段階（todo・in_progress・in_review・done・planned）
+    priority: str | None = None
+    due: _datetime.date | None = None
+    estimate: float | None = None
+    sprint: str | None = None
+    milestone_due: _datetime.date | None = None
+    closed_reason: str | None = None  # completed / not_planned
+
+    @classmethod
+    def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool) -> "TaskSummary":
+        return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
+                   task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
+                   task.status, task.fields, task.stage, task.priority, task.due, task.estimate,
+                   None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason)
 
 
 @dataclass(frozen=True)
@@ -357,6 +373,7 @@ class TaskStatus:
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
     board: dict[str, str] | None = None          # ボード上の値（状態・優先度等）。ボードがなければNone
+    task: _model.Task | None = None              # 型付きのタスク（段階・優先度・期限・見積もり・スプリント等）
 
 
 @dataclass(frozen=True)

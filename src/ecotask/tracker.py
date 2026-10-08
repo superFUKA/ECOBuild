@@ -1,18 +1,22 @@
-"""タスク管理の操作と決まりごと。データはすべてGitHubに置く（Issue・親子・依存・マイルストーン・ボード）。
+"""タスク管理の操作と決まりごと。データはすべてGitHubに置く（保存の層：ecotask.store）。
 
 作業空間やPRのことは知らない。作業の流れ（ecowork）は、作業の段階が変わるときに set_stage を呼び、
 ボードを合わせるとき（sync_board）は各タスクの作業の事実（開いているPR・作業空間の有無）を渡す。
+判断（次にやるもの・期限・スプリント等）は ecotask.planning の関数で行う。
 """
 
 from __future__ import annotations
 
 import datetime as _datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import board as _board
 from . import github as _github
+from . import model as _model
+from . import planning as _planning
 from .errors import ErrorCode, TaskError, operation
+from .store import TaskStore
 
 
 @dataclass(frozen=True)
@@ -28,24 +32,16 @@ class TaskRef:
 
 
 @dataclass(frozen=True)
-class TaskRow:
-    """一覧の1件：Issue・親子と依存の要約・ボードの状態と他のフィールド。"""
-    issue: _github.IssueInfo
-    relations: _github.IssueRelations
-    status: str | None = None                            # ボードの状態（ボードがなければNone）
-    fields: dict[str, str] = field(default_factory=dict)  # ボードの他のフィールド
-
-
-@dataclass(frozen=True)
 class TaskDetails:
-    """1件の詳細：コメント・親・子・先に終わるべきタスク・待っているタスク・ボードの値。"""
-    issue: _github.IssueInfo
+    """1件の詳細：タスク・本文・コメント・親・子・先に終わるべきタスク・待っているタスク・ボードの値。"""
+    task: _model.Task
+    body: str
     comments: tuple[_github.Comment, ...]
     parent: TaskRef | None
     subtasks: tuple[TaskRef, ...]
     blocked_by: tuple[TaskRef, ...]
     blocking: tuple[TaskRef, ...]
-    board: dict[str, str] | None                         # ボードがなければNone、ボードにないタスクは空
+    board: dict[str, str] | None                         # ボードの項目の値（ボードがなければNone）
 
 
 @dataclass(frozen=True)
@@ -64,17 +60,34 @@ class Tracker:
         command：ヒントに書くCLIのコマンド名。board：つないでいるボード（なければ使わない）。
         """
         self.root = Path(root)
-        self.github = github if github is not None else _github.GhCli()
+        self.store = TaskStore(self.root, github if github is not None else _github.GhCli(), board)
         self.command = command
-        self.board = board
-        self._board_info: _board.BoardInfo | None = None
         # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた・ボードを更新できなかった等）
         self.notices: list[str] = []
+
+    @property
+    def github(self) -> _github.TaskGitHub:
+        return self.store.github
+
+    @github.setter
+    def github(self, value: _github.TaskGitHub) -> None:
+        self.store.github = value
+
+    @property
+    def board(self) -> _board.BoardSettings | None:
+        return self.store.board
+
+    @board.setter
+    def board(self, value: _board.BoardSettings | None) -> None:
+        self.store.board = value
 
     # タスク（Issue） ------------------------------------------------------------------
 
     def issue(self, number: int) -> _github.IssueInfo:
         return self.github.get_issue(self.root, number)
+
+    def task(self, number: int) -> _model.Task:
+        return self.store.task(number)
 
     def create(self, title: str, *, body: str = "", labels: tuple[str, ...] = (), assignees: tuple[str, ...] = (),
                parent: int | None = None, blocked_by: tuple[int, ...] = (),
@@ -83,7 +96,7 @@ class Tracker:
         if milestone is not None:
             self.milestone_number(milestone)  # 作る前に確かめる
         info = self.github.create_issue(self.root, title, body, labels=labels, assignees=assignees)
-        self.set_stage(info.number, _board.TODO)
+        self.set_stage(info.number, _model.TODO)
         if parent is None and not blocked_by and milestone is None:
             return info
         try:
@@ -142,6 +155,11 @@ class Tracker:
             self.github.set_issue_milestone(self.root, number,
                                             None if clear_milestone else self.milestone_number(milestone))
 
+    def plan(self, number: int, **values) -> _model.Task:
+        """計画の値（priority・due・estimate・sprint〔名前か current〕・clear）を設定する（ecotask.store と同じ）。"""
+        self.store.plan(number, **values)
+        return self.task(number)
+
     def comment(self, number: int, body: str) -> None:
         if not body.strip():
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "コメントが空です。")
@@ -165,7 +183,7 @@ class Tracker:
 
     def closed(self, number: int) -> None:
         """タスクが閉じた後（PRのマージで閉じた場合も）：完了にし、親の子がすべて閉じたら知らせる。"""
-        self.set_stage(number, _board.DONE)
+        self.set_stage(number, _model.DONE)
         try:
             parent = self.github.issue_relation(self.root, number).parent
             if parent is None:
@@ -181,7 +199,7 @@ class Tracker:
         if self.issue(number).state == "open":
             raise TaskError(ErrorCode.INVALID_ARGUMENT, f"Issue #{number} は開いています。")
         self.github.reopen_issue(self.root, number)
-        self.set_stage(number, _board.TODO)
+        self.set_stage(number, _model.TODO)
 
     def check_startable(self, number: int, *, ignore_blocked: bool = False) -> None:
         """新しく作業を始めてよいか：親タスク（開いている子がある）では作業しない。先に終わるべきタスクを待つ。"""
@@ -207,70 +225,104 @@ class Tracker:
         self.check_startable(number, ignore_blocked=ignore_blocked)
         if not issue.assignees:
             self.github.edit_issue(self.root, number, add_assignees=("@me",))
-        self.set_stage(number, _board.IN_PROGRESS)
+        self.set_stage(number, _model.IN_PROGRESS)
         return self.issue(number)
 
-    # 一覧と詳細 -----------------------------------------------------------------------
+    # 一覧・詳細・判断 -----------------------------------------------------------------
 
-    def rows(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
-             search: str | None = None, milestone: str | None = None, sprint: str | None = None) -> list[TaskRow]:
-        """タスクの一覧（番号の順）。sprint：スプリントの名前か current（今日を含むもの）。"""
-        sprint_filter = None if sprint is None else self.sprint(sprint)
-        issues = self.github.list_issues(self.root, closed=closed, label=label, assignee=assignee, search=search)
-        relations = self.github.issue_relations(self.root, closed=closed)
-        items, status_name = {}, None
-        if self.board is not None:
-            info = self.board_info()
-            items = self.github.board_items(self.root, info.id, closed=closed)
-            status_name = info.field(self.board.status_field).name
-        rows = []
-        for issue in sorted(issues, key=lambda i: i.number):
-            if milestone is not None and issue.milestone != milestone:
-                continue
-            item = items.get(issue.number)
-            values = {} if item is None else dict(item.values)
-            row = TaskRow(issue, relations.get(issue.number, _github.IssueRelations()),
-                          None if status_name is None else values.pop(status_name, None), values)
-            if sprint_filter is not None and row.fields.get(sprint_filter[0]) != sprint_filter[1]:
-                continue
-            rows.append(row)
-        return rows
+    def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
+              search: str | None = None, milestone: str | None = None,
+              sprint: str | None = None) -> list[_model.Task]:
+        """タスクの一覧（番号の順）。sprint：スプリントの名前か current（今日を含むもの）。
 
-    def startable(self, row: TaskRow) -> bool:
-        """着手できるか（作業空間の有無は呼び出し側が見る）：開いている・依存待ちでない・開いている子がない・
-        ボードがあれば未着手か未設定（Backlog 等の計画中・作業中・完了は除く）。"""
-        r = row.relations
-        status_ok = self.board is None or row.status in (None, self.board.option(_board.TODO))
-        return row.issue.state == "open" and not r.blocked_by and r.sub_total == r.sub_completed and status_ok
-
-    def sort(self, rows: list, name: str, *, value=None) -> list:
-        """ボードのフィールドで並べる（単一選択・イテレーションは選択肢の順、日付・数値は小さい順、値なしは後ろ）。
-
-        value：行からフィールドの値を取り出す関数（既定は TaskRow の status／fields）。
+        label・assignee（@me は自分）・search（GitHubの検索の書き方）はGitHubで絞り込む。
         """
-        info = self.board_info()
+        chosen = None if sprint is None else self.sprint(sprint)
+        tasks = self.store.tasks(closed=closed)
+        if label or assignee or search:
+            numbers = {i.number for i in self.github.list_issues(self.root, closed=closed, label=label,
+                                                                 assignee=assignee, search=search)}
+            tasks = [t for t in tasks if t.number in numbers]
+        if milestone is not None:
+            tasks = [t for t in tasks if t.milestone == milestone]
+        if chosen is not None:
+            tasks = [t for t in tasks if t.sprint == chosen]
+        return tasks
+
+    def startable(self, task: _model.Task) -> bool:
+        return _planning.startable(task)
+
+    def sort(self, tasks: list, name: str, *, task_of=lambda item: item) -> list:
+        """ボードの項目（名前・役割の名前）で並べる。優先度・スプリント・状態は選択肢の順、期限・見積もり・日付・
+        数値は小さい順。値のないものは後ろ。task_of：要素から Task を取り出す関数（既定は要素そのもの）。"""
+        info = self.store.info()
+        role = name if name in _model.ROLES else next(
+            (r for r, f in self.board.schema.items() if f and f.casefold() == name.casefold()), None)
+        status = info.field(self.board.status_field)
+        if role is not None:
+            if self.store.role_field(role) is None:
+                raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードに{_model.ROLE_NAMES[role]}の項目が当てられていません。")
+            pick = {_model.PRIORITY: lambda t: t.priority_rank, _model.DUE: lambda t: t.due,
+                    _model.ESTIMATE: lambda t: t.estimate,
+                    _model.SPRINT: lambda t: None if t.sprint is None else t.sprint.start}[role]
+            return sorted(tasks, key=lambda item: _missing_last(pick(task_of(item)), task_of(item).number))
         target = info.field(name)
-        status_name = info.field(self.board.status_field).name
-
-        def get(row):
-            if value is not None:
-                return value(row, target.name)
-            return row.status if target.name == status_name else row.fields.get(target.name)
-
-        return sorted(rows, key=lambda row: _sort_key(target, get(row)))
+        if target.name == status.name:
+            return sorted(tasks, key=lambda item: _sort_key(status, task_of(item).status))
+        return sorted(tasks, key=lambda item: _sort_key(target, task_of(item).fields.get(target.name)))
 
     def details(self, number: int) -> TaskDetails:
-        issue = self.issue(number)
-        relation = self.github.issue_relation(self.root, number)
-        parent = None if relation.parent is None else TaskRef._from(self.issue(relation.parent))
+        task = self.store.task(number)
 
         def refs(infos):
             return tuple(TaskRef._from(i) for i in sorted(infos, key=lambda i: i.number))
 
-        return TaskDetails(issue, tuple(self.github.issue_comments(self.root, number)), parent,
+        parent = None if task.parent is None else TaskRef._from(self.issue(task.parent))
+        return TaskDetails(task, self.issue(number).body, tuple(self.github.issue_comments(self.root, number)), parent,
                            refs(self.github.sub_issues(self.root, number)),
                            refs(self.github.blocked_by(self.root, number)),
                            refs(self.github.blocking(self.root, number)), self.board_values(number))
+
+    def next_tasks(self, *, assignee: str | None = None, exclude: set[int] = frozenset(),
+                   today: _datetime.date | None = None) -> list[_planning.NextTask]:
+        """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（作業空間があるもの等）。"""
+        today = today or _datetime.date.today()
+        tasks = self.tasks(assignee=assignee) if assignee else self.store.tasks()
+        return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
+
+    def deadlines(self, *, days: int = 3, today: _datetime.date | None = None) -> _planning.Deadlines:
+        self._require_role(_model.DUE)
+        return _planning.deadlines(self.store.tasks(), today or _datetime.date.today(), days=days)
+
+    def sprints(self) -> list[_model.Sprint]:
+        return [] if self.board is None else self.store.sprints()
+
+    def sprint(self, name: str, *, today: _datetime.date | None = None) -> _model.Sprint:
+        """スプリントを名前で探す（大文字・小文字は区別しない）。current は今日を含むもの。"""
+        self._require_role(_model.SPRINT)
+        sprints = self.store.sprints()
+        today = today or _datetime.date.today()
+        if name == "current":
+            found = next((s for s in sprints if s.contains(today)), None)
+            if found is None:
+                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"今日（{today.isoformat()}）を含むスプリントがありません。",
+                                details=[f"{s.name} {s.start}〜{s.end}" for s in sprints])
+            return found
+        found = next((s for s in sprints if s.name.casefold() == name.casefold()), None)
+        if found is None:
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"スプリント {name} はありません。",
+                            details=[s.name for s in sprints])
+        return found
+
+    def sprint_status(self, name: str = "current", *, today: _datetime.date | None = None) -> _planning.SprintSummary:
+        today = today or _datetime.date.today()
+        return _planning.sprint_summary(self.store.tasks(closed=True), self.sprint(name, today=today), today)
+
+    def workload(self, *, today: _datetime.date | None = None) -> list[_planning.Workload]:
+        return _planning.workload(self.store.tasks(), today or _datetime.date.today())
+
+    def milestone_status(self, *, today: _datetime.date | None = None) -> list[_planning.MilestoneSummary]:
+        return _planning.milestone_summaries(self.store.tasks(closed=True), today or _datetime.date.today())
 
     # マイルストーン（リリースの目標と期日） ---------------------------------------------
 
@@ -327,13 +379,13 @@ class Tracker:
         return self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number)
 
     def check_board(self, settings: _board.BoardSettings) -> _board.BoardStatus:
-        """ボードを使えるか確かめる：状態のフィールドが単一選択で、段階に当てた選択肢があるか。"""
+        """ボードを使えるか確かめる：状態の項目が単一選択で段階に当てた選択肢があり、役割に当てた項目の型が合うか。"""
         info = self.github.get_board(self.root, settings.owner, settings.number)
         status = info.field(settings.status_field)
         if status.type != "SINGLE_SELECT":
             raise TaskError(ErrorCode.INVALID_ARGUMENT, f"フィールド {status.name} は単一選択ではありません。",
                             hint="--status-field で、状態を表す単一選択のフィールドを指定してください。")
-        missing = [stage for stage in (_board.TODO, _board.IN_PROGRESS, _board.DONE) if not settings.stages.get(stage)]
+        missing = [stage for stage in (_model.TODO, _model.IN_PROGRESS, _model.DONE) if not settings.stages.get(stage)]
         if missing:
             raise TaskError(ErrorCode.INVALID_ARGUMENT,
                             f"作業の段階（{', '.join(missing)}）に当てる {status.name} の選択肢が決まっていません。",
@@ -344,7 +396,17 @@ class Tracker:
                 raise TaskError(ErrorCode.INVALID_ARGUMENT, f"作業の段階 {stage} はありません。")
             if name:
                 _board.find_option(status, name)
-        return _board.BoardStatus(info.url, info.title, status.name, dict(settings.stages), info.fields)
+        for role, name in settings.schema.items():
+            if role not in _model.ROLES:
+                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"役割 {role} はありません。")
+            if name:
+                target = info.field(name)
+                if target.type != _model.ROLE_TYPES[role]:
+                    raise TaskError(ErrorCode.INVALID_ARGUMENT,
+                                    f"{_model.ROLE_NAMES[role]}に当てた項目 {target.name} の型が {target.type} です"
+                                    f"（{_model.ROLE_TYPES[role]} が必要）。")
+        return _board.BoardStatus(info.url, info.title, status.name, dict(settings.stages), info.fields,
+                                  {r: n for r, n in settings.schema.items() if n})
 
     def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
         """GitHub側でも、ボードをこのリポジトリにつなぐ（外す）。ボード自体は消さない。"""
@@ -355,55 +417,36 @@ class Tracker:
         return self.check_board(self.require_board())
 
     def board_info(self) -> _board.BoardInfo:
-        settings = self.require_board()
-        if self._board_info is None or self._board_info.url.rstrip("/") != settings.url.rstrip("/"):
-            self._board_info = self.github.get_board(self.root, settings.owner, settings.number)
-        return self._board_info
+        return self.store.info()
 
     def board_values(self, number: int) -> dict[str, str] | None:
-        """ボード上の値（フィールドの名前 → 値）。ボードがなければNone、ボードにないタスクは空。"""
+        """ボード上の値（項目の名前 → 値）。ボードがなければNone、ボードにないタスクは空。"""
         if self.board is None:
             return None
-        item = self.github.board_item(self.root, number, self.board_info().id)
+        item = self.github.board_item(self.root, number, self.store.info().id)
         return {} if item is None else dict(item.values)
 
-    def sprint(self, name: str) -> tuple[str, str]:
-        """スプリント（イテレーションのフィールド）の（フィールド名, 期間の題名）。current は今日を含む期間。"""
-        iteration = next((f for f in self.board_info().fields if f.type == "ITERATION"), None)
-        if iteration is None:
-            raise TaskError(ErrorCode.FIELD_NOT_FOUND, "ボードにスプリント（イテレーション）のフィールドがありません。")
-        if name != "current":
-            return iteration.name, _board.find_option(iteration, name).name
-        today = _datetime.date.today()
-        for option in iteration.options:
-            if option.start and option.duration:
-                start = _parse_date(option.start)
-                if start <= today < start + _datetime.timedelta(days=option.duration):
-                    return iteration.name, option.name
-        raise TaskError(ErrorCode.INVALID_ARGUMENT, f"今日（{today.isoformat()}）を含むスプリントがありません。",
-                        details=[f"{o.name} {o.start}〜{o.duration}日" for o in iteration.options])
-
     def set_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
-        """ボードのフィールドを設定する（型に従って確かめる）。作業の段階に当てた状態は操作で変わるため設定しない。"""
-        settings, info = self.require_board(), self.board_info()
+        """ボードの項目を設定する（型に従って確かめる）。作業の段階に当てた状態は操作で変わるため設定しない。"""
+        settings, info = self.require_board(), self.store.info()
         target = info.field(name)
         if target.type == "ITERATION" and value == "current":
-            value = self.sprint("current")[1]  # 今日を含むスプリント
+            value = self.sprint("current").name  # 今日を含むスプリント
         if target.name == info.field(settings.status_field).name:
             option = _board.find_option(target, value)
             if option.name in settings.stage_options:
                 raise self._stage_field_error(target.name, option.name)
-        item = self._board_item(number)
-        self.github.set_board_value(self.root, info.id, item.id, target, value)
+        item = self.store.item(number)
+        self.store.write(item, target, value)
         return _board.TaskBoard(number, item.id, self.board_values(number) or {})
 
     def clear_field(self, number: int, name: str) -> _board.TaskBoard:
-        settings, info = self.require_board(), self.board_info()
+        settings, info = self.require_board(), self.store.info()
         target = info.field(name)
-        item = self._board_item(number)
+        item = self.store.item(number)
         if target.name == info.field(settings.status_field).name and item.values.get(target.name) in settings.stage_options:
             raise self._stage_field_error(target.name, item.values[target.name])
-        self.github.clear_board_value(self.root, info.id, item.id, target.id)
+        self.store.clear(item, target)
         return _board.TaskBoard(number, item.id, self.board_values(number) or {})
 
     def set_stage(self, number: int, stage: str) -> None:
@@ -415,18 +458,16 @@ class Tracker:
             return
         option = self.board.option(stage)
         try:
-            info = self.board_info()
-            status = info.field(self.board.status_field)
-            item = self.github.add_board_item(self.root, number, info.id)
+            status = self.store.info().field(self.board.status_field)
+            item = self.store.item(number, add=True)
             if item.values.get(status.name) != option:
-                self.github.set_board_value(self.root, info.id, item.id, status, option)
-            if stage in (_board.IN_PROGRESS, _board.IN_REVIEW):
+                self.store.write(item, status, option)
+            if stage in (_model.IN_PROGRESS, _model.IN_REVIEW):
                 parent = self.github.issue_relation(self.root, number).parent
                 if parent is not None:
-                    parent_item = self.github.add_board_item(self.root, parent, info.id)
+                    parent_item = self.store.item(parent, add=True)
                     if self._parent_follows(parent_item.values.get(status.name)):
-                        self.github.set_board_value(self.root, info.id, parent_item.id, status,
-                                                    self.board.option(_board.IN_PROGRESS))
+                        self.store.write(parent_item, status, self.board.option(_model.IN_PROGRESS))
         except TaskError as error:
             self.notices.append(f"ボードの #{number} を {option} にできませんでした（{error.message}）。"
                                 f"{self._op('board sync')} で合わせられます。")
@@ -434,41 +475,34 @@ class Tracker:
     def sync_board(self, work: dict[int, WorkState], *, dry_run: bool = False) -> _board.BoardSyncResult:
         """ボードを実際の状態に合わせる：開いているタスクでボードにないものを加え、状態を作業の段階
         （Issueの開閉と、work：作業空間・PR）に合わせる。子が始まった親は作業中にする。計画の段階は変えない。"""
-        settings, info = self.require_board(), self.board_info()
-        status_name = info.field(settings.status_field).name
-        items = self.github.board_items(self.root, info.id, closed=True)
-        relations = self.github.issue_relations(self.root, closed=True)
-        issues = sorted(self.github.list_issues(self.root, closed=True), key=lambda i: i.number)
+        settings = self.require_board()
+        status = self.store.info().field(settings.status_field)
+        tasks = self.store.tasks(closed=True)
+        by_number = {t.number: t for t in tasks}
         targets = {}
-        for issue in issues:
-            item = items.get(issue.number)
-            current = None if item is None else item.values.get(status_name)
-            stage = self._expected_stage(issue.state, current, work.get(issue.number, WorkState()))
-            targets[issue.number] = (current, None if stage is None else settings.option(stage))
-        started = {settings.option(s) for s in (_board.IN_PROGRESS, _board.IN_REVIEW, _board.DONE)}
-        for issue in issues:  # 子が始まった（作業中・レビュー待ち・完了）親は作業中
-            parent = relations.get(issue.number, _github.IssueRelations()).parent
-            if parent in targets and (targets[issue.number][1] or targets[issue.number][0]) in started:
-                current, target = targets[parent]
-                parent_state = next(i.state for i in issues if i.number == parent)
-                if parent_state == "open" and self._parent_follows(target or current):
-                    targets[parent] = (current, settings.option(_board.IN_PROGRESS))
+        for t in tasks:
+            stage = self._expected_stage(t.state, t.status, work.get(t.number, WorkState()))
+            targets[t.number] = None if stage is None else settings.option(stage)
+        started = {settings.option(s) for s in (_model.IN_PROGRESS, _model.IN_REVIEW, _model.DONE)}
+        for t in tasks:  # 子が始まった（作業中・レビュー待ち・完了）親は作業中
+            parent = by_number.get(t.parent) if t.parent is not None else None
+            if parent is not None and parent.open and (targets[t.number] or t.status) in started:
+                if self._parent_follows(targets[parent.number] or parent.status):
+                    targets[parent.number] = settings.option(_model.IN_PROGRESS)
         added, changed = [], []
-        for issue in issues:
-            item = items.get(issue.number)
-            if item is None and issue.state != "open":
+        for t in tasks:
+            if not t.on_board and not t.open:
                 continue  # 閉じたタスクは、ボードにあるものだけ合わせる
-            current, target = targets[issue.number]
-            if item is None:
-                added.append(issue.number)
-            if target is not None and target != current:
-                changed.append(_board.BoardChange(issue.number, issue.title, current, target))
+            target = targets[t.number]
+            if not t.on_board:
+                added.append(t.number)
+            if target is not None and target != t.status:
+                changed.append(_board.BoardChange(t.number, t.title, t.status, target))
             if dry_run:
                 continue
-            if item is None:
-                item = self.github.add_board_item(self.root, issue.number, info.id)
-            if target is not None and target != current:
-                self.github.set_board_value(self.root, info.id, item.id, info.field(status_name), target)
+            item = self.store.item(t.number, add=True) if (not t.on_board or target not in (None, t.status)) else None
+            if item is not None and target is not None and target != t.status:
+                self.store.write(item, status, target)
         return _board.BoardSyncResult(tuple(added), tuple(changed), dry_run)
 
     def require_board(self) -> _board.BoardSettings:
@@ -483,44 +517,48 @@ class Tracker:
     def _op(self, name: str) -> str:
         return operation(self.command, name)
 
+    def _require_role(self, role: str) -> None:
+        self.require_board()
+        if self.store.role_field(role) is None:
+            raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードに{_model.ROLE_NAMES[role]}の項目が当てられていません。",
+                            hint="ボードに項目を足して、作業空間で board use をやり直してください"
+                                 "（board create の標準のボードには、すべてあります）。")
+
     def _open_subtasks(self, number: int) -> list[_github.IssueInfo]:
         return sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"),
                       key=lambda s: s.number)
 
     def _parent_follows(self, status: str | None) -> bool:
         """子が始まったら作業中にする親の状態：未設定・未着手・計画の段階（段階に当てていない選択肢）。"""
-        return status is None or status == self.board.option(_board.TODO) or status not in self.board.stage_options
+        return status is None or status == self.board.option(_model.TODO) or status not in self.board.stage_options
 
     def _expected_stage(self, state: str, current: str | None, work: WorkState) -> str | None:
         """Issue・PR・作業空間から決まる作業の段階。決まらなければ（計画の段階・作業空間なしの作業中）None。"""
         settings = self.board
         if state != "open":
-            return _board.DONE
+            return _model.DONE
         if work.pull_request:
-            return _board.IN_PROGRESS if work.draft else _board.IN_REVIEW
+            return _model.IN_PROGRESS if work.draft else _model.IN_REVIEW
         if work.branch:
-            return _board.IN_PROGRESS
-        if current is None or current in (settings.option(_board.DONE), settings.stages.get(_board.IN_REVIEW)):
-            return _board.TODO
+            return _model.IN_PROGRESS
+        if current is None or current in (settings.option(_model.DONE), settings.stages.get(_model.IN_REVIEW)):
+            return _model.TODO
         return None
-
-    def _board_item(self, number: int) -> _board.BoardItem:
-        item = self.github.board_item(self.root, number, self.board_info().id)
-        if item is None:
-            raise TaskError(ErrorCode.NOT_ON_BOARD, f"#{number} はボードにありません。",
-                            hint=f"{self._op('board sync')} で、開いているタスクをボードに加えられます。")
-        return item
 
     def _stage_field_error(self, field_name: str, option: str) -> TaskError:
         settings = self.board
-        command = {settings.option(_board.TODO): "task reopen／task drop",
-                   settings.option(_board.IN_PROGRESS): "task start（コードを変えないタスクは --no-workspace）",
-                   settings.option(_board.DONE): "task merge／task close"}.get(option, "task submit")
+        command = {settings.option(_model.TODO): "task reopen／task drop",
+                   settings.option(_model.IN_PROGRESS): "task start（コードを変えないタスクは --no-workspace）",
+                   settings.option(_model.DONE): "task merge／task close"}.get(option, "task submit")
         return TaskError(ErrorCode.STAGE_FIELD, f"{field_name} の {option} は作業の段階なので、手では設定しません。",
                          hint=f"{self._op(command)} で変わります。計画の段階（段階に当てていない選択肢）は設定できます。")
 
     def __repr__(self) -> str:
         return f"Tracker({str(self.root)!r})"
+
+
+def _missing_last(value, number: int) -> tuple:
+    return (value is None, value if value is not None else 0, number)
 
 
 def _sort_key(field_: _board.BoardField, value: str | None) -> tuple:

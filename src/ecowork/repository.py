@@ -94,7 +94,6 @@ class Repository:
     @board.setter
     def board(self, value: _board.BoardSettings | None) -> None:
         self.tracker.board = value
-        self.tracker._board_info = None
 
     @property
     def notices(self) -> list[str]:
@@ -215,47 +214,73 @@ class Repository:
         sort：ボードのフィールドで並べる（単一選択は選択肢の順、日付・数値は小さい順。値のないものは後ろ）。
         """
         if sort is not None:
-            self.tracker.board_info().field(sort)  # 一覧を取る前に、フィールドがあるか確かめる
+            self.tracker.sort([], sort)  # 一覧を取る前に、並べる項目があるか確かめる
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
-        result = []
-        for row in self.tracker.rows(closed=closed, label=label, assignee=assignee, search=search,
-                                     milestone=milestone, sprint=sprint):
-            i, r = row.issue, row.relations
-            branch = ws.workspace_branch(i.number)
-            summary = ws.TaskSummary(i.number, i.title, i.state, i.url, branch in local, branch == current,
-                                     branch in remote, i.labels, i.assignees, i.milestone, r.parent, r.sub_total,
-                                     r.sub_completed, r.blocked_by, row.status, row.fields)
-            if ready and not (self.tracker.startable(row) and not (summary.workspace or summary.remote)):
+        pairs = []
+        for task in self.tracker.tasks(closed=closed, label=label, assignee=assignee, search=search,
+                                       milestone=milestone, sprint=sprint):
+            branch = ws.workspace_branch(task.number)
+            summary = ws.TaskSummary._from(task, workspace=branch in local, current=branch == current,
+                                           remote=branch in remote)
+            if ready and not (self.tracker.startable(task) and not (summary.workspace or summary.remote)):
                 continue
-            result.append(summary)
+            pairs.append((summary, task))
         if sort is not None:
-            result = self.tracker.sort(result, sort, value=lambda t, name: t.status if name == self._status_name()
-                                       else t.fields.get(name))
-        return result
+            pairs = self.tracker.sort(pairs, sort, task_of=lambda pair: pair[1])
+        return [summary for summary, _ in pairs]
 
-    def _status_name(self) -> str:
-        info = self.tracker.board_info()
-        return info.field(self.tracker.board.status_field).name
+    def _workspaces(self) -> set[int]:
+        """作業空間（手元かGitHubにあるもの）のタスクの番号。"""
+        self.git.fetch()
+        names = set(self.git.local_branches()) | set(self.git.remote_branches())
+        return {n for n in (ws.workspace_number(b) for b in names) if n is not None}
+
+    def next_tasks(self, *, assignee: str | None = None, count: int | None = None) -> list:
+        """次にやるもの（順位と理由。ecotask.planning.next_tasks）。作業空間があるタスクは除く。"""
+        ranked = self.tracker.next_tasks(assignee=assignee, exclude=self._workspaces())
+        return ranked if count is None else ranked[:count]
+
+    def deadlines(self, *, days: int = 3):
+        return self.tracker.deadlines(days=days)
+
+    def sprints(self) -> list:
+        return self.tracker.sprints()
+
+    def sprint_status(self, name: str = "current"):
+        return self.tracker.sprint_status(name)
+
+    def workload(self) -> list:
+        return self.tracker.workload()
+
+    def milestone_status(self) -> list:
+        return self.tracker.milestone_status()
+
+    def plan_task(self, number: int, **values) -> ws.TaskSummary:
+        """計画の値（priority・due・estimate・sprint〔current 可〕・clear）を設定する。"""
+        task = self.tracker.plan(number, **values)
+        branch = ws.workspace_branch(number)
+        return ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
+                                    current=self.git.current_branch() == branch, remote=False)
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
         if number is None:
             number = self.require_workspace("番号を省略したタスクの指定").number
         details = self.tracker.details(number)
-        issue = details.issue
+        task = details.task
         branch = ws.workspace_branch(number)
         pulls = self.github.pull_requests_for_branch(self.root, branch)
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
         self.git.fetch()
         return ws.TaskStatus(
-            number, issue.title, issue.state, issue.url, ws.without_base(issue.body), self.git.has_local_branch(branch),
-            self.git.get_config(ws.base_key(branch)) or ws.issue_base(issue.body),
+            number, task.title, task.state, task.url, ws.without_base(details.body), self.git.has_local_branch(branch),
+            self.git.get_config(ws.base_key(branch)) or ws.issue_base(details.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
-            self.git.has_remote_branch(branch), issue.labels, issue.assignees, details.comments, issue.milestone,
-            details.parent, details.subtasks, details.blocked_by, details.blocking, details.board)
+            self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
+            details.parent, details.subtasks, details.blocked_by, details.blocking, details.board, task)
 
     def edit_task(self, number: int, *, body: str | None = None, **changes) -> ws.Task:
         """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import model as _model
 from .errors import ErrorCode, TaskError
 
 # 作業の段階
@@ -41,6 +42,7 @@ class BoardSettings:
     url: str                                   # https://github.com/users/<所有者>/projects/<番号>
     status_field: str = "Status"
     stages: dict[str, str] = field(default_factory=dict)   # 段階 → 選択肢の名前（in_review は省略可）
+    schema: dict[str, str] = field(default_factory=dict)   # 役割（priority・due・estimate・sprint）→ 項目の名前
 
     @property
     def owner(self) -> str:
@@ -118,6 +120,22 @@ def find_option(field_: BoardField, value: str) -> BoardOption:
                     details=[o.name for o in field_.options])
 
 
+# 役割に既定で当てる項目の名前（board create の標準）
+DEFAULT_SCHEMA = {_model.PRIORITY: "Priority", _model.DUE: "Due", _model.ESTIMATE: "Estimate", _model.SPRINT: "Sprint"}
+
+
+def default_schema(info: "BoardInfo", *, status_field: str = "Status") -> dict[str, str]:
+    """役割に当てる項目：既定の名前で型が合うもの、なければその型の項目が1つだけならそれ。"""
+    result = {}
+    for role, kind in _model.ROLE_TYPES.items():
+        named = [f for f in info.fields if f.name.casefold() == DEFAULT_SCHEMA[role].casefold() and f.type == kind]
+        typed = [f for f in info.fields if f.type == kind and f.name != status_field]
+        found = named[0] if named else (typed[0] if len(typed) == 1 and role != _model.PRIORITY else None)
+        if found is not None:
+            result[role] = found.name
+    return result
+
+
 def default_stages(status: BoardField) -> dict[str, str]:
     """Status の選択肢から、段階に当てるものを既定の名前で探す。"""
     def key(name: str) -> str:
@@ -155,6 +173,7 @@ class BoardStatus:
     status_field: str
     stages: dict[str, str]
     fields: tuple[BoardField, ...]
+    schema: dict[str, str] = field(default_factory=dict)   # 役割 → 項目の名前（当てていない役割は使わない）
 
 
 @dataclass(frozen=True)

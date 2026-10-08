@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
+from ._show import plan_text
 
 
 def command(
@@ -21,6 +22,7 @@ def command(
         return "\n".join(("* " if t.current else "+ " if t.workspace else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
                          + (f"〈{t.status}〉" if t.status else "")
+                         + (f" {plan_text(t)}" if plan_text(t) else "")
                          + "".join(f" {k}:{v}" for k, v in t.fields.items())
                          + "".join(f" [{name}]" for name in t.labels)
                          + (f"（担当：{', '.join(t.assignees)}）" if t.assignees else "")

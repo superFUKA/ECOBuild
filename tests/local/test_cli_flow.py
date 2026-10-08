@@ -36,7 +36,8 @@ def test_every_command_has_help():
                  ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
                  ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["board", "list"], ["board", "use"], ["board", "show"],
-                 ["board", "unset"], ["board", "sync"], ["board", "create"], ["task", "field", "set"], ["task", "field", "clear"]):
+                 ["board", "unset"], ["board", "sync"], ["board", "create"], ["task", "next"], ["task", "overdue"],
+                 ["task", "plan"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"], ["task", "field", "set"], ["task", "field", "clear"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -225,3 +226,31 @@ def test_standard_board_from_cli(cli, module):
     assert [t["number"] for t in as_json(cli("task", "list", "--sprint", "Sprint 2", "--json"))["result"]] == [2]
     assert [t["number"] for t in as_json(cli("task", "list", "--mine", "--json"))["result"]] == [1]
     assert as_json(cli("pr", "list", "--review-requested", "--json"))["result"] == []
+
+
+def test_planning_from_cli(cli, module):
+    import datetime
+    monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
+    created = as_json(cli("board", "create", "計画", "--sprint-start", monday.isoformat(), "--json"))["result"]
+    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
+    shown = as_json(cli("board", "use", created["url"], "--json"))["result"]
+    assert shown["schema"] == {"priority": "Priority", "due": "Due", "estimate": "Estimate", "sprint": "Sprint"}
+    for title in ("低", "高", "遅れ"):
+        assert cli("task", "new", title).exit_code == 0
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    planned = as_json(cli("task", "plan", "2", "--priority", "Low", "--sprint", "current", "--estimate", "1",
+                          "--json"))["result"]
+    assert (planned["priority"], planned["sprint"], planned["estimate"]) == ("Low", "Sprint 1", 1.0)
+    assert cli("task", "plan", "3", "--priority", "High", "--estimate", "3").exit_code == 0
+    assert cli("task", "plan", "4", "--due", yesterday).exit_code == 0
+    ranked = as_json(cli("task", "next", "--json"))["result"]
+    assert [n["task"]["number"] for n in ranked] == [4, 2, 3] and ranked[0]["reasons"][0].startswith("期限切れ")
+    assert "理由" in cli("task", "next").output
+    assert [t["number"] for t in as_json(cli("task", "overdue", "--json"))["result"]["overdue"]] == [4]
+    sprint = as_json(cli("sprint", "status", "--json"))["result"]
+    assert (sprint["sprint"]["name"], sprint["total"]) == ("Sprint 1", 1)
+    assert "Sprint 1" in cli("sprint", "list").output
+    load = as_json(cli("task", "workload", "--json"))["result"]
+    assert sum(w["open"] for w in load) == 4
+    assert as_json(cli("task", "list", "--sort", "priority", "--json"))["result"][0]["number"] == 3
+    assert as_json(cli("task", "status", "4", "--json"))["result"]["task"]["due"] == yesterday

@@ -102,6 +102,7 @@ class TaskGitHub(Protocol):
     def create_board(self, repo: Path, owner: str | None, title: str) -> _board.BoardInfo: ...
     def repository_name(self, repo: Path) -> str: ...
     def repository_private(self, repo: Path) -> bool: ...
+    def repository_boards(self, repo: Path) -> tuple[str, ...]: ...
     def board_item_repositories(self, repo: Path, board_id: str) -> dict[str, int]: ...
     def set_board_options(self, repo: Path, field_id: str, options: tuple[tuple[str, str, str], ...]) -> None: ...
     def create_board_field(self, repo: Path, board_id: str, name: str, type: str, *,
@@ -134,6 +135,13 @@ class GhCli:
     def repository_name(self, repo):
         owner, name = self._repo_name(repo)
         return f"{owner}/{name}"
+
+    def repository_boards(self, repo):
+        """このリポジトリにリンクしているボードのURL。"""
+        data = self._graphql(repo, """
+            query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+              projectsV2(first: 50) { nodes { url } } } }""", **self._repo_vars(repo))
+        return tuple(n["url"] for n in data["repository"]["projectsV2"]["nodes"])
 
     def repository_private(self, repo):
         return bool(self._json(["repo", "view", self.repository_name(repo), "--json", "isPrivate"],

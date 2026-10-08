@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import datetime as _datetime
+from dataclasses import replace
 from pathlib import Path
 
 from . import board as _board
@@ -125,8 +126,12 @@ class TaskStore:
         self.github.clear_board_value(self.root, self.info().id, item.id, field.id)
 
     def plan(self, number: int, *, priority: str | None = None, due: str | None = None,
-             estimate: str | None = None, sprint: str | None = None, clear: tuple[str, ...] = ()) -> None:
-        """計画の値を書く。sprint は名前か current（今日を含む）。clear：消す役割。ボードになければ加える。"""
+             estimate: str | None = None, sprint: str | None = None, clear: tuple[str, ...] = ()) -> dict[str, str | None]:
+        """計画の値を書く。sprint は名前か current（今日を含む）。clear：消す役割。ボードになければ加える。
+
+        書いた値（役割 → 値。消したものは None）を返す。GitHubは書いた直後の読み取りで古い値を返すことがあるため、
+        呼び出し側はこれを読み直した Task に重ねる（apply）。
+        """
         values = {_model.PRIORITY: priority, _model.DUE: due, _model.ESTIMATE: estimate, _model.SPRINT: sprint}
         unknown = [role for role in clear if role not in _model.ROLES]
         if unknown:
@@ -154,11 +159,34 @@ class TaskStore:
                 raise TaskError(ErrorCode.INVALID_ARGUMENT, f"今日（{today.isoformat()}）を含むスプリントがありません。")
             values[_model.SPRINT] = current.name
         item = self.item(number, add=True)
+        written = {}
         for role, value in values.items():
             if value is not None:
                 self.write(item, fields[role], value)
+                written[role] = value
         for role in clear:
             self.clear(item, fields[role])
+            written[role] = None
+        return written
+
+    def apply(self, task: _model.Task, written: dict[str, str | None]) -> _model.Task:
+        """書いた値を Task に重ねる（書いた直後の読み取りが古くても、正しい値を返すため）。"""
+        changes = {}
+        if _model.PRIORITY in written:
+            value = written[_model.PRIORITY]
+            field = self.role_field(_model.PRIORITY)
+            option = None if value is None else _board.find_option(field, value)
+            changes["priority"] = None if option is None else option.name
+            changes["priority_rank"] = None if option is None else [o.name for o in field.options].index(option.name)
+        if _model.DUE in written:
+            changes["due"] = _model.parse_date(written[_model.DUE])
+        if _model.ESTIMATE in written:
+            changes["estimate"] = None if written[_model.ESTIMATE] is None else float(written[_model.ESTIMATE])
+        if _model.SPRINT in written:
+            value = written[_model.SPRINT]
+            changes["sprint"] = None if value is None else next(
+                (s for s in self.sprints() if s.name.casefold() == value.casefold()), None)
+        return replace(task, on_board=True, **changes)
 
     def _require(self) -> _board.BoardSettings:
         if self._board is None:

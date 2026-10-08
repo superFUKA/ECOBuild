@@ -189,6 +189,7 @@ class BoardScope:
     public: bool                               # ボードが公開
     repository_private: bool
     shared: bool                               # 共有を許した（[board] の shared）
+    other_boards: tuple[str, ...] = ()         # このリポジトリにリンクしている、他のボード（URL）
 
     @property
     def other_links(self) -> tuple[str, ...]:
@@ -209,6 +210,9 @@ class BoardScope:
             result.append(f"他のリポジトリの項目・下書きが {self.foreign_items} 件あります")
         if self.repository not in self.linked:
             result.append(f"このリポジトリ（{self.repository}）にリンクしていません")
+        if self.other_boards:
+            result.append(f"このリポジトリには他のボードもリンクしています：{', '.join(self.other_boards)}"
+                          "（使わないなら、GitHubでリンクを外すか削除してください）")
         if self.public and self.repository_private:
             result.append("リポジトリは非公開ですが、ボードは公開されています（ボードの設定で非公開にしてください）")
         return tuple(result)

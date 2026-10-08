@@ -157,8 +157,8 @@ class Tracker:
 
     def plan(self, number: int, **values) -> _model.Task:
         """計画の値（priority・due・estimate・sprint〔名前か current〕・clear）を設定する（ecotask.store と同じ）。"""
-        self.store.plan(number, **values)
-        return self.task(number)
+        written = self.store.plan(number, **values)
+        return self.store.apply(self.task(number), written)
 
     def comment(self, number: int, body: str) -> None:
         if not body.strip():
@@ -394,8 +394,10 @@ class Tracker:
         settings = settings or self.require_board()
         info = self.github.get_board(self.root, settings.owner, settings.number)
         repository = self.github.repository_name(self.root)
+        others = tuple(url for url in self.github.repository_boards(self.root)
+                       if url.rstrip("/") != info.url.rstrip("/"))
         return _board.BoardScope(repository, info.repositories, self.github.board_item_repositories(self.root, info.id),
-                                 info.public, self.github.repository_private(self.root), settings.shared)
+                                 info.public, self.github.repository_private(self.root), settings.shared, others)
 
     def check_board(self, settings: _board.BoardSettings, *, exclusive: bool = False) -> _board.BoardStatus:
         """ボードを使えるか確かめる：状態の項目が単一選択で段階に当てた選択肢があり、役割に当てた項目の型が合うか。

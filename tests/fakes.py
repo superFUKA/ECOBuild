@@ -277,6 +277,10 @@ class FakeGitHub:
         bare = getattr(self, "bare", None)
         return f"{self.owner}/{'repo' if bare is None else bare.stem.removesuffix('.git')}"
 
+    def repository_boards(self, repo):
+        name = self.repository_name(repo)
+        return tuple(b.url for b in self.boards.values() if name in b.repositories)
+
     def repository_private(self, repo):
         return getattr(self, "private", True)
 

@@ -172,6 +172,20 @@ def test_board_is_dedicated_to_the_repository(tracker):
     tracker.board = settings
     tracker.github.boards[board.number] = tracker.github.boards[board.number].__class__(
         **{**tracker.github.boards[board.number].__dict__, "public": True})
+    tracker.create_board("もう1つ")                               # 同じリポジトリに別のボード
     tracker.board_status()
+    assert any("他のボードもリンク" in n for n in tracker.notices)
     assert any("他のリポジトリの項目" in n for n in tracker.notices)
     assert any("公開されています" in n for n in tracker.notices)
+
+
+def test_plan_returns_written_values_even_if_reading_is_stale(tracker, monkeypatch):
+    """GitHubは書いた直後の読み取りで古い値を返すことがある。plan は書いた値を重ねて返す。"""
+    connect(tracker, sprint_start="2026-10-05")
+    task = tracker.create("t")
+    tracker.plan(task.number, priority="Low", estimate="1")
+    stale = tracker.task(task.number)
+    monkeypatch.setattr(tracker.store, "task", lambda number: stale)     # 読み取りが古いまま
+    result = tracker.plan(task.number, priority="High", due="2026-10-15", clear=("estimate",), sprint="sprint 2")
+    assert (result.priority, result.priority_rank, result.due, result.estimate, result.sprint.name) == (
+        "High", 0, datetime.date(2026, 10, 15), None, "Sprint 2")

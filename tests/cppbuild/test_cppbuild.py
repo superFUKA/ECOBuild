@@ -31,8 +31,9 @@ def test_layout_and_templates(module_root):
     assert set(templates) == set(_cppbuild.TEMPLATES)
     assert not list(module_root.glob(".ecobuild-template-*"))
     folders = _cppbuild.open_solution(module_root).settings.get().solution_folders
-    assert (folders.projects, folders.linked_projects) == ("Projects", "LinkedProjects")
-    assert "USE_FOLDERS ON" in (module_root / "CppBuildTopLevel.cmake").read_text(encoding="utf-8")
+    assert (folders.projects, folders.linked_projects, folders.external) == ("Projects", "LinkedProjects", "External")
+    top_level = (module_root / "CppBuildTopLevel.cmake").read_text(encoding="utf-8")
+    assert "USE_FOLDERS ON" in top_level and 'set(CPPBUILD_EXTERNAL_FOLDER "External")' in top_level   # GoogleTest
 
 
 def test_old_module_gets_solution_folders_on_update(module_root):

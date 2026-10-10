@@ -33,9 +33,6 @@
 .build-bar .vs-button { border-color: #6c5a9c; color: #d6c9f7; }
 .build-bar .vs-button:hover:not(:disabled) { border-color: #b39ddb; }
 .vs-group { display: inline-flex; align-items: stretch; }
-.vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.vs-toggle { display: inline-flex; border: 1px solid #6c5a9c; border-left: 0; border-radius: 0 7px 7px 0; overflow: hidden; }
-.build-bar .vs-toggle button { border: 0; border-radius: 0; padding: 5px 9px; background: #1f1b2b; color: #a99cc9; font-size: 11px; }
-.build-bar .vs-toggle button + button { border-left: 1px solid #3c3354; }
-.build-bar .vs-toggle button[aria-checked=true] { background: #6c5a9c; color: #fff; font-weight: 600; }
-.build-bar .vs-toggle button:disabled { opacity: .35; cursor: not-allowed; }
+.build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.build-bar .vs-group .vs-more { padding: 3px 9px; font-size: 14px; line-height: 1; border: 1px solid #6c5a9c; border-left: 1px solid #3c3354; border-radius: 0 7px 7px 0; color: #d6c9f7; }
+.build-bar .vs-group .vs-more:hover { border-color: #b39ddb; }

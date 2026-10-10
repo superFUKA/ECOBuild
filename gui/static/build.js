@@ -59,18 +59,20 @@ WS.onRefresh(renderPrDetail);
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
   });
-  // Visual Studio: the version toggle next to the button (2026 by default, kept per PC).
-  const showVs = () => {
-    const version = ECO.vsVersion();
-    get('open-vs').textContent = `VS${version} で開く`;
-    for (const b of document.querySelectorAll('[data-vs]')) b.setAttribute('aria-checked', String(b.dataset.vs === version));
-  };
-  document.querySelector('.vs-toggle').addEventListener('click', e => { const b = e.target.closest('[data-vs]'); if (b && !b.disabled) { ECO.setVsVersion(b.dataset.vs); showVs(); } });
+  // "Open in editor" split button: the button opens with the chosen editor; ▾ chooses another one (and opens with it).
+  // The choice is kept per PC; Visual Studio 2026 by default.
+  const EDITORS = [['2026', 'Visual Studio 2026'], ['2022', 'Visual Studio 2022']];
+  let installed = null;
+  const showVs = () => { get('open-vs').textContent = `VS${ECO.vsVersion()} で開く`; };
+  const openVs = version => ECO.openInVisualStudio(WS.dir, {version, build: async () => { await runAction('build'); return get('build-output-state').classList.contains('ok') ? {} : null; }});
   showVs();
-  ECO.call('vs-versions').then(installed => {
-    for (const b of document.querySelectorAll('[data-vs]')) if (!installed.includes(b.dataset.vs)) { b.disabled = true; b.title = `Visual Studio ${b.dataset.vs} はこのPCにありません`; }
-  }).catch(() => {});
-  get('open-vs').addEventListener('click', () => ECO.openInVisualStudio(WS.dir, {build: async () => { await runAction('build'); return get('build-output-state').classList.contains('ok') ? {} : null; }}));
+  get('open-vs').addEventListener('click', () => openVs(ECO.vsVersion()));
+  get('choose-vs').addEventListener('click', async () => {
+    installed ??= await ECO.call('vs-versions').catch(() => EDITORS.map(([v]) => v));
+    const r = get('choose-vs').getBoundingClientRect(), current = ECO.vsVersion();
+    ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
+      () => { ECO.setVsVersion(version); showVs(); openVs(version); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
+  });
   WS.ready.then(loadOptions);
   WS.reloadBuildOptions = loadOptions;
 })();

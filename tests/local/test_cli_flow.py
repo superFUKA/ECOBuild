@@ -309,3 +309,40 @@ def test_add_standard_fields_from_cli(cli, module):
                                         "sprint": "Sprint", "planned_start": "Planned Start",
                                         "planned_end": "Planned End", "started": "Started"}
     assert any("Planned Start" in n for n in used["notices"])
+
+
+def test_subtasks_from_cli(cli, module):
+    """子タスクの作業空間は親の作業空間から派生し、子が終わるまで親は終了できない（コマンドで一周）。"""
+    def work(name):
+        write(module.root / name, name + "\n")
+        assert cli("task", "add", name).exit_code == 0
+        assert cli("task", "commit", "--message", name).exit_code == 0
+
+    assert cli("task", "new", "親").exit_code == 0
+    assert cli("task", "new", "子", "--parent", "1").exit_code == 0
+    assert as_json(cli("task", "start", "2", "--base", "main", "--json"))["error"]["code"] == "invalid_base"
+    started = cli("task", "start", "2")
+    assert started.exit_code == 0 and "作成元 task/1" in started.output and "task/1 をGitHubに作りました" in started.output
+    work("child.txt")
+    pr = as_json(cli("task", "submit", "--json"))["result"]
+    assert pr["base"] == "task/1"
+    assert as_json(cli("task", "merge", "--json"))["result"]["closed_issue"] == 2
+
+    assert cli("task", "new", "子2", "--parent", "1").exit_code == 0
+    assert cli("task", "start", "1").exit_code == 0
+    assert (module.root / "child.txt").exists()
+    work("parent.txt")
+    submitted = cli("task", "submit")
+    assert submitted.exit_code == 0 and "子タスクが終わるまでマージできません" in submitted.output
+    refused = as_json(cli("task", "merge", "--json"))
+    assert refused["error"]["code"] == "open_subtasks" and "#4" in " ".join(refused["error"]["details"])   # PRとIssueは番号を共有（#3 は子のPR）
+    assert as_json(cli("task", "close", "1", "--json"))["error"]["code"] == "open_subtasks"
+    assert as_json(cli("task", "drop", "1", "--close", "--yes", "--json"))["error"]["code"] == "open_subtasks"
+
+    closed = cli("task", "close", "4")                       # 作業空間なしで閉じた子
+    assert closed.exit_code == 0 and "子タスクはすべて閉じました" in closed.output
+    assert cli("task", "start", "1").exit_code == 0
+    assert as_json(cli("task", "merge", "--json"))["result"]["closed_issue"] == 1
+    assert cli("task", "clean", "--yes").exit_code == 0
+    assert cli("sync").exit_code == 0
+    assert (module.root / "child.txt").exists() and (module.root / "parent.txt").exists()

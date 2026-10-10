@@ -119,3 +119,13 @@ get('pr-tools').addEventListener('click', e => { const b = e.target.closest('[da
 get('pr-all').addEventListener('change', () => WS.refreshPrs());
 get('pr-state').addEventListener('click', e => { const a = e.target.closest('[data-pr]'); if (a) { e.preventDefault(); loadPr(Number(a.dataset.pr)); } });
 WS.ready.then(() => WS.refreshPrs());
+
+// Right-click a pull request in the list: the same actions as the buttons under the list.
+get('pr-list').addEventListener('contextmenu', async e => {
+  const b = e.target.closest('[data-select-pr]'); if (!b) return;
+  e.preventDefault();
+  const x = e.clientX, y = e.clientY, number = Number(b.dataset.selectPr);
+  if (!prStatus || prStatus.number !== number) await loadPr(number);
+  const items = [...get('pr-tools').querySelectorAll('[data-pr-action]')].map(t => [t.textContent, () => prAction(t.dataset.prAction), !t.disabled]);
+  if (items.length) ECO.menu(items, x, y);
+});

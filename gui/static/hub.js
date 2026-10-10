@@ -27,7 +27,7 @@ async function loadModules() {
     list.innerHTML = '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新しく作る・GitHubから取得する・手元のフォルダを登録するのどれかで追加してください。</li>';
     return;
   }
-  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}">
+  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="右クリックで操作、ドラッグで並び替え">
     <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span><span class="module-path">${esc(m.path)}</span>
     ${m.exists ? '' : '<span class="module-state">フォルダが見つかりません</span>'}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
     <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
@@ -107,50 +107,29 @@ addForm.addEventListener('submit', async event => {
     if (data.has('public')) args.push('--public');
     if (data.has('app') && data.get('type') === 'cpp') args.push('--app');
   }
-  showProgress(creating, name, directory + '/' + name.split('/').pop());
-  const doc = await ECO.cli(directory, args);
+  // Close the form and show the busy overlay ("ぐるぐる"). The CLI reports no progress until it ends, so the steps are
+  // what the command does (not live progress); the elapsed seconds show it is still working.
+  addDialog.close(); submit.disabled = false;
+  const overlay = ECO.busy({
+    title: `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`, sub: directory + '/' + name.split('/').pop(),
+    steps: creating ? ['GitHubにリポジトリを作る', 'ライブラリ・テスト用のProjectを用意する', '初回のコミットをPushする']
+      : ['GitHubからcloneする', '依存先をcloneする', '生成ファイルを用意する'],
+  });
+  const doc = await ECO.cli(directory, args, {quiet: true});
   if (!doc.ok) {
-    hideProgress(); submit.disabled = false;
-    ECO.showError(doc, creating ? '作成できませんでした' : '取得できませんでした');
+    // Back to the form (the values stay) with the reason.
+    overlay.end(); addDialog.showModal();
+    const e = doc.error || {};
+    error.textContent = [e.message, e.hint].filter(Boolean).join('\n');
+    if (ECO.detailText(e.details)) ECO.showError(doc, creating ? '作成できませんでした' : '取得できませんでした');
     return;
   }
   try { localStorage.setItem('ecobuild-gui-parent', parent); } catch (e) { /* storage blocked */ }
   const m = await ECO.call('modules/add', {path: doc.result.root}).catch(() => ({name, path: doc.result.root}));
-  finishProgress(creating, m.name);
-  await new Promise(resolve => setTimeout(resolve, 1200));
-  hideProgress(); submit.disabled = false; addDialog.close();
+  await overlay.done(`${m.name} を${creating ? '作成' : '取得'}しました`);
   ECO.toast(`${m.name} を${creating ? '作成' : '取得'}しました。`);
   await loadModules();
 });
-
-// Waiting view ("ぐるぐる") while ecobuild new / clone runs. The CLI reports no progress until it ends,
-// so the steps are what the command does, not live progress; the elapsed time shows it is still working.
-let progressTimer = 0, busy = false;
-function showProgress(creating, name, path) {
-  busy = true;
-  addForm.hidden = true; $('add-progress').hidden = false; $('add-progress').classList.remove('done');
-  $('progress-title').textContent = `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`;
-  $('progress-target').textContent = path;
-  const steps = creating
-    ? ['GitHubにリポジトリを作る', 'ライブラリ・テスト用のProjectを用意する', '初回のコミットをPushする']
-    : ['GitHubからcloneする', '依存先をcloneする', '生成ファイルを用意する'];
-  $('progress-steps').innerHTML = steps.map(s => `<li>${esc(s)}</li>`).join('');
-  $('progress-time').innerHTML = '<span id="progress-elapsed">0</span> 秒経過 · 数十秒〜数分かかることがあります。このままお待ちください。';
-  const started = Date.now();
-  progressTimer = setInterval(() => { $('progress-elapsed').textContent = String(Math.floor((Date.now() - started) / 1000)); }, 1000);
-}
-function finishProgress(creating, name) {
-  clearInterval(progressTimer);
-  $('add-progress').classList.add('done');
-  $('progress-title').textContent = `${name} を${creating ? '作成' : '取得'}しました`;
-  $('progress-time').textContent = `${$('progress-elapsed').textContent} 秒かかりました`;
-}
-function hideProgress() {
-  clearInterval(progressTimer); busy = false;
-  $('add-progress').hidden = true; addForm.hidden = false;
-}
-// While working, Esc must not close the dialog (the command keeps running).
-addDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 
 // Settings ----------------------------------------------------------------------------------------
 function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }
@@ -199,3 +178,37 @@ $('setup-form').addEventListener('submit', async event => {
 loadModules();
 window.addEventListener('focus', loadModules);
 ECO.info().then(info => { if (info.cli_warning) ECO.toast('注意：' + info.cli_warning, 'bad', 15000); });
+
+// Right-click a module card.
+$('module-list').addEventListener('contextmenu', event => {
+  const item = event.target.closest('li[data-index]'); if (!item) return;
+  event.preventDefault();
+  const m = modules[Number(item.dataset.index)];
+  ECO.menu([
+    ['開発環境を開く', () => openModule(m.path), m.exists],
+    ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir: m.path, path: ''}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
+    ['Visual Studio 2022 で開く', () => ECO.openInVisualStudio(m.path), m.exists],
+    '-',
+    ['一覧から外す…', async () => {
+      if (await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧から外します。フォルダやGitHubのリポジトリは消しません。`, ok: '外す'})) { await ECO.call('modules/remove', {path: m.path}); loadModules(); }
+    }],
+  ], event.clientX, event.clientY);
+});
+// Drag cards to reorder the list (kept in gui.json).
+let draggedModule = null;
+$('module-list').addEventListener('dragstart', event => { draggedModule = event.target.closest('li[data-index]'); if (draggedModule) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', draggedModule.dataset.index); draggedModule.classList.add('dragging'); } });
+$('module-list').addEventListener('dragover', event => {
+  if (!draggedModule) return;
+  const over = event.target.closest('li[data-index]'); event.preventDefault();
+  if (!over || over === draggedModule) return;
+  const r = over.getBoundingClientRect(), before = event.clientY < r.top + r.height / 2 || (event.clientY < r.bottom && event.clientX < r.left + r.width / 2);
+  $('module-list').insertBefore(draggedModule, before ? over : over.nextSibling);
+});
+$('module-list').addEventListener('drop', event => { if (draggedModule) event.preventDefault(); });
+$('module-list').addEventListener('dragend', async () => {
+  if (!draggedModule) return;
+  draggedModule.classList.remove('dragging'); draggedModule = null;
+  const paths = [...$('module-list').querySelectorAll('li[data-index]')].map(li => modules[Number(li.dataset.index)].path);
+  try { await ECO.call('modules/order', {paths}); } catch (e) { ECO.toast(e.message, 'bad'); }
+  loadModules();
+});

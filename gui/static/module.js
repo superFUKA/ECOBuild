@@ -24,6 +24,32 @@ function showModulePage(page) {
   pageHooks[page]?.();
 }
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
+// Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).
+const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
+const navItems = () => [...nav.querySelectorAll('[data-nav]')];
+function saveNavOrder() { try { localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems().map(b => b.dataset.nav))); } catch (e) { /* storage blocked */ } }
+for (const key of PAGES) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
+try {
+  const saved = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || '[]');
+  for (const key of saved) if (PAGES.includes(key)) nav.append(mEl(key + '-menu'));
+} catch (e) { /* storage blocked or broken */ }
+let draggedNav = null;
+nav.addEventListener('dragstart', e => { draggedNav = e.target.closest('[data-nav]'); if (!draggedNav) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedNav.dataset.nav); draggedNav.classList.add('dragging'); });
+nav.addEventListener('dragover', e => {
+  if (!draggedNav) return;
+  const over = e.target.closest('[data-nav]'); e.preventDefault();
+  if (!over || over === draggedNav) return;
+  const r = over.getBoundingClientRect();
+  nav.insertBefore(draggedNav, e.clientY < r.top + r.height / 2 ? over : over.nextSibling);
+});
+nav.addEventListener('drop', e => { if (draggedNav) { e.preventDefault(); saveNavOrder(); } });
+nav.addEventListener('dragend', () => { draggedNav?.classList.remove('dragging'); draggedNav = null; saveNavOrder(); });
+nav.addEventListener('keydown', e => {
+  const b = e.target.closest('[data-nav]'); if (!b || !e.altKey || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  e.preventDefault(); const items = navItems(), i = items.indexOf(b), j = i + (e.key === 'ArrowUp' ? -1 : 1);
+  if (j < 0 || j >= items.length) return;
+  nav.insertBefore(b, e.key === 'ArrowUp' ? items[j] : items[j].nextSibling); b.focus(); saveNavOrder();
+});
 mEl('nav-toggle').addEventListener('click', () => {
   const collapsed = document.querySelector('.module-shell').classList.toggle('nav-collapsed'), toggle = mEl('nav-toggle');
   toggle.setAttribute('aria-expanded', String(!collapsed)); toggle.title = collapsed ? 'メニューを広げる' : 'メニューを細くする';
@@ -88,6 +114,7 @@ function addTab(dir) {
   panel.id = id; panel.setAttribute('role', 'tabpanel'); panel.hidden = true; panel.dataset.dir = keyOf(dir);
   button.addEventListener('click', () => activate(dir));
   close.addEventListener('click', () => closeTab(dir));
+  group.draggable = true;
   group.append(button, close); tabs.append(group); panels.append(panel);
   renderTab(dir);
 }
@@ -136,6 +163,8 @@ async function loadPlaces() {
   try { extra = await ECO.call('workspaces', {module: MOD.root}); } catch (e) { ECO.toast(e.message, 'bad'); }
   MOD.places = [MOD.root, ...extra];
   MOD.places.forEach(addTab);
+  for (const group of tabs.querySelectorAll('.workspace-tab-group')) group.draggable = true;
+  restoreTabOrder();
   await Promise.all(MOD.places.map(refreshState));
 }
 async function addPlace(dir) {
@@ -147,6 +176,7 @@ async function addPlace(dir) {
 // The place where workspace task/<n> is checked out (if any).
 MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.workspace === n) || null;
 MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.workspace);
+MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
 MOD.keyOf = keyOf; MOD.activate = activate; MOD.reloadPlace = reloadPlace; MOD.addPlace = addPlace; MOD.refreshState = refreshState;
 MOD.openWorkspace = async n => {
   // Show the tab where task/<n> is checked out; otherwise switch the module's clone to it (task start).
@@ -159,6 +189,39 @@ MOD.openWorkspace = async n => {
   showModulePage('workspace'); activate(place, true); return true;
 };
 
+const TAB_ORDER_KEY = 'ecobuild-gui-tab-order:' + keyOf(MOD.root);
+function saveTabOrder() { try { localStorage.setItem(TAB_ORDER_KEY, JSON.stringify([...tabs.querySelectorAll('.workspace-tab-group')].map(g => g.dataset.group))); } catch (e) { /* storage blocked */ } }
+function restoreTabOrder() {
+  try { for (const key of JSON.parse(localStorage.getItem(TAB_ORDER_KEY) || '[]')) { const g = tabs.querySelector(`[data-group="${CSS.escape(key)}"]`); if (g) tabs.append(g); } } catch (e) { /* storage blocked */ }
+  MOD.places.sort((a, b) => [...tabs.children].findIndex(g => g.dataset.group === keyOf(a)) - [...tabs.children].findIndex(g => g.dataset.group === keyOf(b)));
+}
+let draggedTab = null;
+tabs.addEventListener('dragstart', e => { draggedTab = e.target.closest('.workspace-tab-group'); if (draggedTab) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedTab.dataset.group); draggedTab.classList.add('dragging'); } });
+tabs.addEventListener('dragover', e => {
+  if (!draggedTab) return;
+  const over = e.target.closest('.workspace-tab-group'); e.preventDefault();
+  if (!over || over === draggedTab) return;
+  const r = over.getBoundingClientRect();
+  tabs.insertBefore(draggedTab, e.clientX < r.left + r.width / 2 ? over : over.nextSibling);
+});
+tabs.addEventListener('drop', e => { if (draggedTab) e.preventDefault(); });
+tabs.addEventListener('dragend', () => { draggedTab?.classList.remove('dragging'); draggedTab = null; saveTabOrder(); restoreTabOrder(); });
+tabs.addEventListener('contextmenu', e => {
+  const group = e.target.closest('.workspace-tab-group'); if (!group) return;
+  e.preventDefault();
+  const dir = MOD.places.find(p => keyOf(p) === group.dataset.group), state = MOD.states.get(group.dataset.group) || {};
+  const others = MOD.places.filter(p => keyOf(p) !== group.dataset.group && tabVisible(p));
+  ECO.menu([
+    ['このタブを表示', () => activate(dir, true)],
+    ['タブを閉じる（表示だけ）', () => closeTab(dir)],
+    ['ほかのタブを閉じる', () => others.forEach(closeTab), others.length > 0],
+    '-',
+    ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir, path: ''}).catch(err => ECO.toast(err.message, 'bad'))],
+    ['Visual Studio 2022 で開く', () => MOD.openInVisualStudio(dir)],
+    ['状態を読み直す', () => reloadPlace(dir)],
+    ...(state.workspace ? ['-', [`タスク #${state.workspace} を見る`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.workspace); }]] : []),
+  ], e.clientX, e.clientY);
+});
 tabs.addEventListener('keydown', event => {
   const tab = event.target.closest('[role=tab]'); if (!tab) return;
   if (event.key === 'Delete') { event.preventDefault(); closeTab(MOD.places.find(p => keyOf(p) === tab.dataset.dir)); return; }

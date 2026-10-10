@@ -147,5 +147,11 @@
       render(!doc);
     }
   });
+  el('modinfo-content').addEventListener('contextmenu', e => {
+    const row = e.target.closest('.mi-table tbody tr, .mi-branch'); if (!row) return;
+    const buttons = [...row.querySelectorAll('[data-mi], [data-open-ws]')]; if (!buttons.length) return;
+    e.preventDefault();
+    ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), e.clientX, e.clientY);
+  });
   pageHooks.modinfo = () => render();
 })();

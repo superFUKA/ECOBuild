@@ -60,15 +60,23 @@ const ECO = (() => {
 
   // Runs a command; on "confirmation_required" asks with the CLI's own message and runs again with --yes.
   // Shows errors in a dialog and notices as notifications. Returns the document when it succeeded, otherwise null.
-  async function run(dir, args, {success, stdin, confirm: confirmText, title} = {}) {
+  // In a form (see form()), a failure is not shown here: the form opens again with the error.
+  // Elsewhere the "busy" overlay shows while the command runs (after a moment, so quick commands do not flicker).
+  let formDepth = 0, lastError = null;
+  async function run(dir, args, {success, stdin, confirm: confirmText, title, busy: busyText} = {}) {
     if (confirmText && !await confirm({title: title || '確認', message: confirmText, ok: '実行する'})) return null;
+    const inForm = formDepth > 0;
+    let overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
     let doc = await cli(dir, args, {stdin});
     if (!doc.ok && doc.error?.code === 'confirmation_required') {
+      overlay?.end();
       const ok = await confirm({title: title || '確認', message: doc.error.message.replace(/^確認が必要です：/, ''), detail: detailText(doc.error.details), ok: '実行する', danger: true});
       if (!ok) return null;
+      overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
       doc = await cli(dir, [...args, '--yes'], {stdin});
     }
-    if (!doc.ok) { await showError(doc); return null; }
+    overlay?.end();
+    if (!doc.ok) { if (inForm) lastError = doc; else await showError(doc); return null; }
     if (success) toast(typeof success === 'function' ? success(doc.result) : success);
     for (const notice of doc.notices || []) toast('お知らせ：' + notice, 'info', 9000);
     return doc;
@@ -103,7 +111,9 @@ const ECO = (() => {
 
   // Form dialog. fields: {name, label, type, value, options: [[value, label, note]], placeholder, required, help, min}.
   // submit(values) may return an error string to keep the dialog open. Resolves with the values (or null when cancelled).
-  function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = ''}) {
+  // With submit: pressing the button closes the form and shows the busy overlay; when submit fails, the form opens again
+  // with the error (the values entered stay).
+  function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = '', busy: busyText}) {
     return new Promise(resolve => {
       const d = document.createElement('dialog'); d.className = 'eco-dialog' + (wide ? ' wide' : '');
       const html = fields.map(f => {
@@ -111,6 +121,7 @@ const ECO = (() => {
         const help = f.help ? `<span class="eco-help">${esc(f.help)}</span>` : '';
         if (f.type === 'html') return f.html;
         if (f.type === 'checkbox') return `<label class="eco-check"><input type="checkbox" ${attrs} ${f.value ? 'checked' : ''}> ${esc(f.label)}</label>${help}`;
+        if (f.type === 'checks') return `<fieldset class="eco-checks"><legend>${esc(f.label)}</legend><div>${f.options.length ? f.options.map(([v, l]) => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}" ${(f.value || []).includes(v) ? 'checked' : ''}><span>${esc(l ?? v)}</span></label>`).join('') : `<span class="eco-help">${esc(f.empty || '選べるものがありません')}</span>`}</div></fieldset>${help}`;
         if (f.type === 'radio') return `<fieldset><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) ? 'checked' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
         if (f.type === 'select') return `<label class="eco-field">${esc(f.label)}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
         if (f.type === 'textarea') return `<label class="eco-field">${esc(f.label)}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
@@ -118,7 +129,7 @@ const ECO = (() => {
       }).join('');
       d.innerHTML = `<form><h2>${esc(title)}</h2>${intro ? `<p class="eco-intro">${intro}</p>` : ''}${html}${extra}<p class="eco-error" role="alert"></p><div class="eco-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></form>`;
       const formEl = d.querySelector('form'), error = d.querySelector('.eco-error'), okButton = d.querySelector('[type=submit]');
-      let result = null;
+      let result = null, working = false;
       d.querySelector('[data-cancel]').addEventListener('click', () => d.close());
       formEl.addEventListener('submit', async event => {
         event.preventDefault();
@@ -126,24 +137,93 @@ const ECO = (() => {
         for (const f of fields) {
           if (f.type === 'html') continue;
           if (f.type === 'checkbox') values[f.name] = formEl.elements[f.name].checked;
+          else if (f.type === 'checks') values[f.name] = [...formEl.querySelectorAll(`[name="${f.name}"]:checked`)].map(x => x.value);
           else if (f.type === 'radio') values[f.name] = formEl.querySelector(`[name="${f.name}"]:checked`)?.value ?? '';
           else values[f.name] = formEl.elements[f.name].value.trim();
         }
         error.textContent = '';
         if (submit) {
-          okButton.disabled = true;
-          try {
-            const message = await submit(values, d);
-            if (message) { error.textContent = message; return; }
-          } finally { okButton.disabled = false; }
+          working = true; d.close();
+          const overlay = busy({title: busyText || title + '…'});
+          formDepth++; lastError = null;
+          let message;
+          try { message = await submit(values, d); } catch (e) { message = e.message; } finally { formDepth--; overlay.end(); working = false; }
+          if (message) {
+            const e = lastError?.error;
+            error.textContent = e ? [e.message, e.hint, detailText(e.details)].filter(Boolean).join('\n') : message;
+            lastError = null; d.showModal(); return;
+          }
         }
         result = values; d.close();
       });
-      d.addEventListener('close', () => { d.remove(); resolve(result); });
+      d.addEventListener('close', () => { if (working) return; d.remove(); resolve(result); });
       document.body.append(d); d.showModal();
       formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select')?.focus();
       d.formEl = formEl;
     });
+  }
+
+  // Busy overlay ("ぐるぐる"): a spinning ring, what is being done, and the elapsed seconds.
+  // Returns {end(), done(text)}; done() shows a check mark and the time it took before closing.
+  function busy({title = '実行しています…', sub = '', steps = [], delay = 0} = {}) {
+    const el = document.createElement('div'); el.className = 'eco-busy'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
+    el.innerHTML = `<div class="eco-busy-card"><div class="eco-ring" aria-hidden="true"><span class="ring"></span><span class="ring-check">✓</span></div>
+      <h2>${esc(title)}</h2>${sub ? `<p class="eco-busy-sub">${esc(sub)}</p>` : ''}${steps.length ? `<ol class="eco-busy-steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+      <p class="eco-busy-time"><span>0</span> 秒経過</p></div>`;
+    const started = Date.now(), seconds = () => Math.floor((Date.now() - started) / 1000);
+    const timer = setInterval(() => { el.querySelector('.eco-busy-time span').textContent = seconds(); }, 1000);
+    const show = setTimeout(() => document.body.append(el), delay);
+    const end = () => { clearTimeout(show); clearInterval(timer); el.remove(); };
+    const done = text => new Promise(resolve => {
+      clearInterval(timer); clearTimeout(show); document.body.append(el); el.classList.add('done');
+      el.querySelector('h2').textContent = text; el.querySelector('.eco-busy-time').textContent = `${seconds()} 秒かかりました`;
+      setTimeout(() => { el.remove(); resolve(); }, 1100);
+    });
+    return {end, done};
+  }
+
+  // Context menu: items are [label, action, enabled = true] or '-' for a separator.
+  let openMenu = null;
+  function menu(items, x, y) {
+    openMenu?.remove();
+    const el = document.createElement('div'); el.className = 'eco-menu'; el.setAttribute('role', 'menu');
+    for (const item of items) {
+      if (item === '-') { el.append(document.createElement('hr')); continue; }
+      const [text, action, enabled = true] = item;
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled;
+      b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
+      el.append(b);
+    }
+    document.body.append(el); openMenu = el;
+    el.style.left = Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)) + 'px';
+    el.style.top = Math.max(8, Math.min(y, innerHeight - el.offsetHeight - 8)) + 'px';
+    el.querySelector('button:not(:disabled)')?.focus();
+  }
+  document.addEventListener('pointerdown', e => { if (openMenu && !openMenu.contains(e.target)) { openMenu.remove(); openMenu = null; } });
+  document.addEventListener('keydown', e => {
+    if (!openMenu) return;
+    if (e.key === 'Escape') { openMenu.remove(); openMenu = null; return; }
+    if (['ArrowDown', 'ArrowUp'].includes(e.key)) {
+      e.preventDefault(); const items = [...openMenu.querySelectorAll('button:not(:disabled)')], i = items.indexOf(document.activeElement);
+      items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+    }
+  });
+  window.addEventListener('blur', () => { openMenu?.remove(); openMenu = null; });
+
+  // Open the place's solution in Visual Studio 2022 (the GUI does this; ecobuild has no such command).
+  // The solution is made by a build (cpp), so when there is none yet, offer to build first.
+  async function openInVisualStudio(dir, {build} = {}) {
+    let opened;
+    try { opened = await call('open-vs', {dir}); } catch (e) { toast(e.message, 'bad'); return false; }
+    if (!opened.solution) {
+      if (!await confirm({title: 'Visual Studio 2022 で開く', message: 'ソリューション（.sln）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
+      const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});
+      if (!doc) return false;
+      try { opened = await call('open-vs', {dir}); } catch (e) { toast(e.message, 'bad'); return false; }
+      if (!opened.solution) { toast('ビルドしましたが、ソリューションが見つかりませんでした（この型はソリューションを作らない可能性があります）。', 'bad', 8000); return false; }
+    }
+    toast('Visual Studio 2022 で開きます：' + opened.solution.split('/').pop());
+    return true;
   }
 
   // Splits text into command arguments for comma lists.
@@ -154,5 +234,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params};
+  return {call, cli, run, showError, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio};
 })();

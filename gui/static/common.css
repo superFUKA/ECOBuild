@@ -43,3 +43,27 @@
 .eco-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: #3d3324; color: #efc389; border: 1px solid #5c4b30; font-size: 13px; line-height: 1.6; }
 .eco-banner.bad { background: #43282b; color: #ffb4b4; border-color: #6a3a3f; }
 .eco-banner button { margin-left: 8px; }
+.eco-dialog fieldset.eco-checks > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.eco-dialog fieldset.eco-checks label { padding: 5px 10px; border-radius: 16px; align-items: center; gap: 6px; }
+
+/* Busy overlay ("ぐるぐる"). */
+.eco-busy { position: fixed; inset: 0; z-index: 2000; display: grid; place-items: center; background: #0b0d10c0; font: 14px "Segoe UI", "Yu Gothic UI", sans-serif; color: #edf1f5; }
+.eco-busy-card { width: min(520px, calc(100% - 32px)); display: grid; justify-items: center; text-align: center; padding: 36px 28px 26px; background: #1c2128; border: 1px solid #46515e; border-radius: 14px; box-shadow: 0 24px 80px #0008; }
+.eco-busy h2 { margin: 22px 0 6px; font-size: 19px; font-weight: 600; }
+.eco-busy-sub { margin: 0; color: #a5aeba; font: 12px Consolas, "Yu Gothic UI", monospace; overflow-wrap: anywhere; }
+.eco-busy-steps { list-style: none; padding: 0; margin: 18px 0 4px; display: grid; gap: 6px; text-align: left; font-size: 13px; color: #a5aeba; }
+.eco-busy-steps li::before { content: "・"; color: #9ee4d3; }
+.eco-busy.done .eco-busy-steps li::before { content: "✓ "; }
+.eco-busy-time { margin: 14px 0 0; color: #84909e; font-size: 12px; }
+.eco-ring { position: relative; width: 64px; height: 64px; }
+.eco-ring .ring { position: absolute; inset: 0; border-radius: 50%; border: 5px solid #2b333c; border-top-color: #9ee4d3; border-right-color: #9ee4d3; animation: eco-spin 1s linear infinite; }
+.eco-ring .ring-check { position: absolute; inset: 0; display: grid; place-items: center; font-size: 28px; color: #17332c; opacity: 0; transform: scale(.5); transition: opacity .2s, transform .2s; }
+.eco-busy.done .ring { animation: none; border-color: #9ee4d3; background: #9ee4d3; }
+.eco-busy.done .ring-check { opacity: 1; transform: scale(1); }
+@media (prefers-reduced-motion: reduce) { .eco-ring .ring { animation-duration: 3s; } }
+/* Context menu. */
+.eco-menu { position: fixed; z-index: 1500; min-width: 210px; max-width: 320px; max-height: calc(100vh - 16px); overflow: auto; display: grid; gap: 1px; padding: 6px; border: 1px solid #46515e; border-radius: 8px; background: #252b33; box-shadow: 0 12px 32px #0008; font: 13px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.eco-menu button { border: 0; border-radius: 5px; background: transparent; color: #edf1f5; text-align: left; padding: 7px 10px; font: inherit; cursor: pointer; }
+.eco-menu button:hover:not(:disabled), .eco-menu button:focus-visible { background: #36483f; outline: none; }
+.eco-menu button:disabled { opacity: .4; cursor: default; }
+.eco-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }

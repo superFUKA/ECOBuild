@@ -29,3 +29,6 @@
 .build-bar button:disabled { opacity: .5; }
 #operation-status:empty { display: none; }
 #pr-detail { white-space: normal; }
+.explorer-note { margin: 0 4px 6px; color: #84909e; font-size: 11px; line-height: 1.5; }
+.build-bar .vs-button { border-color: #6c5a9c; color: #d6c9f7; }
+.build-bar .vs-button:hover:not(:disabled) { border-color: #b39ddb; }

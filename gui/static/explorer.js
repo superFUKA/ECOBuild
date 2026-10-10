@@ -5,10 +5,23 @@ const folded = new Set(), opened = new Set();
 let activeDirectory = '';
 const tree = get('file-tree'), menu = get('file-menu');
 
+// File operations (ecobuild file add / move / remove) work inside the Projects' folders only, so when the module type
+// has Projects (project list), the explorer shows only those folders, without tool folders (.cppbuild 等) inside.
+// Types without Projects (generic) show the whole place.
+let projectRoots = null;
 WS.reloadFiles = async () => {
-  try { WS.files = await ECO.call('files', {dir: WS.dir}); } catch (e) { tree.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
+  try {
+    const [files, projects] = await Promise.all([ECO.call('files', {dir: WS.dir}), projectRoots ? null : WS.cli(['project', 'list'], {quiet: true})]);
+    WS.files = files;
+    if (projects) projectRoots = projects.ok ? projects.result.map(p => p.directory.replace(/\/+$/, '')).filter(Boolean) : [];
+  } catch (e) { tree.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   renderTree(); WS.renderChanges();
 };
+const restricted = () => !!(projectRoots && projectRoots.length);
+const shown = path => !restricted() || projectRoots.some(root => {
+  if (path !== root && !path.startsWith(root + '/')) return false;
+  return !path.slice(root.length).split('/').some(part => part.startsWith('.'));
+});
 const editable = () => !!(WS.status && WS.status.workspace && !WS.status.reviewing);
 
 function fileClass(path) {
@@ -24,9 +37,9 @@ function renderTree() {
   if (!WS.files) return;
   const rootNode = {dirs: new Map(), files: []};
   const nodeFor = dir => { let node = rootNode; if (!dir) return node; for (const part of dir.split('/')) { if (!node.dirs.has(part)) node.dirs.set(part, {dirs: new Map(), files: []}); node = node.dirs.get(part); } return node; };
-  for (const d of WS.files.dirs) nodeFor(d);
+  for (const d of WS.files.dirs) if (shown(d)) nodeFor(d);
   const changed = new Set(WS.changes().keys());
-  for (const f of new Set([...WS.files.files, ...[...changed].filter(p => !p.endsWith('/'))])) { const i = f.lastIndexOf('/'); nodeFor(i < 0 ? '' : f.slice(0, i)).files.push(f); }
+  for (const f of new Set([...WS.files.files, ...[...changed].filter(p => !p.endsWith('/'))])) { if (!shown(f)) continue; const i = f.lastIndexOf('/'); nodeFor(i < 0 ? '' : f.slice(0, i)).files.push(f); }
   const changedDirs = new Set([...changed].flatMap(p => p.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/'))));
   const walk = (node, parent, prefix) => {
     for (const [name, child] of [...node.dirs].sort(([a], [b]) => a.localeCompare(b))) {
@@ -51,7 +64,9 @@ function renderTree() {
     }
   };
   tree.replaceChildren(); walk(rootNode, tree, '');
-  if (!WS.files.files.length && !WS.files.dirs.length) tree.innerHTML = '<p class="muted">ファイルはありません。</p>';
+  if (!tree.childElementCount) tree.innerHTML = '<p class="muted">ファイルはありません。</p>';
+  if (restricted()) tree.insertAdjacentHTML('afterbegin', '<p class="explorer-note">Projectのフォルダを表示しています（ファイルの追加・削除はProjectの中で行います）。</p>');
+  if (restricted() && (!activeDirectory || !shown(activeDirectory))) activeDirectory = projectRoots[0];
   get('new-file').disabled = get('new-folder').disabled = !editable();
 }
 WS.onRefresh(renderTree);
@@ -98,7 +113,7 @@ tree.addEventListener('contextmenu', e => {
   const row = e.target.closest('[data-path]'), folder = e.target.closest('summary[data-directory]');
   if (row) { e.preventDefault(); delete menu.dataset.dir; fileMenu(row.dataset.path, e.clientX, e.clientY); }
   else if (folder) { e.preventDefault(); folderMenu(folder.dataset.directory, e.clientX, e.clientY); }
-  else { e.preventDefault(); folderMenu('', e.clientX, e.clientY); }
+  else { e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY); }
 });
 get('changes').addEventListener('contextmenu', e => {
   const row = e.target.closest('.change'); if (!row) return;

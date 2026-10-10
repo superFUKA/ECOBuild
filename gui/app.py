@@ -87,6 +87,14 @@ class Store:
                 self._save(data)
         return {"path": root.as_posix(), "name": root.name}
 
+    def order_modules(self, paths: list[str]) -> None:
+        """一覧の並び（ハブでドラッグして並べ替えたもの）。知らない場所は無視し、指定のないものは後ろに残す。"""
+        with self._lock:
+            data = self._load()
+            rank = {_key(p): i for i, p in enumerate(paths)}
+            data["modules"].sort(key=lambda item: rank.get(_key(item["path"]), len(rank)))
+            self._save(data)
+
     def remove_module(self, path: str) -> None:
         with self._lock:
             data = self._load()
@@ -286,6 +294,54 @@ def make_directory(directory: str, relative: str) -> dict:
     return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
 
 
+def module_defaults(directory: str) -> dict:
+    """画面に既定値を入れておくための、モジュールの設定の一部（ecobuild.toml）。ecobuild にこれを返すコマンドがないため、
+    GUIが読む。読めなければ空（画面は既定値を入れないだけ）。"""
+    import tomllib
+    try:
+        data = tomllib.loads((_module_root(Path(directory)) / "ecobuild.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError, GuiError):
+        return {}
+    branches = data.get("branches") if isinstance(data.get("branches"), dict) else {}
+    base = branches.get("default_base")
+    return {"default_base": base} if isinstance(base, str) and base else {}
+
+
+def find_solution(directory: str) -> Path | None:
+    """ビルドで作られた Visual Studio のソリューション（build/ の下。なければ場所の直下）。新しいものを選ぶ。"""
+    root = Path(directory).resolve()
+    found = [p for pattern in ("build/*.sln", "build/*/*.sln", "build/*/*/*.sln", "*.sln") for p in root.glob(pattern)]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
+def _visual_studio_2022() -> str | None:
+    """Visual Studio 2022 の devenv.exe（vswhere で探す）。"""
+    base = os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"
+    vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return None
+    completed = subprocess.run([str(vswhere), "-version", "[17.0,18.0)", "-latest", "-property", "productPath"],
+                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+    path = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
+    return path if path and Path(path).is_file() else None
+
+
+def open_in_visual_studio(directory: str) -> dict:
+    """ソリューションを Visual Studio 2022 で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
+    ecobuild にこれを行うコマンドはないため、GUIが行う。"""
+    solution = find_solution(directory)
+    if solution is None:
+        return {"solution": None}
+    devenv = _visual_studio_2022()
+    if devenv:
+        subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
+    elif os.name == "nt":
+        os.startfile(str(solution))  # noqa: S606（.sln に関連付けられたアプリ）
+    else:
+        raise GuiError("Visual Studio 2022 が見つかりません。")
+    return {"solution": solution.as_posix(), "devenv": devenv or ""}
+
+
 def make_file(directory: str, relative: str) -> dict:
     """空のファイルを作る（型が ecobuild file add に対応しないとき：generic 等）。"""
     target = _inside(directory, relative)
@@ -380,6 +436,9 @@ class App:
             return self.store.modules()
         if name == "modules/add":
             return self.store.add_module(d("path"))
+        if name == "modules/order":
+            self.store.order_modules(list(d("paths") or []))
+            return {}
         if name == "modules/remove":
             self.store.remove_module(d("path"))
             return {}
@@ -393,6 +452,10 @@ class App:
             return list_files(d("dir"))
         if name == "mkdir":
             return make_directory(d("dir"), d("path"))
+        if name == "module-defaults":
+            return module_defaults(d("dir"))
+        if name == "open-vs":
+            return open_in_visual_studio(d("dir"))
         if name == "touch":
             return make_file(d("dir"), d("path"))
         if name == "mkparent":

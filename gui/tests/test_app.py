@@ -145,3 +145,20 @@ def test_server_does_not_share_a_port_in_use():
             gui.Server(("127.0.0.1", first.server_address[1]), None)
     finally:
         first.server_close()
+
+
+def test_module_list_order_defaults_and_solution(tmp_path):
+    store = gui.Store(tmp_path / "gui.json")
+    a, b = _module(tmp_path / "A"), _module(tmp_path / "B")
+    store.add_module(str(a)); store.add_module(str(b))
+    store.order_modules([str(b), str(a)])
+    assert [m["name"] for m in store.modules()] == ["B", "A"]
+
+    write(a / "ecobuild.toml", '[branches]\ndefault_base = "develop"\n')
+    assert gui.module_defaults(str(a)) == {"default_base": "develop"}
+    assert gui.module_defaults(str(tmp_path)) == {}            # モジュールでなければ空
+
+    assert gui.find_solution(str(a)) is None
+    write(a / "build" / "1234" / "A.sln", "")
+    assert gui.find_solution(str(a)).name == "A.sln"
+    assert gui.open_in_visual_studio(str(b)) == {"solution": None}

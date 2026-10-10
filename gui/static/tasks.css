@@ -209,3 +209,13 @@
 .tk-pf .tk-row:last-child { border-bottom: 0; } .tk-pf .tk-row:hover { background: #232a32; }
 .tk-pf .tk-row .tk-grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media(max-width: 700px) { .tk-pf-grid { grid-template-columns: 1fr; } .tk-pf-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Drag and drop. */
+.tk-kcard[draggable=true] { cursor: grab; }
+.tk-kcard.dragging { opacity: .4; }
+.tk-column.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.tl-bar { position: relative; }
+.tl-bar.movable { cursor: grab; touch-action: none; user-select: none; }
+.tl-bar.dragging { cursor: grabbing; opacity: .8; z-index: 3; }
+.tl-bar .tl-grip { display: none; }
+.tl-bar.movable .tl-grip { display: block; position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: ew-resize; }

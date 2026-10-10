@@ -105,18 +105,5 @@
 .diagnostics .item-name { font-weight: 600; }
 .settings-card pre { white-space: pre-wrap; font: 12px Consolas, monospace; color: #cdd5df; background: #14171b; padding: 10px; border-radius: 6px; }
 @media (max-width: 500px) { .method-options.three { grid-template-columns: 1fr; } }
-/* Waiting view while a module is being created / cloned. */
-.add-progress { display: grid; justify-items: center; text-align: center; padding: 28px 8px 8px; }
-.add-progress h2 { margin: 26px 0 6px; font-size: 21px; font-weight: 600; }
-.add-progress .note { font-family: Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
-.progress-ring { position: relative; width: 76px; height: 76px; }
-.progress-ring .ring { position: absolute; inset: 0; border-radius: 50%; border: 6px solid #2b333c; border-top-color: #9ee4d3; border-right-color: #9ee4d3; animation: ring-spin 1s linear infinite; }
-.progress-ring .ring-check { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; color: #17332c; opacity: 0; transform: scale(.5); transition: opacity .2s, transform .2s; }
-.add-progress.done .ring { animation: none; border-color: #9ee4d3; background: #9ee4d3; }
-.add-progress.done .ring-check { opacity: 1; transform: scale(1); }
-.progress-steps { list-style: none; padding: 0; margin: 22px 0 8px; display: grid; gap: 8px; text-align: left; font-size: 13px; color: #a5aeba; }
-.progress-steps li::before { content: "・"; color: #9ee4d3; }
-.add-progress.done .progress-steps li::before { content: "✓ "; }
-.progress-time { margin: 14px 0 0; color: #84909e; font-size: 12px; }
-@keyframes ring-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .progress-ring .ring { animation-duration: 3s; } }
+.module-list li[draggable=true] { cursor: grab; }
+.module-list li.dragging { opacity: .4; }

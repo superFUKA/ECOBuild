@@ -16,7 +16,7 @@ C:\ECO\ECOBuild\.venv\Scripts\python C:\ECO\ECOBuild\gui\app.py
 
 ## GUIが自分で行うこと
 
-`ecobuild` にない手元の処理だけ：モジュールの一覧と専用のcloneの登録（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ログイン中のアカウント名（`gh api user`）。
+`ecobuild` にない手元の処理だけ：モジュールの一覧と専用のcloneの登録（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ログイン中のアカウント名（`gh api user`）、既定値のための `ecobuild.toml` の `default_base` の読み取り、ビルドで作られたソリューション（`build/**/*.sln`）を Visual Studio 2022 で開く。
 
 ## 構成
 

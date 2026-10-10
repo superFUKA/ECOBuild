@@ -54,3 +54,6 @@ header .header-actions button:hover { border-color: #9ee4d3; }
 .empty-workspaces button { margin-top: 8px; padding: 8px 16px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; font: inherit; cursor: pointer; }
 .empty-workspaces button:hover { border-color: #9ee4d3; }
 .workspace-picker button:disabled { opacity: .55; cursor: default; }
+.module-nav [data-nav] { cursor: grab; }
+.module-nav [data-nav].dragging, .workspace-tab-group.dragging { opacity: .45; }
+.workspace-tab-group { cursor: grab; }

@@ -59,6 +59,7 @@ WS.onRefresh(renderPrDetail);
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
   });
+  get('open-vs').addEventListener('click', () => ECO.openInVisualStudio(WS.dir, {build: async () => { await runAction('build'); return get('build-output-state').classList.contains('ok') ? {} : null; }}));
   WS.ready.then(loadOptions);
   WS.reloadBuildOptions = loadOptions;
 })();

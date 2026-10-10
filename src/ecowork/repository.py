@@ -1435,6 +1435,9 @@ class Repository:
             remote = f"{_git.REMOTE}/{branch}"
             if self.git.has_remote_branch(branch) and self.git.is_ancestor(branch, remote):
                 self.git.merge(remote, ff_only=True)
+            # 子タスクの作業で作られた親の作業空間など、担当者を決めずにできた作業空間もあるので、ここでも担当者にする
+            if not task.assignees:
+                self.github.edit_issue(self.root, task.number, add_assignees=("@me",))
         else:
             # 手元にない作業空間：GitHubにあればそこから再開し、作成元も記録したものにする。
             self.git.fetch()

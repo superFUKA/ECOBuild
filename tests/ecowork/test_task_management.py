@@ -48,6 +48,17 @@ def test_start_claims_unassigned_task_only(repository):
     assert workspace.number == mine.number
 
 
+def test_returning_to_workspace_claims_unassigned_task(repository):
+    github = repository.github
+    task = repository.create_task("戻る作業")
+    repository.git.run("switch", "--quiet", "main")
+    task.start()
+    repository.edit_task(task.number, remove_assignees=("@me",))
+    repository.git.run("switch", "--quiet", "main")
+    repository.task(task.number).start()                             # 手元にある作業空間へ戻る
+    assert github.issues[task.number].assignees == (github.owner,)
+
+
 def test_comments_are_kept_on_the_issue(repository):
     task = repository.create_task("申し送り")
     task.start()

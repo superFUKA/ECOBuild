@@ -98,24 +98,59 @@ addForm.addEventListener('submit', async event => {
   const parent = data.get('directory').trim().replace(/[\\/]+$/, '');
   if (!parent) { error.textContent = '保存先の親フォルダを入力してください。'; return; }
   submit.disabled = true;
-  try {
-    let directory;
-    try { directory = (await ECO.call('mkparent', {path: parent})).path; } catch (e) { error.textContent = e.message; return; }
-    const args = method === 'new' ? ['new', data.get('name').trim(), '--type', data.get('type')] : ['clone', data.get('repository').trim()];
-    if (method === 'new') {
-      for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
-      if (data.has('public')) args.push('--public');
-      if (data.has('app') && data.get('type') === 'cpp') args.push('--app');
-    }
-    error.textContent = method === 'new' ? 'GitHubにリポジトリを作り、初回のPushまで行っています…' : 'cloneして、依存先と生成ファイルを用意しています…';
-    const doc = await ECO.cli(directory, args);
-    error.textContent = '';
-    if (!doc.ok) { ECO.showError(doc, method === 'new' ? '作成できませんでした' : '取得できませんでした'); return; }
-    try { localStorage.setItem('ecobuild-gui-parent', parent); } catch (e) { /* storage blocked */ }
-    const m = await ECO.call('modules/add', {path: doc.result.root});
-    addDialog.close(); ECO.toast(`${m.name} を${method === 'new' ? '作成' : '取得'}しました。`); loadModules();
-  } finally { submit.disabled = false; }
+  let directory;
+  try { directory = (await ECO.call('mkparent', {path: parent})).path; } catch (e) { error.textContent = e.message; submit.disabled = false; return; }
+  const creating = method === 'new', name = creating ? data.get('name').trim() : data.get('repository').trim();
+  const args = creating ? ['new', name, '--type', data.get('type')] : ['clone', name];
+  if (creating) {
+    for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
+    if (data.has('public')) args.push('--public');
+    if (data.has('app') && data.get('type') === 'cpp') args.push('--app');
+  }
+  showProgress(creating, name, directory + '/' + name.split('/').pop());
+  const doc = await ECO.cli(directory, args);
+  if (!doc.ok) {
+    hideProgress(); submit.disabled = false;
+    ECO.showError(doc, creating ? '作成できませんでした' : '取得できませんでした');
+    return;
+  }
+  try { localStorage.setItem('ecobuild-gui-parent', parent); } catch (e) { /* storage blocked */ }
+  const m = await ECO.call('modules/add', {path: doc.result.root}).catch(() => ({name, path: doc.result.root}));
+  finishProgress(creating, m.name);
+  await new Promise(resolve => setTimeout(resolve, 1200));
+  hideProgress(); submit.disabled = false; addDialog.close();
+  ECO.toast(`${m.name} を${creating ? '作成' : '取得'}しました。`);
+  await loadModules();
 });
+
+// Waiting view ("ぐるぐる") while ecobuild new / clone runs. The CLI reports no progress until it ends,
+// so the steps are what the command does, not live progress; the elapsed time shows it is still working.
+let progressTimer = 0, busy = false;
+function showProgress(creating, name, path) {
+  busy = true;
+  addForm.hidden = true; $('add-progress').hidden = false; $('add-progress').classList.remove('done');
+  $('progress-title').textContent = `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`;
+  $('progress-target').textContent = path;
+  const steps = creating
+    ? ['GitHubにリポジトリを作る', 'ライブラリ・テスト用のProjectを用意する', '初回のコミットをPushする']
+    : ['GitHubからcloneする', '依存先をcloneする', '生成ファイルを用意する'];
+  $('progress-steps').innerHTML = steps.map(s => `<li>${esc(s)}</li>`).join('');
+  $('progress-time').innerHTML = '<span id="progress-elapsed">0</span> 秒経過 · 数十秒〜数分かかることがあります。このままお待ちください。';
+  const started = Date.now();
+  progressTimer = setInterval(() => { $('progress-elapsed').textContent = String(Math.floor((Date.now() - started) / 1000)); }, 1000);
+}
+function finishProgress(creating, name) {
+  clearInterval(progressTimer);
+  $('add-progress').classList.add('done');
+  $('progress-title').textContent = `${name} を${creating ? '作成' : '取得'}しました`;
+  $('progress-time').textContent = `${$('progress-elapsed').textContent} 秒かかりました`;
+}
+function hideProgress() {
+  clearInterval(progressTimer); busy = false;
+  $('add-progress').hidden = true; addForm.hidden = false;
+}
+// While working, Esc must not close the dialog (the command keeps running).
+addDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 
 // Settings ----------------------------------------------------------------------------------------
 function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }

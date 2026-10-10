@@ -19,6 +19,7 @@ import mimetypes
 import os
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -459,6 +460,17 @@ def make_handler(app: App):
     return Handler
 
 
+class Server(ThreadingHTTPServer):
+    """使われているポートでは待ち受けない（Windows は再利用の設定だと同じポートを二重に取れてしまう）。"""
+    allow_reuse_address = False
+    daemon_threads = True
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def _edge() -> str | None:
     for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
         if base:
@@ -489,9 +501,9 @@ def main(argv: list[str] | None = None) -> None:
     store = Store(gui_home() / "gui.json")
     token = secrets.token_urlsafe(24)
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), None)
+        server = Server(("127.0.0.1", args.port), None)
     except OSError:
-        server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+        server = Server(("127.0.0.1", 0), None)
     port = server.server_address[1]
     app = App(cli, store, token, port)
     server.RequestHandlerClass = make_handler(app)

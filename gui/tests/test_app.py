@@ -136,3 +136,12 @@ def test_warns_about_batch_wrappers():
         pytest.skip("Windows だけ")
     assert gui.cli_warning(["C:/tools/ecobuild.cmd"]) and gui.cli_warning(["C:/tools/ecobuild.BAT"])
     assert gui.cli_warning(["C:/tools/ecobuild.exe"]) == ""
+
+
+def test_server_does_not_share_a_port_in_use():
+    first = gui.Server(("127.0.0.1", 0), None)
+    try:
+        with pytest.raises(OSError):
+            gui.Server(("127.0.0.1", first.server_address[1]), None)
+    finally:
+        first.server_close()

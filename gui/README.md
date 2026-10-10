@@ -18,15 +18,24 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 - `--foreground`：裏で動かさず、その端末でサーバーを動かす（Ctrl+C で終了。開発用）。`--no-browser`：窓を開かない。`--port <番号>`：待ち受けるポート（既定 8765、使われていれば空いているもの）。
 - 待ち受けは 127.0.0.1 だけで、起動ごとに合言葉が変わる。
 
+### アイコンとショートカット
+
+- 窓のアイコンは `static/icon.svg`。
+- ハブの設定の「ショートカットを作る」で、デスクトップとスタートメニューにアイコン付きの「ECOBuild GUI」を作る（端末からは `python gui\app.py --shortcut`）。
+  - 中身は「その時の pythonw で `ECOBuildGUI.pyw` を開く」。gui フォルダや Python を移したら作り直す。
+  - スタートメニューに置くと、タスクバーにピン留めもできる。
+- ショートカットのアイコン `icon.ico` は `icon.svg` から作る。アイコンを変えたら `python gui\make_icon.py`（Edge で描く）を実行してコミットする。
+
 ## GUIが自分で行うこと
 
-`ecobuild` にない手元の処理だけ：モジュールの一覧と専用のcloneの登録（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ログイン中のアカウント名（`gh api user`）、既定値のための `ecobuild.toml` の `default_base` の読み取り、ビルドで作られたソリューション（`build/**/*.sln`、VS 2026 のジェネレーターなら `.slnx`）を Visual Studio で開く（ボタンの右の ▾ で Visual Studio 2026／2022 を選ぶ。既定は 2026）。
+`ecobuild` にない手元の処理だけ：モジュールの一覧と専用のcloneの登録（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ショートカットの作成、ログイン中のアカウント名（`gh api user`）、既定値のための `ecobuild.toml` の `default_base` の読み取り、ビルドで作られたソリューション（`build/**/*.sln`、VS 2026 のジェネレーターなら `.slnx`）を Visual Studio で開く（ボタンの右の ▾ で Visual Studio 2026／2022 を選ぶ。既定は 2026）。
 
 ## 構成
 
 | ファイル | 内容 |
 | --- | --- |
 | `app.py` | サーバー（画面の配布、`ecobuild` の実行、手元の処理） |
+| `icon.ico`・`make_icon.py`・`static/icon.svg` | アイコン（`.ico` は `.svg` から作る） |
 | `static/hub.*` | ハブ：モジュールの一覧・追加、既定の所有者、環境チェック・準備 |
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |
 | `static/modinfo.*` | モジュール：Project・依存・ブランチ・ビルド設定 |

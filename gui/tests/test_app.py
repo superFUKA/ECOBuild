@@ -211,3 +211,13 @@ def test_visual_studio_version_is_checked(tmp_path, monkeypatch):
     monkeypatch.setattr(gui, "_visual_studio", lambda version: None)   # その版がないPC
     with pytest.raises(gui.GuiError, match="Visual Studio 2026 が見つかりません"):
         gui.open_in_visual_studio(str(root), "2026")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")
+def test_shortcut_has_the_icon(tmp_path):
+    place = tmp_path / "デスクトップ"
+    place.mkdir()
+    made = gui.make_shortcuts([place, tmp_path / "ない"])
+    assert made == [str(place / "ECOBuild GUI.lnk")]
+    assert (Path(gui.__file__).with_name("icon.ico")).is_file()
+    assert (gui.STATIC / "icon.svg").is_file()

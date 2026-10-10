@@ -217,6 +217,12 @@ $('module-list').addEventListener('dragend', async () => {
   loadModules();
 });
 
+// Shortcuts (desktop and Start menu) with the app icon: start the GUI without looking for ECOBuildGUI.pyw.
+$('make-shortcut').addEventListener('click', async () => {
+  try { const {made} = await ECO.call('shortcut'); ECO.toast('ショートカットを作りました：' + made.map(p => p.split('\\').slice(-2).join('\\')).join('、')); }
+  catch (e) { ECO.toast(e.message, 'bad', 9000); }
+});
+
 // End the background server now (otherwise it ends a while after the last window closes).
 $('quit-gui').addEventListener('click', async () => {
   if (!await ECO.confirm({title: 'GUIを終了', message: 'GUIを終了します。開いているモジュールの窓も使えなくなります。実行中のコマンドがあれば、終わるのを待ってから押してください。', ok: '終了する'})) return;

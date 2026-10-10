@@ -507,6 +507,8 @@ class App:
             return make_file(d("dir"), d("path"))
         if name == "mkparent":
             return make_parent(d("path"))
+        if name == "shortcut":
+            return {"made": make_shortcuts()}
         if name == "open-window":
             # GUIの別の画面（モジュールの窓）を、ハブと同じアプリの窓で開く（画面の window.open では普通のタブになるため）。
             page = d("page") or ""
@@ -664,6 +666,39 @@ def _alert(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(None, message, "ECOBuild GUI", 0x10)
 
 
+def _shortcut_places() -> list[Path]:
+    """デスクトップとスタートメニューのプログラムのフォルダ（OneDrive に移したデスクトップも Windows に尋ねる）。"""
+    completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Environment]::GetFolderPath('Desktop'); [Environment]::GetFolderPath('Programs')"],
+                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+    return [Path(line) for line in completed.stdout.splitlines() if line.strip()]
+
+
+def make_shortcuts(places: list[Path] | None = None) -> list[str]:
+    """デスクトップとスタートメニューに「ECOBuild GUI」のショートカット（アイコン付き）を作る。Windowsだけ。"""
+    if os.name != "nt":
+        raise GuiError("ショートカットを作れるのは Windows だけです。")
+    here = Path(__file__).resolve().parent
+    places = _shortcut_places() if places is None else places
+    made = []
+    for place in places:
+        if not place.is_dir():
+            continue
+        link = place / "ECOBuild GUI.lnk"
+        # .lnk は COM（WScript.Shell）で作る。値は環境変数で渡す（引用符の扱いを避ける）。
+        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
+                  "$s.Arguments = '\"' + $env:EG_SCRIPT + '\"'; $s.WorkingDirectory = $env:EG_DIR; "
+                  "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save()")
+        env = dict(os.environ, EG_LINK=str(link), EG_TARGET=_pythonw(), EG_SCRIPT=str(here / "ECOBuildGUI.pyw"),
+                   EG_DIR=str(here), EG_ICON=str(here / "icon.ico"))
+        completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
+                                   capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+        if completed.returncode != 0 or not link.is_file():
+            raise GuiError(f"ショートカットを作れませんでした：{link}\n{completed.stderr.strip()}")
+        made.append(str(link))
+    return made
+
+
 def _pythonw() -> str:
     candidate = Path(sys.executable).with_name("pythonw.exe")
     return str(candidate) if os.name == "nt" and candidate.is_file() else sys.executable
@@ -777,9 +812,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
     parser.add_argument("--ecobuild", default="", help="ecobuild コマンドの場所（既定：PATH、なければ起動したPythonの環境）")
     parser.add_argument("--foreground", action="store_true", help="裏で動かさず、この端末でサーバーを動かす（Ctrl+C で終了。開発用）")
+    parser.add_argument("--shortcut", action="store_true",
+                        help="デスクトップとスタートメニューにショートカット（アイコン付き）を作って終わる")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
     args = parser.parse_args(argv)
-    if args.serve or args.foreground:
+    if args.shortcut:
+        try:
+            _say("作りました：\n" + "\n".join(make_shortcuts()))
+        except GuiError as error:
+            _alert(str(error))
+            sys.exit(1)
+    elif args.serve or args.foreground:
         serve(args)
     else:
         launch(args)

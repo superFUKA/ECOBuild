@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- ECOBuild GUI: "E" made of stacked blocks. icon.ico (the shortcut's icon) is made from this by make_icon.py. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a343c"/><stop offset="1" stop-color="#14171b"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#46515e" stroke-width="2"/>
+  <rect x="14" y="13" width="36" height="11" rx="3" fill="#a8ead9"/>
+  <rect x="14" y="27" width="27" height="10" rx="3" fill="#8bd7c2"/>
+  <rect x="14" y="40" width="36" height="11" rx="3" fill="#5fb8a0"/>
+</svg>

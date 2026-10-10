@@ -10,7 +10,7 @@ class ErrorCode:
     TASK_NOT_FOUND = "task_not_found"
     TASK_CLOSED = "task_closed"
     TASK_BLOCKED = "task_blocked"            # 先に終わるべきタスク（blocked by）が開いている
-    OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親では作業しない・閉じない）
+    OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親は終了できない）
     MILESTONE_NOT_FOUND = "milestone_not_found"
     NO_BOARD = "no_board"                    # ボード（GitHub Projects）をつないでいない
     BOARD_PERMISSION = "board_permission"    # ghのトークンに project の権限がない

@@ -5,7 +5,7 @@ from ..._output import run_command
 
 def command(
     issue: Annotated[int, "Issueの番号"],
-    base: Annotated[str, "作成元のブランチ（既定はecobuild.tomlのdefault_base）"] = "",
+    base: Annotated[str, "作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親の作業空間に決まる）"] = "",
     dir: Annotated[str, "作業空間を、このディレクトリへの専用のcloneで作る（並行作業用。例：../Calc-7）"] = "",
     ignore_blocked: Annotated[bool, "先に終わるべきタスクが開いていても始める"] = False,
     no_workspace: Annotated[bool, "作業空間を作らずに作業中にする（調査・設計等、コードを変えないタスク）"] = False,

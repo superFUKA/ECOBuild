@@ -15,7 +15,7 @@ def command(
     planned_start: Annotated[str, "開始予定日（YYYY-MM-DD。ボードの項目）"] = "",
     planned_end: Annotated[str, "終了予定日（YYYY-MM-DD。ボードの項目）"] = "",
     start: Annotated[bool, "続けて作業空間を作る"] = False,
-    base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base）"] = "",
+    base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親の作業空間に決まる）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（GitHub Issue）を作成します。"""

@@ -909,6 +909,7 @@ class Repository:
 
         numberを省略すると今いる作業空間。今いる作業空間なら作成元へ移って最新にする。
         Issueは既定で開いたまま（後で task start で最初からやり直せる）。closeで「対応しない」として閉じる。
+        開いている子タスクがあれば止める（子の作業空間は親の作業空間から派生しているため）。
         作成元に入っていないコミットは失われるため、discardがなければ止める。
         dry_runは何もせず、行う内容（失われるコミット等）を返す。
         """
@@ -917,6 +918,8 @@ class Repository:
             number, branch = workspace.number, workspace.branch
         else:
             branch = ws.workspace_branch(number)
+        # 子タスクの作業空間は親の作業空間から派生する：親の作業空間を消す・閉じるのは子が終わってから
+        self.tracker.check_finishable(number, action="作業をやめることは")
         current = self.git.current_branch()
         if current == branch and not self.git.working_tree().clean:
             raise WorkError(
@@ -1185,7 +1188,14 @@ class Repository:
             title=title or issue.title, body=ws.with_task_link("", workspace.number, partial=partial), draft=draft,
         )
         self.tracker.set_stage(workspace.number, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
-        return ws.PullRequest._from(self, info)
+        pr = ws.PullRequest._from(self, info)
+        if not pr.partial:
+            try:
+                self.tracker.check_finishable(workspace.number)
+            except WorkError as error:
+                self.notices.append(f"PR #{pr.number} は、子タスクが終わるまでマージできません"
+                                    f"（{', '.join(error.details)}）。")
+        return pr
 
     def _submit_branch(self, branch: ws.Branch, *, into: str, title: str | None,
                        draft: bool = False) -> ws.PullRequest:
@@ -1238,6 +1248,9 @@ class Repository:
                                 hint=f"結果を待ってから実行してください（{self._op('ci status')}）。"
                                      "待たずにマージする場合は --ignore-checks。")
         task = ws.workspace_number(pr.head)
+        if task is not None and not pr.partial:
+            # 最後のPRのマージはタスクの終了：子タスクが終わるまで親は終了できない（途中の反映はよい）
+            self.tracker.check_finishable(task, action="最後のPRをマージ")
         try:
             if task is None:
                 # ブランチ同士はマージコミットで履歴を残す。
@@ -1323,10 +1336,50 @@ class Repository:
         base = self.git.get_config(ws.base_key(name)) if is_workspace else None
         return ws.Branch(name, is_workspace, base, local, remote, self)
 
-    def _base_start_point(self, base: str | None) -> str:
-        """作成元のブランチを確かめ、GitHubの最新を起点として返す。"""
+    def _parent_workspace(self, number: int) -> str | None:
+        """子タスクの作成元にする、親タスクの作業空間（親が開いていれば task/<親>）。親がなければNone。"""
+        parent = self.github.issue_relation(self.root, number).parent
+        if parent is None or self.github.get_issue(self.root, parent).state != "open":
+            return None
+        return ws.workspace_branch(parent)
+
+    def _child_base(self, number: int, base: str | None, parent_branch: str | None) -> str | None:
+        """新しい作業空間の作成元。子タスクなら親の作業空間（GitHubになければ作る）で、他は指定できない。"""
+        if parent_branch is None:
+            return base
+        if base is not None and base != parent_branch:
+            raise WorkError(ErrorCode.INVALID_BASE,
+                            f"#{number} は子タスクなので、作成元は親の作業空間 {parent_branch} です（{base} は指定できません）。",
+                            hint=f"親子をやめるなら {self._op('task edit')} {number} --clear-parent。")
+        self._ensure_workspace_branch(ws.workspace_number(parent_branch))
+        return parent_branch
+
+    def _ensure_workspace_branch(self, number: int) -> None:
+        """タスクの作業空間のブランチがGitHubになければ作る（手元には作らない）。親の親も同じ。
+
+        子タスクを始めるとき、まだ始めていない親の作業空間を用意するために使う。作成元は、親があれば親の作業空間、
+        なければIssueに記録したもの（なければ default_base）。
+        """
+        branch = ws.workspace_branch(number)
+        if self.git.has_remote_branch(branch):
+            return
+        parent_branch = self._parent_workspace(number)
+        recorded = ws.issue_base(self.github.get_issue(self.root, number).body)
+        base = self._child_base(number, None, parent_branch) or recorded or self.default_base
+        self.git.run("push", "--quiet", _git.REMOTE,
+                     f"{self._base_start_point(base, workspace=parent_branch)}:refs/heads/{branch}")
+        self.git.fetch()
+        self._record_base(number, base)
+        self.notices.append(f"親タスク #{number} の作業空間 {branch} をGitHubに作りました（作成元 {base}）。"
+                            f"親の作業は {self._op('task start')} {number} で始められます。")
+
+    def _base_start_point(self, base: str | None, *, workspace: str | None = None) -> str:
+        """作成元のブランチを確かめ、GitHubの最新を起点として返す。
+
+        作業空間は作成元にできない。ただし workspace（子タスクにとっての親の作業空間）は作成元にできる。
+        """
         base = base or self.default_base
-        if ws.is_workspace_branch(base):
+        if ws.is_workspace_branch(base) and base != workspace:
             raise WorkError(
                 ErrorCode.INVALID_BASE,
                 f"作業空間 {base} は作成元にできません。",
@@ -1390,7 +1443,10 @@ class Repository:
                 self.tracker.check_startable(task.number, ignore_blocked=ignore_blocked)
             if base is None and remote:
                 base = self._recorded_base(task.number, branch)
-            start = self._base_start_point(base)
+            parent_branch = self._parent_workspace(task.number)
+            if not remote:
+                base = self._child_base(task.number, base, parent_branch)
+            start = self._base_start_point(base, workspace=parent_branch)
             if remote:
                 start = f"{_git.REMOTE}/{branch}"
             base = base or self.default_base

@@ -183,9 +183,15 @@ class Tracker:
         """閉じてよいか：開いていて、開いている子タスクがない（親は子を終えてから閉じる）。"""
         if self.issue(number).state != "open":
             raise TaskError(ErrorCode.TASK_CLOSED, f"Issue #{number} は既に閉じています。")
+        self.check_finishable(number)
+
+    def check_finishable(self, number: int, *, action: str = "終了") -> None:
+        """親タスクを終えてよいか：開いている子タスクがない（子が終わらないと親は終了できない）。
+        閉じる・最後のPRのマージ・作業をやめる前に確かめる。action：止める操作の名前（メッセージ用）。"""
         opened = self._open_subtasks(number)
         if opened:
-            raise TaskError(ErrorCode.OPEN_SUBTASKS, f"#{number} には開いている子タスクがあります。",
+            raise TaskError(ErrorCode.OPEN_SUBTASKS,
+                            f"#{number} には開いている子タスクがあるため、{action}できません。",
                             hint="子タスクを先に終えるか閉じてください（親子をやめるなら "
                                  f"{self._op('task edit')} <子の番号> --clear-parent）。",
                             details=[f"#{s.number} {s.title}" for s in opened])
@@ -204,8 +210,9 @@ class Tracker:
                 return
             subtasks = self.github.sub_issues(self.root, parent)
             if subtasks and all(s.state == "closed" or s.number == number for s in subtasks):
-                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました"
-                                    f"（親も終わりなら {self._op('task close')} {parent}）。")
+                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました。親も終えられます"
+                                    f"（作業空間があれば {self._op('task submit')}・{self._op('task merge')}、"
+                                    f"なければ {self._op('task close')} {parent}）。")
         except TaskError:
             pass  # 知らせるだけなので、失敗しても操作は成功のまま
 
@@ -216,12 +223,8 @@ class Tracker:
         self.set_stage(number, _model.TODO)
 
     def check_startable(self, number: int, *, ignore_blocked: bool = False) -> None:
-        """新しく作業を始めてよいか：親タスク（開いている子がある）では作業しない。先に終わるべきタスクを待つ。"""
-        opened = self._open_subtasks(number)
-        if opened:
-            raise TaskError(ErrorCode.OPEN_SUBTASKS, f"#{number} は親タスクです（開いている子タスクがあります）。",
-                            hint=f"作業は子タスクで行ってください（{self._op('task start')} <子の番号>）。",
-                            details=[f"#{s.number} {s.title}" for s in opened])
+        """新しく作業を始めてよいか：先に終わるべきタスクを待つ（親タスクも作業できる。子の作業空間は親の
+        作業空間から派生し、子が終わるまで親は終了できない）。"""
         if ignore_blocked:
             return
         blockers = sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"),

@@ -100,8 +100,8 @@ class Task:
                    info.milestone)
 
     def start(self, *, base: str | None = None, ignore_blocked: bool = False) -> "Workspace":
-        """作業空間を作る。新しく作るときは、開いている子タスクがあれば止め（親では作業しない）、先に終わるべき
-        タスクが開いていれば止める（ignore_blocked で続ける）。"""
+        """作業空間を作る。新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
+        子タスクの作成元は親の作業空間（GitHubになければ作る。他の base は指定できない）。"""
         return self._repository._start_workspace(self, base, ignore_blocked=ignore_blocked)
 
 

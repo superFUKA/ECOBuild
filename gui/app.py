@@ -1,7 +1,11 @@
 """ECOBuildのGUI：画面（static/）を配り、画面からの依頼で ecobuild のCLIを実行する。
 
 ECOBuildの実装（src/ のパッケージ）とは独立している。ECOBuildのコードは読み込まず、ecobuild コマンドを呼ぶだけ。
-使うのは Python の標準ライブラリだけ（3.11 以上）。起動：python gui/app.py
+使うのは Python の標準ライブラリだけ（3.11 以上）。起動：python gui/app.py（または ECOBuildGUI.pyw をダブルクリック）
+
+- 起動すると、窓のない Python（pythonw）でサーバーを裏で動かし、GUIの窓を開いて、起動したコマンドはすぐ終わる。
+  すでに動いていればそれを使い、更新前の古いサーバーなら入れ替える。GUIの窓がすべて閉じてしばらくすると、サーバーも終わる。
+  端末で動かし続けるなら --foreground（開発用）。
 
 - 待ち受けは 127.0.0.1 だけ。APIは起動ごとに作る合言葉（X-ECOBuild-Token）がなければ断る。
 - CLIは `ecobuild -C <場所> <コマンド> --json` で実行し、出力のJSONをそのまま画面へ返す。
@@ -23,6 +27,8 @@ import socket
 import subprocess
 import sys
 import threading
+import time
+import urllib.request
 import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,8 +48,8 @@ def server_is_stale() -> bool:
         return False
 
 
-STALE_MESSAGE = ("GUIのサーバーが古いままです（GUIを更新した後、起動し直していません）。起動したターミナルで Ctrl+C で止めて、"
-                 "python gui/app.py で起動し直してください。")
+STALE_MESSAGE = ("GUIが更新されています。GUIをもう一度起動すると、新しいものに入れ替わります（この窓は閉じてください）。")
+IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
 DEFAULT_PORT = 8765
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -437,11 +443,19 @@ def who_am_i() -> str:
 class App:
     def __init__(self, cli: Cli, store: Store, token: str, port: int):
         self.cli, self.store, self.token, self.port = cli, store, token, port
+        self.last_contact = time.monotonic()
+        self.server: ThreadingHTTPServer | None = None
 
     def api(self, name: str, body: dict) -> object:
         d = body.get
         if name == "cli":
             return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
+        if name == "ping":
+            return {"version": VERSION, "stale": STALE_MESSAGE if server_is_stale() else "", "pid": os.getpid()}
+        if name == "shutdown":
+            if self.server is not None:
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return {}
         if name == "info":
             return {"me": who_am_i(), "cli": self.cli.command, "cli_warning": cli_warning(self.cli.command),
                     "stale": STALE_MESSAGE if server_is_stale() else "",
@@ -524,6 +538,7 @@ def make_handler(app: App):
             if self.headers.get("Host") not in allowed_hosts or \
                     not secrets.compare_digest(self.headers.get("X-ECOBuild-Token", ""), app.token):
                 return self._json(HTTPStatus.FORBIDDEN, {"error": "合言葉が違います。GUIを開き直してください。"})
+            app.last_contact = time.monotonic()
             path = urlparse(self.path).path
             if not path.startswith("/api/"):
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
@@ -568,14 +583,117 @@ def open_window(url: str) -> None:
         webbrowser.open(url)
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="ecobuild-gui", description="ECOBuildのGUIを開きます。")
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"待ち受けるポート（既定 {DEFAULT_PORT}。"
-                                                                       "使われていれば空いているもの）")
-    parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
-    parser.add_argument("--ecobuild", default="", help="ecobuild コマンドの場所（既定：PATH、なければ起動したPythonの環境）")
-    args = parser.parse_args(argv)
+def _state_file() -> Path:
+    return gui_home() / "server.json"
 
+
+def _read_state() -> dict | None:
+    try:
+        return json.loads(_state_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _ping(state: dict | None) -> dict | None:
+    """動いているサーバーに尋ねる（合言葉が合い、応答があれば内容を返す）。"""
+    if not state:
+        return None
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{state['port']}/api/ping", data=b"{}", method="POST",
+                                         headers={"X-ECOBuild-Token": state["token"], "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=2) as response:
+            return json.loads(response.read()).get("value")
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+def _shutdown(state: dict) -> None:
+    try:
+        request = urllib.request.Request(f"http://127.0.0.1:{state['port']}/api/shutdown", data=b"{}", method="POST",
+                                         headers={"X-ECOBuild-Token": state["token"]})
+        urllib.request.urlopen(request, timeout=3).close()
+    except OSError:
+        pass
+
+
+def _url(state: dict) -> str:
+    return f"http://127.0.0.1:{state['port']}/hub.html?t={state['token']}"
+
+
+def _say(message: str) -> None:
+    """端末があれば表示し、なければ（ダブルクリックで起動）エラーだけ窓で知らせる。"""
+    if sys.stdout is not None:
+        try:
+            print(message, flush=True)
+            return
+        except (OSError, ValueError):
+            pass
+
+
+def _alert(message: str) -> None:
+    if sys.stdout is not None:
+        _say(message)
+    elif os.name == "nt":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "ECOBuild GUI", 0x10)
+
+
+def _pythonw() -> str:
+    candidate = Path(sys.executable).with_name("pythonw.exe")
+    return str(candidate) if os.name == "nt" and candidate.is_file() else sys.executable
+
+
+def launch(args) -> None:
+    """裏でサーバーを動かして窓を開き、すぐ終わる。動いているサーバーがあれば使う（古ければ入れ替える）。"""
+    state = _read_state()
+    alive = _ping(state)
+    if alive and not alive.get("stale"):
+        if not args.no_browser:
+            open_window(_url(state))
+        _say(f"ECOBuild GUI を開きました（動いているサーバーを使います）：{_url(state)}")
+        return
+    if alive:   # 更新前のサーバー：止めてから新しく起動する
+        _shutdown(state)
+        time.sleep(1)
+    # Find ecobuild here (with this terminal's PATH) so a missing one is reported now, and the server uses the same one.
+    try:
+        found = default_cli(args.ecobuild)
+    except SystemExit as error:
+        _alert(str(error))
+        sys.exit(1)
+    command = [_pythonw(), str(Path(__file__).resolve()), "--serve", "--port", str(args.port)]
+    if len(found) == 1 and not os.environ.get("ECOBUILD_GUI_CLI"):
+        command += ["--ecobuild", found[0]]
+    if args.no_browser:
+        command.append("--no-browser")
+    if os.name == "nt":
+        flags = 0x00000008 | 0x00000200 | subprocess.CREATE_NO_WINDOW   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        process = subprocess.Popen(command, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        process = subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        state = _read_state()
+        if state and state.get("pid") == process.pid and _ping(state):
+            _say(f"ECOBuild GUI を起動しました：{_url(state)}\n（裏で動いています。GUIの窓をすべて閉じると、しばらくして終わります）")
+            return
+        if process.poll() is not None:
+            break
+        time.sleep(0.2)
+    _alert(f"ECOBuild GUI を起動できませんでした。記録：{gui_home() / 'gui.log'}")
+    sys.exit(1)
+
+
+def serve(args) -> None:
+    """サーバー本体。--serve（裏で動く）では、画面から連絡がなくなったら終わる。"""
+    background = args.serve
+    if background:
+        # 窓がないので、エラーは記録に書く。
+        gui_home().mkdir(parents=True, exist_ok=True)
+        log = open(gui_home() / "gui.log", "a", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
     cli = Cli(default_cli(args.ecobuild))
     store = Store(gui_home() / "gui.json")
     token = secrets.token_urlsafe(24)
@@ -585,17 +703,32 @@ def main(argv: list[str] | None = None) -> None:
         server = Server(("127.0.0.1", 0), None)
     port = server.server_address[1]
     app = App(cli, store, token, port)
+    app.server = server
     server.RequestHandlerClass = make_handler(app)
-    server.daemon_threads = True
-    url = f"http://127.0.0.1:{port}/hub.html?t={token}"
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(errors="replace")
-    print(f"ECOBuild GUI：{url}")
-    print(f"ecobuild：{' '.join(cli.command)}")
+    state = {"pid": os.getpid(), "port": port, "token": token}
+    url = _url(state)
+    if background:
+        _state_file().parent.mkdir(parents=True, exist_ok=True)
+        _state_file().write_text(json.dumps(state), encoding="utf-8")
+        print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 起動：{url}（ecobuild：{' '.join(cli.command)}）")
+
+        def watch():
+            while True:
+                time.sleep(15)
+                if time.monotonic() - app.last_contact > IDLE_SECONDS:
+                    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 画面がないので終わります")
+                    server.shutdown()
+                    return
+        threading.Thread(target=watch, daemon=True).start()
+    else:
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+        print(f"ECOBuild GUI：{url}")
+        print(f"ecobuild：{' '.join(cli.command)}")
+        print("終了するには Ctrl+C を押してください。", flush=True)
     if cli_warning(cli.command):
         print("注意：" + cli_warning(cli.command))
-    print("終了するには Ctrl+C を押してください。", flush=True)
     if not args.no_browser:
         open_window(url)
     try:
@@ -604,6 +737,26 @@ def main(argv: list[str] | None = None) -> None:
         pass
     finally:
         server.server_close()
+        if background and (_read_state() or {}).get("pid") == os.getpid():
+            try:
+                _state_file().unlink()
+            except OSError:
+                pass
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="ecobuild-gui", description="ECOBuildのGUIを開きます。")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"待ち受けるポート（既定 {DEFAULT_PORT}。"
+                                                                       "使われていれば空いているもの）")
+    parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
+    parser.add_argument("--ecobuild", default="", help="ecobuild コマンドの場所（既定：PATH、なければ起動したPythonの環境）")
+    parser.add_argument("--foreground", action="store_true", help="裏で動かさず、この端末でサーバーを動かす（Ctrl+C で終了。開発用）")
+    parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
+    args = parser.parse_args(argv)
+    if args.serve or args.foreground:
+        serve(args)
+    else:
+        launch(args)
 
 
 if __name__ == "__main__":

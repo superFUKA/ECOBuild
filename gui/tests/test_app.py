@@ -169,6 +169,20 @@ def test_stale_server_is_reported(monkeypatch, tmp_path):
     monkeypatch.setattr(gui, "who_am_i", lambda: "me")
     assert app.api("info", {})["stale"] == ""
     monkeypatch.setattr(gui, "STARTED_WITH", 0)              # 起動した後で app.py が変わった
-    assert "起動し直して" in app.api("info", {})["stale"]
-    with pytest.raises(gui.GuiError, match="起動し直して"):
+    assert "入れ替わります" in app.api("info", {})["stale"]
+    with pytest.raises(gui.GuiError, match="入れ替わります"):
         app.api("no-such-operation", {})
+
+
+def test_ping_and_shutdown(tmp_path):
+    app = gui.App(gui.Cli(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    assert app.api("ping", {})["pid"] == os.getpid()
+
+    class FakeServer:
+        stopped = threading.Event()
+
+        def shutdown(self):
+            self.stopped.set()
+    app.server = FakeServer()
+    app.api("shutdown", {})
+    assert app.server.stopped.wait(2)

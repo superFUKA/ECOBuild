@@ -19,6 +19,7 @@ let modules = [];
 const openModule = path => window.open('module.html?path=' + encodeURIComponent(path), '_blank');
 
 async function loadModules() {
+  if (!$('module-list')) return;   // after "GUIを終了"
   try { modules = await ECO.call('modules'); } catch (e) { ECO.toast(e.message, 'bad'); modules = []; }
   const list = $('module-list');
   if (!modules.length) {
@@ -134,8 +135,9 @@ addForm.addEventListener('submit', async event => {
 // Settings ----------------------------------------------------------------------------------------
 function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }
 async function loadSettings() {
+  if (!$('default-owner')) return;   // after "GUIを終了"
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
-  if (doc.ok) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
+  if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();
   $('about').innerHTML = `ログイン中のGitHubアカウント：${esc(info.me || '（取得できませんでした）')}<br>使っている ecobuild：${esc((info.cli || []).join(' '))}`
     + (info.cli_warning ? `<br><span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
@@ -211,4 +213,12 @@ $('module-list').addEventListener('dragend', async () => {
   const paths = [...$('module-list').querySelectorAll('li[data-index]')].map(li => modules[Number(li.dataset.index)].path);
   try { await ECO.call('modules/order', {paths}); } catch (e) { ECO.toast(e.message, 'bad'); }
   loadModules();
+});
+
+// End the background server now (otherwise it ends a while after the last window closes).
+$('quit-gui').addEventListener('click', async () => {
+  if (!await ECO.confirm({title: 'GUIを終了', message: 'GUIを終了します。開いているモジュールの窓も使えなくなります。実行中のコマンドがあれば、終わるのを待ってから押してください。', ok: '終了する'})) return;
+  try { await ECO.call('shutdown'); } catch (e) { /* already gone */ }
+  document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild GUI を終了しました。この窓を閉じてください。</main>';
+  window.close();
 });

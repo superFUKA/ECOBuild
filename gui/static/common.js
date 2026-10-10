@@ -231,6 +231,8 @@ const ECO = (() => {
 
   let infoPromise;
   const info = () => (infoPromise ||= call('info').catch(() => ({me: ''})));
+  // The server runs in the background and ends when no window has contacted it for a while: tell it this window is open.
+  if (window.parent === window) setInterval(() => call('ping').catch(() => {}), 20000);
   // The server keeps the code it started with; after the GUI is updated it must be restarted.
   document.addEventListener('DOMContentLoaded', () => info().then(i => {
     if (!i.stale || window.parent !== window) return;

@@ -231,6 +231,12 @@ const ECO = (() => {
 
   let infoPromise;
   const info = () => (infoPromise ||= call('info').catch(() => ({me: ''})));
+  // The server keeps the code it started with; after the GUI is updated it must be restarted.
+  document.addEventListener('DOMContentLoaded', () => info().then(i => {
+    if (!i.stale || window.parent !== window) return;
+    const bar = document.createElement('div'); bar.className = 'eco-stale'; bar.setAttribute('role', 'alert'); bar.textContent = i.stale;
+    document.body.prepend(bar);
+  }));
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 

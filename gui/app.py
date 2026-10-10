@@ -30,6 +30,20 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 VERSION = "0.1.0"
+# 起動した時の app.py。画面（static/）は毎回ファイルから配るが、サーバーのコードは起動した時のまま。
+# app.py が後から変わったら、画面に「起動し直して」と出す（新しい画面の依頼をこのサーバーが知らないため）。
+STARTED_WITH = Path(__file__).stat().st_mtime
+
+
+def server_is_stale() -> bool:
+    try:
+        return Path(__file__).stat().st_mtime != STARTED_WITH
+    except OSError:
+        return False
+
+
+STALE_MESSAGE = ("GUIのサーバーが古いままです（GUIを更新した後、起動し直していません）。起動したターミナルで Ctrl+C で止めて、"
+                 "python gui/app.py で起動し直してください。")
 STATIC = Path(__file__).with_name("static")
 DEFAULT_PORT = 8765
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -430,6 +444,7 @@ class App:
             return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
         if name == "info":
             return {"me": who_am_i(), "cli": self.cli.command, "cli_warning": cli_warning(self.cli.command),
+                    "stale": STALE_MESSAGE if server_is_stale() else "",
                     "home": str(Path.home()),
                     "version": VERSION}
         if name == "modules":
@@ -466,7 +481,8 @@ class App:
             return read_text(d("dir"), d("path"))
         if name == "pick-folder":
             return pick_folder(d("title") or "", d("initial") or "")
-        raise GuiError(f"知らない操作です：{name}")
+        raise GuiError(f"知らない操作です：{name}" + (f"。{STALE_MESSAGE}" if server_is_stale() else
+                                                    "。GUIのサーバーが画面より古い可能性があります。起動し直してください。"))
 
 
 def make_handler(app: App):

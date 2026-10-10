@@ -159,7 +159,8 @@ get('submit-pr').addEventListener('click', () => ECO.form({
     if (WS.changes().size && !await ECO.confirm({title: '未コミットの変更', message: 'コミットしていない変更があります。PRに入るのはコミット済みの内容だけです。このまま提出しますか？', ok: '提出する'})) return 'キャンセルしました。';
     const args = ['task', 'submit', ...(v.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.partial ? ['--partial'] : []), ...(v.check ? ['--check'] : [])];
     const doc = await WS.run(args, {success: r => `PR #${r.number} を提出しました。`});
-    if (doc) WS.refreshPrs?.(doc.result.number);
+    if (!doc) return 'PRを提出できませんでした。';
+    WS.refreshPrs?.(doc.result.number);
   },
 }));
 

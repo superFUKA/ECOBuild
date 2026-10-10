@@ -75,6 +75,18 @@ const ECO = (() => {
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
       doc = await cli(dir, [...args, '--yes'], {stdin});
     }
+    // The module's configuration was brought up to date (e.g. a newer ECOBuild/CppBuild added solution folders), so
+    // generated/managed files changed and the command (task submit) wants them committed: offer to commit just those.
+    const outdated = !doc.ok && doc.error?.code === 'generated_files_outdated' && Array.isArray(doc.error.details) ? doc.error.details : [];
+    if (outdated.length) {
+      overlay?.end();
+      const ok = await confirm({title: '生成ファイルのコミット', message: '構成の更新（ECOBuild・CppBuild の更新によるものなど）で、生成ファイル・管理ファイルが変わりました。これらのファイルだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
+      if (!ok) return null;
+      overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
+      let step = await cli(dir, ['task', 'add', ...outdated]);
+      if (step.ok) step = await cli(dir, ['task', 'commit', '--message', '生成ファイルを構成の更新に合わせる']);
+      doc = step.ok ? await cli(dir, args, {stdin}) : step;
+    }
     overlay?.end();
     if (!doc.ok) { if (inForm) lastError = doc; else await showError(doc); return null; }
     if (success) toast(typeof success === 'function' ? success(doc.result) : success);

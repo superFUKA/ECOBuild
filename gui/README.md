@@ -40,7 +40,7 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |
 | `static/modinfo.*` | モジュール：Project・依存・ブランチ・ビルド設定 |
 | `static/workspace.*`・`explorer.js`・`prs.js`・`build.js` | 作業空間：エクスプローラー・コミット・PR・ビルド |
-| `static/tasks.*` | タスク管理：一覧・ボード・日程・詳細・アカウント |
+| `static/tasks.*` | タスク管理：一覧・段階・日程・詳細・アカウント |
 | `static/common.*` | 共通：`ecobuild` の実行、ダイアログ、通知 |
 
 ## 試験

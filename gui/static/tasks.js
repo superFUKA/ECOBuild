@@ -1,21 +1,23 @@
 'use strict';
 // Task management: task list / status / new / edit / plan / comment / close / reopen / start / remove / drop / clean,
-// board show / list / use / create / unset / sync, task workload, pr list. Every change runs ecobuild.
+// task workload, milestone list, pr list. Every change runs ecobuild. Where ecobuild keeps the stages and plans on
+// GitHub is ecobuild's business: the screen only deals with tasks.
 (() => {
   const tkEl = id => document.getElementById(id);
   const {esc} = ECO;
   const today = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const STAGES = [['planned', 'Backlog', '計画中', 'backlog'], ['todo', 'Todo', '未着手', 'todo'], ['in_progress', 'In Progress', '作業中', 'in_progress'], ['in_review', 'In Review', 'レビュー待ち', 'in_review'], ['done', 'Done', '完了', 'done']];
+  const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
+  const PRIORITIES = ['High', 'Middle', 'Low'];   // task plan --priority（高い順）
   const STAGE = Object.fromEntries(STAGES.map(s => [s[0], s]));
-  const st = {tasks: [], board: null, boardError: null, milestones: [], loaded: false, loading: false, view: 'list', selected: 0, details: new Map(), assignee: '', sort: {key: 'number', dir: 1}, person: ''};
+  const st = {tasks: [], milestones: [], loaded: false, loading: false, view: 'list', selected: 0, details: new Map(), assignee: '', sort: {key: 'number', dir: 1}, person: ''};
   const me = () => MOD.me;
   const root = () => MOD.root;
 
-  // A task's stage on screen: closed = done; no board stage = in progress when it has a workspace, else todo.
+  // A task's stage on screen: closed = done; not recorded yet = in progress when it has a workspace, else todo.
   const stageOf = t => t.state !== 'open' ? 'done' : t.stage || (t.workspace || t.remote || t.current ? 'in_progress' : 'todo');
   const byNumber = n => st.tasks.find(t => t.number === n);
   const md = d => d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) : '';
-  const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${t.closed_reason === 'not_planned' ? 'not_planned' : 'done'}">${t.closed_reason === 'not_planned' ? '対応しない' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][3]}">${STAGE[stageOf(t)][2]}</span>`;
+  const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${t.closed_reason === 'not_planned' ? 'not_planned' : 'done'}">${t.closed_reason === 'not_planned' ? '対応しない' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][2]}">${STAGE[stageOf(t)][1]}</span>`;
   const prio = t => t.priority ? `<span class="tk-prio ${esc(t.priority)}">${esc(t.priority)}</span>` : '';
   const due = t => t.due ? `<span class="tk-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}">${md(t.due)}</span>` : '';
   const isAgent = who => /agent|bot/i.test(who);
@@ -26,15 +28,14 @@
   const sel = t => `aria-selected="${t.number === st.selected}" data-task="${t.number}"`;
 
   // Loading ---------------------------------------------------------------------------------------
-  async function load({board = false} = {}) {
+  async function load({full = false} = {}) {
     if (st.loading) return; st.loading = true;
     if (!st.loaded) tkEl('tk-main').innerHTML = ECO.loading('タスクを読み込んでいます…');
     const args = ['task', 'list', ...(tkEl('tk-closed').checked ? ['--all'] : []), ...(tkEl('tk-ready').checked ? ['--ready'] : [])];
     const jobs = [ECO.cli(root(), args, {quiet: true})];
-    if (board || !st.loaded) jobs.push(ECO.cli(root(), ['board', 'show'], {quiet: true}), ECO.cli(root(), ['milestone', 'list'], {quiet: true}));
-    const [list, boardDoc, milestones] = await Promise.all(jobs);
+    if (full || !st.loaded) jobs.push(ECO.cli(root(), ['milestone', 'list'], {quiet: true}));
+    const [list, milestones] = await Promise.all(jobs);
     st.loading = false;
-    if (boardDoc) { st.board = boardDoc.ok ? boardDoc.result : null; st.boardError = boardDoc.ok ? null : boardDoc.error; renderBoardChip(); }
     if (milestones?.ok) st.milestones = milestones.result;
     if (!list.ok) { tkEl('tk-main').innerHTML = `<div class="eco-banner bad">${esc(list.error.message)}${list.error.hint ? '<br>' + esc(list.error.hint) : ''}</div>`; return; }
     st.tasks = list.result; st.loaded = true;
@@ -42,15 +43,6 @@
   }
   async function reloadAfter(n) { if (n) st.details.delete(n); await load(); if (n && st.selected === n) loadDetail(n); }
 
-  function renderBoardChip() {
-    if (st.board) {
-      tkEl('tk-board-name').textContent = st.board.title;
-      const scope = st.board.scope || {};
-      tkEl('tk-board-pill').textContent = (scope.public ? '公開' : '非公開') + '・' + (scope.shared ? '共有' : '専用');
-      tkEl('tk-board-pill').className = 'tk-pill ' + (scope.shared ? 'warn' : 'ok');
-    } else { tkEl('tk-board-name').textContent = 'ボードなし'; tkEl('tk-board-pill').textContent = 'つなぐ'; tkEl('tk-board-pill').className = 'tk-pill warn'; }
-    tkEl('tk-sync').disabled = !st.board;
-  }
   function renderAssigneeOptions() {
     const accounts = [...new Set(st.tasks.flatMap(t => t.assignees))].sort();
     const current = st.assignee;
@@ -62,7 +54,7 @@
   const assignedTo = (t, who) => who === '' ? true : who === '-' ? !t.assignees.length : t.assignees.includes(who === '@me' ? me() : who);
   const search = () => tkEl('tk-search').value.trim().toLowerCase();
   const visible = () => st.tasks.filter(t => assignedTo(t, st.assignee) && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()));
-  const PRIO_RANK = t => t.priority ? (st.board?.fields.find(f => f.name === st.board.schema?.priority)?.options.findIndex(o => o.name === t.priority) ?? 0) : 99;
+  const PRIO_RANK = t => t.priority ? PRIORITIES.indexOf(t.priority) : 99;
   const SORT_KEYS = {number: t => t.number, title: t => t.title, stage: t => STAGES.findIndex(s => s[0] === stageOf(t)), priority: PRIO_RANK, due: t => t.due || '9999', assignee: t => t.assignees[0] || '￿'};
   const sorted = ts => [...ts].sort((a, b) => { const f = SORT_KEYS[st.sort.key], x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : a.number - b.number) * st.sort.dir; });
   const sortHead = (key, label) => `<th><button type="button" class="tk-sort ${st.sort.key === key ? 'on' : ''}" data-sort="${key}">${label}<span aria-hidden="true">${st.sort.key === key ? (st.sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
@@ -72,11 +64,10 @@
     const ts = visible();
     return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了した作業空間を片付ける</button></div>';
   }
-  function renderBoard() {
-    const names = st.board?.stages || {};
-    return `${st.board ? '' : '<p class="tk-note">ボードをつないでいないため、段階は作業空間の有無から表示しています（計画中・レビュー待ちはボードで使えます）。</p>'}<div class="tk-kanban">${STAGES.map(([key, name, ja, cls]) => {
+  function renderStages() {
+    return `<div class="tk-kanban">${STAGES.map(([key, ja, cls]) => {
       const cards = visible().filter(t => stageOf(t) === key);
-      return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${esc(names[key] || name)}</span><small>${ja}</small></span><small>${cards.length}</small></div><div class="tk-column-cards">
+      return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span><small>${cards.length}</small></div><div class="tk-column-cards">
       ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
       </div></section>`;
     }).join('')}</div>`;
@@ -94,16 +85,16 @@
     const shade = dated.length ? days.filter(off).map(n => `<div class="tl-off" style="grid-column:${col(n)};grid-row:2 / span ${dated.length}"></div>`).join('') : '';
     const rows = dated.map((t, i) => { const r = i + 2, late = t.state === 'open' && dayOf(t.planned_end) < now, s = STAGE[stageOf(t)];
       return `<div class="tl-label" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>
-      <div class="tl-bar ${s[3]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${st.board && t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${st.board ? '（ドラッグで移動、右端で終了予定を変える）' : ''}">${s[2]}<span class="tl-grip" aria-hidden="true"></span></div>
+      <div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端で終了予定を変える）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>
       ${t.due ? `<div class="tl-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.due))}" title="期限 ${md(t.due)}">◆</div>` : ''}`; }).join('');
-    return `${st.board ? '' : '<p class="tk-note">開始予定・終了予定・期限はボードの項目です。ボードをつなぐと設定できます。</p>'}<div class="tl-wrap"><div class="tl-grid" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${dated.length}, 34px)">
+    return `<div class="tl-wrap"><div class="tl-grid" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${dated.length}, 34px)">
       <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${dated.length + 1}"></div>${rows}</div></div>
       <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span></div>
       ${undated.length ? `<p class="tk-note">日程のないタスク：${undated.map(t => `<span class="tk-label" data-task="${t.number}" style="cursor:pointer">#${t.number} ${esc(t.title)}</span>`).join('')}</p>` : ''}`;
   }
   function scrollToToday() { const wrap = document.querySelector('.tl-wrap'), nowLine = document.querySelector('.tl-now'); if (wrap && nowLine) wrap.scrollLeft = Math.max(0, nowLine.offsetLeft - 220 - 7 * 28); }
 
-  const VIEWS = {list: renderList, board: renderBoard, timeline: renderTimeline};
+  const VIEWS = {list: renderList, stages: renderStages, timeline: renderTimeline};
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
@@ -121,7 +112,6 @@
   function select(n) { st.selected = n; render(); if (!st.details.has(n)) loadDetail(n); }
   window.TASKS_SELECT = n => { if (!st.loaded) load().then(() => select(n)); else select(n); };
 
-  const priorityOptions = () => st.board?.fields.find(f => f.name === st.board.schema?.priority)?.options.map(o => o.name) || [];
   function renderDetail() {
     const n = st.selected, summary = byNumber(n), d = st.details.get(n);
     const close = '<button type="button" class="tk-d-close" data-close-detail title="詳細を閉じる" aria-label="詳細を閉じる">×</button>';
@@ -133,7 +123,7 @@
     const primary = !open ? '<button type="button" data-tk="reopen">開き直す</button>'
       : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">作業空間を開く</button>'
       : `<button type="button" class="primary" data-tk="start">${d.remote ? '作業を再開' : '作業を開始'}</button>`;
-    const noBoard = !st.board, dis = noBoard || !open ? 'disabled' : '', boardTitle = noBoard ? 'title="ボードをつなぐと設定できます"' : '';
+    const dis = open ? '' : 'disabled';
     const rel = x => `<div class="tk-rel" data-task="${x.number}"><span class="tk-num">#${x.number}</span><span class="tk-grow">${esc(x.title)}</span>${x.state === 'open' ? '' : '<span class="tk-stage done">完了</span>'}</div>`;
     const relations = [d.parent && ['親タスク', [d.parent]], d.subtasks.length && ['子タスク', d.subtasks], d.blocked_by.length && ['先に終わるべき', d.blocked_by], d.blocking.length && ['待っているタスク', d.blocking]].filter(Boolean);
     const pr = d.pull_request;
@@ -147,10 +137,10 @@
         ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop">作業をやめる</button>' : ''}
         <button type="button" data-tk="github">GitHubで開く</button></div></details></div>
     <section class="tk-d-section"><dl class="tk-kv">
-      <dt>優先度</dt><dd><select data-plan="priority" ${dis} ${boardTitle}><option value="">なし</option>${priorityOptions().map(p => `<option ${p === t.priority ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></dd>
-      <dt>開始予定</dt><dd><input type="date" data-plan="planned_start" value="${esc(t.planned_start || '')}" ${dis} ${boardTitle}></dd>
-      <dt>終了予定</dt><dd><input type="date" data-plan="planned_end" value="${esc(t.planned_end || '')}" ${dis} ${boardTitle}></dd>
-      <dt>期限</dt><dd><input type="date" data-plan="due" value="${esc(t.due || '')}" ${dis} ${boardTitle}></dd>
+      <dt>優先度</dt><dd><select data-plan="priority" ${dis}><option value="">なし</option>${PRIORITIES.map(p => `<option ${p === t.priority ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></dd>
+      <dt>開始予定</dt><dd><input type="date" data-plan="planned_start" value="${esc(t.planned_start || '')}" ${dis}></dd>
+      <dt>終了予定</dt><dd><input type="date" data-plan="planned_end" value="${esc(t.planned_end || '')}" ${dis}></dd>
+      <dt>期限</dt><dd><input type="date" data-plan="due" value="${esc(t.due || '')}" ${dis}></dd>
       <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を加える">＋</button></dd>
       <dt>ラベル</dt><dd class="tk-chips">${d.labels.map(l => `<span class="tk-chip">${esc(l)}<button type="button" class="x" data-remove-label="${esc(l)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-label" title="ラベルを付ける">＋</button></dd>
       <dt>マイルストーン</dt><dd><select data-milestone><option value="">なし</option>${st.milestones.map(m => `<option ${m.title === d.milestone ? 'selected' : ''}>${esc(m.title)}</option>`).join('')}${d.milestone && !st.milestones.some(m => m.title === d.milestone) ? `<option selected>${esc(d.milestone)}</option>` : ''}</select></dd>
@@ -217,7 +207,7 @@
       }});
   }
   async function newTaskDialog(preset = {}) {
-    const board = !!st.board, people = await members();
+    const people = await members();
     await ECO.form({title: '新しいタスク', busy: 'タスクを作っています…', fields: [
       {name: 'title', label: '題名', required: true, placeholder: '何をするか'},
       {name: 'body', label: '本文', type: 'textarea', placeholder: '背景・完了の条件など'},
@@ -227,7 +217,7 @@
       {name: 'parent', label: '親タスク', type: 'select', value: preset.parent ? String(preset.parent) : '', options: parentOptions(0, 0)},
       {name: 'blockedBy', label: '先に終わるべきタスクの番号（カンマ区切り）'},
       {name: 'milestone', label: 'マイルストーン', type: 'select', options: [['', 'なし'], ...st.milestones.map(m => [m.title, m.title + (m.due ? `（${m.due}）` : '')])]},
-      ...(board ? [{name: 'due', label: '期限', type: 'date'}, {name: 'plannedStart', label: '開始予定日', type: 'date'}, {name: 'plannedEnd', label: '終了予定日', type: 'date'}] : []),
+      {name: 'due', label: '期限', type: 'date'}, {name: 'plannedStart', label: '開始予定日', type: 'date'}, {name: 'plannedEnd', label: '終了予定日', type: 'date'},
       {name: 'start', label: '作成したら、このモジュールのcloneで作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'}], ok: '作成',
       submit: async v => {
         const args = ['task', 'new', v.title];
@@ -313,60 +303,6 @@
     }
     reloadAfter();
   }
-  async function syncDialog() {
-    const doc = await ECO.cli(root(), ['board', 'sync', '--dry-run']);
-    if (!doc.ok) return ECO.showError(doc);
-    const r = doc.result, title = n => esc(byNumber(n)?.title || '');
-    const items = [...r.added.map(n => `<li><span class="tk-num">#${n}</span> ${title(n)} — ボードに加える</li>`), ...r.changed.map(c => `<li><span class="tk-num">#${c.number}</span> ${esc(c.title)} — ${esc(c.before || 'なし')} → ${esc(c.after)}</li>`)];
-    const ok = await ECO.dialog({title: 'ボードを同期', body: '<p class="eco-intro">開いているタスクをボードに加え、状態を作業の段階（タスク・PR・作業空間）に合わせます。</p>' + (items.length ? '<p>変える内容：</p><ul class="eco-list">' + items.join('') + '</ul>' : '<p>変える内容はありません。</p>'),
-      buttons: items.length ? [['キャンセル', '', false], ['同期する', 'primary', true]] : [['閉じる', 'primary', false]]});
-    if (ok && await run(['board', 'sync'], {success: 'ボードを同期しました。'})) reloadAfter();
-  }
-  // Board settings. Connecting / disconnecting changes ecobuild.toml, so it runs in a workspace (committed via PR).
-  async function boardDialog() {
-    const places = MOD.workspacePlaces(), b = st.board;
-    const wsOptions = places.map(p => [p, `${MOD.states.get(MOD.keyOf(p)).branch}（${p}）`]);
-    const wsNote = places.length ? '' : '<p class="eco-hint">ボードとの接続は ecobuild.toml を変えるため、作業空間で行います（コミットしてPRで反映）。先にタスクの作業を開始してください。</p>';
-    const info = b ? `<dl class="tk-kv"><dt>ボード</dt><dd><strong>${esc(b.title)}</strong><div class="tk-muted">${esc(b.url)}</div></dd>
-        <dt>リンク先</dt><dd>${esc((b.scope?.linked || []).join('、') || 'なし')}</dd><dt>公開</dt><dd>${b.scope?.public ? '公開' : '非公開'}・${b.scope?.shared ? '他のリポジトリと共有' : 'このリポジトリ専用'}</dd>
-        <dt>状態の項目</dt><dd>${esc(b.status_field)}：${Object.entries(b.stages || {}).map(([k, v]) => `${STAGE[k]?.[2] || k}＝${esc(v)}`).join('、')}</dd>
-        <dt>計画の項目</dt><dd>${Object.entries(b.schema || {}).map(([k, v]) => esc(v)).join('、') || 'なし'}</dd>
-        ${b.scope?.other_boards?.length ? `<dt>他のボード</dt><dd>${b.scope.other_boards.map(o => esc(o.title || o.url || o)).join('、')}</dd>` : ''}</dl>`
-      : `<p>${esc(st.boardError?.message || 'ボードをつないでいません。')}</p>`;
-    const choice = await ECO.dialog({title: 'ボードの設定', wide: true, body: info + wsNote,
-      buttons: [...(b && places.length ? [['接続を外す', 'danger', 'unset']] : []), ['新しいボードを作る…', '', 'create'], ...(places.length ? [['別のボードにつなぐ…', '', 'use']] : []), ['閉じる', 'primary', null]]});
-    if (choice === 'create') {
-      await ECO.form({title: '新しいボードを作る', intro: 'このリポジトリ専用の標準のボード（状態・優先度・期限・見積もり・スプリント・予定日）を作り、リポジトリにリンクします。', fields: [{name: 'title', label: '題名', value: `${MOD.name} タスク`, required: true}], ok: '作る',
-        submit: async v => {
-          const doc = await run(['board', 'create', ...(v.title ? [v.title] : [])], {success: r => `ボード ${r.title} を作りました。`});
-          if (!doc) return '作れませんでした。';
-          if (places.length && await ECO.confirm({title: 'ボードにつなぐ', message: `作ったボードを、このモジュールにつなぎますか？（作業空間 ${MOD.states.get(MOD.keyOf(places[0])).branch} の ecobuild.toml を変えます）`, ok: 'つなぐ'})) {
-            if (await run(['board', 'use', doc.result.url], {dir: places[0], success: 'ボードにつなぎました。作業空間でコミットし、PRで反映してください。'})) { await MOD.reloadPlace(places[0]); }
-          }
-          load({board: true});
-        }});
-    }
-    if (choice === 'use') {
-      const list = await ECO.cli(root(), ['board', 'list'], {quiet: true});
-      const options = list.ok ? list.result.filter(x => !x.closed).map(x => [x.url, `${x.title}（${x.url.split('/').slice(-2).join('/')}）`]) : [];
-      await ECO.form({title: '別のボードにつなぐ', fields: [
-        {name: 'url', label: 'つなぐボード', type: 'select', options: [['', 'URLを入力する'], ...options]},
-        {name: 'other', label: 'ボードのURL', placeholder: 'https://github.com/users/<所有者>/projects/<番号>'},
-        {name: 'shared', label: '他のリポジトリと共有するボードでもつなぐ', type: 'checkbox'},
-        {name: 'addFields', label: '足りない項目（優先度・期限・予定日など）をボードに足す', type: 'checkbox', value: true},
-        {name: 'place', label: '変更する作業空間', type: 'select', options: wsOptions}], ok: 'つなぐ',
-        submit: async v => {
-          const url = v.url || v.other; if (!url) return 'ボードを選ぶか、URLを入力してください。';
-          const doc = await run(['board', 'use', url, ...(v.shared ? ['--shared'] : []), ...(v.addFields ? ['--add-fields'] : [])], {dir: v.place, success: 'ボードにつなぎました。作業空間でコミットし、PRで反映してください。'});
-          if (!doc) return 'つなげませんでした。';
-          await MOD.reloadPlace(v.place); load({board: true});
-        }});
-    }
-    if (choice === 'unset') {
-      await ECO.form({title: 'ボードとの接続を外す', intro: 'ecobuild.toml の [board] を消します（GitHubのボードは消しません）。', fields: [{name: 'place', label: '変更する作業空間', type: 'select', options: wsOptions}], ok: '外す', danger: true,
-        submit: async v => { if (!await run(['board', 'unset'], {dir: v.place, success: '接続を外しました。作業空間でコミットし、PRで反映してください。'})) return '外せませんでした。'; await MOD.reloadPlace(v.place); load({board: true}); }});
-    }
-  }
   async function plan(n, key, value) {
     const option = {priority: '--priority', due: '--due', planned_start: '--planned-start', planned_end: '--planned-end'}[key];
     const args = ['task', 'plan', String(n), ...(value ? [option, value] : ['--clear', key])];
@@ -395,19 +331,18 @@
       ${section('担当タスク', ts.length ? taskTable(ts, false) : '', 'wide')}</div></div>`;
   }
 
-  // Right-click menu on a task (list rows, board cards, timeline, relations, the account popup) --------------
+  // Right-click menu on a task (list rows, stage cards, timeline, relations, the account popup) --------------
   async function detailOf(n) { if (!st.details.has(n) || st.details.get(n).error) await loadDetail(n); return st.details.get(n); }
   function taskMenu(n, x, y) {
     const t = byNumber(n); if (!t) return;
     const open = t.state === 'open', hasWorkspace = !!MOD.placeOfTask(n) || t.workspace || t.current, mine = me() && t.assignees.includes(me());
-    const priorities = priorityOptions();
     ECO.menu([
       ['詳細を見る', () => select(n)],
       ...(open ? [hasWorkspace ? ['作業空間を開く', () => MOD.openWorkspace(n)] : [t.remote ? '作業を再開…' : '作業を開始…', async () => { await detailOf(n); startDialog(n); }]] : []),
       '-',
       ['担当者を加える…', async () => { await detailOf(n); addAssigneeDialog(n); }],
       ...(me() ? [mine ? ['自分を担当から外す', () => editList(n, '--remove-assignee', '@me', '担当から外れました。')] : ['自分を担当にする', () => editList(n, '--add-assignee', '@me', '担当にしました。')]] : []),
-      ...(st.board && open ? priorities.map(p => [`優先度：${p}${t.priority === p ? '（今）' : ''}`, () => plan(n, 'priority', p), t.priority !== p]).concat(t.priority ? [['優先度を消す', () => plan(n, 'priority', '')]] : []) : []),
+      ...(open ? PRIORITIES.map(p => [`優先度：${p}${t.priority === p ? '（今）' : ''}`, () => plan(n, 'priority', p), t.priority !== p]).concat(t.priority ? [['優先度を消す', () => plan(n, 'priority', '')]] : []) : []),
       '-',
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
@@ -423,15 +358,8 @@
     e.preventDefault(); taskMenu(Number(target.dataset.task), e.clientX, e.clientY);
   });
 
-  // Drag a board card to another column. Planning stages (Backlog・Todo) set the board's status; the work stages follow
-  // the work itself, so dropping there starts the work (作業中) or closes the task (完了) through the usual dialogs.
-  function planningOption(stage) {
-    if (!st.board) return null;
-    if (stage === 'todo') return st.board.stages?.todo || null;
-    const mapped = new Set(Object.values(st.board.stages || {}));
-    const status = st.board.fields.find(f => f.name === st.board.status_field);
-    return status?.options.map(o => o.name).find(name => !mapped.has(name)) || null;
-  }
+  // Drag a card to another column. The stages before the work (計画中・未着手) are set with task plan --stage; the work
+  // stages follow the work itself, so dropping there starts the work (作業中) or closes the task (完了) through the dialogs.
   let draggedCard = 0;
   document.addEventListener('dragstart', e => {
     const card = e.target.closest?.('#tasks-content .tk-kcard'); if (!card) return;
@@ -454,9 +382,8 @@
       await detailOf(n); return startDialog(n);
     }
     if (stage === 'in_review') return ECO.toast('レビュー待ちには、作業空間でプルリクエストを提出すると移ります。', 'info', 6000);
-    const value = planningOption(stage);
-    if (!value) return ECO.toast(st.board ? 'ボードにこの段階の選択肢がありません。' : '計画の段階（計画中・未着手）はボードをつなぐと使えます。', 'info', 6000);
-    if (await run(['task', 'field', 'set', String(n), '--field', st.board.status_field, '--value', value], {success: `#${n} を ${value} にしました。`})) reloadAfter(n);
+    if (MOD.placeOfTask(n) || t.workspace || t.remote) return ECO.toast('作業空間があるタスクです。作業をやめると未着手に戻ります。', 'info', 6000);
+    if (await run(['task', 'plan', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n);
   });
 
   // Drag a timeline bar to move its planned dates; drag its right edge to change the planned end.
@@ -496,10 +423,8 @@
   tkEl('tk-assignee').addEventListener('change', e => { st.assignee = e.target.value; render(); });
   tkEl('tk-ready').addEventListener('change', () => load());
   tkEl('tk-closed').addEventListener('change', () => load());
-  tkEl('tk-reload').addEventListener('click', () => { st.details.clear(); load({board: true}).then(() => st.selected && loadDetail(st.selected)); });
+  tkEl('tk-reload').addEventListener('click', () => { st.details.clear(); load({full: true}).then(() => st.selected && loadDetail(st.selected)); });
   tkEl('tk-new').addEventListener('click', newTaskDialog);
-  tkEl('tk-sync').addEventListener('click', syncDialog);
-  tkEl('tk-board-chip').addEventListener('click', boardDialog);
   tkEl('tk-person-dialog').addEventListener('close', () => { st.person = ''; });
 
   document.addEventListener('click', async e => {

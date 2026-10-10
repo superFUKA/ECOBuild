@@ -15,12 +15,12 @@
   <section class="module-content" id="workspace-content" aria-labelledby="workspace-menu"><nav class="tabs" role="tablist" aria-label="作業空間"></nav><div class="panels"></div></section>
   <section id="tasks-content" class="tk" aria-label="タスク管理" hidden>
     <div class="tk-top">
-      <div class="tk-top-title"><h2>タスク管理</h2><button type="button" class="tk-board-chip" id="tk-board-chip" title="ボードの設定"><span class="tk-board-icon" aria-hidden="true">▦</span><span id="tk-board-name">ボード</span><span class="tk-pill" id="tk-board-pill"></span></button></div>
-      <div class="tk-top-actions"><button type="button" id="tk-reload" title="GitHubから読み直す">更新</button><button type="button" id="tk-sync">ボードを同期</button><button type="button" class="primary" id="tk-new">＋ 新しいタスク</button></div>
+      <div class="tk-top-title"><h2>タスク管理</h2></div>
+      <div class="tk-top-actions"><button type="button" id="tk-reload" title="GitHubから読み直す">更新</button><button type="button" class="primary" id="tk-new">＋ 新しいタスク</button></div>
     </div>
     <nav class="tk-views" role="tablist" aria-label="表示">
       <button type="button" role="tab" data-view="list">一覧</button>
-      <button type="button" role="tab" data-view="board">ボード</button>
+      <button type="button" role="tab" data-view="stages">段階</button>
       <button type="button" role="tab" data-view="timeline">日程</button>
     </nav>
     <form class="tk-filter" id="tk-filter" onsubmit="return false">

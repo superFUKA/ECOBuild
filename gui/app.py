@@ -60,7 +60,7 @@ READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("types",), ("doctor",), ("config", "list"),
     ("config", "get"), ("task", "list"), ("task", "status"), ("task", "workload"), ("task", "next"),
     ("task", "overdue"), ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"),
-    ("project", "list"), ("profile", "list"), ("board", "show"), ("board", "list"), ("milestone", "list"),
+    ("project", "list"), ("profile", "list"), ("milestone", "list"),
     ("milestone", "status"), ("sprint", "list"), ("sprint", "status"), ("stash", "list"), ("ci", "status"),
     ("release", "list"),
 }

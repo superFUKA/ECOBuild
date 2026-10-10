@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
@@ -161,6 +162,9 @@ def test_module_list_order_defaults_and_solution(tmp_path):
     assert gui.find_solution(str(a)) is None
     write(a / "build" / "1234" / "A.sln", "")
     assert gui.find_solution(str(a)).name == "A.sln"
+    write(a / "build" / "5678" / "A.slnx", "")                 # VS 2026 のジェネレーターが作るもの
+    os.utime(a / "build" / "5678" / "A.slnx", (time.time() + 10,) * 2)
+    assert gui.find_solution(str(a)).name == "A.slnx"
     assert gui.open_in_visual_studio(str(b)) == {"solution": None}
 
 

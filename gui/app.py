@@ -328,9 +328,11 @@ def module_defaults(directory: str) -> dict:
 
 
 def find_solution(directory: str) -> Path | None:
-    """ビルドで作られた Visual Studio のソリューション（build/ の下。なければ場所の直下）。新しいものを選ぶ。"""
+    """ビルドで作られた Visual Studio のソリューション（build/ の下。なければ場所の直下）。新しいものを選ぶ。
+    VS 2022 のジェネレーターは .sln、VS 2026 のジェネレーターは .slnx を作る。"""
     root = Path(directory).resolve()
-    found = [p for pattern in ("build/*.sln", "build/*/*.sln", "build/*/*/*.sln", "*.sln") for p in root.glob(pattern)]
+    found = [p for place in ("build/", "build/*/", "build/*/*/", "") for suffix in (".sln", ".slnx")
+             for p in root.glob(f"{place}*{suffix}")]
     return max(found, key=lambda p: p.stat().st_mtime) if found else None
 
 

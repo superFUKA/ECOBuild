@@ -220,7 +220,7 @@ const ECO = (() => {
     let opened;
     try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
     if (!opened.solution) {
-      if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
+      if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln／.slnx）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
       const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});
       if (!doc) return false;
       try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }

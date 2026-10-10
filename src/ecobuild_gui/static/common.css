@@ -1,0 +1,45 @@
+/* Shared parts of every page: dialogs, notifications, the list of running commands. */
+.eco-dialog { width: min(560px, calc(100% - 32px)); max-height: 88vh; overflow: auto; padding: 24px; background: #1c2128; color: #edf1f5; border: 1px solid #46515e; border-radius: 12px; box-shadow: 0 24px 80px #0008; font: 14px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.eco-dialog.wide { width: min(980px, calc(100% - 32px)); }
+.eco-dialog::backdrop { background: #0009; }
+.eco-dialog h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
+.eco-dialog p { margin: 8px 0; line-height: 1.7; }
+.eco-dialog .eco-intro { color: #a5aeba; font-size: 13px; }
+.eco-dialog label.eco-field { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }
+.eco-dialog label.eco-check { display: flex; gap: 8px; align-items: center; margin: 10px 0; font-size: 13px; }
+.eco-dialog .eco-help { color: #a5aeba; font-size: 12px; }
+.eco-dialog input:not([type=checkbox]):not([type=radio]), .eco-dialog select, .eco-dialog textarea { width: 100%; padding: 8px 10px; background: #14171b; color: #edf1f5; border: 1px solid #46515e; border-radius: 6px; font: inherit; }
+.eco-dialog input[type=checkbox], .eco-dialog input[type=radio] { accent-color: #9ee4d3; }
+.eco-dialog textarea { resize: vertical; }
+.eco-dialog fieldset { border: 0; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
+.eco-dialog fieldset legend { font-size: 13px; margin-bottom: 6px; padding: 0; }
+.eco-dialog fieldset label { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid #46515e; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.eco-dialog fieldset label:has(input:checked) { border-color: #8bd7c2; background: #253c36; }
+.eco-dialog fieldset small { display: block; color: #b4bec9; font-size: 11px; margin-top: 3px; }
+.eco-dialog .eco-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #343c46; flex-wrap: wrap; }
+.eco-dialog button { padding: 8px 16px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; font: inherit; cursor: pointer; }
+.eco-dialog button:hover:not(:disabled) { border-color: #9ee4d3; }
+.eco-dialog button.primary { background: #9ee4d3; color: #17332c; border-color: #9ee4d3; font-weight: 600; }
+.eco-dialog button.danger { background: #e0868c; color: #2b1013; border-color: #e0868c; font-weight: 600; }
+.eco-dialog .eco-error { color: #ffb4b4; font-size: 13px; white-space: pre-wrap; }
+.eco-dialog .eco-error:empty { display: none; }
+.eco-dialog pre, .eco-pre { margin: 10px 0 0; padding: 12px; max-height: 60vh; overflow: auto; background: #11141a; border: 1px solid #2a3038; border-radius: 6px; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: #cdd5df; }
+.eco-diff .add { color: #9fe0a8; } .eco-diff .del { color: #f3a5a5; } .eco-diff .hunk { color: #8fb7ef; } .eco-diff .meta { color: #a5aeba; }
+.eco-dialog .eco-hint { color: #efc389; font-size: 13px; }
+.eco-dialog .eco-cmd { color: #84909e; font: 11px Consolas, monospace; overflow-wrap: anywhere; }
+.eco-dialog .eco-list { margin: 8px 0; padding-left: 20px; line-height: 1.8; }
+.eco-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 1000; display: grid; gap: 8px; width: min(420px, calc(100% - 32px)); pointer-events: none; }
+.eco-toast { padding: 10px 14px; border-radius: 8px; background: #213a33; color: #c8f3e6; border: 1px solid #39584f; box-shadow: 0 8px 24px #0007; font: 13px/1.6 "Segoe UI", "Yu Gothic UI", sans-serif; pointer-events: auto; white-space: pre-wrap; }
+.eco-toast.bad { background: #43282b; color: #ffd0d0; border-color: #6a3a3f; }
+.eco-toast.info { background: #252d36; color: #dbe3eb; border-color: #46515e; }
+.eco-running { position: fixed; left: 12px; bottom: 12px; z-index: 999; display: grid; gap: 6px; max-width: min(520px, calc(100% - 24px)); pointer-events: none; }
+.eco-running div { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; background: #252b33ee; border: 1px solid #46515e; color: #cdd5df; font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; box-shadow: 0 6px 18px #0006; }
+.eco-running code { font: 11px Consolas, monospace; color: #9ee4d3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eco-spinner { flex-shrink: 0; width: 12px; height: 12px; border: 2px solid #46515e; border-top-color: #9ee4d3; border-radius: 50%; animation: eco-spin .8s linear infinite; }
+@keyframes eco-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .eco-spinner { animation-duration: 3s; } }
+.eco-loading { color: #a5aeba; padding: 16px 0; display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.eco-empty { color: #a5aeba; font-size: 13px; padding: 12px 0; }
+.eco-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: #3d3324; color: #efc389; border: 1px solid #5c4b30; font-size: 13px; line-height: 1.6; }
+.eco-banner.bad { background: #43282b; color: #ffb4b4; border-color: #6a3a3f; }
+.eco-banner button { margin-left: 8px; }

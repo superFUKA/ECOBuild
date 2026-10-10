@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>作業空間 — ECOBuild</title>
+<link rel="stylesheet" href="module.css"><link rel="stylesheet" href="common.css"><link rel="stylesheet" href="workspace.css"></head>
+<body>
+<header><strong>ECOBuild</strong><span class="divider">/</span><h1 id="module-name"></h1><span class="workspace" id="workspace-label"></span></header>
+<div class="build-bar" role="toolbar" aria-label="ビルド・テスト・実行">
+  <label title="このPCで使うビルド設定（profile use）">ビルド設定<select id="build-profile"></select></label>
+  <label>構成<select id="build-config"><option value="">ビルド設定のまま</option><option>Debug</option><option>Release</option><option>RelWithDebInfo</option><option>MinSizeRel</option></select></label>
+  <label id="build-project-label">Project<select id="build-project"></select></label>
+  <div class="build-actions"><button type="button" class="primary" data-build="build">ビルド</button><button type="button" data-build="test">テスト</button><button type="button" data-build="run">実行</button>
+    <details class="build-more" id="build-more"><summary aria-label="その他">⋯</summary><div><button type="button" data-build="rebuild">リビルド</button><button type="button" data-build="clean">クリーン</button><button type="button" data-build="check">提出前の確認</button><label class="build-args">実行時の引数<input id="build-run-args" placeholder="例：--size 3"></label></div></details></div>
+</div>
+<section id="build-output" class="build-output" hidden aria-live="polite"><div class="build-output-head"><strong id="build-output-title"></strong><span id="build-output-state" class="build-state"></span><button type="button" id="build-output-close" aria-label="出力を閉じる">×</button></div><pre id="build-output-text"></pre></section>
+<main>
+  <aside aria-labelledby="files-title"><div class="explorer-heading"><h2 id="files-title">エクスプローラー</h2><span class="explorer-tools"><button id="new-file" title="新しいファイル" aria-label="新しいファイル">＋</button><button id="new-folder" title="新しいフォルダ" aria-label="新しいフォルダ">▭</button><button id="reload-files" title="読み直す" aria-label="読み直す">↻</button></span></div><div id="file-tree"></div>
+    <div class="file-tools" id="file-menu" hidden role="menu"></div></aside>
+  <section class="work" aria-labelledby="changes-title">
+    <div class="heading"><div><p class="eyebrow">変更の管理</p><h2 id="changes-title">コミット・共有</h2></div><span id="branch-state" class="muted"></span></div>
+    <div id="banners"></div>
+    <section class="panel"><div class="heading"><h3>変更ファイル <span id="change-count"></span></h3><label class="select-all"><input type="checkbox" id="select-all"> すべて選ぶ</label></div>
+      <div class="git-toolbar"><button data-git="stage">選択をステージ</button><button data-git="stage-all">すべてステージ</button><button data-git="unstage">選択のステージ取消</button><button data-git="diff">差分</button><button data-git="discard">選択の変更を元に戻す</button></div>
+      <div id="changes"></div><p id="stage-status" class="muted"></p>
+      <label class="message-label" for="commit-message">コミットメッセージ</label><textarea id="commit-message" rows="3" placeholder="変更内容を入力"></textarea>
+      <div class="actions"><label><input type="checkbox" id="amend"> 直前を修正</label><label><input type="checkbox" id="commit-all"> すべての変更</label><button id="commit" class="primary">コミット</button></div></section>
+    <section class="panel share"><div><h3>リモートへ共有</h3><p class="muted">コミットをPushするか、プルリクエストを提出します。</p></div><div class="actions"><label><input type="checkbox" id="force-push"> 強制Push</label><button id="push">Push</button><button id="submit-pr">プルリクエストを提出</button></div><p id="pr-state" class="muted"></p></section>
+    <details class="panel git-section"><summary>コミット履歴・退避・取り込み</summary><div class="git-toolbar"><button data-git="history">履歴</button><button data-git="show">コミットの詳細</button><button data-git="stash">変更を退避</button><button data-git="stash-list">退避一覧</button><button data-git="stash-pop">退避を戻す</button><button data-git="stash-drop">退避を削除</button><button data-git="sync">最新を取り込む</button><button data-git="fetch">GitHubの状態を確認</button></div></details>
+    <section class="panel"><div class="heading"><h3>プルリクエスト</h3><span><label class="muted"><input type="checkbox" id="pr-all"> 閉じたPRも表示</label> <button data-git="pr-refresh">更新</button></span></div><div id="pr-list"></div><div id="pr-tools" class="git-toolbar"></div><div id="pr-detail"></div></section>
+    <p id="operation-status" role="status"></p>
+  </section>
+</main>
+<script src="common.js"></script><script src="workspace.js"></script><script src="explorer.js"></script><script src="prs.js"></script><script src="build.js"></script>
+</body></html>

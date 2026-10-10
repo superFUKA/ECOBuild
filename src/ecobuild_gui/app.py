@@ -1,0 +1,477 @@
+"""GUIのサーバー：画面（static/）を配り、画面からの依頼で ecobuild のCLIを実行する。
+
+- 待ち受けは 127.0.0.1 だけ。APIは起動ごとに作る合言葉（X-ECOBuild-Token）がなければ断る。
+- CLIは `ecobuild -C <場所> <コマンド> --json` で実行し、出力のJSONをそのまま画面へ返す。
+  CLIの場所は環境変数 ECOBUILD_GUI_CLI（JSONの配列）で変えられる（開発用）。
+- CLIにない手元の処理（モジュールの一覧と専用のcloneの登録、ファイルの一覧、フォルダ・空のファイルの作成、
+  既定のアプリで開く、フォルダの選択、ログイン中のアカウント名）だけをGUIが行う。登録の置き場所はツールの管理ディレクトリの gui.json。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import os
+import secrets
+import shutil
+import subprocess
+import sys
+import threading
+import webbrowser
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import urlparse
+
+STATIC = Path(__file__).with_name("static")
+DEFAULT_PORT = 8765
+CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                 ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+
+# 何も変えないコマンド（同じ場所で他のコマンドが動いていても待たずに実行する）。
+READ_ONLY = {
+    ("status",), ("log",), ("show",), ("diff",), ("blame",), ("types",), ("doctor",), ("config", "list"),
+    ("config", "get"), ("task", "list"), ("task", "status"), ("task", "workload"), ("task", "next"),
+    ("task", "overdue"), ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"),
+    ("project", "list"), ("profile", "list"), ("board", "show"), ("board", "list"), ("milestone", "list"),
+    ("milestone", "status"), ("sprint", "list"), ("sprint", "status"), ("stash", "list"), ("ci", "status"),
+    ("release", "list"),
+}
+
+
+def _no_window() -> dict:
+    """Windowsで子プロセスの黒い窓を出さない。"""
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
+class Store:
+    """GUIだけが使う記録（モジュールの一覧・専用のcloneの場所）。ファイルは gui.json。"""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self._lock = threading.Lock()
+
+    def _load(self) -> dict:
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        data.setdefault("modules", [])
+        data.setdefault("workspaces", {})
+        return data
+
+    def _save(self, data: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(self.path)
+
+    def modules(self) -> list[dict]:
+        with self._lock:
+            data = self._load()
+        return [dict(item, exists=(Path(item["path"]) / "ecobuild.toml").is_file()) for item in data["modules"]]
+
+    def add_module(self, path: str) -> dict:
+        root = _module_root(Path(path))
+        with self._lock:
+            data = self._load()
+            if not any(_same(item["path"], root) for item in data["modules"]):
+                data["modules"].append({"path": root.as_posix(), "name": root.name})
+                self._save(data)
+        return {"path": root.as_posix(), "name": root.name}
+
+    def remove_module(self, path: str) -> None:
+        with self._lock:
+            data = self._load()
+            data["modules"] = [item for item in data["modules"] if not _same(item["path"], Path(path))]
+            data["workspaces"].pop(_key(path), None)
+            self._save(data)
+
+    def workspaces(self, module: str) -> list[str]:
+        """モジュールの専用のclone（task start --dir で作ったもの等）。消えた場所は除く。"""
+        with self._lock:
+            data = self._load()
+        return [d for d in data["workspaces"].get(_key(module), []) if (Path(d) / ".git").exists()]
+
+    def add_workspace(self, module: str, directory: str) -> list[str]:
+        root = _module_root(Path(directory))
+        with self._lock:
+            data = self._load()
+            items = data["workspaces"].setdefault(_key(module), [])
+            if not _same(module, root) and not any(_same(d, root) for d in items):
+                items.append(root.as_posix())
+                self._save(data)
+        return self.workspaces(module)
+
+    def remove_workspace(self, module: str, directory: str) -> list[str]:
+        with self._lock:
+            data = self._load()
+            items = data["workspaces"].get(_key(module), [])
+            data["workspaces"][_key(module)] = [d for d in items if not _same(d, Path(directory))]
+            self._save(data)
+        return self.workspaces(module)
+
+
+def _key(path: str | Path) -> str:
+    return Path(path).resolve().as_posix().lower()
+
+
+def _same(a: str | Path, b: str | Path) -> bool:
+    return _key(a) == _key(b)
+
+
+def _module_root(path: Path) -> Path:
+    """ecobuild.toml のある場所（指定した場所か、その上）。"""
+    path = path.expanduser().resolve()
+    for candidate in (path, *path.parents):
+        if (candidate / "ecobuild.toml").is_file():
+            return candidate
+    raise GuiError(f"ECOBuildのモジュールではありません（ecobuild.toml がありません）：{path}")
+
+
+class GuiError(Exception):
+    pass
+
+
+class Cli:
+    """ecobuild のCLIを実行する。変える操作は場所ごとに1つずつ（gitの競合を避ける）。"""
+
+    def __init__(self, command: list[str]):
+        self.command = command
+        self._locks: dict[str, threading.Lock] = {}
+        self._guard = threading.Lock()
+
+    def _lock_for(self, directory: str | None) -> threading.Lock:
+        key = _key(directory) if directory else ""
+        with self._guard:
+            return self._locks.setdefault(key, threading.Lock())
+
+    def run(self, directory: str | None, args: list[str], stdin: str | None = None) -> dict:
+        if not args or not all(isinstance(a, str) for a in args):
+            raise GuiError("コマンドの指定が正しくありません。")
+        if directory and not Path(directory).is_dir():
+            raise GuiError(f"場所がありません：{directory}")
+        argv = list(self.command) + (["-C", directory] if directory else []) + args + ["--json"]
+        read_only = tuple(a for a in args[:2] if not a.startswith("-")) in READ_ONLY or (args[0],) in READ_ONLY
+        lock = None if read_only else self._lock_for(directory)
+        if lock:
+            lock.acquire()
+        try:
+            env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", GIT_TERMINAL_PROMPT="0")
+            completed = subprocess.run(argv, input=stdin or "", capture_output=True, encoding="utf-8",
+                                       errors="replace", env=env, cwd=directory or str(Path.home()),
+                                       **_no_window())
+        finally:
+            if lock:
+                lock.release()
+        document = _last_json(completed.stdout)
+        if document is None:
+            document = {"ok": False, "command": " ".join(args), "result": None, "notices": [],
+                        "error": {"code": "gui_no_output",
+                                  "message": "ecobuild の結果を読めませんでした。",
+                                  "hint": None, "details": (completed.stdout + completed.stderr)[-20000:]}}
+        document["exit_code"] = completed.returncode
+        document["stderr"] = completed.stderr[-20000:]
+        document["argv"] = ["ecobuild"] + (["-C", directory] if directory else []) + args + ["--json"]
+        return document
+
+
+def _last_json(text: str) -> dict | None:
+    for line in reversed(text.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                return json.loads(line)
+            except ValueError:
+                return None
+    return None
+
+
+def default_cli() -> list[str]:
+    configured = os.environ.get("ECOBUILD_GUI_CLI")
+    if configured:
+        return json.loads(configured)
+    # 同じPythonの環境の ecobuild（.venv で起動すれば .venv のもの）
+    return [sys.executable, "-c", "from ecobuild.cli import main; main()"]
+
+
+# 手元の処理（CLIにないもの） -------------------------------------------------------------------
+
+def _git(root: Path, *args: str) -> str:
+    completed = subprocess.run(["git", "-C", str(root), *args], capture_output=True, encoding="utf-8",
+                               errors="replace", **_no_window())
+    return completed.stdout if completed.returncode == 0 else ""
+
+
+def list_files(directory: str) -> dict:
+    """エクスプローラーの中身：gitの管理対象と未追跡のファイル（.gitignore の対象は除く）と、空のフォルダ。"""
+    root = Path(directory).resolve()
+    if not root.is_dir():
+        raise GuiError(f"場所がありません：{root}")
+    files = sorted({f for f in _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")
+                    if f})
+    ignored = {d.rstrip("/") for d in _git(root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
+                                          "--directory").split("\0") if d.endswith("/")}
+    dirs: set[str] = set()
+    for f in files:
+        parts = f.split("/")[:-1]
+        for i in range(1, len(parts) + 1):
+            dirs.add("/".join(parts[:i]))
+    for current, subdirs, _ in os.walk(root):
+        relative = Path(current).relative_to(root).as_posix()
+        relative = "" if relative == "." else relative
+        keep = []
+        for name in subdirs:
+            path = f"{relative}/{name}" if relative else name
+            if name == ".git" or path in ignored:
+                continue
+            keep.append(name)
+            dirs.add(path)
+        subdirs[:] = keep
+    missing = [f for f in files if not (root / f).exists()]
+    return {"root": root.as_posix(), "files": files, "dirs": sorted(dirs), "missing": missing}
+
+
+def _inside(directory: str, relative: str) -> Path:
+    root = Path(directory).resolve()
+    target = (root / relative).resolve()
+    if target != root and root not in target.parents:
+        raise GuiError("場所の外は指定できません。")
+    if ".git" in target.relative_to(root).parts:
+        raise GuiError(".git の中は扱えません。")
+    return target
+
+
+def make_directory(directory: str, relative: str) -> dict:
+    target = _inside(directory, relative)
+    if target.exists():
+        raise GuiError(f"既にあります：{relative}")
+    target.mkdir(parents=True)
+    return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
+
+
+def make_file(directory: str, relative: str) -> dict:
+    """空のファイルを作る（型が ecobuild file add に対応しないとき：generic 等）。"""
+    target = _inside(directory, relative)
+    if target.exists():
+        raise GuiError(f"既にあります：{relative}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.touch()
+    return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
+
+
+def make_parent(path: str) -> dict:
+    """モジュールの作成・取得の前に、置き場所（親のフォルダ）を用意する。"""
+    target = Path(path).expanduser()
+    if not target.is_absolute():
+        raise GuiError("置き場所は絶対パスで指定してください。")
+    target.mkdir(parents=True, exist_ok=True)
+    return {"path": target.resolve().as_posix()}
+
+
+def open_path(directory: str, relative: str, reveal: bool) -> dict:
+    target = _inside(directory, relative or ".")
+    if not target.exists():
+        raise GuiError(f"ありません：{relative}")
+    if os.name == "nt":
+        if reveal and target.is_file():
+            subprocess.Popen(["explorer", "/select,", str(target)])
+        else:
+            os.startfile(str(target))  # noqa: S606（既定のアプリで開く）
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R" if reveal else "", str(target)])
+    else:
+        subprocess.Popen(["xdg-open", str(target.parent if reveal else target)])
+    return {}
+
+
+def read_text(directory: str, relative: str) -> dict:
+    target = _inside(directory, relative)
+    if not target.is_file():
+        raise GuiError(f"ファイルがありません：{relative}")
+    data = target.read_bytes()[:400_000]
+    if b"\0" in data[:8000]:
+        return {"binary": True, "text": ""}
+    return {"binary": False, "text": data.decode("utf-8", errors="replace"), "truncated": target.stat().st_size > len(data)}
+
+
+_PICK = r"""
+import sys, tkinter as tk
+from tkinter import filedialog
+root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+path = filedialog.askdirectory(title=sys.argv[1], initialdir=sys.argv[2] or None, mustexist=False)
+print(path or "")
+"""
+
+
+def pick_folder(title: str, initial: str) -> dict:
+    """フォルダを選ぶ窓（OSの標準）。選ばなければ空。"""
+    completed = subprocess.run([sys.executable, "-c", _PICK, title or "フォルダを選ぶ", initial or ""],
+                               capture_output=True, encoding="utf-8", errors="replace")
+    return {"path": completed.stdout.strip()}
+
+
+_me: dict = {}
+
+
+def who_am_i() -> str:
+    """ログイン中のGitHubのアカウント（画面で「自分」を示すため）。ecobuild にこれを返すコマンドはない。"""
+    if "login" not in _me:
+        try:
+            completed = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True,
+                                       encoding="utf-8", errors="replace", timeout=20, **_no_window())
+            _me["login"] = completed.stdout.strip() if completed.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired):
+            _me["login"] = ""
+    return os.environ.get("ECOBUILD_GUI_ME") or _me["login"]
+
+
+# HTTP --------------------------------------------------------------------------------------------
+
+class App:
+    def __init__(self, cli: Cli, store: Store, token: str, port: int):
+        self.cli, self.store, self.token, self.port = cli, store, token, port
+
+    def api(self, name: str, body: dict) -> object:
+        d = body.get
+        if name == "cli":
+            return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
+        if name == "info":
+            return {"me": who_am_i(), "cli": self.cli.command, "home": str(Path.home()),
+                    "version": __import__("ecobuild_gui").__version__}
+        if name == "modules":
+            return self.store.modules()
+        if name == "modules/add":
+            return self.store.add_module(d("path"))
+        if name == "modules/remove":
+            self.store.remove_module(d("path"))
+            return {}
+        if name == "workspaces":
+            return self.store.workspaces(d("module"))
+        if name == "workspaces/add":
+            return self.store.add_workspace(d("module"), d("dir"))
+        if name == "workspaces/remove":
+            return self.store.remove_workspace(d("module"), d("dir"))
+        if name == "files":
+            return list_files(d("dir"))
+        if name == "mkdir":
+            return make_directory(d("dir"), d("path"))
+        if name == "touch":
+            return make_file(d("dir"), d("path"))
+        if name == "mkparent":
+            return make_parent(d("path"))
+        if name == "open":
+            return open_path(d("dir"), d("path") or "", bool(d("reveal")))
+        if name == "read":
+            return read_text(d("dir"), d("path"))
+        if name == "pick-folder":
+            return pick_folder(d("title") or "", d("initial") or "")
+        raise GuiError(f"知らない操作です：{name}")
+
+
+def make_handler(app: App):
+    allowed_hosts = {f"127.0.0.1:{app.port}", f"localhost:{app.port}"}
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = "ECOBuildGUI"
+
+        def log_message(self, format, *args):  # 端末を静かに保つ
+            pass
+
+        def _send(self, status: int, body: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _json(self, status: int, value: object) -> None:
+            self._send(status, json.dumps(value, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
+
+        def do_GET(self):
+            if self.headers.get("Host") not in allowed_hosts:
+                return self._send(HTTPStatus.FORBIDDEN, b"forbidden", "text/plain")
+            path = urlparse(self.path).path
+            if path == "/":
+                path = "/hub.html"
+            target = (STATIC / path.lstrip("/")).resolve()
+            if STATIC.resolve() not in target.parents or not target.is_file():
+                return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+            # Windowsのレジストリの関連付けに左右されないよう、配るものの種類は決めておく
+            content_type = CONTENT_TYPES.get(target.suffix) or mimetypes.guess_type(target.name)[0] \
+                or "application/octet-stream"
+            self._send(HTTPStatus.OK, target.read_bytes(), content_type)
+
+        def do_POST(self):
+            if self.headers.get("Host") not in allowed_hosts or \
+                    not secrets.compare_digest(self.headers.get("X-ECOBuild-Token", ""), app.token):
+                return self._json(HTTPStatus.FORBIDDEN, {"error": "合言葉が違います。GUIを開き直してください。"})
+            path = urlparse(self.path).path
+            if not path.startswith("/api/"):
+                return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}")
+                self._json(HTTPStatus.OK, {"value": app.api(path[len("/api/"):], body)})
+            except GuiError as error:
+                self._json(HTTPStatus.OK, {"error": str(error)})
+            except Exception as error:  # 画面に理由を出す（サーバーは止めない）
+                self._json(HTTPStatus.OK, {"error": f"{type(error).__name__}: {error}"})
+
+    return Handler
+
+
+def _edge() -> str | None:
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles")):
+        if base:
+            candidate = Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which("msedge")
+
+
+def open_window(url: str) -> None:
+    """Edgeがあればアプリの窓（アドレスバーなし）で、なければ既定のブラウザで開く。"""
+    edge = _edge() if os.name == "nt" else None
+    if edge:
+        subprocess.Popen([edge, f"--app={url}"])
+    else:
+        webbrowser.open(url)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="ecobuild-gui", description="ECOBuildのGUIを開きます。")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"待ち受けるポート（既定 {DEFAULT_PORT}。"
+                                                                       "使われていれば空いているもの）")
+    parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
+    args = parser.parse_args(argv)
+
+    from ecobuild import tooling
+    store = Store(tooling.home() / "gui.json")
+    token = secrets.token_urlsafe(24)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", args.port), None)
+    except OSError:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+    port = server.server_address[1]
+    app = App(Cli(default_cli()), store, token, port)
+    server.RequestHandlerClass = make_handler(app)
+    server.daemon_threads = True
+    url = f"http://127.0.0.1:{port}/hub.html?t={token}"
+    print(f"ECOBuild GUI：{url}")
+    print("終了するには Ctrl+C を押してください。", flush=True)
+    if not args.no_browser:
+        open_window(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    main()

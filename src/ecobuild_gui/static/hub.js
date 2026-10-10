@@ -1,0 +1,164 @@
+'use strict';
+// Hub: the list of modules (kept by the GUI) and the settings shared by every module.
+const $ = id => document.getElementById(id);
+const {esc} = ECO;
+
+// Navigation ------------------------------------------------------------------------------------
+const navigation = document.querySelectorAll('[data-page]');
+navigation.forEach(button => button.addEventListener('click', () => {
+  navigation.forEach(item => {
+    const selected = item === button;
+    if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
+    $(item.dataset.page).hidden = !selected;
+  });
+  if (button.dataset.page === 'settings') loadSettings();
+}));
+
+// Module list -----------------------------------------------------------------------------------
+let modules = [];
+const openModule = path => window.open('module.html?path=' + encodeURIComponent(path), '_blank');
+
+async function loadModules() {
+  try { modules = await ECO.call('modules'); } catch (e) { ECO.toast(e.message, 'bad'); modules = []; }
+  const list = $('module-list');
+  if (!modules.length) {
+    list.innerHTML = '';
+    list.insertAdjacentHTML('afterend', '');
+    list.innerHTML = '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新しく作る・GitHubから取得する・手元のフォルダを登録するのどれかで追加してください。</li>';
+    return;
+  }
+  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}">
+    <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span><span class="module-path">${esc(m.path)}</span>
+    ${m.exists ? '' : '<span class="module-state">フォルダが見つかりません</span>'}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
+    <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
+      <button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>
+      <button type="button" data-action="remove" data-index="${i}">一覧から外す</button></div></details></li>`).join('');
+}
+$('module-list').addEventListener('click', async event => {
+  const action = event.target.closest('[data-action]');
+  if (action) {
+    action.closest('details').removeAttribute('open');
+    const m = modules[Number(action.dataset.index)];
+    if (action.dataset.action === 'folder') { try { await ECO.call('open', {dir: m.path, path: ''}); } catch (e) { ECO.toast(e.message, 'bad'); } }
+    if (action.dataset.action === 'remove' && await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧から外します。フォルダやGitHubのリポジトリは消しません。`, ok: '外す'})) {
+      await ECO.call('modules/remove', {path: m.path}); loadModules();
+    }
+    return;
+  }
+  const open = event.target.closest('[data-open]');
+  if (open) { const m = modules[Number(open.dataset.open)]; if (m.exists) openModule(m.path); else ECO.toast('フォルダが見つかりません：' + m.path, 'bad'); }
+});
+$('module-list').addEventListener('keydown', event => { if (event.key === 'Enter' && event.target.matches('[data-open]')) event.target.click(); });
+
+// Add a module: new / clone run the CLI; registering a local folder is done by the GUI. --------------
+const addDialog = $('add-dialog'), addForm = $('add-form');
+const field = name => addForm.elements.namedItem(name);
+let types = [];
+function defaultParent() {
+  try { const saved = localStorage.getItem('ecobuild-gui-parent'); if (saved) return saved; } catch (e) { /* storage blocked */ }
+  if (modules.length) return modules[0].path.replace(/[\\/][^\\/]+$/, '');
+  return '';
+}
+function updateFields() {
+  const method = addForm.querySelector('[name=method]:checked').value;
+  addForm.querySelector('[type=submit]').textContent = {new: '作成する', clone: '取得する', register: '登録する'}[method];
+  for (const [id, on] of [['new-fields', method === 'new'], ['clone-fields', method === 'clone'], ['register-fields', method === 'register']]) { $(id).hidden = !on; $(id).disabled = !on; }
+  $('parent-fields').hidden = method === 'register';
+  field('directory').required = method !== 'register';
+  const type = field('type').value;
+  $('app-field').hidden = type !== 'cpp';
+  $('type-description').textContent = types.find(t => t.name === type)?.description || '';
+}
+$('add-module').addEventListener('click', async () => {
+  addForm.reset(); addForm.querySelector('details').open = false;
+  field('directory').value = defaultParent();
+  $('add-error').textContent = ''; updateFields(); addDialog.showModal();
+  if (!types.length) {
+    const doc = await ECO.cli(null, ['types'], {quiet: true});
+    if (doc.ok) { types = doc.result; $('type-select').innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join(''); updateFields(); }
+  }
+  ECO.info().then(info => { if (!field('directory').value && info.home) field('directory').value = info.home.replaceAll('\\', '/'); });
+});
+$('cancel-add').addEventListener('click', () => addDialog.close());
+addForm.addEventListener('change', updateFields);
+addForm.addEventListener('click', async event => {
+  const pick = event.target.closest('[data-pick]'); if (!pick) return;
+  const input = field(pick.dataset.pick);
+  try { const {path} = await ECO.call('pick-folder', {title: 'フォルダを選ぶ', initial: input.value}); if (path) input.value = path; } catch (e) { ECO.toast(e.message, 'bad'); }
+});
+addForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const data = new FormData(addForm), method = data.get('method'), error = $('add-error'), submit = addForm.querySelector('[type=submit]');
+  error.textContent = '';
+  if (method === 'register') {
+    try { const m = await ECO.call('modules/add', {path: data.get('folder').trim()}); addDialog.close(); ECO.toast(m.name + ' を一覧に登録しました。'); loadModules(); }
+    catch (e) { error.textContent = e.message; }
+    return;
+  }
+  const parent = data.get('directory').trim().replace(/[\\/]+$/, '');
+  if (!parent) { error.textContent = '保存先の親フォルダを入力してください。'; return; }
+  submit.disabled = true;
+  try {
+    let directory;
+    try { directory = (await ECO.call('mkparent', {path: parent})).path; } catch (e) { error.textContent = e.message; return; }
+    const args = method === 'new' ? ['new', data.get('name').trim(), '--type', data.get('type')] : ['clone', data.get('repository').trim()];
+    if (method === 'new') {
+      for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
+      if (data.has('public')) args.push('--public');
+      if (data.has('app') && data.get('type') === 'cpp') args.push('--app');
+    }
+    error.textContent = method === 'new' ? 'GitHubにリポジトリを作り、初回のPushまで行っています…' : 'cloneして、依存先と生成ファイルを用意しています…';
+    const doc = await ECO.cli(directory, args);
+    error.textContent = '';
+    if (!doc.ok) { ECO.showError(doc, method === 'new' ? '作成できませんでした' : '取得できませんでした'); return; }
+    try { localStorage.setItem('ecobuild-gui-parent', parent); } catch (e) { /* storage blocked */ }
+    const m = await ECO.call('modules/add', {path: doc.result.root});
+    addDialog.close(); ECO.toast(`${m.name} を${method === 'new' ? '作成' : '取得'}しました。`); loadModules();
+  } finally { submit.disabled = false; }
+});
+
+// Settings ----------------------------------------------------------------------------------------
+function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }
+async function loadSettings() {
+  const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
+  if (doc.ok) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
+  const info = await ECO.info();
+  $('about').textContent = `ログイン中のGitHubアカウント：${info.me || '（取得できませんでした）'}　／　使っている ecobuild：${(info.cli || []).join(' ')}`;
+}
+$('owner-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const owner = $('default-owner').value.trim();
+  const doc = await ECO.run(null, owner ? ['config', 'set', 'owner', owner] : ['config', 'unset', 'owner']);
+  if (doc) { $('owner-status').textContent = owner ? '既定の所有者を ' + owner + ' に設定しました。' : 'ログイン中のユーザーを使います。'; ownerHint(owner); }
+});
+$('reset-owner').addEventListener('click', async () => {
+  const doc = await ECO.run(null, ['config', 'unset', 'owner']);
+  if (doc) { $('default-owner').value = ''; $('owner-status').textContent = '既定に戻しました。ログイン中のユーザーを使います。'; ownerHint(''); }
+});
+function renderDiagnosis(items) {
+  $('doctor-results').innerHTML = items.map(item => `<li><div><span class="item-name">${esc(item.name)}</span><small>${esc(item.detail)}${item.ok ? '' : '<br>' + esc(item.hint)}</small></div>
+    <span class="${item.ok ? 'ok' : 'missing'}">${item.ok ? '確認済み' : item.required ? '要対応' : '任意'}</span></li>`).join('');
+  const missing = items.filter(i => !i.ok && i.required).length;
+  $('doctor-status').textContent = missing ? missing + '件の対応が必要です。' : '開発に必要な環境が整っています。';
+}
+$('run-doctor').addEventListener('click', async () => {
+  $('doctor-status').textContent = 'チェックしています…';
+  const doc = await ECO.cli(null, ['doctor']);
+  if (doc.ok) renderDiagnosis(doc.result.items); else { $('doctor-status').textContent = ''; ECO.showError(doc); }
+});
+$('setup-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const data = new FormData(event.currentTarget), args = ['setup'];
+  for (const key of ['name', 'email']) if (data.get(key).trim()) args.push('--' + key, data.get(key).trim());
+  if (data.has('install')) args.push('--install');
+  $('setup-status').textContent = '準備しています…';
+  const doc = await ECO.run(null, args);
+  if (!doc) { $('setup-status').textContent = ''; return; }
+  const r = doc.result;
+  $('setup-status').innerHTML = (r.done.length ? '<p>' + r.done.map(esc).join('<br>') + '</p>' : '<p>変えることはありませんでした。</p>')
+    + (r.remaining.length ? '<p>まだ足りないもの：' + r.remaining.map(i => esc(i.name)).join('、') + '</p>' : '')
+    + (r.commands.length ? '<p>足りないツールの導入コマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');
+});
+
+loadModules();
+window.addEventListener('focus', loadModules);

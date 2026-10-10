@@ -1,0 +1,41 @@
+/* Module-wide screen (dependencies, Projects, build settings, branches). */
+.mi { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.mi button { padding: 6px 12px; background: #252d36; border: 1px solid #46515e; border-radius: 6px; color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.mi button:hover { border-color: var(--accent); }
+.mi button.primary { background: var(--accent); border-color: var(--accent); color: #17332c; font-weight: 600; }
+.mi button.danger-text { color: var(--bad); }
+.mi-top { padding: 14px 20px 0; border-bottom: 1px solid var(--line); }
+.mi-top h2 { margin: 0 0 8px; font-size: 18px; }
+.mi-tabs { display: flex; gap: 2px; }
+.mi .mi-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 9px 12px; }
+.mi .mi-tabs button[aria-selected=true] { color: #b0efdd; border-bottom-color: var(--accent); }
+.mi-main { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px 28px; }
+.mi-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.mi-head h3 { margin: 0 0 4px; font-size: 15px; }
+.mi-note { margin: 0; font-size: 12px; color: var(--muted); max-width: 640px; line-height: 1.6; }
+.mi-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.mi-table { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+.mi-table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); background: #191e24; }
+.mi-table td { padding: 9px 10px; border-bottom: 1px solid #262c34; vertical-align: middle; }
+.mi-table tr:last-child td { border-bottom: 0; }
+.mi-table input[type=radio] { accent-color: var(--accent); }
+.mi-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.mi-mono { font-family: Consolas, monospace; font-size: 12px; }
+.mi-row-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.mi .mi-row-actions button { padding: 3px 10px; font-size: 12px; }
+.mi-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #2a3139; color: #cdd5df; white-space: nowrap; }
+.mi-pill.ok, .mi-pill.dep { background: #213a33; color: #a8ead9; } .mi-pill.warn { background: #3d3324; color: var(--warn); } .mi-pill.bad { background: #43282b; color: var(--bad); } .mi-pill.pr { background: #322c45; color: #d6c9f7; }
+.mi .mi-note + .mi-table, .mi-table + .mi-note { margin-top: 10px; }
+
+/* Branch tree. */
+.mi-tree, .mi-tree ul { list-style: none; margin: 0; padding: 0; }
+.mi-tree ul { margin-left: 22px; padding-left: 16px; border-left: 1px solid #3a424c; }
+.mi-tree li { position: relative; }
+.mi-tree ul > li::before { content: ""; position: absolute; left: -16px; top: 21px; width: 14px; border-top: 1px solid #3a424c; }
+.mi-branch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 13px; }
+.mi-branch.ws { background: #1a2523; border-color: #2f4540; }
+.mi-branch-name { font-family: Consolas, monospace; font-weight: 700; }
+.mi-where { font-size: 11px; color: var(--muted); }
+.mi-branch .mi-row-actions { margin-left: auto; }
+td.mi-row-actions { display: table-cell; text-align: right; }
+.mi td.mi-row-actions button + button { margin-left: 6px; }

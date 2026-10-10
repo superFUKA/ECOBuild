@@ -23,7 +23,6 @@ dev = [
 
 [project.scripts]
 ecobuild = "ecobuild.cli:main"
-ecobuild-gui = "ecobuild_gui.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -31,7 +30,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 ecobuild = ["module_types.toml"]
 ecobuild_cpp = ["templates/*"]
-ecobuild_gui = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

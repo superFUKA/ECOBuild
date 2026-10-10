@@ -1,10 +1,14 @@
-"""GUIのサーバー：画面（static/）を配り、画面からの依頼で ecobuild のCLIを実行する。
+"""ECOBuildのGUI：画面（static/）を配り、画面からの依頼で ecobuild のCLIを実行する。
+
+ECOBuildの実装（src/ のパッケージ）とは独立している。ECOBuildのコードは読み込まず、ecobuild コマンドを呼ぶだけ。
+使うのは Python の標準ライブラリだけ（3.11 以上）。起動：python gui/app.py
 
 - 待ち受けは 127.0.0.1 だけ。APIは起動ごとに作る合言葉（X-ECOBuild-Token）がなければ断る。
 - CLIは `ecobuild -C <場所> <コマンド> --json` で実行し、出力のJSONをそのまま画面へ返す。
-  CLIの場所は環境変数 ECOBUILD_GUI_CLI（JSONの配列）で変えられる（開発用）。
+  ecobuild の場所：--ecobuild、環境変数 ECOBUILD_GUI_CLI（JSONの配列。開発用）、PATH、起動したPythonと
+  同じ環境の Scripts（bin）の順に探す。ECOBuildのCLIはGUIの存在を知らない。
 - CLIにない手元の処理（モジュールの一覧と専用のcloneの登録、ファイルの一覧、フォルダ・空のファイルの作成、
-  既定のアプリで開く、フォルダの選択、ログイン中のアカウント名）だけをGUIが行う。登録の置き場所はツールの管理ディレクトリの gui.json。
+  既定のアプリで開く、フォルダの選択、ログイン中のアカウント名）だけをGUIが行う。登録の置き場所は ECOBUILD_GUI_HOME（既定は %APPDATA%/ecobuild-gui 等）の gui.json。
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+VERSION = "0.1.0"
 STATIC = Path(__file__).with_name("static")
 DEFAULT_PORT = 8765
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -188,12 +193,32 @@ def _last_json(text: str) -> dict | None:
     return None
 
 
-def default_cli() -> list[str]:
+def default_cli(explicit: str = "") -> list[str]:
+    """ecobuild コマンドの場所。"""
+    if explicit:
+        return [explicit]
     configured = os.environ.get("ECOBUILD_GUI_CLI")
     if configured:
         return json.loads(configured)
-    # 同じPythonの環境の ecobuild（.venv で起動すれば .venv のもの）
-    return [sys.executable, "-c", "from ecobuild.cli import main; main()"]
+    # ユーザーのPC環境の ecobuild（PATH）。なければ、起動したPythonと同じ環境（.venv 等）のもの
+    found = shutil.which("ecobuild")
+    if found:
+        return [found]
+    scripts = Path(sys.executable).parent
+    for name in ("ecobuild.exe", "ecobuild"):
+        if (scripts / name).is_file():
+            return [str(scripts / name)]
+    raise SystemExit("ecobuild コマンドが見つかりません。--ecobuild <パス> で指定してください。")
+
+
+def gui_home() -> Path:
+    """GUIの記録の置き場所（ECOBuildのツールの設定とは別）。"""
+    if os.environ.get("ECOBUILD_GUI_HOME"):
+        return Path(os.environ["ECOBUILD_GUI_HOME"])
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "ecobuild-gui"
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "ecobuild-gui"
 
 
 # 手元の処理（CLIにないもの） -------------------------------------------------------------------
@@ -339,7 +364,7 @@ class App:
             return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
         if name == "info":
             return {"me": who_am_i(), "cli": self.cli.command, "home": str(Path.home()),
-                    "version": __import__("ecobuild_gui").__version__}
+                    "version": VERSION}
         if name == "modules":
             return self.store.modules()
         if name == "modules/add":
@@ -447,21 +472,26 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"待ち受けるポート（既定 {DEFAULT_PORT}。"
                                                                        "使われていれば空いているもの）")
     parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
+    parser.add_argument("--ecobuild", default="", help="ecobuild コマンドの場所（既定：PATH、なければ起動したPythonの環境）")
     args = parser.parse_args(argv)
 
-    from ecobuild import tooling
-    store = Store(tooling.home() / "gui.json")
+    cli = Cli(default_cli(args.ecobuild))
+    store = Store(gui_home() / "gui.json")
     token = secrets.token_urlsafe(24)
     try:
         server = ThreadingHTTPServer(("127.0.0.1", args.port), None)
     except OSError:
         server = ThreadingHTTPServer(("127.0.0.1", 0), None)
     port = server.server_address[1]
-    app = App(Cli(default_cli()), store, token, port)
+    app = App(cli, store, token, port)
     server.RequestHandlerClass = make_handler(app)
     server.daemon_threads = True
     url = f"http://127.0.0.1:{port}/hub.html?t={token}"
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     print(f"ECOBuild GUI：{url}")
+    print(f"ecobuild：{' '.join(cli.command)}")
     print("終了するには Ctrl+C を押してください。", flush=True)
     if not args.no_browser:
         open_window(url)

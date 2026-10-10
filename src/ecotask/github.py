@@ -47,6 +47,8 @@ class TaskRecord:
     closed_reason: str | None = None    # completed / not_planned
     milestone_due: str | None = None    # YYYY-MM-DD
     item: "_board.BoardItem | None" = None
+    created_at: str | None = None       # Issueを作った日時（2026-10-10T01:02:03Z）
+    closed_at: str | None = None        # 閉じた日時（開いていればNone）
 
 
 @dataclass(frozen=True)
@@ -400,7 +402,7 @@ class GhCli:
     def task_records(self, repo, *, closed, board_id, number=None):
         """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""
         items = (" projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }") if board_id else ""
-        fields = ("number title url state stateReason body parent { number } subIssuesSummary { total completed } "
+        fields = ("number title url state stateReason createdAt closedAt body parent { number } subIssuesSummary { total completed } "
                   "issueDependenciesSummary { blockedBy blocking } milestone { title dueOn } "
                   "assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }" + items)
         if number is not None:
@@ -592,7 +594,8 @@ def _task_record(node: dict, board_id: str | None) -> TaskRecord:
     reason = (node.get("stateReason") or "").lower() or None
     item = None if not board_id else _board_item((node.get("projectItems") or {}).get("nodes") or [], board_id)
     return TaskRecord(issue, relations, reason if issue.state == "closed" else None,
-                      (milestone.get("dueOn") or "")[:10] or None, item)
+                      (milestone.get("dueOn") or "")[:10] or None, item, node.get("createdAt"),
+                      node.get("closedAt") if issue.state == "closed" else None)
 
 
 def _board_item(nodes: list, board_id: str) -> _board.BoardItem | None:

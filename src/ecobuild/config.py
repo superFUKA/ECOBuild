@@ -38,7 +38,7 @@ CI_RUNNERS = {"windows": "windows-latest", "linux": "ubuntu-latest"}
 CI_TABLE = "ci"
 BOARD_TABLE = "board"
 BOARD_STAGES = ("todo", "in_progress", "in_review", "done")   # 作業の段階（ecotask と同じ）
-BOARD_ROLES = ("priority", "due", "estimate", "sprint")        # 計画の値の役割（[board] の <役割>_field）
+BOARD_ROLES = ("priority", "due", "estimate", "sprint", "planned_start", "planned_end", "started")   # 役割（[board] の <役割>_field。ecotask と同じ）
 
 
 @dataclass(frozen=True)

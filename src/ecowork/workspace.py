@@ -342,13 +342,19 @@ class TaskSummary:
     sprint: str | None = None
     milestone_due: _datetime.date | None = None
     closed_reason: str | None = None  # completed / not_planned
+    planned_start: _datetime.date | None = None   # 開始予定日
+    planned_end: _datetime.date | None = None     # 終了予定日
+    created: _datetime.date | None = None         # 追加した日
+    started: _datetime.date | None = None         # 開始日（初めて作業中になった日）
+    finished: _datetime.date | None = None        # 終了日（閉じた日）
 
     @classmethod
     def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool) -> "TaskSummary":
         return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
                    task.status, task.fields, task.stage, task.priority, task.due, task.estimate,
-                   None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason)
+                   None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
+                   task.planned_start, task.planned_end, task.created, task.started, task.finished)
 
 
 @dataclass(frozen=True)

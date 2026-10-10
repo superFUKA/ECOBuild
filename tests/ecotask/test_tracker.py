@@ -189,3 +189,79 @@ def test_plan_returns_written_values_even_if_reading_is_stale(tracker, monkeypat
     result = tracker.plan(task.number, priority="High", due="2026-10-15", clear=("estimate",), sprint="sprint 2")
     assert (result.priority, result.priority_rank, result.due, result.estimate, result.sprint.name) == (
         "High", 0, datetime.date(2026, 10, 15), None, "Sprint 2")
+
+
+def test_standard_board_has_date_fields(tracker):
+    board = connect(tracker)
+    assert [(board.field(n).type) for n in ("Planned Start", "Planned End", "Started")] == ["DATE"] * 3
+    assert {r: tracker.board.schema[r] for r in ("planned_start", "planned_end", "started")} == {
+        "planned_start": "Planned Start", "planned_end": "Planned End", "started": "Started"}
+
+
+def test_dates_are_recorded(tracker):
+    """追加した日・終了日はGitHubの記録（Issueの作成・閉じた日時）、開始日は作業中になったときボードに書く。"""
+    connect(tracker)
+    today = datetime.date.today()
+    parent = tracker.create("親")
+    child = tracker.create("子", parent=parent.number)
+    task = tracker.task(child.number)
+    assert (task.created, task.started, task.finished) == (today, None, None)
+    tracker.set_stage(child.number, "in_progress")
+    assert (tracker.task(child.number).started, tracker.task(parent.number).started) == (today, today)
+    tracker.set_field(child.number, "Started", "2026-01-02")
+    tracker.set_stage(child.number, "in_review")                       # 開始日は最初の1回だけ
+    assert tracker.task(child.number).started == datetime.date(2026, 1, 2)
+    tracker.close(child.number)
+    assert tracker.task(child.number).finished == today
+    tracker.reopen(child.number)
+    assert (tracker.task(child.number).finished, tracker.task(child.number).started) == (None, datetime.date(2026, 1, 2))
+
+
+def test_started_is_skipped_without_the_field(tracker):
+    connect(tracker)
+    tracker.board = BoardSettings(tracker.board.url, "Status", tracker.board.stages, {"due": "Due"})
+    task = tracker.create("t")
+    tracker.set_stage(task.number, "in_progress")
+    assert tracker.task(task.number).started is None and tracker.notices == []
+
+
+def test_create_and_edit_with_planned_dates(tracker):
+    connect(tracker)
+    task = tracker.create("t", plan={"due": "2026-10-31", "planned_start": "2026-10-12", "planned_end": "2026-10-20"})
+    got = tracker.task(task.number)
+    assert (got.due, got.planned_start, got.planned_end) == (
+        datetime.date(2026, 10, 31), datetime.date(2026, 10, 12), datetime.date(2026, 10, 20))
+    tracker.edit(task.number, plan={"planned_end": "2026-10-25"}, clear_plan=("due",))
+    got = tracker.task(task.number)
+    assert (got.due, got.planned_start, got.planned_end) == (None, datetime.date(2026, 10, 12), datetime.date(2026, 10, 25))
+    # 書かない方の今の値と合わせて、開始予定日が終了予定日より後なら止める
+    assert code_of(lambda: tracker.edit(task.number, plan={"planned_start": "2026-10-30"})) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: tracker.plan(task.number, planned_end="2026-10-01")) == ErrorCode.INVALID_ARGUMENT
+    assert tracker.plan(task.number, planned_start="2026-10-30", clear=("planned_end",)).planned_start == \
+        datetime.date(2026, 10, 30)
+    assert code_of(lambda: tracker.plan(task.number, clear=("started",))) == ErrorCode.INVALID_ARGUMENT
+    ordered = tracker.sort(tracker.tasks(), "planned_start")
+    assert [t.number for t in ordered] == [task.number]
+
+
+def test_create_checks_dates_before_creating(tracker):
+    connect(tracker)
+    before = len(tracker.github.issues)
+    assert code_of(lambda: tracker.create("t", plan={"planned_start": "2026-10-20", "planned_end": "2026-10-12"})) \
+        == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: tracker.create("t", plan={"due": "10/31"})) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: tracker.create("t", plan={"due": "2026-02-30"})) == ErrorCode.INVALID_ARGUMENT
+    assert len(tracker.github.issues) == before                            # Issueは作っていない
+    tracker.board = None
+    assert code_of(lambda: tracker.create("t", plan={"due": "2026-10-31"})) == ErrorCode.NO_BOARD
+
+
+def test_add_standard_fields_to_an_existing_board(tracker):
+    from ecotask.board import BoardField
+    board = tracker.github.add_board(extra=(BoardField("F_due", "期日", "DATE"),))
+    settings = BoardSettings(board.url, "Status", default_stages(board.field("Status")))
+    added = tracker.add_standard_fields(BoardSettings(board.url, "Status", schema={"due": "期日"}))
+    assert added == ("Priority", "Estimate", "Sprint", "Planned Start", "Planned End", "Started")
+    schema = {**default_schema(tracker.github.get_board(tracker.root, "tester", board.number)), "due": "期日"}
+    assert set(schema) == {"priority", "due", "estimate", "sprint", "planned_start", "planned_end", "started"}
+    assert tracker.add_standard_fields(BoardSettings(settings.url, "Status", schema=schema)) == ()

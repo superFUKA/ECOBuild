@@ -91,16 +91,22 @@ class Tracker:
 
     def create(self, title: str, *, body: str = "", labels: tuple[str, ...] = (), assignees: tuple[str, ...] = (),
                parent: int | None = None, blocked_by: tuple[int, ...] = (),
-               milestone: str | None = None) -> _github.IssueInfo:
-        """タスクを作り、ボードがあれば未着手で加える。parent：親、blocked_by：先に終わるべきタスク。"""
+               milestone: str | None = None, plan: dict[str, str | None] | None = None) -> _github.IssueInfo:
+        """タスクを作り、ボードがあれば未着手で加える。parent：親、blocked_by：先に終わるべきタスク。
+        plan：計画の値（役割 → 値。期限・開始予定日・終了予定日等。ecotask.store の plan と同じ）。"""
         if milestone is not None:
             self.milestone_number(milestone)  # 作る前に確かめる
+        plan = {role: value for role, value in (plan or {}).items() if value is not None}
+        if plan:
+            self.store.prepare(plan)
         info = self.github.create_issue(self.root, title, body, labels=labels, assignees=assignees)
         self.set_stage(info.number, _model.TODO)
-        if parent is None and not blocked_by and milestone is None:
+        if parent is None and not blocked_by and milestone is None and not plan:
             return info
         try:
             self.set_relations(info.number, parent=parent, add_blocked_by=blocked_by, milestone=milestone)
+            if plan:
+                self.store.plan(info.number, **plan)
         except TaskError as error:
             error.hint = ((error.hint + "\n") if error.hint else "") + (
                 f"Issue #{info.number} は作成済みです。{self._op('task edit')} {info.number} で設定し直してください。")
@@ -112,13 +118,18 @@ class Tracker:
              add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = (),
              parent: int | None = None, clear_parent: bool = False, add_blocked_by: tuple[int, ...] = (),
              remove_blocked_by: tuple[int, ...] = (), milestone: str | None = None,
-             clear_milestone: bool = False) -> _github.IssueInfo:
-        """題名・本文・ラベル・担当者（@me は自分）・親・先に終わるべきタスク・マイルストーンを変える。"""
+             clear_milestone: bool = False, plan: dict[str, str | None] | None = None,
+             clear_plan: tuple[str, ...] = ()) -> _github.IssueInfo:
+        """題名・本文・ラベル・担当者（@me は自分）・親・先に終わるべきタスク・マイルストーン、
+        計画の値（plan：役割 → 値、clear_plan：消す役割。ecotask.store の plan と同じ）を変える。"""
+        plan = {role: value for role, value in (plan or {}).items() if value is not None}
         if title is None and body is None and parent is None and milestone is None and not (
                 add_labels or remove_labels or add_assignees or remove_assignees or clear_parent
-                or add_blocked_by or remove_blocked_by or clear_milestone):
+                or add_blocked_by or remove_blocked_by or clear_milestone or plan or clear_plan):
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
-                            hint="題名・本文・ラベル・担当者・親・依存・マイルストーンのどれかを指定してください。")
+                            hint="題名・本文・ラベル・担当者・親・依存・マイルストーン・計画の値のどれかを指定してください。")
+        if plan or clear_plan:
+            self.store.prepare(plan, clear_plan, self.task(number))   # 他を変える前に確かめる
         if parent is not None and clear_parent:
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "親の指定と解除は同時にできません。")
         if milestone is not None and clear_milestone:
@@ -129,6 +140,8 @@ class Tracker:
                                    remove_assignees=remove_assignees)
         self.set_relations(number, parent=parent, clear_parent=clear_parent, add_blocked_by=add_blocked_by,
                            remove_blocked_by=remove_blocked_by, milestone=milestone, clear_milestone=clear_milestone)
+        if plan or clear_plan:
+            self.store.plan(number, clear=clear_plan, **plan)
         return self.issue(number)
 
     def set_relations(self, number: int, *, parent: int | None = None, clear_parent: bool = False,
@@ -156,7 +169,8 @@ class Tracker:
                                             None if clear_milestone else self.milestone_number(milestone))
 
     def plan(self, number: int, **values) -> _model.Task:
-        """計画の値（priority・due・estimate・sprint〔名前か current〕・clear）を設定する（ecotask.store と同じ）。"""
+        """計画の値（priority・due・estimate・sprint〔名前か current〕・planned_start・planned_end・clear）を
+        設定する（ecotask.store と同じ）。"""
         written = self.store.plan(number, **values)
         return self.store.apply(self.task(number), written)
 
@@ -262,9 +276,9 @@ class Tracker:
         if role is not None:
             if self.store.role_field(role) is None:
                 raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードに{_model.ROLE_NAMES[role]}の項目が当てられていません。")
-            pick = {_model.PRIORITY: lambda t: t.priority_rank, _model.DUE: lambda t: t.due,
-                    _model.ESTIMATE: lambda t: t.estimate,
-                    _model.SPRINT: lambda t: None if t.sprint is None else t.sprint.start}[role]
+            pick = {_model.PRIORITY: lambda t: t.priority_rank, _model.ESTIMATE: lambda t: t.estimate,
+                    _model.SPRINT: lambda t: None if t.sprint is None else t.sprint.start}.get(
+                role, lambda t: getattr(t, role))   # 日付の役割は Task の同じ名前の属性
             return sorted(tasks, key=lambda item: _missing_last(pick(task_of(item)), task_of(item).number))
         target = info.field(name)
         if target.name == status.name:
@@ -291,7 +305,7 @@ class Tracker:
             self.notices.append("ボードをつないでいないので、優先度・期限・スプリントは使わずに並べています"
                                 f"（{self._op('board create')}・{self._op('board use')}）。")
         else:
-            missing = [_model.ROLE_NAMES[r] for r in _model.ROLES if self.store.role_field(r) is None]
+            missing = [_model.ROLE_NAMES[r] for r in _model.RANK_ROLES if self.store.role_field(r) is None]
             if missing:
                 self.notices.append(f"ボードに{'・'.join(missing)}の項目が当てられていないので、使わずに並べています"
                                     f"（項目を足して、作業空間で {self._op('board use')} をやり直してください）。")
@@ -368,7 +382,8 @@ class Tracker:
     def create_board(self, title: str | None = None, *, owner: str | None = None, sprint_start: str | None = None,
                      sprint_days: int = 14, sprints: int = 3) -> _board.BoardInfo:
         """このリポジトリ専用の標準のボードを作り、リポジトリにリンクする：Status（Backlog・Todo・In Progress・
-        In Review・Done）・Priority・Estimate・Due・Sprint。題名を省略すると「<リポジトリ名> タスク」。"""
+        In Review・Done）・Priority・Due・Estimate・Sprint・Planned Start・Planned End・Started。
+        題名を省略すると「<リポジトリ名> タスク」。"""
         if title is None:
             title = f"{self.github.repository_name(self.root).split('/')[-1]} タスク"
         if not title.strip():
@@ -379,15 +394,37 @@ class Tracker:
         created = self.github.create_board(self.root, owner, title)
         status = self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number).field("Status")
         self.github.set_board_options(self.root, status.id, _board.STANDARD_STATUS)
-        self.github.create_board_field(self.root, created.id, "Priority", "SINGLE_SELECT",
-                                       options=_board.STANDARD_PRIORITY)
-        self.github.create_board_field(self.root, created.id, "Estimate", "NUMBER")
-        self.github.create_board_field(self.root, created.id, "Due", "DATE")
-        iterations = tuple((f"Sprint {i + 1}", (start + _datetime.timedelta(days=sprint_days * i)).isoformat(),
-                            sprint_days) for i in range(sprints))
-        self.github.create_board_field(self.root, created.id, "Sprint", "ITERATION", iterations=iterations)
+        self._create_fields(created.id, _board.standard_fields(), _iterations(start, sprint_days, sprints))
         self.github.link_board(self.root, created.id, link=True)   # 作った時点でこのリポジトリ専用にする
         return self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number)
+
+    def add_standard_fields(self, settings: _board.BoardSettings) -> tuple[str, ...]:
+        """標準のボードの項目（Priority・Due・…・Started）のうち、当てるものがない役割の項目を足す
+        （スプリントは今週の月曜日から2週間×3）。足した項目の名前を返す。"""
+        info = self.github.get_board(self.root, settings.owner, settings.number)
+        found = {**_board.default_schema(info, status_field=settings.status_field), **settings.schema}
+        names = {f.name.casefold() for f in info.fields}
+        missing = []
+        for role, (name, kind) in zip(_model.ROLES, _board.standard_fields()):
+            if found.get(role):
+                continue
+            if name.casefold() in names:
+                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"ボードの項目 {name} の型が {kind} ではありません。",
+                                hint=f"{_model.ROLE_NAMES[role]}に当てる項目を --{role.replace('_', '-')}-field で"
+                                     "指定してください。")
+            missing.append((name, kind))
+        self._create_fields(info.id, tuple(missing), _iterations(_monday(_datetime.date.today()), 14, 3))
+        return tuple(name for name, _ in missing)
+
+    def _create_fields(self, board_id: str, fields: tuple[tuple[str, str], ...],
+                       iterations: tuple[tuple[str, str, int], ...]) -> None:
+        for name, kind in fields:
+            if kind == "SINGLE_SELECT":
+                self.github.create_board_field(self.root, board_id, name, kind, options=_board.STANDARD_PRIORITY)
+            elif kind == "ITERATION":
+                self.github.create_board_field(self.root, board_id, name, kind, iterations=iterations)
+            else:
+                self.github.create_board_field(self.root, board_id, name, kind)
 
     def board_scope(self, settings: _board.BoardSettings | None = None) -> _board.BoardScope:
         """ボードがこのリポジトリ専用か（リンクしているリポジトリ・項目のリポジトリ・公開）。"""
@@ -483,7 +520,8 @@ class Tracker:
         return _board.TaskBoard(number, item.id, self.board_values(number) or {})
 
     def set_stage(self, number: int, stage: str) -> None:
-        """作業の段階をボードの状態に反映する。作業中・レビュー待ちなら、未着手・計画中の親も作業中にする。
+        """作業の段階をボードの状態に反映する。作業中・レビュー待ちなら、開始日がまだなければ今日にし、
+        未着手・計画中の親も作業中にする（親の開始日も同じ）。
 
         ボードがなければ何もしない。失敗しても操作は成功のまま、知らせて board sync を案内する。
         """
@@ -496,11 +534,13 @@ class Tracker:
             if item.values.get(status.name) != option:
                 self.store.write(item, status, option)
             if stage in (_model.IN_PROGRESS, _model.IN_REVIEW):
+                self.store.record_started(item)
                 parent = self.github.issue_relation(self.root, number).parent
                 if parent is not None:
                     parent_item = self.store.item(parent, add=True)
                     if self._parent_follows(parent_item.values.get(status.name)):
                         self.store.write(parent_item, status, self.board.option(_model.IN_PROGRESS))
+                        self.store.record_started(parent_item)
         except TaskError as error:
             self.notices.append(f"ボードの #{number} を {option} にできませんでした（{error.message}）。"
                                 f"{self._op('board sync')} で合わせられます。")
@@ -617,6 +657,12 @@ def _parse_date(text: str) -> _datetime.date:
         return _datetime.date.fromisoformat(text)
     except ValueError:
         raise TaskError(ErrorCode.INVALID_ARGUMENT, f"日付 {text} は YYYY-MM-DD の形で指定してください。") from None
+
+
+def _iterations(start: _datetime.date, days: int, count: int) -> tuple[tuple[str, str, int], ...]:
+    """スプリント（題名・始まり・日数）を start から days 日ずつ count 回。"""
+    return tuple((f"Sprint {i + 1}", (start + _datetime.timedelta(days=days * i)).isoformat(), days)
+                 for i in range(count))
 
 
 def _monday(day: _datetime.date) -> _datetime.date:

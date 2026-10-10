@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import itertools
 import re
 import subprocess
@@ -25,6 +26,8 @@ class FakeGitHub:
         self.issues: dict[int, IssueInfo] = {}
         self.pulls: dict[int, PullRequestInfo] = {}
         self.not_planned: set[int] = set()   # 「対応しない」として閉じたIssue
+        self.created_at: dict[int, str] = {}   # Issue → 作った日時（GitHubと同じ UTC の ISO 8601）
+        self.closed_at: dict[int, str] = {}    # Issue → 閉じた日時（開き直すと消える）
         self.others: dict[str, Path] = {}    # 名前 → 別のリポジトリ（bare）
         self.activity: dict[int, PullRequestActivity] = {}
         self.releases: list[ReleaseInfo] = []
@@ -76,6 +79,7 @@ class FakeGitHub:
     # Issue
     def create_issue(self, repo, title, body, *, labels=(), assignees=()):
         number = next(self._numbers)
+        self.created_at[number] = _now()
         self.issues[number] = IssueInfo(number, title, f"https://example.invalid/issues/{number}", "open", body,
                                         tuple(labels), tuple(self._user(a) for a in assignees))
         return self.issues[number]
@@ -116,6 +120,7 @@ class FakeGitHub:
     def reopen_issue(self, repo, number):
         self.issues[number] = replace(self.get_issue(repo, number), state="open")
         self.not_planned.discard(number)
+        self.closed_at.pop(number, None)
 
     def pull_request_activity(self, repo, number):
         return self.activity.get(number, PullRequestActivity((), (), (), "MERGEABLE"))
@@ -159,6 +164,7 @@ class FakeGitHub:
 
     def close_issue(self, repo, number, *, not_planned=False):
         self.issues[number] = replace(self.issues[number], state="closed")
+        self.closed_at[number] = _now()
         if not_planned:
             self.not_planned.add(number)
 
@@ -302,7 +308,8 @@ class FakeGitHub:
             reason = None if issue.state == "open" else ("not_planned" if n in self.not_planned else "completed")
             records.append(TaskRecord(issue, self.issue_relation(repo, n), reason,
                                       None if milestone is None else milestone.due,
-                                      None if board_id is None else self.items.get((board_id, n))))
+                                      None if board_id is None else self.items.get((board_id, n)),
+                                      self.created_at.get(n), self.closed_at.get(n)))
         return records
 
     def board_items(self, repo, board_id, *, closed):
@@ -428,3 +435,7 @@ class FakeGitHub:
                 issue = int(match.group(1))
                 if issue in self.issues:
                     self.close_issue(repo, issue)
+
+
+def _now() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")

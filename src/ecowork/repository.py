@@ -258,7 +258,7 @@ class Repository:
         return self.tracker.milestone_status()
 
     def plan_task(self, number: int, **values) -> ws.TaskSummary:
-        """計画の値（priority・due・estimate・sprint〔current 可〕・clear）を設定する。"""
+        """計画の値（priority・due・estimate・sprint〔current 可〕・planned_start・planned_end・clear）を設定する。"""
         task = self.tracker.plan(number, **values)
         branch = ws.workspace_branch(number)
         return ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
@@ -663,10 +663,12 @@ class Repository:
 
     def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
                     assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
-                    milestone: str | None = None) -> ws.Task:
-        """タスク（Issue）を作る。parent：親タスク、blocked_by：先に終わるべきタスク、milestone：題名。"""
+                    milestone: str | None = None, plan: dict[str, str | None] | None = None) -> ws.Task:
+        """タスク（Issue）を作る。parent：親タスク、blocked_by：先に終わるべきタスク、milestone：題名、
+        plan：計画の値（役割 → 値。due・planned_start・planned_end 等。ecotask の Tracker.create と同じ）。"""
         return ws.Task._from(self, self.tracker.create(title, body=body, labels=labels, assignees=assignees,
-                                                       parent=parent, blocked_by=blocked_by, milestone=milestone))
+                                                       parent=parent, blocked_by=blocked_by, milestone=milestone,
+                                                       plan=plan))
 
     def task(self, number: int) -> ws.Task:
         return ws.Task._from(self, self.github.get_issue(self.root, number))

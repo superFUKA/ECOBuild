@@ -2,7 +2,7 @@ import datetime
 from typing import Annotated
 
 from ..._output import lines, optional_argument, run_command
-from ._show import plan_text
+from ._show import dates_text, plan_text
 
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 
@@ -40,6 +40,7 @@ def command(
             ("ボード：" + (", ".join(f"{k}={v}" for k, v in r.board.items()) or "まだありません（ecobuild board sync）"))
             if r.board is not None else None,
             f"計画：{plan_text(r.task)}" if r.task is not None and plan_text(r.task) else None,
+            f"日付：{dates_text(r.task)}" if r.task is not None and dates_text(r.task) else None,
             "期限切れです" if r.task is not None and r.task.overdue(datetime.date.today()) else None,
             f"親タスク：#{r.parent.number} {r.parent.title}" if r.parent else None,
             refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),

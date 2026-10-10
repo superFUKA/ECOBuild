@@ -234,7 +234,8 @@ def test_planning_from_cli(cli, module):
     created = as_json(cli("board", "create", "計画", "--sprint-start", monday.isoformat(), "--json"))["result"]
     assert cli("task", "new", "つなぐ", "--start").exit_code == 0
     shown = as_json(cli("board", "use", created["url"], "--json"))["result"]
-    assert shown["schema"] == {"priority": "Priority", "due": "Due", "estimate": "Estimate", "sprint": "Sprint"}
+    assert shown["schema"] == {"priority": "Priority", "due": "Due", "estimate": "Estimate", "sprint": "Sprint",
+                               "planned_start": "Planned Start", "planned_end": "Planned End", "started": "Started"}
     for title in ("低", "高", "遅れ"):
         assert cli("task", "new", title).exit_code == 0
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
@@ -268,3 +269,43 @@ def test_board_is_dedicated_from_cli(cli, module):
     assert "shared = true" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
     shown = cli("board", "show")
     assert "共有" in shown.output and "tester/other 1" in shown.output
+
+
+def test_task_dates_from_cli(cli, module):
+    """追加した日・開始日・終了日は自動で記録し、期限・開始予定日・終了予定日は作成時と更新で設定する。"""
+    import datetime
+    today = datetime.date.today().isoformat()
+    created = as_json(cli("board", "create", "--json"))["result"]
+    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
+    assert cli("board", "use", created["url"]).exit_code == 0
+    made = cli("task", "new", "日付", "--due", "2026-11-30", "--planned-start", "2026-11-02",
+               "--planned-end", "2026-11-20")
+    assert made.exit_code == 0
+    task = as_json(cli("task", "status", "2", "--json"))["result"]["task"]
+    assert (task["due"], task["planned_start"], task["planned_end"]) == ("2026-11-30", "2026-11-02", "2026-11-20")
+    assert (task["created"], task["started"], task["finished"]) == (today, None, None)
+    assert as_json(cli("task", "new", "逆", "--planned-start", "2026-11-20", "--planned-end", "2026-11-02",
+                       "--json"))["error"]["code"] == "invalid_argument"
+    assert cli("task", "edit", "2", "--planned-end", "2026-11-25", "--clear-date", "due").exit_code == 0
+    assert as_json(cli("task", "edit", "2", "--clear-date", "priority", "--json"))["error"]["code"] == "invalid_argument"
+    assert cli("task", "plan", "2", "--planned-start", "2026-11-03").exit_code == 0
+    assert cli("task", "start", "2", "--no-workspace").exit_code == 0
+    task = as_json(cli("task", "status", "2", "--json"))["result"]["task"]
+    assert (task["due"], task["planned_start"], task["planned_end"], task["started"]) == (
+        None, "2026-11-03", "2026-11-25", today)
+    assert cli("task", "close", "2").exit_code == 0
+    shown = cli("task", "status", "2").output
+    assert f"日付：追加 {today}・開始 {today}・終了 {today}" in shown and "予定 2026-11-03〜2026-11-25" in shown
+
+
+def test_add_standard_fields_from_cli(cli, module):
+    """今あるボードに、足りない標準の項目を足してつなぐ（型の項目が1つだけで当てた期限はそのまま）。"""
+    from ecotask.board import BoardField
+    github = module.repository.github
+    board = github.add_board(statuses=("Todo", "In Progress", "Done"), extra=(BoardField("F_d", "締め切り", "DATE"),))
+    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
+    used = as_json(cli("board", "use", board.url, "--add-fields", "--json"))
+    assert used["result"]["schema"] == {"priority": "Priority", "due": "締め切り", "estimate": "Estimate",
+                                        "sprint": "Sprint", "planned_start": "Planned Start",
+                                        "planned_end": "Planned End", "started": "Started"}
+    assert any("Planned Start" in n for n in used["notices"])

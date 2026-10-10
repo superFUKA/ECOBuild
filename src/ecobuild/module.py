@@ -166,7 +166,7 @@ class Module:
     # 計画と判断（ecotask） ------------------------------------------------------------
 
     def plan_task(self, number: int, **values) -> ws.TaskSummary:
-        """priority・due・estimate・sprint（名前か current）・clear（消す役割）。"""
+        """priority・due・estimate・sprint（名前か current）・planned_start・planned_end・clear（消す役割）。"""
         return self.repository.plan_task(number, **values)
 
     def next_tasks(self, *, assignee: str | None = None, count: int | None = None) -> list:
@@ -201,12 +201,15 @@ class Module:
         return self.repository.create_board(title, **options)
 
     def use_board(self, url: str, *, status_field: str = "Status", stages: dict[str, str] | None = None,
-                  schema: dict[str, str] | None = None, shared: bool = False) -> _board.BoardStatus:
+                  schema: dict[str, str] | None = None, shared: bool = False,
+                  add_fields: bool = False) -> _board.BoardStatus:
         """このモジュールのボードにする（ecobuild.toml の [board]。作業空間で行い、PRで反映する）。
 
         作業の段階に当てる選択肢は、省略すると既定の名前（Todo・In Progress・In Review・Done 等）で探す。
-        計画の値の役割（priority・due・estimate・sprint）に当てる項目は、省略すると既定の名前（Priority 等）か、
-        その型の項目が1つだけならそれ。GitHub側でもボードをリポジトリにつなぐ。
+        役割（priority・due・estimate・sprint・planned_start・planned_end・started）に当てる項目は、省略すると
+        既定の名前（Priority 等）か、（期限・見積もり・スプリントは）その型の項目が1つだけならそれ。
+        add_fields：当てる項目がない役割に、標準のボードの項目（board create と同じ）を足す。
+        GitHub側でもボードをリポジトリにつなぐ。
         ボードはこのリポジトリ専用にする（他のリポジトリと共有されていれば止める。shared で許す）。
         """
         self.require_workspace("ボードの接続")
@@ -215,6 +218,15 @@ class Module:
         info = github.get_board(self.root, settings.owner, settings.number)
         given = {stage: name for stage, name in (stages or {}).items() if name}
         roles = {role: name for role, name in (schema or {}).items() if name}
+        # 足す前に決まる対応（型の項目が1つだけで当てたもの）は、足した後も変えない
+        roles = {**_board.default_schema(info, status_field=status_field), **roles}
+        if add_fields:
+            self.repository.check_board(_board.BoardSettings(url, status_field, {
+                **_board.default_stages(info.field(status_field)), **given}, {}, shared), exclusive=True)
+            added = self.repository.tracker.add_standard_fields(_board.BoardSettings(url, status_field, schema=roles))
+            if added:
+                self.repository.notices.append(f"ボードに項目を足しました：{'、'.join(added)}")
+                info = github.get_board(self.root, settings.owner, settings.number)
         settings = _board.BoardSettings(url, status_field, {**_board.default_stages(info.field(status_field)), **given},
                                         {**_board.default_schema(info, status_field=status_field), **roles}, shared)
         status = self.repository.check_board(settings, exclusive=True)
@@ -266,7 +278,8 @@ class Module:
         return self.repository.task_status(number)
 
     def edit_task(self, number: int, **changes) -> ws.Task:
-        """title・body・add_labels・remove_labels・add_assignees・remove_assignees（ecowork と同じ）。"""
+        """title・body・add_labels・remove_labels・add_assignees・remove_assignees・plan・clear_plan 等
+        （ecowork と同じ）。"""
         return self.repository.edit_task(number, **changes)
 
     def comment_task(self, number: int | None, body: str) -> ws.Task:
@@ -368,9 +381,9 @@ class Module:
 
     def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
                     assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
-                    milestone: str | None = None) -> ws.Task:
+                    milestone: str | None = None, plan: dict[str, str | None] | None = None) -> ws.Task:
         return self.repository.create_task(title, body=body, labels=labels, assignees=assignees, parent=parent,
-                                           blocked_by=blocked_by, milestone=milestone)
+                                           blocked_by=blocked_by, milestone=milestone, plan=plan)
 
     def task(self, number: int) -> ws.Task:
         return self.repository.task(number)

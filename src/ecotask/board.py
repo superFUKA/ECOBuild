@@ -42,7 +42,7 @@ class BoardSettings:
     url: str                                   # https://github.com/users/<所有者>/projects/<番号>
     status_field: str = "Status"
     stages: dict[str, str] = field(default_factory=dict)   # 段階 → 選択肢の名前（in_review は省略可）
-    schema: dict[str, str] = field(default_factory=dict)   # 役割（priority・due・estimate・sprint）→ 項目の名前
+    schema: dict[str, str] = field(default_factory=dict)   # 役割（ecotask.model.ROLES）→ 項目の名前
     shared: bool = False                       # 他のリポジトリと共有するボード（専用でなくてよい）
 
     @property
@@ -123,17 +123,28 @@ def find_option(field_: BoardField, value: str) -> BoardOption:
                     details=[o.name for o in field_.options])
 
 
-# 役割に既定で当てる項目の名前（board create の標準）
-DEFAULT_SCHEMA = {_model.PRIORITY: "Priority", _model.DUE: "Due", _model.ESTIMATE: "Estimate", _model.SPRINT: "Sprint"}
+# 役割に既定で当てる項目の名前（最初のものが board create の標準。大文字・小文字は区別しない）
+DEFAULT_SCHEMA = {_model.PRIORITY: ("Priority",), _model.DUE: ("Due",), _model.ESTIMATE: ("Estimate",),
+                  _model.SPRINT: ("Sprint",), _model.PLANNED_START: ("Planned Start", "Start date"),
+                  _model.PLANNED_END: ("Planned End", "Target date", "End date"), _model.STARTED: ("Started",)}
+# 名前で見つからないとき、その型の項目が1つだけならそれを当てる役割（日付は期限だけ）
+_ONLY_OF_TYPE = (_model.DUE, _model.ESTIMATE, _model.SPRINT)
+
+
+def standard_fields() -> tuple[tuple[str, str], ...]:
+    """標準のボードの、計画・記録の項目（名前・型。ROLES の順）。選択肢・期間は board create が決める。"""
+    return tuple((DEFAULT_SCHEMA[role][0], _model.ROLE_TYPES[role]) for role in _model.ROLES)
 
 
 def default_schema(info: "BoardInfo", *, status_field: str = "Status") -> dict[str, str]:
-    """役割に当てる項目：既定の名前で型が合うもの、なければその型の項目が1つだけならそれ。"""
+    """役割に当てる項目：既定の名前で型が合うもの、なければ（期限・見積もり・スプリントは）その型の項目が1つだけならそれ。"""
     result = {}
     for role, kind in _model.ROLE_TYPES.items():
-        named = [f for f in info.fields if f.name.casefold() == DEFAULT_SCHEMA[role].casefold() and f.type == kind]
+        names = [n.casefold() for n in DEFAULT_SCHEMA[role]]
+        named = sorted((f for f in info.fields if f.name.casefold() in names and f.type == kind),
+                       key=lambda f: names.index(f.name.casefold()))
         typed = [f for f in info.fields if f.type == kind and f.name != status_field]
-        found = named[0] if named else (typed[0] if len(typed) == 1 and role != _model.PRIORITY else None)
+        found = named[0] if named else (typed[0] if len(typed) == 1 and role in _ONLY_OF_TYPE else None)
         if found is not None:
             result[role] = found.name
     return result

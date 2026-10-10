@@ -12,7 +12,7 @@ def command(
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """このリポジトリ専用の標準のボードを作り、リポジトリにリンクします（Status：Backlog・Todo・In Progress・
-    In Review・Done、Priority、Estimate、Due、Sprint）。
+    In Review・Done、Priority、Due、Estimate、Sprint、Planned Start、Planned End、Started）。
 
     作ったら、作業空間で ecobuild board use <URL> でこのモジュールにつなぎます。
     """

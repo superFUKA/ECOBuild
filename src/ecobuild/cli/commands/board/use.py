@@ -15,14 +15,20 @@ def command(
     due_field: Annotated[str, "期限の項目（日付。既定：Due、日付の項目が1つならそれ）"] = "",
     estimate_field: Annotated[str, "見積もりの項目（数値。既定：Estimate、数値の項目が1つならそれ）"] = "",
     sprint_field: Annotated[str, "スプリントの項目（イテレーション。既定：Sprint、1つならそれ）"] = "",
+    planned_start_field: Annotated[str, "開始予定日の項目（日付。既定：Planned Start・Start date）"] = "",
+    planned_end_field: Annotated[str, "終了予定日の項目（日付。既定：Planned End・Target date・End date）"] = "",
+    started_field: Annotated[str, "開始日の項目（日付。作業中になった日を自動で書く。既定：Started）"] = "",
+    add_fields: Annotated[bool, "当てる項目がない役割に、標準のボードの項目（board create と同じ）を足す"] = False,
     shared: Annotated[bool, "他のリポジトリと共有するボードでもつなぐ（既定はこのリポジトリ専用だけ）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """このモジュールのタスクをボードにつなぎます（ecobuild.toml の [board]。作業空間で行い、PRで反映します）。"""
     stages = {"todo": todo, "in_progress": in_progress, "in_review": in_review, "done": done}
-    schema = {"priority": priority_field, "due": due_field, "estimate": estimate_field, "sprint": sprint_field}
+    schema = {"priority": priority_field, "due": due_field, "estimate": estimate_field, "sprint": sprint_field,
+              "planned_start": planned_start_field, "planned_end": planned_end_field, "started": started_field}
     return run_command("board use", lambda inv: inv.module.use_board(url, status_field=status_field, stages=stages,
-                                                                      schema=schema, shared=shared),
+                                                                      schema=schema, shared=shared,
+                                                                      add_fields=add_fields),
                        lambda r: render(r) + "\necobuild.toml を変えました。task commit と task submit で反映してください。"
                                              "\n今あるタスクは ecobuild board sync でボードに加えられます。",
                        json_output=json)

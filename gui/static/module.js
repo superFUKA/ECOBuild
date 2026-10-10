@@ -35,9 +35,29 @@ const frames = new Map(), hidden = new Set();
 let activePlace = null;
 const keyOf = dir => dir.replaceAll('\\', '/').toLowerCase();
 const addTabButton = document.createElement('button');
-addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業の場所を表示・追加'; addTabButton.setAttribute('aria-label', addTabButton.title);
+addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
-const emptyNote = document.createElement('p'); emptyNote.className = 'empty-workspaces'; emptyNote.textContent = '「＋」から作業の場所を選んで表示できます。'; panels.append(emptyNote);
+const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
+emptyNote.innerHTML = '<p>表示している作業空間はありません。</p><p>作業空間はタスクごとの作業の場所（task/〈番号〉）です。タスク管理でタスクの「作業を開始」をすると、ここに表示されます。閉じたタブは「＋」から表示し直せます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
+panels.append(emptyNote);
+
+// Only workspaces are tabs: a place shows a tab while a workspace (task/<n>) is checked out there, or while a PR is
+// being checked there (task review). The module's clone on main / develop etc. is not a workspace, so it has no tab.
+const isWorkspace = dir => { const state = MOD.states.get(keyOf(dir)); return !!(state && (state.workspace || state.reviewing)); };
+const tabVisible = dir => isWorkspace(dir) && !hidden.has(keyOf(dir));
+function syncTabs() {
+  for (const group of tabs.querySelectorAll('.workspace-tab-group')) {
+    const dir = MOD.places.find(p => keyOf(p) === group.dataset.group);
+    group.hidden = !dir || !tabVisible(dir);
+  }
+  if (activePlace && !MOD.places.some(p => keyOf(p) === activePlace && tabVisible(p))) {
+    panels.querySelector(`[role=tabpanel][data-dir="${CSS.escape(activePlace)}"]`)?.setAttribute('hidden', '');
+    activePlace = null;
+  }
+  if (!activePlace) { const next = MOD.places.find(tabVisible); if (next) activate(next); }
+  emptyNote.hidden = !!activePlace;
+}
 
 const placeLabel = dir => {
   const state = MOD.states.get(keyOf(dir));
@@ -50,6 +70,7 @@ function renderTab(dir) {
   const {branch, title, where} = placeLabel(dir);
   button.innerHTML = `${ECO.esc(branch)}${title ? `<small>${ECO.esc(title)}</small>` : ''}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
   button.title = dir;
+  syncTabs();
 }
 async function refreshState(dir) {
   const doc = await ECO.cli(dir, ['status'], {quiet: true});
@@ -72,10 +93,10 @@ function addTab(dir) {
 }
 function activate(dir, focus = false) {
   const key = keyOf(dir);
-  if (!MOD.places.some(p => keyOf(p) === key)) return;
+  if (!MOD.places.some(p => keyOf(p) === key) || !isWorkspace(dir)) return;
   hidden.delete(key); activePlace = key;
   for (const group of tabs.querySelectorAll('.workspace-tab-group')) {
-    const on = group.dataset.group === key; group.hidden = hidden.has(group.dataset.group);
+    const on = group.dataset.group === key; const place = MOD.places.find(p => keyOf(p) === group.dataset.group); group.hidden = !place || !tabVisible(place);
     const button = group.querySelector('[role=tab]'); button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1;
     if (on && focus) button.focus();
   }
@@ -92,7 +113,7 @@ function closeTab(dir) {
   tabs.querySelector(`[data-group="${CSS.escape(key)}"]`).hidden = true;
   panels.querySelector(`[role=tabpanel][data-dir="${CSS.escape(key)}"]`).hidden = true;
   if (activePlace === key) {
-    const next = MOD.places.find(p => !hidden.has(keyOf(p)));
+    const next = MOD.places.find(tabVisible);
     if (next) activate(next, true); else { activePlace = null; emptyNote.hidden = false; }
   }
 }
@@ -102,7 +123,7 @@ function removeTab(dir) {
   tabs.querySelector(`[data-group="${CSS.escape(key)}"]`)?.remove();
   panels.querySelector(`[role=tabpanel][data-dir="${CSS.escape(key)}"]`)?.remove();
   MOD.places = MOD.places.filter(p => keyOf(p) !== key); MOD.states.delete(key);
-  if (activePlace === key) { activePlace = null; const next = MOD.places.find(p => !hidden.has(keyOf(p))); if (next) activate(next); else emptyNote.hidden = false; }
+  if (activePlace === key) { activePlace = null; const next = MOD.places.find(tabVisible); if (next) activate(next); else emptyNote.hidden = false; }
 }
 // Reload what a place shows (after a task operation changed the branch there, etc.).
 function reloadPlace(dir) {
@@ -143,7 +164,7 @@ tabs.addEventListener('keydown', event => {
   if (event.key === 'Delete') { event.preventDefault(); closeTab(MOD.places.find(p => keyOf(p) === tab.dataset.dir)); return; }
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
   event.preventDefault();
-  const visible = MOD.places.filter(p => !hidden.has(keyOf(p))), index = visible.findIndex(p => keyOf(p) === tab.dataset.dir);
+  const visible = MOD.places.filter(tabVisible), index = visible.findIndex(p => keyOf(p) === tab.dataset.dir);
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? visible.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visible.length) % visible.length;
   activate(visible[next], true);
 });
@@ -151,11 +172,13 @@ tabs.addEventListener('keydown', event => {
 // "+" : show a hidden place, register an existing dedicated clone, or forget one. -----------------------------
 addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
-    const {branch, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root);
-    return `<div class="picker-row"><button type="button" data-show="${i}">${ECO.esc(branch)}${!hidden.has(keyOf(p)) ? '（表示中）' : ''}<small>${ECO.esc(main ? 'モジュールのclone' : '専用のclone ' + where)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは消さない）">外す</button>`}</div>`;
+    const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
+    const place = main ? 'モジュールのclone' : '専用のclone ' + where;
+    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（作業空間ではありません）`;
+    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは消さない）">外す</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業の場所</h2><p>タブは作業の場所（このモジュールのclone、または並行作業用の専用のclone）です。作業空間はタスク管理の「作業を開始」で作ります。</p><div>${rows}</div>
+  d.innerHTML = `<h2>作業空間を表示</h2><p>作業空間（task/〈番号〉）が出ている場所だけをタブにします。作業空間はタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
     <div class="picker-actions"><button type="button" data-register>手元の専用のcloneを登録…</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());
@@ -191,4 +214,4 @@ window.addEventListener('message', event => {
   if (data.type === 'show-task' && data.n) { showModulePage('tasks'); window.TASKS_SELECT?.(Number(data.n)); }
 });
 
-MOD.ready = loadPlaces().then(() => activate(MOD.root));
+MOD.ready = loadPlaces().then(syncTabs);

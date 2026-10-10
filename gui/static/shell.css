@@ -49,3 +49,8 @@ header .header-actions { margin-left: auto; display: flex; gap: 8px; }
 header .header-actions button { padding: 5px 12px; border: 1px solid #46515e; border-radius: 6px; background: #252d36; color: #edf1f5; font: inherit; font-size: 12px; cursor: pointer; }
 header .header-actions button:hover { border-color: #9ee4d3; }
 .tk-stage.planned::before { background: #7d8794; }
+.empty-workspaces { max-width: 640px; line-height: 1.8; }
+.empty-workspaces p { margin: 0 0 8px; }
+.empty-workspaces button { margin-top: 8px; padding: 8px 16px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; font: inherit; cursor: pointer; }
+.empty-workspaces button:hover { border-color: #9ee4d3; }
+.workspace-picker button:disabled { opacity: .55; cursor: default; }

@@ -118,3 +118,21 @@ def test_api_requires_the_token_and_the_local_host(tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_ecobuild_is_found_on_path_first(tmp_path, monkeypatch):
+    # インストール後は PATH の ecobuild を使う（どこから起動しても同じ）
+    tool = tmp_path / ("ecobuild.exe" if os.name == "nt" else "ecobuild")
+    tool.write_bytes(b"")
+    tool.chmod(0o755)
+    monkeypatch.delenv("ECOBUILD_GUI_CLI", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    assert gui.default_cli() == [str(tool)] or Path(gui.default_cli()[0]).resolve() == tool.resolve()
+    assert gui.default_cli("C:/other/ecobuild.exe") == ["C:/other/ecobuild.exe"]
+
+
+def test_warns_about_batch_wrappers():
+    if os.name != "nt":
+        pytest.skip("Windows だけ")
+    assert gui.cli_warning(["C:/tools/ecobuild.cmd"]) and gui.cli_warning(["C:/tools/ecobuild.BAT"])
+    assert gui.cli_warning(["C:/tools/ecobuild.exe"]) == ""

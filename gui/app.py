@@ -211,6 +211,15 @@ def default_cli(explicit: str = "") -> list[str]:
     raise SystemExit("ecobuild コマンドが見つかりません。--ecobuild <パス> で指定してください。")
 
 
+def cli_warning(command: list[str]) -> str:
+    """ecobuild が .cmd／.bat のときの注意。cmd.exe を通るため、改行のある値は1行目だけになり、
+    %名前% は環境変数に置き換わる（コミットメッセージ・本文・コメント等）。.exe（pip・pipx 等）なら問題ない。"""
+    if os.name == "nt" and Path(command[0]).suffix.lower() in (".cmd", ".bat"):
+        return (f"ecobuild が {Path(command[0]).name} です。改行を含む入力は1行目だけになり、%名前% は環境変数に"
+                "置き換わります。.exe の ecobuild（pip・pipx 等で入れたもの）を --ecobuild で指定してください。")
+    return ""
+
+
 def gui_home() -> Path:
     """GUIの記録の置き場所（ECOBuildのツールの設定とは別）。"""
     if os.environ.get("ECOBUILD_GUI_HOME"):
@@ -363,7 +372,8 @@ class App:
         if name == "cli":
             return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
         if name == "info":
-            return {"me": who_am_i(), "cli": self.cli.command, "home": str(Path.home()),
+            return {"me": who_am_i(), "cli": self.cli.command, "cli_warning": cli_warning(self.cli.command),
+                    "home": str(Path.home()),
                     "version": VERSION}
         if name == "modules":
             return self.store.modules()
@@ -492,6 +502,8 @@ def main(argv: list[str] | None = None) -> None:
             stream.reconfigure(errors="replace")
     print(f"ECOBuild GUI：{url}")
     print(f"ecobuild：{' '.join(cli.command)}")
+    if cli_warning(cli.command):
+        print("注意：" + cli_warning(cli.command))
     print("終了するには Ctrl+C を押してください。", flush=True)
     if not args.no_browser:
         open_window(url)

@@ -123,7 +123,8 @@ async function loadSettings() {
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();
-  $('about').textContent = `ログイン中のGitHubアカウント：${info.me || '（取得できませんでした）'}　／　使っている ecobuild：${(info.cli || []).join(' ')}`;
+  $('about').innerHTML = `ログイン中のGitHubアカウント：${esc(info.me || '（取得できませんでした）')}<br>使っている ecobuild：${esc((info.cli || []).join(' '))}`
+    + (info.cli_warning ? `<br><span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
 }
 $('owner-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -162,3 +163,4 @@ $('setup-form').addEventListener('submit', async event => {
 
 loadModules();
 window.addEventListener('focus', loadModules);
+ECO.info().then(info => { if (info.cli_warning) ECO.toast('注意：' + info.cli_warning, 'bad', 15000); });

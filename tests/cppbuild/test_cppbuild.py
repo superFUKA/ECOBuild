@@ -33,7 +33,8 @@ def test_layout_and_templates(module_root):
     folders = _cppbuild.open_solution(module_root).settings.get().solution_folders
     assert (folders.projects, folders.linked_projects, folders.external) == ("Projects", "LinkedProjects", "External")
     top_level = (module_root / "CppBuildTopLevel.cmake").read_text(encoding="utf-8")
-    assert "USE_FOLDERS ON" in top_level and 'set(CPPBUILD_EXTERNAL_FOLDER "External")' in top_level   # GoogleTest
+    assert "USE_FOLDERS ON" in top_level and 'set(CPPBUILD_EXTERNAL_FOLDER "External")' in top_level   # External/GoogleTest
+    assert 'PREDEFINED_TARGETS_FOLDER "External/CMake"' in top_level           # ALL_BUILD・ZERO_CHECK 等
 
 
 def test_old_module_gets_solution_folders_on_update(module_root):

@@ -1,14 +1,15 @@
 """タスク管理の操作と決まりごと。データはすべてGitHubに置く（保存の層：ecotask.store）。
 
 作業空間やPRのことは知らない。作業の流れ（ecowork）は、作業の段階が変わるときに set_stage を呼び、
-ボードを合わせるとき（sync_board）は各タスクの作業の事実（開いているPR・作業空間の有無）を渡す。
+段階のずれを直すとき（sync_stages）は各タスクの作業の事実（開いているPR・作業空間の有無）を渡す。
+計画の情報を置くボードは内部の保存場所で、利用者には見せない（ecotask.board）。
 判断（次にやるもの・期限・スプリント等）は ecotask.planning の関数で行う。
 """
 
 from __future__ import annotations
 
 import datetime as _datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import board as _board
@@ -33,7 +34,7 @@ class TaskRef:
 
 @dataclass(frozen=True)
 class TaskDetails:
-    """1件の詳細：タスク・本文・コメント・親・子・先に終わるべきタスク・待っているタスク・ボードの値。"""
+    """1件の詳細：タスク・本文・コメント・親・子・先に終わるべきタスク・待っているタスク。"""
     task: _model.Task
     body: str
     comments: tuple[_github.Comment, ...]
@@ -41,28 +42,32 @@ class TaskDetails:
     subtasks: tuple[TaskRef, ...]
     blocked_by: tuple[TaskRef, ...]
     blocking: tuple[TaskRef, ...]
-    board: dict[str, str] | None                         # ボードの項目の値（ボードがなければNone）
 
 
 @dataclass(frozen=True)
 class WorkState:
-    """ボードを合わせるときの、タスクの作業の事実（作業の流れの側が調べて渡す）。"""
+    """段階のずれを直すときの、タスクの作業の事実（作業の流れの側が調べて渡す）。"""
     branch: bool = False                                 # 作業空間（GitHubのブランチ）がある
     pull_request: bool = False                           # 開いているPRがある
     draft: bool = False                                  # そのPRが下書き
 
 
+# task list --sort で並べられるもの
+SORT_KEYS = (*_model.ROLES, "created", "finished")
+
+
 class Tracker:
     def __init__(self, root: Path | str, *, github: _github.TaskGitHub | None = None, command: str = "",
-                 board: _board.BoardSettings | None = None):
+                 legacy_board: str | None = None):
         """
         root：GitHubのリポジトリを決める手元のclone（gh はその origin を使う）。
-        command：ヒントに書くCLIのコマンド名。board：つないでいるボード（なければ使わない）。
+        command：ヒントに書くCLIのコマンド名。
+        legacy_board：以前の設定でつないでいたボードのURL（あれば、計画の情報の置き場所として引き継ぐ）。
         """
         self.root = Path(root)
-        self.store = TaskStore(self.root, github if github is not None else _github.GhCli(), board)
+        self.store = TaskStore(self.root, github if github is not None else _github.GhCli(), legacy_board)
         self.command = command
-        # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた・ボードを更新できなかった等）
+        # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた等）
         self.notices: list[str] = []
 
     @property
@@ -75,11 +80,8 @@ class Tracker:
 
     @property
     def board(self) -> _board.BoardSettings | None:
+        """計画の情報を置くボード（内部）。なければNone。"""
         return self.store.board
-
-    @board.setter
-    def board(self, value: _board.BoardSettings | None) -> None:
-        self.store.board = value
 
     # タスク（Issue） ------------------------------------------------------------------
 
@@ -92,7 +94,7 @@ class Tracker:
     def create(self, title: str, *, body: str = "", labels: tuple[str, ...] = (), assignees: tuple[str, ...] = (),
                parent: int | None = None, blocked_by: tuple[int, ...] = (),
                milestone: str | None = None, plan: dict[str, str | None] | None = None) -> _github.IssueInfo:
-        """タスクを作り、ボードがあれば未着手で加える。parent：親、blocked_by：先に終わるべきタスク。
+        """タスクを作り、未着手にする。parent：親、blocked_by：先に終わるべきタスク。
         plan：計画の値（役割 → 値。期限・開始予定日・終了予定日等。ecotask.store の plan と同じ）。"""
         if milestone is not None:
             self.milestone_number(milestone)  # 作る前に確かめる
@@ -168,11 +170,36 @@ class Tracker:
             self.github.set_issue_milestone(self.root, number,
                                             None if clear_milestone else self.milestone_number(milestone))
 
-    def plan(self, number: int, **values) -> _model.Task:
+    def plan(self, number: int, *, stage: str | None = None, **values) -> _model.Task:
         """計画の値（priority・due・estimate・sprint〔名前か current〕・planned_start・planned_end・clear）を
-        設定する（ecotask.store と同じ）。"""
-        written = self.store.plan(number, **values)
-        return self.store.apply(self.task(number), written)
+        設定する（ecotask.store と同じ）。stage：作業を始める前の段階（planned：計画中、todo：未着手）。"""
+        if stage is not None:
+            self._check_planning_stage(number, stage)   # 他を書く前に確かめる
+        given = values.get("clear") or any(v is not None for k, v in values.items() if k != "clear")
+        written = self.store.plan(number, **values) if given or stage is None else {}
+        task = self.store.apply(self.task(number), written)
+        if stage is not None:
+            settings = self.store.ensure()
+            option = settings.planned if stage == _model.PLANNED else settings.option(_model.TODO)
+            self.store.write(self.store.item(number), self.store.info().field(settings.status_field), option)
+            task = replace(task, status=option, stage=stage, on_board=True)
+        self._shared()
+        return task
+
+    def _check_planning_stage(self, number: int, stage: str) -> None:
+        if stage not in (_model.PLANNED, _model.TODO):
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"段階 {stage} は設定できません。",
+                            hint="planned（計画中）か todo（未着手）を指定してください。作業中・レビュー待ち・完了は、"
+                                 f"{self._op('task start')}・{self._op('task submit')}・{self._op('task merge')} 等で変わります。")
+        task = self.task(number)
+        if not task.open:
+            raise TaskError(ErrorCode.TASK_CLOSED, f"#{number} は閉じています。")
+        if task.stage not in (None, _model.TODO, _model.PLANNED):
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"#{number} は作業を始めているため、計画中・未着手にできません。",
+                            hint=f"作業をやめるなら {self._op('task drop')} {number}（未着手に戻ります）。")
+        if stage == _model.PLANNED and self.store.ensure().planned is None:
+            raise TaskError(ErrorCode.FIELD_NOT_FOUND, "GitHubのタスク管理の情報に、計画中の段階がありません。",
+                            hint="GitHubで直接変えた場合は、Status の選択肢 Backlog を戻してください。")
 
     def comment(self, number: int, body: str) -> None:
         if not body.strip():
@@ -270,23 +297,15 @@ class Tracker:
         return _planning.startable(task)
 
     def sort(self, tasks: list, name: str, *, task_of=lambda item: item) -> list:
-        """ボードの項目（名前・役割の名前）で並べる。優先度・スプリント・状態は選択肢の順、期限・見積もり・日付・
-        数値は小さい順。値のないものは後ろ。task_of：要素から Task を取り出す関数（既定は要素そのもの）。"""
-        info = self.store.info()
-        role = name if name in _model.ROLES else next(
-            (r for r, f in self.board.schema.items() if f and f.casefold() == name.casefold()), None)
-        status = info.field(self.board.status_field)
-        if role is not None:
-            if self.store.role_field(role) is None:
-                raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードに{_model.ROLE_NAMES[role]}の項目が当てられていません。")
-            pick = {_model.PRIORITY: lambda t: t.priority_rank, _model.ESTIMATE: lambda t: t.estimate,
-                    _model.SPRINT: lambda t: None if t.sprint is None else t.sprint.start}.get(
-                role, lambda t: getattr(t, role))   # 日付の役割は Task の同じ名前の属性
-            return sorted(tasks, key=lambda item: _missing_last(pick(task_of(item)), task_of(item).number))
-        target = info.field(name)
-        if target.name == status.name:
-            return sorted(tasks, key=lambda item: _sort_key(status, task_of(item).status))
-        return sorted(tasks, key=lambda item: _sort_key(target, task_of(item).fields.get(target.name)))
+        """計画・記録の値（SORT_KEYS：priority・due・…）で並べる。優先度・スプリントは順位・始まりの順、日付・
+        見積もりは小さい順。値のないものは後ろ。task_of：要素から Task を取り出す関数（既定は要素そのもの）。"""
+        if name not in SORT_KEYS:
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"{name} では並べられません。",
+                            hint=f"{'・'.join(SORT_KEYS)} のどれかを指定してください。")
+        pick = {_model.PRIORITY: lambda t: t.priority_rank, _model.ESTIMATE: lambda t: t.estimate,
+                _model.SPRINT: lambda t: None if t.sprint is None else t.sprint.start}.get(
+            name, lambda t: getattr(t, name))   # 日付は Task の同じ名前の属性
+        return sorted(tasks, key=lambda item: _missing_last(pick(task_of(item)), task_of(item).number))
 
     def details(self, number: int) -> TaskDetails:
         task = self.store.task(number)
@@ -298,34 +317,28 @@ class Tracker:
         return TaskDetails(task, self.issue(number).body, tuple(self.github.issue_comments(self.root, number)), parent,
                            refs(self.github.sub_issues(self.root, number)),
                            refs(self.github.blocked_by(self.root, number)),
-                           refs(self.github.blocking(self.root, number)), self.board_values(number))
+                           refs(self.github.blocking(self.root, number)))
 
     def next_tasks(self, *, assignee: str | None = None, exclude: set[int] = frozenset(),
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:
         """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（作業空間があるもの等）。"""
         today = today or _datetime.date.today()
-        if self.board is None:
-            self.notices.append("ボードをつないでいないので、優先度・期限・スプリントは使わずに並べています"
-                                f"（{self._op('board create')}・{self._op('board use')}）。")
-        else:
-            missing = [_model.ROLE_NAMES[r] for r in _model.RANK_ROLES if self.store.role_field(r) is None]
-            if missing:
-                self.notices.append(f"ボードに{'・'.join(missing)}の項目が当てられていないので、使わずに並べています"
-                                    f"（項目を足して、作業空間で {self._op('board use')} をやり直してください）。")
         tasks = self.tasks(assignee=assignee) if assignee else self.store.tasks()
         return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
 
     def deadlines(self, *, days: int = 3, today: _datetime.date | None = None) -> _planning.Deadlines:
-        self._require_role(_model.DUE)
         return _planning.deadlines(self.store.tasks(), today or _datetime.date.today(), days=days)
 
     def sprints(self) -> list[_model.Sprint]:
-        return [] if self.board is None else self.store.sprints()
+        return self.store.sprints()
 
     def sprint(self, name: str, *, today: _datetime.date | None = None) -> _model.Sprint:
         """スプリントを名前で探す（大文字・小文字は区別しない）。current は今日を含むもの。"""
-        self._require_role(_model.SPRINT)
         sprints = self.store.sprints()
+        if not sprints:
+            raise TaskError(ErrorCode.INVALID_ARGUMENT, "スプリントがまだありません。",
+                            hint=f"{self._op('task plan')} でタスクの計画を初めて設定すると、今週から2週間ずつ3回分の"
+                                 "スプリントができます。")
         today = today or _datetime.date.today()
         if name == "current":
             found = next((s for s in sprints if s.contains(today)), None)
@@ -376,184 +389,46 @@ class Tracker:
         raise TaskError(ErrorCode.MILESTONE_NOT_FOUND, f"マイルストーン {title} がありません。",
                         hint=f"{self._op('milestone list')} --all で一覧、{self._op('milestone create')} で作成できます。")
 
-    # ボード（GitHub Projects） ---------------------------------------------------------
+    # 作業の段階（内部ではボードの状態） ---------------------------------------------------
 
-    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
-        """つなげるボードの一覧（owner を省略するとリポジトリの所有者のもの）。"""
-        return self.github.list_boards(self.root, owner)
-
-    def create_board(self, title: str | None = None, *, owner: str | None = None, sprint_start: str | None = None,
-                     sprint_days: int = 14, sprints: int = 3) -> _board.BoardInfo:
-        """このリポジトリ専用の標準のボードを作り、リポジトリにリンクする：Status（Backlog・Todo・In Progress・
-        In Review・Done）・Priority・Due・Estimate・Sprint・Planned Start・Planned End・Started。
-        題名を省略すると「<リポジトリ名> タスク」。"""
-        if title is None:
-            title = f"{self.github.repository_name(self.root).split('/')[-1]} タスク"
-        if not title.strip():
-            raise TaskError(ErrorCode.INVALID_ARGUMENT, "ボードの題名が必要です。")
-        start = _parse_date(sprint_start) if sprint_start else _monday(_datetime.date.today())
-        if sprint_days < 1 or sprints < 1:
-            raise TaskError(ErrorCode.INVALID_ARGUMENT, "スプリントの日数と回数は1以上にしてください。")
-        created = self.github.create_board(self.root, owner, title)
-        status = self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number).field("Status")
-        self.github.set_board_options(self.root, status.id, _board.STANDARD_STATUS)
-        self._create_fields(created.id, _board.standard_fields(), _iterations(start, sprint_days, sprints))
-        self.github.link_board(self.root, created.id, link=True)   # 作った時点でこのリポジトリ専用にする
-        return self.github.get_board(self.root, _board.parse_url(created.url)[0], created.number)
-
-    def add_standard_fields(self, settings: _board.BoardSettings) -> tuple[str, ...]:
-        """標準のボードの項目（Priority・Due・…・Started）のうち、当てるものがない役割の項目を足す
-        （スプリントは今週の月曜日から2週間×3）。足した項目の名前を返す。"""
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        found = {**_board.default_schema(info, status_field=settings.status_field), **settings.schema}
-        names = {f.name.casefold() for f in info.fields}
-        missing = []
-        for role, (name, kind) in zip(_model.ROLES, _board.standard_fields()):
-            if found.get(role):
-                continue
-            if name.casefold() in names:
-                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"ボードの項目 {name} の型が {kind} ではありません。",
-                                hint=f"{_model.ROLE_NAMES[role]}に当てる項目を --{role.replace('_', '-')}-field で"
-                                     "指定してください。")
-            missing.append((name, kind))
-        self._create_fields(info.id, tuple(missing), _iterations(_monday(_datetime.date.today()), 14, 3))
-        return tuple(name for name, _ in missing)
-
-    def _create_fields(self, board_id: str, fields: tuple[tuple[str, str], ...],
-                       iterations: tuple[tuple[str, str, int], ...]) -> None:
-        for name, kind in fields:
-            if kind == "SINGLE_SELECT":
-                self.github.create_board_field(self.root, board_id, name, kind, options=_board.STANDARD_PRIORITY)
-            elif kind == "ITERATION":
-                self.github.create_board_field(self.root, board_id, name, kind, iterations=iterations)
-            else:
-                self.github.create_board_field(self.root, board_id, name, kind)
-
-    def board_scope(self, settings: _board.BoardSettings | None = None) -> _board.BoardScope:
-        """ボードがこのリポジトリ専用か（リンクしているリポジトリ・項目のリポジトリ・公開）。"""
-        settings = settings or self.require_board()
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        repository = self.github.repository_name(self.root)
-        others = tuple(url for url in self.github.repository_boards(self.root)
-                       if url.rstrip("/") != info.url.rstrip("/"))
-        return _board.BoardScope(repository, info.repositories, self.github.board_item_repositories(self.root, info.id),
-                                 info.public, self.github.repository_private(self.root), settings.shared, others)
-
-    def check_board(self, settings: _board.BoardSettings, *, exclusive: bool = False) -> _board.BoardStatus:
-        """ボードを使えるか確かめる：状態の項目が単一選択で段階に当てた選択肢があり、役割に当てた項目の型が合うか。
-
-        exclusive：このリポジトリ専用か確かめる（他のリポジトリにリンク・他のリポジトリの項目があれば止める。
-        settings.shared なら止めない）。つなぐとき（board use）に使う。
-        """
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        scope = self.board_scope(settings)
-        if exclusive and not settings.shared and (scope.other_links or scope.foreign_items):
-            raise TaskError(ErrorCode.BOARD_SHARED, "このボードは、他のリポジトリと共有されています。",
-                            hint="このリポジトリ専用のボードを board create で作るか、共有してよければ --shared を"
-                                 "付けてください。",
-                            details=[p for p in scope.problems if "リンクしていません" not in p])
-        status = info.field(settings.status_field)
-        if status.type != "SINGLE_SELECT":
-            raise TaskError(ErrorCode.INVALID_ARGUMENT, f"フィールド {status.name} は単一選択ではありません。",
-                            hint="--status-field で、状態を表す単一選択のフィールドを指定してください。")
-        missing = [stage for stage in (_model.TODO, _model.IN_PROGRESS, _model.DONE) if not settings.stages.get(stage)]
-        if missing:
-            raise TaskError(ErrorCode.INVALID_ARGUMENT,
-                            f"作業の段階（{', '.join(missing)}）に当てる {status.name} の選択肢が決まっていません。",
-                            hint="--todo・--in-progress・--done（任意で --in-review）で選択肢を指定してください。",
-                            details=[o.name for o in status.options])
-        for stage, name in settings.stages.items():
-            if stage not in _board.STAGES:
-                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"作業の段階 {stage} はありません。")
-            if name:
-                _board.find_option(status, name)
-        for role, name in settings.schema.items():
-            if role not in _model.ROLES:
-                raise TaskError(ErrorCode.INVALID_ARGUMENT, f"役割 {role} はありません。")
-            if name:
-                target = info.field(name)
-                if target.type != _model.ROLE_TYPES[role]:
-                    raise TaskError(ErrorCode.INVALID_ARGUMENT,
-                                    f"{_model.ROLE_NAMES[role]}に当てた項目 {target.name} の型が {target.type} です"
-                                    f"（{_model.ROLE_TYPES[role]} が必要）。")
-        return _board.BoardStatus(info.url, info.title, status.name, dict(settings.stages), info.fields,
-                                  {r: n for r, n in settings.schema.items() if n}, scope)
-
-    def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
-        """GitHub側でも、ボードをこのリポジトリにつなぐ（外す）。ボード自体は消さない。"""
-        info = self.github.get_board(self.root, settings.owner, settings.number)
-        self.github.link_board(self.root, info.id, link=link)
-
-    def board_status(self) -> _board.BoardStatus:
-        status = self.check_board(self.require_board())
-        self.notices += [f"ボードの範囲：{p}" for p in status.scope.problems]
-        return status
-
-    def board_info(self) -> _board.BoardInfo:
-        return self.store.info()
-
-    def board_values(self, number: int) -> dict[str, str] | None:
-        """ボード上の値（項目の名前 → 値）。ボードがなければNone、ボードにないタスクは空。"""
-        if self.board is None:
-            return None
-        item = self.github.board_item(self.root, number, self.store.info().id)
-        return {} if item is None else dict(item.values)
-
-    def set_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
-        """ボードの項目を設定する（型に従って確かめる）。作業の段階に当てた状態は操作で変わるため設定しない。"""
-        settings, info = self.require_board(), self.store.info()
-        target = info.field(name)
-        if target.type == "ITERATION" and value == "current":
-            value = self.sprint("current").name  # 今日を含むスプリント
-        if target.name == info.field(settings.status_field).name:
-            option = _board.find_option(target, value)
-            if option.name in settings.stage_options:
-                raise self._stage_field_error(target.name, option.name)
-        item = self.store.item(number)
-        self.store.write(item, target, value)
-        return _board.TaskBoard(number, item.id, self.board_values(number) or {})
-
-    def clear_field(self, number: int, name: str) -> _board.TaskBoard:
-        settings, info = self.require_board(), self.store.info()
-        target = info.field(name)
-        item = self.store.item(number)
-        if target.name == info.field(settings.status_field).name and item.values.get(target.name) in settings.stage_options:
-            raise self._stage_field_error(target.name, item.values[target.name])
-        self.store.clear(item, target)
-        return _board.TaskBoard(number, item.id, self.board_values(number) or {})
+    def prepare(self) -> None:
+        """タスク管理の準備：計画・段階の置き場所（ボード）を作る（あれば足りない項目を足す）。モジュールを作るときに使う。"""
+        self.store.ensure()
+        self._shared()
 
     def set_stage(self, number: int, stage: str) -> None:
-        """作業の段階をボードの状態に反映する。作業中・レビュー待ちなら、開始日がまだなければ今日にし、
-        未着手・計画中の親も作業中にする（親の開始日も同じ）。
+        """作業の段階を記録する。作業中・レビュー待ちなら、開始日がまだなければ今日にし、
+        未着手・計画中の親も作業中にする（親の開始日も同じ）。置き場所（ボード）がなければ作る。
 
-        ボードがなければ何もしない。失敗しても操作は成功のまま、知らせて board sync を案内する。
+        失敗しても操作は成功のまま、知らせる（ずれは次の task list で直る）。
         """
-        if self.board is None:
-            return
-        option = self.board.option(stage)
         try:
-            status = self.store.info().field(self.board.status_field)
-            item = self.store.item(number, add=True)
+            settings = self.store.ensure()
+            option = settings.option(stage)
+            status = self.store.info().field(settings.status_field)
+            item = self.store.item(number)
             if item.values.get(status.name) != option:
                 self.store.write(item, status, option)
             if stage in (_model.IN_PROGRESS, _model.IN_REVIEW):
                 self.store.record_started(item)
                 parent = self.github.issue_relation(self.root, number).parent
                 if parent is not None:
-                    parent_item = self.store.item(parent, add=True)
+                    parent_item = self.store.item(parent)
                     if self._parent_follows(parent_item.values.get(status.name)):
-                        self.store.write(parent_item, status, self.board.option(_model.IN_PROGRESS))
+                        self.store.write(parent_item, status, settings.option(_model.IN_PROGRESS))
                         self.store.record_started(parent_item)
+            self._shared()
         except TaskError as error:
-            self.notices.append(f"ボードの #{number} を {option} にできませんでした（{error.message}）。"
-                                f"{self._op('board sync')} で合わせられます。")
+            self.notices.append(f"#{number} の段階を GitHub に記録できませんでした（{error.message}）。"
+                                f"次に {self._op('task list')} を実行すると合わせます。")
 
-    def sync_board(self, work: dict[int, WorkState], *, dry_run: bool = False) -> _board.BoardSyncResult:
-        """ボードを実際の状態に合わせる：開いているタスクでボードにないものを加え、状態を作業の段階
-        （Issueの開閉と、work：作業空間・PR）に合わせる。子が始まった親は作業中にする。計画の段階は変えない。"""
-        settings = self.require_board()
-        status = self.store.info().field(settings.status_field)
-        tasks = self.store.tasks(closed=True)
+    def sync_stages(self, tasks: list[_model.Task], work: dict[int, WorkState]) -> list[_model.Task]:
+        """段階のずれを直す（GitHubのサイトでの操作・失敗した記録の分）：段階を作業の事実（Issueの開閉と、
+        work：作業空間・PR）に合わせ、子が始まった親は作業中にする。計画の段階・作業空間のない作業中は変えない。
+        置き場所（ボード）がまだなければ何もしない。直した段階を重ねた tasks を返す。"""
+        settings = self.board
+        if settings is None or not tasks:
+            return tasks
         by_number = {t.number: t for t in tasks}
         targets = {}
         for t in tasks:
@@ -565,44 +440,29 @@ class Tracker:
             if parent is not None and parent.open and (targets[t.number] or t.status) in started:
                 if self._parent_follows(targets[parent.number] or parent.status):
                     targets[parent.number] = settings.option(_model.IN_PROGRESS)
-        try:
-            self.notices += [f"ボードの範囲：{p}" for p in self.board_scope(settings).problems]
-        except TaskError:
-            pass  # 範囲の確かめは知らせるだけ
-        added, changed = [], []
+        result = []
         for t in tasks:
-            if not t.on_board and not t.open:
-                continue  # 閉じたタスクは、ボードにあるものだけ合わせる
             target = targets[t.number]
-            if not t.on_board:
-                added.append(t.number)
-            if target is not None and target != t.status:
-                changed.append(_board.BoardChange(t.number, t.title, t.status, target))
-            if dry_run:
-                continue
-            item = self.store.item(t.number, add=True) if (not t.on_board or target not in (None, t.status)) else None
-            if item is not None and target is not None and target != t.status:
-                self.store.write(item, status, target)
-        return _board.BoardSyncResult(tuple(added), tuple(changed), dry_run)
-
-    def require_board(self) -> _board.BoardSettings:
-        if self.board is None:
-            raise TaskError(ErrorCode.NO_BOARD, "ボード（GitHub Projects）をつないでいません。",
-                            hint=f"{self._op('board list')} で一覧を見て、{self._op('board use')} <URL> でつなぎます"
-                                 f"（なければ {self._op('board create')} <題名> で作れます）。")
-        return self.board
+            if (t.on_board or t.open) and target is not None and target != t.status:
+                try:
+                    self.store.ensure()
+                    self.store.write(self.store.item(t.number), self.store.info().field(settings.status_field), target)
+                    t = replace(t, status=target, stage=self.store.stage_of(target), on_board=True)
+                except TaskError as error:
+                    self.notices.append(f"#{t.number} の段階を GitHub で合わせられませんでした（{error.message}）。")
+            result.append(t)
+        return result
 
     # 内部 -----------------------------------------------------------------------------
 
     def _op(self, name: str) -> str:
         return operation(self.command, name)
 
-    def _require_role(self, role: str) -> None:
-        self.require_board()
-        if self.store.role_field(role) is None:
-            raise TaskError(ErrorCode.FIELD_NOT_FOUND, f"ボードに{_model.ROLE_NAMES[role]}の項目が当てられていません。",
-                            hint="ボードに項目を足して、作業空間で board use をやり直してください"
-                                 "（board create の標準のボードには、すべてあります）。")
+    def _shared(self) -> None:
+        """置き場所を作った・引き継いだときに共有した人を、1回だけ知らせる。"""
+        if self.store.shared:
+            self.notices.append(f"共同作業者（{', '.join(self.store.shared)}）も、タスクの計画・段階を書けるようにしました。")
+            self.store.shared = ()
 
     def _open_subtasks(self, number: int) -> list[_github.IssueInfo]:
         return sorted((s for s in self.github.sub_issues(self.root, number) if s.state == "open"),
@@ -625,48 +485,9 @@ class Tracker:
             return _model.TODO
         return None
 
-    def _stage_field_error(self, field_name: str, option: str) -> TaskError:
-        settings = self.board
-        command = {settings.option(_model.TODO): "task reopen／task drop",
-                   settings.option(_model.IN_PROGRESS): "task start（コードを変えないタスクは --no-workspace）",
-                   settings.option(_model.DONE): "task merge／task close"}.get(option, "task submit")
-        return TaskError(ErrorCode.STAGE_FIELD, f"{field_name} の {option} は作業の段階なので、手では設定しません。",
-                         hint=f"{self._op(command)} で変わります。計画の段階（段階に当てていない選択肢）は設定できます。")
-
     def __repr__(self) -> str:
         return f"Tracker({str(self.root)!r})"
 
 
 def _missing_last(value, number: int) -> tuple:
     return (value is None, value if value is not None else 0, number)
-
-
-def _sort_key(field_: _board.BoardField, value: str | None) -> tuple:
-    if value is None:
-        return (1, 0, "")
-    if field_.type in ("SINGLE_SELECT", "ITERATION"):
-        names = [o.name for o in field_.options]
-        return (0, names.index(value) if value in names else len(names), value)
-    if field_.type == "NUMBER":
-        try:
-            return (0, float(value), value)
-        except ValueError:
-            return (0, float("inf"), value)
-    return (0, 0, value)  # 日付（YYYY-MM-DD）・テキストは文字の順
-
-
-def _parse_date(text: str) -> _datetime.date:
-    try:
-        return _datetime.date.fromisoformat(text)
-    except ValueError:
-        raise TaskError(ErrorCode.INVALID_ARGUMENT, f"日付 {text} は YYYY-MM-DD の形で指定してください。") from None
-
-
-def _iterations(start: _datetime.date, days: int, count: int) -> tuple[tuple[str, str, int], ...]:
-    """スプリント（題名・始まり・日数）を start から days 日ずつ count 回。"""
-    return tuple((f"Sprint {i + 1}", (start + _datetime.timedelta(days=days * i)).isoformat(), days)
-                 for i in range(count))
-
-
-def _monday(day: _datetime.date) -> _datetime.date:
-    return day - _datetime.timedelta(days=day.weekday())

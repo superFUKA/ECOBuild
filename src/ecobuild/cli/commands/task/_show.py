@@ -26,6 +26,6 @@ def dates_text(task) -> str:
 
 
 def task_line(task) -> str:
-    stage = STAGE_NAMES.get(task.stage or "", task.status or "")
+    stage = STAGE_NAMES.get(task.stage or "", "")
     plan = plan_text(task)
     return f"#{task.number} {task.title}" + (f"〈{stage}〉" if stage else "") + (f"  {plan}" if plan else "")

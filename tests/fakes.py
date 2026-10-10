@@ -13,7 +13,7 @@ from helpers import git
 from ecotask.github import TaskRecord
 from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
                             PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
-from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption
+from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption, BoardRef
 from ecowork.errors import ErrorCode, WorkError
 from ecotask.github import _field_value
 
@@ -44,7 +44,9 @@ class FakeGitHub:
         self.boards: dict[int, BoardInfo] = {}
         self.items: dict[tuple[str, int], BoardItem] = {}   # (ボード, Issue) → 項目
         self.linked_boards: set[str] = set()
-        self.foreign_items: dict[str, dict[str, int]] = {}   # ボード → 他のリポジトリ → 項目の数
+        self.board_descriptions: dict[str, str] = {}        # ボード → 説明（ECOBuildのボードの印）
+        self.collaborators: tuple[str, ...] = ()            # 共有する共同作業者（share_board が返す）
+        self.shared_boards: dict[str, tuple[str, ...]] = {}
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -242,9 +244,29 @@ class FakeGitHub:
                                         (BoardField("F_title", "Title", "TITLE"), status, *extra))
         return self.boards[number]
 
-    def create_board(self, repo, owner, title):
+    def create_board(self, repo, owner, title, description):
         board = self.add_board(title, statuses=("Todo", "In Progress", "Done"))   # GitHubの既定の Status
+        self.describe_board(repo, board.id, description)
         return replace(board, fields=())
+
+    def set_iterations(self, repo, field_id, iterations):
+        for number, board in self.boards.items():
+            fields = tuple(replace(f, options=tuple(BoardOption(i or f"{field_id}_new_{k}", t, s, d)
+                                                    for k, (i, t, s, d) in enumerate(iterations)))
+                           if f.id == field_id else f for f in board.fields)
+            self.boards[number] = replace(board, fields=fields)
+
+    def describe_board(self, repo, board_id, description):
+        self.board_descriptions[board_id] = description
+
+    def share_board(self, repo, board_id):
+        self.shared_boards[board_id] = self.collaborators
+        return self.collaborators
+
+    def ecobuild_board(self):
+        """ECOBuildが作った・引き継いだボード（試験で中身を見る用）。なければNone。"""
+        return next((b for b in self.boards.values() if self.board_descriptions.get(b.id, "").startswith("ECOBuild")),
+                    None)
 
     def set_board_options(self, repo, field_id, options):
         for number, board in self.boards.items():
@@ -263,12 +285,9 @@ class FakeGitHub:
         choices += tuple(BoardOption(f"{field_id}_{i}", t, s, d) for i, (t, s, d) in enumerate(iterations))
         self.boards[number] = replace(board, fields=board.fields + (BoardField(field_id, name, type, choices),))
 
-    def list_boards(self, repo, owner):
-        return [replace(b, fields=()) for b in self.boards.values()]
-
     def get_board(self, repo, owner, number):
         if number not in self.boards:
-            raise WorkError(ErrorCode.NO_BOARD, f"ボード {owner} の {number} 番が見つかりません。")
+            raise WorkError(ErrorCode.NO_BOARD, "GitHubのタスク管理の情報を読めません。")
         return self.boards[number]
 
     def link_board(self, repo, board_id, *, link):
@@ -285,19 +304,8 @@ class FakeGitHub:
 
     def repository_boards(self, repo):
         name = self.repository_name(repo)
-        return tuple(b.url for b in self.boards.values() if name in b.repositories)
-
-    def repository_private(self, repo):
-        return getattr(self, "private", True)
-
-    def board_item_repositories(self, repo, board_id):
-        counts = {}
-        for (b, _), _item in self.items.items():
-            if b == board_id:
-                counts[self.repository_name(repo)] = counts.get(self.repository_name(repo), 0) + 1
-        for name, count in self.foreign_items.get(board_id, {}).items():   # 試験で入れる、他のリポジトリの項目
-            counts[name] = counts.get(name, 0) + count
-        return counts
+        return tuple(BoardRef(b.url, self.board_descriptions.get(b.id, ""), b.closed)
+                     for b in self.boards.values() if name in b.repositories)
 
     def task_records(self, repo, *, closed, board_id, number=None):
         numbers = [number] if number is not None else [n for n, i in self.issues.items() if closed or i.state == "open"]
@@ -311,10 +319,6 @@ class FakeGitHub:
                                       None if board_id is None else self.items.get((board_id, n)),
                                       self.created_at.get(n), self.closed_at.get(n)))
         return records
-
-    def board_items(self, repo, board_id, *, closed):
-        return {n: item for (b, n), item in self.items.items()
-                if b == board_id and (closed or self.issues[n].state == "open")}
 
     def board_item(self, repo, number, board_id):
         self.get_issue(repo, number)

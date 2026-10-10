@@ -179,9 +179,9 @@ def doctor() -> DoctorReport:
                                "gh auth login を実行してください（ブラウザでログインします）。", "login"))
         if status.ok:
             scopes = next((line.split(":", 1)[1] for line in status.output.splitlines() if "Token scopes" in line), "")
-            board = "'project'" in scopes
-            items.append(CheckItem("ボードの権限（GitHub Projects）", board, False,
-                                   "あります" if board else "ありません（ボードを使うときだけ必要）",
+            tasks = "'project'" in scopes
+            items.append(CheckItem("タスク管理の権限（project）", tasks, True,
+                                   "あります" if tasks else "ありません（タスクの段階・計画をGitHubに置くのに必要）",
                                    "gh auth refresh -s project を実行してください（ブラウザで承認します）。", "scope"))
         if git is not None:
             helpers = _run(["git", "config", "--get-urlmatch", "credential.helper", "https://github.com"]).stdout
@@ -334,7 +334,7 @@ class InitReport:
 
 def initialize(questions: Questions) -> InitReport:
     """使い始める準備を、質問しながら行う：ツールの設定を置くディレクトリ、足りないツールの導入、GitHubへの
-    ログイン（ボードの権限も）、gitが gh の認証を使う設定、gitの名前・メール、既定の所有者。
+    ログイン（タスク管理の権限も）、gitが gh の認証を使う設定、gitの名前・メール、既定の所有者。
     直っているものは聞かない（置き場所と所有者は、今の値を既定にして毎回聞く）。"""
     done, skipped = [], []
     current = home()
@@ -361,20 +361,20 @@ def initialize(questions: Questions) -> InitReport:
         return any(i.fix == fix and not i.ok for i in report.items)
 
     if not questions.interactive and (failed("login") or failed("scope")):
-        skipped.append("GitHub へのログイン・ボードの権限（ブラウザでの操作が要るので、端末で ecobuild init）")
+        skipped.append("GitHub へのログイン・タスク管理の権限（ブラウザでの操作が要るので、端末で ecobuild init）")
     elif failed("login"):
-        if questions.confirm("GitHub にログインしますか？（ブラウザが開きます。ボードの権限も一緒に承認します）"):
+        if questions.confirm("GitHub にログインしますか？（ブラウザが開きます。タスク管理の権限も一緒に承認します）"):
             ok = run_interactive(["gh", "auth", "login", "--web", "--git-protocol", "https", "--scopes", "project"])
             (done if ok else skipped).append("GitHub にログインしました" if ok else "GitHub へのログインに失敗しました")
         else:
             skipped.append("GitHub へのログイン")
         report = doctor()
     elif failed("scope"):
-        if questions.confirm("タスクのボード（GitHub Projects）の権限がありません。追加しますか？（ブラウザで承認します）"):
+        if questions.confirm("タスク管理の権限（project）がありません。追加しますか？（ブラウザで承認します）"):
             ok = run_interactive(["gh", "auth", "refresh", "--scopes", "project"])
-            (done if ok else skipped).append("ボードの権限を追加しました" if ok else "ボードの権限の追加に失敗しました")
+            (done if ok else skipped).append("タスク管理の権限を追加しました" if ok else "タスク管理の権限の追加に失敗しました")
         else:
-            skipped.append("ボードの権限の追加")
+            skipped.append("タスク管理の権限の追加")
     if failed("setup-git") and setup_git():
         done.append("gitが gh の認証を使うようにしました（gh auth setup-git）")
 

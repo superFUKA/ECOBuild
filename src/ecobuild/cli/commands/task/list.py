@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from ._show import plan_text
+from ._show import STAGE_NAMES, plan_text
 
 
 def command(
@@ -11,9 +11,10 @@ def command(
     mine: Annotated[bool, "自分が担当のタスクだけ（--assignee @me と同じ）"] = False,
     search: Annotated[str, "題名・本文の検索（GitHubの検索の書き方）"] = "",
     milestone: Annotated[str, "このマイルストーンのタスクだけ"] = "",
-    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がなく、ボードでは未着手のもの）"] = False,
+    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がなく、未着手のもの）"] = False,
     sprint: Annotated[str, "このスプリントのタスクだけ（スプリントの名前。current は今日を含むもの）"] = "",
-    sort: Annotated[str, "ボードのフィールドで並べる（例：Priority。単一選択は選択肢の順、日付・数値は小さい順）"] = "",
+    sort: Annotated[str, "並べる値（priority・due・estimate・sprint・planned_start・planned_end・started・created・"
+                         "finished。優先度は高い順、日付・見積もりは小さい順）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（Issue）の一覧を表示します（* は今いる作業空間、+ は手元に作業空間があるもの、- はGitHubにだけあるもの）。"""
@@ -21,9 +22,8 @@ def command(
     def render(r):
         return "\n".join(("* " if t.current else "+ " if t.workspace else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
-                         + (f"〈{t.status}〉" if t.status else "")
+                         + (f"〈{STAGE_NAMES[t.stage]}〉" if t.stage in STAGE_NAMES else "")
                          + (f" {plan_text(t)}" if plan_text(t) else "")
-                         + "".join(f" {k}:{v}" for k, v in t.fields.items())
                          + "".join(f" [{name}]" for name in t.labels)
                          + (f"（担当：{', '.join(t.assignees)}）" if t.assignees else "")
                          + (f"（親 #{t.parent}）" if t.parent else "")

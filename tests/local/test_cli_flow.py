@@ -35,9 +35,8 @@ def test_every_command_has_help():
                  ["task", "clean"], ["task", "drop"], ["pr", "list"], ["pr", "status"], ["pr", "diff"],
                  ["pr", "comment"], ["pr", "review"], ["pr", "edit"], ["pr", "close"], ["pr", "reopen"], ["pr", "ready"],
                  ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
-                 ["milestone", "close"], ["milestone", "reopen"], ["board", "list"], ["board", "use"], ["board", "show"],
-                 ["board", "unset"], ["board", "sync"], ["board", "create"], ["task", "next"], ["task", "overdue"],
-                 ["task", "plan"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"], ["task", "field", "set"], ["task", "field", "clear"], ["init"]):
+                 ["milestone", "close"], ["milestone", "reopen"], ["task", "next"], ["task", "overdue"],
+                 ["task", "plan"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"], ["init"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -151,7 +150,7 @@ def test_task_labels_assignees_and_comments(cli, module):
     as_json(cli("task", "new", "落ちる", "--label", "bug,urgent", "--start", "--json"))
     as_json(cli("task", "new", "説明", "--label", "docs", "--json"))
     listed = cli("task", "list", "--label", "bug")
-    assert "#1 落ちる [bug] [urgent]（担当：tester）" in listed.stdout and "#2" not in listed.stdout
+    assert "#1 落ちる〈作業中〉 [bug] [urgent]（担当：tester）" in listed.stdout and "#2" not in listed.stdout
     assert [t["number"] for t in as_json(cli("task", "list", "--assignee", "@me", "--json"))["result"]] == [1]
     assert cli("task", "comment", "--message", "計算は済み").exit_code == 0
     assert cli("task", "edit", "2", "--add-assignee", "@me", "--remove-label", "docs").exit_code == 0
@@ -194,121 +193,82 @@ def test_task_relations_from_cli(cli):
     assert "v1" in cli("milestone", "list").output
 
 
-def test_board_from_cli(cli, module):
-    github = module.repository.github
-    board = github.add_board(statuses=("Todo", "In Progress", "Done"))
-    assert as_json(cli("board", "use", board.url, "--json"))["error"]["code"] == "not_in_workspace"
-    assert cli("task", "new", "ボードをつなぐ", "--start").exit_code == 0
-    used = as_json(cli("board", "use", board.url, "--json"))["result"]
-    assert used["stages"] == {"todo": "Todo", "in_progress": "In Progress", "done": "Done"}
-    assert "[board]" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
-    assert board.id in github.linked_boards
-    assert "In Progress" in cli("board", "show").output
-    synced = as_json(cli("board", "sync", "--json"))["result"]
-    assert synced["added"] == [1] and synced["changed"][0]["after"] == "In Progress"
+def test_task_stages_from_cli(cli, module):
+    """利用者はタスクだけを扱う：段階は ECOBuild の言葉で表示し、置き場所（ボード）のコマンド・値は出さない。"""
+    assert cli("board", "show").exit_code == 2 and cli("task", "field", "set").exit_code == 2
     assert cli("task", "new", "調べる").exit_code == 0
-    assert as_json(cli("task", "list", "--json"))["result"][1]["status"] == "Todo"
-    assert cli("task", "start", "2", "--no-workspace").exit_code == 0
-    refused = as_json(cli("task", "field", "set", "2", "--field", "Status", "--value", "Done", "--json"))
-    assert refused["error"]["code"] == "stage_field"
-    assert as_json(cli("task", "status", "2", "--json"))["result"]["board"] == {"Status": "In Progress"}
-    assert cli("board", "unset").exit_code == 0 and board.id not in github.linked_boards
-
-
-def test_standard_board_from_cli(cli, module):
-    created = as_json(cli("board", "create", "計画", "--sprint-start", "2026-10-05", "--json"))["result"]
-    assert [f["name"] for f in created["fields"] if f["type"] == "ITERATION"] == ["Sprint"]
-    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
-    used = as_json(cli("board", "use", created["url"], "--json"))["result"]
-    assert used["stages"]["in_review"] == "In Review"
-    assert cli("task", "new", "子", "--parent", "1").exit_code == 0
-    assert cli("task", "field", "set", "2", "--field", "Sprint", "--value", "Sprint 2").exit_code == 0
-    assert [t["number"] for t in as_json(cli("task", "list", "--sprint", "Sprint 2", "--json"))["result"]] == [2]
-    assert [t["number"] for t in as_json(cli("task", "list", "--mine", "--json"))["result"]] == [1]
-    assert as_json(cli("pr", "list", "--review-requested", "--json"))["result"] == []
+    assert "#1 調べる〈未着手〉" in cli("task", "list").stdout
+    listed = as_json(cli("task", "list", "--json"))["result"][0]
+    assert listed["stage"] == "todo" and "status" not in listed and "fields" not in listed
+    assert cli("task", "start", "1", "--no-workspace").exit_code == 0
+    status = as_json(cli("task", "status", "1", "--json"))["result"]
+    assert status["task"]["stage"] == "in_progress" and "board" not in status
+    assert "段階：作業中" in cli("task", "status", "1").stdout
+    assert "ボード" not in cli("task", "--help").output and "ボード" not in cli("--help").output
 
 
 def test_planning_from_cli(cli, module):
     import datetime
-    monday = datetime.date.today() - datetime.timedelta(days=datetime.date.today().weekday())
-    created = as_json(cli("board", "create", "計画", "--sprint-start", monday.isoformat(), "--json"))["result"]
-    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
-    shown = as_json(cli("board", "use", created["url"], "--json"))["result"]
-    assert shown["schema"] == {"priority": "Priority", "due": "Due", "estimate": "Estimate", "sprint": "Sprint",
-                               "planned_start": "Planned Start", "planned_end": "Planned End", "started": "Started"}
     for title in ("低", "高", "遅れ"):
         assert cli("task", "new", title).exit_code == 0
     yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-    planned = as_json(cli("task", "plan", "2", "--priority", "Low", "--sprint", "current", "--estimate", "1",
+    planned = as_json(cli("task", "plan", "1", "--priority", "Low", "--sprint", "current", "--estimate", "1",
                           "--json"))["result"]
     assert (planned["priority"], planned["sprint"], planned["estimate"]) == ("Low", "Sprint 1", 1.0)
-    assert cli("task", "plan", "3", "--priority", "High", "--estimate", "3").exit_code == 0
-    assert cli("task", "plan", "4", "--due", yesterday).exit_code == 0
+    assert cli("task", "plan", "2", "--priority", "High", "--estimate", "3").exit_code == 0
+    assert cli("task", "plan", "3", "--due", yesterday).exit_code == 0
     ranked = as_json(cli("task", "next", "--json"))["result"]
-    assert [n["task"]["number"] for n in ranked] == [4, 2, 3] and ranked[0]["reasons"][0].startswith("期限切れ")
+    assert [n["task"]["number"] for n in ranked] == [3, 1, 2] and ranked[0]["reasons"][0].startswith("期限切れ")
     assert "理由" in cli("task", "next").output
-    assert [t["number"] for t in as_json(cli("task", "overdue", "--json"))["result"]["overdue"]] == [4]
+    assert [t["number"] for t in as_json(cli("task", "overdue", "--json"))["result"]["overdue"]] == [3]
     sprint = as_json(cli("sprint", "status", "--json"))["result"]
     assert (sprint["sprint"]["name"], sprint["total"]) == ("Sprint 1", 1)
     assert "Sprint 1" in cli("sprint", "list").output
+    assert [t["number"] for t in as_json(cli("task", "list", "--sprint", "current", "--json"))["result"]] == [1]
     load = as_json(cli("task", "workload", "--json"))["result"]
-    assert sum(w["open"] for w in load) == 4
-    assert as_json(cli("task", "list", "--sort", "priority", "--json"))["result"][0]["number"] == 3
-    assert as_json(cli("task", "status", "4", "--json"))["result"]["task"]["due"] == yesterday
-
-
-def test_board_is_dedicated_from_cli(cli, module):
-    github = module.repository.github
-    created = as_json(cli("board", "create", "--json"))["result"]
-    assert created["repositories"] == [github.repository_name(module.root)]
-    github.foreign_items[created["id"]] = {"tester/other": 1}
-    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
-    refused = as_json(cli("board", "use", created["url"], "--json"))
-    assert refused["error"]["code"] == "board_shared" and "--shared" in refused["error"]["hint"]
-    assert cli("board", "use", created["url"], "--shared").exit_code == 0
-    assert "shared = true" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
-    shown = cli("board", "show")
-    assert "共有" in shown.output and "tester/other 1" in shown.output
+    assert sum(w["open"] for w in load) == 3
+    assert as_json(cli("task", "list", "--sort", "priority", "--json"))["result"][0]["number"] == 2
+    assert as_json(cli("task", "list", "--sort", "Priority", "--json"))["error"]["code"] == "invalid_argument"
+    assert as_json(cli("task", "status", "3", "--json"))["result"]["task"]["due"] == yesterday
+    assert as_json(cli("task", "plan", "1", "--priority", "最高", "--json"))["error"]["code"] == "invalid_argument"
 
 
 def test_task_dates_from_cli(cli, module):
     """追加した日・開始日・終了日は自動で記録し、期限・開始予定日・終了予定日は作成時と更新で設定する。"""
     import datetime
     today = datetime.date.today().isoformat()
-    created = as_json(cli("board", "create", "--json"))["result"]
-    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
-    assert cli("board", "use", created["url"]).exit_code == 0
     made = cli("task", "new", "日付", "--due", "2026-11-30", "--planned-start", "2026-11-02",
                "--planned-end", "2026-11-20")
     assert made.exit_code == 0
-    task = as_json(cli("task", "status", "2", "--json"))["result"]["task"]
+    task = as_json(cli("task", "status", "1", "--json"))["result"]["task"]
     assert (task["due"], task["planned_start"], task["planned_end"]) == ("2026-11-30", "2026-11-02", "2026-11-20")
     assert (task["created"], task["started"], task["finished"]) == (today, None, None)
     assert as_json(cli("task", "new", "逆", "--planned-start", "2026-11-20", "--planned-end", "2026-11-02",
                        "--json"))["error"]["code"] == "invalid_argument"
-    assert cli("task", "edit", "2", "--planned-end", "2026-11-25", "--clear-date", "due").exit_code == 0
-    assert as_json(cli("task", "edit", "2", "--clear-date", "priority", "--json"))["error"]["code"] == "invalid_argument"
-    assert cli("task", "plan", "2", "--planned-start", "2026-11-03").exit_code == 0
-    assert cli("task", "start", "2", "--no-workspace").exit_code == 0
-    task = as_json(cli("task", "status", "2", "--json"))["result"]["task"]
+    assert cli("task", "edit", "1", "--planned-end", "2026-11-25", "--clear-date", "due").exit_code == 0
+    assert as_json(cli("task", "edit", "1", "--clear-date", "priority", "--json"))["error"]["code"] == "invalid_argument"
+    assert cli("task", "plan", "1", "--planned-start", "2026-11-03").exit_code == 0
+    assert cli("task", "start", "1", "--no-workspace").exit_code == 0
+    task = as_json(cli("task", "status", "1", "--json"))["result"]["task"]
     assert (task["due"], task["planned_start"], task["planned_end"], task["started"]) == (
         None, "2026-11-03", "2026-11-25", today)
-    assert cli("task", "close", "2").exit_code == 0
-    shown = cli("task", "status", "2").output
+    assert cli("task", "close", "1").exit_code == 0
+    shown = cli("task", "status", "1").output
     assert f"日付：追加 {today}・開始 {today}・終了 {today}" in shown and "予定 2026-11-03〜2026-11-25" in shown
 
 
-def test_add_standard_fields_from_cli(cli, module):
-    """今あるボードに、足りない標準の項目を足してつなぐ（型の項目が1つだけで当てた期限はそのまま）。"""
-    from ecotask.board import BoardField
+def test_legacy_board_setting_is_taken_over(cli, module):
+    """以前の設定（ecobuild.toml の [board]）でつないでいたボードは、そのまま引き継ぐ（設定を変える必要はない）。"""
     github = module.repository.github
-    board = github.add_board(statuses=("Todo", "In Progress", "Done"), extra=(BoardField("F_d", "締め切り", "DATE"),))
-    assert cli("task", "new", "つなぐ", "--start").exit_code == 0
-    used = as_json(cli("board", "use", board.url, "--add-fields", "--json"))
-    assert used["result"]["schema"] == {"priority": "Priority", "due": "締め切り", "estimate": "Estimate",
-                                        "sprint": "Sprint", "planned_start": "Planned Start",
-                                        "planned_end": "Planned End", "started": "Started"}
-    assert any("Planned Start" in n for n in used["notices"])
+    for board in list(github.boards.values()):        # モジュールを作ったときのものは外す（以前の状態にする）
+        github.link_board(module.root, board.id, link=False)
+    old = github.add_board(statuses=("Todo", "In Progress", "Done"))
+    github.link_board(module.root, old.id, link=True)
+    config = module.root / "ecobuild.toml"
+    config.write_text(config.read_text(encoding="utf-8") + f'\n[board]\nurl = "{old.url}"\n', encoding="utf-8")
+    assert cli("task", "new", "引き継ぐ").exit_code == 0
+    assert github.ecobuild_board().id == old.id
+    assert as_json(cli("task", "list", "--json"))["result"][0]["stage"] == "todo"
 
 
 def test_subtasks_from_cli(cli, module):

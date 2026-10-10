@@ -1,6 +1,7 @@
 """GitHub の呼び出し（タスク管理の分）。本物は gh を使う。試験では同じメソッドを持つ偽物に差し替える。
 
-Issue・ラベル・コメント・親子（Sub-issues）・依存（Issue dependencies）・マイルストーン・ボード（Projects）。
+Issue・ラベル・コメント・親子（Sub-issues）・依存（Issue dependencies）・マイルストーン・ボード（Projects。
+計画の情報を置く内部の保存場所。ecotask.board）。
 gh に専用のコマンドがないもの・gh の版で壊れやすいもの（Projects）は gh api（REST・GraphQL）を使う。
 """
 
@@ -98,19 +99,19 @@ class TaskGitHub(Protocol):
                        description: str | None = None, state: str | None = None) -> MilestoneInfo: ...
     def set_issue_milestone(self, repo: Path, number: int, milestone: int | None) -> None: ...
     # ボード（GitHub Projects。ghのトークンに project の権限が必要）
-    def list_boards(self, repo: Path, owner: str | None) -> list[_board.BoardInfo]: ...
     def get_board(self, repo: Path, owner: str, number: int) -> _board.BoardInfo: ...
     def link_board(self, repo: Path, board_id: str, *, link: bool) -> None: ...
-    def create_board(self, repo: Path, owner: str | None, title: str) -> _board.BoardInfo: ...
+    def create_board(self, repo: Path, owner: str | None, title: str, description: str) -> _board.BoardInfo: ...
+    def describe_board(self, repo: Path, board_id: str, description: str) -> None: ...
+    def set_iterations(self, repo: Path, field_id: str,
+                       iterations: tuple[tuple[str | None, str, str, int], ...]) -> None: ...
+    def share_board(self, repo: Path, board_id: str) -> tuple[str, ...]: ...
     def repository_name(self, repo: Path) -> str: ...
-    def repository_private(self, repo: Path) -> bool: ...
-    def repository_boards(self, repo: Path) -> tuple[str, ...]: ...
-    def board_item_repositories(self, repo: Path, board_id: str) -> dict[str, int]: ...
+    def repository_boards(self, repo: Path) -> tuple[_board.BoardRef, ...]: ...
     def set_board_options(self, repo: Path, field_id: str, options: tuple[tuple[str, str, str], ...]) -> None: ...
     def create_board_field(self, repo: Path, board_id: str, name: str, type: str, *,
                            options: tuple[tuple[str, str, str], ...] = (),
                            iterations: tuple[tuple[str, str, int], ...] = ()) -> None: ...
-    def board_items(self, repo: Path, board_id: str, *, closed: bool) -> dict[int, _board.BoardItem]: ...
     def task_records(self, repo: Path, *, closed: bool, board_id: str | None,
                      number: int | None = None) -> list[TaskRecord]: ...
     def board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem | None: ...
@@ -139,32 +140,12 @@ class GhCli:
         return f"{owner}/{name}"
 
     def repository_boards(self, repo):
-        """このリポジトリにリンクしているボードのURL。"""
+        """このリポジトリにリンクしているボード（見える範囲。説明はECOBuildのボードの印を見るため）。"""
         data = self._graphql(repo, """
             query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
-              projectsV2(first: 50) { nodes { url } } } }""", **self._repo_vars(repo))
-        return tuple(n["url"] for n in data["repository"]["projectsV2"]["nodes"])
-
-    def repository_private(self, repo):
-        return bool(self._json(["repo", "view", self.repository_name(repo), "--json", "isPrivate"],
-                               cwd=repo)["isPrivate"])
-
-    def board_item_repositories(self, repo, board_id):
-        """ボードの項目のリポジトリごとの数（下書きは "" に数える）。"""
-        counts, after = {}, None
-        while True:
-            data = self._graphql(repo, """
-                query($board: ID!, $after: String) { node(id: $board) { ... on ProjectV2 {
-                  items(first: 100, after: $after) { pageInfo { hasNextPage endCursor } nodes { content {
-                    ... on Issue { repository { nameWithOwner } }
-                    ... on PullRequest { repository { nameWithOwner } } } } } } } }""", board=board_id, after=after)
-            items = data["node"]["items"]
-            for node in items["nodes"]:
-                name = ((node.get("content") or {}).get("repository") or {}).get("nameWithOwner", "")
-                counts[name] = counts.get(name, 0) + 1
-            if not items["pageInfo"]["hasNextPage"]:
-                return counts
-            after = items["pageInfo"]["endCursor"]
+              projectsV2(first: 50) { nodes { url shortDescription closed } } } }""", **self._repo_vars(repo))
+        return tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed")))
+                     for n in data["repository"]["projectsV2"]["nodes"])
 
     def create_issue(self, repo, title, body, *, labels=(), assignees=()):
         self._ensure_labels(repo, labels)
@@ -311,17 +292,6 @@ class GhCli:
     def set_issue_milestone(self, repo, number, milestone):
         self._api("PATCH", f"issues/{number}", {"milestone": milestone}, cwd=repo)
 
-    def list_boards(self, repo, owner):
-        owner = owner or self._repo_name(repo)[0]
-        data = self._graphql(repo, """
-            query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
-              projectsV2(first: 100) { nodes { id number title url closed } } } } }""", login=owner)
-        owner_data = data.get("repositoryOwner")
-        if owner_data is None:
-            raise TaskError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubに所有者 {owner} が見つかりません。")
-        return [_board.BoardInfo(n["id"], n["number"], n["title"], n["url"], (), n["closed"])
-                for n in owner_data["projectsV2"]["nodes"]]
-
     def get_board(self, repo, owner, number):
         data = self._graphql(repo, """
             query($login: String!, $number: Int!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
@@ -335,8 +305,9 @@ class GhCli:
                              login=owner, number=number)
         project = (data.get("repositoryOwner") or {}).get("projectV2")
         if project is None:
-            raise TaskError(ErrorCode.NO_BOARD, f"ボード {owner} の {number} 番が見つかりません。",
-                            hint="URLと、そのボードを見られるアカウントか確かめてください。")
+            raise TaskError(ErrorCode.NO_BOARD, "GitHubのタスク管理の情報を読めません。",
+                            hint="リポジトリの所有者に、タスク管理の情報の共有を頼んでください"
+                                 "（所有者が ECOBuild のコマンドを使うと、共同作業者に共有されます）。")
         fields = []
         for node in project["fields"]["nodes"]:
             if not node:
@@ -351,7 +322,7 @@ class GhCli:
                                 project["closed"], project.get("public", False),
                                 tuple(r["nameWithOwner"] for r in (project.get("repositories") or {}).get("nodes") or []))
 
-    def create_board(self, repo, owner, title):
+    def create_board(self, repo, owner, title, description):
         owner = owner or self._repo_name(repo)[0]
         owner_id = self._graphql(repo, "query($login: String!) { repositoryOwner(login: $login) { id } }",
                                  login=owner)["repositoryOwner"]["id"]
@@ -359,8 +330,48 @@ class GhCli:
             mutation($owner: ID!, $title: String!) {
               createProjectV2(input: {ownerId: $owner, title: $title}) { projectV2 { id number title url closed } } }""",
                                 owner=owner_id, title=title)["createProjectV2"]["projectV2"]
+        self.describe_board(repo, project["id"], description)
         return _board.BoardInfo(project["id"], project["number"], project["title"], project["url"], (),
                                 project["closed"])
+
+    def describe_board(self, repo, board_id, description):
+        self._graphql(repo, """
+            mutation($project: ID!, $description: String!) {
+              updateProjectV2(input: {projectId: $project, shortDescription: $description}) { projectV2 { id } } }""",
+                      project=board_id, description=description)
+
+    def set_iterations(self, repo, field_id, iterations):
+        """イテレーション（スプリント）を置き換える。iterations：（ID〔今あるもの。新しいものは None〕, 題名, 始まり, 日数）。
+        今あるものはIDを渡して残す（タスクに入れたスプリントが消えないように）。"""
+        first = min(iterations, key=lambda i: i[2])
+        self._graphql(repo, """
+            mutation($field: ID!, $configuration: ProjectV2IterationFieldConfigurationInput!) {
+              updateProjectV2Field(input: {fieldId: $field, iterationConfiguration: $configuration}) {
+                projectV2Field { ... on ProjectV2IterationField { id } } } }""",
+                      field=field_id, configuration={
+                          "startDate": first[2], "duration": first[3],
+                          "iterations": [{**({"id": i} if i else {}), "title": t, "startDate": s, "duration": d}
+                                         for i, t, s, d in iterations]})
+
+    def share_board(self, repo, board_id):
+        """リポジトリの共同作業者（書き込める人）に、ボードを書き込めるように共有する。共有した人のログイン名。
+        共同作業者を読めない（権限がない）ときは何もしない。"""
+        completed = self._gh(["api", "--paginate", "repos/{owner}/{repo}/collaborators?per_page=100",
+                              "--jq", ".[] | select(.permissions.push) | [.login, .node_id] | @tsv"],
+                             cwd=repo, check=False)
+        if not completed.ok:
+            return ()
+        me = self._json(["api", "user"], cwd=repo)["login"]
+        people = [line.split("	") for line in completed.stdout.splitlines() if line.strip()]
+        people = [(login, node) for login, node in people if login != me]
+        if not people:
+            return ()
+        self._graphql(repo, """
+            mutation($project: ID!, $people: [ProjectV2Collaborator!]!) {
+              updateProjectV2Collaborators(input: {projectId: $project, collaborators: $people}) {
+                collaborators { totalCount } } }""",
+                      project=board_id, people=[{"userId": node, "role": "WRITER"} for _, node in people])
+        return tuple(login for login, _ in people)
 
     def set_board_options(self, repo, field_id, options):
         """単一選択の選択肢を置き換える（GitHubの仕様で、既存の値は消える）。options：（名前, 色, 説明）。"""
@@ -426,24 +437,6 @@ class GhCli:
                 return records
             after = issues["pageInfo"]["endCursor"]
 
-    def board_items(self, repo, board_id, *, closed):
-        result, after = {}, None
-        while True:
-            data = self._graphql(repo, """
-                query($owner: String!, $name: String!, $states: [IssueState!], $after: String) {
-                  repository(owner: $owner, name: $name) { issues(first: 50, after: $after, states: $states) {
-                    pageInfo { hasNextPage endCursor }
-                    nodes { number projectItems(first: 20) { nodes { id project { id } """ + _VALUES + """ } } } } } }""",
-                                 states=None if closed else ["OPEN"], after=after, **self._repo_vars(repo))
-            issues = data["repository"]["issues"]
-            for node in issues["nodes"]:
-                item = _board_item(node["projectItems"]["nodes"], board_id)
-                if item is not None:
-                    result[node["number"]] = item
-            if not issues["pageInfo"]["hasNextPage"]:
-                return result
-            after = issues["pageInfo"]["endCursor"]
-
     def board_item(self, repo, number, board_id):
         return _board_item(self._issue_items(repo, number)["projectItems"]["nodes"], board_id)
 
@@ -502,7 +495,8 @@ class GhCli:
                                  input=json.dumps({"query": query, "variables": variables}),
                                  env=self._env())
         if "INSUFFICIENT_SCOPES" in completed.output or "required scopes" in completed.output:
-            raise TaskError(ErrorCode.BOARD_PERMISSION, "ghのトークンに、ボード（GitHub Projects）を使う権限がありません。",
+            raise TaskError(ErrorCode.BOARD_PERMISSION,
+                            "GitHubへのログインに、タスク管理の情報を置く権限（project）がありません。",
                             hint="gh auth refresh -s project を実行してください（ブラウザで承認します）。",
                             details=completed.output)
         if not completed.ok:

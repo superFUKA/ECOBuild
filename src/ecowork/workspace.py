@@ -333,9 +333,7 @@ class TaskSummary:
     subtasks: int = 0                # 子タスクの数
     subtasks_done: int = 0           # そのうち閉じたもの
     blocked_by: int = 0              # 先に終わるべきタスクのうち、開いているものの数
-    status: str | None = None        # ボードの状態（ボードがなければNone）
-    fields: dict[str, str] = field(default_factory=dict)   # ボードの、役割に当てていない項目
-    stage: str | None = None         # 作業の段階（todo・in_progress・in_review・done・planned）
+    stage: str | None = None         # 作業の段階（todo・in_progress・in_review・done・planned。未記録ならNone）
     priority: str | None = None
     due: _datetime.date | None = None
     estimate: float | None = None
@@ -352,7 +350,7 @@ class TaskSummary:
     def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool) -> "TaskSummary":
         return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
-                   task.status, task.fields, task.stage, task.priority, task.due, task.estimate,
+                   task.stage, task.priority, task.due, task.estimate,
                    None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
                    task.planned_start, task.planned_end, task.created, task.started, task.finished)
 
@@ -378,8 +376,7 @@ class TaskStatus:
     subtasks: tuple["TaskRef", ...] = ()
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
-    board: dict[str, str] | None = None          # ボード上の値（状態・優先度等）。ボードがなければNone
-    task: _model.Task | None = None              # 型付きのタスク（段階・優先度・期限・見積もり・スプリント等）
+    task: TaskSummary | None = None              # 段階・計画の値（優先度・期限・見積もり・スプリント等）・日付
 
 
 @dataclass(frozen=True)

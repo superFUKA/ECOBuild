@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import datetime as _datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 # 作業の段階（ボードの状態に当てたもの）。planned は計画の段階（Backlog 等、段階に当てていない選択肢）
 TODO, IN_PROGRESS, IN_REVIEW, DONE, PLANNED = "todo", "in_progress", "in_review", "done", "planned"
 
-# ボードの項目の役割（どの項目に置くかは BoardSettings.schema で決める）
+# 計画・記録の値の役割（ボードのどの項目に置くかは ecotask.board が決める）
 PRIORITY, DUE, ESTIMATE, SPRINT = "priority", "due", "estimate", "sprint"
 PLANNED_START, PLANNED_END = "planned_start", "planned_end"      # 開始予定日・終了予定日
 STARTED = "started"                                              # 開始日（作業中になった日。操作が自動で書く）
@@ -49,7 +49,7 @@ class Task:
     state: str                                   # open / closed
     closed_reason: str | None = None             # completed / not_planned（閉じていればどちらか）
     stage: str | None = None                     # todo / in_progress / in_review / done / planned（ボードがなければNone）
-    status: str | None = None                    # ボードの状態の選択肢の名前（そのまま）
+    status: str | None = None                    # ボードの状態の選択肢の名前（内部。表示は stage）
     priority: str | None = None
     priority_rank: int | None = None             # 優先度の順位（ボードの選択肢の順。0 が最も高い）
     due: _datetime.date | None = None
@@ -69,8 +69,7 @@ class Task:
     subtasks_done: int = 0                       # そのうち閉じたもの
     blocked_by: int = 0                          # 先に終わるべきタスクのうち、開いているものの数
     blocking: int = 0                            # このタスクを待っている、開いているタスクの数
-    on_board: bool = False                       # ボードに載っているか
-    fields: dict[str, str] = field(default_factory=dict)   # 役割に当てていないボードの項目（そのままの値）
+    on_board: bool = False                       # ボードに載っているか（内部）
 
     @property
     def open(self) -> bool:

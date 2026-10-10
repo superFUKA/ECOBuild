@@ -7,7 +7,6 @@ import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from ecotask.board import BoardSettings
 
 from .errors import EcoBuildError, ErrorCode
 
@@ -36,9 +35,8 @@ _KNOWN_TABLES = ("format", "module", "branches", "projects", "profiles")
 # CI（ecobuild ci init）で選べるOS → GitHub Actions のランナー
 CI_RUNNERS = {"windows": "windows-latest", "linux": "ubuntu-latest"}
 CI_TABLE = "ci"
-BOARD_TABLE = "board"
-BOARD_STAGES = ("todo", "in_progress", "in_review", "done")   # 作業の段階（ecotask と同じ）
-BOARD_ROLES = ("priority", "due", "estimate", "sprint", "planned_start", "planned_end", "started")   # 役割（[board] の <役割>_field。ecotask と同じ）
+# 以前の設定：タスクの計画を置くボードの接続（今は内部で見つける。url だけ、引き継ぐために読む）
+LEGACY_BOARD_TABLE = "board"
 
 
 @dataclass(frozen=True)
@@ -80,31 +78,10 @@ class ModuleConfig:
         return settings
 
     @property
-    def board(self) -> BoardSettings | None:
-        """タスクの計画を置くボード（[board]）。なければNone。"""
-        table = self.extra.get(BOARD_TABLE)
-        if table is None:
-            return None
-        url, status = table.get("url"), table.get("status_field", "Status")
-        stages = {stage: table[stage] for stage in BOARD_STAGES if table.get(stage)}
-        schema = {role: table[f"{role}_field"] for role in BOARD_ROLES if table.get(f"{role}_field")}
-        if not isinstance(url, str) or not isinstance(status, str) or not all(
-                isinstance(v, str) for v in (*stages.values(), *schema.values())):
-            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[board] の url・status_field・段階の選択肢・項目の名前は文字列です。")
-        shared = table.get("shared", False)
-        if not isinstance(shared, bool):
-            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[board] の shared は真偽値です。")
-        return BoardSettings(url, status, stages, schema, shared)
-
-    def with_board(self, settings: BoardSettings | None) -> "ModuleConfig":
-        extra = {k: v for k, v in self.extra.items() if k != BOARD_TABLE}
-        if settings is not None:
-            extra[BOARD_TABLE] = {"url": settings.url, "status_field": settings.status_field,
-                                  **{stage: settings.stages[stage] for stage in BOARD_STAGES if settings.stages.get(stage)},
-                                  **{f"{role}_field": settings.schema[role] for role in BOARD_ROLES
-                                     if settings.schema.get(role)},
-                                  **({"shared": True} if settings.shared else {})}
-        return replace(self, extra=extra)
+    def legacy_board(self) -> str | None:
+        """以前の設定（[board] の url）。なければNone。"""
+        url = self.extra.get(LEGACY_BOARD_TABLE, {}).get("url")
+        return url if isinstance(url, str) and url else None
 
     def with_ci(self, settings: CiSettings) -> "ModuleConfig":
         validate_ci(settings)

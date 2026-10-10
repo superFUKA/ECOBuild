@@ -2,7 +2,9 @@
 
 読み：GitHubのデータ（Issue・親子と依存の要約・マイルストーン・ボードの値）を、まとめて Task にする。
 書き：計画の値（優先度・期限・見積もり・スプリント）と状態を、ボードの項目の型を確かめて書く。
-どの項目が何の役割か（スキーマ）は、ボードの設定（BoardSettings.schema）で決める。
+
+ボードは計画の情報を置く内部の保存場所（ecotask.board）。リポジトリにリンクしたECOBuildのボードを見つけて使い、
+なければ書くときに決まった形で作る（読むだけなら作らず、計画の値なしとして扱う）。
 """
 
 from __future__ import annotations
@@ -16,55 +18,153 @@ from . import github as _github
 from . import model as _model
 from .errors import ErrorCode, TaskError
 
+SPRINT_DAYS, SPRINT_COUNT = 14, 3   # 作るときのスプリント（今週の月曜日から2週間×3）
+SPRINT_AHEAD = 14                    # 最後のスプリントの終わりが、今日からこの日数より近ければ足す
+
 
 class TaskStore:
-    def __init__(self, root: Path, github: _github.TaskGitHub, board: _board.BoardSettings | None = None):
+    def __init__(self, root: Path, github: _github.TaskGitHub, legacy_board: str | None = None):
+        """legacy_board：以前の設定（ecobuild.toml の [board] の url）。印のないボードを引き継ぐときに使う。"""
         self.root = root
         self.github = github
-        self._board = board
+        self.legacy_board = legacy_board
+        self._found = False
+        self._board: _board.BoardSettings | None = None
         self._info: _board.BoardInfo | None = None
+        self.shared: tuple[str, ...] = ()   # 作った・引き継いだときに共有した共同作業者
 
-    # ボードの設定と定義 ----------------------------------------------------------------
+    # ボード（内部の保存場所） -------------------------------------------------------------
 
     @property
     def board(self) -> _board.BoardSettings | None:
+        """使うボード（項目の当て方）。なければNone（作らない）。1回見つけたら覚える。"""
+        if not self._found:
+            self._found = True
+            self._board = self._find()
         return self._board
 
-    @board.setter
-    def board(self, value: _board.BoardSettings | None) -> None:
-        self._board = value
-        self._info = None
+    def ensure(self) -> _board.BoardSettings:
+        """書く前に：ボードがなければ作り、決まった項目が足りなければ足す。"""
+        if self.board is None:
+            self._create()
+        missing = [(name, kind) for role, (name, kind) in zip(_model.ROLES, _board.standard_fields())
+                   if not self._board.schema.get(role)]
+        if missing:
+            names = {f.name.casefold() for f in self.info().fields}
+            clash = [name for name, _ in missing if name.casefold() in names]
+            if clash:
+                raise TaskError(ErrorCode.INVALID_ARGUMENT,
+                                f"GitHubのタスク管理の情報の {'・'.join(clash)} の形が、ECOBuildの決まりと違います。",
+                                hint="GitHubで直接変えた場合は、元の形（型）に戻してください。")
+            self._create_fields(self.info().id, tuple(missing))
+            self._reload()
+        if not all(self._board.stages.get(stage) for stage in (_model.TODO, _model.IN_PROGRESS, _model.DONE)):
+            raise TaskError(ErrorCode.INVALID_ARGUMENT,
+                            "GitHubのタスク管理の情報の段階（Status）の形が、ECOBuildの決まりと違います。",
+                            hint="GitHubで直接変えた場合は、Todo・In Progress・Done の選択肢を戻してください。")
+        self._extend_sprints()
+        return self._board
+
+    def _extend_sprints(self, today: _datetime.date | None = None) -> None:
+        """スプリントが尽きないように：最後のスプリントの終わりが近ければ、同じ日数で続きを足す（題名は Sprint <番号>）。"""
+        field = self.role_field(_model.SPRINT)
+        current = [o for o in field.options if o.start and o.duration] if field is not None else []
+        if not current:
+            return
+        today = today or _datetime.date.today()
+        last = max(current, key=lambda o: o.start)
+        days = last.duration
+        end = _datetime.date.fromisoformat(last.start) + _datetime.timedelta(days=days)
+        if (end - today).days > SPRINT_AHEAD:
+            return
+        added = []
+        while (end - today).days <= SPRINT_AHEAD + days:
+            added.append((None, f"Sprint {len(current) + len(added) + 1}", end.isoformat(), days))
+            end += _datetime.timedelta(days=days)
+        self.github.set_iterations(self.root, field.id, tuple(
+            (o.id, o.name, o.start, o.duration) for o in sorted(current, key=lambda o: o.start)) + tuple(added))
+        self._reload()
 
     def info(self) -> _board.BoardInfo:
-        """つないでいるボードの定義（項目・選択肢）。1回読んだら覚える。"""
+        """使うボードの定義（項目・選択肢）。1回読んだら覚える。"""
         settings = self._require()
         if self._info is None:
             self._info = self.github.get_board(self.root, settings.owner, settings.number)
         return self._info
 
     def role_field(self, role: str) -> _board.BoardField | None:
-        """役割（priority 等）に当てた項目。当てていなければNone。"""
-        if self._board is None or not self._board.schema.get(role):
+        """役割（priority 等）に当てた項目。なければNone。"""
+        if self.board is None or not self._board.schema.get(role):
             return None
         return self.info().field(self._board.schema[role])
 
     def sprints(self) -> list[_model.Sprint]:
-        """スプリント（始まりの順）。スプリントの役割を当てていなければ空。"""
+        """スプリント（始まりの順）。なければ空。"""
         sprint = self.role_field(_model.SPRINT)
         if sprint is None:
             return []
         return sorted((_sprint(o) for o in sprint.options if o.start and o.duration), key=lambda s: s.start)
 
+    def _find(self) -> _board.BoardSettings | None:
+        refs = self.github.repository_boards(self.root)
+        ours = next((r for r in refs if r.ours), None)
+        if ours is None and self.legacy_board:
+            # 以前の設定でつないでいたボードを引き継ぐ：印を付け、共同作業者に共有する
+            legacy = self.legacy_board.rstrip("/")
+            ours = next((r for r in refs if r.url.rstrip("/") == legacy and not r.closed), None)
+            if ours is not None:
+                owner, number = _board.parse_url(ours.url)
+                info = self.github.get_board(self.root, owner, number)
+                self.github.describe_board(self.root, info.id, _board.DESCRIPTION)
+                self.shared = self.github.share_board(self.root, info.id)
+        if ours is None:
+            return None
+        owner, number = _board.parse_url(ours.url)
+        self._info = self.github.get_board(self.root, owner, number)
+        return _board.settings_of(self._info)
+
+    def _create(self) -> None:
+        """決まった形のボードを作り、このリポジトリにリンクし、共同作業者に共有する。"""
+        title = f"{self.github.repository_name(self.root).split('/')[-1]} タスク"
+        created = self.github.create_board(self.root, None, title, _board.DESCRIPTION)
+        owner, number = _board.parse_url(created.url)
+        status = self.github.get_board(self.root, owner, number).field(_board.STATUS_FIELD)
+        self.github.set_board_options(self.root, status.id, _board.STANDARD_STATUS)
+        self._create_fields(created.id, _board.standard_fields())
+        self.github.link_board(self.root, created.id, link=True)
+        self.shared = self.github.share_board(self.root, created.id)
+        self._found = True
+        self._info = self.github.get_board(self.root, owner, number)
+        self._board = _board.settings_of(self._info)
+
+    def _create_fields(self, board_id: str, fields: tuple[tuple[str, str], ...]) -> None:
+        today = _datetime.date.today()
+        monday = today - _datetime.timedelta(days=today.weekday())
+        iterations = tuple((f"Sprint {i + 1}", (monday + _datetime.timedelta(days=SPRINT_DAYS * i)).isoformat(),
+                            SPRINT_DAYS) for i in range(SPRINT_COUNT))
+        for name, kind in fields:
+            if kind == "SINGLE_SELECT":
+                self.github.create_board_field(self.root, board_id, name, kind, options=_board.STANDARD_PRIORITY)
+            elif kind == "ITERATION":
+                self.github.create_board_field(self.root, board_id, name, kind, iterations=iterations)
+            else:
+                self.github.create_board_field(self.root, board_id, name, kind)
+
+    def _reload(self) -> None:
+        settings = self._require()
+        self._info = self.github.get_board(self.root, settings.owner, settings.number)
+        self._board = _board.settings_of(self._info)
+
     # 読み ----------------------------------------------------------------------------
 
     def tasks(self, *, closed: bool = False) -> list[_model.Task]:
         """タスクの一覧（番号の順）。closed なら閉じたものも。"""
-        board_id = None if self._board is None else self.info().id
+        board_id = None if self.board is None else self.info().id
         records = self.github.task_records(self.root, closed=closed, board_id=board_id)
         return sorted((self._task(r) for r in records), key=lambda t: t.number)
 
     def task(self, number: int) -> _model.Task:
-        board_id = None if self._board is None else self.info().id
+        board_id = None if self.board is None else self.info().id
         return self._task(self.github.task_records(self.root, closed=True, board_id=board_id, number=number)[0])
 
     def _task(self, record: _github.TaskRecord) -> _model.Task:
@@ -72,18 +172,18 @@ class TaskStore:
         values = {} if record.item is None else dict(record.item.values)
         plan = {}
         status = stage = None
-        if self._board is not None:
-            status = values.pop(self.info().field(self._board.status_field).name, None)
+        if self.board is not None:
+            status = values.get(self._board.status_field)
             stage = self.stage_of(status)
             for role in _model.ROLES:
                 field = self.role_field(role)
                 if field is not None and field.name in values:
-                    plan.update(self._value(role, field, values.pop(field.name)))
+                    plan.update(self._value(role, field, values[field.name]))
         return _model.Task(issue.number, issue.title, issue.url, issue.state, record.closed_reason, stage, status,
                            milestone=issue.milestone, milestone_due=_model.parse_date(record.milestone_due),
                            labels=issue.labels, assignees=issue.assignees, parent=r.parent, subtasks=r.sub_total,
                            subtasks_done=r.sub_completed, blocked_by=r.blocked_by, blocking=r.blocking,
-                           on_board=record.item is not None, fields=values,
+                           on_board=record.item is not None,
                            created=_model.local_date(record.created_at), finished=_model.local_date(record.closed_at),
                            **plan)
 
@@ -110,16 +210,10 @@ class TaskStore:
 
     # 書き ----------------------------------------------------------------------------
 
-    def item(self, number: int, *, add: bool = False) -> _board.BoardItem:
-        """タスクのボードの項目。add なら、なければ加える（なくて add でなければ not_on_board）。"""
-        info = self.info()
-        if add:
-            return self.github.add_board_item(self.root, number, info.id)
-        item = self.github.board_item(self.root, number, info.id)
-        if item is None:
-            raise TaskError(ErrorCode.NOT_ON_BOARD, f"#{number} はボードにありません。",
-                            hint="board sync で、開いているタスクをボードに加えられます。")
-        return item
+    def item(self, number: int) -> _board.BoardItem:
+        """タスクのボードの項目（なければ加える。ボードもなければ作る）。"""
+        self.ensure()
+        return self.github.add_board_item(self.root, number, self.info().id)
 
     def write(self, item: _board.BoardItem, field: _board.BoardField, value: str) -> None:
         """項目に値を書く（型に合わなければ invalid_argument）。"""
@@ -147,16 +241,8 @@ class TaskStore:
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "設定する値がありません。",
                             hint="--priority・--due・--estimate・--sprint・--planned-start・--planned-end・--clear の"
                                  "どれかを指定してください。")
-        self._require()
-        result = {}
-        for role in (*values, *clear):
-            field = self.role_field(role)
-            if field is None:
-                raise TaskError(ErrorCode.FIELD_NOT_FOUND,
-                                f"ボードに{_model.ROLE_NAMES[role]}（{role}）の項目が当てられていません。",
-                                hint="ボードに項目を足して、作業空間で board use をやり直してください"
-                                     "（board use --add-fields で標準の項目を足せます）。")
-            result[role] = (field, values.get(role))
+        self.ensure()
+        result = {role: (self.role_field(role), values.get(role)) for role in (*values, *clear)}
         if values.get(_model.SPRINT) == "current":
             today = _datetime.date.today()
             found = next((s for s in self.sprints() if s.contains(today)), None)
@@ -165,9 +251,12 @@ class TaskStore:
             result[_model.SPRINT] = (result[_model.SPRINT][0], found.name)
         for role, (field, value) in result.items():
             if value is not None:
-                _github._field_value(field, value)   # 型・選択肢・日付の書き方を確かめる
                 if field.type == "DATE":
-                    _date(field.name, value)
+                    _date(_model.ROLE_NAMES[role], value)
+                elif role == _model.PRIORITY and value.casefold() not in (p.casefold() for p in _board.PRIORITIES):
+                    raise TaskError(ErrorCode.INVALID_ARGUMENT, f"優先度 {value} はありません。",
+                                    hint=f"{'・'.join(_board.PRIORITIES)} のどれかを指定してください。")
+                _github._field_value(field, value)   # 型・選択肢の書き方を確かめる
         start, end = (_planned(role, values, clear, current) for role in (_model.PLANNED_START, _model.PLANNED_END))
         if start is not None and end is not None and start > end:
             raise TaskError(ErrorCode.INVALID_ARGUMENT,
@@ -183,7 +272,7 @@ class TaskStore:
         """
         dated = {_model.PLANNED_START, _model.PLANNED_END} & {*clear, *(r for r, v in values.items() if v is not None)}
         prepared = self.prepare(values, clear, self.task(number) if dated else None)
-        item = self.item(number, add=True)
+        item = self.item(number)
         for field, value in prepared.values():
             if value is None:
                 self.clear(item, field)
@@ -210,9 +299,8 @@ class TaskStore:
         return replace(task, on_board=True, **changes)
 
     def _require(self) -> _board.BoardSettings:
-        if self._board is None:
-            raise TaskError(ErrorCode.NO_BOARD, "ボード（GitHub Projects）をつないでいません。",
-                            hint="board list で一覧を見て、board use <URL> でつなぎます（なければ board create）。")
+        if self.board is None:
+            raise TaskError(ErrorCode.NO_BOARD, "タスク管理の情報がまだありません。")
         return self._board
 
 

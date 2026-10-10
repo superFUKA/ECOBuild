@@ -30,9 +30,9 @@ def command(
     remove_blocked_by: Annotated[str, "先に終わるべきタスクから外す（カンマ区切りの番号）"] = "",
     milestone: Annotated[str, "マイルストーンの題名"] = "",
     clear_milestone: Annotated[bool, "マイルストーンから外す"] = False,
-    due: Annotated[str, "期限（YYYY-MM-DD。ボードの項目）"] = "",
-    planned_start: Annotated[str, "開始予定日（YYYY-MM-DD。ボードの項目）"] = "",
-    planned_end: Annotated[str, "終了予定日（YYYY-MM-DD。ボードの項目）"] = "",
+    due: Annotated[str, "期限（YYYY-MM-DD）"] = "",
+    planned_start: Annotated[str, "開始予定日（YYYY-MM-DD）"] = "",
+    planned_end: Annotated[str, "終了予定日（YYYY-MM-DD）"] = "",
     clear_date: Annotated[str, "消す日付（カンマ区切り：due・planned_start・planned_end）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:

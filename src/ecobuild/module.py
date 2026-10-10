@@ -11,7 +11,6 @@ import re
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
-from ecotask import board as _board
 from ecowork import github as _github
 from ecowork import workspace as ws
 
@@ -59,7 +58,8 @@ class Module:
         self.root = Path(root)
         self.config = module_config
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
-                                     command=COMMAND, hooks=_TypeHooks(self), board=module_config.board)
+                                     command=COMMAND, hooks=_TypeHooks(self),
+                                     legacy_board=module_config.legacy_board)
         self.type = _module_type.load(module_config.type)(self)
 
     @property
@@ -85,7 +85,8 @@ class Module:
         type: str = "cpp",
         github: _github.GitHub | None = None,
     ) -> "Module":
-        """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。
+        """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。タスク管理も準備する
+        （できなければ知らせ、タスクを初めて記録するときにもう一度行う）。
 
         githubは試験でGitHubへの接続を差し替えるためのもの。
         """
@@ -113,7 +114,13 @@ class Module:
             populate=populate, message="ECOBuildでモジュールを作成", github=github,
             default_base=module_config.default_base, command=COMMAND,
         )
-        return cls(repository.root, module_config, github=repository.github)
+        module = cls(repository.root, module_config, github=repository.github)
+        try:
+            module.repository.prepare_tasks()
+        except WorkError as error:
+            module.repository.notices.append(f"タスク管理の準備ができませんでした（{error.message}）。"
+                                             "タスクを初めて記録するときに、もう一度行います。")
+        return module
 
     @classmethod
     def clone(
@@ -166,7 +173,8 @@ class Module:
     # 計画と判断（ecotask） ------------------------------------------------------------
 
     def plan_task(self, number: int, **values) -> ws.TaskSummary:
-        """priority・due・estimate・sprint（名前か current）・planned_start・planned_end・clear（消す役割）。"""
+        """priority・due・estimate・sprint（名前か current）・planned_start・planned_end・clear（消す役割）・
+        stage（作業を始める前の段階：planned・todo）。"""
         return self.repository.plan_task(number, **values)
 
     def next_tasks(self, *, assignee: str | None = None, count: int | None = None) -> list:
@@ -189,80 +197,6 @@ class Module:
 
     def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
         return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked)
-
-    # ボード（GitHub Projects） ---------------------------------------------------------
-
-    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
-        return self.repository.boards(owner)
-
-    def create_board(self, title: str | None = None, **options) -> _board.BoardInfo:
-        """このリポジトリ専用の標準のボードを作ってリンクする（ecotask の Tracker.create_board と同じ。
-        題名を省略すると「<リポジトリ名> タスク」。owner・sprint_start・sprint_days・sprints）。"""
-        return self.repository.create_board(title, **options)
-
-    def use_board(self, url: str, *, status_field: str = "Status", stages: dict[str, str] | None = None,
-                  schema: dict[str, str] | None = None, shared: bool = False,
-                  add_fields: bool = False) -> _board.BoardStatus:
-        """このモジュールのボードにする（ecobuild.toml の [board]。作業空間で行い、PRで反映する）。
-
-        作業の段階に当てる選択肢は、省略すると既定の名前（Todo・In Progress・In Review・Done 等）で探す。
-        役割（priority・due・estimate・sprint・planned_start・planned_end・started）に当てる項目は、省略すると
-        既定の名前（Priority 等）か、（期限・見積もり・スプリントは）その型の項目が1つだけならそれ。
-        add_fields：当てる項目がない役割に、標準のボードの項目（board create と同じ）を足す。
-        GitHub側でもボードをリポジトリにつなぐ。
-        ボードはこのリポジトリ専用にする（他のリポジトリと共有されていれば止める。shared で許す）。
-        """
-        self.require_workspace("ボードの接続")
-        settings = _board.BoardSettings(url, status_field)
-        github = self.repository.github
-        info = github.get_board(self.root, settings.owner, settings.number)
-        given = {stage: name for stage, name in (stages or {}).items() if name}
-        roles = {role: name for role, name in (schema or {}).items() if name}
-        # 足す前に決まる対応（型の項目が1つだけで当てたもの）は、足した後も変えない
-        roles = {**_board.default_schema(info, status_field=status_field), **roles}
-        if add_fields:
-            self.repository.check_board(_board.BoardSettings(url, status_field, {
-                **_board.default_stages(info.field(status_field)), **given}, {}, shared), exclusive=True)
-            added = self.repository.tracker.add_standard_fields(_board.BoardSettings(url, status_field, schema=roles))
-            if added:
-                self.repository.notices.append(f"ボードに項目を足しました：{'、'.join(added)}")
-                info = github.get_board(self.root, settings.owner, settings.number)
-        settings = _board.BoardSettings(url, status_field, {**_board.default_stages(info.field(status_field)), **given},
-                                        {**_board.default_schema(info, status_field=status_field), **roles}, shared)
-        status = self.repository.check_board(settings, exclusive=True)
-        self._save_config(self.config.with_board(settings))
-        self.repository.board = settings
-        try:
-            github.link_board(self.root, info.id, link=True)
-        except WorkError as error:
-            self.repository.notices.append(f"GitHub側でボードをリポジトリにつなげませんでした（{error.message}）。")
-        return status
-
-    def unset_board(self) -> FilesChanged:
-        """ボードとの接続を外す（[board] を消す。GitHubのボードとその項目は消さない）。"""
-        self.require_workspace("ボードの接続の解除")
-        settings = self.config.board
-        if settings is None:
-            raise EcoBuildError(ErrorCode.NO_BOARD, "ボードをつないでいません。")
-        self._save_config(self.config.with_board(None))
-        self.repository.board = None
-        try:
-            self.repository.link_board(settings, link=False)
-        except WorkError as error:
-            self.repository.notices.append(f"GitHub側でボードとリポジトリのつながりを外せませんでした（{error.message}）。")
-        return FilesChanged("board unset", (_config.FILE_NAME,))
-
-    def board_status(self) -> _board.BoardStatus:
-        return self.repository.board_status()
-
-    def sync_board(self, *, dry_run: bool = False) -> _board.BoardSyncResult:
-        return self.repository.sync_board(dry_run=dry_run)
-
-    def set_task_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
-        return self.repository.set_task_field(number, name, value)
-
-    def clear_task_field(self, number: int, name: str) -> _board.TaskBoard:
-        return self.repository.clear_task_field(number, name)
 
     def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
         return self.repository.milestones(closed=closed)
@@ -752,7 +686,6 @@ class Module:
             self.type = _module_type.load(new_config.type)(self)
         self.config = new_config
         self.repository.default_base = new_config.default_base
-        self.repository.board = new_config.board
 
     def _uncommitted_managed_files(self) -> list[str]:
         tree = self.repository.git.working_tree()

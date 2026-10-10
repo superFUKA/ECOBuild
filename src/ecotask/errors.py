@@ -12,12 +12,9 @@ class ErrorCode:
     TASK_BLOCKED = "task_blocked"            # 先に終わるべきタスク（blocked by）が開いている
     OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親は終了できない）
     MILESTONE_NOT_FOUND = "milestone_not_found"
-    NO_BOARD = "no_board"                    # ボード（GitHub Projects）をつないでいない
-    BOARD_PERMISSION = "board_permission"    # ghのトークンに project の権限がない
-    FIELD_NOT_FOUND = "field_not_found"
-    NOT_ON_BOARD = "not_on_board"            # タスクがボードにない
-    STAGE_FIELD = "stage_field"              # 作業の段階は操作で変わる（手では設定しない）
-    BOARD_SHARED = "board_shared"            # ボードが他のリポジトリと共有されている（専用でない）
+    NO_BOARD = "task_data_unavailable"      # 計画・段階の情報（内部ではボード）がない・読めない
+    BOARD_PERMISSION = "github_permission"  # ghのトークンに project の権限がない
+    FIELD_NOT_FOUND = "task_data_invalid"   # 計画・段階の情報の形が決まりと違う（GitHubで直接変えた等）
     ALREADY_EXISTS = "already_exists"
     REPOSITORY_NOT_FOUND = "repository_not_found"
     INVALID_ARGUMENT = "invalid_argument"

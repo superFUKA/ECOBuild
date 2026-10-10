@@ -62,20 +62,20 @@ class Repository:
         default_base: str = "main",
         command: str = "",
         hooks: Hooks | None = None,
-        board: _board.BoardSettings | None = None,
+        legacy_board: str | None = None,
     ):
         """
         default_base：作成元を省略したときのブランチ。
         command：ヒントに書くCLIのコマンド名（errors.operation）。
         github：試験でGitHubへの接続を差し替えるためのもの。
-        board：タスクの計画の情報を置くボード（GitHub Projects）。あれば作業の段階をボードの状態に反映する。
+        legacy_board：以前の設定でつないでいたボードのURL（計画の情報の置き場所として引き継ぐ。ecotask の Tracker）。
         """
         self.root = Path(root)
         self.default_base = default_base
         self.command = command
         self.hooks = hooks if hooks is not None else Hooks()
         self.tracker = _tracker.Tracker(self.root, github=github if github is not None else _github.default(),
-                                        command=command, board=board)
+                                        command=command, legacy_board=legacy_board)
         self.git = _git.Git(self.root, command=command)
 
     @property
@@ -85,15 +85,6 @@ class Repository:
     @github.setter
     def github(self, value: _github.GitHub) -> None:
         self.tracker.github = value
-
-    @property
-    def board(self) -> _board.BoardSettings | None:
-        """タスクの計画を置くボード。あれば作業の段階をボードの状態に反映する（ecotask の Tracker が持つ）。"""
-        return self.tracker.board
-
-    @board.setter
-    def board(self, value: _board.BoardSettings | None) -> None:
-        self.tracker.board = value
 
     @property
     def notices(self) -> list[str]:
@@ -210,17 +201,21 @@ class Repository:
         （スプリントの名前か current）で絞り込む。
 
         ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・開いている子タスクがない・
-        作業空間がまだない。ボードがあれば状態が未着手か未設定のもの。Backlog 等の計画中のものは除く）。
-        sort：ボードのフィールドで並べる（単一選択は選択肢の順、日付・数値は小さい順。値のないものは後ろ）。
+        作業空間がまだない・未着手か段階が未設定のもの。計画中のものは除く）。
+        sort：計画・記録の値で並べる（ecotask の Tracker.sort。priority・due 等）。
+
+        一覧のついでに、段階のずれ（GitHubのサイトでのマージ・閉じる等の分）を直す。
         """
         if sort is not None:
-            self.tracker.sort([], sort)  # 一覧を取る前に、並べる項目があるか確かめる
+            self.tracker.sort([], sort)  # 一覧を取る前に、並べられるか確かめる
         self.git.fetch()
         local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
         current = self.git.current_branch()
         pairs = []
-        for task in self.tracker.tasks(closed=closed, label=label, assignee=assignee, search=search,
-                                       milestone=milestone, sprint=sprint):
+        tasks = self.tracker.tasks(closed=closed, label=label, assignee=assignee, search=search,
+                                   milestone=milestone, sprint=sprint)
+        tasks = self.tracker.sync_stages(tasks, self._work_states(remote)) if self.tracker.board else tasks
+        for task in tasks:
             branch = ws.workspace_branch(task.number)
             summary = ws.TaskSummary._from(task, workspace=branch in local, current=branch == current,
                                            remote=branch in remote)
@@ -230,6 +225,19 @@ class Repository:
         if sort is not None:
             pairs = self.tracker.sort(pairs, sort, task_of=lambda pair: pair[1])
         return [summary for summary, _ in pairs]
+
+    def _work_states(self, remote: set[str]) -> dict[int, _tracker.WorkState]:
+        """各タスクの作業の事実（GitHubの作業空間のブランチ・開いているPR）。段階のずれを直すのに使う。"""
+        work = {}
+        for branch in remote:
+            number = ws.workspace_number(branch)
+            if number is not None:
+                work[number] = _tracker.WorkState(branch=True)
+        for pull in self.github.list_pull_requests(self.root, closed=False):
+            number = ws.workspace_number(pull.head)
+            if number is not None:
+                work[number] = _tracker.WorkState(branch=True, pull_request=True, draft=pull.draft)
+        return work
 
     def _workspaces(self) -> set[int]:
         """作業空間（手元かGitHubにあるもの）のタスクの番号。"""
@@ -258,7 +266,8 @@ class Repository:
         return self.tracker.milestone_status()
 
     def plan_task(self, number: int, **values) -> ws.TaskSummary:
-        """計画の値（priority・due・estimate・sprint〔current 可〕・planned_start・planned_end・clear）を設定する。"""
+        """計画の値（priority・due・estimate・sprint〔current 可〕・planned_start・planned_end・clear）と、
+        作業を始める前の段階（stage：planned・todo）を設定する。"""
         task = self.tracker.plan(number, **values)
         branch = ws.workspace_branch(number)
         return ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
@@ -280,7 +289,9 @@ class Repository:
             self.git.get_config(ws.base_key(branch)) or ws.issue_base(details.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
             self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
-            details.parent, details.subtasks, details.blocked_by, details.blocking, details.board, task)
+            details.parent, details.subtasks, details.blocked_by, details.blocking,
+            ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
+                                 current=self.git.current_branch() == branch, remote=self.git.has_remote_branch(branch)))
 
     def edit_task(self, number: int, *, body: str | None = None, **changes) -> ws.Task:
         """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える
@@ -329,14 +340,18 @@ class Repository:
 
     def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
         """作業空間を作らずに作業を始める（調査・設計等、コードを変えないタスク）。担当者がいなければ自分にし、
-        ボードの状態を作業中にする。親タスク・依存待ちの確かめは task start と同じ。"""
+        作業中にする。親タスク・依存待ちの確かめは task start と同じ。"""
         return ws.Task._from(self, self.tracker.start_without_workspace(number, ignore_blocked=ignore_blocked))
 
     def reopen_task(self, number: int) -> ws.Task:
         self.tracker.reopen(number)
         return self.task(number)
 
-    # マイルストーン・ボード（ecotask と同じ） ---------------------------------------------
+    def prepare_tasks(self) -> None:
+        """タスク管理の準備（ecotask の Tracker.prepare）。"""
+        self.tracker.prepare()
+
+    # マイルストーン（ecotask と同じ） ---------------------------------------------
 
     def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
         return self.tracker.milestones(closed=closed)
@@ -346,46 +361,6 @@ class Repository:
 
     def edit_milestone(self, title: str, **changes) -> _github.MilestoneInfo:
         return self.tracker.edit_milestone(title, **changes)
-
-    def boards(self, owner: str | None = None) -> list[_board.BoardInfo]:
-        return self.tracker.boards(owner)
-
-    def create_board(self, title: str | None = None, **options) -> _board.BoardInfo:
-        return self.tracker.create_board(title, **options)
-
-    def check_board(self, settings: _board.BoardSettings, *, exclusive: bool = False) -> _board.BoardStatus:
-        return self.tracker.check_board(settings, exclusive=exclusive)
-
-    def link_board(self, settings: _board.BoardSettings, *, link: bool = True) -> None:
-        self.tracker.link_board(settings, link=link)
-
-    def board_status(self) -> _board.BoardStatus:
-        return self.tracker.board_status()
-
-    def board_info(self) -> _board.BoardInfo:
-        return self.tracker.board_info()
-
-    def set_task_field(self, number: int, name: str, value: str) -> _board.TaskBoard:
-        return self.tracker.set_field(number, name, value)
-
-    def clear_task_field(self, number: int, name: str) -> _board.TaskBoard:
-        return self.tracker.clear_field(number, name)
-
-    def sync_board(self, *, dry_run: bool = False) -> _board.BoardSyncResult:
-        """ボードを実際の状態に合わせる（ecotask の Tracker.sync_board）。作業空間・PRの事実をここで調べて渡す。"""
-        self.tracker.require_board()
-        self.git.fetch()
-        remote = set(self.git.remote_branches())
-        work = {}
-        for branch in remote:
-            number = ws.workspace_number(branch)
-            if number is not None:
-                work[number] = _tracker.WorkState(branch=True)
-        for pull in self.github.list_pull_requests(self.root, closed=False):
-            number = ws.workspace_number(pull.head)
-            if number is not None:
-                work[number] = _tracker.WorkState(branch=True, pull_request=True, draft=pull.draft)
-        return self.tracker.sync_board(work, dry_run=dry_run)
 
     # 他人のPRの確認 -----------------------------------------------------------------
 

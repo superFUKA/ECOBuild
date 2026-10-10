@@ -16,7 +16,9 @@ navigation.forEach(button => button.addEventListener('click', () => {
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
-const openModule = path => window.open('module.html?path=' + encodeURIComponent(path), '_blank');
+// A module opens in its own app window (like the hub), not in a browser tab: the server starts it.
+const openModule = path => ECO.call('open-window', {page: 'module.html?path=' + encodeURIComponent(path)})
+  .catch(() => window.open('module.html?path=' + encodeURIComponent(path), '_blank'));
 
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"

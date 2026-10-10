@@ -489,6 +489,14 @@ class App:
             return make_file(d("dir"), d("path"))
         if name == "mkparent":
             return make_parent(d("path"))
+        if name == "open-window":
+            # GUIの別の画面（モジュールの窓）を、ハブと同じアプリの窓で開く（画面の window.open では普通のタブになるため）。
+            page = d("page") or ""
+            if not page.startswith(("module.html?", "hub.html")) or "//" in page or "\\" in page.split("?")[0]:
+                raise GuiError("開けない画面です。")
+            separator = "&" if "?" in page else "?"
+            open_window(f"http://127.0.0.1:{self.port}/{page}{separator}t={self.token}")
+            return {}
         if name == "open":
             return open_path(d("dir"), d("path") or "", bool(d("reveal")))
         if name == "read":

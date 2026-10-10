@@ -186,3 +186,14 @@ def test_ping_and_shutdown(tmp_path):
     app.server = FakeServer()
     app.api("shutdown", {})
     assert app.server.stopped.wait(2)
+
+
+def test_open_window_only_for_gui_pages(tmp_path, monkeypatch):
+    opened = []
+    monkeypatch.setattr(gui, "open_window", opened.append)
+    app = gui.App(gui.Cli(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "tok", 8765)
+    app.api("open-window", {"page": "module.html?path=C%3A%2FECO%2FCalc"})
+    assert opened == ["http://127.0.0.1:8765/module.html?path=C%3A%2FECO%2FCalc&t=tok"]
+    for bad in ("https://example.com/", "//evil/module.html?", "../app.py", "module.html"):
+        with pytest.raises(gui.GuiError):
+            app.api("open-window", {"page": bad})

@@ -334,32 +334,46 @@ def find_solution(directory: str) -> Path | None:
     return max(found, key=lambda p: p.stat().st_mtime) if found else None
 
 
-def _visual_studio_2022() -> str | None:
-    """Visual Studio 2022 の devenv.exe（vswhere で探す）。"""
+VISUAL_STUDIO = {"2026": "[18.0,19.0)", "2022": "[17.0,18.0)"}   # 名前 → vswhere のバージョンの範囲
+
+
+def _vswhere() -> Path | None:
     base = os.environ.get("ProgramFiles(x86)") or r"C:\Program Files (x86)"
-    vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-    if not vswhere.is_file():
+    path = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    return path if path.is_file() else None
+
+
+def _visual_studio(version: str) -> str | None:
+    """その版の Visual Studio の devenv.exe（vswhere で探す）。"""
+    vswhere, versions = _vswhere(), VISUAL_STUDIO.get(version)
+    if vswhere is None or versions is None:
         return None
-    completed = subprocess.run([str(vswhere), "-version", "[17.0,18.0)", "-latest", "-property", "productPath"],
+    completed = subprocess.run([str(vswhere), "-version", versions, "-prerelease", "-latest", "-property", "productPath"],
                                capture_output=True, encoding="utf-8", errors="replace", **_no_window())
     path = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
     return path if path and Path(path).is_file() else None
 
 
-def open_in_visual_studio(directory: str) -> dict:
-    """ソリューションを Visual Studio 2022 で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
+def visual_studio_versions() -> list[str]:
+    """このPCにある版（画面の選択に使う）。"""
+    return [version for version in VISUAL_STUDIO if _visual_studio(version)]
+
+
+def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
+    """ソリューションを選んだ版の Visual Studio で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
     ecobuild にこれを行うコマンドはないため、GUIが行う。"""
+    if version not in VISUAL_STUDIO:
+        raise GuiError(f"知らない Visual Studio の版です：{version}")
     solution = find_solution(directory)
     if solution is None:
         return {"solution": None}
-    devenv = _visual_studio_2022()
-    if devenv:
-        subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
-    elif os.name == "nt":
-        os.startfile(str(solution))  # noqa: S606（.sln に関連付けられたアプリ）
-    else:
-        raise GuiError("Visual Studio 2022 が見つかりません。")
-    return {"solution": solution.as_posix(), "devenv": devenv or ""}
+    devenv = _visual_studio(version)
+    if not devenv:
+        others = [v for v in visual_studio_versions() if v != version]
+        raise GuiError(f"Visual Studio {version} が見つかりません。"
+                       + (f"このPCにあるのは {'・'.join(others)} です。ボタンの横で切り替えてください。" if others else ""))
+    subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
+    return {"solution": solution.as_posix(), "devenv": devenv, "version": version}
 
 
 def make_file(directory: str, relative: str) -> dict:
@@ -484,7 +498,9 @@ class App:
         if name == "module-defaults":
             return module_defaults(d("dir"))
         if name == "open-vs":
-            return open_in_visual_studio(d("dir"))
+            return open_in_visual_studio(d("dir"), d("version") or "2026")
+        if name == "vs-versions":
+            return visual_studio_versions()
         if name == "touch":
             return make_file(d("dir"), d("path"))
         if name == "mkparent":

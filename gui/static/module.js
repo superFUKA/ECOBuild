@@ -217,7 +217,7 @@ tabs.addEventListener('contextmenu', e => {
     ['ほかのタブを閉じる', () => others.forEach(closeTab), others.length > 0],
     '-',
     ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir, path: ''}).catch(err => ECO.toast(err.message, 'bad'))],
-    ['Visual Studio 2022 で開く', () => MOD.openInVisualStudio(dir)],
+    [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
     ['状態を読み直す', () => reloadPlace(dir)],
     ...(state.workspace ? ['-', [`タスク #${state.workspace} を見る`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.workspace); }]] : []),
   ], e.clientX, e.clientY);

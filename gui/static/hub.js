@@ -191,7 +191,7 @@ $('module-list').addEventListener('contextmenu', event => {
   ECO.menu([
     ['開発環境を開く', () => openModule(m.path), m.exists],
     ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir: m.path, path: ''}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
-    ['Visual Studio 2022 で開く', () => ECO.openInVisualStudio(m.path), m.exists],
+    [`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists],
     '-',
     ['一覧から外す…', async () => {
       if (await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧から外します。フォルダやGitHubのリポジトリは消しません。`, ok: '外す'})) { await ECO.call('modules/remove', {path: m.path}); loadModules(); }

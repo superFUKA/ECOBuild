@@ -197,3 +197,13 @@ def test_open_window_only_for_gui_pages(tmp_path, monkeypatch):
     for bad in ("https://example.com/", "//evil/module.html?", "../app.py", "module.html"):
         with pytest.raises(gui.GuiError):
             app.api("open-window", {"page": bad})
+
+
+def test_visual_studio_version_is_checked(tmp_path, monkeypatch):
+    root = _module(tmp_path / "A")
+    write(root / "build" / "x" / "A.sln", "")
+    with pytest.raises(gui.GuiError, match="知らない"):
+        gui.open_in_visual_studio(str(root), "2019")
+    monkeypatch.setattr(gui, "_visual_studio", lambda version: None)   # その版がないPC
+    with pytest.raises(gui.GuiError, match="Visual Studio 2026 が見つかりません"):
+        gui.open_in_visual_studio(str(root), "2026")

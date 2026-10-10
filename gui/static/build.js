@@ -59,6 +59,17 @@ WS.onRefresh(renderPrDetail);
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
   });
+  // Visual Studio: the version toggle next to the button (2026 by default, kept per PC).
+  const showVs = () => {
+    const version = ECO.vsVersion();
+    get('open-vs').textContent = `VS${version} で開く`;
+    for (const b of document.querySelectorAll('[data-vs]')) b.setAttribute('aria-checked', String(b.dataset.vs === version));
+  };
+  document.querySelector('.vs-toggle').addEventListener('click', e => { const b = e.target.closest('[data-vs]'); if (b && !b.disabled) { ECO.setVsVersion(b.dataset.vs); showVs(); } });
+  showVs();
+  ECO.call('vs-versions').then(installed => {
+    for (const b of document.querySelectorAll('[data-vs]')) if (!installed.includes(b.dataset.vs)) { b.disabled = true; b.title = `Visual Studio ${b.dataset.vs} はこのPCにありません`; }
+  }).catch(() => {});
   get('open-vs').addEventListener('click', () => ECO.openInVisualStudio(WS.dir, {build: async () => { await runAction('build'); return get('build-output-state').classList.contains('ok') ? {} : null; }}));
   WS.ready.then(loadOptions);
   WS.reloadBuildOptions = loadOptions;

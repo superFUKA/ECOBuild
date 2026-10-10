@@ -210,19 +210,23 @@ const ECO = (() => {
   });
   window.addEventListener('blur', () => { openMenu?.remove(); openMenu = null; });
 
-  // Open the place's solution in Visual Studio 2022 (the GUI does this; ecobuild has no such command).
+  // Which Visual Studio opens the solution: chosen next to the button, kept per PC; 2026 by default.
+  const VS_KEY = 'ecobuild-gui-vs';
+  function vsVersion() { try { return localStorage.getItem(VS_KEY) || '2026'; } catch (e) { return '2026'; } }
+  function setVsVersion(version) { try { localStorage.setItem(VS_KEY, version); } catch (e) { /* storage blocked */ } }
+  // Open the place's solution in Visual Studio (the GUI does this; ecobuild has no such command).
   // The solution is made by a build (cpp), so when there is none yet, offer to build first.
-  async function openInVisualStudio(dir, {build} = {}) {
+  async function openInVisualStudio(dir, {build, version = vsVersion()} = {}) {
     let opened;
-    try { opened = await call('open-vs', {dir}); } catch (e) { toast(e.message, 'bad'); return false; }
+    try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
     if (!opened.solution) {
-      if (!await confirm({title: 'Visual Studio 2022 で開く', message: 'ソリューション（.sln）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
+      if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
       const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});
       if (!doc) return false;
-      try { opened = await call('open-vs', {dir}); } catch (e) { toast(e.message, 'bad'); return false; }
+      try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
       if (!opened.solution) { toast('ビルドしましたが、ソリューションが見つかりませんでした（この型はソリューションを作らない可能性があります）。', 'bad', 8000); return false; }
     }
-    toast('Visual Studio 2022 で開きます：' + opened.solution.split('/').pop());
+    toast(`Visual Studio ${version} で開きます：` + opened.solution.split('/').pop());
     return true;
   }
 
@@ -242,5 +246,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio};
+  return {call, cli, run, showError, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
 })();

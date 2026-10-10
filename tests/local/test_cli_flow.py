@@ -37,7 +37,7 @@ def test_every_command_has_help():
                  ["pr", "draft"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["board", "list"], ["board", "use"], ["board", "show"],
                  ["board", "unset"], ["board", "sync"], ["board", "create"], ["task", "next"], ["task", "overdue"],
-                 ["task", "plan"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"], ["task", "field", "set"], ["task", "field", "clear"]):
+                 ["task", "plan"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"], ["task", "field", "set"], ["task", "field", "clear"], ["init"]):
         result = runner.invoke(build_cli(), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args

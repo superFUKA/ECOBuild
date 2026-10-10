@@ -107,10 +107,12 @@ Write-Done ("git：" + (git --version))
 Write-Step "pipx を確かめます"
 Invoke-Python -m pipx --version *> $null
 if ($LASTEXITCODE -ne 0) {
-    Invoke-Python -m pip install --user --upgrade --quiet pipx
+    Invoke-Python -m pip install --user --upgrade --quiet --no-warn-script-location --disable-pip-version-check pipx
     if ($LASTEXITCODE -ne 0) { Stop-Install "pipx の導入に失敗しました。" }
     Write-Done "pipx を導入しました"
 }
+Invoke-Python -m pipx ensurepath *> $null   # pipx が入れるコマンドの場所を、ユーザーの PATH に足す
+Update-SessionPath
 
 Write-Step "ECOBuild を導入します（少し時間がかかります）"
 if ($Source) {
@@ -119,8 +121,6 @@ if ($Source) {
     Invoke-Python -m pipx install --force "git+$Repository@$Ref"
 }
 if ($LASTEXITCODE -ne 0) { Stop-Install "ECOBuild の導入に失敗しました。" }
-Invoke-Python -m pipx ensurepath *> $null
-Update-SessionPath
 $bin = (Invoke-Python -m pipx environment --value PIPX_BIN_DIR).Trim()
 $ecobuild = Join-Path $bin "ecobuild.exe"
 if (-not (Test-Path $ecobuild)) { Stop-Install "ecobuild が見つかりません（$ecobuild）。" }

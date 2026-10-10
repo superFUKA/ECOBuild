@@ -30,6 +30,18 @@ def test_layout_and_templates(module_root):
     templates = _cppbuild.open_solution(module_root).settings.get().file_templates
     assert set(templates) == set(_cppbuild.TEMPLATES)
     assert not list(module_root.glob(".ecobuild-template-*"))
+    folders = _cppbuild.open_solution(module_root).settings.get().solution_folders
+    assert (folders.projects, folders.linked_projects) == ("Projects", "LinkedProjects")
+    assert "USE_FOLDERS ON" in (module_root / "CppBuildTopLevel.cmake").read_text(encoding="utf-8")
+
+
+def test_old_module_gets_solution_folders_on_update(module_root):
+    solution = _cppbuild.open_solution(module_root)
+    data = solution.settings.get()
+    data.solution_folders = None                                   # フォルダーなしで作った古いモジュール
+    solution.settings.save(data)
+    _cppbuild.update(module_root)
+    assert _cppbuild.open_solution(module_root).settings.get().solution_folders is not None
 
 
 def test_build_test_run(module_root):

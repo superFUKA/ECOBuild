@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings
+from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings
 
 from ecobuild.config import ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
@@ -95,6 +95,7 @@ def create_module_solution(root: Path, name: str, projects: ProjectNames) -> Sol
         solution = Solution.create(root, name)
         data = solution.settings.get()
         data.dependency_directories = [DEPENDENCY_DIRECTORY]
+        data.solution_folders = SolutionFolderSettings()
         solution.settings.save(data)
         _register_templates(solution)
         # ライブラリを最初に作り、相手からのリンク先（main_project）にする。
@@ -122,6 +123,7 @@ def update(root: Path) -> BuildOutcome:
     """構成と生成ファイル（CMakeLists.txt等）を最新にする。"""
     solution = open_solution(root)
     try:
+        _ensure_solution_folders(solution)
         report = solution.update()
     except Exception as error:
         raise _cppbuild_error("CppBuildの構成に失敗しました。", error) from error
@@ -496,6 +498,15 @@ def _ensure_templates(solution: Solution) -> None:
     missing = {name: file_name for name, file_name in TEMPLATES.items() if name not in existing}
     if missing:
         _register_templates(solution, missing)
+
+def _ensure_solution_folders(solution: Solution) -> None:
+    """Visual Studio のソリューションで、Projectをソリューションフォルダーに分ける（CppBuildの既定の名前：
+    自分のProjectは Projects、リンク先は LinkedProjects/<Solution名>）。フォルダーなしで作った古いモジュールにも入れる。"""
+    data = solution.settings.get()
+    if data.solution_folders is None:
+        data.solution_folders = SolutionFolderSettings()
+        solution.settings.save(data)
+
 
 def _register_templates(solution: Solution, templates: dict[str, str] = TEMPLATES) -> None:
     materials = resources.files("ecobuild_cpp") / "templates"

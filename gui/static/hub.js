@@ -20,18 +20,12 @@ let modules = [];
 // and the others not in the list are offered to clone.
 // Read once (it asks GitHub about every repository) and again after archiving or deleting one.
 let githubModules = null, githubModulesLoading = null;
-// module clones answers at once but module list waits for GitHub: until it does, the list leaves out the modules it said
-// were archived last time (kept in this browser only to avoid showing them for a moment; the CLI's answer replaces it).
-const ARCHIVED_KEY = 'ecobuild-gui-archived';
-let lastArchived = [];
-try { lastArchived = JSON.parse(localStorage.getItem(ARCHIVED_KEY) || '[]'); } catch (e) { /* storage blocked or broken */ }
+// module clones answers at once but module list waits for GitHub: the list is first shown when both have answered, so
+// the archived ones never appear in it (if GitHub does not answer in time, it is shown without knowing).
+let clonesLoaded = false, gaveUp = false;
 function loadGithubModules() {
   githubModulesLoading = ECO.cli(null, ['module', 'list', '--all'], {quiet: true}).then(doc => {
     githubModules = doc.ok ? doc.result : [];
-    if (doc.ok) {
-      lastArchived = githubModules.filter(g => g.archived).map(g => g.repository);
-      try { localStorage.setItem(ARCHIVED_KEY, JSON.stringify(lastArchived)); } catch (e) { /* storage blocked */ }
-    }
     githubModulesLoading = null; renderModules(); renderCloneCandidates();
   });
   return githubModulesLoading;
@@ -80,16 +74,16 @@ async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
   const [doc, saved] = await Promise.all([ECO.cli(null, ['module', 'clones'], {quiet: true}), ECO.call('modules/order', {}).catch(() => [])]);
   if (!doc.ok) ECO.showError(doc, 'このPCのcloneの一覧を読めませんでした');
-  clones = doc.ok ? doc.result : [];
+  clones = doc.ok ? doc.result : []; clonesLoaded = true;
   order = saved.map(pathKey);
   renderModules();
 }
 function renderModules() {
-  if (!$('module-list')) return;
+  if (!$('module-list') || !clonesLoaded || !(githubModules || gaveUp)) return;
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
   modules = clones.filter(c => c.kind === 'module')
     .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c)}))
-    .filter(m => githubModules ? !githubEntry(m)?.archived : !lastArchived.some(r => sameRepository(r, m.repository)))
+    .filter(m => !githubEntry(m)?.archived)
     .map((m, i) => [m, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([m]) => m);
   renderArchived();
   const list = $('module-list');
@@ -270,6 +264,7 @@ $('setup-form').addEventListener('submit', async event => {
 
 loadModules();
 loadGithubModules();
+setTimeout(() => { gaveUp = true; renderModules(); }, 15000);
 window.addEventListener('focus', loadModules);
 ECO.info().then(info => { if (info.cli_warning) ECO.toast('注意：' + info.cli_warning, 'bad', 15000); });
 

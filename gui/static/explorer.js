@@ -163,7 +163,7 @@ async function menuAction(action, dir) {
     case 'open': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
-    case 'new-file': return inlineName({create: 'file', dir: dir ?? activeDirectory});
+    case 'new-file': return newFileDialog(dir ?? activeDirectory);
     case 'new-folder': return inlineName({create: 'folder', dir: dir ?? activeDirectory});
     case 'rename': return inlineName({rename: path});
     case 'move': return moveDialog(path);
@@ -181,17 +181,65 @@ async function menuAction(action, dir) {
   }
 }
 
-async function addFile(relative, withTest = true) {
-  let doc = await WS.cli(['file', 'add', relative, ...(withTest ? [] : ['--no-test'])]);
+async function addFile(relatives, withTest = true) {
+  let doc = await WS.cli(['file', 'add', ...relatives, ...(withTest ? [] : ['--no-test'])]);
   if (!doc.ok && doc.error?.code === 'not_supported') {
-    // Module types without a file template (generic): make an empty file here.
-    try { await ECO.call('touch', {dir: WS.dir, path: relative}); doc = {ok: true, result: {paths: [relative]}}; }
+    // Module types without a file template (generic): make empty files.
+    try { for (const path of relatives) await ECO.call('touch', {dir: WS.dir, path}); doc = {ok: true, result: {paths: relatives}}; }
     catch (e) { return e.message; }
   }
   if (!doc.ok) return doc.error.message + (doc.error.hint ? '\n' + doc.error.hint : '');
   await WS.refresh(); await afterFileChange(true, 'ファイルを追加しました：' + doc.result.paths.join('、'));
-  WS.selectInTree(relative);
+  WS.selectInTree(relatives[relatives.length - 1]);
   return '';
+}
+
+// New file: where (the folder, in a Project), what (a header and a source / a source / a header / any file) and the name.
+// The files to make are shown as they are typed. A pair puts the header under include/<Project>/ and the source under
+// src/ when the folder is in either (as the module is laid out); ecobuild file add makes the header first, so the source
+// includes it, and adds the test of a library source.
+const HEADER = '.h', SOURCE = '.cpp';
+function newFilePlan(v) {
+  const name = v.name.trim(), folder = v.folder;
+  if (!name) return {error: ''};
+  if (!validName(name)) return {error: '使えない文字が入っています。'};
+  const base = v.kind === 'other' ? name : name.replace(/\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i, '');
+  if (v.kind === 'other') return {paths: [join(folder, base)]};
+  if (v.kind === 'source') return {paths: [join(folder, base + SOURCE)]};
+  if (v.kind === 'header') return {paths: [join(folder, base + HEADER)]};
+  const root = (projectRoots || []).find(r => folder === r || folder.startsWith(r + '/'));
+  const project = root !== undefined ? projectsByDir.get(root)?.name : null;
+  const rel = root !== undefined ? folder.slice(root.length).replace(/^\//, '') : null;
+  let sub = null;
+  if (rel !== null && (rel === 'src' || rel.startsWith('src/'))) sub = rel.slice(3).replace(/^\//, '');
+  else if (rel !== null && project && (rel === `include/${project}` || rel.startsWith(`include/${project}/`))) sub = rel.slice(`include/${project}`.length).replace(/^\//, '');
+  if (sub === null) return {paths: [join(folder, base + HEADER), join(folder, base + SOURCE)]};
+  const under = (top, rest) => rest ? join(top, rest) : top;
+  const sources = under(join(root, 'src'), sub), includes = WS.files.dirs.includes(join(root, `include/${project}`)) ? under(join(root, `include/${project}`), sub) : sources;
+  return {paths: [join(includes, base + HEADER), join(sources, base + SOURCE)]};
+}
+function newFileDialog(dir = activeDirectory) {
+  if (!editable()) return;
+  const cpp = restricted();
+  const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build'));
+  const options = [...(cpp ? [] : [['', '（ルート）']]), ...folders.map(d => [d, d])];
+  const folder = options.some(([v]) => v === dir) ? dir : options[0]?.[0] ?? '';
+  return ECO.form({title: '新しいファイル', busy: 'ファイルを作っています…（生成ファイルも更新します）', ok: '作成', fields: [
+    {name: 'folder', label: '場所', type: 'select', value: folder, options, row: 'where'},
+    {name: 'name', label: '名前', required: true, row: 'where', focus: true, placeholder: cpp ? '例：Parser（拡張子なし）' : '例：notes.md'},
+    ...(cpp ? [{name: 'kind', label: '種類', type: 'radio', inline: true, value: 'pair', options: [
+      ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力']]}] : []),
+    ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作る', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
+    {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
+    onChange: (v, formEl) => {
+      const plan = newFilePlan(cpp ? v : {...v, kind: 'other'}), box = formEl.querySelector('.new-file-preview');
+      box.textContent = plan.error ?? '作るファイル：' + plan.paths.join('、');
+    },
+    submit: v => {
+      const plan = newFilePlan(cpp ? v : {...v, kind: 'other'});
+      if (plan.error !== undefined) return plan.error || '名前を入力してください。';
+      return addFile(plan.paths, !cpp || v.test);
+    }});
 }
 
 // Inline input in the tree for a new file / folder or a new name.
@@ -222,9 +270,6 @@ function inlineName({create, dir = '', rename}) {
     if (create === 'folder') {
       try { await ECO.call('mkdir', {dir: WS.dir, path: join(directory, name)}); cancel(); folded.delete(join(directory, name)); activeDirectory = join(directory, name); await WS.reloadFiles(); say('フォルダを作りました：' + join(directory, name)); return; }
       catch (err) { message = err.message; }
-    } else if (create === 'file') {
-      message = await addFile(join(directory, name));
-      if (!message) { box.remove(); return; }
     } else {
       message = await moveFile(rename, join(directory, name));
       if (!message) { box.remove(); return; }
@@ -256,7 +301,7 @@ async function removeFile(path) {
   await WS.refresh(); await afterFileChange(true, '削除しました：' + doc.result.paths.join('、') + (untracked ? '' : '（コミットすると削除が記録されます）'));
 }
 
-get('new-file').addEventListener('click', () => inlineName({create: 'file', dir: activeDirectory}));
+get('new-file').addEventListener('click', () => newFileDialog(activeDirectory));
 get('new-folder').addEventListener('click', () => inlineName({create: 'folder', dir: activeDirectory}));
 get('reload-files').addEventListener('click', async () => { await WS.refresh(); await WS.reloadFiles(); });
 

@@ -55,7 +55,7 @@
 .eco-dialog .eco-section > summary { cursor: pointer; padding: 2px 0; }
 .eco-dialog .eco-section > summary:hover { color: #edf1f5; }
 .eco-dialog .eco-section small { margin-left: 8px; font-weight: 400; color: #84909e; letter-spacing: 0; }
-.eco-dialog fieldset.eco-inline { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.eco-dialog fieldset.eco-inline { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
 .eco-dialog fieldset.eco-inline > legend { grid-column: 1 / -1; }
 @media (max-width: 600px) { .eco-dialog .eco-row { grid-template-columns: 1fr; } }
 .eco-dialog fieldset.eco-checks label { padding: 5px 10px; border-radius: 16px; align-items: center; gap: 6px; }

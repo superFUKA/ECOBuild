@@ -143,7 +143,7 @@ const ECO = (() => {
   // heading ({collapsed: true}: folded until opened, for what is seldom set; {end: true} ends it); `showIf: values => bool` shows a field only
   // when it applies; a radio with `inline` lays its choices side by side.
   const LAYOUT = new Set(['html', 'section']);
-  function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = '', busy: busyText}) {
+  function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = '', busy: busyText, onChange}) {
     return new Promise(resolve => {
       const d = document.createElement('dialog');
       d.className = 'eco-dialog' + (wide ? ' wide' : fields.some(f => f.row) ? ' roomy' : '');
@@ -206,6 +206,7 @@ const ECO = (() => {
         }
       };
       if (conditional.length) { formEl.addEventListener('input', applyConditions); formEl.addEventListener('change', applyConditions); applyConditions(); }
+      if (onChange) { const changed = () => onChange(readValues(), formEl); formEl.addEventListener('input', changed); formEl.addEventListener('change', changed); changed(); }
       formEl.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); formEl.requestSubmit(); } });
       formEl.addEventListener('submit', async event => {
         event.preventDefault();
@@ -228,7 +229,8 @@ const ECO = (() => {
       // The close event comes later than close(): when submit failed at once, the form is open again by then.
       d.addEventListener('close', () => { if (working || d.open) return; d.remove(); resolve(result); });
       document.body.append(d); d.showModal();
-      formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select')?.focus();
+      const first = fields.find(f => f.focus);   // {focus: true}: the field to type in first (otherwise the first one)
+      (first ? formEl.elements[first.name] : formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select'))?.focus();
       d.formEl = formEl;
     });
   }

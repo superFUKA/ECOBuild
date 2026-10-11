@@ -21,7 +21,7 @@ from .errors import EcoBuildError, ErrorCode
 
 # config で扱う項目 → 説明
 CONFIG_KEYS = {
-    "owner": "new・clone・link で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
+    "owner": "module new・clone・list・link 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
 }
 
 # 足りないツールの導入コマンド（setup --install で実行する）
@@ -394,7 +394,7 @@ def initialize(questions: Questions) -> InitReport:
         done += set_identity("" if current_name else name, "" if current_email else email)
 
     owner = load_config().get("owner", "")
-    answer = questions.ask("new・clone で使う既定の所有者（組織名など。空ならログイン中のユーザー）", owner).strip()
+    answer = questions.ask("module new・clone・list で使う既定の所有者（組織名など。空ならログイン中のユーザー）", owner).strip()
     if answer != owner:
         set_config("owner", answer or None)
         done.append(f"既定の所有者を {answer} にしました" if answer else "既定の所有者の設定を消しました")

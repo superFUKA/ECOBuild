@@ -408,6 +408,26 @@ def git_sources(root: Path):
         raise _cppbuild_error("依存先を読み込めません。", error) from error
 
 
+def dependency_graph(root: Path) -> tuple[tuple, dict[str, tuple[str, ...]]]:
+    """依存先すべて（依存先の依存先も。CppBuildのGitSourceStatus）と、それぞれが直接記録する依存先の名前。
+
+    手元にcloneがない依存先は、その先が分からないので空にする。
+    """
+    from cppbuild.git_sources import identity
+    solution = open_solution(root)
+    try:
+        sources = tuple(solution.git_sources())
+        names = {identity(s.url): s.name for s in sources}
+        edges = {}
+        for source in sources:
+            records = Solution.open(source.config).settings.get().git_sources if source.present else {}
+            edges[source.name] = tuple(sorted(names[identity(r.url)] for r in records.values()
+                                              if identity(r.url) in names))
+    except Exception as error:
+        raise _cppbuild_error("依存先を読み込めません。", error) from error
+    return sources, edges
+
+
 def link(root: Path, project: str, url: str, *, shared: bool) -> str:
     """Projectから、gitのリポジトリにあるモジュールのライブラリをリンクする。依存先の名前を返す。"""
     solution = open_solution(root)

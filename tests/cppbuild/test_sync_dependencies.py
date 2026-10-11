@@ -171,6 +171,36 @@ def test_link_deps_and_work_version(short_tmp):
     assert error.value.code == "dependency_not_found"
 
 
+def test_dependency_tree(short_tmp, monkeypatch):
+    """deps tree：依存先の依存先も。2か所から使われる依存先は、2回目にその先を省く。"""
+    base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")
+    Module.create("Base", directory=short_tmp, github=base_github)
+    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    _cppbuild.open_solution(stl.root).get_project("STL").settings.link_git(
+        url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    git(stl.root, "add", "--all")
+    git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
+    git(stl.root, "push", "--quiet", "origin", "main")
+    ecs = Module.create("ECS", directory=short_tmp, github=FakeGitHub(short_tmp / "gh3"))
+    assert ecs.dependency_tree().direct == ()
+    project = _cppbuild.open_solution(ecs.root).get_project("ECS").settings
+    project.link_git(url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    project.link_git(url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+
+    tree = ecs.dependency_tree()
+    assert tree.module == "ECS" and tree.direct == ("Base", "STL")
+    assert {n.name: (n.present, n.depends_on) for n in tree.nodes} == {"Base": (True, ()), "STL": (True, ("Base",))}
+    assert ecs.info().dependencies == ("Base", "STL")
+
+    from click.testing import CliRunner
+    from ecobuild.cli import build_cli
+    with monkeypatch.context() as patch:   # 片付けの前に、今いるディレクトリを戻す
+        patch.chdir(ecs.root)
+        shown = CliRunner().invoke(build_cli(), ["deps", "tree"]).output.splitlines()
+    revision = tree.nodes[0].revision[:7]
+    assert shown == ["ECS", f"├─ Base {revision}", f"└─ STL {tree.nodes[1].revision[:7]}", f"   └─ Base {revision}"]
+
+
 def test_switching_aligns_dependencies(short_tmp):
     """task start・task clean で記録が変わる先へ移ったら、手元の依存先も合わせる（仮運用3回目で見つかった）。"""
     stl_github = FakeGitHub(short_tmp / "gh1")

@@ -8,6 +8,7 @@ Moduleはそれらを、ecobuild.toml と作業の流れの約束（ファイル
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 
@@ -22,8 +23,8 @@ from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
-                      FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated, ModuleDeleted,
-                      PrepareResult, ProfileList,
+                      DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
+                      ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
 
 COMMAND = "ecobuild"
@@ -139,11 +140,40 @@ class Module:
             raise EcoBuildError(
                 ErrorCode.NOT_IN_MODULE,
                 f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
-                hint=f"ECOBuildで作ったリポジトリ（{COMMAND} new）を指定してください。",
+                hint=f"ECOBuildで作ったリポジトリ（{COMMAND} module new）を指定してください。",
             )
         module = cls.find(repository.root, github=repository.github)
         dependencies, _ = module._after_sync()
         return module, dependencies
+
+    @staticmethod
+    def modules(owner: str | None = None, *, archived: bool | None = False,
+                github: _github.GitHub | None = None) -> tuple[ModuleEntry, ...]:
+        """GitHubにある、所有者（既定はログイン中のユーザー）のECOBuildのモジュール（ecobuild.toml があるリポジトリ）。
+        archived：False＝アーカイブしていないもの、True＝アーカイブしたものだけ、None＝両方。新しく更新した順。"""
+        github = github or _github.default()
+        return tuple(ModuleEntry(r.full_name, r.url, _module_type_of(r.module_file), r.description, r.private,
+                                 r.archived, r.updated)
+                     for r in github.owner_repositories(owner)
+                     if r.module_file is not None and (archived is None or r.archived == archived))
+
+    def info(self) -> ModuleInfo:
+        """このモジュールの情報。GitHubに問い合わせられなければ、公開・アーカイブは分からない（None）。"""
+        github = self.repository.github
+        repository, url, private, archived = "", self.remote_url or "", None, None
+        try:
+            repository = github.repository_name(self.root)
+            found = github.get_repository(repository)
+            url, archived, private = found.web_url, found.archived, github.is_private(repository)
+        except WorkError as error:
+            self.repository.notices.append(f"GitHubのリポジトリの情報を読めませんでした（{error.message}）。")
+        try:
+            dependencies = tuple(d.name for d in self.dependencies())
+        except EcoBuildError as error:   # 管理ファイルが壊れている等。他の情報は出す
+            dependencies = ()
+            self.repository.notices.append(f"依存先を読めませんでした（{error.message}）。")
+        return ModuleInfo(self.name, self.config.type, self.root, repository, url, private, archived,
+                          self.config.default_base, self.project_names, dependencies)
 
     @classmethod
     def archive(cls, name: str, *, archived: bool = True, github: _github.GitHub | None = None) -> ModuleArchived:
@@ -170,7 +200,7 @@ class Module:
         info = cls._module_repository(name, github)
         if not info.archived:
             raise EcoBuildError(ErrorCode.NOT_ARCHIVED, f"{info.full_name} はアーカイブしていません。",
-                                hint=f"削除する前に、{COMMAND} archive {info.full_name} でアーカイブしてください"
+                                hint=f"削除する前に、{COMMAND} module archive {info.full_name} でアーカイブしてください"
                                      "（読み取り専用にし、使っていないことを確かめる段階です）。")
         if clone is not None:
             if github.repository_name(clone.root) != info.full_name:
@@ -596,6 +626,10 @@ class Module:
     def dependencies(self) -> tuple[DependencyState, ...]:
         return self.type.dependencies()
 
+    def dependency_tree(self) -> DependencyTree:
+        """依存関係の図（依存先の依存先も）。"""
+        return self.type.dependency_tree()
+
     def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
         """依存先の記録を、GitHubの最新にする（I-018）。"""
         self.require_workspace("依存先の更新")
@@ -805,6 +839,15 @@ class Module:
 
     def __repr__(self) -> str:
         return f"Module({self.name!r}, {str(self.root)!r})"
+
+
+def _module_type_of(text: str | None) -> str:
+    """ecobuild.toml の中身から、モジュールの型（読めなければ空）。"""
+    try:
+        value = tomllib.loads(text or "").get("module", {}).get("type")
+    except tomllib.TOMLDecodeError:
+        return ""
+    return value if isinstance(value, str) else ""
 
 
 def _with_gap(text: str) -> str:

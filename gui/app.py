@@ -58,9 +58,9 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 
 # 何も変えないコマンド（同じ場所で他のコマンドが動いていても待たずに実行する）。
 READ_ONLY = {
-    ("status",), ("log",), ("show",), ("diff",), ("blame",), ("types",), ("doctor",), ("config", "list"),
-    ("config", "get"), ("task", "list"), ("task", "status"), ("task", "workload"), ("task", "next"),
-    ("task", "overdue"), ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"),
+    ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
+    ("module", "show"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"), ("task", "workload"), ("task", "next"),
+    ("task", "overdue"), ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"),
     ("milestone", "status"), ("sprint", "list"), ("sprint", "status"), ("stash", "list"), ("ci", "status"),
     ("release", "list"),
@@ -224,11 +224,11 @@ def _last_json(text: str) -> dict | None:
 
 
 def _working_directory(directory: str | None, args: list[str]) -> str:
-    """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。delete --remove-clone はその場所を消すので、親から
+    """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。module delete --remove-clone はその場所を消すので、親から
     起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。"""
     if not directory:
         return str(Path.home())
-    return str(Path(directory).parent) if args[:1] == ["delete"] else directory
+    return str(Path(directory).parent) if args[:2] == ["module", "delete"] else directory
 
 
 def default_cli(explicit: str = "") -> list[str]:
@@ -464,7 +464,7 @@ def who_am_i() -> str:
 
 
 def module_repository(directory: str) -> str:
-    """モジュールの GitHub のリポジトリ（所有者/名前）。ecobuild delete に渡す。origin の URL から読む（ecobuild にこれを返す
+    """モジュールの GitHub のリポジトリ（所有者/名前）。ecobuild module delete に渡す。origin の URL から読む（ecobuild にこれを返す
     コマンドはない）。GitHub の URL でなければ（手元の bare 等）名前だけ。読めなければ空。"""
     url = _git(Path(directory), "remote", "get-url", "origin").strip()
     if not url:

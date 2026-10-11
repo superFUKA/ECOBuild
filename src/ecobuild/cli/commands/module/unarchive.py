@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from ...module import Module
-from .._module_target import full_name
-from .._output import lines, run_command
+from ....module import Module
+from ..._module_target import full_name
+from ..._output import lines, run_command
 
 
 def command(
@@ -15,7 +15,7 @@ def command(
     def action(inv):
         return Module.archive(full_name(name, owner), archived=False)
 
-    return run_command("unarchive", action, lambda r: lines(
+    return run_command("module unarchive", action, lambda r: lines(
         f"モジュール {r.repository} を元に戻しました（アーカイブを解除）",
         f"リポジトリ：{r.url}",
     ), json_output=json)

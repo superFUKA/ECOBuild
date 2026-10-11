@@ -48,7 +48,7 @@ def readme(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 ## ECOBuildで使う
 
 ```sh
-ecobuild clone <所有者>/{config.name}   # cloneして依存先も用意する
+ecobuild module clone <所有者>/{config.name}   # cloneして依存先も用意する
 ecobuild build
 ecobuild test
 ```

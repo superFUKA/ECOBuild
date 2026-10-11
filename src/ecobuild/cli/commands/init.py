@@ -34,7 +34,7 @@ def command(
     """ECOBuildを使い始める準備を、質問しながら行います（インストーラーの最後に実行されます。何度実行してもよい）。
 
     設定を置くディレクトリ、足りないツールの導入、GitHubへのログイン（タスク管理の権限も）、gitの名前・メール、
-    new・clone の既定の所有者。質問しない準備は ecobuild setup。
+    module new・module clone 等の既定の所有者。質問しない準備は ecobuild setup。
     """
 
     def action(inv):
@@ -54,7 +54,7 @@ def command(
             "\n".join(f"まだ足りません：{i.name}（{i.hint}）" for i in required) or None,
             "\n".join(f"任意：{i.name}（{i.hint}）" for i in r.remaining if not i.required) or None,
             f"設定を置くディレクトリ：{r.home}",
-            "準備ができました。ecobuild new <名前> で新しいモジュールを作るか、ecobuild clone <リポジトリ> で"
+            "準備ができました。ecobuild module new <名前> で新しいモジュールを作るか、ecobuild module clone <リポジトリ> で"
             "今あるモジュールを使えます（ecobuild --help で一覧）。" if not required else
             "足りないものを用意してから、もう一度 ecobuild init を実行してください（ecobuild doctor で確認できます）。",
         )

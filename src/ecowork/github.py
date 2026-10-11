@@ -30,6 +30,18 @@ class RepositoryInfo:
 
 
 @dataclass(frozen=True)
+class OwnedRepository:
+    """所有者（ユーザー・組織）のリポジトリの1件（モジュールの一覧に使う）。"""
+    full_name: str              # owner/name
+    url: str
+    description: str
+    private: bool
+    archived: bool
+    updated: str                # 最後に更新した日時（ISO 8601）
+    module_file: str | None     # 既定のブランチの ecobuild.toml の中身（ない＝ECOBuildのモジュールでない）
+
+
+@dataclass(frozen=True)
 class PullRequestInfo:
     number: int
     title: str
@@ -117,6 +129,7 @@ class GitHub(TaskGitHub, Protocol):
     def open_counts(self, name: str) -> tuple[int, int]: ...
     def delete_repository(self, name: str) -> None: ...
     def archive_repository(self, name: str, *, archived: bool = True) -> None: ...
+    def owner_repositories(self, owner: str | None) -> list[OwnedRepository]: ...
     def delete_secret(self, repo: Path, name: str) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
@@ -212,6 +225,32 @@ class GhCli(_TaskGhCli):
         completed = self._gh(args, cwd=None, check=False)
         if not completed.ok:
             raise _gh_error(args, completed)
+
+    def owner_repositories(self, owner):
+        """所有者のリポジトリ（owner が None ならログイン中のユーザー）。ecobuild.toml の中身も一緒に読む
+        （GraphQL：100件ごとに1回）。共同作業者として入っている他人のリポジトリは含めない。"""
+        fields = ("repositories(first: 100, after: $after, ownerAffiliations: [OWNER], "
+                  "orderBy: {field: UPDATED_AT, direction: DESC}) { pageInfo { hasNextPage endCursor } nodes { "
+                  "nameWithOwner url description isPrivate isArchived updatedAt "
+                  'object(expression: "HEAD:ecobuild.toml") { ... on Blob { text } } } }')
+        if owner:
+            query = ("query($login: String!, $after: String) { owner: repositoryOwner(login: $login) { "
+                     "... on User { " + fields + " } ... on Organization { " + fields + " } } }")
+        else:
+            query = "query($after: String) { owner: viewer { " + fields + " } }"
+        result, after = [], None
+        while True:
+            variables = {"after": after, **({"login": owner} if owner else {})}
+            data = self._graphql(None, query, **variables)["owner"]
+            if data is None:
+                raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにユーザー・組織 {owner} が見つかりません。")
+            page = data["repositories"]
+            result += [OwnedRepository(n["nameWithOwner"], n["url"], n.get("description") or "", bool(n["isPrivate"]),
+                                       bool(n["isArchived"]), n["updatedAt"], (n.get("object") or {}).get("text"))
+                       for n in page["nodes"]]
+            if not page["pageInfo"]["hasNextPage"]:
+                return result
+            after = page["pageInfo"]["endCursor"]
 
     def pull_request_activity(self, repo, number):
         data = self._json(["pr", "view", str(number), "--json", "reviews,comments,statusCheckRollup,mergeable"],

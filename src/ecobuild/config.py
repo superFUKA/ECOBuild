@@ -192,7 +192,7 @@ def find_root(start: Path) -> Path:
     raise EcoBuildError(
         ErrorCode.NOT_IN_MODULE,
         f"{start} はECOBuildのモジュールの中ではありません（{FILE_NAME} が見つかりません）。",
-        hint="モジュールのディレクトリへ移動するか、ecobuild new <名前> で作成してください。",
+        hint="モジュールのディレクトリへ移動するか、ecobuild module new <名前> で作成してください。",
     )
 
 

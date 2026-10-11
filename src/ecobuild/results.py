@@ -19,6 +19,33 @@ class ModuleCreated:
 
 
 @dataclass(frozen=True)
+class ModuleEntry:
+    """モジュールの一覧（module list）の1件。GitHubにある、ECOBuildのモジュールのリポジトリ。"""
+    repository: str                  # 所有者/名前
+    url: str
+    type: str                        # モジュールの型（ecobuild.toml に書いたもの。読めなければ空）
+    description: str
+    private: bool
+    archived: bool
+    updated: str                     # 最後に更新した日時（ISO 8601）
+
+
+@dataclass(frozen=True)
+class ModuleInfo:
+    """今いるモジュールの情報（module show）。"""
+    name: str
+    type: str
+    root: Path
+    repository: str                  # 所有者/名前（GitHubのリポジトリでなければ空）
+    url: str
+    private: bool | None             # GitHubに問い合わせられなければNone
+    archived: bool | None
+    default_base: str                # 作業空間の既定の作成元
+    projects: tuple[str, ...]
+    dependencies: tuple[str, ...]    # 直接の依存先の名前
+
+
+@dataclass(frozen=True)
 class ModuleArchived:
     repository: str                  # 所有者/名前
     url: str
@@ -35,6 +62,23 @@ class ModuleDeleted:
     clone: Path | None = None        # 手元のclone（今いる・今いるディレクトリの <名前>）
     clone_removed: bool = False      # 手元のcloneも削除した
     done: bool = True                # False：確かめただけ（まだ何も変えていない）
+
+
+@dataclass(frozen=True)
+class DependencyNode:
+    """依存関係の図（deps tree）の1件。依存先の依存先も含む。"""
+    name: str                        # deps/<名前>
+    url: str
+    revision: str                    # 記録の版
+    present: bool                    # 手元にcloneがある（なければ、その先の依存先は分からない）
+    depends_on: tuple[str, ...]      # このモジュールが依存する先（名前）
+
+
+@dataclass(frozen=True)
+class DependencyTree:
+    module: str
+    direct: tuple[str, ...]          # このモジュールが直接リンクしている依存先
+    nodes: tuple[DependencyNode, ...]
 
 
 @dataclass(frozen=True)

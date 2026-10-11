@@ -5,10 +5,10 @@ from typing import Annotated
 
 import click
 
-from ...errors import EcoBuildError, ErrorCode
-from ...module import Module
-from .._module_target import find_clone, full_name
-from .._output import lines, run_command
+from ....errors import EcoBuildError, ErrorCode
+from ....module import Module
+from ..._module_target import find_clone, full_name
+from ..._output import lines, run_command
 
 
 def command(
@@ -20,7 +20,7 @@ def command(
 ) -> int:
     """アーカイブしたモジュール（GitHubのリポジトリ）を、Issue・PRとともに削除します。
 
-    先に ecobuild archive でアーカイブしたものだけを削除できます（2段階）。削除したリポジトリは、
+    先に ecobuild module archive でアーカイブしたものだけを削除できます（2段階）。削除したリポジトリは、
     GitHubのアカウントの設定から90日以内なら元に戻せます。タスク管理の情報は消さずに閉じ、
     元に戻したときにそのまま使えるようにします。
     """
@@ -45,7 +45,7 @@ def command(
         return lines(f"モジュール {r.repository} を削除しました（GitHubのアカウントの設定から、90日以内なら元に戻せます）",
                      f"リポジトリ：{r.url}", clone)
 
-    return run_command("delete", action, render, json_output=json)
+    return run_command("module delete", action, render, json_output=json)
 
 
 def _question(preview, remove_clone: bool) -> str:
@@ -76,7 +76,7 @@ def _confirm(inv, question: str, repository: str, given: str) -> None:
 
 def _require_delete_permission(inv) -> None:
     """リポジトリの削除には、ghのログインに delete_repo の権限が要る（既定のログインにはない）。"""
-    from ... import tooling
+    from .... import tooling
     if tooling.gh_has_scope("delete_repo"):
         return
     if not inv.json_output and sys.stdin.isatty() and click.confirm(
@@ -86,5 +86,5 @@ def _require_delete_permission(inv) -> None:
             return
     raise EcoBuildError(ErrorCode.BOARD_PERMISSION,
                         "GitHubへのログインに、リポジトリを削除する権限（delete_repo）がありません。",
-                        hint="端末で ecobuild delete を実行すると、権限の追加を案内します"
+                        hint="端末で ecobuild module delete を実行すると、権限の追加を案内します"
                              "（gh auth refresh -s delete_repo でも追加できます）。")

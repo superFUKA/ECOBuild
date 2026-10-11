@@ -19,8 +19,8 @@ from .errors import EcoBuildError, ErrorCode
 if TYPE_CHECKING:
     from .config import ModuleConfig, Profile
     from .module import Module
-    from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult,
-                          PrepareResult, ProjectSummary, RunResult, TestResult)
+    from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, DependencyTree, FilesChanged,
+                          LinkResult, PrepareResult, ProjectSummary, RunResult, TestResult)
     from .tooling import CheckItem as DoctorItem
 
 REGISTRY = "module_types.toml"
@@ -55,7 +55,7 @@ class ModuleType:
 
     def not_supported(self, operation: str) -> EcoBuildError:
         return EcoBuildError(ErrorCode.NOT_SUPPORTED, f"型 {self.name} は {operation} に対応していません。",
-                             hint="ecobuild types で型の一覧を確認できます。")
+                             hint="ecobuild module types で型の一覧を確認できます。")
 
     # モジュールの作成（モジュールがまだないので、クラスメソッド） ------------------------------
 
@@ -171,6 +171,13 @@ class ModuleType:
     def dependencies(self) -> tuple["DependencyState", ...]:
         return ()
 
+    def dependency_tree(self) -> "DependencyTree":
+        """依存関係の図（依存先の依存先も）。既定は、直接の依存先だけ（その先は分からない）。"""
+        from .results import DependencyNode, DependencyTree
+        direct = self.dependencies()
+        return DependencyTree(self.module.name, tuple(d.name for d in direct),
+                              tuple(DependencyNode(d.name, d.url, d.recorded, d.local is not None, ()) for d in direct))
+
     def update_dependencies(self, name: str | None) -> tuple["DependencyChange", ...]:
         raise self.not_supported("依存先")
 
@@ -193,7 +200,7 @@ def load(name: str) -> type[ModuleType]:
     registered = entries()
     if name not in registered:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} は登録されていません。",
-                            hint="登録済みの型：" + "、".join(registered) + "（ecobuild types）")
+                            hint="登録済みの型：" + "、".join(registered) + "（ecobuild module types）")
     entry = registered[name]
     try:
         cls = getattr(importlib.import_module(entry.module), entry.cls)

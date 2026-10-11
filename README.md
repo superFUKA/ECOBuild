@@ -24,7 +24,7 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 2. 足りないツールの導入（gh、型が使う CMake・C++ コンパイラ等）
 3. GitHub へのログイン（`gh auth login`。タスク管理の権限も一緒に）と、git が gh の認証を使う設定
 4. git の名前・メール（GitHub のアカウントから候補を出します）
-5. `new`・`clone` で使う既定の所有者（組織名など）
+5. `module new`・`module clone`・`module list` で使う既定の所有者（組織名など）
 
 質問せずに準備するには `ecobuild setup`、確かめるだけなら `ecobuild doctor`。
 

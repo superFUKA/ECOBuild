@@ -15,8 +15,9 @@ from ecobuild.config import ModuleConfig, Profile, ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import ModuleType
-from ecobuild.results import (BuildResult, DependencyChange, DependencyState, FilesChanged, LinkResult,
-                              PrepareResult, ProjectSummary, RunResult, TestCaseResult, TestResult)
+from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, DependencyState, DependencyTree,
+                              FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
+                              TestResult)
 
 from . import _cppbuild
 
@@ -356,6 +357,11 @@ jobs:
 
     def dependencies(self) -> tuple[DependencyState, ...]:
         return tuple(self._dependency_state(s) for s in _cppbuild.git_sources(self.root))
+
+    def dependency_tree(self) -> DependencyTree:
+        sources, edges = _cppbuild.dependency_graph(self.root)
+        nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name]) for s in sources)
+        return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 
     def update_dependencies(self, name: str | None) -> tuple[DependencyChange, ...]:
         """依存先の記録を、GitHubの最新にする（I-018）。手元のcloneも合わせ、生成ファイルを更新する。"""

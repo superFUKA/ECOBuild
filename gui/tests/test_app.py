@@ -226,7 +226,7 @@ def test_shortcut_has_the_icon(tmp_path):
 def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
     root = tmp_path / "Calc"
     root.mkdir()
-    assert gui._working_directory(str(root), ["delete", "Calc", "--remove-clone"]) == str(tmp_path)
+    assert gui._working_directory(str(root), ["module", "delete", "Calc", "--remove-clone"]) == str(tmp_path)
     assert gui._working_directory(str(root), ["status"]) == str(root)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     for url, expected in (("https://github.com/owner/Calc.git", "owner/Calc"), ("git@github.com:owner/Calc", "owner/Calc"),

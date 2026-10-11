@@ -1,8 +1,8 @@
 from typing import Annotated
 
-from ...module import Module
-from .._module_target import full_name
-from .._output import lines, run_command
+from ....module import Module
+from ..._module_target import full_name
+from ..._output import lines, run_command
 
 
 def command(
@@ -11,9 +11,9 @@ def command(
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """モジュール（GitHubのリポジトリ）をアーカイブ（読み取り専用）にします。ecobuild unarchive で元に戻せます。
+    """モジュール（GitHubのリポジトリ）をアーカイブ（読み取り専用）にします。ecobuild module unarchive で元に戻せます。
 
-    使わなくなったモジュールを片付ける1段階目です。削除は、アーカイブしたものだけ ecobuild delete でできます。
+    使わなくなったモジュールを片付ける1段階目です。削除は、アーカイブしたものだけ ecobuild module delete でできます。
     タスク管理の情報は、元に戻したときにそのまま使えるように残します。
     """
 
@@ -22,8 +22,8 @@ def command(
         inv.confirm(f"GitHubのモジュール {target} をアーカイブ（読み取り専用）にしますか？")
         return Module.archive(target)
 
-    return run_command("archive", action, lambda r: lines(
+    return run_command("module archive", action, lambda r: lines(
         f"モジュール {r.repository} をアーカイブしました（読み取り専用）",
         f"リポジトリ：{r.url}",
-        f"元に戻すには ecobuild unarchive {r.repository}、削除するには ecobuild delete {r.repository}",
+        f"元に戻すには ecobuild module unarchive {r.repository}、削除するには ecobuild module delete {r.repository}",
     ), json_output=json, yes=yes)

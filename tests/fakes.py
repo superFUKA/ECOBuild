@@ -11,8 +11,8 @@ from pathlib import Path
 
 from helpers import git
 from ecotask.github import TaskRecord
-from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, Review, PullRequestActivity,
-                            PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
+from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, OwnedRepository, Review,
+                            PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
 from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption, BoardRef
 from ecowork.errors import ErrorCode, WorkError
 from ecotask.github import _field_value
@@ -72,7 +72,8 @@ class FakeGitHub:
         return RepositoryInfo(full, str(bare), f"https://example.invalid/{full}", full in self.archived_repositories)
 
     def is_private(self, name):
-        return self.private if getattr(self, "bare", None) is not None and name.endswith(self.bare.stem) else True
+        bare = getattr(self, "bare", None)
+        return getattr(self, "private", True) if bare is not None and name.endswith(bare.stem) else True
 
     def repository_has_file(self, name, path):
         bare = getattr(self, "bare", None)
@@ -91,6 +92,22 @@ class FakeGitHub:
             self.archived_repositories.append(name)
         else:
             self.archived_repositories.remove(name)
+
+    def owner_repositories(self, owner):
+        """試験のリポジトリ（扱っているものと others）。削除したものは含めない。"""
+        owner = owner or self.owner
+        bares = ([self.bare] if getattr(self, "bare", None) is not None else []) + list(self.others.values())
+        result = []
+        for bare in bares:
+            full = f"{owner}/{bare.stem}"
+            if full in self.deleted_repositories:
+                continue
+            shown = subprocess.run(["git", "--git-dir", str(bare), "show", "HEAD:ecobuild.toml"],
+                                   capture_output=True, text=True, encoding="utf-8")
+            result.append(OwnedRepository(full, f"https://example.invalid/{full}", "", True,
+                                          full in self.archived_repositories, "2026-10-11T00:00:00Z",
+                                          shown.stdout if shown.returncode == 0 else None))
+        return result
 
     def use_bare(self, bare: Path) -> None:
         self.bare = bare

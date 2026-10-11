@@ -161,15 +161,27 @@
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新に更新し、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
     'link': async () => inWorkspace('モジュールをリンク', [
       {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true, suggestions: await githubModules()},
-      {name: 'project', label: 'リンクするProject', type: 'select', options: [['', '既定（ライブラリ）'], ...(Array.isArray(data.projects) ? data.projects.map(p => [p.name, p.name]) : [])]},
+      {name: 'project', label: 'リンクするProject', type: 'select', options: [['', '既定（テスト用を除いて1つならそれ）'], ...(Array.isArray(data.projects) ? data.projects.filter(p => p.kind !== 'test').map(p => [p.name, `${p.name}（${KIND[p.kind] || p.kind}）`]) : [])],
+        help: 'リンクされるのは、相手のモジュールで最初に作ったProjectです（ライブラリである必要があります）。'},
       {name: 'shared', label: '共有ライブラリとしてリンクする', type: 'checkbox'}], 'リンク',
       v => ['link', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
     'unlink': name => inWorkspace(`リンクを外す：${name}`, [], '外す', () => ['unlink', name], {danger: true, intro: '依存先のリンクを外します。手元のcloneは、記録の版のままなら削除します（作業中や変更がある場合は残します）。', success: `${name} のリンクを外しました。`}),
-    'project-add': () => inWorkspace('Projectを追加', [
-      {name: 'name', label: '名前（ディレクトリ名にもなる）', required: true, row: 'project'},
-      {name: 'kind', label: '種類', type: 'select', value: 'app', row: 'project', options: [['library', 'ライブラリ'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]}], '追加',
-      v => ['project', 'add', v.name, '--kind', v.kind], {success: r => `Projectを追加しました：${r.project || ''}`}),
-    'project-remove': name => inWorkspace(`Projectを削除：${name}`, [], '削除', () => ['project', 'remove', name], {danger: true, intro: 'Projectを外し、そのディレクトリを削除します。他のProjectからのリンクも外します。', success: `${name} を削除しました。`}),
+    'project-add': () => {
+      // app・test・bench link a library of this module (test・bench need one); a library gets its test Project.
+      const libraries = (Array.isArray(data.projects) ? data.projects : []).filter(p => /library/.test(p.kind)).map(p => [p.name, p.name]);
+      return inWorkspace('Projectを追加', [
+        {name: 'name', label: '名前（ディレクトリ名にもなる）', required: true, row: 'project'},
+        {name: 'kind', label: '種類', type: 'select', value: 'app', row: 'project', options: [['library', 'ライブラリ'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]},
+        {name: 'link', label: 'リンクするライブラリ', type: 'select', showIf: v => v.kind !== 'library',
+          options: [...(libraries.length === 1 ? [] : [['', libraries.length ? '選んでください' : 'なし']]), ...libraries],
+          help: libraries.length ? 'テスト・性能測定にはライブラリが必要です。' : 'このモジュールにライブラリがありません（テスト・性能測定は作れません）。'},
+        {name: 'test', label: '組のテスト用Project（名前Test）も作る', type: 'checkbox', value: true, showIf: v => v.kind === 'library'}], '追加',
+        v => {
+          if ((v.kind === 'test' || v.kind === 'bench') && !v.link) return libraries.length ? 'リンクするライブラリを選んでください。' : 'ライブラリがないため、テスト・性能測定のProjectは作れません。';
+          return ['project', 'add', v.name, '--kind', v.kind, ...(v.kind !== 'library' && v.link ? ['--link', v.link] : []), ...(v.kind === 'library' && !v.test ? ['--no-test'] : [])];
+        }, {success: r => `Projectを追加しました：${r.project || ''}`});
+    },
+    'project-remove': name => inWorkspace(`Projectを削除：${name}`, [], '削除', () => ['project', 'remove', name, '--yes'], {danger: true, intro: 'Projectを外し、そのディレクトリを削除します。他のProjectからのリンクも外します。最初に作ったProjectを外すと、他のモジュールからリンクできなくなります。', success: `${name} を削除しました。`}),
     'pch': name => inWorkspace(`プリコンパイル済みヘッダー：${name}`, [{name: 'mode', label: 'PCH', type: 'radio', value: 'on', options: [['on', '使う', `include/${name}/pch.h`], ['off', '使わない']]}], '保存',
       v => ['project', 'pch', name, ...(v.mode === 'off' ? ['--off'] : [])], {success: 'PCHの設定を変更しました。'}),
     'profile-add': name => {

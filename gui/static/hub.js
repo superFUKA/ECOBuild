@@ -35,7 +35,8 @@ async function loadModules() {
     ${m.exists ? '' : '<span class="module-state">フォルダが見つかりません</span>'}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
     <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
       <button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>
-      <button type="button" data-action="remove" data-index="${i}">一覧から外す</button></div></details></li>`).join('');
+      <button type="button" data-action="remove" data-index="${i}">一覧から外す</button>
+      <button type="button" class="danger-text" data-action="delete" data-index="${i}">モジュールを削除…</button></div></details></li>`).join('');
 }
 $('module-list').addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
@@ -46,6 +47,7 @@ $('module-list').addEventListener('click', async event => {
     if (action.dataset.action === 'remove' && await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧から外します。フォルダやGitHubのリポジトリは消しません。`, ok: '外す'})) {
       await ECO.call('modules/remove', {path: m.path}); loadModules();
     }
+    if (action.dataset.action === 'delete') deleteModule(m);
     return;
   }
   const open = event.target.closest('[data-open]');
@@ -183,6 +185,48 @@ loadModules();
 window.addEventListener('focus', loadModules);
 ECO.info().then(info => { if (info.cli_warning) ECO.toast('注意：' + info.cli_warning, 'bad', 15000); });
 
+// Put a module away (ecobuild delete): archive the GitHub repository (the default; it can be undone), or delete it
+// with its issues, PRs and task data (--permanent).
+// The CLI asks for confirmation (with the numbers of open issues and PRs) and checks the clone has nothing unpushed.
+async function deleteModule(m) {
+  let repository = m.name;
+  if (m.exists) { try { repository = (await ECO.call('module-repository', {dir: m.path})).repository || m.name; } catch (e) { /* the folder name */ } }
+  const shortName = repository.split('/').pop();
+  let clones = [];
+  if (m.exists) { try { clones = await ECO.call('workspaces', {module: m.path}); } catch (e) { /* none */ } }
+  let permission = false;
+  const done = await ECO.form({title: `モジュールを削除：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
+    intro: `GitHub のリポジトリ <b>${esc(repository)}</b> を片付けます。既定はアーカイブ（読み取り専用。後から元に戻せます）です。「完全に削除する」は Issue・PR・タスク管理の情報も消え、<b>元に戻せません</b>。`,
+    fields: [
+      {name: 'mode', label: 'すること', type: 'radio', value: 'archive', options: [['archive', 'アーカイブする', '読み取り専用にする（GitHubの設定から元に戻せる。タスク管理の情報は残す）'], ['permanent', '完全に削除する', 'GitHubのリポジトリを、Issue・PR・タスク管理の情報とともに消す（元に戻せない）']]},
+      ...(m.exists ? [{name: 'removeClone', label: `手元のフォルダも削除する（${m.path}）。GitHubにない変更・コミット・退避があれば止まります`, type: 'checkbox', value: true}] : []),
+      ...(clones.length ? [{name: 'clonesNote', type: 'html', html: `<p class="eco-help">専用のclone（${clones.map(esc).join('、')}）は残ります。不要ならフォルダを削除してください。</p>`}] : []),
+      {name: 'confirmName', label: `完全に削除するときは、確認のためモジュール名 ${shortName} を入力`, placeholder: shortName}],
+    submit: async v => {
+      if (v.mode === 'permanent' && v.confirmName !== shortName) return `完全に削除するには、モジュール名 ${shortName} を入力してください。`;
+      const args = ['delete', repository, ...(v.mode === 'permanent' ? ['--permanent'] : []), ...(v.removeClone ? ['--remove-clone'] : [])];
+      const dir = m.exists ? m.path : null;
+      let doc = await ECO.cli(dir, args);
+      if (!doc.ok && doc.error?.code === 'confirmation_required') {
+        if (!await ECO.confirm({title: v.mode === 'permanent' ? '完全な削除の確認' : 'アーカイブの確認', message: doc.error.message.replace(/^確認が必要です：/, ''), ok: v.mode === 'permanent' ? '完全に削除する' : 'アーカイブする', danger: true})) return 'キャンセルしました。';
+        doc = await ECO.cli(dir, [...args, '--yes']);
+      }
+      if (!doc.ok && doc.error?.code === 'github_permission') { permission = true; return; }
+      if (!doc.ok) return [doc.error.message, doc.error.hint].filter(Boolean).join('\n');
+      const r = doc.result;
+      ECO.toast(r.archived ? `${r.repository} をアーカイブしました。` : `${r.repository} を削除しました。`, 'ok', 8000);
+      if (r.clone && !r.clone_removed) ECO.toast(`手元のフォルダ ${r.clone} は、他のプログラムが使っているため削除できませんでした。閉じてから削除してください。`, 'bad', 15000);
+      if (!r.archived || r.clone_removed) await ECO.call('modules/remove', {path: m.path});
+      loadModules();
+    }});
+  if (permission) {
+    const add = await ECO.dialog({title: 'GitHubの権限が足りません', body: '<p>GitHubへのログインに、リポジトリを削除する権限（delete_repo）がありません。</p><p class="eco-help">「権限を追加する」で端末の窓が開き、ブラウザで承認します。終わったら、もう一度「モジュールを削除」を実行してください。</p>',
+      buttons: [['閉じる', '', false], ['権限を追加する', 'primary', true]]});
+    if (add) ECO.call('gh-scope', {scope: 'delete_repo'}).catch(e => ECO.toast(e.message, 'bad'));
+  }
+  return done;
+}
+
 // Right-click a module card.
 $('module-list').addEventListener('contextmenu', event => {
   const item = event.target.closest('li[data-index]'); if (!item) return;
@@ -196,6 +240,7 @@ $('module-list').addEventListener('contextmenu', event => {
     ['一覧から外す…', async () => {
       if (await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧から外します。フォルダやGitHubのリポジトリは消しません。`, ok: '外す'})) { await ECO.call('modules/remove', {path: m.path}); loadModules(); }
     }],
+    ['モジュールを削除…', () => deleteModule(m)],
   ], event.clientX, event.clientY);
 });
 // Drag cards to reorder the list (kept in gui.json).

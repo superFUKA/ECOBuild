@@ -221,3 +221,16 @@ def test_shortcut_has_the_icon(tmp_path):
     assert made == [str(place / "ECOBuild GUI.lnk")]
     assert (Path(gui.__file__).with_name("icon.ico")).is_file()
     assert (gui.STATIC / "icon.svg").is_file()
+
+
+def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
+    root = tmp_path / "Calc"
+    root.mkdir()
+    assert gui._working_directory(str(root), ["delete", "Calc", "--remove-clone"]) == str(tmp_path)
+    assert gui._working_directory(str(root), ["status"]) == str(root)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    for url, expected in (("https://github.com/owner/Calc.git", "owner/Calc"), ("git@github.com:owner/Calc", "owner/Calc"),
+                          ("C:/fake/gh/Calc.git", "Calc")):
+        subprocess.run(["git", "-C", str(root), "remote", "remove", "origin"], capture_output=True)
+        subprocess.run(["git", "-C", str(root), "remote", "add", "origin", url], check=True)
+        assert gui.module_repository(str(root)) == expected

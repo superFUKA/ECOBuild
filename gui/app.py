@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import re
 import os
 import secrets
 import shutil
@@ -194,7 +195,7 @@ class Cli:
         try:
             env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", GIT_TERMINAL_PROMPT="0")
             completed = subprocess.run(argv, input=stdin or "", capture_output=True, encoding="utf-8",
-                                       errors="replace", env=env, cwd=directory or str(Path.home()),
+                                       errors="replace", env=env, cwd=_working_directory(directory, args),
                                        **_no_window())
         finally:
             if lock:
@@ -220,6 +221,14 @@ def _last_json(text: str) -> dict | None:
             except ValueError:
                 return None
     return None
+
+
+def _working_directory(directory: str | None, args: list[str]) -> str:
+    """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。delete --remove-clone はその場所を消すので、親から
+    起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。"""
+    if not directory:
+        return str(Path.home())
+    return str(Path(directory).parent) if args[:1] == ["delete"] else directory
 
 
 def default_cli(explicit: str = "") -> list[str]:
@@ -454,6 +463,31 @@ def who_am_i() -> str:
     return os.environ.get("ECOBUILD_GUI_ME") or _me["login"]
 
 
+def module_repository(directory: str) -> str:
+    """モジュールの GitHub のリポジトリ（所有者/名前）。ecobuild delete に渡す。origin の URL から読む（ecobuild にこれを返す
+    コマンドはない）。GitHub の URL でなければ（手元の bare 等）名前だけ。読めなければ空。"""
+    url = _git(Path(directory), "remote", "get-url", "origin").strip()
+    if not url:
+        return ""
+    match = re.search(r"github\.com[:/]+([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
+    return re.sub(r"\.git$", "", re.split(r"[\\/]", url.rstrip("/\\"))[-1])
+
+
+GH_SCOPES = {"delete_repo", "project"}   # 画面から追加を頼める gh の権限
+
+
+def refresh_scope(scope: str) -> None:
+    """gh のログインに権限を足す（gh auth refresh。ブラウザで承認する）。対話が要るので、新しい端末の窓で動かす。"""
+    if scope not in GH_SCOPES:
+        raise GuiError(f"知らない権限です：{scope}")
+    if os.name != "nt":
+        raise GuiError(f"端末で gh auth refresh -h github.com -s {scope} を実行してください。")
+    subprocess.Popen(["cmd", "/c", f"gh auth refresh -h github.com -s {scope} & pause"],
+                     creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+
 # HTTP --------------------------------------------------------------------------------------------
 
 class App:
@@ -509,6 +543,11 @@ class App:
             return make_parent(d("path"))
         if name == "shortcut":
             return {"made": make_shortcuts()}
+        if name == "module-repository":
+            return {"repository": module_repository(d("dir"))}
+        if name == "gh-scope":
+            refresh_scope(d("scope") or "")
+            return {}
         if name == "open-window":
             # GUIの別の画面（モジュールの窓）を、ハブと同じアプリの窓で開く（画面の window.open では普通のタブになるため）。
             page = d("page") or ""

@@ -10,6 +10,7 @@
 .eco-dialog .eco-help { color: #a5aeba; font-size: 12px; }
 .eco-dialog input:not([type=checkbox]):not([type=radio]), .eco-dialog select, .eco-dialog textarea { width: 100%; padding: 8px 10px; background: #14171b; color: #edf1f5; border: 1px solid #46515e; border-radius: 6px; font: inherit; }
 .eco-dialog input[type=checkbox], .eco-dialog input[type=radio] { accent-color: #9ee4d3; }
+.eco-dialog input[type=radio], .eco-dialog input[type=checkbox] { width: auto; flex: none; margin: 2px 0 0; padding: 0; }
 .eco-dialog textarea { resize: vertical; }
 .eco-dialog fieldset { border: 0; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
 .eco-dialog fieldset legend { font-size: 13px; margin-bottom: 6px; padding: 0; }

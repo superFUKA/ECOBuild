@@ -59,7 +59,7 @@ WS.onRefresh(renderPrDetail);
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
   });
-  // "Open in editor" split button: the button opens with the chosen editor; ▾ chooses another one (and opens with it).
+  // "Open in editor" split button: the button opens with the chosen editor; ▾ only chooses which one (it does not open).
   // The choice is kept per PC; Visual Studio 2026 by default.
   const EDITORS = [['2026', 'Visual Studio 2026'], ['2022', 'Visual Studio 2022']];
   let installed = null;
@@ -71,7 +71,7 @@ WS.onRefresh(renderPrDetail);
     installed ??= await ECO.call('vs-versions').catch(() => EDITORS.map(([v]) => v));
     const r = get('choose-vs').getBoundingClientRect(), current = ECO.vsVersion();
     ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
-      () => { ECO.setVsVersion(version); showVs(); openVs(version); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
+      () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
   WS.ready.then(loadOptions);
   WS.reloadBuildOptions = loadOptions;

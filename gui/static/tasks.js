@@ -192,7 +192,7 @@
     const ok = doc => doc?.ok ? doc.result : null;
     const open = st.tasks.filter(t => t.state === 'open'), count = stage => open.filter(t => stageOf(t) === stage).length;
     const late = ok(overdue)?.overdue || [], soon = ok(overdue)?.soon || [];
-    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const weekAgo = ECO.localTime(new Date(Date.now() - 7 * 86400000).toISOString());   // this PC's date, like today()
     const finished = (ok(all) || []).filter(t => t.state !== 'open' && t.finished).sort((a, b) => b.finished.localeCompare(a.finished));
     const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
     const card = (title, body, {wide = false, go = '', sub = ''} = {}) => `<section class="tk-card tk-dash-card ${wide ? 'wide' : ''}"><div class="tk-section-head"><h3>${title}${sub ? `<span class="tk-muted">${sub}</span>` : ''}</h3>${go ? `<button type="button" class="tk-link" data-dash-go="${go}">開く ›</button>` : ''}</div>${body}</section>`;

@@ -9,6 +9,14 @@ const ECO = (() => {
   let token = params.get('t') || '';
   try { token = token || localStorage.getItem('ecobuild-gui-token') || ''; } catch (e) { /* storage blocked */ }
 
+  // A time from GitHub / git (ISO 8601, in UTC or the writer's offset) as this PC's local time, as ecobuild shows it:
+  // 'YYYY-MM-DD' (withTime: 'YYYY-MM-DD HH:MM'). Cutting the text instead would show the day before for the early hours.
+  const localTime = (iso, withTime = false) => {
+    const d = new Date(iso);
+    if (!iso || isNaN(d)) return String(iso ?? '').slice(0, withTime ? 16 : 10).replace('T', ' ');
+    const two = n => String(n).padStart(2, '0'), day = `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+    return withTime ? `${day} ${two(d.getHours())}:${two(d.getMinutes())}` : day;
+  };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
   async function call(api, body = {}) {
@@ -318,5 +326,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
 })();

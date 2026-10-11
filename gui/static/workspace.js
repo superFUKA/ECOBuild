@@ -223,7 +223,7 @@ document.addEventListener('click', e => {
 });
 
 function showLog(entries, path) {
-  const text = entries.map(e => `${e.sha.slice(0, 8)}  ${e.date.slice(0, 16).replace('T', ' ')}  ${e.author}\n    ${e.subject}${e.pull_request ? `  (PR #${e.pull_request}${e.issue ? ` · タスク #${e.issue}` : ''})` : ''}`).join('\n');
+  const text = entries.map(e => `${e.sha.slice(0, 8)}  ${ECO.localTime(e.date, true)}  ${e.author}\n    ${e.subject}${e.pull_request ? `  (PR #${e.pull_request}${e.issue ? ` · タスク #${e.issue}` : ''})` : ''}`).join('\n');
   ECO.output('コミット履歴', text || '履歴はありません。', {sub: path || ''});
 }
 WS.showLog = showLog;

@@ -256,7 +256,10 @@ class Module:
                 try:
                     remove_tree(c.root)
                 except OSError:
-                    continue  # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる
+                    # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる。
+                    # 中身は消せて空のフォルダーだけが残った（端末がその中にいる等）なら、消したものとして扱う
+                    if not _empty_directory(c.root):
+                        continue
                 removed.append(c.root)
                 _clones.forget(c.root)
         return replace(result, clone_removed=primary in removed, removed=tuple(removed))
@@ -957,3 +960,10 @@ def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:
     if info.full_name.casefold() != name.casefold():
         return "moved", info.full_name
     return ("archived" if info.archived else "ok"), None
+
+
+def _empty_directory(path: Path) -> bool:
+    try:
+        return not any(path.iterdir())
+    except OSError:
+        return False

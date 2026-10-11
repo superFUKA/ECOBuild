@@ -38,7 +38,8 @@ def command(
         return Module.delete(target, clone=clone, remove_clone=remove_clone)
 
     def render(r):
-        clones = [f"手元のclone {c} を削除しました" if c in r.removed else
+        clones = [(f"手元のclone {c} の中身を削除しました（空のフォルダーは、端末等が使っているため残っています。"
+                   "閉じてから削除してください）" if c.exists() else f"手元のclone {c} を削除しました") if c in r.removed else
                   f"手元のclone {c} は、他のプログラムが使っているため削除できませんでした。"
                   "閉じてからフォルダーを削除してください" if remove_clone else
                   f"手元のclone {c} は残しています（不要ならフォルダーを削除してください）" for c in r.clones]

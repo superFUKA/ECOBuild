@@ -421,7 +421,7 @@ def test_local_clones(cli, module, parallel, monkeypatch):
     assert [c["exists"] for c in as_json(cli("module", "clones", "--json"))["result"]] == [True, False]
 
 
-def test_delete_removes_every_clone(cli, module, parallel, may_delete):
+def test_delete_removes_every_clone(cli, module, parallel, may_delete, monkeypatch):
     """--remove-clone：このPCに記録したcloneすべて（作業空間専用も）。どれか1つにでもGitHubにないものがあれば止める。"""
     github = module.repository.github
     assert cli("module", "archive", "tester/remote", "--yes").exit_code == 0
@@ -430,10 +430,26 @@ def test_delete_removes_every_clone(cli, module, parallel, may_delete):
     assert stopped["error"]["code"] == "unfinished_work" and github.deleted_repositories == []
     assert any(str(parallel) in item for item in stopped["error"]["details"])
     (parallel / "local.txt").unlink()
+    from ecobuild import module as _module
+    real = _module.remove_tree
+
+    def held(path):                                    # 端末がその中にいる：中身は消せて、空のフォルダーが残る
+        real(path)
+        if path == parallel:
+            path.mkdir()
+            raise PermissionError("使用中")
+    monkeypatch.setattr(_module, "remove_tree", held)
+    output = cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-clone").output
+    assert f"手元のclone {parallel} の中身を削除しました（空のフォルダーは" in output
+    parallel.rmdir()
+    assert as_json(cli("module", "clones", "--json"))["result"] == []
+
+
+def test_delete_removes_every_clone_as_json(cli, module, parallel, may_delete):
+    assert cli("module", "archive", "tester/remote", "--yes").exit_code == 0
     result = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-clone",
                          "--json"))["result"]
-    assert result["removed"] == [module.root.as_posix(), parallel.as_posix()] or \
-        sorted(result["removed"]) == sorted([module.root.as_posix(), parallel.as_posix()])
+    assert sorted(result["removed"]) == sorted([module.root.as_posix(), parallel.as_posix()])
     assert result["clone_removed"] and not module.root.exists() and not parallel.exists()
     assert as_json(cli("module", "clones", "--json"))["result"] == []
 

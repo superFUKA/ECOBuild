@@ -1,7 +1,7 @@
 'use strict';
 // Task management: task list / status / new / edit / plan / comment / close / reopen / start / remove / drop / clean,
 // task next / overdue / workload, sprint list / status, milestone list / status, pr list.
-// The dashboard is made from these commands' own totals (ecobuild has no board commands for the user). Every change runs ecobuild. Where ecobuild keeps the stages and plans on
+// The dashboard is the tasks by stage (drag a card to change its stage); 集計 is made from these commands' own totals (ecobuild has no board commands for the user). Every change runs ecobuild. Where ecobuild keeps the stages and plans on
 // GitHub is ecobuild's business: the screen only deals with tasks.
 (() => {
   const tkEl = id => document.getElementById(id);
@@ -10,14 +10,15 @@
   const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
   const PRIORITIES = ['High', 'Middle', 'Low'];   // task plan --priority（高い順）
   const STAGE = Object.fromEntries(STAGES.map(s => [s[0], s]));
-  const st = {tasks: [], milestones: [], sprints: [], loaded: false, loading: false, view: 'dashboard', selected: 0, details: new Map(), assignee: '', sprint: '', milestone: '', sort: {key: 'number', dir: 1}, person: '',
+  const st = {tasks: [], milestones: [], sprints: [], loaded: false, loading: false, view: 'stages', selected: 0, details: new Map(), assignee: '', sprint: '', milestone: '', sort: {key: 'number', dir: 1}, person: '',
     extra: {}, sprintShown: ''};   // extra: what the 次にやる / スプリント views read (cleared when the tasks are read again)
   const me = () => MOD.me;
   const root = () => MOD.root;
 
   // A task's stage on screen: closed = done; not recorded yet = in progress when it has a workspace, else todo.
   const stageOf = t => t.state !== 'open' ? 'done' : t.stage || (t.workspace || t.remote || t.current ? 'in_progress' : 'todo');
-  const byNumber = n => st.tasks.find(t => t.number === n);
+  // Also the recently closed tasks the dashboard's 完了 column shows (read with task list --all).
+  const byNumber = n => st.tasks.find(t => t.number === n) || ((st.extra.closed?.ok ? st.extra.closed : st.lastClosed)?.result || []).find(t => t.number === n);
   const md = d => d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) : '';
   const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${t.closed_reason === 'not_planned' ? 'not_planned' : 'done'}">${t.closed_reason === 'not_planned' ? '対応しない' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][2]}">${STAGE[stageOf(t)][1]}</span>`;
   const prio = t => t.priority ? `<span class="tk-prio ${esc(t.priority)}">${esc(t.priority)}</span>` : '';
@@ -42,7 +43,7 @@
     const jobs = [ECO.cli(root(), args, {quiet: true})];
     if (full || !st.loaded) jobs.push(ECO.cli(root(), ['milestone', 'list'], {quiet: true}), ECO.cli(root(), ['sprint', 'list'], {quiet: true}));
     const [list, milestones, sprints] = await Promise.all(jobs);
-    st.loading = false; st.extra = {};
+    st.loading = false; st.lastClosed = st.extra.closed?.ok ? st.extra.closed : st.lastClosed; st.extra = {};
     if (milestones?.ok) st.milestones = milestones.result;
     if (sprints?.ok) st.sprints = sprints.result;
     if (!list.ok) { tkEl('tk-main').innerHTML = `<div class="eco-banner bad">${esc(list.error.message)}${list.error.hint ? '<br>' + esc(list.error.hint) : ''}</div>`; return; }
@@ -85,10 +86,23 @@
     const ts = visible();
     return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了した作業空間を片付ける</button></div>';
   }
+  // The dashboard: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
+  // 完了 shows the recently closed tasks (task list --all) even when 「閉じたものも」 is off.
+  const RECENT_DONE = 15;
   function renderStages() {
+    let closed = null;
+    if (!tkEl('tk-closed').checked) {
+      if (st.extra.closed === undefined) fetchExtra('closed', () => ECO.cli(root(), ['task', 'list', '--all'], {quiet: true}));
+      const source = st.extra.closed?.ok ? st.extra.closed : st.lastClosed;   // the previous one while it is read again
+      const all = source?.ok ? source.result : [];
+      closed = all.filter(t => t.state !== 'open' && st.tasks.every(x => x.number !== t.number))
+        .filter(t => assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone) && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()))
+        .sort((a, b) => (b.finished || '').localeCompare(a.finished || '') || b.number - a.number).slice(0, RECENT_DONE);
+    }
     return `<div class="tk-kanban">${STAGES.map(([key, ja, cls]) => {
-      const cards = visible().filter(t => stageOf(t) === key);
-      return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span><small>${cards.length}</small></div><div class="tk-column-cards">
+      const cards = key === 'done' && closed ? closed : visible().filter(t => stageOf(t) === key);
+      const note = key === 'done' && closed ? `<small title="「閉じたものも」で全部">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
+      return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span>${note}</div><div class="tk-column-cards">
       ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}${est(t)}${sprintTag(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
       </div></section>`;
     }).join('')}</div>`;
@@ -155,18 +169,18 @@
     job().then(result => { st.extra[key] = result; if (st.loaded) render(); }).catch(() => { delete st.extra[key]; });
   }
 
-  // ダッシュボード: the module's tasks at a glance. Every number is what an ecobuild command returns
+  // 集計: the module's tasks at a glance. Every number is what an ecobuild command returns
   // (sprint status, task workload, milestone status, task next, task overdue, pr list, task list --all); click to go deeper.
-  function renderDashboard() {
-    const data = st.extra.dash;
+  function renderSummary() {
+    const data = st.extra.summary;
     if (!data) {
-      fetchExtra('dash', () => Promise.all([
+      fetchExtra('summary', () => Promise.all([
         currentSprint() ? ECO.cli(root(), ['sprint', 'status'], {quiet: true}) : null,
         ECO.cli(root(), ['task', 'workload'], {quiet: true}), ECO.cli(root(), ['milestone', 'status'], {quiet: true}),
         ECO.cli(root(), ['task', 'next', '--count', '5', '--mine'], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true}),
         ECO.cli(root(), ['pr', 'list'], {quiet: true}), ECO.cli(root(), ['pr', 'list', '--review-requested'], {quiet: true}),
         ECO.cli(root(), ['task', 'list', '--all'], {quiet: true})]));
-      return ECO.loading('ダッシュボードを集計しています…');
+      return ECO.loading('集計しています…');
     }
     const [sprint, workload, milestones, next, overdue, prs, reviews, all] = data;
     const ok = doc => doc?.ok ? doc.result : null;
@@ -208,7 +222,7 @@
     </div>`;
   }
 
-  const VIEWS = {dashboard: renderDashboard, next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
+  const VIEWS = {summary: renderSummary, next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
@@ -503,7 +517,14 @@
     const n = draggedCard, t = byNumber(n), stage = column.dataset.stage; draggedCard = 0;
     if (!t || stageOf(t) === stage) return;
     if (stage === 'done') return closeDialog(n);
-    if (t.state !== 'open') return ECO.toast('閉じたタスクです。先に開き直してください。', 'info');
+    if (t.state !== 'open') {
+      // Out of 完了: reopen (task reopen), then put it in the stage it was dropped on when that is 計画中.
+      if (!['planned', 'todo'].includes(stage)) return ECO.toast('閉じたタスクは、開き直して未着手・計画中に戻してから始めます。', 'info', 6000);
+      if (!await ECO.confirm({title: `#${n} を開き直す`, message: `${t.title}
+を開き直して${STAGE[stage][1]}にします。`, ok: '開き直す'})) return;
+      if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) { if (stage === 'planned') await setStage(n, 'planned'); else reloadAfter(n); }
+      return;
+    }
     if (stage === 'in_progress') {
       if (MOD.placeOfTask(n) || t.workspace) return ECO.toast('作業空間があるタスクは、もう作業中です。', 'info');
       await detailOf(n); return startDialog(n);

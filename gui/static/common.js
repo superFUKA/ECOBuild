@@ -168,7 +168,8 @@ const ECO = (() => {
         }
         result = values; d.close();
       });
-      d.addEventListener('close', () => { if (working) return; d.remove(); resolve(result); });
+      // The close event comes later than close(): when submit failed at once, the form is open again by then.
+      d.addEventListener('close', () => { if (working || d.open) return; d.remove(); resolve(result); });
       document.body.append(d); d.showModal();
       formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select')?.focus();
       d.formEl = formEl;

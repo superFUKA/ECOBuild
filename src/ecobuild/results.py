@@ -116,6 +116,10 @@ class DependencyState:
     local: str | None                # 手元のcloneの版（なければNone）
     state: str                       # aligned / differs / modified / working / missing
     branch: str | None = None        # 作業版ならそのブランチ
+    # 以下は deps list --fetch のときだけ（GitHubで、ECOBuildの外で変わったことを見る）
+    remote: str | None = None        # ok / archived / moved / gone / unknown
+    latest: str | None = None        # GitHubの既定のブランチの最新の版
+    moved_to: str | None = None      # remote が moved：新しい 所有者/名前
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,7 @@ class TaskStore:
         self._board: _board.BoardSettings | None = None
         self._info: _board.BoardInfo | None = None
         self.shared: tuple[str, ...] = ()   # 作った・引き継いだときに共有した共同作業者
+        self.recreated = False              # Issueのあるリポジトリに作った（以前のものがGitHubで削除された等）
 
     # ボード（内部の保存場所） -------------------------------------------------------------
 
@@ -179,6 +180,8 @@ class TaskStore:
         self._create_fields(created.id, _board.standard_fields())
         self.github.link_board(self.root, created.id, link=True)
         self.shared = self.github.share_board(self.root, created.id)
+        # 既にIssueがあるなら、以前の置き場所がGitHubで削除された等の可能性がある（計画の値は戻らない）
+        self.recreated = bool(self.github.list_issues(self.root, closed=True))
         self._found = True
         self._info = self.github.get_board(self.root, owner, number)
         self._board = _board.settings_of(self._info)

@@ -27,6 +27,7 @@ class ErrorCode(_WorkErrorCode):
     CHECK_FAILED = "check_failed"
     USAGE_ERROR = "usage_error"
     NOT_ARCHIVED = "not_archived"       # 削除の前に、アーカイブしていない
+    REPOSITORY_ARCHIVED = "repository_archived"   # GitHubのリポジトリがアーカイブ（読み取り専用）されている
     NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
 
 

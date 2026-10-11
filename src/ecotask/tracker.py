@@ -2,6 +2,7 @@
 
 作業空間やPRのことは知らない。作業の流れ（ecowork）は、作業の段階が変わるときに set_stage を呼び、
 段階のずれを直すとき（sync_stages）は各タスクの作業の事実（開いているPR・作業空間の有無）を渡す。
+work_states を渡しておくと、判断（次にやるもの・スプリント等）でも読む前にずれを直す。
 計画の情報を置くボードは内部の保存場所で、利用者には見せない（ecotask.board）。
 判断（次にやるもの・期限・スプリント等）は ecotask.planning の関数で行う。
 """
@@ -9,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as _datetime
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -69,6 +71,8 @@ class Tracker:
         self.command = command
         # 操作は成功したが、知らせておくこと（親タスクの子がすべて閉じた等）
         self.notices: list[str] = []
+        # 各タスクの作業の事実を調べる関数（作業の流れの側が渡す）。あれば判断の前に段階のずれを直す
+        self.work_states: Callable[[], dict[int, WorkState]] | None = None
 
     @property
     def github(self) -> _github.TaskGitHub:
@@ -101,6 +105,10 @@ class Tracker:
         plan = {role: value for role, value in (plan or {}).items() if value is not None}
         if plan:
             self.store.prepare(plan)
+        try:
+            self.store.ensure()   # Issueより先に置き場所を用意する（既にIssueがあるのに作ったら、作り直しと分かる）
+        except TaskError:
+            pass                  # 段階の記録（set_stage）で知らせる
         info = self.github.create_issue(self.root, title, body, labels=labels, assignees=assignees)
         self.set_stage(info.number, _model.TODO)
         if parent is None and not blocked_by and milestone is None and not plan:
@@ -323,11 +331,11 @@ class Tracker:
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:
         """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（作業空間があるもの等）。"""
         today = today or _datetime.date.today()
-        tasks = self.tasks(assignee=assignee) if assignee else self.store.tasks()
+        tasks = self._in_step(self.tasks(assignee=assignee) if assignee else self.store.tasks())
         return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
 
     def deadlines(self, *, days: int = 3, today: _datetime.date | None = None) -> _planning.Deadlines:
-        return _planning.deadlines(self.store.tasks(), today or _datetime.date.today(), days=days)
+        return _planning.deadlines(self._in_step(self.store.tasks()), today or _datetime.date.today(), days=days)
 
     def sprints(self) -> list[_model.Sprint]:
         return self.store.sprints()
@@ -354,13 +362,14 @@ class Tracker:
 
     def sprint_status(self, name: str = "current", *, today: _datetime.date | None = None) -> _planning.SprintSummary:
         today = today or _datetime.date.today()
-        return _planning.sprint_summary(self.store.tasks(closed=True), self.sprint(name, today=today), today)
+        sprint = self.sprint(name, today=today)
+        return _planning.sprint_summary(self._in_step(self.store.tasks(closed=True)), sprint, today)
 
     def workload(self, *, today: _datetime.date | None = None) -> list[_planning.Workload]:
-        return _planning.workload(self.store.tasks(), today or _datetime.date.today())
+        return _planning.workload(self._in_step(self.store.tasks()), today or _datetime.date.today())
 
     def milestone_status(self, *, today: _datetime.date | None = None) -> list[_planning.MilestoneSummary]:
-        return _planning.milestone_summaries(self.store.tasks(closed=True), today or _datetime.date.today())
+        return _planning.milestone_summaries(self._in_step(self.store.tasks(closed=True)), today or _datetime.date.today())
 
     # マイルストーン（リリースの目標と期日） ---------------------------------------------
 
@@ -455,11 +464,22 @@ class Tracker:
 
     # 内部 -----------------------------------------------------------------------------
 
+    def _in_step(self, tasks: list[_model.Task]) -> list[_model.Task]:
+        """判断に使う前に、段階のずれ（GitHubのサイトでPRを出した・閉じた等）を直す（work_states があるときだけ）。"""
+        if self.work_states is None or self.board is None:
+            return tasks
+        return self.sync_stages(tasks, self.work_states())
+
     def _op(self, name: str) -> str:
         return operation(self.command, name)
 
     def _shared(self) -> None:
         """置き場所を作った・引き継いだときに共有した人を、1回だけ知らせる。"""
+        if self.store.recreated:
+            self.notices.append("タスク管理の情報が見つからなかったため、新しく作りました。以前に記録した計画の値（優先度・期限・"
+                                "見積もり・スプリント等）があった場合、それは戻りません（GitHubで削除された可能性があります）。"
+                                "作業の段階は、Issue・PR・作業空間から合わせ直します。")
+            self.store.recreated = False
         if self.store.shared:
             self.notices.append(f"共同作業者（{', '.join(self.store.shared)}）も、タスクの計画・段階を書けるようにしました。")
             self.store.shared = ()

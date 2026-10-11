@@ -71,6 +71,7 @@ def execute(
     try:
         result = action(invocation)
     except WorkError as error:
+        error = _repository_state(error)
         if invocation.json_output:
             _emit_json(command, invocation, None, error)
         else:
@@ -91,6 +92,30 @@ def execute(
         for notice in _notices(invocation):
             click.echo(f"お知らせ：{notice}", err=True)
     return SUCCESS
+
+
+# GitHub（gh・git）の失敗の出力から、リポジトリがECOBuildの外で変わったことを見分ける
+_ARCHIVED = re.compile(r"archived so (?:it )?is read-only|repository was archived", re.IGNORECASE)
+_GONE = re.compile(r"repository not found|repository '[^']*' not found|could not resolve to a repository",
+                   re.IGNORECASE)
+
+
+def _repository_state(error: WorkError) -> WorkError:
+    """git・gh の一般的な失敗のうち、GitHubでリポジトリがアーカイブ・削除されたためのものを、そう分かる形にする。"""
+    if error.code not in (ErrorCode.GIT_ERROR, ErrorCode.GITHUB_ERROR):
+        return error
+    text = f"{error.message} {error.details or ''}"
+    if _ARCHIVED.search(text):
+        return EcoBuildError(ErrorCode.REPOSITORY_ARCHIVED,
+                             "GitHubのリポジトリがアーカイブ（読み取り専用）されているため、変更できません。",
+                             hint="元に戻すには ecobuild module unarchive <所有者/名前>（名前は ecobuild module show で"
+                                  "確かめられます）。", details=error.details)
+    if _GONE.search(text):
+        return EcoBuildError(ErrorCode.REPOSITORY_NOT_FOUND,
+                             "GitHubのリポジトリが見つかりません（削除されたか、見る権限がなくなった可能性があります）。",
+                             hint="ecobuild module list で確かめてください。削除したリポジトリは、90日以内なら"
+                                  "GitHubのアカウントの設定から戻せます。", details=error.details)
+    return error
 
 
 def _notices(invocation: Invocation) -> list[str]:

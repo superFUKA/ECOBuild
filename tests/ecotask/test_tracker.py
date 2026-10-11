@@ -112,6 +112,29 @@ def test_sync_stages_fixes_drift(tracker):
     assert (status(tracker, parent.number), status(tracker, closed.number)) == ("In Progress", "Done")
 
 
+def test_planning_views_fix_drift_first(tracker):
+    """判断（次にやるもの・期限・スプリント・量）も、読む前に段階のずれを直す（作業の事実を渡されたとき）。"""
+    task = tracker.create("サイトでPRを出した")
+    tracker.plan(task.number, sprint="current")
+    tracker.workload()
+    assert status(tracker, task.number) == "Todo"                 # 作業の事実を知らなければ直さない
+    tracker.work_states = lambda: {task.number: WorkState(branch=True, pull_request=True)}
+    assert tracker.sprint_status().stages == {"in_review": 1}
+    assert status(tracker, task.number) == "In Review"
+
+
+def test_deleted_task_data_is_recreated_with_a_notice(tracker):
+    """GitHubで置き場所（ボード）を削除されたら、次に記録するときに作り直し、計画の値が戻らないことを知らせる。"""
+    tracker.create("最初")
+    assert not any("新しく作りました" in n for n in tracker.notices)      # Issueのないリポジトリで初めて作るとき
+    github = tracker.github
+    github.boards.clear()
+    github.linked_boards.clear()
+    again = Tracker(tracker.root, github=github, command="ecobuild")
+    again.create("削除の後")
+    assert any("新しく作りました" in n and "戻りません" in n for n in again.notices)
+
+
 def test_sync_stages_does_nothing_without_a_board(tracker):
     tracker.github.create_issue(tracker.root, "サイトで作った", "")
     tasks = tracker.store.tasks()

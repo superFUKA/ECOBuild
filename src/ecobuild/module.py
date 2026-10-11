@@ -623,8 +623,28 @@ class Module:
         self.require_workspace("依存先のリンクの解除")
         return self.type.unlink(name)
 
-    def dependencies(self) -> tuple[DependencyState, ...]:
-        return self.type.dependencies()
+    def dependencies(self, *, fetch: bool = False) -> tuple[DependencyState, ...]:
+        """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。"""
+        states = self.type.dependencies()
+        return tuple(self._remote_dependency(d) for d in states) if fetch else states
+
+    def _remote_dependency(self, dependency: DependencyState) -> DependencyState:
+        from ecowork.git import Git
+        listed = Git(self.root).run("ls-remote", dependency.url, "HEAD", check=False)
+        if not listed.ok:
+            gone = re.search(r"not found|does not exist|does not appear to be a git repository", listed.output, re.I)
+            return replace(dependency, remote="gone" if gone else "unknown")
+        latest = listed.stdout.split()[0] if listed.stdout.strip() else None
+        found = re.search(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", dependency.url)
+        if found is None:
+            return replace(dependency, remote="ok", latest=latest)
+        try:
+            info = self.repository.github.get_repository(found.group(1))
+        except WorkError:
+            return replace(dependency, remote="unknown", latest=latest)
+        if info.full_name.casefold() != found.group(1).casefold():
+            return replace(dependency, remote="moved", latest=latest, moved_to=info.full_name)
+        return replace(dependency, remote="archived" if info.archived else "ok", latest=latest)
 
     def dependency_tree(self) -> DependencyTree:
         """依存関係の図（依存先の依存先も）。"""

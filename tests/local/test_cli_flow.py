@@ -374,6 +374,31 @@ def test_module_list_and_show(cli, module, tmp_path):
     assert "リポジトリ：https://example.invalid/tester/remote（非公開・アーカイブ済み）" in cli("module", "show").output
 
 
+def test_errors_from_repository_changed_on_github(cli, module, monkeypatch):
+    """git・gh の失敗が、GitHubでのアーカイブ・削除のためなら、そう分かるエラーと案内にする。"""
+    from ecowork.errors import WorkError
+    from ecobuild.errors import ErrorCode
+
+    def failing(output):
+        def fail(*args, **kwargs):
+            raise WorkError(ErrorCode.GIT_ERROR, "git push に失敗しました。", details=output)
+        return fail
+
+    monkeypatch.setattr(type(module.repository), "status", failing(
+        "remote: This repository was archived so it is read-only.\nfatal: unable to access"))
+    archived = as_json(cli("status", "--json"))["error"]
+    assert archived["code"] == "repository_archived" and "module unarchive" in archived["hint"]
+    monkeypatch.setattr(type(module.repository), "status", failing("remote: Repository not found."))
+    gone = as_json(cli("status", "--json"))["error"]
+    assert gone["code"] == "repository_not_found" and "module list" in gone["hint"]
+
+    module.repository.github.archived_repositories.append("tester/remote")
+    monkeypatch.undo()
+    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
+    monkeypatch.chdir(module.root)
+    assert "アーカイブ（読み取り専用）されています" in cli("status", "--fetch").output
+
+
 def test_restored_module_reopens_its_task_data(cli, module, may_delete):
     """削除したリポジトリをGitHubで戻したら、閉じたタスク管理の情報を開き直して使う（作り直さない）。"""
     github = module.repository.github

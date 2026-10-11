@@ -161,3 +161,26 @@ def test_sync_explains_local_commits_on_main(repository, remote_and_clone, tmp_p
         repository.sync()
     assert error.value.code == ErrorCode.NOT_FAST_FORWARD and "gitを直接使った" in error.value.hint
     assert [line.split(" ", 1)[1] for line in error.value.details] == ["直接のコミット"]
+
+
+def test_sync_notices_changes_made_on_github(repository, remote_and_clone):
+    """ECOBuildの外（GitHubのサイト等）での変化：アーカイブは知らせる、名前の変更は origin を合わせる、
+    作成元のブランチがなくなったら知らせる。"""
+    github = repository.github
+    github.archived_repositories.append("tester/remote")
+    repository.sync()
+    assert any("アーカイブ（読み取り専用）" in n and "ecobuild module unarchive tester/remote" in n
+               for n in repository.notices)
+    assert repository.status(fetch=True).archived is True
+
+    repository.notices.clear()
+    git(repository.root, "remote", "set-url", "origin", "https://github.com/tester/old.git")
+    assert repository.check_repository() is True
+    assert repository.remote_url == "https://github.com/tester/remote.git"
+    assert any("tester/old から tester/remote に変わっていた" in n for n in repository.notices)
+
+    repository.notices.clear()
+    git(repository.root, "remote", "set-url", "origin", str(remote_and_clone[0]))
+    repository.default_base = "develop"
+    repository.check_repository()
+    assert any("作成元 develop がGitHubにありません" in n and "既定のブランチは main" in n for n in repository.notices)

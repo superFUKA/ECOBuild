@@ -315,6 +315,7 @@ class Status:
     upstream_gone: bool = False      # GitHubのブランチが削除された（別の場所での反映・中止など）
     reviewing: int | None = None     # task review で確認中のPR
     base_behind: int | None = None   # status --fetch：作業空間が作成元より遅れているコミット数
+    archived: bool | None = None     # status --fetch：GitHubのリポジトリがアーカイブ（読み取り専用）されている
 
 
 @dataclass(frozen=True)

@@ -76,6 +76,7 @@ class Repository:
         self.hooks = hooks if hooks is not None else Hooks()
         self.tracker = _tracker.Tracker(self.root, github=github if github is not None else _github.default(),
                                         command=command, legacy_board=legacy_board)
+        self.tracker.work_states = self._current_work_states
         self.git = _git.Git(self.root, command=command)
 
     @property
@@ -164,8 +165,10 @@ class Repository:
 
     def status(self, *, fetch: bool = False) -> ws.Status:
         """fetch：GitHubの最新を取得してから調べる（作成元の遅れも数える）。"""
+        archived = None
         if fetch:
             self.git.fetch()
+            archived = self.check_repository(notify_archived=False)   # 状態の表示に含める
         tree = self.git.working_tree()
         workspace = self.current_workspace()
         pull_request = None
@@ -182,7 +185,39 @@ class Repository:
             ahead=tree.ahead, behind=tree.behind, merging=self.git.is_merging(), pull_request=pull_request,
             upstream_gone=tree.upstream_gone, reviewing=self._reviewing(),
             base_behind=self._base_behind(workspace) if fetch and workspace is not None else None,
+            archived=archived,
         )
+
+    def check_repository(self, *, notify_archived: bool = True) -> bool | None:
+        """GitHubで（ECOBuildの外で）変わったリポジトリの状態を確かめ、知らせる。fetch の後に呼ぶ。
+
+        - アーカイブ（読み取り専用）されている：知らせる。push・PR等はできない
+        - 名前（所有者）が変わった：手元の origin を新しい名前に合わせる（GitHubの転送に頼らない）
+        - 作業空間の既定の作成元がGitHubにない：GitHubの既定のブランチを添えて知らせる
+        アーカイブされているかを返す（GitHubに問い合わせられなければ None）。
+        """
+        try:
+            current = self.github.repository_name(self.root)
+            info = self.github.get_repository(current)
+        except WorkError as error:
+            self.notices.append(f"GitHubのリポジトリの状態を確かめられませんでした（{error.message}）。")
+            return None
+        if info.archived and notify_archived:
+            self.notices.append(f"GitHubのリポジトリ {info.full_name} はアーカイブ（読み取り専用）されています。"
+                                f"push・PR・タスクの変更はできません（元に戻すには {self._op('module unarchive')} "
+                                f"{info.full_name}）。")
+        url = self.remote_url or ""
+        recorded = _github_name(url)
+        if recorded is not None and recorded.casefold() != info.full_name.casefold():
+            self.git.set_config("remote.origin.url", url.replace(recorded, info.full_name))
+            self.notices.append(f"GitHubでリポジトリの名前が {recorded} から {info.full_name} に変わっていたため、"
+                                "手元の origin を合わせました。")
+        if self.git.remote_branches() and not self.git.has_remote_branch(self.default_base):
+            default = self.github.default_branch(self.root)
+            self.notices.append(f"作業空間の既定の作成元 {self.default_base} がGitHubにありません（GitHubで名前を変えたか、"
+                                f"削除した可能性があります。GitHubの既定のブランチは {default}）。"
+                                "モジュールの設定の作成元を合わせてください。")
+        return info.archived
 
     def _base_behind(self, workspace: ws.Workspace) -> int | None:
         base = f"{_git.REMOTE}/{workspace.base}"
@@ -225,6 +260,11 @@ class Repository:
         if sort is not None:
             pairs = self.tracker.sort(pairs, sort, task_of=lambda pair: pair[1])
         return [summary for summary, _ in pairs]
+
+    def _current_work_states(self) -> dict[int, _tracker.WorkState]:
+        """GitHubの最新を取得して、各タスクの作業の事実を調べる（判断の前に段階のずれを直すため）。"""
+        self.git.fetch()
+        return self._work_states(set(self.git.remote_branches()))
 
     def _work_states(self, remote: set[str]) -> dict[int, _tracker.WorkState]:
         """各タスクの作業の事実（GitHubの作業空間のブランチ・開いているPR）。段階のずれを直すのに使う。"""
@@ -962,6 +1002,7 @@ class Repository:
                      "続きの作業は新しいIssueで行います。",
             )
         self.git.fetch()
+        self.check_repository()
         merged = []
         refs = [f"{_git.REMOTE}/{branch}"]
         if workspace is not None:
@@ -1450,3 +1491,9 @@ class Repository:
 
     def __repr__(self) -> str:
         return f"Repository({str(self.root)!r})"
+
+
+def _github_name(url: str) -> str | None:
+    """origin の URL が GitHub のものなら、その 所有者/名前（URLに書かれた形のまま）。"""
+    match = re.search(r"github\.com[:/]+([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    return match.group(1) if match else None

@@ -192,6 +192,14 @@ def test_dependency_tree(short_tmp, monkeypatch):
     assert {n.name: (n.present, n.depends_on) for n in tree.nodes} == {"Base": (True, ()), "STL": (True, ("Base",))}
     assert ecs.info().dependencies == ("Base", "STL")
 
+    fetched = {d.name: (d.remote, d.latest == d.recorded) for d in ecs.dependencies(fetch=True)}
+    assert fetched == {"Base": ("ok", True), "STL": ("ok", True)}
+    new_stl_commit(stl.root, "#pragma once\n// v2\n")
+    (short_tmp / "gh1" / "Base.git").rename(short_tmp / "gh1" / "Gone.git")    # GitHubで削除された
+    fetched = {d.name: (d.remote, d.latest == d.recorded) for d in ecs.dependencies(fetch=True)}
+    assert fetched == {"Base": ("gone", False), "STL": ("ok", False)}
+    (short_tmp / "gh1" / "Gone.git").rename(short_tmp / "gh1" / "Base.git")
+
     from click.testing import CliRunner
     from ecobuild.cli import build_cli
     with monkeypatch.context() as patch:   # 片付けの前に、今いるディレクトリを戻す

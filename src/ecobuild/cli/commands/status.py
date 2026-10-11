@@ -22,6 +22,8 @@ def command(
             + [f"  未追跡：{p}" for p in r.untracked] + [f"  衝突：{p}" for p in r.conflicted]
         return lines(
             where,
+            "GitHubのリポジトリはアーカイブ（読み取り専用）されています（ecobuild module unarchive で戻せます）"
+            if r.archived else None,
             "取り込みが衝突で止まっています（ecobuild sync continue／abort）" if r.merging else None,
             f"未push：{r.ahead}" if r.ahead else None,
             f"GitHubより遅れています：{r.behind}（ecobuild sync）" if r.behind else None,

@@ -109,23 +109,29 @@
   }
   const DAY = 86400000, WEEK = ['日', '月', '火', '水', '木', '金', '土'];
   const dayOf = d => Date.parse(d + 'T00:00:00Z') / DAY, weekday = n => new Date(n * DAY).getUTCDay();
+  // 日程: every task is a row. Tasks with planned start and end have a bar (drag to move, right edge to change the end);
+  // the others are rows without a bar, below them: drag across their days to give them a plan (task plan).
   function renderTimeline() {
     const dated = visible().filter(t => t.planned_start && t.planned_end).sort((a, b) => a.planned_start.localeCompare(b.planned_start) || a.number - b.number);
-    const undated = visible().filter(t => !t.planned_start || !t.planned_end), now = dayOf(today());
-    const all = dated.flatMap(t => [t.planned_start, t.planned_end, t.due].filter(Boolean)).map(dayOf).concat(now);
-    let first = Math.min(...all), last = Math.max(...all, now + 13);
+    const undated = visible().filter(t => !t.planned_start || !t.planned_end).sort((a, b) => (a.state === 'open') === (b.state === 'open') ? a.number - b.number : a.state === 'open' ? -1 : 1);
+    const now = dayOf(today()), tasks = [...dated, ...undated];
+    const all = tasks.flatMap(t => [t.planned_start, t.planned_end, t.due].filter(Boolean)).map(dayOf).concat(now);
+    let first = Math.min(...all), last = Math.max(...all, now + 20);
     first -= (weekday(first) + 6) % 7; last += 6 - (weekday(last) + 6) % 7;
     const days = Array.from({length: last - first + 1}, (_, i) => first + i), col = n => n - first + 2, off = n => weekday(n) === 0 || weekday(n) === 6;
     const head = days.map(n => { const d = new Date(n * DAY); return `<div class="tl-day ${off(n) ? 'off' : ''} ${n === now ? 'today' : ''}" style="grid-column:${col(n)}">${d.getUTCDate() === 1 || n === first ? `<b>${d.getUTCMonth() + 1}月</b>` : ''}<span>${d.getUTCDate()}</span><small>${WEEK[weekday(n)]}</small></div>`; }).join('');
-    const shade = dated.length ? days.filter(off).map(n => `<div class="tl-off" style="grid-column:${col(n)};grid-row:2 / span ${dated.length}"></div>`).join('') : '';
+    const shade = tasks.length ? days.filter(off).map(n => `<div class="tl-off" style="grid-column:${col(n)};grid-row:2 / span ${tasks.length}"></div>`).join('') : '';
+    const dueMark = (t, r) => t.due ? `<div class="tl-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.due))}" title="期限 ${md(t.due)}">◆</div>` : '';
+    const label = (t, r, extra = '') => `<div class="tl-label ${extra}" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>`;
     const rows = dated.map((t, i) => { const r = i + 2, late = t.state === 'open' && dayOf(t.planned_end) < now, s = STAGE[stageOf(t)];
-      return `<div class="tl-label" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>
-      <div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端で終了予定を変える）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>
-      ${t.due ? `<div class="tl-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.due))}" title="期限 ${md(t.due)}">◆</div>` : ''}`; }).join('');
-    return `<div class="tl-wrap"><div class="tl-grid" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${dated.length}, 34px)">
-      <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${dated.length + 1}"></div>${rows}</div></div>
-      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span></div>
-      ${undated.length ? `<p class="tk-note">日程のないタスク：${undated.map(t => `<span class="tk-label" data-task="${t.number}" style="cursor:pointer">#${t.number} ${esc(t.title)}</span>`).join('')}</p>` : ''}`;
+      return label(t, r) + `<div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端で終了予定を変える）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>` + dueMark(t, r); }).join('')
+      + undated.map((t, i) => { const r = dated.length + i + 2, open = t.state === 'open', one = t.planned_start || t.planned_end;
+        return label(t, r, `undated ${i === 0 ? 'first' : ''}`)
+          + `<div class="tl-empty ${open ? 'plannable' : ''} ${i === 0 ? 'first' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を入れる' : '閉じたタスク'}"></div>`
+          + (one ? `<div class="tl-point" style="grid-row:${r};grid-column:${col(dayOf(one))}" title="${t.planned_start ? '開始予定' : '終了予定'}だけ ${md(one)}"></div>` : '') + dueMark(t, r); }).join('');
+    return `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${tasks.length}, 34px)">
+      <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${tasks.length + 1}"></div>${rows}</div></div>
+      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated.length ? `<span><i class="tl-key empty"></i>日程のないタスク（行の上をドラッグして予定を入れる）</span>` : ''}</div>`;
   }
   function scrollToToday() { const wrap = document.querySelector('.tl-wrap'), nowLine = document.querySelector('.tl-now'); if (wrap && nowLine) wrap.scrollLeft = Math.max(0, nowLine.offsetLeft - 220 - 7 * 28); }
 
@@ -564,6 +570,31 @@
     let end = shiftDate(t.planned_end, days); if (end < start) end = start;
     const doc = await run(['task', 'plan', String(t.number), '--planned-start', start, '--planned-end', end], {success: `#${t.number} の予定を ${md(start)}〜${md(end)} にしました。`});
     if (doc) reloadAfter(t.number); else render();
+  });
+
+  // Drag across the days of a row without a plan to give it one (a click gives a one-day plan).
+  let planDrag = null;
+  const dayAt = (grid, x) => { const r = grid.getBoundingClientRect(), i = Math.floor((x - r.left - 220) / DAY_PX); return Number(grid.dataset.first) + Math.max(0, Math.min(Number(grid.dataset.days) - 1, i)); };
+  const dateOf = n => new Date(n * DAY).toISOString().slice(0, 10);
+  document.addEventListener('pointerdown', e => {
+    const row = e.target.closest?.('#tasks-content .tl-empty.plannable'); if (!row || e.button !== 0) return;
+    const grid = row.closest('.tl-grid'), from = dayAt(grid, e.clientX), ghost = document.createElement('div');
+    ghost.className = 'tl-ghost'; ghost.style.gridRow = row.style.gridRow; grid.append(ghost);
+    planDrag = {grid, row, n: Number(row.dataset.planRow), from, to: from, ghost};
+    showGhost(); try { row.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ } e.preventDefault();
+  });
+  function showGhost() {
+    const {grid, from, to, ghost} = planDrag, a = Math.min(from, to), b = Math.max(from, to), first = Number(grid.dataset.first);
+    ghost.style.gridColumn = `${a - first + 2} / ${b - first + 3}`; ghost.textContent = `${md(dateOf(a))}〜${md(dateOf(b))}`;
+  }
+  document.addEventListener('pointermove', e => { if (!planDrag) return; const to = dayAt(planDrag.grid, e.clientX); if (to !== planDrag.to) { planDrag.to = to; showGhost(); } });
+  document.addEventListener('pointerup', async () => {
+    if (!planDrag) return;
+    const {n, from, to, ghost} = planDrag; planDrag = null;
+    const start = dateOf(Math.min(from, to)), end = dateOf(Math.max(from, to));
+    const doc = await run(['task', 'plan', String(n), '--planned-start', start, '--planned-end', end], {success: `#${n} の予定を ${md(start)}〜${md(end)} にしました。`});
+    ghost.remove();
+    if (doc) reloadAfter(n); else render();
   });
 
   // Events ----------------------------------------------------------------------------------------

@@ -615,11 +615,14 @@ def _edge() -> str | None:
     return shutil.which("msedge")
 
 
-def open_window(url: str) -> None:
-    """Edgeがあればアプリの窓（アドレスバーなし）で、なければ既定のブラウザで開く。"""
+HUB_WINDOW = (1000, 720)   # ハブは一覧と設定だけなので小さめ（hub.js も最初に開いたときこの大きさに合わせる）
+
+
+def open_window(url: str, size: tuple[int, int] | None = None) -> None:
+    """Edgeがあればアプリのウィンドウ（アドレスバーなし）で、なければ既定のブラウザで開く。size：最初の大きさ。"""
     edge = _edge() if os.name == "nt" else None
     if edge:
-        subprocess.Popen([edge, f"--app={url}"])
+        subprocess.Popen([edge, f"--app={url}", *([f"--window-size={size[0]},{size[1]}"] if size else [])])
     else:
         webbrowser.open(url)
 
@@ -723,7 +726,7 @@ def launch(args) -> None:
     alive = _ping(state)
     if alive and not alive.get("stale"):
         if not args.no_browser:
-            open_window(_url(state))
+            open_window(_url(state), HUB_WINDOW)
         _say(f"ECOBuild GUI を開きました（動いているサーバーを使います）：{_url(state)}")
         return
     if alive:   # 更新前のサーバー：止めてから新しく起動する
@@ -805,7 +808,7 @@ def serve(args) -> None:
     if cli_warning(cli.command):
         print("注意：" + cli_warning(cli.command))
     if not args.no_browser:
-        open_window(url)
+        open_window(url, HUB_WINDOW)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

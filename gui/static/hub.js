@@ -262,6 +262,14 @@ $('setup-form').addEventListener('submit', async event => {
     + (r.commands.length ? '<p>足りないツールのインストールコマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');
 });
 
+// The hub opens small (the list and the settings only). Edge may ignore the size it is started with when it is running
+// already, so the window is resized once when it first opens (an app window, not a browser tab; later the user's size).
+try {
+  if (window.toolbar && !window.toolbar.visible && !sessionStorage.getItem('ecobuild-hub-sized')) {
+    sessionStorage.setItem('ecobuild-hub-sized', '1');
+    if (window.outerWidth > 1000 || window.outerHeight > 720) window.resizeTo(Math.min(window.outerWidth, 1000), Math.min(window.outerHeight, 720));
+  }
+} catch (e) { /* storage blocked: keep the size */ }
 loadModules();
 loadGithubModules();
 setTimeout(() => { gaveUp = true; renderModules(); }, 15000);

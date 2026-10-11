@@ -191,7 +191,7 @@ addForm.addEventListener('submit', async event => {
   if (creating) {
     for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
     if (data.has('public')) args.push('--public');
-    if (data.has('app') && data.get('type') === 'cpp') args.push('--app');
+    if (data.get('type') === 'cpp' && data.get('kind')) args.push('--kind', data.get('kind'));
   }
   // Close the form and show the busy overlay ("ぐるぐる"). The CLI reports no progress until it ends, so the steps are
   // what the command does (not live progress); the elapsed seconds show it is still working.

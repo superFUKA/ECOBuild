@@ -116,7 +116,7 @@
         <span class="mi-where">${where}</span>${pr ? pill(`PR #${pr.number} → ${pr.base}${pr.draft ? '・下書き' : ''}`, 'pr') : ''}<span class="mi-row-actions">${actions}</span></div>
         ${kids.length ? `<ul>${kids.map(k => node(k, depth + 1)).join('')}</ul>` : ''}</li>`;
     };
-    return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。作業空間（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('＋ ブランチ', 'branch-create', '', 'primary')) +
+    return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。作業空間（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
   const VIEWS = {overview: renderOverview, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
@@ -182,6 +182,8 @@
         v => ['profile', 'add', v.name, '--configuration', v.configuration, '--parallel', v.parallel || '1', ...(v.shared ? ['--shared'] : [])], {success: 'ビルド設定を保存しました。'});
     },
     'profile-remove': name => inWorkspace(`ビルド設定を削除：${name}`, [], '削除', () => ['profile', 'remove', name], {danger: true, success: `${name} を削除しました。`}),
+    // The branches' history with their merges (all branches) is drawn by TortoiseGit (ecobuild log --all --gui).
+    'branch-log': async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); },
     'branch-create': () => ECO.form({title: 'ブランチを作成', intro: '作業空間以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
       {name: 'name', label: 'ブランチ名（task/ で始まる名前は作業空間専用）', required: true, placeholder: '例：develop'},
       {name: 'base', label: '作成元', type: 'select', options: [['', '既定（default_base）'], ...(Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace).map(b => [b.name, b.name]) : [])]}], ok: '作成',

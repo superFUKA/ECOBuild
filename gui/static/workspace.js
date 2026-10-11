@@ -93,7 +93,7 @@ function renderChanges() {
     box.addEventListener('change', () => { if (box.checked) WS.selected.add(path); else WS.selected.delete(path); updateButtons(); });
     name.textContent = path; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = 'ダブルクリックで差分';
     name.addEventListener('click', e => { e.preventDefault(); WS.activeFile = path; renderChanges(); WS.selectInTree?.(path); });
-    name.addEventListener('dblclick', e => { e.preventDefault(); showDiff(path, kinds); });
+    name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
     kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
     label.append(box, name, kind); list.append(label);
   }
@@ -131,6 +131,22 @@ async function showDiff(path, kinds) {
   ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: path + (args.includes('--staged') ? '（ステージ済み）' : '')});
 }
 WS.showDiff = showDiff;
+// Looking at git (history, line history, diffs) is TortoiseGit's job: ecobuild … --gui opens it there, which shows it
+// better than text here. Without TortoiseGit, it is shown here as text (asText).
+let noTortoiseGit = false;
+WS.inTortoiseGit = async (args, asText) => {
+  if (!noTortoiseGit) {
+    const doc = await WS.cli([...args, '--gui'], {quiet: true});
+    if (doc.ok) return;
+    if (doc.error?.code !== 'tool_missing') return ECO.showError(doc);
+    noTortoiseGit = true;
+    say('TortoiseGit が見つからないため、この画面に文字で表示します（TortoiseGit を入れると、そちらで開きます）。');
+  }
+  return asText();
+};
+// A changed file's diff (a new file has none: its content is shown here).
+WS.openDiff = (path, kinds) => kinds.includes('untracked') ? showDiff(path, kinds)
+  : WS.inTortoiseGit(['diff', path, ...(kinds.includes('unstaged') || kinds.includes('conflicted') ? [] : ['--staged'])], () => showDiff(path, kinds));
 
 // Commit: the checked files are exactly what is committed (TortoiseGit style).
 get('commit').addEventListener('click', async () => {
@@ -187,7 +203,7 @@ async function gitAction(action) {
     case 'diff': return ECO.form({title: '差分', fields: [
       {name: 'path', label: '対象のパス（空欄ならすべて）', value: WS.activeFile || ''},
       {name: 'mode', label: '比較', type: 'radio', value: '', options: [['', 'ステージしていない変更'], ['staged', 'ステージ済みの変更'], ['base', '作成元との差分（PRで出る差分）']]},
-      {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox'}], ok: '表示',
+      {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox', value: true}], ok: '表示',
       submit: async v => {
         const doc = await WS.cli(['diff', ...(v.path ? [v.path] : []), ...(v.mode ? ['--' + v.mode] : []), ...(v.gui ? ['--gui'] : [])]);
         if (!doc.ok) return doc.error.message;
@@ -195,7 +211,7 @@ async function gitAction(action) {
       }});
     case 'history': return ECO.form({title: '履歴', fields: [
       {name: 'path', label: '対象のパス（任意）', value: '', row: 'what'}, {name: 'count', label: '件数', type: 'number', value: '30', min: 1, row: 'what'},
-      {name: 'all', label: 'すべてのブランチ', type: 'checkbox'}, {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox'}], ok: '表示',
+      {name: 'all', label: 'すべてのブランチ', type: 'checkbox'}, {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox', value: true}], ok: '表示',
       submit: async v => {
         const doc = await WS.cli(['log', ...(v.path ? [v.path] : []), '--count', v.count || '30', ...(v.all ? ['--all'] : []), ...(v.gui ? ['--gui'] : [])]);
         if (!doc.ok) return doc.error.message;

@@ -116,7 +116,6 @@ function fileMenu(path, x, y) {
     ['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists],
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', '履歴', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
-    ['log-gui', 'TortoiseGitで履歴', tracked],
   ], x, y);
 }
 function folderMenu(dir, x, y) {
@@ -174,10 +173,14 @@ async function menuAction(action, dir) {
       if (v) { await WS.run(['ignore', v.pattern], {success: '.gitignore に追加しました：' + v.pattern}); await WS.reloadFiles(); }
       return;
     }
-    case 'diff': return WS.showDiff(path, WS.changes().get(path) || []);
-    case 'log': { const target = dir !== undefined ? dir : path; const doc = await WS.cli(['log', ...(target ? [target] : []), '--count', '50']); return doc.ok ? WS.showLog(doc.result, target) : ECO.showError(doc); }
-    case 'log-gui': { const doc = await WS.cli(['log', path, '--gui']); if (!doc.ok) ECO.showError(doc); return; }
-    case 'blame': { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('行ごとの変更履歴', doc.result, {sub: path}) : ECO.showError(doc); }
+    case 'diff': {
+      return WS.openDiff(path, WS.changes().get(path) || []);
+    }
+    case 'log': {
+      const target = dir !== undefined ? dir : path;
+      return WS.inTortoiseGit(['log', ...(target ? [target] : [])], async () => { const doc = await WS.cli(['log', ...(target ? [target] : []), '--count', '50']); return doc.ok ? WS.showLog(doc.result, target) : ECO.showError(doc); });
+    }
+    case 'blame': return WS.inTortoiseGit(['blame', path], async () => { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('行ごとの変更履歴', doc.result, {sub: path}) : ECO.showError(doc); });
   }
 }
 

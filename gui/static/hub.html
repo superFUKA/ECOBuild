@@ -76,7 +76,7 @@
           <label class="field">所有者（任意）<input name="owner" placeholder="省略時は既定の所有者（未設定ならログイン中のユーザー）"></label>
           <label class="check"><input type="checkbox" name="public"> 公開リポジトリにする</label>
           <p class="note">既定は非公開です。GitHubのリポジトリ作成と初回のPushもまとめて行います。</p>
-          <label class="check" id="app-field"><input type="checkbox" name="app"> 実行ファイル用のProjectも作る</label></details>
+          <label class="field" id="app-field">最初に作るProject<select name="kind"><option value="app">実行ファイル</option><option value="library">ライブラリとテスト用</option><option value="none">作らない</option></select></label></details>
       </fieldset>
       <fieldset id="clone-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">GitHubリポジトリ<input name="repository" placeholder="所有者/名前 または 名前" pattern="[^/\s]+(/[^/\s]+)?" required></label>

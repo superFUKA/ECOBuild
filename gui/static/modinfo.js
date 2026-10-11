@@ -1,10 +1,10 @@
 'use strict';
-// Module-wide screen: Projects, dependencies and links, branches, build settings.
+// Module-wide screen: overview (module show), Projects, dependencies and links (deps tree), branches, build settings.
 // Changes to managed files (ecobuild.toml, CMake files) run in a workspace chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  let view = 'projects', place = '', data = {};
+  let view = 'overview', place = '', data = {};
   const KIND = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定'};
   const DEP_STATE = {aligned: ['記録の版', 'ok'], differs: ['記録と別の版', 'warn'], modified: ['未コミットの変更あり', 'warn'], working: ['作業版', ''], missing: ['cloneなし', 'bad']};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
@@ -13,11 +13,52 @@
   const here = () => place || MOD.root;
   const cli = args => ECO.cli(here(), args, {quiet: true});
   const short = sha => sha ? sha.slice(0, 8) : '-';
+  // The modules on GitHub (ecobuild module list) to choose from when linking, except this one and the ones linked already.
+  let modulesOnGithub = null;
+  async function githubModules() {
+    if (!modulesOnGithub) { const doc = await ECO.cli(null, ['module', 'list'], {quiet: true}); modulesOnGithub = doc.ok ? doc.result : []; }
+    const linked = new Set((Array.isArray(data.deps) ? data.deps : []).map(d => d.name.toLowerCase()));
+    return modulesOnGithub.filter(g => { const name = g.repository.split('/').pop().toLowerCase(); return name !== MOD.name?.toLowerCase() && !linked.has(name); })
+      .map(g => [g.repository, g.description || g.type]);
+  }
 
   // Which place to show (the module's clone, or a dedicated clone / workspace with uncommitted changes).
   function placeSelect() {
     const options = MOD.places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${esc(MOD.states.get(MOD.keyOf(p))?.branch || p)}${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? '' : '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
     return `<label class="mi-note" style="display:flex;gap:6px;align-items:center">表示する場所<select id="mi-place">${options}</select></label>`;
+  }
+  // 概要: ecobuild module show.
+  function renderOverview() {
+    const r = data.info;
+    if (r.error) return head('概要', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
+    const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
+    const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
+    const row = (label, value) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`;
+    return head(`${esc(r.name)}`, 'このモジュールの情報です。', '') +
+      `<table class="mi-table mi-overview"><tbody>
+      ${row('型', pill(r.type))}
+      ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
+      ${row('GitHubのリポジトリ', r.repository || r.url ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repository || r.url)}</a>` : esc(r.repository)} ${visibility} ${archived}` : '<span class="mi-sub">分かりません</span>')}
+      ${row('作業空間の作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
+      ${row('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>')}
+      ${row('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + ` <button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
+      </tbody></table>${data.infoNotices?.length ? `<p class="mi-note">${data.infoNotices.map(esc).join('<br>')}</p>` : ''}`;
+  }
+  // The dependency graph (ecobuild deps tree): the dependencies of the dependencies too; one seen again is not expanded.
+  function renderTree() {
+    const t = data.tree;
+    if (!t) return '';
+    if (t.error) return `<h4 class="mi-subhead">依存関係の図</h4><p class="mi-note">${esc(t.error.message)}</p>`;
+    if (!t.direct.length) return '';
+    const nodes = new Map(t.nodes.map(n => [n.name, n])), shown = new Set();
+    const walk = names => `<ul>${names.map(name => {
+      const n = nodes.get(name) || {name, revision: '', present: false, depends_on: []};
+      const again = shown.has(name) && n.depends_on.length; shown.add(name);
+      const note = !n.present ? pill('cloneなし（その先は分からない）', 'bad') : again ? pill('上に同じ') : '';
+      return `<li><div class="mi-branch"><span class="mi-branch-name">${esc(name)}</span><span class="mi-mono mi-sub">${short(n.revision)}</span>${note}</div>${!again && n.depends_on.length ? walk(n.depends_on) : ''}</li>`;
+    }).join('')}</ul>`;
+    return `<h4 class="mi-subhead">依存関係の図</h4><p class="mi-note">依存先の依存先も含めた全体です。2回目以降に出てくるものは、その先を省きます。</p>
+      <ul class="mi-tree"><li><div class="mi-branch ws"><span class="mi-branch-name">${esc(t.module)}</span>${pill('このモジュール', 'ok')}</div>${walk(t.direct)}</li></ul>`;
   }
   function renderDeps() {
     const deps = data.deps, projects = data.projects || [];
@@ -27,7 +68,7 @@
       (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th><th>使っているProject</th><th></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
         return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td><td>${users.map(u => pill(u)).join(' ')}</td>
-        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` : '<p class="eco-empty">依存先はありません。</p>');
+        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
   }
   function renderProjects() {
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
@@ -65,10 +106,11 @@
     return head('ブランチ', '作成元のつながりで並べた全体像。作業空間（task/〜）はタスクの作業用、それ以外は develop などの共有のブランチです。', btn('＋ ブランチ', 'branch-create', '', 'primary')) +
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
-  const VIEWS = {deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
+  const VIEWS = {overview: renderOverview, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
   const LOADS = {
     projects: async () => { const [p, d] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list'])]); data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; },
-    deps: async () => LOADS.projects(),
+    overview: async () => { const r = await cli(['module', 'show']); data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; },
+    deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },
     branches: async () => { const [b, p] = await Promise.all([cli(['branch', 'list']), cli(['pr', 'list'])]); data.branches = b.ok ? b.result : {error: b.error}; data.prs = p.ok ? p.result : []; },
   };
@@ -97,8 +139,8 @@
   const ACTIONS = {
     'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を記録の版に合わせます。ないものはcloneし、作業版・変更のあるものは触りません。管理ファイルは変わりません。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新にし、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
-    'link': () => inWorkspace('モジュールをリンク', [
-      {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true},
+    'link': async () => inWorkspace('モジュールをリンク', [
+      {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true, suggestions: await githubModules()},
       {name: 'project', label: 'リンクするProject', type: 'select', options: [['', '既定（ライブラリ）'], ...(Array.isArray(data.projects) ? data.projects.map(p => [p.name, p.name]) : [])]},
       {name: 'shared', label: '共有ライブラリとしてリンクする', type: 'checkbox'}], 'リンク',
       v => ['link', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),

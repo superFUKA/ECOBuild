@@ -108,3 +108,14 @@
 @media (max-width: 500px) { .method-options.three { grid-template-columns: 1fr; } }
 .module-list li[draggable=true] { cursor: grab; }
 .module-list li.dragging { opacity: .4; }
+
+/* GitHub archived mark on a card, and the modules on GitHub offered in "GitHubから取得". */
+.module-state.module-archived { color: #c9b8f2; }
+.module-state.module-archived[hidden] { display: none; }
+.clone-candidates ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--line, #2c333c); border-radius: 8px; }
+.clone-candidates li + li { border-top: 1px solid #262c34; }
+.clone-candidates button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 0; padding: 8px 10px; color: inherit; cursor: pointer; }
+.clone-candidates button:hover { background: #ffffff0a; }
+.clone-candidates button.selected { background: #213a33; }
+.clone-candidates strong { display: block; font-size: 13px; }
+.clone-candidates small { display: block; font-size: 11px; color: var(--muted, #9aa4af); margin-top: 2px; }

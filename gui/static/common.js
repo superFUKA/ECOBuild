@@ -137,7 +137,8 @@ const ECO = (() => {
         if (f.type === 'radio') return `<fieldset><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) ? 'checked' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
         if (f.type === 'select') return `<label class="eco-field">${esc(f.label)}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
         if (f.type === 'textarea') return `<label class="eco-field">${esc(f.label)}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
-        return `<label class="eco-field">${esc(f.label)}<input id="${id}" type="${f.type || 'text'}" ${attrs} value="${esc(f.value ?? '')}" autocomplete="off">${help}</label>`;
+        const list = f.suggestions?.length ? `<datalist id="${id}-list">${f.suggestions.map(([v, l]) => `<option value="${esc(v)}"${l ? ` label="${esc(l)}"` : ''}></option>`).join('')}</datalist>` : '';
+        return `<label class="eco-field">${esc(f.label)}<input id="${id}" type="${f.type || 'text'}" ${attrs} ${list ? `list="${id}-list"` : ''} value="${esc(f.value ?? '')}" autocomplete="off">${list}${help}</label>`;
       }).join('');
       d.innerHTML = `<form><h2>${esc(title)}</h2>${intro ? `<p class="eco-intro">${intro}</p>` : ''}${html}${extra}<p class="eco-error" role="alert"></p><div class="eco-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></form>`;
       const formEl = d.querySelector('form'), error = d.querySelector('.eco-error'), okButton = d.querySelector('[type=submit]');

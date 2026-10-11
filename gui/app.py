@@ -511,8 +511,8 @@ class App:
                     "stale": STALE_MESSAGE if server_is_stale() else "",
                     "home": str(Path.home()),
                     "version": VERSION}
-        if name == "modules":
-            return self.store.modules()
+        if name == "modules":   # with the GitHub repository (所有者/名前) of each, to match ecobuild module list
+            return [dict(m, repository=module_repository(m["path"]) if m["exists"] else "") for m in self.store.modules()]
         if name == "modules/add":
             return self.store.add_module(d("path"))
         if name == "modules/order":

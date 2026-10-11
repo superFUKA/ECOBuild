@@ -39,3 +39,9 @@
 .mi-branch .mi-row-actions { margin-left: auto; }
 td.mi-row-actions { display: table-cell; text-align: right; }
 .mi td.mi-row-actions button + button { margin-left: 6px; }
+
+/* 概要 and the dependency graph. */
+.mi-overview th { width: 170px; background: #191e24; font-size: 12px; border-bottom: 1px solid #262c34; }
+.mi-overview a { color: var(--accent); }
+.mi-subhead { margin: 22px 0 4px; font-size: 14px; }
+.mi-link { background: none; border: 0; padding: 0 4px; color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: underline; }

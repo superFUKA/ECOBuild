@@ -38,7 +38,7 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 | `icon.ico`・`make_icon.py`・`static/icon.svg` | アイコン（`.ico` は `.svg` から作る） |
 | `static/hub.*` | ハブ：モジュールの一覧・追加、既定の所有者、環境チェック・準備 |
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |
-| `static/modinfo.*` | モジュール：Project・依存・ブランチ・ビルド設定 |
+| `static/modinfo.*` | モジュール：概要（module show）・Project・依存（deps tree の図）・ブランチ・ビルド設定 |
 | `static/workspace.*`・`explorer.js`・`prs.js`・`build.js` | 作業空間：エクスプローラー・コミット・PR・ビルド |
 | `static/tasks.*` | タスク管理：ダッシュボード（段階ごとのカード。ドラッグで段階を変える）・一覧・次にやる・日程・スプリント・集計・詳細・アカウント |
 | `static/common.*` | 共通：`ecobuild` の実行、ダイアログ、通知 |

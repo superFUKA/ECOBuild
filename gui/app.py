@@ -82,7 +82,8 @@ def _no_window() -> dict:
 
 
 class Store:
-    """GUIだけが使う記録（モジュールの一覧・専用のcloneの場所）。ファイルは gui.json。"""
+    """GUIだけが使う記録。ファイルは gui.json。CLIから分かることは持たない（アーカイブ済みか・リポジトリ名等は
+    ecobuild に聞く）。持つのは、CLIが知らない2つだけ：ハブに登録した手元のフォルダ（並び順）と、専用のcloneの場所。"""
 
     def __init__(self, path: Path):
         self.path = path
@@ -93,7 +94,7 @@ class Store:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        data.setdefault("modules", [])
+        data["modules"] = [{"path": item["path"]} for item in data.get("modules", [])]   # 以前は名前も持っていた
         data.setdefault("workspaces", {})
         return data
 
@@ -106,14 +107,15 @@ class Store:
     def modules(self) -> list[dict]:
         with self._lock:
             data = self._load()
-        return [dict(item, exists=(Path(item["path"]) / "ecobuild.toml").is_file()) for item in data["modules"]]
+        return [{"path": item["path"], "name": Path(item["path"]).name, "exists": (Path(item["path"]) / "ecobuild.toml").is_file()}
+                for item in data["modules"]]
 
     def add_module(self, path: str) -> dict:
         root = _module_root(Path(path))
         with self._lock:
             data = self._load()
             if not any(_same(item["path"], root) for item in data["modules"]):
-                data["modules"].append({"path": root.as_posix(), "name": root.name})
+                data["modules"].append({"path": root.as_posix()})
                 self._save(data)
         return {"path": root.as_posix(), "name": root.name}
 

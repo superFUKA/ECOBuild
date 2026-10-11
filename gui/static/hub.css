@@ -110,7 +110,7 @@
 .module-list li.dragging { opacity: .4; }
 
 /* GitHub archived mark on a card, and the modules on GitHub offered in "GitHubから取得". */
-.module-list li[hidden], .empty-modules[hidden] { display: none; }
+.empty-modules[hidden] { display: none; }
 .archived-modules { margin-top: 28px; border-top: 1px solid #2c333c; padding-top: 14px; }
 .archived-modules > summary { cursor: pointer; color: #a5aeba; font-size: 14px; font-weight: 600; }
 .archived-modules > .note { margin: 8px 0 10px; }

@@ -242,3 +242,14 @@ def test_commands_that_fetch_wait_for_the_others():
     for args in (["status", "--fetch"], ["task", "next", "--count", "5"], ["task", "overdue"], ["task", "workload"],
                  ["sprint", "status"], ["milestone", "status"], ["build"]):
         assert not gui._read_only(args), args
+
+
+def test_gui_json_keeps_only_the_folders(tmp_path):
+    root = tmp_path / "Calc"
+    root.mkdir()
+    (root / "ecobuild.toml").write_text("", encoding="utf-8")
+    store = gui.Store(tmp_path / "gui.json")
+    store.add_module(str(root))
+    saved = json.loads((tmp_path / "gui.json").read_text(encoding="utf-8"))
+    assert saved["modules"] == [{"path": root.as_posix()}]   # 名前・状態はフォルダとCLIから
+    assert store.modules() == [{"path": root.as_posix(), "name": "Calc", "exists": True}]

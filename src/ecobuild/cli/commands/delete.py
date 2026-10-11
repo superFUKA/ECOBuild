@@ -14,16 +14,18 @@ from .._output import lines, run_command
 
 def command(
     repository: Annotated[str, "削除するモジュール（GitHubのリポジトリ名、または 所有者/名前）"],
-    archive: Annotated[bool, "削除せず、アーカイブ（読み取り専用。GitHubで元に戻せる）にする"] = False,
+    permanent: Annotated[bool, "完全に削除する（Issue・PR・タスク管理の情報も消え、元に戻せない）。付けなければアーカイブ"] = False,
     remove_clone: Annotated[bool, "今いる（-C で指定した）モジュールの手元のcloneも削除する"] = False,
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """モジュール（GitHubのリポジトリ）を、Issue・PR・タスク管理の情報とともに削除します（元に戻せません）。
+    """モジュール（GitHubのリポジトリ）を片付けます。既定はアーカイブ（読み取り専用。後から元に戻せます）。
 
-    ECOBuildのモジュールだけを扱います。残しておくなら --archive（読み取り専用にし、後から元に戻せます）。
+    --permanent を付けたときだけ、Issue・PR・タスク管理の情報とともに完全に削除します（元に戻せません）。
+    ECOBuildのモジュールだけを扱います。
     """
     kept = []   # 削除しなかった手元のclone
+    archive = not permanent
 
     def action(inv):
         from ... import tooling
@@ -41,7 +43,8 @@ def command(
         return Module.delete(name, archive=archive, clone=clone)
 
     return run_command("delete", action, lambda r: lines(
-        f"モジュール {r.repository} をアーカイブしました（読み取り専用。GitHubのリポジトリの設定から元に戻せます）"
+        f"モジュール {r.repository} をアーカイブしました（読み取り専用。GitHubのリポジトリの設定から元に戻せます。"
+        "完全に削除するには --permanent）"
         if r.archived else
         f"モジュール {r.repository} を削除しました{'（タスク管理の情報も削除しました）' if r.task_data else ''}",
         (f"手元のclone {r.clone} を削除しました" if r.clone_removed else

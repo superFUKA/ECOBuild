@@ -327,10 +327,10 @@ def test_delete_module_from_cli(cli, module, may_delete):
     github = module.repository.github
     assert cli("task", "new", "t").exit_code == 0
     assert github.ecobuild_board() is not None
-    asked = as_json(cli("delete", "tester/remote", "--json"))
+    asked = as_json(cli("delete", "tester/remote", "--permanent", "--json"))
     assert asked["error"]["code"] == "confirmation_required" and "Issue 1 件" in asked["error"]["message"]
     assert github.deleted_repositories == []
-    deleted = cli("delete", "tester/remote", "--yes")
+    deleted = cli("delete", "tester/remote", "--permanent", "--yes")
     assert deleted.exit_code == 0 and "タスク管理の情報も削除しました" in deleted.output
     assert f"手元のclone {module.root} は残しています" in deleted.output
     assert github.deleted_repositories == ["tester/remote"] and github.ecobuild_board() is None
@@ -343,10 +343,10 @@ def test_delete_module_with_clone(cli, module, may_delete):
     write(module.root / "local.txt", "x\n")
     git(module.root, "add", "local.txt")
     git(module.root, "commit", "--quiet", "-m", "手元だけ")
-    stopped = as_json(cli("delete", "tester/remote", "--remove-clone", "--yes", "--json"))
+    stopped = as_json(cli("delete", "tester/remote", "--permanent", "--remove-clone", "--yes", "--json"))
     assert stopped["error"]["code"] == "unfinished_work" and github.deleted_repositories == []
     git(module.root, "push", "--quiet", "origin", "main")
-    result = as_json(cli("delete", "tester/remote", "--remove-clone", "--yes", "--json"))["result"]
+    result = as_json(cli("delete", "tester/remote", "--permanent", "--remove-clone", "--yes", "--json"))["result"]
     assert result["clone_removed"] and not module.root.exists()
     assert github.deleted_repositories == ["tester/remote"]
 
@@ -354,7 +354,7 @@ def test_delete_module_with_clone(cli, module, may_delete):
 def test_archive_module_keeps_task_data(cli, module, may_delete):
     github = module.repository.github
     assert cli("task", "new", "t").exit_code == 0
-    result = as_json(cli("delete", "tester/remote", "--archive", "--yes", "--json"))["result"]
+    result = as_json(cli("delete", "tester/remote", "--yes", "--json"))["result"]
     assert result["archived"] and not result["task_data"]
     assert github.archived_repositories == ["tester/remote"] and github.deleted_repositories == []
     assert github.ecobuild_board() is not None
@@ -364,7 +364,7 @@ def test_delete_refuses_non_modules_and_missing_permission(cli, module, monkeypa
     from ecobuild import tooling
     github = module.repository.github
     monkeypatch.setattr(tooling, "gh_has_scope", lambda scope: False)
-    assert as_json(cli("delete", "tester/remote", "--yes", "--json"))["error"]["code"] == "github_permission"
+    assert as_json(cli("delete", "tester/remote", "--permanent", "--yes", "--json"))["error"]["code"] == "github_permission"
     monkeypatch.setattr(github, "repository_has_file", lambda name, path: False)
     assert as_json(cli("delete", "tester/remote", "--yes", "--json"))["error"]["code"] == "not_in_module"
     assert github.deleted_repositories == []

@@ -92,9 +92,20 @@ tree.addEventListener('click', e => {
   WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path); renderTree(); WS.renderChanges();
   tree.querySelector(`[data-path="${CSS.escape(row.dataset.path)}"]`)?.focus();
 });
-tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openFile(row.dataset.path); });
+tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
 const dirOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 const openFile = (path, reveal = false) => ECO.call('open', {dir: WS.dir, path, reveal}).catch(e => ECO.toast(e.message, 'bad'));
+// Open a file in Visual Studio (the version chosen next to 「VS〜で開く」): in the one that has this module's solution open,
+// or start it with the solution. Without Visual Studio, the file opens in its default app.
+async function openInEditor(path) {
+  try {
+    const r = await ECO.call('open-file-vs', {dir: WS.dir, path, version: ECO.vsVersion()});
+    say(r.started ? `Visual Studio ${ECO.vsVersion()} を起動して ${path} を開きます（起動に少しかかります）。` : `Visual Studio で ${path} を開きました。`);
+  } catch (e) {
+    say(e.message + ' 既定のアプリで開きます。');
+    return openFile(path);
+  }
+}
 
 // Context menu ----------------------------------------------------------------------------------------
 let returnFocus = null;
@@ -111,7 +122,7 @@ function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
   const kinds = WS.changes().get(path) || [], tracked = !kinds.includes('untracked'), exists = !WS.files.missing.includes(path), can = editable();
   showMenu([
-    ['open', '開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
+    ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
     ['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists],
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
@@ -147,7 +158,7 @@ tree.addEventListener('keydown', e => {
   WS.activeFile = row.dataset.path;
   if (e.key === 'F2') { e.preventDefault(); menuAction('rename'); }
   if (e.key === 'Delete') { e.preventDefault(); menuAction('remove'); }
-  if (e.key === 'Enter') { e.preventDefault(); openFile(row.dataset.path); }
+  if (e.key === 'Enter') { e.preventDefault(); openInEditor(row.dataset.path); }
   if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = row.getBoundingClientRect(); fileMenu(row.dataset.path, r.left + 20, r.bottom); }
 });
 menu.addEventListener('click', e => { const b = e.target.closest('[data-menu]'); if (b) { closeMenu(); menuAction(b.dataset.menu, menu.dataset.dir); } });
@@ -159,7 +170,8 @@ async function afterFileChange(doc, message) { if (doc) say(message); await WS.r
 async function menuAction(action, dir) {
   const path = WS.activeFile;
   switch (action) {
-    case 'open': return openFile(path);
+    case 'open': return openInEditor(path);
+    case 'open-default': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
     case 'new-file': return newFileDialog(dir ?? activeDirectory);
@@ -194,6 +206,7 @@ async function addFile(relatives, withTest = true) {
   if (!doc.ok) return doc.error.message + (doc.error.hint ? '\n' + doc.error.hint : '');
   await WS.refresh(); await afterFileChange(true, 'ファイルを追加しました：' + doc.result.paths.join('、'));
   WS.selectInTree(relatives[relatives.length - 1]);
+  openInEditor(relatives[relatives.length - 1]);   // the new file (of a pair, the source) opens in Visual Studio
   return '';
 }
 

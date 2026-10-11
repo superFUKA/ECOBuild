@@ -249,3 +249,32 @@ def test_commands_that_fetch_wait_for_the_others():
     for args in (["status", "--fetch"], ["task", "next", "--count", "5"], ["task", "overdue"], ["task", "workload"],
                  ["sprint", "status"], ["milestone", "status"], ["build"]):
         assert not gui._read_only(args), args
+
+
+def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monkeypatch):
+    """ソリューションを開いた Visual Studio があればそこで（/edit）、なければソリューションごと起動して開く。"""
+    root = _module(tmp_path / "Calc")
+    write(root / "src" / "Calc.cpp", "")
+    write(root / "build" / "Calc.slnx", "")
+    started = []
+    monkeypatch.setattr(gui, "_visual_studio", lambda version: "devenv.exe")
+    monkeypatch.setattr(gui.subprocess, "Popen", lambda args, **kw: started.append(args))
+    titles = []
+
+    class Done:
+        def __init__(self):
+            self.stdout = "\n".join(f'"devenv.exe","1","Console","1","1 K","Running","me","0:00:01","{t}"' for t in titles)
+
+    monkeypatch.setattr(gui.subprocess, "run", lambda *a, **kw: Done())
+    monkeypatch.setattr(gui.os, "name", "nt")
+    target = (root / "src" / "Calc.cpp").resolve()
+    assert gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")["started"]
+    assert started[-1][1:] == [str((root / "build" / "Calc.slnx").resolve()), "/command", f'File.OpenFile "{target}"']
+    titles.append("Other - Microsoft Visual Studio")
+    gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")
+    assert started[-1][1] != "/edit"                                     # 別のソリューションの Visual Studio では開かない
+    titles.append("Calc - Microsoft Visual Studio")
+    assert not gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")["started"]
+    assert started[-1][1:] == ["/edit", str(target)]
+    with pytest.raises(gui.GuiError):
+        gui.open_file_in_visual_studio(str(root), "../outside.cpp")

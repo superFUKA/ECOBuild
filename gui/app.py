@@ -18,6 +18,7 @@ ECOBuildの実装（src/ のパッケージ）とは独立している。ECOBuil
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import mimetypes
 import re
@@ -365,6 +366,39 @@ def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     return {"solution": solution.as_posix(), "devenv": devenv, "version": version}
 
 
+def _solution_is_open(solution: Path) -> bool:
+    """そのソリューションを開いている Visual Studio があるか（ウィンドウの題名「<ソリューション名> - Microsoft Visual Studio」で見る。
+    同じ名前のソリューションは見分けられない）。"""
+    if os.name != "nt":
+        return False
+    completed = subprocess.run(["tasklist", "/v", "/fi", "imagename eq devenv.exe", "/fo", "csv", "/nh"],
+                               capture_output=True, encoding="mbcs", errors="replace", **_no_window())
+    for row in csv.reader(completed.stdout.splitlines()):
+        if row and row[0].lower() == "devenv.exe" and row[-1].split(" - ")[0].strip().lower() == solution.stem.lower():
+            return True
+    return False
+
+
+def open_file_in_visual_studio(directory: str, relative: str, version: str = "2026") -> dict:
+    """ファイルを Visual Studio で開く。このモジュールのソリューションを開いた Visual Studio があればそこで（/edit）、
+    なければソリューションを開いて起動し、起動後にファイルを開く（/command File.OpenFile）。ソリューションがまだなければ
+    ファイルだけを開く。Visual Studio がなければ GuiError（画面は既定のアプリで開く）。"""
+    if version not in VISUAL_STUDIO:
+        raise GuiError(f"対応していない Visual Studio の版です：{version}")
+    target = _inside(directory, relative)
+    if not target.is_file():
+        raise GuiError(f"ファイルが見つかりません：{relative}")
+    devenv = _visual_studio(version)
+    if not devenv:
+        raise GuiError(f"Visual Studio {version} が見つかりません。")
+    solution = find_solution(directory)
+    if solution is not None and not _solution_is_open(solution):
+        subprocess.Popen([devenv, str(solution), "/command", f'File.OpenFile "{target}"'], cwd=str(solution.parent))
+        return {"started": True, "solution": solution.as_posix()}
+    subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
+    return {"started": False, "solution": solution.as_posix() if solution else None}
+
+
 def make_file(directory: str, relative: str) -> dict:
     """空のファイルを作る（型が ecobuild file add に対応しないとき：generic 等）。"""
     target = _inside(directory, relative)
@@ -509,6 +543,8 @@ class App:
             return module_defaults(d("dir"))
         if name == "open-vs":
             return open_in_visual_studio(d("dir"), d("version") or "2026")
+        if name == "open-file-vs":
+            return open_file_in_visual_studio(d("dir"), d("path"), d("version") or "2026")
         if name == "vs-versions":
             return visual_studio_versions()
         if name == "touch":

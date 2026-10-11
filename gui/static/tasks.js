@@ -1,6 +1,7 @@
 'use strict';
 // Task management: task list / status / new / edit / plan / comment / close / reopen / start / remove / drop / clean,
-// task next / overdue / workload, sprint list / status, milestone list, pr list. Every change runs ecobuild. Where ecobuild keeps the stages and plans on
+// task next / overdue / workload, sprint list / status, milestone list / status, pr list.
+// The dashboard is made from these commands' own totals (ecobuild has no board commands for the user). Every change runs ecobuild. Where ecobuild keeps the stages and plans on
 // GitHub is ecobuild's business: the screen only deals with tasks.
 (() => {
   const tkEl = id => document.getElementById(id);
@@ -9,7 +10,7 @@
   const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
   const PRIORITIES = ['High', 'Middle', 'Low'];   // task plan --priority（高い順）
   const STAGE = Object.fromEntries(STAGES.map(s => [s[0], s]));
-  const st = {tasks: [], milestones: [], sprints: [], loaded: false, loading: false, view: 'list', selected: 0, details: new Map(), assignee: '', sprint: '', milestone: '', sort: {key: 'number', dir: 1}, person: '',
+  const st = {tasks: [], milestones: [], sprints: [], loaded: false, loading: false, view: 'dashboard', selected: 0, details: new Map(), assignee: '', sprint: '', milestone: '', sort: {key: 'number', dir: 1}, person: '',
     extra: {}, sprintShown: ''};   // extra: what the 次にやる / スプリント views read (cleared when the tasks are read again)
   const me = () => MOD.me;
   const root = () => MOD.root;
@@ -154,7 +155,60 @@
     job().then(result => { st.extra[key] = result; if (st.loaded) render(); }).catch(() => { delete st.extra[key]; });
   }
 
-  const VIEWS = {next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
+  // ダッシュボード: the module's tasks at a glance. Every number is what an ecobuild command returns
+  // (sprint status, task workload, milestone status, task next, task overdue, pr list, task list --all); click to go deeper.
+  function renderDashboard() {
+    const data = st.extra.dash;
+    if (!data) {
+      fetchExtra('dash', () => Promise.all([
+        currentSprint() ? ECO.cli(root(), ['sprint', 'status'], {quiet: true}) : null,
+        ECO.cli(root(), ['task', 'workload'], {quiet: true}), ECO.cli(root(), ['milestone', 'status'], {quiet: true}),
+        ECO.cli(root(), ['task', 'next', '--count', '5', '--mine'], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true}),
+        ECO.cli(root(), ['pr', 'list'], {quiet: true}), ECO.cli(root(), ['pr', 'list', '--review-requested'], {quiet: true}),
+        ECO.cli(root(), ['task', 'list', '--all'], {quiet: true})]));
+      return ECO.loading('ダッシュボードを集計しています…');
+    }
+    const [sprint, workload, milestones, next, overdue, prs, reviews, all] = data;
+    const ok = doc => doc?.ok ? doc.result : null;
+    const open = st.tasks.filter(t => t.state === 'open'), count = stage => open.filter(t => stageOf(t) === stage).length;
+    const late = ok(overdue)?.overdue || [], soon = ok(overdue)?.soon || [];
+    const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const finished = (ok(all) || []).filter(t => t.state !== 'open' && t.finished).sort((a, b) => b.finished.localeCompare(a.finished));
+    const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+    const card = (title, body, {wide = false, go = '', sub = ''} = {}) => `<section class="tk-card tk-dash-card ${wide ? 'wide' : ''}"><div class="tk-section-head"><h3>${title}${sub ? `<span class="tk-muted">${sub}</span>` : ''}</h3>${go ? `<button type="button" class="tk-link" data-dash-go="${go}">開く ›</button>` : ''}</div>${body}</section>`;
+    const big = (label, value, {cls = '', go = ''} = {}) => `<button type="button" class="tk-dash-stat ${cls}" ${go ? `data-dash-go="${go}"` : 'disabled'}><b>${value}</b><span>${label}</span></button>`;
+    const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${avatars(t)}</div>`;
+    const none = text => `<p class="tk-muted">${text}</p>`;
+    // The open tasks by stage, as one bar.
+    const stageBar = `<div class="tk-stagebar">${STAGES.slice(0, 4).map(([k, ja, cls]) => count(k) ? `<button type="button" class="seg ${cls}" style="flex:${count(k)}" data-dash-go="stages" title="${ja} ${count(k)}"></button>` : '').join('')}</div>
+      <div class="tk-stagekeys">${STAGES.slice(0, 4).map(([k, ja, cls]) => `<span class="tk-stage ${cls}">${ja} ${count(k)}</span>`).join('')}</div>`;
+    const s = ok(sprint);
+    const sprintBody = !s ? none(st.sprints.length ? '今日を含むスプリントはありません。' : 'スプリントはまだありません。')
+      : `<div class="tk-dash-sprint"><div><b>${s.done} / ${s.total}</b><span>完了</span></div><div><b>${s.estimate_remaining}</b><span>見積もりの残り</span></div><div><b>${s.days_left}</b><span>残り日数</span></div></div>
+        <div class="tk-progress" title="完了 ${pct(s.done, s.total)}%"><span style="width:${pct(s.estimate_done, s.estimate_total) || pct(s.done, s.total)}%"></span></div>
+        ${s.unestimated.length ? `<p class="tk-note">見積もりのないタスク ${s.unestimated.length} 件</p>` : ''}${s.carried_over.length ? `<p class="tk-note">持ち越し ${s.carried_over.length} 件</p>` : ''}`;
+    const ms = (ok(milestones) || []).map(m => `<button type="button" class="tk-dash-row" data-dash-milestone="${esc(m.title)}"><span class="tk-grow">${esc(m.title)}${m.due ? `<small class="${m.late ? 'tk-due overdue' : 'tk-muted'}"> ${md(m.due)}${m.late ? ' 期日超過' : ''}</small>` : ''}</span>
+      <span class="tk-minibar"><span style="width:${pct(m.done, m.total)}%"></span></span><span class="tk-muted">${m.done}/${m.total}</span>${m.overdue_tasks.length ? `<span class="tk-reason">期限切れ ${m.overdue_tasks.length}</span>` : ''}</button>`).join('');
+    const people = (ok(workload) || []).filter(w => w.open), most = Math.max(1, ...people.map(w => w.open));
+    const wl = people.map(w => `<button type="button" class="tk-dash-row" ${w.assignee ? `data-person="${esc(w.assignee)}"` : 'data-dash-unassigned'}>${avatarMark(w.assignee)}<span class="tk-dash-name">${esc(w.assignee || '担当なし')}${w.assignee === me() ? '（自分）' : ''}</span>
+      <span class="tk-minibar"><span style="width:${pct(w.open, most)}%"></span><span class="doing" style="width:${pct(w.in_progress, most)}%"></span></span><span class="tk-muted">${w.open} 件・作業中 ${w.in_progress}${w.estimate_remaining ? `・残り ${w.estimate_remaining}` : ''}</span>${w.overdue ? `<span class="tk-reason">期限切れ ${w.overdue}</span>` : ''}</button>`).join('');
+    const taskOfPr = p => /^task\/(\d+)$/.exec(p.head)?.[1] || '';
+    const prRow = p => `<div class="tk-next-row" data-task="${taskOfPr(p)}"><span class="tk-num">PR #${p.number}</span><span class="tk-grow">${esc(p.title)}</span>${p.draft ? '<span class="tk-pill">下書き</span>' : ''}<span class="tk-muted">${esc(p.author || '')}</span></div>`;
+    const mineNext = ok(next) || [], openPrs = ok(prs) || [], asked = ok(reviews) || [];
+    return `<div class="tk-dash">
+      <div class="tk-dash-stats wide">${big('開いているタスク', open.length, {go: 'list'})}${big('作業中', count('in_progress'), {go: 'stages'})}${big('レビュー待ち', count('in_review'), {go: 'stages'})}${big('期限切れ', late.length, {cls: late.length ? 'bad' : '', go: 'next'})}${big('この1週間に完了', finished.filter(t => t.finished >= weekAgo).length)}${big('レビューを頼まれている', asked.length, {cls: asked.length ? 'warn' : ''})}</div>
+      ${card('段階', stageBar, {go: 'stages', sub: `開いている ${open.length} 件`})}
+      ${card(s ? `今のスプリント：${esc(s.sprint.name)}` : '今のスプリント', sprintBody, {go: 'sprint', sub: s ? `${md(s.sprint.start)}〜${md(s.sprint.end)}` : ''})}
+      ${card('自分の次のタスク', mineNext.length ? mineNext.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.slice(0, 2).map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`)).join('') : none(next?.ok ? '自分が担当で、着手できるタスクはありません。' : esc(next?.error?.message || '')), {go: 'next'})}
+      ${card('期限', late.length || soon.length ? late.map(t => row(t, '<span class="tk-reason bad">期限切れ</span>')).join('') + soon.map(t => row(t, '<span class="tk-reason">7日以内</span>')).join('') : none('期限切れ・期限が近いタスクはありません。'), {go: 'next'})}
+      ${card('マイルストーン', ms || none('開いているマイルストーンはありません。'))}
+      ${card('担当者ごとの量', wl || none('開いているタスクはありません。'), {sub: '親タスクは数えません'})}
+      ${card('プルリクエスト', (asked.length ? `<h4 class="tk-dash-h">レビューを頼まれている</h4>${asked.map(prRow).join('')}` : '') + `<h4 class="tk-dash-h">開いているPR ${openPrs.length}</h4>${openPrs.length ? openPrs.slice(0, 6).map(prRow).join('') : none('ありません。')}`)}
+      ${card('最近完了したタスク', finished.length ? finished.slice(0, 6).map(t => row(t, `<span class="tk-muted">${md(t.finished)}</span>`)).join('') : none('まだありません。'))}
+    </div>`;
+  }
+
+  const VIEWS = {dashboard: renderDashboard, next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
@@ -528,6 +582,9 @@
     const removeAssignee = e.target.closest('[data-remove-assignee]'); if (removeAssignee) return editList(st.selected, '--remove-assignee', removeAssignee.dataset.removeAssignee, '担当者を外しました。');
     const removeLabel = e.target.closest('[data-remove-label]'); if (removeLabel) return editList(st.selected, '--remove-label', removeLabel.dataset.removeLabel, 'ラベルを外しました。');
     const person = e.target.closest('[data-person]'); if (person) return showPerson(person.dataset.person);
+    const go = e.target.closest('[data-dash-go]'); if (go) { st.view = go.dataset.dashGo; render(); return; }
+    const milestone = e.target.closest('[data-dash-milestone]'); if (milestone) { st.milestone = milestone.dataset.dashMilestone; renderFilterOptions(); st.view = 'list'; render(); return; }
+    if (e.target.closest('[data-dash-unassigned]')) { st.assignee = '-'; tkEl('tk-assignee').value = '-'; st.view = 'list'; render(); return; }
     if (e.target.closest('[data-close-person]')) return tkEl('tk-person-dialog').close();
     const sortButton = e.target.closest('[data-sort]');
     if (sortButton) { const key = sortButton.dataset.sort; st.sort = {key, dir: st.sort.key === key ? -st.sort.dir : 1}; render(); if (st.person) showPerson(st.person); return; }

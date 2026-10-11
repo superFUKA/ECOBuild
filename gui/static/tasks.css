@@ -229,3 +229,28 @@
 .tk-sprint-pick { margin-bottom: 12px; font-size: 13px; color: #cdd5df; }
 .tk-progress { height: 8px; border-radius: 4px; background: #2a3139; overflow: hidden; margin: 12px 0 4px; } .tk-progress span { display: block; height: 100%; background: var(--accent); }
 .tk-pf-stat.warn b { color: var(--warn); }
+
+/* Dashboard. */
+.tk-dash { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.tk-dash > .wide { grid-column: 1 / -1; }
+.tk-dash .tk-card { margin: 0; }
+@media(max-width: 1250px) { .tk-dash { grid-template-columns: minmax(0, 1fr); } }
+.tk-dash-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.tk .tk-dash-stat { display: grid; text-align: left; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.tk .tk-dash-stat:disabled { cursor: default; } .tk .tk-dash-stat:disabled:hover { border-color: var(--line); }
+.tk-dash-stat b { font-size: 26px; font-variant-numeric: tabular-nums; } .tk-dash-stat span { font-size: 12px; color: var(--muted); }
+.tk-dash-stat.bad b { color: var(--bad); } .tk-dash-stat.warn b { color: var(--warn); }
+.tk .tk-link { border: 0; background: transparent; color: var(--accent); padding: 2px 4px; font-size: 12px; }
+.tk-stagebar { display: flex; height: 14px; border-radius: 7px; overflow: hidden; background: #2a3139; gap: 2px; }
+.tk .tk-stagebar .seg { padding: 0; border: 0; border-radius: 0; min-width: 6px; background: currentColor; }
+.tk-stagebar .seg.backlog { color: #8b96a3; } .tk-stagebar .seg.todo { color: #c9d1db; } .tk-stagebar .seg.in_progress { color: #7cc4f8; } .tk-stagebar .seg.in_review { color: #c9a6f5; }
+.tk-stagekeys { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.tk-dash-sprint { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tk-dash-sprint b { display: block; font-size: 22px; } .tk-dash-sprint span { font-size: 12px; color: var(--muted); }
+.tk .tk-dash-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 6px; border: 0; border-bottom: 1px solid #262c34; border-radius: 0; background: transparent; text-align: left; flex-wrap: wrap; }
+.tk .tk-dash-row:hover { background: #1a2027; } .tk-dash-row:last-child { border-bottom: 0; }
+.tk-dash-name { width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-minibar { position: relative; width: 120px; height: 8px; border-radius: 4px; background: #2a3139; overflow: hidden; flex-shrink: 0; }
+.tk-minibar span { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); opacity: .55; } .tk-minibar span.doing { background: #7cc4f8; opacity: 1; }
+.tk-dash-h { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; } .tk-dash-h:first-child { margin-top: 0; }
+.tk-reason.bad { background: #43282b; color: var(--bad); }

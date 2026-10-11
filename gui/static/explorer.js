@@ -8,12 +8,18 @@ const tree = get('file-tree'), menu = get('file-menu');
 // File operations (ecobuild file add / move / remove) work inside the Projects' folders only, so when the module type
 // has Projects (project list), the explorer shows only those folders, without tool folders (.cppbuild 等) inside.
 // Types without Projects (generic) show the whole place.
-let projectRoots = null;
+let projectRoots = null, projectsByDir = new Map();   // directory → the Project (project list: name, kind)
+// How a Project folder is told apart from an ordinary folder: an icon and the kind of the Project.
+const PROJECT_KINDS = {static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定'};
 WS.reloadFiles = async () => {
   try {
     const [files, projects] = await Promise.all([ECO.call('files', {dir: WS.dir}), projectRoots ? null : WS.cli(['project', 'list'], {quiet: true})]);
     WS.files = files;
-    if (projects) projectRoots = projects.ok ? projects.result.map(p => p.directory.replace(/\/+$/, '')).filter(Boolean) : [];
+    if (projects) {
+      const list = projects.ok ? projects.result.filter(p => p.directory) : [];
+      projectRoots = list.map(p => p.directory.replace(/\/+$/, ''));
+      projectsByDir = new Map(list.map(p => [p.directory.replace(/\/+$/, ''), p]));
+    }
   } catch (e) { tree.innerHTML = `<p class="muted">${esc(e.message)}</p>`; return; }
   renderTree(); WS.renderChanges();
 };
@@ -48,8 +54,17 @@ function renderTree() {
       if (name.startsWith('.') && !opened.has(dir)) folded.add(dir);  // tool folders (.cppbuild 等) start closed
       opened.add(dir);
       folder.open = !folded.has(dir); folder.dataset.directory = dir;
-      title.textContent = name; title.dataset.directory = dir; title.title = dir;
-      if (changedDirs.has(dir)) title.className = 'has-changes';
+      const project = projectsByDir.get(dir);
+      if (project) {
+        const kind = PROJECT_KINDS[project.kind] || project.kind || '';
+        title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon project" aria-hidden="true">◆</span><span class="tree-name">${esc(name)}</span>${project.name !== name ? `<span class="tree-sub">${esc(project.name)}</span>` : ''}<span class="tree-kind ${esc(project.kind || '')}">${esc(kind)}</span>`;
+        title.title = `Project ${project.name}（${kind}）：${dir}`; title.classList.add('project');
+      } else {
+        title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon" aria-hidden="true">▭</span><span class="tree-name">${esc(name)}</span>`;
+        title.title = `フォルダ：${dir}`;
+      }
+      title.dataset.directory = dir;
+      if (changedDirs.has(dir)) title.classList.add('has-changes');
       title.addEventListener('click', () => { activeDirectory = dir; });
       folder.addEventListener('toggle', () => { if (folder.open) folded.delete(dir); else folded.add(dir); });
       folder.append(title); walk(child, folder, dir); parent.append(folder);

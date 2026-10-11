@@ -36,3 +36,18 @@
 .build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .build-bar .vs-group .vs-more { padding: 3px 9px; font-size: 14px; line-height: 1; border: 1px solid #6c5a9c; border-left: 1px solid #3c3354; border-radius: 0 7px 7px 0; color: #d6c9f7; }
 .build-bar .vs-group .vs-more:hover { border-color: #b39ddb; }
+
+/* Explorer: Project folders vs ordinary folders. */
+#file-tree summary { display: flex; align-items: center; gap: 6px; }
+#file-tree summary { list-style: none; } #file-tree summary::-webkit-details-marker { display: none; }
+#file-tree summary .tree-caret { width: 10px; color: #a5aeba; font-size: 13px; line-height: 1; flex: none; transition: transform .1s; } #file-tree details[open] > summary .tree-caret { transform: rotate(90deg); }
+#file-tree summary .tree-icon { width: 12px; text-align: center; color: #84909e; font-size: 10px; flex: none; }
+#file-tree summary .tree-icon.project { color: #9ee4d3; font-size: 11px; }
+#file-tree summary .tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#file-tree summary.project { font-weight: 600; color: #e6fff7; }
+#file-tree summary.project.has-changes .tree-name { color: #efc389; }
+#file-tree summary .tree-sub { color: #84909e; font-size: 11px; font-weight: 400; }
+#file-tree summary .tree-kind { margin-left: auto; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: #213a33; color: #a8ead9; white-space: nowrap; flex: none; }
+#file-tree summary .tree-kind.executable { background: #22344a; color: #9ccaf5; }
+#file-tree summary .tree-kind.test { background: #3a2f4f; color: #d6c3f7; }
+#file-tree summary .tree-kind.benchmark { background: #3d3324; color: #efc389; }

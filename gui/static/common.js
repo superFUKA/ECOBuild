@@ -88,10 +88,24 @@ const ECO = (() => {
       doc = step.ok ? await cli(dir, args, {stdin}) : step;
     }
     overlay?.end();
+    if (!doc.ok && !inForm && doc.error?.code === 'repository_archived') { await offerUnarchive(dir, doc); return null; }
     if (!doc.ok) { if (inForm) lastError = doc; else await showError(doc); return null; }
     if (success) toast(typeof success === 'function' ? success(doc.result) : success);
     for (const notice of doc.notices || []) toast('お知らせ：' + notice, 'info', 9000);
     return doc;
+  }
+
+  // The module's GitHub repository was archived (on the GitHub site, another PC or the hub): changes cannot be pushed.
+  // Offer to undo the archive (ecobuild module unarchive, with the name from ecobuild module show).
+  async function offerUnarchive(dir, doc) {
+    const e = doc.error;
+    const undo = await dialog({title: 'GitHubのリポジトリがアーカイブされています', body: `<p>${esc(e.message)}</p><p class="eco-hint">アーカイブを戻すと、また push・PR・タスクの変更ができます。使わないモジュールなら、戻さずにハブの「アーカイブ済み」から削除できます。</p>${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`,
+      buttons: [['閉じる', '', false], ['アーカイブを戻す', 'primary', true]]});
+    if (!undo || !dir) return;
+    const show = await cli(dir, ['module', 'show'], {quiet: true});
+    if (!show.ok || !show.result.repository) return showError(show.ok ? {error: {message: 'GitHubのリポジトリの名前が分かりませんでした。', hint: 'ハブの「アーカイブ済み」から戻してください。'}} : show);
+    const r = await run(dir, ['module', 'unarchive', show.result.repository], {success: x => `${x.repository} のアーカイブを戻しました。もう一度実行してください。`, busy: 'アーカイブを戻しています…'});
+    if (r) window.dispatchEvent(new CustomEvent('eco-unarchived', {detail: r.result}));
   }
 
   // Generic modal. buttons: [label, class, value]. Resolves with the value of the pressed button (or null).
@@ -260,5 +274,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
 })();

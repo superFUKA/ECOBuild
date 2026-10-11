@@ -57,14 +57,23 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
                  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
 
 # 何も変えないコマンド（同じ場所で他のコマンドが動いていても待たずに実行する）。
+# task next・task overdue・task workload・sprint status・milestone status は、読む前に GitHub から取得（git fetch）して
+# 段階のずれを直すので、ここに入れない（同じ場所で並べて fetch すると、git の参照のロックがぶつかる）。
 READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
-    ("module", "show"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"), ("task", "workload"), ("task", "next"),
-    ("task", "overdue"), ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
-    ("project", "list"), ("profile", "list"), ("milestone", "list"),
-    ("milestone", "status"), ("sprint", "list"), ("sprint", "status"), ("stash", "list"), ("ci", "status"),
-    ("release", "list"),
+    ("module", "show"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
+    ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
+    ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
+    ("ci", "status"), ("release", "list"),
 }
+FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
+
+
+def _read_only(args: list[str]) -> bool:
+    command = tuple(a for a in args[:2] if not a.startswith("-"))
+    if "--fetch" in args and (command[:1] in FETCHING or command in FETCHING):
+        return False
+    return command in READ_ONLY or command[:1] in READ_ONLY
 
 
 def _no_window() -> dict:
@@ -188,8 +197,7 @@ class Cli:
         if directory and not Path(directory).is_dir():
             raise GuiError(f"場所がありません：{directory}")
         argv = list(self.command) + (["-C", directory] if directory else []) + args + ["--json"]
-        read_only = tuple(a for a in args[:2] if not a.startswith("-")) in READ_ONLY or (args[0],) in READ_ONLY
-        lock = None if read_only else self._lock_for(directory)
+        lock = None if _read_only(args) else self._lock_for(directory)
         if lock:
             lock.acquire()
         try:

@@ -234,3 +234,11 @@ def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
         subprocess.run(["git", "-C", str(root), "remote", "remove", "origin"], capture_output=True)
         subprocess.run(["git", "-C", str(root), "remote", "add", "origin", url], check=True)
         assert gui.module_repository(str(root)) == expected
+
+
+def test_commands_that_fetch_wait_for_the_others():
+    assert gui._read_only(["status"]) and gui._read_only(["task", "list"]) and gui._read_only(["deps", "list", "--fetch"])
+    # task next 等は読む前に git fetch して段階のずれを直す。status --fetch は origin も合わせる
+    for args in (["status", "--fetch"], ["task", "next", "--count", "5"], ["task", "overdue"], ["task", "workload"],
+                 ["sprint", "status"], ["milestone", "status"], ["build"]):
+        assert not gui._read_only(args), args

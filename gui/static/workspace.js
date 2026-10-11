@@ -37,6 +37,8 @@ WS.refresh = async ({fetch = false} = {}) => {
   const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet: !fetch});
   if (!doc.ok) { WS.status = null; renderBanners(doc); renderChanges(); return; }
   const before = WS.status?.workspace;
+  // Whether the GitHub repository is archived is known only with --fetch: keep the last answer.
+  if (doc.result.archived === null || doc.result.archived === undefined) doc.result.archived = WS.status?.archived ?? null;
   WS.status = doc.result;
   if (WS.status.workspace && WS.status.workspace !== before) {
     const t = await WS.cli(['task', 'status', String(WS.status.workspace)], {quiet: true});
@@ -72,6 +74,7 @@ function renderBanners(errorDoc) {
     if (s.merging) out.push(banner(`取り込みが衝突で止まっています。衝突したファイルを直してステージし、「取り込みを完了」してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みをやめる</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`PR #${s.reviewing} を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。<button data-git="review-done">確認を終えて戻る</button>`));
     else if (!s.workspace) out.push(banner(`ここは作業空間ではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットは作業空間で行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
+    if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを戻す</button>`, 'bad'));
     if (s.upstream_gone) out.push(banner(`GitHubの ${esc(s.branch)} は削除されています（別の場所で反映・中止された可能性があります）。タスク管理の「片付け」か「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新に遅れています。<button data-git="sync">最新を取り込む</button>`));
   }
@@ -207,6 +210,7 @@ async function gitAction(action) {
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
     case 'sync-continue': return WS.run(['sync', 'continue'], {success: '取り込みを完了しました。'});
     case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みをやめ、取り込む前に戻しました。', confirm: '止まっている取り込みをやめ、取り込む前に戻します。', title: '取り込みをやめる'}).then(() => WS.reloadFiles?.());
+    case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
     case 'review-done': return WS.run(['task', 'review', '--done'], {success: '確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());
     case 'go-tasks': if (window.parent !== window) window.parent.document.getElementById('tasks-menu')?.click(); return;
@@ -225,3 +229,5 @@ function showLog(entries, path) {
 WS.showLog = showLog;
 
 WS.ready = WS.refresh();
+// After the archive was undone (from an error, or the banner), read the state again.
+window.addEventListener('eco-unarchived', () => WS.refresh({fetch: true}));

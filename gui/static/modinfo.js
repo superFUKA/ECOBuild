@@ -6,6 +6,9 @@
   const {esc} = ECO;
   let view = 'overview', place = '', data = {};
   const KIND = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定'};
+  // deps list --fetch: what changed on GitHub (outside ECOBuild).
+  const DEP_REMOTE = {ok: ['GitHubにある', 'ok'], archived: ['アーカイブ済み（更新されない）', 'warn'], moved: ['名前が変わった', 'warn'], gone: ['GitHubにない', 'bad'], unknown: ['確かめられない', '']};
+  let depsFetched = false;
   const DEP_STATE = {aligned: ['記録の版', 'ok'], differs: ['記録と別の版', 'warn'], modified: ['未コミットの変更あり', 'warn'], working: ['作業版', ''], missing: ['cloneなし', 'bad']};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const head = (title, note, actions = '') => `<div class="mi-head"><div><h3>${title}</h3><p class="mi-note">${note}</p></div><div class="mi-actions">${actions}</div></div>`;
@@ -64,11 +67,20 @@
     const deps = data.deps, projects = data.projects || [];
     if (deps.error) return head('依存先', '') + `<p class="mi-note">${esc(deps.error.message)}</p>`;
     return head('依存先', 'このモジュールが使う他のモジュール。リンク・更新・外すは管理ファイルが変わるので、作業空間でコミットしてPRで反映します。',
-      btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
-      (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th><th>使っているProject</th><th></th></tr></thead><tbody>
+      btn(depsFetched ? 'GitHubをもう一度確かめる' : 'GitHubと照らし合わせる', 'deps-fetch') + btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
+      (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
-        return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td><td>${users.map(u => pill(u)).join(' ')}</td>
+        return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td>${depsFetched ? `<td>${remoteCell(d)}</td>` : ''}<td>${users.map(u => pill(u)).join(' ')}</td>
         <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
+  }
+  function remoteCell(d) {
+    if (!d.remote) return '';
+    const [label, cls] = DEP_REMOTE[d.remote] || [d.remote, ''];
+    const notes = [];
+    if (d.remote === 'moved') notes.push(`今は ${esc(d.moved_to)}（GitHubの転送で取得できます）`);
+    if (d.remote === 'gone') notes.push('このモジュールを新しくcloneすると、この依存先を取得できません');
+    if (d.latest && d.latest !== d.recorded) notes.push(`新しい版 <span class="mi-mono">${short(d.latest)}</span> があります（「更新」で記録を進める）`);
+    return pill(label, cls) + notes.map(n => `<div class="mi-sub">${n}</div>`).join('');
   }
   function renderProjects() {
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
@@ -108,17 +120,19 @@
   }
   const VIEWS = {overview: renderOverview, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
   const LOADS = {
-    projects: async () => { const [p, d] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list'])]); data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; },
+    projects: async () => { const [p, d] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])])]); data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; },
     overview: async () => { const r = await cli(['module', 'show']); data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; },
     deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },
     branches: async () => { const [b, p] = await Promise.all([cli(['branch', 'list']), cli(['pr', 'list'])]); data.branches = b.ok ? b.result : {error: b.error}; data.prs = p.ok ? p.result : []; },
   };
+  let rendering = 0;
   async function render(reload = true) {
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
-    const main = el('mi-main');
-    if (reload) { main.innerHTML = placeSelect() + ECO.loading(); await LOADS[view](); }
-    main.innerHTML = placeSelect() + VIEWS[view]();
+    const main = el('mi-main'), mine = ++rendering, shown = view;
+    if (reload) { main.innerHTML = placeSelect() + ECO.loading(); await LOADS[shown](); }
+    if (mine !== rendering) return;   // another tab was chosen while loading: that render shows it
+    main.innerHTML = placeSelect() + VIEWS[shown]();
   }
 
   // Dialogs ---------------------------------------------------------------------------------------
@@ -137,6 +151,7 @@
     }});
   }
   const ACTIONS = {
+    'deps-fetch': () => { depsFetched = true; view = 'deps'; return render(); },
     'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を記録の版に合わせます。ないものはcloneし、作業版・変更のあるものは触りません。管理ファイルは変わりません。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新にし、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
     'link': async () => inWorkspace('モジュールをリンク', [

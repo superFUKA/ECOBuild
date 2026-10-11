@@ -45,7 +45,8 @@ function renderTree() {
   const nodeFor = dir => { let node = rootNode; if (!dir) return node; for (const part of dir.split('/')) { if (!node.dirs.has(part)) node.dirs.set(part, {dirs: new Map(), files: []}); node = node.dirs.get(part); } return node; };
   for (const d of WS.files.dirs) if (shown(d)) nodeFor(d);
   const changed = new Set(WS.changes().keys());
-  for (const f of new Set([...WS.files.files, ...[...changed].filter(p => !p.endsWith('/'))])) { if (!shown(f)) continue; const i = f.lastIndexOf('/'); nodeFor(i < 0 ? '' : f.slice(0, i)).files.push(f); }
+  const generated = new Set(WS.files.generated || []);
+  for (const f of new Set([...WS.files.files, ...[...changed].filter(p => !p.endsWith('/'))])) { if (!shown(f) || (generated.has(f) && !showGenerated)) continue; const i = f.lastIndexOf('/'); nodeFor(i < 0 ? '' : f.slice(0, i)).files.push(f); }
   const changedDirs = new Set([...changed].flatMap(p => p.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/'))));
   const walk = (node, parent, prefix) => {
     for (const [name, child] of [...node.dirs].sort(([a], [b]) => a.localeCompare(b))) {
@@ -72,9 +73,9 @@ function renderTree() {
     for (const path of [...new Set(node.files)].sort((a, b) => a.localeCompare(b))) {
       const row = document.createElement('button'); row.type = 'button'; row.dataset.path = path; row.draggable = true;
       const cls = fileClass(path);
-      row.className = 'file ' + cls + (WS.activeFile === path ? ' active' : '');
+      row.className = 'file ' + cls + (WS.activeFile === path ? ' active' : '') + (generated.has(path) ? ' generated' : '');
       row.textContent = (cls === 'untracked' ? '+ ' : cls && cls !== 'staged' ? '• ' : cls === 'staged' ? '✓ ' : '') + path.split('/').pop();
-      row.title = path + (cls ? '（' + {deleted: '削除', conflicted: '衝突', untracked: '未追跡', modified: '変更', staged: 'ステージ済み'}[cls] + '）' : '');
+      row.title = path + (cls ? '（' + {deleted: '削除', conflicted: '衝突', untracked: '未追跡', modified: '変更', staged: 'ステージ済み'}[cls] + '）' : '') + (generated.has(path) ? '　生成ファイル：CppBuild が作り直すので、編集しないでください' : '');
       parent.append(row);
     }
   };
@@ -85,6 +86,16 @@ function renderTree() {
   get('new-file').disabled = get('new-folder').disabled = !editable();
 }
 WS.onRefresh(renderTree);
+// Generated files (CppBuild's CMakeLists.txt etc.: rewritten by the tool, not to be edited) are hidden unless asked for.
+let showGenerated = false;
+try { showGenerated = localStorage.getItem('ecobuild-gui-show-generated') === '1'; } catch (e) { /* storage blocked */ }
+const generatedButton = get('toggle-generated');
+const showGeneratedState = () => { generatedButton.setAttribute('aria-pressed', String(showGenerated)); generatedButton.title = showGenerated ? '生成ファイル（CMakeLists.txt 等）を隠す' : '生成ファイル（CMakeLists.txt 等）も表示'; };
+showGeneratedState();
+generatedButton.addEventListener('click', () => {
+  showGenerated = !showGenerated; showGeneratedState(); renderTree();
+  try { localStorage.setItem('ecobuild-gui-show-generated', showGenerated ? '1' : '0'); } catch (e) { /* storage blocked */ }
+});
 WS.selectInTree = path => { WS.activeFile = path; renderTree(); tree.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({block: 'nearest'}); };
 
 tree.addEventListener('click', e => {

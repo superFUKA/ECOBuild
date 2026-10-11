@@ -99,6 +99,7 @@ function renderChanges() {
     name.addEventListener('click', e => { e.preventDefault(); WS.activeFile = path; renderChanges(); WS.selectInTree?.(path); });
     name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
     kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
+    if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
     label.append(box, name, kind); list.append(label);
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';

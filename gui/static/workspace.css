@@ -76,3 +76,6 @@
 .share > .heading { margin-bottom: 4px; }
 .share-note { margin: 0; font-size: 12px; }
 .share-note #pr-state:not(:empty)::before { content: "　"; }
+#file-tree .file.generated { color: #84909e; font-style: italic; }
+.explorer-tools button[aria-pressed=true] { color: #9ee4d3; }
+.generated-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 10px; }

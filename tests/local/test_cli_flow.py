@@ -448,6 +448,7 @@ def test_errors_from_repository_changed_on_github(cli, module, monkeypatch):
             raise WorkError(ErrorCode.GIT_ERROR, "git push に失敗しました。", details=output)
         return fail
 
+    original = type(module.repository).status
     monkeypatch.setattr(type(module.repository), "status", failing(
         "remote: This repository was archived so it is read-only.\nfatal: unable to access"))
     archived = as_json(cli("status", "--json"))["error"]
@@ -457,9 +458,7 @@ def test_errors_from_repository_changed_on_github(cli, module, monkeypatch):
     assert gone["code"] == "repository_not_found" and "module list" in gone["hint"]
 
     module.repository.github.archived_repositories.append("tester/remote")
-    monkeypatch.undo()
-    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
-    monkeypatch.chdir(module.root)
+    monkeypatch.setattr(type(module.repository), "status", original)
     assert "アーカイブ（読み取り専用）されています" in cli("status", "--fetch").output
 
 

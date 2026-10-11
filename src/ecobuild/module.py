@@ -85,7 +85,7 @@ class Module:
         directory: Path | str = ".",
         description: str = "",
         public: bool = False,
-        app: bool = False,
+        kind: str = "",
         owner: str | None = None,
         type: str = "cpp",
         github: _github.GitHub | None = None,
@@ -93,6 +93,8 @@ class Module:
         """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。タスク管理も準備する
         （できなければ知らせ、タスクを初めて記録するときにもう一度行う）。
 
+        kind：最初に作るもの（型の new_kinds。C++：app＝実行ファイル〔既定〕・library＝ライブラリとテスト用・
+        none＝作らない）。モジュールはリンクのための単位ではなく、中身は後から project add で足す。
         githubは試験でGitHubへの接続を差し替えるためのもの。
         """
         if not _NAME.fullmatch(name):
@@ -102,7 +104,11 @@ class Module:
                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。",
             )
         type_class = _module_type.load(type)
-        module_config = type_class.new_config(name, app=app)
+        if kind and kind not in type_class.new_kinds:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--kind {kind} は型 {type_class.name} では使えません。",
+                                hint=f"使えるもの：{'・'.join(type_class.new_kinds)}" if type_class.new_kinds
+                                else f"型 {type_class.name} は、最初に作るものを選べません。")
+        module_config = type_class.new_config(name)
 
         def populate(root: Path) -> None:
             _config.save(module_config, root / _config.FILE_NAME)
@@ -112,7 +118,7 @@ class Module:
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
             (root / "AGENTS.md").write_text(_docs.agents(module_config, type_class), encoding="utf-8", newline="\n")
-            type_class.populate(root, module_config)
+            type_class.populate(root, module_config, kind or None)
 
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,
@@ -339,10 +345,11 @@ class Module:
 
     @property
     def project_names(self) -> tuple[str, ...]:
-        projects = self.config.projects
-        if projects is None:
+        """今あるProject（型が Project を持たない・読めなければ空）。"""
+        try:
+            return tuple(p.name for p in self.type.projects())
+        except EcoBuildError:
             return ()
-        return tuple(p for p in (projects.library, projects.test, projects.app) if p is not None)
 
     def summary(self) -> ModuleCreated:
         return ModuleCreated(self.name, self.root, self.remote_url or "", self.project_names)
@@ -660,12 +667,13 @@ class Module:
     def projects(self) -> tuple[ProjectSummary, ...]:
         return self.type.projects()
 
-    def add_project(self, name: str, kind: str) -> FilesChanged:
+    def add_project(self, name: str, kind: str, *, link: str | None = None, test: bool = True) -> FilesChanged:
+        """kind：library（test なら組のテスト用 <名前>Test も）・app・test・bench（link のライブラリをリンク）。"""
         self.require_workspace("Projectの追加")
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        return self.type.add_project(name, kind)
+        return self.type.add_project(name, kind, link=link, test=test)
 
     def remove_project(self, name: str) -> FilesChanged:
         self.require_workspace("Projectの削除")

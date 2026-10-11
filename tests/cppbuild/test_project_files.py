@@ -14,8 +14,9 @@ pytestmark = pytest.mark.cppbuild
 @pytest.fixture(scope="module")
 def module():
     base = short_temporary_directory()
-    module = Module.create("Geo", directory=base, github=FakeGitHub(base / "gh"), app=True)
+    module = Module.create("Geo", directory=base, github=FakeGitHub(base / "gh"), kind="library")
     module.create_task("Project・ファイルの試験").start()  # ファイルを変える操作は作業空間でだけ
+    assert module.add_project("GeoApp", "app").paths == ("GeoApp/src/main.cpp",)   # ライブラリ Geo をリンクする
     yield module
     remove_tree(base)
 
@@ -63,10 +64,16 @@ def test_projects_bench_pch_and_remove(module):
     assert module.executable_at(module.root / "GeoBench" / "src") == "GeoBench"
     assert module.executable_at(module.root / "Geo") is None
 
-    assert module.add_project("GeoExtra", "library").paths == ("GeoExtra/include/GeoExtra/GeoExtra.h",
-                                                               "GeoExtra/src/GeoExtra.cpp")
+    assert module.add_project("GeoExtra", "library").paths == (     # 組のテスト用Projectも作る
+        "GeoExtra/include/GeoExtra/GeoExtra.h", "GeoExtra/src/GeoExtra.cpp", "GeoExtraTest/src/GeoExtraTest.cpp")
     assert code_of(lambda: module.add_project("GeoExtra", "library")) == ErrorCode.ALREADY_EXISTS
     assert code_of(lambda: module.add_project("X", "plugin")) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: module.add_project("X", "app")) == ErrorCode.INVALID_ARGUMENT     # ライブラリが2つ
+    assert code_of(lambda: module.add_project("X", "app", link="GeoApp")) == ErrorCode.INVALID_ARGUMENT
+    assert module.add_project("GeoExtraBench", "bench", link="GeoExtra").paths == ("GeoExtraBench/src/bench.cpp",)
+    assert {p.name: p.links for p in module.projects()}["GeoExtraBench"] == ("GeoExtra",)
+    assert module.add_project("GeoAlone", "library", test=False).paths == (
+        "GeoAlone/include/GeoAlone/GeoAlone.h", "GeoAlone/src/GeoAlone.cpp")
 
     pch = module.set_pch("Geo")
     assert pch.paths == ("Geo/include/Geo/pch.h",)
@@ -75,9 +82,8 @@ def test_projects_bench_pch_and_remove(module):
     module.set_pch("Geo", enable=False)
     assert "target_precompile_headers" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
 
-    assert code_of(lambda: module.remove_project("Geo")) == ErrorCode.INVALID_ARGUMENT
-    module.remove_project("GeoBench")
-    module.remove_project("GeoExtra")
+    for name in ("GeoBench", "GeoExtraBench", "GeoExtraTest", "GeoExtra", "GeoAlone"):
+        module.remove_project(name)
     assert not (module.root / "GeoBench").exists()
     assert {p.name for p in module.projects()} == {"Geo", "GeoTest", "GeoApp"}
 

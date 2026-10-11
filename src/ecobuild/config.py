@@ -25,6 +25,7 @@ class Profile:
 
 @dataclass(frozen=True)
 class ProjectNames:
+    """以前のモジュールの [projects]（作成時に作った基本のProject）。今は使わず、読み書きだけ残す。"""
     library: str
     test: str
     app: str | None = None
@@ -51,7 +52,7 @@ class CiSettings:
 @dataclass(frozen=True)
 class ModuleConfig:
     name: str
-    projects: ProjectNames | None      # 基本のProject（型が使わなければNone）
+    projects: ProjectNames | None = None   # 以前のモジュールの [projects]。新しいモジュールにはない
     type: str = "cpp"
     default_base: str = "main"
     format: int = FORMAT
@@ -93,8 +94,8 @@ class ModuleConfig:
         return replace(self, extra={**self.extra, CI_TABLE: table})
 
     @classmethod
-    def for_new_module(cls, name: str, *, app: bool) -> "ModuleConfig":
-        return cls(name=name, projects=ProjectNames(name, name + "Test", name + "App" if app else None))
+    def for_new_module(cls, name: str) -> "ModuleConfig":
+        return cls(name=name)
 
 
 def _ci_strings(table: dict, key: str) -> tuple[str, ...] | None:

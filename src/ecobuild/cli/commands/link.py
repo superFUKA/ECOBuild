@@ -5,11 +5,14 @@ from .._output import run_command
 
 def command(
     repository: Annotated[str, "リンクするモジュールのGitHubのリポジトリ（名前、または 所有者/名前）"],
-    project: Annotated[str, "リンクするProject（既定：今いるProject、それ以外はライブラリ）"] = "",
+    project: Annotated[str, "リンクするProject（既定：今いるProject、テスト用を除いてProjectが1つならそれ）"] = "",
     shared: Annotated[bool, "共有ライブラリとしてリンクする（既定は静的）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """GitHubにあるECOBuildのモジュールをリンクし、deps/ へcloneします。管理ファイルが変わるので、作業空間でコミットしてください。"""
+    """GitHubにあるECOBuildのモジュールをリンクし、deps/ へcloneします。管理ファイルが変わるので、作業空間でコミットしてください。
+
+    リンクされるのは、相手のモジュールで最初に作ったProjectです（ライブラリである必要があります）。
+    """
 
     def action(inv):
         module = inv.module

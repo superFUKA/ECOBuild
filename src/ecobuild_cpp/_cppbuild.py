@@ -9,8 +9,8 @@ from pathlib import Path
 
 from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings
 
-from ecobuild.config import ProjectNames
 from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 
 CONFIG_DIRECTORY = ".cppbuild"
@@ -29,9 +29,13 @@ TEMPLATES = {
     "pch": "pch.h",
     "test": "test.cpp",
     "main": "main.cpp",
+    "app": "app.cpp",        # ライブラリをリンクしない実行ファイルの main
     "bench": "bench.cpp",
     "unit_test": "unit_test.cpp",
 }
+
+# module new の --kind：最初に作るProject（app：実行ファイル、library：ライブラリとテスト用、none：作らない）
+NEW_KINDS = ("app", "library", "none")
 
 # project add の種類 → CppBuildの種類
 PROJECT_KINDS = {
@@ -89,8 +93,13 @@ def open_solution(root: Path) -> Solution:
         raise _cppbuild_error("CppBuildのSolutionを開けません。", error) from error
 
 
-def create_module_solution(root: Path, name: str, projects: ProjectNames) -> Solution:
-    """Solutionと、ライブラリ・テスト用・実行ファイル用のProjectを作る（生成はしない）。"""
+def create_module_solution(root: Path, name: str, kind: str) -> Solution:
+    """Solutionと、最初のProjectを作る（生成はしない）。kind：app＝実行ファイル <名前>、
+    library＝ライブラリ <名前> とテスト用 <名前>Test、none＝Projectを作らない。
+
+    CppBuildは最初に作ったProjectを main_project にし、他のモジュールからリンクされるのはそれだけ
+    （実行ファイル・なしなら、他のモジュールからはリンクできない）。
+    """
     try:
         solution = Solution.create(root, name)
         data = solution.settings.get()
@@ -98,25 +107,53 @@ def create_module_solution(root: Path, name: str, projects: ProjectNames) -> Sol
         data.solution_folders = SolutionFolderSettings()
         solution.settings.save(data)
         _register_templates(solution)
-        # ライブラリを最初に作り、相手からのリンク先（main_project）にする。
-        library = solution.add_project(projects.library, projects.library, ProjectType.STATIC_LIBRARY)
-        header = f"{projects.library}/{projects.library}.h"
-        _add_library_header(library, f"include/{header}")
-        library.add_file(f"src/{projects.library}.cpp", template_name="source",
-                         replacements={"header": header}, auto_update=False)
-        test = solution.add_project(projects.test, projects.test, ProjectType.TEST)
-        test.settings.link_project(library, ProjectType.STATIC_LIBRARY)
-        test.add_file(f"src/{projects.test}.cpp", template_name="test",
-                      replacements={"header": header, "suite": projects.library}, auto_update=False)
-        if projects.app is not None:
-            app = solution.add_project(projects.app, projects.app, ProjectType.EXECUTABLE)
-            app.settings.link_project(library, ProjectType.STATIC_LIBRARY)
-            app.add_file("src/main.cpp", template_name="main", replacements={"header": header}, auto_update=False)
+        if kind == "app":
+            _create_linked(solution, name, "app", None)
+        elif kind == "library":
+            _create_library(solution, name, test=True)
         return solution
     except EcoBuildError:
         raise
     except Exception as error:
         raise _cppbuild_error("CppBuildでSolutionを作成できません。", error) from error
+
+
+def _create_library(solution: Solution, name: str, *, test: bool) -> list[str]:
+    """ライブラリ（ヘッダー include/<名前>/<名前>.h と src/<名前>.cpp）と、test ならテスト用 <名前>Test。"""
+    project = solution.add_project(name, name, ProjectType.STATIC_LIBRARY)
+    header = library_header(name)
+    _add_library_header(project, f"include/{header}")
+    project.add_file(f"src/{name}.cpp", template_name="source", replacements={"header": header}, auto_update=False)
+    files = [f"{name}/include/{header}", f"{name}/src/{name}.cpp"]
+    if test:
+        files += _create_linked(solution, test_project_of(name), "test", name, suite=name)
+    return files
+
+
+def _create_linked(solution: Solution, name: str, kind: str, library: str | None, *, suite: str | None = None) -> list[str]:
+    """実行ファイル・テスト・性能測定のProject。library があればリンクし、そのヘッダーを読み込む素材を置く。"""
+    project = solution.add_project(name, name, PROJECT_KINDS[kind])
+    if library is None:   # app だけ（test・bench はライブラリが要る）
+        project.add_file("src/main.cpp", template_name="app", auto_update=False)
+        return [f"{name}/src/main.cpp"]
+    project.settings.link_project(solution.get_project(library), ProjectType.STATIC_LIBRARY)
+    template, file_name = {"app": ("main", "main.cpp"), "test": ("test", f"{name}.cpp"),
+                           "bench": ("bench", "bench.cpp")}[kind]
+    replacements = {"header": library_header(library)}
+    if kind == "test":
+        replacements["suite"] = suite or name
+    project.add_file(f"src/{file_name}", template_name=template, replacements=replacements, auto_update=False)
+    return [f"{name}/src/{file_name}"]
+
+
+def library_header(library: str) -> str:
+    """ECOBuildが作ったライブラリのヘッダー（include/ からの相対）。"""
+    return f"{library}/{library}.h"
+
+
+def test_project_of(library: str) -> str:
+    """ライブラリと組のテスト用Project（ライブラリを作るときに一緒に作る。file add のテストの置き場所）。"""
+    return f"{library}Test"
 
 
 def update(root: Path) -> BuildOutcome:
@@ -152,6 +189,9 @@ def build(root: Path, *, project: str | None, options: BuildOptions, action: str
 
 
 def test(root: Path, *, project: str | None, options: BuildOptions) -> TestOutcome:
+    """テスト用のProjectがなければ、何もせずに成功（ケースなし）。"""
+    if project is None and not _tests(open_solution(root)):
+        return TestOutcome(True, (), ())
     target = _target(root, project, options)
     try:
         report = target.test()
@@ -260,47 +300,74 @@ def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
     return tuple(result)
 
 
-def add_project(root: Path, name: str, kind: str, *, library: str, library_header: str) -> tuple[str, ...]:
-    """Projectを作り、ライブラリ以外はモジュールのライブラリをリンクする。作ったファイルを返す。"""
+def add_project(root: Path, name: str, kind: str, *, link: str | None = None, test: bool = True) -> tuple[str, ...]:
+    """Projectを作る。作ったファイルを返す。
+
+    library：ライブラリと、test ならテスト用 <名前>Test（I-022）。app・test・bench：link のライブラリ
+    （省略時は、ライブラリが1つならそれ）をリンクする。test・bench にはライブラリが要る。app はなくてもよい。
+    """
     if kind not in PROJECT_KINDS:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"種類 {kind} はありません。",
                             hint=f"{'・'.join(PROJECT_KINDS)} のどれかを指定してください。")
     solution = open_solution(root)
-    if name in solution.settings.get().projects:
-        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"Project {name} は既にあります。")
-    if (root / name).exists():
-        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{root / name} は既に存在します。")
+    existing = solution.settings.get().projects
+    for each in [name] + ([test_project_of(name)] if kind == "library" and test else []):
+        if each in existing:
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"Project {each} は既にあります。")
+        if (root / each).exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{root / each} は既に存在します。")
+    library = None
+    if kind == "library":
+        if link:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--link は library では使えません。")
+    else:
+        library = _library_to_link(solution, link)
+        if library is None and kind != "app":
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"{'テスト' if kind == 'test' else '性能測定'}のProjectには、リンクするライブラリが要ります。",
+                                hint="先に project add <名前> --kind library でライブラリを作ってください。")
     try:
         _ensure_templates(solution)
-        project = solution.add_project(name, name, PROJECT_KINDS[kind])
-        files = []
-        if kind == "library":
-            header = f"{name}/{name}.h"
-            files += [f"include/{header}", f"src/{name}.cpp"]
-            _add_library_header(project, files[0])
-            project.add_file(files[1], template_name="source", replacements={"header": header}, auto_update=False)
-        else:
-            project.settings.link_project(solution.get_project(library), ProjectType.STATIC_LIBRARY)
-            template, file_name = {"app": ("main", "main.cpp"), "test": ("test", f"{name}.cpp"),
-                                   "bench": ("bench", "bench.cpp")}[kind]
-            files.append(f"src/{file_name}")
-            replacements = {"header": library_header}
-            if kind == "test":
-                replacements["suite"] = name
-            project.add_file(files[0], template_name=template, replacements=replacements, auto_update=False)
+        files = (_create_library(solution, name, test=test) if kind == "library"
+                 else _create_linked(solution, name, kind, library))
         solution.update()
-        return tuple(f"{name}/{f}" for f in files)
+        return tuple(files)
     except EcoBuildError:
         raise
     except Exception as error:
         raise _cppbuild_error(f"Project {name} を作れません。", error) from error
 
 
-def remove_project(root: Path, name: str) -> None:
-    """Projectを、他のProjectからのリンクごと外す（ファイルは呼び出し側が消す）。"""
+def _library_to_link(solution: Solution, link: str | None) -> str | None:
+    """リンクするライブラリ：指定があればそれ（ライブラリか確かめる）、なければライブラリが1つならそれ。"""
+    libraries = [name for name in solution.settings.get().projects
+                 if ProjectType.STATIC_LIBRARY in solution.get_project(name).settings.get().types]
+    if link:
+        _require_project(solution, link)
+        if link not in libraries:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project {link} はライブラリではありません。",
+                                hint=f"ライブラリ：{'、'.join(libraries) or 'なし'}")
+        return link
+    if len(libraries) > 1:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "リンクするライブラリを決められません。",
+                            hint=f"--link で指定してください（ライブラリ：{'、'.join(libraries)}）。")
+    return libraries[0] if libraries else None
+
+
+def remove_project(root: Path, name: str) -> bool:
+    """Projectを、他のProjectからのリンクごと外す（ファイルは呼び出し側が消す）。
+
+    main_project（他のモジュールからリンクされるもの）なら、先に main_project をなしにする（CppBuildは
+    main_project のままでは外せない）。そうしたら True。
+    """
     solution = open_solution(root)
     _require_project(solution, name)
     try:
+        data = solution.settings.get()
+        was_main = data.main_project == name
+        if was_main:
+            data.main_project = None
+            solution.settings.save(data)
         guid = solution.get_project(name).settings.get().guid
         for other in solution.projects():
             if other.name == name:
@@ -312,6 +379,7 @@ def remove_project(root: Path, name: str) -> None:
         solution.update()
     except Exception as error:
         raise _cppbuild_error(f"Project {name} を外せません。", error) from error
+    return was_main
 
 
 def set_pch(root: Path, project: str, *, enable: bool) -> str | None:
@@ -354,6 +422,8 @@ def add_file(root: Path, project: str, path: str, *, replacements: dict | None =
         template = "header" if suffix in HEADER_SUFFIXES else "source" if suffix in SOURCE_SUFFIXES else None
     if template == "header":
         replacements = None  # ヘッダーのテンプレートには差し込む値がない（CppBuildは過不足を拒否する）
+    if template == "source" and not (replacements or {}).get("header"):
+        template = None      # 読み込むヘッダーがない（ライブラリをリンクしていない実行ファイル等）：空のファイル
     try:
         _ensure_templates(solution)
         if template is None:
@@ -433,14 +503,23 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
     solution = open_solution(root)
     _require_project(solution, project)
     before = {s.name for s in solution.git_sources()}
+    deps = root / DEPENDENCY_DIRECTORY
+    cloned_before = {p.name for p in deps.iterdir()} if deps.is_dir() else set()
     try:
         solution.get_project(project).settings.link_git(
             url, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
         solution.update()
     except Exception as error:
+        for new in (p for p in deps.iterdir() if p.name not in cloned_before) if deps.is_dir() else ():
+            remove_tree(new)   # リンクできなかった相手の、今cloneしたもの
         text = str(error)
         if "already registered" in text:
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{url} は既にリンクしています。") from error
+        if "needs a main Project" in text:
+            raise EcoBuildError(ErrorCode.NOT_LINKABLE, f"{url} のモジュールは、リンクできる形になっていません。",
+                                hint="他のモジュールからリンクされるのは、そのモジュールで最初に作ったProject（main）"
+                                     "だけで、それがライブラリである必要があります。",
+                                details=text) from error
         raise _cppbuild_error(f"{url} をリンクできません。", error) from error
     added = [s.name for s in solution.git_sources() if s.name not in before]
     return added[0] if added else next(s.name for s in solution.git_sources() if s.url == url)
@@ -569,6 +648,26 @@ def _target(root: Path, project: str | None, options: BuildOptions, *, run_argum
         return target
     except Exception as error:
         raise _cppbuild_error(f"Project {project!r} を準備できません。", error) from error
+
+
+def _tests(solution: Solution) -> list[str]:
+    return [name for name in solution.settings.get().projects
+            if ProjectType.TEST in solution.get_project(name).settings.get().types]
+
+
+def linked_libraries(root: Path, project: str) -> list[str]:
+    """Projectがリンクしている、同じモジュールのライブラリ。"""
+    solution = open_solution(root)
+    _require_project(solution, project)
+    by_guid = _guid_names(solution)
+    names = [by_guid[d.project_guid] for d in solution.get_project(project).settings.get().dependencies.values()
+             if getattr(d, "project_guid", None) in by_guid]
+    return [n for n in names if ProjectType.STATIC_LIBRARY in solution.get_project(n).settings.get().types]
+
+
+def is_test_project(root: Path, project: str) -> bool:
+    solution = open_solution(root)
+    return project in _tests(solution)
 
 
 def _executables(solution: Solution) -> list[str]:

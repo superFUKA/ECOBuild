@@ -31,8 +31,8 @@ def new_stl_commit(stl_root: Path, text: str) -> str:
 
 def test_sync_aligns_dependencies(short_tmp):
     stl_github = FakeGitHub(short_tmp / "gh1")
-    stl = Module.create("STL", directory=short_tmp, github=stl_github)
-    ecs = Module.create("ECS", directory=short_tmp, github=FakeGitHub(short_tmp / "gh2"))
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh2"))
     solution = _cppbuild.open_solution(ecs.root)
     solution.get_project("ECS").settings.link_git(url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
     clone = ecs.root / "deps" / "STL"
@@ -64,7 +64,7 @@ def test_sync_aligns_dependencies(short_tmp):
 def test_sync_regenerates_conflicted_generated_files(short_tmp):
     """生成ファイルだけが衝突したら、管理ファイルから作り直して取り込みを完了する。"""
     github = FakeGitHub(short_tmp / "gh")
-    module = Module.create("Calc", directory=short_tmp, github=github)
+    module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
     top = "CppBuildTopLevel.cmake"
     expected = (module.root / top).read_text(encoding="utf-8")
     workspace = module.create_task("t").start()
@@ -84,9 +84,9 @@ def test_sync_regenerates_conflicted_generated_files(short_tmp):
 def test_clone_module_prepares_dependencies(short_tmp):
     """clone はモジュールをcloneし、依存先と生成ファイルを sync と同じく用意する。"""
     stl_github = FakeGitHub(short_tmp / "gh1")
-    Module.create("STL", directory=short_tmp, github=stl_github)
+    Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     ecs_github = FakeGitHub(short_tmp / "gh2")
-    ecs = Module.create("ECS", directory=short_tmp, github=ecs_github)
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=ecs_github)
     workspace = ecs.create_task("STLを使う").start()
     _cppbuild.open_solution(ecs.root).get_project("ECS").settings.link_git(
         url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
@@ -126,10 +126,10 @@ def test_clone_refuses_non_module(short_tmp):
 def test_link_deps_and_work_version(short_tmp):
     """link → deps list → 依存先が進む → deps update → 作業版は触らない → unlink。"""
     stl_github = FakeGitHub(short_tmp / "gh1")
-    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     github = FakeGitHub(short_tmp / "gh2")
     github.others["STL"] = stl_github.bare
-    ecs = Module.create("ECS", directory=short_tmp, github=github)
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
     with pytest.raises(Exception) as error:
         ecs.link("STL")
     assert error.value.code == "not_in_workspace"  # 管理ファイルを変える操作は作業空間でだけ
@@ -174,14 +174,14 @@ def test_link_deps_and_work_version(short_tmp):
 def test_dependency_tree(short_tmp, monkeypatch):
     """deps tree：依存先の依存先も。2か所から使われる依存先は、2回目にその先を省く。"""
     base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")
-    Module.create("Base", directory=short_tmp, github=base_github)
-    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    Module.create("Base", directory=short_tmp, kind="library", github=base_github)
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     _cppbuild.open_solution(stl.root).get_project("STL").settings.link_git(
         url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
     git(stl.root, "add", "--all")
     git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
     git(stl.root, "push", "--quiet", "origin", "main")
-    ecs = Module.create("ECS", directory=short_tmp, github=FakeGitHub(short_tmp / "gh3"))
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh3"))
     assert ecs.dependency_tree().direct == ()
     project = _cppbuild.open_solution(ecs.root).get_project("ECS").settings
     project.link_git(url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
@@ -212,10 +212,10 @@ def test_dependency_tree(short_tmp, monkeypatch):
 def test_switching_aligns_dependencies(short_tmp):
     """task start・task clean で記録が変わる先へ移ったら、手元の依存先も合わせる（仮運用3回目で見つかった）。"""
     stl_github = FakeGitHub(short_tmp / "gh1")
-    stl = Module.create("STL", directory=short_tmp, github=stl_github)
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     github = FakeGitHub(short_tmp / "gh2")
     github.others["STL"] = stl_github.bare
-    ecs = Module.create("ECS", directory=short_tmp, github=github)
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
     workspace = ecs.create_task("STLを使う").start()
     ecs.link("STL")
     workspace.stage(all=True)

@@ -29,7 +29,7 @@ def test_generic_module(tmp_path):
     assert sorted(p.name for p in root.iterdir() if p.name != ".git") == [
         ".gitignore", "AGENTS.md", "README.md", "ecobuild.toml"]
     assert module.config.projects is None and module.project_names == ()
-    assert code_of(lambda: Module.create("X", directory=tmp_path, type="generic", app=True,
+    assert code_of(lambda: Module.create("X", directory=tmp_path, type="generic", kind="app",
                                          github=FakeGitHub(tmp_path / "gh2"))) == ErrorCode.INVALID_ARGUMENT
 
     # コマンドを書くまでは対応しない

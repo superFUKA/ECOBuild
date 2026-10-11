@@ -59,14 +59,18 @@ class ModuleType:
 
     # モジュールの作成（モジュールがまだないので、クラスメソッド） ------------------------------
 
-    @classmethod
-    def new_config(cls, name: str, *, app: bool) -> "ModuleConfig":
-        from .config import ModuleConfig, ProjectNames
-        return ModuleConfig(name=name, type=cls.name, projects=ProjectNames(name, name + "Test"))
+    # module new の --kind で選べる、最初に作るものと既定（型が使わなければ空。--kind を指定すると誤り）
+    new_kinds: tuple[str, ...] = ()
+    default_new_kind: str | None = None
 
     @classmethod
-    def populate(cls, root: Path, config: "ModuleConfig") -> None:
-        """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。"""
+    def new_config(cls, name: str) -> "ModuleConfig":
+        from .config import ModuleConfig
+        return ModuleConfig(name=name, type=cls.name)
+
+    @classmethod
+    def populate(cls, root: Path, config: "ModuleConfig", kind: str | None) -> None:
+        """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。kind：new_kinds のどれか。"""
 
     @classmethod
     def gitignore(cls) -> str:
@@ -142,7 +146,7 @@ class ModuleType:
         """Projectの一覧。results.ProjectSummary の形で返す（CLIの表示とJSONに使う）。"""
         raise self.not_supported("Project の一覧")
 
-    def add_project(self, name: str, kind: str) -> "FilesChanged":
+    def add_project(self, name: str, kind: str, *, link: str | None, test: bool) -> "FilesChanged":
         raise self.not_supported("Project の追加")
 
     def remove_project(self, name: str) -> "FilesChanged":

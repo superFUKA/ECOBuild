@@ -5,6 +5,7 @@ from helpers import write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.module import Module
+from ecobuild_cpp import _cppbuild
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 
@@ -12,7 +13,8 @@ pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 @pytest.fixture(scope="module")
 def module():
     base = short_temporary_directory()
-    module = Module.create("Calc", directory=base, app=True, github=FakeGitHub(base / "gh"))
+    module = Module.create("Calc", directory=base, kind="library", github=FakeGitHub(base / "gh"))
+    _cppbuild.add_project(module.root, "CalcApp", "app")
     write(module.root / "CalcApp/src/main.cpp",
           '#include <iostream>\n#include "Calc/Calc.h"\n\n'
           'int main(int argc, char** argv) {\n    std::cout << "args=" << argc - 1 << std::endl;\n    return 0;\n}\n')

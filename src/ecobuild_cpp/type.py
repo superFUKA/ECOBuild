@@ -11,7 +11,7 @@ from ecowork import workspace as ws
 from ecowork.git import Git
 
 from ecobuild import ci_workflow
-from ecobuild.config import ModuleConfig, Profile, ProjectNames
+from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import ModuleType
@@ -78,14 +78,12 @@ class CppType(ModuleType):
 
     # モジュールの作成 -------------------------------------------------------------
 
-    @classmethod
-    def new_config(cls, name: str, *, app: bool) -> ModuleConfig:
-        return ModuleConfig(name=name, type=cls.name,
-                            projects=ProjectNames(name, name + "Test", name + "App" if app else None))
+    new_kinds = _cppbuild.NEW_KINDS
+    default_new_kind = "app"
 
     @classmethod
-    def populate(cls, root: Path, config: ModuleConfig) -> None:
-        _cppbuild.create_module_solution(root, config.name, config.projects)
+    def populate(cls, root: Path, config: ModuleConfig, kind: str | None) -> None:
+        _cppbuild.create_module_solution(root, config.name, kind or cls.default_new_kind)
         _cppbuild.update(root)
 
     @classmethod
@@ -219,11 +217,6 @@ jobs:
 
     # Project ---------------------------------------------------------------------
 
-    @property
-    def library_header(self) -> str:
-        library = self.module.config.projects.library
-        return f"{library}/{library}.h"
-
     def project_at(self, path: Path) -> str | None:
         return _cppbuild.project_at(self.root, Path(path))
 
@@ -235,19 +228,16 @@ jobs:
     def projects(self) -> tuple[ProjectSummary, ...]:
         return _cppbuild.list_projects(self.root)
 
-    def add_project(self, name: str, kind: str) -> FilesChanged:
-        files = _cppbuild.add_project(self.root, name, kind, library=self.module.config.projects.library,
-                                      library_header=self.library_header)
+    def add_project(self, name: str, kind: str, *, link: str | None = None, test: bool = True) -> FilesChanged:
+        files = _cppbuild.add_project(self.root, name, kind, link=link, test=test)
         return FilesChanged("project add", files, name)
 
     def remove_project(self, name: str) -> FilesChanged:
-        projects = self.module.config.projects
-        if name in (projects.library, projects.test, projects.app):
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
-                                f"Project {name} は ecobuild.toml の [projects] にある基本のProjectです。",
-                                hint="基本のProject（ライブラリ・テスト・実行ファイル）は外せません。")
         directory = _cppbuild.project_root(self.root, name)
-        _cppbuild.remove_project(self.root, name)
+        if _cppbuild.remove_project(self.root, name):
+            self.module.repository.notices.append(
+                f"{name} は、他のモジュールからリンクされるProject（最初に作ったProject）でした。"
+                "このモジュールは、他のモジュールからリンクできなくなりました。")
         if directory.is_dir():
             remove_tree(directory)
         return FilesChanged("project remove", (directory.relative_to(self.root).as_posix(),), name)
@@ -265,7 +255,7 @@ jobs:
         added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
         mirror = self._test_mirror(project, relative)
         if test and mirror is not None:
-            added.append(_cppbuild.add_file(self.root, self.module.config.projects.test, mirror,
+            added.append(_cppbuild.add_file(self.root, _cppbuild.test_project_of(project), mirror,
                                             template="unit_test",
                                             replacements={"header": header, "suite": Path(relative).stem}))
         return FilesChanged("file add", tuple(added), project)
@@ -274,7 +264,7 @@ jobs:
         project, relative = self._in_project(path)
         removed = [_cppbuild.remove_file(self.root, project, relative)]
         mirror = self._test_mirror(project, relative)
-        test_project = self.module.config.projects.test
+        test_project = _cppbuild.test_project_of(project)
         if test and mirror is not None and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
             removed.append(_cppbuild.remove_file(self.root, test_project, mirror))
         return FilesChanged("file remove", tuple(removed), project)
@@ -287,7 +277,7 @@ jobs:
                                 hint="移動先も同じProjectのディレクトリの中にしてください。")
         moved = list(_cppbuild.move_file(self.root, project, relative, target))
         mirror, mirror_target = self._test_mirror(project, relative), self._test_mirror(project, target)
-        test_project = self.module.config.projects.test
+        test_project = _cppbuild.test_project_of(project)
         if test and mirror and mirror_target and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
             moved += _cppbuild.move_file(self.root, test_project, mirror, mirror_target)
         return FilesChanged("file move", tuple(moved), project)
@@ -302,22 +292,34 @@ jobs:
         relative = absolute.relative_to(_cppbuild.project_root(self.root, project).resolve()).as_posix()
         return project, relative
 
-    def _header_for(self, project: str, relative: str) -> str:
-        """ソースが読み込むヘッダー：include/ の同じ構成の場所にあればそれ、なければライブラリのヘッダー。"""
+    def _header_for(self, project: str, relative: str) -> str | None:
+        """ソースが読み込むヘッダー：include/ の同じ構成の場所にあればそれ、なければそのProjectのヘッダー
+        （ライブラリ）、なければリンクしているライブラリのヘッダー。どれもなければ None（空のファイルにする）。"""
         path = Path(relative)
+        root = _cppbuild.project_root(self.root, project)
         if path.parts[:1] == ("src",):
             candidate = Path("include", project, *path.parts[1:]).with_suffix(".h")
-            if (_cppbuild.project_root(self.root, project) / candidate).is_file():
+            if (root / candidate).is_file():
                 return Path(project, *path.parts[1:]).with_suffix(".h").as_posix()
-        return self.library_header
+        if (root / "include" / _cppbuild.library_header(project)).is_file():
+            return _cppbuild.library_header(project)
+        for library in _cppbuild.linked_libraries(self.root, project):
+            return _cppbuild.library_header(library)
+        return None
 
     def _test_mirror(self, project: str, relative: str) -> str | None:
-        """ライブラリの src/ のソースに対応する、テスト用Projectのテストファイル（src/... /<名前>Test.cpp）。"""
+        """ライブラリの src/ のソースに対応する、組のテスト用Project（<ライブラリ>Test）のテストファイル
+        （src/... /<名前>Test.cpp）。組のテスト用Projectがなければ None。"""
         path = Path(relative)
-        if project != self.module.config.projects.library or path.parts[:1] != ("src",) \
-                or path.suffix.lower() not in _cppbuild.SOURCE_SUFFIXES:
+        if path.parts[:1] != ("src",) or path.suffix.lower() not in _cppbuild.SOURCE_SUFFIXES \
+                or not self._has_test_project(project):
             return None
         return path.with_name(f"{path.stem}Test{path.suffix}").as_posix()
+
+    def _has_test_project(self, library: str) -> bool:
+        names = {p.name for p in self.projects()}
+        return library in names and _cppbuild.test_project_of(library) in names \
+            and _cppbuild.is_test_project(self.root, _cppbuild.test_project_of(library))
 
     # 生成ファイルの更新（変わっていなければ飛ばす） ---------------------------------------
 
@@ -340,10 +342,20 @@ jobs:
     # 依存先 ------------------------------------------------------------------------
 
     def link(self, url: str, *, project: str | None, shared: bool) -> LinkResult:
-        target = project or self.module.config.projects.library
+        """project を省くと、テスト用を除いてProjectが1つならそれ。"""
+        target = project or self._only_project()
         name = _cppbuild.link(self.root, target, url, shared=shared)
         revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
         return LinkResult(name, url, revision, (target,))
+
+    def _only_project(self) -> str:
+        """テスト用を除いて、Projectが1つならそれ（ライブラリと組のテスト用だけなら、ライブラリ）。"""
+        names = [p.name for p in self.projects() if p.kind != "test"]
+        if len(names) != 1:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "リンクするProjectを決められません。",
+                                hint=f"--project で指定するか、Projectのディレクトリの中で実行してください"
+                                     f"（Project：{'、'.join(names) or 'なし'}）。")
+        return names[0]
 
     def unlink(self, name: str) -> LinkResult:
         """手元のcloneは、記録の版のままなら消す（作業中・変更ありなら残す）。"""

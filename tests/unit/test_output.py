@@ -16,7 +16,7 @@ class Sample:
 
 
 def test_json_success_prints_one_document(tmp_path, capsys):
-    config.save(config.ModuleConfig.for_new_module("Calc", app=False), tmp_path / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("Calc"), tmp_path / config.FILE_NAME)
     invocation = Invocation(json_output=True, cwd=tmp_path)
 
     def action(inv):

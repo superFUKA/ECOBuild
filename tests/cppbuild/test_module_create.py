@@ -21,10 +21,10 @@ def short_tmp():
 
 def test_create_module(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
-    module = Module.create("Calc", directory=short_tmp, app=True, description="電卓", github=github)
+    module = Module.create("Calc", directory=short_tmp, kind="library", description="電卓", github=github)
     root = short_tmp / "Calc"
     assert module.root == root
-    assert config.load(root / config.FILE_NAME).projects.app == "CalcApp"
+    assert config.load(root / config.FILE_NAME).projects is None   # 基本のProjectは決めない
     assert "/deps/" in (root / ".gitignore").read_text(encoding="utf-8")
     assert github.private is True
     # 初回コミットがGitHub（bare）のmainにある
@@ -34,7 +34,7 @@ def test_create_module(short_tmp):
     assert not any(f.startswith(".cppbuild/output") for f in files)
     assert git(root, "status", "--porcelain") == ""
     assert Module.find(root / "Calc" / "src").name == "Calc"
-    assert module.summary().projects == ("Calc", "CalcTest", "CalcApp")
+    assert module.summary().projects == ("Calc", "CalcTest")
 
     # cloneしただけの人が、CMakeだけでビルド・テストできる
     clone = short_tmp / "c"
@@ -78,3 +78,36 @@ def test_submit_requires_generated_files(short_tmp):
     workspace.commit("生成ファイルを更新")
     pr = workspace.submit()
     assert pr.head == "task/1"
+
+
+def test_create_module_starts_with_an_app_or_nothing(short_tmp):
+    """既定は実行ファイルのProjectを1つ。--kind none なら何も作らず、後から project add で足す。
+    他のモジュールからリンクされるのは最初に作ったProject（main）で、ライブラリでなければリンクできない。"""
+    from ecobuild.errors import EcoBuildError, ErrorCode
+
+    tool = Module.create("Tool", directory=short_tmp, github=FakeGitHub(short_tmp / "gh1"))
+    assert [(p.name, p.kind, p.links) for p in tool.projects()] == [("Tool", "executable", ())]
+    assert "#include" not in (tool.root / "Tool/src/main.cpp").read_text(encoding="utf-8")
+    assert tool.build().project is None and tool.run().returncode == 0
+    tested = tool.test()   # テスト用のProjectがなければ、何もせずに成功
+    assert (tested.passed, tested.failed, tested.cases) == (0, 0, ())
+
+    github = FakeGitHub(short_tmp / "gh2")
+    empty = Module.create("Empty", directory=short_tmp, kind="none", github=github)
+    assert empty.summary().projects == () and empty.build().project is None
+    empty.create_task("中身を足す").start()
+    assert empty.add_project("Lib", "library").paths == ("Lib/include/Lib/Lib.h", "Lib/src/Lib.cpp",
+                                                         "LibTest/src/LibTest.cpp")
+    assert empty.test().failed == 0
+    github.others["Tool"] = tool.repository.github.bare   # 実行ファイルが main のモジュールはリンクできない
+    with pytest.raises(EcoBuildError) as error:
+        empty.link("Tool", project="Lib")
+    assert error.value.code == ErrorCode.NOT_LINKABLE
+    assert empty.dependencies() == () and not (empty.root / "deps" / "Tool").exists()   # 何も残さない
+    empty.remove_project("Lib")                            # main を外すと、他からリンクできなくなると知らせる
+    assert any("リンクできなくなりました" in n for n in empty.repository.notices)
+    assert {p.name for p in empty.projects()} == {"LibTest"}
+
+    with pytest.raises(EcoBuildError) as error:
+        Module.create("Bad", directory=short_tmp, kind="plugin", github=FakeGitHub(short_tmp / "gh3"))
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT and not (short_tmp / "Bad").exists()

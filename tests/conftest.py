@@ -40,7 +40,7 @@ def module(remote_and_clone, tmp_path):
     from fakes import FakeGitHub
 
     remote, work = remote_and_clone
-    config.save(config.ModuleConfig.for_new_module("Calc", app=False), work / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("Calc"), work / config.FILE_NAME)
     git(work, "add", config.FILE_NAME)
     git(work, "commit", "--quiet", "-m", "設定")
     git(work, "push", "--quiet", "origin", "main")

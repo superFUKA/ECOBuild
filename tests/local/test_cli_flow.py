@@ -371,7 +371,7 @@ def test_module_list_and_show(cli, module, tmp_path):
 
     shown = as_json(cli("module", "show", "--json"))["result"]
     assert (shown["name"], shown["repository"], shown["archived"], shown["projects"]) \
-        == ("Calc", "tester/remote", True, ["Calc", "CalcTest"])
+        == ("Calc", "tester/remote", True, [])
     assert "リポジトリ：https://example.invalid/tester/remote（非公開・アーカイブ済み）" in cli("module", "show").output
 
 

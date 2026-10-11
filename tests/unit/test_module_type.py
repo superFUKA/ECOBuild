@@ -55,7 +55,7 @@ def test_unsupported_operations_are_reported(monkeypatch, module):
 def test_cpp_ci_workflow_follows_ci_settings():
     from ecobuild.config import CiSettings, ModuleConfig
     from ecobuild_cpp.type import CppType
-    base = ModuleConfig.for_new_module("Calc", app=False)
+    base = ModuleConfig.for_new_module("Calc")
     default = CppType.ci_workflow(base)
     assert "os: [windows-latest, ubuntu-latest]" in default and "shared: [OFF]" in default
     assert "-DCMAKE_BUILD_TYPE=${{ matrix.configuration }}" in default
@@ -70,7 +70,7 @@ def test_ci_branch_patterns_are_quoted(type_name):
     from ecobuild_cpp.type import CppType
     from ecobuild_generic.type import GenericType
     if type_name == "cpp":
-        base, type_class = ModuleConfig.for_new_module("Calc", app=False), CppType
+        base, type_class = ModuleConfig.for_new_module("Calc"), CppType
     else:
         base = ModuleConfig("Plain", None, type="generic", extra={"commands": {"build": "make all: x"}})
         type_class = GenericType

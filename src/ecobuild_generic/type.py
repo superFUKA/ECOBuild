@@ -29,10 +29,7 @@ class GenericType(ModuleType):
     description = "ビルド・テスト・実行のコマンドを ecobuild.toml の [commands] に書く（言語を問わない）"
 
     @classmethod
-    def new_config(cls, name: str, *, app: bool) -> ModuleConfig:
-        if app:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--app は型 generic では使えません。",
-                                hint="実行のコマンドは ecobuild.toml の [commands] の run に書きます。")
+    def new_config(cls, name: str) -> ModuleConfig:
         # 空のコマンドは「まだ書いていない」（その操作は not_supported）
         return ModuleConfig(name=name, projects=None, type=cls.name,
                             extra={TABLE: {operation: "" for operation in OPERATIONS}})

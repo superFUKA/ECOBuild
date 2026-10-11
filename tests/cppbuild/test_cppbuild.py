@@ -4,7 +4,7 @@ import pytest
 from helpers import remove_tree, short_temporary_directory
 
 from ecobuild_cpp import _cppbuild
-from ecobuild.config import ModuleConfig
+
 from ecobuild.errors import EcoBuildError, ErrorCode
 
 pytestmark = pytest.mark.cppbuild
@@ -16,7 +16,8 @@ def module_root():
     base = short_temporary_directory()
     root = base / "Calc"
     root.mkdir()
-    _cppbuild.create_module_solution(root, "Calc", ModuleConfig.for_new_module("Calc", app=True).projects)
+    _cppbuild.create_module_solution(root, "Calc", "library")
+    _cppbuild.add_project(root, "CalcApp", "app")   # ライブラリが1つなので、それをリンクする
     _cppbuild.update(root)
     yield root
     remove_tree(base)

@@ -22,5 +22,7 @@ def command(
         return module.test(project=target, configuration=configuration, profile=profile or None)
 
     return run_command("test", action,
-                       lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}",
+                       lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}"
+                       if r.passed + r.failed + r.skipped or project
+                       else "テスト用のProjectがありません（project add <名前> --kind library で、ライブラリとテスト用を作れます）",
                        json_output=json)

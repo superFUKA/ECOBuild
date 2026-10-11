@@ -16,7 +16,8 @@ navigation.forEach(button => button.addEventListener('click', () => {
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
-// The modules on GitHub (ecobuild module list --all): marks the archived ones and offers the others to clone.
+// The modules on GitHub (ecobuild module list --all): the archived ones leave the list for 「アーカイブ済み」 below it,
+// and the ones not in the list are offered to clone.
 // Read once (it asks GitHub about every repository) and again after archiving or deleting one.
 let githubModules = null, githubModulesLoading = null;
 function loadGithubModules() {
@@ -33,12 +34,35 @@ const sameRepository = (a, b) => {
   return key(a) === key(b);
 };
 const githubEntry = m => (githubModules || []).find(g => sameRepository(g.repository, m.repository || m.name));
+// The cards of archived modules are hidden (kept in place, so the order and drag indexes stay); they are listed in
+// 「アーカイブ済み」 with the archived modules on GitHub that are not in the list.
+let archived = [];
 function markArchived() {
   for (const li of document.querySelectorAll('#module-list li[data-index]')) {
-    const m = modules[Number(li.dataset.index)], mark = li.querySelector('.module-archived');
-    if (m && mark) mark.hidden = !githubEntry(m)?.archived;
+    const m = modules[Number(li.dataset.index)];
+    if (m) li.hidden = !!githubEntry(m)?.archived;
   }
+  const local = modules.filter(m => githubEntry(m)?.archived).map(m => ({...m, repository: githubEntry(m).repository}));
+  const remote = (githubModules || []).filter(g => g.archived && !modules.some(m => sameRepository(g.repository, m.repository || m.name)))
+    .map(g => ({name: g.repository.split('/').pop(), repository: g.repository, path: '', exists: false, onlyGithub: true, description: g.description}));
+  archived = [...local, ...remote];
+  $('archived-modules').hidden = !archived.length;
+  $('archived-count').textContent = `（${archived.length}）`;
+  $('archived-list').innerHTML = archived.map((m, i) => `<li><div><strong>${esc(m.repository || m.name)}</strong>
+      <small>${m.onlyGithub ? 'このPCにはありません' : esc(m.path)}${m.description ? '　' + esc(m.description) : ''}</small></div>
+      <span class="archived-actions">${m.exists ? `<button type="button" data-archived="folder" data-i="${i}">フォルダを開く</button>` : ''}<button type="button" data-archived="unarchive" data-i="${i}">戻す</button><button type="button" class="danger-text" data-archived="delete" data-i="${i}">削除…</button></span></li>`).join('');
+  const shown = modules.length > 0 && [...document.querySelectorAll('#module-list li[data-index]')].some(li => !li.hidden);
+  $('no-active-modules').hidden = shown || !modules.length;
 }
+$('archived-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-archived]'); if (!button) return;
+  const m = archived[Number(button.dataset.i)];
+  if (button.dataset.archived === 'folder') { try { await ECO.call('open', {dir: m.path, path: ''}); } catch (e) { ECO.toast(e.message, 'bad'); } return; }
+  if (button.dataset.archived === 'delete') { putAwayModule(m); return; }
+  const doc = await ECO.run(m.exists ? m.path : null, ['module', 'unarchive', m.repository],
+    {success: r => `${r.repository} のアーカイブを戻しました。` + (m.onlyGithub ? '使うには「＋ モジュール追加」の「GitHubから取得」で取得してください。' : ''), busy: `${m.repository} を戻しています…`});
+  if (doc) { await loadGithubModules(); loadModules(); }
+});
 // A module opens in its own app window (like the hub), not in a browser tab: the server starts it.
 const openModule = path => ECO.call('open-window', {page: 'module.html?path=' + encodeURIComponent(path)})
   .catch(() => window.open('module.html?path=' + encodeURIComponent(path), '_blank'));
@@ -55,7 +79,7 @@ async function loadModules() {
   }
   list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="右クリックで操作、ドラッグで並び替え">
     <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span><span class="module-path">${esc(m.path)}</span>
-    ${m.exists ? '' : '<span class="module-state">フォルダが見つかりません</span>'}<span class="module-state module-archived" hidden title="GitHubのリポジトリは読み取り専用です。「片付ける」から戻すか削除できます">アーカイブ済み</span><span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
+    ${m.exists ? '' : '<span class="module-state">フォルダが見つかりません</span>'}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
     <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
       <button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>
       <button type="button" data-action="remove" data-index="${i}">一覧から外す</button>
@@ -114,9 +138,9 @@ $('cancel-add').addEventListener('click', () => addDialog.close());
 function renderCloneCandidates() {
   const box = $('clone-candidates'); if (!box) return;
   if (!githubModules) { box.innerHTML = '<p class="note"><span class="eco-spinner"></span> GitHubにあるモジュールを読み込んでいます…</p>'; return; }
-  const candidates = githubModules.filter(g => !modules.some(m => sameRepository(g.repository, m.repository || m.name)));
+  const candidates = githubModules.filter(g => !g.archived && !modules.some(m => sameRepository(g.repository, m.repository || m.name)));
   box.innerHTML = candidates.length ? `<p class="note">GitHubにあるモジュール（クリックで選ぶ）</p><ul>${candidates.map(g => `<li><button type="button" data-candidate="${esc(g.repository)}">
-      <strong>${esc(g.repository)}</strong><small>${esc([g.type, g.private ? '非公開' : '公開', g.archived ? 'アーカイブ済み' : '', g.updated ? '更新 ' + g.updated.slice(0, 10) : ''].filter(Boolean).join('・'))}${g.description ? '　' + esc(g.description) : ''}</small></button></li>`).join('')}</ul>`
+      <strong>${esc(g.repository)}</strong><small>${esc([g.type, g.private ? '非公開' : '公開', g.updated ? '更新 ' + g.updated.slice(0, 10) : ''].filter(Boolean).join('・'))}${g.description ? '　' + esc(g.description) : ''}</small></button></li>`).join('')}</ul>`
     : `<p class="note">${githubModules.length ? 'GitHubにあるモジュールは、すべて一覧にあります。' : 'GitHubにモジュールが見つかりませんでした。'}他の所有者のものは「所有者/名前」で入力してください。</p>`;
 }
 $('clone-candidates').addEventListener('click', event => {
@@ -256,12 +280,12 @@ const errorText = doc => [doc.error.message, doc.error.hint].filter(Boolean).joi
 function archiveModule(m, repository, dir) {
   return ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} をアーカイブしています…`, ok: 'アーカイブする',
     intro: `モジュールの片付けは2段階です。まず GitHub のリポジトリ <b>${esc(repository)}</b> をアーカイブ（読み取り専用）にし、使っていないことを確かめてから削除します。`,
-    fields: [{name: 'note', type: 'html', html: '<p class="eco-help">アーカイブ中は push・PR・Issue の変更ができません。アーカイブはいつでも元に戻せ、タスク管理の情報も残ります。手元のフォルダはそのままです。削除は、アーカイブした後にもう一度「片付ける」から行います。</p>'}],
+    fields: [{name: 'note', type: 'html', html: '<p class="eco-help">アーカイブしたモジュールは、一覧の下の「アーカイブ済み」に移ります。そこから、いつでも戻すか、削除できます。アーカイブ中は push・PR・Issue の変更ができません。タスク管理の情報と手元のフォルダはそのまま残ります。</p>'}],
     submit: async () => {
       const doc = await ECO.cli(dir, ['module', 'archive', repository, '--yes']);
       if (!doc.ok) return errorText(doc);
-      ECO.toast(`${doc.result.repository} をアーカイブしました（読み取り専用）。`, 'ok', 8000);
-      loadModules(); loadGithubModules();
+      ECO.toast(`${doc.result.repository} をアーカイブしました（読み取り専用）。一覧の下の「アーカイブ済み」に移しました。`, 'ok', 8000);
+      await loadGithubModules(); loadModules();
     }});
 }
 
@@ -282,7 +306,7 @@ async function deleteArchivedModule(m, repository, dir, question) {
         const doc = await ECO.cli(dir, ['module', 'unarchive', repository]);
         if (!doc.ok) return errorText(doc);
         ECO.toast(`${doc.result.repository} のアーカイブを戻しました。`, 'ok', 8000);
-        loadModules(); loadGithubModules();
+        await loadGithubModules(); loadModules();
         return;
       }
       if (v.confirmName.trim().toLowerCase() !== repository.toLowerCase()) return `削除するには、${repository} と入力してください。`;
@@ -293,8 +317,8 @@ async function deleteArchivedModule(m, repository, dir, question) {
       ECO.toast(`${r.repository} を削除しました（GitHubのアカウントの設定から、90日以内なら元に戻せます）。`, 'ok', 10000);
       if (v.removeClone && r.clone && !r.clone_removed) ECO.toast(`手元のフォルダ ${r.clone} は、他のプログラムが使っているため削除できませんでした。閉じてから削除してください。`, 'bad', 15000);
       if (v.removeClone && m.exists && !r.clone) ECO.toast(`手元のフォルダ ${m.path} は、このモジュールのcloneとして見つからなかったため残しています。`, 'bad', 15000);
-      await ECO.call('modules/remove', {path: m.path});
-      loadModules(); loadGithubModules();
+      if (m.path) await ECO.call('modules/remove', {path: m.path});
+      await loadGithubModules(); loadModules();
     }});
   if (permission) {
     const add = await ECO.dialog({title: 'GitHubの権限が足りません', body: '<p>GitHubへのログインに、リポジトリを削除する権限（delete_repo）がありません。</p><p class="eco-help">「権限を追加する」で端末の窓が開き、ブラウザで承認します。終わったら、もう一度「片付ける」から削除してください。</p>',

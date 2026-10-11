@@ -110,8 +110,18 @@
 .module-list li.dragging { opacity: .4; }
 
 /* GitHub archived mark on a card, and the modules on GitHub offered in "GitHubから取得". */
-.module-state.module-archived { color: #c9b8f2; }
-.module-state.module-archived[hidden] { display: none; }
+.module-list li[hidden], .empty-modules[hidden] { display: none; }
+.archived-modules { margin-top: 28px; border-top: 1px solid #2c333c; padding-top: 14px; }
+.archived-modules > summary { cursor: pointer; color: #a5aeba; font-size: 14px; font-weight: 600; }
+.archived-modules > .note { margin: 8px 0 10px; }
+.archived-modules ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.archived-modules li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border: 1px solid #2c333c; border-radius: 8px; background: #161b21; }
+.archived-modules li strong { display: block; font-size: 14px; color: #c3cad3; }
+.archived-modules li small { display: block; font-size: 12px; color: #8a94a0; margin-top: 2px; word-break: break-all; }
+.archived-actions { display: flex; gap: 6px; flex: none; }
+.archived-actions button { border: 1px solid #46515e; background: #222831; color: #edf1f5; border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+.archived-actions button:hover { background: #2c343e; }
+.archived-actions button.danger-text { color: #ffb4b4; }
 .clone-candidates ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--line, #2c333c); border-radius: 8px; }
 .clone-candidates li + li { border-top: 1px solid #262c34; }
 .clone-candidates button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 0; padding: 8px 10px; color: inherit; cursor: pointer; }

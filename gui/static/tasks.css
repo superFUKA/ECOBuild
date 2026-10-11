@@ -193,7 +193,7 @@
 .tk-pf-head .tk-avatar { width: 52px; height: 52px; font-size: 20px; }
 .tk-pf-name { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; }
 .tk-pf-head .tk-d-close { margin-left: auto; align-self: flex-start; }
-.tk-pf-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.tk-pf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .tk-pf-stat { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #171c22; }
 .tk-pf-stat b { display: block; font-size: 22px; } .tk-pf-stat span { font-size: 12px; color: var(--muted); } .tk-pf-stat.bad b { color: var(--bad); }
 .tk-pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -215,3 +215,17 @@
 .tl-bar.dragging { cursor: grabbing; opacity: .8; z-index: 3; }
 .tl-bar .tl-grip { display: none; }
 .tl-bar.movable .tl-grip { display: block; position: absolute; top: 0; right: 0; bottom: 0; width: 8px; cursor: ew-resize; }
+
+/* Estimate, sprint, 次にやる, スプリント. */
+.tk-est { font-size: 11px; color: #cdd5df; font-variant-numeric: tabular-nums; } .tk-est::before { content: "≈"; color: var(--muted); margin-right: 1px; }
+.tk-sprint { font-size: 11px; color: var(--muted); white-space: nowrap; } .tk-sprint.now { color: var(--accent); }
+.tk-kcard-meta .tk-est, .tk-kcard-meta .tk-sprint { margin-left: 6px; }
+.tk-next-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid #262c34; cursor: pointer; font-size: 13px; flex-wrap: wrap; }
+.tk-next-row:hover { background: #1a2027; } .tk-next-row[aria-selected=true] { background: #1f302b; } .tk-next-row:last-child { border-bottom: 0; }
+.tk-grow { flex: 1; min-width: 160px; }
+.tk-rank { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #213a33; color: #a8ead9; font-size: 11px; font-weight: 700; }
+.tk-reason { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #3d3324; color: var(--warn); white-space: nowrap; }
+.tk-section-head .tk-stage + .tk-stage { margin-left: 10px; }
+.tk-sprint-pick { margin-bottom: 12px; font-size: 13px; color: #cdd5df; }
+.tk-progress { height: 8px; border-radius: 4px; background: #2a3139; overflow: hidden; margin: 12px 0 4px; } .tk-progress span { display: block; height: 100%; background: var(--accent); }
+.tk-pf-stat.warn b { color: var(--warn); }

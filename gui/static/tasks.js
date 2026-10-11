@@ -1,6 +1,6 @@
 'use strict';
 // Task management: task list / status / new / edit / plan / comment / close / reopen / start / remove / drop / clean,
-// task workload, milestone list, pr list. Every change runs ecobuild. Where ecobuild keeps the stages and plans on
+// task next / overdue / workload, sprint list / status, milestone list, pr list. Every change runs ecobuild. Where ecobuild keeps the stages and plans on
 // GitHub is ecobuild's business: the screen only deals with tasks.
 (() => {
   const tkEl = id => document.getElementById(id);
@@ -9,7 +9,8 @@
   const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
   const PRIORITIES = ['High', 'Middle', 'Low'];   // task plan --priority（高い順）
   const STAGE = Object.fromEntries(STAGES.map(s => [s[0], s]));
-  const st = {tasks: [], milestones: [], loaded: false, loading: false, view: 'list', selected: 0, details: new Map(), assignee: '', sort: {key: 'number', dir: 1}, person: ''};
+  const st = {tasks: [], milestones: [], sprints: [], loaded: false, loading: false, view: 'list', selected: 0, details: new Map(), assignee: '', sprint: '', milestone: '', sort: {key: 'number', dir: 1}, person: '',
+    extra: {}, sprintShown: ''};   // extra: what the 次にやる / スプリント views read (cleared when the tasks are read again)
   const me = () => MOD.me;
   const root = () => MOD.root;
 
@@ -26,6 +27,11 @@
   const avatars = t => t.assignees.length ? t.assignees.map(avatar).join('') : avatar('');
   const flags = t => (t.blocked_by && t.state === 'open' ? `<span class="tk-flag blocked">待ち ${t.blocked_by}</span>` : '') + (t.subtasks ? `<span class="tk-flag">子 ${t.subtasks_done}/${t.subtasks}</span>` : '') + (t.current || t.workspace ? '<span class="tk-flag">作業空間</span>' : t.remote ? '<span class="tk-flag">GitHubに作業空間</span>' : '');
   const sel = t => `aria-selected="${t.number === st.selected}" data-task="${t.number}"`;
+  // Sprints: task list gives the name, sprint status the whole sprint. A sprint runs from start to the day before end.
+  const sprintName = t => typeof t.sprint === 'string' ? t.sprint : t.sprint?.name || '';
+  const currentSprint = () => st.sprints.find(s => s.start <= today() && today() < s.end)?.name || '';
+  const est = t => t.estimate != null ? `<span class="tk-est" title="見積もり">${t.estimate}</span>` : '';
+  const sprintTag = t => sprintName(t) ? `<span class="tk-sprint ${sprintName(t) === currentSprint() ? 'now' : ''}" title="スプリント">${esc(sprintName(t))}</span>` : '';
 
   // Loading ---------------------------------------------------------------------------------------
   async function load({full = false} = {}) {
@@ -33,13 +39,14 @@
     if (!st.loaded) tkEl('tk-main').innerHTML = ECO.loading('タスクを読み込んでいます…');
     const args = ['task', 'list', ...(tkEl('tk-closed').checked ? ['--all'] : []), ...(tkEl('tk-ready').checked ? ['--ready'] : [])];
     const jobs = [ECO.cli(root(), args, {quiet: true})];
-    if (full || !st.loaded) jobs.push(ECO.cli(root(), ['milestone', 'list'], {quiet: true}));
-    const [list, milestones] = await Promise.all(jobs);
-    st.loading = false;
+    if (full || !st.loaded) jobs.push(ECO.cli(root(), ['milestone', 'list'], {quiet: true}), ECO.cli(root(), ['sprint', 'list'], {quiet: true}));
+    const [list, milestones, sprints] = await Promise.all(jobs);
+    st.loading = false; st.extra = {};
     if (milestones?.ok) st.milestones = milestones.result;
+    if (sprints?.ok) st.sprints = sprints.result;
     if (!list.ok) { tkEl('tk-main').innerHTML = `<div class="eco-banner bad">${esc(list.error.message)}${list.error.hint ? '<br>' + esc(list.error.hint) : ''}</div>`; return; }
     st.tasks = list.result; st.loaded = true;
-    renderAssigneeOptions(); render();
+    renderAssigneeOptions(); renderFilterOptions(); render();
   }
   async function reloadAfter(n) { if (n) st.details.delete(n); await load(); if (n && st.selected === n) loadDetail(n); }
 
@@ -49,17 +56,30 @@
     tkEl('tk-assignee').innerHTML = [['', '担当者：すべて'], ['@me', '自分'], ...accounts.filter(a => a !== me()).map(a => [a, a]), ['-', '担当なし']].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
     tkEl('tk-assignee').value = current;
   }
+  function renderFilterOptions() {
+    const now = currentSprint(), option = ([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`;
+    tkEl('tk-sprint').innerHTML = [['', 'スプリント：すべて'], ...(now ? [['current', `今のスプリント（${now}）`]] : []), ...st.sprints.map(s => [s.name, `${s.name}（${md(s.start)}〜）`]), ['-', 'スプリントなし']].map(option).join('');
+    tkEl('tk-sprint').value = [...tkEl('tk-sprint').options].some(o => o.value === st.sprint) ? st.sprint : '';
+    const names = [...new Set([...st.milestones.map(m => m.title), ...st.tasks.map(t => t.milestone).filter(Boolean)])];
+    tkEl('tk-milestone').innerHTML = [['', 'マイルストーン：すべて'], ...names.map(m => [m, m]), ['-', 'マイルストーンなし']].map(option).join('');
+    tkEl('tk-milestone').value = [...tkEl('tk-milestone').options].some(o => o.value === st.milestone) ? st.milestone : '';
+  }
 
   // Views -----------------------------------------------------------------------------------------
   const assignedTo = (t, who) => who === '' ? true : who === '-' ? !t.assignees.length : t.assignees.includes(who === '@me' ? me() : who);
   const search = () => tkEl('tk-search').value.trim().toLowerCase();
-  const visible = () => st.tasks.filter(t => assignedTo(t, st.assignee) && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()));
+  const inSprint = (t, s) => s === '' ? true : s === '-' ? !sprintName(t) : sprintName(t) === (s === 'current' ? currentSprint() : s);
+  const inMilestone = (t, m) => m === '' ? true : m === '-' ? !t.milestone : t.milestone === m;
+  const visible = () => st.tasks.filter(t => assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone)
+    && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()));
   const PRIO_RANK = t => t.priority ? PRIORITIES.indexOf(t.priority) : 99;
-  const SORT_KEYS = {number: t => t.number, title: t => t.title, stage: t => STAGES.findIndex(s => s[0] === stageOf(t)), priority: PRIO_RANK, due: t => t.due || '9999', assignee: t => t.assignees[0] || '￿'};
+  const SPRINT_RANK = t => { const i = st.sprints.findIndex(s => s.name === sprintName(t)); return i < 0 ? 9999 : i; };
+  const SORT_KEYS = {number: t => t.number, title: t => t.title, stage: t => STAGES.findIndex(s => s[0] === stageOf(t)), priority: PRIO_RANK, due: t => t.due || '9999',
+    estimate: t => t.estimate ?? 1e9, sprint: SPRINT_RANK, assignee: t => t.assignees[0] || '￿'};
   const sorted = ts => [...ts].sort((a, b) => { const f = SORT_KEYS[st.sort.key], x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : a.number - b.number) * st.sort.dir; });
   const sortHead = (key, label) => `<th><button type="button" class="tk-sort ${st.sort.key === key ? 'on' : ''}" data-sort="${key}">${label}<span aria-hidden="true">${st.sort.key === key ? (st.sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
-  const taskTable = (ts, withAssignee = true) => `<table class="tk-table"><thead><tr>${sortHead('number', '#')}${sortHead('title', '題名')}${sortHead('stage', '状態')}${sortHead('priority', '優先度')}${sortHead('due', '期限')}${withAssignee ? sortHead('assignee', '担当') : ''}</tr></thead><tbody>
-    ${sorted(ts).map(t => `<tr ${sel(t)} class="${t.state === 'open' ? '' : 'closed'}"><td class="tk-num-cell"><span class="tk-num">#${t.number}</span></td><td class="tk-title-cell">${esc(t.title)} ${flags(t)}</td><td>${stageBadge(t)}</td><td>${prio(t)}</td><td>${due(t)}</td>${withAssignee ? `<td>${avatars(t)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+  const taskTable = (ts, withAssignee = true) => `<table class="tk-table"><thead><tr>${sortHead('number', '#')}${sortHead('title', '題名')}${sortHead('stage', '状態')}${sortHead('priority', '優先度')}${sortHead('due', '期限')}${sortHead('estimate', '見積')}${sortHead('sprint', 'スプリント')}${withAssignee ? sortHead('assignee', '担当') : ''}</tr></thead><tbody>
+    ${sorted(ts).map(t => `<tr ${sel(t)} class="${t.state === 'open' ? '' : 'closed'}"><td class="tk-num-cell"><span class="tk-num">#${t.number}</span></td><td class="tk-title-cell">${esc(t.title)} ${flags(t)}</td><td>${stageBadge(t)}</td><td>${prio(t)}</td><td>${due(t)}</td><td>${est(t)}</td><td>${sprintTag(t)}</td>${withAssignee ? `<td>${avatars(t)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
   function renderList() {
     const ts = visible();
     return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了した作業空間を片付ける</button></div>';
@@ -68,7 +88,7 @@
     return `<div class="tk-kanban">${STAGES.map(([key, ja, cls]) => {
       const cards = visible().filter(t => stageOf(t) === key);
       return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span><small>${cards.length}</small></div><div class="tk-column-cards">
-      ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
+      ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}${est(t)}${sprintTag(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
       </div></section>`;
     }).join('')}</div>`;
   }
@@ -94,7 +114,47 @@
   }
   function scrollToToday() { const wrap = document.querySelector('.tl-wrap'), nowLine = document.querySelector('.tl-now'); if (wrap && nowLine) wrap.scrollLeft = Math.max(0, nowLine.offsetLeft - 220 - 7 * 28); }
 
-  const VIEWS = {list: renderList, stages: renderStages, timeline: renderTimeline};
+  // 次にやる: task next (the order and the reasons are ecobuild's) and task overdue. Read when the view is shown.
+  function renderNext() {
+    const mine = st.assignee === '@me', key = 'next' + (mine ? '-mine' : '');
+    const data = st.extra[key];
+    if (!data) { fetchExtra(key, () => Promise.all([ECO.cli(root(), ['task', 'next', '--count', '10', ...(mine ? ['--mine'] : [])], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true})])); return ECO.loading('次にやるタスクを調べています…'); }
+    const [next, overdue] = data;
+    if (!next.ok) return `<div class="eco-banner bad">${esc(next.error.message)}</div>`;
+    const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${sprintTag(t)}${avatars(t)}</div>`;
+    const items = next.result.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`));
+    const late = overdue.ok ? overdue.result.overdue : [], soon = overdue.ok ? overdue.result.soon : [];
+    return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク<span class="tk-muted">着手できるものを、期限切れ・今のスプリント・優先度・期限の順に${mine ? '（自分の担当）' : '（担当者で「自分」を選ぶと自分の分だけ）'}</span></h3></div>
+      ${items.length ? items.join('') : '<p class="tk-muted">着手できるタスクはありません。</p>'}</section>
+      <section class="tk-card"><div class="tk-section-head"><h3>期限切れ<span class="tk-muted">${late.length} 件</span></h3></div>${late.length ? late.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>
+      <section class="tk-card"><div class="tk-section-head"><h3>期限が近い<span class="tk-muted">7日以内</span></h3></div>${soon.length ? soon.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>`;
+  }
+  // スプリント: sprint status (counts, estimates, days left, carried over) for the chosen sprint (the current one first).
+  function renderSprint() {
+    if (!st.sprints.length) return '<p class="tk-empty">スプリントはまだありません。</p>';
+    const name = st.sprintShown || currentSprint() || st.sprints[0].name, key = 'sprint:' + name;
+    const picker = `<div class="tk-sprint-pick"><label>スプリント <select id="tk-sprint-shown">${st.sprints.map(s => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.name)}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}</option>`).join('')}</select></label></div>`;
+    const data = st.extra[key];
+    if (!data) { fetchExtra(key, () => ECO.cli(root(), ['sprint', 'status', name], {quiet: true})); return picker + ECO.loading('スプリントを調べています…'); }
+    if (!data.ok) return picker + `<div class="eco-banner bad">${esc(data.error.message)}</div>`;
+    const s = data.result, pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+    const tasks = s.tasks.map(t => byNumber(t.number) || t), numberOf = x => typeof x === 'number' ? x : x.number;
+    const stat = (label, value, cls = '') => `<div class="tk-pf-stat ${cls}"><b>${value}</b><span>${label}</span></div>`;
+    const counts = STAGES.filter(([k]) => s.stages[k]).map(([k, ja, cls]) => `<span class="tk-stage ${cls}">${ja} ${s.stages[k]}</span>`).join('');
+    const list = (title, xs) => xs.length ? `<p class="tk-note">${title}：${xs.map(numberOf).map(n => `<span class="tk-label" data-task="${n}" style="cursor:pointer">#${n} ${esc(byNumber(n)?.title || '')}</span>`).join('')}</p>` : '';
+    return picker + `<section class="tk-card"><div class="tk-section-head"><h3>${esc(s.sprint.name)}<span class="tk-muted">${md(s.sprint.start)}〜${md(s.sprint.end)}${s.current ? `・残り ${s.days_left} 日` : ''}</span></h3><div>${counts}</div></div>
+      <div class="tk-pf-stats">${stat('完了 / 全体', `${s.done} / ${s.total}`)}${stat('見積もりの残り', s.estimate_remaining)}${stat('見積もりの合計', s.estimate_total)}${stat('見積もりなし', s.unestimated.length, s.unestimated.length ? 'warn' : '')}</div>
+      <div class="tk-progress" title="完了した見積もり ${s.estimate_done} / ${s.estimate_total}"><span style="width:${pct(s.estimate_done, s.estimate_total) || pct(s.done, s.total)}%"></span></div>
+      ${list('見積もりのないタスク', s.unestimated)}${list('前のスプリントからの持ち越し', s.carried_over)}</section>
+      ${tasks.length ? taskTable(tasks) : '<p class="tk-empty">このスプリントのタスクはありません。タスクの詳細か右クリックでスプリントに入れられます（親タスクは数えません）。</p>'}`;
+  }
+  function fetchExtra(key, job) {
+    if (st.extra[key] !== undefined) return;
+    st.extra[key] = null;
+    job().then(result => { st.extra[key] = result; if (st.loaded) render(); }).catch(() => { delete st.extra[key]; });
+  }
+
+  const VIEWS = {next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
@@ -141,6 +201,8 @@
       <dt>開始予定</dt><dd><input type="date" data-plan="planned_start" value="${esc(t.planned_start || '')}" ${dis}></dd>
       <dt>終了予定</dt><dd><input type="date" data-plan="planned_end" value="${esc(t.planned_end || '')}" ${dis}></dd>
       <dt>期限</dt><dd><input type="date" data-plan="due" value="${esc(t.due || '')}" ${dis}></dd>
+      <dt>見積もり</dt><dd><input type="number" min="0" step="0.5" data-plan="estimate" value="${t.estimate ?? ''}" placeholder="なし" ${dis} style="width:90px"></dd>
+      <dt>スプリント</dt><dd><select data-plan="sprint" ${dis}>${sprintOptions(sprintName(t)).map(([v, l]) => `<option value="${esc(v)}" ${v === sprintName(t) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></dd>
       <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を加える">＋</button></dd>
       <dt>ラベル</dt><dd class="tk-chips">${d.labels.map(l => `<span class="tk-chip">${esc(l)}<button type="button" class="x" data-remove-label="${esc(l)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-label" title="ラベルを付ける">＋</button></dd>
       <dt>マイルストーン</dt><dd><select data-milestone><option value="">なし</option>${st.milestones.map(m => `<option ${m.title === d.milestone ? 'selected' : ''}>${esc(m.title)}</option>`).join('')}${d.milestone && !st.milestones.some(m => m.title === d.milestone) ? `<option selected>${esc(d.milestone)}</option>` : ''}</select></dd>
@@ -170,6 +232,8 @@
     return st.members;
   }
   const memberOptions = list => list.map(m => [m, m === me() ? `${m}（自分）` : m]);
+  const sprintOptions = (current = '') => [['', 'なし'], ...st.sprints.map(s => [s.name, `${s.name}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}`]),
+    ...(current && !st.sprints.some(s => s.name === current) ? [[current, current]] : [])];
   const parentOptions = (self, current) => [['', 'なし'], ...st.tasks.filter(t => t.number !== self && (t.state === 'open' || t.number === current))
     .sort((a, b) => a.number - b.number).map(t => [String(t.number), `#${t.number} ${t.title}`]),
     ...(current && !st.tasks.some(t => t.number === current) ? [[String(current), `#${current}`]] : [])];
@@ -218,6 +282,10 @@
       {name: 'blockedBy', label: '先に終わるべきタスクの番号（カンマ区切り）'},
       {name: 'milestone', label: 'マイルストーン', type: 'select', options: [['', 'なし'], ...st.milestones.map(m => [m.title, m.title + (m.due ? `（${m.due}）` : '')])]},
       {name: 'due', label: '期限', type: 'date'}, {name: 'plannedStart', label: '開始予定日', type: 'date'}, {name: 'plannedEnd', label: '終了予定日', type: 'date'},
+      {name: 'priority', label: '優先度', type: 'select', value: preset.priority || '', options: [['', 'なし'], ...PRIORITIES.map(p => [p, p])]},
+      {name: 'estimate', label: '見積もり（数値。任意）', type: 'number'},
+      {name: 'sprint', label: 'スプリント', type: 'select', value: preset.sprint || '', options: sprintOptions()},
+      {name: 'stage', label: '段階', type: 'radio', value: preset.stage || 'todo', options: [['todo', '未着手', 'すぐに着手できる'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
       {name: 'start', label: '作成したら、このモジュールのcloneで作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'}], ok: '作成',
       submit: async v => {
         const args = ['task', 'new', v.title];
@@ -229,6 +297,9 @@
         if (!doc) return '作成できませんでした。';
         const n = (doc.result.task || doc.result).number;
         st.members = null;
+        // task new has no priority, estimate, sprint or stage: set them with task plan.
+        const planArgs = [...(v.priority ? ['--priority', v.priority] : []), ...(v.estimate ? ['--estimate', v.estimate] : []), ...(v.sprint ? ['--sprint', v.sprint] : []), ...(!v.start && v.stage === 'planned' ? ['--stage', 'planned'] : [])];
+        if (planArgs.length && !await run(['task', 'plan', String(n), ...planArgs], {quietErrors: true})) { await reloadAfter(); select(n); return `#${n} は作りましたが、計画の値を保存できませんでした。`; }
         if (v.start) { await MOD.reloadPlace(root()); }
         await reloadAfter(); select(n);
       }});
@@ -304,7 +375,7 @@
     reloadAfter();
   }
   async function plan(n, key, value) {
-    const option = {priority: '--priority', due: '--due', planned_start: '--planned-start', planned_end: '--planned-end'}[key];
+    const option = {priority: '--priority', due: '--due', estimate: '--estimate', sprint: '--sprint', planned_start: '--planned-start', planned_end: '--planned-end'}[key];
     const args = ['task', 'plan', String(n), ...(value ? [option, value] : ['--clear', key])];
     if (await run(args, {success: '計画を保存しました。'})) reloadAfter(n); else renderDetail();
   }
@@ -326,7 +397,7 @@
     const section = (title, html, extra = '') => `<section class="tk-pf-section ${extra}"><h4>${title}</h4>${html || '<p class="tk-muted">ありません</p>'}</section>`;
     body.innerHTML = `<div class="tk-pf"><header class="tk-pf-head">${avatarMark(who)}<div><div class="tk-pf-name">${esc(who)}${who === me() ? '<span class="tk-pill ok">自分</span>' : ''}</div><div class="tk-muted">GitHub アカウント</div></div>
       <button type="button" class="tk-d-close" data-close-person title="閉じる" aria-label="閉じる">×</button></header>
-      <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中', w ? w.in_progress : doing.length)}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('開いているPR', own.length)}</div>
+      <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中', w ? w.in_progress : doing.length)}${stat('残りの見積もり', w ? w.estimate_remaining : '-')}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('開いているPR', own.length)}</div>
       <div class="tk-pf-grid">${section('作業中', doing.map(taskRow).join(''))}${section('プルリクエスト', own.map(prRow).join(''))}${who === me() ? section('レビューを頼まれているPR', asked.map(prRow).join('')) : ''}
       ${section('担当タスク', ts.length ? taskTable(ts, false) : '', 'wide')}</div></div>`;
   }
@@ -343,6 +414,8 @@
       ['担当者を加える…', async () => { await detailOf(n); addAssigneeDialog(n); }],
       ...(me() ? [mine ? ['自分を担当から外す', () => editList(n, '--remove-assignee', '@me', '担当から外れました。')] : ['自分を担当にする', () => editList(n, '--add-assignee', '@me', '担当にしました。')]] : []),
       ...(open ? PRIORITIES.map(p => [`優先度：${p}${t.priority === p ? '（今）' : ''}`, () => plan(n, 'priority', p), t.priority !== p]).concat(t.priority ? [['優先度を消す', () => plan(n, 'priority', '')]] : []) : []),
+      ...(open ? ['-', ...(currentSprint() ? [[`今のスプリント（${currentSprint()}）に入れる`, () => plan(n, 'sprint', currentSprint()), sprintName(t) !== currentSprint()]] : []), ...(sprintName(t) ? [['スプリントから外す', () => plan(n, 'sprint', '')]] : [])] : []),
+      ...(open && !hasWorkspace && !t.remote && ['planned', 'todo'].includes(stageOf(t)) ? [stageOf(t) === 'planned' ? ['未着手にする', () => setStage(n, 'todo')] : ['計画中に戻す', () => setStage(n, 'planned')]] : []),
       '-',
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
@@ -383,8 +456,9 @@
     }
     if (stage === 'in_review') return ECO.toast('レビュー待ちには、作業空間でプルリクエストを提出すると移ります。', 'info', 6000);
     if (MOD.placeOfTask(n) || t.workspace || t.remote) return ECO.toast('作業空間があるタスクです。作業をやめると未着手に戻ります。', 'info', 6000);
-    if (await run(['task', 'plan', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n);
+    setStage(n, stage);
   });
+  async function setStage(n, stage) { if (await run(['task', 'plan', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n); }
 
   // Drag a timeline bar to move its planned dates; drag its right edge to change the planned end.
   let barDrag = null;
@@ -421,6 +495,8 @@
   document.querySelector('.tk-views').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) { st.view = b.dataset.view; render(); } });
   tkEl('tk-search').addEventListener('input', render);
   tkEl('tk-assignee').addEventListener('change', e => { st.assignee = e.target.value; render(); });
+  tkEl('tk-sprint').addEventListener('change', e => { st.sprint = e.target.value; render(); });
+  tkEl('tk-milestone').addEventListener('change', e => { st.milestone = e.target.value; render(); });
   tkEl('tk-ready').addEventListener('change', () => load());
   tkEl('tk-closed').addEventListener('change', () => load());
   tkEl('tk-reload').addEventListener('click', () => { st.details.clear(); load({full: true}).then(() => st.selected && loadDetail(st.selected)); });
@@ -462,6 +538,7 @@
     if (task && !e.target.closest('button, select, input, textarea')) select(Number(task.dataset.task));
   });
   document.addEventListener('change', e => {
+    if (e.target.id === 'tk-sprint-shown') { st.sprintShown = e.target.value; render(); return; }
     if (!e.target.closest('#tk-detail')) return;
     if (e.target.dataset.plan) plan(st.selected, e.target.dataset.plan, e.target.value);
     if (e.target.matches('[data-milestone]')) {

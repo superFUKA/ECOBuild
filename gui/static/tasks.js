@@ -324,10 +324,18 @@
   }
 
   async function startDialog(n) {
-    const t = byNumber(n) || {}, d = st.details.get(n) || {}, defaults = await moduleDefaults();
+    const t = byNumber(n) || {}, d = st.details.get(n) || {};
+    const [defaults, branches] = await Promise.all([moduleDefaults(), ECO.cli(root(), ['branch', 'list'], {quiet: true})]);
     const parent = d.parent?.number || t.parent || 0;
     // The default base: a child task starts from its parent's workspace; otherwise default_base (ecobuild.toml).
     const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
+    // The base is chosen from the branches (ecobuild branch list): the plain ones first, then the other workspaces.
+    // If the list cannot be read, it is typed in.
+    const branchOptions = branches.ok ? [...branches.result.filter(b => !b.is_workspace), ...branches.result.filter(b => b.is_workspace && b.name !== `task/${n}`)].map(b => {
+      const task = b.is_workspace ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
+      return [b.name, b.is_workspace ? `${b.name}（作業空間${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
+    }) : null;
+    if (branchOptions && base && !branchOptions.some(([name]) => name === base)) branchOptions.unshift([base, `${base}（まだありません）`]);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
     await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} の作業空間を用意しています…`, fields: [
       {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
@@ -335,7 +343,7 @@
         ['dir', '専用のcloneを作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
         ['none', '作業空間を作らない', '調査・設計など、コードを変えないタスク（作業中にするだけ）']]},
       {name: 'dir', label: '専用のcloneの場所', value: suggested, showIf: v => v.place === 'dir'},
-      {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none',
+      {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', ...(branchOptions ? {type: 'select', options: branchOptions} : {}),
         help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されたもの）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : [])], ok: '開始',
       submit: async v => {

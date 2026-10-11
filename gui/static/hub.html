@@ -21,7 +21,7 @@
       <ul class="module-list" id="module-list" aria-label="モジュール一覧"><li class="empty-modules" style="grid-column:1/-1">読み込んでいます…</li></ul>
       <p class="empty-modules" id="no-active-modules" hidden>アーカイブしていないモジュールはありません。</p>
       <details class="archived-modules" id="archived-modules" hidden><summary>アーカイブ済み <span id="archived-count"></span></summary>
-        <p class="note">GitHubで読み取り専用にしたモジュールです。戻すとまた使えます。使わないと確かめたら削除できます。</p>
+        <p class="note">アーカイブ（読み取り専用に）したモジュールです。アーカイブを解除すると再び変更でき、不要なら削除できます。</p>
         <ul id="archived-list"></ul></details>
     </section>
     <section id="settings" aria-labelledby="settings-title" hidden>
@@ -29,7 +29,7 @@
       <p class="note">すべてのモジュールに共通する設定と開発環境</p>
       <section class="settings-card" aria-labelledby="owner-title">
         <h3 id="owner-title">既定の所有者</h3>
-        <p class="note">作成・取得時に所有者を省略すると、このユーザーまたは組織を使います。</p>
+        <p class="note">モジュールの作成・取得で所有者を指定しなかったときに使う、GitHubのユーザーまたは組織です。</p>
         <form id="owner-form"><label class="field">GitHubのユーザー名・組織名<input id="default-owner" placeholder="未設定ならログイン中のユーザー" autocomplete="off"></label>
           <div class="settings-actions"><button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="reset-owner">既定に戻す</button></div></form>
         <p id="owner-status" class="note" role="status"></p>
@@ -41,9 +41,9 @@
       </section>
       <section class="settings-card" aria-labelledby="setup-title">
         <h3 id="setup-title">環境の準備</h3>
-        <p class="note">gitが GitHub CLI の認証を使うようにし、コミットの作者情報を設定します。</p>
+        <p class="note">Git が GitHub CLI の認証を使うように設定し、コミットの作成者（名前・メールアドレス）を設定します。</p>
         <form id="setup-form">
-          <div class="form-grid"><label class="field">名前<input name="name" autocomplete="name" placeholder="変更する場合に入力"></label><label class="field">メールアドレス<input name="email" type="email" autocomplete="email" placeholder="変更する場合に入力"></label></div>
+          <div class="form-grid"><label class="field">名前<input name="name" autocomplete="name" placeholder="変更するときだけ入力"></label><label class="field">メールアドレス<input name="email" type="email" autocomplete="email" placeholder="変更するときだけ入力"></label></div>
           <label class="check"><input type="checkbox" name="install"> 不足しているツールもインストールする（winget）</label>
           <div class="settings-actions"><button type="submit" class="add-button">環境を準備する</button></div>
         </form>
@@ -52,7 +52,7 @@
       <section class="settings-card" aria-labelledby="about-title">
         <h3 id="about-title">このGUI</h3>
         <p class="note" id="about"></p>
-        <p class="note">GUIは裏で動いています。窓をすべて閉じると、しばらくして自動で終わります。すぐに終わらせるときは「GUIを終了」を押します。</p>
+        <p class="note">GUIはバックグラウンドで動いています。ウィンドウをすべて閉じると、しばらくして自動で終了します。すぐに終了するには「GUIを終了」を押してください。</p>
         <div class="settings-actions"><button type="button" class="cancel" id="make-shortcut" title="アイコン付きのショートカットを、デスクトップとスタートメニューに作る">ショートカットを作る</button><button type="button" class="cancel" id="quit-gui">GUIを終了</button></div>
       </section>
     </section>
@@ -61,11 +61,11 @@
   <dialog id="add-dialog" aria-labelledby="add-title">
     <form id="add-form">
       <div class="dialog-heading"><div><span class="eyebrow">ECOBuild / モジュール</span><h2 id="add-title">モジュールを追加</h2></div></div>
-      <p class="note dialog-intro">新しく作るか、GitHubにあるモジュールを取得するか、手元にあるモジュールを一覧に登録します。</p>
+      <p class="note dialog-intro">新しく作成する、GitHubから取得する、または手元のフォルダを一覧に登録します。</p>
       <fieldset class="method-options three"><legend class="sr-only">追加方法</legend>
-        <label class="method-option"><input type="radio" name="method" value="new" checked><span><strong>新規作成</strong><small>新しいモジュールを始める</small></span></label>
-        <label class="method-option"><input type="radio" name="method" value="clone"><span><strong>GitHubから取得</strong><small>既存のモジュールを手元へ</small></span></label>
-        <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのものを登録</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="new" checked><span><strong>新規作成</strong><small>新しいモジュールを作成</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="clone"><span><strong>GitHubから取得</strong><small>既存のモジュールをclone</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのフォルダを登録</small></span></label>
       </fieldset>
       <fieldset id="new-fields" style="border:0;padding:0;margin:0">
         <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label>
@@ -73,14 +73,14 @@
         <p class="note" id="type-description"></p>
         <details class="more-options"><summary>詳細設定 <span>説明・所有者・公開範囲</span></summary>
           <label class="field">説明（任意）<textarea name="description" rows="2"></textarea></label>
-          <label class="field">所有者（任意）<input name="owner" placeholder="未指定なら設定値またはログイン中のユーザー"></label>
+          <label class="field">所有者（任意）<input name="owner" placeholder="省略時は既定の所有者（未設定ならログイン中のユーザー）"></label>
           <label class="check"><input type="checkbox" name="public"> 公開リポジトリにする</label>
-          <p class="note">既定は非公開です。GitHubリポジトリの作成と初回Pushも行います。</p>
+          <p class="note">既定は非公開です。GitHubのリポジトリ作成と初回のPushもまとめて行います。</p>
           <label class="check" id="app-field"><input type="checkbox" name="app"> 実行ファイル用のProjectも作る</label></details>
       </fieldset>
       <fieldset id="clone-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">GitHubリポジトリ<input name="repository" placeholder="所有者/名前 または 名前" pattern="[^/\s]+(/[^/\s]+)?" required></label>
-        <p class="note">ECOBuildで作られたモジュールを取得し、依存先と生成ファイルを用意します。</p>
+        <p class="note">ECOBuildで作成したモジュールをcloneし、依存先と生成ファイルを用意します。</p>
         <div id="clone-candidates" class="clone-candidates" aria-live="polite"></div>
       </fieldset>
       <div id="parent-fields">

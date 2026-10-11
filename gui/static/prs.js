@@ -43,7 +43,7 @@ function renderPrDetail() {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action; tools.append(b);
   }
   const a = pr.activity || {reviews: [], comments: [], checks: [], mergeable: ''};
-  const mergeable = {MERGEABLE: 'マージできます', CONFLICTING: '衝突があります（作業空間で最新を取り込んで解決）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
+  const mergeable = {MERGEABLE: 'マージできます', CONFLICTING: '衝突があります（作業空間で最新を取り込んで解決してください）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
   get('pr-detail').innerHTML = `<dl>
       <dt>PR</dt><dd><strong>#${pr.number} ${esc(pr.title)}</strong></dd>
       <dt>状態</dt><dd>${esc(prState(pr))}${open ? ' · ' + esc(mergeable) : ''}</dd>
@@ -65,12 +65,12 @@ async function prAction(action) {
     case 'diff': { const doc = await WS.cli(['pr', 'diff', n]); return doc.ok ? ECO.output(`PR #${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
     case 'ready': return after(await WS.run(['pr', 'ready', n], {success: '下書きを解除しました。', refresh: false}));
     case 'draft': return after(await WS.run(['pr', 'draft', n], {success: '下書きに戻しました。', refresh: false}));
-    case 'close': return after(await WS.run(['pr', 'close', n], {success: 'PRを閉じました。', confirm: `PR #${n} を閉じます（ブランチ・作業空間・タスクはそのまま）。作業をやめるならタスク管理の「作業をやめる」を使います。`, title: 'PRを閉じる', refresh: false}));
+    case 'close': return after(await WS.run(['pr', 'close', n], {success: 'PRを閉じました。', confirm: `PR #${n} を閉じます（ブランチ・作業空間・タスクはそのまま残ります）。作業自体をやめる場合は、タスク管理の「作業をやめる」を使ってください。`, title: 'PRを閉じる', refresh: false}));
     case 'reopen': return after(await WS.run(['pr', 'reopen', n], {success: 'PRを開き直しました。', refresh: false}));
     case 'comment': return ECO.form({title: `PR #${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
       submit: async v => { const doc = await WS.run(['pr', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
     case 'review': return ECO.form({title: `PR #${n} をレビュー`, fields: [
-      {name: 'kind', label: '結果', type: 'radio', inline: true, value: 'approve', options: [['approve', '承認する'], ['request-changes', '修正を依頼する', '内容が必要です'], ['comment', 'コメントだけ', '内容が必要です']]},
+      {name: 'kind', label: '結果', type: 'radio', inline: true, value: 'approve', options: [['approve', '承認する'], ['request-changes', '修正を依頼する', '内容の入力が必要'], ['comment', 'コメントだけ', '内容の入力が必要']]},
       {name: 'message', label: '内容', type: 'textarea'}], ok: '送る',
       submit: async v => {
         if (v.kind !== 'approve' && !v.message) return '内容を入力してください。';
@@ -79,12 +79,12 @@ async function prAction(action) {
       }});
     case 'edit': return ECO.form({title: `PR #${n} を編集`, fields: [
       {name: 'title', label: '題名', value: pr.title}, {name: 'body', label: '本文', type: 'textarea', value: pr.body.replace(/^(Closes|Refs) #\d+\s*$/gm, '').trim(), rows: 5, help: '作業空間のPRでは、タスクとのつながり（Closes／Refs #番号）は残ります。'},
-      {name: 'clearBody', label: '本文を消す', type: 'checkbox'}, {name: 'base', label: '向き先のブランチ', value: pr.base, help: '作業空間のPRなら、作業空間の作成元も変わります。'},
+      {name: 'clearBody', label: '本文を削除', type: 'checkbox'}, {name: 'base', label: 'マージ先のブランチ', value: pr.base, help: '作業空間のPRなら、作業空間の作成元も変わります。'},
       {type: 'section', label: 'レビュー・ラベル', note: 'カンマ区切り'},
       {name: 'addReviewer', label: 'レビューを頼む人', row: 'reviewer'}, {name: 'removeReviewer', label: 'レビューの依頼を外す人', row: 'reviewer'},
       {name: 'addLabel', label: '付けるラベル', row: 'label'}, {name: 'removeLabel', label: '外すラベル', row: 'label'}], ok: '保存',
       submit: async v => {
-        if (v.clearBody && v.body) return '本文を消す場合は、本文の欄を空にしてください。';
+        if (v.clearBody && v.body) return '本文を削除する場合は、本文の欄を空にしてください。';
         const args = ['pr', 'edit', n];
         if (v.title && v.title !== pr.title) args.push('--title', v.title);
         const oldBody = pr.body.replace(/^(Closes|Refs) #\d+\s*$/gm, '').trim();
@@ -92,7 +92,7 @@ async function prAction(action) {
         if (v.clearBody) args.push('--clear-body');
         if (v.base && v.base !== pr.base) args.push('--base', v.base);
         for (const [key, option] of [['addReviewer', '--add-reviewer'], ['removeReviewer', '--remove-reviewer'], ['addLabel', '--add-label'], ['removeLabel', '--remove-label']]) if (v[key]) args.push(option, v[key]);
-        if (args.length === 3) return '変える内容がありません。';
+        if (args.length === 3) return '変更する内容がありません。';
         const doc = await WS.run(args, {success: 'PRを変更しました。', refresh: false}); if (!doc) return '変更できませんでした。'; await after(doc);
       }});
     case 'merge': {
@@ -105,7 +105,7 @@ async function prAction(action) {
     }
     case 'local-review': {
       const done = WS.status?.reviewing === pr.number;
-      const doc = await WS.run(['task', 'review', ...(done ? ['--done'] : [n])], {success: done ? '確認を終えて戻りました。' : `PR #${n} を手元に取り出しました。ビルド・テスト・実行で確かめられます。`});
+      const doc = await WS.run(['task', 'review', ...(done ? ['--done'] : [n])], {success: done ? '確認を終えて戻りました。' : `PR #${n} を手元に取り出しました。ビルド・テスト・実行で確認できます。`});
       await after(doc); if (doc) WS.reloadFiles(); return;
     }
     case 'revert': {

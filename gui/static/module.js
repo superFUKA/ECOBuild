@@ -53,7 +53,7 @@ nav.addEventListener('keydown', e => {
 });
 mEl('nav-toggle').addEventListener('click', () => {
   const collapsed = document.querySelector('.module-shell').classList.toggle('nav-collapsed'), toggle = mEl('nav-toggle');
-  toggle.setAttribute('aria-expanded', String(!collapsed)); toggle.title = collapsed ? 'メニューを広げる' : 'メニューを細くする';
+  toggle.setAttribute('aria-expanded', String(!collapsed)); toggle.title = collapsed ? 'メニューを展開' : 'メニューを折りたたむ';
 });
 
 // Workspace tabs --------------------------------------------------------------------------------------
@@ -65,7 +65,7 @@ const addTabButton = document.createElement('button');
 addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示している作業空間はありません。</p><p>作業空間はタスクごとの作業の場所（task/〈番号〉）です。タスク管理でタスクの「作業を開始」をすると、ここに表示されます。閉じたタブは「＋」から表示し直せます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、タスクごとに作業する場所（task/〈番号〉のブランチ）です。タスク管理で「作業を開始」すると、ここに表示されます。閉じたタブは「＋」から再表示できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 panels.append(emptyNote);
 
@@ -111,7 +111,7 @@ function addTab(dir) {
   const id = 'ws-' + Math.random().toString(36).slice(2);
   group.className = 'workspace-tab-group'; group.setAttribute('role', 'presentation'); group.dataset.group = keyOf(dir);
   button.type = 'button'; button.setAttribute('role', 'tab'); button.dataset.dir = keyOf(dir); button.setAttribute('aria-controls', id);
-  close.type = 'button'; close.className = 'close-workspace-tab'; close.textContent = '×'; close.title = 'タブを閉じる（表示だけ）';
+  close.type = 'button'; close.className = 'close-workspace-tab'; close.textContent = '×'; close.title = 'タブを閉じる（作業空間は残ります）';
   panel.id = id; panel.setAttribute('role', 'tabpanel'); panel.hidden = true; panel.dataset.dir = keyOf(dir);
   button.addEventListener('click', () => activate(dir));
   close.addEventListener('click', () => closeTab(dir));
@@ -246,13 +246,13 @@ tabs.addEventListener('contextmenu', e => {
   const others = MOD.places.filter(p => keyOf(p) !== group.dataset.group && tabVisible(p));
   ECO.menu([
     ['このタブを表示', () => activate(dir, true)],
-    ['タブを閉じる（表示だけ）', () => closeTab(dir)],
-    ['ほかのタブを閉じる', () => others.forEach(closeTab), others.length > 0],
+    ['タブを閉じる（作業空間は残ります）', () => closeTab(dir)],
+    ['他のタブを閉じる', () => others.forEach(closeTab), others.length > 0],
     '-',
     ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir, path: ''}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
-    ['状態を読み直す', () => reloadPlace(dir)],
-    ...(state.workspace ? ['-', [`タスク #${state.workspace} を見る`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.workspace); }]] : []),
+    ['状態を更新', () => reloadPlace(dir)],
+    ...(state.workspace ? ['-', [`タスク #${state.workspace} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.workspace); }]] : []),
   ], e.clientX, e.clientY);
 });
 tabs.addEventListener('keydown', event => {
@@ -271,11 +271,11 @@ addTabButton.addEventListener('click', async () => {
     const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
     const place = main ? 'モジュールのclone' : '専用のclone ' + where;
     const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（作業空間ではありません）`;
-    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは消さない）">外す</button>`}</div>`;
+    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
   d.innerHTML = `<h2>作業空間を表示</h2><p>作業空間（task/〈番号〉）が出ている場所だけをタブにします。作業空間はタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
-    <div class="picker-actions"><button type="button" data-register>手元の専用のcloneを登録…</button><button type="button" data-close>閉じる</button></div>`;
+    <div class="picker-actions"><button type="button" data-register>既存の専用のcloneを登録…</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());
   d.addEventListener('click', async e => {
@@ -283,13 +283,13 @@ addTabButton.addEventListener('click', async () => {
     if (show) { d.close(); activate(MOD.places[Number(show.dataset.show)], true); }
     if (forget) {
       const dir = MOD.places[Number(forget.dataset.forget)]; d.close();
-      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCのcloneの記録から外します（タブの一覧からも外れます）。フォルダは消しません（手元から消すには、タスク管理の「手元の作業空間を消す」を使います）。フォルダの中で ecobuild を使うと、また記録されます。`, ok: '外す'})) {
+      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCのcloneの記録とタブの一覧から外します。フォルダは削除しません（手元から削除するには、タスク管理の「手元の作業空間を削除」を使います）。このフォルダで ecobuild を使うと、再び記録されます。`, ok: '外す'})) {
         if (await ECO.run(null, ['module', 'forget', dir])) removeTab(dir);
       }
     }
     if (e.target.closest('[data-register]')) {
       try {
-        const {path} = await ECO.call('pick-folder', {title: '専用のcloneのフォルダを選ぶ', initial: MOD.root});
+        const {path} = await ECO.call('pick-folder', {title: '専用のcloneのフォルダを選択', initial: MOD.root});
         if (path) { const dir = await addPlace(path); d.close(); activate(dir, true); }
       } catch (err) { ECO.toast(err.message, 'bad'); }
     }

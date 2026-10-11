@@ -168,9 +168,9 @@ async function menuAction(action, dir) {
     case 'rename': return inlineName({rename: path});
     case 'move': return moveDialog(path);
     case 'remove': return removeFile(path);
-    case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の未コミットの変更を捨てます。元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
+    case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の未コミットの変更を破棄します。この操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
-      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore にパターンを足します（既に追跡しているファイルは追跡したままです）。作業空間でコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
+      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore にパターンを追加します（すでに追跡しているファイルは対象外です）。作業空間でコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
       if (v) { await WS.run(['ignore', v.pattern], {success: '.gitignore に追加しました：' + v.pattern}); await WS.reloadFiles(); }
       return;
     }
@@ -202,7 +202,7 @@ const HEADER = '.h', SOURCE = '.cpp';
 function newFilePlan(v) {
   const name = v.name.trim(), folder = v.folder;
   if (!name) return {error: ''};
-  if (!validName(name)) return {error: '使えない文字が入っています。'};
+  if (!validName(name)) return {error: '使用できない文字が含まれています。'};
   const base = v.kind === 'other' ? name : name.replace(/\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i, '');
   if (v.kind === 'other') return {paths: [join(folder, base)]};
   if (v.kind === 'source') return {paths: [join(folder, base + SOURCE)]};
@@ -224,16 +224,16 @@ function newFileDialog(dir = activeDirectory) {
   const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build'));
   const options = [...(cpp ? [] : [['', '（ルート）']]), ...folders.map(d => [d, d])];
   const folder = options.some(([v]) => v === dir) ? dir : options[0]?.[0] ?? '';
-  return ECO.form({title: '新しいファイル', busy: 'ファイルを作っています…（生成ファイルも更新します）', ok: '作成', fields: [
+  return ECO.form({title: '新しいファイル', busy: 'ファイルを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
     {name: 'folder', label: '場所', type: 'select', value: folder, options, row: 'where'},
     {name: 'name', label: '名前', required: true, row: 'where', focus: true, placeholder: cpp ? '例：Parser（拡張子なし）' : '例：notes.md'},
     ...(cpp ? [{name: 'kind', label: '種類', type: 'radio', inline: true, value: 'pair', options: [
       ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力']]}] : []),
-    ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作る', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
+    ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作成する', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
     onChange: (v, formEl) => {
       const plan = newFilePlan(cpp ? v : {...v, kind: 'other'}), box = formEl.querySelector('.new-file-preview');
-      box.textContent = plan.error ?? '作るファイル：' + plan.paths.join('、');
+      box.textContent = plan.error ?? '作成するファイル：' + plan.paths.join('、');
     },
     submit: v => {
       const plan = newFilePlan(cpp ? v : {...v, kind: 'other'});
@@ -268,7 +268,7 @@ function inlineName({create, dir = '', rename}) {
     box.dataset.busy = '1'; input.disabled = true;
     let message = '';
     if (create === 'folder') {
-      try { await ECO.call('mkdir', {dir: WS.dir, path: join(directory, name)}); cancel(); folded.delete(join(directory, name)); activeDirectory = join(directory, name); await WS.reloadFiles(); say('フォルダを作りました：' + join(directory, name)); return; }
+      try { await ECO.call('mkdir', {dir: WS.dir, path: join(directory, name)}); cancel(); folded.delete(join(directory, name)); activeDirectory = join(directory, name); await WS.reloadFiles(); say('フォルダを作成しました：' + join(directory, name)); return; }
       catch (err) { message = err.message; }
     } else {
       message = await moveFile(rename, join(directory, name));
@@ -288,7 +288,7 @@ async function moveFile(source, destination, withTest = true) {
 }
 function moveDialog(path) {
   return ECO.form({title: '名前の変更・移動', intro: esc(path), fields: [
-    {name: 'destination', label: '移動先（場所からの相対パス。同じProjectの中）', value: path, required: true},
+    {name: 'destination', label: '移動先（モジュールからの相対パス。同じProject内）', value: path, required: true},
     {name: 'test', label: 'ライブラリのソースなら、対応するテストも移動する', type: 'checkbox', value: true}], ok: '移動',
     submit: v => moveFile(path, v.destination, v.test)});
 }

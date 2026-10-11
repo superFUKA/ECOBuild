@@ -50,7 +50,7 @@ function renderArchived() {
   $('archived-count').textContent = `（${archived.length}）`;
   $('archived-list').innerHTML = archived.map((m, i) => `<li><div><strong>${esc(m.repository)}</strong>${m.description ? `<small>${esc(m.description)}</small>` : ''}
       ${m.clones.map(c => `<small>このPC：${esc(c.path)}</small>`).join('')}</div>
-      <span class="archived-actions">${m.exists ? `<button type="button" data-archived="folder" data-i="${i}">フォルダを開く</button>` : ''}<button type="button" data-archived="unarchive" data-i="${i}">戻す</button><button type="button" class="danger-text" data-archived="delete" data-i="${i}">削除…</button></span></li>`).join('');
+      <span class="archived-actions">${m.exists ? `<button type="button" data-archived="folder" data-i="${i}">フォルダを開く</button>` : ''}<button type="button" data-archived="unarchive" data-i="${i}">解除</button><button type="button" class="danger-text" data-archived="delete" data-i="${i}">削除…</button></span></li>`).join('');
 }
 $('archived-list').addEventListener('click', async event => {
   const button = event.target.closest('[data-archived]'); if (!button) return;
@@ -58,7 +58,7 @@ $('archived-list').addEventListener('click', async event => {
   if (button.dataset.archived === 'delete') { putAwayModule(m); return; }
   if (button.dataset.archived === 'folder') { ECO.call('open', {dir: m.path, path: ''}).catch(e => ECO.toast(e.message, 'bad')); return; }
   const doc = await ECO.run(m.exists ? m.path : null, ['module', 'unarchive', m.repository],
-    {success: r => `${r.repository} のアーカイブを戻しました。` + (m.exists ? '一覧に戻しました。' : '使うには「＋ モジュール追加」の「GitHubから取得」で取得してください。'), busy: `${m.repository} を戻しています…`});
+    {success: r => `${r.repository} のアーカイブを解除しました。` + (m.exists ? '一覧に戻しました。' : '使うには「＋ モジュール追加」の「GitHubから取得」で取得してください。'), busy: `${m.repository} のアーカイブを解除しています…`});
   if (doc) { await loadGithubModules(); loadModules(); }
 });
 // A module opens in its own app window (like the hub), not in a browser tab: the server starts it.
@@ -89,7 +89,7 @@ function renderModules() {
   const list = $('module-list');
   $('no-active-modules').hidden = modules.length > 0 || !archived.length;
   if (!modules.length) {
-    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新しく作る・GitHubから取得する・手元のフォルダを登録するのどれかで追加してください。</li>';
+    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubからの取得・手元のフォルダの登録ができます。</li>';
     return;
   }
   list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="右クリックで操作、ドラッグで並び替え">
@@ -102,7 +102,7 @@ function renderModules() {
 }
 // 一覧から外す: ecobuild module forget (the folder and the GitHub repository stay).
 async function forgetModule(m) {
-  if (!await ECO.confirm({title: '一覧から外す', message: `${m.name} をこの一覧（このPCのcloneの記録）から外します。フォルダやGitHubのリポジトリは消しません。フォルダの中で ecobuild を使うと（開発環境を開く等）、また一覧に入ります。`, ok: '外す'})) return;
+  if (!await ECO.confirm({title: '一覧から外す', message: `${m.name} を一覧から外します。フォルダとGitHubのリポジトリはそのまま残ります。なお、このフォルダで ecobuild を使うと（開発環境を開くなど）、再び一覧に表示されます。`, ok: '外す'})) return;
   if (await ECO.run(null, ['module', 'forget', m.path])) loadModules();
 }
 $('module-list').addEventListener('click', async event => {
@@ -156,9 +156,9 @@ function renderCloneCandidates() {
   const box = $('clone-candidates'); if (!box) return;
   if (!githubModules) { box.innerHTML = '<p class="note"><span class="eco-spinner"></span> GitHubにあるモジュールを読み込んでいます…</p>'; return; }
   const candidates = githubModules.filter(g => !g.archived && !modules.some(m => sameRepository(g.repository, m.repository || m.name)));
-  box.innerHTML = candidates.length ? `<p class="note">GitHubにあるモジュール（クリックで選ぶ）</p><ul>${candidates.map(g => `<li><button type="button" data-candidate="${esc(g.repository)}">
+  box.innerHTML = candidates.length ? `<p class="note">GitHubにあるモジュール（クリックで選択）</p><ul>${candidates.map(g => `<li><button type="button" data-candidate="${esc(g.repository)}">
       <strong>${esc(g.repository)}</strong><small>${esc([g.type, g.private ? '非公開' : '公開', g.updated ? '更新 ' + g.updated.slice(0, 10) : ''].filter(Boolean).join('・'))}${g.description ? '　' + esc(g.description) : ''}</small></button></li>`).join('')}</ul>`
-    : `<p class="note">${githubModules.length ? 'GitHubにあるモジュールは、すべて一覧にあります。' : 'GitHubにモジュールが見つかりませんでした。'}他の所有者のものは「所有者/名前」で入力してください。</p>`;
+    : `<p class="note">${githubModules.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。'}他の所有者のものは「所有者/名前」で入力してください。</p>`;
 }
 $('clone-candidates').addEventListener('click', event => {
   const pick = event.target.closest('[data-candidate]'); if (!pick) return;
@@ -198,8 +198,8 @@ addForm.addEventListener('submit', async event => {
   addDialog.close(); submit.disabled = false;
   const overlay = ECO.busy({
     title: `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`, sub: directory + '/' + name.split('/').pop(),
-    steps: creating ? ['GitHubにリポジトリを作る', 'ライブラリ・テスト用のProjectを用意する', '初回のコミットをPushする']
-      : ['GitHubからcloneする', '依存先をcloneする', '生成ファイルを用意する'],
+    steps: creating ? ['GitHubにリポジトリを作成', 'ライブラリとテスト用のProjectを用意', '初回のコミットをPush']
+      : ['GitHubからclone', '依存先をclone', '生成ファイルを用意'],
   });
   const doc = await ECO.cli(directory, args, {quiet: true});
   if (!doc.ok) {
@@ -241,7 +241,7 @@ function renderDiagnosis(items) {
   $('doctor-results').innerHTML = items.map(item => `<li><div><span class="item-name">${esc(item.name)}</span><small>${esc(item.detail)}${item.ok ? '' : '<br>' + esc(item.hint)}</small></div>
     <span class="${item.ok ? 'ok' : 'missing'}">${item.ok ? '確認済み' : item.required ? '要対応' : '任意'}</span></li>`).join('');
   const missing = items.filter(i => !i.ok && i.required).length;
-  $('doctor-status').textContent = missing ? missing + '件の対応が必要です。' : '開発に必要な環境が整っています。';
+  $('doctor-status').textContent = missing ? `対応が必要な項目が ${missing} 件あります。` : '開発に必要な環境が整っています。';
 }
 $('run-doctor').addEventListener('click', async () => {
   $('doctor-status').textContent = 'チェックしています…';
@@ -257,9 +257,9 @@ $('setup-form').addEventListener('submit', async event => {
   const doc = await ECO.run(null, args);
   if (!doc) { $('setup-status').textContent = ''; return; }
   const r = doc.result;
-  $('setup-status').innerHTML = (r.done.length ? '<p>' + r.done.map(esc).join('<br>') + '</p>' : '<p>変えることはありませんでした。</p>')
+  $('setup-status').innerHTML = (r.done.length ? '<p>' + r.done.map(esc).join('<br>') + '</p>' : '<p>変更はありませんでした（すでに準備できています）。</p>')
     + (r.remaining.length ? '<p>まだ足りないもの：' + r.remaining.map(i => esc(i.name)).join('、') + '</p>' : '')
-    + (r.commands.length ? '<p>足りないツールの導入コマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');
+    + (r.commands.length ? '<p>足りないツールのインストールコマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');
 });
 
 loadModules();
@@ -273,7 +273,7 @@ ECO.info().then(info => { if (info.cli_warning) ECO.toast('注意：' + info.cli
 // Whether it is archived comes from ecobuild module show (or module list when the folder is gone).
 async function putAwayModule(m) {
   const dir = m.exists ? m.path : null;
-  const wait = ECO.busy({title: `${m.name} の状態を確かめています…`});
+  const wait = ECO.busy({title: `${m.name} の状態を確認しています…`});
   let repository = m.repository || m.name, archived = null;
   if (m.exists) {
     const show = await ECO.cli(dir, ['module', 'show'], {quiet: true});
@@ -290,7 +290,7 @@ async function putAwayModule(m) {
   if (code === 'not_archived') return archiveModule(m, repository, dir);
   if (code === 'confirmation_required') return deleteArchivedModule(m, repository, dir, probe.error.message.replace(/^確認が必要です：/, ''));
   if (code === 'github_permission') return deleteArchivedModule(m, repository, dir, '');
-  ECO.showError(probe, 'モジュールを片付けられません');
+  ECO.showError(probe, 'モジュールを片付けられませんでした');
 }
 
 const errorText = doc => [doc.error.message, doc.error.hint].filter(Boolean).join('\n');
@@ -298,12 +298,12 @@ const errorText = doc => [doc.error.message, doc.error.hint].filter(Boolean).joi
 // Step 1: archive (read-only).
 function archiveModule(m, repository, dir) {
   return ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} をアーカイブしています…`, ok: 'アーカイブする',
-    intro: `モジュールの片付けは2段階です。まず GitHub のリポジトリ <b>${esc(repository)}</b> をアーカイブ（読み取り専用）にし、使っていないことを確かめてから削除します。`,
-    fields: [{name: 'note', type: 'html', html: `<p class="eco-help">アーカイブしたモジュールは一覧から外れ、一覧の下の「アーカイブ済み」に出ます。そこから、いつでも戻すか、削除できます。アーカイブ中は push・PR・Issue の変更ができません。タスク管理の情報は残ります。${m.exists ? `手元のフォルダ（${esc(m.path)}）は消しません（削除するときに一緒に消せます）。` : ''}</p>`}],
+    intro: `モジュールは2段階で片付けます。まず GitHub のリポジトリ <b>${esc(repository)}</b> をアーカイブ（読み取り専用）にし、使われていないことを確認してから削除します。`,
+    fields: [{name: 'note', type: 'html', html: `<p class="eco-help">アーカイブしたモジュールは一覧から外れ、下の「アーカイブ済み」に表示されます。そこからいつでも解除または削除できます。アーカイブ中は Push や PR・Issue の変更はできません。タスク管理の情報は残ります。${m.exists ? `手元のフォルダ（${esc(m.path)}）は消しません（削除するときに一緒に消せます）。` : ''}</p>`}],
     submit: async () => {
       const doc = await ECO.cli(dir, ['module', 'archive', repository, '--yes']);
       if (!doc.ok) return errorText(doc);
-      ECO.toast(`${doc.result.repository} をアーカイブしました（読み取り専用）。一覧の下の「アーカイブ済み」に移しました。`, 'ok', 8000);
+      ECO.toast(`${doc.result.repository} をアーカイブしました（読み取り専用）。「アーカイブ済み」に移動しました。`, 'ok', 8000);
       await loadGithubModules(); loadModules();
     }});
 }
@@ -313,16 +313,16 @@ async function deleteArchivedModule(m, repository, dir, question) {
   const local = clones.filter(c => c.exists && sameRepository(repository, cloneRepository(c))).map(c => c.path);
   let permission = false;
   const done = await ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
-    intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、GitHub のアカウントの設定から90日以内なら元に戻せます。タスク管理の情報は消さずに閉じ、戻したときに引き継ぎます。`,
+    intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、90日以内なら GitHub のアカウント設定から復元できます。タスク管理の情報は削除せずに閉じ、復元したときに引き継ぎます。`,
     fields: [
-      {name: 'mode', label: 'すること', type: 'radio', inline: true, value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを、Issue・PRとともに消す'], ['unarchive', 'アーカイブを戻す', 'また変更できるようにする']]},
-      ...(local.length ? [{name: 'removeClone', label: `このPCのcloneも削除する（${local.join('、')}）。どれかにGitHubにない変更・コミット・退避があれば止まります`, type: 'checkbox', value: true, showIf: v => v.mode === 'delete'}] : []),
+      {name: 'mode', label: 'すること', type: 'radio', inline: true, value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを Issue・PR ごと削除'], ['unarchive', 'アーカイブを解除', '再び変更できるようにする']]},
+      ...(local.length ? [{name: 'removeClone', label: `このPCのcloneも削除する（${local.join('、')}）。GitHubにない変更・コミット・退避がある場合は中止します`, type: 'checkbox', value: true, showIf: v => v.mode === 'delete'}] : []),
       {name: 'confirmName', label: `確認のため ${repository} と入力`, placeholder: repository, showIf: v => v.mode === 'delete'}],
     submit: async v => {
       if (v.mode === 'unarchive') {
         const doc = await ECO.cli(dir, ['module', 'unarchive', repository]);
         if (!doc.ok) return errorText(doc);
-        ECO.toast(`${doc.result.repository} のアーカイブを戻しました。`, 'ok', 8000);
+        ECO.toast(`${doc.result.repository} のアーカイブを解除しました。`, 'ok', 8000);
         await loadGithubModules(); loadModules();
         return;
       }
@@ -331,13 +331,13 @@ async function deleteArchivedModule(m, repository, dir, question) {
       if (!doc.ok && doc.error?.code === 'github_permission') { permission = true; return; }
       if (!doc.ok) return errorText(doc);
       const r = doc.result;
-      ECO.toast(`${r.repository} を削除しました（GitHubのアカウントの設定から、90日以内なら元に戻せます）。`, 'ok', 10000);
+      ECO.toast(`${r.repository} を削除しました（90日以内なら GitHub のアカウント設定から復元できます）。`, 'ok', 10000);
       const left = v.removeClone ? (r.clones || []).filter(c => !(r.removed || []).includes(c)) : [];
-      if (left.length) ECO.toast(`手元のフォルダ ${left.join('、')} は、他のプログラムが使っているため削除できませんでした。閉じてから削除してください。`, 'bad', 15000);
+      if (left.length) ECO.toast(`手元のフォルダ ${left.join('、')} は他のプログラムが使用中のため削除できませんでした。プログラムを閉じてから削除してください。`, 'bad', 15000);
       await loadGithubModules(); loadModules();
     }});
   if (permission) {
-    const add = await ECO.dialog({title: 'GitHubの権限が足りません', body: '<p>GitHubへのログインに、リポジトリを削除する権限（delete_repo）がありません。</p><p class="eco-help">「権限を追加する」で端末の窓が開き、ブラウザで承認します。終わったら、もう一度「片付ける」から削除してください。</p>',
+    const add = await ECO.dialog({title: 'GitHubの権限が足りません', body: '<p>ログイン中の GitHub アカウントに、リポジトリを削除する権限（delete_repo）がありません。</p><p class="eco-help">「権限を追加する」を押すとターミナルが開き、ブラウザで承認できます。承認したら、もう一度「片付ける」から削除してください。</p>',
       buttons: [['閉じる', '', false], ['権限を追加する', 'primary', true]]});
     if (add) ECO.call('gh-scope', {scope: 'delete_repo'}).catch(e => ECO.toast(e.message, 'bad'));
   }
@@ -385,8 +385,8 @@ $('make-shortcut').addEventListener('click', async () => {
 
 // End the background server now (otherwise it ends a while after the last window closes).
 $('quit-gui').addEventListener('click', async () => {
-  if (!await ECO.confirm({title: 'GUIを終了', message: 'GUIを終了します。開いているモジュールの窓も使えなくなります。実行中のコマンドがあれば、終わるのを待ってから押してください。', ok: '終了する'})) return;
+  if (!await ECO.confirm({title: 'GUIを終了', message: 'GUIを終了します。開いているモジュールのウィンドウも使えなくなります。実行中のコマンドがある場合は、完了してから終了してください。', ok: '終了する'})) return;
   try { await ECO.call('shutdown'); } catch (e) { /* already gone */ }
-  document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild GUI を終了しました。この窓を閉じてください。</main>';
+  document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild GUI を終了しました。このウィンドウを閉じてください。</main>';
   window.close();
 });

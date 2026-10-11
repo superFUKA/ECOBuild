@@ -3,7 +3,7 @@
 WS.onRefresh(renderPrDetail);
 (() => {
   const LABEL = {build: 'ビルド', rebuild: 'リビルド', clean: 'クリーン', test: 'テスト', run: '実行', check: '提出前の確認'};
-  const CHECK = {generated: '生成ファイルが最新', conflict_markers: '衝突の印がない', build: 'ビルド', test: 'テスト'};
+  const CHECK = {generated: '生成ファイルが最新', conflict_markers: '衝突マーカーがない', build: 'ビルド', test: 'テスト'};
   let profiles = {}, selectedProfile = null, busy = false;
 
   async function loadOptions() {
@@ -13,7 +13,7 @@ WS.onRefresh(renderPrDetail);
       const names = Object.keys(profiles);
       get('build-profile').innerHTML = names.map(n => `<option value="${esc(n)}">${esc(n)}（${esc(profiles[n].configuration)}${profiles[n].shared ? '・共有' : ''}）</option>`).join('') + '<option value="none">使わない</option>';
       get('build-profile').value = selectedProfile || 'none';
-      get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュール画面の「ビルド設定」で追加できます）';
+      get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの「ビルド設定」タブで追加できます）';
     }
     get('build-project-label').hidden = !j.ok;
     if (j.ok) get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
@@ -21,7 +21,7 @@ WS.onRefresh(renderPrDetail);
 
   const out = (title, state, html) => {
     get('build-output-title').textContent = title;
-    get('build-output-state').textContent = state === 'ok' ? '成功' : state === 'run' ? '実行中…' : '失敗あり';
+    get('build-output-state').textContent = state === 'ok' ? '成功' : state === 'run' ? '実行中…' : '失敗';
     get('build-output-state').className = 'build-state ' + (state === 'run' ? '' : state);
     get('build-output-text').innerHTML = html; get('build-output').hidden = false;
   };
@@ -56,7 +56,7 @@ WS.onRefresh(renderPrDetail);
   document.querySelector('.build-bar').addEventListener('click', e => { const b = e.target.closest('[data-build]'); if (b) runAction(b.dataset.build); });
   get('build-output-close').addEventListener('click', () => { get('build-output').hidden = true; });
   get('build-profile').addEventListener('change', async e => {
-    const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`, refresh: false});
+    const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定の使用をやめました。' : `このPCではビルド設定 ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
   });
   // "Open in editor" split button: the button opens with the chosen editor; ▾ only chooses which one (it does not open).

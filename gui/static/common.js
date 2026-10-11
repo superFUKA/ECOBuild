@@ -16,9 +16,9 @@ const ECO = (() => {
     try {
       response = await fetch('/api/' + api, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': token}, body: JSON.stringify(body)});
     } catch (e) {
-      throw new Error('GUIのサーバーにつながりません。ecobuild-gui を起動し直してください。');
+      throw new Error('GUIのサーバーに接続できません。ECOBuild GUI を起動し直してください。');
     }
-    const data = await response.json().catch(() => ({error: 'サーバーの応答を読めませんでした。'}));
+    const data = await response.json().catch(() => ({error: 'サーバーの応答を読み取れませんでした。'}));
     if (data.error) throw new Error(data.error);
     return data.value;
   }
@@ -52,7 +52,7 @@ const ECO = (() => {
     return JSON.stringify(details, null, 2);
   }
 
-  function showError(doc, title = 'うまくいきませんでした') {
+  function showError(doc, title = '失敗しました') {
     const e = doc.error || {message: '不明なエラーです。'};
     const detail = detailText(e.details) || (doc.ok === false && !e.details && doc.stderr && e.code === 'gui_no_output' ? doc.stderr : '');
     return dialog({title, wide: !!detail, body: `<p>${esc(e.message)}</p>${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${detail ? `<pre>${esc(detail)}</pre>` : ''}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
@@ -80,7 +80,7 @@ const ECO = (() => {
     const outdated = !doc.ok && doc.error?.code === 'generated_files_outdated' && Array.isArray(doc.error.details) ? doc.error.details : [];
     if (outdated.length) {
       overlay?.end();
-      const ok = await confirm({title: '生成ファイルのコミット', message: '構成の更新（ECOBuild・CppBuild の更新によるものなど）で、生成ファイル・管理ファイルが変わりました。これらのファイルだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
+      const ok = await confirm({title: '生成ファイルのコミット', message: 'ECOBuild・CppBuild の更新などにより、生成ファイル・管理ファイルが変わりました。これらのファイルだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
       if (!ok) return null;
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
       let step = await cli(dir, ['task', 'add', ...outdated]);
@@ -99,12 +99,12 @@ const ECO = (() => {
   // Offer to undo the archive (ecobuild module unarchive, with the name from ecobuild module show).
   async function offerUnarchive(dir, doc) {
     const e = doc.error;
-    const undo = await dialog({title: 'GitHubのリポジトリがアーカイブされています', body: `<p>${esc(e.message)}</p><p class="eco-hint">アーカイブを戻すと、また push・PR・タスクの変更ができます。使わないモジュールなら、戻さずにハブの「アーカイブ済み」から削除できます。</p>${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`,
-      buttons: [['閉じる', '', false], ['アーカイブを戻す', 'primary', true]]});
+    const undo = await dialog({title: 'GitHubのリポジトリがアーカイブされています', body: `<p>${esc(e.message)}</p><p class="eco-hint">アーカイブを解除すると、再び Push や PR・タスクの変更ができるようになります。使わないモジュールであれば、解除せずにハブの「アーカイブ済み」から削除できます。</p>${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`,
+      buttons: [['閉じる', '', false], ['アーカイブを解除', 'primary', true]]});
     if (!undo || !dir) return;
     const show = await cli(dir, ['module', 'show'], {quiet: true});
-    if (!show.ok || !show.result.repository) return showError(show.ok ? {error: {message: 'GitHubのリポジトリの名前が分かりませんでした。', hint: 'ハブの「アーカイブ済み」から戻してください。'}} : show);
-    const r = await run(dir, ['module', 'unarchive', show.result.repository], {success: x => `${x.repository} のアーカイブを戻しました。もう一度実行してください。`, busy: 'アーカイブを戻しています…'});
+    if (!show.ok || !show.result.repository) return showError(show.ok ? {error: {message: 'GitHubのリポジトリの名前が分かりませんでした。', hint: 'ハブの「アーカイブ済み」から解除してください。'}} : show);
+    const r = await run(dir, ['module', 'unarchive', show.result.repository], {success: x => `${x.repository} のアーカイブを解除しました。もう一度実行してください。`, busy: 'アーカイブを解除しています…'});
     if (r) window.dispatchEvent(new CustomEvent('eco-unarchived', {detail: r.result}));
   }
 
@@ -292,11 +292,11 @@ const ECO = (() => {
     let opened;
     try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
     if (!opened.solution) {
-      if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln／.slnx）はまだありません。ビルドすると作られます。今ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
+      if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln／.slnx）がまだありません（ビルドすると作成されます）。ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
       const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});
       if (!doc) return false;
       try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
-      if (!opened.solution) { toast('ビルドしましたが、ソリューションが見つかりませんでした（この型はソリューションを作らない可能性があります）。', 'bad', 8000); return false; }
+      if (!opened.solution) { toast('ビルドしましたが、ソリューションが見つかりませんでした（このモジュールの型ではソリューションが作成されない可能性があります）。', 'bad', 8000); return false; }
     }
     toast(`Visual Studio ${version} で開きます：` + opened.solution.split('/').pop());
     return true;

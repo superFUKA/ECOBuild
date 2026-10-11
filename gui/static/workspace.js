@@ -69,14 +69,14 @@ function renderHeader() {
 function banner(html, kind = '') { return `<div class="eco-banner ${kind}">${html}</div>`; }
 function renderBanners(errorDoc) {
   const s = WS.status, out = [];
-  if (!s) out.push(banner(`この場所の状態を読めませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
+  if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
-    if (s.merging) out.push(banner(`取り込みが衝突で止まっています。衝突したファイルを直してステージし、「取り込みを完了」してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みをやめる</button>`, 'bad'));
+    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正してステージし、「取り込みを完了」を押してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`PR #${s.reviewing} を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。<button data-git="review-done">確認を終えて戻る</button>`));
     else if (!s.workspace) out.push(banner(`ここは作業空間ではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットは作業空間で行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
-    if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを戻す</button>`, 'bad'));
-    if (s.upstream_gone) out.push(banner(`GitHubの ${esc(s.branch)} は削除されています（別の場所で反映・中止された可能性があります）。タスク管理の「片付け」か「作業をやめる」で片付けてください。`, 'bad'));
-    if (s.behind || s.base_behind) out.push(banner(`最新に遅れています。<button data-git="sync">最新を取り込む</button>`));
+    if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
+    if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所でマージ・中止された可能性があります）。タスク管理の「完了した作業空間を片付ける」か「作業をやめる」で片付けてください。`, 'bad'));
+    if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
   }
   get('banners').innerHTML = out.join('');
 }
@@ -153,7 +153,7 @@ get('push').addEventListener('click', () => WS.run(['task', 'push', ...(get('for
 get('submit-pr').addEventListener('click', () => ECO.form({
   title: 'プルリクエストを提出', intro: '作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へのプルリクエストを作成します。',
   fields: [
-    {name: 'title', label: 'タイトル', value: WS.task?.title || '', placeholder: '空ならタスクの題名'},
+    {name: 'title', label: 'タイトル', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'},
     {name: 'draft', label: '下書きにする（準備ができたら「下書きを解除」）', type: 'checkbox'},
     {name: 'partial', label: '途中の反映（マージしてもタスクを閉じず、作業空間を続けて使う）', type: 'checkbox'},
     {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox'},
@@ -181,11 +181,11 @@ async function gitAction(action) {
     case 'discard': {
       const tracked = sel.filter(p => !WS.status.untracked.includes(p)), untracked = sel.filter(p => WS.status.untracked.includes(p));
       if (!tracked.length) return say('未追跡のファイルは「元に戻す」の対象ではありません。不要ならエクスプローラーから削除してください。');
-      if (!await ECO.confirm({title: '変更を元に戻す', message: `${tracked.length}件のファイルの未コミットの変更を捨てます。元に戻せません。` + (untracked.length ? `（未追跡の ${untracked.length} 件はそのままです）` : ''), ok: '元に戻す', danger: true})) return;
+      if (!await ECO.confirm({title: '変更を元に戻す', message: `${tracked.length}件のファイルの未コミットの変更を破棄します。この操作は元に戻せません。` + (untracked.length ? `（未追跡の ${untracked.length} 件はそのままです）` : ''), ok: '元に戻す', danger: true})) return;
       return WS.run(['restore', ...tracked], {success: '変更を元に戻しました。'});
     }
     case 'diff': return ECO.form({title: '差分', fields: [
-      {name: 'path', label: '対象のパス（空欄で全体）', value: WS.activeFile || ''},
+      {name: 'path', label: '対象のパス（空欄ならすべて）', value: WS.activeFile || ''},
       {name: 'mode', label: '比較', type: 'radio', value: '', options: [['', 'ステージしていない変更'], ['staged', 'ステージ済みの変更'], ['base', '作成元との差分（PRで出る差分）']]},
       {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox'}], ok: '表示',
       submit: async v => {
@@ -206,10 +206,10 @@ async function gitAction(action) {
     case 'stash': return WS.run(['stash'], {success: r => r.stashed ? '変更を退避しました。' : '退避する変更はありません。'});
     case 'stash-list': { const doc = await WS.cli(['stash', 'list']); if (!doc.ok) return ECO.showError(doc); return ECO.output('退避一覧', doc.result.map((e, i) => `${i}: ${e}`).join('\n') || '退避はありません。'); }
     case 'stash-pop': return WS.run(['stash', 'pop'], {success: '退避した変更を戻しました。'});
-    case 'stash-drop': return WS.run(['stash', 'drop'], {success: '最後の退避を削除しました。', confirm: '最後に退避した変更を捨てます。元に戻せません。', title: '退避を削除'});
+    case 'stash-drop': return WS.run(['stash', 'drop'], {success: '最後の退避を削除しました。', confirm: '最後に退避した変更を破棄します。この操作は元に戻せません。', title: '退避を削除'});
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
     case 'sync-continue': return WS.run(['sync', 'continue'], {success: '取り込みを完了しました。'});
-    case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みをやめ、取り込む前に戻しました。', confirm: '止まっている取り込みをやめ、取り込む前に戻します。', title: '取り込みをやめる'}).then(() => WS.reloadFiles?.());
+    case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みを中止し、取り込む前の状態に戻しました。', confirm: '止まっている取り込みを中止し、取り込む前の状態に戻します。', title: '取り込みを中止'}).then(() => WS.reloadFiles?.());
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
     case 'review-done': return WS.run(['task', 'review', '--done'], {success: '確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());

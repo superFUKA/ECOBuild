@@ -101,7 +101,7 @@
     }
     return `<div class="tk-kanban">${STAGES.map(([key, ja, cls]) => {
       const cards = key === 'done' && closed ? closed : visible().filter(t => stageOf(t) === key);
-      const note = key === 'done' && closed ? `<small title="「閉じたものも」で全部">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
+      const note = key === 'done' && closed ? `<small title="「閉じたタスクも表示」ですべて表示">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
       return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span>${note}</div><div class="tk-column-cards">
       ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}${est(t)}${sprintTag(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
       </div></section>`;
@@ -124,14 +124,14 @@
     const dueMark = (t, r) => t.due ? `<div class="tl-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.due))}" title="期限 ${md(t.due)}">◆</div>` : '';
     const label = (t, r, extra = '') => `<div class="tl-label ${extra}" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>`;
     const rows = dated.map((t, i) => { const r = i + 2, late = t.state === 'open' && dayOf(t.planned_end) < now, s = STAGE[stageOf(t)];
-      return label(t, r) + `<div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端で終了予定を変える）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>` + dueMark(t, r); }).join('')
+      return label(t, r) + `<div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端のドラッグで終了予定を変更）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>` + dueMark(t, r); }).join('')
       + undated.map((t, i) => { const r = dated.length + i + 2, open = t.state === 'open', one = t.planned_start || t.planned_end;
         return label(t, r, `undated ${i === 0 ? 'first' : ''}`)
-          + `<div class="tl-empty ${open ? 'plannable' : ''} ${i === 0 ? 'first' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を入れる' : '閉じたタスク'}"></div>`
+          + `<div class="tl-empty ${open ? 'plannable' : ''} ${i === 0 ? 'first' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を設定' : '閉じたタスク'}"></div>`
           + (one ? `<div class="tl-point" style="grid-row:${r};grid-column:${col(dayOf(one))}" title="${t.planned_start ? '開始予定' : '終了予定'}だけ ${md(one)}"></div>` : '') + dueMark(t, r); }).join('');
     return `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${tasks.length}, 34px)">
       <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${tasks.length + 1}"></div>${rows}</div></div>
-      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated.length ? `<span><i class="tl-key empty"></i>日程のないタスク（行の上をドラッグして予定を入れる）</span>` : ''}</div>`;
+      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated.length ? `<span><i class="tl-key empty"></i>日程のないタスク（行の上をドラッグして予定を設定）</span>` : ''}</div>`;
   }
   function scrollToToday() { const wrap = document.querySelector('.tl-wrap'), nowLine = document.querySelector('.tl-now'); if (wrap && nowLine) wrap.scrollLeft = Math.max(0, nowLine.offsetLeft - 220 - 7 * 28); }
 
@@ -139,13 +139,13 @@
   function renderNext() {
     const mine = st.assignee === '@me', key = 'next' + (mine ? '-mine' : '');
     const data = st.extra[key];
-    if (!data) { fetchExtra(key, () => Promise.all([ECO.cli(root(), ['task', 'next', '--count', '10', ...(mine ? ['--mine'] : [])], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true})])); return ECO.loading('次にやるタスクを調べています…'); }
+    if (!data) { fetchExtra(key, () => Promise.all([ECO.cli(root(), ['task', 'next', '--count', '10', ...(mine ? ['--mine'] : [])], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true})])); return ECO.loading('次にやるタスクを確認しています…'); }
     const [next, overdue] = data;
     if (!next.ok) return `<div class="eco-banner bad">${esc(next.error.message)}</div>`;
     const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${sprintTag(t)}${avatars(t)}</div>`;
     const items = next.result.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`));
     const late = overdue.ok ? overdue.result.overdue : [], soon = overdue.ok ? overdue.result.soon : [];
-    return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク<span class="tk-muted">着手できるものを、期限切れ・今のスプリント・優先度・期限の順に${mine ? '（自分の担当）' : '（担当者で「自分」を選ぶと自分の分だけ）'}</span></h3></div>
+    return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク<span class="tk-muted">着手できるタスクを、期限切れ・今のスプリント・優先度・期限の順に表示${mine ? '（自分の担当）' : '（担当者で「自分」を選ぶと自分の分だけ表示）'}</span></h3></div>
       ${items.length ? items.join('') : '<p class="tk-muted">着手できるタスクはありません。</p>'}</section>
       <section class="tk-card"><div class="tk-section-head"><h3>期限切れ<span class="tk-muted">${late.length} 件</span></h3></div>${late.length ? late.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>
       <section class="tk-card"><div class="tk-section-head"><h3>期限が近い<span class="tk-muted">7日以内</span></h3></div>${soon.length ? soon.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>`;
@@ -156,7 +156,7 @@
     const name = st.sprintShown || currentSprint() || st.sprints[0].name, key = 'sprint:' + name;
     const picker = `<div class="tk-sprint-pick"><label>スプリント <select id="tk-sprint-shown">${st.sprints.map(s => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.name)}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}</option>`).join('')}</select></label></div>`;
     const data = st.extra[key];
-    if (!data) { fetchExtra(key, () => ECO.cli(root(), ['sprint', 'status', name], {quiet: true})); return picker + ECO.loading('スプリントを調べています…'); }
+    if (!data) { fetchExtra(key, () => ECO.cli(root(), ['sprint', 'status', name], {quiet: true})); return picker + ECO.loading('スプリントを確認しています…'); }
     if (!data.ok) return picker + `<div class="eco-banner bad">${esc(data.error.message)}</div>`;
     const s = data.result, pct = (a, b) => b ? Math.round(a / b * 100) : 0;
     const tasks = s.tasks.map(t => byNumber(t.number) || t), numberOf = x => typeof x === 'number' ? x : x.number;
@@ -167,7 +167,7 @@
       <div class="tk-pf-stats">${stat('完了 / 全体', `${s.done} / ${s.total}`)}${stat('見積もりの残り', s.estimate_remaining)}${stat('見積もりの合計', s.estimate_total)}${stat('見積もりなし', s.unestimated.length, s.unestimated.length ? 'warn' : '')}</div>
       <div class="tk-progress" title="完了した見積もり ${s.estimate_done} / ${s.estimate_total}"><span style="width:${pct(s.estimate_done, s.estimate_total) || pct(s.done, s.total)}%"></span></div>
       ${list('見積もりのないタスク', s.unestimated)}${list('前のスプリントからの持ち越し', s.carried_over)}</section>
-      ${tasks.length ? taskTable(tasks) : '<p class="tk-empty">このスプリントのタスクはありません。タスクの詳細か右クリックでスプリントに入れられます（親タスクは数えません）。</p>'}`;
+      ${tasks.length ? taskTable(tasks) : '<p class="tk-empty">このスプリントのタスクはありません。タスクの詳細または右クリックメニューからスプリントに追加できます（親タスクは数えません）。</p>'}`;
   }
   function fetchExtra(key, job) {
     if (st.extra[key] !== undefined) return;
@@ -219,11 +219,11 @@
       <div class="tk-dash-stats wide">${big('開いているタスク', open.length, {go: 'list'})}${big('作業中', count('in_progress'), {go: 'stages'})}${big('レビュー待ち', count('in_review'), {go: 'stages'})}${big('期限切れ', late.length, {cls: late.length ? 'bad' : '', go: 'next'})}${big('この1週間に完了', finished.filter(t => t.finished >= weekAgo).length)}${big('レビューの依頼', asked.length, {cls: asked.length ? 'warn' : ''})}</div>
       ${card('段階', stageBar, {go: 'stages', sub: `開いている ${open.length} 件`})}
       ${card(s ? `今のスプリント：${esc(s.sprint.name)}` : '今のスプリント', sprintBody, {go: 'sprint', sub: s ? `${md(s.sprint.start)}〜${md(s.sprint.end)}` : ''})}
-      ${card('自分の次のタスク', mineNext.length ? mineNext.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.slice(0, 2).map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`)).join('') : none(next?.ok ? '自分が担当で、着手できるタスクはありません。' : esc(next?.error?.message || '')), {go: 'next'})}
+      ${card('自分の次のタスク', mineNext.length ? mineNext.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.slice(0, 2).map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`)).join('') : none(next?.ok ? '自分が担当していて、着手できるタスクはありません。' : esc(next?.error?.message || '')), {go: 'next'})}
       ${card('期限', late.length || soon.length ? late.map(t => row(t, '<span class="tk-reason bad">期限切れ</span>')).join('') + soon.map(t => row(t, '<span class="tk-reason">7日以内</span>')).join('') : none('期限切れ・期限が近いタスクはありません。'), {go: 'next'})}
       ${card('マイルストーン', ms || none('開いているマイルストーンはありません。'))}
       ${card('担当者ごとの量', wl || none('開いているタスクはありません。'), {sub: '親タスクは数えません'})}
-      ${card('プルリクエスト', (asked.length ? `<h4 class="tk-dash-h">レビューを頼まれている</h4>${asked.map(prRow).join('')}` : '') + `<h4 class="tk-dash-h">開いているPR ${openPrs.length}</h4>${openPrs.length ? openPrs.slice(0, 6).map(prRow).join('') : none('ありません。')}`)}
+      ${card('プルリクエスト', (asked.length ? `<h4 class="tk-dash-h">レビューの依頼</h4>${asked.map(prRow).join('')}` : '') + `<h4 class="tk-dash-h">開いているPR ${openPrs.length}</h4>${openPrs.length ? openPrs.slice(0, 6).map(prRow).join('') : none('ありません。')}`)}
       ${card('最近完了したタスク', finished.length ? finished.slice(0, 6).map(t => row(t, `<span class="tk-muted">${md(t.finished)}</span>`)).join('') : none('まだありません。'))}
     </div>`;
   }
@@ -267,12 +267,12 @@
     <div class="tk-d-actions">${primary}${open ? '<button type="button" data-tk="close">閉じる</button>' : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
-        ${hasWorkspace ? '<button type="button" data-tk="remove">手元の作業空間を消す</button>' : ''}
+        ${hasWorkspace ? '<button type="button" data-tk="remove">手元の作業空間を削除</button>' : ''}
         ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop">作業をやめる</button>' : ''}
         <button type="button" data-tk="github">GitHubで開く</button></div></details></div>
     <section class="tk-d-section"><p class="tk-d-body">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</p></section>
     <section class="tk-d-section"><h4>担当</h4><dl class="tk-kv">
-      <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を加える">＋</button></dd>
+      <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を追加">＋</button></dd>
       <dt>ラベル</dt><dd class="tk-chips">${d.labels.map(l => `<span class="tk-chip">${esc(l)}<button type="button" class="x" data-remove-label="${esc(l)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-label" title="ラベルを付ける">＋</button></dd>
     </dl></section>
     <section class="tk-d-section"><h4>計画</h4><dl class="tk-kv tk-controls">
@@ -289,7 +289,7 @@
     </dl></section>
     ${relations.length ? `<section class="tk-d-section"><h4>つながり</h4><dl class="tk-kv">${relations.map(([label, xs]) => `<dt>${label}</dt><dd>${xs.map(rel).join('')}</dd>`).join('')}</dl></section>` : ''}
     <section class="tk-d-section"><h4>作業</h4><dl class="tk-kv">
-      <dt>作業空間</dt><dd>${hasWorkspace ? `task/${n}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにだけあります（作業を再開で手元へ）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
+      <dt>作業空間</dt><dd>${hasWorkspace ? `task/${n}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
       <dt>PR</dt><dd>${pr ? `#${pr.number}（${esc(pr.state)}）` : '<span class="tk-muted">なし</span>'}</dd>
     </dl></section>
     <section class="tk-d-section"><h4>コメント ${d.comments.length}</h4>${d.comments.map(c => `<article class="tk-comment"><header>${esc(c.author)}</header><p>${esc(c.body)}</p></article>`).join('')}
@@ -341,10 +341,10 @@
       {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
         ['here', 'このモジュールのcloneに作業空間を作る', `task/${n} のブランチを作って切り替えます（${root()}）`],
         ['dir', '専用のcloneを作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
-        ['none', '作業空間を作らない', '調査・設計など、コードを変えないタスク（作業中にするだけ）']]},
+        ['none', '作業空間を作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
       {name: 'dir', label: '専用のcloneの場所', value: suggested, showIf: v => v.place === 'dir'},
       {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', ...(branchOptions ? {type: 'select', options: branchOptions} : {}),
-        help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されたもの）。' : '既定は ecobuild.toml の default_base です。'},
+        help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : [])], ok: '開始',
       submit: async v => {
         // Pass --base only when it was changed from the default (the CLI decides the default the same way).
@@ -360,7 +360,7 @@
   }
   async function newTaskDialog(preset = {}) {
     const people = await members();
-    await ECO.form({title: '新しいタスク', busy: 'タスクを作っています…', fields: [
+    await ECO.form({title: '新しいタスク', busy: 'タスクを作成しています…', fields: [
       {name: 'title', label: '題名', required: true, placeholder: '何をするか'},
       {name: 'body', label: '本文', type: 'textarea', rows: 3, placeholder: '背景・完了の条件など（任意）'},
       {name: 'stage', label: '段階', type: 'radio', inline: true, value: preset.stage || 'todo', showIf: v => !v.start, options: [['todo', '未着手', 'すぐに着手できる'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
@@ -384,13 +384,13 @@
         if (assignees.length) args.push('--assignee', [...new Set(assignees)].join(','));
         for (const [key, option] of [['body', '--body'], ['label', '--label'], ['parent', '--parent'], ['blockedBy', '--blocked-by'], ['milestone', '--milestone'], ['due', '--due'], ['plannedStart', '--planned-start'], ['plannedEnd', '--planned-end']]) if (v[key]) args.push(option, v[key]);
         if (v.start) args.push('--start');
-        const doc = await run(args, {success: r => `タスク #${(r.task || r).number} を作りました。`, quietErrors: true});
+        const doc = await run(args, {success: r => `タスク #${(r.task || r).number} を作成しました。`, quietErrors: true});
         if (!doc) return '作成できませんでした。';
         const n = (doc.result.task || doc.result).number;
         st.members = null;
         // task new has no priority, estimate, sprint or stage: set them with task plan.
         const planArgs = [...(v.priority ? ['--priority', v.priority] : []), ...(v.estimate ? ['--estimate', v.estimate] : []), ...(v.sprint ? ['--sprint', v.sprint] : []), ...(!v.start && v.stage === 'planned' ? ['--stage', 'planned'] : [])];
-        if (planArgs.length && !await run(['task', 'plan', String(n), ...planArgs], {quietErrors: true})) { await reloadAfter(); select(n); return `#${n} は作りましたが、計画の値を保存できませんでした。`; }
+        if (planArgs.length && !await run(['task', 'plan', String(n), ...planArgs], {quietErrors: true})) { await reloadAfter(); select(n); return `#${n} は作成しましたが、計画の値を保存できませんでした。`; }
         if (v.start) { await MOD.reloadPlace(root()); }
         await reloadAfter(); select(n);
       }});
@@ -402,7 +402,7 @@
       {name: 'title', label: '題名', value: d.title, required: true}, {name: 'body', label: '本文', type: 'textarea', value: d.body, rows: 6},
       {type: 'section', label: 'つながり'},
       {name: 'parent', label: '親タスク', type: 'select', value: current ? String(current) : '', options: parentOptions(n, current)},
-      {name: 'addBlocked', label: '先に終わるべきタスクを加える', row: 'blocked', placeholder: '番号（カンマ区切り）'},
+      {name: 'addBlocked', label: '先に終わるべきタスクを追加', row: 'blocked', placeholder: '番号（カンマ区切り）'},
       {name: 'removeBlocked', label: '先に終わるべきタスクから外す', row: 'blocked', placeholder: d.blocked_by.map(b => b.number).join(',') || '番号（カンマ区切り）'}], ok: '保存',
       submit: async v => {
         const args = ['task', 'edit', String(n)], parent = Number(v.parent) || 0;
@@ -414,7 +414,7 @@
         if (v.removeBlocked) args.push('--remove-blocked-by', v.removeBlocked);
         // Moving to another parent: ecobuild does not re-parent implicitly, so remove the old parent first, then set the new one.
         const reparent = parent && current && parent !== current;
-        if (args.length === 3 && !reparent) return '変える内容がありません。';
+        if (args.length === 3 && !reparent) return '変更する内容がありません。';
         if (args.length > 3 && !await run(args, {success: '保存しました。', quietErrors: true})) return '保存できませんでした。';
         if (reparent) {
           if (!await run(['task', 'edit', String(n), '--clear-parent'], {quietErrors: true})) return `親タスク #${current} から外せませんでした。`;
@@ -425,28 +425,28 @@
   }
   async function addAssigneeDialog(n) {
     const already = st.details.get(n)?.assignees || byNumber(n)?.assignees || [], people = (await members()).filter(m => !already.includes(m));
-    const v = await ECO.form({title: `担当者を加える：#${n}`, fields: [
-      {name: 'who', label: '担当者', type: 'checks', options: memberOptions(people), empty: '候補はすべて担当者です（下の欄に入力できます）'},
-      {name: 'other', label: '候補にいない担当者（GitHubのアカウント、カンマ区切り。任意）'}], ok: '加える'});
+    const v = await ECO.form({title: `担当者を追加：#${n}`, fields: [
+      {name: 'who', label: '担当者', type: 'checks', options: memberOptions(people), empty: '候補者はすべて担当済みです（下の欄に入力できます）'},
+      {name: 'other', label: '候補にいない担当者（GitHubのアカウント、カンマ区切り。任意）'}], ok: '追加'});
     const who = v ? [...new Set([...v.who, ...ECO.commaList(v.other)])] : [];
-    if (who.length) editList(n, '--add-assignee', who.join(','), '担当者を加えました。');
+    if (who.length) editList(n, '--add-assignee', who.join(','), '担当者を追加しました。');
   }
   async function closeDialog(n) {
-    const v = await ECO.form({title: `タスク #${n} を閉じる`, fields: [{name: 'reason', label: '閉じる理由', type: 'radio', value: 'completed', options: [['completed', '完了', 'やり終えた'], ['not_planned', '対応しない', 'やらないと決めた']]}],
+    const v = await ECO.form({title: `タスク #${n} を閉じる`, fields: [{name: 'reason', label: '閉じる理由', type: 'radio', value: 'completed', options: [['completed', '完了', '作業を終えた'], ['not_planned', '対応しない', '対応しないと決めた']]}],
       extra: '<p class="eco-intro">作業空間は残ります。片付けは「作業をやめる」か「完了した作業空間を片付ける」で行います。</p>', ok: '閉じる'});
     if (v && await run(['task', 'close', String(n), ...(v.reason === 'not_planned' ? ['--not-planned'] : [])], {success: `#${n} を閉じました。`})) reloadAfter(n);
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業をやめる：#${n}`, intro: 'PRを出さずに作業をやめます。開いているPRを閉じ、作業空間を手元とGitHubから消して、作成元へ戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
+    const v = await ECO.form({title: `作業をやめる：#${n}`, intro: 'PRを出さずに作業をやめます。開いているPRを閉じ、作業空間を手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
     if (!v) return;
-    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `作業空間 ${r.branch} をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `作業空間 ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function removeWorkspace(n) {
     const place = placeFor(n);
-    const ok = await ECO.confirm({title: `手元の作業空間を消す：#${n}`, message: '手元の作業空間だけを消します。GitHubのブランチ・PR・タスクはそのままで、「作業を再開」でPush済みの所から再開できます。（未コミット・未Pushの変更があれば止まります）', ok: '消す', danger: true});
+    const ok = await ECO.confirm({title: `手元の作業空間を削除：#${n}`, message: '手元の作業空間だけを削除します。GitHubのブランチ・PR・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
     if (!ok) return;
-    const doc = await run(['task', 'remove', String(n)], {dir: place, success: r => `手元の作業空間 ${r.branch} を消しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const doc = await run(['task', 'remove', String(n)], {dir: place, success: r => `手元の作業空間 ${r.branch} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function cleanDialog() {
@@ -455,11 +455,11 @@
     const removable = results.filter(([, r]) => r.removed.length), skipped = results.flatMap(([, r]) => r.skipped);
     const body = (removable.length ? '<p>片付ける作業空間：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付ける作業空間はありません。</p>')
       + (skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
-    const ok = await ECO.dialog({title: '完了した作業空間を片付ける', body: '<p class="eco-intro">タスクが閉じた作業空間を片付けます。マージしていないコミットがある作業空間は残します。</p>' + body,
+    const ok = await ECO.dialog({title: '完了した作業空間を片付ける', body: '<p class="eco-intro">タスクが閉じられた作業空間を片付けます。マージされていないコミットがある作業空間は残します。</p>' + body,
       buttons: removable.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
     if (!ok) return;
     for (const [place] of removable) {
-      const doc = await run(['task', 'clean', '--yes'], {dir: place, success: r => (r.removed.length ? `片付けました：${r.removed.join('、')}` : '片付けたものはありません。') + (r.switched_to ? `（${r.switched_to} に移りました）` : '')});
+      const doc = await run(['task', 'clean', '--yes'], {dir: place, success: r => (r.removed.length ? `片付けました：${r.removed.join('、')}` : '片付けたものはありません。') + (r.switched_to ? `（${r.switched_to} に切り替えました）` : '')});
       if (!doc) continue;
       for (const s of doc.result.skipped) ECO.toast(`${s.branch} は残しました：${s.reason}`, 'info', 9000);
       await MOD.reloadPlace(place);
@@ -490,7 +490,7 @@
     body.innerHTML = `<div class="tk-pf"><header class="tk-pf-head">${avatarMark(who)}<div><div class="tk-pf-name">${esc(who)}${who === me() ? '<span class="tk-pill ok">自分</span>' : ''}</div><div class="tk-muted">GitHub アカウント</div></div>
       <button type="button" class="tk-d-close" data-close-person title="閉じる" aria-label="閉じる">×</button></header>
       <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中', w ? w.in_progress : doing.length)}${stat('残りの見積もり', w ? w.estimate_remaining : '-')}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('開いているPR', own.length)}</div>
-      <div class="tk-pf-grid">${section('作業中', doing.map(taskRow).join(''))}${section('プルリクエスト', own.map(prRow).join(''))}${who === me() ? section('レビューを頼まれているPR', asked.map(prRow).join('')) : ''}
+      <div class="tk-pf-grid">${section('作業中', doing.map(taskRow).join(''))}${section('プルリクエスト', own.map(prRow).join(''))}${who === me() ? section('レビューを依頼されたPR', asked.map(prRow).join('')) : ''}
       ${section('担当タスク', ts.length ? taskTable(ts, false) : '', 'wide')}</div></div>`;
   }
 
@@ -503,7 +503,7 @@
       ['詳細を見る', () => select(n)],
       ...(open ? [hasWorkspace ? ['作業空間を開く', () => MOD.openWorkspace(n)] : [t.remote ? '作業を再開…' : '作業を開始…', async () => { await detailOf(n); startDialog(n); }]] : []),
       '-',
-      ['担当者を加える…', async () => { await detailOf(n); addAssigneeDialog(n); }],
+      ['担当者を追加…', async () => { await detailOf(n); addAssigneeDialog(n); }],
       ...(me() ? [mine ? ['自分を担当から外す', () => editList(n, '--remove-assignee', '@me', '担当から外れました。')] : ['自分を担当にする', () => editList(n, '--add-assignee', '@me', '担当にしました。')]] : []),
       ...(open ? PRIORITIES.map(p => [`優先度：${p}${t.priority === p ? '（今）' : ''}`, () => plan(n, 'priority', p), t.priority !== p]).concat(t.priority ? [['優先度を消す', () => plan(n, 'priority', '')]] : []) : []),
       ...(open ? ['-', ...(currentSprint() ? [[`今のスプリント（${currentSprint()}）に入れる`, () => plan(n, 'sprint', currentSprint()), sprintName(t) !== currentSprint()]] : []), ...(sprintName(t) ? [['スプリントから外す', () => plan(n, 'sprint', '')]] : [])] : []),
@@ -512,7 +512,7 @@
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
       open ? ['閉じる…', () => closeDialog(n)] : ['開き直す', async () => { if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); }],
-      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['手元の作業空間を消す…', () => removeWorkspace(n)]] : []), ['作業をやめる…', () => dropDialog(n)]] : []),
+      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['手元の作業空間を削除…', () => removeWorkspace(n)]] : []), ['作業をやめる…', () => dropDialog(n)]] : []),
       '-',
       ['GitHubで開く', () => window.open(t.url, '_blank', 'noopener')],
     ], x, y);
@@ -543,18 +543,18 @@
     if (stage === 'done') return closeDialog(n);
     if (t.state !== 'open') {
       // Out of 完了: reopen (task reopen), then put it in the stage it was dropped on when that is 計画中.
-      if (!['planned', 'todo'].includes(stage)) return ECO.toast('閉じたタスクは、開き直して未着手・計画中に戻してから始めます。', 'info', 6000);
+      if (!['planned', 'todo'].includes(stage)) return ECO.toast('閉じたタスクは、開き直して未着手か計画中に戻してから開始してください。', 'info', 6000);
       if (!await ECO.confirm({title: `#${n} を開き直す`, message: `${t.title}
 を開き直して${STAGE[stage][1]}にします。`, ok: '開き直す'})) return;
       if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) { if (stage === 'planned') await setStage(n, 'planned'); else reloadAfter(n); }
       return;
     }
     if (stage === 'in_progress') {
-      if (MOD.placeOfTask(n) || t.workspace) return ECO.toast('作業空間があるタスクは、もう作業中です。', 'info');
+      if (MOD.placeOfTask(n) || t.workspace) return ECO.toast('作業空間があるタスクは、すでに作業中です。', 'info');
       await detailOf(n); return startDialog(n);
     }
-    if (stage === 'in_review') return ECO.toast('レビュー待ちには、作業空間でプルリクエストを提出すると移ります。', 'info', 6000);
-    if (MOD.placeOfTask(n) || t.workspace || t.remote) return ECO.toast('作業空間があるタスクです。作業をやめると未着手に戻ります。', 'info', 6000);
+    if (stage === 'in_review') return ECO.toast('作業空間でプルリクエストを提出すると、レビュー待ちに移ります。', 'info', 6000);
+    if (MOD.placeOfTask(n) || t.workspace || t.remote) return ECO.toast('作業空間があるタスクです。「作業をやめる」と未着手に戻ります。', 'info', 6000);
     setStage(n, stage);
   });
   async function setStage(n, stage) { if (await run(['task', 'plan', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n); }
@@ -670,7 +670,7 @@
     if (e.target.dataset.plan) plan(st.selected, e.target.dataset.plan, e.target.value);
     if (e.target.matches('[data-milestone]')) {
       const n = st.selected, args = ['task', 'edit', String(n), ...(e.target.value ? ['--milestone', e.target.value] : ['--clear-milestone'])];
-      run(args, {success: 'マイルストーンを変えました。'}).then(doc => doc ? reloadAfter(n) : renderDetail());
+      run(args, {success: 'マイルストーンを変更しました。'}).then(doc => doc ? reloadAfter(n) : renderDetail());
     }
   });
 

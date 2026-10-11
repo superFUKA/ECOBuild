@@ -49,7 +49,7 @@ def server_is_stale() -> bool:
         return False
 
 
-STALE_MESSAGE = ("GUIが更新されています。GUIをもう一度起動すると、新しいものに入れ替わります（この窓は閉じてください）。")
+STALE_MESSAGE = ("GUIが更新されました。GUIを起動し直すと新しい版に切り替わります（このウィンドウは閉じてください）。")
 IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
 DEFAULT_PORT = 8765
@@ -165,7 +165,7 @@ class Cli:
         if not args or not all(isinstance(a, str) for a in args):
             raise GuiError("コマンドの指定が正しくありません。")
         if directory and not Path(directory).is_dir():
-            raise GuiError(f"場所がありません：{directory}")
+            raise GuiError(f"フォルダが見つかりません：{directory}")
         argv = list(self.command) + (["-C", directory] if directory else []) + args + ["--json"]
         lock = None if _read_only(args) else self._lock_for(directory)
         if lock:
@@ -182,7 +182,7 @@ class Cli:
         if document is None:
             document = {"ok": False, "command": " ".join(args), "result": None, "notices": [],
                         "error": {"code": "gui_no_output",
-                                  "message": "ecobuild の結果を読めませんでした。",
+                                  "message": "ecobuild の結果を読み取れませんでした。",
                                   "hint": None, "details": (completed.stdout + completed.stderr)[-20000:]}}
         document["exit_code"] = completed.returncode
         document["stderr"] = completed.stderr[-20000:]
@@ -258,7 +258,7 @@ def list_files(directory: str) -> dict:
     """エクスプローラーの中身：gitの管理対象と未追跡のファイル（.gitignore の対象は除く）と、空のフォルダ。"""
     root = Path(directory).resolve()
     if not root.is_dir():
-        raise GuiError(f"場所がありません：{root}")
+        raise GuiError(f"フォルダが見つかりません：{root}")
     files = sorted({f for f in _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")
                     if f})
     ignored = {d.rstrip("/") for d in _git(root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard",
@@ -287,16 +287,16 @@ def _inside(directory: str, relative: str) -> Path:
     root = Path(directory).resolve()
     target = (root / relative).resolve()
     if target != root and root not in target.parents:
-        raise GuiError("場所の外は指定できません。")
+        raise GuiError("この場所の外は指定できません。")
     if ".git" in target.relative_to(root).parts:
-        raise GuiError(".git の中は扱えません。")
+        raise GuiError(".git の中は操作できません。")
     return target
 
 
 def make_directory(directory: str, relative: str) -> dict:
     target = _inside(directory, relative)
     if target.exists():
-        raise GuiError(f"既にあります：{relative}")
+        raise GuiError(f"すでに存在します：{relative}")
     target.mkdir(parents=True)
     return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
 
@@ -352,7 +352,7 @@ def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     """ソリューションを選んだ版の Visual Studio で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
     ecobuild にこれを行うコマンドはないため、GUIが行う。"""
     if version not in VISUAL_STUDIO:
-        raise GuiError(f"知らない Visual Studio の版です：{version}")
+        raise GuiError(f"対応していない Visual Studio の版です：{version}")
     solution = find_solution(directory)
     if solution is None:
         return {"solution": None}
@@ -360,7 +360,7 @@ def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     if not devenv:
         others = [v for v in visual_studio_versions() if v != version]
         raise GuiError(f"Visual Studio {version} が見つかりません。"
-                       + (f"このPCにあるのは {'・'.join(others)} です。ボタンの横で切り替えてください。" if others else ""))
+                       + (f"このPCにあるのは {'・'.join(others)} です。「VS〜で開く」の横の ▾ で切り替えてください。" if others else ""))
     subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
     return {"solution": solution.as_posix(), "devenv": devenv, "version": version}
 
@@ -369,7 +369,7 @@ def make_file(directory: str, relative: str) -> dict:
     """空のファイルを作る（型が ecobuild file add に対応しないとき：generic 等）。"""
     target = _inside(directory, relative)
     if target.exists():
-        raise GuiError(f"既にあります：{relative}")
+        raise GuiError(f"すでに存在します：{relative}")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.touch()
     return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
@@ -387,7 +387,7 @@ def make_parent(path: str) -> dict:
 def open_path(directory: str, relative: str, reveal: bool) -> dict:
     target = _inside(directory, relative or ".")
     if not target.exists():
-        raise GuiError(f"ありません：{relative}")
+        raise GuiError(f"見つかりません：{relative}")
     if os.name == "nt":
         if reveal and target.is_file():
             subprocess.Popen(["explorer", "/select,", str(target)])
@@ -403,7 +403,7 @@ def open_path(directory: str, relative: str, reveal: bool) -> dict:
 def read_text(directory: str, relative: str) -> dict:
     target = _inside(directory, relative)
     if not target.is_file():
-        raise GuiError(f"ファイルがありません：{relative}")
+        raise GuiError(f"ファイルが見つかりません：{relative}")
     data = target.read_bytes()[:400_000]
     if b"\0" in data[:8000]:
         return {"binary": True, "text": ""}
@@ -459,9 +459,9 @@ GH_SCOPES = {"delete_repo", "project"}   # 画面から追加を頼める gh の
 def refresh_scope(scope: str) -> None:
     """gh のログインに権限を足す（gh auth refresh。ブラウザで承認する）。対話が要るので、新しい端末の窓で動かす。"""
     if scope not in GH_SCOPES:
-        raise GuiError(f"知らない権限です：{scope}")
+        raise GuiError(f"対応していない権限です：{scope}")
     if os.name != "nt":
-        raise GuiError(f"端末で gh auth refresh -h github.com -s {scope} を実行してください。")
+        raise GuiError(f"ターミナルで gh auth refresh -h github.com -s {scope} を実行してください。")
     subprocess.Popen(["cmd", "/c", f"gh auth refresh -h github.com -s {scope} & pause"],
                      creationflags=subprocess.CREATE_NEW_CONSOLE)
 
@@ -526,7 +526,7 @@ class App:
             # GUIの別の画面（モジュールの窓）を、ハブと同じアプリの窓で開く（画面の window.open では普通のタブになるため）。
             page = d("page") or ""
             if not page.startswith(("module.html?", "hub.html")) or "//" in page or "\\" in page.split("?")[0]:
-                raise GuiError("開けない画面です。")
+                raise GuiError("この画面は開けません。")
             separator = "&" if "?" in page else "?"
             open_window(f"http://127.0.0.1:{self.port}/{page}{separator}t={self.token}")
             return {}
@@ -536,8 +536,8 @@ class App:
             return read_text(d("dir"), d("path"))
         if name == "pick-folder":
             return pick_folder(d("title") or "", d("initial") or "")
-        raise GuiError(f"知らない操作です：{name}" + (f"。{STALE_MESSAGE}" if server_is_stale() else
-                                                    "。GUIのサーバーが画面より古い可能性があります。起動し直してください。"))
+        raise GuiError(f"不明な操作です：{name}" + (f"。{STALE_MESSAGE}" if server_is_stale() else
+                                                    "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
 
 
 def make_handler(app: App):
@@ -578,7 +578,7 @@ def make_handler(app: App):
         def do_POST(self):
             if self.headers.get("Host") not in allowed_hosts or \
                     not secrets.compare_digest(self.headers.get("X-ECOBuild-Token", ""), app.token):
-                return self._json(HTTPStatus.FORBIDDEN, {"error": "合言葉が違います。GUIを開き直してください。"})
+                return self._json(HTTPStatus.FORBIDDEN, {"error": "認証に失敗しました。GUIを開き直してください。"})
             app.last_contact = time.monotonic()
             path = urlparse(self.path).path
             if not path.startswith("/api/"):
@@ -690,7 +690,7 @@ def _shortcut_places() -> list[Path]:
 def make_shortcuts(places: list[Path] | None = None) -> list[str]:
     """デスクトップとスタートメニューに「ECOBuild GUI」のショートカット（アイコン付き）を作る。Windowsだけ。"""
     if os.name != "nt":
-        raise GuiError("ショートカットを作れるのは Windows だけです。")
+        raise GuiError("ショートカットは Windows でのみ作成できます。")
     here = Path(__file__).resolve().parent
     places = _shortcut_places() if places is None else places
     made = []
@@ -707,7 +707,7 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
         completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
                                    capture_output=True, encoding="utf-8", errors="replace", **_no_window())
         if completed.returncode != 0 or not link.is_file():
-            raise GuiError(f"ショートカットを作れませんでした：{link}\n{completed.stderr.strip()}")
+            raise GuiError(f"ショートカットを作成できませんでした：{link}\n{completed.stderr.strip()}")
         made.append(str(link))
     return made
 
@@ -751,12 +751,12 @@ def launch(args) -> None:
     while time.monotonic() < deadline:
         state = _read_state()
         if state and state.get("pid") == process.pid and _ping(state):
-            _say(f"ECOBuild GUI を起動しました：{_url(state)}\n（裏で動いています。GUIの窓をすべて閉じると、しばらくして終わります）")
+            _say(f"ECOBuild GUI を起動しました：{_url(state)}\n（バックグラウンドで動いています。GUIのウィンドウをすべて閉じると、しばらくして終了します）")
             return
         if process.poll() is not None:
             break
         time.sleep(0.2)
-    _alert(f"ECOBuild GUI を起動できませんでした。記録：{gui_home() / 'gui.log'}")
+    _alert(f"ECOBuild GUI を起動できませんでした。ログ：{gui_home() / 'gui.log'}")
     sys.exit(1)
 
 
@@ -791,7 +791,7 @@ def serve(args) -> None:
             while True:
                 time.sleep(15)
                 if time.monotonic() - app.last_contact > IDLE_SECONDS:
-                    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 画面がないので終わります")
+                    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 開いている画面がないため終了します")
                     server.shutdown()
                     return
         threading.Thread(target=watch, daemon=True).start()
@@ -823,9 +823,9 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="ecobuild-gui", description="ECOBuildのGUIを開きます。")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"待ち受けるポート（既定 {DEFAULT_PORT}。"
                                                                        "使われていれば空いているもの）")
-    parser.add_argument("--no-browser", action="store_true", help="窓を開かない（URLを表示するだけ）")
+    parser.add_argument("--no-browser", action="store_true", help="ウィンドウを開かない（URLを表示するだけ）")
     parser.add_argument("--ecobuild", default="", help="ecobuild コマンドの場所（既定：PATH、なければ起動したPythonの環境）")
-    parser.add_argument("--foreground", action="store_true", help="裏で動かさず、この端末でサーバーを動かす（Ctrl+C で終了。開発用）")
+    parser.add_argument("--foreground", action="store_true", help="バックグラウンドで動かさず、このターミナルでサーバーを動かす（Ctrl+C で終了。開発用）")
     parser.add_argument("--shortcut", action="store_true",
                         help="デスクトップとスタートメニューにショートカット（アイコン付き）を作って終わる")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）

@@ -20,9 +20,18 @@ let modules = [];
 // and the others not in the list are offered to clone.
 // Read once (it asks GitHub about every repository) and again after archiving or deleting one.
 let githubModules = null, githubModulesLoading = null;
+// module clones answers at once but module list waits for GitHub: until it does, the list leaves out the modules it said
+// were archived last time (kept in this browser only to avoid showing them for a moment; the CLI's answer replaces it).
+const ARCHIVED_KEY = 'ecobuild-gui-archived';
+let lastArchived = [];
+try { lastArchived = JSON.parse(localStorage.getItem(ARCHIVED_KEY) || '[]'); } catch (e) { /* storage blocked or broken */ }
 function loadGithubModules() {
   githubModulesLoading = ECO.cli(null, ['module', 'list', '--all'], {quiet: true}).then(doc => {
     githubModules = doc.ok ? doc.result : [];
+    if (doc.ok) {
+      lastArchived = githubModules.filter(g => g.archived).map(g => g.repository);
+      try { localStorage.setItem(ARCHIVED_KEY, JSON.stringify(lastArchived)); } catch (e) { /* storage blocked */ }
+    }
     githubModulesLoading = null; renderModules(); renderCloneCandidates();
   });
   return githubModulesLoading;
@@ -80,7 +89,7 @@ function renderModules() {
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
   modules = clones.filter(c => c.kind === 'module')
     .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c)}))
-    .filter(m => !githubEntry(m)?.archived)
+    .filter(m => githubModules ? !githubEntry(m)?.archived : !lastArchived.some(r => sameRepository(r, m.repository)))
     .map((m, i) => [m, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([m]) => m);
   renderArchived();
   const list = $('module-list');

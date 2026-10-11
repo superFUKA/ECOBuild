@@ -1,6 +1,7 @@
 'use strict';
-// Module window: left menu and the workspace tabs. A tab is a place on disk (the module's clone, or a dedicated clone
-// made by "task start --dir"); it shows whatever branch / workspace is checked out there.
+// Module window: left menu and the workspace tabs. A tab is a place on disk (the module's clone, or another clone of it
+// on this PC, e.g. a dedicated clone made by "task start --dir": ecobuild module clones); it shows whatever branch /
+// workspace is checked out there.
 const MOD = (() => {
   const root = ECO.params.get('path') || '';
   const name = root.split(/[\\/]/).filter(Boolean).pop() || 'モジュール';
@@ -158,19 +159,51 @@ function reloadPlace(dir) {
   frames.get(key)?.contentWindow?.location.reload();
   return refreshState(dir);
 }
+// The same repository: 所有者/名前 (GitHub), otherwise the origin URL.
+const identity = c => (c.repository || (c.url || '').replaceAll('\\', '/').replace(/\/+$/, '').replace(/\.git$/, '')).toLowerCase();
+let moduleIdentity = null, recorded = [];
+async function ownIdentity(clones) {
+  const mine = clones.find(c => keyOf(c.path) === keyOf(MOD.root));
+  if (mine && identity(mine)) return identity(mine);
+  if (moduleIdentity === null) moduleIdentity = ((await ECO.call('module-repository', {dir: MOD.root}).catch(() => ({}))).repository || '').toLowerCase();
+  return moduleIdentity;
+}
+// The other clones of this module on this PC (recorded by ecobuild: module clones).
+async function otherClones() {
+  const doc = await ECO.cli(null, ['module', 'clones'], {quiet: true});
+  if (!doc.ok) { ECO.toast(doc.error?.message || 'このPCのcloneの一覧を読めませんでした。', 'bad'); return []; }
+  recorded = doc.result;
+  const id = await ownIdentity(doc.result);
+  return id ? doc.result.filter(c => c.exists && keyOf(c.path) !== keyOf(MOD.root) && identity(c) === id).map(c => c.path) : [];
+}
 async function loadPlaces() {
-  let extra = [];
-  try { extra = await ECO.call('workspaces', {module: MOD.root}); } catch (e) { ECO.toast(e.message, 'bad'); }
-  MOD.places = [MOD.root, ...extra];
+  MOD.places = [MOD.root, ...await otherClones()];
   MOD.places.forEach(addTab);
   for (const group of tabs.querySelectorAll('.workspace-tab-group')) group.draggable = true;
   restoreTabOrder();
   await Promise.all(MOD.places.map(refreshState));
 }
+// A clone made by "task start --dir" is recorded by the CLI; one made otherwise is recorded here (module register).
 async function addPlace(dir) {
-  const list = await ECO.call('workspaces/add', {module: MOD.root, dir});
+  let list = await otherClones();
+  if (!list.some(d => keyOf(d) === keyOf(dir)) && keyOf(dir) !== keyOf(MOD.root)) {
+    // A folder in another recorded clone is not this module's: register would only change that record.
+    const inside = (p, root) => keyOf(p) === keyOf(root) || keyOf(p).startsWith(keyOf(root).replace(/\/+$/, '') + '/');
+    const theirs = recorded.find(c => inside(dir, c.path) && !inside(c.path, MOD.root) && !list.some(d => keyOf(d) === keyOf(c.path)));
+    if (theirs) throw new Error(`${dir} は ${MOD.name} のcloneではありません（${theirs.path} は別のモジュールのcloneです）。`);
+    const known = recorded.map(c => keyOf(c.path));
+    const doc = await ECO.cli(null, ['module', 'register', dir, '--workspace'], {quiet: true});
+    if (!doc.ok) throw new Error([doc.error?.message, doc.error?.hint].filter(Boolean).join('\n'));
+    dir = doc.result.path;   // the clone's root (a folder inside it may be given)
+    list = await otherClones();
+    if (keyOf(dir) !== keyOf(MOD.root) && !list.some(d => keyOf(d) === keyOf(dir))) {   // another module's
+      if (!known.includes(keyOf(dir))) await ECO.cli(null, ['module', 'forget', dir], {quiet: true});
+      throw new Error(`${dir} は ${MOD.name} のcloneではありません。`);
+    }
+  }
   for (const d of list) if (!MOD.places.some(p => keyOf(p) === keyOf(d))) { MOD.places.push(d); addTab(d); await refreshState(d); }
-  const added = list.find(d => keyOf(d) === keyOf(dir)) || dir;
+  const added = [MOD.root, ...list].find(d => keyOf(d) === keyOf(dir));
+  if (!added) throw new Error(`${dir} は ${MOD.name} のcloneではありません。`);
   return added;
 }
 // The place where workspace task/<n> is checked out (if any).
@@ -250,8 +283,8 @@ addTabButton.addEventListener('click', async () => {
     if (show) { d.close(); activate(MOD.places[Number(show.dataset.show)], true); }
     if (forget) {
       const dir = MOD.places[Number(forget.dataset.forget)]; d.close();
-      if (await ECO.confirm({title: '一覧から外す', message: `${dir} をタブの一覧から外します。フォルダは消しません（手元から消すには、タスク管理の「手元の作業空間を消す」を使います）。`, ok: '外す'})) {
-        await ECO.call('workspaces/remove', {module: MOD.root, dir}); removeTab(dir);
+      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCのcloneの記録から外します（タブの一覧からも外れます）。フォルダは消しません（手元から消すには、タスク管理の「手元の作業空間を消す」を使います）。フォルダの中で ecobuild を使うと、また記録されます。`, ok: '外す'})) {
+        if (await ECO.run(null, ['module', 'forget', dir])) removeTab(dir);
       }
     }
     if (e.target.closest('[data-register]')) {

@@ -36,23 +36,35 @@ def _module(path):
     return path
 
 
-def test_store_registers_modules_and_dedicated_clones(tmp_path):
+def test_gui_json_keeps_only_the_order(tmp_path):
     store = gui.Store(tmp_path / "home" / "gui.json")
-    root = _module(tmp_path / "Calc")
-    added = store.add_module(str(root / "src"))      # 中の場所を指定してもモジュールの場所で登録する
-    assert added["name"] == "Calc"
-    store.add_module(str(root))                       # 同じ場所は重ねない
-    assert [m["name"] for m in store.modules()] == ["Calc"] and store.modules()[0]["exists"]
-    with pytest.raises(gui.GuiError):
-        store.add_module(str(tmp_path))               # ecobuild.toml がなければ断る
+    assert store.order() == []
+    store.set_order(["C:\\work\\B", "C:/work/A"])
+    assert store.order() == ["C:/work/B", "C:/work/A"]
+    assert json.loads((tmp_path / "home" / "gui.json").read_text(encoding="utf-8")) == {"order": ["C:/work/B", "C:/work/A"]}
 
-    clone = _module(tmp_path / "Calc-7")
-    (clone / ".git").mkdir()
-    assert store.add_workspace(str(root), str(clone)) == [clone.resolve().as_posix()]
-    assert store.add_workspace(str(root), str(root)) == [clone.resolve().as_posix()]   # 元のcloneは足さない
-    assert store.remove_workspace(str(root), str(clone)) == []
-    store.remove_module(str(root))
-    assert store.modules() == []
+
+def test_older_gui_json_moves_to_the_clone_record(tmp_path):
+    """以前の gui.json の一覧・専用のcloneは、ecobuild の記録（module register）へ一度だけ移し、並びは残す。"""
+    calc, gone, ws = _module(tmp_path / "Calc"), tmp_path / "Gone", _module(tmp_path / "Calc-7")
+    (tmp_path / "gui.json").write_text(json.dumps({
+        "modules": [{"path": calc.as_posix(), "name": "Calc"}, {"path": gone.as_posix()}],
+        "workspaces": {calc.as_posix().lower(): [ws.as_posix()]}}), encoding="utf-8")
+    calls = []
+
+    class Recorder(gui.Cli):
+        def run(self, directory, args, stdin=None):
+            calls.append((directory, args))
+            return {"ok": True}
+
+    app = gui.App(Recorder(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    app.move_legacy()
+    assert calls == [(None, ["module", "register", calc.as_posix()]),           # なくなったフォルダは入れない
+                     (None, ["module", "register", ws.as_posix(), "--workspace"])]
+    assert json.loads((tmp_path / "gui.json").read_text(encoding="utf-8")) == {"order": [calc.as_posix(), gone.as_posix()]}
+    calls.clear()
+    app.move_legacy()
+    assert calls == []
 
 
 def test_list_files_uses_git_and_keeps_empty_folders(tmp_path):
@@ -103,7 +115,7 @@ def test_api_requires_the_token_and_the_local_host(tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         def post(token, host=f"127.0.0.1:{port}"):
-            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/modules", data=b"{}", method="POST",
+            request = urllib.request.Request(f"http://127.0.0.1:{port}/api/modules/order", data=b"{}", method="POST",
                                              headers={"X-ECOBuild-Token": token, "Host": host})
             try:
                 with urllib.request.urlopen(request) as response:
@@ -148,13 +160,8 @@ def test_server_does_not_share_a_port_in_use():
         first.server_close()
 
 
-def test_module_list_order_defaults_and_solution(tmp_path):
-    store = gui.Store(tmp_path / "gui.json")
+def test_module_defaults_and_solution(tmp_path):
     a, b = _module(tmp_path / "A"), _module(tmp_path / "B")
-    store.add_module(str(a)); store.add_module(str(b))
-    store.order_modules([str(b), str(a)])
-    assert [m["name"] for m in store.modules()] == ["B", "A"]
-
     write(a / "ecobuild.toml", '[branches]\ndefault_base = "develop"\n')
     assert gui.module_defaults(str(a)) == {"default_base": "develop"}
     assert gui.module_defaults(str(tmp_path)) == {}            # モジュールでなければ空
@@ -242,14 +249,3 @@ def test_commands_that_fetch_wait_for_the_others():
     for args in (["status", "--fetch"], ["task", "next", "--count", "5"], ["task", "overdue"], ["task", "workload"],
                  ["sprint", "status"], ["milestone", "status"], ["build"]):
         assert not gui._read_only(args), args
-
-
-def test_gui_json_keeps_only_the_folders(tmp_path):
-    root = tmp_path / "Calc"
-    root.mkdir()
-    (root / "ecobuild.toml").write_text("", encoding="utf-8")
-    store = gui.Store(tmp_path / "gui.json")
-    store.add_module(str(root))
-    saved = json.loads((tmp_path / "gui.json").read_text(encoding="utf-8"))
-    assert saved["modules"] == [{"path": root.as_posix()}]   # 名前・状態はフォルダとCLIから
-    assert store.modules() == [{"path": root.as_posix(), "name": "Calc", "exists": True}]

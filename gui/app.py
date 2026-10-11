@@ -61,7 +61,7 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 # 段階のずれを直すので、ここに入れない（同じ場所で並べて fetch すると、git の参照のロックがぶつかる）。
 READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
-    ("module", "show"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
+    ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
     ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("release", "list"),
@@ -82,8 +82,8 @@ def _no_window() -> dict:
 
 
 class Store:
-    """GUIだけが使う記録。ファイルは gui.json。CLIから分かることは持たない（アーカイブ済みか・リポジトリ名等は
-    ecobuild に聞く）。持つのは、CLIが知らない2つだけ：ハブに登録した手元のフォルダ（並び順）と、専用のcloneの場所。"""
+    """GUIだけが使う記録。ファイルは gui.json。CLIから分かることは持たない（このPCにあるclone は ecobuild module clones、
+    アーカイブ済みか等は module list に聞く）。持つのは、ハブの一覧の並び順だけ。"""
 
     def __init__(self, path: Path):
         self.path = path
@@ -94,9 +94,7 @@ class Store:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             data = {}
-        data["modules"] = [{"path": item["path"]} for item in data.get("modules", [])]   # 以前は名前も持っていた
-        data.setdefault("workspaces", {})
-        return data
+        return data if isinstance(data, dict) else {}
 
     def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -104,59 +102,29 @@ class Store:
         temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         temporary.replace(self.path)
 
-    def modules(self) -> list[dict]:
+    def order(self) -> list[str]:
         with self._lock:
-            data = self._load()
-        return [{"path": item["path"], "name": Path(item["path"]).name, "exists": (Path(item["path"]) / "ecobuild.toml").is_file()}
-                for item in data["modules"]]
+            return list(self._load().get("order", []))
 
-    def add_module(self, path: str) -> dict:
-        root = _module_root(Path(path))
+    def set_order(self, paths: list[str]) -> None:
+        """一覧の並び（ハブでドラッグして並べ替えたもの）。"""
         with self._lock:
             data = self._load()
-            if not any(_same(item["path"], root) for item in data["modules"]):
-                data["modules"].append({"path": root.as_posix()})
-                self._save(data)
-        return {"path": root.as_posix(), "name": root.name}
-
-    def order_modules(self, paths: list[str]) -> None:
-        """一覧の並び（ハブでドラッグして並べ替えたもの）。知らない場所は無視し、指定のないものは後ろに残す。"""
-        with self._lock:
-            data = self._load()
-            rank = {_key(p): i for i, p in enumerate(paths)}
-            data["modules"].sort(key=lambda item: rank.get(_key(item["path"]), len(rank)))
+            data["order"] = [Path(p).as_posix() for p in paths]
             self._save(data)
 
-    def remove_module(self, path: str) -> None:
+    def take_legacy(self) -> tuple[list[str], list[str]]:
+        """以前の gui.json が持っていた、一覧のフォルダ（modules）と専用のclone（workspaces）。取り出して消す
+        （今は ecobuild module clones の記録に入れる。一覧の並びは order に残す）。"""
         with self._lock:
             data = self._load()
-            data["modules"] = [item for item in data["modules"] if not _same(item["path"], Path(path))]
-            data["workspaces"].pop(_key(path), None)
+            if "modules" not in data and "workspaces" not in data:
+                return [], []
+            modules = [item["path"] for item in data.pop("modules", []) if isinstance(item, dict) and "path" in item]
+            workspaces = [d for items in data.pop("workspaces", {}).values() for d in items]
+            data.setdefault("order", modules)
             self._save(data)
-
-    def workspaces(self, module: str) -> list[str]:
-        """モジュールの専用のclone（task start --dir で作ったもの等）。消えた場所は除く。"""
-        with self._lock:
-            data = self._load()
-        return [d for d in data["workspaces"].get(_key(module), []) if (Path(d) / ".git").exists()]
-
-    def add_workspace(self, module: str, directory: str) -> list[str]:
-        root = _module_root(Path(directory))
-        with self._lock:
-            data = self._load()
-            items = data["workspaces"].setdefault(_key(module), [])
-            if not _same(module, root) and not any(_same(d, root) for d in items):
-                items.append(root.as_posix())
-                self._save(data)
-        return self.workspaces(module)
-
-    def remove_workspace(self, module: str, directory: str) -> list[str]:
-        with self._lock:
-            data = self._load()
-            items = data["workspaces"].get(_key(module), [])
-            data["workspaces"][_key(module)] = [d for d in items if not _same(d, Path(directory))]
-            self._save(data)
-        return self.workspaces(module)
+            return modules, workspaces
 
 
 def _key(path: str | Path) -> str:
@@ -506,6 +474,13 @@ class App:
         self.last_contact = time.monotonic()
         self.server: ThreadingHTTPServer | None = None
 
+    def move_legacy(self) -> None:
+        """以前の gui.json に登録したフォルダを、ecobuild のcloneの記録（module register）へ移す（一度だけ）。"""
+        modules, workspaces = self.store.take_legacy()
+        for path, extra in [(p, []) for p in modules] + [(p, ["--workspace"]) for p in workspaces]:
+            if (Path(path) / "ecobuild.toml").is_file():
+                self.cli.run(None, ["module", "register", path, *extra])
+
     def api(self, name: str, body: dict) -> object:
         d = body.get
         if name == "cli":
@@ -521,22 +496,11 @@ class App:
                     "stale": STALE_MESSAGE if server_is_stale() else "",
                     "home": str(Path.home()),
                     "version": VERSION}
-        if name == "modules":   # with the GitHub repository (所有者/名前) of each, to match ecobuild module list
-            return [dict(m, repository=module_repository(m["path"]) if m["exists"] else "") for m in self.store.modules()]
-        if name == "modules/add":
-            return self.store.add_module(d("path"))
         if name == "modules/order":
-            self.store.order_modules(list(d("paths") or []))
+            if d("paths") is None:
+                return self.store.order()
+            self.store.set_order(list(d("paths")))
             return {}
-        if name == "modules/remove":
-            self.store.remove_module(d("path"))
-            return {}
-        if name == "workspaces":
-            return self.store.workspaces(d("module"))
-        if name == "workspaces/add":
-            return self.store.add_workspace(d("module"), d("dir"))
-        if name == "workspaces/remove":
-            return self.store.remove_workspace(d("module"), d("dir"))
         if name == "files":
             return list_files(d("dir"))
         if name == "mkdir":
@@ -814,6 +778,7 @@ def serve(args) -> None:
     port = server.server_address[1]
     app = App(cli, store, token, port)
     app.server = server
+    app.move_legacy()
     server.RequestHandlerClass = make_handler(app)
     state = {"pid": os.getpid(), "port": port, "token": token}
     url = _url(state)

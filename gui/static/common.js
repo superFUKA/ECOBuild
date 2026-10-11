@@ -139,35 +139,77 @@ const ECO = (() => {
   // submit(values) may return an error string to keep the dialog open. Resolves with the values (or null when cancelled).
   // With submit: pressing the button closes the form and shows the busy overlay; when submit fails, the form opens again
   // with the error (the values entered stay).
+  // Layout of the fields: the ones with the same `row` sit side by side; {type: 'section', label} starts a group under a
+  // heading ({collapsed: true}: folded until opened, for what is seldom set; {end: true} ends it); `showIf: values => bool` shows a field only
+  // when it applies; a radio with `inline` lays its choices side by side.
+  const LAYOUT = new Set(['html', 'section']);
   function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = '', busy: busyText}) {
     return new Promise(resolve => {
-      const d = document.createElement('dialog'); d.className = 'eco-dialog' + (wide ? ' wide' : '');
-      const html = fields.map(f => {
+      const d = document.createElement('dialog');
+      d.className = 'eco-dialog' + (wide ? ' wide' : fields.some(f => f.row) ? ' roomy' : '');
+      const fieldHtml = f => {
         const id = 'f-' + f.name, attrs = `name="${esc(f.name)}" ${f.required ? 'required' : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.min != null ? `min="${f.min}"` : ''}`;
         const help = f.help ? `<span class="eco-help">${esc(f.help)}</span>` : '';
         if (f.type === 'html') return f.html;
         if (f.type === 'checkbox') return `<label class="eco-check"><input type="checkbox" ${attrs} ${f.value ? 'checked' : ''}> ${esc(f.label)}</label>${help}`;
         if (f.type === 'checks') return `<fieldset class="eco-checks"><legend>${esc(f.label)}</legend><div>${f.options.length ? f.options.map(([v, l]) => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}" ${(f.value || []).includes(v) ? 'checked' : ''}><span>${esc(l ?? v)}</span></label>`).join('') : `<span class="eco-help">${esc(f.empty || '選べるものがありません')}</span>`}</div></fieldset>${help}`;
-        if (f.type === 'radio') return `<fieldset><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) ? 'checked' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
+        if (f.type === 'radio') return `<fieldset${f.inline ? ' class="eco-inline"' : ''}><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) ? 'checked' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
         if (f.type === 'select') return `<label class="eco-field">${esc(f.label)}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
         if (f.type === 'textarea') return `<label class="eco-field">${esc(f.label)}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
         const list = f.suggestions?.length ? `<datalist id="${id}-list">${f.suggestions.map(([v, l]) => `<option value="${esc(v)}"${l ? ` label="${esc(l)}"` : ''}></option>`).join('')}</datalist>` : '';
         return `<label class="eco-field">${esc(f.label)}<input id="${id}" type="${f.type || 'text'}" ${attrs} ${list ? `list="${id}-list"` : ''} value="${esc(f.value ?? '')}" autocomplete="off">${list}${help}</label>`;
-      }).join('');
+      };
+      const wrap = f => f.type === 'html' ? f.html : `<div class="eco-f" data-field="${esc(f.name)}">${fieldHtml(f)}</div>`;
+      let html = '', closing = '';
+      for (let i = 0; i < fields.length;) {
+        const f = fields[i];
+        if (f.type === 'section') {
+          html += closing;
+          if (f.end) { closing = ''; i++; continue; }   // {type: 'section', end: true}: the fields after it are outside
+          const note = f.note ? `<small>${esc(f.note)}</small>` : '';
+          html += f.collapsed ? `<details class="eco-section"${f.open ? ' open' : ''}><summary>${esc(f.label)}${note}</summary>` : `<div class="eco-section"><h3>${esc(f.label)}${note}</h3>`;
+          closing = f.collapsed ? '</details>' : '</div>'; i++; continue;
+        }
+        if (f.row) {
+          const group = [];
+          while (i < fields.length && fields[i].row === f.row) group.push(fields[i++]);
+          html += `<div class="eco-row" style="--cols:${group.length}">${group.map(wrap).join('')}</div>`; continue;
+        }
+        html += wrap(f); i++;
+      }
+      html += closing;
       d.innerHTML = `<form><h2>${esc(title)}</h2>${intro ? `<p class="eco-intro">${intro}</p>` : ''}${html}${extra}<p class="eco-error" role="alert"></p><div class="eco-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></form>`;
       const formEl = d.querySelector('form'), error = d.querySelector('.eco-error'), okButton = d.querySelector('[type=submit]');
       let result = null, working = false;
       d.querySelector('[data-cancel]').addEventListener('click', () => d.close());
-      formEl.addEventListener('submit', async event => {
-        event.preventDefault();
+      const readValues = () => {
         const values = {};
         for (const f of fields) {
-          if (f.type === 'html') continue;
+          if (LAYOUT.has(f.type)) continue;
           if (f.type === 'checkbox') values[f.name] = formEl.elements[f.name].checked;
           else if (f.type === 'checks') values[f.name] = [...formEl.querySelectorAll(`[name="${f.name}"]:checked`)].map(x => x.value);
           else if (f.type === 'radio') values[f.name] = formEl.querySelector(`[name="${f.name}"]:checked`)?.value ?? '';
           else values[f.name] = formEl.elements[f.name].value.trim();
         }
+        return values;
+      };
+      // Fields that do not apply are hidden (and disabled, so a required one does not block sending).
+      const conditional = fields.filter(f => f.showIf);
+      const applyConditions = () => {
+        const values = readValues();
+        for (const f of conditional) {
+          const box = formEl.querySelector(`.eco-f[data-field="${CSS.escape(f.name)}"]`), on = !!f.showIf(values);
+          box.hidden = !on;
+          for (const input of box.querySelectorAll('input, select, textarea')) input.disabled = !on;
+          const row = box.closest('.eco-row');
+          if (row) row.hidden = ![...row.children].some(c => !c.hidden);
+        }
+      };
+      if (conditional.length) { formEl.addEventListener('input', applyConditions); formEl.addEventListener('change', applyConditions); applyConditions(); }
+      formEl.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); formEl.requestSubmit(); } });
+      formEl.addEventListener('submit', async event => {
+        event.preventDefault();
+        const values = readValues();
         error.textContent = '';
         if (submit) {
           working = true; d.close();

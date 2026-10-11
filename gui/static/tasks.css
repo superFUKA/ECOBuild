@@ -89,7 +89,8 @@
 .tk-plan { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .tk-plan label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
 .tk-plan input, .tk-plan select { width: 100%; }
-.tk-kv { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 7px 10px; margin: 0; font-size: 13px; }
+.tk-kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 7px 10px; margin: 0; font-size: 13px; align-items: center; }
+.tk-kv.tk-controls dd > select, .tk-kv.tk-controls dd > input { width: 100%; max-width: 240px; box-sizing: border-box; }
 .tk-kv dt { color: var(--muted); font-size: 12px; padding-top: 2px; } .tk-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .tk-chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .tk-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 7px; border-radius: 10px; background: #27303a; font-size: 12px; }
@@ -235,7 +236,7 @@
 .tk-dash > .wide { grid-column: 1 / -1; }
 .tk-dash .tk-card { margin: 0; }
 @media(max-width: 1250px) { .tk-dash { grid-template-columns: minmax(0, 1fr); } }
-.tk-dash-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.tk-dash-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr)); gap: 10px; }
 .tk .tk-dash-stat { display: grid; text-align: left; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .tk .tk-dash-stat:disabled { cursor: default; } .tk .tk-dash-stat:disabled:hover { border-color: var(--line); }
 .tk-dash-stat b { font-size: 26px; font-variant-numeric: tabular-nums; } .tk-dash-stat span { font-size: 12px; color: var(--muted); }

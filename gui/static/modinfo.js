@@ -28,7 +28,8 @@
   // Which place to show (the module's clone, or a dedicated clone / workspace with uncommitted changes).
   function placeSelect() {
     const options = MOD.places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${esc(MOD.states.get(MOD.keyOf(p))?.branch || p)}${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? '' : '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
-    return `<label class="mi-note" style="display:flex;gap:6px;align-items:center">表示する場所<select id="mi-place">${options}</select></label>`;
+    if (MOD.places.length < 2) return '';   // only the module's clone: nothing to choose
+    return `<div class="mi-place"><label class="mi-note">表示する場所<select id="mi-place">${options}</select></label></div>`;
   }
   // 概要: ecobuild module show.
   function renderOverview() {
@@ -37,7 +38,7 @@
     const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
     const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
     const row = (label, value) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`;
-    return head(`${esc(r.name)}`, 'このモジュールの情報です。', '') +
+    return head(`${esc(r.name)}`, '型・場所・GitHubのリポジトリ・Project・依存先', '') +
       `<table class="mi-table mi-overview"><tbody>
       ${row('型', pill(r.type))}
       ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
@@ -161,8 +162,8 @@
       v => ['link', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
     'unlink': name => inWorkspace(`リンクを外す：${name}`, [], '外す', () => ['unlink', name], {danger: true, intro: '依存先のリンクを外します。手元のcloneは、記録の版のままなら消します（作業中・変更ありなら残します）。', success: `${name} のリンクを外しました。`}),
     'project-add': () => inWorkspace('Projectを追加', [
-      {name: 'name', label: '名前（ディレクトリ名にもなる）', required: true},
-      {name: 'kind', label: '種類', type: 'select', value: 'app', options: [['library', 'ライブラリ'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]}], '追加',
+      {name: 'name', label: '名前（ディレクトリ名にもなる）', required: true, row: 'project'},
+      {name: 'kind', label: '種類', type: 'select', value: 'app', row: 'project', options: [['library', 'ライブラリ'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]}], '追加',
       v => ['project', 'add', v.name, '--kind', v.kind], {success: r => `Projectを追加しました：${r.project || ''}`}),
     'project-remove': name => inWorkspace(`Projectを削除：${name}`, [], '削除', () => ['project', 'remove', name], {danger: true, intro: 'Projectを外し、そのディレクトリを削除します。他のProjectからのリンクも外します。', success: `${name} を削除しました。`}),
     'pch': name => inWorkspace(`プリコンパイル済みヘッダー：${name}`, [{name: 'mode', label: 'PCH', type: 'radio', value: 'on', options: [['on', '使う', `include/${name}/pch.h`], ['off', '使わない']]}], '保存',
@@ -171,8 +172,8 @@
       const x = name && data.profiles?.profiles?.[name];
       return inWorkspace(name ? `ビルド設定：${name}` : 'ビルド設定を追加', [
         {name: 'name', label: '名前', required: true, value: name || ''},
-        {name: 'configuration', label: '構成', type: 'select', value: x?.configuration || 'Debug', options: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'].map(c => [c, c])},
-        {name: 'parallel', label: '並列ビルドの数', type: 'number', min: 1, value: String(x?.parallel || 4)},
+        {name: 'configuration', label: '構成', type: 'select', row: 'build', value: x?.configuration || 'Debug', options: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'].map(c => [c, c])},
+        {name: 'parallel', label: '並列ビルドの数', type: 'number', row: 'build', min: 1, value: String(x?.parallel || 4)},
         {name: 'shared', label: 'ライブラリ（依存先を含む）を共有ライブラリにする', type: 'checkbox', value: x?.shared}], '保存',
         v => ['profile', 'add', v.name, '--configuration', v.configuration, '--parallel', v.parallel || '1', ...(v.shared ? ['--shared'] : [])], {success: 'ビルド設定を保存しました。'});
     },

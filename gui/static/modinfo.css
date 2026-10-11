@@ -45,3 +45,5 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-overview a { color: var(--accent); }
 .mi-subhead { margin: 22px 0 4px; font-size: 14px; }
 .mi-link { background: none; border: 0; padding: 0 4px; color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: underline; }
+.mi-place { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
+.mi-place label { display: flex; gap: 6px; align-items: center; }

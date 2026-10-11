@@ -70,7 +70,7 @@ async function prAction(action) {
     case 'comment': return ECO.form({title: `PR #${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
       submit: async v => { const doc = await WS.run(['pr', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
     case 'review': return ECO.form({title: `PR #${n} をレビュー`, fields: [
-      {name: 'kind', label: '結果', type: 'radio', value: 'approve', options: [['approve', '承認する'], ['request-changes', '修正を依頼する', '内容が必要です'], ['comment', 'コメントだけ', '内容が必要です']]},
+      {name: 'kind', label: '結果', type: 'radio', inline: true, value: 'approve', options: [['approve', '承認する'], ['request-changes', '修正を依頼する', '内容が必要です'], ['comment', 'コメントだけ', '内容が必要です']]},
       {name: 'message', label: '内容', type: 'textarea'}], ok: '送る',
       submit: async v => {
         if (v.kind !== 'approve' && !v.message) return '内容を入力してください。';
@@ -80,8 +80,9 @@ async function prAction(action) {
     case 'edit': return ECO.form({title: `PR #${n} を編集`, fields: [
       {name: 'title', label: '題名', value: pr.title}, {name: 'body', label: '本文', type: 'textarea', value: pr.body.replace(/^(Closes|Refs) #\d+\s*$/gm, '').trim(), rows: 5, help: '作業空間のPRでは、タスクとのつながり（Closes／Refs #番号）は残ります。'},
       {name: 'clearBody', label: '本文を消す', type: 'checkbox'}, {name: 'base', label: '向き先のブランチ', value: pr.base, help: '作業空間のPRなら、作業空間の作成元も変わります。'},
-      {name: 'addReviewer', label: 'レビューを頼む人（カンマ区切り）'}, {name: 'removeReviewer', label: 'レビューの依頼を外す人（カンマ区切り）'},
-      {name: 'addLabel', label: '付けるラベル（カンマ区切り）'}, {name: 'removeLabel', label: '外すラベル（カンマ区切り）'}], ok: '保存',
+      {type: 'section', label: 'レビュー・ラベル', note: 'カンマ区切り'},
+      {name: 'addReviewer', label: 'レビューを頼む人', row: 'reviewer'}, {name: 'removeReviewer', label: 'レビューの依頼を外す人', row: 'reviewer'},
+      {name: 'addLabel', label: '付けるラベル', row: 'label'}, {name: 'removeLabel', label: '外すラベル', row: 'label'}], ok: '保存',
       submit: async v => {
         if (v.clearBody && v.body) return '本文を消す場合は、本文の欄を空にしてください。';
         const args = ['pr', 'edit', n];

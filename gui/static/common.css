@@ -45,6 +45,19 @@
 .eco-banner.bad { background: #43282b; color: #ffb4b4; border-color: #6a3a3f; }
 .eco-banner button { margin-left: 8px; }
 .eco-dialog fieldset.eco-checks > div { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Form layout: rows, sections, choices side by side, the keyboard hint. */
+.eco-dialog.roomy { width: min(720px, calc(100% - 32px)); }
+.eco-dialog .eco-f[hidden], .eco-dialog .eco-row[hidden] { display: none; }
+.eco-dialog .eco-row { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 0 12px; align-items: start; }
+.eco-dialog .eco-row label.eco-field { margin: 8px 0; }
+.eco-dialog .eco-section { margin: 16px 0 4px; padding-top: 12px; border-top: 1px solid #343c46; }
+.eco-dialog .eco-section > h3, .eco-dialog .eco-section > summary { margin: 0 0 4px; font-size: 12px; font-weight: 600; color: #b4bec9; letter-spacing: .04em; }
+.eco-dialog .eco-section > summary { cursor: pointer; padding: 2px 0; }
+.eco-dialog .eco-section > summary:hover { color: #edf1f5; }
+.eco-dialog .eco-section small { margin-left: 8px; font-weight: 400; color: #84909e; letter-spacing: 0; }
+.eco-dialog fieldset.eco-inline { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.eco-dialog fieldset.eco-inline > legend { grid-column: 1 / -1; }
+@media (max-width: 600px) { .eco-dialog .eco-row { grid-template-columns: 1fr; } }
 .eco-dialog fieldset.eco-checks label { padding: 5px 10px; border-radius: 16px; align-items: center; gap: 6px; }
 
 /* Busy overlay ("ぐるぐる"). */

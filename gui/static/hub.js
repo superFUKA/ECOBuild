@@ -315,9 +315,9 @@ async function deleteArchivedModule(m, repository, dir, question) {
   const done = await ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
     intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、GitHub のアカウントの設定から90日以内なら元に戻せます。タスク管理の情報は消さずに閉じ、戻したときに引き継ぎます。`,
     fields: [
-      {name: 'mode', label: 'すること', type: 'radio', value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを、Issue・PRとともに消す'], ['unarchive', 'アーカイブを戻す', 'また変更できるようにする']]},
-      ...(local.length ? [{name: 'removeClone', label: `このPCのcloneも削除する（${local.join('、')}）。どれかにGitHubにない変更・コミット・退避があれば止まります`, type: 'checkbox', value: true}] : []),
-      {name: 'confirmName', label: `削除するときは、確認のため ${repository} と入力`, placeholder: repository}],
+      {name: 'mode', label: 'すること', type: 'radio', inline: true, value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを、Issue・PRとともに消す'], ['unarchive', 'アーカイブを戻す', 'また変更できるようにする']]},
+      ...(local.length ? [{name: 'removeClone', label: `このPCのcloneも削除する（${local.join('、')}）。どれかにGitHubにない変更・コミット・退避があれば止まります`, type: 'checkbox', value: true, showIf: v => v.mode === 'delete'}] : []),
+      {name: 'confirmName', label: `確認のため ${repository} と入力`, placeholder: repository, showIf: v => v.mode === 'delete'}],
     submit: async v => {
       if (v.mode === 'unarchive') {
         const doc = await ECO.cli(dir, ['module', 'unarchive', repository]);

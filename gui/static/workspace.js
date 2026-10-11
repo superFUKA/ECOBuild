@@ -194,7 +194,7 @@ async function gitAction(action) {
         if (!v.gui) setTimeout(() => ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: v.path}));
       }});
     case 'history': return ECO.form({title: '履歴', fields: [
-      {name: 'path', label: '対象のパス（任意）', value: ''}, {name: 'count', label: '件数', type: 'number', value: '30', min: 1},
+      {name: 'path', label: '対象のパス（任意）', value: '', row: 'what'}, {name: 'count', label: '件数', type: 'number', value: '30', min: 1, row: 'what'},
       {name: 'all', label: 'すべてのブランチ', type: 'checkbox'}, {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox'}], ok: '表示',
       submit: async v => {
         const doc = await WS.cli(['log', ...(v.path ? [v.path] : []), '--count', v.count || '30', ...(v.all ? ['--all'] : []), ...(v.gui ? ['--gui'] : [])]);

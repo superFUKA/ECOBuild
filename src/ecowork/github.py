@@ -112,6 +112,10 @@ class GitHub(TaskGitHub, Protocol):
     def create_repository(self, name: str, *, owner: str | None, private: bool, description: str) -> RepositoryInfo: ...
     def get_repository(self, name: str) -> RepositoryInfo: ...
     def is_private(self, name: str) -> bool: ...
+    def repository_has_file(self, name: str, path: str) -> bool: ...
+    def open_counts(self, name: str) -> tuple[int, int]: ...
+    def delete_repository(self, name: str) -> None: ...
+    def archive_repository(self, name: str) -> None: ...
     def delete_secret(self, repo: Path, name: str) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
@@ -173,6 +177,39 @@ class GhCli(_TaskGhCli):
 
     def is_private(self, name):
         return bool(self._json(["repo", "view", name, "--json", "isPrivate"], cwd=None)["isPrivate"])
+
+    def repository_has_file(self, name, path):
+        """既定のブランチに path があるか。name は「所有者/名前」。"""
+        completed = self._gh(["api", f"repos/{name}/contents/{path}", "--silent"], cwd=None, check=False)
+        if not completed.ok and not re.search(r"404|not found", completed.output, re.IGNORECASE):
+            raise _gh_error(["api", "contents"], completed)
+        return completed.ok
+
+    def open_counts(self, name):
+        """開いているIssue・PRの数。"""
+        owner, _, short = name.partition("/")
+        data = self._graphql(None, """query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+            issues(states: OPEN) { totalCount } pullRequests(states: OPEN) { totalCount } } }""",
+                             owner=owner, name=short)["repository"]
+        return data["issues"]["totalCount"], data["pullRequests"]["totalCount"]
+
+    def delete_repository(self, name):
+        args = ["repo", "delete", name, "--yes"]
+        completed = self._gh(args, cwd=None, check=False)
+        if not completed.ok:
+            if "delete_repo" in completed.output:
+                raise WorkError(ErrorCode.BOARD_PERMISSION,
+                                "GitHubへのログインに、リポジトリを削除する権限（delete_repo）がありません。",
+                                hint="端末で実行すると、権限の追加を案内します"
+                                     "（gh auth refresh -s delete_repo でも追加できます）。",
+                                details=completed.output)
+            raise _gh_error(args, completed)
+
+    def archive_repository(self, name):
+        args = ["repo", "archive", name, "--yes"]
+        completed = self._gh(args, cwd=None, check=False)
+        if not completed.ok:
+            raise _gh_error(args, completed)
 
     def pull_request_activity(self, repo, number):
         data = self._json(["pr", "view", str(number), "--json", "reviews,comments,statusCheckRollup,mergeable"],

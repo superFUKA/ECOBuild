@@ -106,6 +106,8 @@ class TaskGitHub(Protocol):
     def set_iterations(self, repo: Path, field_id: str,
                        iterations: tuple[tuple[str | None, str, str, int], ...]) -> None: ...
     def share_board(self, repo: Path, board_id: str) -> tuple[str, ...]: ...
+    def boards_of(self, repository: str) -> tuple[_board.BoardInfo, ...]: ...
+    def delete_board(self, board_id: str) -> None: ...
     def repository_name(self, repo: Path) -> str: ...
     def repository_boards(self, repo: Path) -> tuple[_board.BoardRef, ...]: ...
     def set_board_options(self, repo: Path, field_id: str,
@@ -413,6 +415,20 @@ class GhCli:
             mutation($project: ID!, $repository: ID!) {{
               {mutation}(input: {{projectId: $project, repositoryId: $repository}}) {{ repository {{ id }} }} }}""",
                       project=board_id, repository=repository_id)
+
+    def boards_of(self, repository):
+        """リポジトリ（所有者/名前）にリンクしているECOBuildのボード（手元のcloneがなくてもよい）。"""
+        owner, _, name = repository.partition("/")
+        data = self._graphql(None, """
+            query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+              projectsV2(first: 50) { nodes { url shortDescription closed } } } }""", owner=owner, name=name)
+        refs = (_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed")))
+                for n in data["repository"]["projectsV2"]["nodes"])
+        return tuple(self.get_board(None, *_board.parse_url(ref.url)) for ref in refs if ref.ours)
+
+    def delete_board(self, board_id):
+        self._graphql(None, """mutation($project: ID!) {
+            deleteProjectV2(input: {projectId: $project}) { projectV2 { id } } }""", project=board_id)
 
     def task_records(self, repo, *, closed, board_id, number=None):
         """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""

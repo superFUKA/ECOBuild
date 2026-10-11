@@ -8,6 +8,7 @@ Moduleはそれらを、ecobuild.toml と作業の流れの約束（ファイル
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 from ecowork import Hooks, Repository, WorkError
@@ -20,7 +21,7 @@ from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
-                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, PrepareResult, ProfileList,
+                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ModuleDeleted, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
 
 COMMAND = "ecobuild"
@@ -141,6 +142,73 @@ class Module:
         module = cls.find(repository.root, github=repository.github)
         dependencies, _ = module._after_sync()
         return module, dependencies
+
+    @classmethod
+    def delete(
+        cls, name: str, *, archive: bool = False, clone: "Module | None" = None, dry_run: bool = False,
+        github: _github.GitHub | None = None,
+    ) -> ModuleDeleted:
+        """GitHubのモジュール（リポジトリ）と、そのタスク管理の情報を削除する（元に戻せない）。
+
+        archive：削除せず、読み取り専用（アーカイブ）にする（GitHubで元に戻せる）。タスク管理の情報は、
+        元に戻したときにそのまま使えるように残す。
+        clone：一緒に削除する手元のclone（このモジュールのもの）。GitHubにない変更・コミットがあれば何もせずに断る。
+        dry_run：確かめて、何が消えるかを返すだけ。ECOBuildのモジュールでないリポジトリは扱わない。
+        """
+        github = github or _github.default()
+        info = github.get_repository(name)
+        if not github.repository_has_file(info.full_name, _config.FILE_NAME):
+            raise EcoBuildError(ErrorCode.NOT_IN_MODULE,
+                                f"{info.full_name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
+                                hint="ECOBuildで作ったモジュールだけを削除できます。")
+        if clone is not None:
+            if github.repository_name(clone.root) != info.full_name:
+                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                    f"{clone.root} は {info.full_name} のcloneではありません。")
+            clone._check_nothing_unpushed()
+        issues, pulls = github.open_counts(info.full_name)
+        # 他のリポジトリにもつながっている情報は、そちらで使っているので残す
+        boards = [] if archive else [b for b in github.boards_of(info.full_name)
+                                     if set(b.repositories) <= {info.full_name}]
+        result = ModuleDeleted(info.full_name, info.web_url, archive, issues, pulls, bool(boards),
+                               clone.root if clone is not None else None, done=not dry_run)
+        if dry_run:
+            return result
+        if archive:
+            github.archive_repository(info.full_name)
+        else:
+            github.delete_repository(info.full_name)
+        for board in boards:
+            github.delete_board(board.id)
+        removed = False
+        if clone is not None:
+            try:
+                remove_tree(clone.root)
+                removed = True
+            except OSError:
+                pass  # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる
+        return replace(result, clone_removed=removed)
+
+    def _check_nothing_unpushed(self) -> None:
+        """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも。"""
+        from ecowork.git import Git
+        found = []
+        nested = (*self.root.glob("*/.git"), *self.root.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
+        roots = [self.root] + sorted(p.parent for p in nested)
+        for root in roots:
+            git = Git(root)
+            label = "" if root == self.root else f"{root.relative_to(self.root).as_posix()}："
+            if git.output("status", "--porcelain"):
+                found.append(f"{label}未コミットの変更")
+            commits = git.output("log", "--branches", "--not", "--remotes", "--format=%h %s")
+            if commits:
+                found.append(f"{label}GitHubにないコミット {len(commits.splitlines())} 件")
+            if git.output("stash", "list"):
+                found.append(f"{label}退避した変更（stash）")
+        if found:
+            raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"手元のclone {self.root} に、GitHubにないものがあります。",
+                                hint="必要なものを残してから実行するか、手元のcloneを消さずに実行してください"
+                                     "（--remove-clone を付けない）。", details=found)
 
     def cloned(self, dependencies: tuple[DependencyChange, ...]) -> ModuleCloned:
         return ModuleCloned(self.name, self.root, self.remote_url or "", self.project_names, dependencies)

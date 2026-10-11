@@ -47,6 +47,8 @@ class FakeGitHub:
         self.board_descriptions: dict[str, str] = {}        # ボード → 説明（ECOBuildのボードの印）
         self.collaborators: tuple[str, ...] = ()            # 共有する共同作業者（share_board が返す）
         self.shared_boards: dict[str, tuple[str, ...]] = {}
+        self.deleted_repositories: list[str] = []
+        self.archived_repositories: list[str] = []
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -71,6 +73,21 @@ class FakeGitHub:
 
     def is_private(self, name):
         return self.private if getattr(self, "bare", None) is not None and name.endswith(self.bare.stem) else True
+
+    def repository_has_file(self, name, path):
+        bare = getattr(self, "bare", None)
+        return bare is not None and subprocess.run(["git", "--git-dir", str(bare), "cat-file", "-e", f"HEAD:{path}"],
+                                                   capture_output=True).returncode == 0
+
+    def open_counts(self, name):
+        return (sum(1 for i in self.issues.values() if i.state == "open"),
+                sum(1 for p in self.pulls.values() if p.state == "open"))
+
+    def delete_repository(self, name):
+        self.deleted_repositories.append(name)
+
+    def archive_repository(self, name):
+        self.archived_repositories.append(name)
 
     def use_bare(self, bare: Path) -> None:
         self.bare = bare
@@ -258,6 +275,13 @@ class FakeGitHub:
 
     def describe_board(self, repo, board_id, description):
         self.board_descriptions[board_id] = description
+
+    def boards_of(self, repository):
+        return tuple(b for b in self.boards.values()
+                     if repository in b.repositories and self.board_descriptions.get(b.id, "").startswith("ECOBuild"))
+
+    def delete_board(self, board_id):
+        self.boards = {n: b for n, b in self.boards.items() if b.id != board_id}
 
     def share_board(self, repo, board_id):
         self.shared_boards[board_id] = self.collaborators

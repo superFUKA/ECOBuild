@@ -287,6 +287,13 @@ def run_interactive(args: list[str]) -> bool:
         return False
 
 
+def gh_has_scope(scope: str) -> bool:
+    """ghのログインのトークンに、権限 scope があるか。"""
+    status = _run(["gh", "auth", "status"])
+    scopes = next((line.split(":", 1)[1] for line in status.output.splitlines() if "Token scopes" in line), "")
+    return f"'{scope}'" in scopes
+
+
 def refresh_path() -> None:
     """導入したツールを、この実行の中でも見つけられるようにする（Windows：レジストリの PATH を読み直す）。"""
     if os.name != "nt":

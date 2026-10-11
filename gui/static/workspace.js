@@ -58,7 +58,7 @@ function renderHeader() {
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   const parts = [];
   if (s.workspace) parts.push('作成元 ' + s.base);
-  parts.push('未Push ' + s.ahead);
+  get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
   if (s.behind) parts.push('GitHubより ' + s.behind + ' 遅れ');
   if (s.base_behind) parts.push('作成元より ' + s.base_behind + ' 遅れ');
   get('branch-state').textContent = (s.workspace ? s.branch + '　' : '') + parts.join(' · ');
@@ -81,8 +81,12 @@ function renderBanners(errorDoc) {
   get('banners').innerHTML = out.join('');
 }
 
+// The checked files are what is committed. A file staged elsewhere (git, TortoiseGit) starts checked, once.
+let seen = new Set();
 function renderChanges() {
   const all = WS.changes(), list = get('changes');
+  for (const [path, kinds] of all) if (!seen.has(path) && kinds.includes('staged')) WS.selected.add(path);
+  seen = new Set(all.keys());
   get('change-count').textContent = all.size;
   list.replaceChildren();
   for (const [path, kinds] of all) {
@@ -98,8 +102,6 @@ function renderChanges() {
     label.append(box, name, kind); list.append(label);
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
-  const staged = WS.status?.staged.length || 0;
-  get('stage-status').textContent = 'ステージ済み ' + staged + '件 · 選択 ' + WS.selected.size + '件';
   get('select-all').checked = all.size > 0 && WS.selected.size === all.size;
   updateButtons();
 }
@@ -108,16 +110,20 @@ WS.renderChanges = renderChanges;
 function updateButtons() {
   const s = WS.status, editable = !!(s && s.workspace && !s.reviewing), all = WS.changes();
   const hasMessage = !!get('commit-message').value.trim();
-  get('commit').disabled = !editable || !hasMessage || (!WS.selected.size && !s.staged.length && !get('commit-all').checked && !get('amend').checked);
-  get('push').disabled = !editable || (!s.ahead && !get('force-push').checked);
+  get('commit').disabled = !editable || !hasMessage || (!WS.selected.size && !get('amend').checked);
+  get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
+  get('push').disabled = !editable || !s.ahead;
+  document.querySelector('[data-git=force-push]').disabled = !editable;
   get('submit-pr').disabled = !editable || !!(s.pull_request && s.pull_request.state === 'open');
   get('submit-pr').title = s?.pull_request?.state === 'open' ? 'この作業空間のPRは提出済みです（コミットしてPushすると、PRに反映されます）' : '';
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
-  document.querySelector('[data-git=stage-all]').disabled = !editable || !all.size;
-  get('stage-status').textContent = 'ステージ済み ' + (s?.staged.length || 0) + '件 · 選択 ' + WS.selected.size + '件';
+  document.querySelector('[data-git=diff]').disabled = !all.size;
+  // Staging is needed only to finish a merge that stopped on a conflict (sync continue); a commit stages what is checked.
+  get('stage-tools').hidden = !(s && (s.merging || s.conflicted?.length));
+  get('stage-status').textContent = all.size ? `${all.size}件の変更のうち ${WS.selected.size}件をコミット` : '';
 }
 WS.updateButtons = updateButtons;
-for (const id of ['commit-message', 'amend', 'commit-all', 'force-push']) get(id).addEventListener('input', updateButtons);
+for (const id of ['commit-message', 'amend']) get(id).addEventListener('input', updateButtons);
 get('select-all').addEventListener('change', e => { WS.selected = new Set(e.target.checked ? WS.changes().keys() : []); renderChanges(); });
 
 async function showDiff(path, kinds) {
@@ -150,22 +156,17 @@ WS.openDiff = (path, kinds) => kinds.includes('untracked') ? showDiff(path, kind
 
 // Commit: the checked files are exactly what is committed (TortoiseGit style).
 get('commit').addEventListener('click', async () => {
-  const message = get('commit-message').value.trim(), amend = get('amend').checked, all = get('commit-all').checked;
+  const message = get('commit-message').value.trim(), amend = get('amend').checked;
   if (!message) return;
   const s = WS.status, changes = WS.changes();
-  if (all) {
-    // "すべての変更" includes new (untracked) files too: task commit --all only stages tracked files.
-    if (changes.size && !await WS.run(['task', 'add', '--all'], {refresh: false})) return WS.refresh();
-  } else {
-    const toStage = [...WS.selected].filter(p => changes.get(p).some(k => k !== 'staged'));
-    const toUnstage = s.staged.filter(p => !WS.selected.has(p));
-    if (toUnstage.length && !await WS.run(['restore', ...toUnstage, '--staged'], {refresh: false})) return WS.refresh();
-    if (toStage.length && !await WS.run(['task', 'add', ...toStage], {refresh: false})) return WS.refresh();
-  }
+  const toStage = [...WS.selected].filter(p => changes.get(p)?.some(k => k !== 'staged'));
+  const toUnstage = s.staged.filter(p => !WS.selected.has(p));
+  if (toUnstage.length && !await WS.run(['restore', ...toUnstage, '--staged'], {refresh: false})) return WS.refresh();
+  if (toStage.length && !await WS.run(['task', 'add', ...toStage], {refresh: false})) return WS.refresh();
   const doc = await WS.run(['task', 'commit', '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message});
-  if (doc) { get('commit-message').value = ''; get('amend').checked = false; get('commit-all').checked = false; WS.selected.clear(); renderChanges(); if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。'); }
+  if (doc) { get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges(); if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。'); }
 });
-get('push').addEventListener('click', () => WS.run(['task', 'push', ...(get('force-push').checked ? ['--force'] : [])], {success: 'Pushしました。'}).then(doc => { if (doc) get('force-push').checked = false; }));
+get('push').addEventListener('click', () => WS.run(['task', 'push'], {success: 'Pushしました。'}));
 get('submit-pr').addEventListener('click', () => ECO.form({
   title: 'プルリクエストを提出', intro: '作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へのプルリクエストを作成します。',
   fields: [
@@ -219,6 +220,8 @@ async function gitAction(action) {
       }});
     case 'show': return ECO.form({title: 'コミットの詳細', fields: [{name: 'revision', label: 'コミット', value: 'HEAD', required: true}], ok: '表示',
       submit: async v => { const doc = await WS.cli(['show', v.revision]); if (!doc.ok) return doc.error.message; setTimeout(() => ECO.output('コミットの詳細', doc.result, {diff: true, sub: v.revision})); }});
+    case 'force-push': return WS.run(['task', 'push', '--force'], {success: '強制Pushしました。', title: '強制Push',
+      confirm: 'GitHubのこの作業空間のブランチを、手元の内容で上書きします（直前のコミットを修正した後などに使います）。GitHubにだけあるコミットは消えます。'});
     case 'stash': return WS.run(['stash'], {success: r => r.stashed ? '変更を退避しました。' : '退避する変更はありません。'});
     case 'stash-list': { const doc = await WS.cli(['stash', 'list']); if (!doc.ok) return ECO.showError(doc); return ECO.output('退避一覧', doc.result.map((e, i) => `${i}: ${e}`).join('\n') || '退避はありません。'); }
     case 'stash-pop': return WS.run(['stash', 'pop'], {success: '退避した変更を戻しました。'});

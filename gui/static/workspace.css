@@ -51,3 +51,28 @@
 #file-tree summary .tree-kind.executable { background: #22344a; color: #9ccaf5; }
 #file-tree summary .tree-kind.test { background: #3a2f4f; color: #d6c3f7; }
 #file-tree summary .tree-kind.benchmark { background: #3d3324; color: #efc389; }
+
+/* Commit and share panels. */
+.change-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid #303640; }
+.change-head .select-all { font-size: 13px; color: #cdd5df; font-weight: 600; }
+.change-head #change-count { margin-left: 6px; }
+.change-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.change-tools button { padding: 4px 10px; font-size: 12px; }
+#stage-tools { display: inline-flex; gap: 6px; } #stage-tools[hidden] { display: none; }
+#changes { max-height: 320px; overflow-y: auto; }
+.change-hint { margin: 8px 0 14px; font-size: 11px; }
+.commit-panel textarea { width: 100%; box-sizing: border-box; }
+.commit-panel .actions, .share .actions { align-items: center; }
+.share-more { position: relative; }
+.share-more > summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid #46515e; border-radius: 7px; color: #a5aeba; }
+.share-more > summary::-webkit-details-marker { display: none; }
+.share-more > div { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5; padding: 6px; background: #252b33; border: 1px solid #46515e; border-radius: 8px; box-shadow: 0 8px 24px #0007; }
+.share-more button { white-space: nowrap; color: #f3a5a5; }
+.tool-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin-top: 14px; }
+.tool-groups h4 { margin: 0; font-size: 13px; }
+.tool-groups p { margin: 2px 0 0; font-size: 11px; }
+.tool-groups .git-toolbar { margin: 8px 0 0; }
+.commit-panel > .heading { margin-bottom: 14px; }
+.share > .heading { margin-bottom: 4px; }
+.share-note { margin: 0; font-size: 12px; }
+.share-note #pr-state:not(:empty)::before { content: "　"; }

@@ -674,6 +674,6 @@
     }
   });
 
-  pageHooks.tasks = () => { if (!st.loaded) load(); else render(); };
-  pageHooks.changed = () => { if (st.loaded && !mEl('tasks-content').hidden) load(); };
+  pageHooks.tasks = () => { if (!st.loaded || st.stale) { st.stale = false; load(); } else render(); };
+  pageHooks.changed = () => { if (!st.loaded) return; if (mEl('tasks-content').hidden) st.stale = true; else load(); };
 })();

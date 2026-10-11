@@ -128,10 +128,14 @@
     branches: async () => { const [b, p] = await Promise.all([cli(['branch', 'list']), cli(['pr', 'list'])]); data.branches = b.ok ? b.result : {error: b.error}; data.prs = p.ok ? p.result : []; },
   };
   let rendering = 0;
+  // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
+  // shown reads it again).
+  const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());
+  const show = () => render(!loaded.has(loadKey()));
   async function render(reload = true) {
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
     const main = el('mi-main'), mine = ++rendering, shown = view;
-    if (reload) { main.innerHTML = placeSelect() + ECO.loading(); await LOADS[shown](); }
+    if (reload) { const key = loadKey(); main.innerHTML = placeSelect() + ECO.loading(); await LOADS[shown](); loaded.add(key); }
     if (mine !== rendering) return;   // another tab was chosen while loading: that render shows it
     main.innerHTML = placeSelect() + VIEWS[shown]();
   }
@@ -192,14 +196,14 @@
   };
   el('modinfo-content').addEventListener('click', e => {
     const tab = e.target.closest('[data-mi-view]');
-    if (tab) { view = tab.dataset.miView; render(); return; }
+    if (tab) { view = tab.dataset.miView; show(); return; }
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const action = e.target.closest('[data-mi]');
     if (action) ACTIONS[action.dataset.mi](action.dataset.arg);
   });
   el('modinfo-content').addEventListener('change', async e => {
-    if (e.target.id === 'mi-place') { place = e.target.value; render(); }
+    if (e.target.id === 'mi-place') { place = e.target.value; loaded.clear(); render(); }
     if (e.target.name === 'mi-profile') {
       const doc = await ECO.run(here(), ['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定を使わないようにしました。' : `このPCでは ${e.target.value} を使います。`});
       render(!doc);
@@ -211,5 +215,6 @@
     e.preventDefault();
     ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), e.clientX, e.clientY);
   });
-  pageHooks.modinfo = () => render();
+  pageHooks.modinfo = show;
+  el('mi-reload').addEventListener('click', () => { loaded.clear(); render(); });
 })();

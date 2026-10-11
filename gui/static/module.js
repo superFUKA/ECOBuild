@@ -297,14 +297,17 @@ addTabButton.addEventListener('click', async () => {
   });
 });
 
+// What the other pages care about in a place's state (the task list shows which tasks have a workspace or a PR).
+const stateSignature = s => s ? [s.branch, s.workspace, s.reviewing, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
 // Messages from workspace frames: their state changed (commit, switch...), so update the tab label.
 window.addEventListener('message', event => {
   if (event.origin !== location.origin) return;
   const data = event.data || {};
   if (data.type === 'workspace-changed' && data.dir) {
     if (data.title !== undefined) MOD.titles.set(keyOf(data.dir), data.title);
-    if (data.status) { MOD.states.set(keyOf(data.dir), data.status); renderTab(data.dir); } else refreshState(data.dir);
-    pageHooks.changed?.();
+    const before = stateSignature(MOD.states.get(keyOf(data.dir)));
+    const after = () => { if (stateSignature(MOD.states.get(keyOf(data.dir))) !== before) pageHooks.changed?.(); };
+    if (data.status) { MOD.states.set(keyOf(data.dir), data.status); renderTab(data.dir); after(); } else refreshState(data.dir).then(after);
   }
   if (data.type === 'open-place' && data.dir) addPlace(data.dir).then(dir => activate(dir, true));
   if (data.type === 'show-task' && data.n) { showModulePage('tasks'); window.TASKS_SELECT?.(Number(data.n)); }

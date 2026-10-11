@@ -29,3 +29,9 @@ def task_line(task) -> str:
     stage = STAGE_NAMES.get(task.stage or "", "")
     plan = plan_text(task)
     return f"#{task.number} {task.title}" + (f"〈{stage}〉" if stage else "") + (f"  {plan}" if plan else "")
+
+
+def elsewhere(path, root) -> str:
+    """作業空間が、今いるのと別のclone（このPCの）にあれば、その場所。"""
+    from .... import clones
+    return "" if path is None or clones.same(path, root) else f"（場所：{path}）"

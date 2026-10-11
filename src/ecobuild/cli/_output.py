@@ -19,6 +19,7 @@ import click
 
 from ecowork import WorkError
 
+from .. import clones as _clones
 from ..errors import EcoBuildError, ErrorCode
 from ..module import Module
 
@@ -38,11 +39,13 @@ class Invocation:
     @property
     def module(self) -> Module:
         if self._module is None:
-            self._module = Module.find(self.cwd)
+            self.use_module(Module.find(self.cwd))
         return self._module
 
     def use_module(self, module: Module) -> None:
+        """対象のモジュール。このPCのcloneの記録（module clones）にも入れる（以前からあるcloneも、使えば記録される）。"""
         self._module = module
+        _clones.record_quietly(module.root)
 
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""

@@ -29,6 +29,7 @@ class ErrorCode(_WorkErrorCode):
     NOT_ARCHIVED = "not_archived"       # 削除の前に、アーカイブしていない
     REPOSITORY_ARCHIVED = "repository_archived"   # GitHubのリポジトリがアーカイブ（読み取り専用）されている
     NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
+    CLONE_NOT_RECORDED = "clone_not_recorded"     # module forget：その場所は記録にない
 
 
 class EcoBuildError(WorkError):

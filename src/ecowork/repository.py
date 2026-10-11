@@ -253,7 +253,7 @@ class Repository:
         for task in tasks:
             branch = ws.workspace_branch(task.number)
             summary = ws.TaskSummary._from(task, workspace=branch in local, current=branch == current,
-                                           remote=branch in remote)
+                                           remote=branch in remote, path=self.root)
             if ready and not (self.tracker.startable(task) and not (summary.workspace or summary.remote)):
                 continue
             pairs.append((summary, task))
@@ -311,7 +311,7 @@ class Repository:
         task = self.tracker.plan(number, **values)
         branch = ws.workspace_branch(number)
         return ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
-                                    current=self.git.current_branch() == branch, remote=False)
+                                    current=self.git.current_branch() == branch, remote=False, path=self.root)
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """Issueと、作業空間・PR（レビュー・コメント・CIの結果）の状態。省略時は今いる作業空間。"""
@@ -324,14 +324,16 @@ class Repository:
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
         self.git.fetch()
+        local = self.git.has_local_branch(branch)
         return ws.TaskStatus(
             number, task.title, task.state, task.url, ws.without_base(details.body), self.git.has_local_branch(branch),
             self.git.get_config(ws.base_key(branch)) or ws.issue_base(details.body),
             None if latest is None else ws.PullRequestState(latest.number, latest.url, latest.state), activity,
             self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
             details.parent, details.subtasks, details.blocked_by, details.blocking,
-            ws.TaskSummary._from(task, workspace=self.git.has_local_branch(branch),
-                                 current=self.git.current_branch() == branch, remote=self.git.has_remote_branch(branch)))
+            ws.TaskSummary._from(task, workspace=local, current=self.git.current_branch() == branch,
+                                 remote=self.git.has_remote_branch(branch), path=self.root),
+            self.root if local else None)
 
     def edit_task(self, number: int, *, body: str | None = None, **changes) -> ws.Task:
         """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える

@@ -9,6 +9,12 @@ def _git_identity(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
+@pytest.fixture(autouse=True)
+def _tool_home(monkeypatch, tmp_path_factory):
+    """ツールの設定とcloneの記録は試験ごとの場所に（このPCの本物を読み書きしない）。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path_factory.mktemp("ecobuild-home")))
+
+
 @pytest.fixture
 def remote_and_clone(tmp_path):
     """mainに初回コミットがある空のリモート（bare）と、その作業用のclone。"""

@@ -1,5 +1,6 @@
 from typing import Annotated
 
+from .... import clones as _clones
 from ..._output import run_command
 
 
@@ -22,6 +23,7 @@ def command(
         if not dir:
             return inv.module.task(issue).start(base=base or None, ignore_blocked=ignore_blocked)
         module = inv.module.start_task_in(issue, inv.cwd / dir, base=base or None, ignore_blocked=ignore_blocked)
+        _clones.record_quietly(module.root, _clones.WORKSPACE)   # module clones・task list で場所が分かるように
         inv.use_module(module)
         return module.current_workspace()
 

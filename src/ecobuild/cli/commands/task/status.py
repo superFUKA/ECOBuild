@@ -2,7 +2,7 @@ import datetime
 from typing import Annotated
 
 from ..._output import lines, optional_argument, run_command
-from ._show import STAGE_NAMES, dates_text, plan_text
+from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text
 
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 
@@ -46,7 +46,8 @@ def command(
             refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),
             refs("このタスクを待っているタスク", r.blocking),
             "Issueのコメント：\n" + "\n".join(f"  {c.author}：{c.body}" for c in r.comments) if r.comments else None,
-            f"作業空間：task/{r.number}（作成元 {r.base}）" if r.workspace
+            f"作業空間：task/{r.number}（作成元 {r.base}）{elsewhere(r.workspace_path, here[0])}"
+            if r.workspace or r.workspace_path
             else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
             else "作業空間：なし",
             f"PR #{r.pull_request.number}（{r.pull_request.state}）{r.pull_request.url}" if r.pull_request
@@ -55,4 +56,10 @@ def command(
             "\n".join(details) or None,
         )
 
-    return run_command("task status", lambda inv: inv.module.task_status(issue or None), render, json_output=json)
+    here = []
+
+    def status(inv):
+        here.append(inv.module.root)
+        return inv.module.task_status(issue or None)
+
+    return run_command("task status", status, render, json_output=json)

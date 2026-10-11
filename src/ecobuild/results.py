@@ -43,6 +43,27 @@ class ModuleInfo:
     default_base: str                # 作業空間の既定の作成元
     projects: tuple[str, ...]
     dependencies: tuple[str, ...]    # 直接の依存先の名前
+    clones: tuple["CloneEntry", ...] = ()   # このPCにある、このモジュールのclone（記録したもの。ここも含む）
+
+
+@dataclass(frozen=True)
+class CloneEntry:
+    """このPCにある、モジュールのclone（module clones）の1件。場所と種類は記録から、他はそのつどcloneから読む。"""
+    path: Path
+    kind: str                        # module：モジュールのclone、workspace：作業空間専用のclone（task start --dir）
+    exists: bool                     # その場所にある（False：移動・削除したか、外付けのドライブを外している）
+    repository: str | None = None    # 所有者/名前（origin が GitHub のものなら）
+    url: str | None = None           # origin
+    branch: str | None = None        # 今のブランチ
+    task: int | None = None          # 作業空間（task/<番号>）にいれば、その番号
+    remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
+    moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
+
+
+@dataclass(frozen=True)
+class CloneForgotten:
+    path: Path
+    exists: bool                     # フォルダがまだある（中で ecobuild を使うと、また記録される）
 
 
 @dataclass(frozen=True)
@@ -59,8 +80,10 @@ class ModuleDeleted:
     open_issues: int
     open_pull_requests: int
     task_data: bool                  # タスク管理の情報を閉じた（消さない。リポジトリを戻すと開き直す）
-    clone: Path | None = None        # 手元のclone（今いる・今いるディレクトリの <名前>）
-    clone_removed: bool = False      # 手元のcloneも削除した
+    clone: Path | None = None        # 手元のclone（今いる・今いるディレクトリの <名前>。なければ記録の最初のもの）
+    clone_removed: bool = False      # そのcloneも削除した
+    clones: tuple[Path, ...] = ()    # このPCにある、このモジュールのcloneすべて（記録したもの・作業空間専用も）
+    removed: tuple[Path, ...] = ()   # そのうち削除したもの（--remove-clone。他のプログラムが使っているものは残る）
     done: bool = True                # False：確かめただけ（まだ何も変えていない）
 
 

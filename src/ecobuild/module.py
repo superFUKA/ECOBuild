@@ -18,11 +18,12 @@ from ecowork import github as _github
 from ecowork import workspace as ws
 
 from . import _docs
+from . import clones as _clones
 from . import config as _config
 from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
-from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
+from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
@@ -157,6 +158,32 @@ class Module:
                      for r in github.owner_repositories(owner)
                      if r.module_file is not None and (archived is None or r.archived == archived))
 
+    @staticmethod
+    def clones(*, fetch: bool = False, github: _github.GitHub | None = None) -> tuple[CloneEntry, ...]:
+        """このPCにある、モジュールのclone（記録したもの）。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・
+        名前の変更）。GitHubのものでない origin は確かめない。"""
+        entries = _clones.entries()
+        if not fetch:
+            return tuple(entries)
+        github = github or _github.default()
+        states: dict[str, tuple[str, str | None]] = {}
+        for entry in entries:
+            if entry.repository and entry.repository.casefold() not in states:
+                states[entry.repository.casefold()] = _github_state(github, entry.repository)
+        return tuple(replace(e, remote=states[e.repository.casefold()][0], moved_to=states[e.repository.casefold()][1])
+                     if e.repository else e for e in entries)
+
+    def own_clones(self) -> tuple[CloneEntry, ...]:
+        """このPCにある、このモジュール（同じリポジトリ）のclone（記録したもの。ここも含む）。"""
+        mine = _clones.identity(self.remote_url)
+        if mine is None:
+            return tuple(e for e in _clones.entries() if _clones.same(e.path, self.root))
+        return tuple(e for e in _clones.entries() if e.exists and _clones.identity(e.url) == mine)
+
+    def _workspace_paths(self) -> dict[int, Path]:
+        """作業空間（task/<番号>）にいる、このモジュールのclone の場所（このPCの、記録したもの）。"""
+        return {e.task: e.path for e in self.own_clones() if e.task is not None}
+
     def info(self) -> ModuleInfo:
         """このモジュールの情報。GitHubに問い合わせられなければ、公開・アーカイブは分からない（None）。"""
         github = self.repository.github
@@ -173,7 +200,7 @@ class Module:
             dependencies = ()
             self.repository.notices.append(f"依存先を読めませんでした（{error.message}）。")
         return ModuleInfo(self.name, self.config.type, self.root, repository, url, private, archived,
-                          self.config.default_base, self.project_names, dependencies)
+                          self.config.default_base, self.project_names, dependencies, self.own_clones())
 
     @classmethod
     def archive(cls, name: str, *, archived: bool = True, github: _github.GitHub | None = None) -> ModuleArchived:
@@ -193,7 +220,8 @@ class Module:
         """アーカイブしたモジュール（リポジトリ）を削除する。GitHubの機能で、90日以内なら元に戻せる。
 
         タスク管理の情報は消さずに閉じる（リポジトリを戻すと、ECOBuildが開き直して使う）。
-        clone：手元のclone（このモジュールのもの）。remove_clone なら一緒に削除する（GitHubにない変更・
+        手元のclone：clone（今いる等。このモジュールのもの）と、このPCに記録した、このモジュールのcloneすべて
+        （作業空間専用のcloneも）。remove_clone なら一緒に削除し、記録から外す（どれか1つにでもGitHubにない変更・
         コミット・退避があれば、何もせずに断る）。dry_run：確かめて、何をするかを返すだけ。
         """
         github = github or _github.default()
@@ -202,17 +230,19 @@ class Module:
             raise EcoBuildError(ErrorCode.NOT_ARCHIVED, f"{info.full_name} はアーカイブしていません。",
                                 hint=f"削除する前に、{COMMAND} module archive {info.full_name} でアーカイブしてください"
                                      "（読み取り専用にし、使っていないことを確かめる段階です）。")
-        if clone is not None:
-            if github.repository_name(clone.root) != info.full_name:
-                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
-                                    f"{clone.root} は {info.full_name} のcloneではありません。")
-            if remove_clone:
-                clone._check_nothing_unpushed()
+        if clone is not None and github.repository_name(clone.root) != info.full_name:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{clone.root} は {info.full_name} のcloneではありません。")
+        found = ([clone] if clone is not None else []) + [
+            c for c in cls._recorded_clones(info.full_name, github)
+            if clone is None or not _clones.same(c.root, clone.root)]
+        if remove_clone:
+            cls._check_nothing_unpushed_in(found)
         issues, pulls = github.open_counts(info.full_name)
         # 他のリポジトリにもつながっている情報は、そちらで使っているので閉じない
         boards = [b for b in github.boards_of(info.full_name) if set(b.repositories) <= {info.full_name}]
-        result = ModuleDeleted(info.full_name, info.web_url, issues, pulls, bool(boards),
-                               clone.root if clone is not None else None, done=not dry_run)
+        primary = found[0].root if found else None
+        result = ModuleDeleted(info.full_name, info.web_url, issues, pulls, bool(boards), primary,
+                               clones=tuple(c.root for c in found), done=not dry_run)
         if dry_run:
             return result
         for board in boards:   # 戻したときに探せるよう、どのリポジトリのものかを説明に書いてから閉じる
@@ -220,14 +250,52 @@ class Module:
         github.delete_repository(info.full_name)
         for board in boards:
             github.close_board(board.id, closed=True)
-        removed = False
-        if clone is not None and remove_clone:
+        removed = []
+        if remove_clone:   # 深い場所から（元のcloneの中に作業空間専用のcloneを作っていても消せるように）
+            for c in sorted(found, key=lambda c: len(c.root.parts), reverse=True):
+                try:
+                    remove_tree(c.root)
+                except OSError:
+                    continue  # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる
+                removed.append(c.root)
+                _clones.forget(c.root)
+        return replace(result, clone_removed=primary in removed, removed=tuple(removed))
+
+    @classmethod
+    def _recorded_clones(cls, full_name: str, github: _github.GitHub) -> list["Module"]:
+        """このPCに記録した、full_name のclone（今あるもの）。"""
+        found = []
+        for entry in _clones.entries():
+            if not entry.exists:
+                continue
+            if entry.repository is not None:
+                if entry.repository.casefold() != full_name.casefold():
+                    continue
+            else:   # GitHubのものでない URL（ミラー等）は、GitHubに名前を聞く
+                try:
+                    if github.repository_name(entry.path).casefold() != full_name.casefold():
+                        continue
+                except WorkError:
+                    continue
             try:
-                remove_tree(clone.root)
-                removed = True
-            except OSError:
-                pass  # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる
-        return replace(result, clone_removed=removed)
+                found.append(cls(entry.path, _config.load(entry.path / _config.FILE_NAME), github=github))
+            except EcoBuildError:
+                continue
+        return found
+
+    @staticmethod
+    def _check_nothing_unpushed_in(modules: list["Module"]) -> None:
+        """どのcloneにも、手元にだけあるものがないことを確かめる（すべて見てから、まとめて知らせる）。"""
+        found = []
+        for module in modules:
+            try:
+                module._check_nothing_unpushed()
+            except EcoBuildError as error:
+                found += [f"{module.root}：{item}" for item in error.details or ()]
+        if found:
+            raise EcoBuildError(ErrorCode.UNFINISHED_WORK, "手元のcloneに、GitHubにないものがあります。",
+                                hint="必要なものを残してから実行するか、手元のcloneを消さずに実行してください"
+                                     "（--remove-clone を付けない）。", details=found)
 
     @staticmethod
     def _module_repository(name: str, github: _github.GitHub) -> _github.RepositoryInfo:
@@ -284,8 +352,10 @@ class Module:
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
               sort: str | None = None, sprint: str | None = None) -> list[ws.TaskSummary]:
-        return self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
-                                     milestone=milestone, ready=ready, sort=sort, sprint=sprint)
+        tasks = self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
+                                      milestone=milestone, ready=ready, sort=sort, sprint=sprint)
+        paths = self._workspace_paths()
+        return [replace(t, workspace_path=paths.get(t.number, t.workspace_path)) for t in tasks]
 
     # 計画と判断（ecotask） ------------------------------------------------------------
 
@@ -326,7 +396,11 @@ class Module:
         return self.repository.edit_milestone(title, **changes)
 
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
-        return self.repository.task_status(number)
+        """作業空間の場所は、このPCの他のclone（作業空間専用のclone 等）も見る。"""
+        status = self.repository.task_status(number)
+        path = self._workspace_paths().get(status.number, status.workspace_path)
+        task = None if status.task is None else replace(status.task, workspace_path=path)
+        return replace(status, workspace_path=path, task=task)
 
     def edit_task(self, number: int, **changes) -> ws.Task:
         """title・body・add_labels・remove_labels・add_assignees・remove_assignees・plan・clear_plan 等
@@ -872,3 +946,14 @@ def _module_type_of(text: str | None) -> str:
 
 def _with_gap(text: str) -> str:
     return "\n" + text if text else ""
+
+
+def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:
+    """GitHubのリポジトリの今：ok・archived・moved（名前が変わった。今の名前も返す）・gone（ない）・unknown。"""
+    try:
+        info = github.get_repository(name)
+    except WorkError as error:
+        return ("gone" if error.code == ErrorCode.REPOSITORY_NOT_FOUND else "unknown"), None
+    if info.full_name.casefold() != name.casefold():
+        return "moved", info.full_name
+    return ("archived" if info.archived else "ok"), None

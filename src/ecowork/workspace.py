@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as _datetime
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ecotask import model as _model
@@ -346,14 +347,17 @@ class TaskSummary:
     created: _datetime.date | None = None         # 追加した日
     started: _datetime.date | None = None         # 開始日（初めて作業中になった日）
     finished: _datetime.date | None = None        # 終了日（閉じた日）
+    workspace_path: Path | None = None            # 作業空間のある手元の場所（このclone。利用側が他のcloneも足す）
 
     @classmethod
-    def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool) -> "TaskSummary":
+    def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool,
+              path: Path | None = None) -> "TaskSummary":
         return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
                    task.stage, task.priority, task.due, task.estimate,
                    None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
-                   task.planned_start, task.planned_end, task.created, task.started, task.finished)
+                   task.planned_start, task.planned_end, task.created, task.started, task.finished,
+                   path if workspace else None)
 
 
 @dataclass(frozen=True)
@@ -378,6 +382,7 @@ class TaskStatus:
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
     task: TaskSummary | None = None              # 段階・計画の値（優先度・期限・見積もり・スプリント等）・日付
+    workspace_path: Path | None = None           # 作業空間のある手元の場所（TaskSummary と同じ）
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from ._show import STAGE_NAMES, plan_text
+from ._show import STAGE_NAMES, elsewhere, plan_text
 
 
 def command(
@@ -17,10 +17,20 @@ def command(
                          "finished。優先度は高い順、日付・見積もりは小さい順）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスク（Issue）の一覧を表示します（* は今いる作業空間、+ は手元に作業空間があるもの、- はGitHubにだけあるもの）。"""
+    """タスク（Issue）の一覧を表示します（* は今いる作業空間、+ は手元に作業空間があるもの、- はGitHubにだけあるもの）。
+
+    このPCの別のclone（task start --dir で作ったもの等）にいる作業空間は、その場所も出します。
+    """
+    here = []
+
+    def tasks(inv):
+        here.append(inv.module.root)
+        return inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
+                                search=search or None, milestone=milestone or None, ready=ready,
+                                sort=sort or None, sprint=sprint or None)
 
     def render(r):
-        return "\n".join(("* " if t.current else "+ " if t.workspace else "- " if t.remote else "  ")
+        return "\n".join(("* " if t.current else "+ " if t.workspace or t.workspace_path else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
                          + (f"〈{STAGE_NAMES[t.stage]}〉" if t.stage in STAGE_NAMES else "")
                          + (f" {plan_text(t)}" if plan_text(t) else "")
@@ -30,12 +40,8 @@ def command(
                          + (f"（子 {t.subtasks_done}/{t.subtasks} 完了）" if t.subtasks else "")
                          + (f"（{t.blocked_by} 件を待っています）" if t.blocked_by and t.state == "open" else "")
                          + (f"〔{t.milestone}〕" if t.milestone else "")
-                         + ("" if t.state == "open" else "（閉じています）") for t in r) or (
+                         + ("" if t.state == "open" else "（閉じています）")
+                         + elsewhere(t.workspace_path, here[0]) for t in r) or (
             "着手できるタスクはありません" if ready else "タスクはありません")
 
-    return run_command("task list", lambda inv: inv.module.tasks(closed=all, label=label or None,
-                                                                 assignee="@me" if mine else (assignee or None),
-                                                                 search=search or None,
-                                                                 milestone=milestone or None, ready=ready,
-                                                                 sort=sort or None, sprint=sprint or None),
-                       render, json_output=json)
+    return run_command("task list", tasks, render, json_output=json)

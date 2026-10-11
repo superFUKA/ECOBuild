@@ -15,7 +15,8 @@ def command(
     name: Annotated[str, "モジュール名（GitHubのリポジトリ名。所有者/名前 も可）"],
     owner: Annotated[str, "リポジトリの所有者（組織名など。既定は設定の owner、なければログイン中のユーザー）"] = "",
     confirm: Annotated[str, "確認のため、削除するモジュールを 所有者/名前 でもう一度書く（端末では聞きます）"] = "",
-    remove_clone: Annotated[bool, "手元のclone（今いるモジュール、または今いるディレクトリの <名前>）も削除する"] = False,
+    remove_clone: Annotated[bool, "手元のcloneも削除する（このPCに記録したもの・作業空間専用のもの・今いるモジュール・"
+                                  "今いるディレクトリの <名前>）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """アーカイブしたモジュール（GitHubのリポジトリ）を、Issue・PRとともに削除します。
@@ -31,19 +32,18 @@ def command(
         preview = Module.delete(target, clone=clone, remove_clone=remove_clone, dry_run=True)
         _require_delete_permission(inv)
         _confirm(inv, _question(preview, remove_clone), preview.repository, confirm)
-        if remove_clone and clone is not None and Path.cwd().resolve().is_relative_to(clone.root.resolve()):
-            os.chdir(clone.root.parent)   # 今いるディレクトリは消せないので、外へ出る
+        for root in preview.clones if remove_clone else ():
+            if Path.cwd().resolve().is_relative_to(root.resolve()):
+                os.chdir(root.parent)   # 今いるディレクトリは消せないので、外へ出る
         return Module.delete(target, clone=clone, remove_clone=remove_clone)
 
     def render(r):
-        clone = None
-        if r.clone is not None:
-            clone = (f"手元のclone {r.clone} を削除しました" if r.clone_removed else
-                     f"手元のclone {r.clone} は、他のプログラムが使っているため削除できませんでした。"
-                     "閉じてからフォルダーを削除してください" if remove_clone else
-                     f"手元のclone {r.clone} は残しています（不要ならフォルダーを削除してください）")
+        clones = [f"手元のclone {c} を削除しました" if c in r.removed else
+                  f"手元のclone {c} は、他のプログラムが使っているため削除できませんでした。"
+                  "閉じてからフォルダーを削除してください" if remove_clone else
+                  f"手元のclone {c} は残しています（不要ならフォルダーを削除してください）" for c in r.clones]
         return lines(f"モジュール {r.repository} を削除しました（GitHubのアカウントの設定から、90日以内なら元に戻せます）",
-                     f"リポジトリ：{r.url}", clone)
+                     f"リポジトリ：{r.url}", *clones)
 
     return run_command("module delete", action, render, json_output=json)
 
@@ -52,8 +52,8 @@ def _question(preview, remove_clone: bool) -> str:
     text = (f"GitHubのモジュール {preview.repository}（開いているIssue {preview.open_issues} 件・"
             f"PR {preview.open_pull_requests} 件）を削除します。このモジュールを依存先にしているモジュールは、"
             "clone・sync ができなくなります。")
-    if remove_clone and preview.clone is not None:
-        text += f"手元のclone {preview.clone} も削除します。"
+    if remove_clone and preview.clones:
+        text += f"手元のclone {'、'.join(map(str, preview.clones))} も削除します。"
     return text
 
 

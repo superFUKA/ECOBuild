@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from .._gui_command import open_window
-from .._output import run_command
+from .._output import local_time, run_command
 
 
 def command(
@@ -17,7 +17,7 @@ def command(
 
     def render(r):
         return "\n".join(
-            f"{e.sha[:7]} {e.date[:10]} {e.author}：{e.subject}" + (f"  [Issue #{e.issue}]" if e.issue else "")
+            f"{e.sha[:7]} {local_time(e.date)} {e.author}：{e.subject}" + (f"  [Issue #{e.issue}]" if e.issue else "")
             for e in r) or "履歴はありません"
 
     return run_command("log", lambda inv: inv.module.log(count=count, paths=paths, all_branches=all), render,

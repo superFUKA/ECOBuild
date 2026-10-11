@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ....module import Module
-from ..._output import run_command, usage_error
+from ..._output import local_time, run_command, usage_error
 
 
 def command(
@@ -35,5 +35,5 @@ def _line(m) -> str:
     notes = [m.type or "型不明", "非公開" if m.private else "公開"]
     if m.archived:
         notes.append("アーカイブ済み")
-    text = f"{m.repository}（{'・'.join(notes)}、更新 {m.updated[:10]}）"
+    text = f"{m.repository}（{'・'.join(notes)}、更新 {local_time(m.updated)}）"
     return text + (f"：{m.description}" if m.description else "")

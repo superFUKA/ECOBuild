@@ -208,6 +208,14 @@ def split_numbers(text: str, option: str, json_output: bool) -> tuple[int, ...]:
     return tuple(numbers)
 
 
+def local_time(timestamp: str, format: str = "%Y-%m-%d") -> str:
+    """GitHub・gitの時刻（ISO 8601。UTC や書いた人の時差のもの）を、このPCの時刻で表示する。読めなければそのまま切る。"""
+    try:
+        return datetime.datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone().strftime(format)
+    except ValueError:
+        return timestamp[:len(datetime.datetime(2000, 1, 1).strftime(format))]
+
+
 def lines(*parts: str | None) -> str:
     return "\n".join(part for part in parts if part)
 

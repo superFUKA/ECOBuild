@@ -1,7 +1,6 @@
-from datetime import datetime
 from typing import Annotated
 
-from ..._output import optional_argument, run_command
+from ..._output import local_time, optional_argument, run_command
 
 
 def command(
@@ -23,8 +22,4 @@ def command(
 
 
 def _local(timestamp: str) -> str:
-    """GitHubの時刻（UTC）を、このPCの時刻で表示する。"""
-    try:
-        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d %H:%M")
-    except ValueError:
-        return timestamp[:16]
+    return local_time(timestamp, "%Y-%m-%d %H:%M")

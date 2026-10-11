@@ -77,3 +77,14 @@ def test_detail_keeps_error_lines_before_the_tail():
     text = _detail_text("\n".join(lines))
     assert "error C2059" in text and "前の16行は省略。そのうちエラーの行" in text
     assert text.count("gtest.lib") == 30
+
+
+def test_local_time_shows_this_pc_time():
+    """GitHubの時刻（UTC）・gitの時刻（書いた人の時差）は、このPCの時刻で日付にする（UTCで切ると日本では前日になる）。"""
+    import datetime
+    from ecobuild.cli._output import local_time
+    here = datetime.datetime(2026, 10, 11, 23, 30, tzinfo=datetime.timezone.utc).astimezone()
+    assert local_time("2026-10-11T23:30:00Z") == here.strftime("%Y-%m-%d")
+    assert local_time("2026-10-12T08:30:00+09:00") == here.strftime("%Y-%m-%d")      # 同じ時刻
+    assert local_time("2026-10-11T23:30:00Z", "%Y-%m-%d %H:%M") == here.strftime("%Y-%m-%d %H:%M")
+    assert local_time("読めない日時の文字列") == "読めない日時の文字列"

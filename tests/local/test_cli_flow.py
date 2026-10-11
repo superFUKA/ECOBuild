@@ -258,17 +258,25 @@ def test_task_dates_from_cli(cli, module):
 
 
 def test_legacy_board_setting_is_taken_over(cli, module):
-    """以前の設定（ecobuild.toml の [board]）でつないでいたボードは、そのまま引き継ぐ（設定を変える必要はない）。"""
+    """以前の設定（ecobuild.toml の [board]）でつないでいたボードは、そのまま引き継ぐ（設定を変える必要はない）。
+    足りない段階（計画中・レビュー待ち）は足し、今ある値は残す。"""
     github = module.repository.github
     for board in list(github.boards.values()):        # モジュールを作ったときのものは外す（以前の状態にする）
         github.link_board(module.root, board.id, link=False)
     old = github.add_board(statuses=("Todo", "In Progress", "Done"))
     github.link_board(module.root, old.id, link=True)
+    earlier = github.create_issue(module.root, "以前から", "")
+    item = github.add_board_item(module.root, earlier.number, old.id)
+    github.set_board_value(module.root, old.id, item.id, old.field("Status"), "In Progress")
     config = module.root / "ecobuild.toml"
     config.write_text(config.read_text(encoding="utf-8") + f'\n[board]\nurl = "{old.url}"\n', encoding="utf-8")
     assert cli("task", "new", "引き継ぐ").exit_code == 0
     assert github.ecobuild_board().id == old.id
-    assert as_json(cli("task", "list", "--json"))["result"][0]["stage"] == "todo"
+    status = github.ecobuild_board().field("Status")
+    assert [o.name for o in status.options] == ["Backlog", "Todo", "In Progress", "In Review", "Done"]
+    assert {t["title"]: t["stage"] for t in as_json(cli("task", "list", "--json"))["result"]} == \
+        {"以前から": "in_progress", "引き継ぐ": "todo"}
+    assert cli("task", "plan", "2", "--stage", "planned").exit_code == 0
 
 
 def test_subtasks_from_cli(cli, module):

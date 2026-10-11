@@ -108,7 +108,8 @@ class TaskGitHub(Protocol):
     def share_board(self, repo: Path, board_id: str) -> tuple[str, ...]: ...
     def repository_name(self, repo: Path) -> str: ...
     def repository_boards(self, repo: Path) -> tuple[_board.BoardRef, ...]: ...
-    def set_board_options(self, repo: Path, field_id: str, options: tuple[tuple[str, str, str], ...]) -> None: ...
+    def set_board_options(self, repo: Path, field_id: str,
+                          options: tuple[tuple[str | None, str, str, str], ...]) -> None: ...
     def create_board_field(self, repo: Path, board_id: str, name: str, type: str, *,
                            options: tuple[tuple[str, str, str], ...] = (),
                            iterations: tuple[tuple[str, str, int], ...] = ()) -> None: ...
@@ -298,7 +299,7 @@ class GhCli:
               projectV2(number: $number) { id number title url closed public
                 repositories(first: 20) { nodes { nameWithOwner } } fields(first: 100) { nodes {
                 ... on ProjectV2Field { id name dataType }
-                ... on ProjectV2SingleSelectField { id name dataType options { id name } }
+                ... on ProjectV2SingleSelectField { id name dataType options { id name color description } }
                 ... on ProjectV2IterationField { id name dataType
                     configuration { iterations { id title startDate duration }
                                     completedIterations { id title startDate duration } } } } } } } } }""",
@@ -312,7 +313,8 @@ class GhCli:
         for node in project["fields"]["nodes"]:
             if not node:
                 continue
-            options = [_board.BoardOption(o["id"], o["name"]) for o in node.get("options") or []]
+            options = [_board.BoardOption(o["id"], o["name"], color=o.get("color"), description=o.get("description"))
+                       for o in node.get("options") or []]
             configuration = node.get("configuration") or {}
             iterations = (configuration.get("iterations") or []) + (configuration.get("completedIterations") or [])
             options += [_board.BoardOption(i["id"], i["title"], i.get("startDate"), i.get("duration"))
@@ -374,12 +376,14 @@ class GhCli:
         return tuple(login for login, _ in people)
 
     def set_board_options(self, repo, field_id, options):
-        """単一選択の選択肢を置き換える（GitHubの仕様で、既存の値は消える）。options：（名前, 色, 説明）。"""
+        """単一選択の選択肢を置き換える。options：（ID〔今あるもの。新しいものは None〕, 名前, 色, 説明）。
+        今あるものはIDを渡して残す（IDを渡さないと、GitHubの仕様でタスクの値が消える）。"""
         self._graphql(repo, """
             mutation($field: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]) {
               updateProjectV2Field(input: {fieldId: $field, singleSelectOptions: $options}) { projectV2Field {
                 ... on ProjectV2SingleSelectField { id } } } }""",
-                      field=field_id, options=[{"name": n, "color": c, "description": d} for n, c, d in options])
+                      field=field_id, options=[{**({"id": i} if i else {}), "name": n, "color": c, "description": d}
+                                               for i, n, c, d in options])
 
     def create_board_field(self, repo, board_id, name, type, *, options=(), iterations=()):
         """フィールドを足す。options：単一選択の（名前, 色, 説明）、iterations：イテレーションの（題名, 始まり, 日数）。"""

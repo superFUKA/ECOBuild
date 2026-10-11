@@ -58,12 +58,31 @@ class TaskStore:
                                 hint="GitHubで直接変えた場合は、元の形（型）に戻してください。")
             self._create_fields(self.info().id, tuple(missing))
             self._reload()
+        self._add_stages()
         if not all(self._board.stages.get(stage) for stage in (_model.TODO, _model.IN_PROGRESS, _model.DONE)):
             raise TaskError(ErrorCode.INVALID_ARGUMENT,
                             "GitHubのタスク管理の情報の段階（Status）の形が、ECOBuildの決まりと違います。",
                             hint="GitHubで直接変えた場合は、Todo・In Progress・Done の選択肢を戻してください。")
         self._extend_sprints()
         return self._board
+
+    def _add_stages(self) -> None:
+        """段階（Status）の選択肢が足りなければ（以前のボード等）、決まった形のものを足す。今ある選択肢とタスクの値は残す。"""
+        status = next((f for f in self.info().fields if f.name.casefold() == _board.STATUS_FIELD.casefold()
+                       and f.type == "SINGLE_SELECT"), None)
+        if status is None:
+            return
+        have = {_model.PLANNED: self._board.planned, **self._board.stages}
+        options = [(o.id, o.name, o.color or "GRAY", o.description or "") for o in status.options]
+        missing = [(i, standard) for i, (stage, standard) in enumerate(zip((_model.PLANNED, *_board.STAGES),
+                                                                           _board.STANDARD_STATUS))
+                   if not have.get(stage)]
+        if not missing:
+            return
+        for i, standard in missing:
+            options.insert(min(i, len(options)), (None, *standard))
+        self.github.set_board_options(self.root, status.id, tuple(options))
+        self._reload()
 
     def _extend_sprints(self, today: _datetime.date | None = None) -> None:
         """スプリントが尽きないように：最後のスプリントの終わりが近ければ、同じ日数で続きを足す（題名は Sprint <番号>）。"""
@@ -129,7 +148,7 @@ class TaskStore:
         created = self.github.create_board(self.root, None, title, _board.DESCRIPTION)
         owner, number = _board.parse_url(created.url)
         status = self.github.get_board(self.root, owner, number).field(_board.STATUS_FIELD)
-        self.github.set_board_options(self.root, status.id, _board.STANDARD_STATUS)
+        self.github.set_board_options(self.root, status.id, tuple((None, *o) for o in _board.STANDARD_STATUS))
         self._create_fields(created.id, _board.standard_fields())
         self.github.link_board(self.root, created.id, link=True)
         self.shared = self.github.share_board(self.root, created.id)

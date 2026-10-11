@@ -100,6 +100,8 @@ class BoardOption:
     name: str
     start: str | None = None                   # イテレーションの期間の始まり（YYYY-MM-DD）
     duration: int | None = None                # イテレーションの日数
+    color: str | None = None                   # 単一選択の選択肢の色・説明（作り直すときに残す）
+    description: str | None = None
 
 
 @dataclass(frozen=True)

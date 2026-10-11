@@ -270,12 +270,14 @@ class FakeGitHub:
 
     def set_board_options(self, repo, field_id, options):
         for number, board in self.boards.items():
-            fields = tuple(replace(f, options=tuple(BoardOption(f"{field_id}_{i}", name)
-                                                    for i, (name, _, _) in enumerate(options)))
+            fields = tuple(replace(f, options=tuple(BoardOption(i or f"{field_id}_{k}", name, color=c, description=d)
+                                                    for k, (i, name, c, d) in enumerate(options)))
                            if f.id == field_id else f for f in board.fields)
             self.boards[number] = replace(board, fields=fields)
-        for key, item in self.items.items():   # GitHubと同じく、選択肢を作り直すと値は消える
-            self.items[key] = BoardItem(item.id, {k: v for k, v in item.values.items() if k != "Status"})
+        kept = {name for i, name, _, _ in options if i}
+        for key, item in self.items.items():   # GitHubと同じく、IDを渡さずに作り直した選択肢の値は消える
+            self.items[key] = BoardItem(item.id, {k: v for k, v in item.values.items()
+                                                  if k != "Status" or v in kept})
 
     def create_board_field(self, repo, board_id, name, type, *, options=(), iterations=()):
         number = next(n for n, b in self.boards.items() if b.id == board_id)

@@ -69,7 +69,7 @@ class FakeGitHub:
         if bare is None or name.split("/")[-1] != bare.stem:
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。")
         full = name if "/" in name else f"{self.owner}/{name}"
-        return RepositoryInfo(full, str(bare), f"https://example.invalid/{full}")
+        return RepositoryInfo(full, str(bare), f"https://example.invalid/{full}", full in self.archived_repositories)
 
     def is_private(self, name):
         return self.private if getattr(self, "bare", None) is not None and name.endswith(self.bare.stem) else True
@@ -86,8 +86,11 @@ class FakeGitHub:
     def delete_repository(self, name):
         self.deleted_repositories.append(name)
 
-    def archive_repository(self, name):
-        self.archived_repositories.append(name)
+    def archive_repository(self, name, *, archived=True):
+        if archived:
+            self.archived_repositories.append(name)
+        else:
+            self.archived_repositories.remove(name)
 
     def use_bare(self, bare: Path) -> None:
         self.bare = bare
@@ -278,10 +281,14 @@ class FakeGitHub:
 
     def boards_of(self, repository):
         return tuple(b for b in self.boards.values()
-                     if repository in b.repositories and self.board_descriptions.get(b.id, "").startswith("ECOBuild"))
+                     if repository in b.repositories and not b.closed
+                     and self.board_descriptions.get(b.id, "").startswith("ECOBuild"))
 
-    def delete_board(self, board_id):
-        self.boards = {n: b for n, b in self.boards.items() if b.id != board_id}
+    def close_board(self, board_id, *, closed):
+        self.boards = {n: replace(b, closed=closed) if b.id == board_id else b for n, b in self.boards.items()}
+
+    def owner_boards(self, owner):
+        return tuple(BoardRef(b.url, self.board_descriptions.get(b.id, ""), b.closed) for b in self.boards.values())
 
     def share_board(self, repo, board_id):
         self.shared_boards[board_id] = self.collaborators

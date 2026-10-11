@@ -26,6 +26,7 @@ class RepositoryInfo:
     full_name: str        # owner/name
     clone_url: str
     web_url: str
+    archived: bool = False   # アーカイブ（読み取り専用）
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,7 @@ class GitHub(TaskGitHub, Protocol):
     def repository_has_file(self, name: str, path: str) -> bool: ...
     def open_counts(self, name: str) -> tuple[int, int]: ...
     def delete_repository(self, name: str) -> None: ...
-    def archive_repository(self, name: str) -> None: ...
+    def archive_repository(self, name: str, *, archived: bool = True) -> None: ...
     def delete_secret(self, repo: Path, name: str) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
@@ -166,14 +167,14 @@ class GhCli(_TaskGhCli):
 
     def get_repository(self, name):
         """name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。"""
-        completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url"], cwd=None, check=False)
+        completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url,isArchived"], cwd=None, check=False)
         if not completed.ok:
             if not _not_found(completed):
                 raise _gh_error(["repo", "view"], completed)
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。",
                             details=completed.output)
         data = json.loads(completed.stdout)
-        return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"])
+        return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"], bool(data.get("isArchived")))
 
     def is_private(self, name):
         return bool(self._json(["repo", "view", name, "--json", "isPrivate"], cwd=None)["isPrivate"])
@@ -205,8 +206,9 @@ class GhCli(_TaskGhCli):
                                 details=completed.output)
             raise _gh_error(args, completed)
 
-    def archive_repository(self, name):
-        args = ["repo", "archive", name, "--yes"]
+    def archive_repository(self, name, *, archived=True):
+        """アーカイブする（archived=False：元に戻す）。"""
+        args = ["repo", "archive" if archived else "unarchive", name, "--yes"]
         completed = self._gh(args, cwd=None, check=False)
         if not completed.ok:
             raise _gh_error(args, completed)

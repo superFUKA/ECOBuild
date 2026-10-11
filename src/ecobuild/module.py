@@ -11,6 +11,7 @@ import re
 from dataclasses import replace
 from pathlib import Path
 
+from ecotask.board import description as _board_description
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import workspace as ws
@@ -21,7 +22,8 @@ from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
-                      FilesChanged, LinkResult, ModuleCloned, ModuleCreated, ModuleDeleted, PrepareResult, ProfileList,
+                      FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated, ModuleDeleted,
+                      PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
 
 COMMAND = "ecobuild"
@@ -144,50 +146,67 @@ class Module:
         return module, dependencies
 
     @classmethod
+    def archive(cls, name: str, *, archived: bool = True, github: _github.GitHub | None = None) -> ModuleArchived:
+        """GitHubのモジュール（リポジトリ）をアーカイブ（読み取り専用）にする（archived=False：元に戻す）。
+        タスク管理の情報は、元に戻したときにそのまま使えるように残す。既にその状態なら何もしない。"""
+        github = github or _github.default()
+        info = cls._module_repository(name, github)
+        if info.archived != archived:
+            github.archive_repository(info.full_name, archived=archived)
+        return ModuleArchived(info.full_name, info.web_url, archived)
+
+    @classmethod
     def delete(
-        cls, name: str, *, archive: bool = False, clone: "Module | None" = None, dry_run: bool = False,
+        cls, name: str, *, clone: "Module | None" = None, remove_clone: bool = False, dry_run: bool = False,
         github: _github.GitHub | None = None,
     ) -> ModuleDeleted:
-        """GitHubのモジュール（リポジトリ）と、そのタスク管理の情報を削除する（元に戻せない）。
+        """アーカイブしたモジュール（リポジトリ）を削除する。GitHubの機能で、90日以内なら元に戻せる。
 
-        archive：削除せず、読み取り専用（アーカイブ）にする（GitHubで元に戻せる）。タスク管理の情報は、
-        元に戻したときにそのまま使えるように残す。
-        clone：一緒に削除する手元のclone（このモジュールのもの）。GitHubにない変更・コミットがあれば何もせずに断る。
-        dry_run：確かめて、何が消えるかを返すだけ。ECOBuildのモジュールでないリポジトリは扱わない。
+        タスク管理の情報は消さずに閉じる（リポジトリを戻すと、ECOBuildが開き直して使う）。
+        clone：手元のclone（このモジュールのもの）。remove_clone なら一緒に削除する（GitHubにない変更・
+        コミット・退避があれば、何もせずに断る）。dry_run：確かめて、何をするかを返すだけ。
         """
         github = github or _github.default()
-        info = github.get_repository(name)
-        if not github.repository_has_file(info.full_name, _config.FILE_NAME):
-            raise EcoBuildError(ErrorCode.NOT_IN_MODULE,
-                                f"{info.full_name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
-                                hint="ECOBuildで作ったモジュールだけを削除できます。")
+        info = cls._module_repository(name, github)
+        if not info.archived:
+            raise EcoBuildError(ErrorCode.NOT_ARCHIVED, f"{info.full_name} はアーカイブしていません。",
+                                hint=f"削除する前に、{COMMAND} archive {info.full_name} でアーカイブしてください"
+                                     "（読み取り専用にし、使っていないことを確かめる段階です）。")
         if clone is not None:
             if github.repository_name(clone.root) != info.full_name:
                 raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                                     f"{clone.root} は {info.full_name} のcloneではありません。")
-            clone._check_nothing_unpushed()
+            if remove_clone:
+                clone._check_nothing_unpushed()
         issues, pulls = github.open_counts(info.full_name)
-        # 他のリポジトリにもつながっている情報は、そちらで使っているので残す
-        boards = [] if archive else [b for b in github.boards_of(info.full_name)
-                                     if set(b.repositories) <= {info.full_name}]
-        result = ModuleDeleted(info.full_name, info.web_url, archive, issues, pulls, bool(boards),
+        # 他のリポジトリにもつながっている情報は、そちらで使っているので閉じない
+        boards = [b for b in github.boards_of(info.full_name) if set(b.repositories) <= {info.full_name}]
+        result = ModuleDeleted(info.full_name, info.web_url, issues, pulls, bool(boards),
                                clone.root if clone is not None else None, done=not dry_run)
         if dry_run:
             return result
-        if archive:
-            github.archive_repository(info.full_name)
-        else:
-            github.delete_repository(info.full_name)
+        for board in boards:   # 戻したときに探せるよう、どのリポジトリのものかを説明に書いてから閉じる
+            github.describe_board(None, board.id, _board_description(info.full_name))
+        github.delete_repository(info.full_name)
         for board in boards:
-            github.delete_board(board.id)
+            github.close_board(board.id, closed=True)
         removed = False
-        if clone is not None:
+        if clone is not None and remove_clone:
             try:
                 remove_tree(clone.root)
                 removed = True
             except OSError:
                 pass  # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる
         return replace(result, clone_removed=removed)
+
+    @staticmethod
+    def _module_repository(name: str, github: _github.GitHub) -> _github.RepositoryInfo:
+        info = github.get_repository(name)
+        if not github.repository_has_file(info.full_name, _config.FILE_NAME):
+            raise EcoBuildError(ErrorCode.NOT_IN_MODULE,
+                                f"{info.full_name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
+                                hint="ECOBuildで作ったモジュールだけを扱えます。")
+        return info
 
     def _check_nothing_unpushed(self) -> None:
         """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも。"""

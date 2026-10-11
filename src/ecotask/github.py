@@ -107,7 +107,8 @@ class TaskGitHub(Protocol):
                        iterations: tuple[tuple[str | None, str, str, int], ...]) -> None: ...
     def share_board(self, repo: Path, board_id: str) -> tuple[str, ...]: ...
     def boards_of(self, repository: str) -> tuple[_board.BoardInfo, ...]: ...
-    def delete_board(self, board_id: str) -> None: ...
+    def close_board(self, board_id: str, *, closed: bool) -> None: ...
+    def owner_boards(self, owner: str) -> tuple[_board.BoardRef, ...]: ...
     def repository_name(self, repo: Path) -> str: ...
     def repository_boards(self, repo: Path) -> tuple[_board.BoardRef, ...]: ...
     def set_board_options(self, repo: Path, field_id: str,
@@ -417,7 +418,7 @@ class GhCli:
                       project=board_id, repository=repository_id)
 
     def boards_of(self, repository):
-        """リポジトリ（所有者/名前）にリンクしているECOBuildのボード（手元のcloneがなくてもよい）。"""
+        """リポジトリ（所有者/名前）にリンクしているECOBuildのボード（開いているもの。手元のcloneがなくてもよい）。"""
         owner, _, name = repository.partition("/")
         data = self._graphql(None, """
             query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
@@ -426,9 +427,19 @@ class GhCli:
                 for n in data["repository"]["projectsV2"]["nodes"])
         return tuple(self.get_board(None, *_board.parse_url(ref.url)) for ref in refs if ref.ours)
 
-    def delete_board(self, board_id):
-        self._graphql(None, """mutation($project: ID!) {
-            deleteProjectV2(input: {projectId: $project}) { projectV2 { id } } }""", project=board_id)
+    def close_board(self, board_id, *, closed):
+        """閉じる（closed=False：開き直す）。閉じたボードは消えずに残り、開き直せる。"""
+        self._graphql(None, """mutation($project: ID!, $closed: Boolean!) {
+            updateProjectV2(input: {projectId: $project, closed: $closed}) { projectV2 { id } } }""",
+                      project=board_id, closed=closed)
+
+    def owner_boards(self, owner):
+        """所有者（ユーザー・組織）のボード（閉じたものも）。リンクが外れたボードを探すのに使う。"""
+        data = self._graphql(None, """
+            query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
+              projectsV2(first: 100) { nodes { url shortDescription closed } } } } }""", login=owner)
+        nodes = ((data.get("repositoryOwner") or {}).get("projectsV2") or {}).get("nodes") or []
+        return tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed"))) for n in nodes)
 
     def task_records(self, repo, *, closed, board_id, number=None):
         """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""

@@ -19,15 +19,21 @@ class ModuleCreated:
 
 
 @dataclass(frozen=True)
+class ModuleArchived:
+    repository: str                  # 所有者/名前
+    url: str
+    archived: bool                   # True：アーカイブした、False：元に戻した
+
+
+@dataclass(frozen=True)
 class ModuleDeleted:
     repository: str                  # 所有者/名前
     url: str
-    archived: bool                   # 削除ではなく、アーカイブ（読み取り専用。元に戻せる）にした
     open_issues: int
     open_pull_requests: int
-    task_data: bool                  # タスク管理の情報も削除した（アーカイブでは残す）
-    clone: Path | None = None        # 一緒に削除する手元のclone
-    clone_removed: bool = False      # 手元のcloneを削除できた（他のプログラムが使っていると残る）
+    task_data: bool                  # タスク管理の情報を閉じた（消さない。リポジトリを戻すと開き直す）
+    clone: Path | None = None        # 手元のclone（今いる・今いるディレクトリの <名前>）
+    clone_removed: bool = False      # 手元のcloneも削除した
     done: bool = True                # False：確かめただけ（まだ何も変えていない）
 
 

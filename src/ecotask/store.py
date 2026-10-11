@@ -127,6 +127,11 @@ class TaskStore:
     def _find(self) -> _board.BoardSettings | None:
         refs = self.github.repository_boards(self.root)
         ours = next((r for r in refs if r.ours), None)
+        if ours is None:
+            # モジュールを削除して（GitHubで）戻した：そのとき閉じたボードを開き直す
+            ours = next((r for r in refs if r.ours_closed), None)
+            if ours is not None:
+                self._reopen(ours)
         if ours is None and self.legacy_board:
             # 以前の設定でつないでいたボードを引き継ぐ：印を付け、共同作業者に共有する
             legacy = self.legacy_board.rstrip("/")
@@ -134,7 +139,8 @@ class TaskStore:
             if ours is not None:
                 owner, number = _board.parse_url(ours.url)
                 info = self.github.get_board(self.root, owner, number)
-                self.github.describe_board(self.root, info.id, _board.DESCRIPTION)
+                self.github.describe_board(self.root, info.id,
+                                           _board.description(self.github.repository_name(self.root)))
                 self.shared = self.github.share_board(self.root, info.id)
         if ours is None:
             return None
@@ -142,10 +148,31 @@ class TaskStore:
         self._info = self.github.get_board(self.root, owner, number)
         return _board.settings_of(self._info)
 
+    def _reopen(self, ref: _board.BoardRef) -> None:
+        owner, number = _board.parse_url(ref.url)
+        self.github.close_board(self.github.get_board(self.root, owner, number).id, closed=False)
+
+    def _relink(self) -> bool:
+        """リンクが外れた、このリポジトリの閉じたボード（モジュールを削除して戻した）を、開き直してリンクする。"""
+        repository = self.github.repository_name(self.root)
+        ref = next((r for r in self.github.owner_boards(repository.split("/")[0])
+                    if r.closed and _board.belongs_to(r.description, repository)), None)
+        if ref is None:
+            return False
+        owner, number = _board.parse_url(ref.url)
+        info = self.github.get_board(self.root, owner, number)
+        self.github.close_board(info.id, closed=False)
+        self.github.link_board(self.root, info.id, link=True)
+        self._found = False
+        return self.board is not None
+
     def _create(self) -> None:
         """決まった形のボードを作り、このリポジトリにリンクし、共同作業者に共有する。"""
-        title = f"{self.github.repository_name(self.root).split('/')[-1]} タスク"
-        created = self.github.create_board(self.root, None, title, _board.DESCRIPTION)
+        if self._relink():
+            return
+        repository = self.github.repository_name(self.root)
+        title = f"{repository.split('/')[-1]} タスク"
+        created = self.github.create_board(self.root, None, title, _board.description(repository))
         owner, number = _board.parse_url(created.url)
         status = self.github.get_board(self.root, owner, number).field(_board.STATUS_FIELD)
         self.github.set_board_options(self.root, status.id, tuple((None, *o) for o in _board.STANDARD_STATUS))

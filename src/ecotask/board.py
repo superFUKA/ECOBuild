@@ -22,7 +22,15 @@ STAGES = (TODO, IN_PROGRESS, IN_REVIEW, DONE)
 
 # ECOBuildのボードの印（ボードの説明の先頭）。リポジトリにリンクしたボードのうち、これで始まるものを使う
 MARKER = "ECOBuild"
-DESCRIPTION = MARKER + " がタスク管理の情報を置く場所です。ECOBuild のコマンドから使います。"
+
+
+def description(repository: str) -> str:
+    """ボードの説明（印＋どのリポジトリのものか。リポジトリを消して戻したときに、閉じたボードを探すのに使う）。"""
+    return f"{MARKER} がタスク管理の情報を置く場所です（{repository}）。ECOBuild のコマンドから使います。"
+
+
+def belongs_to(description_: str, repository: str) -> bool:
+    return description_.startswith(MARKER) and f"（{repository}）".casefold() in description_.casefold()
 
 # 段階に当てる選択肢として探す名前（大文字・小文字・空白は区別しない）。最初に見つかったもの
 DEFAULT_OPTIONS = {
@@ -92,6 +100,11 @@ class BoardRef:
     @property
     def ours(self) -> bool:
         return not self.closed and self.description.startswith(MARKER)
+
+    @property
+    def ours_closed(self) -> bool:
+        """閉じたECOBuildのボード（モジュールを削除したときに閉じたもの）。"""
+        return self.closed and self.description.startswith(MARKER)
 
 
 @dataclass(frozen=True)

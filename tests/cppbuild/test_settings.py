@@ -203,6 +203,31 @@ def test_profile_carries_every_build_setting(module):
             (module.root / path).unlink()
 
 
+@pytest.mark.skipif(__import__("os").name != "nt", reason="WinMain・ws2_32 は Windows のもの")
+def test_entry_point_and_system_libraries(module):
+    """実行ファイルの入口の関数（GUIアプリ）と、OSのライブラリの名前でのリンク。"""
+    main = module.root / "Viewer/src/main.cpp"
+    original = main.read_text(encoding="utf-8")
+    assert module.project_details("Viewer")["entry_point"] == "main"
+    write(main, "#include <winsock2.h>\n#include <windows.h>\n"
+                "int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {\n"
+                "    WSADATA data; return WSAStartup(MAKEWORD(2, 2), &data) == 0 ? (WSACleanup(), 0) : 1;\n}\n")
+    try:
+        changed = module.set_project("Viewer", entry_point="wWinMain", add_system_libraries=("ws2_32",))
+        assert (changed["entry_point"], changed["gui"], changed["system_libraries"]) == ("wWinMain", True, ["ws2_32"])
+        assert module.build(project="Viewer").artifacts                 # wWinMain と ws2_32 がリンクできる
+        assert code_of(lambda: module.set_project("Viewer", entry_point="main", gui=True)) == ErrorCode.INVALID_ARGUMENT
+        assert code_of(lambda: module.set_project("Shape", entry_point="wWinMain")) == ErrorCode.INVALID_ARGUMENT
+        assert code_of(lambda: module.set_project("Viewer", add_system_libraries=("-lws2_32",))) \
+            == ErrorCode.INVALID_ARGUMENT
+        custom = module.set_project("Viewer", entry_point="AppMain", gui=False)
+        assert (custom["entry_point"], custom["gui"]) == ("AppMain", False)
+    finally:
+        restored = module.set_project("Viewer", entry_point="main", remove_system_libraries=("ws2_32",))
+        assert (restored["entry_point"], restored["gui"], restored["system_libraries"]) == ("main", False, [])
+        write(main, original)
+
+
 def test_settings_cli(module, monkeypatch, capsys):
     """CLI：project show・set・link・unlink、module settings、template、profile project。"""
     from ecobuild.cli import main

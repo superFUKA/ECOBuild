@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from cppbuild import ProjectType, Solution
+from cppbuild.core import STANDARD_ENTRY_POINTS
 from cppbuild.models import CMakePackage, CMakeSource, Dependency, ImportedLibrary
 
 from ecobuild.errors import EcoBuildError, ErrorCode
@@ -153,6 +154,9 @@ def project_details(root: Path, name: str) -> dict:
         "links": [_link_view(key, value, _names(solution)) for key, value in data.dependencies.items()],
         "pch": {"headers": list(data.project_headers), "system_headers": list(data.system_headers)},
         "export_all_symbols": data.windows_export_all_symbols,
+        "entry_point": data.entry_point or "main",
+        "gui": data.gui,
+        "system_libraries": list(data.system_libraries),
     }
 
 
@@ -161,14 +165,18 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
                 add_include_directories=(), remove_include_directories=(),
                 add_source_directories=(), remove_source_directories=(),
                 export_all_symbols: bool | None = None, folder: str | None = None,
-                clear_folder: bool = False) -> dict:
-    """Projectの設定を変える。定義・インクルードは形式ごと（types。省略時はそのProjectのすべての形式）。"""
+                clear_folder: bool = False, entry_point: str | None = None, gui: bool | None = None,
+                add_system_libraries=(), remove_system_libraries=()) -> dict:
+    """Projectの設定を変える。定義・インクルードは形式ごと（types。省略時はそのProjectのすべての形式）。
+
+    entry_point・gui：実行ファイルの入口の関数（main・wmain・WinMain・wWinMain、それ以外は MSVC の /ENTRY）と
+    GUIアプリにするか（省略時は関数で決まる：WinMain・wWinMain ならGUI）。system_libraries：OSのライブラリ（ws2_32 等）。"""
     solution = _cppbuild.open_solution(root)
     project = _require(solution, name)
     data = project.settings.get()
     library = data.initial_type in _cppbuild.LIBRARY_TYPES.values()
     if types and not library:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--for はライブラリのProjectでだけ使えます。",
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--type はライブラリのProjectでだけ使えます。",
                             hint="実行ファイル・テストの形式は1つだけです。")
     selected = [_cppbuild.LIBRARY_TYPES[_library_type(t)] for t in types] or list(data.types)
     for kind in selected:
@@ -185,6 +193,23 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
         if not library:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--export-all はライブラリのProjectでだけ使えます。")
         data.windows_export_all_symbols = export_all_symbols
+    if entry_point is not None or gui is not None:
+        if data.initial_type != ProjectType.EXECUTABLE:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "入口の関数・GUIアプリは、実行ファイルのProjectでだけ設定できます。")
+        function = entry_point or data.entry_point or "main"
+        data.entry_point = None if function == "main" else function
+        data.gui = gui if gui is not None else STANDARD_ENTRY_POINTS.get(function, data.gui if entry_point is None else False)
+        if function in STANDARD_ENTRY_POINTS and data.gui != STANDARD_ENTRY_POINTS[function]:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"{function} は{'GUIアプリ' if STANDARD_ENTRY_POINTS[function] else 'コンソールアプリ'}の入口です。",
+                                hint="GUIアプリは WinMain・wWinMain、コンソールアプリは main・wmain を使います"
+                                     "（それ以外の名前なら --gui で選べます）。")
+    for library in add_system_libraries:
+        if not re.fullmatch(r"[A-Za-z0-9_.+-]+", library) or library.startswith("-"):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"OSのライブラリ {library!r} は使えません。",
+                                hint="ws2_32・d3d11・pthread のような名前だけを指定してください（パス・-l は付けない）。")
+    data.system_libraries = _edit(data.system_libraries, add_system_libraries, remove_system_libraries,
+                                  name, "OSのライブラリ")
     module = solution.settings.get()
     if folder is not None or clear_folder:
         if module.solution_folders is None:

@@ -60,6 +60,10 @@ def render_details(d: dict) -> str:
     lines.append("リンク：" + ("なし" if not d["links"] else "\n" + "\n".join(map(link_line, d["links"]))))
     if d["pch"]["headers"] or d["pch"]["system_headers"]:
         lines.append(f"PCH：{', '.join(d['pch']['headers'] + d['pch']['system_headers'])}")
+    if d["kind"] == "executable":
+        lines.append(f"入口の関数：{d['entry_point']}（{'GUIアプリ' if d['gui'] else 'コンソールアプリ'}）")
+    if d["system_libraries"]:
+        lines.append(f"OSのライブラリ：{', '.join(d['system_libraries'])}")
     if d["kind"].endswith("library"):
         lines.append(f"Windowsで共有ライブラリのすべての関数を書き出す：{'する' if d['export_all_symbols'] else 'しない'}")
     return "\n".join(lines)

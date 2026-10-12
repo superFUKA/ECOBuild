@@ -83,8 +83,8 @@ class CppType(ModuleType):
     default_new_kind = "app"
 
     @classmethod
-    def populate(cls, root: Path, config: ModuleConfig, kind: str | None) -> None:
-        _cppbuild.create_module_solution(root, config.name, kind or cls.default_new_kind)
+    def populate(cls, root: Path, config: ModuleConfig, kind: str | None, project: str | None = None) -> None:
+        _cppbuild.create_module_solution(root, config.name, kind or cls.default_new_kind, project)
         _cppbuild.update(root)
 
     @classmethod

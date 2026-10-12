@@ -138,6 +138,8 @@ function updateFields() {
   field('directory').required = method !== 'register';
   const type = field('type').value;
   $('app-field').hidden = type !== 'cpp';
+  const named = type === 'cpp' && field('kind').value !== 'none';   // --project is for the first Project only
+  $('project-field').hidden = !named; field('project').disabled = !named;
   $('type-description').textContent = types.find(t => t.name === type)?.description || '';
 }
 $('add-module').addEventListener('click', async () => {
@@ -192,6 +194,7 @@ addForm.addEventListener('submit', async event => {
     for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
     if (data.has('public')) args.push('--public');
     if (data.get('type') === 'cpp' && data.get('kind')) args.push('--kind', data.get('kind'));
+    if (data.get('project')?.trim()) args.push('--project', data.get('project').trim());
   }
   // Close the form and show the busy overlay ("ぐるぐる"). The CLI reports no progress until it ends, so the steps are
   // what the command does (not live progress); the elapsed seconds show it is still working.

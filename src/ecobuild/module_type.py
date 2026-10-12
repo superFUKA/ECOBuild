@@ -69,8 +69,9 @@ class ModuleType:
         return ModuleConfig(name=name, type=cls.name)
 
     @classmethod
-    def populate(cls, root: Path, config: "ModuleConfig", kind: str | None) -> None:
-        """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。kind：new_kinds のどれか。"""
+    def populate(cls, root: Path, config: "ModuleConfig", kind: str | None, project: str | None = None) -> None:
+        """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。kind：new_kinds のどれか。
+        project：最初に作るProjectの名前（None ならモジュール名。new_kinds のある型だけに渡る）。"""
 
     @classmethod
     def gitignore(cls) -> str:

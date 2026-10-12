@@ -82,6 +82,22 @@ def test_submit_requires_generated_files(short_tmp):
     assert pr.head == "task/1"
 
 
+def test_create_module_names_its_first_project(short_tmp):
+    """最初に作るProjectの名前は --project で決められる（既定はモジュール名）。ライブラリならテスト用は <名前>Test。"""
+    app = Module.create("Game", directory=short_tmp, project="App", github=FakeGitHub(short_tmp / "gh1"))
+    assert [(p.name, p.kind) for p in app.projects()] == [("App", "executable")]
+    assert (app.root / "App/src/main.cpp").is_file() and not (app.root / "Game").exists()
+
+    lib = Module.create("Math", directory=short_tmp, kind="library", project="Core", github=FakeGitHub(short_tmp / "gh2"))
+    assert sorted(p.name for p in lib.projects()) == ["Core", "CoreTest"]
+    assert (lib.root / "Core/include/Core/Core.h").is_file()
+
+    for kind, project, gh in (("none", "App", "gh3"), ("", "1bad", "gh4")):
+        with pytest.raises(EcoBuildError) as error:
+            Module.create("Bad", directory=short_tmp, kind=kind, project=project, github=FakeGitHub(short_tmp / gh))
+        assert error.value.code == ErrorCode.INVALID_ARGUMENT and not (short_tmp / "Bad").exists()
+
+
 def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     """既定は実行ファイルのProjectを1つ。--kind none なら何も作らず、後から project add で足す。
     他のモジュールからリンクされるのは最初に作ったProject（main）で、ライブラリでなければリンクできない。"""

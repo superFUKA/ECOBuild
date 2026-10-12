@@ -86,6 +86,7 @@ class Module:
         description: str = "",
         public: bool = False,
         kind: str = "",
+        project: str = "",
         owner: str | None = None,
         type: str = "cpp",
         github: _github.GitHub | None = None,
@@ -95,6 +96,7 @@ class Module:
 
         kind：最初に作るもの（型の new_kinds。C++：app＝実行ファイル〔既定〕・library＝ライブラリとテスト用・
         none＝作らない）。モジュールはリンクのための単位ではなく、中身は後から project add で足す。
+        project：最初に作るProjectの名前（省略時はモジュール名。ライブラリならテスト用は <名前>Test）。
         githubは試験でGitHubへの接続を差し替えるためのもの。
         """
         if not _NAME.fullmatch(name):
@@ -108,6 +110,14 @@ class Module:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--kind {kind} は型 {type_class.name} では使えません。",
                                 hint=f"使えるもの：{'・'.join(type_class.new_kinds)}" if type_class.new_kinds
                                 else f"型 {type_class.name} は、最初に作るものを選べません。")
+        if project:
+            if not type_class.new_kinds or (kind or type_class.default_new_kind) == "none":
+                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--project は、最初にProjectを作るときだけ使えます。",
+                                    hint=f"型 {type_class.name} の --kind none では、Projectを作りません。"
+                                    if type_class.new_kinds else f"型 {type_class.name} は、Projectを作りません。")
+            if not _NAME.fullmatch(project):
+                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {project!r} は使えません。",
+                                    hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
         module_config = type_class.new_config(name)
 
         def populate(root: Path) -> None:
@@ -118,7 +128,7 @@ class Module:
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
             (root / "AGENTS.md").write_text(_docs.agents(module_config, type_class), encoding="utf-8", newline="\n")
-            type_class.populate(root, module_config, kind or None)
+            type_class.populate(root, module_config, kind or None, project or None)
 
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,

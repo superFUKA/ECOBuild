@@ -36,7 +36,6 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     assert changed.paths == ("Geo/src/shape/Circle.cpp", "GeoTest/src/shape/CircleTest.cpp")
     assert '#include "Geo/shape/Circle.h"' in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
     assert "TEST(Circle, Works)" in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
-    assert "src/shape/Circle.cpp" in (root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
     result = module.test()
     assert result.failed == 0 and "Circle.Works" in [c.name for c in result.cases]
 
@@ -171,9 +170,14 @@ def test_update_is_skipped_when_nothing_changed(module, monkeypatch):
     module.type.refresh()
     assert len(calls) <= 1  # 2回目は変化なしで飛ばす
     calls.clear()
+    # ソースの追加は作り直さない（生成ファイルに一覧はなく、CMakeがビルドのたびに集める）
     (module.root / "Geo/src/Skip.cpp").write_text('#include "Geo/Geo.h"\n', encoding="utf-8")
     module.type.refresh()
-    assert len(calls) == 1 and "src/Skip.cpp" in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert calls == [] and "Skip.cpp" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
     (module.root / "Geo/src/Skip.cpp").unlink()
+    # 生成ファイルが書き換えられていれば作り直す
+    generated = module.root / "Geo/CMakeLists.txt"
+    original_text = generated.read_text(encoding="utf-8")
+    generated.write_text(original_text + "# edited\n", encoding="utf-8")
     module.type.refresh()
-    assert len(calls) == 2 and "src/Skip.cpp" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert len(calls) == 1 and generated.read_text(encoding="utf-8") == original_text

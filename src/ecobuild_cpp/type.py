@@ -64,9 +64,10 @@ def _fingerprint(root: Path) -> str:
                                       and (parts == () or (len(parts) == 2 and parts[0] == _cppbuild.DEPENDENCY_DIRECTORY)))
                              and not (c == "output" and parts[-1:] == (_cppbuild.CONFIG_DIRECTORY,)))
         for name in sorted(files):
-            path = relative / name
-            digest.update(path.as_posix().encode("utf-8") + b"\0")
+            # ソースの一覧は生成ファイルに書かれない（CMakeがビルドのたびに集める）ので、見ない
             if _cppbuild.CONFIG_DIRECTORY in parts or name in _cppbuild.GENERATED_FILE_NAMES:
+                path = relative / name
+                digest.update(path.as_posix().encode("utf-8") + b"\0")
                 digest.update((root / path).read_bytes())
     return digest.hexdigest()
 
@@ -326,8 +327,8 @@ jobs:
     def _update(self) -> None:
         """CppBuildの update（構成と生成ファイルの作り直し。約1秒）を、入力が前回から変わったときだけ行う。
 
-        入力：管理ファイル・生成ファイルの中身、ファイルの一覧（CppBuildはソースを探して生成する）、
-        依存先の同じもの、CppBuildの版。記録は build/ に置く（git の管理外。消えれば必ず行う）。
+        入力：管理ファイル・生成ファイルの中身、依存先の同じもの、CppBuildの版。ソースの追加・削除は
+        含まない（生成ファイルに一覧はなく、CMakeがビルドのたびに集める）。記録は build/ に置く（git の管理外。消えれば必ず行う）。
         """
         stamp = self.root / _cppbuild.BUILD_DIRECTORY / ".ecobuild-update"
         try:

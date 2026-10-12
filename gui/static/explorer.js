@@ -100,8 +100,11 @@ WS.selectInTree = path => { WS.activeFile = path; renderTree(); tree.querySelect
 
 tree.addEventListener('click', e => {
   const row = e.target.closest('[data-path]'); if (!row) return;
-  WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path); renderTree(); WS.renderChanges();
-  tree.querySelector(`[data-path="${CSS.escape(row.dataset.path)}"]`)?.focus();
+  // Only move the highlight: rebuilding the tree here would replace the row under the second click of a double-click,
+  // and the dblclick (open in Visual Studio) would never arrive.
+  WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path);
+  tree.querySelectorAll('.file.active').forEach(r => r.classList.remove('active')); row.classList.add('active');
+  WS.renderChanges(); row.focus();
 });
 tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
 const dirOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';

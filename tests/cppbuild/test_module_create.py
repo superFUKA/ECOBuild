@@ -65,11 +65,13 @@ def test_invalid_name(short_tmp):
 def test_submit_requires_generated_files(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
     module = Module.create("Calc", directory=short_tmp, github=github)
-    workspace = module.create_task("ファイル追加").start()
-    extra = module.root / "Calc" / "src" / "Extra.cpp"
-    extra.write_text("int extra() { return 1; }\n", encoding="utf-8")
-    workspace.stage("Calc/src/Extra.cpp")
-    workspace.commit("ソースを追加")
+    workspace = module.create_task("生成ファイルの確認").start()
+    # 生成ファイルを手で書き換えてコミットした（作り直すと戻る）
+    generated = module.root / "Calc" / "CMakeLists.txt"
+    generated.write_text(generated.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
+    (module.root / "Calc" / "src" / "Extra.cpp").write_text("int extra() { return 1; }\n", encoding="utf-8")
+    workspace.stage("Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
+    workspace.commit("生成ファイルを書き換え")
     with pytest.raises(EcoBuildError) as error:
         workspace.submit()
     assert error.value.code == ErrorCode.GENERATED_FILES_OUTDATED
@@ -88,6 +90,7 @@ def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     tool = Module.create("Tool", directory=short_tmp, github=FakeGitHub(short_tmp / "gh1"))
     assert [(p.name, p.kind, p.links) for p in tool.projects()] == [("Tool", "executable", ())]
     assert "#include" not in (tool.root / "Tool/src/main.cpp").read_text(encoding="utf-8")
+    assert "VS_STARTUP_PROJECT" in (tool.root / "CMakeLists.txt").read_text(encoding="utf-8")  # F5 で Tool を起動
     assert tool.build().project is None and tool.run().returncode == 0
     tested = tool.test()   # テスト用のProjectがなければ、何もせずに成功
     assert (tested.passed, tested.failed, tested.cases) == (0, 0, ())

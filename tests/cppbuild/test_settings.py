@@ -228,6 +228,25 @@ def test_entry_point_and_system_libraries(module):
         write(main, original)
 
 
+def test_source_includes_the_header_added_with_it(module, monkeypatch):
+    """同じ名前のヘッダーとソースを一緒に足すと、ソースはそのヘッダーを相対パスで読み込む（順序は問わない）。"""
+    monkeypatch.chdir(module.root)
+    changed = module.add_files(["Viewer/src/ui/Panel.cpp", "Viewer/src/ui/Panel.h"])   # ソースが先でも
+    assert [c.paths for c in changed] == [("Viewer/src/ui/Panel.h",), ("Viewer/src/ui/Panel.cpp",)]
+    assert '#include "Panel.h"' in (module.root / "Viewer/src/ui/Panel.cpp").read_text(encoding="utf-8")
+
+    module.add_files(["Shape/include/Shape/geo/Box.h", "Shape/src/geo/Box.cpp"])
+    source = (module.root / "Shape/src/geo/Box.cpp").read_text(encoding="utf-8")
+    assert '#include "../../include/Shape/geo/Box.h"' in source
+    test = (module.root / "ShapeTest/src/geo/BoxTest.cpp").read_text(encoding="utf-8")
+    assert '#include "Shape/geo/Box.h"' in test           # テストはライブラリの include/ から
+    module.add_files(["Shape/src/geo/Cell.h", "Shape/src/geo/Cell.cpp"])   # include/ の外のヘッダー
+    assert '#include "Cell.h"' in (module.root / "Shape/src/geo/Cell.cpp").read_text(encoding="utf-8")
+    assert '#include "../../../Shape/src/geo/Cell.h"' in \
+        (module.root / "ShapeTest/src/geo/CellTest.cpp").read_text(encoding="utf-8")
+    assert module.test().failed == 0 and module.build(project="Viewer").artifacts
+
+
 def test_settings_cli(module, monkeypatch, capsys):
     """CLI：project show・set・link・unlink、module settings、template、profile project。"""
     from ecobuild.cli import main

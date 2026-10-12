@@ -774,6 +774,11 @@ class Module:
             return self.type.add_file(Path(path), test=test)
         return self.type.add_file(Path(path), test=test, template=template)
 
+    def add_files(self, paths, *, test: bool = True, template: str | None = None) -> list[FilesChanged]:
+        """複数のファイルをまとめて足す（C++：ヘッダーを先に作り、一緒に足したヘッダーをソースが読み込む）。"""
+        self.require_workspace("ファイルの追加")
+        return self.type.add_files([Path(p) for p in paths], test=test, template=template)
+
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの削除")
         return self.type.remove_file(Path(path), test=test)

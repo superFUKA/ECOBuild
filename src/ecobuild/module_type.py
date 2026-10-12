@@ -203,6 +203,10 @@ class ModuleType:
     def add_file(self, path: Path, *, test: bool, template: str | None = None) -> "FilesChanged":
         raise self.not_supported("ファイルの追加")
 
+    def add_files(self, paths: list[Path], *, test: bool, template: str | None = None) -> list["FilesChanged"]:
+        """まとめて足す（型が順序や組を決めてよい。既定は指定の順に1つずつ）。"""
+        return [self.add_file(path, test=test, **({"template": template} if template else {})) for path in paths]
+
     def remove_file(self, path: Path, *, test: bool) -> "FilesChanged":
         raise self.not_supported("ファイルの削除")
 

@@ -9,10 +9,14 @@ def command(
     template: Annotated[str, "使うファイルテンプレート（ecobuild template list。既定は拡張子で選ぶ。指定するとテストは作らない）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ファイルをテンプレートから作ります。ライブラリの src/ にソースを足すと、テスト用Projectにテストも作ります。"""
+    """ファイルをテンプレートから作ります。ライブラリの src/ にソースを足すと、テスト用Projectにテストも作ります。
+
+    同じ名前のヘッダーとソースを一緒に足すと、ソースはそのヘッダーを相対パスで読み込みます（例：file add
+    include/App/Foo.h src/Foo.cpp → #include "../include/App/Foo.h"）。
+    """
 
     def action(inv):
-        changed = [inv.module.add_file(inv.cwd / path, test=test, template=template or None) for path in paths]
+        changed = inv.module.add_files([inv.cwd / path for path in paths], test=test, template=template or None)
         return {"paths": [p for c in changed for p in c.paths]}
 
     return run_command("file add", action, lambda r: "追加しました：\n" + "\n".join(f"  {p}" for p in r["paths"]),

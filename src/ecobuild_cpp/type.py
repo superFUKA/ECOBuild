@@ -348,11 +348,30 @@ jobs:
 
     # ファイル -------------------------------------------------------------------------
 
-    def add_file(self, path: Path, *, test: bool, template: str | None = None) -> FilesChanged:
+    def add_files(self, paths: list[Path], *, test: bool, template: str | None = None) -> list[FilesChanged]:
+        """ヘッダーを先に作り、同じ名前のヘッダーを一緒に足したソースは、それを相対パスで読み込む
+        （file add include/App/Foo.h src/Foo.cpp → #include "../include/App/Foo.h"）。"""
+        headers = [p for p in paths if p.suffix.lower() in _cppbuild.HEADER_SUFFIXES]
+        ordered = headers + [p for p in paths if p not in headers]
+        changed = []
+        for path in ordered:
+            pair = None
+            if path.suffix.lower() in _cppbuild.SOURCE_SUFFIXES:
+                same = [h for h in headers if h.stem == path.stem]
+                pair = next((h for h in same if h.parent == path.parent), same[0] if same else None)
+            changed.append(self.add_file(path, test=test, template=template, pair_header=pair))
+        return changed
+
+    def add_file(self, path: Path, *, test: bool, template: str | None = None,
+                 pair_header: Path | None = None) -> FilesChanged:
         """ライブラリの src/ のソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。
-        template を指定すると、そのテンプレートから作る（テストは作らない）。"""
+        template を指定すると、そのテンプレートから作る（テストは作らない）。pair_header：一緒に足したヘッダー
+        （ソースはそれを相対パスで読み込む）。"""
         project, relative = self._in_project(path)
         header = self._header_for(project, relative)
+        test_header = header
+        if pair_header is not None:
+            header, test_header = self._pair_includes(project, relative, pair_header)
         if template is not None:
             values = {"header": header or "", "suite": Path(relative).stem, "name": Path(relative).stem,
                       "project": project}
@@ -361,10 +380,26 @@ jobs:
         added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
         mirror = self._test_mirror(project, relative)
         if test and mirror is not None:
-            added.append(_cppbuild.add_file(self.root, _cppbuild.test_project_of(project), mirror,
-                                            template="unit_test",
-                                            replacements={"header": header, "suite": Path(relative).stem}))
+            test_project = _cppbuild.test_project_of(project)
+            if test_header is None:   # ヘッダーが include/ の外：テストからも相対パスで
+                test_header = Path(os.path.relpath(self._absolute(pair_header),
+                                                   (_cppbuild.project_root(self.root, test_project) / mirror).parent)).as_posix()
+            added.append(_cppbuild.add_file(self.root, test_project, mirror, template="unit_test",
+                                            replacements={"header": test_header, "suite": Path(relative).stem}))
         return FilesChanged("file add", tuple(added), project)
+
+    def _pair_includes(self, project: str, relative: str, pair_header: Path) -> tuple[str, str | None]:
+        """一緒に足したヘッダーの読み込み方：ソースからは相対パス。テストからは、ヘッダーが include/ の中なら
+        include/ からの相対（テストはライブラリの include/ を使える）、外なら None（テストの場所からの相対にする）。"""
+        target = self._absolute(pair_header)
+        root = _cppbuild.project_root(self.root, project).resolve()
+        source = Path(os.path.relpath(target, (root / relative).parent)).as_posix()
+        include = root / "include"
+        return source, target.relative_to(include).as_posix() if target.is_relative_to(include) else None
+
+    @staticmethod
+    def _absolute(path: Path) -> Path:
+        return (Path.cwd() / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
 
     def remove_file(self, path: Path, *, test: bool) -> FilesChanged:
         project, relative = self._in_project(path)

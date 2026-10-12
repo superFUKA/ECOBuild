@@ -644,6 +644,23 @@ class Module:
     def profiles(self) -> ProfileList:
         return ProfileList(dict(self.config.profiles), _config.load_local(self.root).get("profile"))
 
+    def set_profile_project(self, name: str, project: str, values: dict | None) -> ProfileList:
+        """ビルド設定 name の、Project ごとの上書きを変える（values が None なら外す）。"""
+        self.require_workspace("ビルド設定の変更")
+        if name not in self.config.profiles:
+            raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
+                                hint=f"{COMMAND} profile add {name} で先に作ってください。")
+        if values is not None and project not in {p.name for p in self.projects()}:
+            raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。")
+        current = self.config.profiles[name]
+        projects = {k: v for k, v in current.projects.items() if k != project}
+        if values:
+            projects[project] = dict(values)
+        profile = replace(current, projects=dict(sorted(projects.items())))
+        self.type.validate_profile(profile)
+        self._save_config(self.config.with_profiles({**self.config.profiles, name: profile}))
+        return self.profiles()
+
     def add_profile(self, name: str, profile: _config.Profile) -> ProfileList:
         self.require_workspace("ビルド設定の追加")
         if not _NAME.fullmatch(name):
@@ -693,10 +710,69 @@ class Module:
         self.require_workspace("PCHの設定")
         return self.type.set_pch(project, enable=enable)
 
-    def add_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
-        """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。"""
+    # 保存する設定（型。管理ファイルが変わるので、変えるのは作業空間で） ------------------------------
+
+    def module_settings(self) -> dict:
+        return self.type.module_settings()
+
+    def set_module_settings(self, **changes) -> dict:
+        self.require_workspace("モジュールの設定")
+        return self.type.set_module_settings(**changes)
+
+    def add_template(self, name: str, source: Path | str) -> dict:
+        self.require_workspace("テンプレートの登録")
+        return self.type.add_template(name, Path(source))
+
+    def remove_template(self, name: str) -> dict:
+        self.require_workspace("テンプレートの削除")
+        return self.type.remove_template(name)
+
+    def project_details(self, name: str) -> dict:
+        return self.type.project_details(name)
+
+    def set_project(self, name: str, **changes) -> dict:
+        self.require_workspace("Projectの設定")
+        return self.type.set_project(name, **changes)
+
+    def set_pch_headers(self, name: str, *, headers: tuple[str, ...] = (), system_headers: tuple[str, ...] = ()) -> dict:
+        self.require_workspace("PCHの設定")
+        return self.type.set_pch_headers(name, headers=headers, system_headers=system_headers)
+
+    def move_project(self, name: str, destination: str) -> FilesChanged:
+        self.require_workspace("Projectの移動")
+        return self.type.move_project(name, destination)
+
+    def link_project(self, name: str, library: str, *, as_type: str | None = None) -> dict:
+        """同じモジュールのライブラリをリンクする（他のモジュールは link）。"""
+        self.require_workspace("Projectのリンク")
+        return self.type.link_project(name, library, as_type=as_type)
+
+    def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
+        self.require_workspace("パッケージのリンク")
+        return self.type.link_package(name, package, target=target, directory=directory)
+
+    def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
+        self.require_workspace("CMakeのソースのリンク")
+        return self.type.link_cmake(name, directory, target=target)
+
+    def link_library_file(self, name: str, *, kind: str = "static", locations: dict[str, str] | None = None,
+                          import_libraries: dict[str, str] | None = None,
+                          include_directories: tuple[str, ...] = ()) -> dict:
+        self.require_workspace("ビルド済みのライブラリのリンク")
+        return self.type.link_library_file(name, kind=kind, locations=locations or {},
+                                           import_libraries=import_libraries or {},
+                                           include_directories=include_directories)
+
+    def unlink_project(self, name: str, link: str) -> dict:
+        self.require_workspace("Projectのリンクの解除")
+        return self.type.unlink_project(name, link)
+
+    def add_file(self, path: Path | str, *, test: bool = True, template: str | None = None) -> FilesChanged:
+        """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。template：使うファイルテンプレート。"""
         self.require_workspace("ファイルの追加")
-        return self.type.add_file(Path(path), test=test)
+        if template is None:
+            return self.type.add_file(Path(path), test=test)
+        return self.type.add_file(Path(path), test=test, template=template)
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの削除")

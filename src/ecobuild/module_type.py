@@ -156,7 +156,51 @@ class ModuleType:
     def set_pch(self, project: str, *, enable: bool) -> "FilesChanged":
         raise self.not_supported("PCH")
 
-    def add_file(self, path: Path, *, test: bool) -> "FilesChanged":
+    # 保存する設定（型が決める形の辞書。CLIの表示とJSONに使う） ---------------------------------
+
+    def module_settings(self) -> dict:
+        """モジュール全体の設定（cpp：main_project・ソリューションフォルダー・テンプレート）。"""
+        raise self.not_supported("モジュールの設定")
+
+    def set_module_settings(self, **changes) -> dict:
+        raise self.not_supported("モジュールの設定")
+
+    def add_template(self, name: str, source: Path) -> dict:
+        raise self.not_supported("ファイルテンプレート")
+
+    def remove_template(self, name: str) -> dict:
+        raise self.not_supported("ファイルテンプレート")
+
+    def project_details(self, name: str) -> dict:
+        """Projectの設定すべて。"""
+        raise self.not_supported("Project の設定")
+
+    def set_project(self, name: str, **changes) -> dict:
+        raise self.not_supported("Project の設定")
+
+    def set_pch_headers(self, name: str, *, headers: tuple[str, ...], system_headers: tuple[str, ...]) -> dict:
+        raise self.not_supported("PCH")
+
+    def move_project(self, name: str, destination: str) -> "FilesChanged":
+        raise self.not_supported("Project の移動")
+
+    def link_project(self, name: str, library: str, *, as_type: str | None) -> dict:
+        raise self.not_supported("Project のリンク")
+
+    def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
+        raise self.not_supported("パッケージのリンク")
+
+    def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
+        raise self.not_supported("CMakeのソースのリンク")
+
+    def link_library_file(self, name: str, *, kind: str, locations: dict[str, str],
+                          import_libraries: dict[str, str], include_directories: tuple[str, ...]) -> dict:
+        raise self.not_supported("ビルド済みのライブラリのリンク")
+
+    def unlink_project(self, name: str, link: str) -> dict:
+        raise self.not_supported("Project のリンク")
+
+    def add_file(self, path: Path, *, test: bool, template: str | None = None) -> "FilesChanged":
         raise self.not_supported("ファイルの追加")
 
     def remove_file(self, path: Path, *, test: bool) -> "FilesChanged":

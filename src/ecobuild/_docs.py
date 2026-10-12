@@ -50,6 +50,8 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
     generated = module_type.generated_note
     regenerate = f"{generated}は直さなくて構いません。" if generated else ""
     hand_edit = (f"- {generated}は手で編集しません（`ecobuild file`・`ecobuild project`・`ecobuild link` 等で変えます）。\n"
+                 "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`（モジュール全体）・"
+                 "`ecobuild template`（ファイルテンプレート）・`ecobuild profile`（ビルドのたびに選ぶもの）で見て変えます。\n"
                  if generated else "")
     return f"""# AGENTS.md
 

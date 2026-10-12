@@ -19,9 +19,49 @@ from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, Dep
                               FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestResult)
 
-from . import _cppbuild
+from . import _cppbuild, _settings
 
 COMMAND = "ecobuild"
+
+# 名前付きビルド設定の、型 cpp の項目（[profiles.<名前>] の configuration・shared・parallel 以外）：
+# 名前 → (値の型, 使える値。None は何でも)。値の意味は _cppbuild.BuildOptions
+_POSITIVE = range(1, 1 << 16)
+PROFILE_OPTIONS = {
+    "architecture": (str, _cppbuild.ARCHITECTURES),
+    "cpp_standard": (int, _cppbuild.CPP_STANDARDS),
+    "generator": (str, _cppbuild.GENERATORS),
+    "toolset": (str, None),
+    "c_compiler": (str, None),
+    "cxx_compiler": (str, None),
+    "toolchain_file": (str, None),
+    "test_parallel": (int, _POSITIVE),
+    "test_continue_on_failure": (bool, None),
+    "googletest_archive": (str, None),
+    "fetch_git": (bool, None),
+}
+# Projectごとの上書き（[profiles.<名前>.projects.<Project>]）。値の意味は _cppbuild.ProjectOptions
+PROFILE_PROJECT_OPTIONS = {
+    "type": (str, tuple(_cppbuild.LIBRARY_TYPES)),
+    "cpp_standard": (int, _cppbuild.CPP_STANDARDS),
+    "artifact_directory": (str, None),
+    "test_parallel": (int, _POSITIVE),
+    "googletest_archive": (str, None),
+}
+
+
+def _check_options(values: dict, known: dict, where: str) -> None:
+    for key, value in values.items():
+        if key not in known:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}に {key} という項目はありません。",
+                                hint=f"使える項目：{'・'.join(known)}")
+        kind, allowed = known[key]
+        if type(value) is not kind or (kind is str and not value) or (allowed is not None and value not in allowed):
+            if allowed is None:
+                choices = {str: "空でない文字列", int: "整数", bool: "true／false"}[kind]
+            else:
+                choices = f"{allowed.start}以上の整数" if isinstance(allowed, range) else "・".join(map(str, allowed))
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}の {key} に {value!r} は使えません。",
+                                hint=f"使える値：{choices}")
 
 # CppBuildは生成・管理ファイルをLFで書く。gitの改行変換（Windowsのcore.autocrlf=true等）で
 # CRLFにされると、生成し直すたびに「変更あり」になるため、LFに固定する。
@@ -193,10 +233,27 @@ jobs:
                                 hint=f"{'・'.join(_cppbuild.CONFIGURATIONS)} のどれかを指定してください。")
         if profile.parallel < 1:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "並列数は1以上にしてください。")
+        _check_options(profile.options, PROFILE_OPTIONS, "ビルド設定")
+        kinds = {p.name: p.kind for p in self.projects()} if profile.projects else {}
+        for project, values in profile.projects.items():
+            _check_options(values, PROFILE_PROJECT_OPTIONS, f"Project {project} の設定")
+            if project not in kinds:
+                raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
+                                    hint=f"ecobuild profile project <名前> {project} --clear で外せます。")
+            if "type" in values and not kinds[project].endswith("library"):
+                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{project} はライブラリではないので、形式を変えられません。")
 
     def build_options(self, profile: Profile | None, configuration: str) -> _cppbuild.BuildOptions:
+        from ecobuild import tooling
         selected = profile or Profile()
-        return _cppbuild.BuildOptions(configuration or selected.configuration, selected.parallel, selected.shared)
+        _check_options(selected.options, PROFILE_OPTIONS, "ビルド設定")   # ecobuild.toml を手で直した場合
+        for project, values in selected.projects.items():
+            _check_options(values, PROFILE_PROJECT_OPTIONS, f"Project {project} の設定")
+        tools = tooling.load_config()
+        return _cppbuild.BuildOptions(
+            configuration or selected.configuration, selected.parallel, selected.shared,
+            **selected.options, cmake=tools.get("cmake"), ctest=tools.get("ctest"),
+            projects=tuple((name, _cppbuild.ProjectOptions(**values)) for name, values in selected.projects.items()))
 
     def build(self, project: str | None, options: _cppbuild.BuildOptions, action: str) -> BuildResult:
         outcome = _cppbuild.build(self.root, project=project, options=options, action=action)
@@ -247,12 +304,60 @@ jobs:
         header = _cppbuild.set_pch(self.root, project, enable=enable)
         return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
 
+    # 保存する設定 ---------------------------------------------------------------------
+
+    def module_settings(self) -> dict:
+        return _settings.module_settings(self.root)
+
+    def set_module_settings(self, **changes) -> dict:
+        return _settings.set_module_settings(self.root, **changes)
+
+    def add_template(self, name: str, source: Path) -> dict:
+        return _settings.add_template(self.root, name, source)
+
+    def remove_template(self, name: str) -> dict:
+        return _settings.remove_template(self.root, name)
+
+    def project_details(self, name: str) -> dict:
+        return _settings.project_details(self.root, name)
+
+    def set_project(self, name: str, **changes) -> dict:
+        return _settings.set_project(self.root, name, **changes)
+
+    def set_pch_headers(self, name: str, *, headers: tuple[str, ...], system_headers: tuple[str, ...]) -> dict:
+        return _settings.set_pch(self.root, name, headers=headers, system_headers=system_headers)
+
+    def move_project(self, name: str, destination: str) -> FilesChanged:
+        return FilesChanged("project move", (_settings.move_project(self.root, name, destination),), name)
+
+    def link_project(self, name: str, library: str, *, as_type: str | None) -> dict:
+        return _settings.link_project(self.root, name, library, as_type)
+
+    def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
+        return _settings.link_package(self.root, name, package, target, directory)
+
+    def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
+        return _settings.link_cmake(self.root, name, directory, target)
+
+    def link_library_file(self, name: str, *, kind: str, locations: dict[str, str],
+                          import_libraries: dict[str, str], include_directories: tuple[str, ...]) -> dict:
+        return _settings.link_library_file(self.root, name, kind, locations, import_libraries, include_directories)
+
+    def unlink_project(self, name: str, link: str) -> dict:
+        return _settings.unlink(self.root, name, link)
+
     # ファイル -------------------------------------------------------------------------
 
-    def add_file(self, path: Path, *, test: bool) -> FilesChanged:
-        """ライブラリの src/ のソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。"""
+    def add_file(self, path: Path, *, test: bool, template: str | None = None) -> FilesChanged:
+        """ライブラリの src/ のソースなら、テスト用Projectの同じ構成の場所にテストも足す（I-014）。
+        template を指定すると、そのテンプレートから作る（テストは作らない）。"""
         project, relative = self._in_project(path)
         header = self._header_for(project, relative)
+        if template is not None:
+            values = {"header": header or "", "suite": Path(relative).stem, "name": Path(relative).stem,
+                      "project": project}
+            return FilesChanged("file add", (_settings.add_file_from_template(self.root, project, relative, template,
+                                                                              values),), project)
         added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
         mirror = self._test_mirror(project, relative)
         if test and mirror is not None:
@@ -324,6 +429,13 @@ jobs:
 
     # 生成ファイルの更新（変わっていなければ飛ばす） ---------------------------------------
 
+    def _selected_options(self) -> _cppbuild.BuildOptions | None:
+        """このPCで選んだビルド設定（生成器等。構成の作り直しを、ビルドと同じビルドツリーで行うため）。読めなければNone。"""
+        try:
+            return self.module.build_options()[0]
+        except EcoBuildError:
+            return None
+
     def _update(self) -> None:
         """CppBuildの update（構成と生成ファイルの作り直し。約1秒）を、入力が前回から変わったときだけ行う。
 
@@ -336,7 +448,7 @@ jobs:
                 return
         except OSError:
             pass
-        _cppbuild.update(self.root)
+        _cppbuild.update(self.root, self._selected_options())
         stamp.parent.mkdir(parents=True, exist_ok=True)
         stamp.write_text(_fingerprint(self.root), encoding="utf-8")  # 作り直した後の生成ファイルで記録する
 

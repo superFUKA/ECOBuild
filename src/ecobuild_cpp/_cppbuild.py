@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from cppbuild import ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings
+from cppbuild import (INHERIT, CMakeSettings, ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings,
+                      SolutionFolderSettings, ToolSettings)
 
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
@@ -44,16 +45,49 @@ PROJECT_KINDS = {
     "test": ProjectType.TEST,
     "bench": ProjectType.EXECUTABLE,
 }
+# ライブラリの形式（project set --for・project link --as・ビルド設定の type）→ CppBuildの種類
+LIBRARY_TYPES = {
+    "static": ProjectType.STATIC_LIBRARY,
+    "shared": ProjectType.SHARED_LIBRARY,
+    "interface": ProjectType.INTERFACE_LIBRARY,
+}
+CPP_STANDARDS = (17, 20, 23)                   # CppBuildが受け付けるC++の規格（既定は20）
+ARCHITECTURES = ("x64", "Win32", "ARM64")       # 省略時はホスト・コンパイラの既定
+GENERATORS = ("Visual Studio 17 2022", "Visual Studio 18 2026", "Ninja Multi-Config")  # 省略時はOSごとの既定
 HEADER_SUFFIXES = (".h", ".hpp", ".hh", ".hxx")
 SOURCE_SUFFIXES = (".cpp", ".cc", ".cxx")
 
 
 @dataclass(frozen=True)
+class ProjectOptions:
+    """Projectごとの上書き（名前付きビルド設定の [profiles.<名前>.projects.<Project>]）。None は全体の設定のまま。"""
+    type: str | None = None                  # static・shared・interface（ライブラリだけ）
+    cpp_standard: int | None = None
+    artifact_directory: str | None = None    # 成果物の置き場所（ビルドツリーからの相対）
+    test_parallel: int | None = None
+    googletest_archive: str | None = None
+
+
+@dataclass(frozen=True)
 class BuildOptions:
-    """1回のビルド等の設定（名前付きビルド設定から作る）。"""
+    """1回のビルド等の設定（名前付きビルド設定から作る）。None はCppBuildの既定。"""
     configuration: str = "Debug"
     parallel: int = 1
     shared: bool = False      # ライブラリ（依存先を含む）を共有ライブラリにする
+    architecture: str | None = None
+    cpp_standard: int | None = None
+    generator: str | None = None
+    toolset: str | None = None
+    c_compiler: str | None = None
+    cxx_compiler: str | None = None
+    toolchain_file: str | None = None
+    test_parallel: int = 1
+    test_continue_on_failure: bool = True
+    googletest_archive: str | None = None    # GoogleTestのZIP（オフライン用）
+    fetch_git: bool = True                   # 足りない依存先をビルドの前にcloneする
+    cmake: str | None = None                 # ツールのパス（このPCの設定 ecobuild config。既定はPATH）
+    ctest: str | None = None
+    projects: tuple[tuple[str, ProjectOptions], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -157,9 +191,11 @@ def test_project_of(library: str) -> str:
     return f"{library}Test"
 
 
-def update(root: Path) -> BuildOutcome:
-    """構成と生成ファイル（CMakeLists.txt等）を最新にする。"""
+def update(root: Path, options: BuildOptions | None = None) -> BuildOutcome:
+    """構成と生成ファイル（CMakeLists.txt等）を最新にする。options：構成に使うビルド設定（生成器等。既定はCppBuildの既定）。"""
     solution = open_solution(root)
+    if options is not None:
+        _apply_options(solution, options)
     try:
         _ensure_solution_folders(solution)
         report = solution.update()
@@ -634,21 +670,53 @@ def _target(root: Path, project: str | None, options: BuildOptions, *, run_argum
     if project is not None and project not in projects:
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects)}")
+    _apply_options(solution, options, run_project=project, run_arguments=run_arguments)
+    return solution if project is None else solution.get_project(project)
+
+
+def _apply_options(solution: Solution, options: BuildOptions, *, run_project: str | None = None,
+                   run_arguments=None) -> None:
+    """ビルド設定をSolutionと各Projectに渡す（CppBuildは保存しないので、開くたびに渡す）。
+
+    構成・生成環境はSolution全体で1つ（依存でつながるProjectは揃っている必要がある）。Projectごとに変えられるのは
+    ライブラリの形式・C++の規格・成果物の置き場所・テストの並列数・GoogleTestのZIP。
+    """
+    overrides = dict(options.projects)
+    names = solution.settings.get().projects
+    unknown = [name for name in overrides if name not in names]
+    if unknown:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定に、ない Project {'、'.join(unknown)} の設定があります。",
+                            hint="ecobuild profile add で、その Project の設定を外してください（--clear-project）。")
+    for name, own in overrides.items():
+        if own.type and LIBRARY_TYPES[own.type] not in solution.get_project(name).settings.get().types:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定で、ライブラリでない Project {name} の形式を変えています。",
+                                hint="形式（type）を変えられるのはライブラリだけです。")
     try:
         # 構成（Debug／Release）はSolution全体で1つ。Projectは対象を絞るだけで、構成は引き継ぐ。
-        types = {guid: ProjectType.SHARED_LIBRARY for guid in _shared_capable(solution)} if options.shared else {}
-        solution.set_build_settings(_solution_settings(configuration=configuration, parallel=options.parallel,
-                                                       project_types=types))
-        if project is None:
-            return solution
-        target = solution.get_project(project)
-        settings = ProjectBuildSettings()
-        if run_arguments is not None:
-            settings.run_arguments = list(run_arguments)
-        target.set_build_settings(settings)
-        return target
+        typed = {solution.get_project(name).settings.get().guid for name, o in overrides.items() if o.type}
+        types = {guid: ProjectType.SHARED_LIBRARY for guid in _shared_capable(solution)
+                 if guid not in typed} if options.shared else {}
+        solution.set_build_settings(_solution_settings(
+            configuration=options.configuration, parallel=options.parallel, project_types=types,
+            architecture=options.architecture, cpp_standard=options.cpp_standard or 20,
+            test_continue_on_failure=options.test_continue_on_failure, fetch_git=options.fetch_git,
+            tools=ToolSettings(cmake=options.cmake or "cmake", ctest=options.ctest or "ctest"),
+            cmake=CMakeSettings(generator=options.generator, toolset=options.toolset, c_compiler=options.c_compiler,
+                                cxx_compiler=options.cxx_compiler, toolchain_file=options.toolchain_file)))
+        for name in names:
+            own = overrides.get(name, ProjectOptions())
+            settings = ProjectBuildSettings(
+                parallel=options.parallel,
+                project_type=LIBRARY_TYPES[own.type] if own.type else None,
+                cpp_standard=own.cpp_standard or INHERIT,
+                artifact_directory=own.artifact_directory,
+                test_parallel=own.test_parallel or options.test_parallel,
+                googletest_archive=own.googletest_archive or options.googletest_archive)
+            if name == run_project and run_arguments is not None:
+                settings.run_arguments = list(run_arguments)
+            solution.get_project(name).set_build_settings(settings)
     except Exception as error:
-        raise _cppbuild_error(f"Project {project!r} を準備できません。", error) from error
+        raise _cppbuild_error("ビルド設定を渡せません。", error) from error
 
 
 def _tests(solution: Solution) -> list[str]:

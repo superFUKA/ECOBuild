@@ -21,6 +21,10 @@ class Profile:
     configuration: str = "Debug"
     shared: bool = False          # ライブラリ（依存先を含む）を共有ライブラリとしてビルド・リンクする
     parallel: int = 1             # 並列ビルドの数
+    # 型ごとのビルド設定（cpp：architecture・cpp_standard・generator 等）。本体は中身を知らず、型が確かめて使う
+    options: dict[str, str | int | bool] = field(default_factory=dict)
+    # Projectごとの上書き（Project名 → 型ごとの設定。cpp：type・cpp_standard 等）
+    projects: dict[str, dict[str, str | int | bool]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,10 @@ def dump(config: ModuleConfig) -> str:
             f"shared = {'true' if profile.shared else 'false'}",
             f"parallel = {profile.parallel}",
         ]
+        lines += [f"{key} = {_value(value)}" for key, value in sorted(profile.options.items())]
+        for project, values in sorted(profile.projects.items()):
+            lines += ["", f"[profiles.{_quote(name)}.projects.{_quote(project)}]"]
+            lines += [f"{key} = {_value(value)}" for key, value in sorted(values.items())]
     return "\n".join(lines) + "\n"
 
 
@@ -215,10 +223,19 @@ def save_local(root: Path, values: dict) -> None:
 
 
 def _profile(name: str, table: dict) -> Profile:
+    projects = table.get("projects", {})
+    if not isinstance(projects, dict) or not all(isinstance(v, dict) for v in projects.values()):
+        raise ValueError(f"profiles.{name}.projects は Project名 → 表 です")
+    options = {k: v for k, v in table.items() if k not in ("configuration", "shared", "parallel", "projects")}
+    for key, value in [*options.items(), *(item for values in projects.values() for item in values.items())]:
+        if not isinstance(value, (str, int, bool)):
+            raise ValueError(f"profiles.{name} の {key} は文字列・整数・真偽値です")
     profile = Profile(
         configuration=table.get("configuration", "Debug"),
         shared=table.get("shared", False),
         parallel=table.get("parallel", 1),
+        options=options,
+        projects={project: dict(values) for project, values in projects.items()},
     )
     if not isinstance(profile.configuration, str) or not profile.configuration:
         raise ValueError(f"profiles.{name}.configuration は空でない文字列です")  # 値の確認は型が行う

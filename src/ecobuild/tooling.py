@@ -22,6 +22,8 @@ from .errors import EcoBuildError, ErrorCode
 # config で扱う項目 → 説明
 CONFIG_KEYS = {
     "owner": "module new・clone・list・link 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
+    "cmake": "C++のビルドに使う cmake のパス（このPCだけ。既定は PATH の cmake）",
+    "ctest": "C++のテストに使う ctest のパス（このPCだけ。既定は PATH の ctest）",
 }
 
 # 足りないツールの導入コマンド（setup --install で実行する）

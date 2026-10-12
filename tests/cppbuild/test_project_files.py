@@ -165,7 +165,7 @@ def test_update_is_skipped_when_nothing_changed(module, monkeypatch):
     from ecobuild_cpp import _cppbuild
     calls = []
     original = _cppbuild.update
-    monkeypatch.setattr(_cppbuild, "update", lambda root: (calls.append(root), original(root))[1])
+    monkeypatch.setattr(_cppbuild, "update", lambda root, options=None: (calls.append(root), original(root, options))[1])
     module.type.refresh()
     module.type.refresh()
     assert len(calls) <= 1  # 2回目は変化なしで飛ばす

@@ -1,49 +1,67 @@
-"""モジュールの型の登録：本体は型の中身（CppBuild等）を知らず、登録ファイルの型だけを使う。"""
-
-import ast
-from pathlib import Path
+"""モジュールの型：本体は型の中身を知らず、使う側が Registry に登録した型を使う。持たない能力は not_supported。"""
 
 import pytest
 
-import ecobuild
-from ecobuild import module_type
+import ecobuild_bundle
+from ecobuild import Module, Registry
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module_type import ModuleType, TypeEntry
-
-
-def test_core_does_not_import_cppbuild():
-    """本体（ecobuild）のどのファイルも cppbuild・ecobuild_cpp を import しない（型は登録ファイル経由）。"""
-    root = Path(ecobuild.__file__).parent
-    for path in root.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
-                [node.module or ""] if isinstance(node, ast.ImportFrom) else []
-            assert not any(n.split(".")[0] in ("cppbuild", "ecobuild_cpp", "ecobuild_generic") for n in names), path
-
-
-def test_registry_lists_cpp():
-    entries = module_type.entries()
-    assert entries["cpp"].module == "ecobuild_cpp" and entries["cpp"].cls == "CppType"
-    assert module_type.load("cpp").name == "cpp"
-    with pytest.raises(EcoBuildError) as error:
-        module_type.load("nosuch")
-    assert error.value.code == ErrorCode.INVALID_CONFIG and "cpp" in error.value.hint
+from ecobuild.module_type import Builds, ModuleType, TypeEntry
 
 
 class PlainType(ModuleType):
-    """何にも対応しない型（試験用）。"""
+    """何の能力も持たない型（試験用）。"""
     name = "plain"
 
 
-def test_unsupported_operations_are_reported(monkeypatch, module):
-    """型が対応しない操作は not_supported で止まる。作業の流れ（ecowork）はそのまま使える。"""
-    monkeypatch.setattr(module_type, "entries", lambda: {"plain": TypeEntry("plain", __name__, "PlainType", "")})
-    module.type = module_type.load("plain")(module)
-    for action in (lambda: module.build(), lambda: module.test(), lambda: module.projects()):
+def test_registry_loads_registered_types():
+    registry = Registry([PlainType, TypeEntry("generic", "ecobuild_generic", "GenericType")], default="plain")
+    assert registry.load() is PlainType and registry.load("generic").name == "generic"
+    assert list(registry.entries()) == ["plain", "generic"]
+    with pytest.raises(EcoBuildError) as error:
+        registry.load("nosuch")
+    assert error.value.code == ErrorCode.INVALID_CONFIG and "plain" in error.value.hint
+    with pytest.raises(EcoBuildError) as error:
+        Registry().load()                         # 本体には既定の型がない
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_registry_reports_broken_entries():
+    registry = Registry([TypeEntry("broken", "no_such_module", "X"), TypeEntry("notype", __name__, "Registry")])
+    for name in ("broken", "notype"):
+        with pytest.raises(EcoBuildError) as error:
+            registry.load(name)
+        assert error.value.code == ErrorCode.INVALID_CONFIG
+    assert registry.available() == []
+
+
+def test_core_module_has_no_types(module):
+    """本体の Module は型を知らない（空の Registry）。同梱の型は ecobuild_bundle が登録する。"""
+    assert Module.registry.entries() == {}
+    with pytest.raises(EcoBuildError) as error:
+        Module(module.root, module.config)
+    assert error.value.code == ErrorCode.INVALID_CONFIG
+    assert ecobuild_bundle.REGISTRY.default == "cpp"
+    assert set(ecobuild_bundle.REGISTRY.entries()) == {"cpp", "generic"}
+    assert type(module).registry is ecobuild_bundle.REGISTRY
+
+
+def test_external_type_can_be_added(module):
+    """外部の型も、Registry に渡せば使える（Module が開く別の Module も同じ Registry を使う）。"""
+    registry = Registry([PlainType])
+    plain = Module(module.root, module.config.__class__(**{**module.config.__dict__, "type": "plain"}),
+                   github=module.repository.github, registry=registry)
+    assert isinstance(plain.type, PlainType) and plain.registry is registry
+
+
+def test_unsupported_operations_are_reported(module):
+    """持たない能力の操作は not_supported で止まる。作業の流れ（ecowork）はそのまま使える。"""
+    module.type = PlainType(module)
+    for action in (lambda: module.build(), lambda: module.test(), lambda: module.projects(),
+                   lambda: module.dependency_tree()):
         with pytest.raises(EcoBuildError) as error:
             action()
         assert error.value.code == ErrorCode.NOT_SUPPORTED and "plain" in error.value.message
+    assert module.project_at(module.root) is None and module.project_names == ()
     workspace = module.create_task("型に関係なく使える").start()
     assert module.current_workspace().number == workspace.number
     with pytest.raises(EcoBuildError) as error:
@@ -52,10 +70,29 @@ def test_unsupported_operations_are_reported(monkeypatch, module):
     assert module.dependencies() == () and module.sync().merged == ()
 
 
+def test_cpp_only_operations_need_cpp(module):
+    """C++だけの操作は拡張の公開API（cpp(module)）。型が cpp でなければ not_supported。"""
+    from ecobuild_cpp import CppType, cpp
+    assert isinstance(cpp(module), CppType)
+    module.type = PlainType(module)
+    with pytest.raises(EcoBuildError) as error:
+        cpp(module)
+    assert error.value.code == ErrorCode.NOT_SUPPORTED
+    assert not hasattr(Module, "set_pch") and not hasattr(ModuleType, "link_cmake")
+
+
+def test_bundled_types_have_their_capabilities():
+    from ecobuild import HasDependencies, HasFiles, HasProjects
+    from ecobuild_cpp import CppType
+    from ecobuild_generic import GenericType
+    assert all(issubclass(CppType, c) for c in (Builds, HasProjects, HasFiles, HasDependencies))
+    assert issubclass(GenericType, Builds) and not issubclass(GenericType, HasProjects)
+
+
 def test_cpp_ci_workflow_follows_ci_settings():
     from ecobuild.config import CiSettings, ModuleConfig
     from ecobuild_cpp.type import CppType
-    base = ModuleConfig.for_new_module("Calc")
+    base = ModuleConfig.for_new_module("Calc", "cpp")
     default = CppType.ci_workflow(base)
     assert "os: [windows-latest, ubuntu-latest]" in default and "shared: [OFF]" in default
     assert "-DCMAKE_BUILD_TYPE=${{ matrix.configuration }}" in default
@@ -70,7 +107,7 @@ def test_ci_branch_patterns_are_quoted(type_name):
     from ecobuild_cpp.type import CppType
     from ecobuild_generic.type import GenericType
     if type_name == "cpp":
-        base, type_class = ModuleConfig.for_new_module("Calc"), CppType
+        base, type_class = ModuleConfig.for_new_module("Calc", "cpp"), CppType
     else:
         base = ModuleConfig("Plain", None, type="generic", extra={"commands": {"build": "make all: x"}})
         type_class = GenericType

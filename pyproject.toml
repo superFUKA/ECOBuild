@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ecobuild"
 version = "0.1.0"
-description = "GitHubとCppBuildをつなぐ、C++モジュールの開発管理CLI"
+description = "作業空間（GitHub Issue）を中心にしたモジュールの開発管理。本体（ライブラリ）・拡張（CppBuild等の型）・CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -22,13 +22,13 @@ dev = [
 ]
 
 [project.scripts]
-ecobuild = "ecobuild.cli:main"
+ecobuild = "ecobuild_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-ecobuild = ["module_types.toml"]
+ecobuild_bundle = ["module_types.toml"]
 ecobuild_cpp = ["templates/*"]
 
 [tool.pytest.ini_options]

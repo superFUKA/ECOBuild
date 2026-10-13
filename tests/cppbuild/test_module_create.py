@@ -7,7 +7,7 @@ from fakes import FakeGitHub
 from ecowork import WorkError
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 

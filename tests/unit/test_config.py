@@ -2,11 +2,11 @@ import pytest
 
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 
 
 def test_roundtrip(tmp_path):
-    original = config.ModuleConfig.for_new_module("Calc")
+    original = config.ModuleConfig.for_new_module("Calc", "cpp")
     path = tmp_path / config.FILE_NAME
     config.save(original, path)
     assert config.load(path) == original
@@ -14,12 +14,12 @@ def test_roundtrip(tmp_path):
 
 def test_roundtrip_keeps_projects_of_older_modules(tmp_path):
     """以前のモジュールの [projects]（作成時の基本のProject）は、使わないが読み書きでは消さない。"""
-    original = config.ModuleConfig("Calc", config.ProjectNames("Calc", "CalcTest"))
+    original = config.ModuleConfig("Calc", config.ProjectNames("Calc", "CalcTest"), type="cpp")
     path = tmp_path / config.FILE_NAME
     config.save(original, path)
     loaded = config.load(path)
     assert loaded == original and loaded.projects.app is None
-    assert config.ModuleConfig.for_new_module("Calc").projects is None
+    assert config.ModuleConfig.for_new_module("Calc", "cpp").projects is None
     assert loaded.default_base == "main"
 
 
@@ -28,7 +28,7 @@ def test_profile_options_and_project_overrides_roundtrip(tmp_path):
     profile = config.Profile("Release", True, 4, {"cpp_standard": 23, "generator": "Ninja Multi-Config",
                                                   "fetch_git": False},
                              {"Core": {"type": "shared"}, "App": {"cpp_standard": 17, "artifact_directory": "dist"}})
-    original = config.ModuleConfig.for_new_module("Calc").with_profiles({"fast": profile})
+    original = config.ModuleConfig.for_new_module("Calc", "cpp").with_profiles({"fast": profile})
     path = tmp_path / config.FILE_NAME
     config.save(original, path)
     text = path.read_text(encoding="utf-8")
@@ -47,7 +47,7 @@ def test_invalid_profile_values_are_invalid_config(tmp_path, table):
 
 
 def test_quoting_survives_special_characters(tmp_path):
-    original = config.ModuleConfig.for_new_module(r'Ca"l\c')
+    original = config.ModuleConfig.for_new_module(r'Ca"l\c', "cpp")
     path = tmp_path / config.FILE_NAME
     config.save(original, path)
     assert config.load(path).name == r'Ca"l\c'
@@ -65,8 +65,8 @@ def test_find_nearest_module_upwards(tmp_path):
     outer = tmp_path / "ECS"
     inner = outer / "deps" / "STL"
     (inner / "Containers" / "src").mkdir(parents=True)
-    config.save(config.ModuleConfig.for_new_module("ECS"), outer / config.FILE_NAME)
-    config.save(config.ModuleConfig.for_new_module("STL"), inner / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("ECS", "cpp"), outer / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("STL", "cpp"), inner / config.FILE_NAME)
     assert Module.find(outer / "deps").name == "ECS"
     assert Module.find(inner / "Containers" / "src").name == "STL"
 
@@ -82,7 +82,7 @@ def test_not_in_module(tmp_path):
                                    {"branches": [1]}, {"shared": "yes"}])
 def test_invalid_ci_table_is_invalid_config(table):
     """[ci] の型の誤りは、変換の前に設定の誤りにする（文字列が1文字ずつに分かれる・TypeError にならない）。"""
-    settings = config.ModuleConfig.for_new_module("Calc")
+    settings = config.ModuleConfig.for_new_module("Calc", "cpp")
     broken = config.ModuleConfig(**{**settings.__dict__, "extra": {config.CI_TABLE: table}})
     with pytest.raises(EcoBuildError) as error:
         broken.ci
@@ -90,6 +90,6 @@ def test_invalid_ci_table_is_invalid_config(table):
 
 
 def test_ci_branches_roundtrip():
-    settings = config.ModuleConfig.for_new_module("Calc")
+    settings = config.ModuleConfig.for_new_module("Calc", "cpp")
     saved = settings.with_ci(config.CiSettings(branches=("main", "release/**")))
     assert saved.ci.branches == ("main", "release/**") and saved.ci.configurations == ("Debug",)

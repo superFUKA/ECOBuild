@@ -5,7 +5,8 @@ import json
 import pytest
 
 from ecobuild import tooling
-from ecobuild.cli import main
+from ecobuild.module_type import ModuleType
+from ecobuild_cli import main
 
 
 def run_main(args, capsys):
@@ -49,12 +50,44 @@ def test_tool_config(tmp_path, monkeypatch):
 def test_doctor_reports_missing_tools(monkeypatch):
     """ツールが見つからなければ必須の項目がNGになり、setup が導入コマンドを示す。"""
     monkeypatch.setattr(tooling.shutil, "which", lambda name: None)
-    monkeypatch.setattr(tooling._module_type, "available", lambda: [])
     report = tooling.doctor()
     names = {i.name: i.ok for i in report.items}
     assert names["git"] is False and names["gh"] is False and not report.ok
     setup = tooling.setup()
     assert setup.done == () and any("Git.Git" in c or "git" in c for c in setup.commands)
+
+
+class ToolType(ModuleType):
+    """ツールを使う型（試験用）：診断の項目・導入コマンド・設定の項目を本体に足す。"""
+    name = "tool"
+
+    @classmethod
+    def doctor_items(cls):
+        return [tooling.CheckItem("thing", False, True, "見つかりません", "thing を入れてください。", "install",
+                                  ("get", "thing"))]
+
+    @classmethod
+    def tool_settings(cls):
+        return {"thing": "thing のパス"}
+
+
+def test_types_add_tools(monkeypatch):
+    """型が使うツールは、渡された型から集める（本体は型の中身を知らない）。"""
+    monkeypatch.setattr(tooling.shutil, "which", lambda name: "found")
+    assert "thing" not in {i.name for i in tooling.doctor().items}
+    report = tooling.doctor([ToolType])
+    assert {i.name: i.ok for i in report.items}["thing"] is False and not report.ok
+    assert ("thing", ["get", "thing"]) in tooling.install_commands(report)
+    assert "thing" not in tooling.config_keys() and tooling.config_keys([ToolType])["thing"] == "thing のパス"
+    with pytest.raises(Exception):
+        tooling.set_config("thing", "x")
+    assert tooling.set_config("thing", "C:/thing", [ToolType])["thing"] == "C:/thing"
+    assert tooling.load_config()["thing"] == "C:/thing"
+
+
+def test_bundle_adds_cpp_tools():
+    import ecobuild_bundle
+    assert {"owner", "cmake", "ctest"} <= set(ecobuild_bundle.config_keys())
 
 
 class Answers(tooling.Questions):
@@ -83,7 +116,7 @@ def machine(tmp_path, monkeypatch):
     state = {"git": False, "gh": False, "login": False, "scope": False, "setup-git": False, "identity": False}
     calls = {"interactive": [], "identity": [], "environment": []}
 
-    def doctor():
+    def doctor(types=()):
         items = [tooling.CheckItem("git", state["git"], True, "", "", "install"),
                  tooling.CheckItem("gh", state["gh"], True, "", "", "install")]
         if state["gh"]:

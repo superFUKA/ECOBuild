@@ -8,7 +8,8 @@ from helpers import remove_tree, short_temporary_directory, write
 from fakes import FakeGitHub
 from ecobuild.config import Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
+from ecobuild_cpp import cpp
 
 pytestmark = pytest.mark.cppbuild
 
@@ -89,7 +90,7 @@ def test_links_inside_the_module_and_to_external_libraries(module):
     write(module.root / "Viewer/vendor/tiny/tiny.cpp", "int tiny_value() { return 5; }\n")
     write(module.root / "Viewer/src/main.cpp",
           "int color_value();\nint tiny_value();\nint main() { return color_value() + tiny_value() == 12 ? 0 : 1; }\n")
-    cmake = module.link_cmake("Viewer", "vendor/tiny", target="tiny")
+    cmake = cpp(module).link_cmake("Viewer", "vendor/tiny", target="tiny")
     assert ("cmake", "tiny", "vendor/tiny") in [(l["kind"], l["name"], l.get("directory")) for l in cmake["links"]]
     assert module.run(project="Viewer").returncode == 0
 
@@ -99,19 +100,19 @@ def test_links_inside_the_module_and_to_external_libraries(module):
     for name in ("old_d.lib", "old.lib", "include/old.h"):
         write(module.root / "Viewer/vendor/old" / name, "")
     before = (module.root / "Viewer/.cppbuild/project.json").read_text(encoding="utf-8")
-    error = code_of(lambda: module.link_cmake("Viewer", "vendor/none", target="none"))   # 構成に失敗したら元に戻す
+    error = code_of(lambda: cpp(module).link_cmake("Viewer", "vendor/none", target="none"))   # 構成に失敗したら元に戻す
     assert error == ErrorCode.CPPBUILD_ERROR
     assert (module.root / "Viewer/.cppbuild/project.json").read_text(encoding="utf-8") == before
-    package = module.link_package("Viewer", "fmt", target="fmt::fmt", directory="vendor/fmt/lib/cmake/fmt")
+    package = cpp(module).link_package("Viewer", "fmt", target="fmt::fmt", directory="vendor/fmt/lib/cmake/fmt")
     assert any(l["kind"] == "package" and l["target"] == "fmt::fmt" for l in package["links"])
-    library = module.link_library_file("Viewer", kind="static", locations={"Debug": "vendor/old/old_d.lib",
+    library = cpp(module).link_library_file("Viewer", kind="static", locations={"Debug": "vendor/old/old_d.lib",
                                                                            "Release": "vendor/old/old.lib"},
                                        include_directories=("vendor/old/include",))
     file_link = next(l for l in library["links"] if l["kind"] == "file")
     assert file_link["files"] == {"Debug": "vendor/old/old_d.lib", "Release": "vendor/old/old.lib"}
     text = (module.root / "CMakeLists.txt").read_text(encoding="utf-8") + entry(module, "Viewer")
     assert "find_package(fmt" in text and "IMPORTED" in text
-    assert code_of(lambda: module.link_library_file("Viewer", kind="static", locations={"Fast": "a.lib"})) \
+    assert code_of(lambda: cpp(module).link_library_file("Viewer", kind="static", locations={"Fast": "a.lib"})) \
         == ErrorCode.INVALID_CONFIGURATION
 
     # 外す：名前か id で。外部のものを外すとビルドできる状態に戻る
@@ -141,19 +142,19 @@ def test_module_settings_templates_and_move(module):
 
     material = module.root.parent / "class.h"
     write(material, "#pragma once\n// {{project}}: {{name}}\nclass {{name}} {};\n")
-    templates = module.add_template("klass", material)
+    templates = cpp(module).add_template("klass", material)
     assert not templates["klass"]["builtin"]
     added = module.add_file(module.root / "Shape/include/Shape/Circle.h", template="klass")
     assert added.paths == ("Shape/include/Shape/Circle.h",)
     assert "class Circle {};" in (module.root / added.paths[0]).read_text(encoding="utf-8")
     assert "// Shape: Circle" in (module.root / added.paths[0]).read_text(encoding="utf-8")
     write(material, "{{unknown}}\n")
-    module.add_template("klass", material)                     # 同じ名前は差し替え
+    cpp(module).add_template("klass", material)                     # 同じ名前は差し替え
     assert code_of(lambda: module.add_file(module.root / "Shape/include/Shape/Box.h", template="klass")) \
         == ErrorCode.INVALID_ARGUMENT                           # 入れる値がない差し込み口
-    module.remove_template("klass")
+    cpp(module).remove_template("klass")
     assert "klass" not in module.module_settings()["templates"]
-    assert code_of(lambda: module.remove_template("source")) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: cpp(module).remove_template("source")) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: module.add_file(module.root / "Shape/src/X.cpp", template="nope")) == ErrorCode.INVALID_ARGUMENT
 
     moved = module.move_project("Viewer", "apps/Viewer")
@@ -249,7 +250,7 @@ def test_source_includes_the_header_added_with_it(module, monkeypatch):
 
 def test_settings_cli(module, monkeypatch, capsys):
     """CLI：project show・set・link・unlink、module settings、template、profile project。"""
-    from ecobuild.cli import main
+    from ecobuild_cli import main
 
     def run(*args):
         capsys.readouterr()

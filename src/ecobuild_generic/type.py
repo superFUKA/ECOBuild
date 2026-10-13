@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module_type import ModuleType
+from ecobuild.module_type import Builds, ModuleType
 from ecobuild.results import BuildResult, RunResult, TestCaseResult, TestResult
 
 TABLE = "commands"
@@ -24,7 +24,7 @@ class GenericOptions:
     configuration: str = "Debug"
 
 
-class GenericType(ModuleType):
+class GenericType(ModuleType, Builds):
     name = "generic"
     description = "ビルド・テスト・実行のコマンドを ecobuild.toml の [commands] に書く（言語を問わない）"
 

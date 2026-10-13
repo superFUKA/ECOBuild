@@ -6,7 +6,8 @@ from helpers import git, remove_tree, short_temporary_directory, write
 from fakes import FakeGitHub
 from ecobuild.config import Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
+from ecobuild_cpp import cpp
 
 pytestmark = pytest.mark.cppbuild
 
@@ -74,11 +75,11 @@ def test_projects_bench_pch_and_remove(module):
     assert module.add_project("GeoAlone", "library", test=False).paths == (
         "GeoAlone/include/GeoAlone/GeoAlone.h", "GeoAlone/src/GeoAlone.cpp")
 
-    pch = module.set_pch("Geo")
+    pch = cpp(module).set_pch("Geo")
     assert pch.paths == ("Geo/include/Geo/pch.h",)
     assert "target_precompile_headers" in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
     module.build(project="Geo")
-    module.set_pch("Geo", enable=False)
+    cpp(module).set_pch("Geo", enable=False)
     assert "target_precompile_headers" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
 
     for name in ("GeoBench", "GeoExtraBench", "GeoExtraTest", "GeoExtra", "GeoAlone"):

@@ -24,6 +24,7 @@ class ErrorCode(_WorkErrorCode):
     DEPENDENCY_NOT_FOUND = "dependency_not_found"
     PROFILE_NOT_FOUND = "profile_not_found"
     NOT_IN_PROJECT = "not_in_project"
+    NOT_IN_SOURCE_DIRECTORY = "not_in_source_directory"   # Projectのソースフォルダー（src・include 等）の外：ビルドに入らない
     CHECK_FAILED = "check_failed"
     USAGE_ERROR = "usage_error"
     NOT_ARCHIVED = "not_archived"       # 削除の前に、アーカイブしていない

@@ -368,6 +368,7 @@ jobs:
         template を指定すると、そのテンプレートから作る（テストは作らない）。pair_header：一緒に足したヘッダー
         （ソースはそれを相対パスで読み込む）。"""
         project, relative = self._in_project(path)
+        self._require_source_directory(path, project, relative)
         header = self._header_for(project, relative)
         test_header = header
         if pair_header is not None:
@@ -416,6 +417,7 @@ jobs:
         if other != project:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "別のProjectへは移動できません。",
                                 hint="移動先も同じProjectのディレクトリの中にしてください。")
+        self._require_source_directory(destination, project, target)
         moved = list(_cppbuild.move_file(self.root, project, relative, target))
         mirror, mirror_target = self._test_mirror(project, relative), self._test_mirror(project, target)
         test_project = _cppbuild.test_project_of(project)
@@ -432,6 +434,16 @@ jobs:
                                 hint="Projectのディレクトリの中のパスを指定してください（ecobuild project list で一覧）。")
         relative = absolute.relative_to(_cppbuild.project_root(self.root, project).resolve()).as_posix()
         return project, relative
+
+    def _require_source_directory(self, path: Path, project: str, relative: str) -> None:
+        """ソースフォルダー（src・include 等）の外には作らない・移さない。CppBuildはその外のファイルをビルドに入れず、
+        Visual Studio でも「その他のファイル」になる。"""
+        directories = _cppbuild.source_directories(self.root, project)
+        if not any(Path(directory) in Path(relative).parents for directory in directories):
+            names = "・".join(directories)
+            raise EcoBuildError(ErrorCode.NOT_IN_SOURCE_DIRECTORY,
+                                f"{path} はProject {project} のソースフォルダー（{names}）の外です。",
+                                hint=f"{names} の中に置いてください（ソースフォルダーの外のファイルはビルドに入りません）。")
 
     def _header_for(self, project: str, relative: str) -> str | None:
         """ソースが読み込むヘッダー：include/ の同じ構成の場所にあればそれ、なければそのProjectのヘッダー

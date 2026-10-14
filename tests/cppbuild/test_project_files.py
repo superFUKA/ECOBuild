@@ -43,6 +43,12 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     assert code_of(lambda: module.add_file("src/shape/Circle.cpp")) == ErrorCode.ALREADY_EXISTS
     monkeypatch.chdir(root)
     assert code_of(lambda: module.add_file("README.md")) == ErrorCode.NOT_IN_PROJECT
+    # ソースフォルダー（src・include）の外はビルドに入らないので、作らない・移さない
+    assert code_of(lambda: module.add_file("Geo/notes/Memo.cpp")) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
+    assert code_of(lambda: module.add_file("Geo/Loose.cpp")) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
+    assert not (root / "Geo/notes").exists() and not (root / "Geo/Loose.cpp").exists()
+    assert code_of(lambda: module.move_file("Geo/src/shape/Circle.cpp", "Geo/notes/Circle.cpp")) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
+    assert (root / "Geo/src/shape/Circle.cpp").is_file()
 
     moved = module.move_file("Geo/src/shape/Circle.cpp", "Geo/src/shape/Disk.cpp")
     assert moved.paths == ("Geo/src/shape/Circle.cpp", "Geo/src/shape/Disk.cpp",
@@ -58,6 +64,7 @@ def test_projects_bench_pch_and_remove(module):
     assert added.paths == ("GeoBench/src/bench.cpp",)
     kinds = {p.name: (p.kind, p.links) for p in module.projects()}
     assert kinds["GeoBench"] == ("executable", ("Geo",))
+    assert {p.name: p.source_directories for p in module.projects()}["Geo"] == ("src", "include")   # GUIが置き場所を選ぶ
     run = module.run(project="GeoBench", configuration="Release")
     assert "example:" in run.output
     assert module.executable_at(module.root / "GeoBench" / "src") == "GeoBench"

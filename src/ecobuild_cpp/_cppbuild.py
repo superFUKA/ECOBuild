@@ -333,7 +333,7 @@ def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
         data = solution.get_project(name).settings.get()
         links = tuple(by_guid.get(d.project_guid, d.project_guid) for d in data.dependencies.values()
                       if hasattr(d, "project_guid"))
-        result.append(ProjectSummary(name, data.initial_type.value, directory, links))
+        result.append(ProjectSummary(name, data.initial_type.value, directory, links, tuple(data.source_directories)))
     return tuple(result)
 
 
@@ -446,6 +446,13 @@ def project_root(root: Path, project: str) -> Path:
     solution = open_solution(root)
     _require_project(solution, project)
     return Path(solution.get_project(project).root)
+
+
+def source_directories(root: Path, project: str) -> tuple[str, ...]:
+    """Projectのソースフォルダー（Projectからの相対、既定は src・include）。この外のファイルはビルドに入らない。"""
+    solution = open_solution(root)
+    _require_project(solution, project)
+    return tuple(solution.get_project(project).settings.get().source_directories)
 
 
 def add_file(root: Path, project: str, path: str, *, replacements: dict | None = None,

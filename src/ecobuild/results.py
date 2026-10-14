@@ -124,6 +124,7 @@ class ProjectSummary:
     kind: str                 # 種類（型が決める。cpp：static_library / executable / test 等）
     directory: str            # モジュールからの相対
     links: tuple[str, ...]    # リンクしているProjectと依存先のモジュール
+    source_directories: tuple[str, ...] = ()   # ソースフォルダー（Projectからの相対）。ファイルはこの中に置く
 
 
 class BuildOptions(Protocol):

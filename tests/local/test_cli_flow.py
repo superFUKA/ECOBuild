@@ -430,19 +430,36 @@ def test_delete_removes_every_clone(cli, module, parallel, may_delete, monkeypat
     assert stopped["error"]["code"] == "unfinished_work" and github.deleted_repositories == []
     assert any(str(parallel) in item for item in stopped["error"]["details"])
     (parallel / "local.txt").unlink()
-    from ecobuild import module as _module
-    real = _module.remove_tree
+    # 他のプログラムが使っている clone は動かせない：GitHubのリポジトリも消さずに止め、clone はそのまま残る
+    from pathlib import Path
+    real = Path.rename
 
-    def held(path):                                    # 端末がその中にいる：中身は消せて、空のフォルダーが残る
-        real(path)
-        if path == parallel:
-            path.mkdir()
+    def held(self, target):
+        if self == parallel:
             raise PermissionError("使用中")
-    monkeypatch.setattr(_module, "remove_tree", held)
+        return real(self, target)
+    monkeypatch.setattr(Path, "rename", held)
+    in_use = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-clone", "--json"))
+    assert in_use["error"]["code"] == "in_use" and github.deleted_repositories == []
+    assert parallel.is_dir() and (module.root / ".git").exists() and (parallel / ".git").exists()
+    assert not list(module.root.parent.glob(".*.deleting*"))    # 先に移したものも元に戻した
+    monkeypatch.setattr(Path, "rename", real)
     output = cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-clone").output
-    assert f"手元のclone {parallel} の中身を削除しました（空のフォルダーは" in output
-    parallel.rmdir()
+    assert f"手元のclone {parallel} を削除しました" in output and not parallel.exists()
     assert as_json(cli("module", "clones", "--json"))["result"] == []
+
+
+def test_delete_discards_local_work_when_asked(cli, module, parallel, may_delete):
+    """--discard-local：GitHubにない変更があっても、cloneごと削除する（--remove-clone と一緒にだけ）。"""
+    assert cli("module", "archive", "tester/remote", "--yes").exit_code == 0
+    write(parallel / "local.txt", "x\n")
+    alone = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--discard-local", "--json"))
+    assert alone["error"]["code"] == "invalid_argument" and parallel.exists()
+    asked = as_json(cli("module", "delete", "tester/remote", "--remove-clone", "--discard-local", "--json"))
+    assert asked["error"]["code"] == "confirmation_required" and "それらごと削除します" in asked["error"]["message"]
+    result = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-clone",
+                         "--discard-local", "--json"))["result"]
+    assert result["clone_removed"] and not parallel.exists() and not module.root.exists()
 
 
 def test_delete_removes_every_clone_as_json(cli, module, parallel, may_delete):

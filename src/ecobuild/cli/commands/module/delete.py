@@ -17,6 +17,8 @@ def command(
     confirm: Annotated[str, "確認のため、削除するモジュールを 所有者/名前 でもう一度書く（端末では聞きます）"] = "",
     remove_clone: Annotated[bool, "手元のcloneも削除する（このPCに記録したもの・作業空間専用のもの・今いるモジュール・"
                                   "今いるディレクトリの <名前>）"] = False,
+    discard_local: Annotated[bool, "--remove-clone で、手元のcloneにGitHubにない変更・コミット・退避があっても削除する"
+                                   "（それらは失われます）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """アーカイブしたモジュール（GitHubのリポジトリ）を、Issue・PRとともに削除します。
@@ -27,15 +29,17 @@ def command(
     """
 
     def action(inv):
+        if discard_local and not remove_clone:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--discard-local は --remove-clone と一緒に使います。")
         target = full_name(name, owner)
         clone = find_clone(inv, target)
-        preview = Module.delete(target, clone=clone, remove_clone=remove_clone, dry_run=True)
+        preview = Module.delete(target, clone=clone, remove_clone=remove_clone, discard_local=discard_local, dry_run=True)
         _require_delete_permission(inv)
-        _confirm(inv, _question(preview, remove_clone), preview.repository, confirm)
+        _confirm(inv, _question(preview, remove_clone, discard_local), preview.repository, confirm)
         for root in preview.clones if remove_clone else ():
             if Path.cwd().resolve().is_relative_to(root.resolve()):
                 os.chdir(root.parent)   # 今いるディレクトリは消せないので、外へ出る
-        return Module.delete(target, clone=clone, remove_clone=remove_clone)
+        return Module.delete(target, clone=clone, remove_clone=remove_clone, discard_local=discard_local)
 
     def render(r):
         clones = [(f"手元のclone {c} の中身を削除しました（空のフォルダーは、端末等が使っているため残っています。"
@@ -49,12 +53,14 @@ def command(
     return run_command("module delete", action, render, json_output=json)
 
 
-def _question(preview, remove_clone: bool) -> str:
+def _question(preview, remove_clone: bool, discard_local: bool = False) -> str:
     text = (f"GitHubのモジュール {preview.repository}（開いているIssue {preview.open_issues} 件・"
             f"PR {preview.open_pull_requests} 件）を削除します。このモジュールを依存先にしているモジュールは、"
             "clone・sync ができなくなります。")
     if remove_clone and preview.clones:
         text += f"手元のclone {'、'.join(map(str, preview.clones))} も削除します。"
+        if discard_local:
+            text += "GitHubにない変更・コミット・退避があっても、それらごと削除します。"
     return text
 
 

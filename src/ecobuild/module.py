@@ -7,6 +7,8 @@ Moduleはそれらを、ecobuild.toml と作業の流れの約束（ファイル
 
 from __future__ import annotations
 
+import contextlib
+
 import re
 import tomllib
 from dataclasses import replace
@@ -230,15 +232,17 @@ class Module:
 
     @classmethod
     def delete(
-        cls, name: str, *, clone: "Module | None" = None, remove_clone: bool = False, dry_run: bool = False,
-        github: _github.GitHub | None = None,
+        cls, name: str, *, clone: "Module | None" = None, remove_clone: bool = False, discard_local: bool = False,
+        dry_run: bool = False, github: _github.GitHub | None = None,
     ) -> ModuleDeleted:
         """アーカイブしたモジュール（リポジトリ）を削除する。GitHubの機能で、90日以内なら元に戻せる。
 
         タスク管理の情報は消さずに閉じる（リポジトリを戻すと、ECOBuildが開き直して使う）。
         手元のclone：clone（今いる等。このモジュールのもの）と、このPCに記録した、このモジュールのcloneすべて
         （作業空間専用のcloneも）。remove_clone なら一緒に削除し、記録から外す（どれか1つにでもGitHubにない変更・
-        コミット・退避があれば、何もせずに断る）。dry_run：確かめて、何をするかを返すだけ。
+        コミット・退避があれば、何もせずに断る。discard_local なら、それも捨てて削除する）。
+        cloneは、GitHubで何かする前に脇へ移す（他のプログラムが使っていれば動かせないので、その時点で何もせずに断る。
+        GitHubだけ消えて、手元が途中まで消えたcloneが残ることがないように）。dry_run：確かめて、何をするかを返すだけ。
         """
         github = github or _github.default()
         info = cls._module_repository(name, github)
@@ -251,7 +255,7 @@ class Module:
         found = ([clone] if clone is not None else []) + [
             c for c in cls._recorded_clones(info.full_name, github)
             if clone is None or not _clones.same(c.root, clone.root)]
-        if remove_clone:
+        if remove_clone and not discard_local:
             cls._check_nothing_unpushed_in(found)
         issues, pulls = github.open_counts(info.full_name)
         # 他のリポジトリにもつながっている情報は、そちらで使っているので閉じない
@@ -261,23 +265,32 @@ class Module:
                                clones=tuple(c.root for c in found), done=not dry_run)
         if dry_run:
             return result
-        for board in boards:   # 戻したときに探せるよう、どのリポジトリのものかを説明に書いてから閉じる
-            github.describe_board(None, board.id, _board_description(info.full_name))
-        github.delete_repository(info.full_name)
+        # 一番外側のcloneだけを移す（元のcloneの中に作業空間専用のcloneを作っていれば、一緒に移る）
+        outer = [c.root for c in found if not any(o.root != c.root and o.root in c.root.parents for o in found)]
+        aside = _set_aside(outer) if remove_clone else []
+        try:
+            for board in boards:   # 戻したときに探せるよう、どのリポジトリのものかを説明に書いてから閉じる
+                github.describe_board(None, board.id, _board_description(info.full_name))
+            github.delete_repository(info.full_name)
+        except BaseException:
+            _put_back(aside)
+            raise
         for board in boards:
             github.close_board(board.id, closed=True)
         removed = []
-        if remove_clone:   # 深い場所から（元のcloneの中に作業空間専用のcloneを作っていても消せるように）
-            for c in sorted(found, key=lambda c: len(c.root.parts), reverse=True):
-                try:
-                    remove_tree(c.root)
-                except OSError:
-                    # 他のプログラム（エディター等）が使っている。GitHubの分は済んでいるので、残したことを知らせる。
-                    # 中身は消せて空のフォルダーだけが残った（端末がその中にいる等）なら、消したものとして扱う
-                    if not _empty_directory(c.root):
-                        continue
-                removed.append(c.root)
-                _clones.forget(c.root)
+        for original, moved in aside:
+            try:
+                remove_tree(moved)
+            except OSError:
+                # 移した後で他のプログラムが使い始めた（まれ）。中身が残っていれば、元の場所に戻して知らせる
+                if not _empty_directory(moved):
+                    _put_back([(original, moved)])
+                    continue
+                with contextlib.suppress(OSError):
+                    moved.rmdir()
+            removed += [c.root for c in found if c.root == original or original in c.root.parents]
+        for path in removed:
+            _clones.forget(path)
         return replace(result, clone_removed=primary in removed, removed=tuple(removed))
 
     @classmethod
@@ -1059,6 +1072,34 @@ def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:
     if info.full_name.casefold() != name.casefold():
         return "moved", info.full_name
     return ("archived" if info.archived else "ok"), None
+
+
+def _set_aside(roots: list[Path]) -> list[tuple[Path, Path]]:
+    """消すフォルダーを、同じ場所の別の名前へ移す（Windowsでは、他のプログラムが使っているフォルダーは移せない）。
+    1つでも移せなければ、移したものを戻して IN_USE。"""
+    moved = []
+    for root in roots:
+        target = root.with_name(f".{root.name}.deleting")
+        number = 1
+        while target.exists():
+            number += 1
+            target = root.with_name(f".{root.name}.deleting{number}")
+        try:
+            root.rename(target)
+        except OSError as error:
+            _put_back(moved)
+            raise EcoBuildError(ErrorCode.IN_USE, f"手元のclone {root} は、他のプログラムが使っているため削除できません。",
+                                hint="Visual Studio・エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、"
+                                     "もう一度実行してください（GitHubのリポジトリはまだ削除していません）。",
+                                details=str(error)) from None
+        moved.append((root, target))
+    return moved
+
+
+def _put_back(moved: list[tuple[Path, Path]]) -> None:
+    for original, target in reversed(moved):
+        with contextlib.suppress(OSError):
+            target.rename(original)
 
 
 def _empty_directory(path: Path) -> bool:

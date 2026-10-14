@@ -36,11 +36,11 @@ def remote_and_clone(tmp_path):
 def module(remote_and_clone, tmp_path):
     """CppBuildを使わない、gitだけのモジュール（ブランチ・作業空間の試験用）。"""
     from ecobuild import config
-    from ecobuild.module import Module
+    from ecobuild_bundle import Module
     from fakes import FakeGitHub
 
     remote, work = remote_and_clone
-    config.save(config.ModuleConfig.for_new_module("Calc"), work / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), work / config.FILE_NAME)
     git(work, "add", config.FILE_NAME)
     git(work, "commit", "--quiet", "-m", "設定")
     git(work, "push", "--quiet", "origin", "main")

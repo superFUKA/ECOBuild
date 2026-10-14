@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 
-from ecobuild.cli import build_cli
+from ecobuild_cli import build_cli
 
 
 def test_help():

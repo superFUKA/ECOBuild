@@ -4,7 +4,7 @@ import pytest
 from helpers import write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 from ecobuild_cpp import _cppbuild
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]

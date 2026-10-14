@@ -5,7 +5,7 @@ from click.testing import CliRunner
 
 from helpers import git, write
 from ecowork import github as _github
-from ecobuild.cli import build_cli
+from ecobuild_cli import build_cli
 
 pytestmark = pytest.mark.local
 

@@ -6,7 +6,7 @@ from cppbuild import ProjectType
 from helpers import git, write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecobuild_cpp import _cppbuild
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 
@@ -201,7 +201,7 @@ def test_dependency_tree(short_tmp, monkeypatch):
     (short_tmp / "gh1" / "Gone.git").rename(short_tmp / "gh1" / "Base.git")
 
     from click.testing import CliRunner
-    from ecobuild.cli import build_cli
+    from ecobuild_cli import build_cli
     with monkeypatch.context() as patch:   # 片付けの前に、今いるディレクトリを戻す
         patch.chdir(ecs.root)
         shown = CliRunner().invoke(build_cli(), ["deps", "tree"]).output.splitlines()

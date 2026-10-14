@@ -1,18 +1,21 @@
 """モジュールの型：言語ごとの処理（ビルド・Project・ファイル・依存先等）を受け持つ拡張の口。
 
-ECOBuildの本体は型の中身を知らない。型は登録ファイル（module_types.toml）に書かれたものだけを使い、
-ecobuild.toml の [module] type で選ぶ。同じコマンドでも、型によって中身が変わる。
-型が対応しない操作は not_supported で止まる（ModuleType の既定の動き）。
+ECOBuildの本体は型の中身を知らない。型は使う側が Registry に登録して Module に渡し（外部から型を足せる）、
+ecobuild.toml の [module] type で選ぶ。同じ操作でも、型によって中身が変わる。
+
+型は ModuleType（どの型にもあるもの）を継承し、持つ能力（Builds・HasProjects・HasFiles・HasDependencies）だけを
+足す。持たない能力の操作は、Module が not_supported で止める。言語だけの操作（C++のPCH等）は型の口に置かず、
+拡張が自分の公開APIとして出す。
 """
 
 from __future__ import annotations
 
 import importlib
 import tomllib
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 from .errors import EcoBuildError, ErrorCode
 
@@ -23,20 +26,9 @@ if TYPE_CHECKING:
                           LinkResult, PrepareResult, ProjectSummary, RunResult, TestResult)
     from .tooling import CheckItem as DoctorItem
 
-REGISTRY = "module_types.toml"
-
-
-@dataclass(frozen=True)
-class TypeEntry:
-    """登録ファイルの1つの型。"""
-    name: str
-    module: str          # 実装のPythonモジュール
-    cls: str             # ModuleType の子クラスの名前
-    description: str
-
 
 class ModuleType:
-    """型の基底。既定はどの操作も not_supported。型は対応する操作だけを上書きする。
+    """型の基底：どの型にもあるもの（作成・生成ファイル・手元をそろえる処理・CI・このPCの準備・型の設定）。
 
     クラスの属性・クラスメソッドは、モジュールがまだない場面（new・doctor等）で使う。
     インスタンスは1つのモジュール（module）に結び付き、そのモジュールの中で働く。
@@ -66,7 +58,7 @@ class ModuleType:
     @classmethod
     def new_config(cls, name: str) -> "ModuleConfig":
         from .config import ModuleConfig
-        return ModuleConfig(name=name, type=cls.name)
+        return ModuleConfig.for_new_module(name, cls.name)
 
     @classmethod
     def populate(cls, root: Path, config: "ModuleConfig", kind: str | None, project: str | None = None) -> None:
@@ -91,10 +83,17 @@ class ModuleType:
         """CI（GitHub Actions）のワークフロー。Noneなら CI に対応しない。設定は config.ci（[ci]）。"""
         return None
 
+    # このPCの準備（モジュールの外で使うので、クラスメソッド） ----------------------------------
+
     @classmethod
     def doctor_items(cls) -> list["DoctorItem"]:
-        """doctor で調べる、型が使うツール。"""
+        """doctor で調べる、型が使うツール（足りなければ、導入コマンドを install に入れる）。"""
         return []
+
+    @classmethod
+    def tool_settings(cls) -> dict[str, str]:
+        """ecobuild config で設定できる、型が使うツールの項目（名前 → 説明。例：cpp の cmake）。"""
+        return {}
 
     # 生成ファイルと、手元をそろえる処理 -----------------------------------------------
 
@@ -117,46 +116,7 @@ class ModuleType:
         """
         return (), False
 
-    # ビルド ---------------------------------------------------------------------
-
-    def build_options(self, profile: "Profile | None", configuration: str) -> "BuildOptions":
-        """ビルド設定と、指定した構成から、ビルド等に渡す設定を作る（本体は .configuration を読む。他は型が決める）。"""
-        raise self.not_supported("ビルド")
-
-    def validate_profile(self, profile: "Profile") -> None:
-        raise self.not_supported("ビルド設定")
-
-    def build(self, project: str | None, options: Any, action: str) -> "BuildResult":
-        raise self.not_supported(action)
-
-    def test(self, project: str | None, options: Any) -> "TestResult":
-        raise self.not_supported("テスト")
-
-    def run(self, project: str | None, options: Any, arguments: str) -> "RunResult":
-        raise self.not_supported("実行")
-
-    # Project・ファイル ----------------------------------------------------------------
-
-    def project_at(self, path: Path) -> str | None:
-        return None
-
-    def executable_at(self, path: Path) -> str | None:
-        return None
-
-    def projects(self) -> "tuple[ProjectSummary, ...]":
-        """Projectの一覧。results.ProjectSummary の形で返す（CLIの表示とJSONに使う）。"""
-        raise self.not_supported("Project の一覧")
-
-    def add_project(self, name: str, kind: str, *, link: str | None, test: bool) -> "FilesChanged":
-        raise self.not_supported("Project の追加")
-
-    def remove_project(self, name: str) -> "FilesChanged":
-        raise self.not_supported("Project の削除")
-
-    def set_pch(self, project: str, *, enable: bool) -> "FilesChanged":
-        raise self.not_supported("PCH")
-
-    # 保存する設定（型が決める形の辞書。CLIの表示とJSONに使う） ---------------------------------
+    # 型が決める形の設定（辞書。本体は中身を知らない） --------------------------------------
 
     def module_settings(self) -> dict:
         """モジュール全体の設定（cpp：main_project・ソリューションフォルダー・テンプレート）。"""
@@ -165,64 +125,113 @@ class ModuleType:
     def set_module_settings(self, **changes) -> dict:
         raise self.not_supported("モジュールの設定")
 
-    def add_template(self, name: str, source: Path) -> dict:
-        raise self.not_supported("ファイルテンプレート")
 
-    def remove_template(self, name: str) -> dict:
-        raise self.not_supported("ファイルテンプレート")
+# 能力 ---------------------------------------------------------------------------
 
+class Builds(ABC):
+    """ビルド・テスト・実行ができる型。"""
+
+    @abstractmethod
+    def build_options(self, profile: "Profile | None", configuration: str) -> "BuildOptions":
+        """ビルド設定と、指定した構成から、ビルド等に渡す設定を作る（本体は .configuration を読む。他は型が決める）。"""
+
+    @abstractmethod
+    def validate_profile(self, profile: "Profile") -> None:
+        """名前付きビルド設定を確かめる（誤りなら EcoBuildError）。"""
+
+    @abstractmethod
+    def build(self, project: str | None, options: Any, action: str) -> "BuildResult":
+        """action：build・clean・rebuild。"""
+
+    @abstractmethod
+    def test(self, project: str | None, options: Any) -> "TestResult":
+        ...
+
+    @abstractmethod
+    def run(self, project: str | None, options: Any, arguments: str) -> "RunResult":
+        ...
+
+    def executable_at(self, path: Path) -> str | None:
+        """path にある実行ファイルのProject（なければNone）。"""
+        return None
+
+
+class HasProjects(ABC):
+    """モジュールの中に Project（小さな開発単位）を持つ型。Projectの設定は型が決める形の辞書。"""
+
+    @abstractmethod
+    def project_at(self, path: Path) -> str | None:
+        ...
+
+    @abstractmethod
+    def projects(self) -> "tuple[ProjectSummary, ...]":
+        """Projectの一覧。results.ProjectSummary の形で返す（CLIの表示とJSONに使う）。"""
+
+    @abstractmethod
+    def add_project(self, name: str, kind: str, *, link: str | None, test: bool) -> "FilesChanged":
+        ...
+
+    @abstractmethod
+    def remove_project(self, name: str) -> "FilesChanged":
+        ...
+
+    @abstractmethod
+    def move_project(self, name: str, destination: str) -> "FilesChanged":
+        ...
+
+    @abstractmethod
     def project_details(self, name: str) -> dict:
         """Projectの設定すべて。"""
-        raise self.not_supported("Project の設定")
 
+    @abstractmethod
     def set_project(self, name: str, **changes) -> dict:
-        raise self.not_supported("Project の設定")
+        ...
 
-    def set_pch_headers(self, name: str, *, headers: tuple[str, ...], system_headers: tuple[str, ...]) -> dict:
-        raise self.not_supported("PCH")
-
-    def move_project(self, name: str, destination: str) -> "FilesChanged":
-        raise self.not_supported("Project の移動")
-
+    @abstractmethod
     def link_project(self, name: str, library: str, *, as_type: str | None) -> dict:
-        raise self.not_supported("Project のリンク")
+        """同じモジュールのProjectをリンクする。"""
 
-    def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
-        raise self.not_supported("パッケージのリンク")
-
-    def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
-        raise self.not_supported("CMakeのソースのリンク")
-
-    def link_library_file(self, name: str, *, kind: str, locations: dict[str, str],
-                          import_libraries: dict[str, str], include_directories: tuple[str, ...]) -> dict:
-        raise self.not_supported("ビルド済みのライブラリのリンク")
-
+    @abstractmethod
     def unlink_project(self, name: str, link: str) -> dict:
-        raise self.not_supported("Project のリンク")
+        ...
 
+
+class HasFiles(ABC):
+    """ファイルの追加・削除・移動を受け持つ型（テストを一緒に作るか等の方針も型が決める）。"""
+
+    @abstractmethod
     def add_file(self, path: Path, *, test: bool, template: str | None = None) -> "FilesChanged":
-        raise self.not_supported("ファイルの追加")
+        ...
 
     def add_files(self, paths: list[Path], *, test: bool, template: str | None = None) -> list["FilesChanged"]:
         """まとめて足す（型が順序や組を決めてよい。既定は指定の順に1つずつ）。"""
-        return [self.add_file(path, test=test, **({"template": template} if template else {})) for path in paths]
+        return [self.add_file(path, test=test, template=template) for path in paths]
 
+    @abstractmethod
     def remove_file(self, path: Path, *, test: bool) -> "FilesChanged":
-        raise self.not_supported("ファイルの削除")
+        ...
 
+    @abstractmethod
     def move_file(self, source: Path, destination: Path, *, test: bool) -> "FilesChanged":
-        raise self.not_supported("ファイルの移動")
+        ...
 
-    # 依存先 ------------------------------------------------------------------------
 
+class HasDependencies(ABC):
+    """他のモジュール（GitHubのリポジトリ）を依存先にできる型。"""
+
+    module: "Module"
+
+    @abstractmethod
     def link(self, url: str, *, project: str | None, shared: bool) -> "LinkResult":
-        raise self.not_supported("依存先")
+        ...
 
+    @abstractmethod
     def unlink(self, name: str) -> "LinkResult":
-        raise self.not_supported("依存先")
+        ...
 
+    @abstractmethod
     def dependencies(self) -> tuple["DependencyState", ...]:
-        return ()
+        ...
 
     def dependency_tree(self) -> "DependencyTree":
         """依存関係の図（依存先の依存先も）。既定は、直接の依存先だけ（その先は分からない）。"""
@@ -231,46 +240,93 @@ class ModuleType:
         return DependencyTree(self.module.name, tuple(d.name for d in direct),
                               tuple(DependencyNode(d.name, d.url, d.recorded, d.local is not None, ()) for d in direct))
 
+    @abstractmethod
     def update_dependencies(self, name: str | None) -> tuple["DependencyChange", ...]:
-        raise self.not_supported("依存先")
+        ...
 
+    @abstractmethod
     def sync_dependencies(self) -> tuple["DependencyChange", ...]:
-        return ()
+        ...
 
 
 # 登録 ----------------------------------------------------------------------------
 
-def entries() -> dict[str, TypeEntry]:
-    """登録ファイルにある型（名前 → 登録の内容）。"""
-    text = (resources.files("ecobuild") / REGISTRY).read_text(encoding="utf-8")
-    data = tomllib.loads(text)
-    return {name: TypeEntry(name, table["module"], table["class"], table.get("description", ""))
-            for name, table in data.items()}
+@dataclass(frozen=True)
+class TypeEntry:
+    """登録した1つの型。実装（module・cls）は、使うときに初めて読み込む（読み込めない型があっても他の型は使える）。"""
+    name: str
+    module: str          # 実装のPythonモジュール
+    cls: str             # ModuleType の子クラスの名前
+    description: str = ""
 
 
-def load(name: str) -> type[ModuleType]:
-    """型の名前から、型のクラスを読み込む。"""
-    registered = entries()
-    if name not in registered:
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} は登録されていません。",
-                            hint="登録済みの型：" + "、".join(registered) + "（ecobuild module types）")
-    entry = registered[name]
-    try:
-        cls = getattr(importlib.import_module(entry.module), entry.cls)
-    except (ImportError, AttributeError) as error:
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} の実装（{entry.module}.{entry.cls}）を読み込めません。",
-                            details=f"{type(error).__name__}: {error}") from error
-    if not (isinstance(cls, type) and issubclass(cls, ModuleType)):
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} の実装は ModuleType の子クラスではありません。")
-    return cls
+class Registry:
+    """使えるモジュールの型の集まり。本体は型を知らず、使う側（拡張を入れた層等）が型を登録して Module に渡す。
 
+    default：型を指定せずにモジュールを作るときの型（なければ指定が要る）。
+    """
 
-def available() -> list[type[ModuleType]]:
-    """読み込める登録済みの型（doctor 等、モジュールの外で使う）。"""
-    result = []
-    for name in entries():
+    def __init__(self, entries: Iterable[TypeEntry | type[ModuleType]] = (), *, default: str | None = None):
+        self._entries: dict[str, TypeEntry] = {}
+        self._loaded: dict[str, type[ModuleType]] = {}
+        for entry in entries:
+            self.add(entry)
+        self.default = default
+
+    def add(self, entry: TypeEntry | type[ModuleType]) -> None:
+        """型を登録する。ModuleType の子クラスか、実装の場所（TypeEntry。使うときに読み込む）。"""
+        if isinstance(entry, type):
+            _check_class(entry.name, entry)
+            self._loaded[entry.name] = entry
+            entry = TypeEntry(entry.name, entry.__module__, entry.__qualname__, entry.description)
+        else:
+            self._loaded.pop(entry.name, None)
+        self._entries[entry.name] = entry
+
+    @classmethod
+    def from_toml(cls, text: str, *, default: str | None = None) -> "Registry":
+        """登録ファイル（TOML。[<型の名前>] に module・class・description）から作る。"""
+        data = tomllib.loads(text)
+        return cls((TypeEntry(name, table["module"], table["class"], table.get("description", ""))
+                    for name, table in data.items()), default=default)
+
+    def entries(self) -> dict[str, TypeEntry]:
+        """登録した型（名前 → 登録の内容）。"""
+        return dict(self._entries)
+
+    def load(self, name: str | None = None) -> type[ModuleType]:
+        """型の名前（省略時は既定の型）から、型のクラスを読み込む。"""
+        name = name or self.default
+        registered = "、".join(self._entries) or "なし"
+        if not name:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "モジュールの型を指定してください。",
+                                hint=f"登録済みの型：{registered}（ecobuild module types）")
+        if name in self._loaded:
+            return self._loaded[name]
+        if name not in self._entries:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} は登録されていません。",
+                                hint=f"登録済みの型：{registered}（ecobuild module types）")
+        entry = self._entries[name]
         try:
-            result.append(load(name))
-        except EcoBuildError:
-            continue
-    return result
+            loaded = getattr(importlib.import_module(entry.module), entry.cls)
+        except (ImportError, AttributeError) as error:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} の実装（{entry.module}.{entry.cls}）を読み込めません。",
+                                details=f"{type(error).__name__}: {error}") from error
+        _check_class(name, loaded)
+        self._loaded[name] = loaded
+        return loaded
+
+    def available(self) -> list[type[ModuleType]]:
+        """読み込める登録済みの型（doctor 等、モジュールの外で使う）。"""
+        result = []
+        for name in self._entries:
+            try:
+                result.append(self.load(name))
+            except EcoBuildError:
+                continue
+        return result
+
+
+def _check_class(name: str, loaded: object) -> None:
+    if not (isinstance(loaded, type) and issubclass(loaded, ModuleType)):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} の実装は ModuleType の子クラスではありません。")

@@ -38,3 +38,30 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 | `-NoInit` | `ecobuild init` を起動しない |
 
 更新はインストーラーをもう一度実行するか `pipx upgrade ecobuild`、削除は `pipx uninstall ecobuild` です。
+
+## 構成
+
+ECOBuild はライブラリとして作られ、CLI はその上で動きます。下の層は上の層を知りません。
+
+| 層 | パッケージ | 役割 |
+| --- | --- | --- |
+| GUI | `gui/` | `ecobuild` コマンドを呼ぶ |
+| CLI | `ecobuild_cli` | 本体＋拡張をコマンドで呼ぶ |
+| 本体＋拡張 | `ecobuild_bundle` | 同梱の型（`cpp`・`generic`）を登録した本体。型の既定は `cpp` |
+| 拡張 | `ecobuild_cpp`・`ecobuild_generic` | モジュールの型（`cpp` は CppBuild を使う） |
+| 本体 | `ecobuild` | モジュール・型の抽象（`ModuleType` と能力）・`Registry` |
+| 作業の流れ | `ecowork`・`ecotask` | 作業空間・PR・タスク（git・gh） |
+
+ライブラリとしては、型を `Registry` に登録して `Module` に渡します（外部から型を足せます）。
+
+```python
+from ecobuild_bundle import Module      # 同梱の型を使う
+from ecobuild_cpp import cpp
+
+module = Module.find(".")
+module.build(configuration="Release")
+cpp(module).set_pch("Core")             # C++だけの操作は拡張から
+
+from ecobuild import Module as CoreModule, Registry
+module = CoreModule.find(".", registry=Registry([MyType]))   # 自分の型を使う
+```

@@ -8,7 +8,7 @@ import pytest
 from fakes import FakeGitHub
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 from ecobuild_cpp.type import CppType
 from ecobuild.results import PrepareResult
 

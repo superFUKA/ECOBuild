@@ -57,7 +57,7 @@ class CiSettings:
 class ModuleConfig:
     name: str
     projects: ProjectNames | None = None   # 以前のモジュールの [projects]。新しいモジュールにはない
-    type: str = "cpp"
+    type: str = ""                        # モジュールの型（ecobuild.toml には必ずある。本体に既定の型はない）
     default_base: str = "main"
     format: int = FORMAT
     profiles: dict[str, Profile] = field(default_factory=dict)
@@ -98,8 +98,8 @@ class ModuleConfig:
         return replace(self, extra={**self.extra, CI_TABLE: table})
 
     @classmethod
-    def for_new_module(cls, name: str) -> "ModuleConfig":
-        return cls(name=name)
+    def for_new_module(cls, name: str, type: str) -> "ModuleConfig":
+        return cls(name=name, type=type)
 
 
 def _ci_strings(table: dict, key: str) -> tuple[str, ...] | None:

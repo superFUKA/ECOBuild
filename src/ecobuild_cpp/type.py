@@ -1,4 +1,8 @@
-"""型 cpp：Project・ファイル・ビルド・テスト・依存先を、CppBuildで扱う。"""
+"""型 cpp：Project・ファイル・ビルド・テスト・依存先を、CppBuildで扱う。
+
+本体の型の口（ModuleType と能力）を実装する。C++だけの操作（PCH・ファイルテンプレート・CMakeのパッケージ／ソース・
+ビルド済みファイルのリンク）は型の口にないので、この型の公開メソッドとして出す（ecobuild_cpp.cpp(module) から使う）。
+"""
 
 from __future__ import annotations
 
@@ -14,7 +18,7 @@ from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
-from ecobuild.module_type import ModuleType
+from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
 from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, DependencyState, DependencyTree,
                               FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestResult)
@@ -91,6 +95,25 @@ def _cppbuild_version() -> str:
         return ""
 
 
+# 足りないツールの導入コマンド（ecobuild setup --install。OS → ツール → コマンド）
+INSTALL = {
+    "nt": {
+        "cmake": ("winget", "install", "--id", "Kitware.CMake", "--exact", "--silent"),
+        "compiler": ("winget", "install", "--id", "Microsoft.VisualStudio.2022.BuildTools", "--exact", "--silent",
+                     "--override", "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools "
+                                   "--includeRecommended"),
+    },
+    "posix": {
+        "cmake": ("sudo", "apt-get", "install", "--yes", "cmake", "ninja-build"),
+        "compiler": ("sudo", "apt-get", "install", "--yes", "g++"),
+    },
+}
+
+
+def _install(tool: str) -> tuple[str, ...]:
+    return INSTALL["nt" if os.name == "nt" else "posix"][tool]
+
+
 def _fingerprint(root: Path) -> str:
     """CppBuildの update の結果を左右するものの要約。"""
     digest = hashlib.sha256(_cppbuild_version().encode("utf-8"))
@@ -112,7 +135,7 @@ def _fingerprint(root: Path) -> str:
     return digest.hexdigest()
 
 
-class CppType(ModuleType):
+class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     name = "cpp"
     description = "C++。CppBuildでProject・ファイル・ビルド・テスト・依存先を管理する"
     generated_note = f"CppBuildの生成ファイル（{'・'.join(_cppbuild.GENERATED_FILE_NAMES)}）"
@@ -188,6 +211,11 @@ jobs:
 """
 
     @classmethod
+    def tool_settings(cls) -> dict[str, str]:
+        return {"cmake": "C++のビルドに使う cmake のパス（このPCだけ。既定は PATH の cmake）",
+                "ctest": "C++のテストに使う ctest のパス（このPCだけ。既定は PATH の ctest）"}
+
+    @classmethod
     def doctor_items(cls):
         from ecobuild.tooling import CheckItem
         try:
@@ -195,13 +223,14 @@ jobs:
             report = Environment.check(EnvironmentOptions(require_ctest=True))
         except Exception as error:  # CppBuildの診断そのものが失敗した
             return [CheckItem("CMake・コンパイラ", False, True, f"{type(error).__name__}: {error}",
-                              "CMake と C++ コンパイラをインストールしてください。", "install")]
+                              "CMake と C++ コンパイラをインストールしてください。", "install", _install("compiler"))]
         result = []
         for item in report.items:
             detail = " ".join(part for part in (item.version or "", item.path or "") if part) or item.detail
             result.append(CheckItem(item.name, item.success, True, detail if item.success else (item.detail or detail),
                                     item.action or "CMake と C++ コンパイラ（Windows：Visual Studio のC++、"
-                                                   "Linux：g++）が必要です。", "install"))
+                                                   "Linux：g++）が必要です。", "install",
+                                    _install("cmake" if item.name in ("cmake", "ctest") else "compiler")))
         return result
 
     # 生成ファイルと、手元をそろえる処理 -----------------------------------------------
@@ -300,7 +329,9 @@ jobs:
             remove_tree(directory)
         return FilesChanged("project remove", (directory.relative_to(self.root).as_posix(),), name)
 
-    def set_pch(self, project: str, *, enable: bool) -> FilesChanged:
+    def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
+        """プリコンパイル済みヘッダー（include/<Project>/pch.h）を使う（enable=False：使わない）。"""
+        self.module.require_workspace("PCHの設定")
         header = _cppbuild.set_pch(self.root, project, enable=enable)
         return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
 
@@ -312,10 +343,14 @@ jobs:
     def set_module_settings(self, **changes) -> dict:
         return _settings.set_module_settings(self.root, **changes)
 
-    def add_template(self, name: str, source: Path) -> dict:
+    def add_template(self, name: str, source: Path | str) -> dict:
+        """ファイルテンプレートを登録する（file add --template で使う）。"""
+        self.module.require_workspace("テンプレートの登録")
+        source = Path(source)
         return _settings.add_template(self.root, name, source)
 
     def remove_template(self, name: str) -> dict:
+        self.module.require_workspace("テンプレートの削除")
         return _settings.remove_template(self.root, name)
 
     def project_details(self, name: str) -> dict:
@@ -324,7 +359,10 @@ jobs:
     def set_project(self, name: str, **changes) -> dict:
         return _settings.set_project(self.root, name, **changes)
 
-    def set_pch_headers(self, name: str, *, headers: tuple[str, ...], system_headers: tuple[str, ...]) -> dict:
+    def set_pch_headers(self, name: str, *, headers: tuple[str, ...] = (),
+                        system_headers: tuple[str, ...] = ()) -> dict:
+        """PCHに入れるヘッダー（Projectのヘッダーと、<> で読む標準・外部のヘッダー）。"""
+        self.module.require_workspace("PCHの設定")
         return _settings.set_pch(self.root, name, headers=headers, system_headers=system_headers)
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
@@ -334,14 +372,22 @@ jobs:
         return _settings.link_project(self.root, name, library, as_type)
 
     def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
+        """CMakeのパッケージ（find_package）をリンクする。"""
+        self.module.require_workspace("パッケージのリンク")
         return _settings.link_package(self.root, name, package, target, directory)
 
     def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
+        """CMakeのソース（add_subdirectory）をリンクする。"""
+        self.module.require_workspace("CMakeのソースのリンク")
         return _settings.link_cmake(self.root, name, directory, target)
 
-    def link_library_file(self, name: str, *, kind: str, locations: dict[str, str],
-                          import_libraries: dict[str, str], include_directories: tuple[str, ...]) -> dict:
-        return _settings.link_library_file(self.root, name, kind, locations, import_libraries, include_directories)
+    def link_library_file(self, name: str, *, kind: str = "static", locations: dict[str, str] | None = None,
+                          import_libraries: dict[str, str] | None = None,
+                          include_directories: tuple[str, ...] = ()) -> dict:
+        """ビルド済みのライブラリ（構成 → パス）をリンクする。"""
+        self.module.require_workspace("ビルド済みのライブラリのリンク")
+        return _settings.link_library_file(self.root, name, kind, locations or {}, import_libraries or {},
+                                           include_directories)
 
     def unlink_project(self, name: str, link: str) -> dict:
         return _settings.unlink(self.root, name, link)

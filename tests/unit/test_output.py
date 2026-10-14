@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from ecobuild import config
-from ecobuild.cli._output import FAILURE, SUCCESS, Invocation, execute
+from ecobuild_cli._output import FAILURE, SUCCESS, Invocation, execute
 from ecobuild.errors import EcoBuildError, ErrorCode
 
 
@@ -16,7 +16,7 @@ class Sample:
 
 
 def test_json_success_prints_one_document(tmp_path, capsys):
-    config.save(config.ModuleConfig.for_new_module("Calc"), tmp_path / config.FILE_NAME)
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), tmp_path / config.FILE_NAME)
     invocation = Invocation(json_output=True, cwd=tmp_path)
 
     def action(inv):
@@ -72,7 +72,7 @@ def test_human_failure_shows_details_tail(tmp_path, capsys):
 
 def test_detail_keeps_error_lines_before_the_tail():
     """並列ビルドでエラーの行が末尾30行より前にあっても、人向けの表示に残す（仮運用で見つかった）。"""
-    from ecobuild.cli._output import _detail_text
+    from ecobuild_cli._output import _detail_text
     lines = ["building"] * 5 + ["Vec2.cpp(24,1): error C2059: 構文エラー"] + ["gtest.vcxproj -> gtest.lib"] * 40
     text = _detail_text("\n".join(lines))
     assert "error C2059" in text and "前の16行は省略。そのうちエラーの行" in text
@@ -82,7 +82,7 @@ def test_detail_keeps_error_lines_before_the_tail():
 def test_local_time_shows_this_pc_time():
     """GitHubの時刻（UTC）・gitの時刻（書いた人の時差）は、このPCの時刻で日付にする（UTCで切ると日本では前日になる）。"""
     import datetime
-    from ecobuild.cli._output import local_time
+    from ecobuild_cli._output import local_time
     here = datetime.datetime(2026, 10, 11, 23, 30, tzinfo=datetime.timezone.utc).astimezone()
     assert local_time("2026-10-11T23:30:00Z") == here.strftime("%Y-%m-%d")
     assert local_time("2026-10-12T08:30:00+09:00") == here.strftime("%Y-%m-%d")      # 同じ時刻

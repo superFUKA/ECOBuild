@@ -23,6 +23,7 @@ from . import _docs
 from . import clones as _clones
 from . import config as _config
 from . import module_type as _module_type
+from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
@@ -61,23 +62,34 @@ class _TypeHooks(Hooks):
 
 
 class Module:
-    def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None):
+    """1つのモジュール（GitHubのリポジトリ）。
+
+    使える型は registry（Registry）。クラスの属性を子クラスで決めるか、作るときに渡す（本体の既定は空）。
+    このモジュールが開く別の Module（作業空間専用のclone等）も、同じ registry を使う。
+    """
+
+    registry: Registry = Registry()
+
+    def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None,
+                 registry: Registry | None = None):
         self.root = Path(root)
         self.config = module_config
+        self.registry = registry or type(self).registry
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
                                      command=COMMAND, hooks=_TypeHooks(self),
                                      legacy_board=module_config.legacy_board)
-        self.type = _module_type.load(module_config.type)(self)
+        self.type: _module_type.ModuleType = self.registry.load(module_config.type)(self)
 
     @property
     def name(self) -> str:
         return self.config.name
 
     @classmethod
-    def find(cls, path: Path | str = ".", *, github: _github.GitHub | None = None) -> "Module":
+    def find(cls, path: Path | str = ".", *, github: _github.GitHub | None = None,
+             registry: Registry | None = None) -> "Module":
         """pathから上へecobuild.tomlを探し、最も近いモジュールを返す（I-027）。"""
         root = _config.find_root(Path(path))
-        return cls(root, _config.load(root / _config.FILE_NAME), github=github)
+        return cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
 
     @classmethod
     def create(
@@ -90,8 +102,9 @@ class Module:
         kind: str = "",
         project: str = "",
         owner: str | None = None,
-        type: str = "cpp",
+        type: str | None = None,
         github: _github.GitHub | None = None,
+        registry: Registry | None = None,
     ) -> "Module":
         """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。タスク管理も準備する
         （できなければ知らせ、タスクを初めて記録するときにもう一度行う）。
@@ -99,7 +112,7 @@ class Module:
         kind：最初に作るもの（型の new_kinds。C++：app＝実行ファイル〔既定〕・library＝ライブラリとテスト用・
         none＝作らない）。モジュールはリンクのための単位ではなく、中身は後から project add で足す。
         project：最初に作るProjectの名前（省略時はモジュール名。ライブラリならテスト用は <名前>Test）。
-        githubは試験でGitHubへの接続を差し替えるためのもの。
+        type：モジュールの型（省略時は registry の既定の型）。githubは試験でGitHubへの接続を差し替えるためのもの。
         """
         if not _NAME.fullmatch(name):
             raise EcoBuildError(
@@ -107,7 +120,8 @@ class Module:
                 f"モジュール名 {name!r} は使えません。",
                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。",
             )
-        type_class = _module_type.load(type)
+        registry = registry or cls.registry
+        type_class = registry.load(type)
         if kind and kind not in type_class.new_kinds:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--kind {kind} は型 {type_class.name} では使えません。",
                                 hint=f"使えるもの：{'・'.join(type_class.new_kinds)}" if type_class.new_kinds
@@ -137,7 +151,7 @@ class Module:
             populate=populate, message="ECOBuildでモジュールを作成", github=github,
             default_base=module_config.default_base, command=COMMAND,
         )
-        module = cls(repository.root, module_config, github=repository.github)
+        module = cls(repository.root, module_config, github=repository.github, registry=registry)
         try:
             module.repository.prepare_tasks()
         except WorkError as error:
@@ -148,6 +162,7 @@ class Module:
     @classmethod
     def clone(
         cls, name: str, *, directory: Path | str = ".", github: _github.GitHub | None = None,
+        registry: Registry | None = None,
     ) -> tuple["Module", tuple[DependencyChange, ...]]:
         """GitHubにあるモジュールをcloneし、依存先と生成ファイルを用意する（sync と同じ）。
 
@@ -161,7 +176,7 @@ class Module:
                 f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
                 hint=f"ECOBuildで作ったリポジトリ（{COMMAND} module new）を指定してください。",
             )
-        module = cls.find(repository.root, github=repository.github)
+        module = cls.find(repository.root, github=repository.github, registry=registry)
         dependencies, _ = module._after_sync()
         return module, dependencies
 
@@ -370,7 +385,7 @@ class Module:
     def project_names(self) -> tuple[str, ...]:
         """今あるProject（型が Project を持たない・読めなければ空）。"""
         try:
-            return tuple(p.name for p in self.type.projects())
+            return tuple(p.name for p in self.projects())
         except EcoBuildError:
             return ()
 
@@ -522,7 +537,7 @@ class Module:
         opened: list[Module] = []
 
         def open_clone(root: Path) -> Repository:
-            opened.append(Module.find(root, github=self.repository.github))
+            opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
             return opened[0].repository
 
         self.repository.clone_workspace(number, directory, base=base, open=open_clone, ignore_blocked=ignore_blocked)
@@ -615,31 +630,53 @@ class Module:
         self._reload()
         return result
 
+    # 型の能力 ---------------------------------------------------------------------
+
+    def _builds(self, operation: str) -> Builds:
+        if not isinstance(self.type, Builds):
+            raise self.type.not_supported(operation)
+        return self.type
+
+    def _projects(self, operation: str) -> HasProjects:
+        if not isinstance(self.type, HasProjects):
+            raise self.type.not_supported(operation)
+        return self.type
+
+    def _files(self, operation: str) -> HasFiles:
+        if not isinstance(self.type, HasFiles):
+            raise self.type.not_supported(operation)
+        return self.type
+
+    def _dependencies(self, operation: str) -> HasDependencies:
+        if not isinstance(self.type, HasDependencies):
+            raise self.type.not_supported(operation)
+        return self.type
+
     # ビルド（型） -----------------------------------------------------------------
 
     def project_at(self, path: Path | str) -> str | None:
         """pathが属するProjectの名前。どのProjectにも属さなければNone（全体が対象）。"""
-        return self.type.project_at(Path(path))
+        return self.type.project_at(Path(path)) if isinstance(self.type, HasProjects) else None
 
     def executable_at(self, path: Path | str) -> str | None:
         """run の既定：pathが実行ファイルのProjectの中ならそれ、それ以外はNone（唯一の実行ファイル）。"""
-        return self.type.executable_at(Path(path))
+        return self.type.executable_at(Path(path)) if isinstance(self.type, Builds) else None
 
     def build(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
               action: str = "build") -> BuildResult:
         """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。"""
         options, name = self.build_options(configuration, profile)
-        result = self.type.build(project, options, action)
+        result = self._builds(action).build(project, options, action)
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestResult:
         options, _ = self.build_options(configuration, profile)
-        return self.type.test(project, options)
+        return self._builds("テスト").test(project, options)
 
     def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
             arguments: str = "") -> RunResult:
         options, _ = self.build_options(configuration, profile)
-        return self.type.run(project, options, arguments)
+        return self._builds("実行").run(project, options, arguments)
 
     # 名前付きビルド設定 ---------------------------------------------------------
 
@@ -652,7 +689,7 @@ class Module:
                 raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
                                     hint=f"{COMMAND} profile list で一覧、{COMMAND} profile add で追加できます。")
             selected = self.config.profiles[name]
-        return self.type.build_options(selected, configuration), name
+        return self._builds("ビルド").build_options(selected, configuration), name
 
     def profiles(self) -> ProfileList:
         return ProfileList(dict(self.config.profiles), _config.load_local(self.root).get("profile"))
@@ -670,7 +707,7 @@ class Module:
         if values:
             projects[project] = dict(values)
         profile = replace(current, projects=dict(sorted(projects.items())))
-        self.type.validate_profile(profile)
+        self._builds("ビルド設定").validate_profile(profile)
         self._save_config(self.config.with_profiles({**self.config.profiles, name: profile}))
         return self.profiles()
 
@@ -679,7 +716,7 @@ class Module:
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"ビルド設定の名前 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        self.type.validate_profile(profile)
+        self._builds("ビルド設定").validate_profile(profile)
         self._save_config(self.config.with_profiles({**self.config.profiles, name: profile}))
         return self.profiles()
 
@@ -705,7 +742,7 @@ class Module:
     # Project・ファイル（型） ---------------------------------------------------------
 
     def projects(self) -> tuple[ProjectSummary, ...]:
-        return self.type.projects()
+        return self._projects("Project の一覧").projects()
 
     def add_project(self, name: str, kind: str, *, link: str | None = None, test: bool = True) -> FilesChanged:
         """kind：library（test なら組のテスト用 <名前>Test も）・app・test・bench（link のライブラリをリンク）。"""
@@ -713,15 +750,11 @@ class Module:
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        return self.type.add_project(name, kind, link=link, test=test)
+        return self._projects("Project の追加").add_project(name, kind, link=link, test=test)
 
     def remove_project(self, name: str) -> FilesChanged:
         self.require_workspace("Projectの削除")
-        return self.type.remove_project(name)
-
-    def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
-        self.require_workspace("PCHの設定")
-        return self.type.set_pch(project, enable=enable)
+        return self._projects("Project の削除").remove_project(name)
 
     # 保存する設定（型。管理ファイルが変わるので、変えるのは作業空間で） ------------------------------
 
@@ -732,89 +765,62 @@ class Module:
         self.require_workspace("モジュールの設定")
         return self.type.set_module_settings(**changes)
 
-    def add_template(self, name: str, source: Path | str) -> dict:
-        self.require_workspace("テンプレートの登録")
-        return self.type.add_template(name, Path(source))
-
-    def remove_template(self, name: str) -> dict:
-        self.require_workspace("テンプレートの削除")
-        return self.type.remove_template(name)
+    # Project の設定・ファイル（型） ------------------------------------------------------
 
     def project_details(self, name: str) -> dict:
-        return self.type.project_details(name)
+        return self._projects("Project の設定").project_details(name)
 
     def set_project(self, name: str, **changes) -> dict:
         self.require_workspace("Projectの設定")
-        return self.type.set_project(name, **changes)
-
-    def set_pch_headers(self, name: str, *, headers: tuple[str, ...] = (), system_headers: tuple[str, ...] = ()) -> dict:
-        self.require_workspace("PCHの設定")
-        return self.type.set_pch_headers(name, headers=headers, system_headers=system_headers)
+        return self._projects("Project の設定").set_project(name, **changes)
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
         self.require_workspace("Projectの移動")
-        return self.type.move_project(name, destination)
+        return self._projects("Project の移動").move_project(name, destination)
 
     def link_project(self, name: str, library: str, *, as_type: str | None = None) -> dict:
         """同じモジュールのライブラリをリンクする（他のモジュールは link）。"""
         self.require_workspace("Projectのリンク")
-        return self.type.link_project(name, library, as_type=as_type)
-
-    def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
-        self.require_workspace("パッケージのリンク")
-        return self.type.link_package(name, package, target=target, directory=directory)
-
-    def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
-        self.require_workspace("CMakeのソースのリンク")
-        return self.type.link_cmake(name, directory, target=target)
-
-    def link_library_file(self, name: str, *, kind: str = "static", locations: dict[str, str] | None = None,
-                          import_libraries: dict[str, str] | None = None,
-                          include_directories: tuple[str, ...] = ()) -> dict:
-        self.require_workspace("ビルド済みのライブラリのリンク")
-        return self.type.link_library_file(name, kind=kind, locations=locations or {},
-                                           import_libraries=import_libraries or {},
-                                           include_directories=include_directories)
+        return self._projects("Project のリンク").link_project(name, library, as_type=as_type)
 
     def unlink_project(self, name: str, link: str) -> dict:
         self.require_workspace("Projectのリンクの解除")
-        return self.type.unlink_project(name, link)
+        return self._projects("Project のリンク").unlink_project(name, link)
 
     def add_file(self, path: Path | str, *, test: bool = True, template: str | None = None) -> FilesChanged:
         """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。template：使うファイルテンプレート。"""
         self.require_workspace("ファイルの追加")
-        if template is None:
-            return self.type.add_file(Path(path), test=test)
-        return self.type.add_file(Path(path), test=test, template=template)
+        return self._files("ファイルの追加").add_file(Path(path), test=test, template=template)
 
     def add_files(self, paths, *, test: bool = True, template: str | None = None) -> list[FilesChanged]:
         """複数のファイルをまとめて足す（C++：ヘッダーを先に作り、一緒に足したヘッダーをソースが読み込む）。"""
         self.require_workspace("ファイルの追加")
-        return self.type.add_files([Path(p) for p in paths], test=test, template=template)
+        return self._files("ファイルの追加").add_files([Path(p) for p in paths], test=test, template=template)
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの削除")
-        return self.type.remove_file(Path(path), test=test)
+        return self._files("ファイルの削除").remove_file(Path(path), test=test)
 
     def move_file(self, source: Path | str, destination: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの移動")
-        return self.type.move_file(Path(source), Path(destination), test=test)
+        return self._files("ファイルの移動").move_file(Path(source), Path(destination), test=test)
 
     # 依存先（型） -----------------------------------------------------------------
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:
         """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。"""
         self.require_workspace("依存先のリンク")
+        dependencies = self._dependencies("依存先")
         url = self.repository.github.get_repository(repository).clone_url
-        return self.type.link(url, project=project, shared=shared)
+        return dependencies.link(url, project=project, shared=shared)
 
     def unlink(self, name: str) -> LinkResult:
         self.require_workspace("依存先のリンクの解除")
-        return self.type.unlink(name)
+        return self._dependencies("依存先").unlink(name)
 
     def dependencies(self, *, fetch: bool = False) -> tuple[DependencyState, ...]:
         """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。"""
-        states = self.type.dependencies()
+        states = self._direct_dependencies()
         return tuple(self._remote_dependency(d) for d in states) if fetch else states
 
     def _remote_dependency(self, dependency: DependencyState) -> DependencyState:
@@ -837,16 +843,20 @@ class Module:
 
     def dependency_tree(self) -> DependencyTree:
         """依存関係の図（依存先の依存先も）。"""
-        return self.type.dependency_tree()
+        return self._dependencies("依存先").dependency_tree()
 
     def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
         """依存先の記録を、GitHubの最新にする（I-018）。"""
         self.require_workspace("依存先の更新")
-        return self.type.update_dependencies(name)
+        return self._dependencies("依存先").update_dependencies(name)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
-        return self.type.sync_dependencies()
+        return self.type.sync_dependencies() if isinstance(self.type, HasDependencies) else ()
+
+    def _direct_dependencies(self) -> tuple[DependencyState, ...]:
+        """直接の依存先（型が依存先を持たなければ空）。"""
+        return self.type.dependencies() if isinstance(self.type, HasDependencies) else ()
 
     # 文書・CI・確認 -------------------------------------------------------------
 
@@ -877,7 +887,7 @@ class Module:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_docs.stamp_ci(workflow), encoding="utf-8", newline="\n")
         private = []
-        for dependency in self.type.dependencies():
+        for dependency in self._direct_dependencies():
             name = dependency.url.removesuffix(".git").split("github.com/")[-1]
             try:
                 if self.repository.github.is_private(name):
@@ -986,7 +996,6 @@ class Module:
         else:
             record.write_text(key + "\n", encoding="utf-8")
 
-
     def _save_config(self, module_config: _config.ModuleConfig) -> None:
         _config.save(module_config, self.root / _config.FILE_NAME)
         self.config = module_config
@@ -1013,7 +1022,7 @@ class Module:
         if new_config == self.config:
             return
         if new_config.type != self.config.type:
-            self.type = _module_type.load(new_config.type)(self)
+            self.type = self.registry.load(new_config.type)(self)
         self.config = new_config
         self.repository.default_base = new_config.default_base
 

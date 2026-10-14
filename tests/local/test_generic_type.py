@@ -8,7 +8,7 @@ from fakes import FakeGitHub
 from ecobuild import config
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecowork import WorkError
-from ecobuild.module import Module
+from ecobuild_bundle import Module
 
 pytestmark = pytest.mark.local
 

@@ -1,6 +1,7 @@
 """ツールの準備：前提ツールの診断（doctor）・設定（setup）と、ツールの設定（config）。
 
 モジュールの外で使う（どのモジュールにも属さない）。I-012・I-030・I-035。
+型が使うツール（cpp：CMake・コンパイラ）の診断・導入・設定の項目は、渡された型（types）から集める。
 """
 
 from __future__ import annotations
@@ -12,37 +13,42 @@ import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Iterable
 
 from ecotask import _process
 
 from . import _gui
-from . import module_type as _module_type
 from .errors import EcoBuildError, ErrorCode
 
-# config で扱う項目 → 説明
+if TYPE_CHECKING:
+    from .module_type import ModuleType
+
+Types = Iterable[type["ModuleType"]]
+
+# config で扱う本体の項目 → 説明（型の項目は ModuleType.tool_settings）
 CONFIG_KEYS = {
     "owner": "module new・clone・list・link 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
-    "cmake": "C++のビルドに使う cmake のパス（このPCだけ。既定は PATH の cmake）",
-    "ctest": "C++のテストに使う ctest のパス（このPCだけ。既定は PATH の ctest）",
 }
 
-# 足りないツールの導入コマンド（setup --install で実行する）
+# 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは CheckItem.install）
 INSTALL = {
     "nt": {
         "git": ["winget", "install", "--id", "Git.Git", "--exact", "--silent"],
         "gh": ["winget", "install", "--id", "GitHub.cli", "--exact", "--silent"],
-        "cmake": ["winget", "install", "--id", "Kitware.CMake", "--exact", "--silent"],
-        "compiler": ["winget", "install", "--id", "Microsoft.VisualStudio.2022.BuildTools", "--exact", "--silent",
-                     "--override", "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools "
-                                   "--includeRecommended"],
     },
     "posix": {
         "git": ["sudo", "apt-get", "install", "--yes", "git"],
         "gh": ["sudo", "apt-get", "install", "--yes", "gh"],
-        "cmake": ["sudo", "apt-get", "install", "--yes", "cmake", "ninja-build"],
-        "compiler": ["sudo", "apt-get", "install", "--yes", "g++"],
     },
 }
+
+
+def config_keys(types: Types = ()) -> dict[str, str]:
+    """config で扱う項目 → 説明（本体の項目と、型が使うツールの項目）。"""
+    keys = dict(CONFIG_KEYS)
+    for module_type in types:
+        keys.update(module_type.tool_settings())
+    return keys
 
 
 HOME_VARIABLE = "ECOBUILD_HOME"
@@ -116,13 +122,14 @@ def load_config() -> dict[str, str]:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path} を読み込めません：{error}") from error
-    return {key: value for key, value in data.items() if key in CONFIG_KEYS and isinstance(value, str)}
+    return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
-def set_config(key: str, value: str | None) -> dict[str, str]:
-    if key not in CONFIG_KEYS:
+def set_config(key: str, value: str | None, types: Types = ()) -> dict[str, str]:
+    keys = config_keys(types)
+    if key not in keys:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} はありません。",
-                            hint="設定できる項目：" + "、".join(CONFIG_KEYS))
+                            hint="設定できる項目：" + "、".join(keys))
     values = load_config()
     if value is None:
         values.pop(key, None)
@@ -152,6 +159,7 @@ class CheckItem:
     detail: str
     hint: str = ""
     fix: str = ""          # 直し方：install／setup-git／identity（setup が直す）、login／scope（init が聞いて直す）
+    install: tuple[str, ...] = ()  # fix が install のときの、このOSでの導入コマンド（なければ本体の INSTALL から）
 
 
 @dataclass(frozen=True)
@@ -163,8 +171,8 @@ class DoctorReport:
         return all(item.ok or not item.required for item in self.items)
 
 
-def doctor() -> DoctorReport:
-    """前提ツール・認証・gitの設定・コンパイラを、読み取りだけで調べる。"""
+def doctor(types: Types = ()) -> DoctorReport:
+    """前提ツール・認証・gitの設定と、型が使うツール（types）を、読み取りだけで調べる。"""
     items = [CheckItem("python", sys.version_info >= (3, 11), True, sys.version.split()[0],
                        "Python 3.11 以上が必要です。")]
     git = _version("git", "--version")
@@ -198,7 +206,7 @@ def doctor() -> DoctorReport:
         items.append(CheckItem("git の名前・メール", bool(name and email), True,
                                f"{name} <{email}>" if name and email else "設定されていません",
                                "ecobuild setup --name <名前> --email <メール> で設定できます。", "identity"))
-    for module_type in _module_type.available():  # 型が使うツール（cpp：CMake・コンパイラ）
+    for module_type in types:  # 型が使うツール（cpp：CMake・コンパイラ）
         items += module_type.doctor_items()
     tortoise = _gui.find()
     if os.name == "nt":
@@ -216,10 +224,11 @@ class SetupReport:
     commands: tuple[str, ...]      # 足りないツールの導入コマンド（--install なしのとき）
 
 
-def setup(*, name: str = "", email: str = "", install: bool = False) -> SetupReport:
+def setup(types: Types = (), *, name: str = "", email: str = "", install: bool = False) -> SetupReport:
     """doctor の結果から直せるものを直す。ツールの導入は install のときだけ行う。"""
+    types = tuple(types)
     done = []
-    report = doctor()
+    report = doctor(types)
     commands = []
     for label, command in install_commands(report):
         if install:
@@ -230,7 +239,7 @@ def setup(*, name: str = "", email: str = "", install: bool = False) -> SetupRep
     if any(i.fix == "setup-git" and not i.ok for i in report.items) and setup_git():
         done.append("gitが gh の認証を使うようにしました（gh auth setup-git）")
     done += set_identity(name, email)
-    after = doctor() if done else report
+    after = doctor(types) if done else report
     return SetupReport(tuple(done), tuple(i for i in after.items if not i.ok), tuple(commands))
 
 
@@ -241,9 +250,8 @@ def install_commands(report: DoctorReport) -> list[tuple[str, list[str]]]:
     for item in report.items:
         if item.ok or item.fix != "install":
             continue
-        key = item.name if item.name in platform else "compiler" if item.name not in ("cmake", "ctest") else "cmake"
-        command = platform.get(key)
-        if command is not None and all(command != c for _, c in result):
+        command = list(item.install) or platform.get(item.name)
+        if command and all(command != c for _, c in result):
             result.append((item.name, command))
     return result
 
@@ -341,10 +349,11 @@ class InitReport:
     remaining: tuple[CheckItem, ...]   # まだ足りないもの（必須でないものも含む）
 
 
-def initialize(questions: Questions) -> InitReport:
+def initialize(questions: Questions, types: Types = ()) -> InitReport:
     """使い始める準備を、質問しながら行う：ツールの設定を置くディレクトリ、足りないツールの導入、GitHubへの
     ログイン（タスク管理の権限も）、gitが gh の認証を使う設定、gitの名前・メール、既定の所有者。
     直っているものは聞かない（置き場所と所有者は、今の値を既定にして毎回聞く）。"""
+    types = tuple(types)
     done, skipped = [], []
     current = home()
     answer = questions.ask("ECOBuild の設定を置くディレクトリ", str(current)).strip()
@@ -353,7 +362,7 @@ def initialize(questions: Questions) -> InitReport:
     else:
         current.mkdir(parents=True, exist_ok=True)
 
-    report = doctor()
+    report = doctor(types)
     for item in report.items:
         questions.info(("OK " if item.ok else "NG " if item.required else "-- ") + f"{item.name}：{item.detail}")
 
@@ -364,7 +373,7 @@ def initialize(questions: Questions) -> InitReport:
             (done if ok else skipped).append(f"{label} を導入しました" if ok else f"{label} の導入に失敗しました")
         else:
             skipped.append(f"{label} の導入")
-    report = doctor() if done else report
+    report = doctor(types) if done else report
 
     def failed(fix: str) -> bool:
         return any(i.fix == fix and not i.ok for i in report.items)
@@ -377,7 +386,7 @@ def initialize(questions: Questions) -> InitReport:
             (done if ok else skipped).append("GitHub にログインしました" if ok else "GitHub へのログインに失敗しました")
         else:
             skipped.append("GitHub へのログイン")
-        report = doctor()
+        report = doctor(types)
     elif failed("scope"):
         if questions.confirm("タスク管理の権限（project）がありません。追加しますか？（ブラウザで承認します）"):
             ok = run_interactive(["gh", "auth", "refresh", "--scopes", "project"])
@@ -401,7 +410,7 @@ def initialize(questions: Questions) -> InitReport:
         set_config("owner", answer or None)
         done.append(f"既定の所有者を {answer} にしました" if answer else "既定の所有者の設定を消しました")
 
-    after = doctor()
+    after = doctor(types)
     return InitReport(home(), tuple(done), tuple(skipped), tuple(i for i in after.items if not i.ok))
 
 

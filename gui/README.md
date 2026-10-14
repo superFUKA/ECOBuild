@@ -30,6 +30,16 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 `ecobuild` にない手元の処理だけ：ハブの一覧の並び順（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`。一覧そのもの・専用のcloneは `ecobuild module clones` の記録）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ショートカットの作成、ログイン中のアカウント名（`gh api user`）、既定値のための `ecobuild.toml` の `default_base` の読み取り、ビルドで作られたソリューション（`build/**/*.sln`、VS 2026 のジェネレーターなら `.slnx`）を Visual Studio で開く（ボタンの右の ▾ で Visual Studio 2026／2022 を選ぶ。既定は 2026）。
 
+## 表示を待たせない
+
+GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約8秒、`task list`・`task workload` 約4秒、`status --fetch` 約3秒、`module show` 約2秒、`branch list`・`module list` 約1秒。手元だけのもの（`status`・`project list`・`profile list`・`module settings`・`module clones` 等）は0.3秒前後）。
+
+- 画面・ダイアログは、それ自身が表示するもの以外を待たずに出す。見出しのタスクの題名など、添えるだけの情報は後から入れる。
+- ダイアログの選択肢・候補がGitHubにあるもの（担当者・ブランチ・GitHubのモジュール）は、分かっているものだけで開き、残りはフィールドの `more`（Promise）で開いたダイアログに足す（`ECO.form`）。
+- 互いに関係のない読み込みは並べて行う（`Promise.all`）。前の読み込みの終わりを待って次を始めない。
+- 一度読んだGitHubの情報（ハブの `module list` 等）があれば、それを使う。
+- 待たずに出すと、答えが届いたときに表示が変わってしまうもの（ハブのアーカイブ済みのモジュール）は、前回の答えをこのPCに覚えておき（ブラウザの保存領域。表示のためだけ）、それで先に出す。届いた答えで置き換える。
+
 ## 構成
 
 | ファイル | 内容 |

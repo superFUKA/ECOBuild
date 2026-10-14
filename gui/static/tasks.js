@@ -325,17 +325,16 @@
 
   async function startDialog(n) {
     const t = byNumber(n) || {}, d = st.details.get(n) || {};
-    const [defaults, branches] = await Promise.all([moduleDefaults(), ECO.cli(root(), ['branch', 'list'], {quiet: true})]);
+    const defaults = await moduleDefaults();
     const parent = d.parent?.number || t.parent || 0;
     // The default base: a child task starts from its parent's workspace; otherwise default_base (ecobuild.toml).
     const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
-    // The base is chosen from the branches (ecobuild branch list): the plain ones first, then the other workspaces.
-    // If the list cannot be read, it is typed in.
-    const branchOptions = branches.ok ? [...branches.result.filter(b => !b.is_workspace), ...branches.result.filter(b => b.is_workspace && b.name !== `task/${n}`)].map(b => {
+    // The base is typed in or chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives):
+    // the plain ones first, then the other workspaces.
+    const branchOptions = ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_workspace), ...branches.result.filter(b => b.is_workspace && b.name !== `task/${n}`)].map(b => {
       const task = b.is_workspace ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
       return [b.name, b.is_workspace ? `${b.name}（作業空間${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
-    }) : null;
-    if (branchOptions && base && !branchOptions.some(([name]) => name === base)) branchOptions.unshift([base, `${base}（まだありません）`]);
+    }) : []);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
     await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} の作業空間を用意しています…`, fields: [
       {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
@@ -343,7 +342,7 @@
         ['dir', '専用のcloneを作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
         ['none', '作業空間を作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
       {name: 'dir', label: '専用のcloneの場所', value: suggested, showIf: v => v.place === 'dir'},
-      {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', ...(branchOptions ? {type: 'select', options: branchOptions} : {}),
+      {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', more: branchOptions,
         help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : [])], ok: '開始',
       submit: async v => {
@@ -358,13 +357,17 @@
         reloadAfter(n);
       }});
   }
+  // The assignee candidates known now (me and the assignees of the tasks listed) are shown at once; the full list
+  // (task list --all・pr list --all, read from GitHub) is added to the open dialog when it arrives.
+  const knownMembers = () => st.members || [...new Set([...(me() ? [me()] : []), ...st.tasks.flatMap(t => t.assignees || []).filter(m => m !== me()).sort((a, b) => a.localeCompare(b))])];
+  const moreMembers = (except = []) => st.members ? null : members().then(list => memberOptions(list.filter(m => !except.includes(m))));
   async function newTaskDialog(preset = {}) {
-    const people = await members();
+    const people = [...new Set([...knownMembers(), ...(preset.assignees || [])])];
     await ECO.form({title: '新しいタスク', busy: 'タスクを作成しています…', fields: [
       {name: 'title', label: '題名', required: true, placeholder: '何をするか'},
       {name: 'body', label: '本文', type: 'textarea', rows: 3, placeholder: '背景・完了の条件など（任意）'},
       {name: 'stage', label: '段階', type: 'radio', inline: true, value: preset.stage || 'todo', showIf: v => !v.start, options: [['todo', '未着手', 'すぐに着手できる'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
-      {name: 'assignees', label: '担当者', type: 'checks', value: preset.assignees || [], options: memberOptions(people), empty: 'まだ候補がありません（下の欄に入力できます）'},
+      {name: 'assignees', label: '担当者', type: 'checks', value: preset.assignees || [], options: memberOptions(people), more: moreMembers(), empty: 'まだ候補がありません（下の欄に入力できます）'},
       {name: 'otherAssignees', label: '候補にいない担当者', placeholder: 'GitHubのアカウント（カンマ区切り。任意）'},
       {type: 'section', label: '計画', note: '任意。あとから詳細で変えられます'},
       {name: 'priority', label: '優先度', type: 'select', row: 'plan', value: preset.priority || '', options: [['', 'なし'], ...PRIORITIES.map(p => [p, p])]},
@@ -424,9 +427,9 @@
       }});
   }
   async function addAssigneeDialog(n) {
-    const already = st.details.get(n)?.assignees || byNumber(n)?.assignees || [], people = (await members()).filter(m => !already.includes(m));
+    const already = st.details.get(n)?.assignees || byNumber(n)?.assignees || [], people = knownMembers().filter(m => !already.includes(m));
     const v = await ECO.form({title: `担当者を追加：#${n}`, fields: [
-      {name: 'who', label: '担当者', type: 'checks', options: memberOptions(people), empty: '候補者はすべて担当済みです（下の欄に入力できます）'},
+      {name: 'who', label: '担当者', type: 'checks', options: memberOptions(people), more: moreMembers(already), empty: '候補者はすべて担当済みです（下の欄に入力できます）'},
       {name: 'other', label: '候補にいない担当者（GitHubのアカウント、カンマ区切り。任意）'}], ok: '追加'});
     const who = v ? [...new Set([...v.who, ...ECO.commaList(v.other)])] : [];
     if (who.length) editList(n, '--add-assignee', who.join(','), '担当者を追加しました。');

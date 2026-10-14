@@ -6,7 +6,8 @@ const PR_STATE = {open: '開いている', closed: '閉じた', merged: 'マー�
 const prState = pr => pr.draft && pr.state.toLowerCase() === 'open' ? '下書き' : PR_STATE[pr.state] || pr.state;
 
 WS.refreshPrs = async select => {
-  const doc = await WS.cli(['pr', 'list', ...(get('pr-all').checked ? ['--all'] : [])], {quiet: true});
+  // Read at once, together with the status (which tells this workspace's PR, chosen first).
+  const [doc] = await Promise.all([WS.cli(['pr', 'list', ...(get('pr-all').checked ? ['--all'] : [])], {quiet: true}), WS.ready]);
   if (!doc.ok) { get('pr-list').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`; return; }
   prs = doc.result;
   if (select) selectedPr = select;
@@ -119,7 +120,7 @@ get('pr-list').addEventListener('click', e => { const b = e.target.closest('[dat
 get('pr-tools').addEventListener('click', e => { const b = e.target.closest('[data-pr-action]'); if (b && !b.disabled && prStatus) prAction(b.dataset.prAction); });
 get('pr-all').addEventListener('change', () => WS.refreshPrs());
 get('pr-state').addEventListener('click', e => { const a = e.target.closest('[data-pr]'); if (a) { e.preventDefault(); loadPr(Number(a.dataset.pr)); } });
-WS.ready.then(() => WS.refreshPrs());
+WS.refreshPrs();
 
 // Right-click a pull request in the list: the same actions as the buttons under the list.
 get('pr-list').addEventListener('contextmenu', async e => {

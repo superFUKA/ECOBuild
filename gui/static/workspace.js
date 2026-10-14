@@ -1,5 +1,6 @@
 'use strict';
-// One place on disk (the module's clone or a dedicated clone): changes, commit, push, PR submission, history, stash.
+// One place on disk (the module's clone or a dedicated clone): changes, commit, push, PR submission.
+// History is in the explorer's menu (a file, a folder, or the whole module); stashing is left to the CLI and TortoiseGit.
 const WS = {
   dir: ECO.params.get('dir') || '', module: ECO.params.get('module') || '',
   status: null, task: null, selected: new Set(), listeners: [],
@@ -40,9 +41,13 @@ WS.refresh = async ({fetch = false} = {}) => {
   // Whether the GitHub repository is archived is known only with --fetch: keep the last answer.
   if (doc.result.archived === null || doc.result.archived === undefined) doc.result.archived = WS.status?.archived ?? null;
   WS.status = doc.result;
+  // The task (its title for the header) is read from GitHub, which takes seconds: the changes are shown first.
   if (WS.status.workspace && WS.status.workspace !== before) {
-    const t = await WS.cli(['task', 'status', String(WS.status.workspace)], {quiet: true});
-    WS.task = t.ok ? t.result : null;
+    const number = WS.status.workspace;
+    WS.cli(['task', 'status', String(number)], {quiet: true}).then(t => {
+      if (WS.status?.workspace !== number) return;
+      WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent();
+    });
   } else if (!WS.status.workspace) WS.task = null;
   const all = WS.changes();
   for (const p of [...WS.selected]) if (!all.has(p)) WS.selected.delete(p);
@@ -168,6 +173,32 @@ get('commit').addEventListener('click', async () => {
   if (doc) { get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges(); if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。'); }
 });
 get('push').addEventListener('click', () => WS.run(['task', 'push'], {success: 'Pushしました。'}));
+
+// The commits Push sends (task push --dry-run: local and quick), listed under 「GitHubへ共有」 while there are any.
+// 閉じる folds the list (kept on this PC); 「一覧」 next to the count opens it again.
+const PUSH_LIST_KEY = 'ecobuild-gui-push-list-closed';
+let pushListClosed = false, pushListRead = 0;
+try { pushListClosed = localStorage.getItem(PUSH_LIST_KEY) === '1'; } catch (e) { /* storage blocked */ }
+async function renderPushList() {
+  const s = WS.status, box = get('push-commits'), ahead = s && s.workspace && !s.reviewing ? s.ahead : 0;
+  get('push-commits-open')?.remove();
+  if (!ahead) { box.hidden = true; return; }
+  if (pushListClosed) {
+    box.hidden = true;
+    get('push-state').insertAdjacentHTML('afterend', '<button type="button" id="push-commits-open" class="link-button" title="Pushするコミットの一覧を開く">一覧</button>');
+    return;
+  }
+  const mine = ++pushListRead, doc = await WS.cli(['task', 'push', '--dry-run'], {quiet: true});
+  if (mine !== pushListRead) return;   // a newer status came meanwhile
+  const commits = doc.ok ? doc.result.commits : [];
+  box.hidden = !commits.length;
+  get('push-commits-title').textContent = `Pushするコミット（${commits.length}件、新しい順）`;
+  get('push-commits-list').innerHTML = commits.map(c => { const [sha, ...subject] = c.split(' '); return `<li><code>${esc(sha)}</code> ${esc(subject.join(' '))}</li>`; }).join('');
+}
+const setPushListClosed = closed => { pushListClosed = closed; try { localStorage.setItem(PUSH_LIST_KEY, closed ? '1' : '0'); } catch (e) { /* storage blocked */ } renderPushList(); };
+get('push-commits-close').addEventListener('click', () => setPushListClosed(true));
+document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
+WS.onRefresh(renderPushList);
 get('submit-pr').addEventListener('click', () => ECO.form({
   title: 'プルリクエストを提出', intro: '作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へのプルリクエストを作成します。',
   fields: [
@@ -211,22 +242,6 @@ async function gitAction(action) {
         if (!doc.ok) return doc.error.message;
         if (!v.gui) setTimeout(() => ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: v.path}));
       }});
-    case 'history': return ECO.form({title: '履歴', fields: [
-      {name: 'path', label: '対象のパス（任意）', value: '', row: 'what'}, {name: 'count', label: '件数', type: 'number', value: '30', min: 1, row: 'what'},
-      {name: 'all', label: 'すべてのブランチ', type: 'checkbox'}, {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox', value: true}], ok: '表示',
-      submit: async v => {
-        const doc = await WS.cli(['log', ...(v.path ? [v.path] : []), '--count', v.count || '30', ...(v.all ? ['--all'] : []), ...(v.gui ? ['--gui'] : [])]);
-        if (!doc.ok) return doc.error.message;
-        if (!v.gui) setTimeout(() => showLog(doc.result, v.path));
-      }});
-    case 'show': return ECO.form({title: 'コミットの詳細', fields: [{name: 'revision', label: 'コミット', value: 'HEAD', required: true}], ok: '表示',
-      submit: async v => { const doc = await WS.cli(['show', v.revision]); if (!doc.ok) return doc.error.message; setTimeout(() => ECO.output('コミットの詳細', doc.result, {diff: true, sub: v.revision})); }});
-    case 'force-push': return WS.run(['task', 'push', '--force'], {success: '強制Pushしました。', title: '強制Push',
-      confirm: 'GitHubのこの作業空間のブランチを、手元の内容で上書きします（直前のコミットを修正した後などに使います）。GitHubにだけあるコミットは消えます。'});
-    case 'stash': return WS.run(['stash'], {success: r => r.stashed ? '変更を退避しました。' : '退避する変更はありません。'});
-    case 'stash-list': { const doc = await WS.cli(['stash', 'list']); if (!doc.ok) return ECO.showError(doc); return ECO.output('退避一覧', doc.result.map((e, i) => `${i}: ${e}`).join('\n') || '退避はありません。'); }
-    case 'stash-pop': return WS.run(['stash', 'pop'], {success: '退避した変更を戻しました。'});
-    case 'stash-drop': return WS.run(['stash', 'drop'], {success: '最後の退避を削除しました。', confirm: '最後に退避した変更を破棄します。この操作は元に戻せません。', title: '退避を削除'});
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
     case 'sync-continue': return WS.run(['sync', 'continue'], {success: '取り込みを完了しました。'});
     case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みを中止し、取り込む前の状態に戻しました。', confirm: '止まっている取り込みを中止し、取り込む前の状態に戻します。', title: '取り込みを中止'}).then(() => WS.reloadFiles?.());

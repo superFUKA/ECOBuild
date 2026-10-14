@@ -60,10 +60,14 @@ const ECO = (() => {
     return JSON.stringify(details, null, 2);
   }
 
+  // The details are the tools' own output (git・gh・CMake, often in English): folded under the message and the hint,
+  // except for a build, test or run, whose output is what tells the cause.
+  const OUTPUT_FIRST = new Set(['build_failed', 'test_failed', 'run_failed', 'cppbuild_error', 'check_failed', 'gui_no_output']);
+  const detailHtml = (e, detail) => detail ? `<details class="eco-detail"${OUTPUT_FIRST.has(e.code) ? ' open' : ''}><summary>詳細（ツールの出力）</summary><pre>${esc(detail)}</pre></details>` : '';
   function showError(doc, title = '失敗しました') {
     const e = doc.error || {message: '不明なエラーです。'};
     const detail = detailText(e.details) || (doc.ok === false && !e.details && doc.stderr && e.code === 'gui_no_output' ? doc.stderr : '');
-    return dialog({title, wide: !!detail, body: `<p>${esc(e.message)}</p>${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${detail ? `<pre>${esc(detail)}</pre>` : ''}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
+    return dialog({title, wide: !!detail && OUTPUT_FIRST.has(e.code), body: `<p>${esc(e.message)}</p>${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${detailHtml(e, detail)}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
   }
 
   // Runs a command; on "confirmation_required" asks with the CLI's own message and runs again with --yes.
@@ -150,6 +154,8 @@ const ECO = (() => {
   // Layout of the fields: the ones with the same `row` sit side by side; {type: 'section', label} starts a group under a
   // heading ({collapsed: true}: folded until opened, for what is seldom set; {end: true} ends it); `showIf: values => bool` shows a field only
   // when it applies; a radio with `inline` lays its choices side by side.
+  // Choices that take time to read (GitHub) do not hold the dialog back: `more: Promise<[[value, label]]>` on a select,
+  // checks or text field (its suggestions) adds them to the open dialog when they arrive.
   const LAYOUT = new Set(['html', 'section']);
   function form({title, intro = '', fields = [], ok = 'OK', danger = false, wide = false, submit, extra = '', busy: busyText, onChange}) {
     return new Promise(resolve => {
@@ -160,7 +166,7 @@ const ECO = (() => {
         const help = f.help ? `<span class="eco-help">${esc(f.help)}</span>` : '';
         if (f.type === 'html') return f.html;
         if (f.type === 'checkbox') return `<label class="eco-check"><input type="checkbox" ${attrs} ${f.value ? 'checked' : ''}> ${esc(f.label)}</label>${help}`;
-        if (f.type === 'checks') return `<fieldset class="eco-checks"><legend>${esc(f.label)}</legend><div>${f.options.length ? f.options.map(([v, l]) => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}" ${(f.value || []).includes(v) ? 'checked' : ''}><span>${esc(l ?? v)}</span></label>`).join('') : `<span class="eco-help">${esc(f.empty || '選べるものがありません')}</span>`}</div></fieldset>${help}`;
+        if (f.type === 'checks') return `<fieldset class="eco-checks" data-field="${esc(f.name)}"><legend>${esc(f.label)}</legend><div>${f.options.length ? f.options.map(([v, l]) => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}" ${(f.value || []).includes(v) ? 'checked' : ''}><span>${esc(l ?? v)}</span></label>`).join('') : `<span class="eco-help">${esc(f.empty || '選べるものがありません')}</span>`}</div></fieldset>${help}`;
         if (f.type === 'radio') return `<fieldset${f.inline ? ' class="eco-inline"' : ''}><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) ? 'checked' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
         if (f.type === 'select') return `<label class="eco-field">${esc(f.label)}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
         if (f.type === 'textarea') return `<label class="eco-field">${esc(f.label)}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
@@ -213,6 +219,29 @@ const ECO = (() => {
           if (row) row.hidden = ![...row.children].some(c => !c.hidden);
         }
       };
+      for (const f of fields.filter(f => f.more)) {
+        const box = formEl.querySelector(`.eco-f[data-field="${CSS.escape(f.name)}"]`);
+        box?.classList.add('eco-more');
+        Promise.resolve(f.more).then(options => {
+          box?.classList.remove('eco-more');
+          if (!box || !options?.length) return;
+          if (f.type === 'select') {
+            const select = box.querySelector('select'), present = new Set([...select.options].map(o => o.value));
+            for (const [v, l] of options) if (!present.has(String(v))) select.add(new Option(l ?? v, v));
+          } else if (f.type === 'checks') {
+            const list = box.querySelector('.eco-checks > div'), present = new Set([...list.querySelectorAll('input')].map(i => i.value));
+            const added = options.filter(([v]) => !present.has(String(v)));
+            if (added.length) list.querySelector('.eco-help')?.remove();
+            for (const [v, l] of added) list.insertAdjacentHTML('beforeend', `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}"><span>${esc(l ?? v)}</span></label>`);
+          } else {
+            const input = box.querySelector('input'), id = `f-${f.name}-more`;
+            let list = box.querySelector('datalist');
+            if (!list) { list = document.createElement('datalist'); list.id = id; box.querySelector('label').append(list); input.setAttribute('list', id); }
+            const present = new Set([...list.options].map(o => o.value));
+            for (const [v, l] of options) if (!present.has(String(v))) { const o = document.createElement('option'); o.value = v; if (l) o.label = l; list.append(o); }
+          }
+        }, () => box?.classList.remove('eco-more'));
+      }
       if (conditional.length) { formEl.addEventListener('input', applyConditions); formEl.addEventListener('change', applyConditions); applyConditions(); }
       if (onChange) { const changed = () => onChange(readValues(), formEl); formEl.addEventListener('input', changed); formEl.addEventListener('change', changed); changed(); }
       formEl.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); formEl.requestSubmit(); } });
@@ -228,7 +257,7 @@ const ECO = (() => {
           try { message = await submit(values, d); } catch (e) { message = e.message; } finally { formDepth--; overlay.end(); working = false; }
           if (message) {
             const e = lastError?.error;
-            error.textContent = e ? [e.message, e.hint, detailText(e.details)].filter(Boolean).join('\n') : message;
+            if (e) error.innerHTML = esc([e.message, e.hint].filter(Boolean).join('\n')) + detailHtml(e, detailText(e.details)); else error.textContent = message;
             lastError = null; d.showModal(); return;
           }
         }

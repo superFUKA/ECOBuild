@@ -24,6 +24,14 @@ WS.reloadFiles = async () => {
   renderTree(); WS.renderChanges();
 };
 const restricted = () => !!(projectRoots && projectRoots.length);
+// Inside a Project's source folders (src・include). A Project not telling its folders (an older ecobuild) is not checked.
+const inSources = path => {
+  const root = (projectRoots || []).find(r => path === r || path.startsWith(r + '/')), project = projectsByDir.get(root);
+  if (!project) return false;
+  if (!project.source_directories) return true;
+  const rel = path.slice(root.length).replace(/^\//, '');
+  return project.source_directories.some(s => rel === s || rel.startsWith(s + '/'));
+};
 const shown = path => !restricted() || projectRoots.some(root => {
   if (path !== root && !path.startsWith(root + '/')) return false;
   return !path.slice(root.length).split('/').some(part => part.startsWith('.'));
@@ -210,8 +218,8 @@ async function menuAction(action, dir) {
   }
 }
 
-async function addFile(relatives, withTest = true) {
-  let doc = await WS.cli(['file', 'add', ...relatives, ...(withTest ? [] : ['--no-test'])]);
+async function addFile(relatives, withTest = true, template = '') {
+  let doc = await WS.cli(['file', 'add', ...relatives, ...(template ? ['--template', template] : withTest ? [] : ['--no-test'])]);
   if (!doc.ok && doc.error?.code === 'not_supported') {
     // Module types without a file template (generic): make empty files.
     try { for (const path of relatives) await ECO.call('touch', {dir: WS.dir, path}); doc = {ok: true, result: {paths: relatives}}; }
@@ -233,8 +241,8 @@ function newFilePlan(v) {
   const name = v.name.trim(), folder = v.folder;
   if (!name) return {error: ''};
   if (!validName(name)) return {error: '使用できない文字が含まれています。'};
-  const base = v.kind === 'other' ? name : name.replace(/\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i, '');
-  if (v.kind === 'other') return {paths: [join(folder, base)]};
+  const base = v.kind === 'other' || v.kind === 'template' ? name : name.replace(/\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i, '');
+  if (v.kind === 'other' || v.kind === 'template') return {paths: [join(folder, base)]};
   if (v.kind === 'source') return {paths: [join(folder, base + SOURCE)]};
   if (v.kind === 'header') return {paths: [join(folder, base + HEADER)]};
   const root = (projectRoots || []).find(r => folder === r || folder.startsWith(r + '/'));
@@ -248,17 +256,25 @@ function newFilePlan(v) {
   const sources = under(join(root, 'src'), sub), includes = WS.files.dirs.includes(join(root, `include/${project}`)) ? under(join(root, `include/${project}`), sub) : sources;
   return {paths: [join(includes, base + HEADER), join(sources, base + SOURCE)]};
 }
-function newFileDialog(dir = activeDirectory) {
+async function newFileDialog(dir = activeDirectory) {
   if (!editable()) return;
   const cpp = restricted();
-  const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build'));
+  const settings = cpp ? await WS.cli(['module', 'settings'], {quiet: true}) : null;
+  const templates = settings?.ok ? Object.keys(settings.result.templates || {}) : [];
+  // In a Project, files go in its source folders (src・include): files elsewhere are not built (ecobuild file add refuses them).
+  const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build') && (!cpp || inSources(d)));
   const options = [...(cpp ? [] : [['', '（ルート）']]), ...folders.map(d => [d, d])];
-  const folder = options.some(([v]) => v === dir) ? dir : options[0]?.[0] ?? '';
+  const root = (projectRoots || []).find(r => dir === r || dir.startsWith(r + '/'));
+  const near = root === undefined ? null : options.find(([v]) => v.startsWith(root + '/'))?.[0];   // the folder's Project's src etc.
+  const folder = options.some(([v]) => v === dir) ? dir : near ?? options[0]?.[0] ?? '';
   return ECO.form({title: '新しいファイル', busy: 'ファイルを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
     {name: 'folder', label: '場所', type: 'select', value: folder, options, row: 'where'},
     {name: 'name', label: '名前', required: true, row: 'where', focus: true, placeholder: cpp ? '例：Parser（拡張子なし）' : '例：notes.md'},
     ...(cpp ? [{name: 'kind', label: '種類', type: 'radio', inline: true, value: 'pair', options: [
-      ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力']]}] : []),
+      ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力'],
+      ...(templates.length ? [['template', 'テンプレートから', '拡張子も入力']] : [])]}] : []),
+    ...(templates.length ? [{name: 'template', label: 'テンプレート', type: 'select', options: templates.map(t => [t, t]), showIf: v => v.kind === 'template',
+      help: 'モジュール画面の「Project」タブで登録したもの・ECOBuildの既定のものです。'}] : []),
     ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作成する', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
     onChange: (v, formEl) => {
@@ -268,7 +284,7 @@ function newFileDialog(dir = activeDirectory) {
     submit: v => {
       const plan = newFilePlan(cpp ? v : {...v, kind: 'other'});
       if (plan.error !== undefined) return plan.error || '名前を入力してください。';
-      return addFile(plan.paths, !cpp || v.test);
+      return addFile(plan.paths, !cpp || v.test, cpp && v.kind === 'template' ? v.template : '');
     }});
 }
 
@@ -348,6 +364,44 @@ tree.addEventListener('drop', async e => {
 });
 tree.addEventListener('dragend', () => { dragged = ''; });
 
-WS.ready.then(WS.reloadFiles);
+// The files are listed without waiting for the status (its marks and the buttons follow when it arrives: WS.onRefresh).
+WS.reloadFiles();
 let lastFocus = Date.now();
 window.addEventListener('focus', () => { if (Date.now() - lastFocus > 3000) { lastFocus = Date.now(); WS.refresh().then(WS.reloadFiles); } });
+
+// The divider between the explorer and the work area (as in most applications): drag, ←→, or double-click to reset.
+// The width is kept on this PC.
+(() => {
+  const main = document.querySelector('main'), aside = main.querySelector('aside'), KEY = 'ecobuild-gui-explorer-width', DEFAULT = 290;
+  const splitter = document.createElement('div');
+  splitter.className = 'splitter'; splitter.tabIndex = 0; splitter.setAttribute('role', 'separator'); splitter.setAttribute('aria-orientation', 'vertical');
+  splitter.setAttribute('aria-label', 'エクスプローラーの幅'); splitter.title = 'ドラッグで幅を変える（ダブルクリックで元に戻す）';
+  aside.after(splitter);
+  const clamp = width => Math.round(Math.max(160, Math.min(width, Math.max(160, innerWidth - 360))));
+  const apply = (width, keep = true) => {
+    width = clamp(width);
+    main.style.setProperty('--explorer-width', width + 'px'); splitter.setAttribute('aria-valuenow', String(width));
+    if (keep) try { localStorage.setItem(KEY, String(width)); } catch (e) { /* storage blocked */ }
+  };
+  let saved = DEFAULT;
+  try { saved = Number(localStorage.getItem(KEY)) || DEFAULT; } catch (e) { /* storage blocked */ }
+  apply(saved, false);
+  splitter.addEventListener('pointerdown', e => {
+    e.preventDefault(); splitter.setPointerCapture(e.pointerId);
+    const start = e.clientX, width = aside.getBoundingClientRect().width;
+    splitter.classList.add('dragging'); document.body.classList.add('resizing');
+    const move = ev => apply(width + ev.clientX - start, false);
+    const up = ev => {
+      apply(width + ev.clientX - start);
+      splitter.classList.remove('dragging'); document.body.classList.remove('resizing');
+      splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); splitter.removeEventListener('pointercancel', up);
+    };
+    splitter.addEventListener('pointermove', move); splitter.addEventListener('pointerup', up); splitter.addEventListener('pointercancel', up);
+  });
+  splitter.addEventListener('keydown', e => {
+    if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    e.preventDefault(); apply(aside.getBoundingClientRect().width + (e.key === 'ArrowRight' ? 16 : -16));
+  });
+  splitter.addEventListener('dblclick', () => apply(DEFAULT));
+  addEventListener('resize', () => apply(aside.getBoundingClientRect().width, false));
+})();

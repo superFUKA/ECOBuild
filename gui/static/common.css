@@ -82,3 +82,8 @@
 .eco-menu button:disabled { opacity: .4; cursor: default; }
 .eco-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }
 .eco-stale { position: fixed; left: 0; right: 0; top: 0; z-index: 2500; padding: 10px 16px; background: #5c2a2f; color: #ffe0e0; border-bottom: 1px solid #8a3f46; font: 13px "Segoe UI", "Yu Gothic UI", sans-serif; text-align: center; }
+/* Choices still being read (form field 'more'): they are added when they arrive. */
+.eco-dialog .eco-f.eco-more::after { content: '候補を読み込んでいます…'; display: block; color: #a5aeba; font-size: 12px; margin-top: 2px; }
+/* An error's details (the tools' own output), folded under the message. */
+.eco-dialog details.eco-detail { margin-top: 10px; font-size: 12px; color: #cdd5df; }
+.eco-dialog details.eco-detail summary { cursor: pointer; color: #a5aeba; }

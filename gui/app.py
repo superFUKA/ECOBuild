@@ -394,8 +394,9 @@ def _solution_is_open(solution: Path) -> bool:
 
 def open_file_in_visual_studio(directory: str, relative: str, version: str = "2026") -> dict:
     """ファイルを Visual Studio で開く。このモジュールのソリューションを開いた Visual Studio があればそこで（/edit）、
-    なければソリューションを開いて起動し、起動後にファイルを開く（/command File.OpenFile）。ソリューションがまだなければ
-    ファイルだけを開く。Visual Studio がなければ GuiError（画面は既定のアプリで開く）。"""
+    なければソリューションを開いて起動し、そのウィンドウが出てからファイルを開く（/edit）。ソリューションがまだなければ
+    ファイルだけを開く。Visual Studio がなければ GuiError（画面は既定のアプリで開く）。
+    起動と同時に /command File.OpenFile を渡すと、起動途中で実行されてエラーになることがあるため使わない。"""
     if version not in VISUAL_STUDIO:
         raise GuiError(f"対応していない Visual Studio の版です：{version}")
     target = _inside(directory, relative)
@@ -406,10 +407,22 @@ def open_file_in_visual_studio(directory: str, relative: str, version: str = "20
         raise GuiError(f"Visual Studio {version} が見つかりません。")
     solution = find_solution(directory)
     if solution is not None and not _solution_is_open(solution):
-        subprocess.Popen([devenv, str(solution), "/command", f'File.OpenFile "{target}"'], cwd=str(solution.parent))
+        subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
+        threading.Thread(target=_edit_when_open, args=(devenv, solution, target), daemon=True).start()
         return {"started": True, "solution": solution.as_posix()}
     subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
     return {"started": False, "solution": solution.as_posix() if solution else None}
+
+
+def _edit_when_open(devenv: str, solution: Path, target: Path, timeout: float = 180, interval: float = 1) -> bool:
+    """起動した Visual Studio のウィンドウにソリューションが出たら、ファイルを開く（/edit）。出なければ何もしない。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _solution_is_open(solution):
+            subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
+            return True
+        time.sleep(interval)
+    return False
 
 
 def make_file(directory: str, relative: str) -> dict:

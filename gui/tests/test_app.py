@@ -267,13 +267,20 @@ def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monke
 
     monkeypatch.setattr(gui.subprocess, "run", lambda *a, **kw: Done())
     monkeypatch.setattr(gui.os, "name", "nt")
+    waits = []
+    monkeypatch.setattr(gui.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda self: waits.append(args)})())
     target = (root / "src" / "Calc.cpp").resolve()
+    solution = (root / "build" / "Calc.slnx").resolve()
     assert gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")["started"]
-    assert started[-1][1:] == [str((root / "build" / "Calc.slnx").resolve()), "/command", f'File.OpenFile "{target}"']
+    assert started[-1][1:] == [str(solution)]                           # 起動にはファイルを渡さない（/command は使わない）
+    assert waits[-1] == ("devenv.exe", solution, target)                 # ウィンドウが出てから /edit で開く
+    assert not gui._edit_when_open("devenv.exe", solution, target, timeout=0)
     titles.append("Other - Microsoft Visual Studio")
     gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")
     assert started[-1][1] != "/edit"                                     # 別のソリューションの Visual Studio では開かない
     titles.append("Calc - Microsoft Visual Studio")
+    assert gui._edit_when_open("devenv.exe", solution, target)
+    assert started[-1][1:] == ["/edit", str(target)]
     assert not gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")["started"]
     assert started[-1][1:] == ["/edit", str(target)]
     with pytest.raises(gui.GuiError):

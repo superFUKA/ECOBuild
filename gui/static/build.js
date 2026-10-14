@@ -73,6 +73,6 @@ WS.onRefresh(renderPrDetail);
     ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
       () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
-  WS.ready.then(loadOptions);
+  loadOptions();   // the build settings and Projects do not need the status
   WS.reloadBuildOptions = loadOptions;
 })();

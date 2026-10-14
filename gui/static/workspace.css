@@ -68,10 +68,6 @@
 .share-more > summary::-webkit-details-marker { display: none; }
 .share-more > div { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5; padding: 6px; background: #252b33; border: 1px solid #46515e; border-radius: 8px; box-shadow: 0 8px 24px #0007; }
 .share-more button { white-space: nowrap; color: #f3a5a5; }
-.tool-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 24px; margin-top: 14px; }
-.tool-groups h4 { margin: 0; font-size: 13px; }
-.tool-groups p { margin: 2px 0 0; font-size: 11px; }
-.tool-groups .git-toolbar { margin: 8px 0 0; }
 .commit-panel > .heading { margin-bottom: 14px; }
 .share > .heading { margin-bottom: 4px; }
 .share-note { margin: 0; font-size: 12px; }
@@ -79,3 +75,18 @@
 #file-tree .file.generated { color: #84909e; font-style: italic; }
 .explorer-tools button[aria-pressed=true] { color: #9ee4d3; }
 .generated-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 10px; }
+/* The commits Push sends, under 「GitHubへ共有」. */
+.push-commits-box { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid #333b45; border-radius: 7px; background: #1b2027; }
+.push-commits-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #a5aeba; }
+.push-commits { margin: 6px 0 0; padding-left: 18px; max-height: 160px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.push-commits code { color: #8fb8ff; margin-right: 6px; }
+.link-button { background: none; border: none; padding: 0 4px; color: #8fb8ff; font-size: 12px; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+/* The divider between the explorer and the work area: drag it (or ←→ on it) to change the explorer's width. */
+main { grid-template-columns: var(--explorer-width, 290px) 6px minmax(0, 1fr); }
+main > aside { border-right: 0; }
+.splitter { cursor: col-resize; background: #303640; background-clip: content-box; padding: 0 2px; touch-action: none; }
+.splitter:hover, .splitter:focus-visible, .splitter.dragging { background-color: #5b8def; padding: 0 1px; outline: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing iframe { pointer-events: none; }
+@media(max-width: 700px) { main { grid-template-columns: 1fr; } .splitter { display: none; } }

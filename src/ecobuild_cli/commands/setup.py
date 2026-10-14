@@ -11,7 +11,10 @@ def command(
     yes: Annotated[bool, "確認せずに実行する（--install のとき）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """前提ツールの準備：gitが gh の認証を使うようにし、gitの名前・メールを設定します。--install でツールも導入します。"""
+    """前提ツールの準備：gitが gh の認証を使うようにし、gitの名前・メールを設定します。
+
+    --install でツールも導入します。
+    """
 
     def action(inv):
         if install:

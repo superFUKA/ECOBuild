@@ -8,7 +8,10 @@ def command(
     issue: Annotated[int, "消す作業空間のIssue番号（既定は今いる作業空間）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """手元の作業空間を消します。GitHubのブランチ・PR・Issueはそのままで、ecobuild task start でpushした所から再開できます。"""
+    """手元の作業空間を消します。
+
+    GitHubのブランチ・PR・Issueはそのままで、ecobuild task start でpushした所から再開できます。
+    """
     issue = optional_argument(number, issue, "--issue", json)
 
     def render(r):

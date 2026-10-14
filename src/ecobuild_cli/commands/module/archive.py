@@ -11,7 +11,9 @@ def command(
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """モジュール（GitHubのリポジトリ）をアーカイブ（読み取り専用）にします。ecobuild module unarchive で元に戻せます。
+    """モジュール（GitHubのリポジトリ）をアーカイブ（読み取り専用）にします。
+
+    ecobuild module unarchive で元に戻せます。
 
     使わなくなったモジュールを片付ける1段階目です。削除は、アーカイブしたものだけ ecobuild module delete でできます。
     タスク管理の情報は、元に戻したときにそのまま使えるように残します。

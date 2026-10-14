@@ -8,7 +8,10 @@ def command(
     pr: Annotated[int, "取り消すマージ済みのPRの番号"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """マージ済みのPRを取り消す作業空間を作ります（Issue作成→取り消しのコミット）。ecobuild task submit でPRを出します。"""
+    """マージ済みのPRを取り消す作業空間を作ります（Issue作成→取り消しのコミット）。
+
+    ecobuild task submit でPRを出します。
+    """
     pr = optional_argument(number, pr, "--pr", json)
     if not pr:
         return missing("PRの番号", json)

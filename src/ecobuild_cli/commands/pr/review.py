@@ -13,7 +13,10 @@ def command(
     message: Annotated[str, "レビューの内容"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """PRのレビューの結果を返します（--approve・--request-changes・--comment のどれか1つ）。自分のPRは承認できません。"""
+    """PRのレビューの結果を返します（--approve・--request-changes・--comment のどれか1つ）。
+
+    自分のPRは承認できません。
+    """
     chosen = [name for name, flag in (("approve", approve), ("request_changes", request_changes),
                                       ("comment", comment)) if flag]
     if len(chosen) != 1:

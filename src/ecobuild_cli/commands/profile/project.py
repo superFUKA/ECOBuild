@@ -15,7 +15,9 @@ def command(
     clear: Annotated[bool, "このProjectの上書きをすべて外す"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ビルド設定の、Projectごとの上書きを設定します（指定した項目で置き換え）。ecobuild.toml が変わるので、作業空間でコミットしてください。
+    """ビルド設定の、Projectごとの上書きを設定します（指定した項目で置き換え）。
+
+    ecobuild.toml が変わるので、作業空間でコミットしてください。
 
     構成・生成器・アーキテクチャはモジュール全体で1つです（依存でつながるProjectは揃っている必要があります）。
     """

@@ -12,7 +12,9 @@ def command(
     no_workspace: Annotated[bool, "作業空間を作らずに作業中にする（調査・設計等、コードを変えないタスク）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """Issueの作業空間（task/<番号>）を作ってGitHubにも置き、切り替えます。既にあれば切り替え、手元になければGitHubから再開します。
+    """Issueの作業空間（task/<番号>）を作ってGitHubにも置き、切り替えます。
+
+    既にあれば切り替え、手元になければGitHubから再開します。
 
     新しく作るときは、親タスク（開いている子タスクがある）と、先に終わるべきタスクを待っているタスクでは止まります。
     """

@@ -16,8 +16,10 @@ def command(
     stage: Annotated[str, "作業を始める前の段階（planned：計画中、todo：未着手）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスクの計画の値（優先度・期限・見積もり・スプリント・開始予定日・終了予定日）と、作業を始める前の段階
-    （計画中・未着手）を設定します。"""
+    """タスクの計画の値と、作業を始める前の段階（計画中・未着手）を設定します。
+
+    計画の値は、優先度・期限・見積もり・スプリント・開始予定日・終了予定日です。
+    """
     return run_command("task plan",
                        lambda inv: inv.module.plan_task(issue, priority=priority or None, due=due or None,
                                                         estimate=estimate or None, sprint=sprint or None,

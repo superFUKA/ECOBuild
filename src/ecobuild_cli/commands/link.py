@@ -9,7 +9,9 @@ def command(
     shared: Annotated[bool, "共有ライブラリとしてリンクする（既定は静的）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """GitHubにあるECOBuildのモジュールをリンクし、deps/ へcloneします。管理ファイルが変わるので、作業空間でコミットしてください。
+    """GitHubにあるECOBuildのモジュールをリンクし、deps/ へcloneします。
+
+    管理ファイルが変わるので、作業空間でコミットしてください。
 
     リンクされるのは、相手のモジュールで最初に作ったProjectです（ライブラリである必要があります）。
     """

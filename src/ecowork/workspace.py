@@ -139,11 +139,17 @@ class Workspace:
         sha = repo.commit(message, all=all, amend=amend)
         return CommitResult(self.branch, sha, message)
 
-    def push(self, *, force: bool = False) -> "PushResult":
+    def push(self, *, force: bool = False, dry_run: bool = False) -> "PushResult":
+        """GitHubへ送る。commits：送るコミット（新しい順、「短いID 件名」）。dry_run なら送らずに返すだけ。"""
         repo = self._repository.git
         tree = repo.working_tree()
-        repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
-        return PushResult(self.branch, f"origin/{self.branch}")
+        # GitHubのこのブランチにないもの。まだ送ったことがなければ、GitHubのどのブランチにもないもの
+        since = [f"{tree.upstream}..{self.branch}"] if tree.upstream and not tree.upstream_gone else [self.branch, "--not", "--remotes"]
+        log = repo.output("log", "--format=%h %s", *since)
+        commits = tuple(log.splitlines()) if log else ()
+        if not dry_run:
+            repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
+        return PushResult(self.branch, f"origin/{self.branch}", commits, pushed=not dry_run)
 
     def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False) -> "PullRequest":
         return self._repository._submit_workspace(self, title=title, partial=partial, draft=draft)
@@ -212,6 +218,8 @@ class CommitResult:
 class PushResult:
     branch: str
     remote: str
+    commits: tuple[str, ...] = ()   # 送る（送った）コミット。新しい順、「短いID 件名」
+    pushed: bool = True             # False：dry_run（送っていない）
 
 
 @dataclass(frozen=True)

@@ -29,9 +29,16 @@ def test_commit_only_in_workspace(repository):
     assert workspace.stage("a.cpp").staged == ("a.cpp",)
     result = workspace.commit("a を追加")
     assert result.branch == "task/1" and len(result.sha) == 40
-    workspace.push()
+    planned = workspace.push(dry_run=True)                       # 送らずに、送るコミットを返す
+    assert not planned.pushed and [c.split(" ", 1)[1] for c in planned.commits] == ["a を追加"]
     remote = repository.remote_url
+    assert git(repository.root, "ls-remote", remote, "task/1").split()[0] != result.sha
+    assert workspace.push().commits == planned.commits
     assert git(repository.root, "ls-remote", remote, "task/1").split()[0] == result.sha
+    write(repository.root / "b.cpp", "int b;\n")
+    workspace.stage("b.cpp")
+    workspace.commit("b を追加")
+    assert [c.split(" ", 1)[1] for c in workspace.push(dry_run=True).commits] == ["b を追加"]   # GitHubのこのブランチにないもの
 
 
 def test_start_refuses_uncommitted_changes(repository):

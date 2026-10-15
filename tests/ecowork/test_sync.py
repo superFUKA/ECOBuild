@@ -44,12 +44,28 @@ def test_sync_workspace_merges_base_and_resolves_conflict(repository, remote_and
     status = repository.status()
     assert status.merging and status.conflicted == ("README.md",)
     assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT  # 止まっている間は再実行できない
-    assert code_of(repository.continue_sync) == ErrorCode.MERGE_CONFLICT  # 未解決
+    assert code_of(repository.continue_sync) == ErrorCode.CONFLICT_MARKERS  # 未解決（印が残っている）
+    assert repository.status().conflicted == ("README.md",)                 # 何も登録していない
     write(repository.root / "README.md", "resolved\n")
+    repository.continue_sync()     # 直したファイルは自分で登録する（task add は要らない）
+    assert not repository.status().merging
+    assert (repository.root / "README.md").read_text(encoding="utf-8") == "resolved\n"
+    assert code_of(repository.continue_sync) == ErrorCode.NO_SYNC_IN_PROGRESS
+
+
+def test_continue_sync_records_a_deleted_file(repository, remote_and_clone, tmp_path):
+    """衝突したファイルを消して解決したら、削除として登録する。"""
+    remote, _ = remote_and_clone
+    workspace = repository.create_task("t").start()
+    write(repository.root / "README.md", "local\n")
     workspace.stage("README.md")
+    workspace.commit("手元の変更")
+    push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
+    assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
+    (repository.root / "README.md").unlink()
     repository.continue_sync()
     assert not repository.status().merging
-    assert code_of(repository.continue_sync) == ErrorCode.NO_SYNC_IN_PROGRESS
+    assert not (repository.root / "README.md").exists()
 
 
 def test_sync_abort(repository, remote_and_clone, tmp_path):

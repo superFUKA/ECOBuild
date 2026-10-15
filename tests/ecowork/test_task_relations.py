@@ -79,7 +79,7 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     parent_workspace.commit("p")
     repository.notices.clear()
     parent_pr = parent_workspace.submit()
-    assert any("子タスクが終わるまでマージできません" in n for n in repository.notices)
+    assert any("子タスクが終わるまで完了できません" in n for n in repository.notices)
     assert code_of(lambda: parent_pr.merge()) == ErrorCode.OPEN_SUBTASKS
     assert code_of(lambda: repository.drop_workspace(parent.number, close=True, discard=True)) == ErrorCode.OPEN_SUBTASKS
 

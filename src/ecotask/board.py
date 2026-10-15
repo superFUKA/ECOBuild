@@ -5,7 +5,7 @@
 直接変えられた値はそのまま読み、作業の段階のずれだけ直す。
 
 タスク＝Issue（1対1）で、ボードの項目はIssueを指すだけ。状態（Status）のうち、作業の段階（未着手・作業中・
-レビュー待ち・完了）は作業の流れの操作（task start・task submit・task merge 等）が書き換える。
+レビュー待ち・完了）は作業の流れの操作（task start・task submit・task finish 等）が書き換える。
 """
 
 from __future__ import annotations

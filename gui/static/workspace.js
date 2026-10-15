@@ -32,7 +32,7 @@ const changeKinds = s => {
   return map;
 };
 WS.changes = () => WS.status ? changeKinds(WS.status) : new Map();
-const KIND_LABEL = {conflicted: '衝突', staged: 'ステージ済み', unstaged: '変更', untracked: '追加（未追跡）'};
+const KIND_LABEL = {conflicted: '衝突', staged: 'ステージ済み', unstaged: '変更', untracked: '追加'};
 
 WS.refresh = async ({fetch = false} = {}) => {
   const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet: !fetch});
@@ -58,7 +58,7 @@ WS.refresh = async ({fetch = false} = {}) => {
 
 function renderHeader() {
   const s = WS.status;
-  const where = s.reviewing ? `PR #${s.reviewing} を確認中` : s.workspace ? `作業空間 · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
+  const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.workspace ? `作業空間 · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
   get('workspace-label').textContent = where;
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   const parts = [];
@@ -68,19 +68,29 @@ function renderHeader() {
   if (s.base_behind) parts.push('作成元より ' + s.base_behind + ' 遅れ');
   get('branch-state').textContent = (s.workspace ? s.branch + '　' : '') + parts.join(' · ');
   const pr = s.pull_request;
-  get('pr-state').innerHTML = pr ? `この作業空間のPR：<a href="#" data-pr="${pr.number}">#${pr.number}</a>（${esc(pr.state)}）` : '';
+  get('pr-state').textContent = pr && !s.finished ? `この作業空間：${submissionText(pr)}` : '';
 }
+
+// How the workspace's submission reads (PullRequestState). After a partial submission was taken in, none is open.
+function submissionText(pr) {
+  const kind = pr.partial ? '中間提出' : '提出';
+  if (pr.state === 'merged') return pr.partial ? '前回の中間提出は取り込み済み（今の提出はなし）' : `${kind}は取り込み済み`;
+  if (pr.state === 'closed') return `${kind}は取り下げ済み`;
+  return `${pr.draft ? '下書きの' : ''}${kind}中`;
+}
+const submitted = () => WS.status?.pull_request?.state === 'open' && !WS.status.finished;
 
 function banner(html, kind = '') { return `<div class="eco-banner ${kind}">${html}</div>`; }
 function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
-    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正してステージし、「取り込みを完了」を押してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
-    if (s.reviewing) out.push(banner(`PR #${s.reviewing} を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。<button data-git="review-done">確認を終えて戻る</button>`));
+    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
+    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して完了</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
     else if (!s.workspace) out.push(banner(`ここは作業空間ではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットは作業空間で行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
-    if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所でマージ・中止された可能性があります）。タスク管理の「完了した作業空間を片付ける」か「作業をやめる」で片付けてください。`, 'bad'));
+    if (s.upstream_gone && s.finished) out.push(banner(`#${s.workspace} は完了しています。<button data-git="clean-finished">作業空間を片付ける</button>`));
+    else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
   }
   get('banners').innerHTML = out.join('');
@@ -105,6 +115,7 @@ function renderChanges() {
     name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
     kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
     if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
+    if (WS.status?.excluded?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '管理外'; tag.title = '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。'; name.append(tag); }
     label.append(box, name, kind); list.append(label);
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
@@ -120,8 +131,12 @@ function updateButtons() {
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
   get('push').disabled = !editable || !s.ahead;
   document.querySelector('[data-git=force-push]').disabled = !editable;
-  get('submit-pr').disabled = !editable || !!(s.pull_request && s.pull_request.state === 'open');
-  get('submit-pr').title = s?.pull_request?.state === 'open' ? 'この作業空間のPRは提出済みです（コミットしてPushすると、PRに反映されます）' : '';
+  const open = submitted(), draft = open && s.pull_request.draft;
+  get('submit-pr').disabled = !editable || (open && !draft);
+  get('submit-pr').textContent = draft ? '下書きを解除' : '提出する';
+  get('submit-pr').title = open && !draft ? '提出済みです（コミットしてPushすると、提出に加わります）' : '';
+  get('finish').disabled = !editable || draft;
+  get('finish').title = draft ? '下書きの提出は完了できません（先に下書きを解除）' : '提出していなければ提出し、CIを待って取り込み、タスクを閉じます';
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
   // Staging is needed only to finish a merge that stopped on a conflict (sync continue); a commit stages what is checked.
@@ -160,16 +175,13 @@ WS.inTortoiseGit = async (args, asText) => {
 WS.openDiff = (path, kinds) => kinds.includes('untracked') ? showDiff(path, kinds)
   : WS.inTortoiseGit(['diff', path, ...(kinds.includes('unstaged') || kinds.includes('conflicted') ? [] : ['--staged'])], () => showDiff(path, kinds));
 
-// Commit: the checked files are exactly what is committed (TortoiseGit style).
+// Commit: the checked files are exactly what is committed (TortoiseGit style): task commit <paths>.
 get('commit').addEventListener('click', async () => {
   const message = get('commit-message').value.trim(), amend = get('amend').checked;
   if (!message) return;
-  const s = WS.status, changes = WS.changes();
-  const toStage = [...WS.selected].filter(p => changes.get(p)?.some(k => k !== 'staged'));
-  const toUnstage = s.staged.filter(p => !WS.selected.has(p));
-  if (toUnstage.length && !await WS.run(['restore', ...toUnstage, '--staged'], {refresh: false})) return WS.refresh();
-  if (toStage.length && !await WS.run(['task', 'add', ...toStage], {refresh: false})) return WS.refresh();
-  const doc = await WS.run(['task', 'commit', '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message});
+  const paths = [...WS.selected];
+  if (!paths.length && amend && WS.changes().size && !await ECO.confirm({title: '直前のコミットを修正', message: '印を付けたファイルがないため、変更（管理するファイル）をすべて直前のコミットに含めます。よろしいですか？', ok: '修正する'})) return;
+  const doc = await WS.run(['task', 'commit', ...paths, '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message + (r.outside?.length ? `（管理外のファイル ${r.outside.length} 件も含めました）` : '')});
   if (doc) { get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges(); if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。'); }
 });
 get('push').addEventListener('click', () => WS.run(['task', 'push'], {success: 'Pushしました。'}));
@@ -199,20 +211,30 @@ const setPushListClosed = closed => { pushListClosed = closed; try { localStorag
 get('push-commits-close').addEventListener('click', () => setPushListClosed(true));
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
-get('submit-pr').addEventListener('click', () => ECO.form({
-  title: 'プルリクエストを提出', intro: '作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へのプルリクエストを作成します。',
+get('submit-pr').addEventListener('click', () => submitted() ? WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(() => WS.refreshPrs?.()) : ECO.form({
+  title: '提出する', intro: '確認（ビルド・テスト等）してから作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へ提出します。',
   fields: [
-    {name: 'title', label: 'タイトル', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'},
-    {name: 'draft', label: '下書きにする（準備ができたら「下書きを解除」）', type: 'checkbox'},
-    {name: 'partial', label: '途中の反映（マージしてもタスクを閉じず、作業空間を続けて使う）', type: 'checkbox'},
-    {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox'},
+    {name: 'title', label: '題名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'},
+    {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
+    {name: 'partial', label: '中間提出（取り込んでもタスクを閉じず、作業空間を作り直して続ける）', type: 'checkbox'},
+    {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
+    {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
   ], ok: '提出する',
   submit: async v => {
-    if (WS.changes().size && !await ECO.confirm({title: '未コミットの変更', message: 'コミットしていない変更があります。PRに入るのはコミット済みの内容だけです。このまま提出しますか？', ok: '提出する'})) return 'キャンセルしました。';
-    const args = ['task', 'submit', ...(v.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.partial ? ['--partial'] : []), ...(v.check ? ['--check'] : [])];
-    const doc = await WS.run(args, {success: r => `PR #${r.number} を提出しました。`});
-    if (!doc) return 'PRを提出できませんでした。';
-    WS.refreshPrs?.(doc.result.number);
+    const args = ['task', 'submit', ...(v.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.partial ? ['--partial'] : []), ...(v.reviewer ? ['--reviewer', v.reviewer] : []), ...(v.check ? [] : ['--no-check'])];
+    const doc = await WS.run(args, {success: r => `${r.partial ? '中間提出' : '提出'}しました。`});
+    if (!doc) return '提出できませんでした。';
+    WS.refreshPrs?.();
+  },
+}));
+get('finish').addEventListener('click', () => ECO.form({
+  title: '完了する', intro: (submitted() ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じて、この作業空間を片付けます（中間提出なら、取り込んだ後に作業空間を作り直して続けます）。',
+  fields: [{name: 'subject', label: '取り込むコミットの件名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する',
+  submit: async v => {
+    const doc = await WS.run(['task', 'finish', ...(v.subject && v.subject !== WS.task?.title ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])],
+      {success: r => r.partial ? '中間提出を取り込み、作業空間を作り直しました。' : `#${r.task} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+    if (!doc) return '完了できませんでした。';
+    WS.reloadFiles?.(); WS.refreshPrs?.();
   },
 }));
 
@@ -221,6 +243,8 @@ async function gitAction(action) {
   const sel = [...WS.selected];
   switch (action) {
     case 'stage': return WS.run(['task', 'add', ...sel], {success: sel.length + '件をステージしました。'});
+    case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
+    case 'clean-finished': return WS.run(['task', 'clean', String(WS.status.workspace)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));
@@ -235,7 +259,7 @@ async function gitAction(action) {
     }
     case 'diff': return ECO.form({title: '差分', fields: [
       {name: 'path', label: '対象のパス（空欄ならすべて）', value: WS.activeFile || ''},
-      {name: 'mode', label: '比較', type: 'radio', value: '', options: [['', 'ステージしていない変更'], ['staged', 'ステージ済みの変更'], ['base', '作成元との差分（PRで出る差分）']]},
+      {name: 'mode', label: '比較', type: 'radio', value: '', options: [['', 'ステージしていない変更'], ['staged', 'ステージ済みの変更'], ['base', '作成元との差分（提出で出る差分）']]},
       {name: 'gui', label: 'TortoiseGitで表示する', type: 'checkbox', value: true}], ok: '表示',
       submit: async v => {
         const doc = await WS.cli(['diff', ...(v.path ? [v.path] : []), ...(v.mode ? ['--' + v.mode] : []), ...(v.gui ? ['--gui'] : [])]);
@@ -247,7 +271,7 @@ async function gitAction(action) {
     case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みを中止し、取り込む前の状態に戻しました。', confirm: '止まっている取り込みを中止し、取り込む前の状態に戻します。', title: '取り込みを中止'}).then(() => WS.reloadFiles?.());
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
-    case 'review-done': return WS.run(['task', 'review', '--done'], {success: '確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());
+    case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());
     case 'go-tasks': if (window.parent !== window) window.parent.document.getElementById('tasks-menu')?.click(); return;
     case 'pr-refresh': return WS.refreshPrs?.();
   }
@@ -258,7 +282,7 @@ document.addEventListener('click', e => {
 });
 
 function showLog(entries, path) {
-  const text = entries.map(e => `${e.sha.slice(0, 8)}  ${ECO.localTime(e.date, true)}  ${e.author}\n    ${e.subject}${e.pull_request ? `  (PR #${e.pull_request}${e.issue ? ` · タスク #${e.issue}` : ''})` : ''}`).join('\n');
+  const text = entries.map(e => `${e.sha.slice(0, 8)}  ${ECO.localTime(e.date, true)}  ${e.author}\n    ${e.subject}${e.issue ? `  (タスク #${e.issue})` : ''}`).join('\n');
   ECO.output('コミット履歴', text || '履歴はありません。', {sub: path || ''});
 }
 WS.showLog = showLog;

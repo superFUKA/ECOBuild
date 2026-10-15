@@ -42,7 +42,7 @@ ecobuild build
 ecobuild test
 ```
 
-作業はIssueごとの作業空間で行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit` → `ecobuild task submit` → `ecobuild task merge`）。
+作業はIssueごとの作業空間で行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit --message "<内容>"` → `ecobuild task submit` → `ecobuild task finish`）。
 """ + ("\n" + usage if usage else "")
 
 
@@ -61,18 +61,19 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 1. `ecobuild task new "<題名>" --body "<内容>" --start`（既存のIssueなら `ecobuild task start <番号>`）
 2. 編集する。ファイルの追加は `ecobuild file add <パス>`
-3. `ecobuild build`・`ecobuild test`（PR前の確認は `ecobuild check`）
-4. `ecobuild task add --all` → `ecobuild task commit --message "<内容>"`
-5. `ecobuild task submit`（途中の反映なら `--partial`）→ CIがあれば `ecobuild ci wait` → `ecobuild task merge`
-6. `ecobuild task clean`
+3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
+4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
+5. `ecobuild task submit`（確認 → 提出。中間提出なら `--partial`）
+6. `ecobuild task finish`（CIを待って取り込み、タスクを閉じ、作業空間を片付けます）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
 
 ## 守ること
 
 - ファイルを変える操作とコミットは、作業空間（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
-- 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。
+- 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。提出だけ取り下げるなら `ecobuild task withdraw`。
+- 番号はすべてタスク（Issue）の番号です。
 - 途中経過・申し送りは `ecobuild task comment --message "<内容>"` でIssueに残します（`ecobuild task status` で読めます）。`task start` すると担当者になります。ほかの担当者がいるタスクは `ecobuild task list` で確かめ、重ねて始めないでください。
-- 作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task remove` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別のcloneでも同じ）。
-- 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild task add` → `ecobuild sync continue`（やめるなら `ecobuild sync abort`）。{regenerate}
+- 作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task clean <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別のcloneでも同じ）。
+- 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild sync continue`（直したファイルは自動で登録されます。やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。
 - ソースはUTF-8で書きます。
 """

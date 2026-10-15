@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as _datetime
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -139,6 +140,49 @@ class Workspace:
         sha = repo.commit(message, all=all, amend=amend)
         return CommitResult(self.branch, sha, message)
 
+    def record(self, message: str, paths: tuple[str, ...] = (), *, include: "Callable[[str], bool] | None" = None,
+               amend: bool = False) -> "RecordResult":
+        """変更をコミットする（ステージを意識しない形。task commit）。
+
+        paths なし：追跡中のファイルの変更・削除すべてと、新しいファイルのうち include に当たるもの（None ならすべて）、
+        ステージ済みのもの。paths あり：そのパスだけ（新しいファイルも）。衝突の解決中は、登録した内容すべて。
+        """
+        repo = self._repository.git
+        tree = repo.working_tree()
+        merging = repo.is_merging()
+        if tree.conflicted:
+            raise WorkError(ErrorCode.MERGE_CONFLICT, "まだ解決していない衝突があります。",
+                            hint=f"ファイルを直して {self._repository._op('sync continue')} で取り込みを完了してください。",
+                            details=list(tree.conflicted))
+        skipped: tuple[str, ...] = ()
+        if paths:
+            repo.run("add", "--all", "--", *paths)
+        else:
+            repo.run("add", "--update")
+            new = tuple(p for p in tree.untracked if include is None or include(p))
+            skipped = tuple(p for p in tree.untracked if p not in new)
+            repo.add(new)
+        staged = repo.working_tree().staged
+        if not (staged or amend or merging):
+            raise WorkError(ErrorCode.NOTHING_TO_COMMIT, "コミットする変更がありません。",
+                            hint=("新しいファイルは管理するファイルの対象外のため含めませんでした"
+                                  f"（{', '.join(skipped)}）。含めるなら {self._repository._op('task commit')} "
+                                  "--message \"…\" <パス>。" if skipped else None),
+                            details=list(skipped) or None)
+        if merging:
+            self._repository._refuse_conflict_markers(repo.conflict_markers(cached=True))
+        # --amend でメッセージを省けば、直前のコミットのメッセージのまま
+        args = ["commit", "--quiet"] + (["--message", message] if message else ["--no-edit"]) + (
+            ["--amend"] if amend else [])
+        if paths and not merging:   # 取り込みの途中は一部だけのコミットができない（git の制限）
+            args += ["--", *paths]
+        repo.run(*args)
+        sha = repo.output("rev-parse", "HEAD")
+        listed = (("diff", "--name-only", f"{sha}^1", sha) if repo.rev_parse(f"{sha}^1")    # 取り込みは1つ目の親から
+                  else ("diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha))
+        files = tuple(repo.output(*listed).splitlines())
+        return RecordResult(self.branch, sha, message or repo.output("log", "-1", "--format=%s"), files, skipped)
+
     def push(self, *, force: bool = False, dry_run: bool = False) -> "PushResult":
         """GitHubへ送る。commits：送るコミット（新しい順、「短いID 件名」）。dry_run なら送らずに返すだけ。"""
         repo = self._repository.git
@@ -151,8 +195,12 @@ class Workspace:
             repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
         return PushResult(self.branch, f"origin/{self.branch}", commits, pushed=not dry_run)
 
-    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False) -> "PullRequest":
-        return self._repository._submit_workspace(self, title=title, partial=partial, draft=draft)
+    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False,
+               reviewers: tuple[str, ...] = ()) -> "PullRequest":
+        """提出する（push して作成元へのPRを作る）。提出済みなら送り直し、draft に合わせて下書きを付け外しし、
+        title・reviewers を変える。"""
+        return self._repository._submit_workspace(self, title=title, partial=partial, draft=draft,
+                                                  reviewers=reviewers)
 
 
 @dataclass(frozen=True)
@@ -165,6 +213,8 @@ class Branch:
     local: bool
     remote: bool
     _repository: "Repository" = field(repr=False, compare=False)
+    submission: "PullRequestState | None" = None   # 開いている提出（branch list で分かるとき）
+    submitted_to: str | None = None               # その提出の取り込み先
 
     def submit(self, *, into: str, title: str | None = None, draft: bool = False) -> "PullRequest":
         return self._repository._submit_branch(self, into=into, title=title, draft=draft)
@@ -212,6 +262,16 @@ class CommitResult:
     branch: str
     sha: str
     message: str
+
+
+@dataclass(frozen=True)
+class RecordResult:
+    branch: str
+    sha: str
+    message: str
+    files: tuple[str, ...] = ()       # コミットに入ったファイル
+    skipped: tuple[str, ...] = ()     # 含めなかった新しいファイル（管理するファイルの対象外）
+    outside: tuple[str, ...] = ()     # パスで指定した、管理するファイルの対象外の新しいファイル（指定どおり含めた）
 
 
 @dataclass(frozen=True)
@@ -306,6 +366,8 @@ class PullRequestState:
     number: int
     url: str
     state: str
+    draft: bool = False
+    partial: bool = False            # 中間提出（取り込んでも閉じない）
 
 
 @dataclass(frozen=True)
@@ -325,6 +387,9 @@ class Status:
     reviewing: int | None = None     # task review で確認中のPR
     base_behind: int | None = None   # status --fetch：作業空間が作成元より遅れているコミット数
     archived: bool | None = None     # status --fetch：GitHubのリポジトリがアーカイブ（読み取り専用）されている
+    reviewing_task: int | None = None   # 確認中の提出のタスク
+    finished: bool = False           # 作業空間のタスクが完了している（GitHubのブランチが消え、Issueが閉じた）
+    excluded: tuple[str, ...] = ()   # 新しいファイルのうち、task commit が自動で含めないもの（利用側が決める）
 
 
 @dataclass(frozen=True)
@@ -356,16 +421,17 @@ class TaskSummary:
     started: _datetime.date | None = None         # 開始日（初めて作業中になった日）
     finished: _datetime.date | None = None        # 終了日（閉じた日）
     workspace_path: Path | None = None            # 作業空間のある手元の場所（このclone。利用側が他のcloneも足す）
+    submission: PullRequestState | None = None    # 開いている提出（task list で分かるとき）
 
     @classmethod
     def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool,
-              path: Path | None = None) -> "TaskSummary":
+              path: Path | None = None, submission: "PullRequestState | None" = None) -> "TaskSummary":
         return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
                    task.stage, task.priority, task.due, task.estimate,
                    None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
                    task.planned_start, task.planned_end, task.created, task.started, task.finished,
-                   path if workspace else None)
+                   path if workspace else None, submission)
 
 
 @dataclass(frozen=True)
@@ -399,6 +465,35 @@ class ReviewResult:
     head: str                        # PRのブランチ
     sha: str
     returned_to: str | None = None   # --done で戻ったブランチ
+    task: int | None = None          # 作業空間の提出なら、そのタスクの番号
+
+
+@dataclass(frozen=True)
+class JudgeResult:
+    """差し戻し（task reject）の結果。"""
+    task: int
+    pull_request: int
+    url: str
+    returned_to: str | None = None   # 確認中（task review）から戻ったブランチ
+
+
+@dataclass(frozen=True)
+class FinishResult:
+    """タスクの完了（task finish・task approve）の結果。"""
+    task: int
+    pull_request: int                # 取り込んだ提出（PR）
+    url: str
+    subject: str                     # 取り込んだコミットの件名（(#PR番号) の前）
+    partial: bool                    # 中間提出（作業空間を作り直して続ける）
+    resumed: bool                    # 取り込み済みで、止まっていた後処理だけを行った
+    closed_issue: int | None
+    workspace_rebuilt: bool
+    removed: bool                    # 手元の作業空間を片付けた
+    switched_to: str | None          # 今いた作業空間を片付けて移った先
+    checks: tuple = ()               # 待ったCIの実行
+    next: TaskRef | None = None      # 次のタスクの候補（task next の1番目）
+    approved: bool = False           # task approve：承認してから完了した
+    returned_to: str | None = None   # task approve：確認中（task review）から戻ったブランチ
 
 
 @dataclass(frozen=True)
@@ -414,6 +509,7 @@ class LogEntry:
 @dataclass(frozen=True)
 class RevertResult:
     pull_request: int
-    task: int
+    task: int                        # 取り消しの作業を行うタスク（新しく作ったもの）
     branch: str
     sha: str | None                  # 衝突で止まった場合はNone
+    reverted_task: int | None = None # task revert：取り消したタスク

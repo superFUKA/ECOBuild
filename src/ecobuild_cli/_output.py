@@ -228,7 +228,7 @@ def _detail_text(details: Any) -> str:
     if not details:
         return ""
     if isinstance(details, (list, tuple)):
-        return "\n".join(f"  {item}" for item in details)
+        return "\n".join(f"  {_item_text(item)}" for item in details)
     if isinstance(details, dict):
         details = details.get("output") or json.dumps(to_data(details), ensure_ascii=False)
     text_lines = str(details).rstrip().splitlines()
@@ -244,6 +244,21 @@ def _detail_text(details: Any) -> str:
 
 
 _ERROR_LINE = re.compile(r"\b(error|fatal error)\b|FAILED", re.IGNORECASE)
+
+
+def _item_text(item: Any) -> str:
+    """詳細の1項目を人向けに。CIの実行は「#番号 ワークフロー：結果 URL」、他の辞書は値を並べる（Pythonの辞書のまま出さない）。"""
+    if not isinstance(item, dict):
+        return str(item)
+    if "name" in item and "ok" in item:      # check の項目
+        from ecobuild.module import CHECK_NAMES
+        return f"{'OK' if item['ok'] else 'NG'} {CHECK_NAMES.get(item['name'], item['name'])}" + (
+            f"：{item['detail']}" if item.get("detail") else "")
+    if "workflow" in item:
+        return " ".join(str(p) for p in (f"#{item.get('id')}", f"{item.get('workflow')}："
+                                          f"{item.get('conclusion') or item.get('status') or ''}", item.get("url"))
+                        if p)
+    return "・".join(f"{key} {value}" for key, value in item.items() if value not in (None, ""))
 
 
 def to_data(value: Any) -> Any:

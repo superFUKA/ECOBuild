@@ -4,18 +4,18 @@ from ..._output import missing, optional_argument, run_command
 
 
 def command(
-    *number: Annotated[int, "取り消すマージ済みのPRの番号（--pr と同じ）"],
-    pr: Annotated[int, "取り消すマージ済みのPRの番号"] = 0,
+    *number: Annotated[int, "取り消す、完了したタスクの番号（--task と同じ）"],
+    task: Annotated[int, "取り消す、完了したタスクの番号"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """マージ済みのPRを取り消す作業空間を作ります（Issue作成→取り消しのコミット）。
+    """完了したタスクの取り込み（中間提出も含む）を取り消すタスクと作業空間を作ります（取り消しのコミットまで）。
 
-    ecobuild task submit でPRを出します。
+    確かめてから ecobuild task submit → task finish で反映します。
     """
-    pr = optional_argument(number, pr, "--pr", json)
-    if not pr:
-        return missing("PRの番号", json)
+    task = optional_argument(number, task, "--task", json)
+    if not task:
+        return missing("タスクの番号", json)
     return run_command(
-        "task revert", lambda inv: inv.module.revert(pr),
-        lambda r: f"PR #{r.pull_request} を取り消すコミットを作りました：作業空間 {r.branch}（Issue #{r.task}）。"
-                  "確かめてから ecobuild task submit", json_output=json)
+        "task revert", lambda inv: inv.module.revert_task(task),
+        lambda r: f"#{r.reverted_task} を取り消すコミットを作りました：作業空間 {r.branch}（タスク #{r.task}）\n"
+                  "次：確かめてから ecobuild task submit → ecobuild task finish", json_output=json)

@@ -284,7 +284,7 @@ def test_create_checks_dates_before_creating(tracker):
 
 
 def test_planning_stage(tracker):
-    """作業を始める前の段階（計画中・未着手）は task plan で変える。作業を始めたものは変えない。"""
+    """作業を始める前の段階（計画中・未着手）は task edit --stage で変える。作業を始めたものは変えない。"""
     task = tracker.create("t")
     assert tracker.plan(task.number, stage="planned").stage == "planned"
     assert (tracker.task(task.number).stage, status(tracker, task.number)) == ("planned", "Backlog")

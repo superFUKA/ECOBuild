@@ -63,7 +63,7 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
     ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
-    ("pr", "list"), ("pr", "status"), ("pr", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
+    ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("release", "list"),
 }

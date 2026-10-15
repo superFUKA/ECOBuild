@@ -198,7 +198,7 @@ class Tracker:
         if stage not in (_model.PLANNED, _model.TODO):
             raise TaskError(ErrorCode.INVALID_ARGUMENT, f"段階 {stage} は設定できません。",
                             hint="planned（計画中）か todo（未着手）を指定してください。作業中・レビュー待ち・完了は、"
-                                 f"{self._op('task start')}・{self._op('task submit')}・{self._op('task merge')} 等で変わります。")
+                                 f"{self._op('task start')}・{self._op('task submit')}・{self._op('task finish')} 等で変わります。")
         task = self.task(number)
         if not task.open:
             raise TaskError(ErrorCode.TASK_CLOSED, f"#{number} は閉じています。")
@@ -245,9 +245,9 @@ class Tracker:
                 return
             subtasks = self.github.sub_issues(self.root, parent)
             if subtasks and all(s.state == "closed" or s.number == number for s in subtasks):
-                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました。親も終えられます"
-                                    f"（作業空間があれば {self._op('task submit')}・{self._op('task merge')}、"
-                                    f"なければ {self._op('task close')} {parent}）。")
+                self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました。親を完了できます："
+                                    f"{self._op('task finish')} {parent}（作業空間がなければ "
+                                    f"{self._op('task close')} {parent}）。")
         except TaskError:
             pass  # 知らせるだけなので、失敗しても操作は成功のまま
 
@@ -345,7 +345,7 @@ class Tracker:
         sprints = self.store.sprints()
         if not sprints:
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "スプリントがまだありません。",
-                            hint=f"{self._op('task plan')} でタスクの計画を初めて設定すると、今週から2週間ずつ3回分の"
+                            hint=f"{self._op('task edit')} でタスクの計画を初めて設定すると、今週から2週間ずつ3回分の"
                                  "スプリントができます。")
         today = today or _datetime.date.today()
         if name == "current":

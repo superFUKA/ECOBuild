@@ -234,7 +234,7 @@ class Git:
             raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint=f"ファイルを直してから {operation(self.command, 'task add')} で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'sync continue')} を実行してください。",
             )
         self.run("commit", "--quiet", "--no-edit")
         return self.output("rev-parse", "HEAD")
@@ -270,7 +270,7 @@ class Git:
             raise WorkError(
                 ErrorCode.MERGE_CONFLICT,
                 "まだ解決していない衝突があります。",
-                hint=f"ファイルを直してから {operation(self.command, 'task add')} で登録してください。",
+                hint=f"ファイルを直してから {operation(self.command, 'sync continue')} を実行してください。",
             )
         completed = self.run("rebase", "--continue", check=False)
         if completed.ok:

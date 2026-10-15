@@ -2,7 +2,7 @@ import datetime
 from typing import Annotated
 
 from ..._output import lines, optional_argument, run_command
-from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text
+from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text, submission_text
 
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 
@@ -15,12 +15,22 @@ def refs(label, tasks):
                                       for t in tasks)
 
 
+def submission(r) -> str:
+    """提出の行。中間提出を取り込んだ後（タスクは開いたまま）は、前回の中間提出と、今の提出がないことを分けて出す。"""
+    pr = r.pull_request
+    if pr is None:
+        return "提出：なし"
+    if pr.state == "merged" and r.state == "open":
+        return f"提出：なし（前回の中間提出は取り込み済み {pr.url}）"
+    return f"提出：{submission_text(pr)} {pr.url}"
+
+
 def command(
     *number: Annotated[int, "Issueの番号（--issue と同じ）"],
     issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスクの状態：Issue（ラベル・担当者・コメント）、作業空間、PRのレビュー・コメント・CIの結果を表示します。"""
+    """タスクの状態：Issue（ラベル・担当者・コメント）、作業空間、提出（レビュー・コメント・CIの結果）を表示します。"""
 
     issue = optional_argument(number, issue, "--issue", json)
 
@@ -50,9 +60,8 @@ def command(
             if r.workspace or r.workspace_path
             else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
             else "作業空間：なし",
-            f"PR #{r.pull_request.number}（{r.pull_request.state}）{r.pull_request.url}" if r.pull_request
-            else "PR：なし",
-            f"  マージ：{MERGEABLE.get(a.mergeable, '確認中')}" if a is not None and opened else None,
+            submission(r),
+            f"  取り込み：{MERGEABLE.get(a.mergeable, '確認中')}" if a is not None and opened else None,
             "\n".join(details) or None,
         )
 

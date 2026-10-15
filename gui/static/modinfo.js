@@ -122,17 +122,17 @@
       <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="6" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
   }
   function renderBranches() {
-    const branches = data.branches, prs = Array.isArray(data.prs) ? data.prs : [];
+    const branches = data.branches;
     if (branches.error) return head('ブランチ', '') + `<p class="mi-note">${esc(branches.error.message)}</p>`;
     const names = new Set(branches.map(b => b.name));
     const roots = branches.filter(b => !b.base || !names.has(b.base));
     const node = (b, depth) => {
       const kids = branches.filter(c => c.base === b.name && c !== b), where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・');
-      const pr = prs.find(x => x.head === b.name), n = /^task\/(\d+)$/.exec(b.name)?.[1];
+      const pr = b.submission, n = /^task\/(\d+)$/.exec(b.name)?.[1];
       const actions = b.is_workspace ? (n ? `<button type="button" data-open-ws="${n}">作業空間を開く</button>` : '')
-        : (pr ? btn('マージ', 'branch-merge', pr.number) : depth || b.base ? btn('反映するPRを作る', 'branch-submit', b.name) : '') + (depth || b.base ? btn('削除', 'branch-delete', b.name, 'danger-text') : '');
+        : (pr ? btn('取り込む', 'branch-merge', b.name) : depth || b.base ? btn('提出する', 'branch-submit', b.name) : '') + (depth || b.base ? btn('削除', 'branch-delete', b.name, 'danger-text') : '');
       return `<li><div class="mi-branch ${b.is_workspace ? 'ws' : ''}"><span class="mi-branch-name">${esc(b.name)}</span>${b.is_workspace ? pill('作業空間', 'ok') : pill('ブランチ')}
-        <span class="mi-where">${where}</span>${pr ? pill(`PR #${pr.number} → ${pr.base}${pr.draft ? '・下書き' : ''}`, 'pr') : ''}<span class="mi-row-actions">${actions}</span></div>
+        <span class="mi-where">${where}</span>${pr ? pill(`${pr.draft ? '下書きの' : ''}${pr.partial ? '中間' : ''}提出 → ${b.submitted_to}`, 'pr') : ''}<span class="mi-row-actions">${actions}</span></div>
         ${kids.length ? `<ul>${kids.map(k => node(k, depth + 1)).join('')}</ul>` : ''}</li>`;
     };
     return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。作業空間（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
@@ -147,7 +147,7 @@
     overview: async () => { const r = await cli(['module', 'show']); data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; },
     deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },
-    branches: async () => { const [b, p] = await Promise.all([cli(['branch', 'list']), cli(['pr', 'list'])]); data.branches = b.ok ? b.result : {error: b.error}; data.prs = p.ok ? p.result : []; },
+    branches: async () => { const b = await cli(['branch', 'list']); data.branches = b.ok ? b.result : {error: b.error}; },
   };
   let rendering = 0;
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
@@ -389,12 +389,12 @@
       {name: 'name', label: 'ブランチ名（task/ で始まる名前は作業空間専用）', required: true, placeholder: '例：develop'},
       {name: 'base', label: '作成元', type: 'select', options: [['', '既定（default_base）'], ...(Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace).map(b => [b.name, b.name]) : [])]}], ok: '作成',
       submit: async v => { if (!await ECO.run(here(), ['branch', 'create', v.name, ...(v.base ? ['--base', v.base] : [])], {success: `ブランチ ${v.name} を作成しました。`})) return '作成できませんでした。'; render(); }}),
-    'branch-submit': name => ECO.form({title: `反映するPRを作る：${name}`, fields: [
-      {name: 'into', label: '反映先', type: 'select', options: (Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace && b.name !== name) : []).map(b => [b.name, b.name])},
-      {name: 'title', label: 'PRのタイトル'}, {name: 'draft', label: '下書きにする', type: 'checkbox'}], ok: '作る',
-      submit: async v => { if (!v.into) return '反映先を選んでください。'; if (!await ECO.run(here(), ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : [])], {success: r => `PR #${r.number} を作成しました。`})) return '作成できませんでした。'; render(); }}),
-    'branch-merge': number => ECO.form({title: `ブランチのPR #${number} をマージ`, intro: 'ブランチ同士のPRを、マージコミットでマージします。', fields: [{name: 'ignore', label: 'CIが失敗していてもマージする', type: 'checkbox'}], ok: 'マージ',
-      submit: async v => { if (!await ECO.run(here(), ['branch', 'merge', String(number), ...(v.ignore ? ['--ignore-checks'] : [])], {success: `PR #${number} をマージしました。`})) return 'マージできませんでした。'; render(); }}),
+    'branch-submit': name => ECO.form({title: `提出する：${name}`, fields: [
+      {name: 'into', label: '取り込み先', type: 'select', options: (Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace && b.name !== name) : []).map(b => [b.name, b.name])},
+      {name: 'title', label: '提出の題名'}], ok: '提出',
+      submit: async v => { if (!v.into) return '取り込み先を選んでください。'; if (!await ECO.run(here(), ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : [])], {success: `${name} を ${v.into} へ提出しました。`})) return '提出できませんでした。'; render(); }}),
+    'branch-merge': name => ECO.form({title: `${name} の提出を取り込む`, intro: 'ブランチ同士の提出を、マージコミットで取り込みます。', fields: [{name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'}], ok: '取り込む',
+      submit: async v => { if (!await ECO.run(here(), ['branch', 'merge', name, ...(v.ignore ? ['--ignore-checks'] : [])], {success: `${name} の提出を取り込みました。`})) return '取り込めませんでした。'; render(); }}),
     'branch-delete': name => ECO.run(here(), ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`}).then(doc => doc && render()),
   };
   el('modinfo-content').addEventListener('click', e => {

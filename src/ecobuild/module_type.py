@@ -70,6 +70,12 @@ class ModuleType:
         return ""
 
     @classmethod
+    def tracked_patterns(cls) -> tuple[str, ...]:
+        """管理するファイルの既定のパターン（新しいファイルのうち、task commit が自動で含めるもの。tracking）。
+        ECOBuild が作るファイル・型の管理ファイル（is_managed）は、ここに書かなくても常に含める。"""
+        return ()
+
+    @classmethod
     def gitattributes(cls) -> str:
         return ""
 

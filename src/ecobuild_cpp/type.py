@@ -87,6 +87,11 @@ GITIGNORE = """\
 """
 
 
+# 管理するファイルの既定（ソース・ヘッダー・文書）。CppBuildの管理ファイル（.cppbuild/）・生成ファイルは別に常に含める
+TRACKED_PATTERNS = ("*.h", "*.hh", "*.hpp", "*.hxx", "*.inl", "*.ipp", "*.c", "*.cc", "*.cpp", "*.cxx", "*.ixx",
+                    "*.cppm", "*.md")
+
+
 def _cppbuild_version() -> str:
     try:
         distribution = metadata.distribution("cppbuild")
@@ -153,6 +158,10 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     @classmethod
     def gitignore(cls) -> str:
         return GITIGNORE
+
+    @classmethod
+    def tracked_patterns(cls) -> tuple[str, ...]:
+        return TRACKED_PATTERNS
 
     @classmethod
     def gitattributes(cls) -> str:

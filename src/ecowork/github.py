@@ -53,7 +53,7 @@ class PullRequestInfo:
     head_sha: str | None = None
     merge_commit: str | None = None     # マージ済みなら、作成元に入ったコミット
     author: str = ""
-    draft: bool = False                 # 下書き（マージできない。pr ready で解除）
+    draft: bool = False                 # 下書き（マージできない。task submit で解除）
 
 
 @dataclass(frozen=True)

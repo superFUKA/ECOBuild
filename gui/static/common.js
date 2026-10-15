@@ -95,8 +95,7 @@ const ECO = (() => {
       const ok = await confirm({title: '生成ファイルのコミット', message: 'ECOBuild・CppBuild の更新などにより、生成ファイル・管理ファイルが変わりました。これらのファイルだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
       if (!ok) return null;
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
-      let step = await cli(dir, ['task', 'add', ...outdated]);
-      if (step.ok) step = await cli(dir, ['task', 'commit', '--message', '生成ファイルを構成の更新に合わせる']);
+      const step = await cli(dir, ['task', 'commit', ...outdated, '--message', '生成ファイルを構成の更新に合わせる']);
       doc = step.ok ? await cli(dir, args, {stdin}) : step;
     }
     overlay?.end();

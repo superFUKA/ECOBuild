@@ -97,7 +97,7 @@ def test_merge_can_be_resumed_after_partial_failure(repository, monkeypatch):
     monkeypatch.setattr(github, "close_issue", failing)
     with pytest.raises(WorkError) as error:
         pr.merge()
-    assert f"task merge {pr.number}" in error.value.hint
+    assert f"task finish {workspace.number}" in error.value.hint
     assert github.get_pull_request(repository.root, pr.number).state == "merged"
     assert repository.git.has_remote_branch(workspace.branch)
 

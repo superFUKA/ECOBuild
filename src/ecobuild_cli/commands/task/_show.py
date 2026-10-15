@@ -31,6 +31,16 @@ def task_line(task) -> str:
     return f"#{task.number} {task.title}" + (f"〈{stage}〉" if stage else "") + (f"  {plan}" if plan else "")
 
 
+def submission_text(state) -> str:
+    """提出（PullRequestState）の短い説明：下書きの提出・中間提出・取り込み済み 等。"""
+    kind = "中間提出" if state.partial else "提出"
+    if state.state == "merged":
+        return f"{kind}は取り込み済み"
+    if state.state == "closed":
+        return f"{kind}は取り下げ済み"
+    return ("下書きの" if state.draft else "") + kind + "中"
+
+
 def elsewhere(path, root) -> str:
     """作業空間が、今いるのと別のclone（このPCの）にあれば、その場所。"""
     from ecobuild import clones

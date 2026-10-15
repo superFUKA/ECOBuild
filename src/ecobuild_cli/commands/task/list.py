@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from ._show import STAGE_NAMES, elsewhere, plan_text
+from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text
 
 
 def command(
@@ -15,6 +15,8 @@ def command(
     sprint: Annotated[str, "このスプリントのタスクだけ（スプリントの名前。current は今日を含むもの）"] = "",
     sort: Annotated[str, "並べる値（priority・due・estimate・sprint・planned_start・planned_end・started・created・"
                          "finished。優先度は高い順、日付・見積もりは小さい順）"] = "",
+    submitted: Annotated[bool, "提出中のタスクだけ"] = False,
+    to_review: Annotated[bool, "自分が見るように頼まれている提出のタスクだけ"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（Issue）の一覧を表示します。
@@ -29,12 +31,13 @@ def command(
         here.append(inv.module.root)
         return inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
                                 search=search or None, milestone=milestone or None, ready=ready,
-                                sort=sort or None, sprint=sprint or None)
+                                sort=sort or None, sprint=sprint or None, submitted=submitted, to_review=to_review)
 
     def render(r):
         return "\n".join(("* " if t.current else "+ " if t.workspace or t.workspace_path else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
                          + (f"〈{STAGE_NAMES[t.stage]}〉" if t.stage in STAGE_NAMES else "")
+                         + (f"（{submission_text(t.submission)}）" if t.submission else "")
                          + (f" {plan_text(t)}" if plan_text(t) else "")
                          + "".join(f" [{name}]" for name in t.labels)
                          + (f"（担当：{', '.join(t.assignees)}）" if t.assignees else "")
@@ -44,6 +47,7 @@ def command(
                          + (f"〔{t.milestone}〕" if t.milestone else "")
                          + ("" if t.state == "open" else "（閉じています）")
                          + elsewhere(t.workspace_path, here[0]) for t in r) or (
-            "着手できるタスクはありません" if ready else "タスクはありません")
+            "着手できるタスクはありません" if ready else "提出中のタスクはありません" if submitted
+            else "見るように頼まれている提出はありません" if to_review else "タスクはありません")
 
     return run_command("task list", tasks, render, json_output=json)

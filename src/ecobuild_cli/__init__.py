@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import types
 
 import click
 from cli_framework import create_cli
@@ -11,8 +12,44 @@ from . import commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
+# task --help の見出し（コマンドが多いので、目的ごとに分けて出す）
+TASK_SECTIONS = (
+    ("計画", ("new", "edit", "list", "next", "overdue", "workload", "comment", "close", "reopen")),
+    ("作業", ("start", "commit", "add", "push", "status", "diff", "drop", "clean")),
+    ("提出と完了", ("submit", "withdraw", "review", "approve", "reject", "finish", "revert")),
+)
+
+
 def build_cli():
-    return create_cli(commands, name="ecobuild")
+    cli = create_cli(commands, name="ecobuild")
+    task = cli.commands.get("task") if isinstance(cli, click.Group) else None
+    if isinstance(task, click.Group):
+        task.format_commands = types.MethodType(_format_sections(TASK_SECTIONS), task)
+    return cli
+
+
+def _format_sections(sections):
+    """グループのコマンドの一覧を、見出しごとに出す（見出しにないコマンドは「その他」）。"""
+
+    def format_commands(self, ctx, formatter):
+        names = self.list_commands(ctx)
+        listed = set()
+        groups = []
+        for title, members in (*sections, ("その他", tuple(names))):
+            rows = []
+            for name in members:
+                command = self.get_command(ctx, name)
+                if name in listed or name not in names or command is None or command.hidden:
+                    continue
+                listed.add(name)
+                rows.append((name, command.get_short_help_str(limit=formatter.width)))
+            if rows:
+                groups.append((title, rows))
+        for title, rows in groups:
+            with formatter.section(title):
+                formatter.write_dl(rows)
+
+    return format_commands
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -1,128 +1,107 @@
 'use strict';
-// Pull requests of the module: list, status (reviews, comments, CI), edit, review, merge, local review, revert.
+// Submissions of the module (task list --submitted): status (reviews, comments, CI), diff, local review, approve/reject,
+// finish, withdraw. Every number is a task number; the pull request behind a submission is the CLI's business.
 let prs = [], selectedPr = 0, prStatus = null, me = '';
 ECO.info().then(info => { me = info.me || ''; });
-const PR_STATE = {open: '開いている', closed: '閉じた', merged: 'マージ済み', OPEN: '開いている', CLOSED: '閉じた', MERGED: 'マージ済み'};
-const prState = pr => pr.draft && pr.state.toLowerCase() === 'open' ? '下書き' : PR_STATE[pr.state] || pr.state;
+const SUBMISSION = s => !s ? 'なし' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み') : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
 
 WS.refreshPrs = async select => {
-  // Read at once, together with the status (which tells this workspace's PR, chosen first).
-  const [doc] = await Promise.all([WS.cli(['pr', 'list', ...(get('pr-all').checked ? ['--all'] : [])], {quiet: true}), WS.ready]);
+  const [doc] = await Promise.all([WS.cli(['task', 'list', get('pr-all').checked ? '--to-review' : '--submitted'], {quiet: true}), WS.ready]);
   if (!doc.ok) { get('pr-list').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`; return; }
   prs = doc.result;
   if (select) selectedPr = select;
-  if (!selectedPr && WS.status?.pull_request) selectedPr = WS.status.pull_request.number;
+  if (!selectedPr && WS.status?.workspace && WS.status?.pull_request?.state === 'open') selectedPr = WS.status.workspace;
+  if (selectedPr && !prs.some(t => t.number === selectedPr)) selectedPr = 0;
   renderPrList();
-  if (selectedPr) await loadPr(selectedPr); else renderPrDetail();
+  if (selectedPr) await loadPr(selectedPr); else { prStatus = null; renderPrDetail(); }
 };
 function renderPrList() {
-  get('pr-list').innerHTML = prs.map(pr => `<button type="button" data-select-pr="${pr.number}" aria-pressed="${pr.number === selectedPr}"><span>#${pr.number} ${esc(pr.title)}</span><span class="pr-state">${esc(pr.head)} → ${esc(pr.base)} · ${esc(prState(pr))}${pr.author ? ' · ' + esc(pr.author) : ''}</span></button>`).join('') || '<p class="muted">プルリクエストはありません。</p>';
+  get('pr-list').innerHTML = prs.map(t => `<button type="button" data-select-pr="${t.number}" aria-pressed="${t.number === selectedPr}"><span>#${t.number} ${esc(t.title)}</span><span class="pr-state">${esc(SUBMISSION(t.submission))}${t.assignees.length ? ' · ' + esc(t.assignees.join(', ')) : ''}</span></button>`).join('')
+    || `<p class="muted">${get('pr-all').checked ? '見るように頼まれた提出はありません。' : '提出中のタスクはありません。'}</p>`;
 }
 async function loadPr(number) {
   selectedPr = number; renderPrList();
   get('pr-detail').innerHTML = ECO.loading();
-  const doc = await WS.cli(['pr', 'status', String(number)], {quiet: true});
+  const doc = await WS.cli(['task', 'status', String(number)], {quiet: true});
   prStatus = doc.ok ? doc.result : null;
   if (!doc.ok) get('pr-detail').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`;
   else renderPrDetail();
 }
 const checkMark = c => c.status !== 'completed' ? '<span class="check-wait">実行中</span>' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? '<span class="check-ok">成功</span>' : `<span class="check-bad">${esc(c.conclusion || '失敗')}</span>`;
 function renderPrDetail() {
-  const pr = prStatus, tools = get('pr-tools');
+  const t = prStatus, tools = get('pr-tools');
   tools.replaceChildren();
-  if (!pr || pr.number !== selectedPr) { get('pr-detail').innerHTML = ''; return; }
-  const state = pr.state.toLowerCase(), open = state === 'open', merged = state === 'merged', own = me && pr.author === me;
-  const s = WS.status || {}, reviewingThis = s.reviewing === pr.number, workspacePr = pr.head.startsWith('task/');
+  if (!t || t.number !== selectedPr) { get('pr-detail').innerHTML = ''; return; }
+  const sub = t.pull_request, open = sub?.state === 'open', own = me && t.assignees.includes(me);
+  const s = WS.status || {}, reviewingThis = !!s.reviewing && s.reviewing_task === t.number;
   const buttons = [
-    ['refresh', '状態を更新'], ['diff', '差分'], ['edit', '編集', !merged], ['comment', 'コメント'],
-    ['review', 'レビュー', open && !own], [pr.draft ? 'ready' : 'draft', pr.draft ? '下書きを解除' : '下書きに戻す', open],
-    [state === 'closed' ? 'reopen' : 'close', state === 'closed' ? '開き直す' : '閉じる', !merged],
-    ['merge', 'マージ', open && !pr.draft], ['local-review', reviewingThis ? '手元の確認を終える' : '手元で確認', reviewingThis || (open && !own)],
-    ['revert', 'マージを取り消す', merged && workspacePr], ['task', 'タスクを見る', !!pr.task],
+    ['refresh', '状態を更新'], ['diff', '差分'], ['comment', 'コメント'],
+    ['local-review', reviewingThis ? '判定せずに戻る' : '手元で確認', reviewingThis || (open && !own)],
+    ['approve', '承認して完了', open && !own && !sub.draft], ['reject', '差し戻す', open && !own],
+    ['finish', '完了する', open && !sub.draft], ['withdraw', '取り下げる', open],
+    ['task', 'タスクを見る'],
   ];
   for (const [action, label, enabled = true] of buttons) {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action; tools.append(b);
   }
-  const a = pr.activity || {reviews: [], comments: [], checks: [], mergeable: ''};
-  const mergeable = {MERGEABLE: 'マージできます', CONFLICTING: '衝突があります（作業空間で最新を取り込んで解決してください）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
+  const a = t.activity || {reviews: [], comments: [], checks: [], mergeable: ''};
+  const mergeable = {MERGEABLE: '取り込めます', CONFLICTING: '衝突があります（作業空間で最新を取り込んで解決してください）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
   get('pr-detail').innerHTML = `<dl>
-      <dt>PR</dt><dd><strong>#${pr.number} ${esc(pr.title)}</strong></dd>
-      <dt>状態</dt><dd>${esc(prState(pr))}${open ? ' · ' + esc(mergeable) : ''}</dd>
-      <dt>向き</dt><dd>${esc(pr.head)} → ${esc(pr.base)}</dd>
-      <dt>作成者</dt><dd>${esc(pr.author)}${own ? '（自分）' : ''}</dd>
-      ${pr.task ? `<dt>タスク</dt><dd>#${pr.task}</dd>` : ''}
+      <dt>タスク</dt><dd><strong>#${t.number} ${esc(t.title)}</strong></dd>
+      <dt>提出</dt><dd>${esc(SUBMISSION(sub))}${open ? ' · ' + esc(mergeable) : ''}</dd>
+      <dt>作業空間</dt><dd>task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}</dd>
+      <dt>担当者</dt><dd>${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}</dd>
       <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
-      <dt>URL</dt><dd>${esc(pr.url)}</dd></dl>
-    ${pr.body ? `<div class="pr-body">${esc(pr.body)}</div>` : ''}
-    ${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '修正の依頼', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
-    ${a.comments.map(c => `<div class="entry"><b>${esc(c.author)}</b>\n${esc(c.body)}</div>`).join('')}`;
+      ${sub ? `<dt>URL</dt><dd>${esc(sub.url)}</dd>` : ''}</dl>
+    ${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
+    ${a.comments.map(c => `<div class="entry"><b>${esc(c.author)}</b>\n${esc(c.body)}</div>`).join('')}
+    ${(t.comments || []).map(c => `<div class="entry"><b>${esc(c.author)}</b>（タスク）\n${esc(c.body)}</div>`).join('')}`;
 }
 
+// Approve (and finish) or reject. Also used from the banner while reviewing a submission here.
+WS.judge = async (approve, number) => {
+  if (!number) return;
+  const v = await ECO.form(approve
+    ? {title: `承認して完了：#${number}`, intro: '提出を承認し、そのまま完了します（CIを待って取り込み、タスクを閉じます）。確認中なら、確認の前の場所へ戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+    : {title: `差し戻す：#${number}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。確認中なら、確認の前の場所へ戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
+  if (!v) return;
+  const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
+    {success: approve ? `#${number} を承認して完了しました。` : `#${number} を差し戻しました。`});
+  if (doc) { WS.reloadFiles?.(); await WS.refreshPrs(); }
+};
+
 async function prAction(action) {
-  const pr = prStatus, n = String(pr.number);
-  const after = async doc => { if (doc) { await WS.refreshPrs(pr.number); } };
+  const t = prStatus, n = String(t.number);
+  const after = async doc => { if (doc) await WS.refreshPrs(t.number); };
   switch (action) {
-    case 'refresh': return loadPr(pr.number);
-    case 'diff': { const doc = await WS.cli(['pr', 'diff', n]); return doc.ok ? ECO.output(`PR #${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
-    case 'ready': return after(await WS.run(['pr', 'ready', n], {success: '下書きを解除しました。', refresh: false}));
-    case 'draft': return after(await WS.run(['pr', 'draft', n], {success: '下書きに戻しました。', refresh: false}));
-    case 'close': return after(await WS.run(['pr', 'close', n], {success: 'PRを閉じました。', confirm: `PR #${n} を閉じます（ブランチ・作業空間・タスクはそのまま残ります）。作業自体をやめる場合は、タスク管理の「作業をやめる」を使ってください。`, title: 'PRを閉じる', refresh: false}));
-    case 'reopen': return after(await WS.run(['pr', 'reopen', n], {success: 'PRを開き直しました。', refresh: false}));
-    case 'comment': return ECO.form({title: `PR #${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
-      submit: async v => { const doc = await WS.run(['pr', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
-    case 'review': return ECO.form({title: `PR #${n} をレビュー`, fields: [
-      {name: 'kind', label: '結果', type: 'radio', inline: true, value: 'approve', options: [['approve', '承認する'], ['request-changes', '修正を依頼する', '内容の入力が必要'], ['comment', 'コメントだけ', '内容の入力が必要']]},
-      {name: 'message', label: '内容', type: 'textarea'}], ok: '送る',
-      submit: async v => {
-        if (v.kind !== 'approve' && !v.message) return '内容を入力してください。';
-        const doc = await WS.run(['pr', 'review', n, '--' + v.kind, ...(v.message ? ['--message', v.message] : [])], {success: 'レビューを送りました。', refresh: false});
-        if (!doc) return 'レビューを送れませんでした。'; await after(doc);
-      }});
-    case 'edit': return ECO.form({title: `PR #${n} を編集`, fields: [
-      {name: 'title', label: '題名', value: pr.title}, {name: 'body', label: '本文', type: 'textarea', value: pr.body.replace(/^(Closes|Refs) #\d+\s*$/gm, '').trim(), rows: 5, help: '作業空間のPRでは、タスクとのつながり（Closes／Refs #番号）は残ります。'},
-      {name: 'clearBody', label: '本文を削除', type: 'checkbox'}, {name: 'base', label: 'マージ先のブランチ', value: pr.base, help: '作業空間のPRなら、作業空間の作成元も変わります。'},
-      {type: 'section', label: 'レビュー・ラベル', note: 'カンマ区切り'},
-      {name: 'addReviewer', label: 'レビューを頼む人', row: 'reviewer'}, {name: 'removeReviewer', label: 'レビューの依頼を外す人', row: 'reviewer'},
-      {name: 'addLabel', label: '付けるラベル', row: 'label'}, {name: 'removeLabel', label: '外すラベル', row: 'label'}], ok: '保存',
-      submit: async v => {
-        if (v.clearBody && v.body) return '本文を削除する場合は、本文の欄を空にしてください。';
-        const args = ['pr', 'edit', n];
-        if (v.title && v.title !== pr.title) args.push('--title', v.title);
-        const oldBody = pr.body.replace(/^(Closes|Refs) #\d+\s*$/gm, '').trim();
-        if (v.body && v.body !== oldBody) args.push('--body', v.body);
-        if (v.clearBody) args.push('--clear-body');
-        if (v.base && v.base !== pr.base) args.push('--base', v.base);
-        for (const [key, option] of [['addReviewer', '--add-reviewer'], ['removeReviewer', '--remove-reviewer'], ['addLabel', '--add-label'], ['removeLabel', '--remove-label']]) if (v[key]) args.push(option, v[key]);
-        if (args.length === 3) return '変更する内容がありません。';
-        const doc = await WS.run(args, {success: 'PRを変更しました。', refresh: false}); if (!doc) return '変更できませんでした。'; await after(doc);
-      }});
-    case 'merge': {
-      const workspacePr = pr.head.startsWith('task/');
-      const v = await ECO.form({title: `PR #${n} をマージ`, intro: workspacePr ? '作業空間のPRをsquashでマージし、タスクを閉じます（途中の反映なら作業空間を作り直します）。' : 'ブランチ同士のPRを、マージコミットでマージします。',
-        fields: [{name: 'ignore', label: 'CIが失敗していてもマージする', type: 'checkbox'}], ok: 'マージ'});
+    case 'refresh': return loadPr(t.number);
+    case 'diff': { const doc = await WS.cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
+    case 'comment': return ECO.form({title: `#${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
+      submit: async v => { const doc = await WS.run(['task', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
+    case 'approve': return WS.judge(true, t.number);
+    case 'reject': return WS.judge(false, t.number);
+    case 'finish': {
+      const v = await ECO.form({title: `完了する：#${n}`, intro: 'CIを待って取り込み、タスクを閉じて作業空間を片付けます（中間提出なら、取り込んだ後に作業空間を作り直して続けます）。',
+        fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する'});
       if (!v) return;
-      const doc = await WS.run([...(workspacePr ? ['task', 'merge', n] : ['branch', 'merge', n]), ...(v.ignore ? ['--ignore-checks'] : [])], {success: r => `PR #${r.number} をマージしました。` + (r.closed_issue ? `タスク #${r.closed_issue} を閉じました。` : '') + (r.workspace_rebuilt ? '作業空間を作り直しました。' : '')});
-      await after(doc); if (doc) WS.reloadFiles(); return;
+      const doc = await WS.run(['task', 'finish', n, ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
+      await after(doc); if (doc) WS.reloadFiles?.(); return;
     }
+    case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて作業中に戻します（作業空間はそのまま。もう一度提出できます）。`, title: '提出を取り下げる', refresh: false}));
     case 'local-review': {
-      const done = WS.status?.reviewing === pr.number;
-      const doc = await WS.run(['task', 'review', ...(done ? ['--done'] : [n])], {success: done ? '確認を終えて戻りました。' : `PR #${n} を手元に取り出しました。ビルド・テスト・実行で確認できます。`});
-      await after(doc); if (doc) WS.reloadFiles(); return;
+      const done = !!WS.status?.reviewing && WS.status.reviewing_task === t.number;
+      const doc = await WS.run(['task', 'review', ...(done ? ['--done'] : [n])], {success: done ? '確認を終えて戻りました。' : `#${n} の提出を手元に取り出しました。ビルド・テスト・実行で確認できます。`});
+      await after(doc); if (doc) WS.reloadFiles?.(); return;
     }
-    case 'revert': {
-      const doc = await WS.run(['task', 'revert', n], {success: r => `PR #${r.pull_request} を取り消す作業空間 ${r.branch} を作りました。PRを提出してください。`, confirm: `マージ済みの PR #${n} を取り消す作業空間を作ります（タスクを作り、取り消しのコミットを用意します）。`, title: 'マージを取り消す'});
-      await after(doc); if (doc) WS.reloadFiles(); return;
-    }
-    case 'task': if (window.parent !== window) window.parent.postMessage({type: 'show-task', n: pr.task}, location.origin); return;
+    case 'task': if (window.parent !== window) window.parent.postMessage({type: 'show-task', n: t.number}, location.origin); return;
   }
 }
 get('pr-list').addEventListener('click', e => { const b = e.target.closest('[data-select-pr]'); if (b) loadPr(Number(b.dataset.selectPr)); });
 get('pr-tools').addEventListener('click', e => { const b = e.target.closest('[data-pr-action]'); if (b && !b.disabled && prStatus) prAction(b.dataset.prAction); });
 get('pr-all').addEventListener('change', () => WS.refreshPrs());
-get('pr-state').addEventListener('click', e => { const a = e.target.closest('[data-pr]'); if (a) { e.preventDefault(); loadPr(Number(a.dataset.pr)); } });
 WS.refreshPrs();
 
-// Right-click a pull request in the list: the same actions as the buttons under the list.
+// Right-click a submission in the list: the same actions as the buttons under the list.
 get('pr-list').addEventListener('contextmenu', async e => {
   const b = e.target.closest('[data-select-pr]'); if (!b) return;
   e.preventDefault();

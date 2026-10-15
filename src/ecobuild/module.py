@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 
 import re
+from collections.abc import Callable
 import tomllib
 from dataclasses import replace
 from pathlib import Path
@@ -23,6 +24,7 @@ from . import _docs
 from . import clones as _clones
 from . import config as _config
 from . import module_type as _module_type
+from . import tracking as _tracking
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
@@ -77,7 +79,9 @@ class Module:
         self.registry = registry or type(self).registry
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
                                      command=COMMAND, hooks=_TypeHooks(self),
-                                     legacy_board=module_config.legacy_board)
+                                     legacy_board=module_config.legacy_board,
+                                     require_approval=_require_approval(module_config))
+        self.repository.include_new = self.is_tracked   # 管理しない新しいファイルは、作業空間の切り替え等を止めない
         self.type: _module_type.ModuleType = self.registry.load(module_config.type)(self)
 
     @property
@@ -395,13 +399,17 @@ class Module:
     # 作業の進め方（ecowork） ---------------------------------------------------
 
     def status(self, *, fetch: bool = False) -> ws.Status:
-        return self.repository.status(fetch=fetch)
+        """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。"""
+        status = self.repository.status(fetch=fetch)
+        return replace(status, excluded=tuple(p for p in status.untracked if not self.is_tracked(p)))
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
-              sort: str | None = None, sprint: str | None = None) -> list[ws.TaskSummary]:
+              sort: str | None = None, sprint: str | None = None, submitted: bool = False,
+              to_review: bool = False) -> list[ws.TaskSummary]:
         tasks = self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
-                                      milestone=milestone, ready=ready, sort=sort, sprint=sprint)
+                                      milestone=milestone, ready=ready, sort=sort, sprint=sprint,
+                                      submitted=submitted, to_review=to_review)
         paths = self._workspace_paths()
         return [replace(t, workspace_path=paths.get(t.number, t.workspace_path)) for t in tasks]
 
@@ -488,6 +496,8 @@ class Module:
         return self.repository.set_pull_request_draft(number, draft=draft)
 
     def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
+        """作業空間に開いている提出・取り込んでいないコミットがあれば unfinished_work（やめるなら drop_workspace の
+        close=True。CLIは確かめてからそうする）。"""
         return self.repository.close_task(number, not_planned=not_planned)
 
     def reopen_task(self, number: int) -> ws.Task:
@@ -498,6 +508,76 @@ class Module:
         result = self.repository.review(number)
         self._after_sync()
         return result
+
+    def review_task(self, number: int) -> ws.ReviewResult:
+        """タスクの提出を手元に取り出して確かめる（番号はタスクの番号）。"""
+        result = self.repository.review_task(number)
+        self._after_sync()
+        return result
+
+    # 提出と完了（番号はタスクの番号） -------------------------------------------------------
+
+    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False,
+               reviewers: tuple[str, ...] = (), check: bool = True,
+               progress: Callable[[str], None] | None = None) -> ws.PullRequest:
+        """作業空間を提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。
+
+        未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。
+        progress：経過（check の各項目等）を知らせる口。
+        """
+        workspace = self.require_workspace("提出")
+        self._refuse_uncommitted("提出")
+        if check:
+            if self.checked():
+                (progress or _quiet)("この版は確認済みです（ビルド・テストを省きます）")
+            else:
+                (progress or _quiet)("確認しています（生成ファイル・衝突の印・ビルド・テスト）…")
+                for item in self.check().items:
+                    (progress or _quiet)(_check_line(item))
+        return workspace.submit(title=title, partial=partial, draft=draft, reviewers=reviewers)
+
+    def finish(self, number: int | None = None, **options) -> ws.FinishResult:
+        """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。"""
+        current = self._current_task()
+        if current is not None and number in (None, current):
+            self._refuse_uncommitted("完了")
+        return self.repository.finish(number, **options)
+
+    def approve(self, number: int, message: str = "", **options) -> ws.FinishResult:
+        """承認し、そのまま完了する。確認中（task review）なら、先に確認の前の場所へ戻る。"""
+        return self.repository.approve(number, message, **options)
+
+    def reject(self, number: int, message: str) -> ws.JudgeResult:
+        return self.repository.reject(number, message)
+
+    def withdraw(self, number: int | None = None) -> ws.PullRequest:
+        return self.repository.withdraw(number)
+
+    def task_diff(self, number: int | None = None) -> str:
+        return self.repository.task_diff(number)
+
+    def revert_task(self, number: int) -> ws.RevertResult:
+        return self.repository.revert_task(number)
+
+    def merge_branch(self, name: str, *, ignore_checks: bool = False) -> ws.MergeResult:
+        return self.repository.merge_branch(name, ignore_checks=ignore_checks)
+
+    def clean_workspace(self, number: int) -> ws.CleanResult | ws.RemoveResult:
+        return self.repository.clean_workspace(number)
+
+    def _current_task(self) -> int | None:
+        workspace = self.current_workspace()
+        return None if workspace is None else workspace.number
+
+    def _refuse_uncommitted(self, action: str) -> None:
+        """未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。"""
+        tree = self.repository.git.working_tree()
+        pending = list(dict.fromkeys(tree.staged + tree.unstaged + tree.conflicted
+                                     + tuple(p for p in tree.untracked if self.is_tracked(p))))
+        if pending:
+            raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"未コミットの変更があるため、{action}できません。",
+                                hint=f"{COMMAND} task commit --message \"…\" で記録してから、もう一度実行してください。",
+                                details=pending)
 
     def end_review(self) -> ws.ReviewResult:
         result = self.repository.end_review()
@@ -521,6 +601,116 @@ class Module:
 
     def ignore(self, *patterns: str) -> tuple[str, ...]:
         return self.repository.ignore(*patterns)
+
+    # 管理するファイル（tracking） ---------------------------------------------------------
+
+    def tracked_files(self) -> _tracking.TrackedFiles:
+        """管理するファイル（新しいファイルのうち、task commit が自動で含めるもの）の一覧と出どころ。"""
+        include, exclude = _tracking.module_lists(self.config.extra)
+        patterns = [_tracking.TrackedPattern(p, _tracking.BUILT_IN_SOURCE) for p in _tracking.BUILT_IN]
+        patterns += [_tracking.TrackedPattern(p, _tracking.TYPE_SOURCE, p in exclude)
+                     for p in type(self.type).tracked_patterns()]
+        patterns += [_tracking.TrackedPattern(p, _tracking.MODULE_SOURCE, p in exclude) for p in include]
+        note = self.type.generated_note or ""
+        return _tracking.TrackedFiles(tuple(patterns), exclude, note)
+
+    def is_tracked(self, path: str) -> bool:
+        """新しいファイルを、管理するファイルとして自動でコミットに含めるか。"""
+        if self.type.is_managed(path) or path in self._created_files():
+            return True
+        listing = self.tracked_files()
+        for item in listing.patterns:
+            if item.excluded:
+                continue
+            if _tracking.matches(item.pattern, path) and (
+                    item.source == _tracking.BUILT_IN_SOURCE
+                    or not any(_tracking.matches(e, path) for e in listing.exclude)):
+                return True
+        return False
+
+    def untracked_outside(self) -> tuple[str, ...]:
+        """管理するファイルの対象外の新しいファイル（task commit が含めないもの）。"""
+        return tuple(p for p in self.repository.git.working_tree().untracked if not self.is_tracked(p))
+
+    def track(self, *patterns: str, remove: bool = False) -> _tracking.TrackedFiles:
+        """管理するファイルのパターンを足す（remove：外す）。ecobuild.toml の [files] を変える（作業空間で）。
+
+        外すとき、[files] include にあるものは include から消し、型の既定なら exclude に書く。
+        """
+        self.require_workspace("管理するファイルの変更")
+        patterns = tuple(dict.fromkeys(_tracking.normalize(p) for p in patterns if _tracking.normalize(p)))
+        if not patterns:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "パターンを指定してください（例：\"*.txt\"）。")
+        include, exclude = _tracking.module_lists(self.config.extra)
+        defaults = type(self.type).tracked_patterns()
+        for pattern in patterns:
+            if remove:
+                if pattern in _tracking.BUILT_IN:
+                    raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{pattern} はECOBuildが管理するファイルなので外せません。")
+                if pattern not in include and pattern not in defaults:
+                    raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{pattern} は管理するファイルのパターンにありません。",
+                                        hint=f"{COMMAND} track で一覧を確認できます。")
+                include = tuple(p for p in include if p != pattern)
+                if pattern in defaults and pattern not in exclude:
+                    exclude += (pattern,)
+            else:
+                exclude = tuple(p for p in exclude if p != pattern)
+                if pattern not in include and pattern not in defaults:
+                    include += (pattern,)
+        self._save_config(replace(self.config, extra=_tracking.with_lists(self.config.extra, include, exclude)))
+        return self.tracked_files()
+
+    def commit(self, message: str, paths: tuple[str, ...] = (), *, amend: bool = False) -> ws.RecordResult:
+        """変更をコミットする（task commit）。パスなし：追跡中のファイルの変更・削除と、管理するファイルに当たる新しい
+        ファイル。パスあり：そのパスだけ（対象外の新しいファイルも、名前を書いたものは含める）。"""
+        workspace = self.require_workspace("コミット")
+        if not message.strip() and not amend:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "コミットメッセージが空です。")
+        outside = ()
+        if paths:
+            paths = tuple(p.replace("\\", "/").strip("/") or "." for p in paths)
+            untracked = self.repository.git.working_tree().untracked
+            outside = tuple(p for p in untracked
+                            if any(r == "." or p == r or p.startswith(r + "/") for r in paths) and not self.is_tracked(p))
+        result = workspace.record(message, paths, include=self.is_tracked, amend=amend)
+        self._forget_created(result.files)
+        return replace(result, outside=outside)
+
+    def relative_path(self, path: Path | str, cwd: Path | str) -> str:
+        """cwd からの相対・絶対パスを、モジュールのルートからの相対パス（/ 区切り）にする（CLIの引数用）。"""
+        candidate = Path(path)
+        absolute = candidate if candidate.is_absolute() else Path(cwd) / candidate
+        try:
+            return absolute.resolve().relative_to(self.root.resolve()).as_posix() or "."
+        except ValueError:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{path} はモジュールの外です。") from None
+
+    def _created_record(self) -> Path:
+        return self.root / self.repository.git.output("rev-parse", "--git-path", "ecobuild-created")
+
+    def _created_files(self) -> set[str]:
+        """ECOBuildのコマンド（file add・project add 等）が作った、まだコミットしていないファイル。"""
+        try:
+            return set(self._created_record().read_text(encoding="utf-8").splitlines())
+        except OSError:
+            return set()
+
+    def _created(self, changed):
+        """ECOBuildのコマンドが作ったファイルを、管理するファイルの対象外でも commit に含めるために覚える。"""
+        changes = changed if isinstance(changed, list) else [changed]
+        created = {p for c in changes for p in c.paths if (self.root / p).is_file()}
+        known = self._created_files()
+        if created - known:
+            self._created_record().write_text("\n".join(sorted(known | created)) + "\n", encoding="utf-8")
+        return changed
+
+    def _forget_created(self, committed: tuple[str, ...]) -> None:
+        remaining = self._created_files() - set(committed)
+        record = self._created_record()
+        if remaining:
+            record.write_text("\n".join(sorted(remaining)) + "\n", encoding="utf-8")
+        else:
+            record.unlink(missing_ok=True)
 
     def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
         return self.repository.create_release(tag, title=title, notes=notes, target=target)
@@ -600,7 +790,12 @@ class Module:
             raise
 
     def continue_sync(self) -> SyncResult:
-        """衝突を解決した後、止まっている取り込みを完了し、手元をそろえる。"""
+        """衝突を解決した後、止まっている取り込みを完了し、手元をそろえる。
+
+        印のなくなったファイルは登録し、衝突した生成ファイルは（解決した）管理ファイルから作り直す。
+        """
+        if self.repository.git.is_merging() or self.repository.git.is_rebasing():
+            self.repository.resolve_conflicts(skip=self.type.is_generated)
         self._regenerate_conflicted_files()
         return self._sync_result(self.repository.continue_sync())
 
@@ -750,7 +945,7 @@ class Module:
         if not _NAME.fullmatch(name):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name!r} は使えません。",
                                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
-        return self._projects("Project の追加").add_project(name, kind, link=link, test=test)
+        return self._created(self._projects("Project の追加").add_project(name, kind, link=link, test=test))
 
     def remove_project(self, name: str) -> FilesChanged:
         self.require_workspace("Projectの削除")
@@ -776,7 +971,7 @@ class Module:
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
         self.require_workspace("Projectの移動")
-        return self._projects("Project の移動").move_project(name, destination)
+        return self._created(self._projects("Project の移動").move_project(name, destination))
 
     def link_project(self, name: str, library: str, *, as_type: str | None = None) -> dict:
         """同じモジュールのライブラリをリンクする（他のモジュールは link）。"""
@@ -790,12 +985,12 @@ class Module:
     def add_file(self, path: Path | str, *, test: bool = True, template: str | None = None) -> FilesChanged:
         """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。template：使うファイルテンプレート。"""
         self.require_workspace("ファイルの追加")
-        return self._files("ファイルの追加").add_file(Path(path), test=test, template=template)
+        return self._created(self._files("ファイルの追加").add_file(Path(path), test=test, template=template))
 
     def add_files(self, paths, *, test: bool = True, template: str | None = None) -> list[FilesChanged]:
         """複数のファイルをまとめて足す（C++：ヘッダーを先に作り、一緒に足したヘッダーをソースが読み込む）。"""
         self.require_workspace("ファイルの追加")
-        return self._files("ファイルの追加").add_files([Path(p) for p in paths], test=test, template=template)
+        return self._created(self._files("ファイルの追加").add_files([Path(p) for p in paths], test=test, template=template))
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの削除")
@@ -803,7 +998,7 @@ class Module:
 
     def move_file(self, source: Path | str, destination: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_workspace("ファイルの移動")
-        return self._files("ファイルの移動").move_file(Path(source), Path(destination), test=test)
+        return self._created(self._files("ファイルの移動").move_file(Path(source), Path(destination), test=test))
 
     # 依存先（型） -----------------------------------------------------------------
 
@@ -896,8 +1091,8 @@ class Module:
                 continue
         return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
 
-    def ci_wait(self, pull_request: int | None = None, *, timeout: float = 1800) -> list:
-        return self.repository.ci_wait(pull_request, timeout=timeout)
+    def ci_wait(self, pull_request: int | None = None, *, timeout: float = 1800, task: int | None = None) -> list:
+        return self.repository.ci_wait(pull_request, timeout=timeout, task=task)
 
     def delete_secret(self, name: str) -> str:
         return self.repository.delete_secret(name)
@@ -911,14 +1106,14 @@ class Module:
         path.unlink()
         return FilesChanged("ci remove", (_docs.CI_WORKFLOW,))
 
-    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5) -> list:
-        return self.repository.ci_runs(pull_request=pull_request, limit=limit)
+    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5, task: int | None = None) -> list:
+        return self.repository.ci_runs(pull_request=pull_request, limit=limit, task=task)
 
-    def ci_failed_log(self, run_id: int | None = None) -> tuple[int, str]:
-        return self.repository.ci_failed_log(run_id)
+    def ci_failed_log(self, run_id: int | None = None, *, task: int | None = None) -> tuple[int, str]:
+        return self.repository.ci_failed_log(run_id, task=task)
 
-    def ci_rerun(self, run_id: int | None = None, *, failed_only: bool = False) -> int:
-        return self.repository.ci_rerun(run_id, failed_only=failed_only)
+    def ci_rerun(self, run_id: int | None = None, *, failed_only: bool = False, task: int | None = None) -> int:
+        return self.repository.ci_rerun(run_id, failed_only=failed_only, task=task)
 
     def set_secret(self, name: str, value: str) -> str:
         return self.repository.set_secret(name, value)
@@ -940,7 +1135,7 @@ class Module:
             self.type.refresh()
             pending = self._uncommitted_managed_files()
             items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
-                                                      f"{COMMAND} task add --all でコミットに含めてください）" if pending else ""))
+                                                      f"{COMMAND} task commit でコミットに含めてください）" if pending else ""))
         except EcoBuildError as error:
             items.append(CheckItem("generated", False, error.message))
         git = self.repository.git
@@ -949,6 +1144,10 @@ class Module:
         if workspace is not None and git.rev_parse(f"origin/{workspace.base}"):
             markers += git.conflict_markers(f"origin/{workspace.base}...HEAD")
         items.append(CheckItem("conflict_markers", not markers, ", ".join(dict.fromkeys(markers))))
+        excluded = self.untracked_outside()
+        if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
+            items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
+                                                     + ", ".join(excluded)))
         if build:
             for name, action in (("build", lambda: self.build()), ("test", lambda: self.test())):
                 try:
@@ -1025,6 +1224,7 @@ class Module:
             self.type = self.registry.load(new_config.type)(self)
         self.config = new_config
         self.repository.default_base = new_config.default_base
+        self.repository.require_approval = _require_approval(new_config)
 
     def _uncommitted_managed_files(self) -> list[str]:
         tree = self.repository.git.working_tree()
@@ -1051,12 +1251,33 @@ class Module:
             raise EcoBuildError(
                 ErrorCode.GENERATED_FILES_OUTDATED,
                 f"{self.type.generated_note or '生成ファイル'}・管理ファイルがコミットされていません。",
-                hint=f"{COMMAND} task add --all でステージし、{COMMAND} task commit でコミットしてから再実行してください。",
+                hint=f"{COMMAND} task commit --message \"…\" でコミットしてから再実行してください。",
                 details=changed,
             )
 
     def __repr__(self) -> str:
         return f"Module({self.name!r}, {str(self.root)!r})"
+
+
+CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
+               "build": "ビルド", "test": "テスト"}
+
+
+def _check_line(item: CheckItem) -> str:
+    """check の1項目を「OK ビルド」「NG テスト：…」の形で。"""
+    return f"{'OK' if item.ok else 'NG'} {CHECK_NAMES.get(item.name, item.name)}" + (f"：{item.detail}" if item.detail else "")
+
+
+def _quiet(message: str) -> None:
+    pass
+
+
+def _require_approval(config: _config.ModuleConfig) -> bool:
+    """ecobuild.toml の [task] require_approval（完了の前に承認を必須にする）。既定は false。"""
+    value = config.extra.get("task", {}).get("require_approval", False)
+    if not isinstance(value, bool):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[task] の require_approval は真偽値です（true／false）。")
+    return value
 
 
 def _module_type_of(text: str | None) -> str:

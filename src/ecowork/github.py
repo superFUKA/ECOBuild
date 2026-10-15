@@ -118,6 +118,27 @@ class ReleaseInfo:
     latest: bool = False
 
 
+@dataclass(frozen=True)
+class Member:
+    """リポジトリの共同作業者（invited：招待を送ったが、まだ受けていない）。"""
+    login: str
+    role: str             # read / triage / write / maintain / admin
+    invited: bool = False
+
+
+@dataclass(frozen=True)
+class Protection:
+    """ブランチの保護（GitHub の branch protection）。"""
+    branch: str
+    approvals: int                      # 取り込みに要る承認の数（PR は必須）
+    checks: tuple[str, ...] = ()        # 通っている必要がある CI の項目
+    enforce_admins: bool = False        # 管理者にも守らせる
+    allow_force_pushes: bool = False
+
+
+# ECOBuild の役割の名前 → GitHub の API の permission
+ROLE_PERMISSIONS = {"read": "pull", "triage": "triage", "write": "push", "maintain": "maintain", "admin": "admin"}
+
 _PR_FIELDS = "number,title,url,state,headRefName,baseRefName,body,headRefOid,mergeCommit,author,isDraft"
 
 
@@ -159,6 +180,13 @@ class GitHub(TaskGitHub, Protocol):
     def merge_pull_request(self, repo: Path, number: int, *, squash: bool, subject: str | None) -> None: ...
     def close_pull_request(self, repo: Path, number: int) -> None: ...
     def default_branch(self, repo: Path) -> str: ...
+    def members(self, repo: Path) -> list[Member]: ...
+    def add_member(self, repo: Path, login: str, role: str) -> bool: ...
+    def remove_member(self, repo: Path, login: str) -> bool: ...
+    def branch_protection(self, repo: Path, branch: str) -> Protection | None: ...
+    def set_branch_protection(self, repo: Path, protection: Protection) -> None: ...
+    def remove_branch_protection(self, repo: Path, branch: str) -> bool: ...
+    def check_names(self, repo: Path, ref: str) -> tuple[str, ...]: ...
 
 
 class GhCli(_TaskGhCli):
@@ -394,6 +422,10 @@ class GhCli(_TaskGhCli):
         if re.search(r"merge conflict|not mergeable", completed.output, re.IGNORECASE):
             raise WorkError(ErrorCode.PULL_REQUEST_CONFLICT,
                             f"PR #{number} は作成元と衝突しているため、マージできません。", details=completed.output)
+        if re.search(r"base branch policy|review(?:s)? required|approving review", completed.output, re.IGNORECASE):
+            raise WorkError(ErrorCode.APPROVAL_REQUIRED,
+                            f"PR #{number} は、ブランチの保護の条件（承認・CI）を満たしていないため、取り込めません。",
+                            details=completed.output)
         raise _gh_error(args, completed)
 
     def close_pull_request(self, repo, number):
@@ -401,6 +433,93 @@ class GhCli(_TaskGhCli):
 
     def default_branch(self, repo):
         return self._json(["repo", "view", "--json", "defaultBranchRef"], cwd=repo)["defaultBranchRef"]["name"]
+
+    # 共同作業者・ブランチの保護（複数人での開発） ------------------------------------------------
+
+    def members(self, repo):
+        """共同作業者（招待を受けた人）と、招待中の人。見る権限（管理者）がなければ github_error。"""
+        people = [Member(d["login"], d.get("role_name") or "write")
+                  for d in self._paged(repo, "collaborators?affiliation=all")]
+        people += [Member(d["invitee"]["login"], {"pull": "read", "push": "write"}.get(d.get("permissions"),
+                                                                                    d.get("permissions") or "write"), True)
+                   for d in self._paged(repo, "invitations") if d.get("invitee")]
+        return people
+
+    def add_member(self, repo, login, role):
+        """招待を送る（既に共同作業者なら権限を変える）。招待を送ったら True。"""
+        result = self._api("PUT", f"collaborators/{login}", {"permission": ROLE_PERMISSIONS[role]}, cwd=repo)
+        return bool(result)
+
+    def remove_member(self, repo, login):
+        """共同作業者から外す。招待中なら招待を取り消す。外した・取り消したら True。"""
+        for invitation in self._paged(repo, "invitations"):
+            if (invitation.get("invitee") or {}).get("login", "").casefold() == login.casefold():
+                self._api("DELETE", f"invitations/{invitation['id']}", None, cwd=repo)
+                return True
+        if not any(m.login.casefold() == login.casefold() for m in self.members(repo) if not m.invited):
+            return False
+        self._api("DELETE", f"collaborators/{login}", None, cwd=repo)
+        return True
+
+    def branch_protection(self, repo, branch):
+        try:
+            data = self._api("GET", f"branches/{branch}/protection", None, cwd=repo)
+        except WorkError as error:
+            if re.search(r"Branch not protected|HTTP 404", str(error.details or "")):
+                return None
+            raise _plan_error(error)
+        reviews = data.get("required_pull_request_reviews") or {}
+        checks = data.get("required_status_checks") or {}
+        return Protection(branch, int(reviews.get("required_approving_review_count") or 0),
+                          tuple(checks.get("contexts") or ()), bool((data.get("enforce_admins") or {}).get("enabled")),
+                          bool((data.get("allow_force_pushes") or {}).get("enabled")))
+
+    def set_branch_protection(self, repo, protection):
+        payload = {
+            "required_status_checks": {"strict": False, "contexts": list(protection.checks)} if protection.checks
+            else None,
+            "enforce_admins": protection.enforce_admins,
+            "required_pull_request_reviews": {"required_approving_review_count": protection.approvals,
+                                              "dismiss_stale_reviews": False},
+            "restrictions": None,
+            "allow_force_pushes": protection.allow_force_pushes,
+            "allow_deletions": False,
+        }
+        try:
+            self._api("PUT", f"branches/{protection.branch}/protection", payload, cwd=repo)
+        except WorkError as error:
+            raise _plan_error(error)
+
+    def remove_branch_protection(self, repo, branch):
+        try:
+            self._api("DELETE", f"branches/{branch}/protection", None, cwd=repo)
+        except WorkError as error:
+            if re.search(r"Branch not protected|HTTP 404", str(error.details or "")):
+                return False
+            raise _plan_error(error)
+        return True
+
+    def check_names(self, repo, ref):
+        """そのコミット（ブランチ）の CI の項目の名前（ブランチの保護で必須にする名前）。"""
+        data = self._api("GET", f"commits/{ref}/check-runs?per_page=100", None, cwd=repo) or {}
+        return tuple(dict.fromkeys(run["name"] for run in data.get("check_runs") or []))
+
+    def _paged(self, repo, path):
+        separator = "&" if "?" in path else "?"
+        output = self._gh(["api", "--paginate", f"repos/{{owner}}/{{repo}}/{path}{separator}per_page=100",
+                           "--jq", ".[]"], cwd=repo).stdout
+        return [json.loads(line) for line in output.splitlines() if line.strip()]
+
+
+def _plan_error(error: WorkError) -> WorkError:
+    """料金プランの制限（無料プランの非公開リポジトリではブランチの保護を使えない）なら、そう分かる形にする。"""
+    if re.search(r"Upgrade to GitHub Pro|make this repository public", f"{error.message} {error.details or ''}"):
+        return WorkError(ErrorCode.PLAN_REQUIRED,
+                         "GitHub の無料プランでは、非公開リポジトリにブランチの保護を設定できません。",
+                         hint="リポジトリを公開にするか、GitHub Pro・Team（組織）のプランにすると使えます。保護がなくても、"
+                              "ECOBuild の [task] require_approval で、ECOBuild を使う人には承認を必須にできます。",
+                         details=error.details)
+    return error
 
 
 def _check(data: dict) -> Check:

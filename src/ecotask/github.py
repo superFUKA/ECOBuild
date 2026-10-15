@@ -71,6 +71,7 @@ class Comment:
 
 
 class TaskGitHub(Protocol):
+    def current_user(self, repo: Path) -> str: ...
     def create_issue(self, repo: Path, title: str, body: str, *, labels: tuple[str, ...] = (),
                      assignees: tuple[str, ...] = ()) -> IssueInfo: ...
     def get_issue(self, repo: Path, number: int) -> IssueInfo: ...
@@ -138,6 +139,12 @@ class GhCli:
         if self.repository:
             env["GH_REPO"] = self.repository
         return env
+
+    def current_user(self, repo):
+        """ログイン中のアカウント（gh の今のアカウント）のログイン名。1回聞いたら覚える。"""
+        if not getattr(self, "_login", None):
+            self._login = self._json(["api", "user"], cwd=repo)["login"]
+        return self._login
 
     def repository_name(self, repo):
         owner, name = self._repo_name(repo)

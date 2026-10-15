@@ -49,6 +49,10 @@ class FakeGitHub:
         self.shared_boards: dict[str, tuple[str, ...]] = {}
         self.deleted_repositories: list[str] = []
         self.archived_repositories: list[str] = []
+        self.collaborator_roles: dict[str, str] = {}        # 共同作業者 → 役割（members）
+        self.invited: dict[str, str] = {}                   # 招待中の人 → 役割
+        self.protections: dict = {}                         # ブランチ → Protection
+        self.free_private = False                           # 無料プランの非公開リポジトリ（ブランチの保護を使えない）
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
 
@@ -108,6 +112,44 @@ class FakeGitHub:
                                           full in self.archived_repositories, "2026-10-11T00:00:00Z",
                                           shown.stdout if shown.returncode == 0 else None))
         return result
+
+    def current_user(self, repo):
+        return self.owner
+
+    # 共同作業者・ブランチの保護
+    def members(self, repo):
+        from ecowork.github import Member
+        return [Member(login, role) for login, role in self.collaborator_roles.items()] + \
+            [Member(login, role, True) for login, role in self.invited.items()]
+
+    def add_member(self, repo, login, role):
+        if login in self.collaborator_roles:
+            self.collaborator_roles[login] = role
+            return False
+        self.invited[login] = role
+        return True
+
+    def remove_member(self, repo, login):
+        return self.invited.pop(login, None) is not None or self.collaborator_roles.pop(login, None) is not None
+
+    def accept_invitation(self, login):
+        """試験用：招待を受けた（共同作業者になった）。"""
+        self.collaborator_roles[login] = self.invited.pop(login)
+        self.collaborators = tuple(sorted(self.collaborator_roles))
+
+    def branch_protection(self, repo, branch):
+        return self.protections.get(branch)
+
+    def set_branch_protection(self, repo, protection):
+        if self.free_private:
+            raise WorkError(ErrorCode.PLAN_REQUIRED, "GitHub の無料プランでは、非公開リポジトリにブランチの保護を設定できません。")
+        self.protections[protection.branch] = protection
+
+    def remove_branch_protection(self, repo, branch):
+        return self.protections.pop(branch, None) is not None
+
+    def check_names(self, repo, ref):
+        return tuple(dict.fromkeys(r.workflow for r in self.runs if r.branch == ref))
 
     def use_bare(self, bare: Path) -> None:
         self.bare = bare

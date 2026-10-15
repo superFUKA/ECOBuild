@@ -70,9 +70,13 @@ $('archived-list').addEventListener('click', async event => {
     {success: r => `${r.repository} のアーカイブを解除しました。` + (m.exists ? '一覧に戻しました。' : '使うには「＋ モジュール追加」の「GitHubから取得」で取得してください。'), busy: `${m.repository} のアーカイブを解除しています…`});
   if (doc) { await loadGithubModules(); loadModules(); }
 });
-// A module opens in its own app window (like the hub), not in a browser tab: the server starts it.
-const openModule = path => ECO.call('open-window', {page: 'module.html?path=' + encodeURIComponent(path)})
-  .catch(() => window.open('module.html?path=' + encodeURIComponent(path), '_blank'));
+// A module opens in its own app window (like the hub), not in a browser tab: Electron opens window.open as a window,
+// otherwise the server starts it (Edge).
+const openModule = path => {
+  const page = 'module.html?path=' + encodeURIComponent(path);
+  if (window.ecobuildShell) return Promise.resolve(window.open(page, '_blank'));
+  return ECO.call('open-window', {page}).catch(() => window.open(page, '_blank'));
+};
 
 let clones = [], order = [];
 const pathKey = p => p.replaceAll('\\', '/').toLowerCase();
@@ -280,8 +284,9 @@ $('setup-form').addEventListener('submit', async event => {
 
 // The hub opens small (the list and the settings only). Edge may ignore the size it is started with when it is running
 // already, so the window is resized once when it first opens (an app window, not a browser tab; later the user's size).
+// Electron opens it at this size.
 try {
-  if (window.toolbar && !window.toolbar.visible && !sessionStorage.getItem('ecobuild-hub-sized')) {
+  if (!window.ecobuildShell && window.toolbar && !window.toolbar.visible && !sessionStorage.getItem('ecobuild-hub-sized')) {
     sessionStorage.setItem('ecobuild-hub-sized', '1');
     if (window.outerWidth > 1000 || window.outerHeight > 720) window.resizeTo(Math.min(window.outerWidth, 1000), Math.min(window.outerHeight, 720));
   }
@@ -412,10 +417,11 @@ $('make-shortcut').addEventListener('click', async () => {
   catch (e) { ECO.toast(e.message, 'bad', 9000); }
 });
 
-// End the background server now (otherwise it ends a while after the last window closes).
+// End the background server now (otherwise it ends a while after the last window closes). In Electron the app ends with it.
 $('quit-gui').addEventListener('click', async () => {
   if (!await ECO.confirm({title: 'GUIを終了', message: 'GUIを終了します。開いているモジュールのウィンドウも使えなくなります。実行中のコマンドがある場合は、完了してから終了してください。', ok: '終了する'})) return;
   try { await ECO.call('shutdown'); } catch (e) { /* already gone */ }
+  if (window.ecobuildShell) return;
   document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild GUI を終了しました。このウィンドウを閉じてください。</main>';
   window.close();
 });

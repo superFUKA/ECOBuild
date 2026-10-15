@@ -269,12 +269,43 @@ class Tracker:
                             hint="先にそちらを終えてください。待たずに始めるなら --ignore-blocked。",
                             details=[f"#{b.number} {b.title}" for b in blockers])
 
-    def start_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> _github.IssueInfo:
-        """作業空間を作らずに作業を始める（調査・設計等）。担当者がいなければ自分にし、作業中にする。"""
+    def share(self) -> tuple[str, ...]:
+        """タスク管理の情報（ボード）を、リポジトリの共同作業者に共有し直す（招待を受けた人が増えたとき）。
+        まだボードがなければ何もしない。共有した人のログイン名。"""
+        if self.store.board is None:
+            return ()
+        return self.github.share_board(self.root, self.store.info().id)
+
+    def check_assignee(self, number: int, *, take_over: bool = False) -> None:
+        """作業を始める前に：他の人が担当していれば止める（自分が担当者の1人なら、担当者がいなければ止めない）。
+
+        take_over：引き継ぐ。担当者を自分だけにし、Issue に引き継いだことを残す。
+        """
+        assignees = self.issue(number).assignees
+        if not assignees:
+            return
+        me = self.github.current_user(self.root)
+        if me in assignees:
+            return
+        if not take_over:
+            raise TaskError(ErrorCode.ASSIGNED_TO_OTHER, f"#{number} は {', '.join(assignees)} が担当しています。",
+                            hint="重ねて作業しないよう、担当者と相談してください。引き継ぐなら --take-over"
+                                 "（担当者を自分にし、タスクに引き継いだことを残します）。",
+                            details=list(assignees))
+        self.github.edit_issue(self.root, number, add_assignees=("@me",), remove_assignees=tuple(assignees))
+        self.github.comment_issue(self.root, number, f"{me} が引き継ぎました（前の担当：{', '.join(assignees)}）。")
+        self.notices.append(f"#{number} を {', '.join(assignees)} から引き継ぎました（担当者を自分にしました）。")
+
+    def start_without_workspace(self, number: int, *, ignore_blocked: bool = False,
+                                take_over: bool = False) -> _github.IssueInfo:
+        """作業空間を作らずに作業を始める（調査・設計等）。担当者がいなければ自分にし、作業中にする。
+        他の人が担当していれば止める（take_over で引き継ぐ）。"""
         issue = self.issue(number)
         if issue.state != "open":
             raise TaskError(ErrorCode.TASK_CLOSED, f"Issue #{number} は閉じています。")
         self.check_startable(number, ignore_blocked=ignore_blocked)
+        self.check_assignee(number, take_over=take_over)
+        issue = self.issue(number)
         if not issue.assignees:
             self.github.edit_issue(self.root, number, add_assignees=("@me",))
         self.set_stage(number, _model.IN_PROGRESS)

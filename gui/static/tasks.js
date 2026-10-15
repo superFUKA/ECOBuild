@@ -354,6 +354,7 @@
       return [b.name, b.is_workspace ? `${b.name}（作業空間${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
+    const assignees = d.assignees || t.assignees || [], others = me() && !assignees.includes(me()) ? assignees : [];
     await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} の作業空間を用意しています…`, fields: [
       {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
         ['here', 'このモジュールのcloneに作業空間を作る', `task/${n} のブランチを作って切り替えます（${root()}）`],
@@ -362,10 +363,12 @@
       {name: 'dir', label: '専用のcloneの場所', value: suggested, showIf: v => v.place === 'dir'},
       {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', more: branchOptions,
         help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
-      ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : [])], ok: '開始',
+      ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : []),
+      ...(others.length ? [{name: 'takeOver', label: `${others.join('、')} から引き継ぐ（担当者を自分にし、タスクに残します）`, type: 'checkbox', help: 'ほかの人が担当しています。重ねて作業しないよう、相談してから引き継いでください。'}] : [])], ok: '開始',
       submit: async v => {
         // Pass --base only when it was changed from the default (the CLI decides the default the same way).
-        const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : [])];
+        if (others.length && !v.takeOver) return `${others.join('、')} が担当しています。引き継ぐ場合は「引き継ぐ」に印を付けてください。`;
+        const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : []), ...(v.takeOver ? ['--take-over'] : [])];
         if (v.place === 'none') args.push('--no-workspace');
         if (v.place === 'dir') { if (!v.dir) return '専用のcloneの場所を入力してください。'; args.push('--dir', v.dir); }
         const doc = await run(args, {success: v.place === 'none' ? `#${n} を作業中にしました。` : `作業空間 task/${n} を用意しました。`, quietErrors: true});

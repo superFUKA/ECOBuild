@@ -7,7 +7,20 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 - `gui\ECOBuildGUI.pyw` をダブルクリック（コマンドプロンプトは出ない）。
 - または端末で `python C:\ECO\ECOBuild\gui\app.py`（どのフォルダからでも同じ）。
 
-どちらも、窓のない Python（pythonw）でサーバーを裏で動かし、GUIの窓を開いて、起動したコマンドはすぐ終わる。
+どちらも、GUIの窓を開いて、起動したコマンドはすぐ終わる。窓の出し方は2通り。
+
+### Electron（既定。`electron/` に Electron を入れてあるとき）
+
+- 準備：`cd gui\electron` で `npm install`（一度だけ。`node_modules/` はコミットしない）。
+- Electron がこのアプリ専用のサーバー（`app.py --electron`）を子プロセスで動かし、ハブの窓を開く。モジュールの窓も Electron の窓で開く。GitHub などGUI以外のアドレスは既定のブラウザで開く。
+- 窓をすべて閉じる、またはハブの設定の「GUIを終了」で、Electron もサーバーもすぐ終わる。
+- 2つめの起動は新しく動かさず、動いている方のハブの窓を前に出す。
+- Python は `ECOBUILD_GUI_PYTHON`、リポジトリの `.venv`、PATH の python の順に探す（`app.py` から起動したときは、起動した Python）。
+- 開発用：F12（または Ctrl+Shift+I）で開発者ツール、F5（または Ctrl+R）で再読み込み。`npm start`（`gui\electron` で）でも起動できる。
+
+### Edge の窓（Electron がないとき、または `--browser`）
+
+窓のない Python（pythonw）でサーバーを裏で動かす。
 
 - Edge があればアドレスバーのない窓で、なければ既定のブラウザで開く。
 - すでに動いていれば、それを使って窓だけ開く。GUIが更新された後なら、古いサーバーを止めて新しく起動する。
@@ -45,6 +58,7 @@ GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約
 | ファイル | 内容 |
 | --- | --- |
 | `app.py` | サーバー（画面の配布、`ecobuild` の実行、手元の処理） |
+| `electron/` | Electron の窓（`main.js`：サーバーの起動と窓の管理、`preload.js`：画面に Electron の中だと伝える） |
 | `icon.ico`・`make_icon.py`・`static/icon.svg` | アイコン（`.ico` は `.svg` から作る） |
 | `static/hub.*` | ハブ：モジュールの一覧・追加、既定の所有者、環境チェック・準備 |
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |

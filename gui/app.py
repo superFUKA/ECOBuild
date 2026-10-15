@@ -3,7 +3,9 @@
 ECOBuildの実装（src/ のパッケージ）とは独立している。ECOBuildのコードは読み込まず、ecobuild コマンドを呼ぶだけ。
 使うのは Python の標準ライブラリだけ（3.11 以上）。起動：python gui/app.py（または ECOBuildGUI.pyw をダブルクリック）
 
-- 起動すると、窓のない Python（pythonw）でサーバーを裏で動かし、GUIの窓を開いて、起動したコマンドはすぐ終わる。
+- 起動すると、Electron（electron/。npm install 済みのとき）でGUIの窓を開き、起動したコマンドはすぐ終わる。
+  Electron は自分専用のサーバー（--electron）を子プロセスで動かし、窓をすべて閉じると両方とも終わる。
+- Electron がなければ（または --browser）、窓のない Python（pythonw）でサーバーを裏で動かし、Edge の窓で開く。
   すでに動いていればそれを使い、更新前の古いサーバーなら入れ替える。GUIの窓がすべて閉じてしばらくすると、サーバーも終わる。
   端末で動かし続けるなら --foreground（開発用）。
 
@@ -782,8 +784,57 @@ def _pythonw() -> str:
     return str(candidate) if os.name == "nt" and candidate.is_file() else sys.executable
 
 
+ELECTRON_APP = Path(__file__).resolve().with_name("electron")
+
+
+def _electron() -> Path | None:
+    """electron/ に入れた Electron（cd gui/electron; npm install）。なければ None。"""
+    name = "electron.exe" if os.name == "nt" else "electron"
+    candidate = ELECTRON_APP / "node_modules" / "electron" / "dist" / name
+    return candidate if candidate.is_file() else None
+
+
+def _found_cli(args) -> str | None:
+    """ecobuild をここ（この端末の PATH）で探す。見つからなければ今知らせて終わる。サーバーに渡す場所（なければ None）を返す。"""
+    try:
+        found = default_cli(args.ecobuild)
+    except SystemExit as error:
+        _alert(str(error))
+        sys.exit(1)
+    return found[0] if len(found) == 1 and not os.environ.get("ECOBUILD_GUI_CLI") else None
+
+
+def _start_detached(command: list[str], env: dict | None = None, no_window: bool = False) -> subprocess.Popen:
+    """起動したコマンドが終わっても動き続けるように、切り離して起動する。"""
+    streams = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+    if os.name == "nt":
+        flags = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        if no_window:
+            flags |= subprocess.CREATE_NO_WINDOW
+        return subprocess.Popen(command, env=env, creationflags=flags, close_fds=True, **streams)
+    return subprocess.Popen(command, env=env, start_new_session=True, **streams)
+
+
+def launch_electron(electron: Path, args) -> None:
+    """Electron の窓で開き、すぐ終わる。すでに動いていれば、動いている方がハブの窓を開く。
+    サーバーは Electron が起動する（URLを標準出力で受け取るので、pythonw ではなく python）。"""
+    ecobuild = _found_cli(args)
+    python = Path(sys.executable).with_name("python.exe") if os.name == "nt" else Path(sys.executable)
+    env = dict(os.environ, ECOBUILD_GUI_PYTHON=str(python if python.is_file() else sys.executable))
+    env.pop("ELECTRON_RUN_AS_NODE", None)   # 設定されていると Electron が Node として動き、窓を出さない
+    if ecobuild:
+        env["ECOBUILD_GUI_ECOBUILD"] = ecobuild
+    _start_detached([str(electron), str(ELECTRON_APP)], env=env)
+    _say("ECOBuild GUI を開きました（Electron）。")
+
+
 def launch(args) -> None:
-    """裏でサーバーを動かして窓を開き、すぐ終わる。動いているサーバーがあれば使う（古ければ入れ替える）。"""
+    """窓を開き、すぐ終わる。Electron があればそれで、なければ裏でサーバーを動かして Edge の窓で開く
+    （動いているサーバーがあれば使い、古ければ入れ替える）。"""
+    electron = None if args.browser or args.no_browser else _electron()
+    if electron:
+        launch_electron(electron, args)
+        return
     state = _read_state()
     alive = _ping(state)
     if alive and not alive.get("stale"):
@@ -791,31 +842,23 @@ def launch(args) -> None:
             open_window(_url(state), HUB_WINDOW)
         _say(f"ECOBuild GUI を開きました（動いているサーバーを使います）：{_url(state)}")
         return
+    old_token = (state or {}).get("token")
     if alive:   # 更新前のサーバー：止めてから新しく起動する
         _shutdown(state)
         time.sleep(1)
     # Find ecobuild here (with this terminal's PATH) so a missing one is reported now, and the server uses the same one.
-    try:
-        found = default_cli(args.ecobuild)
-    except SystemExit as error:
-        _alert(str(error))
-        sys.exit(1)
+    ecobuild = _found_cli(args)
     command = [_pythonw(), str(Path(__file__).resolve()), "--serve", "--port", str(args.port)]
-    if len(found) == 1 and not os.environ.get("ECOBUILD_GUI_CLI"):
-        command += ["--ecobuild", found[0]]
+    if ecobuild:
+        command += ["--ecobuild", ecobuild]
     if args.no_browser:
         command.append("--no-browser")
-    if os.name == "nt":
-        flags = 0x00000008 | 0x00000200 | subprocess.CREATE_NO_WINDOW   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        process = subprocess.Popen(command, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        process = subprocess.Popen(command, start_new_session=True, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = _start_detached(command, no_window=True)
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
+        # The new server is the one with a new token (not the pid: a venv's pythonw starts the real Python as a child).
         state = _read_state()
-        if state and state.get("pid") == process.pid and _ping(state):
+        if state and state.get("token") != old_token and _ping(state):
             _say(f"ECOBuild GUI を起動しました：{_url(state)}\n（バックグラウンドで動いています。GUIのウィンドウをすべて閉じると、しばらくして終了します）")
             return
         if process.poll() is not None:
@@ -825,14 +868,43 @@ def launch(args) -> None:
     sys.exit(1)
 
 
+def _end_when_idle(server, app) -> None:
+    """--serve：画面から連絡がなくなったら（窓がすべて閉じたら）終わる。"""
+    def watch():
+        while True:
+            time.sleep(15)
+            if time.monotonic() - app.last_contact > IDLE_SECONDS:
+                print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 開いている画面がないため終了します")
+                server.shutdown()
+                return
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def _end_with_parent(server) -> None:
+    """--electron：標準入力が閉じたら（Electron が終わったら）終わる。"""
+    def watch():
+        try:
+            sys.stdin.read()
+        except (OSError, ValueError):
+            pass
+        server.shutdown()
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def serve(args) -> None:
-    """サーバー本体。--serve（裏で動く）では、画面から連絡がなくなったら終わる。"""
-    background = args.serve
-    if background:
+    """サーバー本体。動き方は3通り。
+    --serve：裏で動く（Edge の窓）。出力は記録に書き、画面から連絡がなくなったら終わる。
+    --electron：Electron の子プロセス。URLを標準出力で Electron に伝え（窓は Electron が開く）、Electron と一緒に終わる。
+    --foreground：端末で動く（開発用）。Ctrl+C で終わる。"""
+    if args.serve:
         # 窓がないので、エラーは記録に書く。
         gui_home().mkdir(parents=True, exist_ok=True)
         log = open(gui_home() / "gui.log", "a", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
+    else:
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
     cli = Cli(default_cli(args.ecobuild))
     store = Store(gui_home() / "gui.json")
     token = secrets.token_urlsafe(24)
@@ -847,29 +919,21 @@ def serve(args) -> None:
     server.RequestHandlerClass = make_handler(app)
     state = {"pid": os.getpid(), "port": port, "token": token}
     url = _url(state)
-    if background:
+    if args.serve:
         _state_file().parent.mkdir(parents=True, exist_ok=True)
         _state_file().write_text(json.dumps(state), encoding="utf-8")
         print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 起動：{url}（ecobuild：{' '.join(cli.command)}）")
-
-        def watch():
-            while True:
-                time.sleep(15)
-                if time.monotonic() - app.last_contact > IDLE_SECONDS:
-                    print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 開いている画面がないため終了します")
-                    server.shutdown()
-                    return
-        threading.Thread(target=watch, daemon=True).start()
+        _end_when_idle(server, app)
+    elif args.electron:
+        print(f"ECOBuild GUI：{url}", flush=True)   # electron/main.js がこの行からURLを読む
+        _end_with_parent(server)
     else:
-        for stream in (sys.stdout, sys.stderr):
-            if hasattr(stream, "reconfigure"):
-                stream.reconfigure(errors="replace")
         print(f"ECOBuild GUI：{url}")
         print(f"ecobuild：{' '.join(cli.command)}")
         print("終了するには Ctrl+C を押してください。", flush=True)
     if cli_warning(cli.command):
-        print("注意：" + cli_warning(cli.command))
-    if not args.no_browser:
+        print("注意：" + cli_warning(cli.command), flush=True)
+    if not args.no_browser and not args.electron:
         open_window(url, HUB_WINDOW)
     try:
         server.serve_forever()
@@ -877,7 +941,7 @@ def serve(args) -> None:
         pass
     finally:
         server.server_close()
-        if background and (_read_state() or {}).get("pid") == os.getpid():
+        if args.serve and (_read_state() or {}).get("pid") == os.getpid():
             try:
                 _state_file().unlink()
             except OSError:
@@ -893,7 +957,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--foreground", action="store_true", help="バックグラウンドで動かさず、このターミナルでサーバーを動かす（Ctrl+C で終了。開発用）")
     parser.add_argument("--shortcut", action="store_true",
                         help="デスクトップとスタートメニューにショートカット（アイコン付き）を作って終わる")
+    parser.add_argument("--browser", action="store_true",
+                        help="Electron があっても使わず、Edge（なければ既定のブラウザ）の窓で開く")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
+    parser.add_argument("--electron", action="store_true", help=argparse.SUPPRESS)  # Electron の子プロセス（electron/main.js が使う）
     args = parser.parse_args(argv)
     if args.shortcut:
         try:
@@ -901,7 +968,7 @@ def main(argv: list[str] | None = None) -> None:
         except GuiError as error:
             _alert(str(error))
             sys.exit(1)
-    elif args.serve or args.foreground:
+    elif args.serve or args.foreground or args.electron:
         serve(args)
     else:
         launch(args)

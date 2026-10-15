@@ -629,3 +629,30 @@ def test_files_made_by_ecobuild_are_always_committed(cli, module):
     result = module.commit("作ったもの")
     assert result.files == ("made.txt",) and result.skipped == ("other.txt",)
     assert module._created_files() == set()
+
+
+def test_team_commands(cli, module):
+    """複数人での開発：他の人のタスクは引き継いでから始める。共同作業者とブランチの保護はコマンドで。"""
+    github = module.repository.github
+    assert cli("task", "new", "他の人の", "--assignee", "alice").exit_code == 0
+    refused = as_json(cli("task", "start", "1", "--json"))
+    assert refused["error"]["code"] == "task_assigned_to_other" and refused["error"]["details"] == ["alice"]
+    taken = cli("task", "start", "1", "--take-over")
+    assert taken.exit_code == 0 and "alice から引き継ぎました" in taken.output
+
+    invited = cli("module", "members", "add", "bob")
+    assert invited.exit_code == 0 and "招待しました" in invited.stdout
+    assert "招待中" in cli("module", "members").stdout and "bob（書き込み）" in cli("module", "members").stdout
+    github.accept_invitation("bob")
+    assert [m["login"] for m in as_json(cli("module", "members", "--json"))["result"]] == ["bob"]
+    assert as_json(cli("module", "members", "remove", "bob", "--json"))["error"]["code"] == "confirmation_required"
+    assert cli("module", "members", "remove", "bob", "--yes").exit_code == 0
+
+    assert "ブランチの保護はありません" in cli("module", "protect", "--show").stdout
+    protected = as_json(cli("module", "protect", "--approvals", "1", "--yes", "--json"))
+    assert protected["result"]["approvals"] == 1 and "require_approval" in " ".join(protected["notices"])
+    assert "承認 1 人" in cli("module", "protect", "--show").stdout
+    assert cli("module", "protect", "--show", "--off").exit_code == 2
+    assert "外しました" in cli("module", "protect", "--off", "--yes").stdout
+    github.free_private = True
+    assert as_json(cli("module", "protect", "--yes", "--json"))["error"]["code"] == "plan_required"

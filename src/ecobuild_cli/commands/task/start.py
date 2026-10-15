@@ -10,6 +10,7 @@ def command(
     dir: Annotated[str, "作業空間を、このディレクトリへの専用のcloneで作る（並行作業用。例：../Calc-7）"] = "",
     ignore_blocked: Annotated[bool, "先に終わるべきタスクが開いていても始める"] = False,
     no_workspace: Annotated[bool, "作業空間を作らずに作業中にする（調査・設計等、コードを変えないタスク）"] = False,
+    take_over: Annotated[bool, "他の人が担当していても引き継いで始める（担当者を自分にし、タスクに残す）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """Issueの作業空間（task/<番号>）を作ってGitHubにも置き、切り替えます。
@@ -17,14 +18,16 @@ def command(
     既にあれば切り替え、手元になければGitHubから再開します。
 
     新しく作るときは、親タスク（開いている子タスクがある）と、先に終わるべきタスクを待っているタスクでは止まります。
+    他の人が担当しているタスクでも止まります（引き継ぐなら --take-over）。
     """
 
     def action(inv):
         if no_workspace:
-            return inv.module.start_task_without_workspace(issue, ignore_blocked=ignore_blocked)
+            return inv.module.start_task_without_workspace(issue, ignore_blocked=ignore_blocked, take_over=take_over)
         if not dir:
-            return inv.module.task(issue).start(base=base or None, ignore_blocked=ignore_blocked)
-        module = inv.module.start_task_in(issue, inv.cwd / dir, base=base or None, ignore_blocked=ignore_blocked)
+            return inv.module.task(issue).start(base=base or None, ignore_blocked=ignore_blocked, take_over=take_over)
+        module = inv.module.start_task_in(issue, inv.cwd / dir, base=base or None, ignore_blocked=ignore_blocked,
+                                          take_over=take_over)
         _clones.record_quietly(module.root, _clones.WORKSPACE)   # module clones・task list で場所が分かるように
         inv.use_module(module)
         return module.current_workspace()

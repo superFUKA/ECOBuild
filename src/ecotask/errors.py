@@ -11,6 +11,7 @@ class ErrorCode:
     TASK_CLOSED = "task_closed"
     TASK_BLOCKED = "task_blocked"            # 先に終わるべきタスク（blocked by）が開いている
     OPEN_SUBTASKS = "open_subtasks"          # 子タスクが開いている（親は終了できない）
+    ASSIGNED_TO_OTHER = "task_assigned_to_other"   # 他の人が担当している（引き継ぐなら --take-over）
     MILESTONE_NOT_FOUND = "milestone_not_found"
     NO_BOARD = "task_data_unavailable"      # 計画・段階の情報（内部ではボード）がない・読めない
     BOARD_PERMISSION = "github_permission"  # ghのトークンに project の権限がない

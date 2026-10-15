@@ -1,0 +1,14 @@
+{
+  "name": "ecobuild-gui",
+  "productName": "ECOBuild GUI",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ECOBuild GUI の窓（Electron）。中身は gui/app.py のサーバーが配る画面。",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^38.8.6"
+  }
+}

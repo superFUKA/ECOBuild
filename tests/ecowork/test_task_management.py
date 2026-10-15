@@ -43,7 +43,9 @@ def test_start_claims_unassigned_task_only(repository):
     assert github.issues[mine.number].assignees == (github.owner,)  # 誰が作業しているかGitHubで分かる
     repository.git.run("switch", "--quiet", "main")
     theirs = repository.create_task("割り当て済み", assignees=("someone",))
-    theirs.start()
+    with pytest.raises(WorkError) as error:                         # 他の人の作業に重ねない（引き継ぐなら take_over）
+        theirs.start()
+    assert error.value.code == ErrorCode.ASSIGNED_TO_OTHER
     assert github.issues[theirs.number].assignees == ("someone",)  # 既にいる担当者は変えない
     assert workspace.number == mine.number
 

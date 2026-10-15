@@ -438,8 +438,9 @@ class Module:
     def milestone_status(self) -> list:
         return self.repository.milestone_status()
 
-    def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False) -> ws.Task:
-        return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked)
+    def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False,
+                                     take_over: bool = False) -> ws.Task:
+        return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked, take_over=take_over)
 
     def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
         return self.repository.milestones(closed=closed)
@@ -602,6 +603,35 @@ class Module:
     def ignore(self, *patterns: str) -> tuple[str, ...]:
         return self.repository.ignore(*patterns)
 
+    # 共同作業者・ブランチの保護（複数人での開発） ----------------------------------------------
+
+    def members(self) -> list[_github.Member]:
+        return self.repository.members()
+
+    def add_member(self, login: str, role: str = "write") -> bool:
+        return self.repository.add_member(login, role)
+
+    def remove_member(self, login: str) -> bool:
+        return self.repository.remove_member(login)
+
+    def protection(self) -> _github.Protection | None:
+        return self.repository.protection()
+
+    def protect(self, *, approvals: int | None = None, require_ci: bool = False) -> _github.Protection:
+        """作成元（default_base）を GitHub のブランチの保護で守る。approvals を省くと、[task] require_approval
+        なら1、なければ0（PR は必須、承認は要らない）。"""
+        if approvals is None:
+            approvals = 1 if self.repository.require_approval else 0
+        protection = self.repository.protect(approvals=approvals, require_ci=require_ci)
+        if approvals and not self.repository.require_approval:
+            self.repository.notices.append(
+                "GitHub は承認のない取り込みを止めますが、管理者は越えられます。ECOBuild を使う全員に承認を必須にするなら、"
+                "ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
+        return protection
+
+    def unprotect(self) -> bool:
+        return self.repository.unprotect()
+
     # 管理するファイル（tracking） ---------------------------------------------------------
 
     def tracked_files(self) -> _tracking.TrackedFiles:
@@ -719,7 +749,7 @@ class Module:
         return self.repository.releases()
 
     def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None,
-                      ignore_blocked: bool = False) -> "Module":
+                      ignore_blocked: bool = False, take_over: bool = False) -> "Module":
         """作業空間を専用のcloneで作り（I-007）、依存先と生成ファイルを用意する。
 
         準備（型の prepare）はclone先のモジュールでだけ行う（元のcloneの依存先・生成ファイルは変えない）。
@@ -730,7 +760,8 @@ class Module:
             opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
             return opened[0].repository
 
-        self.repository.clone_workspace(number, directory, base=base, open=open_clone, ignore_blocked=ignore_blocked)
+        self.repository.clone_workspace(number, directory, base=base, open=open_clone, ignore_blocked=ignore_blocked,
+                                        take_over=take_over)
         return opened[0]
 
     def branches(self) -> list[ws.Branch]:

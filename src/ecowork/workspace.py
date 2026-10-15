@@ -101,10 +101,11 @@ class Task:
         return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees,
                    info.milestone)
 
-    def start(self, *, base: str | None = None, ignore_blocked: bool = False) -> "Workspace":
+    def start(self, *, base: str | None = None, ignore_blocked: bool = False, take_over: bool = False) -> "Workspace":
         """作業空間を作る。新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
-        子タスクの作成元は親の作業空間（GitHubになければ作る。他の base は指定できない）。"""
-        return self._repository._start_workspace(self, base, ignore_blocked=ignore_blocked)
+        子タスクの作成元は親の作業空間（GitHubになければ作る。他の base は指定できない）。
+        他の人が担当していれば止める（take_over で引き継ぐ）。"""
+        return self._repository._start_workspace(self, base, ignore_blocked=ignore_blocked, take_over=take_over)
 
 
 @dataclass(frozen=True)

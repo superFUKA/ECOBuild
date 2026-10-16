@@ -31,16 +31,17 @@ from . import tracking as _tracking
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
+from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
+# .ecobuild/.gitignore：このPC用の設定とログ（CLI）はコミットしない
 GITIGNORE = """\
-# ECOBuild
 ecobuild.local.toml
+logs/
 """
 
 
@@ -148,8 +149,9 @@ class Module:
 
         def populate(root: Path) -> None:
             _config.save(module_config, root / _config.FILE_NAME)
-            (root / ".gitignore").write_text(GITIGNORE + _with_gap(type_class.gitignore()),
-                                             encoding="utf-8", newline="\n")
+            (root / _config.DIRECTORY / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
+            if type_class.gitignore():
+                (root / ".gitignore").write_text(type_class.gitignore(), encoding="utf-8", newline="\n")
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
@@ -198,7 +200,7 @@ class Module:
         github = github or _github.default()
         return tuple(ModuleEntry(r.full_name, r.url, _module_type_of(r.module_file), r.description, r.private,
                                  r.archived, r.updated)
-                     for r in github.owner_repositories(owner)
+                     for r in github.owner_repositories(owner, _config.FILE_NAME)
                      if r.module_file is not None and (archived is None or r.archived == archived))
 
     @staticmethod
@@ -509,7 +511,7 @@ class Module:
         if approvals and not self.repository.require_approval:
             self.repository.notices.append(
                 "GitHub は承認のない取り込みを止めますが、管理者は越えられます。ECOBuild を使う全員に承認を必須にするなら、"
-                "ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
+                ".ecobuild/ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
         return protection
 
     # 管理するファイル（tracking） ---------------------------------------------------------
@@ -945,6 +947,10 @@ class Module:
                                              newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
 
+    def agent_guide(self) -> AgentGuide:
+        """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（作業空間でなくても読める）。"""
+        return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
+
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。
 
@@ -1165,10 +1171,6 @@ def _module_type_of(text: str | None) -> str:
     except tomllib.TOMLDecodeError:
         return ""
     return value if isinstance(value, str) else ""
-
-
-def _with_gap(text: str) -> str:
-    return "\n" + text if text else ""
 
 
 def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:

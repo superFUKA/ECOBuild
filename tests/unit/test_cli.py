@@ -4,7 +4,15 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from ecobuild import config
 from ecobuild_cli import _types, build_cli
+
+
+def _module_file(root):
+    """モジュールの印（.ecobuild/ecobuild.toml）。フォルダーも作る。"""
+    path = root / config.FILE_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 TYPES = (None, "cpp", "python", "generic")
 
@@ -95,7 +103,7 @@ def test_every_type_package_is_found():
 
 def test_other_type_command_is_not_supported(tmp_path, monkeypatch):
     """ほかの型のコマンドは、引数の誤り（2）ではなく not_supported（1）。--json でも同じ。"""
-    (tmp_path / "ecobuild.toml").write_text('format = 1\n\n[module]\nname = "M"\ntype = "generic"\n', encoding="utf-8")
+    _module_file(tmp_path).write_text('format = 1\n\n[module]\nname = "M"\ntype = "generic"\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(build_cli(), ["project", "add", "Foo", "--kind", "library", "--json"])
     assert result.exit_code == 1
@@ -116,8 +124,8 @@ def test_type_command_outside_module_says_why(tmp_path, monkeypatch):
 
 def test_current_type(tmp_path):
     assert _types.current(tmp_path) is None
-    (tmp_path / "ecobuild.toml").write_text('format = 1\n\n[module]\nname = "M"\ntype = "python"\n', encoding="utf-8")
+    _module_file(tmp_path).write_text('format = 1\n\n[module]\nname = "M"\ntype = "python"\n', encoding="utf-8")
     (tmp_path / "src").mkdir()
     assert _types.current(tmp_path / "src") == "python"
-    (tmp_path / "ecobuild.toml").write_text("壊れた", encoding="utf-8")
+    _module_file(tmp_path).write_text("壊れた", encoding="utf-8")
     assert _types.current(tmp_path) is None

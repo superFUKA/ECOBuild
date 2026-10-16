@@ -12,14 +12,20 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
+from ecobuild.config import DIRECTORY
 from ecobuild.errors import EcoBuildError, ErrorCode, operation
 from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 
-CONFIG_DIRECTORY = ".cppbuild"
+# CppBuildのSolutionの .cppbuild（設定と生成ファイルのすべて）。ECOBuildのファイルの置き場所 .ecobuild/ の直下に置き、
+# パスの基準（CppBuildの base_directory）はモジュールのルートにする（Projectはルートの直下）。
+CONFIG_NAME = ".cppbuild"
+CONFIG_DIRECTORY = f"{DIRECTORY}/{CONFIG_NAME}"
+_CONFIG_PARTS = Path(CONFIG_DIRECTORY).parts
+_TO_ROOT = "/".join([".."] * len(_CONFIG_PARTS))   # .cppbuild からモジュールのルートへ
 DEPENDENCY_DIRECTORY = "deps"   # 依存先のcloneの置き場所（.gitignore で除外）
 # CMakeのビルドツリー（中間ファイル）の置き場所。CppBuildの既定（.cppbuild/output/intermediate）より
-# 約25文字短い、モジュール直下の build/ にする（Windowsの260文字の制限への対策）。
+# 短い、モジュール直下の build/ にする（Windowsの260文字の制限への対策）。
 # CppBuildの設定は.cppbuildからの相対で、保存されないため、Solutionを開くたびに設定する。
 BUILD_DIRECTORY = "build"
 GENERATED_FILE_NAMES = ("CMakeLists.txt", "CppBuildTopLevel.cmake")
@@ -138,7 +144,7 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
     （実行ファイル・なしなら、他のモジュールからはリンクできない）。
     """
     try:
-        solution = Solution.create(root, name)
+        solution = Solution.create(root / DIRECTORY, name, base_directory="..")
         data = solution.settings.get()
         data.dependency_directories = [DEPENDENCY_DIRECTORY]
         data.solution_folders = SolutionFolderSettings()
@@ -181,6 +187,11 @@ def _create_linked(solution: Solution, name: str, kind: str, library: str | None
         replacements["suite"] = suite or name
     project.add_file(f"src/{file_name}", template_name=template, replacements=replacements, auto_update=False)
     return [f"{name}/src/{file_name}"]
+
+
+def template_path(root: Path, name: str) -> str:
+    """ファイルテンプレートの素材の場所（モジュールからの相対）。CppBuildは .cppbuild/templates の下の名前で記録する。"""
+    return f"{CONFIG_DIRECTORY}/templates/{name}"
 
 
 def library_header(library: str) -> str:
@@ -306,19 +317,16 @@ def project_at(root: Path, path: Path) -> str | None:
 
 
 def is_generated(relative_path: str) -> bool:
-    """CppBuildの生成ファイル（管理ファイルから作り直せるもの）か。"""
+    """CppBuildの生成ファイル（管理ファイルから作り直せるもの）か。生成ファイルは .cppbuild の中にだけある。"""
     parts = Path(relative_path).parts
-    return bool(parts) and parts[0] != DEPENDENCY_DIRECTORY and parts[-1] in GENERATED_FILE_NAMES
+    return is_generated_or_managed(relative_path) and parts[-1] in GENERATED_FILE_NAMES
 
 
 def is_generated_or_managed(relative_path: str) -> bool:
-    """CppBuildの生成ファイル・管理ファイル（コミット対象）か。"""
+    """CppBuildの生成ファイル・管理ファイル（コミット対象）か。.cppbuild の中の、出力（output）・ロック（operations）以外。"""
     parts = Path(relative_path).parts
-    if not parts or parts[0] == DEPENDENCY_DIRECTORY:
-        return False
-    if parts[-1] in GENERATED_FILE_NAMES:
-        return True
-    return CONFIG_DIRECTORY in parts and "output" not in parts
+    inside = parts[len(_CONFIG_PARTS):]
+    return parts[:len(_CONFIG_PARTS)] == _CONFIG_PARTS and bool(inside) and inside[0] not in ("output", "operations")
 
 
 # Project ---------------------------------------------------------------------
@@ -575,7 +583,7 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
         # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。
         with _transaction(solution, message):
             solution.get_project(project).settings.link_git(
-                url, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
+                url, solution_path=CONFIG_DIRECTORY, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
     except EcoBuildError:
         raise
     except AlreadyRegisteredError as error:
@@ -669,7 +677,7 @@ def _register_templates(solution: Solution, templates: dict[str, str] = TEMPLATE
 
 
 def _solution_settings(**values) -> SolutionBuildSettings:
-    return SolutionBuildSettings(intermediate_directory=f"../{BUILD_DIRECTORY}", **values)
+    return SolutionBuildSettings(intermediate_directory=f"{_TO_ROOT}/{BUILD_DIRECTORY}", **values)
 
 
 def _target(root: Path, project: str | None, options: BuildOptions, *, run_arguments=None):

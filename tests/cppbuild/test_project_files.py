@@ -84,10 +84,10 @@ def test_projects_bench_pch_and_remove(module):
 
     pch = cpp(module).set_pch("Geo")
     assert pch.paths == ("Geo/include/Geo/pch.h",)
-    assert "target_precompile_headers" in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "target_precompile_headers" in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
     module.build(project="Geo")
     cpp(module).set_pch("Geo", enable=False)
-    assert "target_precompile_headers" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "target_precompile_headers" not in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
 
     for name in ("GeoBench", "GeoExtraBench", "GeoExtraTest", "GeoExtra", "GeoAlone"):
         module.remove_project(name)
@@ -102,8 +102,8 @@ def test_profiles_clean_and_rebuild(module):
     assert code_of(lambda: module.add_profile("x", Profile("Fast"))) == ErrorCode.INVALID_CONFIGURATION
     assert code_of(lambda: module.use_profile("nosuch")) == ErrorCode.PROFILE_NOT_FOUND
     assert module.use_profile("fast").selected == "fast"
-    assert "fast" in (module.root / "ecobuild.local.toml").read_text(encoding="utf-8")
-    assert "[profiles.\"fast\"]" in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+    assert "fast" in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")
+    assert "[profiles.\"fast\"]" in (module.root / ".ecobuild/ecobuild.toml").read_text(encoding="utf-8")
     result = module.build()
     assert (result.configuration, result.profile) == ("Release", "fast")
     assert module.build(configuration="Debug").configuration == "Debug"  # 指定した構成が優先
@@ -141,8 +141,9 @@ def test_docs_ci_and_check(module):
     root = module.root
     git(root, "add", "--all")
     git(root, "commit", "--quiet", "--allow-empty", "-m", "前の試験の変更")  # 生成ファイルをコミット済みにする
-    assert "ecobuild task new" in (root / "AGENTS.md").read_text(encoding="utf-8")
-    assert "cmake -S . -B build" in (root / "README.md").read_text(encoding="utf-8")
+    assert "ecobuild agent guide" in (root / "AGENTS.md").read_text(encoding="utf-8")
+    assert "ecobuild task new" in module.agent_guide().text
+    assert "cmake -S .ecobuild/.cppbuild -B build" in (root / "README.md").read_text(encoding="utf-8")
     (root / "AGENTS.md").unlink()
     assert module.write_agents().paths == ("AGENTS.md",) and (root / "AGENTS.md").exists()
     ci = module.write_ci()
@@ -181,10 +182,10 @@ def test_update_is_skipped_when_nothing_changed(module, monkeypatch):
     # ソースの追加は作り直さない（生成ファイルに一覧はなく、CMakeがビルドのたびに集める）
     (module.root / "Geo/src/Skip.cpp").write_text('#include "Geo/Geo.h"\n', encoding="utf-8")
     module.type.refresh()
-    assert calls == [] and "Skip.cpp" not in (module.root / "Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert calls == [] and "Skip.cpp" not in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
     (module.root / "Geo/src/Skip.cpp").unlink()
     # 生成ファイルが書き換えられていれば作り直す
-    generated = module.root / "Geo/CMakeLists.txt"
+    generated = module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt"
     original_text = generated.read_text(encoding="utf-8")
     generated.write_text(original_text + "# edited\n", encoding="utf-8")
     module.type.refresh()

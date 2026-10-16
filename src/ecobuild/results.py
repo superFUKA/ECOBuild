@@ -158,6 +158,12 @@ class LinkResult:
 
 
 @dataclass(frozen=True)
+class AgentGuide:
+    """ecobuild agent guide：エージェント向けの作業の手順（Markdown）。"""
+    text: str
+
+
+@dataclass(frozen=True)
 class CiInitResult:
     path: str
     private_dependencies: tuple[str, ...]   # CIで取得するにはトークンが要る依存先

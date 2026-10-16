@@ -32,7 +32,7 @@ def write(path: Path, text: str) -> None:
 
 
 def _module(path):
-    write(path / "ecobuild.toml", "format = 1\n")
+    write(path / ".ecobuild" / "ecobuild.toml", "format = 1\n")
     return path
 
 
@@ -162,7 +162,7 @@ def test_server_does_not_share_a_port_in_use():
 
 def test_module_defaults_and_solution(tmp_path):
     a, b = _module(tmp_path / "A"), _module(tmp_path / "B")
-    write(a / "ecobuild.toml", '[branches]\ndefault_base = "develop"\n')
+    write(a / ".ecobuild" / "ecobuild.toml", '[branches]\ndefault_base = "develop"\n')
     assert gui.module_defaults(str(a)) == {"default_base": "develop"}
     assert gui.module_defaults(str(tmp_path)) == {}            # モジュールでなければ空
 

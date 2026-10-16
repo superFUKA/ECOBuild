@@ -75,7 +75,7 @@ def fingerprint(root: Path, base: str) -> str:
     pyproject = root / PYPROJECT
     if not pyproject.is_file():
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{PYPROJECT} がありません。",
-                            hint="ecobuild.toml と同じ場所に pyproject.toml を置いてください（module new で作れます）。")
+                            hint="モジュールのルート（.ecobuild のある場所）に pyproject.toml を置いてください（module new で作れます）。")
     return hashlib.sha256(pyproject.read_bytes() + b"\0" + base.encode("utf-8")).hexdigest()
 
 

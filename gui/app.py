@@ -55,6 +55,7 @@ def server_is_stale() -> bool:
 STALE_MESSAGE = ("GUIが更新されました。GUIを起動し直すと新しい版に切り替わります（このウィンドウは閉じてください）。")
 IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
+MODULE_FILE = Path(".ecobuild") / "ecobuild.toml"   # モジュールの印（ECOBuildの共有の設定）
 DEFAULT_PORT = 8765
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
                  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
@@ -142,7 +143,7 @@ def _module_root(path: Path) -> Path:
     """ecobuild.toml のある場所（指定した場所か、その上）。"""
     path = path.expanduser().resolve()
     for candidate in (path, *path.parents):
-        if (candidate / "ecobuild.toml").is_file():
+        if (candidate / MODULE_FILE).is_file():
             return candidate
     raise GuiError(f"ECOBuildのモジュールではありません（ecobuild.toml がありません）：{path}")
 
@@ -322,7 +323,7 @@ def module_defaults(directory: str) -> dict:
     GUIが読む。読めなければ空（画面は既定値を入れないだけ）。"""
     import tomllib
     try:
-        data = tomllib.loads((_module_root(Path(directory)) / "ecobuild.toml").read_text(encoding="utf-8"))
+        data = tomllib.loads((_module_root(Path(directory)) / MODULE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError, GuiError):
         return {}
     branches = data.get("branches") if isinstance(data.get("branches"), dict) else {}
@@ -540,7 +541,7 @@ class App:
         """以前の gui.json に登録したフォルダを、ecobuild のcloneの記録（module register）へ移す（一度だけ）。"""
         modules, workspaces = self.store.take_legacy()
         for path, extra in [(p, []) for p in modules] + [(p, ["--workspace"]) for p in workspaces]:
-            if (Path(path) / "ecobuild.toml").is_file():
+            if (Path(path) / MODULE_FILE).is_file():
                 self.cli.run(None, ["module", "register", path, *extra])
 
     def api(self, name: str, body: dict) -> object:

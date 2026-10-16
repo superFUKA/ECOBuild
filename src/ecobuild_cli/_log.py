@@ -28,11 +28,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from ecobuild import config as _module_config
+
 LEVELS = {"off": logging.CRITICAL + 10, "error": logging.ERROR, "info": logging.INFO, "debug": logging.DEBUG}
 DEFAULT_LEVEL = "debug"
 DEFAULT_MAX_MB = 200
 LEVEL_VARIABLE = "ECOBUILD_LOG_LEVEL"
-MODULE_LOG_DIRECTORY = Path(".ecobuild") / "logs"
+MODULE_LOG_DIRECTORY = Path(_module_config.DIRECTORY) / "logs"
 
 logger = logging.getLogger("ecobuild_cli")
 
@@ -154,7 +156,7 @@ def _append(directory: Path, lines: list[str], *, module: bool = False) -> bool:
     """今日のファイル（YYYY-MM-DD.jsonl）に足す。書くたびに開いて閉じる（フォルダーを動かす操作を妨げない）。"""
     if not lines:
         return True
-    if module and not (directory.parent.parent / "ecobuild.toml").is_file():
+    if module and not (directory.parent.parent / _module_config.FILE_NAME).is_file():
         return False
     try:
         directory.mkdir(parents=True, exist_ok=True)

@@ -91,7 +91,7 @@ python -m venv .venv
         release = "Release" in ci.configurations
         lines = [
             "# ECOBuild（ecobuild ci init）が作成：ECOBuildなしで、pip と pytest だけでインストール・テストする。",
-            "# 変えるときは ecobuild ci init の --os・--configuration・--branches（設定は ecobuild.toml の [ci]）と、",
+            "# 変えるときは ecobuild ci init の --os・--configuration・--branches（設定は .ecobuild/ecobuild.toml の [ci]）と、",
             "# [python] の versions（Pythonの版）。Release の構成ではパッケージ（wheel・sdist）も作る。",
             "name: build", "", *ci_workflow.trigger(config), "",
             "jobs:", "  build:", "    strategy:", "      fail-fast: false", "      matrix:",

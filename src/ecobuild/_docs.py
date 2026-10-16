@@ -47,20 +47,39 @@ ecobuild test
 
 
 def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
+    """AGENTS.md：守ることの核だけ。詳しい手順は ecobuild agent guide が、その時の ECOBuild に合わせて出す
+    （モジュールに写しを持つと、ECOBuild を変えるたびに古くなるため）。"""
     generated = module_type.generated_note
+    hand_edit = f"- {generated}は手で編集しません。\n" if generated else ""
+    return f"""# AGENTS.md
+
+このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています。
+
+- 作業を始める前に `ecobuild agent guide` を実行し、手順を読んでください（このPCの ECOBuild に合った手順が出ます）。
+- gitを直接使わず `ecobuild` コマンドを使います。ファイルを変えるのは作業空間（`ecobuild task start <番号>`）でだけです。
+- コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。
+{hand_edit}- 失敗したら、結果の `error.code` と `error.hint` に従ってください。
+"""
+
+
+def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
+    """ecobuild agent guide：エージェント向けの作業の手順（型ごとの部分は型から作る）。"""
+    from .module_type import HasFiles
+    generated = module_type.generated_note
+    add_file = "ファイルの追加は `ecobuild file add <パス>`" if issubclass(module_type, HasFiles) else ""
     regenerate = f"{generated}は直さなくて構いません。" if generated else ""
     hand_edit = (f"- {generated}は手で編集しません（`ecobuild file`・`ecobuild project`・`ecobuild deps add` 等で変えます）。\n"
                  "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`（モジュール全体）・"
                  "`ecobuild template`（ファイルテンプレート）・`ecobuild profile`（ビルドのたびに選ぶもの）で見て変えます。\n"
                  if generated else "")
-    return f"""# AGENTS.md
+    return f"""# ECOBuild の使い方（{config.name}、型：{module_type.name}）
 
-このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています。コーディングエージェントは、gitを直接使わず `ecobuild` コマンドを使ってください。機械で読む場合は各コマンドに `--json` を付けます（標準出力にJSONが1つ、終了コード 0＝成功、1＝失敗、2＝引数の誤り）。
+このリポジトリは ECOBuild で管理しています。コーディングエージェントは、gitを直接使わず `ecobuild` コマンドを使ってください。機械で読む場合は各コマンドに `--json` を付けます（標準出力にJSONが1つ、終了コード 0＝成功、1＝失敗、2＝引数の誤り）。
 
 ## 作業の流れ
 
 1. `ecobuild task new "<題名>" --body "<内容>" --start`（既存のIssueなら `ecobuild task start <番号>`）
-2. 編集する。ファイルの追加は `ecobuild file add <パス>`
+2. 編集する。{add_file}
 3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
 5. `ecobuild task submit`（確認 → 提出。中間提出なら `--partial`）

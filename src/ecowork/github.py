@@ -39,7 +39,7 @@ class OwnedRepository:
     private: bool
     archived: bool
     updated: str                # 最後に更新した日時（ISO 8601）
-    module_file: str | None     # 既定のブランチの ecobuild.toml の中身（ない＝ECOBuildのモジュールでない）
+    module_file: str | None     # 既定のブランチの、指定したファイルの中身（ない＝そのファイルがない）
 
 
 @dataclass(frozen=True)
@@ -151,7 +151,7 @@ class GitHub(TaskGitHub, Protocol):
     def open_counts(self, name: str) -> tuple[int, int]: ...
     def delete_repository(self, name: str) -> None: ...
     def archive_repository(self, name: str, *, archived: bool = True) -> None: ...
-    def owner_repositories(self, owner: str | None) -> list[OwnedRepository]: ...
+    def owner_repositories(self, owner: str | None, file: str) -> list[OwnedRepository]: ...
     def delete_secret(self, repo: Path, name: str) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
     def merged_pull_requests(self, repo: Path) -> list[PullRequestInfo]: ...
@@ -255,13 +255,14 @@ class GhCli(_TaskGhCli):
         if not completed.ok:
             raise gh_error(args, completed)
 
-    def owner_repositories(self, owner):
-        """所有者のリポジトリ（owner が None ならログイン中のユーザー）。ecobuild.toml の中身も一緒に読む
-        （GraphQL：100件ごとに1回）。共同作業者として入っている他人のリポジトリは含めない。"""
+    def owner_repositories(self, owner, file):
+        """所有者のリポジトリ（owner が None ならログイン中のユーザー）。既定のブランチの file（リポジトリの
+        ルートからの相対）の中身も一緒に読む（GraphQL：100件ごとに1回）。共同作業者として入っている他人の
+        リポジトリは含めない。"""
         fields = ("repositories(first: 100, after: $after, ownerAffiliations: [OWNER], "
                   "orderBy: {field: UPDATED_AT, direction: DESC}) { pageInfo { hasNextPage endCursor } nodes { "
                   "nameWithOwner url description isPrivate isArchived updatedAt "
-                  'object(expression: "HEAD:ecobuild.toml") { ... on Blob { text } } } }')
+                  f'object(expression: "HEAD:{file}") {{ ... on Blob {{ text }} }} }} }}')
         if owner:
             query = ("query($login: String!, $after: String) { owner: repositoryOwner(login: $login) { "
                      "... on User { " + fields + " } ... on Organization { " + fields + " } } }")

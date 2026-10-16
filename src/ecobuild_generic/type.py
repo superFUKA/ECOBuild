@@ -51,7 +51,7 @@ class GenericOptions:
 
 class GenericType(ModuleType, Builds):
     name = "generic"
-    description = "ビルド・テスト・実行のコマンドを ecobuild.toml の [commands] に書く（言語を問わない）"
+    description = "ビルド・テスト・実行のコマンドを .ecobuild/ecobuild.toml の [commands] に書く（言語を問わない）"
 
     @classmethod
     def new_config(cls, name: str) -> ModuleConfig:
@@ -63,7 +63,7 @@ class GenericType(ModuleType, Builds):
     def readme_usage(cls, config: ModuleConfig) -> str:
         return """## コマンド
 
-ビルド・テスト・実行は `ecobuild.toml` の `[commands]` に書いたコマンドで行います（`{configuration}` に構成、
+ビルド・テスト・実行は `.ecobuild/ecobuild.toml` の `[commands]` に書いたコマンドで行います（`{configuration}` に構成、
 `run` では `{arguments}` に引数が入ります）。Windows では cmd.exe、Linux では sh で実行します（CIでも同じ）。
 OSごとに変えるときは、OSごとの表で書きます：
 
@@ -89,7 +89,7 @@ test = { windows = "test.cmd", linux = "./test.sh" }
             missing = [name for name, command in found.items() if not command]
             if missing:
                 raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"{key} のコマンドが {'、'.join(missing)} にありません。",
-                                    hint=f"ecobuild.toml の [{TABLE}] の {key} に書くか、ecobuild ci init の --os から"
+                                    hint=f".ecobuild/ecobuild.toml の [{TABLE}] の {key} に書くか、ecobuild ci init の --os から"
                                          "外してください。")
             for name, command in found.items():
                 runner_os, shell = CI_OS[name]
@@ -99,8 +99,8 @@ test = { windows = "test.cmd", linux = "./test.sh" }
         if not steps:
             return None
         lines = [
-            "# ECOBuild（ecobuild ci init）が作成：ecobuild.toml の [commands] の build・test を実行する。",
-            "# 変えるときは ecobuild ci init の --os・--configuration・--branches（設定は ecobuild.toml の [ci]）。",
+            "# ECOBuild（ecobuild ci init）が作成：.ecobuild/ecobuild.toml の [commands] の build・test を実行する。",
+            "# 変えるときは ecobuild ci init の --os・--configuration・--branches（設定は .ecobuild/ecobuild.toml の [ci]）。",
             "name: build", "", *ci_workflow.trigger(config), "",
             "jobs:", "  build:", "    strategy:", "      fail-fast: false", "      matrix:",
             f"        os: {ci_workflow.runners(ci, ('linux',))}",
@@ -155,7 +155,7 @@ test = { windows = "test.cmd", linux = "./test.sh" }
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED,
                                 f"{operation} の {system} のコマンドがありません。" if per_os
                                 else f"{operation} のコマンドがありません。",
-                                hint=f"ecobuild.toml の [{TABLE}] に {operation} = \"<コマンド>\"（すべてのOS）か "
+                                hint=f".ecobuild/ecobuild.toml の [{TABLE}] に {operation} = \"<コマンド>\"（すべてのOS）か "
                                      f"{operation} = {{ {system} = \"<コマンド>\" }}（OSごと）を書いてください"
                                      "（作業空間でコミットします）。")
         return command

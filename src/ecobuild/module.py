@@ -28,7 +28,7 @@ from . import tracking as _tracking
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import remove_tree
-from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
+from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
@@ -1092,6 +1092,10 @@ class Module:
         (self.root / "AGENTS.md").write_text(_docs.agents(self.config, type(self.type)), encoding="utf-8",
                                              newline="\n")
         return FilesChanged("agent init", ("AGENTS.md",))
+
+    def agent_guide(self) -> AgentGuide:
+        """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（作業空間でなくても読める）。"""
+        return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。

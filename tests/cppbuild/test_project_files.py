@@ -141,7 +141,8 @@ def test_docs_ci_and_check(module):
     root = module.root
     git(root, "add", "--all")
     git(root, "commit", "--quiet", "--allow-empty", "-m", "前の試験の変更")  # 生成ファイルをコミット済みにする
-    assert "ecobuild task new" in (root / "AGENTS.md").read_text(encoding="utf-8")
+    assert "ecobuild agent guide" in (root / "AGENTS.md").read_text(encoding="utf-8")
+    assert "ecobuild task new" in module.agent_guide().text
     assert "cmake -S . -B build" in (root / "README.md").read_text(encoding="utf-8")
     (root / "AGENTS.md").unlink()
     assert module.write_agents().paths == ("AGENTS.md",) and (root / "AGENTS.md").exists()

@@ -121,8 +121,12 @@ def run_tests(root: Path, python: Path) -> list[TestCaseResult]:
         completed = execute(args, root)
         cases = read_junit(report) if report.is_file() else []
     if completed.returncode not in (0, NO_TESTS):
-        error = failure(ErrorCode.TEST_FAILED, "テストに失敗しました。", args, completed)
-        error.details["failed"] = [c.name for c in cases if c.status == "failed"]
+        failed = [c.name for c in cases if c.status == "failed"]
+        # どのテストかを1行目に出す（check の一覧には message だけが出る）。集める前の誤りなら件数は出ない
+        summary = (f"：失敗 {len(failed)}・成功 {sum(c.status == 'passed' for c in cases)}（{'、'.join(failed[:3])}"
+                   + ("…" if len(failed) > 3 else "") + "）") if failed else "（テストを集められませんでした）"
+        error = failure(ErrorCode.TEST_FAILED, f"テストに失敗しました{summary}", args, completed)
+        error.details["failed"] = failed
         raise error
     return cases
 

@@ -146,6 +146,7 @@ python -m venv .venv
         return PythonOptions(chosen)
 
     def build(self, project: str | None, options: PythonOptions, action: str) -> BuildResult:
+        _no_project(project)
         if action in ("clean", "rebuild"):
             _python.clean(self.root)
         if action == "clean":
@@ -155,13 +156,15 @@ python -m venv .venv
         return BuildResult(None, options.configuration, artifacts, None, action)
 
     def test(self, project: str | None, options: PythonOptions) -> TestResult:
-        cases = _python.run_tests(self.root, self._environment())
+        _no_project(project)
+        cases =_python.run_tests(self.root, self._environment())
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         return TestResult(None, options.configuration, count("passed"), count("failed"), count("skipped"),
                           tuple(cases))
 
     def run(self, project: str | None, options: PythonOptions, arguments: str) -> RunResult:
-        script = _python.script_name(self.root)
+        _no_project(project)
+        script =_python.script_name(self.root)
         if script is None:
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED, "実行できるものがありません（pyproject.toml の [project.scripts]）。",
                                 hint="module new の --kind app で作るか、[project.scripts] にコマンドを書いてください"
@@ -184,7 +187,7 @@ python -m venv .venv
         relative = self._relative(path)
         parts = relative.parts
         if self._exists(relative):
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{relative.as_posix()} は既にあります。")
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{relative.as_posix()} は既にあります。")
         added = []
         if parts[0] == "src":
             added += self._packages(relative)
@@ -216,16 +219,16 @@ python -m venv .venv
         if not self._exists(origin):
             raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{origin.as_posix()} はありません。")
         if self._exists(target):
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{target.as_posix()} は既にあります。")
-        moved = []
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{target.as_posix()} は既にあります。")
         if target.parts[0] == "src":
-            moved += self._packages(target)
+            self._packages(target)   # 新しいパッケージの __init__.py（*.py なので commit に含まれる）
         self._move(origin, target)
-        moved.append(target)
+        moved = [origin, target]     # 移動元・移動先の組（cpp と同じ形。CLI が「a → b」で表示する）
         mirror, mirror_target = _mirror(origin), _mirror(target)
         if test and mirror and mirror_target and self._exists(mirror) and not self._exists(mirror_target):
             self._move(mirror, mirror_target)
-            moved.append(mirror_target)
+            self._retarget_import(mirror_target, origin, target)
+            moved += [mirror, mirror_target]
         return FilesChanged("file move", tuple(p.as_posix() for p in moved))
 
     def _relative(self, path: Path) -> Path:
@@ -252,6 +255,17 @@ python -m venv .venv
         (self.root / target).parent.mkdir(parents=True, exist_ok=True)
         (self.root / origin).rename(self.root / target)
 
+    def _retarget_import(self, test: Path, origin: Path, target: Path) -> None:
+        """動かしたテストの import（file add が書いた形）を、移動先のモジュールに向ける。名前が変わったら、
+        テストの中の名前はそのまま使えるように as で元の名前にする。"""
+        path = self.root / test
+        old, new = _import_line(origin), _import_line(target)
+        if origin.stem != target.stem:
+            new += f" as {origin.stem}"
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines = [new + "\n" if line.rstrip() == old else line for line in lines]
+        path.write_text("".join(lines), encoding="utf-8", newline="\n")
+
     def _packages(self, relative: Path) -> list[Path]:
         """src/ の中の、まだ __init__.py がないパッケージのフォルダーに作る（setuptools が見つけるのに要る）。"""
         created = []
@@ -266,6 +280,13 @@ python -m venv .venv
 _TEST_TEXT = "def test_todo():\n    assert True\n"
 
 
+def _no_project(project: str | None) -> None:
+    """Project を持たないので、指定されたら黙って全体にせず止める（run の引数の書き間違いにも気づける）。"""
+    if project:
+        raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"型 python には Project がありません（{project} を指定しました）。",
+                            hint="build・test・run はモジュール全体が対象です。run の引数は --arguments \"…\" で渡します。")
+
+
 def _mirror(relative: Path) -> Path | None:
     """src/<パッケージ>/a/b.py に対応するテスト tests/a/test_b.py（ソースでなければ None）。"""
     parts = relative.parts
@@ -278,10 +299,12 @@ def _module_text(relative: Path) -> str:
     return "" if relative.suffix != ".py" else f'"""{relative.stem}。"""\n'
 
 
+def _import_line(relative: Path) -> str:
+    return f"from {'.'.join(relative.parts[1:-1])} import {relative.stem}"
+
+
 def _test_text(relative: Path) -> str:
-    parts = relative.parts
-    package = ".".join(parts[1:-1])
-    return f"from {package} import {relative.stem}\n\n\ndef test_{relative.stem}():\n    assert {relative.stem} is not None\n"
+    return f"{_import_line(relative)}\n\n\ndef test_{relative.stem}():\n    assert {relative.stem} is not None\n"
 
 
 def _versions(config: ModuleConfig) -> tuple[str, ...]:

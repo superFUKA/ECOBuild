@@ -64,7 +64,7 @@ def test_add_move_remove_file(tmp_path):
     added = python.add_file(tmp_path / "src/calc/core/ops.py", test=True)
     assert set(added.paths) == {"src/calc/core/__init__.py", "src/calc/core/ops.py", "tests/core/test_ops.py"}
     assert "from calc.core import ops" in (tmp_path / "tests/core/test_ops.py").read_text(encoding="utf-8")
-    assert code_of(lambda: python.add_file(tmp_path / "src/calc/core/ops.py", test=True)) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: python.add_file(tmp_path / "src/calc/core/ops.py", test=True)) == ErrorCode.ALREADY_EXISTS
     assert code_of(lambda: python.add_file(tmp_path / "docs/x.py", test=True)) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
     assert code_of(lambda: python.add_file(tmp_path / "src/x.py", test=True)) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
     assert code_of(lambda: python.add_file(tmp_path / "src/calc/y.py", test=True, template="t")) == ErrorCode.NOT_SUPPORTED
@@ -72,7 +72,13 @@ def test_add_move_remove_file(tmp_path):
     assert python.add_file(tmp_path / "tests/test_extra.py", test=True).paths == ("tests/test_extra.py",)
 
     moved = python.move_file(tmp_path / "src/calc/core/ops.py", tmp_path / "src/calc/math/ops.py", test=True)
-    assert "tests/math/test_ops.py" in moved.paths and not (tmp_path / "tests/core/test_ops.py").exists()
+    assert moved.paths == ("src/calc/core/ops.py", "src/calc/math/ops.py", "tests/core/test_ops.py",
+                           "tests/math/test_ops.py")                         # 移動元・移動先の組
+    assert (tmp_path / "src/calc/math/__init__.py").is_file() and not (tmp_path / "tests/core/test_ops.py").exists()
+    assert "from calc.math import ops\n" in (tmp_path / "tests/math/test_ops.py").read_text(encoding="utf-8")
+    python.move_file(tmp_path / "src/calc/math/ops.py", tmp_path / "src/calc/math/calc.py", test=True)
+    assert "from calc.math import calc as ops\n" in (tmp_path / "tests/math/test_calc.py").read_text(encoding="utf-8")
+    python.move_file(tmp_path / "src/calc/math/calc.py", tmp_path / "src/calc/math/ops.py", test=True)
     removed = python.remove_file(tmp_path / "src/calc/math/ops.py", test=True)
     assert set(removed.paths) == {"src/calc/math/ops.py", "tests/math/test_ops.py"}
     assert code_of(lambda: python.remove_file(tmp_path / "src/calc/math/ops.py", test=True)) == ErrorCode.FILE_NOT_FOUND
@@ -86,6 +92,14 @@ def test_profile_and_options(tmp_path):
     assert python.build_options(None, "").configuration == "Debug"
     assert python.build_options(Profile(configuration="Release"), "").configuration == "Release"
     assert code_of(lambda: python.build_options(None, "Fast")) == ErrorCode.INVALID_CONFIGURATION
+
+
+def test_project_is_rejected(tmp_path):
+    python = make(tmp_path)
+    options = python.build_options(None, "")
+    for action in (lambda: python.build("Foo", options, "build"), lambda: python.test("Foo", options),
+                   lambda: python.run("sample.txt", options, "")):
+        assert code_of(action) == ErrorCode.NOT_SUPPORTED
 
 
 def test_run_needs_a_script(tmp_path):

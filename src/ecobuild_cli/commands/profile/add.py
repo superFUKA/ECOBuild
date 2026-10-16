@@ -17,6 +17,7 @@ def command(
     c_compiler: Annotated[str, "C++：Cコンパイラ（Ninjaだけ。名前か絶対パス）"] = "",
     cxx_compiler: Annotated[str, "C++：C++コンパイラ（Ninjaだけ。名前か絶対パス。例：clang++）"] = "",
     toolchain_file: Annotated[str, "C++：CMakeのツールチェーンファイル（絶対パス）"] = "",
+    windows_sdk: Annotated[str, "C++：Windows SDKの版（MSVCだけ。例：10.0.22621.0。既定はCMakeの選択）"] = "",
     test_parallel: Annotated[int, "C++：テストを並列に実行する数（既定は1）"] = 0,
     stop_on_test_failure: Annotated[bool, "C++：テスト用のProjectが失敗したら、残りのテストを実行しない"] = False,
     googletest_archive: Annotated[str, "C++：GoogleTestのZIP（オフラインで使う。既定はダウンロード）"] = "",
@@ -33,7 +34,7 @@ def command(
         options = {key: value for key, value in (
             ("architecture", architecture), ("cpp_standard", cpp_standard), ("generator", generator),
             ("toolset", toolset), ("c_compiler", c_compiler), ("cxx_compiler", cxx_compiler),
-            ("toolchain_file", toolchain_file), ("test_parallel", test_parallel),
+            ("toolchain_file", toolchain_file), ("windows_sdk", windows_sdk), ("test_parallel", test_parallel),
             ("googletest_archive", googletest_archive)) if value}
         if stop_on_test_failure:
             options["test_continue_on_failure"] = False

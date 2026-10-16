@@ -38,6 +38,7 @@ PROFILE_OPTIONS = {
     "c_compiler": (str, None),
     "cxx_compiler": (str, None),
     "toolchain_file": (str, None),
+    "windows_sdk": (str, None),
     "test_parallel": (int, _POSITIVE),
     "test_continue_on_failure": (bool, None),
     "googletest_archive": (str, None),

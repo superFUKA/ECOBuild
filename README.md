@@ -75,6 +75,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/superFUKA/ECOBuild/featu
 | `error` | エラーだけ |
 | `off` | 残さない |
 
+C++ のモジュールでは、CppBuild の中の動き（呼んだ API と引数・結果、実行した CMake・MSBuild のコマンドと出力、書いたり消したりしたファイル、構成を省いた理由、トランザクション）も、同じログに `logger` が `cppbuild.` で始まる行として残ります。量は上の表に従い、CppBuild 側の設定は要りません（`debug` のときだけ細かい行まで残ります）。
+
 大きさの上限は `ecobuild config set log_max_mb <MB>`（置き場所ごと、既定 200）。超えたら古い日のファイルから消します。トークン等の秘密は伏せて書きます。
 
 ## 構成

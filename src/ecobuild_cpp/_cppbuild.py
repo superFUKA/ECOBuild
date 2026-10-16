@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import shlex
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 
-from cppbuild import (INHERIT, CMakeSettings, ProjectBuildSettings, ProjectType, Solution, SolutionBuildSettings,
-                      SolutionFolderSettings, ToolSettings)
+from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, INHERIT, AlreadyRegisteredError,
+                      CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
+                      ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 
 CONFIG_DIRECTORY = ".cppbuild"
 DEPENDENCY_DIRECTORY = "deps"   # 依存先のcloneの置き場所（.gitignore で除外）
-CONFIGURATIONS = ("Debug", "Release", "RelWithDebInfo", "MinSizeRel")   # CMakeの標準の構成
 # CMakeのビルドツリー（中間ファイル）の置き場所。CppBuildの既定（.cppbuild/output/intermediate）より
 # 約25文字短い、モジュール直下の build/ にする（Windowsの260文字の制限への対策）。
 # CppBuildの設定は.cppbuildからの相対で、保存されないため、Solutionを開くたびに設定する。
@@ -51,9 +51,8 @@ LIBRARY_TYPES = {
     "shared": ProjectType.SHARED_LIBRARY,
     "interface": ProjectType.INTERFACE_LIBRARY,
 }
-CPP_STANDARDS = (17, 20, 23)                   # CppBuildが受け付けるC++の規格（既定は20）
-ARCHITECTURES = ("x64", "Win32", "ARM64")       # 省略時はホスト・コンパイラの既定
-GENERATORS = ("Visual Studio 17 2022", "Visual Studio 18 2026", "Ninja Multi-Config")  # 省略時はOSごとの既定
+# 構成・C++の規格（既定は20）・アーキテクチャ（省略時はホスト・コンパイラの既定）・生成器（省略時はOSごとの既定）は、
+# CppBuildが受け付ける値そのもの（CppBuildが増やしても、ここは書き換えない）。
 HEADER_SUFFIXES = (".h", ".hpp", ".hh", ".hxx")
 SOURCE_SUFFIXES = (".cpp", ".cc", ".cxx")
 
@@ -81,6 +80,7 @@ class BuildOptions:
     c_compiler: str | None = None
     cxx_compiler: str | None = None
     toolchain_file: str | None = None
+    windows_sdk: str | None = None           # Windows SDKの版（例：10.0.22621.0。MSVCだけ）
     test_parallel: int = 1
     test_continue_on_failure: bool = True
     googletest_archive: str | None = None    # GoogleTestのZIP（オフライン用）
@@ -400,20 +400,22 @@ def remove_project(root: Path, name: str) -> bool:
     solution = open_solution(root)
     _require_project(solution, name)
     try:
-        data = solution.settings.get()
-        was_main = data.main_project == name
-        if was_main:
-            data.main_project = None
-            solution.settings.save(data)
-        guid = solution.get_project(name).settings.get().guid
-        for other in solution.projects():
-            if other.name == name:
-                continue
-            for key, dependency in list(other.settings.get().dependencies.items()):
-                if getattr(dependency, "project_guid", None) == guid:
-                    other.settings.unlink(key)
-        solution.remove_project(name)
-        solution.update()
+        with _transaction(solution, f"Project {name} を外せません。"):
+            data = solution.settings.get()
+            was_main = data.main_project == name
+            if was_main:
+                data.main_project = None
+                solution.settings.save(data)
+            guid = solution.get_project(name).settings.get().guid
+            for other in solution.projects():
+                if other.name == name:
+                    continue
+                for key, dependency in list(other.settings.get().dependencies.items()):
+                    if getattr(dependency, "project_guid", None) == guid:
+                        other.settings.unlink(key)
+            solution.remove_project(name)
+    except EcoBuildError:
+        raise
     except Exception as error:
         raise _cppbuild_error(f"Project {name} を外せません。", error) from error
     return was_main
@@ -424,20 +426,22 @@ def set_pch(root: Path, project: str, *, enable: bool) -> str | None:
     solution = open_solution(root)
     _require_project(solution, project)
     target = solution.get_project(project)
+    message = f"Project {project} のPCHを設定できません。"
     try:
-        if not enable:
-            target.settings.clear_pch()
-            solution.update()
-            return None
-        _ensure_templates(solution)
-        header = f"include/{project}/pch.h"
-        if not (target.root / header).exists():
-            target.add_file(header, template_name="pch", auto_update=False)
-        target.settings.set_pch(project_headers=[header])
-        solution.update()
-        return f"{project}/{header}"
+        with _transaction(solution, message):
+            if not enable:
+                target.settings.clear_pch()
+                return None
+            _ensure_templates(solution)
+            header = f"include/{project}/pch.h"
+            if not (target.root / header).exists():
+                target.add_file(header, template_name="pch", auto_update=False)
+            target.settings.set_pch(project_headers=[header])
+            return f"{project}/{header}"
+    except EcoBuildError:
+        raise
     except Exception as error:
-        raise _cppbuild_error(f"Project {project} のPCHを設定できません。", error) from error
+        raise _cppbuild_error(message, error) from error
 
 
 # ファイル ---------------------------------------------------------------------
@@ -547,24 +551,23 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
     solution = open_solution(root)
     _require_project(solution, project)
     before = {s.name for s in solution.git_sources()}
-    deps = root / DEPENDENCY_DIRECTORY
-    cloned_before = {p.name for p in deps.iterdir()} if deps.is_dir() else set()
+    message = f"{url} をリンクできません。"
     try:
-        solution.get_project(project).settings.link_git(
-            url, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
-        solution.update()
+        # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。
+        with _transaction(solution, message):
+            solution.get_project(project).settings.link_git(
+                url, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
+    except EcoBuildError:
+        raise
+    except AlreadyRegisteredError as error:
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{url} は既にリンクしています。") from error
+    except NoMainProjectError as error:
+        raise EcoBuildError(ErrorCode.NOT_LINKABLE, f"{url} のモジュールは、リンクできる形になっていません。",
+                            hint="他のモジュールからリンクされるのは、そのモジュールで最初に作ったProject（main）"
+                                 "だけで、それがライブラリである必要があります。",
+                            details=str(error)) from error
     except Exception as error:
-        for new in (p for p in deps.iterdir() if p.name not in cloned_before) if deps.is_dir() else ():
-            remove_tree(new)   # リンクできなかった相手の、今cloneしたもの
-        text = str(error)
-        if "already registered" in text:
-            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{url} は既にリンクしています。") from error
-        if "needs a main Project" in text:
-            raise EcoBuildError(ErrorCode.NOT_LINKABLE, f"{url} のモジュールは、リンクできる形になっていません。",
-                                hint="他のモジュールからリンクされるのは、そのモジュールで最初に作ったProject（main）"
-                                     "だけで、それがライブラリである必要があります。",
-                                details=text) from error
-        raise _cppbuild_error(f"{url} をリンクできません。", error) from error
+        raise _cppbuild_error(message, error) from error
     added = [s.name for s in solution.git_sources() if s.name not in before]
     return added[0] if added else next(s.name for s in solution.git_sources() if s.url == url)
 
@@ -572,24 +575,17 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
 def unlink(root: Path, name: str) -> tuple[str, ...]:
     """依存先のリンクを、すべてのProjectから外し、記録を消す。外したProjectを返す。"""
     solution = open_solution(root)
-    source = next((s for s in solution.git_sources() if s.name == name and s.recorded_by is None), None)
-    if source is None:
+    if not any(s.name == name and s.recorded_by is None for s in solution.git_sources()):
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+    message = f"依存先 {name} を外せません。"
     try:
-        guids = set(_guid_names(Solution.open(source.config)).keys()) if source.present else set()
-        unlinked = []
-        for project in solution.projects():
-            for key, dependency in list(project.settings.get().dependencies.items()):
-                if getattr(dependency, "project_guid", None) in guids:
-                    project.settings.unlink(key)
-                    unlinked.append(project.name)
-        solution.remove_git_source(name)
-        solution.update()
+        with _transaction(solution, message):
+            report = solution.unlink_git_source(name)   # すべてのProjectからのリンクと、記録（cloneは残る）
     except EcoBuildError:
         raise
     except Exception as error:
-        raise _cppbuild_error(f"依存先 {name} を外せません。", error) from error
-    return tuple(unlinked)
+        raise _cppbuild_error(message, error) from error
+    return tuple(project for project, _ in report.unlinked)
 
 
 def record_latest(root: Path, name: str) -> str:
@@ -615,16 +611,6 @@ def _require_project(solution: Solution, project: str) -> None:
 
 def _guid_names(solution: Solution) -> dict[str, str]:
     return {solution.get_project(name).settings.get().guid: name for name in solution.settings.get().projects}
-
-
-def _shared_capable(solution: Solution) -> list[str]:
-    """共有ライブラリにできるライブラリ（依存先を含む）のGUID。"""
-    solutions = [solution]
-    for source in solution.git_sources():
-        if source.present:
-            solutions.append(Solution.open(source.config))
-    return [s.get_project(name).settings.get().guid for s in solutions for name in s.settings.get().projects
-            if ProjectType.SHARED_LIBRARY in s.get_project(name).settings.get().types]
 
 
 def _add_library_header(project, path: str) -> None:
@@ -700,16 +686,15 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
                                 hint="形式（type）を変えられるのはライブラリだけです。")
     try:
         # 構成（Debug／Release）はSolution全体で1つ。Projectは対象を絞るだけで、構成は引き継ぐ。
-        typed = {solution.get_project(name).settings.get().guid for name, o in overrides.items() if o.type}
-        types = {guid: ProjectType.SHARED_LIBRARY for guid in _shared_capable(solution)
-                 if guid not in typed} if options.shared else {}
+        # shared：依存先も含め、ライブラリを共有ライブラリにする（Projectの形式の指定が優先）。
         solution.set_build_settings(_solution_settings(
-            configuration=options.configuration, parallel=options.parallel, project_types=types,
+            configuration=options.configuration, parallel=options.parallel, shared_libraries=options.shared,
             architecture=options.architecture, cpp_standard=options.cpp_standard or 20,
             test_continue_on_failure=options.test_continue_on_failure, fetch_git=options.fetch_git,
             tools=ToolSettings(cmake=options.cmake or "cmake", ctest=options.ctest or "ctest"),
             cmake=CMakeSettings(generator=options.generator, toolset=options.toolset, c_compiler=options.c_compiler,
-                                cxx_compiler=options.cxx_compiler, toolchain_file=options.toolchain_file)))
+                                cxx_compiler=options.cxx_compiler, toolchain_file=options.toolchain_file,
+                                windows_sdk=options.windows_sdk)))
         for name in names:
             own = overrides.get(name, ProjectOptions())
             settings = ProjectBuildSettings(
@@ -772,4 +757,34 @@ def _joined(processes) -> str:
 
 
 def _cppbuild_error(message: str, error: Exception) -> EcoBuildError:
-    return EcoBuildError(ErrorCode.CPPBUILD_ERROR, message, details=f"{type(error).__name__}: {error}")
+    """CppBuildの例外を、ECOBuildのエラーにする（CppBuildの例外の型で決める。文面は見ない）。"""
+    details = f"{type(error).__name__}: {error}"
+    if isinstance(error, AlreadyRegisteredError):
+        return EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{message}（{error.name} は既にあります）", details=details)
+    if isinstance(error, NotRegisteredError):
+        code = {"project": ErrorCode.PROJECT_NOT_FOUND, "git_source": ErrorCode.DEPENDENCY_NOT_FOUND,
+                "dependency": ErrorCode.DEPENDENCY_NOT_FOUND}.get(error.kind)
+        if code is not None:
+            return EcoBuildError(code, f"{message}（{error.name} はありません）", details=details)
+    if isinstance(error, InvalidValueError):
+        hint = f"{error.field} に指定できるのは {'・'.join(map(str, error.allowed))} です。" if error.allowed else None
+        return EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{message}（{error.field} の値 {error.value!r} は使えません）",
+                             hint=hint, details=details)
+    return EcoBuildError(ErrorCode.CPPBUILD_ERROR, message, details=details)
+
+
+@contextmanager
+def _transaction(solution: Solution, message: str):
+    """設定の変更と、それを反映する更新（生成ファイルの作り直しとCMakeの構成）を一体にする。
+
+    中で例外が起きるか、更新に失敗したら、書いた管理ファイル・生成ファイルと、今cloneした依存先を元に戻す
+    （CppBuildの Solution.transaction）。ソースファイルとビルドツリーは戻さない。更新の失敗は EcoBuildError にする。
+    """
+    with solution.transaction() as report:
+        yield report
+    if not report.success:
+        update = report.update
+        processes = update.processes if hasattr(update, "processes") else (update.process,)
+        raise EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"{message}CMakeの構成に失敗したので、設定を元に戻しました。",
+                            hint="パス・ターゲット名等を確かめてください（詳細はCMakeの出力）。",
+                            details=_joined(tuple(_process(p) for p in processes)))

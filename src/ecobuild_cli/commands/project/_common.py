@@ -46,6 +46,12 @@ def link_line(link: dict) -> str:
     return f"  {link['name']}（{'・'.join(detail)}）id {link['id'][:8]}"
 
 
+def option_text(option: dict) -> str:
+    """オプション・定義。コンパイラ・構成の条件があれば、先に [MSVC/Release] のように付ける。"""
+    condition = "/".join(c for c in (option["compiler"], option["configuration"]) if c)
+    return f"[{condition}] {option['value']}" if condition else option["value"]
+
+
 def render_details(d: dict) -> str:
     lines = [f"{d['name']}（{d['kind']}）{d['directory']}"
              + ("  ← 他のモジュールからリンクされるProject（main）" if d["main"] else "")]
@@ -66,4 +72,16 @@ def render_details(d: dict) -> str:
         lines.append(f"OSのライブラリ：{', '.join(d['system_libraries'])}")
     if d["kind"].endswith("library"):
         lines.append(f"Windowsで共有ライブラリのすべての関数を書き出す：{'する' if d['export_all_symbols'] else 'しない'}")
+    for label, key in (("コンパイルオプション", "compile_options"), ("リンクオプション", "link_options"),
+                       ("条件付きの定義", "conditional_definitions")):
+        if d[key]:
+            lines.append(f"{label}：{', '.join(map(option_text, d[key]))}")
+    if d["warning_level"] is not None or d["warnings_as_errors"]:
+        level = "既定" if d["warning_level"] is None else f"レベル {d['warning_level']}"
+        lines.append(f"警告：{level}{'（エラーにする）' if d['warnings_as_errors'] else ''}")
+    for stage, label in (("pre_build", "コンパイルの前"), ("pre_link", "リンクの前"), ("post_build", "ビルドの後")):
+        if d["build_events"][stage]:
+            lines.append(f"ビルドイベント（{label}）：{'; '.join(' '.join(c) for c in d['build_events'][stage])}")
+    if d["output_files"]:
+        lines.append(f"出力ファイルの横へコピー：{', '.join(d['output_files'])}")
     return "\n".join(lines)

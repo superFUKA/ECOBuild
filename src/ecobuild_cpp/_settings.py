@@ -7,9 +7,10 @@ _cppbuild.BuildOptions で渡す。ここは CppBuild が保存する設定だ�
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 
-from cppbuild import ProjectType, Solution
+from cppbuild import MSVC_RUNTIMES, AlreadyRegisteredError, BuildEvents, BuildOption, ProjectType, Solution
 from cppbuild.core import STANDARD_ENTRY_POINTS
 from cppbuild.models import CMakePackage, CMakeSource, Dependency, ImportedLibrary
 
@@ -21,6 +22,8 @@ KIND_NAMES = {kind: name for name, kind in _cppbuild.LIBRARY_TYPES.items()}
 _TOKEN = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")   # CppBuildのテンプレートの差し込み口
 _TARGET = re.compile(r"[A-Za-z_][A-Za-z0-9_:.+-]*")         # CMakeのターゲット名（CppBuildの検証と同じ）
 _PACKAGE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
+_COMPILER = re.compile(r"[A-Za-z][A-Za-z0-9_]*")               # CMakeのコンパイラの種類（MSVC・GNU・Clang 等）
+BUILD_EVENTS = ("pre_build", "pre_link", "post_build")           # コンパイルの前・リンクの前・ビルドの後
 
 
 # モジュール（Solution） ------------------------------------------------------------------
@@ -31,6 +34,7 @@ def module_settings(root: Path) -> dict:
     folders = data.solution_folders
     return {
         "main_project": data.main_project,
+        "msvc_runtime": data.msvc_runtime,
         "folders": None if folders is None else {
             "projects": folders.projects, "linked_projects": folders.linked_projects,
             "external": folders.external, "project_folders": dict(sorted(folders.project_folders.items()))},
@@ -41,9 +45,15 @@ def module_settings(root: Path) -> dict:
 
 def set_module_settings(root: Path, *, main: str | None = None, clear_main: bool = False,
                         projects_folder: str | None = None, linked_folder: str | None = None,
-                        external_folder: str | None = None) -> dict:
+                        external_folder: str | None = None, msvc_runtime: str | None = None) -> dict:
+    """msvc_runtime：MSVCのCランタイム（dll＝/MD、static＝/MT。このモジュールを頂点にしたビルド全体）。"""
     solution = _cppbuild.open_solution(root)
     data = solution.settings.get()
+    if msvc_runtime is not None:
+        if msvc_runtime not in MSVC_RUNTIMES:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"MSVCのランタイム {msvc_runtime} はありません。",
+                                hint=f"{'・'.join(MSVC_RUNTIMES)} のどれかを指定してください。")
+        data.msvc_runtime = msvc_runtime
     if main is not None:
         _require(solution, main)
         data.main_project = main
@@ -157,6 +167,13 @@ def project_details(root: Path, name: str) -> dict:
         "entry_point": data.entry_point or "main",
         "gui": data.gui,
         "system_libraries": list(data.system_libraries),
+        "compile_options": [_option_view(o) for o in data.compile_options],
+        "link_options": [_option_view(o) for o in data.link_options],
+        "conditional_definitions": [_option_view(o) for o in data.conditional_definitions],
+        "warning_level": data.warning_level,
+        "warnings_as_errors": data.warnings_as_errors,
+        "build_events": {stage: [list(c) for c in getattr(data.build_events, stage)] for stage in BUILD_EVENTS},
+        "output_files": list(data.output_files),
     }
 
 
@@ -166,8 +183,21 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
                 add_source_directories=(), remove_source_directories=(),
                 export_all_symbols: bool | None = None, folder: str | None = None,
                 clear_folder: bool = False, entry_point: str | None = None, gui: bool | None = None,
-                add_system_libraries=(), remove_system_libraries=()) -> dict:
+                add_system_libraries=(), remove_system_libraries=(),
+                add_compile_options=(), remove_compile_options=(), add_link_options=(), remove_link_options=(),
+                add_conditional_defines=(), remove_conditional_defines=(),
+                compiler: str | None = None, configuration: str | None = None,
+                warning_level: int | None = None, default_warning_level: bool = False,
+                warnings_as_errors: bool | None = None, event: str | None = None,
+                add_build_events=(), remove_build_events=(),
+                add_output_files=(), remove_output_files=()) -> dict:
     """Projectの設定を変える。定義・インクルードは形式ごと（types。省略時はそのProjectのすべての形式）。
+
+    コンパイルオプション・リンクオプション・条件付きの定義（compile_options・link_options・conditional_defines）は、
+    足す・外すものすべてに compiler（CMakeのコンパイラの種類。MSVC・GNU・Clang 等）と configuration（構成）の
+    条件を付けられる（省略時はすべて）。warning_level：0〜4（default_warning_level で既定に戻す）、
+    warnings_as_errors：警告をエラーにする。build_events：event（pre_build・pre_link・post_build）で選んだ段階の
+    コマンド（引数を空白で区切った1行）。output_files：ビルドのたびに出力ファイルの横へコピーするファイル・フォルダー。
 
     entry_point・gui：実行ファイルの入口の関数（main・wmain・WinMain・wWinMain、それ以外は MSVC の /ENTRY）と
     GUIアプリにするか（省略時は関数で決まる：WinMain・wWinMain ならGUI）。system_libraries：OSのライブラリ（ws2_32 等）。"""
@@ -210,6 +240,14 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
                                 hint="ws2_32・d3d11・pthread のような名前だけを指定してください（パス・-l は付けない）。")
     data.system_libraries = _edit(data.system_libraries, add_system_libraries, remove_system_libraries,
                                   name, "OSのライブラリ")
+    _set_build_properties(
+        data, name, compiler=compiler, configuration=configuration,
+        compile_options=(add_compile_options, remove_compile_options),
+        link_options=(add_link_options, remove_link_options),
+        conditional_definitions=(add_conditional_defines, remove_conditional_defines),
+        warning_level=warning_level, default_warning_level=default_warning_level,
+        warnings_as_errors=warnings_as_errors, event=event, build_events=(add_build_events, remove_build_events),
+        output_files=(add_output_files, remove_output_files))
     module = solution.settings.get()
     if folder is not None or clear_folder:
         if module.solution_folders is None:
@@ -225,6 +263,90 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
             solution.settings.save(module)
     _save(solution, change, f"Project {name} の設定を変えられません。")
     return project_details(root, name)
+
+
+def _set_build_properties(data, name: str, *, compiler, configuration, compile_options, link_options,
+                          conditional_definitions, warning_level, default_warning_level, warnings_as_errors, event,
+                          build_events, output_files) -> None:
+    """Visual Studio のプロパティに当たる設定（オプション・警告・ビルドイベント・出力ファイル）を、dataに反映する。"""
+    options = (("compile_options", "コンパイルオプション", compile_options),
+               ("link_options", "リンクオプション", link_options),
+               ("conditional_definitions", "条件付きの定義", conditional_definitions))
+    if configuration is not None and configuration not in _cppbuild.CONFIGURATIONS:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {configuration} はありません。",
+                            hint=f"{'・'.join(_cppbuild.CONFIGURATIONS)} のどれかを指定してください。")
+    if compiler is not None and not _COMPILER.fullmatch(compiler):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"コンパイラの種類 {compiler!r} は使えません。",
+                            hint="CMakeのコンパイラの種類（MSVC・GNU・Clang・AppleClang 等）を指定してください。")
+    changing = any(add or remove for _, _, (add, remove) in options)
+    if (compiler is not None or configuration is not None) and not changing:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                            "--compiler・--configuration は、オプション・定義を足す・外すときの条件です。")
+    for field, what, (add, remove) in options:
+        setattr(data, field, _edit_options(getattr(data, field), add, remove, compiler, configuration, name, what))
+    if warning_level is not None and default_warning_level:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "警告のレベルは、数字か default のどちらかです。")
+    if warning_level is not None:
+        if warning_level not in range(5):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"警告のレベル {warning_level} は使えません。",
+                                hint="0〜4（MSVCの /W0〜/W4）か、default（既定）を指定してください。")
+        data.warning_level = warning_level
+    if default_warning_level:
+        data.warning_level = None
+    if warnings_as_errors is not None:
+        data.warnings_as_errors = warnings_as_errors
+    add_events, remove_events = build_events
+    if (add_events or remove_events) and event not in BUILD_EVENTS:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "ビルドイベントの段階を --event で指定してください。",
+                            hint=f"{'・'.join(BUILD_EVENTS)} のどれか（コンパイルの前・リンクの前・ビルドの後）。")
+    if event is not None and not (add_events or remove_events):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--event は、ビルドイベントを足す・外すときの段階です。")
+    if add_events or remove_events:
+        stages = {stage: list(getattr(data.build_events, stage)) for stage in BUILD_EVENTS}
+        stages[event] = _edit_commands(stages[event], add_events, remove_events, name, f"ビルドイベント（{event}）")
+        data.build_events = BuildEvents(**stages)
+    add_files, remove_files = output_files
+    data.output_files = _edit(data.output_files, add_files, remove_files, name, "出力ファイル")
+
+
+def _edit_options(current: list, add, remove, compiler, configuration, where: str, what: str) -> list:
+    """オプション・定義を足す・外す（同じ値でも、コンパイラ・構成の条件が違えば別のもの）。"""
+    added = [BuildOption(value, compiler, configuration) for value in add]
+    removed = [BuildOption(value, compiler, configuration) for value in remove]
+    missing = [o.value for o in removed if o not in current]
+    if missing:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where} の{what}に {'、'.join(missing)} はありません。",
+                            hint="外すときは、足したときと同じ --compiler・--configuration を付けてください"
+                                 "（project show で確かめられます）。")
+    duplicated = [o.value for o in added if o in current]
+    if duplicated:
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{where} の{what}に {'、'.join(duplicated)} は既にあります。")
+    return [o for o in current if o not in removed] + added
+
+
+def _edit_commands(current: list[list[str]], add, remove, where: str, what: str) -> list[list[str]]:
+    """ビルドイベントのコマンドを足す・外す（1行を、引用符を考えて空白で区切った引数にする）。"""
+    def arguments(line: str) -> list[str]:
+        try:
+            parts = shlex.split(line)
+        except ValueError as error:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"コマンド {line!r} を引数に分けられません。",
+                                hint="空白を含む引数は引用符で囲んでください（Windows のパスは / で書きます）。") from error
+        if not parts:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "空のコマンドは指定できません。")
+        return parts
+    added, removed = [arguments(line) for line in add], [arguments(line) for line in remove]
+    missing = [" ".join(c) for c in removed if c not in current]
+    if missing:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where} の{what}に {'、'.join(missing)} はありません。")
+    duplicated = [" ".join(c) for c in added if c in current]
+    if duplicated:
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{where} の{what}に {'、'.join(duplicated)} は既にあります。")
+    return [c for c in current if c not in removed] + added
+
+
+def _option_view(option: BuildOption) -> dict:
+    return {"value": option.value, "compiler": option.compiler, "configuration": option.configuration}
 
 
 def set_pch(root: Path, name: str, *, headers: tuple[str, ...], system_headers: tuple[str, ...]) -> dict:
@@ -335,10 +457,8 @@ def _link(root: Path, name: str, value, what: str) -> dict:
         try:
             getattr(project.settings, {CMakePackage: "link_package", CMakeSource: "link_cmake_source",
                                        ImportedLibrary: "link_imported_library"}[type(value)])(value)
-        except Exception as error:
-            if "already registered" in str(error):
-                raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{name} は {what} を既にリンクしています。") from error
-            raise
+        except AlreadyRegisteredError as error:
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{name} は {what} を既にリンクしています。") from error
     _save(solution, change, f"{name} から {what} をリンクできません。")
     return project_details(root, name)
 
@@ -379,50 +499,18 @@ def _require(solution: Solution, name: str):
 
 def _save(solution: Solution, change, message: str, *, update: bool = True) -> None:
     """設定を変え、生成ファイルを作り直してCMakeで構成する。失敗したら管理ファイル・生成ファイルを元に戻す
-    （ビルドできない設定を残さない。例：ないインクルードディレクトリ・見つからないパッケージ）。"""
-    before = _snapshot(solution.root)
+    （ビルドできない設定を残さない。例：ないインクルードディレクトリ・見つからないパッケージ）。
+    update=False は構成を伴わない変更（テンプレート）で、構成は行わない。"""
     try:
-        change()
-        report = solution.update() if update else None
+        if update:
+            with _cppbuild._transaction(solution, message):
+                change()
+        else:
+            change()
+    except EcoBuildError:
+        raise
     except Exception as error:
-        _restore(solution.root, before)
-        if isinstance(error, EcoBuildError):
-            raise
-        if "already registered" in str(error):
-            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{message}（既にあります）") from error
         raise _cppbuild._cppbuild_error(message, error) from error
-    if report is not None and not report.success:
-        _restore(solution.root, before)
-        processes = report.processes if hasattr(report, "processes") else (report.process,)
-        raise EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"{message}CMakeの構成に失敗したので、設定を元に戻しました。",
-                            hint="パス・ターゲット名等を確かめてください（詳細はCMakeの出力）。",
-                            details="\n".join(p.output for p in processes if p.output))
-
-
-def _managed_files(root: Path) -> list[Path]:
-    """CppBuildの管理ファイル（.cppbuild の中。output は除く）と生成ファイル。依存先・ビルドツリーは見ない。"""
-    found = []
-    for path in root.rglob("*"):
-        parts = path.relative_to(root).parts
-        if parts[0] in (_cppbuild.DEPENDENCY_DIRECTORY, _cppbuild.BUILD_DIRECTORY, ".git") or not path.is_file():
-            continue
-        if (_cppbuild.CONFIG_DIRECTORY in parts and "output" not in parts) or path.name in _cppbuild.GENERATED_FILE_NAMES:
-            found.append(path)
-    return found
-
-
-def _snapshot(root: Path) -> dict[Path, bytes]:
-    return {path: path.read_bytes() for path in _managed_files(Path(root))}
-
-
-def _restore(root: Path, snapshot: dict[Path, bytes]) -> None:
-    for path in _managed_files(Path(root)):
-        if path not in snapshot:
-            path.unlink()             # 変更で増えたもの（形式ごとの設定ファイル等）
-    for path, data in snapshot.items():
-        if not path.is_file() or path.read_bytes() != data:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(data)
 
 
 def _edit(values: list[str], add, remove, where: str, what: str) -> list[str]:

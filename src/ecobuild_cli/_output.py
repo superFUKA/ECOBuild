@@ -206,6 +206,11 @@ def split_list(text: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in text.split(",") if part.strip())
 
 
+def split_semicolons(text: str) -> tuple[str, ...]:
+    """セミコロン区切りの値（コンパイルオプション等。値にカンマを含められる。CMakeの引数のリストの区切りでもある）。"""
+    return tuple(part.strip() for part in text.split(";") if part.strip())
+
+
 def split_numbers(text: str, option: str, json_output: bool) -> tuple[int, ...]:
     """カンマ区切りのIssueの番号（--blocked-by 3,5 等。# は付けても付けなくてもよい）。誤りは用法エラー。"""
     numbers = []

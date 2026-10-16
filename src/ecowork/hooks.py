@@ -1,4 +1,5 @@
 """gitのフック：作業空間（task/<番号>）でないブランチへの直接のコミット・pushを、git自体に止めさせる。
+コミットのメッセージからは、AIの署名を消す（commit-msg）。
 
 ecowork（ECOBuild）の外でgitを直接使っても、作業の流れから外れられないようにする（ルールではなく仕組みで）。
 ecowork自身のgitの呼び出しは、環境変数 ECOWORK_ALLOW で通す（モジュールの作成の初回コミット等）。
@@ -40,7 +41,25 @@ done
 exit $status
 """
 
-HOOKS = {"pre-commit": PRE_COMMIT, "pre-push": PRE_PUSH}
+# AIの署名（「Co-Authored-By: Claude …」「Generated with Claude Code」等）はコミットに残さない。
+# 作業した者はコミットの作者で分かる（AIはAI用のアカウントで動く）。人の Co-Authored-By は残す。
+# ECOWORK_ALLOW でも通さない（ecowork 自身のコミットにも当てはめる）。sed の方言を避けて awk で書く。
+# LC_ALL=C：tolower を ASCII だけにし、日本語・絵文字のバイトで awk が乱れないように。
+AI_NAMES = "claude|anthropic|copilot|openai|chatgpt|codex|cursor|gemini|devin|aider|windsurf|codeium"
+
+COMMIT_MSG = f"""#!/bin/sh
+{MARKER}：AIの署名（Co-Authored-By・Generated with …）をコミットのメッセージから消す。
+file="$1"
+LC_ALL=C awk '
+{{ line = tolower($0) }}
+line ~ /^[ \\t]*co-authored-by:/ && line ~ /({AI_NAMES})/ {{ next }}
+line ~ /generated (with|by) \\[?({AI_NAMES})/ {{ next }}
+/^[ \\t]*$/ {{ blank = blank $0 "\\n"; next }}
+{{ printf "%s", blank; blank = ""; print }}
+' "$file" > "$file.ecowork" && mv "$file.ecowork" "$file"
+"""
+
+HOOKS = {"pre-commit": PRE_COMMIT, "commit-msg": COMMIT_MSG, "pre-push": PRE_PUSH}
 
 
 def install(hooks_directory: Path) -> tuple[str, ...]:

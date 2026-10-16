@@ -88,7 +88,7 @@ ECOBuild はライブラリとして作られ、CLI はその上で動きます�
 | GUI | `gui/` | `ecobuild` コマンドを呼ぶ |
 | CLI | `ecobuild_cli` | 本体＋拡張をコマンドで呼ぶ |
 | 本体＋拡張 | `ecobuild_bundle` | 同梱の型（`cpp`・`generic`・`python`）を登録した本体。型の既定は `cpp` |
-| 拡張 | `ecobuild_cpp`・`ecobuild_generic`・`ecobuild_python` | モジュールの型（`cpp` は CppBuild、`python` は venv・pip・pytest を使う） |
+| 拡張 | `ecobuild_cpp`・`ecobuild_generic`・`ecobuild_python` | モジュールの型（`cpp` は CppBuild、`python` は venv・pip・pytest を使う）。型のコマンドは `cli/` |
 | 本体 | `ecobuild` | モジュール・型の抽象（`ModuleType` と能力）・`Registry` |
 | 作業の流れ | `ecowork`・`ecotask` | 作業空間・PR・タスク（git・gh） |
 
@@ -105,3 +105,14 @@ cpp(module).set_pch("Core")             # C++だけの操作は拡張から
 from ecobuild import Module as CoreModule, Registry
 module = CoreModule.find(".", registry=Registry([MyType]))   # 自分の型を使う
 ```
+
+### 型ごとのコマンド
+
+`build`・`test`・`file`・`project` 等、型によって中身やオプションが違うコマンドは、型の拡張の `cli/` パッケージにあります
+（`ecobuild_cpp/cli/project/pch.py` → `ecobuild project pch`）。`ecobuild` は、今いるモジュール（`-C` で指定したもの）の型の
+コマンドだけを、共通のコマンドに重ねて出します（`ecobuild --help` の「型 cpp のコマンド」）。
+
+- モジュールの外では、型ごとのコマンドは出ません。
+- ほかの型のコマンド（Python のモジュールで `project` 等）は、`not_supported`（終了コード 1）で止まります。
+- 共通のグループ（`file`・`deps`・`profile`・`module`）に、型がコマンドを足せます。共通のコマンドと同じ名前は置けません。
+- 型のコマンドは `ecobuild_cli.kit`（CLI の公開の補助）だけを使います。型の本体（`type.py` 等）は `cli/` を import しません。

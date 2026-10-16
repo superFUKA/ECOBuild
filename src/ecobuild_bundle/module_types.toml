@@ -1,6 +1,7 @@
 # モジュールの型の登録（ecobuild_bundle・CLI が使う同梱の型）。ecobuild.toml の [module] type で選ぶ。
 # 型を足すときは、ModuleType（ecobuild.module_type）の子クラスを実装し、ここに追記する。
 # （本体のライブラリとしては、Registry に型を渡せばよい。この登録ファイルは ecobuild_bundle・CLI が使う型）
+# 型のコマンド（ecobuild build・file 等）は、<実装のPythonモジュール>.cli パッケージに置く（CLI がその型のモジュールの中でだけ出す）。
 #
 # [<型の名前>]
 # module = "<実装のPythonモジュール>"

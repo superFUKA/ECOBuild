@@ -79,7 +79,9 @@ def test_error_is_logged_with_details(module_root, capsys):
 def test_outside_a_module_everything_goes_to_the_ecobuild_log(capsys):
     with pytest.raises(SystemExit):
         main(["config", "list", "--json"])
-    assert events(_log.global_directory()) == ["command.start", "command.result", "command.end"]
+    assert events(_log.global_directory()) == ["command.start", "command.type", "command.result", "command.end"]
+    chosen = next(e for e in entries(_log.global_directory()) if e["event"] == "command.type")["data"]
+    assert chosen["type"] is None and "ecobuild.toml" in chosen["reason"]     # 型のコマンドを重ねなかった理由
 
 
 def test_level_info_leaves_out_external_commands(module_root, monkeypatch, capsys):

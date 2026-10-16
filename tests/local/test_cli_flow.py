@@ -41,7 +41,7 @@ def test_every_command_has_help():
                  ["milestone", "close"], ["milestone", "reopen"], ["task", "next"], ["task", "overdue"],
                  ["task", "edit"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"],
                  ["init"]):
-        result = runner.invoke(build_cli(), [*args, "--help"])
+        result = runner.invoke(build_cli("cpp"), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
 

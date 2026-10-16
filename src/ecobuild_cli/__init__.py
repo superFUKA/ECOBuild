@@ -1,14 +1,18 @@
-"""ECOBuildのCLI：本体＋同梱の拡張（ecobuild_bundle）をコマンドで呼ぶ。コマンドの定義はcommandsパッケージに置き、CLIFrameWorkで組み立てる。"""
+"""ECOBuildのCLI：本体＋同梱の拡張（ecobuild_bundle）をコマンドで呼ぶ。コマンドの定義はcommandsパッケージに置き、CLIFrameWorkで組み立てる。
+
+型ごとのコマンド（build・file・project 等）は型の拡張の cli パッケージにあり、今いるモジュールの型のものを重ねる（_types）。
+"""
 
 import json
 import os
 import sys
 import types
+from pathlib import Path
 
 import click
 from cli_framework import create_cli
 
-from . import _log, commands
+from . import _log, _types, commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
@@ -20,8 +24,16 @@ TASK_SECTIONS = (
 )
 
 
-def build_cli():
-    cli = create_cli(commands, name="ecobuild")
+_CURRENT = object()
+
+
+def build_cli(module_type: str | None | object = _CURRENT):
+    """CLI を組み立てる。module_type：重ねる型のコマンド（既定：今いるディレクトリのモジュールの型。None＝重ねない）。"""
+    if module_type is _CURRENT:
+        module_type = _types.current(Path.cwd())
+    cli = create_cli(commands, name="ecobuild", extensions=_types.extensions(module_type))
+    if isinstance(cli, click.Group):
+        _types.attach(cli, module_type)
     task = cli.commands.get("task") if isinstance(cli, click.Group) else None
     if isinstance(task, click.Group):
         task.format_commands = types.MethodType(_format_sections(TASK_SECTIONS), task)

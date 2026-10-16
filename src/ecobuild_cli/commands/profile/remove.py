@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from .list import render
+from ...kit import render_profiles as render
 
 
 def command(

@@ -32,7 +32,7 @@ def code_of(action):
 
 
 def entry(module, project):
-    return (module.root / project / "CMakeLists.txt").read_text(encoding="utf-8")
+    return (module.root / ".ecobuild/.cppbuild/projects" / project / "CMakeLists.txt").read_text(encoding="utf-8")
 
 
 def test_project_settings_reach_the_build(module):
@@ -99,10 +99,10 @@ def test_links_inside_the_module_and_to_external_libraries(module):
           "if(NOT TARGET fmt::fmt)\n  add_library(fmt::fmt INTERFACE IMPORTED)\nendif()\n")
     for name in ("old_d.lib", "old.lib", "include/old.h"):
         write(module.root / "Viewer/vendor/old" / name, "")
-    before = (module.root / "Viewer/.cppbuild/project.json").read_text(encoding="utf-8")
+    before = (module.root / ".ecobuild/.cppbuild/projects/Viewer/project.json").read_text(encoding="utf-8")
     error = code_of(lambda: cpp(module).link_cmake("Viewer", "vendor/none", target="none"))   # 構成に失敗したら元に戻す
     assert error == ErrorCode.CPPBUILD_ERROR
-    assert (module.root / "Viewer/.cppbuild/project.json").read_text(encoding="utf-8") == before
+    assert (module.root / ".ecobuild/.cppbuild/projects/Viewer/project.json").read_text(encoding="utf-8") == before
     package = cpp(module).link_package("Viewer", "fmt", target="fmt::fmt", directory="vendor/fmt/lib/cmake/fmt")
     assert any(l["kind"] == "package" and l["target"] == "fmt::fmt" for l in package["links"])
     library = cpp(module).link_library_file("Viewer", kind="static", locations={"Debug": "vendor/old/old_d.lib",
@@ -110,7 +110,7 @@ def test_links_inside_the_module_and_to_external_libraries(module):
                                        include_directories=("vendor/old/include",))
     file_link = next(l for l in library["links"] if l["kind"] == "file")
     assert file_link["files"] == {"Debug": "vendor/old/old_d.lib", "Release": "vendor/old/old.lib"}
-    text = (module.root / "CMakeLists.txt").read_text(encoding="utf-8") + entry(module, "Viewer")
+    text = (module.root / ".ecobuild/.cppbuild/CMakeLists.txt").read_text(encoding="utf-8") + entry(module, "Viewer")
     assert "find_package(fmt" in text and "IMPORTED" in text
     assert code_of(lambda: cpp(module).link_library_file("Viewer", kind="static", locations={"Fast": "a.lib"})) \
         == ErrorCode.INVALID_CONFIGURATION
@@ -178,7 +178,7 @@ def test_profile_carries_every_build_setting(module):
     module.set_profile_project("modern", "Viewer", {"cpp_standard": 23})
     module.set_profile_project("modern", "Shape", {"type": "shared"})
     try:
-        text = (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+        text = (module.root / ".ecobuild/ecobuild.toml").read_text(encoding="utf-8")
         assert "cpp_standard = 17" in text and '[profiles."modern".projects."Viewer"]' in text
         assert module.profiles().profiles["modern"].projects == {"Shape": {"type": "shared"},
                                                                   "Viewer": {"cpp_standard": 23}}

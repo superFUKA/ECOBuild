@@ -38,7 +38,7 @@ def module_settings(root: Path) -> dict:
         "folders": None if folders is None else {
             "projects": folders.projects, "linked_projects": folders.linked_projects,
             "external": folders.external, "project_folders": dict(sorted(folders.project_folders.items()))},
-        "templates": {name: {"path": path, "builtin": name in _cppbuild.TEMPLATES}
+        "templates": {name: {"path": _cppbuild.template_path(root, path), "builtin": name in _cppbuild.TEMPLATES}
                       for name, path in sorted(data.file_templates.items())},
     }
 
@@ -93,7 +93,7 @@ def add_template(root: Path, name: str, source: Path) -> dict:
         def change():
             if old is not None:
                 solution.settings.remove_file_template(name)
-                (solution.root / old).unlink(missing_ok=True)
+                (root / _cppbuild.template_path(root, old)).unlink(missing_ok=True)
             solution.create_file_template(name, staging.name)
         _save(solution, change, f"テンプレート {name} を登録できません。", update=False)
     finally:
@@ -112,7 +112,7 @@ def remove_template(root: Path, name: str) -> dict:
 
     def change():
         solution.settings.remove_file_template(name)
-        (solution.root / path).unlink(missing_ok=True)
+        (root / _cppbuild.template_path(root, path)).unlink(missing_ok=True)
     _save(solution, change, f"テンプレート {name} を外せません。", update=False)
     return module_settings(root)["templates"]
 
@@ -125,7 +125,7 @@ def add_file_from_template(root: Path, project: str, path: str, template: str, v
     if template not in templates:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"テンプレート {template} はありません。",
                             hint=f"{'・'.join(sorted(templates))}（ecobuild template list）")
-    tokens = set(_TOKEN.findall((solution.root / templates[template]).read_text(encoding="utf-8")))
+    tokens = set(_TOKEN.findall((root / _cppbuild.template_path(root, templates[template])).read_text(encoding="utf-8")))
     missing = sorted(t for t in tokens if not values.get(t))
     if missing:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"テンプレート {template} の差し込み口 {'・'.join(missing)} に入れる値がありません。",

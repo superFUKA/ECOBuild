@@ -34,7 +34,7 @@ def test_sync_aligns_dependencies(short_tmp):
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh2"))
     solution = _cppbuild.open_solution(ecs.root)
-    solution.get_project("ECS").settings.link_git(url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    solution.get_project("ECS").settings.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
     clone = ecs.root / "deps" / "STL"
     first = git(clone, "rev-parse", "HEAD")
 
@@ -65,7 +65,7 @@ def test_sync_regenerates_conflicted_generated_files(short_tmp):
     """生成ファイルだけが衝突したら、管理ファイルから作り直して取り込みを完了する。"""
     github = FakeGitHub(short_tmp / "gh")
     module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
-    top = "CppBuildTopLevel.cmake"
+    top = ".ecobuild/.cppbuild/CppBuildTopLevel.cmake"
     expected = (module.root / top).read_text(encoding="utf-8")
     workspace = module.create_task("t").start()
     write(module.root / top, expected + "# 手元\n")
@@ -89,7 +89,7 @@ def test_clone_module_prepares_dependencies(short_tmp):
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=ecs_github)
     workspace = ecs.create_task("STLを使う").start()
     _cppbuild.open_solution(ecs.root).get_project("ECS").settings.link_git(
-        url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+        url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
     _cppbuild.update(ecs.root)
     workspace.stage(all=True)
     workspace.commit("STLを依存先にする")
@@ -101,7 +101,7 @@ def test_clone_module_prepares_dependencies(short_tmp):
     module, dependencies = Module.clone("ECS", directory=second, github=ecs_github)
     assert module.root == (second / "ECS").resolve() and module.name == "ECS"
     assert [(d.name, d.action) for d in dependencies] == [("STL", "cloned")]
-    assert (module.root / "deps" / "STL" / "ecobuild.toml").exists()
+    assert (module.root / "deps" / "STL" / ".ecobuild" / "ecobuild.toml").exists()
     assert module.status().branch == "main" and not module.status().unstaged
 
 
@@ -140,7 +140,7 @@ def test_link_deps_and_work_version(short_tmp):
 
     linked = ecs.link("STL")
     assert (linked.name, linked.projects) == ("STL", ("ECS",))
-    assert (ecs.root / "deps/STL/ecobuild.toml").exists()
+    assert (ecs.root / "deps/STL/.ecobuild/ecobuild.toml").exists()
     assert [(d.name, d.state) for d in ecs.dependencies()] == [("STL", "aligned")]
     with pytest.raises(Exception) as error:
         ecs.link("STL")
@@ -177,15 +177,15 @@ def test_dependency_tree(short_tmp, monkeypatch):
     Module.create("Base", directory=short_tmp, kind="library", github=base_github)
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     _cppbuild.open_solution(stl.root).get_project("STL").settings.link_git(
-        url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+        url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
     git(stl.root, "add", "--all")
     git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
     git(stl.root, "push", "--quiet", "origin", "main")
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh3"))
     assert ecs.dependency_tree().direct == ()
     project = _cppbuild.open_solution(ecs.root).get_project("ECS").settings
-    project.link_git(url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
-    project.link_git(url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    project.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
+    project.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
 
     tree = ecs.dependency_tree()
     assert tree.module == "ECS" and tree.direct == ("Base", "STL")

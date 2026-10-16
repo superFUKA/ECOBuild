@@ -93,12 +93,12 @@ def test_commit_paths_and_track(cli, module):
     listed = as_json(cli("track", "--json"))["result"]
     assert {"pattern": "*.cpp", "source": "type", "excluded": False} in listed["patterns"]
     assert cli("track", "add", "*.json").exit_code == 0
-    assert 'include = ["*.json"]' in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+    assert 'include = ["*.json"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     committed = as_json(cli("task", "commit", "--message", "設定とデータ", "--json"))["result"]
-    assert set(committed["files"]) == {"b.json", "ecobuild.toml"}
+    assert set(committed["files"]) == {"b.json", ".ecobuild/ecobuild.toml"}
     assert cli("track", "remove", "*.md").exit_code == 0
-    assert 'exclude = ["*.md"]' in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
-    assert as_json(cli("track", "remove", "ecobuild.toml", "--json"))["error"]["code"] == "invalid_argument"
+    assert 'exclude = ["*.md"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
+    assert as_json(cli("track", "remove", ".ecobuild/ecobuild.toml", "--json"))["error"]["code"] == "invalid_argument"
     write(module.root / "doc.md", "x\n")
     assert as_json(cli("status", "--json"))["result"]["excluded"] == ["doc.md"]
 
@@ -342,7 +342,7 @@ def test_legacy_board_setting_is_taken_over(cli, module):
     earlier = github.create_issue(module.root, "以前から", "")
     item = github.add_board_item(module.root, earlier.number, old.id)
     github.set_board_value(module.root, old.id, item.id, old.field("Status"), "In Progress")
-    config = module.root / "ecobuild.toml"
+    config = module.root / ".ecobuild" / "ecobuild.toml"
     config.write_text(config.read_text(encoding="utf-8") + f'\n[board]\nurl = "{old.url}"\n', encoding="utf-8")
     assert cli("task", "new", "引き継ぐ").exit_code == 0
     assert github.ecobuild_board().id == old.id
@@ -478,7 +478,7 @@ def test_local_clones(cli, module, parallel, monkeypatch):
     assert as_json(cli("module", "forget", "../Calc-1", "--json"))["error"]["code"] == "clone_not_recorded"
     assert as_json(cli("module", "register", "../Calc-1", "--workspace", "--json"))["result"]["kind"] == "workspace"
     nested = module.root / "deps" / "Base"            # 依存先のclone 等、他のモジュールの中のものは記録しない
-    write(nested / "ecobuild.toml", "")
+    write(nested / ".ecobuild" / "ecobuild.toml", "")
     assert as_json(cli("module", "register", "deps/Base", "--json"))["error"]["code"] == "invalid_argument"
 
     git(parallel, "remote", "set-url", "origin", "https://github.com/tester/remote.git")

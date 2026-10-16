@@ -113,7 +113,7 @@
     const p = data.profiles;
     if (p.error) return head('ビルド設定', '') + `<p class="mi-note">${esc(p.error.message)}</p>`;
     const names = Object.keys(p.profiles);
-    return head('ビルド設定', '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。定義は ecobuild.toml にあり、作業空間で変更します。どれを使うかはこのPCだけの設定です（この場所の ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
+    return head('ビルド設定', '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。定義は .ecobuild/ecobuild.toml にあり、作業空間で変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
       `<table class="mi-table"><thead><tr><th>このPCで使う</th><th>名前</th><th>構成</th><th>ライブラリ</th><th>並列数</th><th>そのほか・Projectごとの上書き</th><th></th></tr></thead><tbody>
       ${names.map(n => { const x = p.profiles[n], extra = optionsText(x.options), overrides = Object.entries(x.projects || {});
         return `<tr><td><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td><td>${x.shared ? 'すべて共有' : '静的'}</td><td>${x.parallel}</td>

@@ -71,11 +71,8 @@ def _check_options(values: dict, known: dict, where: str) -> None:
 # CppBuildは生成・管理ファイルをLFで書く。gitの改行変換（Windowsのcore.autocrlf=true等）で
 # CRLFにされると、生成し直すたびに「変更あり」になるため、LFに固定する。
 GITATTRIBUTES = """\
-# ECOBuild：CppBuildの生成ファイル・管理ファイルの改行をLFに固定する
-CMakeLists.txt text eol=lf
-*.cmake text eol=lf
-.cppbuild/** text eol=lf
-ecobuild.toml text eol=lf
+# ECOBuild：ECOBuild・CppBuildのファイル（.ecobuild/）の改行をLFに固定する
+.ecobuild/** text eol=lf
 """
 
 GITIGNORE = """\
@@ -84,7 +81,7 @@ GITIGNORE = """\
 /build/
 
 # CppBuildの中間ファイル・成果物
-.cppbuild/output/
+/.ecobuild/.cppbuild/output/
 """
 
 
@@ -126,15 +123,16 @@ def _fingerprint(root: Path) -> str:
     for directory, children, files in os.walk(root):
         relative = Path(directory).relative_to(root)
         parts = relative.parts
-        # .git、ビルドの中間ファイル（build/、依存先の build/）、CppBuildの出力（.cppbuild/output）は見ない
+        # .git、ビルドの中間ファイル（build/、依存先の build/）、CppBuildの出力・ロック（.cppbuild/output・operations）は見ない
         children[:] = sorted(c for c in children
                              if c != ".git"
                              and not (c == _cppbuild.BUILD_DIRECTORY
                                       and (parts == () or (len(parts) == 2 and parts[0] == _cppbuild.DEPENDENCY_DIRECTORY)))
-                             and not (c == "output" and parts[-1:] == (_cppbuild.CONFIG_DIRECTORY,)))
+                             and not (c in ("output", "operations") and parts[-1:] == (_cppbuild.CONFIG_NAME,)))
         for name in sorted(files):
-            # ソースの一覧は生成ファイルに書かれない（CMakeがビルドのたびに集める）ので、見ない
-            if _cppbuild.CONFIG_DIRECTORY in parts or name in _cppbuild.GENERATED_FILE_NAMES:
+            # .cppbuild の中（管理ファイル・生成ファイル。依存先のものも）だけ。ソースの一覧は生成ファイルに書かれない
+            # （CMakeがビルドのたびに集める）ので、ソースは見ない
+            if _cppbuild.CONFIG_NAME in parts:
                 path = relative / name
                 digest.update(path.as_posix().encode("utf-8") + b"\0")
                 digest.update((root / path).read_bytes())
@@ -144,7 +142,8 @@ def _fingerprint(root: Path) -> str:
 class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     name = "cpp"
     description = "C++。CppBuildでProject・ファイル・ビルド・テスト・依存先を管理する"
-    generated_note = f"CppBuildの生成ファイル（{'・'.join(_cppbuild.GENERATED_FILE_NAMES)}）"
+    generated_note = (f"CppBuildの生成ファイル（{_cppbuild.CONFIG_DIRECTORY}/ の中の "
+                      f"{'・'.join(_cppbuild.GENERATED_FILE_NAMES)}）")
 
     # モジュールの作成 -------------------------------------------------------------
 
@@ -175,7 +174,7 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
 CMake 3.24以上とC++20のコンパイラがあれば、cloneしたままビルドできます（依存先は構成時に取得されます）。
 
 ```sh
-cmake -S . -B build
+cmake -S .ecobuild/.cppbuild -B build
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
@@ -189,7 +188,7 @@ ctest --test-dir build -C Debug --output-on-failure
         libraries = "OFF, ON" if ci.shared else "OFF"
         on = "\n".join(ci_workflow.trigger(config))
         return f"""# ECOBuild（ecobuild ci init）が作成：ECOBuildなしで、CMakeだけで構成・ビルド・テストする。
-# 変えるときは ecobuild ci init の --os・--configuration・--shared・--branches（設定は ecobuild.toml の [ci]）。
+# 変えるときは ecobuild ci init の --os・--configuration・--shared・--branches（設定は .ecobuild/ecobuild.toml の [ci]）。
 name: build
 
 {on}
@@ -206,7 +205,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{{{ matrix.configuration }}}} -DBUILD_SHARED_LIBS=${{{{ matrix.shared }}}}
+        run: cmake -S .ecobuild/.cppbuild -B build -DCMAKE_BUILD_TYPE=${{{{ matrix.configuration }}}} -DBUILD_SHARED_LIBS=${{{{ matrix.shared }}}}
         env:
           # 非公開の依存先を構成時にcloneするため。GITHUB_TOKEN はこのリポジトリしか読めないので、
           # 別の非公開リポジトリに依存するときは、それを読めるトークンを secrets.ECOBUILD_DEPS_TOKEN に登録する

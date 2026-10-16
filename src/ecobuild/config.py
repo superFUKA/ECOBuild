@@ -10,8 +10,11 @@ from pathlib import Path
 
 from .errors import EcoBuildError, ErrorCode
 
-FILE_NAME = "ecobuild.toml"
-LOCAL_FILE_NAME = "ecobuild.local.toml"   # このPC用（.gitignore対象）
+# ECOBuildのファイルの置き場所（モジュールのルートからの相対）。共有の設定・このPC用の設定・ログ（CLI）と、
+# 型が使う内部のファイル（cpp：CppBuildの .cppbuild）をここにまとめる。
+DIRECTORY = ".ecobuild"
+FILE_NAME = f"{DIRECTORY}/ecobuild.toml"
+LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild/.gitignore で除外）
 FORMAT = 1
 
 
@@ -189,6 +192,7 @@ def dump(config: ModuleConfig) -> str:
 
 
 def save(config: ModuleConfig, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(dump(config), encoding="utf-8", newline="\n")
 
 
@@ -219,6 +223,7 @@ def load_local(root: Path) -> dict:
 def save_local(root: Path, values: dict) -> None:
     lines = ["# ECOBuildのこのPC用の設定（コミットしない）。"]
     lines += [f"{key} = {_quote(value)}" for key, value in sorted(values.items()) if value is not None]
+    (root / DIRECTORY).mkdir(parents=True, exist_ok=True)
     (root / LOCAL_FILE_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 

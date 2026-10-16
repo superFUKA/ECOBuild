@@ -39,7 +39,7 @@ def test_profile_options_and_project_overrides_roundtrip(tmp_path):
 @pytest.mark.parametrize("table", ['[profiles.p]\nnope = [1]\n', '[profiles.p]\nprojects = 1\n',
                                    '[profiles.p.projects.A]\ntype = [1]\n'])
 def test_invalid_profile_values_are_invalid_config(tmp_path, table):
-    path = tmp_path / config.FILE_NAME
+    path = tmp_path / "ecobuild.toml"
     path.write_text("format = 1\n[module]\nname = 'x'\ntype = 'cpp'\n" + table, encoding="utf-8")
     with pytest.raises(EcoBuildError) as error:
         config.load(path)
@@ -54,7 +54,7 @@ def test_quoting_survives_special_characters(tmp_path):
 
 
 def test_invalid_file(tmp_path):
-    path = tmp_path / config.FILE_NAME
+    path = tmp_path / "ecobuild.toml"
     path.write_text("format = 1\n[module]\nname = 'x'\n", encoding="utf-8")
     with pytest.raises(EcoBuildError) as error:
         config.load(path)

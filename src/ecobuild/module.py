@@ -37,9 +37,10 @@ COMMAND = "ecobuild"
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
+# .ecobuild/.gitignore：このPC用の設定とログ（CLI）はコミットしない
 GITIGNORE = """\
-# ECOBuild
 ecobuild.local.toml
+logs/
 """
 
 
@@ -142,8 +143,9 @@ class Module:
 
         def populate(root: Path) -> None:
             _config.save(module_config, root / _config.FILE_NAME)
-            (root / ".gitignore").write_text(GITIGNORE + _with_gap(type_class.gitignore()),
-                                             encoding="utf-8", newline="\n")
+            (root / _config.DIRECTORY / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
+            if type_class.gitignore():
+                (root / ".gitignore").write_text(type_class.gitignore(), encoding="utf-8", newline="\n")
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
@@ -192,7 +194,7 @@ class Module:
         github = github or _github.default()
         return tuple(ModuleEntry(r.full_name, r.url, _module_type_of(r.module_file), r.description, r.private,
                                  r.archived, r.updated)
-                     for r in github.owner_repositories(owner)
+                     for r in github.owner_repositories(owner, _config.FILE_NAME)
                      if r.module_file is not None and (archived is None or r.archived == archived))
 
     @staticmethod
@@ -626,7 +628,7 @@ class Module:
         if approvals and not self.repository.require_approval:
             self.repository.notices.append(
                 "GitHub は承認のない取り込みを止めますが、管理者は越えられます。ECOBuild を使う全員に承認を必須にするなら、"
-                "ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
+                ".ecobuild/ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
         return protection
 
     def unprotect(self) -> bool:
@@ -1322,10 +1324,6 @@ def _module_type_of(text: str | None) -> str:
     except tomllib.TOMLDecodeError:
         return ""
     return value if isinstance(value, str) else ""
-
-
-def _with_gap(text: str) -> str:
-    return "\n" + text if text else ""
 
 
 def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:

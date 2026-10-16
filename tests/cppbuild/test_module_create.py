@@ -30,8 +30,11 @@ def test_create_module(short_tmp):
     # 初回コミットがGitHub（bare）のmainにある
     assert git(github.bare, "log", "--format=%s", "main") == "ECOBuildでモジュールを作成"
     files = git(github.bare, "ls-tree", "-r", "--name-only", "main").splitlines()
-    assert "CMakeLists.txt" in files and "Calc/CMakeLists.txt" in files
-    assert not any(f.startswith(".cppbuild/output") for f in files)
+    assert ".ecobuild/.cppbuild/CMakeLists.txt" in files and ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in files
+    assert not any(f.startswith(".ecobuild/.cppbuild/output") for f in files)
+    # ルートには、ECOBuild・CppBuildの内部のファイルを置かない（.ecobuild/ にまとめる）
+    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitattributes", ".gitignore", "AGENTS.md",
+                                                     "Calc", "CalcTest", "README.md"]
     assert git(root, "status", "--porcelain") == ""
     assert Module.find(root / "Calc" / "src").name == "Calc"
     assert module.summary().projects == ("Calc", "CalcTest")
@@ -43,7 +46,7 @@ def test_create_module(short_tmp):
     from ecobuild_cpp import _cppbuild
     _cppbuild.update(clone)
     assert git(clone, "status", "--porcelain") == ""
-    for args in (["cmake", "-S", ".", "-B", "b"], ["cmake", "--build", "b", "--config", "Debug"],
+    for args in (["cmake", "-S", ".ecobuild/.cppbuild", "-B", "b"], ["cmake", "--build", "b", "--config", "Debug"],
                  ["ctest", "--test-dir", "b", "-C", "Debug"]):
         completed = subprocess.run(args, cwd=clone, capture_output=True, text=True, errors="replace")
         assert completed.returncode == 0, completed.stdout[-2000:] + completed.stderr[-2000:]
@@ -67,15 +70,15 @@ def test_submit_requires_generated_files(short_tmp):
     module = Module.create("Calc", directory=short_tmp, github=github)
     workspace = module.create_task("生成ファイルの確認").start()
     # 生成ファイルを手で書き換えてコミットした（作り直すと戻る）
-    generated = module.root / "Calc" / "CMakeLists.txt"
+    generated = module.root / ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt"
     generated.write_text(generated.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
     (module.root / "Calc" / "src" / "Extra.cpp").write_text("int extra() { return 1; }\n", encoding="utf-8")
-    workspace.stage("Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
+    workspace.stage(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
     workspace.commit("生成ファイルを書き換え")
     with pytest.raises(EcoBuildError) as error:
         workspace.submit()
     assert error.value.code == ErrorCode.GENERATED_FILES_OUTDATED
-    assert "Calc/CMakeLists.txt" in error.value.details
+    assert ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in error.value.details
     workspace.stage(all=True)
     workspace.commit("生成ファイルを更新")
     pr = workspace.submit()
@@ -106,7 +109,7 @@ def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     tool = Module.create("Tool", directory=short_tmp, github=FakeGitHub(short_tmp / "gh1"))
     assert [(p.name, p.kind, p.links) for p in tool.projects()] == [("Tool", "executable", ())]
     assert "#include" not in (tool.root / "Tool/src/main.cpp").read_text(encoding="utf-8")
-    assert "VS_STARTUP_PROJECT" in (tool.root / "CMakeLists.txt").read_text(encoding="utf-8")  # F5 で Tool を起動
+    assert "VS_STARTUP_PROJECT" in (tool.root / ".ecobuild/.cppbuild/CMakeLists.txt").read_text(encoding="utf-8")  # F5 で Tool を起動
     assert tool.build().project is None and tool.run().returncode == 0
     tested = tool.test()   # テスト用のProjectがなければ、何もせずに成功
     assert (tested.passed, tested.failed, tested.cases) == (0, 0, ())

@@ -97,7 +97,7 @@ class FakeGitHub:
         else:
             self.archived_repositories.remove(name)
 
-    def owner_repositories(self, owner):
+    def owner_repositories(self, owner, file):
         """試験のリポジトリ（扱っているものと others）。削除したものは含めない。"""
         owner = owner or self.owner
         bares = ([self.bare] if getattr(self, "bare", None) is not None else []) + list(self.others.values())
@@ -106,7 +106,7 @@ class FakeGitHub:
             full = f"{owner}/{bare.stem}"
             if full in self.deleted_repositories:
                 continue
-            shown = subprocess.run(["git", "--git-dir", str(bare), "show", "HEAD:ecobuild.toml"],
+            shown = subprocess.run(["git", "--git-dir", str(bare), "show", f"HEAD:{file}"],
                                    capture_output=True, text=True, encoding="utf-8")
             result.append(OwnedRepository(full, f"https://example.invalid/{full}", "", True,
                                           full in self.archived_repositories, "2026-10-11T00:00:00Z",

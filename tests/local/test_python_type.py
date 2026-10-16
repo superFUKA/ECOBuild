@@ -21,7 +21,7 @@ def test_python_module(tmp_path):
     root = module.root
     assert module.config.type == "python" and module.config.projects is None
     names = {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file() and ".git" not in p.parts}
-    assert {"ecobuild.toml", "pyproject.toml", "src/calc/__main__.py", "tests/test_calc.py", ".gitignore"} <= names
+    assert {".ecobuild/ecobuild.toml", ".ecobuild/.gitignore", "pyproject.toml", "src/calc/__main__.py", "tests/test_calc.py", ".gitignore"} <= names
     assert ".venv/" in (root / ".gitignore").read_text(encoding="utf-8")
 
     # Project・依存先は持たない。ビルド等は型が受け持つ

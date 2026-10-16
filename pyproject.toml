@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # 依存はGitHubのURLとコミットIDで固定する（リポジトリの外のファイルは参照しない）。
-    "cppbuild @ git+https://github.com/superFUKA/CppBuild@19945208234c9daa219c451a81ef9263dc97cba8",
+    "cppbuild @ git+https://github.com/superFUKA/CppBuild@52496586355f3c204d699c2b289e30449edd9c6a",
     "cli-framework @ git+https://github.com/superFUKA/CLIFrameWork@d5959533cb15ea2c4c3916588ae664271748a8fb",
     # ツールの設定の置き場所（OSの慣例、I-030）
     "platformdirs>=4,<5",

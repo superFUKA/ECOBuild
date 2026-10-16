@@ -28,6 +28,15 @@ Types = Iterable[type["ModuleType"]]
 # config で扱う本体の項目 → 説明（型の項目は ModuleType.tool_settings）
 CONFIG_KEYS = {
     "owner": "module new・clone・list・link 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
+    "log_level": "ログに残す量：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）",
+    "log_max_mb": "ログの大きさの上限（MB、置き場所ごと。既定 200。超えたら古い日から消す）",
+}
+
+# 値が決まっている項目 → 確かめ方（合わなければ説明）
+CONFIG_VALUES = {
+    "log_level": lambda value: None if value in ("off", "error", "info", "debug")
+    else "off・error・info・debug のどれかを指定してください。",
+    "log_max_mb": lambda value: None if value.isdigit() and int(value) >= 1 else "1以上の整数（MB）を指定してください。",
 }
 
 # 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは CheckItem.install）
@@ -130,6 +139,9 @@ def set_config(key: str, value: str | None, types: Types = ()) -> dict[str, str]
     if key not in keys:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} はありません。",
                             hint="設定できる項目：" + "、".join(keys))
+    problem = None if value is None or key not in CONFIG_VALUES else CONFIG_VALUES[key](value)
+    if problem:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} に {value} は使えません。", hint=problem)
     values = load_config()
     if value is None:
         values.pop(key, None)

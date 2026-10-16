@@ -8,7 +8,7 @@ import types
 import click
 from cli_framework import create_cli
 
-from . import commands
+from . import _log, commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
@@ -53,9 +53,26 @@ def _format_sections(sections):
 
 
 def main(argv: list[str] | None = None) -> None:
-    """入口。-C <パス>（--directory）は、コマンドの前に書いて別のディレクトリで実行する（git -C と同じ）。"""
+    """入口。-C <パス>（--directory）は、コマンドの前に書いて別のディレクトリで実行する（git -C と同じ）。
+    実行したことはログに残す（_log）。"""
     use_utf8_when_redirected()
     args = list(sys.argv[1:] if argv is None else argv)
+    _log.start(args)
+    code = None
+    try:
+        _main(args)
+    except SystemExit as stop:
+        code = stop.code if isinstance(stop.code, int) or stop.code is None else 1
+        raise
+    except BaseException:
+        code = 1
+        _log.logger.critical("予期しないエラー", exc_info=True, extra={"event": "command.crash"})
+        raise
+    finally:
+        _log.finish(code)
+
+
+def _main(args: list[str]) -> None:
     json_output = "--json" in args
     while args[:1] and args[0] in ("-C", "--directory"):
         if len(args) < 2:

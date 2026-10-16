@@ -23,6 +23,8 @@ from ecobuild import clones as _clones
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_bundle import Module
 
+from . import _log
+
 SUCCESS = 0
 FAILURE = 1
 
@@ -45,6 +47,7 @@ class Invocation:
     def use_module(self, module: Module) -> None:
         """対象のモジュール。このPCのcloneの記録（module clones）にも入れる（以前からあるcloneも、使えば記録される）。"""
         self._module = module
+        _log.use_module(module.root)
         _clones.record_quietly(module.root)
 
     def confirm(self, prompt: str) -> None:
@@ -62,6 +65,7 @@ class Invocation:
 
     def info(self, message: str) -> None:
         """人向けの進捗。--json時も標準エラーなのでJSONを壊さない。"""
+        _log.logger.info("%s", message, extra={"event": "progress"})
         click.echo(message, err=True)
 
 
@@ -75,6 +79,9 @@ def execute(
         result = action(invocation)
     except WorkError as error:
         error = _repository_state(error)
+        _log.logger.error("%s", error.message, exc_info=True, extra={"event": "command.error", "data": {
+            "command": command, "code": error.code, "message": error.message, "hint": error.hint,
+            "details": to_data(error.details)}})
         if invocation.json_output:
             _emit_json(command, invocation, None, error)
         else:
@@ -85,6 +92,8 @@ def execute(
             if error.hint:
                 click.echo(f"ヒント：{error.hint}", err=True)
         return FAILURE
+    _log.logger.debug("%s", command, extra={"event": "command.result", "data": {
+        "command": command, "result": to_data(result), "notices": _notices(invocation)}})
     if invocation.json_output:
         _emit_json(command, invocation, result, None)
     else:

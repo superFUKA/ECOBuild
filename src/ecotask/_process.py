@@ -1,14 +1,21 @@
-"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。"""
+"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。
+
+実行したコマンド・終了コード・出力・所要時間を logging（DEBUG）で出す。どこに書くかは使う側（CLI）が決める。
+"""
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import ErrorCode, TaskError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,7 @@ def run(
 ) -> Completed:
     tool = find_tool(args[0])
     merged_env = None if env is None else {**os.environ, **env}
+    started = time.monotonic()
     process = subprocess.run(
         [tool, *args[1:]],
         cwd=cwd,
@@ -67,6 +75,13 @@ def run(
         env=merged_env,
     )
     completed = Completed(tuple(args), process.returncode, process.stdout, process.stderr)
+    if logger.isEnabledFor(logging.DEBUG):
+        # 標準入力・環境変数の値は秘密（gh secret set の値、トークン）を含みうるので書かない
+        logger.debug("%s", " ".join(args), extra={"event": "process", "data": {
+            "args": list(args), "executable": tool, "cwd": None if cwd is None else str(cwd),
+            "env": sorted(env or ()), "input_chars": None if input is None else len(input),
+            "returncode": process.returncode, "seconds": round(time.monotonic() - started, 3),
+            "stdout": process.stdout, "stderr": process.stderr}})
     if check and not completed.ok:
         raise ProcessFailed(completed)
     return completed

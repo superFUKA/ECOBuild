@@ -39,6 +39,26 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 
 更新はインストーラーをもう一度実行するか `pipx upgrade ecobuild`、削除は `pipx uninstall ecobuild` です。
 
+## ログ
+
+`ecobuild` は、実行したコマンドで起きたことを、1行に1件の JSON（JSON Lines、日ごとのファイル `YYYY-MM-DD.jsonl`）で残します。不具合を調べるときは、このファイルを AI に渡してください。同じ実行の行には同じ `run` が付きます。
+
+| 置き場所 | 中身 |
+| --- | --- |
+| モジュールの `.ecobuild/logs/` | そのモジュールで実行したコマンドのすべて（git には見えません） |
+| `ECOBUILD_HOME` の `logs/`（既定：`%LOCALAPPDATA%\ecobuild\logs`） | モジュールの外で実行したコマンドのすべてと、モジュールで実行したコマンドの要約（`command.summary`） |
+
+残す量は `ecobuild config set log_level <量>` で変えられます（1回だけなら環境変数 `ECOBUILD_LOG_LEVEL`）。
+
+| 量 | 残すもの |
+| --- | --- |
+| `debug`（既定） | 下のすべてに加えて、git・gh・CMake・MSBuild 等の外部コマンドの引数・終了コード・出力・所要時間、コマンドの結果 |
+| `info` | コマンドの開始・終了（終了コード・所要時間）、進捗、エラー |
+| `error` | エラーだけ |
+| `off` | 残さない |
+
+大きさの上限は `ecobuild config set log_max_mb <MB>`（置き場所ごと、既定 200）。超えたら古い日のファイルから消します。トークン等の秘密は伏せて書きます。
+
 ## 構成
 
 ECOBuild はライブラリとして作られ、CLI はその上で動きます。下の層は上の層を知りません。

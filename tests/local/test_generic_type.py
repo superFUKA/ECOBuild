@@ -125,3 +125,38 @@ def test_ci_settings_and_hand_edited_workflow(tmp_path):
     assert code_of(lambda: reloaded.write_ci(config.CiSettings(shared=True))) == ErrorCode.NOT_SUPPORTED
     assert code_of(lambda: reloaded.write_ci(config.CiSettings(os=("macos",)))) == ErrorCode.INVALID_ARGUMENT
     assert Module.find(module.root, github=module.repository.github).config.ci == settings  # 失敗したら変えない
+
+
+def test_commands_per_os(tmp_path):
+    """OSごとの表で書いたコマンドは、このOSのものを使う。CIはOSごとの手順になり、手元と同じシェルを使う。"""
+    from ecobuild_generic.type import current_os
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    module.create_task("OSごと").start()
+    other = "linux" if current_os() == "windows" else "windows"
+    commands = {"build": {current_os(): python("print('here')"), other: "false"},
+                "test": {other: "make test"}, "run": python("print('{arguments}')")}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    assert f'build = {{ "{current_os()}" = ' in (module.root / "ecobuild.toml").read_text(encoding="utf-8")
+    reloaded = Module.find(module.root, github=module.repository.github)
+    assert reloaded.config.extra["commands"] == commands  # ecobuild.toml に書き戻せる
+
+    assert reloaded.build().configuration == "Debug"
+    with pytest.raises(EcoBuildError) as error:
+        reloaded.test()  # このOSのコマンドがない
+    assert error.value.code == ErrorCode.NOT_SUPPORTED and current_os() in error.value.message
+
+    both = config.CiSettings(os=("linux", "windows"))
+    assert code_of(lambda: reloaded.write_ci(both)) == ErrorCode.NOT_SUPPORTED  # test が片方のOSにない
+    per_os = {**commands, "build": {"windows": "build.cmd {configuration}", "linux": "./build.sh {configuration}"},
+              "test": "make test"}
+    reloaded._save_config(config.ModuleConfig(**{**reloaded.config.__dict__, "extra": {"commands": per_os}}))
+    workflow = (reloaded.root / reloaded.write_ci(both).path).read_text(encoding="utf-8")
+    assert "if: runner.os == 'Windows'\n        shell: cmd\n        run: \"build.cmd ${{ matrix.configuration }}\"" in workflow
+    assert "if: runner.os == 'Linux'\n        shell: sh\n        run: \"./build.sh ${{ matrix.configuration }}\"" in workflow
+    assert workflow.count("make test") == 2  # すべてのOSで同じコマンドも、OSごとのシェルで実行する
+
+    wrong = {**per_os, "build": {"win": "build.cmd"}}
+    reloaded._save_config(config.ModuleConfig(**{**reloaded.config.__dict__, "extra": {"commands": wrong}}))
+    with pytest.raises(EcoBuildError) as error:
+        reloaded.build()
+    assert error.value.code == ErrorCode.INVALID_CONFIG

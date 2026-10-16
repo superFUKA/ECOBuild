@@ -245,14 +245,16 @@ def _profile(name: str, table: dict) -> Profile:
 
 
 def _simple_table(name: str, value: object) -> dict:
-    """型ごとの表。値は文字列・整数・真偽値・文字列の並びだけ（そのまま書き戻せる形）。"""
+    """型ごとの表。値は文字列・整数・真偽値・文字列の並び・文字列の表（{ windows = "..." } 等）だけ
+    （そのまま書き戻せる形）。"""
     if not isinstance(value, dict) or not all(_value_ok(v) for v in value.values()):
-        raise ValueError(f"[{name}] の値は文字列・整数・真偽値・文字列の並びにしてください")
+        raise ValueError(f"[{name}] の値は文字列・整数・真偽値・文字列の並び・文字列の表にしてください")
     return dict(value)
 
 
 def _value_ok(value: object) -> bool:
-    return isinstance(value, (str, int, bool)) or (isinstance(value, list) and all(isinstance(v, str) for v in value))
+    return isinstance(value, (str, int, bool)) or (isinstance(value, list) and all(isinstance(v, str) for v in value)) \
+        or (isinstance(value, dict) and all(isinstance(v, str) for v in value.values()))
 
 
 def _value(value: object) -> str:
@@ -260,6 +262,8 @@ def _value(value: object) -> str:
         return "true" if value else "false"
     if isinstance(value, list):
         return "[" + ", ".join(_quote(v) for v in value) + "]"
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{_quote(k)} = {_quote(v)}" for k, v in value.items()) + " }"
     return str(value) if isinstance(value, int) else _quote(value)
 
 

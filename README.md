@@ -39,6 +39,24 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 
 更新はインストーラーをもう一度実行するか `pipx upgrade ecobuild`、削除は `pipx uninstall ecobuild` です。
 
+## 導入（Linux）
+
+端末に貼り付けて実行します（[`installer/install.sh`](installer/install.sh)）。足りない git をパッケージマネージャー
+（apt-get・dnf・pacman・zypper。sudo を使います）で入れ、[uv](https://docs.astral.sh/uv/) を `~/.local/bin` に入れて、
+uv で ECOBuild を入れます。Python 3.11 以上がなければ uv がダウンロードします（システムの Python は変えません）。
+最後に `ecobuild init` を起動します（設定の既定の置き場所は `~/.config/ecobuild`）。
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/superFUKA/ECOBuild/feature/mvp/installer/install.sh)"
+```
+
+オプションは Windows と同じです（`--ref <版>`・`--source <ディレクトリ>`・`--yes`・`--no-init`。ファイルを落として
+`bash install.sh --ref main` のように渡します）。更新はもう一度実行するか `uv tool upgrade ecobuild`、削除は
+`uv tool uninstall ecobuild` です。
+
+`ecobuild init`・`ecobuild setup --install` が入れるツール（gh、C++ の CMake・Ninja・g++）は、今は apt-get（Debian・Ubuntu）
+だけに対応しています。ほかのディストリビューションでは、表示されたツールを手で入れてください。
+
 ## ログ
 
 `ecobuild` は、実行したコマンドで起きたことを、1行に1件の JSON（JSON Lines、日ごとのファイル `YYYY-MM-DD.jsonl`）で残します。不具合を調べるときは、このファイルを AI に渡してください。同じ実行の行には同じ `run` が付きます。

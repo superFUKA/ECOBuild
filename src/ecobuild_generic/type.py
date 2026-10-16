@@ -1,12 +1,16 @@
 """型 generic：[commands] に書いたコマンドで、ビルド・テスト・実行・クリーンを行う。
 
 {configuration}（構成）・{arguments}（run の引数）を、コマンドの中に書ける。
+コマンドはすべてのOSで同じ文字列か、OSごとの表（{ windows = "...", linux = "..." }）で書く。
+Windows では cmd.exe、それ以外では sh で実行する（CIでも同じシェルを使う）。
 書いていない操作は not_supported。Project・ファイル・依存先の管理は持たない。
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from dataclasses import dataclass
 
 from ecobuild import ci_workflow
@@ -17,6 +21,27 @@ from ecobuild.results import BuildResult, RunResult, TestCaseResult, TestResult
 
 TABLE = "commands"
 OPERATIONS = ("build", "test", "run", "clean")
+OS_NAMES = ("windows", "linux", "macos")
+# CIのOS → GitHub Actions の runner.os と、手元と同じシェル
+CI_OS = {"windows": ("Windows", "cmd"), "linux": ("Linux", "sh")}
+
+
+def current_os() -> str:
+    if os.name == "nt":
+        return "windows"
+    return "macos" if sys.platform == "darwin" else "linux"
+
+
+def command_for(commands: dict, operation: str, os_name: str) -> str:
+    """そのOSで operation に使うコマンド（書いていなければ空）。"""
+    value = commands.get(operation, "")
+    if not isinstance(value, dict):
+        return value
+    unknown = [name for name in value if name not in OS_NAMES]
+    if unknown:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[{TABLE}] の {operation} に、OS {'、'.join(unknown)} はありません。",
+                            hint=f"{'・'.join(OS_NAMES)} から選んでください。")
+    return value.get(os_name, "")
 
 
 @dataclass(frozen=True)
@@ -38,7 +63,15 @@ class GenericType(ModuleType, Builds):
     def readme_usage(cls, config: ModuleConfig) -> str:
         return """## コマンド
 
-ビルド・テスト・実行は `ecobuild.toml` の `[commands]` に書いたコマンドで行います（`{configuration}` に構成が入ります）。
+ビルド・テスト・実行は `ecobuild.toml` の `[commands]` に書いたコマンドで行います（`{configuration}` に構成、
+`run` では `{arguments}` に引数が入ります）。Windows では cmd.exe、Linux では sh で実行します（CIでも同じ）。
+OSごとに変えるときは、OSごとの表で書きます：
+
+```toml
+[commands]
+build = "python build.py {configuration}"
+test = { windows = "test.cmd", linux = "./test.sh" }
+```
 """
 
     @classmethod
@@ -47,9 +80,22 @@ class GenericType(ModuleType, Builds):
         if ci.shared:
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED, "型 generic のCIは --shared に対応していません。")
         commands = config.extra.get(TABLE, {})
-        steps = [(label, commands.get(key, "")) for key, label in (("build", "Build"), ("test", "Test"))]
-        steps = [(label, command.replace("{configuration}", "${{ matrix.configuration }}"))
-                 for label, command in steps if command]
+        systems = ci.os or ("linux",)
+        steps = []
+        for key, label in (("build", "Build"), ("test", "Test")):
+            found = {name: command_for(commands, key, name) for name in systems}
+            if not any(found.values()):
+                continue
+            missing = [name for name, command in found.items() if not command]
+            if missing:
+                raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"{key} のコマンドが {'、'.join(missing)} にありません。",
+                                    hint=f"ecobuild.toml の [{TABLE}] の {key} に書くか、ecobuild ci init の --os から"
+                                         "外してください。")
+            for name, command in found.items():
+                runner_os, shell = CI_OS[name]
+                steps.append((f"{label} ({name})" if len(systems) > 1 else label,
+                              f"runner.os == '{runner_os}'" if len(systems) > 1 else "", shell,
+                              command.replace("{configuration}", "${{ matrix.configuration }}")))
         if not steps:
             return None
         lines = [
@@ -61,8 +107,11 @@ class GenericType(ModuleType, Builds):
             f"        configuration: {ci_workflow.yaml_list(ci.configurations)}",
             "    runs-on: ${{ matrix.os }}", "    steps:", "      - uses: actions/checkout@v4",
         ]
-        for label, command in steps:
-            lines += [f"      - name: {label}", f"        run: {ci_workflow.yaml_text(command)}"]
+        for label, condition, shell, command in steps:
+            lines.append(f"      - name: {ci_workflow.yaml_text(label)}")
+            if condition:
+                lines.append(f"        if: {condition}")
+            lines += [f"        shell: {shell}", f"        run: {ci_workflow.yaml_text(command)}"]
         return "\n".join(lines) + "\n"
 
     # ビルド ---------------------------------------------------------------------
@@ -98,10 +147,16 @@ class GenericType(ModuleType, Builds):
     # 内部 ---------------------------------------------------------------------------
 
     def _command(self, operation: str, *, required: bool = True) -> str:
-        command = self.module.config.extra.get(TABLE, {}).get(operation, "")
+        commands = self.module.config.extra.get(TABLE, {})
+        system = current_os()
+        command = command_for(commands, operation, system)
         if not command and required:
-            raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"{operation} のコマンドがありません。",
-                                hint=f"ecobuild.toml の [{TABLE}] に {operation} = \"<コマンド>\" を書いてください"
+            per_os = isinstance(commands.get(operation), dict)
+            raise EcoBuildError(ErrorCode.NOT_SUPPORTED,
+                                f"{operation} の {system} のコマンドがありません。" if per_os
+                                else f"{operation} のコマンドがありません。",
+                                hint=f"ecobuild.toml の [{TABLE}] に {operation} = \"<コマンド>\"（すべてのOS）か "
+                                     f"{operation} = {{ {system} = \"<コマンド>\" }}（OSごと）を書いてください"
                                      "（作業空間でコミットします）。")
         return command
 

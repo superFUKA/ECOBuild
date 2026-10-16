@@ -4,7 +4,9 @@ from ..._output import run_command
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """AGENTS.md（エージェントが最初に読む、守ることの核）を作り直します。作業空間でコミットしてください。
+    """AGENTS.md（エージェントが最初に読む、守ることの核）を作ります。作業空間でコミットしてください。
+
+    module new では作りません。コーディングエージェントを使うモジュールで作ってください。
 
     詳しい手順は AGENTS.md に写さず、ecobuild agent guide がその時の ECOBuild に合わせて出します。
     """

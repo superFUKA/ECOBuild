@@ -33,8 +33,9 @@ def test_create_module(short_tmp):
     assert ".ecobuild/.cppbuild/CMakeLists.txt" in files and ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in files
     assert not any(f.startswith(".ecobuild/.cppbuild/output") for f in files)
     # ルートには、ECOBuild・CppBuildの内部のファイルを置かない（.ecobuild/ にまとめる）
-    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitattributes", ".gitignore", "AGENTS.md",
-                                                     "Calc", "CalcTest", "README.md"]
+    # AGENTS.md は作らない（エージェントを使うモジュールだけ agent init で作る）
+    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitignore", "Calc", "CalcTest", "README.md"]
+    assert {".ecobuild/.gitattributes", ".ecobuild/.gitignore", ".ecobuild/ecobuild.toml"} <= set(files)
     assert git(root, "status", "--porcelain") == ""
     assert Module.find(root / "Calc" / "src").name == "Calc"
     assert module.summary().projects == ("Calc", "CalcTest")

@@ -16,7 +16,8 @@ from functools import lru_cache
 TABLE = "files"
 
 # ECOBuild が作り、常に管理するファイル
-BUILT_IN = ("/.ecobuild/ecobuild.toml", "/.ecobuild/.gitignore", "/README.md", "/AGENTS.md", "/.gitignore",
+BUILT_IN = ("/.ecobuild/ecobuild.toml", "/.ecobuild/.gitignore", "/.ecobuild/.gitattributes", "/README.md",
+            "/AGENTS.md", "/.gitignore",
             "/.gitattributes", "/.github/workflows/*.yml", "/.github/workflows/*.yaml")
 
 BUILT_IN_SOURCE = "ecobuild"

@@ -68,13 +68,6 @@ def _check_options(values: dict, known: dict, where: str) -> None:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}の {key} に {value!r} は使えません。",
                                 hint=f"使える値：{choices}")
 
-# CppBuildは生成・管理ファイルをLFで書く。gitの改行変換（Windowsのcore.autocrlf=true等）で
-# CRLFにされると、生成し直すたびに「変更あり」になるため、LFに固定する。
-GITATTRIBUTES = """\
-# ECOBuild：ECOBuild・CppBuildのファイル（.ecobuild/）の改行をLFに固定する
-.ecobuild/** text eol=lf
-"""
-
 GITIGNORE = """\
 # 依存先のclone・ビルドの中間ファイル
 /deps/
@@ -162,10 +155,6 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     @classmethod
     def tracked_patterns(cls) -> tuple[str, ...]:
         return TRACKED_PATTERNS
-
-    @classmethod
-    def gitattributes(cls) -> str:
-        return GITATTRIBUTES
 
     @classmethod
     def readme_usage(cls, config: ModuleConfig) -> str:

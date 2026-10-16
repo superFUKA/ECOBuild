@@ -44,6 +44,12 @@ ecobuild.local.toml
 logs/
 """
 
+# .ecobuild/.gitattributes：ECOBuild・型（CppBuild 等）は .ecobuild/ の中のファイルをLFで書く。gitの改行変換
+# （Windowsのcore.autocrlf=true等）でCRLFにされると、作り直すたびに「変更あり」になるため、LFに固定する。
+GITATTRIBUTES = """\
+* text eol=lf
+"""
+
 
 class _TypeHooks(Hooks):
     """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。
@@ -150,12 +156,12 @@ class Module:
         def populate(root: Path) -> None:
             _config.save(module_config, root / _config.FILE_NAME)
             (root / _config.DIRECTORY / ".gitignore").write_text(GITIGNORE, encoding="utf-8", newline="\n")
+            (root / _config.DIRECTORY / ".gitattributes").write_text(GITATTRIBUTES, encoding="utf-8", newline="\n")
             if type_class.gitignore():
                 (root / ".gitignore").write_text(type_class.gitignore(), encoding="utf-8", newline="\n")
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
-            (root / "AGENTS.md").write_text(_docs.agents(module_config, type_class), encoding="utf-8", newline="\n")
             type_class.populate(root, module_config, kind or None, project or None)
 
         repository = Repository.create(

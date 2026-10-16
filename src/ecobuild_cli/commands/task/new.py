@@ -22,7 +22,7 @@ def command(
     blockers = split_numbers(blocked_by, "--blocked-by", json)
 
     def action(inv):
-        task = inv.module.create_task(title, body=body, labels=split_list(label), assignees=split_list(assignee),
+        task = inv.module.repository.create_task(title, body=body, labels=split_list(label), assignees=split_list(assignee),
                                       parent=parent or None, blocked_by=blockers, milestone=milestone or None,
                                       plan={"due": due or None, "planned_start": planned_start or None,
                                             "planned_end": planned_end or None})

@@ -26,7 +26,7 @@ def command(
             + [f"  新しいファイル：{p}" for p in r.untracked if p not in excluded] + [f"  衝突：{p}" for p in r.conflicted]
         gone = None
         if r.upstream_gone:
-            gone = (f"#{r.workspace} は完了しています（ecobuild task clean {r.workspace} で片付けられます。"
+            gone = (f"#{r.workspace} は完了しています（ecobuild task prune {r.workspace} で片付けられます。"
                     "次の操作でも自動で片付きます）" if r.finished else
                     f"GitHubの {r.branch} は削除されています（別の場所で中止された可能性があります。"
                     f"ecobuild task drop {r.workspace or ''} で片付けてください）")

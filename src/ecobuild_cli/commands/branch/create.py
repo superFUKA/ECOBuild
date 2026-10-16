@@ -9,5 +9,5 @@ def command(
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """作業空間でないブランチを作り、GitHubへ反映します。"""
-    return run_command("branch create", lambda inv: inv.module.create_branch(name, base=base or None),
+    return run_command("branch create", lambda inv: inv.module.repository.create_branch(name, base=base or None),
                        lambda r: f"ブランチ {r.name} を作成しました", json_output=json)

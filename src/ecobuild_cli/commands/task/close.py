@@ -20,14 +20,14 @@ def command(
     def action(inv):
         module = inv.module
         try:
-            return module.close_task(issue, not_planned=not_planned)
+            return module.repository.close_task(issue, not_planned=not_planned)
         except WorkError as error:
             if error.code != ErrorCode.UNFINISHED_WORK:
                 raise
-        preview = module.drop_workspace(issue, close=True, dry_run=True)
+        preview = module.repository.drop_workspace(issue, close=True, dry_run=True)
         lost = f"（取り込んでいないコミット {len(preview.lost_commits)} 件を捨てます）" if preview.lost_commits else ""
         inv.confirm(f"#{issue} の作業空間 {preview.branch} の作業を捨てて、「対応しない」として閉じますか？{lost}")
-        return module.drop_workspace(issue, close=True, discard=True)
+        return module.repository.drop_workspace(issue, close=True, discard=True)
 
     def render(r):
         if hasattr(r, "lost_commits"):

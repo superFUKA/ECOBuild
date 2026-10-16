@@ -8,7 +8,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
 
     def render(r):
         if not r.direct:
-            return f"{r.module}：依存先はありません（ecobuild link で追加できます）"
+            return f"{r.module}：依存先はありません（ecobuild deps add で追加できます）"
         nodes = {n.name: n for n in r.nodes}
         out, shown = [r.module], set()
 

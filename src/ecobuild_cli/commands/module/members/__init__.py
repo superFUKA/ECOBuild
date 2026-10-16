@@ -24,5 +24,5 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
 
     招待を受けた人には、タスク管理の情報（計画・段階）も共有し直します。見られるのは、リポジトリの管理者だけです。
     """
-    return run_command("module members", lambda inv: inv.module.members(), lambda r: "共同作業者：\n" + render(r),
+    return run_command("module members", lambda inv: inv.module.repository.members(), lambda r: "共同作業者：\n" + render(r),
                        json_output=json)

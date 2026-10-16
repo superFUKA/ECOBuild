@@ -1,6 +1,8 @@
 from typing import Annotated
 
 import ecobuild_bundle
+from .. import _gui
+from .._module import PROGRAM
 from .._output import Invocation, execute
 from ecobuild.errors import EcoBuildError, ErrorCode
 
@@ -9,7 +11,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
     """前提ツール・認証・gitの設定・コンパイラを診断します（何も変えません）。直すには ecobuild setup。"""
 
     def action(inv):
-        report = ecobuild_bundle.doctor()
+        report = ecobuild_bundle.doctor(_gui.doctor_items(), command=PROGRAM)
         if not report.ok:
             raise EcoBuildError(ErrorCode.TOOL_MISSING, "足りないものがあります：" + "、".join(
                 i.name for i in report.items if not i.ok and i.required),

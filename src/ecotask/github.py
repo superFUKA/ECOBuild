@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from . import _process
+from . import process as _process
 from . import board as _board
 from .errors import ErrorCode, TaskError
 
@@ -166,14 +166,14 @@ class GhCli:
         for assignee in assignees:
             args += ["--assignee", assignee]
         url = self._gh(args, cwd=repo).stdout.strip()
-        return self.get_issue(repo, _number_from_url(url))
+        return self.get_issue(repo, number_from_url(url))
 
     def get_issue(self, repo, number):
         completed = self._gh(["issue", "view", str(number), "--json", _ISSUE_FIELDS],
                              cwd=repo, check=False)
         if not completed.ok:
-            if not _not_found(completed):
-                raise _gh_error(["issue", "view"], completed)
+            if not not_found(completed):
+                raise gh_error(["issue", "view"], completed)
             raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。",
                                 details=completed.output)
         return _issue(json.loads(completed.stdout))
@@ -247,7 +247,7 @@ class GhCli:
             d = json.loads(line)
             sub, dep = d.get("sub") or {}, d.get("dep") or {}
             result[d["number"]] = IssueRelations(
-                _number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
+                number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
                 sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
         return result
 
@@ -256,7 +256,7 @@ class GhCli:
                         "{parent: .parent_issue_url, sub: .sub_issues_summary, dep: .issue_dependencies_summary}"],
                        cwd=repo)
         sub, dep = d.get("sub") or {}, d.get("dep") or {}
-        return IssueRelations(_number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
+        return IssueRelations(number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
                               sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
 
     def sub_issues(self, repo, number):
@@ -542,7 +542,7 @@ class GhCli:
             if match and not re.search(r"HTTP 401|Bad credentials", completed.output):
                 raise TaskError(ErrorCode.GITHUB_ERROR, f"GitHubに断られました：{match.group(1)}",
                                 details=completed.output)
-            raise _gh_error(args, completed)
+            raise gh_error(args, completed)
         return json.loads(completed.stdout)["data"]
 
     def _issue_id(self, repo, number):
@@ -550,9 +550,9 @@ class GhCli:
         completed = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq", ".id"], cwd=repo,
                              check=False)
         if not completed.ok:
-            if _not_found(completed):
+            if not_found(completed):
                 raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。", details=completed.output)
-            raise _gh_error(["api", "issues"], completed)
+            raise gh_error(["api", "issues"], completed)
         return int(completed.stdout.strip())
 
     def _rest_issues(self, repo, path):
@@ -567,14 +567,14 @@ class GhCli:
         try:
             return _process.run(["gh", *args], cwd=cwd, check=check, env=self._env())
         except _process.ProcessFailed as failure:
-            raise _gh_error(args, failure.completed) from None
+            raise gh_error(args, failure.completed) from None
 
 
-def _not_found(completed: _process.Completed) -> bool:
+def not_found(completed: _process.Completed) -> bool:
     return re.search(r"could not resolve|not found|no pull requests? found", completed.output, re.IGNORECASE) is not None
 
 
-def _gh_error(args, completed: _process.Completed) -> TaskError:
+def gh_error(args, completed: _process.Completed) -> TaskError:
     authentication = re.search(r"auth|401|credentials", completed.output, re.IGNORECASE)
     return TaskError(
         ErrorCode.GITHUB_ERROR,
@@ -670,7 +670,7 @@ def _field_value(field: _board.BoardField, value: str) -> dict:
             raise TaskError(ErrorCode.INVALID_ARGUMENT, f"{field.name} は日付（YYYY-MM-DD）です：{value}")
         return {"date": value}
     raise TaskError(ErrorCode.INVALID_ARGUMENT, f"{field.name}（{field.type}）は設定できません。",
-                    hint="担当者・ラベル・マイルストーン等は ecobuild task edit で変えてください。")
+                    hint="担当者・ラベル・マイルストーン等は、タスクの編集（task edit）で変えてください。")
 
 
 def _milestone(data: dict) -> MilestoneInfo:
@@ -691,10 +691,10 @@ def _api_error(completed: _process.Completed) -> TaskError:
     match = re.search(r'"message"\s*:\s*"([^"]+)"', completed.output)
     if match and not re.search(r"HTTP 401|Bad credentials", completed.output):
         return TaskError(ErrorCode.GITHUB_ERROR, f"GitHubに断られました：{match.group(1)}", details=completed.output)
-    return _gh_error(["api"], completed)
+    return gh_error(["api"], completed)
 
 
-def _number_from_url(url: str) -> int:
+def number_from_url(url: str) -> int:
     match = re.search(r"/(?:issues|pull)/(\d+)\s*$", url)
     if match is None:
         raise TaskError(ErrorCode.GITHUB_ERROR, f"gh の出力からURLを読み取れません：{url!r}")

@@ -1,4 +1,4 @@
-"""TortoiseGit による履歴・差分の表示（Windows・任意。I-013）。"""
+"""TortoiseGit による履歴・差分の表示（Windows・任意。I-013）。画面を開くのは CLI の関心なので、CLI に置く。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from .errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.results import DoctorItem
 
 
 def find() -> str | None:
@@ -21,6 +22,15 @@ def find() -> str | None:
             if candidate.is_file():
                 return str(candidate)
     return None
+
+
+def doctor_items() -> list[DoctorItem]:
+    """doctor・init に足す項目（Windows だけ。なくても使える）。"""
+    if os.name != "nt":
+        return []
+    tortoise = find()
+    return [DoctorItem("TortoiseGit", tortoise is not None, False, tortoise or "見つかりません（任意）",
+                       "log・diff・blame の --gui に使います。")]
 
 
 def open_window(command: str, path: Path, **extra: str) -> None:

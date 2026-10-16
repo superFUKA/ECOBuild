@@ -13,7 +13,7 @@ from cppbuild import ProjectType, Solution
 from cppbuild.core import STANDARD_ENTRY_POINTS
 from cppbuild.models import CMakePackage, CMakeSource, Dependency, ImportedLibrary
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError, ErrorCode, operation
 
 from . import _cppbuild
 
@@ -91,10 +91,10 @@ def add_template(root: Path, name: str, source: Path) -> dict:
     return module_settings(root)["templates"]
 
 
-def remove_template(root: Path, name: str) -> dict:
+def remove_template(root: Path, name: str, *, command: str = "") -> dict:
     if name in _cppbuild.TEMPLATES:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{name} は ECOBuild の既定のテンプレートなので外せません。",
-                            hint="中身を変えるには、ecobuild template add で同じ名前に差し替えてください。")
+                            hint=f"中身を変えるには、{operation(command, 'template add')} で同じ名前に差し替えてください。")
     solution = _cppbuild.open_solution(root)
     path = solution.settings.get().file_templates.get(name)
     if path is None:
@@ -107,14 +107,15 @@ def remove_template(root: Path, name: str) -> dict:
     return module_settings(root)["templates"]
 
 
-def add_file_from_template(root: Path, project: str, path: str, template: str, values: dict[str, str]) -> str:
+def add_file_from_template(root: Path, project: str, path: str, template: str, values: dict[str, str], *,
+                           command: str = "") -> str:
     """テンプレートからファイルを作る。差し込み口には values（header・suite・name・project）から渡す。"""
     solution = _cppbuild.open_solution(root)
     target = _require(solution, project)
     templates = solution.settings.get().file_templates
     if template not in templates:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"テンプレート {template} はありません。",
-                            hint=f"{'・'.join(sorted(templates))}（ecobuild template list）")
+                            hint=f"{'・'.join(sorted(templates))}（{operation(command, 'template list')}）")
     tokens = set(_TOKEN.findall((solution.root / templates[template]).read_text(encoding="utf-8")))
     missing = sorted(t for t in tokens if not values.get(t))
     if missing:
@@ -240,7 +241,7 @@ def set_pch(root: Path, name: str, *, headers: tuple[str, ...], system_headers: 
     return project_details(root, name)
 
 
-def move_project(root: Path, name: str, destination: str) -> str:
+def move_project(root: Path, name: str, destination: str, *, command: str = "") -> str:
     """Projectのディレクトリを移す（名前は変わらない）。移動先（モジュールからの相対）を返す。"""
     solution = _cppbuild.open_solution(root)
     _require(solution, name)
@@ -252,7 +253,7 @@ def move_project(root: Path, name: str, destination: str) -> str:
         raise _cppbuild._cppbuild_error(f"Project {name} を移せません。", error) from error
     if not report.success:
         raise EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"Project {name} を移しましたが、構成の作り直しに失敗しました。",
-                            hint="原因を直してから ecobuild build で作り直してください。", details=str(report.update_error))
+                            hint=f"原因を直してから {operation(command, 'build')} で作り直してください。", details=str(report.update_error))
     return solution.settings.get().projects[name]
 
 
@@ -300,9 +301,9 @@ def link_library_file(root: Path, name: str, kind: str, locations: dict[str, str
                                              dict(import_libraries)), "ビルド済みのライブラリ")
 
 
-def unlink(root: Path, name: str, link: str) -> dict:
+def unlink(root: Path, name: str, link: str, *, command: str = "") -> dict:
     """Projectのリンクを外す。link：project show に出る名前か、その id。
-    依存先のモジュールは、他のProjectもリンクしていればここで外せる（最後の1つは ecobuild unlink）。"""
+    依存先のモジュールは、他のProjectもリンクしていればここで外せる（最後の1つは ecobuild deps remove）。"""
     solution = _cppbuild.open_solution(root)
     project = _require(solution, name)
     names = _names(solution)
@@ -311,7 +312,7 @@ def unlink(root: Path, name: str, link: str) -> dict:
     if len(found) != 1:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                             f"{name} のリンク {link} は{'ありません' if not found else 'いくつもあります（id で指定してください）'}。",
-                            hint="ecobuild project show " + name + " でリンクの一覧（名前と id）を確かめてください。")
+                            hint=f"{operation(command, 'project show')} {name} でリンクの一覧（名前と id）を確かめてください。")
     view = found[0]
     if view["kind"] == "module":
         source = view["name"].split("/")[0]
@@ -320,7 +321,7 @@ def unlink(root: Path, name: str, link: str) -> dict:
             for k, v in p.settings.get().dependencies.items())]
         if not others:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"依存先 {source} をリンクしているのは {name} だけです。",
-                                hint=f"依存先ごと外すには ecobuild unlink {source} を使ってください（記録と clone も片付けます）。")
+                                hint=f"依存先ごと外すには {operation(command, 'deps remove')} {source} を使ってください（記録と clone も片付けます）。")
     _save(solution, lambda: project.settings.unlink(view["id"]), f"{name} のリンク {link} を外せません。")
     return project_details(root, name)
 

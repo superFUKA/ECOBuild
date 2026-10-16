@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import ecobuild_bundle
-from ecobuild import tooling
+from ecobuild import settings
 from ..._output import Invocation, execute
 
 
@@ -12,5 +12,5 @@ def render(values):
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """ツールの設定の一覧と、設定ファイルの場所を表示します。"""
-    return execute("config list", Invocation(json_output=json), lambda inv: tooling.load_config(),
-                   lambda r: render(r) + f"\n（{tooling.home() / 'config.toml'}）")
+    return execute("config list", Invocation(json_output=json), lambda inv: settings.load_config(),
+                   lambda r: render(r) + f"\n（{settings.home() / 'config.toml'}）")

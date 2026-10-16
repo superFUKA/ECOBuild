@@ -8,5 +8,5 @@ def command(
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """閉じたマイルストーンを開き直します。"""
-    return run_command("milestone reopen", lambda inv: inv.module.edit_milestone(title, state="open"),
+    return run_command("milestone reopen", lambda inv: inv.module.repository.edit_milestone(title, state="open"),
                        lambda r: f"マイルストーン {r.title} を開き直しました", json_output=json)

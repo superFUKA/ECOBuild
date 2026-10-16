@@ -19,11 +19,11 @@ def command(
 
     def action(inv):
         module = inv.module
-        preview = module.drop_workspace(issue or None, close=close, dry_run=True)
+        preview = module.repository.drop_workspace(issue or None, close=close, dry_run=True)
         if preview.lost_commits:
             inv.confirm(f"{preview.branch} の作成元に入っていないコミット {len(preview.lost_commits)} 件"
                         f"（{', '.join(preview.lost_commits)}）を捨てますか？")
-        return module.drop_workspace(issue or None, close=close, discard=True)
+        return module.repository.drop_workspace(issue or None, close=close, discard=True)
 
     def render(r):
         return lines(

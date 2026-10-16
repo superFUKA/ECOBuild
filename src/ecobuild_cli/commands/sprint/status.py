@@ -28,4 +28,4 @@ def command(
             if r.carried_over else None,
         )
 
-    return run_command("sprint status", lambda inv: inv.module.sprint_status(chosen), render, json_output=json)
+    return run_command("sprint status", lambda inv: inv.module.repository.sprint_status(chosen), render, json_output=json)

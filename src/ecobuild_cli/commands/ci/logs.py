@@ -14,7 +14,7 @@ def command(
     run = optional_argument(number, run, "--run", json)
 
     def action(inv):
-        run_id, log = inv.module.ci_failed_log(run or None, task=task or None)
+        run_id, log = inv.module.repository.ci_failed_log(run or None, task=task or None)
         return {"run": run_id, "log": log}
 
     return run_command("ci logs", action, lambda r: f"#{r['run']} の失敗した手順：\n{r['log']}", json_output=json)

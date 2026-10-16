@@ -1,12 +1,18 @@
 """ECOBuildのエラー。CLIは`code`で失敗の種類を区別し、`hint`で次の操作を案内する。
 
 作業の進め方の失敗は ecowork.WorkError で届く。EcoBuildError はその子で、ECOBuild独自の種類を足す。
+
+ヒントに書く操作は operation(command, "task commit") の形で作る。command は使う側が渡すプログラム名
+（CLI は ecobuild。本体の既定は空で、操作名だけを書く）。操作名は作業の流れの言葉で、CLI はこれと同じ名前の
+コマンドを持つ（tests/unit/test_operations.py で確かめる）。
 """
 
 from __future__ import annotations
 
 from ecowork.errors import ErrorCode as _WorkErrorCode
-from ecowork.errors import WorkError
+from ecowork.errors import WorkError, operation
+
+__all__ = ["EcoBuildError", "ErrorCode", "WorkError", "operation"]
 
 
 class ErrorCode(_WorkErrorCode):

@@ -8,5 +8,5 @@ def command(
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """CIで使うシークレットを削除します。"""
-    return run_command("ci secret remove", lambda inv: {"name": inv.module.delete_secret(name)},
+    return run_command("ci secret remove", lambda inv: {"name": inv.module.repository.delete_secret(name)},
                        lambda r: f"シークレット {r['name']} を削除しました", json_output=json)

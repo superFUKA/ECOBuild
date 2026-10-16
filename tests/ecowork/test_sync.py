@@ -148,7 +148,7 @@ def test_sync_refuses_closed_workspace(repository):
     repository.github.close_issue(repository.root, workspace.number)
     with pytest.raises(WorkError) as error:
         repository.sync()
-    assert error.value.code == ErrorCode.TASK_CLOSED and "ecobuild task clean" in error.value.hint
+    assert error.value.code == ErrorCode.TASK_CLOSED and "ecobuild task prune" in error.value.hint
 
 
 def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_path):

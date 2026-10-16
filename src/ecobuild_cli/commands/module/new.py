@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._output import lines, run_command
 
 
@@ -23,9 +23,9 @@ def command(
     """
 
     def action(inv):
-        from ecobuild import tooling
+        from ecobuild import settings
         module = Module.create(name, directory=inv.cwd, description=description, public=public,
-                               kind=kind, project=project, owner=owner or tooling.load_config().get("owner"), type=type or None)
+                               kind=kind, project=project, owner=owner or settings.load_config().get("owner"), type=type or None)
         inv.use_module(module)
         return module.summary()
 

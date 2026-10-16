@@ -17,14 +17,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
 
-from .errors import EcoBuildError, ErrorCode
+from .errors import EcoBuildError, ErrorCode, operation
 
 if TYPE_CHECKING:
     from .config import ModuleConfig, Profile
     from .module import Module
     from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, DependencyTree, FilesChanged,
                           LinkResult, PrepareResult, ProjectSummary, RunResult, TestResult)
-    from .tooling import CheckItem as DoctorItem
+    from .results import DoctorItem
 
 
 class ModuleType:
@@ -47,7 +47,7 @@ class ModuleType:
 
     def not_supported(self, operation: str) -> EcoBuildError:
         return EcoBuildError(ErrorCode.NOT_SUPPORTED, f"型 {self.name} は {operation} に対応していません。",
-                             hint="ecobuild module types で型の一覧を確認できます。")
+                             hint=f"{self.module.op('module types')} で型の一覧を確認できます。")
 
     # モジュールの作成（モジュールがまだないので、クラスメソッド） ------------------------------
 
@@ -115,12 +115,10 @@ class ModuleType:
         """生成ファイルを作り直す。作り直したらTrue。"""
         return False
 
-    def prepare(self) -> "PrepareResult | tuple[tuple[DependencyChange, ...], bool]":
-        """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。
-
-        （依存先の変化, 生成ファイルを作り直したか）を返す（PrepareResult か同じ並びのタプル）。
-        """
-        return (), False
+    def prepare(self) -> "PrepareResult":
+        """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。"""
+        from .results import PrepareResult
+        return PrepareResult((), False)
 
     # 型が決める形の設定（辞書。本体は中身を知らない） --------------------------------------
 
@@ -300,18 +298,18 @@ class Registry:
         """登録した型（名前 → 登録の内容）。"""
         return dict(self._entries)
 
-    def load(self, name: str | None = None) -> type[ModuleType]:
-        """型の名前（省略時は既定の型）から、型のクラスを読み込む。"""
+    def load(self, name: str | None = None, *, command: str = "") -> type[ModuleType]:
+        """型の名前（省略時は既定の型）から、型のクラスを読み込む。command：ヒントに書くプログラム名。"""
         name = name or self.default
         registered = "、".join(self._entries) or "なし"
         if not name:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "モジュールの型を指定してください。",
-                                hint=f"登録済みの型：{registered}（ecobuild module types）")
+                                hint=f"登録済みの型：{registered}（{operation(command, 'module types')}）")
         if name in self._loaded:
             return self._loaded[name]
         if name not in self._entries:
             raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"型 {name} は登録されていません。",
-                                hint=f"登録済みの型：{registered}（ecobuild module types）")
+                                hint=f"登録済みの型：{registered}（{operation(command, 'module types')}）")
         entry = self._entries[name]
         try:
             loaded = getattr(importlib.import_module(entry.module), entry.cls)

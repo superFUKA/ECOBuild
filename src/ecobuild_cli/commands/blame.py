@@ -12,4 +12,4 @@ def command(
     """ファイルの各行を、最後に変えたコミットとともに表示します。"""
     if gui:
         return open_window("blame", (path,), json)
-    return run_command("blame", lambda inv: inv.module.blame(path), lambda r: r, json_output=json)
+    return run_command("blame", lambda inv: inv.module.repository.blame(path), lambda r: r, json_output=json)

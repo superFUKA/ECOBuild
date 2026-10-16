@@ -15,7 +15,7 @@ def command(
     if not message:
         return missing("--message", json)
     return run_command(
-        "task reject", lambda inv: inv.module.reject(task, message),
+        "task reject", lambda inv: inv.module.repository.reject(task, message),
         lambda r: lines(f"確認の前の場所 {r.returned_to} に戻りました" if r.returned_to else None,
                         f"#{r.task} を差し戻しました（{r.url}）"),
         json_output=json)

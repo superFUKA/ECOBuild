@@ -11,4 +11,4 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
                          f"・残りの見積もり {w.estimate_remaining:g}" + (f"・期限切れ {w.overdue}" if w.overdue else "")
                          + "  " + ", ".join(f"#{n}" for n in w.tasks) for w in r) or "開いているタスクはありません"
 
-    return run_command("task workload", lambda inv: inv.module.workload(), render, json_output=json)
+    return run_command("task workload", lambda inv: inv.module.repository.workload(), render, json_output=json)

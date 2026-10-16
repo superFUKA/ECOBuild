@@ -15,7 +15,7 @@ from ._output import USAGE_ERROR, use_utf8_when_redirected
 # task --help の見出し（コマンドが多いので、目的ごとに分けて出す）
 TASK_SECTIONS = (
     ("計画", ("new", "edit", "list", "next", "overdue", "workload", "comment", "close", "reopen")),
-    ("作業", ("start", "commit", "add", "push", "status", "diff", "drop", "clean")),
+    ("作業", ("start", "commit", "add", "push", "status", "diff", "drop", "prune")),
     ("提出と完了", ("submit", "withdraw", "review", "approve", "reject", "finish", "revert")),
 )
 

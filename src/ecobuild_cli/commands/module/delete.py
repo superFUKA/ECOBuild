@@ -6,7 +6,7 @@ from typing import Annotated
 import click
 
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._module_target import find_clone, full_name
 from ..._output import lines, run_command
 
@@ -83,7 +83,7 @@ def _confirm(inv, question: str, repository: str, given: str) -> None:
 
 def _require_delete_permission(inv) -> None:
     """リポジトリの削除には、ghのログインに delete_repo の権限が要る（既定のログインにはない）。"""
-    from ecobuild import tooling
+    from ecobuild_bundle import tooling
     if tooling.gh_has_scope("delete_repo"):
         return
     if not inv.json_output and sys.stdin.isatty() and click.confirm(

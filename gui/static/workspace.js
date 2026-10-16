@@ -244,7 +244,7 @@ async function gitAction(action) {
   switch (action) {
     case 'stage': return WS.run(['task', 'add', ...sel], {success: sel.length + '件をステージしました。'});
     case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
-    case 'clean-finished': return WS.run(['task', 'clean', String(WS.status.workspace)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
+    case 'clean-finished': return WS.run(['task', 'prune', String(WS.status.workspace)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));

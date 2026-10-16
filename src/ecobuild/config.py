@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 
-from .errors import EcoBuildError, ErrorCode
+from .errors import EcoBuildError, ErrorCode, operation
 
 FILE_NAME = "ecobuild.toml"
 LOCAL_FILE_NAME = "ecobuild.local.toml"   # このPC用（.gitignore対象）
@@ -192,8 +192,8 @@ def save(config: ModuleConfig, path: Path) -> None:
     path.write_text(dump(config), encoding="utf-8", newline="\n")
 
 
-def find_root(start: Path) -> Path:
-    """startから上へecobuild.tomlを探し、最も近いものがあるディレクトリを返す。"""
+def find_root(start: Path, *, command: str = "") -> Path:
+    """startから上へecobuild.tomlを探し、最も近いものがあるディレクトリを返す。command：ヒントに書くプログラム名。"""
     current = start.resolve()
     for directory in (current, *current.parents):
         if (directory / FILE_NAME).is_file():
@@ -201,7 +201,7 @@ def find_root(start: Path) -> Path:
     raise EcoBuildError(
         ErrorCode.NOT_IN_MODULE,
         f"{start} はECOBuildのモジュールの中ではありません（{FILE_NAME} が見つかりません）。",
-        hint="モジュールのディレクトリへ移動するか、ecobuild module new <名前> で作成してください。",
+        hint=f"モジュールのディレクトリへ移動するか、{operation(command, 'module new')} <名前> で作成してください。",
     )
 
 

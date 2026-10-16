@@ -14,6 +14,6 @@ def command(
     """差分を表示します（既定：未コミットでステージしていない変更）。"""
     if gui:
         return open_window("diff", paths, json)
-    return run_command("diff", lambda inv: inv.module.diff(paths, staged=staged, base=base),
+    return run_command("diff", lambda inv: inv.module.repository.diff(paths, staged=staged, base=base),
                        lambda r: r or ("作成元からのコミットの差分はありません（未コミットの変更は ecobuild diff）"
                                        if base else "差分はありません"), json_output=json)

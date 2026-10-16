@@ -470,12 +470,12 @@
     const place = placeFor(n);
     const ok = await ECO.confirm({title: `手元の作業空間を削除：#${n}`, message: '手元の作業空間だけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
     if (!ok) return;
-    const doc = await run(['task', 'clean', String(n)], {dir: place, success: r => `手元の作業空間 ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元の作業空間 ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function cleanDialog() {
     const results = [];
-    for (const place of MOD.places) { const doc = await ECO.cli(place, ['task', 'clean', '--dry-run']); if (doc.ok) results.push([place, doc.result]); else return ECO.showError(doc); }
+    for (const place of MOD.places) { const doc = await ECO.cli(place, ['task', 'prune', '--dry-run']); if (doc.ok) results.push([place, doc.result]); else return ECO.showError(doc); }
     const removable = results.filter(([, r]) => r.removed.length), skipped = results.flatMap(([, r]) => r.skipped);
     const body = (removable.length ? '<p>片付ける作業空間：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付ける作業空間はありません。</p>')
       + (skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
@@ -483,7 +483,7 @@
       buttons: removable.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
     if (!ok) return;
     for (const [place] of removable) {
-      const doc = await run(['task', 'clean', '--yes'], {dir: place, success: r => (r.removed.length ? `片付けました：${r.removed.join('、')}` : '片付けたものはありません。') + (r.switched_to ? `（${r.switched_to} に切り替えました）` : '')});
+      const doc = await run(['task', 'prune', '--yes'], {dir: place, success: r => (r.removed.length ? `片付けました：${r.removed.join('、')}` : '片付けたものはありません。') + (r.switched_to ? `（${r.switched_to} に切り替えました）` : '')});
       if (!doc) continue;
       for (const s of doc.result.skipped) ECO.toast(`${s.branch} は残しました：${s.reason}`, 'info', 9000);
       await MOD.reloadPlace(place);

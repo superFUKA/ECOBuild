@@ -14,4 +14,4 @@ def command(
                          + f"  {m.closed_issues}/{m.open_issues + m.closed_issues} 完了"
                          + ("" if m.state == "open" else "（閉じています）") for m in r) or "マイルストーンはありません"
 
-    return run_command("milestone list", lambda inv: inv.module.milestones(closed=all), render, json_output=json)
+    return run_command("milestone list", lambda inv: inv.module.repository.milestones(closed=all), render, json_output=json)

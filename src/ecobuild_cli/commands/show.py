@@ -10,4 +10,4 @@ def command(
 ) -> int:
     """コミットの内容（変更したファイルと差分）を表示します。"""
     revision = optional_argument(commit, revision, "--revision", json) or "HEAD"
-    return run_command("show", lambda inv: inv.module.show(revision), lambda r: r, json_output=json)
+    return run_command("show", lambda inv: inv.module.repository.show(revision), lambda r: r, json_output=json)

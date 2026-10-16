@@ -20,7 +20,7 @@ def command(
     """
 
     def action(inv):
-        return inv.module.approve(task, message, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
+        return inv.module.repository.approve(task, message, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
                                   timeout=timeout)
 
     return run_command("task approve", action, render_finish, json_output=json)

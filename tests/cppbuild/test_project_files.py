@@ -16,7 +16,7 @@ pytestmark = pytest.mark.cppbuild
 def module():
     base = short_temporary_directory()
     module = Module.create("Geo", directory=base, github=FakeGitHub(base / "gh"), kind="library")
-    module.create_task("Project・ファイルの試験").start()  # ファイルを変える操作は作業空間でだけ
+    module.repository.create_task("Project・ファイルの試験").start()  # ファイルを変える操作は作業空間でだけ
     assert module.add_project("GeoApp", "app").paths == ("GeoApp/src/main.cpp",)   # ライブラリ Geo をリンクする
     yield module
     remove_tree(base)

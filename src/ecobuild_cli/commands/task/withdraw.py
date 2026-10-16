@@ -19,4 +19,4 @@ def command(
         return lines(f"#{number} の提出を取り下げました（作業中に戻しました）",
                      f"次：直して ecobuild task submit で出し直す（やめるなら ecobuild task drop {number}）")
 
-    return run_command("task withdraw", lambda inv: inv.module.withdraw(task or None), render, json_output=json)
+    return run_command("task withdraw", lambda inv: inv.module.repository.withdraw(task or None), render, json_output=json)

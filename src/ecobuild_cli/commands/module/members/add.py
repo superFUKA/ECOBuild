@@ -21,4 +21,4 @@ def command(
                      "次：相手が GitHub の通知・メールから招待を受けたら、ecobuild module members（タスク管理の情報も共有します）"
                      if invited else None)
 
-    return run_command("module members add", lambda inv: inv.module.add_member(user, role), render, json_output=json)
+    return run_command("module members add", lambda inv: inv.module.repository.add_member(user, role), render, json_output=json)

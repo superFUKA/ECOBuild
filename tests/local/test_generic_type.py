@@ -37,7 +37,7 @@ def test_generic_module(tmp_path):
     assert code_of(module.projects) == ErrorCode.NOT_SUPPORTED
     assert code_of(lambda: module.link("STL")) == ErrorCode.NOT_IN_WORKSPACE
 
-    workspace = module.create_task("コマンドを書く").start()
+    workspace = module.repository.create_task("コマンドを書く").start()
     commands = {"build": python("print('built {configuration}')"), "test": python("print('tested')"),
                 "run": python("import sys; print('run {arguments}')"), "clean": ""}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
@@ -70,7 +70,7 @@ def test_generic_module(tmp_path):
 def test_check_is_reused_while_unchanged(tmp_path):
     """ビルド・テストを含む check を通った版は、task submit --check で繰り返さない。変更・コミットで無効になる。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
-    workspace = module.create_task("確認の使い回し").start()
+    workspace = module.repository.create_task("確認の使い回し").start()
     commands = {"build": python("print('built')"), "test": python("print('tested')")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
     module.check()
@@ -99,7 +99,7 @@ def test_check_is_reused_while_unchanged(tmp_path):
 
 def test_ci_settings_and_hand_edited_workflow(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
-    module.create_task("CI").start()
+    module.repository.create_task("CI").start()
     commands = {"build": "make {configuration}", "test": "make test"}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
     path = module.root / ".github/workflows/ecobuild.yml"

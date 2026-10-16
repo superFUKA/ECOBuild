@@ -16,6 +16,6 @@ def command(
     if not into:
         return missing("--into", json)
     return run_command("branch submit",
-                       lambda inv: inv.module.branch(name).submit(into=into, title=title or None),
+                       lambda inv: inv.module.repository.branch(name).submit(into=into, title=title or None),
                        lambda r: lines(f"{name} を {into} へ提出しました：{r.url}",
                                        f"次：ecobuild branch merge {name}"), json_output=json)

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ecotask import model as _model
-from ecotask.tracker import TaskRef  # 親子・依存の相手（互換のため、ここからも使える）
+from ecotask.tracker import TaskRef  # 親子・依存の相手（ecowork の公開APIとして、ここからも使う）
 
 from . import github as _github
 from .errors import ErrorCode, WorkError
@@ -120,6 +120,11 @@ class Workspace:
     @property
     def task(self) -> Task:
         return self._repository.task(self.number)
+
+    @property
+    def root(self) -> Path:
+        """作業空間のある場所（作業空間専用のcloneなら、そのclone）。"""
+        return self._repository.root
 
     def stage(self, *paths: str, all: bool = False) -> "StageResult":
         repo = self._repository.git

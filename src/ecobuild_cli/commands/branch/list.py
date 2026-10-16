@@ -14,4 +14,4 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             rows.append(f"{b.name}\t{kind}\t{where}")
         return "\n".join(rows)
 
-    return run_command("branch list", lambda inv: inv.module.branches(), render, json_output=json)
+    return run_command("branch list", lambda inv: inv.module.repository.branches(), render, json_output=json)

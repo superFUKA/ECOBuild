@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._module_target import full_name
 from ..._output import lines, run_command
 

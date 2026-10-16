@@ -11,14 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-from ecotask import _process
-from ecotask.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, TaskGitHub, _gh_error, _not_found,
-                            _number_from_url)
+from ecotask import process as _process
+from ecotask.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, TaskGitHub, gh_error, not_found,
+                            number_from_url)
 from ecotask.github import GhCli as _TaskGhCli
+from ecotask.board import description as board_description  # ボードの説明（どのリポジトリのものか。削除の前に書く）
 
 from .errors import ErrorCode, WorkError
 
-# Issue等のデータ（Comment・IssueInfo 等）は ecotask.github のもの。互換のため、ここからも使える。
+# Issue等のデータ（Comment・IssueInfo 等）は ecotask.github のもの。ecowork の公開APIとして、ここからも使う。
 
 
 @dataclass(frozen=True)
@@ -202,7 +203,7 @@ class GhCli(_TaskGhCli):
             if "already exists" in completed.output:
                 raise WorkError(ErrorCode.ALREADY_EXISTS, f"GitHubにリポジトリ {full_name} が既にあります。",
                                 hint="別の名前にしてください。", details=completed.output)
-            raise _gh_error(args, completed)
+            raise gh_error(args, completed)
         data = self._json(["repo", "view", full_name, "--json", "nameWithOwner,url"], cwd=None)
         return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"])
 
@@ -210,8 +211,8 @@ class GhCli(_TaskGhCli):
         """name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。"""
         completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url,isArchived"], cwd=None, check=False)
         if not completed.ok:
-            if not _not_found(completed):
-                raise _gh_error(["repo", "view"], completed)
+            if not not_found(completed):
+                raise gh_error(["repo", "view"], completed)
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。",
                             details=completed.output)
         data = json.loads(completed.stdout)
@@ -224,7 +225,7 @@ class GhCli(_TaskGhCli):
         """既定のブランチに path があるか。name は「所有者/名前」。"""
         completed = self._gh(["api", f"repos/{name}/contents/{path}", "--silent"], cwd=None, check=False)
         if not completed.ok and not re.search(r"404|not found", completed.output, re.IGNORECASE):
-            raise _gh_error(["api", "contents"], completed)
+            raise gh_error(["api", "contents"], completed)
         return completed.ok
 
     def open_counts(self, name):
@@ -245,14 +246,14 @@ class GhCli(_TaskGhCli):
                                 hint="端末で実行すると、権限の追加を案内します"
                                      "（gh auth refresh -s delete_repo でも追加できます）。",
                                 details=completed.output)
-            raise _gh_error(args, completed)
+            raise gh_error(args, completed)
 
     def archive_repository(self, name, *, archived=True):
         """アーカイブする（archived=False：元に戻す）。"""
         args = ["repo", "archive" if archived else "unarchive", name, "--yes"]
         completed = self._gh(args, cwd=None, check=False)
         if not completed.ok:
-            raise _gh_error(args, completed)
+            raise gh_error(args, completed)
 
     def owner_repositories(self, owner):
         """所有者のリポジトリ（owner が None ならログイン中のユーザー）。ecobuild.toml の中身も一緒に読む
@@ -301,7 +302,7 @@ class GhCli(_TaskGhCli):
             if "already exists" in completed.output:
                 raise WorkError(ErrorCode.ALREADY_EXISTS, f"リリース（タグ）{tag} は既にあります。",
                                 details=completed.output)
-            raise _gh_error(["release", "create"], completed)
+            raise gh_error(["release", "create"], completed)
         return next(r for r in self.list_releases(repo) if r.tag == tag)
 
     def list_runs(self, repo, *, branch, limit):
@@ -327,14 +328,14 @@ class GhCli(_TaskGhCli):
         try:
             _process.run(["gh", "secret", "set", name], cwd=repo, input=value, env={"GH_PROMPT_DISABLED": "1"})
         except _process.ProcessFailed as failure:
-            raise _gh_error(["secret", "set"], failure.completed) from None
+            raise gh_error(["secret", "set"], failure.completed) from None
 
     def delete_secret(self, repo, name):
         completed = self._gh(["secret", "delete", name], cwd=repo, check=False)
         if not completed.ok:
-            if _not_found(completed) or "HTTP 404" in completed.output:
+            if not_found(completed) or "HTTP 404" in completed.output:
                 raise WorkError(ErrorCode.INVALID_ARGUMENT, f"シークレット {name} はありません。", details=completed.output)
-            raise _gh_error(["secret", "delete"], completed)
+            raise gh_error(["secret", "delete"], completed)
 
     def list_secrets(self, repo):
         return [d["name"] for d in self._json(["secret", "list", "--json", "name"], cwd=repo)]
@@ -348,7 +349,7 @@ class GhCli(_TaskGhCli):
     def create_pull_request(self, repo, *, head, base, title, body, draft=False):
         args = ["pr", "create", "--head", head, "--base", base, "--title", title, "--body", body]
         url = self._gh(args + (["--draft"] if draft else []), cwd=repo).stdout.strip()
-        return self.get_pull_request(repo, _number_from_url(url))
+        return self.get_pull_request(repo, number_from_url(url))
 
     def list_pull_requests(self, repo, *, closed, review_requested=None):
         args = ["pr", "list", "--state", "all" if closed else "open", "--limit", "200", "--json", _PR_FIELDS]
@@ -371,7 +372,7 @@ class GhCli(_TaskGhCli):
         if re.search(r"your own pull request", completed.output, re.IGNORECASE):
             raise WorkError(ErrorCode.OWN_PULL_REQUEST, f"自分のPR #{number} は承認・修正依頼できません（GitHubの制限）。",
                             hint="コメントとして返すなら --comment を使ってください。", details=completed.output)
-        raise _gh_error(args, completed)
+        raise gh_error(args, completed)
 
     def edit_pull_request(self, repo, number, *, title=None, body=None, base=None, add_reviewers=(),
                           remove_reviewers=(), add_labels=(), remove_labels=()):
@@ -402,8 +403,8 @@ class GhCli(_TaskGhCli):
     def get_pull_request(self, repo, number):
         completed = self._gh(["pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo, check=False)
         if not completed.ok:
-            if not _not_found(completed):
-                raise _gh_error(["pr", "view"], completed)
+            if not not_found(completed):
+                raise gh_error(["pr", "view"], completed)
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"PR #{number} が見つかりません。",
                                 details=completed.output)
         return _pull_request(json.loads(completed.stdout))
@@ -426,7 +427,7 @@ class GhCli(_TaskGhCli):
             raise WorkError(ErrorCode.APPROVAL_REQUIRED,
                             f"PR #{number} は、ブランチの保護の条件（承認・CI）を満たしていないため、取り込めません。",
                             details=completed.output)
-        raise _gh_error(args, completed)
+        raise gh_error(args, completed)
 
     def close_pull_request(self, repo, number):
         self._gh(["pr", "close", str(number)], cwd=repo)

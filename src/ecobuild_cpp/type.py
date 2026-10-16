@@ -25,7 +25,6 @@ from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, Dep
 
 from . import _cppbuild, _settings
 
-COMMAND = "ecobuild"
 
 # 名前付きビルド設定の、型 cpp の項目（[profiles.<名前>] の configuration・shared・parallel 以外）：
 # 名前 → (値の型, 使える値。None は何でも)。値の意味は _cppbuild.BuildOptions
@@ -226,17 +225,17 @@ jobs:
 
     @classmethod
     def doctor_items(cls):
-        from ecobuild.tooling import CheckItem
+        from ecobuild.results import DoctorItem
         try:
             from cppbuild import Environment, EnvironmentOptions
             report = Environment.check(EnvironmentOptions(require_ctest=True))
         except Exception as error:  # CppBuildの診断そのものが失敗した
-            return [CheckItem("CMake・コンパイラ", False, True, f"{type(error).__name__}: {error}",
+            return [DoctorItem("CMake・コンパイラ", False, True, f"{type(error).__name__}: {error}",
                               "CMake と C++ コンパイラをインストールしてください。", "install", _install("compiler"))]
         result = []
         for item in report.items:
             detail = " ".join(part for part in (item.version or "", item.path or "") if part) or item.detail
-            result.append(CheckItem(item.name, item.success, True, detail if item.success else (item.detail or detail),
+            result.append(DoctorItem(item.name, item.success, True, detail if item.success else (item.detail or detail),
                                     item.action or "CMake と C++ コンパイラ（Windows：Visual Studio のC++、"
                                                    "Linux：g++）が必要です。", "install",
                                     _install("cmake" if item.name in ("cmake", "ctest") else "compiler")))
@@ -277,20 +276,20 @@ jobs:
             _check_options(values, PROFILE_PROJECT_OPTIONS, f"Project {project} の設定")
             if project not in kinds:
                 raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
-                                    hint=f"ecobuild profile project <名前> {project} --clear で外せます。")
+                                    hint=f"{self.module.op('profile project')} <名前> {project} --clear で外せます。")
             if "type" in values and not kinds[project].endswith("library"):
                 raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{project} はライブラリではないので、形式を変えられません。")
 
     def build_options(self, profile: Profile | None, configuration: str) -> _cppbuild.BuildOptions:
-        from ecobuild import tooling
+        from ecobuild import settings
         selected = profile or Profile()
         _check_options(selected.options, PROFILE_OPTIONS, "ビルド設定")   # ecobuild.toml を手で直した場合
         for project, values in selected.projects.items():
             _check_options(values, PROFILE_PROJECT_OPTIONS, f"Project {project} の設定")
-        tools = tooling.load_config()
+        tools = settings.load_config()
         return _cppbuild.BuildOptions(
             configuration or selected.configuration, selected.parallel, selected.shared,
-            **selected.options, cmake=tools.get("cmake"), ctest=tools.get("ctest"),
+            **selected.options, cmake=tools.get("cmake"), ctest=tools.get("ctest"), command=self.module.command,
             projects=tuple((name, _cppbuild.ProjectOptions(**values)) for name, values in selected.projects.items()))
 
     def build(self, project: str | None, options: _cppbuild.BuildOptions, action: str) -> BuildResult:
@@ -360,7 +359,7 @@ jobs:
 
     def remove_template(self, name: str) -> dict:
         self.module.require_workspace("テンプレートの削除")
-        return _settings.remove_template(self.root, name)
+        return _settings.remove_template(self.root, name, command=self.module.command)
 
     def project_details(self, name: str) -> dict:
         return _settings.project_details(self.root, name)
@@ -375,7 +374,7 @@ jobs:
         return _settings.set_pch(self.root, name, headers=headers, system_headers=system_headers)
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
-        return FilesChanged("project move", (_settings.move_project(self.root, name, destination),), name)
+        return FilesChanged("project move", (_settings.move_project(self.root, name, destination, command=self.module.command),), name)
 
     def link_project(self, name: str, library: str, *, as_type: str | None) -> dict:
         return _settings.link_project(self.root, name, library, as_type)
@@ -399,7 +398,7 @@ jobs:
                                            include_directories)
 
     def unlink_project(self, name: str, link: str) -> dict:
-        return _settings.unlink(self.root, name, link)
+        return _settings.unlink(self.root, name, link, command=self.module.command)
 
     # ファイル -------------------------------------------------------------------------
 
@@ -432,7 +431,7 @@ jobs:
             values = {"header": header or "", "suite": Path(relative).stem, "name": Path(relative).stem,
                       "project": project}
             return FilesChanged("file add", (_settings.add_file_from_template(self.root, project, relative, template,
-                                                                              values),), project)
+                                                                              values, command=self.module.command),), project)
         added = [_cppbuild.add_file(self.root, project, relative, replacements={"header": header})]
         mirror = self._test_mirror(project, relative)
         if test and mirror is not None:
@@ -486,7 +485,7 @@ jobs:
         project = _cppbuild.project_at(self.root, absolute)
         if project is None:
             raise EcoBuildError(ErrorCode.NOT_IN_PROJECT, f"{path} はどのProjectの中でもありません。",
-                                hint="Projectのディレクトリの中のパスを指定してください（ecobuild project list で一覧）。")
+                                hint=f"Projectのディレクトリの中のパスを指定してください（{self.module.op('project list')} で一覧）。")
         relative = absolute.relative_to(_cppbuild.project_root(self.root, project).resolve()).as_posix()
         return project, relative
 
@@ -623,7 +622,7 @@ jobs:
             if source.name in fetched:
                 changes.append(DependencyChange(source.name, "cloned"))
                 continue
-            clone = Git(source.directory, command=COMMAND)
+            clone = Git(source.directory, command=self.module.command)
             head = clone.rev_parse("HEAD")
             branch = clone.current_branch()
             if branch is not None and ws.is_workspace_branch(branch):
@@ -649,14 +648,14 @@ jobs:
         if source is None:
             names = [s.name for s in _cppbuild.git_sources(self.root)]
             raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。",
-                                hint=f"依存先：{'、'.join(names) or 'なし'}（{COMMAND} deps list）")
+                                hint=f"依存先：{'、'.join(names) or 'なし'}（{self.module.op('deps list')}）")
         return source
 
     def _dependency_state(self, source) -> DependencyState:
         directory = Path(source.directory)
         if not (directory / ".git").exists():
             return DependencyState(source.name, source.url, source.revision, None, "missing")
-        clone = Git(directory, command=COMMAND)
+        clone = Git(directory, command=self.module.command)
         head = clone.rev_parse("HEAD")
         branch = clone.current_branch()
         if branch is not None and ws.is_workspace_branch(branch):

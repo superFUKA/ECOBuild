@@ -62,8 +62,8 @@ def test_unsupported_operations_are_reported(module):
             action()
         assert error.value.code == ErrorCode.NOT_SUPPORTED and "plain" in error.value.message
     assert module.project_at(module.root) is None and module.project_names == ()
-    workspace = module.create_task("型に関係なく使える").start()
-    assert module.current_workspace().number == workspace.number
+    workspace = module.repository.create_task("型に関係なく使える").start()
+    assert module.repository.current_workspace().number == workspace.number
     with pytest.raises(EcoBuildError) as error:
         module.add_file("x.txt")
     assert error.value.code == ErrorCode.NOT_SUPPORTED

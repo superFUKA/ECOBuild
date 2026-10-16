@@ -126,7 +126,7 @@ def test_close_and_clean_keep_unfinished_work(repository):
     assert error.value.code == ErrorCode.UNFINISHED_WORK and "task drop" in error.value.hint
     pr = workspace.submit()
     assert code_of(lambda: repository.close_task(1)) == ErrorCode.UNFINISHED_WORK  # 開いているPR
-    # GitHubで直接閉じられても、task clean はマージしていない作業空間を残す
+    # GitHubで直接閉じられても、task prune はマージしていない作業空間を残す
     repository.github.close_issue(root, 1)
     result = repository.clean_workspaces()
     assert result.removed == () and "マージしていないコミット" in result.skipped[0].reason

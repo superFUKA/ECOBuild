@@ -1,4 +1,4 @@
-"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。"""
+"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。ecotask・ecowork と、ecowork.process を通して ecobuild も使う。"""
 
 from __future__ import annotations
 

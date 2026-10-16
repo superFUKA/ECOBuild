@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ecobuild import _gui
+from . import _gui
 from ._output import Invocation, execute
 
 

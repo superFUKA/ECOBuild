@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from ecotask import _process
+from ecotask import process as _process
 from ecowork import github as _github
 from ecowork.errors import ErrorCode, WorkError
 

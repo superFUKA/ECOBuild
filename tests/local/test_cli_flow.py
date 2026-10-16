@@ -30,13 +30,14 @@ def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
                  ["module", "clones"], ["module", "register"], ["module", "forget"],
-                 ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"],
+                 ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
+                 ["deps", "remove"],
                  ["build"], ["test"], ["run"], ["status"], ["task", "add"], ["task", "commit"], ["task", "push"], ["restore"],
                  ["sync"], ["sync", "continue"], ["sync", "abort"], ["stash"], ["stash", "pop"], ["stash", "list"],
                  ["branch", "create"], ["branch", "list"], ["branch", "delete"], ["branch", "submit"],
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "finish"],
                  ["task", "approve"], ["task", "reject"], ["task", "withdraw"], ["task", "review"], ["task", "diff"],
-                 ["task", "revert"], ["task", "clean"], ["task", "drop"], ["track"], ["track", "add"],
+                 ["task", "revert"], ["task", "prune"], ["task", "drop"], ["track"], ["track", "add"],
                  ["track", "remove"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["task", "next"], ["task", "overdue"],
                  ["task", "edit"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"],
@@ -47,9 +48,10 @@ def test_every_command_has_help():
 
 
 def test_old_commands_are_gone():
-    """pr グループ・task merge／remove／plan はなくした（task finish・task clean <番号>・task edit 等）。"""
+    """pr グループ・task merge／remove／plan はなくした（task finish・task prune <番号>・task edit 等）。"""
     runner = CliRunner()
-    for args in (["pr", "list"], ["task", "merge"], ["task", "remove"], ["task", "plan"]):
+    for args in (["pr", "list"], ["task", "merge"], ["task", "remove"], ["task", "plan"], ["task", "clean"], ["link"],
+                 ["unlink"]):
         assert runner.invoke(build_cli(), [*args, "--help"]).exit_code == 2, args
     shown = runner.invoke(build_cli(), ["task", "--help"]).output
     assert shown.index("計画:") < shown.index("作業:") < shown.index("提出と完了:")
@@ -78,7 +80,7 @@ def test_cli_full_cycle(cli, module):
     assert finished.exit_code == 0 and "完了しました：#1 0除算対策" in finished.stdout
     assert git(module.root, "branch", "--show-current") == "main"
     assert "task/1" not in git(module.root, "branch", "--list")
-    assert cli("task", "clean").stdout.strip() == "片付ける作業空間はありません"
+    assert cli("task", "prune").stdout.strip() == "片付ける作業空間はありません"
 
 
 def test_commit_paths_and_track(cli, module):
@@ -162,14 +164,14 @@ def test_optional_arguments_are_also_positional(cli, module):
 
 
 def test_task_clean_one_and_resume(cli, module):
-    """task clean <番号>：開いているタスクなら、手元の写しだけを消す（以前の task remove）。"""
+    """task prune <番号>：開いているタスクなら、手元の写しだけを消す（以前の task remove）。"""
     as_json(cli("task", "new", "手元を消す", "--start", "--json"))
     write(module.root / "a.txt", "a\n")
     assert cli("task", "commit", "a.txt", "--message", "途中").exit_code == 0
-    refused = as_json(cli("task", "clean", "1", "--json"))
+    refused = as_json(cli("task", "prune", "1", "--json"))
     assert refused["error"]["code"] == "commits_would_be_lost"
     assert cli("task", "push").exit_code == 0
-    removed = cli("task", "clean", "1")
+    removed = cli("task", "prune", "1")
     assert removed.exit_code == 0 and "ecobuild task start 1" in removed.stdout
     assert "- #1" in cli("task", "list").stdout  # GitHubにだけある
     resumed = as_json(cli("task", "start", "1", "--json"))["result"]
@@ -177,7 +179,7 @@ def test_task_clean_one_and_resume(cli, module):
 
 
 def test_task_clean_without_targets(cli):
-    result = cli("task", "clean")
+    result = cli("task", "prune")
     assert result.exit_code == 0 and "片付ける作業空間はありません" in result.stdout
 
 
@@ -391,7 +393,7 @@ def test_subtasks_from_cli(cli, module):
 
 @pytest.fixture
 def may_delete(monkeypatch):
-    from ecobuild import tooling
+    from ecobuild_bundle import tooling
     monkeypatch.setattr(tooling, "gh_has_scope", lambda scope: True)
 
 
@@ -595,7 +597,7 @@ def test_delete_module_with_clone(cli, module, may_delete):
 
 
 def test_delete_refuses_non_modules_and_missing_permission(cli, module, monkeypatch):
-    from ecobuild import tooling
+    from ecobuild_bundle import tooling
     github = module.repository.github
     github.archived_repositories.append("tester/remote")
     monkeypatch.setattr(tooling, "gh_has_scope", lambda scope: False)

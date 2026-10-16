@@ -8,10 +8,13 @@ import pytest
 
 # パッケージ → import してはいけないもの（パッケージの先頭の名前）
 FORBIDDEN = {
-    "ecobuild": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_generic", "cppbuild", "click",
-                 "cli_framework"},
-    "ecobuild_cpp": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_generic", "click", "cli_framework"},
-    "ecobuild_generic": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "cppbuild", "click", "cli_framework"},
+    "ecobuild": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_generic", "ecobuild_python", "cppbuild",
+                 "click", "cli_framework"},
+    "ecobuild_cpp": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_generic", "ecobuild_python", "click", "cli_framework"},
+    "ecobuild_generic": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_python", "cppbuild", "click",
+                         "cli_framework"},
+    "ecobuild_python": {"ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_generic", "cppbuild", "click",
+                        "cli_framework"},
     "ecobuild_bundle": {"ecobuild_cli", "click", "cli_framework"},
 }
 

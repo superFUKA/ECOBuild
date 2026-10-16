@@ -36,5 +36,6 @@ testpaths = ["tests"]
 markers = [
     "local: 本物のgitと手元のbareリポジトリを使う",
     "cppbuild: 本物のCppBuild・CMake・コンパイラを使う（時間がかかる）",
+    "python: 本物のvenv・pipを使う（ネットワークが要る。時間がかかる）",
     "github: 本物のGitHubを使う（ECOBUILD_GITHUB_TESTS=1のときだけ実行）",
 ]

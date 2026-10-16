@@ -41,7 +41,7 @@ def test_core_module_has_no_types(module):
         Module(module.root, module.config)
     assert error.value.code == ErrorCode.INVALID_CONFIG
     assert ecobuild_bundle.REGISTRY.default == "cpp"
-    assert set(ecobuild_bundle.REGISTRY.entries()) == {"cpp", "generic"}
+    assert set(ecobuild_bundle.REGISTRY.entries()) == {"cpp", "generic", "python"}
     assert type(module).registry is ecobuild_bundle.REGISTRY
 
 

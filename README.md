@@ -85,8 +85,8 @@ ECOBuild はライブラリとして作られ、CLI はその上で動きます�
 | --- | --- | --- |
 | GUI | `gui/` | `ecobuild` コマンドを呼ぶ |
 | CLI | `ecobuild_cli` | 本体＋拡張をコマンドで呼ぶ |
-| 本体＋拡張 | `ecobuild_bundle` | 同梱の型（`cpp`・`generic`）を登録した本体。型の既定は `cpp` |
-| 拡張 | `ecobuild_cpp`・`ecobuild_generic` | モジュールの型（`cpp` は CppBuild を使う） |
+| 本体＋拡張 | `ecobuild_bundle` | 同梱の型（`cpp`・`generic`・`python`）を登録した本体。型の既定は `cpp` |
+| 拡張 | `ecobuild_cpp`・`ecobuild_generic`・`ecobuild_python` | モジュールの型（`cpp` は CppBuild、`python` は venv・pip・pytest を使う） |
 | 本体 | `ecobuild` | モジュール・型の抽象（`ModuleType` と能力）・`Registry` |
 | 作業の流れ | `ecowork`・`ecotask` | 作業空間・PR・タスク（git・gh） |
 

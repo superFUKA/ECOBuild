@@ -16,3 +16,8 @@ description = "C++。CppBuildでProject・ファイル・ビルド・テスト�
 module = "ecobuild_generic"
 class = "GenericType"
 description = "言語を問わない。ビルド・テスト・実行のコマンドを ecobuild.toml の [commands] に書く"
+
+[python]
+module = "ecobuild_python"
+class = "PythonType"
+description = "Python。venv・pip・pytest でビルド・テスト・実行・ファイルの追加をする"

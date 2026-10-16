@@ -7,7 +7,7 @@ SWITCH = {"on": True, "off": False}
 
 
 def command(
-    os: Annotated[str, "動かすOS（カンマ区切り：windows,linux。既定は型が決める。cpp：両方）"] = "",
+    os: Annotated[str, "動かすOS（カンマ区切り：windows,linux。既定は型が決める。cpp：両方、generic・python：linux）"] = "",
     configuration: Annotated[str, "ビルドする構成（カンマ区切り。例：Debug,Release。既定：Debug）"] = "",
     shared: Annotated[str, "ライブラリを共有ライブラリにした構成でもビルド・テストする（on／off）"] = "",
     branches: Annotated[str, "pushでCIを動かすブランチ（カンマ区切り。例：main,develop。既定：default_base。PRでは常に動く）"] = "",
@@ -16,7 +16,7 @@ def command(
 ) -> int:
     """CIのワークフローを作ります（作り直します）。
 
-    ワークフロー（GitHub Actions）の中身はモジュールの型が用意します（cpp：構成・ビルド・テスト）。
+    ワークフロー（GitHub Actions）の中身はモジュールの型が用意します（cpp：構成・ビルド・テスト、python：pip・pytest）。
     指定した項目は ecobuild.toml の [ci] に保存し、指定しなかった項目は保存してある設定のままにします。
     """
     if shared and shared not in SWITCH:

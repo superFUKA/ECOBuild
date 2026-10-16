@@ -239,6 +239,10 @@ class HasDependencies(ABC):
     def dependencies(self) -> tuple["DependencyState", ...]:
         ...
 
+    def all_dependencies(self) -> tuple["DependencyState", ...]:
+        """依存先の依存先も含めた状態（via に記録している依存先）。既定は、直接の依存先だけ。"""
+        return self.dependencies()
+
     def dependency_tree(self) -> "DependencyTree":
         """依存関係の図（依存先の依存先も）。既定は、直接の依存先だけ（その先は分からない）。"""
         from .results import DependencyNode, DependencyTree

@@ -144,6 +144,7 @@ class DependencyState:
     remote: str | None = None        # ok / archived / moved / gone / unknown
     latest: str | None = None        # GitHubの既定のブランチの最新の版
     moved_to: str | None = None      # remote が moved：新しい 所有者/名前
+    via: str | None = None           # 依存先の依存先なら、それを記録している依存先の名前
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class LinkResult:
     revision: str
     projects: tuple[str, ...]        # リンクした（外した）Project
     clone_removed: bool = False      # unlink：手元のcloneを消したか（作業中・変更ありなら残す）
+    clone: DependencyChange | None = None     # link：手元のcloneを記録の版に合わせた結果（既にcloneがあったとき）
 
 
 @dataclass(frozen=True)

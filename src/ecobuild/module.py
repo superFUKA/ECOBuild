@@ -399,9 +399,11 @@ class Module:
     # 作業の進め方（ecowork） ---------------------------------------------------
 
     def status(self, *, fetch: bool = False) -> ws.Status:
-        """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。"""
+        """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。
+        dependencies：手元の版が記録と違う依存先（依存先の依存先も。dependency_mismatches）。"""
         status = self.repository.status(fetch=fetch)
-        return replace(status, excluded=tuple(p for p in status.untracked if not self.is_tracked(p)))
+        return replace(status, excluded=tuple(p for p in status.untracked if not self.is_tracked(p)),
+                       dependencies=self.dependency_mismatches())
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
@@ -528,12 +530,21 @@ class Module:
         """
         workspace = self.require_workspace("提出")
         self._refuse_uncommitted("提出")
+        mismatches = self.dependency_mismatches()
+        if mismatches and not draft:
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_RECORDED,
+                                "手元の依存先が記録の版と違います（CIと取り込んだ後は記録の版を使います）："
+                                + mismatch_text(mismatches),
+                                hint=f"依存先の作業を先に完了し、{COMMAND} deps update で記録を進めてください"
+                                     f"（依存先の依存先なら、直接 {COMMAND} link）。このまま出すなら --draft")
+        if mismatches:
+            (progress or _quiet)("注意：手元の依存先が記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches))
         if check:
             if self.checked():
                 (progress or _quiet)("この版は確認済みです（ビルド・テストを省きます）")
             else:
-                (progress or _quiet)("確認しています（生成ファイル・衝突の印・ビルド・テスト）…")
-                for item in self.check().items:
+                (progress or _quiet)("確認しています（生成ファイル・衝突の印・依存先・ビルド・テスト）…")
+                for item in self.check(allow_dependency_mismatch=draft).items:
                     (progress or _quiet)(_check_line(item))
         return workspace.submit(title=title, partial=partial, draft=draft, reviewers=reviewers)
 
@@ -1044,10 +1055,25 @@ class Module:
         self.require_workspace("依存先のリンクの解除")
         return self._dependencies("依存先").unlink(name)
 
-    def dependencies(self, *, fetch: bool = False) -> tuple[DependencyState, ...]:
-        """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。"""
-        states = self._direct_dependencies()
+    def dependencies(self, *, fetch: bool = False, all: bool = False) -> tuple[DependencyState, ...]:
+        """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。
+        all：依存先の依存先も（via に記録している依存先）。"""
+        if all:
+            states = self.type.all_dependencies() if isinstance(self.type, HasDependencies) else ()
+        else:
+            states = self._direct_dependencies()
         return tuple(self._remote_dependency(d) for d in states) if fetch else states
+
+    def dependency_mismatches(self) -> tuple[DependencyState, ...]:
+        """手元の版が記録と違う依存先（作業版・未コミットの変更・別の版。依存先の依存先も）。
+
+        手元のビルドはこの版を使うが、CI や他の人は記録の版を使うので、結果が食い違う（実用試験 D-1）。
+        """
+        try:
+            states = self.dependencies(all=True)
+        except EcoBuildError:
+            return ()   # 依存先を読めない（構成の途中など）。ここでは知らせない
+        return tuple(d for d in states if d.state in ("working", "modified", "differs"))
 
     def _remote_dependency(self, dependency: DependencyState) -> DependencyState:
         from ecowork.git import Git
@@ -1156,10 +1182,11 @@ class Module:
         """今いるブランチで、ECOBuildのCIを手動で実行する。"""
         return self.repository.ci_dispatch(Path(_docs.CI_WORKFLOW).name)
 
-    def check(self, *, build: bool = True) -> CheckReport:
-        """PRを出す前の確認：生成ファイル・衝突の印・ビルド・テスト。失敗があれば check_failed。
+    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False) -> CheckReport:
+        """PRを出す前の確認：生成ファイル・衝突の印・依存先・ビルド・テスト。失敗があれば check_failed。
 
         コミットの前に使ってよい：生成ファイルは最新にし、未コミットなら知らせるだけ（コミットは task submit が確かめる）。
+        依存先：手元の版が記録と違えば失敗（手元では通っても CI は記録の版を使う）。allow_dependency_mismatch なら知らせるだけ。
         """
         items = []
         try:
@@ -1179,6 +1206,10 @@ class Module:
         if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
             items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
                                                      + ", ".join(excluded)))
+        mismatches = self.dependency_mismatches()
+        if mismatches:
+            items.append(CheckItem("dependencies", allow_dependency_mismatch,
+                                   "記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches)))
         if build:
             for name, action in (("build", lambda: self.build()), ("test", lambda: self.test())):
                 try:
@@ -1291,7 +1322,18 @@ class Module:
 
 
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
-               "build": "ビルド", "test": "テスト"}
+               "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
+_MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
+
+
+def mismatch_text(states) -> str:
+    """記録と違う依存先を「STL（作業版 task/7、EcoMath 経由）」の形で並べる。"""
+    def one(d) -> str:
+        notes = [_MISMATCH_STATES.get(d.state, d.state) + (f" {d.branch}" if d.branch else "")]
+        if d.via:
+            notes.append(f"{d.via} 経由")
+        return f"{d.name}（{'、'.join(notes)}）"
+    return "、".join(one(d) for d in states)
 
 
 def _check_line(item: CheckItem) -> str:

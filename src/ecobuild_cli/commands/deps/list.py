@@ -8,6 +8,7 @@ STATES = {"aligned": "記録の版", "differs": "記録と別の版", "modified"
 
 def command(
     fetch: Annotated[bool, "GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・記録より新しい版）"] = False,
+    all: Annotated[bool, "依存先の依存先も表示する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """依存先の一覧（記録の版・手元の版・状態）を表示します。"""
@@ -17,9 +18,10 @@ def command(
             return "依存先はありません（ecobuild link で追加できます）"
         return "\n".join(
             f"{d.name}：記録 {d.recorded[:7]}、手元 {(d.local or '-')[:7]}、{STATES[d.state]}"
-            + (f"（{d.branch}）" if d.branch else "") + f"\n  {d.url}" + _remote(d) for d in r)
+            + (f"（{d.branch}）" if d.branch else "") + (f"、{d.via} が記録" if d.via else "")
+            + f"\n  {d.url}" + _remote(d) for d in r)
 
-    return run_command("deps list", lambda inv: list(inv.module.dependencies(fetch=fetch)), render,
+    return run_command("deps list", lambda inv: list(inv.module.dependencies(fetch=fetch, all=all)), render,
                        json_output=json)
 
 

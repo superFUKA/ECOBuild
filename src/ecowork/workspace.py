@@ -391,6 +391,7 @@ class Status:
     reviewing_task: int | None = None   # 確認中の提出のタスク
     finished: bool = False           # 作業空間のタスクが完了している（GitHubのブランチが消え、Issueが閉じた）
     excluded: tuple[str, ...] = ()   # 新しいファイルのうち、task commit が自動で含めないもの（利用側が決める）
+    dependencies: tuple = ()         # 手元の版が記録と違う依存先（利用側が決める）
 
 
 @dataclass(frozen=True)

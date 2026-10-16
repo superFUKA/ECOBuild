@@ -1,5 +1,7 @@
 from typing import Annotated
 
+from ecobuild.module import mismatch_text
+
 from .._output import lines, run_command
 from .task._show import submission_text
 
@@ -44,6 +46,8 @@ def command(
             "\n".join(files) if files else "変更はありません",
             f"管理しない新しいファイル（コミットに含めません。ecobuild track）：{', '.join(r.excluded)}"
             if r.excluded else None,
+            "手元の依存先が記録の版と違います（手元のビルドはこの版、CIは記録の版を使います）："
+            + mismatch_text(r.dependencies) if r.dependencies else None,
         )
 
     return run_command("status", lambda inv: inv.module.status(fetch=fetch), render, json_output=json)

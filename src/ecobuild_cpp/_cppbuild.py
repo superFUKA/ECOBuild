@@ -526,6 +526,23 @@ def git_sources(root: Path):
         raise _cppbuild_error("依存先を読み込めません。", error) from error
 
 
+def all_git_sources(root: Path) -> tuple[tuple, ...]:
+    """依存先すべて（依存先の依存先も）と、それを記録している依存先の名前（直接ならNone）の組。"""
+    solution = open_solution(root)
+    try:
+        sources = tuple(solution.git_sources())
+    except Exception as error:
+        raise _cppbuild_error("依存先を読み込めません。", error) from error
+
+    def recorder(source) -> str | None:
+        if source.recorded_by is None:
+            return None
+        by = Path(source.recorded_by).resolve()
+        return next((s.name for s in sources if Path(s.directory).resolve() in (by, *by.parents)), None)
+
+    return tuple((s, recorder(s)) for s in sources)
+
+
 def dependency_graph(root: Path) -> tuple[tuple, dict[str, tuple[str, ...]]]:
     """依存先すべて（依存先の依存先も。CppBuildのGitSourceStatus）と、それぞれが直接記録する依存先の名前。
 

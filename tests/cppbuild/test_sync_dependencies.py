@@ -171,6 +171,88 @@ def test_link_deps_and_work_version(short_tmp):
     assert error.value.code == "dependency_not_found"
 
 
+def test_link_aligns_existing_clone(short_tmp):
+    """依存先の依存先として clone 済みのモジュールを link すると、手元の clone も記録した版に合わせる（実用試験 D-3）。"""
+    base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")
+    base = Module.create("Base", directory=short_tmp, kind="library", github=base_github)
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
+    solution = _cppbuild.open_solution(stl.root)
+    solution.get_project("STL").settings.link_git(url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    solution.update()
+    git(stl.root, "add", "--all")
+    git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
+    git(stl.root, "push", "--quiet", "origin", "main")
+    github = FakeGitHub(short_tmp / "gh3")
+    github.others.update(STL=stl_github.bare, Base=base_github.bare)
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
+    ecs.create_task("STLとBaseを使う").start()
+    assert ecs.link("STL").clone.action == "unchanged"
+    clone = ecs.root / "deps" / "Base"
+    first = git(clone, "rev-parse", "HEAD")
+
+    def new_base_commit(text: str) -> str:
+        write(base.root / "Base" / "include" / "Base" / "Base.h", text)
+        git(base.root, "commit", "--quiet", "-am", "Baseを更新")
+        git(base.root, "push", "--quiet", "origin", "main")
+        return git(base.root, "rev-parse", "HEAD")
+
+    # 作業版は合わせない
+    new_base_commit("#pragma once\n// v2\n")
+    git(clone, "switch", "--quiet", "-c", "task/9")
+    linked = ecs.link("Base")
+    assert (linked.clone.action, linked.clone.reason) == ("skipped", "作業版です（task/9）")
+    assert git(clone, "branch", "--show-current") == "task/9"
+    git(clone, "switch", "--quiet", "--detach", first)
+    git(clone, "branch", "--quiet", "-D", "task/9")
+    ecs.unlink("Base")
+
+    third = new_base_commit("#pragma once\n// v3\n")
+    linked = ecs.link("Base")
+    assert (linked.revision, linked.clone.action) == (third, "aligned")
+    assert git(clone, "rev-parse", "HEAD") == third
+    assert {d.name: d.state for d in ecs.dependencies()}["Base"] == "aligned"
+    from ecobuild_cli.commands import link
+    assert link._text(linked).splitlines()[1] == "既にあった deps/Base を、記録した版に合わせました。"
+    assert ecs.test().failed == 0
+
+
+def test_working_dependency_is_reported(short_tmp):
+    """依存先の依存先が作業版：status・check・deps list --all で知らせ、task submit は止める（実用試験 D-1）。"""
+    base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")
+    Module.create("Base", directory=short_tmp, kind="library", github=base_github)
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
+    solution = _cppbuild.open_solution(stl.root)
+    solution.get_project("STL").settings.link_git(url(base_github.bare), link_type=ProjectType.STATIC_LIBRARY)
+    solution.update()
+    git(stl.root, "add", "--all")
+    git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
+    git(stl.root, "push", "--quiet", "origin", "main")
+    github = FakeGitHub(short_tmp / "gh3")
+    github.others["STL"] = stl_github.bare
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
+    workspace = ecs.create_task("STLを使う").start()
+    ecs.link("STL")
+    workspace.stage(all=True)
+    workspace.commit("STLをリンク")
+    assert ecs.status().dependencies == ()
+    assert [d.name for d in ecs.check(build=False).items if d.name == "dependencies"] == []
+
+    git(ecs.root / "deps" / "Base", "switch", "--quiet", "-c", "task/9")
+    assert [d.name for d in ecs.dependencies()] == ["STL"]
+    assert {d.name: d.via for d in ecs.dependencies(all=True)} == {"STL": None, "Base": "STL"}
+    [working] = ecs.status().dependencies
+    assert (working.name, working.state, working.branch, working.via) == ("Base", "working", "task/9", "STL")
+    with pytest.raises(Exception) as error:
+        ecs.check(build=False)
+    assert error.value.code == "check_failed"
+    assert [d["name"] for d in error.value.details if not d["ok"]] == ["dependencies"]
+    item = next(i for i in ecs.check(build=False, allow_dependency_mismatch=True).items if i.name == "dependencies")
+    assert item.ok and "Base（作業版 task/9、STL 経由）" in item.detail
+    with pytest.raises(Exception) as error:
+        ecs.submit(check=False)
+    assert error.value.code == "dependency_not_recorded"
+
+
 def test_dependency_tree(short_tmp, monkeypatch):
     """deps tree：依存先の依存先も。2か所から使われる依存先は、2回目にその先を省く。"""
     base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")

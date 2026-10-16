@@ -21,6 +21,15 @@ def command(
         from ecobuild import tooling
         return module.link(tooling.qualify(repository), project=project or module.project_at(inv.cwd), shared=shared)
 
-    return run_command("link", action,
-                       lambda r: f"{r.projects[0]} に {r.name}（{r.revision[:7]}）をリンクしました：deps/{r.name}",
-                       json_output=json)
+    return run_command("link", action, _text, json_output=json)
+
+
+def _text(result) -> str:
+    text = f"{result.projects[0]} に {result.name}（{result.revision[:7]}）をリンクしました：deps/{result.name}"
+    clone = result.clone
+    if clone is not None and clone.action == "aligned":
+        text += f"\n既にあった deps/{result.name} を、記録した版に合わせました。"
+    elif clone is not None and clone.action == "skipped":
+        text += (f"\n既にあった deps/{result.name} は記録した版と違いますが、合わせていません：{clone.reason}"
+                 "\n（記録の版を使うには、作業を片付けてから ecobuild deps sync）")
+    return text

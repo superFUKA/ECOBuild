@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from dataclasses import replace
 from importlib import metadata
 from pathlib import Path
 
@@ -562,7 +563,11 @@ jobs:
         target = project or self._only_project()
         name = _cppbuild.link(self.root, target, url, shared=shared)
         revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
-        return LinkResult(name, url, revision, (target,))
+        # 依存先の依存先として既にcloneがあると、CppBuildは記録だけ進める。手元も記録の版に合わせる（作業版は触らない）。
+        clone = next((c for c in self._align_dependencies() if c.name == name), None)
+        if clone is not None and clone.action == "aligned":
+            self._update()
+        return LinkResult(name, url, revision, (target,), clone=clone)
 
     def _only_project(self) -> str:
         """テスト用を除いて、Projectが1つならそれ（ライブラリと組のテスト用だけなら、ライブラリ）。"""
@@ -585,6 +590,9 @@ jobs:
 
     def dependencies(self) -> tuple[DependencyState, ...]:
         return tuple(self._dependency_state(s) for s in _cppbuild.git_sources(self.root))
+
+    def all_dependencies(self) -> tuple[DependencyState, ...]:
+        return tuple(replace(self._dependency_state(s), via=via) for s, via in _cppbuild.all_git_sources(self.root))
 
     def dependency_tree(self) -> DependencyTree:
         sources, edges = _cppbuild.dependency_graph(self.root)

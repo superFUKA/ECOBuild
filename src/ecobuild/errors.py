@@ -22,6 +22,7 @@ class ErrorCode(_WorkErrorCode):
     INVALID_CONFIGURATION = "invalid_configuration"
     FILE_NOT_FOUND = "file_not_found"
     DEPENDENCY_NOT_FOUND = "dependency_not_found"
+    DEPENDENCY_NOT_RECORDED = "dependency_not_recorded"   # 手元の依存先が記録の版と違う（作業版など。CIは記録の版を使う）
     PROFILE_NOT_FOUND = "profile_not_found"
     NOT_IN_PROJECT = "not_in_project"
     NOT_IN_SOURCE_DIRECTORY = "not_in_source_directory"   # Projectのソースフォルダー（src・include 等）の外：ビルドに入らない

@@ -12,7 +12,8 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError, ErrorCode, operation
+from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 
 CONFIG_DIRECTORY = ".cppbuild"
@@ -88,6 +89,7 @@ class BuildOptions:
     cmake: str | None = None                 # ツールのパス（このPCの設定 ecobuild config。既定はPATH）
     ctest: str | None = None
     projects: tuple[tuple[str, ProjectOptions], ...] = ()
+    command: str = ""                        # ヒントに書くプログラム名（Module.command）
 
 
 @dataclass(frozen=True)
@@ -696,7 +698,7 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
     unknown = [name for name in overrides if name not in names]
     if unknown:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定に、ない Project {'、'.join(unknown)} の設定があります。",
-                            hint="ecobuild profile add で、その Project の設定を外してください（--clear-project）。")
+                            hint=f"{operation(options.command, 'profile add')} で、その Project の設定を外してください（--clear-project）。")
     for name, own in overrides.items():
         if own.type and LIBRARY_TYPES[own.type] not in solution.get_project(name).settings.get().types:
             raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定で、ライブラリでない Project {name} の形式を変えています。",

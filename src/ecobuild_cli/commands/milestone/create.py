@@ -11,5 +11,5 @@ def command(
 ) -> int:
     """マイルストーンを作ります。"""
     return run_command("milestone create",
-                       lambda inv: inv.module.create_milestone(title, due=due or None, description=description),
+                       lambda inv: inv.module.repository.create_milestone(title, due=due or None, description=description),
                        lambda r: f"マイルストーン {r.title} を作りました：{r.url}", json_output=json)

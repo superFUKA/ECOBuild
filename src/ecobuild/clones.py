@@ -37,8 +37,8 @@ class Recorded:
 
 
 def file() -> Path:
-    from . import tooling
-    return tooling.home() / FILE_NAME
+    from . import settings
+    return settings.home() / FILE_NAME
 
 
 def recorded() -> list[Recorded]:

@@ -1,4 +1,4 @@
-"""手元の作業空間だけを消す（task clean <番号>。以前の task remove）。作業空間の本体はGitHubにあり、手元はその写し。"""
+"""手元の作業空間だけを消す（task prune <番号>。以前の task remove・task clean）。作業空間の本体はGitHubにあり、手元はその写し。"""
 
 import pytest
 

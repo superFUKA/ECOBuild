@@ -15,7 +15,7 @@ def command(
     if due and clear_due:
         return usage_error("--due と --clear-due の両方は指定できません。", json)
     return run_command("milestone edit",
-                       lambda inv: inv.module.edit_milestone(title, new_title=new_title or None,
+                       lambda inv: inv.module.repository.edit_milestone(title, new_title=new_title or None,
                                                              due="" if clear_due else (due or None),
                                                              description=description or None),
                        lambda r: f"マイルストーン {r.title} を更新しました" + (f"（期日 {r.due}）" if r.due else ""),

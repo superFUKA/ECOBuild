@@ -13,4 +13,4 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
                          f"{(s.end - datetime.timedelta(days=1)).isoformat()}（{s.days}日）" for s in r) or (
             "スプリントはありません")
 
-    return run_command("sprint list", lambda inv: inv.module.sprints(), render, json_output=json)
+    return run_command("sprint list", lambda inv: inv.module.repository.sprints(), render, json_output=json)

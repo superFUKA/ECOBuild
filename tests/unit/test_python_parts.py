@@ -14,9 +14,12 @@ from ecobuild_python import _python
 
 
 class Fake:
-    """型の __init__ が受け取る Module の代わり（root だけ使う）。"""
+    """型の __init__ が受け取る Module の代わり（root と、ヒントの操作名だけ使う）。"""
     def __init__(self, root):
         self.root = root
+
+    def op(self, name: str) -> str:
+        return f"ecobuild {name}"
 
 
 def make(tmp_path, kind="app", name="Calc", project=None) -> PythonType:

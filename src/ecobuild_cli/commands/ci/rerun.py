@@ -13,5 +13,5 @@ def command(
     """CIをもう一度実行します（結果は ecobuild ci status で確認）。"""
     run = optional_argument(number, run, "--run", json)
     return run_command("ci rerun",
-                       lambda inv: {"run": inv.module.ci_rerun(run or None, failed_only=failed, task=task or None)},
+                       lambda inv: {"run": inv.module.repository.ci_rerun(run or None, failed_only=failed, task=task or None)},
                        lambda r: f"#{r['run']} をもう一度実行しました（ecobuild ci status で確認）", json_output=json)

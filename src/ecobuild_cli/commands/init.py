@@ -4,8 +4,10 @@ from typing import Annotated
 import click
 
 import ecobuild_bundle
-from ecobuild import tooling
+from ecobuild_bundle import tooling
 from ecobuild.errors import EcoBuildError, ErrorCode
+from .. import _gui
+from .._module import PROGRAM
 from .._output import Invocation, execute, lines
 
 
@@ -44,7 +46,7 @@ def command(
                                 hint="端末で実行するか、--yes（既定の答えで進める）を付けてください。"
                                      "質問しない準備は ecobuild setup です。")
         inv.info("ECOBuild の準備を始めます（Enter で [ ] の中の答えを使います）。")
-        return ecobuild_bundle.initialize(_Terminal(yes))
+        return ecobuild_bundle.initialize(_Terminal(yes), _gui.doctor_items(), command=PROGRAM)
 
     def render(r):
         required = [i for i in r.remaining if i.required]

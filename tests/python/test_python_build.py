@@ -12,7 +12,7 @@ pytestmark = pytest.mark.python
 def test_build_test_run(tmp_path):
     module = Module.create("Calc", directory=tmp_path, type="python", github=FakeGitHub(tmp_path / "gh"))
     root = module.root
-    module.create_task("ビルドする").start()
+    module.repository.create_task("ビルドする").start()
     assert module.build().artifacts == ()
     stamp = (root / ".venv" / ".ecobuild-stamp").stat().st_mtime_ns
     assert module.build().artifacts == () and (root / ".venv" / ".ecobuild-stamp").stat().st_mtime_ns == stamp
@@ -34,6 +34,6 @@ def test_build_test_run(tmp_path):
 
 def test_empty_module_builds(tmp_path):
     module = Module.create("Empty", directory=tmp_path, type="python", kind="none", github=FakeGitHub(tmp_path / "gh"))
-    module.create_task("空").start()
+    module.repository.create_task("空").start()
     module.build()
     assert module.test().passed == 0

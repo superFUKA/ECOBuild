@@ -14,7 +14,7 @@ def command(
 
     def action(inv):
         value = click.prompt("値", hide_input=True, err=True) if sys.stdin.isatty() else sys.stdin.read().strip()
-        return {"name": inv.module.set_secret(name, value)}
+        return {"name": inv.module.repository.set_secret(name, value)}
 
     return run_command("ci secret set", action, lambda r: f"シークレット {r['name']} を登録しました",
                        json_output=json)

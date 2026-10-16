@@ -8,14 +8,14 @@ from __future__ import annotations
 
 from ecowork import WorkError
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 
 
 def full_name(name: str, owner: str) -> str:
-    from ecobuild import tooling
+    from ecobuild import settings
     if "/" in name:
         return name
-    owner = owner or tooling.load_config().get("owner")
+    owner = owner or settings.load_config().get("owner")
     return f"{owner}/{name}" if owner else name
 
 

@@ -49,8 +49,9 @@ def test_each_type_has_its_own_commands():
     for cli in (outside, cpp, python, generic):
         assert {"task", "status", "sync", "check", "module", "profile"} <= _names(cli)
     assert not {"build", "file", "project", "deps", "link"} & _names(outside)
-    assert {"build", "test", "run", "clean", "rebuild", "file", "deps", "project", "template", "link", "unlink"} \
-        <= _names(cpp)
+    assert {"build", "test", "run", "clean", "rebuild", "file", "deps", "project", "template"} <= _names(cpp)
+    assert not {"link", "unlink"} & _names(cpp)              # deps add・deps remove になった
+    assert {"add", "remove", "list", "sync", "tree", "update"} <= _names(cpp, "deps")
     assert {"build", "test", "run", "clean", "rebuild", "file"} <= _names(python)
     assert not {"project", "template", "deps", "link"} & _names(python)
     assert {"build", "test", "run", "clean", "rebuild"} <= _names(generic)

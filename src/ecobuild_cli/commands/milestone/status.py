@@ -13,4 +13,4 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
                          + (f"  期限切れ：{', '.join(f'#{n}' for n in m.overdue_tasks)}" if m.overdue_tasks else "")
                          for m in r) or "マイルストーンに入っているタスクはありません"
 
-    return run_command("milestone status", lambda inv: inv.module.milestone_status(), render, json_output=json)
+    return run_command("milestone status", lambda inv: inv.module.repository.milestone_status(), render, json_output=json)

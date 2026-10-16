@@ -13,5 +13,5 @@ def command(
     issue = optional_argument(number, issue, "--issue", json)
     if not message:
         return missing("--message", json)
-    return run_command("task comment", lambda inv: inv.module.comment_task(issue or None, message),
+    return run_command("task comment", lambda inv: inv.module.repository.comment_task(issue or None, message),
                        lambda r: f"#{r.number} にコメントしました：{r.url}", json_output=json)

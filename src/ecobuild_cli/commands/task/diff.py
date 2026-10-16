@@ -10,5 +10,5 @@ def command(
 ) -> int:
     """タスクの提出の差分を表示します（提出がなければ、作業空間の作成元との差分）。"""
     task = optional_argument(number, task, "--task", json)
-    return run_command("task diff", lambda inv: inv.module.task_diff(task or None),
+    return run_command("task diff", lambda inv: inv.module.repository.task_diff(task or None),
                        lambda r: r or "差分はありません", json_output=json)

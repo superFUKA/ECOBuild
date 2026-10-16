@@ -5,11 +5,11 @@ import sys
 import pytest
 
 import ecobuild_bundle
-from ecobuild import config, tooling
+from ecobuild import config, settings
 from ecobuild.errors import EcoBuildError
 from ecobuild_cli import _log, main
 from ecobuild_cli._output import Invocation, execute
-from ecotask import _process
+from ecotask import process as _process
 from helpers import git
 
 
@@ -108,7 +108,7 @@ def test_config_rejects_unknown_values():
 
 
 def test_processes_started_by_other_code_are_logged(module_root, capsys):
-    """CppBuild 等、ecotask._process を通らない起動も、引数と場所を書く。"""
+    """CppBuild 等、ecotask.process を通らない起動も、引数と場所を書く。"""
     def action(inv):
         inv.module
         subprocess.run([sys.executable, "-c", "pass"], cwd=inv.module.root, check=True)
@@ -133,4 +133,4 @@ def test_old_days_are_removed_over_the_limit(tmp_path):
 
 
 def test_the_ecobuild_log_is_under_the_tool_home():
-    assert _log.global_directory() == tooling.home() / "logs"
+    assert _log.global_directory() == settings.home() / "logs"

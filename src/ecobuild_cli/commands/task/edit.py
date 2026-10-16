@@ -67,9 +67,9 @@ def command(
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "変更する内容がありません。",
                                 hint="ecobuild task edit --help で変えられる項目を確認できます。")
         if changed:
-            module.edit_task(issue, **issue_changes, plan=dates, clear_plan=dated_clear)
+            module.repository.edit_task(issue, **issue_changes, plan=dates, clear_plan=dated_clear)
         if planned:
-            module.plan_task(issue, **plan, clear=planned_clear, stage=stage or None)
+            module.repository.plan_task(issue, **plan, clear=planned_clear, stage=stage or None)
         return module.task_status(issue).task
 
     def render(r):

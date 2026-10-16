@@ -21,7 +21,7 @@ from ecowork import WorkError
 
 from ecobuild import clones as _clones
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 
 from . import _log
 

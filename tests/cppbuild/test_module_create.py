@@ -65,7 +65,7 @@ def test_invalid_name(short_tmp):
 def test_submit_requires_generated_files(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
     module = Module.create("Calc", directory=short_tmp, github=github)
-    workspace = module.create_task("生成ファイルの確認").start()
+    workspace = module.repository.create_task("生成ファイルの確認").start()
     # 生成ファイルを手で書き換えてコミットした（作り直すと戻る）
     generated = module.root / "Calc" / "CMakeLists.txt"
     generated.write_text(generated.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
@@ -114,7 +114,7 @@ def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     github = FakeGitHub(short_tmp / "gh2")
     empty = Module.create("Empty", directory=short_tmp, kind="none", github=github)
     assert empty.summary().projects == () and empty.build().project is None
-    empty.create_task("中身を足す").start()
+    empty.repository.create_task("中身を足す").start()
     assert empty.add_project("Lib", "library").paths == ("Lib/include/Lib/Lib.h", "Lib/src/Lib.cpp",
                                                          "LibTest/src/LibTest.cpp")
     assert empty.test().failed == 0

@@ -67,7 +67,7 @@ def test_sync_regenerates_conflicted_generated_files(short_tmp):
     module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
     top = "CppBuildTopLevel.cmake"
     expected = (module.root / top).read_text(encoding="utf-8")
-    workspace = module.create_task("t").start()
+    workspace = module.repository.create_task("t").start()
     write(module.root / top, expected + "# 手元\n")
     workspace.commit("手元で生成ファイルを変えた", all=True)
     other = short_tmp / "other"
@@ -87,14 +87,14 @@ def test_clone_module_prepares_dependencies(short_tmp):
     Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     ecs_github = FakeGitHub(short_tmp / "gh2")
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=ecs_github)
-    workspace = ecs.create_task("STLを使う").start()
+    workspace = ecs.repository.create_task("STLを使う").start()
     _cppbuild.open_solution(ecs.root).get_project("ECS").settings.link_git(
         url(stl_github.bare), link_type=ProjectType.STATIC_LIBRARY)
     _cppbuild.update(ecs.root)
     workspace.stage(all=True)
     workspace.commit("STLを依存先にする")
     workspace.submit()
-    ecs.pull_request().merge()
+    ecs.repository.pull_request().merge()
 
     second = short_tmp / "second"
     second.mkdir()
@@ -133,7 +133,7 @@ def test_link_deps_and_work_version(short_tmp):
     with pytest.raises(Exception) as error:
         ecs.link("STL")
     assert error.value.code == "not_in_workspace"  # 管理ファイルを変える操作は作業空間でだけ
-    ecs.create_task("STLを使う").start()
+    ecs.repository.create_task("STLを使う").start()
     with pytest.raises(Exception) as error:
         ecs.link("NoSuch")
     assert error.value.code == "repository_not_found"
@@ -185,7 +185,7 @@ def test_link_aligns_existing_clone(short_tmp):
     github = FakeGitHub(short_tmp / "gh3")
     github.others.update(STL=stl_github.bare, Base=base_github.bare)
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
-    ecs.create_task("STLとBaseを使う").start()
+    ecs.repository.create_task("STLとBaseを使う").start()
     assert ecs.link("STL").clone.action == "unchanged"
     clone = ecs.root / "deps" / "Base"
     first = git(clone, "rev-parse", "HEAD")
@@ -211,7 +211,7 @@ def test_link_aligns_existing_clone(short_tmp):
     assert (linked.revision, linked.clone.action) == (third, "aligned")
     assert git(clone, "rev-parse", "HEAD") == third
     assert {d.name: d.state for d in ecs.dependencies()}["Base"] == "aligned"
-    from ecobuild_cli.commands import link
+    from ecobuild_cpp.cli.deps import add as link
     assert link._text(linked).splitlines()[1] == "既にあった deps/Base を、記録した版に合わせました。"
     assert ecs.test().failed == 0
 
@@ -230,7 +230,7 @@ def test_working_dependency_is_reported(short_tmp):
     github = FakeGitHub(short_tmp / "gh3")
     github.others["STL"] = stl_github.bare
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
-    workspace = ecs.create_task("STLを使う").start()
+    workspace = ecs.repository.create_task("STLを使う").start()
     ecs.link("STL")
     workspace.stage(all=True)
     workspace.commit("STLをリンク")
@@ -292,19 +292,19 @@ def test_dependency_tree(short_tmp, monkeypatch):
 
 
 def test_switching_aligns_dependencies(short_tmp):
-    """task start・task clean で記録が変わる先へ移ったら、手元の依存先も合わせる（仮運用3回目で見つかった）。"""
+    """task start・task prune で記録が変わる先へ移ったら、手元の依存先も合わせる（仮運用3回目で見つかった）。"""
     stl_github = FakeGitHub(short_tmp / "gh1")
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     github = FakeGitHub(short_tmp / "gh2")
     github.others["STL"] = stl_github.bare
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
-    workspace = ecs.create_task("STLを使う").start()
+    workspace = ecs.repository.create_task("STLを使う").start()
     ecs.link("STL")
     workspace.stage(all=True)
     workspace.commit("STLをリンク")
     workspace.submit()
-    ecs.pull_request().merge()
-    ecs.clean_workspaces()
+    ecs.repository.pull_request().merge()
+    ecs.repository.clean_workspaces()
 
     second = short_tmp / "second"
     second.mkdir()
@@ -312,13 +312,13 @@ def test_switching_aligns_dependencies(short_tmp):
     first = git(other.root / "deps" / "STL", "rev-parse", "HEAD")
 
     newer = new_stl_commit(stl.root, "#pragma once\n// v2\n")
-    update = ecs.create_task("STLを最新に").start()
+    update = ecs.repository.create_task("STLを最新に").start()
     ecs.update_dependencies()
     update.stage(all=True)
     update.commit("STLを最新に")
     update.submit()
-    ecs.pull_request().merge()
+    ecs.repository.pull_request().merge()
 
     assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == first
-    other.create_task("続きの作業").start()  # 最新のmainから作業空間を作る → 依存先も新しい記録へ
+    other.repository.create_task("続きの作業").start()  # 最新のmainから作業空間を作る → 依存先も新しい記録へ
     assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == newer

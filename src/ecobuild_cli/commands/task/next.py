@@ -17,6 +17,6 @@ def command(
         return "\n".join(f"{i}. {task_line(n.task)}\n   理由：{'、'.join(n.reasons) or 'なし（計画の値が未設定）'}"
                          for i, n in enumerate(r, 1))
 
-    return run_command("task next", lambda inv: inv.module.next_tasks(assignee="@me" if mine else None,
+    return run_command("task next", lambda inv: inv.module.repository.next_tasks(assignee="@me" if mine else None,
                                                                       count=count or None),
                        render, json_output=json)

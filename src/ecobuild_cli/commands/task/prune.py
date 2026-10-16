@@ -22,12 +22,12 @@ def command(
     def action(inv):
         module = inv.module
         if task:
-            return module.clean_workspace(task)
-        preview = module.clean_workspaces(dry_run=True)
+            return module.repository.clean_workspace(task)
+        preview = module.repository.clean_workspaces(dry_run=True)
         if dry_run or not preview.removed:
             return preview
         inv.confirm(f"作業空間 {', '.join(preview.removed)} を片付けますか？")
-        return module.clean_workspaces()
+        return module.repository.clean_workspaces()
 
     def render(r):
         if hasattr(r, "remote"):   # 開いているタスクの手元の写しを消した
@@ -46,4 +46,4 @@ def command(
             done,
         )
 
-    return run_command("task clean", action, render, json_output=json, yes=yes)
+    return run_command("task prune", action, render, json_output=json, yes=yes)

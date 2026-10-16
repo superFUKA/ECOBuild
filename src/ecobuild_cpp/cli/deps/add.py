@@ -9,7 +9,7 @@ def command(
     shared: Annotated[bool, "共有ライブラリとしてリンクする（既定は静的）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """GitHubにあるECOBuildのモジュールをリンクし、deps/ へcloneします。
+    """GitHubにあるECOBuildのモジュールを依存先に加え（リンクし）、deps/ へcloneします。
 
     管理ファイルが変わるので、作業空間でコミットしてください。
 
@@ -18,10 +18,10 @@ def command(
 
     def action(inv):
         module = inv.module
-        from ecobuild import tooling
-        return module.link(tooling.qualify(repository), project=project or module.project_at(inv.cwd), shared=shared)
+        from ecobuild import settings
+        return module.link(settings.qualify(repository), project=project or module.project_at(inv.cwd), shared=shared)
 
-    return run_command("link", action, _text, json_output=json)
+    return run_command("deps add", action, _text, json_output=json)
 
 
 def _text(result) -> str:

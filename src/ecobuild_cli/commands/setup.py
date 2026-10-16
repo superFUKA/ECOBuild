@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import ecobuild_bundle
+from .._module import PROGRAM
 from .._output import Invocation, execute, lines
 
 
@@ -19,7 +20,7 @@ def command(
     def action(inv):
         if install:
             inv.confirm("足りないツールを導入しますか？（管理者の権限が必要なことがあります）")
-        return ecobuild_bundle.setup(name=name, email=email, install=install)
+        return ecobuild_bundle.setup(name=name, email=email, install=install, command=PROGRAM)
 
     def render(r):
         return lines(

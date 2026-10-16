@@ -1,10 +1,12 @@
-"""入口（-C・--json の用法エラー）とツールの設定・診断（範囲外の機能）。"""
+"""入口（-C・--json の用法エラー）と、このPCの設定（本体の settings）・準備（ecobuild_bundle.tooling）。"""
 
 import json
 
 import pytest
 
-from ecobuild import tooling
+from ecobuild import settings
+from ecobuild.results import DoctorItem
+from ecobuild_bundle import tooling
 from ecobuild.module_type import ModuleType
 from ecobuild_cli import main
 
@@ -37,13 +39,13 @@ def test_directory_option(tmp_path, capsys, monkeypatch):
 
 def test_tool_config(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    assert tooling.home() == tmp_path / "home" and tooling.load_config() == {}
-    assert tooling.qualify("Calc") == "Calc"
-    assert tooling.set_config("owner", "my-org") == {"owner": "my-org"}
-    assert tooling.qualify("Calc") == "my-org/Calc" and tooling.qualify("other/Calc") == "other/Calc"
-    assert tooling.set_config("owner", None) == {}
+    assert settings.home() == tmp_path / "home" and settings.load_config() == {}
+    assert settings.qualify("Calc") == "Calc"
+    assert settings.set_config("owner", "my-org") == {"owner": "my-org"}
+    assert settings.qualify("Calc") == "my-org/Calc" and settings.qualify("other/Calc") == "other/Calc"
+    assert settings.set_config("owner", None) == {}
     with pytest.raises(Exception) as error:
-        tooling.set_config("nosuch", "x")
+        settings.set_config("nosuch", "x")
     assert error.value.code == "invalid_argument"
 
 
@@ -63,7 +65,7 @@ class ToolType(ModuleType):
 
     @classmethod
     def doctor_items(cls):
-        return [tooling.CheckItem("thing", False, True, "見つかりません", "thing を入れてください。", "install",
+        return [DoctorItem("thing", False, True, "見つかりません", "thing を入れてください。", "install",
                                   ("get", "thing"))]
 
     @classmethod
@@ -78,11 +80,11 @@ def test_types_add_tools(monkeypatch):
     report = tooling.doctor([ToolType])
     assert {i.name: i.ok for i in report.items}["thing"] is False and not report.ok
     assert ("thing", ["get", "thing"]) in tooling.install_commands(report)
-    assert "thing" not in tooling.config_keys() and tooling.config_keys([ToolType])["thing"] == "thing のパス"
+    assert "thing" not in settings.config_keys() and settings.config_keys([ToolType])["thing"] == "thing のパス"
     with pytest.raises(Exception):
-        tooling.set_config("thing", "x")
-    assert tooling.set_config("thing", "C:/thing", [ToolType])["thing"] == "C:/thing"
-    assert tooling.load_config()["thing"] == "C:/thing"
+        settings.set_config("thing", "x")
+    assert settings.set_config("thing", "C:/thing", [ToolType])["thing"] == "C:/thing"
+    assert settings.load_config()["thing"] == "C:/thing"
 
 
 def test_bundle_adds_cpp_tools():
@@ -116,16 +118,16 @@ def machine(tmp_path, monkeypatch):
     state = {"git": False, "gh": False, "login": False, "scope": False, "setup-git": False, "identity": False}
     calls = {"interactive": [], "identity": [], "environment": []}
 
-    def doctor(types=()):
-        items = [tooling.CheckItem("git", state["git"], True, "", "", "install"),
-                 tooling.CheckItem("gh", state["gh"], True, "", "", "install")]
+    def doctor(types=(), extra=(), *, command=""):
+        items = [DoctorItem("git", state["git"], True, "", "", "install"),
+                 DoctorItem("gh", state["gh"], True, "", "", "install")]
         if state["gh"]:
-            items.append(tooling.CheckItem("gh の認証", state["login"], True, "", "", "login"))
+            items.append(DoctorItem("gh の認証", state["login"], True, "", "", "login"))
             if state["login"]:
-                items.append(tooling.CheckItem("ボードの権限（GitHub Projects）", state["scope"], False, "", "", "scope"))
-                items.append(tooling.CheckItem("git の認証（gh）", state["setup-git"], False, "", "", "setup-git"))
+                items.append(DoctorItem("ボードの権限（GitHub Projects）", state["scope"], False, "", "", "scope"))
+                items.append(DoctorItem("git の認証（gh）", state["setup-git"], False, "", "", "setup-git"))
         if state["git"]:
-            items.append(tooling.CheckItem("git の名前・メール", state["identity"], True, "", "", "identity"))
+            items.append(DoctorItem("git の名前・メール", state["identity"], True, "", "", "identity"))
         return tooling.DoctorReport(tuple(items))
 
     def run_interactive(args):
@@ -162,6 +164,7 @@ def machine(tmp_path, monkeypatch):
     monkeypatch.setattr(tooling, "persist_environment",
                         lambda name, value: calls["environment"].append((name, value)) or True)
     monkeypatch.setattr(tooling, "default_home", lambda: tmp_path / "default")
+    monkeypatch.setattr(settings, "default_home", lambda: tmp_path / "default")
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "old"))
     (tmp_path / "old").mkdir()
     (tmp_path / "old" / "config.toml").write_text('owner = "my-org"\n', encoding="utf-8")
@@ -178,7 +181,7 @@ def test_initialize_asks_and_fixes_everything(machine):
     assert [c[3] for c in calls["interactive"][:2]] == ["Git.Git", "GitHub.cli"]
     assert calls["interactive"][2][:3] == ["gh", "auth", "login"] and "project" in calls["interactive"][2]
     assert state["setup-git"] and calls["identity"] == [("fuka", "7+fuka@users.noreply.github.com")]
-    assert tooling.load_config() == {}                                      # 所有者は空にした
+    assert settings.load_config() == {}                                      # 所有者は空にした
     assert any("既定の所有者の設定を消しました" in d for d in report.done)
 
 
@@ -189,7 +192,7 @@ def test_initialize_keeps_what_is_declined(machine):
     assert report.home == tmp_path / "old" and calls["environment"] == []   # 置き場所は今のまま
     assert "gh の導入" in report.skipped and not any(a.startswith("GitHub にログイン") for a in answers.asked)
     assert [i.name for i in report.remaining if i.required] == ["gh"]
-    assert tooling.load_config() == {"owner": "my-org"}
+    assert settings.load_config() == {"owner": "my-org"}
 
 
 def test_initialize_without_terminal_skips_login(machine):
@@ -203,5 +206,5 @@ def test_initialize_without_terminal_skips_login(machine):
 def test_set_home_back_to_default_removes_the_variable(machine):
     state, calls, tmp_path = machine
     tooling.set_home(tmp_path / "default")
-    assert calls["environment"] == [("ECOBUILD_HOME", None)] and tooling.home() == tmp_path / "default"
+    assert calls["environment"] == [("ECOBUILD_HOME", None)] and settings.home() == tmp_path / "default"
     assert (tmp_path / "default" / "config.toml").is_file()

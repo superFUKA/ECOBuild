@@ -1,4 +1,4 @@
-"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。
+"""外部コマンド（git・gh等）の実行。出力はUTF-8として取り込む。ecotask・ecowork と、ecowork.process を通して ecobuild も使う。
 
 実行したコマンド・終了コード・出力・所要時間を logging（DEBUG）で出す。どこに書くかは使う側（CLI）が決める。
 """

@@ -67,7 +67,7 @@ def scripts_directory(root: Path) -> Path:
 
 
 def base_python(configured: str | None) -> str:
-    """.venv を作る Python（ecobuild config python か、ECOBuild と同じ Python）。"""
+    """.venv を作る Python（ecobuild config set python で設定したものか、ECOBuild と同じ Python）。"""
     return configured or sys.executable
 
 

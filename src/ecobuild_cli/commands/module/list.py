@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._output import local_time, run_command, usage_error
 
 
@@ -18,8 +18,8 @@ def command(
         return usage_error("--archived と --all は一緒に使えません。", json)
 
     def action(inv):
-        from ecobuild import tooling
-        return list(Module.modules(owner or tooling.load_config().get("owner") or None,
+        from ecobuild import settings
+        return list(Module.modules(owner or settings.load_config().get("owner") or None,
                                    archived=None if all else archived))
 
     def render(r):

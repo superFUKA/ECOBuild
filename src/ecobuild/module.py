@@ -1,8 +1,12 @@
 """モジュール：ECOBuildの管理単位（GitHubリポジトリ）。
 
-作業の進め方（作業空間・ブランチ・PR・最新化）は ecowork.Repository が受け持つ。
-言語ごとの処理（ビルド・Project・ファイル・依存先・生成ファイル）は、モジュールの型（module_type）が受け持つ。
-Moduleはそれらを、ecobuild.toml と作業の流れの約束（ファイルを変える操作は作業空間でだけ等）でつなぐ。
+作業の進め方（作業空間・ブランチ・提出・最新化・タスク・CI 等）は ecowork.Repository が受け持ち、使う側は
+module.repository を直接使う。言語ごとの処理（ビルド・Project・ファイル・依存先・生成ファイル）は、モジュールの型
+（module_type）が受け持つ。
+
+Module が持つのは、モジュールそのもの（作成・clone・削除・ecobuild.toml）と型の操作、そして作業の流れのうち
+型・管理するファイル・確認（check）が関わる操作だけ（commit・submit・finish・sync 等）。作業の流れの途中で型に
+手元をそろえさせる処理は、フック（_TypeHooks）で ecowork に差し込むので、module.repository を直接使っても抜けない。
 """
 
 from __future__ import annotations
@@ -15,7 +19,6 @@ import tomllib
 from dataclasses import replace
 from pathlib import Path
 
-from ecotask.board import description as _board_description
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import workspace as ws
@@ -26,14 +29,12 @@ from . import config as _config
 from . import module_type as _module_type
 from . import tracking as _tracking
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
-from .errors import EcoBuildError, ErrorCode
+from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (BuildResult, CheckItem, CheckReport, CiInitResult, CloneEntry, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult)
-
-COMMAND = "ecobuild"
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
@@ -71,6 +72,7 @@ class Module:
     """
 
     registry: Registry = Registry()
+    command: str = ""     # ヒントに書くプログラム名（CLI は ecobuild）。空なら操作名だけ（errors.operation）
 
     def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None,
                  registry: Registry | None = None):
@@ -78,21 +80,25 @@ class Module:
         self.config = module_config
         self.registry = registry or type(self).registry
         self.repository = Repository(self.root, github=github, default_base=module_config.default_base,
-                                     command=COMMAND, hooks=_TypeHooks(self),
+                                     command=self.command, hooks=_TypeHooks(self),
                                      legacy_board=module_config.legacy_board,
                                      require_approval=_require_approval(module_config))
         self.repository.include_new = self.is_tracked   # 管理しない新しいファイルは、作業空間の切り替え等を止めない
-        self.type: _module_type.ModuleType = self.registry.load(module_config.type)(self)
+        self.type: _module_type.ModuleType = self.registry.load(module_config.type, command=self.command)(self)
 
     @property
     def name(self) -> str:
         return self.config.name
 
+    def op(self, name: str) -> str:
+        """ヒントに書く操作（「ecobuild task commit」等）。型もヒントにはこれを使う。"""
+        return operation(self.command, name)
+
     @classmethod
     def find(cls, path: Path | str = ".", *, github: _github.GitHub | None = None,
              registry: Registry | None = None) -> "Module":
         """pathから上へecobuild.tomlを探し、最も近いモジュールを返す（I-027）。"""
-        root = _config.find_root(Path(path))
+        root = _config.find_root(Path(path), command=cls.command)
         return cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
 
     @classmethod
@@ -125,7 +131,7 @@ class Module:
                 hint="英字で始まり、英数字と _ だけからなる名前にしてください。",
             )
         registry = registry or cls.registry
-        type_class = registry.load(type)
+        type_class = registry.load(type, command=cls.command)
         if kind and kind not in type_class.new_kinds:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--kind {kind} は型 {type_class.name} では使えません。",
                                 hint=f"使えるもの：{'・'.join(type_class.new_kinds)}" if type_class.new_kinds
@@ -153,7 +159,7 @@ class Module:
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,
             populate=populate, message="ECOBuildでモジュールを作成", github=github,
-            default_base=module_config.default_base, command=COMMAND,
+            default_base=module_config.default_base, command=cls.command,
         )
         module = cls(repository.root, module_config, github=repository.github, registry=registry)
         try:
@@ -172,13 +178,13 @@ class Module:
 
         name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。
         """
-        repository = Repository.clone(name, directory=directory, github=github, command=COMMAND)
+        repository = Repository.clone(name, directory=directory, github=github, command=cls.command)
         if not (repository.root / _config.FILE_NAME).is_file():
             remove_tree(repository.root)  # 今cloneしたもの
             raise EcoBuildError(
                 ErrorCode.NOT_IN_MODULE,
                 f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
-                hint=f"ECOBuildで作ったリポジトリ（{COMMAND} module new）を指定してください。",
+                hint=f"ECOBuildで作ったリポジトリ（{operation(cls.command, 'module new')}）を指定してください。",
             )
         module = cls.find(repository.root, github=repository.github, registry=registry)
         dependencies, _ = module._after_sync()
@@ -267,7 +273,7 @@ class Module:
         info = cls._module_repository(name, github)
         if not info.archived:
             raise EcoBuildError(ErrorCode.NOT_ARCHIVED, f"{info.full_name} はアーカイブしていません。",
-                                hint=f"削除する前に、{COMMAND} module archive {info.full_name} でアーカイブしてください"
+                                hint=f"削除する前に、{operation(cls.command, 'module archive')} {info.full_name} でアーカイブしてください"
                                      "（読み取り専用にし、使っていないことを確かめる段階です）。")
         if clone is not None and github.repository_name(clone.root) != info.full_name:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{clone.root} は {info.full_name} のcloneではありません。")
@@ -289,7 +295,7 @@ class Module:
         aside = _set_aside(outer) if remove_clone else []
         try:
             for board in boards:   # 戻したときに探せるよう、どのリポジトリのものかを説明に書いてから閉じる
-                github.describe_board(None, board.id, _board_description(info.full_name))
+                github.describe_board(None, board.id, _github.board_description(info.full_name))
             github.delete_repository(info.full_name)
         except BaseException:
             _put_back(aside)
@@ -396,7 +402,7 @@ class Module:
     def summary(self) -> ModuleCreated:
         return ModuleCreated(self.name, self.root, self.remote_url or "", self.project_names)
 
-    # 作業の進め方（ecowork） ---------------------------------------------------
+    # 作業の流れのうち、型・管理するファイル・確認が関わるもの（ほかは module.repository） ---------------
 
     def status(self, *, fetch: bool = False) -> ws.Status:
         """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。
@@ -415,45 +421,6 @@ class Module:
         paths = self._workspace_paths()
         return [replace(t, workspace_path=paths.get(t.number, t.workspace_path)) for t in tasks]
 
-    # 計画と判断（ecotask） ------------------------------------------------------------
-
-    def plan_task(self, number: int, **values) -> ws.TaskSummary:
-        """priority・due・estimate・sprint（名前か current）・planned_start・planned_end・clear（消す役割）・
-        stage（作業を始める前の段階：planned・todo）。"""
-        return self.repository.plan_task(number, **values)
-
-    def next_tasks(self, *, assignee: str | None = None, count: int | None = None) -> list:
-        return self.repository.next_tasks(assignee=assignee, count=count)
-
-    def deadlines(self, *, days: int = 3):
-        return self.repository.deadlines(days=days)
-
-    def sprints(self) -> list:
-        return self.repository.sprints()
-
-    def sprint_status(self, name: str = "current"):
-        return self.repository.sprint_status(name)
-
-    def workload(self) -> list:
-        return self.repository.workload()
-
-    def milestone_status(self) -> list:
-        return self.repository.milestone_status()
-
-    def start_task_without_workspace(self, number: int, *, ignore_blocked: bool = False,
-                                     take_over: bool = False) -> ws.Task:
-        return self.repository.start_task_without_workspace(number, ignore_blocked=ignore_blocked, take_over=take_over)
-
-    def milestones(self, *, closed: bool = False) -> list[_github.MilestoneInfo]:
-        return self.repository.milestones(closed=closed)
-
-    def create_milestone(self, title: str, *, due: str | None = None, description: str = "") -> _github.MilestoneInfo:
-        return self.repository.create_milestone(title, due=due, description=description)
-
-    def edit_milestone(self, title: str, **changes) -> _github.MilestoneInfo:
-        """new_title・due（"" で消す）・description・state（open／closed）（ecowork と同じ）。"""
-        return self.repository.edit_milestone(title, **changes)
-
     def task_status(self, number: int | None = None) -> ws.TaskStatus:
         """作業空間の場所は、このPCの他のclone（作業空間専用のclone 等）も見る。"""
         status = self.repository.task_status(number)
@@ -461,50 +428,7 @@ class Module:
         task = None if status.task is None else replace(status.task, workspace_path=path)
         return replace(status, workspace_path=path, task=task)
 
-    def edit_task(self, number: int, **changes) -> ws.Task:
-        """title・body・add_labels・remove_labels・add_assignees・remove_assignees・plan・clear_plan 等
-        （ecowork と同じ）。"""
-        return self.repository.edit_task(number, **changes)
-
-    def comment_task(self, number: int | None, body: str) -> ws.Task:
-        return self.repository.comment_task(number, body)
-
-    # PRの処理（ecowork と同じ） ---------------------------------------------------
-
-    def pull_requests(self, *, closed: bool = False, review_requested: str | None = None) -> list[ws.PullRequest]:
-        return self.repository.pull_requests(closed=closed, review_requested=review_requested)
-
-    def pull_request_status(self, number: int | None = None) -> ws.PullRequestStatus:
-        return self.repository.pull_request_status(number)
-
-    def pull_request_diff(self, number: int | None = None) -> str:
-        return self.repository.pull_request_diff(number)
-
-    def comment_pull_request(self, number: int | None, body: str) -> ws.PullRequest:
-        return self.repository.comment_pull_request(number, body)
-
-    def review_pull_request(self, number: int, event: str, body: str = "") -> ws.PullRequest:
-        return self.repository.review_pull_request(number, event, body)
-
-    def edit_pull_request(self, number: int | None = None, **changes) -> ws.PullRequest:
-        return self.repository.edit_pull_request(number, **changes)
-
-    def close_pull_request(self, number: int | None = None) -> ws.PullRequest:
-        return self.repository.close_pull_request(number)
-
-    def reopen_pull_request(self, number: int) -> ws.PullRequest:
-        return self.repository.reopen_pull_request(number)
-
-    def set_pull_request_draft(self, number: int | None = None, *, draft: bool) -> ws.PullRequest:
-        return self.repository.set_pull_request_draft(number, draft=draft)
-
-    def close_task(self, number: int, *, not_planned: bool = False) -> ws.Task:
-        """作業空間に開いている提出・取り込んでいないコミットがあれば unfinished_work（やめるなら drop_workspace の
-        close=True。CLIは確かめてからそうする）。"""
-        return self.repository.close_task(number, not_planned=not_planned)
-
-    def reopen_task(self, number: int) -> ws.Task:
-        return self.repository.reopen_task(number)
+    # 確認（他人の提出を手元に取り出す。依存先・生成ファイルもその記録に合わせる） ------------------------
 
     def review(self, number: int) -> ws.ReviewResult:
         """他人のPRを手元に取り出す。依存先・生成ファイルもそのPRの記録に合わせる。"""
@@ -535,8 +459,8 @@ class Module:
             raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_RECORDED,
                                 "手元の依存先が記録の版と違います（CIと取り込んだ後は記録の版を使います）："
                                 + mismatch_text(mismatches),
-                                hint=f"依存先の作業を先に完了し、{COMMAND} deps update で記録を進めてください"
-                                     f"（依存先の依存先なら、直接 {COMMAND} link）。このまま出すなら --draft")
+                                hint=f"依存先の作業を先に完了し、{self.op('deps update')} で記録を進めてください"
+                                     f"（依存先の依存先なら、直接 {self.op('deps add')}）。このまま出すなら --draft")
         if mismatches:
             (progress or _quiet)("注意：手元の依存先が記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches))
         if check:
@@ -555,30 +479,8 @@ class Module:
             self._refuse_uncommitted("完了")
         return self.repository.finish(number, **options)
 
-    def approve(self, number: int, message: str = "", **options) -> ws.FinishResult:
-        """承認し、そのまま完了する。確認中（task review）なら、先に確認の前の場所へ戻る。"""
-        return self.repository.approve(number, message, **options)
-
-    def reject(self, number: int, message: str) -> ws.JudgeResult:
-        return self.repository.reject(number, message)
-
-    def withdraw(self, number: int | None = None) -> ws.PullRequest:
-        return self.repository.withdraw(number)
-
-    def task_diff(self, number: int | None = None) -> str:
-        return self.repository.task_diff(number)
-
-    def revert_task(self, number: int) -> ws.RevertResult:
-        return self.repository.revert_task(number)
-
-    def merge_branch(self, name: str, *, ignore_checks: bool = False) -> ws.MergeResult:
-        return self.repository.merge_branch(name, ignore_checks=ignore_checks)
-
-    def clean_workspace(self, number: int) -> ws.CleanResult | ws.RemoveResult:
-        return self.repository.clean_workspace(number)
-
     def _current_task(self) -> int | None:
-        workspace = self.current_workspace()
+        workspace = self.repository.current_workspace()
         return None if workspace is None else workspace.number
 
     def _refuse_uncommitted(self, action: str) -> None:
@@ -588,7 +490,7 @@ class Module:
                                      + tuple(p for p in tree.untracked if self.is_tracked(p))))
         if pending:
             raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"未コミットの変更があるため、{action}できません。",
-                                hint=f"{COMMAND} task commit --message \"…\" で記録してから、もう一度実行してください。",
+                                hint=f"{self.op('task commit')} --message \"…\" で記録してから、もう一度実行してください。",
                                 details=pending)
 
     def end_review(self) -> ws.ReviewResult:
@@ -596,37 +498,7 @@ class Module:
         self._after_sync()
         return result
 
-    def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False) -> list[ws.LogEntry]:
-        return self.repository.log(count=count, paths=paths, all_branches=all_branches)
-
-    def show(self, revision: str = "HEAD") -> str:
-        return self.repository.show(revision)
-
-    def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
-        return self.repository.diff(paths, staged=staged, base=base)
-
-    def blame(self, path: str) -> str:
-        return self.repository.blame(path)
-
-    def revert(self, number: int) -> ws.RevertResult:
-        return self.repository.revert(number)
-
-    def ignore(self, *patterns: str) -> tuple[str, ...]:
-        return self.repository.ignore(*patterns)
-
     # 共同作業者・ブランチの保護（複数人での開発） ----------------------------------------------
-
-    def members(self) -> list[_github.Member]:
-        return self.repository.members()
-
-    def add_member(self, login: str, role: str = "write") -> bool:
-        return self.repository.add_member(login, role)
-
-    def remove_member(self, login: str) -> bool:
-        return self.repository.remove_member(login)
-
-    def protection(self) -> _github.Protection | None:
-        return self.repository.protection()
 
     def protect(self, *, approvals: int | None = None, require_ci: bool = False) -> _github.Protection:
         """作成元（default_base）を GitHub のブランチの保護で守る。approvals を省くと、[task] require_approval
@@ -639,9 +511,6 @@ class Module:
                 "GitHub は承認のない取り込みを止めますが、管理者は越えられます。ECOBuild を使う全員に承認を必須にするなら、"
                 "ecobuild.toml の [task] に require_approval = true を書いてコミットしてください。")
         return protection
-
-    def unprotect(self) -> bool:
-        return self.repository.unprotect()
 
     # 管理するファイル（tracking） ---------------------------------------------------------
 
@@ -690,7 +559,7 @@ class Module:
                     raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{pattern} はECOBuildが管理するファイルなので外せません。")
                 if pattern not in include and pattern not in defaults:
                     raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{pattern} は管理するファイルのパターンにありません。",
-                                        hint=f"{COMMAND} track で一覧を確認できます。")
+                                        hint=f"{self.op('track')} で一覧を確認できます。")
                 include = tuple(p for p in include if p != pattern)
                 if pattern in defaults and pattern not in exclude:
                     exclude += (pattern,)
@@ -753,11 +622,7 @@ class Module:
         else:
             record.unlink(missing_ok=True)
 
-    def create_release(self, tag: str, *, title: str = "", notes: str = "", target: str | None = None):
-        return self.repository.create_release(tag, title=title, notes=notes, target=target)
-
-    def releases(self):
-        return self.repository.releases()
+    # 作業空間・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
     def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False) -> "Module":
@@ -775,42 +640,9 @@ class Module:
                                         take_over=take_over)
         return opened[0]
 
-    def branches(self) -> list[ws.Branch]:
-        return self.repository.branches()
-
-    def branch(self, name: str) -> ws.Branch:
-        return self.repository.branch(name)
-
-    def create_branch(self, name: str, *, base: str | None = None) -> ws.Branch:
-        return self.repository.create_branch(name, base=base)
-
-    def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
-                    assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
-                    milestone: str | None = None, plan: dict[str, str | None] | None = None) -> ws.Task:
-        return self.repository.create_task(title, body=body, labels=labels, assignees=assignees, parent=parent,
-                                           blocked_by=blocked_by, milestone=milestone, plan=plan)
-
-    def task(self, number: int) -> ws.Task:
-        return self.repository.task(number)
-
-    def current_workspace(self) -> ws.Workspace | None:
-        return self.repository.current_workspace()
-
     def require_workspace(self, action: str) -> ws.Workspace:
+        """ファイルを変える操作は作業空間でだけ（Module と型の約束。型の操作もここで確かめる）。"""
         return self.repository.require_workspace(action)
-
-    def pull_request(self, number: int | None = None) -> ws.PullRequest:
-        return self.repository.pull_request(number)
-
-    def clean_workspaces(self, *, dry_run: bool = False) -> ws.CleanResult:
-        return self.repository.clean_workspaces(dry_run=dry_run)
-
-    def remove_workspace(self, number: int | None = None) -> ws.RemoveResult:
-        return self.repository.remove_workspace(number)
-
-    def drop_workspace(self, number: int | None = None, *, close: bool = False, discard: bool = False,
-                       dry_run: bool = False) -> ws.DropResult:
-        return self.repository.drop_workspace(number, close=close, discard=discard, dry_run=dry_run)
 
     def sync(self) -> SyncResult:
         """GitHubの最新を取り込み、手元（依存先・生成ファイル）をそろえる。
@@ -828,7 +660,7 @@ class Module:
             error.details = list(conflicted)
             if any(self.type.is_generated(p) for p in conflicted):
                 error.hint = (f"{error.hint}\n{self.type.generated_note}は直さなくて構いません。"
-                              f"{COMMAND} sync continue で管理ファイルから作り直します。")
+                              f"{self.op('sync continue')} で管理ファイルから作り直します。")
             raise
 
     def continue_sync(self) -> SyncResult:
@@ -855,12 +687,6 @@ class Module:
             return self.repository.stash_pop()
         finally:
             self._reload()
-
-    def stash_drop(self) -> ws.StashResult:
-        return self.repository.stash_drop()
-
-    def stashes(self) -> tuple[str, ...]:
-        return self.repository.stashes()
 
     def restore(self, *paths: str, staged: bool = False) -> ws.RestoreResult:
         result = self.repository.restore(*paths, staged=staged)
@@ -924,7 +750,7 @@ class Module:
         if name:
             if name not in self.config.profiles:
                 raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
-                                    hint=f"{COMMAND} profile list で一覧、{COMMAND} profile add で追加できます。")
+                                    hint=f"{self.op('profile list')} で一覧、{self.op('profile add')} で追加できます。")
             selected = self.config.profiles[name]
         return self._builds("ビルド").build_options(selected, configuration), name
 
@@ -936,7 +762,7 @@ class Module:
         self.require_workspace("ビルド設定の変更")
         if name not in self.config.profiles:
             raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
-                                hint=f"{COMMAND} profile add {name} で先に作ってください。")
+                                hint=f"{self.op('profile add')} {name} で先に作ってください。")
         if values is not None and project not in {p.name for p in self.projects()}:
             raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。")
         current = self.config.profiles[name]
@@ -970,7 +796,7 @@ class Module:
         """このPCで使うビルド設定を選ぶ（Noneで選択を外し、型の既定に戻す）。"""
         if name is not None and name not in self.config.profiles:
             raise EcoBuildError(ErrorCode.PROFILE_NOT_FOUND, f"ビルド設定 {name} はありません。",
-                                hint=f"{COMMAND} profile list で一覧を確認してください。")
+                                hint=f"{self.op('profile list')} で一覧を確認してください。")
         local = _config.load_local(self.root)
         local["profile"] = name
         _config.save_local(self.root, local)
@@ -1148,12 +974,6 @@ class Module:
                 continue
         return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
 
-    def ci_wait(self, pull_request: int | None = None, *, timeout: float = 1800, task: int | None = None) -> list:
-        return self.repository.ci_wait(pull_request, timeout=timeout, task=task)
-
-    def delete_secret(self, name: str) -> str:
-        return self.repository.delete_secret(name)
-
     def remove_ci(self) -> FilesChanged:
         """CI（ecobuild ci init で作ったワークフロー）をやめる。"""
         self.require_workspace("CIの設定の削除")
@@ -1162,21 +982,6 @@ class Module:
             raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{_docs.CI_WORKFLOW} はありません。")
         path.unlink()
         return FilesChanged("ci remove", (_docs.CI_WORKFLOW,))
-
-    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5, task: int | None = None) -> list:
-        return self.repository.ci_runs(pull_request=pull_request, limit=limit, task=task)
-
-    def ci_failed_log(self, run_id: int | None = None, *, task: int | None = None) -> tuple[int, str]:
-        return self.repository.ci_failed_log(run_id, task=task)
-
-    def ci_rerun(self, run_id: int | None = None, *, failed_only: bool = False, task: int | None = None) -> int:
-        return self.repository.ci_rerun(run_id, failed_only=failed_only, task=task)
-
-    def set_secret(self, name: str, value: str) -> str:
-        return self.repository.set_secret(name, value)
-
-    def secrets(self) -> list[str]:
-        return self.repository.secrets()
 
     def ci_dispatch(self) -> str:
         """今いるブランチで、ECOBuildのCIを手動で実行する。"""
@@ -1193,11 +998,11 @@ class Module:
             self.type.refresh()
             pending = self._uncommitted_managed_files()
             items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
-                                                      f"{COMMAND} task commit でコミットに含めてください）" if pending else ""))
+                                                      f"{self.op('task commit')} でコミットに含めてください）" if pending else ""))
         except EcoBuildError as error:
             items.append(CheckItem("generated", False, error.message))
         git = self.repository.git
-        workspace = self.current_workspace()
+        workspace = self.repository.current_workspace()
         markers = git.conflict_markers("HEAD")
         if workspace is not None and git.rev_parse(f"origin/{workspace.base}"):
             markers += git.conflict_markers(f"origin/{workspace.base}...HEAD")
@@ -1226,7 +1031,7 @@ class Module:
         if not report.ok:
             raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
                                 "、".join(i.name for i in items if not i.ok),
-                                hint=f"内容を直して、もう一度 {COMMAND} check を実行してください。",
+                                hint=f"内容を直して、もう一度 {self.op('check')} を実行してください。",
                                 details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
         return report
 
@@ -1269,7 +1074,7 @@ class Module:
     def _after_sync(self) -> PrepareResult:
         """Git操作（切り替え・取り込み・確認の開始と終了・取り消し）の後：設定を読み直し、型に手元をそろえさせる。"""
         self._reload()
-        return PrepareResult(*self.type.prepare())
+        return self.type.prepare()
 
     def _reload(self) -> None:
         """ecobuild.toml が変わっていれば、設定・型・作成元の既定を読み直す（同じ Module を使い続けるため）。
@@ -1283,7 +1088,7 @@ class Module:
         if new_config == self.config:
             return
         if new_config.type != self.config.type:
-            self.type = self.registry.load(new_config.type)(self)
+            self.type = self.registry.load(new_config.type, command=self.command)(self)
         self.config = new_config
         self.repository.default_base = new_config.default_base
         self.repository.require_approval = _require_approval(new_config)
@@ -1313,7 +1118,7 @@ class Module:
             raise EcoBuildError(
                 ErrorCode.GENERATED_FILES_OUTDATED,
                 f"{self.type.generated_note or '生成ファイル'}・管理ファイルがコミットされていません。",
-                hint=f"{COMMAND} task commit --message \"…\" でコミットしてから再実行してください。",
+                hint=f"{self.op('task commit')} --message \"…\" でコミットしてから再実行してください。",
                 details=changed,
             )
 

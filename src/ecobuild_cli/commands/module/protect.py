@@ -34,10 +34,10 @@ def command(
     def action(inv):
         module = inv.module
         if show:
-            return module.protection()
+            return module.repository.protection()
         if off:
             inv.confirm(f"{module.config.default_base} のブランチの保護を外しますか？")
-            return {"removed": module.unprotect()}
+            return {"removed": module.repository.unprotect()}
         inv.confirm(f"GitHub で {module.config.default_base} のブランチの保護を設定しますか？（提出以外で変更できなくなります）")
         return module.protect(approvals=None if approvals < 0 else approvals, require_ci=require_ci)
 

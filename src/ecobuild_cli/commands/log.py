@@ -20,5 +20,5 @@ def command(
             f"{e.sha[:7]} {local_time(e.date)} {e.author}：{e.subject}" + (f"  [Issue #{e.issue}]" if e.issue else "")
             for e in r) or "履歴はありません"
 
-    return run_command("log", lambda inv: inv.module.log(count=count, paths=paths, all_branches=all), render,
+    return run_command("log", lambda inv: inv.module.repository.log(count=count, paths=paths, all_branches=all), render,
                        json_output=json)

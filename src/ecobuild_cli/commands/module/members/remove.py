@@ -15,7 +15,7 @@ def command(
 
     def action(inv):
         inv.confirm(f"{user} を共同作業者から外しますか？（このリポジトリを読めなくなります）")
-        return inv.module.remove_member(user)
+        return inv.module.repository.remove_member(user)
 
     return run_command("module members remove", action, lambda r: f"{user} を共同作業者から外しました",
                        json_output=json, yes=yes)

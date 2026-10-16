@@ -9,5 +9,5 @@ def command(
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """ブランチ同士の提出（ecobuild branch submit で作ったもの）を、マージコミットで取り込みます。"""
-    return run_command("branch merge", lambda inv: inv.module.merge_branch(name, ignore_checks=ignore_checks),
+    return run_command("branch merge", lambda inv: inv.module.repository.merge_branch(name, ignore_checks=ignore_checks),
                        lambda r: f"{name} の提出を取り込みました（{r.method}）", json_output=json)

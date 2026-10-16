@@ -17,7 +17,7 @@ def command(
 
     def action(inv):
         inv.info("CIの結果を待っています…")
-        return inv.module.ci_wait(timeout=timeout, task=task or None)
+        return inv.module.repository.ci_wait(timeout=timeout, task=task or None)
 
     return run_command("ci wait", action,
                        lambda r: "\n".join(f"#{x.id} {x.workflow}：{x.conclusion}  {x.url}" for x in r),

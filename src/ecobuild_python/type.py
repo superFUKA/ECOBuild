@@ -116,13 +116,13 @@ python -m venv .venv
 
     @classmethod
     def doctor_items(cls):
-        from ecobuild.tooling import CheckItem
+        from ecobuild.results import DoctorItem
         try:
             import ensurepip, venv  # noqa: E401,F401
             ok, detail = True, "venv・pip を使えます"
         except ImportError as error:
             ok, detail = False, f"venv か ensurepip がありません（{error}）"
-        return [CheckItem("Python の venv", ok, True, detail,
+        return [DoctorItem("Python の venv", ok, True, detail,
                           "Python の venv が必要です（Linux：python3-venv）。", "install",
                           INSTALL["nt" if os.name == "nt" else "posix"])]
 
@@ -174,8 +174,8 @@ python -m venv .venv
         return RunResult(None, options.configuration, completed.returncode, completed.stdout)
 
     def _environment(self, *, force: bool = False) -> Path:
-        from ecobuild import tooling
-        return _python.ensure_environment(self.root, _python.base_python(tooling.load_config().get("python")),
+        from ecobuild import settings
+        return _python.ensure_environment(self.root, _python.base_python(settings.load_config().get("python")),
                                           force=force)
 
     # ファイル ---------------------------------------------------------------------

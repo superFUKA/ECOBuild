@@ -12,5 +12,5 @@ def command(
 ) -> int:
     """GitHubにリリースを作り、ブランチの最新にタグを付けます。"""
     return run_command("release create",
-                       lambda inv: inv.module.create_release(tag, title=title, notes=notes, target=target or None),
+                       lambda inv: inv.module.repository.create_release(tag, title=title, notes=notes, target=target or None),
                        lambda r: f"リリース {r.tag} を作りました：{r.url}", json_output=json)

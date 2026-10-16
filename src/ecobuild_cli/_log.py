@@ -69,16 +69,16 @@ def max_bytes() -> int:
 
 
 def _config() -> dict[str, str]:
-    from ecobuild import tooling
+    from ecobuild import settings
     try:
-        return tooling.load_config()
+        return settings.load_config()
     except Exception:  # 設定が読めなくても、ログは既定で書く（設定の誤りはコマンドが知らせる）
         return {}
 
 
 def global_directory() -> Path:
-    from ecobuild import tooling
-    return tooling.home() / "logs"
+    from ecobuild import settings
+    return settings.home() / "logs"
 
 
 def module_directory(root: Path) -> Path:
@@ -248,7 +248,7 @@ def finish(exit_code: int | None) -> None:
         pass
 
 
-# 外部コマンド（CppBuild の CMake・MSBuild 等、ecotask._process を通らないもの）--------------------
+# 外部コマンド（CppBuild の CMake・MSBuild 等、ecotask.process を通らないもの）--------------------
 
 _hook_installed = False
 
@@ -266,7 +266,7 @@ def _audit(event: str, arguments: tuple) -> None:
         return
     try:
         if _from_process_module():
-            return  # ecotask._process が、終了コード・出力と一緒に書く
+            return  # ecotask.process が、終了コード・出力と一緒に書く
         executable, args, cwd, _env = arguments
         args = [args] if isinstance(args, (str, bytes)) else list(args or ())
         logger.debug("%s", " ".join(map(str, args)), extra={"event": "process.start", "data": {
@@ -279,7 +279,7 @@ def _audit(event: str, arguments: tuple) -> None:
 def _from_process_module() -> bool:
     frame = sys._getframe(2)
     while frame is not None:
-        if frame.f_globals.get("__name__") == "ecotask._process":
+        if frame.f_globals.get("__name__") == "ecotask.process":
             return True
         frame = frame.f_back
     return False

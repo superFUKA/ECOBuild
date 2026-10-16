@@ -27,7 +27,7 @@ def test_python_module(tmp_path):
     # Project・依存先は持たない。ビルド等は型が受け持つ
     assert code_of(module.projects) == ErrorCode.NOT_SUPPORTED
     assert code_of(lambda: module.link("STL")) == ErrorCode.NOT_IN_WORKSPACE
-    workspace = module.create_task("ファイルを足す").start()
+    workspace = module.repository.create_task("ファイルを足す").start()
     assert code_of(lambda: module.link("STL")) == ErrorCode.NOT_SUPPORTED
 
     # file add で作ったファイルと、管理するファイルの既定（*.py）が commit に含まれる
@@ -38,4 +38,4 @@ def test_python_module(tmp_path):
     committed = module.commit("ops を足す")
     assert {"src/calc/ops.py", "tests/test_ops.py", "src/calc/extra.py"} <= set(committed.files)
     assert "notes.bin" not in committed.files and "notes.bin" in committed.skipped
-    assert module.current_workspace().number == workspace.number
+    assert module.repository.current_workspace().number == workspace.number

@@ -1,7 +1,8 @@
-"""ツールの準備：前提ツールの診断（doctor）・設定（setup）と、ツールの設定（config）。
+"""このPCの準備：前提ツールの診断（doctor）・直せるものを直す（setup）・質問しながらの初期化（init）。
 
-モジュールの外で使う（どのモジュールにも属さない）。I-012・I-030・I-035。
-型が使うツール（cpp：CMake・コンパイラ）の診断・導入・設定の項目は、渡された型（types）から集める。
+モジュールの外で使う（どのモジュールにも属さない）。I-012・I-035。本体のライブラリではなく配布物（本体＋拡張）の
+関心なので、本体の外に置く。型が使うツール（cpp：CMake・コンパイラ）の診断・導入は、渡された型（types）から集める。
+このPCの設定（置き場所・config.toml）は本体の ecobuild.settings。
 """
 
 from __future__ import annotations
@@ -10,36 +11,16 @@ import json
 import os
 import shutil
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import Iterable
 
-from ecotask import _process
+from ecobuild.errors import operation
+from ecobuild.results import DoctorItem
+from ecobuild.settings import HOME_VARIABLE, Types, default_home, home, load_config, set_config
+from ecowork import process as _process
 
-from . import _gui
-from .errors import EcoBuildError, ErrorCode
-
-if TYPE_CHECKING:
-    from .module_type import ModuleType
-
-Types = Iterable[type["ModuleType"]]
-
-# config で扱う本体の項目 → 説明（型の項目は ModuleType.tool_settings）
-CONFIG_KEYS = {
-    "owner": "module new・clone・list・link 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
-    "log_level": "ログに残す量：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）",
-    "log_max_mb": "ログの大きさの上限（MB、置き場所ごと。既定 200。超えたら古い日から消す）",
-}
-
-# 値が決まっている項目 → 確かめ方（合わなければ説明）
-CONFIG_VALUES = {
-    "log_level": lambda value: None if value in ("off", "error", "info", "debug")
-    else "off・error・info・debug のどれかを指定してください。",
-    "log_max_mb": lambda value: None if value.isdigit() and int(value) >= 1 else "1以上の整数（MB）を指定してください。",
-}
-
-# 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは CheckItem.install）
+# 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは DoctorItem.install）
 INSTALL = {
     "nt": {
         "git": ["winget", "install", "--id", "Git.Git", "--exact", "--silent"],
@@ -50,30 +31,6 @@ INSTALL = {
         "gh": ["sudo", "apt-get", "install", "--yes", "gh"],
     },
 }
-
-
-def config_keys(types: Types = ()) -> dict[str, str]:
-    """config で扱う項目 → 説明（本体の項目と、型が使うツールの項目）。"""
-    keys = dict(CONFIG_KEYS)
-    for module_type in types:
-        keys.update(module_type.tool_settings())
-    return keys
-
-
-HOME_VARIABLE = "ECOBUILD_HOME"
-
-
-def home() -> Path:
-    """ツールの設定を置くディレクトリ（ECOBUILD_HOME、なければOSの慣例の場所）。"""
-    if os.environ.get(HOME_VARIABLE):
-        return Path(os.environ[HOME_VARIABLE])
-    return default_home()
-
-
-def default_home() -> Path:
-    """ツールの設定を置く既定のディレクトリ（OSの慣例。Windows：%LOCALAPPDATA%\\ecobuild）。"""
-    import platformdirs
-    return Path(platformdirs.user_config_dir("ecobuild", appauthor=False))
 
 
 def set_home(path: Path) -> list[str]:
@@ -121,109 +78,57 @@ def persist_environment(name: str, value: str | None) -> bool:
     return True
 
 
-# ツールの設定 ------------------------------------------------------------------
-
-def load_config() -> dict[str, str]:
-    path = home() / "config.toml"
-    if not path.is_file():
-        return {}
-    try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{path} を読み込めません：{error}") from error
-    return {key: value for key, value in data.items() if isinstance(value, str)}
-
-
-def set_config(key: str, value: str | None, types: Types = ()) -> dict[str, str]:
-    keys = config_keys(types)
-    if key not in keys:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} はありません。",
-                            hint="設定できる項目：" + "、".join(keys))
-    problem = None if value is None or key not in CONFIG_VALUES else CONFIG_VALUES[key](value)
-    if problem:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} に {value} は使えません。", hint=problem)
-    values = load_config()
-    if value is None:
-        values.pop(key, None)
-    else:
-        values[key] = value
-    path = home() / "config.toml"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["# ECOBuildのツールの設定（ecobuild config）。"]
-    lines += [f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in sorted(values.items())]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    return values
-
-
-def qualify(repository: str) -> str:
-    """所有者のないリポジトリ名に、設定の owner を付ける。"""
-    owner = load_config().get("owner")
-    return f"{owner}/{repository}" if owner and "/" not in repository else repository
-
-
 # 診断 -------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class CheckItem:
-    name: str
-    ok: bool
-    required: bool         # Falseなら、なくても使える（警告だけ）
-    detail: str
-    hint: str = ""
-    fix: str = ""          # 直し方：install／setup-git／identity（setup が直す）、login／scope（init が聞いて直す）
-    install: tuple[str, ...] = ()  # fix が install のときの、このOSでの導入コマンド（なければ本体の INSTALL から）
-
-
-@dataclass(frozen=True)
 class DoctorReport:
-    items: tuple[CheckItem, ...]
+    items: tuple[DoctorItem, ...]
 
     @property
     def ok(self) -> bool:
         return all(item.ok or not item.required for item in self.items)
 
 
-def doctor(types: Types = ()) -> DoctorReport:
-    """前提ツール・認証・gitの設定と、型が使うツール（types）を、読み取りだけで調べる。"""
-    items = [CheckItem("python", sys.version_info >= (3, 11), True, sys.version.split()[0],
-                       "Python 3.11 以上が必要です。")]
+def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str = "") -> DoctorReport:
+    """前提ツール・認証・gitの設定と、型が使うツール（types）を、読み取りだけで調べる。
+    extra：使う側が足す項目（CLI：TortoiseGit 等。直す方法がなく、知らせるだけのもの）。
+    command：ヒントに書くプログラム名（errors.operation）。"""
+    items = [DoctorItem("python", sys.version_info >= (3, 11), True, sys.version.split()[0],
+                        "Python 3.11 以上が必要です。")]
     git = _version("git", "--version")
-    items.append(CheckItem("git", git is not None, True, git or "見つかりません", "git をインストールしてください。",
-                           "install"))
+    items.append(DoctorItem("git", git is not None, True, git or "見つかりません", "git をインストールしてください。",
+                            "install"))
     gh = _version("gh", "--version")
-    items.append(CheckItem("gh", gh is not None, True, (gh or "見つかりません").splitlines()[0],
-                           "GitHub CLI（gh）をインストールしてください。", "install"))
+    items.append(DoctorItem("gh", gh is not None, True, (gh or "見つかりません").splitlines()[0],
+                            "GitHub CLI（gh）をインストールしてください。", "install"))
     if gh is not None:
         status = _run(["gh", "auth", "status"])
         account = next((line.split("account", 1)[1].split()[0] for line in status.output.splitlines()
                         if "Logged in to github.com account" in line), "")
-        items.append(CheckItem("gh の認証", status.ok, True, f"ログイン中：{account}" if status.ok else "ログインしていません",
-                               "gh auth login を実行してください（ブラウザでログインします）。", "login"))
+        items.append(DoctorItem("gh の認証", status.ok, True, f"ログイン中：{account}" if status.ok else "ログインしていません",
+                                "gh auth login を実行してください（ブラウザでログインします）。", "login"))
         if status.ok:
             scopes = next((line.split(":", 1)[1] for line in status.output.splitlines() if "Token scopes" in line), "")
             tasks = "'project'" in scopes
-            items.append(CheckItem("タスク管理の権限（project）", tasks, True,
-                                   "あります" if tasks else "ありません（タスクの段階・計画をGitHubに置くのに必要）",
-                                   "gh auth refresh -s project を実行してください（ブラウザで承認します）。", "scope"))
+            items.append(DoctorItem("タスク管理の権限（project）", tasks, True,
+                                    "あります" if tasks else "ありません（タスクの段階・計画をGitHubに置くのに必要）",
+                                    "gh auth refresh -s project を実行してください（ブラウザで承認します）。", "scope"))
         if git is not None:
             helpers = _run(["git", "config", "--get-urlmatch", "credential.helper", "https://github.com"]).stdout
             uses_gh = "auth git-credential" in helpers  # gh auth setup-git が設定するヘルパー
-            items.append(CheckItem(
+            items.append(DoctorItem(
                 "git の認証（gh）", uses_gh, False,
                 "gh の認証を使います" if uses_gh else "gh の認証を使っていません（push・fetch でアカウントの選択画面が出ることがあります）",
-                "ecobuild setup（または gh auth setup-git）で、gitが gh の認証を使うようにできます。", "setup-git"))
+                f"{operation(command, 'setup')}（または gh auth setup-git）で、gitが gh の認証を使うようにできます。", "setup-git"))
     if git is not None:
         name = _run(["git", "config", "--global", "user.name"]).stdout.strip()
         email = _run(["git", "config", "--global", "user.email"]).stdout.strip()
-        items.append(CheckItem("git の名前・メール", bool(name and email), True,
-                               f"{name} <{email}>" if name and email else "設定されていません",
-                               "ecobuild setup --name <名前> --email <メール> で設定できます。", "identity"))
+        items.append(DoctorItem("git の名前・メール", bool(name and email), True,
+                                f"{name} <{email}>" if name and email else "設定されていません",
+                                f"{operation(command, 'setup')} --name <名前> --email <メール> で設定できます。", "identity"))
     for module_type in types:  # 型が使うツール（cpp：CMake・コンパイラ）
         items += module_type.doctor_items()
-    tortoise = _gui.find()
-    if os.name == "nt":
-        items.append(CheckItem("TortoiseGit", tortoise is not None, False, tortoise or "見つかりません（任意）",
-                               "log・diff・blame の --gui に使います。"))
+    items += extra
     return DoctorReport(tuple(items))
 
 
@@ -232,15 +137,16 @@ def doctor(types: Types = ()) -> DoctorReport:
 @dataclass(frozen=True)
 class SetupReport:
     done: tuple[str, ...]          # 行ったこと
-    remaining: tuple[CheckItem, ...]  # まだ足りないもの
+    remaining: tuple[DoctorItem, ...]  # まだ足りないもの
     commands: tuple[str, ...]      # 足りないツールの導入コマンド（--install なしのとき）
 
 
-def setup(types: Types = (), *, name: str = "", email: str = "", install: bool = False) -> SetupReport:
+def setup(types: Types = (), *, name: str = "", email: str = "", install: bool = False,
+          command: str = "") -> SetupReport:
     """doctor の結果から直せるものを直す。ツールの導入は install のときだけ行う。"""
     types = tuple(types)
     done = []
-    report = doctor(types)
+    report = doctor(types, command=command)
     commands = []
     for label, command in install_commands(report):
         if install:
@@ -251,7 +157,7 @@ def setup(types: Types = (), *, name: str = "", email: str = "", install: bool =
     if any(i.fix == "setup-git" and not i.ok for i in report.items) and setup_git():
         done.append("gitが gh の認証を使うようにしました（gh auth setup-git）")
     done += set_identity(name, email)
-    after = doctor(types) if done else report
+    after = doctor(types, command=command) if done else report
     return SetupReport(tuple(done), tuple(i for i in after.items if not i.ok), tuple(commands))
 
 
@@ -358,14 +264,15 @@ class InitReport:
     home: Path                         # ツールの設定を置くディレクトリ
     done: tuple[str, ...]              # 行ったこと
     skipped: tuple[str, ...]           # 聞いて、行わなかったこと
-    remaining: tuple[CheckItem, ...]   # まだ足りないもの（必須でないものも含む）
+    remaining: tuple[DoctorItem, ...]  # まだ足りないもの（必須でないものも含む）
 
 
-def initialize(questions: Questions, types: Types = ()) -> InitReport:
+def initialize(questions: Questions, types: Types = (), extra: Iterable[DoctorItem] = (), *,
+               command: str = "") -> InitReport:
     """使い始める準備を、質問しながら行う：ツールの設定を置くディレクトリ、足りないツールの導入、GitHubへの
     ログイン（タスク管理の権限も）、gitが gh の認証を使う設定、gitの名前・メール、既定の所有者。
-    直っているものは聞かない（置き場所と所有者は、今の値を既定にして毎回聞く）。"""
-    types = tuple(types)
+    直っているものは聞かない（置き場所と所有者は、今の値を既定にして毎回聞く）。extra・command：doctor と同じ。"""
+    types, extra = tuple(types), tuple(extra)
     done, skipped = [], []
     current = home()
     answer = questions.ask("ECOBuild の設定を置くディレクトリ", str(current)).strip()
@@ -374,7 +281,7 @@ def initialize(questions: Questions, types: Types = ()) -> InitReport:
     else:
         current.mkdir(parents=True, exist_ok=True)
 
-    report = doctor(types)
+    report = doctor(types, extra, command=command)
     for item in report.items:
         questions.info(("OK " if item.ok else "NG " if item.required else "-- ") + f"{item.name}：{item.detail}")
 
@@ -385,20 +292,20 @@ def initialize(questions: Questions, types: Types = ()) -> InitReport:
             (done if ok else skipped).append(f"{label} を導入しました" if ok else f"{label} の導入に失敗しました")
         else:
             skipped.append(f"{label} の導入")
-    report = doctor(types) if done else report
+    report = doctor(types, command=command) if done else report
 
     def failed(fix: str) -> bool:
         return any(i.fix == fix and not i.ok for i in report.items)
 
     if not questions.interactive and (failed("login") or failed("scope")):
-        skipped.append("GitHub へのログイン・タスク管理の権限（ブラウザでの操作が要るので、端末で ecobuild init）")
+        skipped.append(f"GitHub へのログイン・タスク管理の権限（ブラウザでの操作が要るので、端末で {operation(command, 'init')}）")
     elif failed("login"):
         if questions.confirm("GitHub にログインしますか？（ブラウザが開きます。タスク管理の権限も一緒に承認します）"):
             ok = run_interactive(["gh", "auth", "login", "--web", "--git-protocol", "https", "--scopes", "project"])
             (done if ok else skipped).append("GitHub にログインしました" if ok else "GitHub へのログインに失敗しました")
         else:
             skipped.append("GitHub へのログイン")
-        report = doctor(types)
+        report = doctor(types, command=command)
     elif failed("scope"):
         if questions.confirm("タスク管理の権限（project）がありません。追加しますか？（ブラウザで承認します）"):
             ok = run_interactive(["gh", "auth", "refresh", "--scopes", "project"])
@@ -422,7 +329,7 @@ def initialize(questions: Questions, types: Types = ()) -> InitReport:
         set_config("owner", answer or None)
         done.append(f"既定の所有者を {answer} にしました" if answer else "既定の所有者の設定を消しました")
 
-    after = doctor(types)
+    after = doctor(types, extra, command=command)
     return InitReport(home(), tuple(done), tuple(skipped), tuple(i for i in after.items if not i.ok))
 
 

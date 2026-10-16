@@ -16,4 +16,4 @@ def command(
             f"{r.days} 日以内に期限：\n" + "\n".join(f"  {task_line(t)}" for t in r.soon) if r.soon else None,
         ) or f"期限切れ・{r.days} 日以内に期限のタスクはありません"
 
-    return run_command("task overdue", lambda inv: inv.module.deadlines(days=days), render, json_output=json)
+    return run_command("task overdue", lambda inv: inv.module.repository.deadlines(days=days), render, json_output=json)

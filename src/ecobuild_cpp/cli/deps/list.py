@@ -15,7 +15,7 @@ def command(
 
     def render(r):
         if not r:
-            return "依存先はありません（ecobuild link で追加できます）"
+            return "依存先はありません（ecobuild deps add で追加できます）"
         return "\n".join(
             f"{d.name}：記録 {d.recorded[:7]}、手元 {(d.local or '-')[:7]}、{STATES[d.state]}"
             + (f"（{d.branch}）" if d.branch else "") + (f"、{d.via} が記録" if d.via else "")

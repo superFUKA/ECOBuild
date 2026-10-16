@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._output import lines, run_command
 
 
@@ -11,8 +11,8 @@ def command(
     """GitHubにあるモジュールを今いるディレクトリへcloneし、依存先と生成ファイルを用意します。"""
 
     def action(inv):
-        from ecobuild import tooling
-        module, dependencies = Module.clone(tooling.qualify(repository), directory=inv.cwd)
+        from ecobuild import settings
+        module, dependencies = Module.clone(settings.qualify(repository), directory=inv.cwd)
         inv.use_module(module)
         return module.cloned(dependencies)
 

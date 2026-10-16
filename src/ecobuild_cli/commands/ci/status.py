@@ -17,7 +17,7 @@ def command(
         return "\n".join(f"#{x.id} {_local(x.created)} {x.workflow}（{x.event}）："
                          f"{x.conclusion or x.status}  {x.url}" for x in r) or "CIの実行はありません"
 
-    return run_command("ci status", lambda inv: inv.module.ci_runs(limit=count, task=task or None), render,
+    return run_command("ci status", lambda inv: inv.module.repository.ci_runs(limit=count, task=task or None), render,
                        json_output=json)
 
 

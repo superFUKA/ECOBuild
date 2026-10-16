@@ -164,6 +164,18 @@ class CiInitResult:
 
 
 @dataclass(frozen=True)
+class DoctorItem:
+    """このPCの診断の1項目（型は doctor_items で、自分が使うツールの分を返す）。"""
+    name: str
+    ok: bool
+    required: bool         # Falseなら、なくても使える（警告だけ）
+    detail: str
+    hint: str = ""
+    fix: str = ""          # 直し方：install／setup-git／identity（setup が直す）、login／scope（init が聞いて直す）
+    install: tuple[str, ...] = ()  # fix が install のときの、このOSでの導入コマンド（なければ準備の側の既定）
+
+
+@dataclass(frozen=True)
 class CheckItem:
     name: str                        # generated / conflict_markers / build / test
     ok: bool

@@ -196,8 +196,8 @@
       {name: 'project', label: 'リンクするProject', type: 'select', options: [['', '既定（テスト用を除いて1つならそれ）'], ...(Array.isArray(data.projects) ? data.projects.filter(p => p.kind !== 'test').map(p => [p.name, `${p.name}（${KIND[p.kind] || p.kind}）`]) : [])],
         help: 'リンクされるのは、相手のモジュールで最初に作ったProjectです（ライブラリである必要があります）。'},
       {name: 'shared', label: '共有ライブラリとしてリンクする', type: 'checkbox'}], 'リンク',
-      v => ['link', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
-    'unlink': name => inWorkspace(`リンクを外す：${name}`, [], '外す', () => ['unlink', name], {danger: true, intro: '依存先のリンクを外します。手元のcloneは、記録の版のままなら削除します（作業中や変更がある場合は残します）。', success: `${name} のリンクを外しました。`}),
+      v => ['deps', 'add', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
+    'unlink': name => inWorkspace(`リンクを外す：${name}`, [], '外す', () => ['deps', 'remove', name], {danger: true, intro: '依存先のリンクを外します。手元のcloneは、記録の版のままなら削除します（作業中や変更がある場合は残します）。', success: `${name} のリンクを外しました。`}),
     'project-add': () => {
       // app・test・bench link a library of this module (test・bench need one); a library gets its test Project.
       const libraries = (Array.isArray(data.projects) ? data.projects : []).filter(p => /library/.test(p.kind)).map(p => [p.name, p.name]);
@@ -279,7 +279,7 @@
       }, {intro: `${esc(KIND[d.kind] || d.kind)}・${esc(d.directory)}/` + (d.links.length ? `<br>リンク：${d.links.map(l => esc(l.name)).join('、')}（「リンク」で変更）` : ''), success: `${name} の設定を保存しました。`});
     },
     // Links of a Project (project link / unlink): a library of this module, a CMake package or source, or built files.
-    // Other modules (GitHub repositories) are linked on the 依存先 tab (ecobuild link).
+    // Other modules (GitHub repositories) are linked on the 依存先 tab (ecobuild deps add).
     'project-link': async name => {
       const d = await details(name); if (!d) return;
       const libraries = (Array.isArray(data.projects) ? data.projects : []).filter(p => p.name !== name && /library/.test(p.kind)).map(p => [p.name, p.name]);

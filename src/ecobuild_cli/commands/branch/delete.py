@@ -11,7 +11,7 @@ def command(
     """作業空間でないブランチを、手元とGitHubから削除します。"""
 
     def action(inv):
-        branch = inv.module.branch(name)
+        branch = inv.module.repository.branch(name)
         branch.delete(dry_run=True)  # 消せないものは確認の前に知らせる
         inv.confirm(f"ブランチ {name} を手元とGitHubから削除しますか？")
         branch.delete()

@@ -22,7 +22,7 @@ def module():
     """ライブラリ Shape（と ShapeTest）と、実行ファイル Viewer（Shape をリンク）。"""
     base = short_temporary_directory()
     module = Module.create("Draw", directory=base, github=FakeGitHub(base / "gh"), kind="library", project="Shape")
-    module.create_task("プロパティの試験").start()
+    module.repository.create_task("プロパティの試験").start()
     module.add_project("Viewer", "app")
     yield module
     remove_tree(base)

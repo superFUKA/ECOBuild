@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import Module
+from ecobuild_cli._module import Module
 from ..._output import run_command
 
 KINDS = {"module": "モジュールのclone", "workspace": "作業空間専用のclone"}

@@ -23,23 +23,19 @@ def command(
 
     def action(inv):
         if no_workspace:
-            return inv.module.start_task_without_workspace(issue, ignore_blocked=ignore_blocked, take_over=take_over)
+            return inv.module.repository.start_task_without_workspace(issue, ignore_blocked=ignore_blocked, take_over=take_over)
         if not dir:
-            return inv.module.task(issue).start(base=base or None, ignore_blocked=ignore_blocked, take_over=take_over)
+            return inv.module.repository.task(issue).start(base=base or None, ignore_blocked=ignore_blocked, take_over=take_over)
         module = inv.module.start_task_in(issue, inv.cwd / dir, base=base or None, ignore_blocked=ignore_blocked,
                                           take_over=take_over)
         _clones.record_quietly(module.root, _clones.WORKSPACE)   # module clones・task list で場所が分かるように
         inv.use_module(module)
-        return module.current_workspace()
+        return module.repository.current_workspace()
 
     def render(r):
         if no_workspace:
             return f"#{r.number} {r.title} を作業中にしました（作業空間なし。終わったら ecobuild task close {r.number}）"
-        where = f"（{inv_root(r)}）" if dir else ""
+        where = f"（{r.root}）" if dir else ""
         return f"作業空間 {r.branch} に切り替えました（作成元 {r.base}）{where}"
 
     return run_command("task start", action, render, json_output=json)
-
-
-def inv_root(workspace) -> str:
-    return str(workspace._repository.root)

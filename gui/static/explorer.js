@@ -112,14 +112,13 @@ generatedButton.addEventListener('click', () => {
   showGenerated = !showGenerated; showGeneratedState(); renderTree();
   try { localStorage.setItem('ecobuild-gui-show-generated', showGenerated ? '1' : '0'); } catch (e) { /* storage blocked */ }
 });
-WS.selectInTree = path => { WS.activeFile = path; renderTree(); tree.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({block: 'nearest'}); };
+WS.selectInTree = path => { WS.activeFile = path; chosen.clear(); chosen.add('f:' + path); anchor = 'f:' + path; renderTree(); tree.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({block: 'nearest'}); };
 
 tree.addEventListener('click', e => {
   const row = e.target.closest('[data-path]'); if (!row) return;
   // Only move the highlight: rebuilding the tree here would replace the row under the second click of a double-click,
   // and the dblclick (open in Visual Studio) would never arrive.
   WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path);
-  tree.querySelectorAll('.file.active').forEach(r => r.classList.remove('active')); row.classList.add('active');
   choose('f:' + row.dataset.path, e);
   WS.renderChanges(); row.focus();
 });
@@ -140,9 +139,20 @@ function choose(key, e) {
   } else { chosen.clear(); chosen.add(key); anchor = key; }
   paintChosen();
 }
+// One highlight: what is chosen (the file shown as "active" is no separate mark; with a folder chosen, no file is).
 function paintChosen() {
-  for (const el of tree.querySelectorAll('[data-path], summary[data-directory]')) el.classList.toggle('chosen', chosen.has(keyOfItem(el)));
+  for (const el of tree.querySelectorAll('[data-path], summary[data-directory]')) {
+    const on = chosen.has(keyOfItem(el));
+    el.classList.toggle('chosen', on);
+    if (el.dataset.path !== undefined) el.classList.toggle('active', on && el.dataset.path === WS.activeFile);
+  }
 }
+// Nothing chosen: a click on the empty part of the explorer, or Esc (as in Explorer).
+function clearChosen() { chosen.clear(); anchor = ''; paintChosen(); }
+tree.closest('aside').addEventListener('click', e => {
+  if (!e.target.closest('[data-path], summary, input, button, .inline-name, #file-menu')) clearChosen();
+});
+tree.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.target.matches('input')) clearChosen(); });
 // The chosen ones, without those inside a chosen folder (they go with it).
 function chosenItems() {
   const dirs = [...chosen].filter(k => k.startsWith('d:')).map(k => k.slice(2));

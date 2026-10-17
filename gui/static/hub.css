@@ -151,3 +151,7 @@
     body.nav-collapsed .nav-account { justify-content: center; padding: 14px 0 0; }
     body.nav-collapsed .nav-account-name { display: none; }
     .module-about { display: block; margin-top: 8px; color: #a5aeba; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    /* Under the window's own top bar (html.frameless): the menu starts below it, and its ECOBuild title is the bar's. */
+    html.frameless .sidebar { top: 40px; height: calc(100vh - 40px); }
+    html.frameless .sidebar h1 { display: none; }
+    html.frameless .sidebar-top { padding-bottom: 18px; }

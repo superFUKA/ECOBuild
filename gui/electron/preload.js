@@ -6,6 +6,7 @@ const {contextBridge, ipcRenderer} = require('electron');
 
 contextBridge.exposeInMainWorld('ecobuildShell', {
   electron: true,
+  frameless: process.platform !== 'darwin',   // the page draws the window's top bar (main.js: titleBarStyle hidden)
   pickFolder: options => ipcRenderer.invoke('pick-folder', options),
   openPath: options => ipcRenderer.invoke('open-path', options),
 });

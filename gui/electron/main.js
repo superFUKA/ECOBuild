@@ -27,9 +27,13 @@ function python() {
 
 const sameServer = url => { try { return hubUrl && new URL(url).origin === new URL(hubUrl).origin; } catch (e) { return false; } };
 
+// The window's top is the app's own (Windows・Linux): no system title bar; the close・maximize・minimize buttons stay,
+// in the app's colors (titleBarOverlay). The page draws the bar (frameless: preload.js) and makes it draggable.
+const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 40};
 function windowOptions([width, height]) {
   return {
     width, height, icon: ICON, backgroundColor: '#14181d', autoHideMenuBar: true,
+    ...(process.platform === 'darwin' ? {} : {titleBarStyle: 'hidden', titleBarOverlay: TITLE_BAR}),
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   };
 }

@@ -43,6 +43,8 @@ const ECO = (() => {
   const running = document.createElement('div'); running.className = 'eco-running'; running.setAttribute('aria-live', 'polite');
   const toasts = document.createElement('div'); toasts.className = 'eco-toasts'; toasts.setAttribute('role', 'status');
   document.addEventListener('DOMContentLoaded', () => document.body.append(running, toasts, refreshing));
+  // Electron (Windows・Linux): the window has no system title bar; the page's top is the bar (see the CSS).
+  if (window.ecobuildShell?.frameless && window.top === window) document.documentElement.classList.add('frameless');
 
   // Cached reads: stale-while-revalidate (as HTTP caches and React Query・SWR do). query() answers at once with what was
   // read before (kept by the GUI server, across windows and restarts) and reads again behind it; when the new answer

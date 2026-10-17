@@ -115,8 +115,9 @@ const placeLabel = dir => {
 function renderTab(dir) {
   const button = tabs.querySelector(`[data-dir="${CSS.escape(keyOf(dir))}"]`); if (!button) return;
   const {branch, title, where} = placeLabel(dir);
-  button.innerHTML = `${ECO.esc(branch)}${title ? `<small>${ECO.esc(title)}</small>` : ''}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
-  button.title = dir;
+  // A task's tab shows the task's title (its branch, task/<n>, on hover); another workspace shows its branch.
+  button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
+  button.title = `${branch}　${dir}`;
   syncTabs();
 }
 async function refreshState(dir) {

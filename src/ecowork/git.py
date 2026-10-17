@@ -193,8 +193,15 @@ class Git:
     def push_delete(self, branch: str) -> None:
         self.run("push", "--quiet", REMOTE, "--delete", branch)
 
-    def restore(self, paths: tuple[str, ...], *, staged: bool = False) -> None:
+    def restore(self, paths: tuple[str, ...], *, staged: bool = False, source: str | None = None) -> None:
+        """source：その版の状態にする（ステージと作業ツリーの両方。paths を省くと全体。その版にないファイルは消える）。"""
+        if source is not None:
+            self.run("restore", f"--source={source}", "--staged", "--worktree", "--", *(paths or (".",)))
+            return
         self.run("restore", *(["--staged"] if staged else []), "--", *paths)
+
+    def reset_hard(self, revision: str) -> None:
+        self.run("reset", "--hard", revision)
 
     # 取り込み ---------------------------------------------------------------
 

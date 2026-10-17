@@ -84,7 +84,7 @@ CACHEABLE = {
     ("task", "list"), ("task", "status"), ("task", "next"), ("task", "overdue"), ("task", "workload"),
     ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
     ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
-    ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"),
+    ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"), ("log",),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
 CACHE_DAYS = 14                     # これより古いものは読み込まない

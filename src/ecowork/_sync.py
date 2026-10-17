@@ -158,6 +158,52 @@ class Syncing:
     def stashes(self) -> tuple[str, ...]:
         return self._stash_messages()
 
-    def restore(self, *paths: str, staged: bool = False) -> wm.RestoreResult:
-        self.git.restore(paths, staged=staged)
-        return wm.RestoreResult(paths, staged)
+    def restore(self, *paths: str, staged: bool = False, source: str | None = None) -> wm.RestoreResult:
+        """変更を取り消す。source：ファイルを以前の版（コミット）の状態に戻す（タスクブランチで。結果は未コミットの変更になり、
+        いつものようにコミットする。履歴は消さない）。paths を省くと全体。"""
+        if source is None:
+            self.git.restore(paths, staged=staged)
+            return wm.RestoreResult(paths, staged)
+        self.require_task_branch("以前の版の状態に戻すこと")
+        commit = self._commit(source)
+        tree = self.git.working_tree()
+        if tree.staged or tree.unstaged or tree.conflicted:
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があります（戻すと失われます）。",
+                            hint=f"先に {self._op('task commit')} でコミットするか、{self._op('stash')} で退避してください。")
+        self.git.restore(paths, source=commit)
+        return wm.RestoreResult(paths or (".",), False, commit)
+
+    def reset_task(self, revision: str, *, dry_run: bool = False) -> wm.ResetResult:
+        """タスクブランチを以前の版まで戻す（その後のコミットを捨てる）。まだ GitHub に push していないコミットだけ
+        捨てられる（push 済みを消すと、GitHub やほかの人とずれる：その時は restore --source で戻してコミットする）。"""
+        task_branch = self.require_task_branch("タスクブランチを以前の版まで戻すこと")
+        commit = self._commit(revision)
+        if not self.git.is_ancestor(commit, "HEAD"):
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"{revision} は {task_branch.branch} の履歴にありません。",
+                            hint=f"{self._op('log')} で、戻す先のコミットを確かめてください。")
+        base = f"{_git.REMOTE}/{task_branch.base}" if self.git.rev_parse(f"{_git.REMOTE}/{task_branch.base}") else task_branch.base
+        fork = self.git.output("merge-base", "HEAD", base)
+        if not self.git.is_ancestor(fork, commit):
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"{revision} は、このタスクブランチを作る前（作成元 {task_branch.base}）のコミットです。",
+                            hint=f"その版のファイルに戻すには {self._op('restore')} --source {revision}（変更としてコミットします）。")
+        lines = self.git.output("log", "--format=%H%x1f%s", f"{commit}..HEAD").splitlines()
+        dropped = tuple(tuple(line.split("\x1f", 1)) for line in lines if line)
+        upstream = f"{_git.REMOTE}/{task_branch.branch}"
+        if dropped and self.git.rev_parse(upstream) and self.git.count(f"{commit}..{upstream}"):
+            raise WorkError(ErrorCode.COMMITS_WOULD_BE_LOST, "捨てるコミットの中に、GitHub に push 済みのものがあります。",
+                            hint=f"push 済みのコミットは消さずに、{self._op('restore')} --source {revision} でその版のファイルに戻し、"
+                                 "変更としてコミットしてください。")
+        tree = self.git.working_tree()
+        if dropped and (tree.staged or tree.unstaged or tree.conflicted):
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があります（戻すと失われます）。",
+                            hint=f"先に {self._op('task commit')} でコミットするか、{self._op('stash')} で退避してください。")
+        if dropped and not dry_run:
+            self.git.reset_hard(commit)
+        return wm.ResetResult(task_branch.branch, commit, dropped, dry_run)
+
+    def _commit(self, revision: str) -> str:
+        found = self.git.rev_parse(revision)
+        if found is None:
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"コミット {revision} が見つかりません。",
+                            hint=f"{self._op('log')} で、コミット（の先頭の数文字）を確かめてください。")
+        return found

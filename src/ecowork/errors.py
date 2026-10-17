@@ -40,4 +40,5 @@ class ErrorCode(_TaskErrorCode):
     COMMITS_WOULD_BE_LOST = "commits_would_be_lost"
     PLAN_REQUIRED = "plan_required"             # GitHub の料金プランの制限（無料の非公開リポジトリのブランチの保護等）
     APPROVAL_REQUIRED = "approval_required"     # 承認が必須の設定で、提出がまだ承認されていない
+    REVISION_NOT_FOUND = "revision_not_found"   # 指定したコミット（版）がない・このタスクブランチの履歴にない
     GIT_ERROR = "git_error"

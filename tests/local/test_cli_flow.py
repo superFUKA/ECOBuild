@@ -37,7 +37,7 @@ def test_every_command_has_help():
                  ["branch", "create"], ["branch", "list"], ["branch", "delete"], ["branch", "submit"],
                  ["branch", "merge"], ["task", "new"], ["task", "start"], ["task", "submit"], ["task", "finish"],
                  ["task", "approve"], ["task", "reject"], ["task", "withdraw"], ["task", "review"], ["task", "diff"],
-                 ["task", "revert"], ["task", "prune"], ["task", "drop"], ["track"], ["track", "add"],
+                 ["task", "revert"], ["task", "reset"], ["task", "prune"], ["task", "drop"], ["track"], ["track", "add"],
                  ["track", "remove"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["task", "next"], ["task", "overdue"],
                  ["task", "edit"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"],

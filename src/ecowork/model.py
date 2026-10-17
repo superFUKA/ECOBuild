@@ -365,6 +365,16 @@ class StashResult:
 class RestoreResult:
     paths: tuple[str, ...]
     staged: bool
+    source: str | None = None          # 以前の版の状態に戻したとき：その版（コミット）
+
+
+@dataclass(frozen=True)
+class ResetResult:
+    """task reset：タスクブランチを以前の版まで戻した（その後のコミットを捨てた）。"""
+    branch: str
+    commit: str
+    dropped: tuple[tuple[str, str], ...]   # 捨てたコミット（コミット・件名。新しい順）
+    dry_run: bool = False
 
 
 @dataclass(frozen=True)

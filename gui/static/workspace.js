@@ -213,6 +213,37 @@ const setPushListClosed = closed => { pushListClosed = closed; try { localStorag
 get('push-commits-close').addEventListener('click', () => setPushListClosed(true));
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
+
+// 履歴 (ecobuild log): a commit's menu shows its changes, or goes back to it — the files as they were (restore --source:
+// a change to commit, the history stays) or the task branch itself (task reset: the later commits, not pushed, go).
+let history = [];
+async function loadHistory() {
+  const doc = await ECO.query(WS.dir, ['log', '--count', '30'], fresh => { history = fresh.result; renderHistory(); });
+  history = doc.ok ? doc.result : []; renderHistory();
+}
+function renderHistory() {
+  const box = get('history-list'); if (!box) return;
+  box.innerHTML = history.map((c, i) => `<li><button type="button" data-history="${i}" title="${esc(c.sha)}　右クリック・押すと操作">
+    <code>${esc(c.sha.slice(0, 8))}</code><span class="history-subject">${esc(c.subject)}</span>
+    <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></button></li>`).join('')
+    || '<li class="muted">履歴はありません。</li>';
+}
+function historyMenu(index, x, y) {
+  const c = history[index], s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
+  ECO.menu([
+    ['差分を見る', async () => { const doc = await WS.cli(['show', c.sha], {quiet: true}); return doc.ok ? ECO.output(`${short} ${c.subject}`, doc.result, {diff: true}) : ECO.showError(doc); }],
+    '-',
+    [onTask ? 'この版の状態に戻す（変更としてコミットする）…' : 'この版の状態に戻す（タスクブランチで）', () => WS.run(['restore', '--source', c.sha],
+      {confirm: `ファイルを ${short}「${c.subject}」のときの状態に戻します。履歴は消さず、戻した結果はコミットする変更になります。`, title: 'この版の状態に戻す',
+       success: `${short} の状態に戻しました。内容を確かめてコミットしてください。`}).then(() => WS.reloadFiles?.()), onTask],
+    [onTask ? 'ここまで戻す（後のコミットを捨てる）…' : 'ここまで戻す（タスクブランチで）', () => WS.run(['task', 'reset', c.sha],
+      {title: 'ここまで戻す', success: r => r.dropped.length ? `${short} まで戻しました（捨てたコミット ${r.dropped.length} 件）。` : '捨てるコミットはありません。'})
+      .then(() => WS.reloadFiles?.()), onTask],
+  ], x, y);
+}
+get('history-list')?.addEventListener('click', e => { const b = e.target.closest('[data-history]'); if (b) { const r = b.getBoundingClientRect(); historyMenu(Number(b.dataset.history), r.left + 40, r.bottom); } });
+get('history-list')?.addEventListener('contextmenu', e => { const b = e.target.closest('[data-history]'); if (b) { e.preventDefault(); historyMenu(Number(b.dataset.history), e.clientX, e.clientY); } });
+WS.onRefresh(loadHistory);
 get('submit-pr').addEventListener('click', () => submitted() ? WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(() => WS.refreshPrs?.()) : ECO.form({
   title: '提出する', intro: '確認（ビルド・テスト等）してからタスクブランチをPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へ提出します。',
   fields: [

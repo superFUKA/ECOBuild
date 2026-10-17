@@ -200,3 +200,52 @@ def test_sync_notices_changes_made_on_github(repository, remote_and_clone):
     repository.default_base = "develop"
     repository.check_repository()
     assert any("作成元 develop がGitHubにありません" in n and "既定のブランチは main" in n for n in repository.notices)
+
+
+def _commits(task_branch, root, *changes):
+    """（ファイル名, 中身）ごとに1コミット。作ったコミットを返す。"""
+    made = []
+    for name, text in changes:
+        write(root / name, text)
+        task_branch.stage(name)
+        task_branch.commit(f"{name} を {text.strip()}")
+        made.append(git(root, "rev-parse", "HEAD").strip())
+    return made
+
+
+def test_restore_to_an_earlier_version(repository):
+    """restore --source：ファイルを以前の版の状態に戻す（未コミットの変更になる。その版になかったファイルは消える）。"""
+    root = repository.root
+    task_branch = repository.create_task("t").start()
+    first, _ = _commits(task_branch, root, ("a.txt", "1\n"), ("a.txt", "2\n"))
+    write(root / "b.txt", "b\n"); task_branch.stage("b.txt"); task_branch.commit("b を足す")
+    head = git(root, "rev-parse", "HEAD").strip()
+    result = repository.restore(source=first[:8])
+    assert result.source == first and (root / "a.txt").read_text(encoding="utf-8") == "1\n" and not (root / "b.txt").exists()
+    assert git(root, "rev-parse", "HEAD").strip() == head            # 履歴は消さない
+    assert repository.status().staged                                   # 戻した結果は、コミットする変更
+    # 戻した変更があるうちは、もう一度は戻さない（未コミットの変更が失われるので）
+    assert code_of(lambda: repository.restore(source=head)) == ErrorCode.DIRTY_WORKING_TREE
+    git(root, "reset", "--quiet", "--hard")
+    assert code_of(lambda: repository.restore(source="nosuch")) == ErrorCode.REVISION_NOT_FOUND
+
+
+def test_restore_to_a_version_only_on_a_task_branch(repository):
+    head = git(repository.root, "rev-parse", "HEAD").strip()
+    assert code_of(lambda: repository.restore(source=head)) == ErrorCode.NOT_ON_TASK_BRANCH
+
+
+def test_reset_task_drops_the_later_commits_not_pushed(repository):
+    """task reset：タスクブランチを以前の版まで戻す。push 済みのコミットは捨てない。作成元より前には戻らない。"""
+    root = repository.root
+    base = git(root, "rev-parse", "HEAD").strip()
+    task_branch = repository.create_task("t").start()
+    first, second, third = _commits(task_branch, root, ("a.txt", "1\n"), ("a.txt", "2\n"), ("a.txt", "3\n"))
+    preview = repository.reset_task(first, dry_run=True)
+    assert [sha for sha, _ in preview.dropped] == [third, second] and git(root, "rev-parse", "HEAD").strip() == third
+    assert repository.reset_task(second).dropped[0][0] == third
+    assert git(root, "rev-parse", "HEAD").strip() == second and (root / "a.txt").read_text(encoding="utf-8") == "2\n"
+    assert repository.reset_task(second).dropped == ()                 # もうそこにいる
+    assert repository.reset_task(base, dry_run=True).dropped           # タスクの最初（作成元から分かれた所）までは戻せる
+    git(root, "push", "--quiet", "origin", "HEAD")                      # push 済み
+    assert code_of(lambda: repository.reset_task(first)) == ErrorCode.COMMITS_WOULD_BE_LOST

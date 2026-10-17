@@ -760,9 +760,20 @@ class Module:
         finally:
             self._reload()
 
-    def restore(self, *paths: str, staged: bool = False) -> wm.RestoreResult:
-        result = self.repository.restore(*paths, staged=staged)
-        self._reload()
+    def restore(self, *paths: str, staged: bool = False, source: str | None = None) -> wm.RestoreResult:
+        """変更を取り消す。source：以前の版（コミット）の状態に戻す（タスクブランチで。未コミットの変更になる）。"""
+        result = self.repository.restore(*paths, staged=staged, source=source)
+        if source is None:
+            self._reload()
+        else:
+            self._after_sync()        # 管理ファイルも戻ったら、生成ファイル・依存先をそろえる
+        return result
+
+    def reset_task(self, revision: str, *, dry_run: bool = False) -> wm.ResetResult:
+        """タスクブランチを以前の版まで戻す（その後の、まだ push していないコミットを捨てる）。"""
+        result = self.repository.reset_task(revision, dry_run=dry_run)
+        if result.dropped and not dry_run:
+            self._after_sync()
         return result
 
     # 型の能力 ---------------------------------------------------------------------

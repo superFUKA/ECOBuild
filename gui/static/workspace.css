@@ -93,3 +93,32 @@ main > aside { border-right: 0; }
 body.resizing { cursor: col-resize; user-select: none; }
 body.resizing iframe { pointer-events: none; }
 @media(max-width: 700px) { main { grid-template-columns: 1fr; } .splitter { display: none; } }
+
+/* The toolbar like Visual Studio's: the configuration on the left, ▶ 実行 (with the Project it runs) in the middle,
+   the AI and the editor on the right. */
+.build-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; padding: 6px 12px; }
+.bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bar-right { justify-content: flex-end; }
+.bar-field { position: relative; display: flex !important; align-items: center; gap: 0 !important; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; }
+.bar-field > span { padding: 0 2px 0 9px; color: #84909e; font-size: 11px; white-space: nowrap; }
+.build-bar .bar-field select { border: 0; background: transparent; padding: 5px 6px; max-width: 170px; color: #edf1f5; cursor: pointer; }
+.bar-field:hover { border-color: #56616e; }
+.run-group { display: inline-flex; align-items: stretch; border: 1px solid #2f7a52; border-radius: 7px; overflow: hidden; }
+.build-bar .run-button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 14px 5px 12px; border: 0; border-radius: 0; background: #1f4a35; color: #c8f5da; font-weight: 600; }
+.build-bar .run-button svg { color: #5fd38d; }
+.build-bar .run-button:hover:not(:disabled) { background: #26603f; }
+.run-target { display: flex !important; border-left: 1px solid #2f7a52; background: #17241d; }
+.build-bar .run-target select { border: 0; border-radius: 0; background: transparent; padding: 5px 8px; max-width: 200px; color: #c8f5da; cursor: pointer; }
+.run-target[hidden] { display: none !important; }
+.bar-separator { width: 1px; height: 20px; margin: 0 4px; background: #3a424c; }
+.build-bar .tool-button { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
+.build-bar .tool-button:hover:not(:disabled) { background: #252d36; border-color: #3a424c; }
+.build-bar .tool-button svg { color: #9eaab8; }
+.build-bar .build-more > summary { padding: 4px 9px; border-color: transparent; background: transparent; }
+.build-bar .build-more > summary:hover { background: #252d36; border-color: #3a424c; }
+.build-bar .build-more > div { right: auto; left: 0; }
+@media (max-width: 1000px) {
+  .build-bar { display: flex; flex-wrap: wrap; }
+  .bar-right { margin-left: auto; }
+  .build-bar .tool-button span { display: none; }
+}

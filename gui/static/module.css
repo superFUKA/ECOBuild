@@ -79,7 +79,6 @@ main, body.embedded > main { flex: 1; height: auto; min-height: 0; }
 .build-bar { flex-shrink: 0; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 7px 14px; border-bottom: 1px solid #303640; background: #191e24; font-size: 12px; color: #a5aeba; }
 .build-bar label { display: flex; align-items: center; gap: 6px; }
 .build-bar select, .build-bar input { width: auto; padding: 4px 8px; font-size: 12px; border-radius: 5px; }
-.build-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .build-bar button { padding: 5px 14px; font-size: 12px; }
 .build-more { position: relative; }
 .build-more > summary { list-style: none; cursor: pointer; padding: 4px 10px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; }
@@ -94,4 +93,4 @@ main, body.embedded > main { flex: 1; height: auto; min-height: 0; }
 .build-output-head button { margin-left: auto; padding: 0 8px; border: 0; background: transparent; color: #a5aeba; font-size: 16px; }
 .build-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; } .build-state.ok { background: #213a33; color: #a8ead9; } .build-state.bad { background: #43282b; color: #ffb4b4; }
 .build-output pre { margin: 0; padding: 10px 14px; overflow: auto; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; color: #cdd5df; white-space: pre-wrap; }
-@media(max-width: 700px) { body { height: auto; } .build-actions { margin-left: 0; } }
+@media(max-width: 700px) { body { height: auto; } }

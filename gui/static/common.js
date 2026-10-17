@@ -20,6 +20,9 @@ const ECO = (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
   async function call(api, body = {}) {
+    // In the Electron window the folder picker comes from the window itself (one the server opens hides behind it).
+    const shell = window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })();
+    if (api === 'pick-folder' && shell?.pickFolder) return shell.pickFolder(body);
     let response;
     try {
       response = await fetch('/api/' + api, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': token}, body: JSON.stringify(body)});

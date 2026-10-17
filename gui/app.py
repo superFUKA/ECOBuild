@@ -502,8 +502,9 @@ def read_text(directory: str, relative: str) -> dict:
 _PICK = r"""
 import sys, tkinter as tk
 from tkinter import filedialog
-root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
-path = filedialog.askdirectory(title=sys.argv[1], initialdir=sys.argv[2] or None, mustexist=False)
+root = tk.Tk(); root.overrideredirect(True); root.geometry("0x0+0+0"); root.attributes("-topmost", True)
+root.lift(); root.focus_force()   # a withdrawn owner leaves the picker behind the GUI window
+path = filedialog.askdirectory(parent=root, title=sys.argv[1], initialdir=sys.argv[2] or None, mustexist=False)
 print(path or "")
 """
 

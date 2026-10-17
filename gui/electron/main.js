@@ -4,7 +4,7 @@
 // - 窓をすべて閉じる、またはハブの「GUIを終了」でサーバーが終わると、アプリも終わる（サーバーは標準入力が閉じたら終わる）。
 // - 2つめの起動は、動いているアプリにハブの窓を開かせる。
 // Python：環境変数 ECOBUILD_GUI_PYTHON、リポジトリの .venv、PATH の python の順。ecobuild の場所：ECOBUILD_GUI_ECOBUILD。
-const {app, BrowserWindow, Menu, dialog, shell} = require('electron');
+const {app, BrowserWindow, Menu, dialog, ipcMain, shell} = require('electron');
 const {spawn} = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -62,6 +62,15 @@ app.on('web-contents-created', (event, contents) => {
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) contents.toggleDevTools();
     else if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) contents.reload();
   });
+});
+
+// The folder picker, attached to the window that asked (preload.js: ecobuildShell.pickFolder). Same answer as the
+// server's pick-folder: {path}, empty when nothing was chosen.
+ipcMain.handle('pick-folder', async (event, {title, initial} = {}) => {
+  const options = {title: title || 'フォルダを選ぶ', properties: ['openDirectory', 'createDirectory']};
+  if (initial && fs.existsSync(initial)) options.defaultPath = path.resolve(initial);
+  const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender), options);
+  return {path: result.canceled || !result.filePaths.length ? '' : result.filePaths[0].replaceAll('\\', '/')};
 });
 
 function startServer() {

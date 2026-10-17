@@ -29,6 +29,12 @@ def test_the_buttons_use_the_actions():
             assert name in actions.ACTIONS, f"{path.name}：{name}"
 
 
+def test_pages_in_a_window_are_that_window():
+    """作業空間（モジュールの窓の中の iframe）の操作は、その窓の操作（窓の番号を使う。エージェントの操作に見えない）。"""
+    text = (STATIC / "common.js").read_text(encoding="utf-8")
+    assert "window.ECO = ECO;" in text and "window.top.ECO.windowId" in text
+
+
 def test_check_names_and_params():
     assert actions.check("open", {"module": "M", "task": "12"}) == {"module": "M", "task": 12}
     assert actions.check("folder", {"dir": "C:/x", "reveal": "true"}) == {"dir": "C:/x", "reveal": True}

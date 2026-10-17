@@ -578,3 +578,5 @@ const ECO = (() => {
 
   return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState};
 })();
+// The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
+window.ECO = ECO;

@@ -111,7 +111,7 @@ WS.onRefresh(renderPrDetail);
     const fromProfile = selectedProfile && profiles[selectedProfile] ? `ビルド設定のまま（${profiles[selectedProfile].configuration}）` : '既定（Debug）';
     const help = features.configurationHelp || {};
     const configurations = [...config.options].map(o => [mark(o.value === config.value) + (o.value ? o.textContent : fromProfile), () => { config.value = o.value; showSetting(); }, true,
-      o.value ? help[o.value] || '' : 'このPCで使うビルド設定の構成（なければ Debug）でビルドする']);
+      o.value ? help[o.value] || '' : 'ビルド設定の構成（なければ Debug）']);
     const names = [...profile.options].map(o => [mark(o.value === (selectedProfile || 'none')) + o.textContent, () => {
       if (o.value === (selectedProfile || 'none')) return;
       profile.value = o.value; profile.dispatchEvent(new Event('change'));

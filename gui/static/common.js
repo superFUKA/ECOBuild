@@ -551,14 +551,12 @@ const ECO = (() => {
   // commands every type has (build・test・run・clean with a configuration, profile add with a configuration).
   const TYPES = {
     cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true,
-      configurationHelp: {Debug: '開発用：最適化なし・デバッグ情報あり。ブレークポイントで止めて調べやすいが遅い',
-        Release: '配布用：速度を優先して最適化。デバッグ情報なし',
-        RelWithDebInfo: 'Release と同じ最適化に、デバッグ情報も付ける。速いまま不具合を調べたいとき',
-        MinSizeRel: 'サイズを優先して最適化。実行ファイルを小さくしたいとき'}},
+      configurationHelp: {Debug: '開発用（最適化なし・デバッグ情報あり）', Release: '配布用（速さ優先で最適化）',
+        RelWithDebInfo: 'Release＋デバッグ情報', MinSizeRel: '小ささ優先で最適化'}},
     python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true,
-      configurationHelp: {Debug: '開発用：.venv に編集可能な形で入れる（ソースを直せばすぐ反映）', Release: '配布用：さらに wheel・sdist を dist/ に作る'}},
+      configurationHelp: {Debug: '開発用（.venv に編集可能で入れる）', Release: '配布用（wheel・sdist も作る）'}},
     generic: {configurations: ['Debug', 'Release'],
-      configurationHelp: {Debug: '開発用（中身は .ecobuild/ecobuild.toml のコマンドが決める）', Release: '配布用（中身は .ecobuild/ecobuild.toml のコマンドが決める）'}},
+      configurationHelp: {Debug: '開発用', Release: '配布用'}},
   };
   const types = new Map();
   function moduleType(dir) {

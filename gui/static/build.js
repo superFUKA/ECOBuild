@@ -6,11 +6,12 @@ WS.onRefresh(renderPrDetail);
 (() => {
   const LABEL = {build: 'ビルド', rebuild: 'リビルド', clean: 'クリーン', test: 'テスト', run: '実行', check: '提出前の確認'};
   const CHECK = {generated: '生成ファイルが最新', conflict_markers: '衝突マーカーがない', build: 'ビルド', test: 'テスト'};
-  let profiles = {}, selectedProfile = null, busy = false;
+  let profiles = {}, selectedProfile = null, busy = false, features = ECO.typeFeatures('');
 
   async function loadOptions() {
     const [p, j, type] = await Promise.all([WS.cli(['profile', 'list'], {quiet: true}), WS.cli(['project', 'list'], {quiet: true}), ECO.moduleType(WS.dir)]);
-    const features = ECO.typeFeatures(type), config = get('build-config'), chosen = config.value;
+    features = ECO.typeFeatures(type);
+    const config = get('build-config'), chosen = config.value;
     config.innerHTML = '<option value="">ビルド設定のまま</option>' + features.configurations.map(c => `<option>${esc(c)}</option>`).join('');
     config.value = features.configurations.includes(chosen) ? chosen : '';
     get('vs-group').hidden = !features.solution;
@@ -108,7 +109,9 @@ WS.onRefresh(renderPrDetail);
     const r = get('build-setting').getBoundingClientRect(), config = get('build-config'), profile = get('build-profile');
     const mark = on => on ? '✓ ' : '　';
     const fromProfile = selectedProfile && profiles[selectedProfile] ? `ビルド設定のまま（${profiles[selectedProfile].configuration}）` : '既定（Debug）';
-    const configurations = [...config.options].map(o => [mark(o.value === config.value) + (o.value ? o.textContent : fromProfile), () => { config.value = o.value; showSetting(); }]);
+    const help = features.configurationHelp || {};
+    const configurations = [...config.options].map(o => [mark(o.value === config.value) + (o.value ? o.textContent : fromProfile), () => { config.value = o.value; showSetting(); }, true,
+      o.value ? help[o.value] || '' : 'このPCで使うビルド設定の構成（なければ Debug）でビルドする']);
     const names = [...profile.options].map(o => [mark(o.value === (selectedProfile || 'none')) + o.textContent, () => {
       if (o.value === (selectedProfile || 'none')) return;
       profile.value = o.value; profile.dispatchEvent(new Event('change'));

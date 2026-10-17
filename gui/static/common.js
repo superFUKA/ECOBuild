@@ -476,9 +476,9 @@ const ECO = (() => {
     const el = document.createElement('div'); el.className = 'eco-menu'; el.setAttribute('role', 'menu');
     for (const item of items) {
       if (item === '-') { el.append(document.createElement('hr')); continue; }
-      const [text, action, enabled = true] = item;
+      const [text, action, enabled = true, tip = ''] = item;   // tip: shown when the pointer is on the item
       if (action === null) { const head = document.createElement('div'); head.className = 'eco-menu-head'; head.textContent = text; el.append(head); continue; }   // a heading of the items below
-      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled;
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled; if (tip) b.title = tip;
       b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
       el.append(b);
     }
@@ -550,9 +550,15 @@ const ECO = (() => {
   // offer for it: the commands differ by type (ecobuild --help in the module). A type the GUI does not know gets the
   // commands every type has (build・test・run・clean with a configuration, profile add with a configuration).
   const TYPES = {
-    cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true},
-    python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true},
-    generic: {configurations: ['Debug', 'Release']},
+    cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true,
+      configurationHelp: {Debug: '開発用：最適化なし・デバッグ情報あり。ブレークポイントで止めて調べやすいが遅い',
+        Release: '配布用：速度を優先して最適化。デバッグ情報なし',
+        RelWithDebInfo: 'Release と同じ最適化に、デバッグ情報も付ける。速いまま不具合を調べたいとき',
+        MinSizeRel: 'サイズを優先して最適化。実行ファイルを小さくしたいとき'}},
+    python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true,
+      configurationHelp: {Debug: '開発用：.venv に編集可能な形で入れる（ソースを直せばすぐ反映）', Release: '配布用：さらに wheel・sdist を dist/ に作る'}},
+    generic: {configurations: ['Debug', 'Release'],
+      configurationHelp: {Debug: '開発用（中身は .ecobuild/ecobuild.toml のコマンドが決める）', Release: '配布用（中身は .ecobuild/ecobuild.toml のコマンドが決める）'}},
   };
   const types = new Map();
   function moduleType(dir) {

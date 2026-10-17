@@ -34,7 +34,7 @@
 .build-bar .vs-button:hover:not(:disabled) { border-color: #b39ddb; }
 .vs-group { display: inline-flex; align-items: stretch; }
 .build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.build-bar .vs-group .vs-more { padding: 3px 9px; font-size: 14px; line-height: 1; border: 1px solid #6c5a9c; border-left: 1px solid #3c3354; border-radius: 0 7px 7px 0; color: #d6c9f7; }
+.build-bar .vs-group .vs-more { display: grid; place-items: center; padding: 3px 8px; font-size: 14px; line-height: 1; border: 1px solid #6c5a9c; border-left: 1px solid #3c3354; border-radius: 0 7px 7px 0; color: #d6c9f7; }
 .build-bar .vs-group .vs-more:hover { border-color: #b39ddb; }
 .build-bar .agent-group .agent-button, .build-bar .agent-group .vs-more { border-color: #3f7a6c; color: #b8eadb; }
 .build-bar .agent-group .vs-more { border-left-color: #2d4d45; }
@@ -108,7 +108,7 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .run-button svg { color: #5fd38d; }
 .build-bar .run-button:hover:not(:disabled) { background: #26603f; }
 .run-target { display: flex; border-left: 1px solid #2f7a52; background: #17241d; }
-.build-bar .run-target button { padding: 0 9px; border: 0; border-radius: 0; background: transparent; color: #c8f5da; font-size: 12px; }
+.build-bar .run-target button { display: grid; place-items: center; padding: 0 9px; border: 0; border-radius: 0; background: transparent; color: #c8f5da; font-size: 12px; }
 .build-bar .run-target button:hover { background: #26603f; }
 .build-bar .run-target button.chosen { color: #5fd38d; }
 /* The lists of the selects: dark, like the bar (the system's white list with light text is hard to read). */
@@ -133,3 +133,9 @@ body.resizing iframe { pointer-events: none; }
   padding: 4px 9px; border: 1px solid #46515e; border-radius: 5px; background: #252b33; color: #edf1f5;
   font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; font-weight: 400; white-space: nowrap; pointer-events: none; box-shadow: 0 6px 18px #0007; }
 .build-bar .build-more[open] > summary::after { display: none; }
+
+/* ビルド: 🔧 and ▾ joined, like ▶ and its ▾ but quieter. */
+.build-group { display: inline-flex; align-items: stretch; border: 1px solid #3a424c; border-radius: 7px; }
+.build-bar .build-group .tool-button { border: 0; border-radius: 6px 0 0 6px; }
+.build-bar .build-group #build-menu { display: grid; place-items: center; padding: 0 8px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent; color: #9eaab8; font-size: 12px; }
+.build-bar .build-group #build-menu:hover { background: #252d36; color: #edf1f5; }

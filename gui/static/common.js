@@ -351,6 +351,23 @@ const ECO = (() => {
   });
   window.addEventListener('blur', () => { openMenu?.remove(); openMenu = null; });
 
+  // The ⋯ menus made of <details> (a card's or a panel's) close like the menus above: a click outside, Escape, choosing
+  // one of their items, another one opening, or the window losing the focus (a click in another frame).
+  const POPUPS = 'details.share-more, details.module-menu, details.tk-menu, details[data-popup]';
+  const closePopups = (except = null) => document.querySelectorAll(POPUPS).forEach(d => { if (d !== except && d.open) d.open = false; });
+  document.addEventListener('pointerdown', e => closePopups(e.target.closest?.(POPUPS)));
+  document.addEventListener('click', e => {
+    const popup = e.target.closest?.(POPUPS);
+    if (popup && e.target.closest('button') && !e.target.closest('summary')) setTimeout(() => { popup.open = false; });
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = [...document.querySelectorAll(POPUPS)].find(d => d.open);
+    if (open) { open.open = false; open.querySelector('summary')?.focus(); }
+  });
+  document.addEventListener('toggle', e => { if (e.target.matches?.(POPUPS) && e.target.open) closePopups(e.target); }, true);
+  window.addEventListener('blur', () => closePopups());
+
   // Which Visual Studio opens the solution: chosen next to the button, kept per PC; 2026 by default.
   const VS_KEY = 'ecobuild-gui-vs';
   function vsVersion() { try { return localStorage.getItem(VS_KEY) || '2026'; } catch (e) { return '2026'; } }

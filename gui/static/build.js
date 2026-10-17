@@ -21,7 +21,6 @@ WS.onRefresh(renderPrDetail);
       get('build-profile').value = selectedProfile || 'none';
       get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの「ビルド設定」タブで追加できます）';
     }
-    get('build-project-label').hidden = !j.ok;
     if (j.ok) {
       const chosen = get('build-project').value;
       get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
@@ -31,14 +30,25 @@ WS.onRefresh(renderPrDetail);
   }
   // The Project to build・run・test: ▾ next to ▶ chooses it (a menu); its name shows on hover. The value is kept in the
   // hidden select (build-project), which runAction reads.
+  // The same ▾ also holds the arguments for 実行 (a type without Projects has only these).
   function showTarget() {
-    const select = get('build-project'), name = select.selectedOptions[0]?.textContent || 'すべてのProject';
-    get('build-project-pick').dataset.tip = `ビルド・実行の対象：${name}`;
-    get('build-project-pick').classList.toggle('chosen', !!select.value);
+    const select = get('build-project'), name = select.selectedOptions[0]?.textContent, runArgs = get('build-run-args').value;
+    get('build-project-pick').dataset.tip = [name ? `対象：${name}` : '実行の設定', runArgs ? `引数：${runArgs}` : ''].filter(Boolean).join('　');
+    get('build-project-pick').classList.toggle('chosen', !!select.value || !!runArgs);
   }
   get('build-project-pick').addEventListener('click', () => {
-    const select = get('build-project'), r = get('build-project-pick').getBoundingClientRect();
-    ECO.menu([...select.options].map(o => [(o.value === select.value ? '✓ ' : '　') + o.textContent, () => { select.value = o.value; showTarget(); }]), r.left, r.bottom + 4);
+    const select = get('build-project'), r = get('build-project-pick').getBoundingClientRect(), runArgs = get('build-run-args');
+    const projects = [...select.options].map(o => [(o.value === select.value ? '✓ ' : '　') + o.textContent, () => { select.value = o.value; showTarget(); }]);
+    ECO.menu([...projects, ...(projects.length ? ['-'] : []), [runArgs.value ? `実行時の引数：${runArgs.value}…` : '実行時の引数…', () => ECO.form({
+      title: '実行時の引数', intro: '「実行」で、プログラムに渡す引数です（空白で区切る）。この画面を閉じるまで使います。',
+      fields: [{name: 'args', label: '引数', value: runArgs.value, placeholder: '例：--size 3', focus: true}], ok: '決定',
+      submit: v => { runArgs.value = (v.args || '').trim(); showTarget(); }})]], r.left, r.bottom + 4);
+  });
+  showTarget();
+  get('build-menu').addEventListener('click', () => {
+    const r = get('build-menu').getBoundingClientRect();
+    ECO.menu([['ビルド', () => runAction('build')], ['リビルド', () => runAction('rebuild')], ['クリーン', () => runAction('clean')], '-',
+      ['提出前の確認（生成ファイル・ビルド・テスト）', () => runAction('check')]].map(item => item === '-' ? item : [...item, !busy]), r.left, r.bottom + 4);
   });
 
   const out = (title, state, html) => {
@@ -57,7 +67,6 @@ WS.onRefresh(renderPrDetail);
 
   async function runAction(action) {
     if (busy) return;
-    get('build-more').removeAttribute('open');
     const project = get('build-project').value, configuration = get('build-config').value;
     const args = action === 'check' ? ['check'] : [action, ...(project ? ['--project', project] : []), ...(configuration ? ['--configuration', configuration] : [])];
     if (action === 'run' && get('build-run-args').value.trim()) args.push('--arguments', get('build-run-args').value.trim());

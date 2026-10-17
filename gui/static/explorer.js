@@ -200,10 +200,19 @@ async function openInEditor(path) {
 // Context menu ----------------------------------------------------------------------------------------
 let returnFocus = null;
 function closeMenu() { menu.hidden = true; }
-const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen']);   // deleting: shown in red
+const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen', 'p-remove']);   // deleting: shown in red
+// Why an item is grey (the usual reasons; the menus pass false for these).
+function why(key) {
+  if (!editable()) return WS.status?.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
+  if (['restore', 'diff'].includes(key)) return '変更がありません。';
+  if (['log', 'blame'].includes(key)) return 'まだ git の管理に入っていないファイルです。';
+  if (key === 'rename-dir' || key === 'remove-dir' || key === 'ignore-dir') return 'このフォルダはこの操作の対象にできません。';
+  return 'いまは使えません。';
+}
 function showMenu(items, x, y) {
   returnFocus = document.activeElement;
-  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? 'disabled' : ''}>${esc(item[1])}</button>`).join('');
+  // An item that cannot be used now is grey (still there); hovering it tells why (why).
+  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? `disabled title="${esc(why(item[0]))}"` : ''}>${esc(item[1])}</button>`).join('');
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - 240)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
@@ -220,7 +229,20 @@ function fileMenu(path, x, y) {
     ['diff', '差分', kinds.length > 0], ['log', '履歴', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
   ], x, y);
 }
+// A Project's own folder: what Visual Studio's Solution Explorer offers on a project (build, test, run, the target).
+function projectMenu(dir, x, y) {
+  activeDirectory = dir; const can = editable(), project = projectsByDir.get(dir), kind = project.kind || '';
+  const runnable = ['executable', 'app'].includes(kind), testing = ['test', 'benchmark', 'bench'].includes(kind);
+  showMenu([['p-build', 'ビルド'], ['p-rebuild', 'リビルド'], ['p-clean', 'クリーン'], '-',
+    ...(testing ? [['p-test', 'テストを実行']] : []), ...(runnable ? [['p-run', '実行']] : []),
+    ['p-target', '実行の対象にする（▶ で動かす）'], '-',
+    ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
+    ['reveal-dir', 'エクスプローラーで開く'], ['log', '履歴'], '-',
+    ['p-move', '移動…', can], ['p-remove', 'Projectを削除…', can], ['p-settings', 'Projectの設定（リンク等）']], x, y);
+  menu.dataset.dir = dir;
+}
 function folderMenu(dir, x, y) {
+  if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
   showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
@@ -277,6 +299,25 @@ async function menuAction(action, dir) {
     case 'open-default': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
+    case 'p-build': case 'p-rebuild': case 'p-clean': case 'p-test': case 'p-run':
+      return WS.buildProject(action.slice(2), projectsByDir.get(dir).name);
+    case 'p-target': { const name = projectsByDir.get(dir).name; return WS.setTarget(name) ? say(`実行の対象：${name}`) : null; }
+    case 'p-move': {
+      const name = projectsByDir.get(dir).name;
+      return ECO.form({title: `Projectを移動：${name}`, intro: 'Projectのフォルダを移します（名前は変わりません）。', fields: [
+        {name: 'destination', label: '移動先（モジュールからの相対パス。まだないもの）', value: dir, required: true}], ok: '移動',
+        submit: async v => {
+          if (!await WS.run(['project', 'move', name, v.destination], {success: `${name} を ${v.destination} へ移しました。`})) return '移動できませんでした。';
+          projectRoots = null; await WS.refresh(); await WS.reloadFiles(); WS.reloadBuildOptions?.();
+        }});
+    }
+    case 'p-remove': {
+      const name = projectsByDir.get(dir).name;
+      // our question only (--yes: ecobuild would ask the same again)
+      if (!await WS.run(['project', 'remove', name, '--yes'], {confirm: `Project ${name} を外し、そのフォルダ（${dir}/）を削除します。他のProjectからのリンクも外します。`, title: 'Projectを削除', success: `${name} を削除しました。`})) return;
+      projectRoots = null; await WS.refresh(); await WS.reloadFiles(); WS.reloadBuildOptions?.(); return;
+    }
+    case 'p-settings': return ECO.action('open', {module: WS.module || WS.dir, tab: 'projects'}).catch(e => ECO.toast(e.message, 'bad'));
     case 'rename-dir': return renameFolder(dir);
     case 'remove-dir': choose('d:' + dir); return removeChosen();
     case 'remove-chosen': return removeChosen();

@@ -66,9 +66,10 @@ WS.onRefresh(renderPrDetail);
     return `${done}：${esc(r.project || '全体')}（${esc(r.configuration)}${r.profile ? '、' + esc(r.profile) : ''}）` + (r.artifacts?.length ? '\n\n成果物：\n' + r.artifacts.map(a => '  ' + esc(a)).join('\n') : '');
   }
 
-  async function runAction(action) {
+  // project: this Project only (the explorer's menu on a Project), without changing the target chosen next to ▶.
+  async function runAction(action, only = '') {
     if (busy) return;
-    const project = get('build-project').value, configuration = get('build-config').value;
+    const project = only || get('build-project').value, configuration = get('build-config').value;
     const args = action === 'check' ? ['check'] : [action, ...(project ? ['--project', project] : []), ...(configuration ? ['--configuration', configuration] : [])];
     if (action === 'run' && get('build-run-args').value.trim()) args.push('--arguments', get('build-run-args').value.trim());
     busy = true; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = true; });
@@ -158,4 +159,11 @@ WS.onRefresh(renderPrDetail);
 
   loadOptions();   // the build settings and Projects do not need the status
   WS.reloadBuildOptions = loadOptions;
+  WS.buildProject = (action, project) => runAction(action, project);
+  // The explorer's 「実行の対象にする」: the target next to ▶ (as Visual Studio's startup project).
+  WS.setTarget = project => {
+    const select = get('build-project');
+    if (![...select.options].some(o => o.value === project)) return false;
+    select.value = project; showTarget(); return true;
+  };
 })();

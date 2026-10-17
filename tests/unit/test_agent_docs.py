@@ -53,3 +53,13 @@ def test_guide_follows_the_type():
     """ファイルの追加を受け持たない型には、file add を案内しない。"""
     assert "ecobuild file add" in _documents("cpp")["agent guide"]
     assert "ecobuild file add" not in _documents("generic")["agent guide"]
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
+def test_readme_is_modest(name):
+    """README は題名・説明・型ごとの最低限の使い方だけで、ECOBuild のことは最後の1行だけ。"""
+    readme = _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name), "サンプルの説明")
+    assert readme.startswith("# Sample\n\nサンプルの説明\n")
+    lines = readme.rstrip().splitlines()
+    assert "ECOBuild" not in "\n".join(lines[:-1]) and lines[-1].endswith("で管理しています。")
+    assert _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name)).startswith("# Sample\n\n")

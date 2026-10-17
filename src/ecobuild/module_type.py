@@ -83,7 +83,7 @@ class ModuleType:
 
     @classmethod
     def readme_usage(cls, config: "ModuleConfig") -> str:
-        """READMEの「ECOBuildなしで使う」等、型ごとの説明。"""
+        """READMEの「ビルド」等、型ごとの最低限の使い方（Markdown、## の見出しから）。"""
         return ""
 
     @classmethod

@@ -28,22 +28,17 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:16]
 
 
-def readme(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
+def readme(config: ModuleConfig, module_type: "type[ModuleType]", description: str = "") -> str:
+    """README：題名・説明（リポジトリの説明と同じ）・型ごとの最低限の使い方だけ。主役はモジュールの中身なので、
+    ECOBuild のことは最後に1行だけ書く。"""
+    parts = [f"# {config.name}\n"]
+    if description.strip():
+        parts.append(description.strip() + "\n")
     usage = module_type.readme_usage(config)
-    return f"""# {config.name}
-
-[ECOBuild](https://github.com/superFUKA/ECOBuild)で管理しているモジュールです（型：{module_type.name}）。
-
-## ECOBuildで使う
-
-```sh
-ecobuild module clone <所有者>/{config.name}   # cloneして依存先も用意する
-ecobuild build
-ecobuild test
-```
-
-作業はIssueごとのタスクブランチで行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit --message "<内容>"` → `ecobuild task submit` → `ecobuild task finish`）。
-""" + ("\n" + usage if usage else "")
+    if usage:
+        parts.append(usage)
+    parts.append("---\n\n[ECOBuild](https://github.com/superFUKA/ECOBuild) で管理しています。\n")
+    return "\n".join(parts)
 
 
 def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:

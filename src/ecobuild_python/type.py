@@ -72,9 +72,9 @@ class PythonType(ModuleType, Builds, HasFiles):
 
     @classmethod
     def readme_usage(cls, config: ModuleConfig) -> str:
-        return """## ECOBuildなしで使う
+        return """## 開発
 
-Python 3.11以上があれば、cloneしたまま使えます。
+Python 3.11以上で、次のようにインストール・テストできます。
 
 ```sh
 python -m venv .venv

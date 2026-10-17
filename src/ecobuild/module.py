@@ -168,7 +168,7 @@ class Module:
                 (root / ".gitignore").write_text(type_class.gitignore(), encoding="utf-8", newline="\n")
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
-            (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
+            (root / "README.md").write_text(_docs.readme(module_config, type_class, description), encoding="utf-8", newline="\n")
             (progress or _quiet)(_POPULATING.get(kind or type_class.default_new_kind or "", "モジュールの中身を用意中…"))
             type_class.populate(root, module_config, kind or None, project or None, test=test)
 

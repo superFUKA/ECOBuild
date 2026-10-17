@@ -159,9 +159,9 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
 
     @classmethod
     def readme_usage(cls, config: ModuleConfig) -> str:
-        return """## ECOBuildなしで使う
+        return """## ビルド
 
-CMake 3.24以上とC++20のコンパイラがあれば、cloneしたままビルドできます（依存先は構成時に取得されます）。
+CMake 3.24以上とC++20のコンパイラでビルドできます（依存先は構成時に取得されます）。
 
 ```sh
 cmake -S .ecobuild/.cppbuild -B build

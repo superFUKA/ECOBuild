@@ -125,6 +125,7 @@ class Module:
         type: str | None = None,
         github: _github.GitHub | None = None,
         registry: Registry | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> "Module":
         """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。タスク管理も準備する
         （できなければ知らせ、タスクを初めて記録するときにもう一度行う）。
@@ -133,6 +134,7 @@ class Module:
         none＝作らない）。モジュールはリンクのための単位ではなく、中身は後から project add で足す。
         project：最初に作るProjectの名前（省略時はモジュール名。ライブラリならテスト用は <名前>Test）。
         type：モジュールの型（省略時は registry の既定の型）。githubは試験でGitHubへの接続を差し替えるためのもの。
+        progress：経過（今している作業）を知らせる口。
         """
         if not _NAME.fullmatch(name):
             raise EcoBuildError(
@@ -165,15 +167,17 @@ class Module:
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
+            (progress or _quiet)(_POPULATING.get(kind or type_class.default_new_kind or "", "モジュールの中身を用意中…"))
             type_class.populate(root, module_config, kind or None, project or None)
 
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,
             populate=populate, message="ECOBuildでモジュールを作成", github=github,
-            default_base=module_config.default_base, command=cls.command,
+            default_base=module_config.default_base, command=cls.command, progress=progress,
         )
         module = cls(repository.root, module_config, github=repository.github, registry=registry)
         try:
+            (progress or _quiet)("タスク管理を準備中…")
             module.repository.prepare_tasks()
         except WorkError as error:
             module.repository.notices.append(f"タスク管理の準備ができませんでした（{error.message}）。"
@@ -183,13 +187,13 @@ class Module:
     @classmethod
     def clone(
         cls, name: str, *, directory: Path | str = ".", github: _github.GitHub | None = None,
-        registry: Registry | None = None,
+        registry: Registry | None = None, progress: Callable[[str], None] | None = None,
     ) -> tuple["Module", tuple[DependencyChange, ...]]:
         """GitHubにあるモジュールをcloneし、依存先と生成ファイルを用意する（sync と同じ）。
 
-        name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。
+        name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。progress：経過を知らせる口。
         """
-        repository = Repository.clone(name, directory=directory, github=github, command=cls.command)
+        repository = Repository.clone(name, directory=directory, github=github, command=cls.command, progress=progress)
         if not (repository.root / _config.FILE_NAME).is_file():
             remove_tree(repository.root)  # 今cloneしたもの
             raise EcoBuildError(
@@ -198,6 +202,7 @@ class Module:
                 hint=f"ECOBuildで作ったリポジトリ（{operation(cls.command, 'module new')}）を指定してください。",
             )
         module = cls.find(repository.root, github=repository.github, registry=registry)
+        (progress or _quiet)("依存先と生成ファイルを用意中…")
         dependencies, _ = module._after_sync()
         return module, dependencies
 
@@ -1226,6 +1231,10 @@ def _check_line(item: CheckItem) -> str:
 
 def _quiet(message: str) -> None:
     pass
+
+
+# module new の経過：最初に作るもの（型の new_kinds）ごとの言い方
+_POPULATING = {"app": "実行できるものを用意中…", "library": "ライブラリとテストを用意中…", "none": "モジュールの中身を用意中…"}
 
 
 def _require_approval(config: _config.ModuleConfig) -> bool:

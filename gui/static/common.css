@@ -68,6 +68,18 @@
 .eco-busy-steps { list-style: none; padding: 0; margin: 18px 0 4px; display: grid; gap: 6px; text-align: left; font-size: 13px; color: #a5aeba; }
 .eco-busy-steps li::before { content: "・"; color: #9ee4d3; }
 .eco-busy.done .eco-busy-steps li::before { content: "✓ "; }
+.eco-busy-live { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 7px; min-width: 240px; text-align: left; font-size: 13px; }
+.eco-busy-live:empty { display: none; }
+.eco-busy-live li { display: flex; align-items: center; gap: 9px; animation: eco-pop .25s ease-out; }
+.eco-busy-live li::before { flex-shrink: 0; width: 14px; text-align: center; }
+.eco-busy-live li.past { color: #84909e; }
+.eco-busy-live li.past::before { content: "✓"; color: #9ee4d3; }
+.eco-busy-live li.now { color: #edf1f5; }
+.eco-busy-live li.now::before { content: ""; width: 10px; height: 10px; margin: 0 2px; border: 2px solid #46515e; border-top-color: #9ee4d3; border-radius: 50%; animation: eco-spin .8s linear infinite; }
+.eco-busy.done .eco-busy-live li.now { color: #84909e; }
+.eco-busy.done .eco-busy-live li.now::before { content: "✓"; width: 14px; height: auto; margin: 0; border: 0; color: #9ee4d3; animation: none; }
+@keyframes eco-pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .eco-busy-live li { animation: none; } }
 .eco-busy-time { margin: 14px 0 0; color: #84909e; font-size: 12px; }
 .eco-ring { position: relative; width: 64px; height: 64px; }
 .eco-ring .ring { position: absolute; inset: 0; border-radius: 50%; border: 5px solid #2b333c; border-top-color: #9ee4d3; border-right-color: #9ee4d3; animation: eco-spin 1s linear infinite; }

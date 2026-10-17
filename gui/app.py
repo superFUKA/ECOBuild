@@ -166,7 +166,9 @@ class Cli:
         with self._guard:
             return self._locks.setdefault(key, threading.Lock())
 
-    def run(self, directory: str | None, args: list[str], stdin: str | None = None) -> dict:
+    def run(self, directory: str | None, args: list[str], stdin: str | None = None,
+            progress: list[str] | None = None) -> dict:
+        """progress：渡せば、実行中に標準エラーの行（ecobuild の経過）をここに足していく（画面が読みに来る）。"""
         if not args or not all(isinstance(a, str) for a in args):
             raise GuiError("コマンドの指定が正しくありません。")
         if directory and not Path(directory).is_dir():
@@ -177,9 +179,12 @@ class Cli:
             lock.acquire()
         try:
             env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", GIT_TERMINAL_PROMPT="0")
-            completed = subprocess.run(argv, input=stdin or "", capture_output=True, encoding="utf-8",
-                                       errors="replace", env=env, cwd=_working_directory(directory, args),
-                                       **_no_window())
+            if progress is None:
+                completed = subprocess.run(argv, input=stdin or "", capture_output=True, encoding="utf-8",
+                                           errors="replace", env=env, cwd=_working_directory(directory, args),
+                                           **_no_window())
+            else:
+                completed = _run_streaming(argv, stdin or "", env, _working_directory(directory, args), progress)
         finally:
             if lock:
                 lock.release()
@@ -193,6 +198,32 @@ class Cli:
         document["stderr"] = completed.stderr[-20000:]
         document["argv"] = ["ecobuild"] + (["-C", directory] if directory else []) + args + ["--json"]
         return document
+
+
+def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list[str]) -> subprocess.CompletedProcess:
+    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。"""
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               encoding="utf-8", errors="replace", env=env, cwd=cwd, **_no_window())
+    errors: list[str] = []
+
+    def read_errors() -> None:
+        for line in process.stderr:
+            errors.append(line)
+            if line.strip():
+                lines.append(line.strip())
+
+    reader = threading.Thread(target=read_errors, daemon=True)
+    reader.start()
+    # communicate は標準エラーも読むので使わない（経過の行を取り合う）
+    try:
+        process.stdin.write(stdin)
+        process.stdin.close()
+    except OSError:          # 入力を読まずに終わった
+        pass
+    stdout = process.stdout.read()
+    process.wait()
+    reader.join()
+    return subprocess.CompletedProcess(argv, process.returncode, stdout, "".join(errors))
 
 
 def _last_json(text: str) -> dict | None:
@@ -563,6 +594,7 @@ class App:
         self.cli, self.store, self.token, self.port = cli, store, token, port
         self.last_contact = time.monotonic()
         self.server: ThreadingHTTPServer | None = None
+        self.progress: dict[str, list[str]] = {}    # 実行中のコマンドの経過（画面が付けた番号 → 行）
 
     def move_legacy(self) -> None:
         """以前の gui.json に登録したフォルダを、ecobuild の作業空間の記録（workspace add）へ移す（一度だけ）。"""
@@ -574,7 +606,16 @@ class App:
     def api(self, name: str, body: dict) -> object:
         d = body.get
         if name == "cli":
-            return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
+            key = str(d("progress") or "")
+            if not key:
+                return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
+            lines = self.progress.setdefault(key, [])
+            try:
+                return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"), progress=lines)
+            finally:
+                self.progress.pop(key, None)
+        if name == "progress":
+            return {"lines": list(self.progress.get(str(d("id") or ""), []))}
         if name == "ping":
             return {"version": VERSION, "stale": STALE_MESSAGE if server_is_stale() else "", "pid": os.getpid()}
         if name == "shutdown":

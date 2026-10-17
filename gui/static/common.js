@@ -45,14 +45,25 @@ const ECO = (() => {
   }
 
   const label = args => args.filter(a => a !== '--yes').slice(0, 4).join(' ');
-  async function cli(dir, args, {stdin, quiet = false} = {}) {
-    let row;
+  // onProgress(lines): while it runs, the lines ecobuild reports (what it is doing now), read every moment.
+  async function cli(dir, args, {stdin, quiet = false, onProgress} = {}) {
+    let row, poll;
     if (!quiet) { row = document.createElement('div'); row.innerHTML = `<span class="eco-spinner"></span><span>実行中</span><code>ecobuild ${esc(label(args))}</code>`; running.append(row); }
+    const progress = onProgress ? Math.random().toString(36).slice(2) : undefined;
+    if (progress) {
+      let seen = 0;
+      poll = setInterval(async () => {
+        try {
+          const {lines} = await call('progress', {id: progress});
+          if (lines.length > seen) { seen = lines.length; onProgress(lines); }
+        } catch (e) { /* the next time */ }
+      }, 400);
+    }
     try {
-      return await call('cli', {dir, args, stdin});
+      return await call('cli', {dir, args, stdin, progress});
     } catch (e) {
       return {ok: false, result: null, notices: [], error: {code: 'gui', message: e.message}, argv: ['ecobuild', ...args]};
-    } finally { row?.remove(); }
+    } finally { row?.remove(); clearInterval(poll); }
   }
 
   function detailText(details) {
@@ -275,11 +286,12 @@ const ECO = (() => {
   }
 
   // Busy overlay ("ぐるぐる"): a spinning ring, what is being done, and the elapsed seconds.
-  // Returns {end(), done(text)}; done() shows a check mark and the time it took before closing.
+  // Returns {end(), done(text), progress(lines)}; done() shows a check mark and the time it took before closing.
+  // progress(lines) shows what the command reports as it goes: the last line is the work now, the ones before are done.
   function busy({title = '実行しています…', sub = '', steps = [], delay = 0} = {}) {
     const el = document.createElement('div'); el.className = 'eco-busy'; el.setAttribute('role', 'status'); el.setAttribute('aria-live', 'polite');
     el.innerHTML = `<div class="eco-busy-card"><div class="eco-ring" aria-hidden="true"><span class="ring"></span><span class="ring-check">✓</span></div>
-      <h2>${esc(title)}</h2>${sub ? `<p class="eco-busy-sub">${esc(sub)}</p>` : ''}${steps.length ? `<ol class="eco-busy-steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+      <h2>${esc(title)}</h2>${sub ? `<p class="eco-busy-sub">${esc(sub)}</p>` : ''}${steps.length ? `<ol class="eco-busy-steps">${steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}<ol class="eco-busy-live"></ol>
       <p class="eco-busy-time"><span>0</span> 秒経過</p></div>`;
     const started = Date.now(), seconds = () => Math.floor((Date.now() - started) / 1000);
     const timer = setInterval(() => { el.querySelector('.eco-busy-time span').textContent = seconds(); }, 1000);
@@ -290,7 +302,11 @@ const ECO = (() => {
       el.querySelector('h2').textContent = text; el.querySelector('.eco-busy-time').textContent = `${seconds()} 秒かかりました`;
       setTimeout(() => { el.remove(); resolve(); }, 1100);
     });
-    return {end, done};
+    const progress = lines => {
+      el.querySelector('.eco-busy-live').innerHTML = lines.map((line, index) =>
+        `<li class="${index === lines.length - 1 ? 'now' : 'past'}">${esc(line)}</li>`).join('');
+    };
+    return {end, done, progress};
   }
 
   // Context menu: items are [label, action, enabled = true] or '-' for a separator.

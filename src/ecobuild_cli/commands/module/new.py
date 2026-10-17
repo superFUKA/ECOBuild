@@ -26,7 +26,8 @@ def command(
     def action(inv):
         from ecobuild import settings
         module = Module.create(name, directory=inv.cwd, description=description, public=public,
-                               kind=kind, project=project, owner=owner or settings.load_config().get("owner"), type=type or None)
+                               kind=kind, project=project, owner=owner or settings.load_config().get("owner"), type=type or None,
+                               progress=inv.info)
         inv.use_module(module)
         return module.summary()
 

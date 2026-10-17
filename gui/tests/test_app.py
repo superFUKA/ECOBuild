@@ -120,6 +120,23 @@ def test_cli_returns_the_json_document_and_the_command_line(tmp_path):
     assert not broken["ok"] and broken["error"]["code"] == "gui_no_output"
 
 
+def test_cli_reports_progress_while_it_runs(tmp_path):
+    """progress を渡すと、標準エラーの行（経過）が終わる前から読める。画面は progress で番号ごとに読みに来る。"""
+    script = ("import json, sys, time; print('作成中…', file=sys.stderr, flush=True); time.sleep(1.5); "
+              "print('push中…', file=sys.stderr); print(json.dumps({'ok': True, 'result': 1}))")
+    app = gui.App(gui.Cli([sys.executable, "-c", script]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    done = {}
+    worker = threading.Thread(target=lambda: done.update(app.api("cli", {"args": ["module", "new", "M"], "progress": "p1"})))
+    worker.start()
+    deadline = time.monotonic() + 10
+    while not app.api("progress", {"id": "p1"})["lines"] and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert app.api("progress", {"id": "p1"})["lines"] == ["作成中…"] and not done
+    worker.join()
+    assert done["ok"] and "push中…" in done["stderr"]
+    assert app.api("progress", {"id": "p1"}) == {"lines": []}      # 終わったら片付ける
+
+
 def test_api_requires_the_token_and_the_local_host(tmp_path):
     server = ThreadingHTTPServer(("127.0.0.1", 0), None)
     port = server.server_address[1]

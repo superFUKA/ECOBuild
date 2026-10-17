@@ -110,20 +110,27 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         default_base: str = "main",
         command: str = "",
         hooks: Hooks | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> "Repository":
-        """GitHubリポジトリを作ってcloneし、populateで用意したファイルを初回コミットとしてpushする。"""
+        """GitHubリポジトリを作ってcloneし、populateで用意したファイルを初回コミットとしてpushする。
+        progress：経過（今している作業）を知らせる口。"""
+        report = progress or _quiet
         root = Path(directory).resolve() / name
         if root.exists():
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"{root} は既に存在します。")
         github = github if github is not None else _github.default()
+        report("GitHubにリポジトリを作成中…")
         repository = github.create_repository(name, owner=owner, private=private, description=description)
         try:
+            report(f"{repository.full_name} をclone中…")
             repo = _git.clone(repository.clone_url, root)
             repo.run("symbolic-ref", "HEAD", f"refs/heads/{default_base}")
             if populate is not None:
                 populate(root)
+            report("初回のコミットを作成中…")
             repo.add(all=True)
             repo.commit(message, allow_empty=populate is None)
+            report("GitHubへpush中…")
             repo.push(default_base, set_upstream=True)
             _hooks.install(repo.hooks_directory())
         except WorkError as error:
@@ -144,14 +151,18 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         default_base: str = "main",
         command: str = "",
         hooks: Hooks | None = None,
+        progress: Callable[[str], None] | None = None,
     ) -> "Repository":
-        """GitHubのリポジトリ（「名前」か「所有者/名前」）を directory/<名前> へcloneする。"""
+        """GitHubのリポジトリ（「名前」か「所有者/名前」）を directory/<名前> へcloneする。progress：経過を知らせる口。"""
+        report = progress or _quiet
         github = github if github is not None else _github.default()
+        report("GitHubのリポジトリを確認中…")
         info = github.get_repository(name)
         root = Path(directory).resolve() / info.full_name.split("/")[-1]
         if root.exists():
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"{root} は既に存在します。",
                             hint="別の場所で実行するか、既にあるcloneを使ってください。")
+        report(f"{info.full_name} をclone中…")
         repo = _git.clone(info.clone_url, root)
         _hooks.install(repo.hooks_directory())
         return cls(root, github=github, default_base=default_base, command=command, hooks=hooks)
@@ -733,3 +744,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
 
     def __repr__(self) -> str:
         return f"Repository({str(self.root)!r})"
+
+
+def _quiet(message: str) -> None:
+    pass

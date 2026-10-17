@@ -12,7 +12,7 @@ def command(
 
     def action(inv):
         from ecobuild import settings
-        module, dependencies = Module.clone(settings.qualify(repository), directory=inv.cwd)
+        module, dependencies = Module.clone(settings.qualify(repository), directory=inv.cwd, progress=inv.info)
         inv.use_module(module)
         return module.cloned(dependencies)
 

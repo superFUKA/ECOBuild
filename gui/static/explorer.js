@@ -362,6 +362,7 @@ async function removeFile(path) {
 get('new-file').addEventListener('click', () => newFileDialog(activeDirectory));
 get('new-folder').addEventListener('click', () => inlineName({create: 'folder', dir: activeDirectory}));
 get('reload-files').addEventListener('click', async () => { await WS.refresh(); await WS.reloadFiles(); });
+get('open-folder').addEventListener('click', () => openFile(''));
 
 // Drag a file onto a folder to move it.
 let dragged = '';

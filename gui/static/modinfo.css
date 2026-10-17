@@ -48,3 +48,17 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-place { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
 .mi-place label { display: flex; gap: 6px; align-items: center; }
 .mi-top-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* 概要：ファイル構成 */
+.mi-section { margin-bottom: 26px; }
+.mi-files { max-height: 340px; overflow: auto; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); scrollbar-width: thin; }
+.mi-files ul { list-style: none; margin: 0; padding: 0; }
+.mi-files ul ul { margin-left: 15px; padding-left: 8px; border-left: 1px solid #2c333c; }
+.mi .mi-file { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: #dfe5eb; font: 13px Consolas, "Yu Gothic UI", monospace; text-align: left; cursor: default; }
+.mi .mi-file:hover { background: #222930; }
+.mi-file.dir { cursor: pointer; color: #edf1f5; }
+.mi-file small { margin-left: auto; color: var(--muted); font: 11px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.mi-file.generated { color: var(--muted); }
+.mi-caret { width: 10px; color: var(--muted); font-size: 11px; }
+.mi-icon { width: 14px; text-align: center; color: var(--muted); }
+.mi-file.dir .mi-icon { color: #e3c77a; }

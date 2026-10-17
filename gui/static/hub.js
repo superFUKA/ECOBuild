@@ -182,11 +182,6 @@ const KIND_TEXT = {
   python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ＋テスト）', none: 'none（パッケージを作らない）'},
 };
 const kindText = (type, kind) => KIND_TEXT[type]?.[kind] || kind;
-function makingSteps(type, kind) {
-  const first = {app: type === 'cpp' ? '実行ファイルのProjectを用意' : '実行できるパッケージを用意',
-    library: type === 'cpp' ? 'ライブラリとテスト用のProjectを用意' : 'パッケージとテストを用意'}[kind];
-  return ['GitHubにリポジトリを作成', first || 'モジュールの中身を用意', '初回のコミットをPush'];
-}
 $('add-module').addEventListener('click', async () => {
   addForm.reset(); addForm.querySelector('details').open = false;
   field('directory').value = defaultParent();
@@ -241,15 +236,12 @@ addForm.addEventListener('submit', async event => {
     if (data.get('kind')) args.push('--kind', data.get('kind'));
     if (data.get('project')?.trim()) args.push('--project', data.get('project').trim());
   }
-  // Close the form and show the busy overlay ("ぐるぐる"). The CLI reports no progress until it ends, so the steps are
-  // what the command does (not live progress); the elapsed seconds show it is still working.
+  // Close the form and show the busy overlay ("ぐるぐる") with what the command is doing now (it reports each step).
   addDialog.close(); submit.disabled = false;
   const overlay = ECO.busy({
     title: `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`, sub: directory + '/' + name.split('/').pop(),
-    steps: creating ? makingSteps(data.get('type'), data.get('kind'))
-      : ['GitHubからclone', '依存先をclone', '生成ファイルを用意'],
   });
-  const doc = await ECO.cli(directory, args, {quiet: true});
+  const doc = await ECO.cli(directory, args, {quiet: true, onProgress: overlay.progress});
   if (!doc.ok) {
     // Back to the form (the values stay) with the reason.
     overlay.end(); addDialog.showModal();

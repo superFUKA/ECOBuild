@@ -21,8 +21,13 @@ def short_tmp():
 
 def test_create_module(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
-    module = Module.create("Calc", directory=short_tmp, kind="library", description="電卓", github=github)
+    steps = []
+    module = Module.create("Calc", directory=short_tmp, kind="library", description="電卓", github=github,
+                           progress=steps.append)
     root = short_tmp / "Calc"
+    # 経過（GUIが作成中に出す）：今している作業を順に知らせる
+    assert steps[0] == "GitHubにリポジトリを作成中…" and "ライブラリとテストを用意中…" in steps
+    assert steps.index("ライブラリとテストを用意中…") < steps.index("GitHubへpush中…") < steps.index("タスク管理を準備中…")
     assert module.root == root
     assert config.load(root / config.FILE_NAME).projects is None   # 基本のProjectは決めない
     assert "/deps/" in (root / ".gitignore").read_text(encoding="utf-8")

@@ -11,7 +11,6 @@ const mEl = id => document.getElementById(id);
 document.getElementById('module-title').textContent = MOD.name;
 document.getElementById('module-path').textContent = MOD.root;
 document.title = MOD.name + ' — ECOBuild';
-mEl('open-folder').addEventListener('click', () => ECO.call('open', {dir: MOD.root, path: ''}).catch(e => ECO.toast(e.message, 'bad')));
 ECO.info().then(info => { MOD.me = info.me || ''; });
 
 // Left menu -----------------------------------------------------------------------------------------
@@ -25,6 +24,8 @@ function showModulePage(page) {
   pageHooks[page]?.();
 }
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
+// module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded).
+if (PAGES.includes(location.hash.slice(1))) setTimeout(() => showModulePage(location.hash.slice(1)));
 // Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).
 const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
 const navItems = () => [...nav.querySelectorAll('[data-nav]')];
@@ -65,13 +66,13 @@ const addTabButton = document.createElement('button');
 addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、タスクブランチ（task/〈番号〉のブランチ）を置いて作業する場所です。タスク管理で「作業を開始」すると、ここに表示されます。閉じたタブは「＋」から再表示できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、このPCでモジュールの作業をする場所（clone）です。閉じたタブは「＋」から再表示できます。タスク管理で「作業を開始」すると、タスクブランチ（task/〈番号〉）で作業できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 panels.append(emptyNote);
 
-// A place shows a tab while a task branch (task/<n>) is checked out there, or while a PR is being checked there
-// (task review). A workspace on main / develop etc. has no tab.
-const isWorkspace = dir => { const state = MOD.states.get(keyOf(dir)); return !!(state && (state.task || state.reviewing)); };
+// Every workspace of the module has a tab (the one made with the module first, on main etc. too: there the files can be
+// seen and built; changes are made on a task branch, which the page says).
+const isWorkspace = dir => !!MOD.states.get(keyOf(dir));
 const tabVisible = dir => isWorkspace(dir) && !hidden.has(keyOf(dir));
 function syncTabs() {
   for (const group of tabs.querySelectorAll('.workspace-tab-group')) {
@@ -270,11 +271,11 @@ addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
     const place = main ? 'この作業空間' : '作業空間 ' + where;
-    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（タスクブランチではありません）`;
+    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
     return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button><button type="button" data-close-place="${i}" title="作業空間を閉じる（フォルダごと削除します）">閉じる</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業空間を表示</h2><p>タスクブランチ（task/〈番号〉）が出ている作業空間だけをタブにします。タスクブランチはタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
+  d.innerHTML = `<h2>作業空間を表示</h2><p>このPCにある、このモジュールの作業空間です。タスクブランチはタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
     <div class="picker-actions"><button type="button" data-register>既存のcloneを作業空間として登録…</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());

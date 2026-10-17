@@ -1,5 +1,5 @@
 'use strict';
-// Module-wide screen: overview (module show), Projects, dependencies and links (deps tree), branches, build settings.
+// Module-wide screen: overview (the files at the top of the module and module show), Projects, dependencies and links (deps tree), branches, build settings.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
@@ -38,14 +38,38 @@
     if (MOD.places.length < 2) return '';   // only one workspace: nothing to choose
     return `<div class="mi-place"><label class="mi-note">表示する場所<select id="mi-place">${options}</select></label></div>`;
   }
-  // 概要: ecobuild module show.
+  // The files of the module (as the explorer lists them: git's files and the untracked ones, not the ignored ones).
+  // The top level first; a folder opens in place. Double-click opens a file with its app.
+  const openFolders = new Set();
+  function fileTree() {
+    const f = data.files;
+    if (!f || f.error) return `<p class="mi-note">ファイルを読めませんでした${f?.error ? '：' + esc(f.error) : ''}。</p>`;
+    const generated = new Set(f.generated), children = new Map([['', {dirs: [], files: []}]]);
+    const parent = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    for (const d of f.dirs) children.set(d, {dirs: [], files: []});
+    for (const d of f.dirs) children.get(parent(d))?.dirs.push(d);
+    for (const file of f.files) children.get(parent(file))?.files.push(file);
+    const name = path => path.slice(path.lastIndexOf('/') + 1);
+    const count = path => { const c = children.get(path); return c.dirs.length + c.files.length; };
+    const level = path => {
+      const c = children.get(path);
+      const byName = (a, b) => name(a).localeCompare(name(b), 'ja', {sensitivity: 'base'});
+      return `<ul>${[...c.dirs].sort(byName).map(d => {
+        const open = openFolders.has(d);
+        return `<li><button type="button" class="mi-file dir" data-mi-folder="${esc(d)}" aria-expanded="${open}"><span class="mi-caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="mi-icon" aria-hidden="true">▤</span>${esc(name(d))}<small>${count(d) || '空'}</small></button>${open ? level(d) : ''}</li>`;
+      }).join('')}${[...c.files].sort(byName).map(file => `<li><button type="button" class="mi-file${generated.has(file) ? ' generated' : ''}" data-mi-file="${esc(file)}" title="ダブルクリックで開く"><span class="mi-caret" aria-hidden="true"></span><span class="mi-icon" aria-hidden="true">▫</span>${esc(name(file))}${generated.has(file) ? '<small>生成ファイル</small>' : ''}</button></li>`).join('')}</ul>`;
+    };
+    return `<div class="mi-files" id="mi-files">${count('') ? level('') : '<p class="mi-note">ファイルはありません。</p>'}</div>`;
+  }
+  // 概要: the files at the top of the module, then ecobuild module show.
   function renderOverview() {
     const r = data.info;
-    if (r.error) return head('概要', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
+    const files = `<section class="mi-section"><div class="mi-head"><div><h3>ファイル構成</h3></div></div>${fileTree()}</section>`;
+    if (r.error) return files + head('概要', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
     const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
     const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
     const row = (label, value) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`;
-    return head(`${esc(r.name)}`, '型・場所・GitHubのリポジトリ・Project・依存先', '') +
+    return files + head(`${esc(r.name)}`, '型・場所・GitHubのリポジトリ・Project・依存先', '') +
       `<table class="mi-table mi-overview"><tbody>
       ${row('型', pill(r.type))}
       ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
@@ -153,7 +177,10 @@
       const [p, d, m] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])]), cli(['module', 'settings'])]);
       data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; data.settings = m.ok ? m.result : null;
     },
-    overview: async () => { const r = await cli(['module', 'show']); data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; },
+    overview: async () => {
+      const [r, files] = await Promise.all([cli(['module', 'show']), ECO.call('files', {dir: here()}).catch(e => ({error: e.message}))]);
+      data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; data.files = files;
+    },
     deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },
     branches: async () => { const b = await cli(['branch', 'list']); data.branches = b.ok ? b.result : {error: b.error}; },
@@ -477,12 +504,23 @@
     'branch-delete': name => ECO.run(here(), ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`}).then(doc => doc && render()),
   };
   el('modinfo-content').addEventListener('click', e => {
+    const folder = e.target.closest('[data-mi-folder]');
+    if (folder) {
+      const path = folder.dataset.miFolder;
+      if (openFolders.has(path)) openFolders.delete(path); else openFolders.add(path);
+      const box = el('mi-files'), top = box.scrollTop; box.outerHTML = fileTree(); el('mi-files').scrollTop = top;
+      return;
+    }
     const tab = e.target.closest('[data-mi-view]');
     if (tab) { view = tab.dataset.miView; show(); return; }
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const action = e.target.closest('[data-mi]');
     if (action) ACTIONS[action.dataset.mi](action.dataset.arg);
+  });
+  el('modinfo-content').addEventListener('dblclick', e => {
+    const file = e.target.closest('[data-mi-file]');
+    if (file) ECO.call('open', {dir: here(), path: file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad'));
   });
   el('modinfo-content').addEventListener('change', async e => {
     if (e.target.id === 'mi-place') { place = e.target.value; loaded.clear(); render(); }

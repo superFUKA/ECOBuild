@@ -78,9 +78,11 @@ function renderTree() {
       if (changedDirs.has(dir)) title.classList.add('has-changes');
       title.addEventListener('click', e => {
         activeDirectory = dir;
-        if (e.detail > 0 && !e.target.closest('.tree-caret')) { e.preventDefault(); choose('d:' + dir, e); }   // not the triangle: choose only
+        if (e.detail > 0 && !e.target.closest('.tree-caret')) {   // not the triangle: choose only (again: rename)
+          e.preventDefault(); slowRename('d:' + dir, e, () => !projectsByDir.has(dir) && renameFolder(dir)); choose('d:' + dir, e);
+        }
       });
-      title.addEventListener('dblclick', e => { if (!e.target.closest('.tree-caret')) folder.open = !folder.open; });
+      title.addEventListener('dblclick', e => { cancelSlowRename(); if (!e.target.closest('.tree-caret')) folder.open = !folder.open; });
       title.addEventListener('keydown', e => {
         if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); renameFolder(dir); }
         if (e.key === 'Delete' && editable()) { e.preventDefault(); e.stopPropagation(); if (!chosen.has('d:' + dir)) choose('d:' + dir); removeChosen(); }
@@ -120,8 +122,10 @@ tree.addEventListener('click', e => {
   const row = e.target.closest('[data-path]'); if (!row) return;
   // Only move the highlight: rebuilding the tree here would replace the row under the second click of a double-click,
   // and the dblclick (open in Visual Studio) would never arrive.
-  WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path);
-  choose('f:' + row.dataset.path, e);
+  const path = row.dataset.path;
+  slowRename('f:' + path, e, () => !isReadme(path) && inlineName({rename: path}));
+  WS.activeFile = path; activeDirectory = dirOf(path);
+  choose('f:' + path, e);
   WS.renderChanges(); row.focus();
 });
 
@@ -140,6 +144,14 @@ function choose(key, e) {
     else for (const k of keys.slice(Math.min(from, to), Math.max(from, to) + 1)) chosen.add(k);
   } else { chosen.clear(); chosen.add(key); anchor = key; }
   paintChosen();
+}
+// A click on the one chosen item again (not a double-click, no Ctrl/Shift) renames it after a moment, as in Explorer.
+let renameTimer = 0;
+function cancelSlowRename() { clearTimeout(renameTimer); renameTimer = 0; }
+function slowRename(key, e, start) {
+  const again = chosen.size === 1 && chosen.has(key) && e.detail === 1 && !(e.ctrlKey || e.metaKey || e.shiftKey);
+  cancelSlowRename();
+  if (again && editable()) renameTimer = setTimeout(() => { renameTimer = 0; start(); }, 500);
 }
 // One highlight: what is chosen (the file shown as "active" is no separate mark; with a folder chosen, no file is).
 function paintChosen() {
@@ -184,7 +196,7 @@ async function removeChosen() {
   chosen.clear();
   await WS.refresh(); await afterFileChange(true, `削除しました：${list.join('、')}`);
 }
-tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
+tree.addEventListener('dblclick', e => { cancelSlowRename(); const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
 const dirOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 const openFile = (path, reveal = false) => ECO.action('folder', {dir: WS.dir, path, reveal}).catch(e => ECO.toast(e.message, 'bad'));
 // Open a file in Visual Studio (the version chosen next to 「VS〜で開く」): in the one that has this module's solution open,

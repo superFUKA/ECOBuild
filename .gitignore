@@ -6,3 +6,6 @@
 __pycache__/
 *.egg-info/
 /.pytest_cache/
+
+# git worktree（並行作業用。各ブランチの作業場所）
+/.worktrees/

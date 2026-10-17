@@ -12,7 +12,9 @@ navigation.forEach(button => button.addEventListener('click', () => {
     $(item.dataset.page).hidden = !selected;
   });
   if (button.dataset.page === 'settings') loadSettings();
+  if (button.dataset.page === 'help') HELP.show(location.hash.slice(1));
 }));
+if (location.hash.startsWith('#help')) setTimeout(() => document.querySelector('[data-page=help]').click());
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
@@ -156,14 +158,34 @@ function updateFields() {
   const method = addForm.querySelector('[name=method]:checked').value;
   addForm.querySelector('[type=submit]').textContent = {new: '作成する', clone: '取得する', register: '登録する'}[method];
   if (method === 'clone') { if (!githubModules && !githubModulesLoading) loadGithubModules(); renderCloneCandidates(); }
-  for (const [id, on] of [['new-fields', method === 'new'], ['clone-fields', method === 'clone'], ['register-fields', method === 'register']]) { $(id).hidden = !on; $(id).disabled = !on; }
+  for (const [id, on] of [['new-fields', method === 'new'], ['new-more', method === 'new'], ['clone-fields', method === 'clone'], ['register-fields', method === 'register']]) { $(id).hidden = !on; $(id).disabled = !on; }
   $('parent-fields').hidden = method === 'register';
   field('directory').required = method !== 'register';
-  const type = field('type').value;
-  $('app-field').hidden = type !== 'cpp';
-  const named = type === 'cpp' && field('kind').value !== 'none';   // --project is for the first Project only
+  // What to make first: the type's kinds (module types: new_kinds); a type without them takes no --kind.
+  const type = field('type').value, info = types.find(t => t.name === type);
+  const kinds = info ? info.new_kinds || [] : (FALLBACK_KINDS[type] || []), select = $('kind-select');
+  if (select.dataset.type !== type) {
+    const chosen = select.value;
+    select.innerHTML = kinds.map(k => `<option value="${esc(k)}">${esc(kindText(type, k))}</option>`).join('');
+    select.value = kinds.includes(chosen) ? chosen : (info?.default_new_kind || kinds[0] || '');
+    select.dataset.type = type;
+  }
+  $('kind-fields').hidden = !kinds.length; select.disabled = !kinds.length;
+  const named = kinds.length > 0 && select.value !== 'none';   // --project names what is made first
   $('project-field').hidden = !named; field('project').disabled = !named;
-  $('type-description').textContent = types.find(t => t.name === type)?.description || '';
+  field('project').placeholder = type === 'python' ? '省略時はモジュール名の小文字（パッケージ名）' : '省略時はモジュール名';
+}
+// module new --kind: the CLI's value and what it makes.
+const FALLBACK_KINDS = {cpp: ['app', 'library', 'none'], python: ['app', 'library', 'none']};
+const KIND_TEXT = {
+  cpp: {app: 'app（実行ファイル）', library: 'library（ライブラリ＋テスト用のProject）', none: 'none（Projectを作らない）'},
+  python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ＋テスト）', none: 'none（パッケージを作らない）'},
+};
+const kindText = (type, kind) => KIND_TEXT[type]?.[kind] || kind;
+function makingSteps(type, kind) {
+  const first = {app: type === 'cpp' ? '実行ファイルのProjectを用意' : '実行できるパッケージを用意',
+    library: type === 'cpp' ? 'ライブラリとテスト用のProjectを用意' : 'パッケージとテストを用意'}[kind];
+  return ['GitHubにリポジトリを作成', first || 'モジュールの中身を用意', '初回のコミットをPush'];
 }
 $('add-module').addEventListener('click', async () => {
   addForm.reset(); addForm.querySelector('details').open = false;
@@ -171,7 +193,7 @@ $('add-module').addEventListener('click', async () => {
   $('add-error').textContent = ''; updateFields(); addDialog.showModal();
   if (!types.length) {
     const doc = await ECO.cli(null, ['module', 'types'], {quiet: true});
-    if (doc.ok) { types = doc.result; $('type-select').innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join(''); updateFields(); }
+    if (doc.ok) { types = doc.result; delete $('kind-select').dataset.type; $('type-select').innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join(''); updateFields(); }
   }
   ECO.info().then(info => { if (!field('directory').value && info.home) field('directory').value = info.home.replaceAll('\\', '/'); });
 });
@@ -216,7 +238,7 @@ addForm.addEventListener('submit', async event => {
   if (creating) {
     for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
     if (data.has('public')) args.push('--public');
-    if (data.get('type') === 'cpp' && data.get('kind')) args.push('--kind', data.get('kind'));
+    if (data.get('kind')) args.push('--kind', data.get('kind'));
     if (data.get('project')?.trim()) args.push('--project', data.get('project').trim());
   }
   // Close the form and show the busy overlay ("ぐるぐる"). The CLI reports no progress until it ends, so the steps are
@@ -224,7 +246,7 @@ addForm.addEventListener('submit', async event => {
   addDialog.close(); submit.disabled = false;
   const overlay = ECO.busy({
     title: `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`, sub: directory + '/' + name.split('/').pop(),
-    steps: creating ? ['GitHubにリポジトリを作成', 'ライブラリとテスト用のProjectを用意', '初回のコミットをPush']
+    steps: creating ? makingSteps(data.get('type'), data.get('kind'))
       : ['GitHubからclone', '依存先をclone', '生成ファイルを用意'],
   });
   const doc = await ECO.cli(directory, args, {quiet: true});

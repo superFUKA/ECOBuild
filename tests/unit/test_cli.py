@@ -129,3 +129,39 @@ def test_current_type(tmp_path):
     assert _types.current(tmp_path / "src") == "python"
     _module_file(tmp_path).write_text("壊れた", encoding="utf-8")
     assert _types.current(tmp_path) is None
+
+
+def _catalog(capsys, *args):
+    from ecobuild_cli import main
+    with pytest.raises(SystemExit) as stop:
+        main([*args, "--help", "--json"])
+    return stop.value.code, json.loads(capsys.readouterr().out)
+
+
+def test_help_json_lists_every_command(tmp_path, monkeypatch, capsys):
+    """ecobuild --help --json：共通のコマンドと、型ごとのコマンド（説明・引数・オプション）。"""
+    monkeypatch.chdir(tmp_path)
+    code, document = _catalog(capsys)
+    assert code == 0 and document["ok"]
+    common = {c["name"]: c for c in document["result"]["commands"]}
+    assert {"task", "status", "sync", "module"} <= set(common) and "build" not in common
+    close = next(c for c in common["task"]["commands"] if c["name"] == "close")
+    assert close["path"] == "task close" and close["section"] == "計画" and close["runnable"]
+    assert close["arguments"] == [{"name": "ISSUE", "help": "タスクの番号", "required": True, "multiple": False}]
+    names = [o["names"] for o in close["options"]]
+    assert ["--not-planned"] in names and ["--json"] not in names       # どのコマンドにもあるものは出さない
+    assert not common["task"]["runnable"] and common["sync"]["runnable"]   # sync はグループでも実行できる
+    types = document["result"]["types"]
+    assert set(types) == {"cpp", "python", "generic"}
+    cpp = {c["name"]: c for c in types["cpp"]["commands"]}
+    assert {"build", "project", "deps"} <= set(cpp) and "task" not in cpp
+    assert cpp["module"]["extends"] and [c["name"] for c in cpp["module"]["commands"]] == ["settings"]
+    assert "file" not in {c["name"] for c in types["generic"]["commands"]}
+
+
+def test_help_json_for_one_command(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    code, document = _catalog(capsys, "task", "close")
+    assert code == 0 and document["result"]["path"] == "task close"
+    code, document = _catalog(capsys, "nosuch")
+    assert code == 2 and document["error"]["code"] == "usage_error"

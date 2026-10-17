@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from cli_framework import create_cli
 
-from . import _log, _types, commands
+from . import _catalog, _log, _types, commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
@@ -94,6 +94,14 @@ def _main(args: list[str]) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    if json_output and "--help" in args:
+        # コマンドの一覧・説明をJSONで（_catalog）。--help より前の、オプションでないものがコマンドの道筋
+        path = []
+        for arg in args:
+            if arg.startswith("-"):
+                break
+            path.append(arg)
+        sys.exit(_catalog.emit(build_cli, path, {("task",): TASK_SECTIONS}))
     if not json_output:
         # 人向け：エラーの表示（日本語）と終了コードは CLIFrameWork に任せる。
         build_cli().main(args, prog_name="ecobuild")

@@ -133,4 +133,5 @@ module = CoreModule.find(".", registry=Registry([MyType]))   # 自分の型を�
 - モジュールの外では、型ごとのコマンドは出ません。
 - ほかの型のコマンド（Python のモジュールで `project` 等）は、`not_supported`（終了コード 1）で止まります。
 - 共通のグループ（`file`・`deps`・`profile`・`module`）に、型がコマンドを足せます。共通のコマンドと同じ名前は置けません。
+- `ecobuild --help --json` は、共通のコマンドと、すべての型のコマンドを、説明・引数・オプションつきのJSONで出します（モジュールの中でなくても。GUIのヘルプが使う）。`ecobuild task close --help --json` のようにコマンドを書けば、そのコマンドだけ。
 - 型のコマンドは `ecobuild_cli.kit`（CLI の公開の補助）だけを使います。型の本体（`type.py` 等）は `cli/` を import しません。

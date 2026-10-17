@@ -56,6 +56,10 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 作業空間の「AIを起動」で `ecobuild agent start`（作業空間のルートで、エージェントを新しい画面で起動する。待たずに戻る）。▾ で、起動するコマンド（`--agent`。このPCで覚える）・AGENTS.md を作る（`agent init`）・AI向けの作業の手順（`agent guide`）。
 
+## ヘルプ
+
+ハブの「ヘルプ」。「使い方」は作業の流れ（GUIの場所と、そのとき動くコマンド）と用語。「コマンド一覧」は `ecobuild --help --json`（共通のコマンドと、型ごとのコマンド。説明・引数・オプション）を、目的ごとの見出しに分けて出す（見出しはGUIが決める。知らないコマンドは「その他」）。検索（`/`）・型での絞り込み・説明の中の `ecobuild …` から移動・使い方のコピー。`hub.html#help/commands/task%20start` で開ける。
+
 ## 表示を待たせない
 
 GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約8秒、`task list`・`task workload` 約4秒、`status --fetch` 約3秒、`module show` 約2秒、`branch list`・`module list` 約1秒。手元だけのもの（`status`・`project list`・`profile list`・`module settings`・`workspace list` 等）は0.3秒前後）。

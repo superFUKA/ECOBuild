@@ -41,7 +41,7 @@ def test_every_command_has_help():
                  ["track", "remove"], ["milestone", "list"], ["milestone", "create"], ["milestone", "edit"],
                  ["milestone", "close"], ["milestone", "reopen"], ["task", "next"], ["task", "overdue"],
                  ["task", "edit"], ["task", "workload"], ["sprint", "list"], ["sprint", "status"], ["milestone", "status"],
-                 ["init"]):
+                 ["agent", "start"], ["init"]):
         result = runner.invoke(build_cli("cpp"), [*args, "--help"])
         assert result.exit_code == 0, (args, result.output)
         assert "--json" in result.output, args
@@ -658,3 +658,21 @@ def test_team_commands(cli, module):
     assert "外しました" in cli("module", "protect", "--off", "--yes").stdout
     github.free_private = True
     assert as_json(cli("module", "protect", "--yes", "--json"))["error"]["code"] == "plan_required"
+
+
+def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
+    import ecoagent
+    started = []
+    monkeypatch.setattr(ecoagent, "start", lambda directory, command: started.append((directory, command))
+                        or ecoagent.Session(1, tuple(command), directory))
+    refused = as_json(cli("agent", "start", "--json"))
+    assert refused["error"]["code"] == "not_in_workspace" and not started
+
+    cli("task", "new", "AIで作業", "--start")
+    (module.root / "sub").mkdir()
+    monkeypatch.chdir(module.root / "sub")
+    result = as_json(cli("agent", "start", "--agent", "codex --full-auto", "--json"))["result"]
+    assert started == [(module.root, ["codex", "--full-auto"])]
+    assert result["command"] == ["codex", "--full-auto"]
+    cli("agent", "start")
+    assert started[-1] == (module.root, ecoagent.DEFAULT_COMMAND)

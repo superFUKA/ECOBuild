@@ -39,6 +39,7 @@ class ErrorCode(_WorkErrorCode):
     NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
     CLONE_NOT_RECORDED = "clone_not_recorded"     # module forget：その場所は記録にない
     IN_USE = "in_use"                   # 他のプログラム（エディター・端末等）が使っているため、フォルダーを動かせない
+    AGENT_ERROR = "agent_error"         # エージェントを起動できない（details に ecoagent の code）
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
 
 

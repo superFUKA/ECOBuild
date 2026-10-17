@@ -15,7 +15,7 @@ import pytest
 
 from ecobuild_cli import build_cli
 
-PACKAGES = ("ecotask", "ecowork", "ecobuild", "ecobuild_cpp", "ecobuild_generic", "ecobuild_python", "ecobuild_bundle",
+PACKAGES = ("ecoagent", "ecotask", "ecowork", "ecobuild", "ecobuild_cpp", "ecobuild_generic", "ecobuild_python", "ecobuild_bundle",
             "ecobuild_cli")
 # 型ごとのコマンドは、その型のモジュールの中でだけ出る。どれかの型の CLI でたどれればよい
 TYPES = ("cpp", "python", "generic")

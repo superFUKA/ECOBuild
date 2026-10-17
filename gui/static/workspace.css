@@ -147,3 +147,10 @@ body.resizing iframe { pointer-events: none; }
 
 /* A drop from outside: the folder it goes into (the whole tree: the top of the workspace). */
 #file-tree.drop-target { outline: 2px dashed #9ee4d3; outline-offset: -4px; border-radius: 6px; background: #1b2a26; }
+
+/* A folder opens and closes by its triangle (the name only chooses it): the triangle is the thing to press. */
+#file-tree summary { cursor: default; }
+#file-tree summary .tree-caret { cursor: pointer; display: inline-block; width: 16px; margin: 0 1px 0 -3px; text-align: center; border-radius: 3px; }
+#file-tree summary .tree-caret:hover { background: #2b333c; color: #edf1f5; }
+/* Chosen in the explorer (a click; Ctrl・Shift for several) */
+#file-tree .file.chosen, #file-tree summary.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }

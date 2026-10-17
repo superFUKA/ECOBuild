@@ -66,3 +66,5 @@ header .header-actions button:hover { border-color: #9ee4d3; }
 .nav-account-name { overflow: hidden; text-overflow: ellipsis; }
 .module-shell.nav-collapsed .nav-account { justify-content: center; padding: 12px 0 2px; }
 .module-shell.nav-collapsed .nav-account-name { display: none; }
+header .brand-icon { display: block; flex: none; }
+header { gap: 12px; }

@@ -128,8 +128,8 @@ function renderModules() {
     list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubからの取得・手元のフォルダの登録ができます。</li>';
     return;
   }
-  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="右クリックで操作、ドラッグで並び替え">
-    <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span><span class="module-path">${esc(m.path)}</span>
+  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
+    <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span>${(() => { const g = githubEntry(m), about = [g?.type, g?.description].filter(Boolean).join('・'); return about ? `<span class="module-about">${esc(about)}</span>` : ''; })()}
     ${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
     <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
       ${m.exists ? `<button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>` : ''}

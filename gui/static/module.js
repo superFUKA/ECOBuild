@@ -9,7 +9,6 @@ const MOD = (() => {
 })();
 const mEl = id => document.getElementById(id);
 document.getElementById('module-title').textContent = MOD.name;
-document.getElementById('module-path').textContent = MOD.root;
 document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
 

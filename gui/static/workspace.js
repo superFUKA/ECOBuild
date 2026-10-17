@@ -61,12 +61,7 @@ function renderHeader() {
   const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
   get('workspace-label').textContent = where;
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
-  const parts = [];
-  if (s.task) parts.push('作成元 ' + s.base);
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
-  if (s.behind) parts.push('GitHubより ' + s.behind + ' 遅れ');
-  if (s.base_behind) parts.push('作成元より ' + s.base_behind + ' 遅れ');
-  get('branch-state').textContent = (s.task ? s.branch + '　' : '') + parts.join(' · ');
   const pr = s.pull_request;
   get('pr-state').textContent = pr && !s.finished ? `このタスクブランチ：${submissionText(pr)}` : '';
 }
@@ -101,7 +96,6 @@ function renderBanners(errorDoc) {
   get('share-panel').hidden = !working;
   get('prs-panel').hidden = !working;
   get('changes-title').textContent = working ? 'コミット・共有' : '作業空間';
-  document.querySelector('.work > .heading .eyebrow').hidden = !working;
 }
 
 // The checked files are what is committed. A file staged elsewhere (git, TortoiseGit) starts checked, once.

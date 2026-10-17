@@ -74,7 +74,15 @@ function renderTree() {
       }
       title.dataset.directory = dir;
       if (changedDirs.has(dir)) title.classList.add('has-changes');
-      title.addEventListener('click', () => { activeDirectory = dir; });
+      title.addEventListener('click', e => {
+        activeDirectory = dir;
+        if (e.detail > 0 && !e.target.closest('.tree-caret')) { e.preventDefault(); choose('d:' + dir, e); }   // not the triangle: choose only
+      });
+      title.addEventListener('dblclick', e => { if (!e.target.closest('.tree-caret')) folder.open = !folder.open; });
+      title.addEventListener('keydown', e => {
+        if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); renameFolder(dir); }
+        if (e.key === 'Delete' && editable()) { e.preventDefault(); e.stopPropagation(); if (!chosen.has('d:' + dir)) choose('d:' + dir); removeChosen(); }
+      });
       folder.addEventListener('toggle', () => { if (folder.open) folded.delete(dir); else folded.add(dir); });
       folder.append(title); walk(child, folder, dir); parent.append(folder);
     }
@@ -89,9 +97,9 @@ function renderTree() {
   };
   tree.replaceChildren(); walk(rootNode, tree, '');
   if (!tree.childElementCount) tree.innerHTML = '<p class="muted">ファイルはありません。</p>';
-  if (restricted()) tree.insertAdjacentHTML('afterbegin', '<p class="explorer-note">Projectのフォルダを表示しています（ファイルの追加・削除はProjectの中で行います）。</p>');
   if (restricted() && (!activeDirectory || !shown(activeDirectory))) activeDirectory = projectRoots[0];
   get('new-file').disabled = get('new-folder').disabled = !editable();
+  paintChosen();
 }
 WS.onRefresh(renderTree);
 // Generated files (CppBuild's CMakeLists.txt etc.: rewritten by the tool, not to be edited) are hidden unless asked for.
@@ -112,8 +120,58 @@ tree.addEventListener('click', e => {
   // and the dblclick (open in Visual Studio) would never arrive.
   WS.activeFile = row.dataset.path; activeDirectory = dirOf(row.dataset.path);
   tree.querySelectorAll('.file.active').forEach(r => r.classList.remove('active')); row.classList.add('active');
+  choose('f:' + row.dataset.path, e);
   WS.renderChanges(); row.focus();
 });
+
+// What is chosen in the explorer: files (f:path) and folders (d:dir). A click chooses one; Ctrl adds or takes away;
+// Shift chooses from the last one to this one (in the order shown). Delete and the menu act on all chosen.
+const chosen = new Set();
+let anchor = '';
+const keyOfItem = el => el.dataset.path !== undefined ? 'f:' + el.dataset.path : 'd:' + el.dataset.directory;
+const shownItems = () => [...tree.querySelectorAll('[data-path], summary[data-directory]')].filter(el => el.offsetParent);
+function choose(key, e) {
+  if (e?.ctrlKey || e?.metaKey) { if (chosen.has(key)) chosen.delete(key); else chosen.add(key); anchor = key; }
+  else if (e?.shiftKey && anchor) {
+    const keys = shownItems().map(keyOfItem), from = keys.indexOf(anchor), to = keys.indexOf(key);
+    chosen.clear();
+    if (from < 0 || to < 0) chosen.add(key);
+    else for (const k of keys.slice(Math.min(from, to), Math.max(from, to) + 1)) chosen.add(k);
+  } else { chosen.clear(); chosen.add(key); anchor = key; }
+  paintChosen();
+}
+function paintChosen() {
+  for (const el of tree.querySelectorAll('[data-path], summary[data-directory]')) el.classList.toggle('chosen', chosen.has(keyOfItem(el)));
+}
+// The chosen ones, without those inside a chosen folder (they go with it).
+function chosenItems() {
+  const dirs = [...chosen].filter(k => k.startsWith('d:')).map(k => k.slice(2));
+  const inside = p => dirs.some(d => p !== d && p.startsWith(d + '/'));
+  return {dirs: dirs.filter(d => !inside(d)), files: [...chosen].filter(k => k.startsWith('f:')).map(k => k.slice(2)).filter(p => !inside(p))};
+}
+async function removeChosen() {
+  const {dirs, files} = chosenItems();
+  if (!dirs.length && !files.length) return;
+  const projects = dirs.filter(d => projectsByDir.has(d));
+  if (projects.length) return ECO.toast(`Projectのフォルダ（${projects.join('・')}）は、「モジュール」→「Project」の「削除」で削除します。`, 'info', 7000);
+  const tests = files.length && await typeHasFileTests();
+  const list = [...dirs.map(d => d + '/'), ...files];
+  const v = await ECO.form({title: `${list.length} 件を削除`, intro: esc(list.join('\n')).replaceAll('\n', '<br>') + '<br>を削除します（フォルダは中身ごと）。',
+    fields: tests ? [{name: 'test', label: `${sourceTests(restricted())}なら、対応するテストも削除する`, type: 'checkbox', value: true}] : [], ok: '削除', danger: true});
+  if (!v) return;
+  if (files.length) {
+    let doc = await WS.cli(['file', 'remove', ...files, ...(!tests || v.test ? [] : ['--no-test'])]);
+    if (!doc.ok && doc.error?.code === 'not_supported') {
+      for (const path of files) { doc = await withoutFileCommand(doc, 'remove-file', {path}); if (!doc.ok) break; }
+    }
+    if (!doc.ok) return ECO.showError(doc);
+  }
+  try { for (const dir of dirs) await ECO.call('remove-folder', {dir: WS.dir, path: dir}); }
+  catch (error) { ECO.toast(error.message, 'bad', 8000); }
+  if (dirs.length && (await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
+  chosen.clear();
+  await WS.refresh(); await afterFileChange(true, `削除しました：${list.join('、')}`);
+}
 tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
 const dirOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
 const openFile = (path, reveal = false) => ECO.action('folder', {dir: WS.dir, path, reveal}).catch(e => ECO.toast(e.message, 'bad'));
@@ -153,12 +211,18 @@ function fileMenu(path, x, y) {
 }
 function folderMenu(dir, x, y) {
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }
 tree.addEventListener('contextmenu', e => {
   const row = e.target.closest('[data-path]'), folder = e.target.closest('summary[data-directory]');
+  const item = row || folder;
+  if (item && chosen.size > 1 && chosen.has(keyOfItem(item))) {
+    e.preventDefault(); e.stopPropagation(); delete menu.dataset.dir;
+    return showMenu([['remove-chosen', `選んだ ${chosen.size} 件を削除　Delete`, editable()]], e.clientX, e.clientY);
+  }
+  if (item) choose(keyOfItem(item));
   if (row) { e.preventDefault(); delete menu.dataset.dir; fileMenu(row.dataset.path, e.clientX, e.clientY); }
   else if (folder) { e.preventDefault(); folderMenu(folder.dataset.directory, e.clientX, e.clientY); }
   else { e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY); }
@@ -185,7 +249,7 @@ tree.addEventListener('keydown', e => {
   const row = e.target.closest('[data-path]'); if (!row) return;
   WS.activeFile = row.dataset.path;
   if (e.key === 'F2') { e.preventDefault(); menuAction('rename'); }
-  if (e.key === 'Delete') { e.preventDefault(); menuAction('remove'); }
+  if (e.key === 'Delete') { e.preventDefault(); if (chosen.size > 1 && chosen.has('f:' + row.dataset.path)) removeChosen(); else menuAction('remove'); }
   if (e.key === 'Enter') { e.preventDefault(); openInEditor(row.dataset.path); }
   if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = row.getBoundingClientRect(); fileMenu(row.dataset.path, r.left + 20, r.bottom); }
 });
@@ -202,6 +266,9 @@ async function menuAction(action, dir) {
     case 'open-default': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
+    case 'rename-dir': return renameFolder(dir);
+    case 'remove-dir': choose('d:' + dir); return removeChosen();
+    case 'remove-chosen': return removeChosen();
     case 'toggle-generated': return get('toggle-generated').click();
     case 'reload': return get('reload-files').click();
     case 'new-file': return newFileDialog(dir ?? activeDirectory);
@@ -332,6 +399,35 @@ function inlineName({create, dir = '', rename}) {
     delete box.dataset.busy; input.disabled = false; error.textContent = message; input.focus();
   });
   input.focus(); input.setSelectionRange(0, input.value.lastIndexOf('.') > 0 ? input.value.lastIndexOf('.') : input.value.length);
+}
+
+// A folder's name, edited in place (F2 or the menu). The folder moves with what is in it. A Project's own folder is
+// moved with project move (its build settings change too).
+function renameFolder(dir) {
+  if (!editable() || !dir || tree.querySelector('.inline-name')) return;
+  if (projectsByDir.has(dir)) return ECO.toast('Projectのフォルダは、「モジュール」→「Project」の「移動」で移します（ビルドの設定も変わるため）。', 'info', 7000);
+  const folder = tree.querySelector(`details[data-directory="${CSS.escape(dir)}"]`); if (!folder) return;
+  const box = document.createElement('div'), input = document.createElement('input'), error = document.createElement('small');
+  box.className = 'inline-name'; input.value = dir.split('/').pop(); input.setAttribute('aria-label', 'フォルダ名'); error.setAttribute('role', 'alert');
+  box.append(input, error); folder.before(box); folder.hidden = true;
+  const cancel = () => { box.remove(); folder.hidden = false; };
+  input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input && box.isConnected && !box.dataset.busy) cancel(); }, 150));
+  input.addEventListener('keydown', async e => {
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const name = input.value.trim(), destination = join(dirOf(dir), name);
+    if (!validName(name)) { error.textContent = '有効な名前を入力してください。'; return; }
+    if (destination === dir) { cancel(); return; }
+    box.dataset.busy = '1'; input.disabled = true;
+    try {
+      await ECO.call('rename-folder', {dir: WS.dir, source: dir, destination});
+      if ((await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
+      box.remove(); if (activeDirectory === dir) activeDirectory = destination;
+      await WS.refresh(); await afterFileChange(true, `名前を変えました：${dir} → ${destination}`);
+    } catch (err) { delete box.dataset.busy; input.disabled = false; error.textContent = err.message; input.focus(); }
+  });
+  input.focus(); input.select();
 }
 
 // Module types without file commands (generic): the GUI moves and removes the file itself, as it makes empty files.

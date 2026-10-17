@@ -609,6 +609,31 @@ def move_file(directory: str, source: str, destination: str) -> dict:
     return {"paths": [target.relative_to(Path(directory).resolve()).as_posix()]}
 
 
+def rename_folder(directory: str, source: str, destination: str) -> dict:
+    """フォルダの名前を変える・移す（中身ごと）。Project のフォルダそのものは project move で（ビルドの設定も変わるため）。"""
+    origin, target = _inside(directory, source), _inside(directory, destination)
+    root = Path(directory).resolve()
+    if origin == root or not origin.is_dir():
+        raise GuiError(f"フォルダが見つかりません：{source}")
+    if target.exists():
+        raise GuiError(f"すでに存在します：{destination}")
+    if origin in target.parents:
+        raise GuiError("フォルダをその中へは移せません。")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    origin.rename(target)
+    return {"path": target.relative_to(root).as_posix()}
+
+
+def remove_folder(directory: str, relative: str) -> dict:
+    """フォルダを中身ごと削除する（作業空間の中だけ。作業空間そのもの・.git は消さない）。"""
+    import shutil
+    target = _inside(directory, relative)
+    if target == Path(directory).resolve() or not target.is_dir():
+        raise GuiError(f"フォルダが見つかりません：{relative}")
+    shutil.rmtree(target)
+    return {"path": relative}
+
+
 IMPORT_LIMIT = 100 * 1024 * 1024    # 一度に取り込む大きさの上限（画面から送るので、大きなものは送らない）
 
 
@@ -973,6 +998,10 @@ class App:
             return move_file(d("dir"), d("source"), d("destination"))
         if name == "remove-file":
             return remove_file(d("dir"), d("path"))
+        if name == "remove-folder":
+            return remove_folder(d("dir"), d("path"))
+        if name == "rename-folder":
+            return rename_folder(d("dir"), d("source"), d("destination"))
         if name == "import-files":
             return import_files(d("dir"), d("target") or "", list(d("files") or []))
         if name == "mkparent":

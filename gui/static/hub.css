@@ -150,3 +150,4 @@
     .nav-account-name { overflow: hidden; text-overflow: ellipsis; }
     body.nav-collapsed .nav-account { justify-content: center; padding: 14px 0 0; }
     body.nav-collapsed .nav-account-name { display: none; }
+    .module-about { display: block; margin-top: 8px; color: #a5aeba; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }

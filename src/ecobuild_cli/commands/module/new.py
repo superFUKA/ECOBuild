@@ -8,11 +8,11 @@ def command(
     name: Annotated[str, "モジュール名（GitHubのリポジトリ名にもなる）"],
     description: Annotated[str, "リポジトリの説明"] = "",
     public: Annotated[bool, "公開リポジトリにする（既定は非公開）"] = False,
-    kind: Annotated[str, "最初に作るもの（cpp・python：app＝実行できるもの〔既定〕・library＝ライブラリとテスト・none＝作らない）"] = "",
+    kind: Annotated[str, "最初に作るもの（cpp・python：app＝実行できるもの〔既定〕・library＝ライブラリとテスト・none＝作らない。cpp は shared＝共有ライブラリ〔DLL〕とテストも）"] = "",
     project: Annotated[str, "最初に作るProjectの名前（既定はモジュール名。C++でライブラリならテスト用は <名前>Test。Python ではパッケージ名で、既定はモジュール名の小文字）"] = "",
     owner: Annotated[str, "リポジトリの所有者（組織名など。既定はログイン中のユーザー）"] = "",
     type: Annotated[str, "モジュールの型（ecobuild module types で一覧。既定は cpp）"] = "",
-    test: Annotated[bool, "library のとき、テスト（C++ ならテスト用のProject <名前>Test）も作る（--no-test で作らない）"] = True,
+    test: Annotated[bool, "library（C++ では shared も）のとき、テスト（C++ ならテスト用のProject <名前>Test）も作る（--no-test で作らない）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """モジュール（GitHubリポジトリ）を作り、初回コミットをpushします。

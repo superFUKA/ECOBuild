@@ -190,14 +190,15 @@ function updateFields() {
   $('project-field').hidden = !named; field('project').disabled = !named;
   field('project').placeholder = type === 'python' ? '省略時はモジュール名の小文字（パッケージ名）' : '省略時はモジュール名';
   // A library: whether its test is made too (module new --no-test when not).
-  const library = kinds.length > 0 && select.value === 'library';
+  const library = kinds.length > 0 && LIBRARY_KINDS.includes(select.value);
   $('test-field').hidden = !library; field('test').disabled = !library;
   $('test-label').textContent = type === 'cpp' ? `テスト用のProject（${field('project').value.trim() || field('name').value.trim() || '名前'}Test）も作る` : 'テスト（tests/）も作る';
 }
 // module new --kind: the CLI's value and what it makes.
-const FALLBACK_KINDS = {cpp: ['app', 'library', 'none'], python: ['app', 'library', 'none']};
+const FALLBACK_KINDS = {cpp: ['app', 'library', 'shared', 'none'], python: ['app', 'library', 'none']};
+const LIBRARY_KINDS = ['library', 'shared'];   // made with their test (module new --no-test when not)
 const KIND_TEXT = {
-  cpp: {app: 'app（実行ファイル）', library: 'library（静的ライブラリ .lib）', none: 'none（Projectを作らない）'},
+  cpp: {app: 'app（実行ファイル）', library: 'library（静的ライブラリ .lib）', shared: 'shared（共有ライブラリ .dll）', none: 'none（Projectを作らない）'},
   python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ）', none: 'none（パッケージを作らない）'},
 };
 const kindText = (type, kind) => KIND_TEXT[type]?.[kind] || kind;
@@ -255,7 +256,7 @@ addForm.addEventListener('submit', async event => {
     for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
     if (data.has('public')) args.push('--public');
     if (data.get('kind')) args.push('--kind', data.get('kind'));
-    if (data.get('kind') === 'library' && !data.has('test')) args.push('--no-test');
+    if (LIBRARY_KINDS.includes(data.get('kind')) && !data.has('test')) args.push('--no-test');
     if (data.get('project')?.trim()) args.push('--project', data.get('project').trim());
   }
   // Close the form and show the busy overlay ("ぐるぐる") with what the command is doing now (it reports each step).

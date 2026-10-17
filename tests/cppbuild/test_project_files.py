@@ -137,6 +137,22 @@ def test_shared_profile_builds_library_as_shared(module):
             write(path, text)
 
 
+def test_shared_library_project_builds_as_dll(module):
+    """種類 shared は共有ライブラリとして作り、組のテスト用Projectも共有ライブラリとしてリンクして通る。"""
+    assert module.add_project("GeoDll", "shared").paths == (
+        "GeoDll/include/GeoDll/GeoDll.h", "GeoDll/src/GeoDll.cpp", "GeoDllTest/src/GeoDllTest.cpp")
+    try:
+        kinds = {p.name: p for p in module.projects()}
+        assert kinds["GeoDll"].kind == "shared_library"
+        assert code_of(lambda: module.add_project("X", "shared", link="Geo")) == ErrorCode.INVALID_ARGUMENT
+        assert any(a.endswith((".dll", ".so")) for a in module.build(project="GeoDll").artifacts)
+        assert module.build(project="GeoDllTest").artifacts  # 使う側のリンクまで（Windows では .lib が要る）
+        assert module.test(project="GeoDllTest").failed == 0
+    finally:
+        module.remove_project("GeoDllTest")
+        module.remove_project("GeoDll")
+
+
 def test_docs_ci_and_check(module):
     root = module.root
     git(root, "add", "--all")

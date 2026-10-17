@@ -42,16 +42,20 @@ TEMPLATES = {
     "unit_test": "unit_test.cpp",
 }
 
-# module new の --kind：最初に作るProject（app：実行ファイル、library：ライブラリとテスト用、none：作らない）
-NEW_KINDS = ("app", "library", "none")
+# module new の --kind：最初に作るProject（app：実行ファイル、library：静的ライブラリとテスト用、
+# shared：共有ライブラリ〔Windows は DLL〕とテスト用、none：作らない）
+NEW_KINDS = ("app", "library", "shared", "none")
 
 # project add の種類 → CppBuildの種類
 PROJECT_KINDS = {
     "library": ProjectType.STATIC_LIBRARY,
+    "shared": ProjectType.SHARED_LIBRARY,
     "app": ProjectType.EXECUTABLE,
     "test": ProjectType.TEST,
     "bench": ProjectType.EXECUTABLE,
 }
+# 種類のうちライブラリ（組のテスト用Projectを作る・--link は使えない）
+LIBRARY_KINDS = ("library", "shared")
 # ライブラリの形式（project set --for・project link --as・ビルド設定の type）→ CppBuildの種類
 LIBRARY_TYPES = {
     "static": ProjectType.STATIC_LIBRARY,
@@ -138,7 +142,8 @@ def open_solution(root: Path) -> Solution:
 def create_module_solution(root: Path, name: str, kind: str, project: str | None = None, *,
                            test: bool = True) -> Solution:
     """Solutionと、最初のProjectを作る（生成はしない）。kind：app＝実行ファイル <Project名>、
-    library＝静的ライブラリ <Project名> とテスト用 <Project名>Test（test が偽なら作らない）、none＝Projectを作らない。
+    library＝静的ライブラリ <Project名> とテスト用 <Project名>Test（test が偽なら作らない）、shared＝同じく共有ライブラリ、
+    none＝Projectを作らない。
     Project名は project（省略時はモジュール名）。
 
     CppBuildは最初に作ったProjectを main_project にし、他のモジュールからリンクされるのはそれだけ
@@ -153,8 +158,8 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
         _register_templates(solution)
         if kind == "app":
             _create_linked(solution, project or name, "app", None)
-        elif kind == "library":
-            _create_library(solution, project or name, test=test)
+        elif kind in LIBRARY_KINDS:
+            _create_library(solution, project or name, test=test, kind=kind)
         return solution
     except EcoBuildError:
         raise
@@ -162,9 +167,10 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
         raise _cppbuild_error("CppBuildでSolutionを作成できません。", error) from error
 
 
-def _create_library(solution: Solution, name: str, *, test: bool) -> list[str]:
-    """ライブラリ（ヘッダー include/<名前>/<名前>.h と src/<名前>.cpp）と、test ならテスト用 <名前>Test。"""
-    project = solution.add_project(name, name, ProjectType.STATIC_LIBRARY)
+def _create_library(solution: Solution, name: str, *, test: bool, kind: str = "library") -> list[str]:
+    """ライブラリ（ヘッダー include/<名前>/<名前>.h と src/<名前>.cpp）と、test ならテスト用 <名前>Test。
+    kind：library＝静的、shared＝共有（どちらも Windows で関数を書き出す設定にする。_add_library_header）。"""
+    project = solution.add_project(name, name, PROJECT_KINDS[kind])
     header = library_header(name)
     _add_library_header(project, f"include/{header}")
     project.add_file(f"src/{name}.cpp", template_name="source", replacements={"header": header}, auto_update=False)
@@ -180,7 +186,8 @@ def _create_linked(solution: Solution, name: str, kind: str, library: str | None
     if library is None:   # app だけ（test・bench はライブラリが要る）
         project.add_file("src/main.cpp", template_name="app", auto_update=False)
         return [f"{name}/src/main.cpp"]
-    project.settings.link_project(solution.get_project(library), ProjectType.STATIC_LIBRARY)
+    other = solution.get_project(library)   # ライブラリの作成時の形式（静的・共有）でリンクする
+    project.settings.link_project(other, other.settings.get().initial_type)
     template, file_name = {"app": ("main", "main.cpp"), "test": ("test", f"{name}.cpp"),
                            "bench": ("bench", "bench.cpp")}[kind]
     replacements = {"header": library_header(library)}
@@ -351,7 +358,7 @@ def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
 def add_project(root: Path, name: str, kind: str, *, link: str | None = None, test: bool = True) -> tuple[str, ...]:
     """Projectを作る。作ったファイルを返す。
 
-    library：ライブラリと、test ならテスト用 <名前>Test（I-022）。app・test・bench：link のライブラリ
+    library（静的）・shared（共有）：ライブラリと、test ならテスト用 <名前>Test（I-022）。app・test・bench：link のライブラリ
     （省略時は、ライブラリが1つならそれ）をリンクする。test・bench にはライブラリが要る。app はなくてもよい。
     """
     if kind not in PROJECT_KINDS:
@@ -359,15 +366,15 @@ def add_project(root: Path, name: str, kind: str, *, link: str | None = None, te
                             hint=f"{'・'.join(PROJECT_KINDS)} のどれかを指定してください。")
     solution = open_solution(root)
     existing = solution.settings.get().projects
-    for each in [name] + ([test_project_of(name)] if kind == "library" and test else []):
+    for each in [name] + ([test_project_of(name)] if kind in LIBRARY_KINDS and test else []):
         if each in existing:
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"Project {each} は既にあります。")
         if (root / each).exists():
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{root / each} は既に存在します。")
     library = None
-    if kind == "library":
+    if kind in LIBRARY_KINDS:
         if link:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--link は library では使えません。")
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--link は {kind} では使えません。")
     else:
         library = _library_to_link(solution, link)
         if library is None and kind != "app":
@@ -376,7 +383,7 @@ def add_project(root: Path, name: str, kind: str, *, link: str | None = None, te
                                 hint="先に project add <名前> --kind library でライブラリを作ってください。")
     try:
         _ensure_templates(solution)
-        files = (_create_library(solution, name, test=test) if kind == "library"
+        files = (_create_library(solution, name, test=test, kind=kind) if kind in LIBRARY_KINDS
                  else _create_linked(solution, name, kind, library))
         solution.update()
         return tuple(files)

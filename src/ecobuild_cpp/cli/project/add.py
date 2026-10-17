@@ -5,14 +5,15 @@ from ecobuild_cli.kit import missing, run_command
 
 def command(
     name: Annotated[str, "Project名（ディレクトリ名にもなる）"],
-    kind: Annotated[str, "種類：library／app（実行ファイル）／test／bench（性能測定）"] = "",
+    kind: Annotated[str, "種類：library（静的ライブラリ）／shared（共有ライブラリ。Windows は DLL）／app（実行ファイル）／test／bench（性能測定）"] = "",
     link: Annotated[str, "リンクするライブラリのProject（app・test・bench。既定：ライブラリが1つならそれ）"] = "",
-    no_test: Annotated[bool, "library で、組のテスト用Project（<名前>Test）を作らない"] = False,
+    no_test: Annotated[bool, "library・shared で、組のテスト用Project（<名前>Test）を作らない"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """Projectを追加します。
 
-    library は、組のテスト用Project <名前>Test も作ります（file add でソースに対応するテストを置く場所）。
+    library・shared は、組のテスト用Project <名前>Test も作ります（file add でソースに対応するテストを置く場所）。
+    shared は Windows でも __declspec(dllexport) なしで関数を書き出します（.dll と .lib ができます）。
     app・test・bench はライブラリをリンクします（test・bench はライブラリが要ります。app はなくても作れます）。
     """
     if not kind:

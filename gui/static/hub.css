@@ -21,7 +21,8 @@
     @media (max-width: 600px) { header { padding: 18px 20px; } main { padding: 32px 20px; } h2 { font-size: 24px; } }
     @media (prefers-reduced-motion: reduce) { .module-list a { transition: none; } }
       body { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
-    .sidebar { min-height: 100vh; background: #181c21; border-right: 1px solid #292f36; padding: 28px 16px; }
+    /* The menu stays while the page scrolls (it scrolls by itself only when the window is too low for it). */
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; background: #181c21; border-right: 1px solid #292f36; padding: 28px 16px; }
     .sidebar h1 { padding: 0 14px 32px; }
     .sidebar nav { display: grid; gap: 8px; }
     button { font: inherit; }

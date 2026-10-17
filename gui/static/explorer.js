@@ -32,7 +32,9 @@ const inSources = path => {
   const rel = path.slice(root.length).replace(/^\//, '');
   return project.source_directories.some(s => rel === s || rel.startsWith(s + '/'));
 };
-const shown = path => !restricted() || projectRoots.some(root => {
+// The module's README (at the top) is shown too, though it is in no Project: it is the module's own page to edit.
+const isReadme = path => /^readme(\.[^/]*)?$/i.test(path);
+const shown = path => !restricted() || isReadme(path) || projectRoots.some(root => {
   if (path !== root && !path.startsWith(root + '/')) return false;
   return !path.slice(root.length).split('/').some(part => part.startsWith('.'));
 });
@@ -157,7 +159,7 @@ tree.addEventListener('keydown', e => { if (e.key === 'Escape' && !e.target.matc
 function chosenItems() {
   const dirs = [...chosen].filter(k => k.startsWith('d:')).map(k => k.slice(2));
   const inside = p => dirs.some(d => p !== d && p.startsWith(d + '/'));
-  return {dirs: dirs.filter(d => !inside(d)), files: [...chosen].filter(k => k.startsWith('f:')).map(k => k.slice(2)).filter(p => !inside(p))};
+  return {dirs: dirs.filter(d => !inside(d)), files: [...chosen].filter(k => k.startsWith('f:')).map(k => k.slice(2)).filter(p => !inside(p) && !isReadme(p))};
 }
 async function removeChosen() {
   const {dirs, files} = chosenItems();
@@ -203,6 +205,8 @@ function closeMenu() { menu.hidden = true; }
 const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen', 'p-remove']);   // deleting: shown in red
 // Why an item is grey (the usual reasons; the menus pass false for these).
 function why(key) {
+  if (['new-file', 'new-folder'].includes(key) && editable()) return 'C++ のモジュールでは、ファイルは Project のフォルダの中に作ります。';
+  if (['rename', 'move', 'remove'].includes(key) && WS.activeFile && isReadme(WS.activeFile)) return 'README はモジュールの一番上に置くファイルです（名前の変更・移動・削除はしません。開いて編集はできます）。';
   if (!editable()) return WS.status?.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
   if (['restore', 'diff'].includes(key)) return '変更がありません。';
   if (['log', 'blame'].includes(key)) return 'まだ git の管理に入っていないファイルです。';
@@ -220,11 +224,12 @@ function showMenu(items, x, y) {
 }
 function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
+  const outside = restricted() && !dirOf(path);   // the top (README): new files go in a Project
   const kinds = WS.changes().get(path) || [], tracked = !kinds.includes('untracked'), exists = !WS.files.missing.includes(path), can = editable();
   showMenu([
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
-    ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
-    ['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists],
+    ['new-file', '新しいファイル', can && !outside], ['new-folder', '新しいフォルダ', can && !outside], '-',
+    ['rename', '名前の変更　F2', can && exists && !isReadme(path)], ['move', '移動先を指定…', can && exists && !isReadme(path)], ['remove', '削除　Delete', can && exists && !isReadme(path)],
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', '履歴', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
   ], x, y);
@@ -281,6 +286,7 @@ tree.addEventListener('keydown', e => {
   if (e.target.matches('input')) return;
   const row = e.target.closest('[data-path]'); if (!row) return;
   WS.activeFile = row.dataset.path;
+  if (isReadme(row.dataset.path) && (e.key === 'F2' || e.key === 'Delete')) { e.preventDefault(); ECO.toast(why('rename'), 'info', 6000); return; }
   if (e.key === 'F2') { e.preventDefault(); menuAction('rename'); }
   if (e.key === 'Delete') { e.preventDefault(); if (chosen.size > 1 && chosen.has('f:' + row.dataset.path)) removeChosen(); else menuAction('remove'); }
   if (e.key === 'Enter') { e.preventDefault(); openInEditor(row.dataset.path); }

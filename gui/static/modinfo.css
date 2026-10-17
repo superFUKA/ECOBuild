@@ -86,4 +86,11 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-indent { display: inline-flex; align-items: center; gap: 6px; padding-left: calc(var(--depth) * 20px - 6px); }
 .mi-indent[style*="--depth:0"] { padding-left: 0; }
 .mi-branch-line { color: #5d6875; font-family: Consolas, monospace; }
+/* a test or bench under its Project: one group with it, smaller and quieter */
+.mi-projects tr.mi-joined td { border-bottom-color: transparent; }
+.mi-projects tr.mi-joined:not(.mi-attached) td { padding-bottom: 4px; }
+.mi-projects tr.mi-attached td { padding-top: 3px; padding-bottom: 5px; font-size: 12px; }
+.mi-projects tr.mi-attached td:first-child { color: #aeb7c2; }
+.mi-projects tr.mi-attached .mi-pill.kind { background: transparent; border: 1px solid #343c46; color: var(--muted); }
+.mi-projects tr.mi-attached .mi-mono { color: #aeb7c2; }
 .mi-error { margin: 10px 0 0; max-height: 240px; overflow: auto; color: #8c96a3; font: 11px Consolas, monospace; white-space: pre-wrap; }

@@ -179,7 +179,7 @@
     }
     const rows = [];
     const visit = (p, depth, last) => {
-      rows.push({p, depth, last});
+      rows.push({p, depth, last, parent: parent.get(p.name)});
       const kids = projects.filter(x => parent.get(x.name) === p.name);
       kids.forEach((k, i) => visit(k, depth + 1, i === kids.length - 1));
     };
@@ -194,9 +194,9 @@
     return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
       (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
-      ${projectTree(projects, main).map(({p, depth, last}) => `<tr><td><span class="mi-indent" style="--depth:${depth}">${depth ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>` : ''}<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</span></td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
+      ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-note">字下げしたProjectは、上のProjectのテスト・性能測定です。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
+      <p class="mi-note">字下げした小さい行は、上のProjectのテスト・性能測定です（上のProjectへのリンクは省いています）。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
       renderTemplates();
   }
   // File templates (template list): what ecobuild file add makes a new file from.

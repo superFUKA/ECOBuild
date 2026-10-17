@@ -324,7 +324,9 @@ const ECO = (() => {
   }
 
   // Context menu: items are [label, action, enabled = true] or '-' for a separator.
-  let openMenu = null;
+  // menuOpener: the button that opened the menu. Pressing it again only closes the menu (the press closes it; the click
+  // that follows is swallowed, or it would open it again).
+  let openMenu = null, menuOpener = null, lastPressed = null, swallowClick = null;
   function menu(items, x, y) {
     openMenu?.remove();
     const el = document.createElement('div'); el.className = 'eco-menu'; el.setAttribute('role', 'menu');
@@ -336,12 +338,23 @@ const ECO = (() => {
       b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
       el.append(b);
     }
-    document.body.append(el); openMenu = el;
+    document.body.append(el); openMenu = el; menuOpener = lastPressed?.closest?.('button, summary') || null;
     el.style.left = Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)) + 'px';
     el.style.top = Math.max(8, Math.min(y, innerHeight - el.offsetHeight - 8)) + 'px';
     el.querySelector('button:not(:disabled)')?.focus();
   }
-  document.addEventListener('pointerdown', e => { if (openMenu && !openMenu.contains(e.target)) { openMenu.remove(); openMenu = null; } });
+  document.addEventListener('pointerdown', e => {
+    if (openMenu && !openMenu.contains(e.target)) {
+      if (menuOpener?.contains(e.target)) swallowClick = menuOpener;
+      openMenu.remove(); openMenu = null;
+    }
+    lastPressed = e.target;
+  }, true);
+  document.addEventListener('keydown', () => { lastPressed = null; }, true);   // opened with the keyboard: no opener to watch
+  document.addEventListener('click', e => {
+    if (swallowClick?.contains(e.target)) { e.stopImmediatePropagation(); e.preventDefault(); }
+    swallowClick = null;
+  }, true);
   document.addEventListener('keydown', e => {
     if (!openMenu) return;
     if (e.key === 'Escape') { openMenu.remove(); openMenu = null; return; }

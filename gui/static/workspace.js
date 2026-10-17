@@ -94,6 +94,14 @@ function renderBanners(errorDoc) {
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
   }
   get('banners').innerHTML = out.join('');
+  // Not on a task branch (main etc.): nothing is committed, pushed or submitted here, so those panels are not shown
+  // (while a merge is under way the commit panel stays: its files are staged there).
+  const working = !s || s.task || s.reviewing;
+  get('commit-panel').hidden = !working && !s.merging;
+  get('share-panel').hidden = !working;
+  get('prs-panel').hidden = !working;
+  get('changes-title').textContent = working ? 'コミット・共有' : '作業空間';
+  document.querySelector('.work > .heading .eyebrow').hidden = !working;
 }
 
 // The checked files are what is committed. A file staged elsewhere (git, TortoiseGit) starts checked, once.

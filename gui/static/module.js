@@ -52,10 +52,7 @@ nav.addEventListener('keydown', e => {
   if (j < 0 || j >= items.length) return;
   nav.insertBefore(b, e.key === 'ArrowUp' ? items[j] : items[j].nextSibling); b.focus(); saveNavOrder();
 });
-mEl('nav-toggle').addEventListener('click', () => {
-  const collapsed = document.querySelector('.module-shell').classList.toggle('nav-collapsed'), toggle = mEl('nav-toggle');
-  toggle.setAttribute('aria-expanded', String(!collapsed)); toggle.title = collapsed ? 'メニューを展開' : 'メニューを折りたたむ';
-});
+ECO.navToggle(mEl('nav-toggle'), document.querySelector('.module-shell'));
 
 // Workspace tabs --------------------------------------------------------------------------------------
 const tabs = document.querySelector('#workspace-content .tabs'), panels = document.querySelector('#workspace-content .panels');

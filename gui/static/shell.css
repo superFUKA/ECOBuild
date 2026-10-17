@@ -17,7 +17,7 @@ header { display: flex; gap: 18px; align-items: center; padding: 18px 24px; bord
 .module-nav { overflow: hidden; }
 .module-nav button { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
 .module-nav svg { flex-shrink: 0; }
-.module-nav .nav-toggle { width: auto; padding: 6px 8px; margin: 0 0 10px auto; color: #84909e; }
+.module-nav .nav-toggle { width: auto; padding: 6px 8px; margin: 0 auto 10px 0; color: #84909e; }
 .module-nav .nav-toggle:hover { color: #edf1f5; background: #252d36; }
 .module-shell.nav-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
 .module-shell.nav-collapsed .module-nav { padding: 18px 8px; }

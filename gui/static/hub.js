@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 const {esc} = ECO;
 
 // Navigation ------------------------------------------------------------------------------------
+ECO.navToggle($('nav-toggle'), document.body);
 const navigation = document.querySelectorAll('[data-page]');
 navigation.forEach(button => button.addEventListener('click', () => {
   navigation.forEach(item => {

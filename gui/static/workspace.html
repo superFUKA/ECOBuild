@@ -18,7 +18,7 @@
   <section class="work" aria-labelledby="changes-title">
     <div class="heading"><div><p class="eyebrow">変更の管理</p><h2 id="changes-title">コミット・共有</h2></div><span><span id="branch-state" class="muted"></span><button type="button" data-git="fetch" class="link-button" title="GitHub・作成元の最新の状態を確かめる（遅れていれば「最新を取り込む」が出ます）">GitHubを確認</button></span></div>
     <div id="banners"></div>
-    <section class="panel commit-panel" aria-labelledby="commit-title">
+    <section class="panel commit-panel" id="commit-panel" aria-labelledby="commit-title">
       <div class="heading"><h3 id="commit-title">コミット</h3><span id="stage-status" class="muted"></span></div>
       <div class="change-head"><label class="select-all"><input type="checkbox" id="select-all"> 変更ファイル<span id="change-count"></span></label>
         <span class="change-tools"><span id="stage-tools" hidden><button data-git="stage" title="衝突を直したファイルを、直したものとして記録します">ステージ</button><button data-git="unstage">ステージを取り消す</button></span><button data-git="diff" title="差分を表示（TortoiseGit）">差分</button><button data-git="discard">元に戻す…</button></span></div>
@@ -26,12 +26,12 @@
       <p class="change-hint muted">印を付けたファイルをコミットします。ファイル名のダブルクリックで差分、右クリックでその他の操作。</p>
       <textarea id="commit-message" rows="3" placeholder="コミットメッセージ（何を・なぜ変えたか）" aria-label="コミットメッセージ"></textarea>
       <div class="actions"><label title="直前のコミットに、この変更とメッセージをまとめ直します"><input type="checkbox" id="amend"> 直前のコミットを修正</label><button id="commit" class="primary">コミット</button></div></section>
-    <section class="panel share" aria-labelledby="share-title">
+    <section class="panel share" id="share-panel" aria-labelledby="share-title">
       <div class="heading"><h3 id="share-title">GitHubへ共有</h3><span id="push-state" class="muted"></span></div>
       <p class="muted share-note">コミットを GitHub へ Push するか、作成元へ提出します。「完了する」は、提出していなければ提出し、CIを待って取り込みます。<span id="pr-state"></span></p>
       <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">Pushするコミット</span><button type="button" id="push-commits-close" class="link-button" title="一覧を閉じる（「一覧」でまた開けます）">閉じる</button></div><ul id="push-commits-list" class="push-commits"></ul></div>
       <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push">Push</button><button id="submit-pr">提出する</button><button id="finish" class="primary">完了する</button></div></section>
-    <section class="panel"><div class="heading"><h3>提出</h3><span><label class="muted"><input type="checkbox" id="pr-all"> 見るように頼まれたものだけ</label> <button data-git="pr-refresh">更新</button></span></div><div id="pr-list"></div><div id="pr-tools" class="git-toolbar"></div><div id="pr-detail"></div></section>
+    <section class="panel" id="prs-panel"><div class="heading"><h3>提出</h3><span><label class="muted"><input type="checkbox" id="pr-all"> 見るように頼まれたものだけ</label> <button data-git="pr-refresh">更新</button></span></div><div id="pr-list"></div><div id="pr-tools" class="git-toolbar"></div><div id="pr-detail"></div></section>
     <p id="operation-status" role="status"></p>
   </section>
 </main>

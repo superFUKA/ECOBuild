@@ -309,6 +309,20 @@ const ECO = (() => {
     return {end, done, progress};
   }
 
+  // The left menu's fold button (the hub and the module screen): folded or not is kept on this PC, the same for both.
+  const NAV_COLLAPSED_KEY = 'ecobuild-gui-nav-collapsed';
+  function navToggle(toggle, target) {
+    const set = collapsed => {
+      target.classList.toggle('nav-collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', String(!collapsed)); toggle.title = collapsed ? 'メニューを展開' : 'メニューを折りたたむ';
+    };
+    try { set(localStorage.getItem(NAV_COLLAPSED_KEY) === '1'); } catch (e) { /* storage blocked */ }
+    toggle.addEventListener('click', () => {
+      const collapsed = !target.classList.contains('nav-collapsed'); set(collapsed);
+      try { localStorage.setItem(NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch (e) { /* storage blocked */ }
+    });
+  }
+
   // Context menu: items are [label, action, enabled = true] or '-' for a separator.
   let openMenu = null;
   function menu(items, x, y) {
@@ -389,5 +403,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle};
 })();

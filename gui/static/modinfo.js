@@ -161,11 +161,14 @@
     if (d.latest && d.latest !== d.recorded) notes.push(`新しい版 <span class="mi-mono">${short(d.latest)}</span> があります（「更新」で記録を更新できます）`);
     return pill(label, cls) + notes.map(n => `<div class="mi-sub">${n}</div>`).join('');
   }
-  // The Projects as a tree: a Project that links another one of this module is shown under it, indented (a library's test
-  // under the library). One that links several is under the first of them. Only the name moves; the columns stay.
-  function projectTree(projects) {
+  // The Projects as a tree: a test or bench is shown under the Project of this module it links, indented (a library's test
+  // under the library); one that links several is under the first of them. Libraries and apps stay at the top whatever they
+  // link, with main first, so that the main one is not pushed down by what it uses. Only the name moves; the columns stay.
+  const ATTACHED = new Set(['test', 'bench']);
+  function projectTree(projects, main) {
     const names = new Set(projects.map(p => p.name)), parent = new Map();
     for (const p of projects) {
+      if (!ATTACHED.has(p.kind)) continue;
       const first = p.links.find(l => names.has(l) && l !== p.name);
       if (first) parent.set(p.name, first);
     }
@@ -180,7 +183,7 @@
       const kids = projects.filter(x => parent.get(x.name) === p.name);
       kids.forEach((k, i) => visit(k, depth + 1, i === kids.length - 1));
     };
-    const roots = projects.filter(p => !parent.has(p.name));
+    const roots = projects.filter(p => !parent.has(p.name)).sort((a, b) => (b.name === main) - (a.name === main));
     roots.forEach(r => visit(r, 0, true));
     return rows;
   }
@@ -191,9 +194,9 @@
     return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
       (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
-      ${projectTree(projects).map(({p, depth, last}) => `<tr><td><span class="mi-indent" style="--depth:${depth}">${depth ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>` : ''}<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</span></td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
+      ${projectTree(projects, main).map(({p, depth, last}) => `<tr><td><span class="mi-indent" style="--depth:${depth}">${depth ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>` : ''}<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</span></td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-note">字下げしたProjectは、上のProjectに付くもの（ライブラリのテスト等）です。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
+      <p class="mi-note">字下げしたProjectは、上のProjectのテスト・性能測定です。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
       renderTemplates();
   }
   // File templates (template list): what ecobuild file add makes a new file from.

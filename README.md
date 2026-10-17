@@ -25,8 +25,19 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 3. GitHub へのログイン（`gh auth login`。タスク管理の権限も一緒に）と、git が gh の認証を使う設定
 4. git の名前・メール（GitHub のアカウントから候補を出します）
 5. `module new`・`module clone`・`module list` で使う既定の所有者（組織名など）
+6. Docker の導入（任意。既定は「導入しない」。作業空間をコンテナで隔離するときに使います）
 
 質問せずに準備するには `ecobuild setup`、確かめるだけなら `ecobuild doctor`。
+
+### Docker（任意）
+
+`ecobuild setup --docker` で導入します（何度実行してもよく、できている段階は飛ばします）。Docker がなくても ECOBuild は使えます。
+
+- Windows：Docker Desktop 等で `docker` が既に使えれば、それを使います。なければ WSL2 の中の ECOBuild 専用の
+  ディストリビューション `ECOBuild`（Ubuntu 24.04）に Docker Engine（docker.io）を入れ、`wsl -d ECOBuild -u root -- docker …` で使います。
+  WSL 本体の導入と WSL2 の有効化には管理者の承認（UAC）が要り、初めてのときは再起動が要ります。再起動の後に
+  もう一度 `ecobuild setup --docker` を実行すると続きから進みます。
+- Linux：`sudo apt-get` で docker.io を入れ、ユーザーを `docker` グループに入れます（ログインし直すと効きます）。
 
 ### インストーラーのオプション
 

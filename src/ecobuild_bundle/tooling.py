@@ -20,6 +20,8 @@ from ecobuild.results import DoctorItem
 from ecobuild.settings import HOME_VARIABLE, Types, default_home, home, load_config, set_config
 from ecowork import process as _process
 
+from . import docker as _docker
+
 # 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは DoctorItem.install）
 INSTALL = {
     "nt": {
@@ -126,6 +128,7 @@ def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str 
         items.append(DoctorItem("git の名前・メール", bool(name and email), True,
                                 f"{name} <{email}>" if name and email else "設定されていません",
                                 f"{operation(command, 'setup')} --name <名前> --email <メール> で設定できます。", "identity"))
+    items.append(_docker.doctor_item(command=command))   # なくても使える（作業空間をコンテナで隔離するとき）
     for module_type in types:  # 型が使うツール（cpp：CMake・コンパイラ）
         items += module_type.doctor_items()
     items += extra
@@ -139,26 +142,32 @@ class SetupReport:
     done: tuple[str, ...]          # 行ったこと
     remaining: tuple[DoctorItem, ...]  # まだ足りないもの
     commands: tuple[str, ...]      # 足りないツールの導入コマンド（--install なしのとき）
+    docker: _docker.DockerSetup | None = None   # Docker の導入（docker のときだけ）
 
 
-def setup(types: Types = (), *, name: str = "", email: str = "", install: bool = False,
-          command: str = "") -> SetupReport:
-    """doctor の結果から直せるものを直す。ツールの導入は install のときだけ行う。"""
+def setup(types: Types = (), *, name: str = "", email: str = "", install: bool = False, docker: bool = False,
+          progress=None, command: str = "") -> SetupReport:
+    """doctor の結果から直せるものを直す。ツールの導入は install のときだけ、Docker の導入は docker のときだけ行う
+    （progress：Docker の導入の経過を知らせる関数）。"""
     types = tuple(types)
     done = []
     report = doctor(types, command=command)
     commands = []
-    for label, command in install_commands(report):
+    for label, install_command in install_commands(report):
         if install:
-            completed = _run(command)
+            completed = _run(install_command)
             done.append(f"{label} を導入しました" if completed.ok else f"{label} の導入に失敗しました")
         else:
-            commands.append(" ".join(command))
+            commands.append(" ".join(install_command))
     if any(i.fix == "setup-git" and not i.ok for i in report.items) and setup_git():
         done.append("gitが gh の認証を使うようにしました（gh auth setup-git）")
     done += set_identity(name, email)
+    docker_setup = None
+    if docker:
+        docker_setup = _docker.install(progress=progress or (lambda message: None), command=command)
+        done += docker_setup.done
     after = doctor(types, command=command) if done else report
-    return SetupReport(tuple(done), tuple(i for i in after.items if not i.ok), tuple(commands))
+    return SetupReport(tuple(done), tuple(i for i in after.items if not i.ok), tuple(commands), docker_setup)
 
 
 def install_commands(report: DoctorReport) -> list[tuple[str, list[str]]]:
@@ -285,14 +294,24 @@ def initialize(questions: Questions, types: Types = (), extra: Iterable[DoctorIt
     for item in report.items:
         questions.info(("OK " if item.ok else "NG " if item.required else "-- ") + f"{item.name}：{item.detail}")
 
-    for label, command in install_commands(report):
-        if questions.confirm(f"{label} がありません。導入しますか？（{' '.join(command)}）"):
-            ok = run_interactive(command)
+    for label, install_command in install_commands(report):
+        if questions.confirm(f"{label} がありません。導入しますか？（{' '.join(install_command)}）"):
+            ok = run_interactive(install_command)
             refresh_path()
             (done if ok else skipped).append(f"{label} を導入しました" if ok else f"{label} の導入に失敗しました")
         else:
             skipped.append(f"{label} の導入")
     report = doctor(types, command=command) if done else report
+
+    if any(i.fix == _docker.FIX and not i.ok for i in report.items):
+        if questions.confirm("作業空間をコンテナで隔離するための Docker を導入しますか？（なくても使えます。"
+                             "Windows では WSL2 の中に入れ、管理者の承認と再起動が要ることがあります）", default=False):
+            docker_setup = _docker.install(progress=questions.info, command=command)
+            done += docker_setup.done
+            if docker_setup.restart:
+                skipped.append(f"Docker の導入の続き（{docker_setup.restart}）")
+        else:
+            skipped.append("Docker の導入")
 
     def failed(fix: str) -> bool:
         return any(i.fix == fix and not i.ok for i in report.items)

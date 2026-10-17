@@ -15,6 +15,13 @@ def _tool_home(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path_factory.mktemp("ecobuild-home")))
 
 
+@pytest.fixture(autouse=True)
+def _no_docker(monkeypatch):
+    """Docker の診断（doctor）は、このPCの本物の wsl・docker を呼ばない（使えないものとして答える）。"""
+    from ecobuild_bundle import docker
+    monkeypatch.setattr(docker, "run", lambda args: docker.Completed(tuple(args), 1, ""))
+
+
 @pytest.fixture
 def remote_and_clone(tmp_path):
     """mainに初回コミットがある空のリモート（bare）と、その作業用のclone。"""

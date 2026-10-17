@@ -45,7 +45,7 @@ def test_gui_json_keeps_only_the_order(tmp_path):
 
 
 def test_older_gui_json_moves_to_the_clone_record(tmp_path):
-    """以前の gui.json の一覧・専用のcloneは、ecobuild の記録（module register）へ一度だけ移し、並びは残す。"""
+    """以前の gui.json の一覧・専用のcloneは、ecobuild の作業空間の記録（workspace add）へ一度だけ移し、並びは残す。"""
     calc, gone, ws = _module(tmp_path / "Calc"), tmp_path / "Gone", _module(tmp_path / "Calc-7")
     (tmp_path / "gui.json").write_text(json.dumps({
         "modules": [{"path": calc.as_posix(), "name": "Calc"}, {"path": gone.as_posix()}],
@@ -59,8 +59,8 @@ def test_older_gui_json_moves_to_the_clone_record(tmp_path):
 
     app = gui.App(Recorder(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "t", 1)
     app.move_legacy()
-    assert calls == [(None, ["module", "register", calc.as_posix()]),           # なくなったフォルダは入れない
-                     (None, ["module", "register", ws.as_posix(), "--workspace"])]
+    assert calls == [(None, ["workspace", "add", calc.as_posix()]),           # なくなったフォルダは入れない
+                     (None, ["workspace", "add", ws.as_posix()])]
     assert json.loads((tmp_path / "gui.json").read_text(encoding="utf-8")) == {"order": [calc.as_posix(), gone.as_posix()]}
     calls.clear()
     app.move_legacy()
@@ -233,7 +233,7 @@ def test_shortcut_has_the_icon(tmp_path):
 def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
     root = tmp_path / "Calc"
     root.mkdir()
-    assert gui._working_directory(str(root), ["module", "delete", "Calc", "--remove-clone"]) == str(tmp_path)
+    assert gui._working_directory(str(root), ["module", "delete", "Calc", "--remove-workspaces"]) == str(tmp_path)
     assert gui._working_directory(str(root), ["status"]) == str(root)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     for url, expected in (("https://github.com/owner/Calc.git", "owner/Calc"), ("git@github.com:owner/Calc", "owner/Calc"),

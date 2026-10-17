@@ -12,23 +12,23 @@ def code_of(action):
     return error.value.code
 
 
-def commit_file(workspace, root, name, text, message):
+def commit_file(task_branch, root, name, text, message):
     write(root / name, text)
-    workspace.stage(name)
-    return workspace.commit(message)
+    task_branch.stage(name)
+    return task_branch.commit(message)
 
 
 def test_full_cycle_submit_merge_clean(repository):
     root, github = repository.root, repository.github
-    workspace = repository.create_task("0除算対策").start()
-    assert code_of(workspace.submit) == ErrorCode.NOTHING_TO_SUBMIT
-    commit_file(workspace, root, "calc.cpp", "int calc;\n", "計算を追加")
-    pr = workspace.submit()
+    task_branch = repository.create_task("0除算対策").start()
+    assert code_of(task_branch.submit) == ErrorCode.NOTHING_TO_SUBMIT
+    commit_file(task_branch, root, "calc.cpp", "int calc;\n", "計算を追加")
+    pr = task_branch.submit()
     assert (pr.head, pr.base, pr.title, pr.partial) == ("task/1", "main", "0除算対策", False)
     assert github.pulls[pr.number].body.startswith("Closes #1")
     # 2回目のsubmitは同じPRを返す
-    commit_file(workspace, root, "calc.cpp", "int calc = 0;\n", "修正")
-    assert workspace.submit().number == pr.number
+    commit_file(task_branch, root, "calc.cpp", "int calc = 0;\n", "修正")
+    assert task_branch.submit().number == pr.number
     assert repository.pull_request().number == pr.number
 
     result = repository.pull_request().merge()
@@ -38,9 +38,9 @@ def test_full_cycle_submit_merge_clean(repository):
     assert "origin/task/1" not in git(root, "branch", "-r")
     assert code_of(lambda: repository.pull_request(pr.number).merge()) == ErrorCode.PULL_REQUEST_NOT_OPEN
 
-    preview = repository.clean_workspaces(dry_run=True)
+    preview = repository.prune_task_branches(dry_run=True)
     assert preview.removed == ("task/1",) and git(root, "branch", "--show-current") == "task/1"
-    cleaned = repository.clean_workspaces()
+    cleaned = repository.prune_task_branches()
     assert cleaned.removed == ("task/1",) and cleaned.switched_to == "main"
     assert git(root, "branch", "--show-current") == "main"
     assert (root / "calc.cpp").read_text(encoding="utf-8") == "int calc = 0;\n"  # mainが最新になった
@@ -49,18 +49,18 @@ def test_full_cycle_submit_merge_clean(repository):
 
 def test_partial_merge_rebuilds_workspace(repository):
     root, github = repository.root, repository.github
-    workspace = repository.create_task("大きな作業").start()
-    commit_file(workspace, root, "a.txt", "1\n", "前半")
-    pr = workspace.submit(partial=True)
+    task_branch = repository.create_task("大きな作業").start()
+    commit_file(task_branch, root, "a.txt", "1\n", "前半")
+    pr = task_branch.submit(partial=True)
     assert pr.partial and github.pulls[pr.number].body.startswith("Refs #1")
-    commit_file(workspace, root, "b.txt", "2\n", "続き（未push）")
+    commit_file(task_branch, root, "b.txt", "2\n", "続き（未push）")
     result = pr.merge()
-    assert result.workspace_rebuilt and result.closed_issue is None
+    assert result.branch_rebuilt and result.closed_issue is None
     assert github.issues[1].state == "open"
     git(root, "fetch", "--quiet")
-    # 作り直した作業空間には、PRに含まれなかった続きだけが残る
+    # 作り直したタスクブランチには、PRに含まれなかった続きだけが残る
     assert git(root, "log", "--format=%s", "origin/main..task/1").splitlines() == ["続き（未push）"]
-    second = repository.current_workspace().submit()
+    second = repository.current_task_branch().submit()
     assert git(root, "diff", "--name-only", "origin/main", "origin/task/1").splitlines() == ["b.txt"]
     assert second.number != pr.number
 
@@ -68,9 +68,9 @@ def test_partial_merge_rebuilds_workspace(repository):
 def test_branch_to_branch_flow(repository):
     root, github = repository.root, repository.github
     repository.create_branch("develop")
-    workspace = repository.create_task("機能").start(base="develop")
-    commit_file(workspace, root, "f.txt", "f\n", "機能")
-    pr = workspace.submit()
+    task_branch = repository.create_task("機能").start(base="develop")
+    commit_file(task_branch, root, "f.txt", "f\n", "機能")
+    pr = task_branch.submit()
     assert pr.base == "develop"
     result = pr.merge()
     # 既定ブランチ以外へのマージでも、ECOBuildがIssueを閉じる
@@ -86,23 +86,23 @@ def test_branch_to_branch_flow(repository):
 
 def test_clean_keeps_unpushed_work(repository):
     root, github = repository.root, repository.github
-    workspace = repository.create_task("t").start()
-    commit_file(workspace, root, "x.txt", "x\n", "未push")
-    github.close_issue(root, workspace.number)
-    result = repository.clean_workspaces()
+    task_branch = repository.create_task("t").start()
+    commit_file(task_branch, root, "x.txt", "x\n", "未push")
+    github.close_issue(root, task_branch.number)
+    result = repository.prune_task_branches()
     assert result.removed == () and result.skipped[0].branch == "task/1"
 
 
 def test_submit_refuses_committed_conflict_markers(repository):
     root = repository.root
-    workspace = repository.create_task("t").start()
-    commit_file(workspace, root, "a.cpp", "<<<<<<< HEAD\nint a;\n=======\nint b;\n>>>>>>> origin/main\n", "印")
+    task_branch = repository.create_task("t").start()
+    commit_file(task_branch, root, "a.cpp", "<<<<<<< HEAD\nint a;\n=======\nint b;\n>>>>>>> origin/main\n", "印")
     with pytest.raises(WorkError) as error:
-        workspace.submit()
+        task_branch.submit()
     assert error.value.code == ErrorCode.CONFLICT_MARKERS and len(error.value.details) == 3
     assert repository.github.pulls == {}
-    commit_file(workspace, root, "a.cpp", "int a;\n", "印を取り除く")
-    assert workspace.submit().number
+    commit_file(task_branch, root, "a.cpp", "int a;\n", "印を取り除く")
+    assert task_branch.submit().number
 
 
 def test_merge_conflicting_pull_request_guides_sync(repository):
@@ -123,7 +123,7 @@ def test_merge_conflicting_pull_request_guides_sync(repository):
 
 
 def test_clean_after_other_clone_merged_shared_workspace(repository, remote_and_clone, tmp_path):
-    """2つのcloneで同じ作業空間にpushし、片方がマージした後、もう片方も片付けられる。"""
+    """2つのcloneで同じタスクブランチにpushし、片方がマージした後、もう片方も片付けられる。"""
     from ecowork import Repository
     remote, _ = remote_and_clone
     other_root = tmp_path / "other"
@@ -140,4 +140,4 @@ def test_clean_after_other_clone_merged_shared_workspace(repository, remote_and_
     repository.sync()  # もう片方のpushを取り込む（マージコミットは手元だけ）
     mine.submit()
     repository.pull_request().merge()
-    assert other.clean_workspaces().removed == ("task/1",)
+    assert other.prune_task_branches().removed == ("task/1",)

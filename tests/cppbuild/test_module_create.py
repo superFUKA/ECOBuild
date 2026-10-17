@@ -69,20 +69,20 @@ def test_invalid_name(short_tmp):
 def test_submit_requires_generated_files(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
     module = Module.create("Calc", directory=short_tmp, github=github)
-    workspace = module.repository.create_task("生成ファイルの確認").start()
+    task_branch = module.repository.create_task("生成ファイルの確認").start()
     # 生成ファイルを手で書き換えてコミットした（作り直すと戻る）
     generated = module.root / ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt"
     generated.write_text(generated.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
     (module.root / "Calc" / "src" / "Extra.cpp").write_text("int extra() { return 1; }\n", encoding="utf-8")
-    workspace.stage(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
-    workspace.commit("生成ファイルを書き換え")
+    task_branch.stage(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
+    task_branch.commit("生成ファイルを書き換え")
     with pytest.raises(EcoBuildError) as error:
-        workspace.submit()
+        task_branch.submit()
     assert error.value.code == ErrorCode.GENERATED_FILES_OUTDATED
     assert ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in error.value.details
-    workspace.stage(all=True)
-    workspace.commit("生成ファイルを更新")
-    pr = workspace.submit()
+    task_branch.stage(all=True)
+    task_branch.commit("生成ファイルを更新")
+    pr = task_branch.submit()
     assert pr.head == "task/1"
 
 

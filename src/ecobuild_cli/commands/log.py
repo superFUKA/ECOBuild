@@ -11,7 +11,7 @@ def command(
     gui: Annotated[bool, "TortoiseGitで表示する（Windows）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """履歴を表示します。PRでマージしたコミットには、そのPRの作業空間のIssueを添えます。"""
+    """履歴を表示します。PRでマージしたコミットには、そのPRのタスクブランチのIssueを添えます。"""
     if gui:
         return open_window("log", paths, json)
 

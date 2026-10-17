@@ -5,7 +5,7 @@ from ..._output import optional_argument, run_command
 
 def command(
     *number: Annotated[int, "タスクの番号（--task と同じ）"],
-    task: Annotated[int, "このタスクの作業空間（提出）のCIを待つ（既定：今いるブランチ）"] = 0,
+    task: Annotated[int, "このタスクのタスクブランチ（提出）のCIを待つ（既定：今いるブランチ）"] = 0,
     timeout: Annotated[int, "待つ時間の上限（秒）"] = 1800,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:

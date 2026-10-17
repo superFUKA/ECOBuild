@@ -18,10 +18,10 @@ def stage_of(repo, number):
     return repo.task_status(number).task.stage
 
 
-def commit(repo, workspace, name):
+def commit(repo, task_branch, name):
     write(repo.root / name, "x\n")
-    workspace.stage(name)
-    workspace.commit(name)
+    task_branch.stage(name)
+    task_branch.commit(name)
 
 
 def set_status(repo, number, option):
@@ -33,10 +33,10 @@ def set_status(repo, number, option):
 def test_stages_follow_the_work(repository):
     task = repository.create_task("t")
     assert stage_of(repository, task.number) == "todo"
-    workspace = task.start()
+    task_branch = task.start()
     assert stage_of(repository, task.number) == "in_progress"
-    commit(repository, workspace, "a.txt")
-    pr = workspace.submit(draft=True)
+    commit(repository, task_branch, "a.txt")
+    pr = task_branch.submit(draft=True)
     assert stage_of(repository, task.number) == "in_progress"      # 下書きは作業中のまま
     repository.set_pull_request_draft(pr.number, draft=False)
     assert stage_of(repository, task.number) == "in_review"
@@ -50,7 +50,7 @@ def test_stages_follow_the_work(repository):
 
     other = repository.create_task("やめる")
     other.start()
-    repository.drop_workspace(other.number)
+    repository.drop_task(other.number)
     assert stage_of(repository, other.number) == "todo"
     repository.close_task(other.number)
     assert stage_of(repository, other.number) == "done"
@@ -59,26 +59,26 @@ def test_stages_follow_the_work(repository):
 
 
 def test_partial_merge_keeps_the_task_in_progress(repository):
-    workspace = repository.create_task("t").start()
-    commit(repository, workspace, "a.txt")
-    pr = workspace.submit(partial=True)
-    assert stage_of(repository, workspace.number) == "in_review"
+    task_branch = repository.create_task("t").start()
+    commit(repository, task_branch, "a.txt")
+    pr = task_branch.submit(partial=True)
+    assert stage_of(repository, task_branch.number) == "in_review"
     pr.merge()
-    assert stage_of(repository, workspace.number) == "in_progress"
+    assert stage_of(repository, task_branch.number) == "in_progress"
 
 
 def test_task_without_workspace(repository):
     task = repository.create_task("調べる")
-    started = repository.start_task_without_workspace(task.number)
+    started = repository.start_task_without_branch(task.number)
     assert started.assignees and stage_of(repository, task.number) == "in_progress"
-    assert repository.current_workspace() is None
+    assert repository.current_task_branch() is None
     assert [t.number for t in repository.tasks(ready=True)] == []   # 作業中は着手できる一覧に出ない
     repository.close_task(task.number)
     assert stage_of(repository, task.number) == "done"
 
 
 def test_list_fixes_stages_changed_outside(repository):
-    """GitHubのサイトでの操作（閉じる・作業空間を作る等）でずれた段階は、一覧のときに直す。計画中は変えない。"""
+    """GitHubのサイトでの操作（閉じる・タスクブランチを作る等）でずれた段階は、一覧のときに直す。計画中は変えない。"""
     closed, working, planned = (repository.create_task(t) for t in ("閉じた", "作業中", "計画"))
     repository.task(working.number).start()
     repository.git.run("switch", "--quiet", "main")

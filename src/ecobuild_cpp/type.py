@@ -12,7 +12,7 @@ from dataclasses import replace
 from importlib import metadata
 from pathlib import Path
 
-from ecowork import workspace as ws
+from ecowork import model as wm
 from ecowork.git import Git
 
 from ecobuild import ci_workflow
@@ -329,7 +329,7 @@ jobs:
 
     def set_pch(self, project: str, *, enable: bool = True) -> FilesChanged:
         """プリコンパイル済みヘッダー（include/<Project>/pch.h）を使う（enable=False：使わない）。"""
-        self.module.require_workspace("PCHの設定")
+        self.module.require_task_branch("PCHの設定")
         header = _cppbuild.set_pch(self.root, project, enable=enable)
         return FilesChanged("pch" if enable else "pch off", (header,) if header else (), project)
 
@@ -343,12 +343,12 @@ jobs:
 
     def add_template(self, name: str, source: Path | str) -> dict:
         """ファイルテンプレートを登録する（file add --template で使う）。"""
-        self.module.require_workspace("テンプレートの登録")
+        self.module.require_task_branch("テンプレートの登録")
         source = Path(source)
         return _settings.add_template(self.root, name, source)
 
     def remove_template(self, name: str) -> dict:
-        self.module.require_workspace("テンプレートの削除")
+        self.module.require_task_branch("テンプレートの削除")
         return _settings.remove_template(self.root, name, command=self.module.command)
 
     def project_details(self, name: str) -> dict:
@@ -360,7 +360,7 @@ jobs:
     def set_pch_headers(self, name: str, *, headers: tuple[str, ...] = (),
                         system_headers: tuple[str, ...] = ()) -> dict:
         """PCHに入れるヘッダー（Projectのヘッダーと、<> で読む標準・外部のヘッダー）。"""
-        self.module.require_workspace("PCHの設定")
+        self.module.require_task_branch("PCHの設定")
         return _settings.set_pch(self.root, name, headers=headers, system_headers=system_headers)
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
@@ -371,19 +371,19 @@ jobs:
 
     def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
         """CMakeのパッケージ（find_package）をリンクする。"""
-        self.module.require_workspace("パッケージのリンク")
+        self.module.require_task_branch("パッケージのリンク")
         return _settings.link_package(self.root, name, package, target, directory)
 
     def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
         """CMakeのソース（add_subdirectory）をリンクする。"""
-        self.module.require_workspace("CMakeのソースのリンク")
+        self.module.require_task_branch("CMakeのソースのリンク")
         return _settings.link_cmake(self.root, name, directory, target)
 
     def link_library_file(self, name: str, *, kind: str = "static", locations: dict[str, str] | None = None,
                           import_libraries: dict[str, str] | None = None,
                           include_directories: tuple[str, ...] = ()) -> dict:
         """ビルド済みのライブラリ（構成 → パス）をリンクする。"""
-        self.module.require_workspace("ビルド済みのライブラリのリンク")
+        self.module.require_task_branch("ビルド済みのライブラリのリンク")
         return _settings.link_library_file(self.root, name, kind, locations or {}, import_libraries or {},
                                            include_directories)
 
@@ -622,7 +622,7 @@ jobs:
             clone = Git(source.directory, command=self.module.command)
             head = clone.rev_parse("HEAD")
             branch = clone.current_branch()
-            if branch is not None and ws.is_workspace_branch(branch):
+            if branch is not None and wm.is_task_branch(branch):
                 # 依存先の中で task start をした作業版（I-019）。記録の版へ切り替えない。
                 changes.append(DependencyChange(source.name, "skipped", f"作業版です（{branch}）"))
                 continue
@@ -655,7 +655,7 @@ jobs:
         clone = Git(directory, command=self.module.command)
         head = clone.rev_parse("HEAD")
         branch = clone.current_branch()
-        if branch is not None and ws.is_workspace_branch(branch):
+        if branch is not None and wm.is_task_branch(branch):
             state = "working"
         elif not clone.working_tree().clean:
             state = "modified"

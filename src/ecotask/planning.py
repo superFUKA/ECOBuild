@@ -15,7 +15,7 @@ from . import model as _model
 
 def startable(task: _model.Task) -> bool:
     """着手できる：開いている・先に終わるべきタスクがない・開いている子がない・段階が未着手か未設定
-    （計画の段階・作業中・完了は除く）。作業空間の有無は作業の流れの側が見る。"""
+    （計画の段階・作業中・完了は除く）。タスクブランチの有無は作業の流れの側が見る。"""
     return (task.open and not task.blocked_by and not task.open_subtasks
             and task.stage in (None, _model.TODO))
 
@@ -31,7 +31,7 @@ class NextTask:
 def next_tasks(tasks: list[_model.Task], today: _datetime.date, *, sprints: list[_model.Sprint] = (),
                exclude: set[int] = frozenset()) -> list[NextTask]:
     """次にやるもの（着手できるもの）を順位の順に。①期限切れ ②今のスプリント ③優先度 ④期限の近さ
-    ⑤マイルストーンの期日の近さ ⑥番号。exclude：除くタスク（作業空間があるもの等）。"""
+    ⑤マイルストーンの期日の近さ ⑥番号。exclude：除くタスク（タスクブランチがあるもの等）。"""
     current = next((s for s in sprints if s.contains(today)), None)
     candidates = [t for t in tasks if startable(t) and t.number not in exclude]
 

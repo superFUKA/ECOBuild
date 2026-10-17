@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 from . import git as _git
 from . import github as _github
-from . import workspace as ws
+from . import model as wm
 from .errors import ErrorCode, WorkError
 
 
@@ -18,12 +18,12 @@ class Ci:
     # CI（GitHub Actions） ----------------------------------------------------------
 
     def ci_runs(self, *, pull_request: int | None = None, limit: int = 5, task: int | None = None) -> list:
-        """今いるブランチ（またはPR・タスクの作業空間のブランチ）のCIの実行（新しい順）。"""
+        """今いるブランチ（またはPR・タスクのタスクブランチのブランチ）のCIの実行（新しい順）。"""
         branch = self._ci_branch(pull_request, task)
         return self.github.list_runs(self.root, branch=branch, limit=limit)
 
     def ci_failed_log(self, run_id: int | None = None, *, task: int | None = None) -> tuple[int, str]:
-        """失敗した手順のログ。run_idを省略すると、今いるブランチ（task：その作業空間）の最新の失敗した実行。"""
+        """失敗した手順のログ。run_idを省略すると、今いるブランチ（task：そのタスクブランチ）の最新の失敗した実行。"""
         if run_id is None:
             failed = [r for r in self.github.list_runs(self.root, branch=self._ci_branch(None, task), limit=20)
                       if _github.ci_result(r.status, r.conclusion) == _github.FAILED]
@@ -34,7 +34,7 @@ class Ci:
         return run_id, self.github.failed_log(self.root, run_id)
 
     def ci_rerun(self, run_id: int | None = None, *, failed_only: bool = False, task: int | None = None) -> int:
-        """CIをもう一度実行する。run_idを省略すると、今いるブランチ（task：その作業空間）の最新の実行。"""
+        """CIをもう一度実行する。run_idを省略すると、今いるブランチ（task：そのタスクブランチ）の最新の実行。"""
         if run_id is None:
             runs = self.github.list_runs(self.root, branch=self._ci_branch(None, task), limit=1)
             if not runs:
@@ -120,7 +120,7 @@ class Ci:
         if pull_request is not None:
             return self.github.get_pull_request(self.root, pull_request).head
         if task is not None:
-            return ws.workspace_branch(task)
+            return wm.task_branch_name(task)
         branch = self.git.current_branch()
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。",

@@ -168,7 +168,7 @@ python -m venv .venv
         if script is None:
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED, "実行できるものがありません（pyproject.toml の [project.scripts]）。",
                                 hint="module new の --kind app で作るか、[project.scripts] にコマンドを書いてください"
-                                     "（作業空間でコミットします）。")
+                                     "（タスクブランチでコミットします）。")
         self._environment()
         completed = _python.run_script(self.root, script, arguments)
         return RunResult(None, options.configuration, completed.returncode, completed.stdout)

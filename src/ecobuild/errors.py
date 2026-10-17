@@ -37,7 +37,7 @@ class ErrorCode(_WorkErrorCode):
     NOT_ARCHIVED = "not_archived"       # 削除の前に、アーカイブしていない
     REPOSITORY_ARCHIVED = "repository_archived"   # GitHubのリポジトリがアーカイブ（読み取り専用）されている
     NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
-    CLONE_NOT_RECORDED = "clone_not_recorded"     # module forget：その場所は記録にない
+    WORKSPACE_NOT_RECORDED = "workspace_not_recorded"   # workspace forget・close：その場所は記録にない
     IN_USE = "in_use"                   # 他のプログラム（エディター・端末等）が使っているため、フォルダーを動かせない
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
 

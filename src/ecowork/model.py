@@ -1,4 +1,4 @@
-"""タスク（GitHub Issue）、作業空間、ブランチ、PRと、操作の結果。"""
+"""タスク（GitHub Issue）、タスクブランチ、ブランチ、PRと、操作の結果。"""
 
 from __future__ import annotations
 
@@ -18,29 +18,29 @@ from .errors import ErrorCode, WorkError
 if TYPE_CHECKING:
     from .repository import Repository
 
-WORKSPACE_PREFIX = "task/"
-_WORKSPACE = re.compile(r"task/(\d+)")
+TASK_BRANCH_PREFIX = "task/"
+_TASK_BRANCH = re.compile(r"task/(\d+)")
 
 
-def workspace_branch(number: int) -> str:
-    return f"{WORKSPACE_PREFIX}{number}"
+def task_branch_name(number: int) -> str:
+    return f"{TASK_BRANCH_PREFIX}{number}"
 
 
-def is_workspace_branch(name: str) -> bool:
-    return name.startswith(WORKSPACE_PREFIX)
+def is_task_branch(name: str) -> bool:
+    return name.startswith(TASK_BRANCH_PREFIX)
 
 
-def workspace_number(name: str) -> int | None:
-    match = _WORKSPACE.fullmatch(name)
+def task_number(name: str) -> int | None:
+    match = _TASK_BRANCH.fullmatch(name)
     return None if match is None else int(match.group(1))
 
 
 def base_key(branch: str) -> str:
-    """作業空間の作成元を記録するgitの設定のキー（手元の写し。本体はIssueの本文の印）。"""
+    """タスクブランチの作成元を記録するgitの設定のキー（手元の写し。本体はIssueの本文の印）。"""
     return f"branch.{branch}.ecowork-base"
 
 
-# 作業空間の本体はGitHubにあり、手元はその写し（消しても task start で作り直せる）。
+# タスクブランチの本体はGitHubにあり、手元はその写し（消しても task start で作り直せる）。
 # 作成元もGitHubに残すため、Issueの本文の末尾に印（表示されないHTMLのコメント）を書く。
 _BASE_MARK = re.compile(r"\s*<!-- ecowork-base: (\S+) -->\s*$")
 
@@ -59,7 +59,7 @@ def with_base(body: str, base: str) -> str:
     return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base} -->"
 
 
-# 作業空間のPRとIssueのつながり：本文の行 Closes #<番号>（マージでIssueを閉じる）か Refs #<番号>（途中の反映）。
+# タスクブランチのPRとIssueのつながり：本文の行 Closes #<番号>（マージでIssueを閉じる）か Refs #<番号>（途中の反映）。
 # 本文の作成・書き換え・途中の反映かの判定は、すべてこの関数で行う。
 _LINK = re.compile(r"(?im)^(closes|refs) #(\d+)\s*$")
 
@@ -101,16 +101,16 @@ class Task:
         return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees,
                    info.milestone)
 
-    def start(self, *, base: str | None = None, ignore_blocked: bool = False, take_over: bool = False) -> "Workspace":
-        """作業空間を作る。新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
-        子タスクの作成元は親の作業空間（GitHubになければ作る。他の base は指定できない）。
+    def start(self, *, base: str | None = None, ignore_blocked: bool = False, take_over: bool = False) -> "TaskBranch":
+        """タスクブランチを作る。新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
+        子タスクの作成元は親のタスクブランチ（GitHubになければ作る。他の base は指定できない）。
         他の人が担当していれば止める（take_over で引き継ぐ）。"""
-        return self._repository._start_workspace(self, base, ignore_blocked=ignore_blocked, take_over=take_over)
+        return self._repository._start_task_branch(self, base, ignore_blocked=ignore_blocked, take_over=take_over)
 
 
 @dataclass(frozen=True)
-class Workspace:
-    """作業空間：Issue＋作業用ブランチ task/<番号>。コミットはここでだけ行う。"""
+class TaskBranch:
+    """タスクブランチ：Issue＋作業用ブランチ task/<番号>。コミットはここでだけ行う。"""
 
     number: int
     branch: str
@@ -123,7 +123,7 @@ class Workspace:
 
     @property
     def root(self) -> Path:
-        """作業空間のある場所（作業空間専用のcloneなら、そのclone）。"""
+        """タスクブランチのある場所（task start --dir の作業空間なら、そこ）。"""
         return self._repository.root
 
     def stage(self, *paths: str, all: bool = False) -> "StageResult":
@@ -205,16 +205,16 @@ class Workspace:
                reviewers: tuple[str, ...] = ()) -> "PullRequest":
         """提出する（push して作成元へのPRを作る）。提出済みなら送り直し、draft に合わせて下書きを付け外しし、
         title・reviewers を変える。"""
-        return self._repository._submit_workspace(self, title=title, partial=partial, draft=draft,
+        return self._repository._submit_task_branch(self, title=title, partial=partial, draft=draft,
                                                   reviewers=reviewers)
 
 
 @dataclass(frozen=True)
 class Branch:
-    """ブランチ。作業空間でないブランチ（main・develop等）の操作に使う。"""
+    """ブランチ。タスクブランチでないブランチ（main・develop等）の操作に使う。"""
 
     name: str
-    is_workspace: bool
+    is_task_branch: bool
     base: str | None
     local: bool
     remote: bool
@@ -247,7 +247,7 @@ class PullRequest:
 
     @classmethod
     def _from(cls, repository: "Repository", info: _github.PullRequestInfo) -> "PullRequest":
-        task = workspace_number(info.head)
+        task = task_number(info.head)
         partial = task is not None and task_link(info.body, task) == "refs"
         return cls(info.number, info.title, info.url, info.state, info.head, info.base, partial, repository,
                    info.author, info.draft)
@@ -293,12 +293,12 @@ class MergeResult:
     number: int
     method: str                      # squash / merge
     closed_issue: int | None
-    workspace_rebuilt: bool          # --partialの後、作業空間を作り直したか
+    branch_rebuilt: bool          # --partialの後、タスクブランチを作り直したか
     resumed: bool = False            # マージ済みのPRで、途中で止まった後処理だけを行ったか
 
 
 @dataclass(frozen=True)
-class SkippedWorkspace:
+class SkippedBranch:
     branch: str
     reason: str
 
@@ -306,8 +306,8 @@ class SkippedWorkspace:
 @dataclass(frozen=True)
 class CleanResult:
     removed: tuple[str, ...]
-    skipped: tuple[SkippedWorkspace, ...]
-    switched_to: str | None          # 片付けた作業空間にいた場合、移った先
+    skipped: tuple[SkippedBranch, ...]
+    switched_to: str | None          # 片付けたタスクブランチにいた場合、移った先
     dry_run: bool
 
 
@@ -317,7 +317,7 @@ class DropResult:
     branch: str
     lost_commits: tuple[str, ...]    # 作成元に入っていないため失われるコミット（件名）
     closed_pull_requests: tuple[int, ...]
-    switched_to: str | None          # 今いる作業空間を捨てた場合、移った先
+    switched_to: str | None          # 今いるタスクブランチを捨てた場合、移った先
     issue_closed: bool               # 「対応しない」として閉じたか
     dry_run: bool
 
@@ -334,18 +334,18 @@ class PullRequestStatus:
     author: str
     draft: bool
     body: str
-    task: int | None                 # 作業空間のPRなら、そのIssueの番号
+    task: int | None                 # タスクブランチのPRなら、そのIssueの番号
     activity: _github.PullRequestActivity
 
 
 @dataclass(frozen=True)
 class RemoveResult:
-    """手元の作業空間を消した結果。GitHubのブランチ・PR・Issueはそのまま。"""
+    """手元のタスクブランチを消した結果。GitHubのブランチ・PR・Issueはそのまま。"""
     number: int
     branch: str
     base: str                        # 作成元（Issueに記録済み。再開すると同じ作成元になる）
     remote: bool                     # GitHubにブランチがあるか（なければ再開すると作成元の最新から）
-    switched_to: str | None          # 今いる作業空間を消した場合、移った先
+    switched_to: str | None          # 今いるタスクブランチを消した場合、移った先
 
 
 @dataclass(frozen=True)
@@ -379,7 +379,7 @@ class PullRequestState:
 @dataclass(frozen=True)
 class Status:
     branch: str | None
-    workspace: int | None            # 作業空間ならIssue番号
+    task: int | None                   # タスクブランチならIssue番号
     base: str | None
     staged: tuple[str, ...]
     unstaged: tuple[str, ...]
@@ -391,10 +391,10 @@ class Status:
     pull_request: PullRequestState | None
     upstream_gone: bool = False      # GitHubのブランチが削除された（別の場所での反映・中止など）
     reviewing: int | None = None     # task review で確認中のPR
-    base_behind: int | None = None   # status --fetch：作業空間が作成元より遅れているコミット数
+    base_behind: int | None = None   # status --fetch：タスクブランチが作成元より遅れているコミット数
     archived: bool | None = None     # status --fetch：GitHubのリポジトリがアーカイブ（読み取り専用）されている
     reviewing_task: int | None = None   # 確認中の提出のタスク
-    finished: bool = False           # 作業空間のタスクが完了している（GitHubのブランチが消え、Issueが閉じた）
+    finished: bool = False           # タスクブランチのタスクが完了している（GitHubのブランチが消え、Issueが閉じた）
     excluded: tuple[str, ...] = ()   # 新しいファイルのうち、task commit が自動で含めないもの（利用側が決める）
     dependencies: tuple = ()         # 手元の版が記録と違う依存先（利用側が決める）
 
@@ -405,9 +405,9 @@ class TaskSummary:
     title: str
     state: str
     url: str
-    workspace: bool                  # 手元に作業空間（task/<番号>）があるか
-    current: bool                    # 今いる作業空間か
-    remote: bool = False             # GitHubに作業空間のブランチがあるか（手元になくても task start で再開できる）
+    task_branch: bool                  # 手元にタスクブランチ（task/<番号>）があるか
+    current: bool                    # 今いるタスクブランチか
+    remote: bool = False             # GitHubにタスクブランチのブランチがあるか（手元になくても task start で再開できる）
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()  # 担当者（ログイン名）
     milestone: str | None = None
@@ -427,33 +427,33 @@ class TaskSummary:
     created: _datetime.date | None = None         # 追加した日
     started: _datetime.date | None = None         # 開始日（初めて作業中になった日）
     finished: _datetime.date | None = None        # 終了日（閉じた日）
-    workspace_path: Path | None = None            # 作業空間のある手元の場所（このclone。利用側が他のcloneも足す）
+    workspace: Path | None = None            # タスクブランチのある手元の場所（このclone。利用側が他のcloneも足す）
     submission: PullRequestState | None = None    # 開いている提出（task list で分かるとき）
 
     @classmethod
-    def _from(cls, task: _model.Task, *, workspace: bool, current: bool, remote: bool,
+    def _from(cls, task: _model.Task, *, task_branch: bool, current: bool, remote: bool,
               path: Path | None = None, submission: "PullRequestState | None" = None) -> "TaskSummary":
-        return cls(task.number, task.title, task.state, task.url, workspace, current, remote, task.labels,
+        return cls(task.number, task.title, task.state, task.url, task_branch, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
                    task.stage, task.priority, task.due, task.estimate,
                    None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
                    task.planned_start, task.planned_end, task.created, task.started, task.finished,
-                   path if workspace else None, submission)
+                   path if task_branch else None, submission)
 
 
 @dataclass(frozen=True)
 class TaskStatus:
-    """Issue・作業空間・PR（レビュー・コメント・CI）の状態（I-035）。"""
+    """Issue・タスクブランチ・PR（レビュー・コメント・CI）の状態（I-035）。"""
     number: int
     title: str
     state: str
     url: str
     body: str
-    workspace: bool
+    task_branch: bool
     base: str | None
     pull_request: PullRequestState | None
     activity: _github.PullRequestActivity | None
-    remote: bool = False             # GitHubに作業空間のブランチがあるか
+    remote: bool = False             # GitHubにタスクブランチのブランチがあるか
     labels: tuple[str, ...] = ()
     assignees: tuple[str, ...] = ()
     comments: tuple[_github.Comment, ...] = ()   # Issueのコメント（作業の記録・申し送り）
@@ -463,7 +463,7 @@ class TaskStatus:
     blocked_by: tuple["TaskRef", ...] = ()       # 先に終わるべきタスク
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
     task: TaskSummary | None = None              # 段階・計画の値（優先度・期限・見積もり・スプリント等）・日付
-    workspace_path: Path | None = None           # 作業空間のある手元の場所（TaskSummary と同じ）
+    workspace: Path | None = None           # タスクブランチのある手元の場所（TaskSummary と同じ）
 
 
 @dataclass(frozen=True)
@@ -472,7 +472,7 @@ class ReviewResult:
     head: str                        # PRのブランチ
     sha: str
     returned_to: str | None = None   # --done で戻ったブランチ
-    task: int | None = None          # 作業空間の提出なら、そのタスクの番号
+    task: int | None = None          # タスクブランチの提出なら、そのタスクの番号
 
 
 @dataclass(frozen=True)
@@ -491,16 +491,17 @@ class FinishResult:
     pull_request: int                # 取り込んだ提出（PR）
     url: str
     subject: str                     # 取り込んだコミットの件名（(#PR番号) の前）
-    partial: bool                    # 中間提出（作業空間を作り直して続ける）
+    partial: bool                    # 中間提出（タスクブランチを作り直して続ける）
     resumed: bool                    # 取り込み済みで、止まっていた後処理だけを行った
     closed_issue: int | None
-    workspace_rebuilt: bool
-    removed: bool                    # 手元の作業空間を片付けた
-    switched_to: str | None          # 今いた作業空間を片付けて移った先
+    branch_rebuilt: bool
+    removed: bool                    # 手元のタスクブランチを片付けた
+    switched_to: str | None          # 今いたタスクブランチを片付けて移った先
     checks: tuple = ()               # 待ったCIの実行
     next: TaskRef | None = None      # 次のタスクの候補（task next の1番目）
     approved: bool = False           # task approve：承認してから完了した
     returned_to: str | None = None   # task approve：確認中（task review）から戻ったブランチ
+    closed_workspace: object = None  # 完了の後に閉じた作業空間（利用側が決める）
 
 
 @dataclass(frozen=True)
@@ -510,7 +511,7 @@ class LogEntry:
     author: str
     date: str
     pull_request: int | None         # 件名の (#N)
-    issue: int | None                # そのPRの作業空間のIssue
+    issue: int | None                # そのPRのタスクブランチのIssue
 
 
 @dataclass(frozen=True)

@@ -11,7 +11,7 @@ from pathlib import Path
 from ecotask import process as _process
 from .errors import ErrorCode, WorkError, operation
 
-# ECOWORK_ALLOW：ecowork 自身の呼び出しは、作業空間を守るフック（hooks）を通す。
+# ECOWORK_ALLOW：ecowork 自身の呼び出しは、タスクブランチを守るフック（hooks）を通す。
 _ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "ECOWORK_ALLOW": "1"}
 REMOTE = "origin"
 

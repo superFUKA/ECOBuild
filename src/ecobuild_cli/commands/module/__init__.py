@@ -1,3 +1,4 @@
-"""モジュール（GitHubのリポジトリ）そのものと、このPCにあるcloneの記録を扱います。
+"""モジュール（GitHubのリポジトリ）そのものを扱います。
 
-作る・cloneする・一覧・情報・アーカイブ・削除、共同作業者（members）・ブランチの保護（protect）と、cloneの記録の確認・登録・忘れる操作です。"""
+作る・cloneする・一覧・情報・アーカイブ・削除、共同作業者（members）・ブランチの保護（protect）です。
+このPCにある作業空間（clone）は ecobuild workspace です。"""

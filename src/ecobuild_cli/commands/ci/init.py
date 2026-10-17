@@ -38,7 +38,7 @@ def command(
 
     def render(r):
         return lines(
-            f"{r.path} を作りました。作業空間でコミットし、PRで反映すると動きます",
+            f"{r.path} を作りました。タスクブランチでコミットし、PRで反映すると動きます",
             (f"注意：非公開の依存先（{', '.join(r.private_dependencies)}）は、CIの GITHUB_TOKEN では取得できません。"
              "それを読めるトークン（例：対象リポジトリの Contents を読めるだけの fine-grained token）を作り、"
              "このリポジトリのシークレット ECOBUILD_DEPS_TOKEN に登録してください"

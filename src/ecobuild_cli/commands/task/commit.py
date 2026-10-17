@@ -4,13 +4,13 @@ from ..._output import lines, missing, run_command
 
 
 def command(
-    *paths: Annotated[str, "コミットするファイル・フォルダー（省略時：作業空間の変更すべて）"],
+    *paths: Annotated[str, "コミットするファイル・フォルダー（省略時：タスクブランチの変更すべて）"],
     message: Annotated[str, "コミットメッセージ（必須）"] = "",
     all: Annotated[bool, "（以前の書き方。指定しなくても変更はすべて含めます）"] = False,
     amend: Annotated[bool, "直前のコミットをやり直す"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """作業空間の変更をコミットします（作業空間でのみ）。
+    """タスクブランチの変更をコミットします（タスクブランチでのみ）。
 
     パスを省くと、変更・削除したファイルすべてと、管理するファイル（ecobuild track）に当たる新しいファイルを含めます。
     当たらない新しいファイルは含めず、一覧で知らせます。パスを書くと、そのファイルだけをコミットします。

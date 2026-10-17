@@ -5,7 +5,7 @@ from ..._output import local_time, optional_argument, run_command
 
 def command(
     *number: Annotated[int, "タスクの番号（--task と同じ）"],
-    task: Annotated[int, "このタスクの作業空間のCI（既定：今いるブランチ）"] = 0,
+    task: Annotated[int, "このタスクのタスクブランチのCI（既定：今いるブランチ）"] = 0,
     count: Annotated[int, "表示する件数"] = 5,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:

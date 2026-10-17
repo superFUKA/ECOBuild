@@ -22,7 +22,7 @@ def command(
     """Projectにライブラリをリンクします。
 
     リンクできるのは、同じモジュールのライブラリ（LIBRARY）・CMakeのパッケージ（--package）・CMakeのソース（--cmake）・
-    ビルド済みのファイル（--file）です。他のモジュール（GitHubのリポジトリ）は ecobuild deps add でリンクします。管理ファイルが変わるので、作業空間でコミットしてください。
+    ビルド済みのファイル（--file）です。他のモジュール（GitHubのリポジトリ）は ecobuild deps add でリンクします。管理ファイルが変わるので、タスクブランチでコミットしてください。
     """
     library = optional_argument(library, "", "LIBRARY", json)
 

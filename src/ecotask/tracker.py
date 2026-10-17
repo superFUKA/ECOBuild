@@ -1,7 +1,7 @@
 """タスク管理の操作と決まりごと。データはすべてGitHubに置く（保存の層：ecotask.store）。
 
-作業空間やPRのことは知らない。作業の流れ（ecowork）は、作業の段階が変わるときに set_stage を呼び、
-段階のずれを直すとき（sync_stages）は各タスクの作業の事実（開いているPR・作業空間の有無）を渡す。
+タスクブランチやPRのことは知らない。作業の流れ（ecowork）は、作業の段階が変わるときに set_stage を呼び、
+段階のずれを直すとき（sync_stages）は各タスクの作業の事実（開いているPR・タスクブランチの有無）を渡す。
 work_states を渡しておくと、判断（次にやるもの・スプリント等）でも読む前にずれを直す。
 計画の情報を置くボードは内部の保存場所で、利用者には見せない（ecotask.board）。
 判断（次にやるもの・期限・スプリント等）は ecotask.planning の関数で行う。
@@ -49,7 +49,7 @@ class TaskDetails:
 @dataclass(frozen=True)
 class WorkState:
     """段階のずれを直すときの、タスクの作業の事実（作業の流れの側が調べて渡す）。"""
-    branch: bool = False                                 # 作業空間（GitHubのブランチ）がある
+    branch: bool = False                                 # タスクブランチ（GitHubのブランチ）がある
     pull_request: bool = False                           # 開いているPRがある
     draft: bool = False                                  # そのPRが下書き
 
@@ -246,7 +246,7 @@ class Tracker:
             subtasks = self.github.sub_issues(self.root, parent)
             if subtasks and all(s.state == "closed" or s.number == number for s in subtasks):
                 self.notices.append(f"親タスク #{parent} の子タスクはすべて閉じました。親を完了できます："
-                                    f"{self._op('task finish')} {parent}（作業空間がなければ "
+                                    f"{self._op('task finish')} {parent}（タスクブランチがなければ "
                                     f"{self._op('task close')} {parent}）。")
         except TaskError:
             pass  # 知らせるだけなので、失敗しても操作は成功のまま
@@ -258,8 +258,8 @@ class Tracker:
         self.set_stage(number, _model.TODO)
 
     def check_startable(self, number: int, *, ignore_blocked: bool = False) -> None:
-        """新しく作業を始めてよいか：先に終わるべきタスクを待つ（親タスクも作業できる。子の作業空間は親の
-        作業空間から派生し、子が終わるまで親は終了できない）。"""
+        """新しく作業を始めてよいか：先に終わるべきタスクを待つ（親タスクも作業できる。子のタスクブランチは親の
+        タスクブランチから派生し、子が終わるまで親は終了できない）。"""
         if ignore_blocked:
             return
         blockers = sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"),
@@ -296,9 +296,9 @@ class Tracker:
         self.github.comment_issue(self.root, number, f"{me} が引き継ぎました（前の担当：{', '.join(assignees)}）。")
         self.notices.append(f"#{number} を {', '.join(assignees)} から引き継ぎました（担当者を自分にしました）。")
 
-    def start_without_workspace(self, number: int, *, ignore_blocked: bool = False,
+    def start_without_branch(self, number: int, *, ignore_blocked: bool = False,
                                 take_over: bool = False) -> _github.IssueInfo:
-        """作業空間を作らずに作業を始める（調査・設計等）。担当者がいなければ自分にし、作業中にする。
+        """タスクブランチを作らずに作業を始める（調査・設計等）。担当者がいなければ自分にし、作業中にする。
         他の人が担当していれば止める（take_over で引き継ぐ）。"""
         issue = self.issue(number)
         if issue.state != "open":
@@ -360,7 +360,7 @@ class Tracker:
 
     def next_tasks(self, *, assignee: str | None = None, exclude: set[int] = frozenset(),
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:
-        """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（作業空間があるもの等）。"""
+        """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（タスクブランチがあるもの等）。"""
         today = today or _datetime.date.today()
         tasks = self._in_step(self.tasks(assignee=assignee) if assignee else self.store.tasks())
         return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
@@ -464,7 +464,7 @@ class Tracker:
 
     def sync_stages(self, tasks: list[_model.Task], work: dict[int, WorkState]) -> list[_model.Task]:
         """段階のずれを直す（GitHubのサイトでの操作・失敗した記録の分）：段階を作業の事実（Issueの開閉と、
-        work：作業空間・PR）に合わせ、子が始まった親は作業中にする。計画の段階・作業空間のない作業中は変えない。
+        work：タスクブランチ・PR）に合わせ、子が始まった親は作業中にする。計画の段階・タスクブランチのない作業中は変えない。
         置き場所（ボード）がまだなければ何もしない。直した段階を重ねた tasks を返す。"""
         settings = self.board
         if settings is None or not tasks:
@@ -509,7 +509,7 @@ class Tracker:
         if self.store.recreated:
             self.notices.append("タスク管理の情報が見つからなかったため、新しく作りました。以前に記録した計画の値（優先度・期限・"
                                 "見積もり・スプリント等）があった場合、それは戻りません（GitHubで削除された可能性があります）。"
-                                "作業の段階は、Issue・PR・作業空間から合わせ直します。")
+                                "作業の段階は、Issue・PR・タスクブランチから合わせ直します。")
             self.store.recreated = False
         if self.store.shared:
             self.notices.append(f"共同作業者（{', '.join(self.store.shared)}）も、タスクの計画・段階を書けるようにしました。")
@@ -524,7 +524,7 @@ class Tracker:
         return status is None or status == self.board.option(_model.TODO) or status not in self.board.stage_options
 
     def _expected_stage(self, state: str, current: str | None, work: WorkState) -> str | None:
-        """Issue・PR・作業空間から決まる作業の段階。決まらなければ（計画の段階・作業空間なしの作業中）None。"""
+        """Issue・PR・タスクブランチから決まる作業の段階。決まらなければ（計画の段階・タスクブランチなしの作業中）None。"""
         settings = self.board
         if state != "open":
             return _model.DONE

@@ -16,17 +16,17 @@ def code_of(action):
     return error.value.code
 
 
-def commit_file(workspace, root, name, text, message):
+def commit_file(task_branch, root, name, text, message):
     write(root / name, text)
-    workspace.stage(name)
-    return workspace.commit(message)
+    task_branch.stage(name)
+    return task_branch.commit(message)
 
 
-def finish(repository, workspace, name, text, message):
-    commit_file(workspace, repository.root, name, text, message)
-    pr = workspace.submit()
+def finish(repository, task_branch, name, text, message):
+    commit_file(task_branch, repository.root, name, text, message)
+    pr = task_branch.submit()
     repository.pull_request().merge()
-    repository.clean_workspaces()
+    repository.prune_task_branches()
     return pr
 
 
@@ -35,7 +35,7 @@ def test_task_management(repository):
     second = repository.create_task("二つ目")
     second.start()
     listed = repository.tasks()
-    assert [(t.number, t.workspace, t.current) for t in listed] == [(1, False, False), (2, True, True)]
+    assert [(t.number, t.task_branch, t.current) for t in listed] == [(1, False, False), (2, True, True)]
     assert repository.edit_task(1, title="一つ目（改）").title == "一つ目（改）"
     assert code_of(lambda: repository.edit_task(1)) == ErrorCode.INVALID_ARGUMENT
     assert repository.close_task(first.number).state == "closed"
@@ -47,12 +47,12 @@ def test_task_management(repository):
 
 
 def test_task_status_shows_reviews_and_checks(repository):
-    workspace = repository.create_task("t", body="やること").start()
+    task_branch = repository.create_task("t", body="やること").start()
     status = repository.task_status()
-    assert (status.number, status.body, status.workspace, status.base, status.pull_request) == (1, "やること", True,
+    assert (status.number, status.body, status.task_branch, status.base, status.pull_request) == (1, "やること", True,
                                                                                               "main", None)
-    commit_file(workspace, repository.root, "a.txt", "a\n", "a")
-    pr = workspace.submit()
+    commit_file(task_branch, repository.root, "a.txt", "a\n", "a")
+    pr = task_branch.submit()
     repository.github.activity[pr.number] = PullRequestActivity(
         (Review("alice", "CHANGES_REQUESTED", "直して"),), (Comment("bob", "了解"),),
         (Check("build", "completed", "failure"),), "MERGEABLE")
@@ -76,8 +76,8 @@ def test_review_pull_request(repository, remote_and_clone, tmp_path):
     result = repository.review(pr.number)
     assert result.head == "task/1" and (repository.root / "theirs.txt").exists()
     status = repository.status()
-    assert status.reviewing == pr.number and status.workspace is None
-    assert repository.current_workspace() is None  # コミットはできない（作業空間でない）
+    assert status.reviewing == pr.number and status.task is None
+    assert repository.current_task_branch() is None  # コミットはできない（タスクブランチでない）
     back = repository.end_review()
     assert back.returned_to == "main" and not (repository.root / "theirs.txt").exists()
     assert repository.status().reviewing is None
@@ -94,20 +94,20 @@ def test_log_revert_ignore_release(repository):
     assert len(repository.blame("a.txt").splitlines()) == 1
 
     reverted = repository.revert(pr.number)
-    assert repository.current_workspace().branch == reverted.branch and not (root / "a.txt").exists()
+    assert repository.current_task_branch().branch == reverted.branch and not (root / "a.txt").exists()
     assert repository.task(reverted.task).title == "「機能A」を取り消す"
     assert repository.diff(base=True).count("a.txt") >= 1
-    repository.current_workspace().submit()
+    repository.current_task_branch().submit()
     repository.pull_request().merge()
-    repository.clean_workspaces()
+    repository.prune_task_branches()
     assert code_of(lambda: repository.revert(99)) == ErrorCode.NO_PULL_REQUEST
 
-    assert code_of(lambda: repository.ignore("*.log")) == ErrorCode.NOT_IN_WORKSPACE  # main では変えない
-    workspace = repository.create_task("除外").start()
+    assert code_of(lambda: repository.ignore("*.log")) == ErrorCode.NOT_ON_TASK_BRANCH  # main では変えない
+    task_branch = repository.create_task("除外").start()
     assert repository.ignore("*.log", "out/", "*.log") == ("*.log", "out/")
     assert repository.ignore("*.log") == ()
     assert (root / ".gitignore").read_text(encoding="utf-8").splitlines()[-2:] == ["*.log", "out/"]
-    finish(repository, workspace, "b.txt", "b\n", "除外")
+    finish(repository, task_branch, "b.txt", "b\n", "除外")
 
     release = repository.create_release("v1.0.0", title="最初", notes="")
     assert release.tag == "v1.0.0" and [r.tag for r in repository.releases()] == ["v1.0.0"]
@@ -118,31 +118,31 @@ def test_log_revert_ignore_release(repository):
 def test_close_and_clean_keep_unfinished_work(repository):
     """Issueを閉じるだけでは、マージしていない作業は消えない（作業の終わり方は merge か drop）。"""
     root = repository.root
-    workspace = repository.create_task("途中").start()
-    commit_file(workspace, root, "a.txt", "a\n", "途中の変更")
-    workspace.push()
+    task_branch = repository.create_task("途中").start()
+    commit_file(task_branch, root, "a.txt", "a\n", "途中の変更")
+    task_branch.push()
     with pytest.raises(WorkError) as error:
         repository.close_task(1)
     assert error.value.code == ErrorCode.UNFINISHED_WORK and "task drop" in error.value.hint
-    pr = workspace.submit()
+    pr = task_branch.submit()
     assert code_of(lambda: repository.close_task(1)) == ErrorCode.UNFINISHED_WORK  # 開いているPR
-    # GitHubで直接閉じられても、task prune はマージしていない作業空間を残す
+    # GitHubで直接閉じられても、task prune はマージしていないタスクブランチを残す
     repository.github.close_issue(root, 1)
-    result = repository.clean_workspaces()
+    result = repository.prune_task_branches()
     assert result.removed == () and "マージしていないコミット" in result.skipped[0].reason
     assert repository.github.pulls[pr.number].state == "open"
-    # 作業空間のないIssue・作業の終わったIssueは閉じられる
+    # タスクブランチのないIssue・作業の終わったIssueは閉じられる
     repository.create_task("作業なし")
     assert repository.close_task(3).state == "closed"
 
 
 def test_stash_pop_stays_in_its_workspace(repository):
-    """別の作業空間で退避した変更は戻さない。main で退避した変更は作業空間へ持ち込める。"""
+    """別のタスクブランチで退避した変更は戻さない。main で退避した変更はタスクブランチへ持ち込める。"""
     root = repository.root
     write(root / "main.txt", "main\n")
     repository.stash()
     first = repository.create_task("一つ目").start()
-    repository.stash_pop()  # main で始めてしまった変更を、作業空間へ持ち込む
+    repository.stash_pop()  # main で始めてしまった変更を、タスクブランチへ持ち込む
     assert (root / "main.txt").exists()
     first.stage(all=True)
     first.commit("持ち込んだ変更")
@@ -160,10 +160,10 @@ def test_stash_pop_stays_in_its_workspace(repository):
 def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path):
     remote, _ = remote_and_clone
     task = repository.create_task("並行作業")
-    dedicated = repository.clone_workspace(task.number, tmp_path / "Calc-1")
-    assert dedicated.current_workspace().number == task.number
-    assert repository.current_workspace() is None  # 元のcloneはそのまま
-    assert code_of(lambda: repository.clone_workspace(task.number, tmp_path / "Calc-1")) == ErrorCode.ALREADY_EXISTS
+    dedicated = repository.clone_task_branch(task.number, tmp_path / "Calc-1")
+    assert dedicated.current_task_branch().number == task.number
+    assert repository.current_task_branch() is None  # 元のcloneはそのまま
+    assert code_of(lambda: repository.clone_task_branch(task.number, tmp_path / "Calc-1")) == ErrorCode.ALREADY_EXISTS
 
     finish(repository, repository.create_task("先に入る").start(), "b.txt", "b\n", "b")
     assert dedicated.status().base_behind is None
@@ -172,9 +172,9 @@ def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path
 
 def test_merge_stops_when_checks_failed(repository):
     """CIが失敗したPRはマージしない（--ignore-checks で続ける）。仮運用3回目で追加。"""
-    workspace = repository.create_task("t").start()
-    commit_file(workspace, repository.root, "a.txt", "a\n", "a")
-    pr = workspace.submit()
+    task_branch = repository.create_task("t").start()
+    commit_file(task_branch, repository.root, "a.txt", "a\n", "a")
+    pr = task_branch.submit()
     repository.github.activity[pr.number] = PullRequestActivity((), (), (Check("build", "completed", "failure"),),
                                                                 "MERGEABLE")
     with pytest.raises(WorkError) as error:

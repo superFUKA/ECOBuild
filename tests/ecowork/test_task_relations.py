@@ -15,13 +15,13 @@ def code_of(action):
 
 
 def finish(repository, number, name):
-    workspace = repository.task(number).start()
+    task_branch = repository.task(number).start()
     write(repository.root / name, "x\n")
-    workspace.stage(name)
-    workspace.commit(name)
-    workspace.submit()
+    task_branch.stage(name)
+    task_branch.commit(name)
+    task_branch.submit()
     result = repository.pull_request().merge()
-    repository.clean_workspaces()
+    repository.prune_task_branches()
     return result
 
 
@@ -44,7 +44,7 @@ def test_relations_are_shown_and_ready_tasks_are_listed(repository):
 
 
 def test_subtasks_branch_from_the_parent_workspace(repository):
-    """子タスクの作業空間は親の作業空間から派生し、PRは親の作業空間へ。子が終わらないと親は終了できない。"""
+    """子タスクのタスクブランチは親のタスクブランチから派生し、PRは親のタスクブランチへ。子が終わらないと親は終了できない。"""
     parent = repository.create_task("親")
     first = repository.create_task("先", parent=parent.number)
     second = repository.create_task("後", parent=parent.number, blocked_by=(first.number,))
@@ -53,24 +53,24 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     assert code_of(lambda: repository.close_task(parent.number)) == ErrorCode.OPEN_SUBTASKS
     assert code_of(lambda: repository.task(first.number).start(base="main")) == ErrorCode.INVALID_BASE
 
-    workspace = repository.task(first.number).start()           # 親の作業空間は、なければGitHubに作る
-    assert workspace.base == parent_branch and repository.git.has_remote_branch(parent_branch)
+    task_branch = repository.task(first.number).start()           # 親のタスクブランチは、なければGitHubに作る
+    assert task_branch.base == parent_branch and repository.git.has_remote_branch(parent_branch)
     assert any(parent_branch in n for n in repository.notices)
     write(repository.root / "a.txt", "x\n")
-    workspace.stage("a.txt")
-    workspace.commit("a")
-    pr = workspace.submit()
+    task_branch.stage("a.txt")
+    task_branch.commit("a")
+    pr = task_branch.submit()
     assert pr.base == parent_branch
-    assert repository.pull_request().merge().closed_issue == first.number    # 親の作業空間へ入れて子を閉じる
-    repository.clean_workspaces()
+    assert repository.pull_request().merge().closed_issue == first.number    # 親のタスクブランチへ入れて子を閉じる
+    repository.prune_task_branches()
     assert not any("すべて閉じました" in n for n in repository.notices)   # 子がまだ残っている
 
-    workspace = repository.task(second.number).start()
-    assert workspace.base == parent_branch and (repository.root / "a.txt").exists()   # 親の最新から
+    task_branch = repository.task(second.number).start()
+    assert task_branch.base == parent_branch and (repository.root / "a.txt").exists()   # 親の最新から
     write(repository.root / "b.txt", "y\n")
-    workspace.stage("b.txt")
-    workspace.commit("b")
-    workspace.submit()
+    task_branch.stage("b.txt")
+    task_branch.commit("b")
+    task_branch.submit()
 
     parent_workspace = repository.task(parent.number).start()   # 親も作業できる（作成元は main）
     assert parent_workspace.base == "main" and (repository.root / "a.txt").exists()
@@ -81,7 +81,7 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     parent_pr = parent_workspace.submit()
     assert any("子タスクが終わるまで完了できません" in n for n in repository.notices)
     assert code_of(lambda: parent_pr.merge()) == ErrorCode.OPEN_SUBTASKS
-    assert code_of(lambda: repository.drop_workspace(parent.number, close=True, discard=True)) == ErrorCode.OPEN_SUBTASKS
+    assert code_of(lambda: repository.drop_task(parent.number, close=True, discard=True)) == ErrorCode.OPEN_SUBTASKS
 
     repository.task(second.number).start()
     repository.pull_request().merge()
@@ -91,13 +91,13 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     assert (repository.root / "b.txt").exists()
     result = repository.pull_request().merge()
     assert result.closed_issue == parent.number
-    repository.clean_workspaces()
+    repository.prune_task_branches()
     repository.sync()
     assert all((repository.root / name).exists() for name in ("a.txt", "b.txt", "p.txt"))
 
 
 def test_parent_without_code_is_closed_after_subtasks(repository):
-    """コードを変えない親（作業空間なし）は、子が終わってから task close で閉じる。"""
+    """コードを変えない親（タスクブランチなし）は、子が終わってから task close で閉じる。"""
     parent = repository.create_task("親")
     child = repository.create_task("子", parent=parent.number)
     assert code_of(lambda: repository.close_task(parent.number)) == ErrorCode.OPEN_SUBTASKS
@@ -108,9 +108,9 @@ def test_parent_without_code_is_closed_after_subtasks(repository):
 def test_blocked_task_can_be_started_explicitly(repository):
     first = repository.create_task("先")
     second = repository.create_task("後", blocked_by=(first.number,))
-    workspace = repository.task(second.number).start(ignore_blocked=True)
-    assert workspace.number == second.number
-    # 一度始めた作業空間へ戻るときは止めない
+    task_branch = repository.task(second.number).start(ignore_blocked=True)
+    assert task_branch.number == second.number
+    # 一度始めたタスクブランチへ戻るときは止めない
     repository.task(first.number).start()
     assert repository.task(second.number).start().number == second.number
 

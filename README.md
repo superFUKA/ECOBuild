@@ -90,7 +90,7 @@ ECOBuild はライブラリとして作られ、CLI はその上で動きます�
 | 本体＋拡張 | `ecobuild_bundle` | 同梱の型（`cpp`・`generic`・`python`）を登録した本体（型の既定は `cpp`）と、このPCの準備（`doctor`・`setup`・`init`） |
 | 拡張 | `ecobuild_cpp`・`ecobuild_generic`・`ecobuild_python` | モジュールの型（`cpp` は CppBuild、`python` は venv・pip・pytest を使う）。型のコマンドは `cli/` |
 | 本体 | `ecobuild` | モジュール・型の抽象（`ModuleType` と能力）・`Registry`・このPCの設定（`settings`） |
-| 作業の流れ | `ecowork` | 作業空間・提出・最新化・CI（git・gh）。本体はタスクも含めて ecowork から使う |
+| 作業の流れ | `ecowork` | タスクブランチ・提出・最新化・CI（git・gh）。本体はタスクも含めて ecowork から使う |
 | タスク管理 | `ecotask` | GitHub をデータベースとして使うタスク管理（gh） |
 
 ライブラリとしては、型を `Registry` に登録して `Module` に渡します（外部から型を足せます）。

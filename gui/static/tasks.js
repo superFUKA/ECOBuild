@@ -15,8 +15,8 @@
   const me = () => MOD.me;
   const root = () => MOD.root;
 
-  // A task's stage on screen: closed = done; not recorded yet = in progress when it has a workspace, else todo.
-  const stageOf = t => t.state !== 'open' ? 'done' : t.stage || (t.workspace || t.remote || t.current ? 'in_progress' : 'todo');
+  // A task's stage on screen: closed = done; not recorded yet = in progress when it has a task branch, else todo.
+  const stageOf = t => t.state !== 'open' ? 'done' : t.stage || (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo');
   // Also the recently closed tasks the dashboard's 完了 column shows (read with task list --all).
   const byNumber = n => st.tasks.find(t => t.number === n) || ((st.extra.closed?.ok ? st.extra.closed : st.lastClosed)?.result || []).find(t => t.number === n);
   const md = d => d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) : '';
@@ -27,7 +27,7 @@
   const avatarMark = who => !who ? '<span class="tk-avatar none" title="担当なし"></span>' : `<span class="tk-avatar ${isAgent(who) ? 'agent' : ''}" title="${esc(who)}">${isAgent(who) ? 'AI' : esc(who[0].toUpperCase())}</span>`;
   const avatar = who => !who ? avatarMark('') : `<button type="button" class="tk-person-link" data-person="${esc(who)}" title="${esc(who)} の画面">${avatarMark(who)}</button>`;
   const avatars = t => t.assignees.length ? t.assignees.map(avatar).join('') : avatar('');
-  const flags = t => (t.blocked_by && t.state === 'open' ? `<span class="tk-flag blocked">待ち ${t.blocked_by}</span>` : '') + (t.subtasks ? `<span class="tk-flag">子 ${t.subtasks_done}/${t.subtasks}</span>` : '') + (t.current || t.workspace ? '<span class="tk-flag">作業空間</span>' : t.remote ? '<span class="tk-flag">GitHubに作業空間</span>' : '');
+  const flags = t => (t.blocked_by && t.state === 'open' ? `<span class="tk-flag blocked">待ち ${t.blocked_by}</span>` : '') + (t.subtasks ? `<span class="tk-flag">子 ${t.subtasks_done}/${t.subtasks}</span>` : '') + (t.current || t.task_branch ? '<span class="tk-flag">タスクブランチ</span>' : t.remote ? '<span class="tk-flag">GitHubにタスクブランチ</span>' : '');
   const sel = t => `aria-selected="${t.number === st.selected}" data-task="${t.number}"`;
   // Sprints: task list gives the name, sprint status the whole sprint. A sprint runs from start to the day before end.
   const sprintName = t => typeof t.sprint === 'string' ? t.sprint : t.sprint?.name || '';
@@ -84,7 +84,7 @@
     ${sorted(ts).map(t => `<tr ${sel(t)} class="${t.state === 'open' ? '' : 'closed'}"><td class="tk-num-cell"><span class="tk-num">#${t.number}</span></td><td class="tk-title-cell">${esc(t.title)} ${flags(t)}</td><td>${stageBadge(t)}</td><td>${prio(t)}</td><td>${due(t)}</td><td>${est(t)}</td><td>${sprintTag(t)}</td>${withAssignee ? `<td>${avatars(t)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
   function renderList() {
     const ts = visible();
-    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了した作業空間を片付ける</button></div>';
+    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了したタスクブランチを片付ける</button></div>';
   }
   // The dashboard: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
   // 完了 shows the recently closed tasks (task list --all) even when 「閉じたものも」 is off.
@@ -251,10 +251,10 @@
     if (!d) { tkEl('tk-detail').innerHTML = `<div class="tk-d-head"><span class="tk-num">#${n}</span>${close}</div>${summary ? `<h3 class="tk-d-title">${esc(summary.title)}</h3>` : ''}${ECO.loading()}`; return; }
     if (d.error) { tkEl('tk-detail').innerHTML = `<div class="tk-d-head"><span class="tk-num">#${n}</span>${close}</div><p class="tk-empty">${esc(d.error.message)}</p>`; return; }
     const t = d.task || {}, open = d.state === 'open', place = MOD.placeOfTask(n);
-    const view = {...(summary || {}), ...t, state: d.state, workspace: d.workspace, remote: d.remote};
-    const hasWorkspace = !!place || d.workspace;
+    const view = {...(summary || {}), ...t, state: d.state, task_branch: d.task_branch, remote: d.remote};
+    const hasWorkspace = !!place || d.task_branch;
     const primary = !open ? '<button type="button" data-tk="reopen">開き直す</button>'
-      : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">作業空間を開く</button>'
+      : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">タスクブランチを開く</button>'
       : `<button type="button" class="primary" data-tk="start">${d.remote ? '作業を再開' : '作業を開始'}</button>`;
     const dis = open ? '' : 'disabled';
     const rel = x => `<div class="tk-rel" data-task="${x.number}"><span class="tk-num">#${x.number}</span><span class="tk-grow">${esc(x.title)}</span>${x.state === 'open' ? '' : '<span class="tk-stage done">完了</span>'}</div>`;
@@ -266,7 +266,7 @@
     <div class="tk-d-actions">${primary}${open ? '<button type="button" data-tk="close">閉じる</button>' : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
-        ${hasWorkspace ? '<button type="button" data-tk="remove">手元の作業空間を削除</button>' : ''}
+        ${hasWorkspace ? '<button type="button" data-tk="remove">手元のタスクブランチを削除</button>' : ''}
         ${open && pr?.state === 'open' ? '<button type="button" data-tk="withdraw">提出を取り下げる</button>' : ''}
         ${!open && pr?.state === 'merged' ? '<button type="button" data-tk="revert">取り込みを取り消す…</button>' : ''}
         ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop">作業をやめる</button>' : ''}
@@ -290,7 +290,7 @@
     </dl></section>
     ${relations.length ? `<section class="tk-d-section"><h4>つながり</h4><dl class="tk-kv">${relations.map(([label, xs]) => `<dt>${label}</dt><dd>${xs.map(rel).join('')}</dd>`).join('')}</dl></section>` : ''}
     <section class="tk-d-section"><h4>作業</h4><dl class="tk-kv">
-      <dt>作業空間</dt><dd>${hasWorkspace ? `task/${n}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
+      <dt>タスクブランチ</dt><dd>${hasWorkspace ? `task/${n}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
       <dt>提出</dt><dd>${submissionText(pr, open)}</dd>
     </dl>${open ? submissionButtons(n, pr, hasWorkspace) : ''}</section>
     <section class="tk-d-section"><h4>コメント ${d.comments.length}</h4>${d.comments.map(c => `<article class="tk-comment"><header>${esc(c.author)}</header><p>${esc(c.body)}</p></article>`).join('')}
@@ -345,33 +345,33 @@
     const t = byNumber(n) || {}, d = st.details.get(n) || {};
     const defaults = await moduleDefaults();
     const parent = d.parent?.number || t.parent || 0;
-    // The default base: a child task starts from its parent's workspace; otherwise default_base (ecobuild.toml).
+    // The default base: a child task starts from its parent's task branch; otherwise default_base (ecobuild.toml).
     const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
     // The base is typed in or chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives):
     // the plain ones first, then the other workspaces.
-    const branchOptions = ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_workspace), ...branches.result.filter(b => b.is_workspace && b.name !== `task/${n}`)].map(b => {
-      const task = b.is_workspace ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
-      return [b.name, b.is_workspace ? `${b.name}（作業空間${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
+    const branchOptions = ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
+      const task = b.is_task_branch ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
+      return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
     const assignees = d.assignees || t.assignees || [], others = me() && !assignees.includes(me()) ? assignees : [];
-    await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} の作業空間を用意しています…`, fields: [
+    await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} のタスクブランチを用意しています…`, fields: [
       {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
-        ['here', 'このモジュールのcloneに作業空間を作る', `task/${n} のブランチを作って切り替えます（${root()}）`],
-        ['dir', '専用のcloneを作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
-        ['none', '作業空間を作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
-      {name: 'dir', label: '専用のcloneの場所', value: suggested, showIf: v => v.place === 'dir'},
+        ['here', 'この作業空間にタスクブランチを作る', `task/${n} のブランチを作って切り替えます（${root()}）`],
+        ['dir', '新しい作業空間を作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
+        ['none', 'タスクブランチを作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
+      {name: 'dir', label: '新しい作業空間の場所', value: suggested, showIf: v => v.place === 'dir'},
       {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', more: branchOptions,
-        help: parent ? `子タスクは親タスクの作業空間（task/${parent}）から作ります。` : d.remote ? 'GitHubにある作業空間から再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
+        help: parent ? `子タスクは親タスクのタスクブランチ（task/${parent}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : []),
       ...(others.length ? [{name: 'takeOver', label: `${others.join('、')} から引き継ぐ（担当者を自分にし、タスクに残します）`, type: 'checkbox', help: 'ほかの人が担当しています。重ねて作業しないよう、相談してから引き継いでください。'}] : [])], ok: '開始',
       submit: async v => {
         // Pass --base only when it was changed from the default (the CLI decides the default the same way).
         if (others.length && !v.takeOver) return `${others.join('、')} が担当しています。引き継ぐ場合は「引き継ぐ」に印を付けてください。`;
         const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : []), ...(v.takeOver ? ['--take-over'] : [])];
-        if (v.place === 'none') args.push('--no-workspace');
-        if (v.place === 'dir') { if (!v.dir) return '専用のcloneの場所を入力してください。'; args.push('--dir', v.dir); }
-        const doc = await run(args, {success: v.place === 'none' ? `#${n} を作業中にしました。` : `作業空間 task/${n} を用意しました。`, quietErrors: true});
+        if (v.place === 'none') args.push('--no-branch');
+        if (v.place === 'dir') { if (!v.dir) return '新しい作業空間の場所を入力してください。'; args.push('--dir', v.dir); }
+        const doc = await run(args, {success: v.place === 'none' ? `#${n} を作業中にしました。` : `タスクブランチ task/${n} を用意しました。`, quietErrors: true});
         if (!doc) return '開始できませんでした。';
         if (v.place === 'here') { await MOD.reloadPlace(root()); MOD.openWorkspace(n); }
         if (v.place === 'dir') { const place = await MOD.addPlace(doc.module || v.dir); await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }
@@ -401,7 +401,7 @@
       {name: 'parent', label: '親タスク', type: 'select', row: 'links', value: preset.parent ? String(preset.parent) : '', options: parentOptions(0, 0)},
       {name: 'blockedBy', label: '先に終わるべきタスク', row: 'links', placeholder: '番号（カンマ区切り）'},
       {type: 'section', end: true},
-      {name: 'start', label: '作成したら、このモジュールのcloneで作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'}], ok: '作成',
+      {name: 'start', label: '作成したら、この作業空間で作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'}], ok: '作成',
       submit: async v => {
         const args = ['task', 'new', v.title];
         const assignees = [...v.assignees, ...ECO.commaList(v.otherAssignees)];
@@ -457,29 +457,29 @@
   }
   async function closeDialog(n) {
     const v = await ECO.form({title: `タスク #${n} を閉じる`, fields: [{name: 'reason', label: '閉じる理由', type: 'radio', value: 'completed', options: [['completed', '完了', '作業を終えた'], ['not_planned', '対応しない', '対応しないと決めた']]}],
-      extra: '<p class="eco-intro">コードを変えないタスク向けです。作業空間に提出や取り込んでいないコミットがあれば、その作業を捨てて「対応しない」として閉じます。取り込むなら「完了する」を使います。</p>', ok: '閉じる'});
+      extra: '<p class="eco-intro">コードを変えないタスク向けです。タスクブランチに提出や取り込んでいないコミットがあれば、その作業を捨てて「対応しない」として閉じます。取り込むなら「完了する」を使います。</p>', ok: '閉じる'});
     if (v && await run(['task', 'close', String(n), '--yes', ...(v.reason === 'not_planned' ? ['--not-planned'] : [])], {dir: placeFor(n), success: `#${n} を閉じました。`})) { await MOD.reloadPlace(placeFor(n)); reloadAfter(n); }
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業をやめる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、作業空間を手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
+    const v = await ECO.form({title: `作業をやめる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
     if (!v) return;
-    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `作業空間 ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function removeWorkspace(n) {
     const place = placeFor(n);
-    const ok = await ECO.confirm({title: `手元の作業空間を削除：#${n}`, message: '手元の作業空間だけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
+    const ok = await ECO.confirm({title: `手元のタスクブランチを削除：#${n}`, message: '手元のタスクブランチだけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
     if (!ok) return;
-    const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元の作業空間 ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元のタスクブランチ ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function cleanDialog() {
     const results = [];
     for (const place of MOD.places) { const doc = await ECO.cli(place, ['task', 'prune', '--dry-run']); if (doc.ok) results.push([place, doc.result]); else return ECO.showError(doc); }
     const removable = results.filter(([, r]) => r.removed.length), skipped = results.flatMap(([, r]) => r.skipped);
-    const body = (removable.length ? '<p>片付ける作業空間：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付ける作業空間はありません。</p>')
+    const body = (removable.length ? '<p>片付けるタスクブランチ：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付けるタスクブランチはありません。</p>')
       + (skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
-    const ok = await ECO.dialog({title: '完了した作業空間を片付ける', body: '<p class="eco-intro">タスクが閉じられた作業空間を片付けます。取り込まれていないコミットがある作業空間は残します（「完了する」で終えた作業空間は自動で片付きます）。</p>' + body,
+    const ok = await ECO.dialog({title: '完了したタスクブランチを片付ける', body: '<p class="eco-intro">タスクが閉じられたタスクブランチを片付けます。取り込まれていないコミットがあるタスクブランチは残します（「完了する」で終えたタスクブランチは自動で片付きます）。</p>' + body,
       buttons: removable.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
     if (!ok) return;
     for (const [place] of removable) {
@@ -492,20 +492,20 @@
   }
   // Submission and finishing (task submit／finish／approve／reject／withdraw). Numbers are task numbers.
   async function finishDialog(n) {
-    const v = await ECO.form({title: `完了する：#${n}`, intro: '提出していなければ提出し、CIを待って取り込み、タスクを閉じて作業空間を片付けます（中間提出なら、取り込んだ後に作業空間を作り直して続けます）。',
+    const v = await ECO.form({title: `完了する：#${n}`, intro: '提出していなければ提出し、CIを待って取り込み、タスクを閉じてタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
       fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する'});
     if (!v) return;
     const place = placeFor(n);
     const doc = await run(['task', 'finish', String(n), ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])],
-      {dir: place, success: r => r.partial ? '中間提出を取り込み、作業空間を作り直しました。' : `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+      {dir: place, success: r => r.partial ? '中間提出を取り込み、タスクブランチを作り直しました。' : `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function withdrawSubmission(n) {
-    if (!await ECO.confirm({title: `提出を取り下げる：#${n}`, message: '提出を取り下げて作業中に戻します（作業空間はそのまま。もう一度提出できます）。', ok: '取り下げる'})) return;
+    if (!await ECO.confirm({title: `提出を取り下げる：#${n}`, message: '提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。', ok: '取り下げる'})) return;
     if (await run(['task', 'withdraw', String(n)], {dir: placeFor(n), success: `#${n} の提出を取り下げました。`})) reloadAfter(n);
   }
   async function reviewSubmission(n) {
-    const doc = await run(['task', 'review', String(n)], {success: `#${n} の提出を手元に取り出しました。作業空間の画面でビルド・テスト・実行ができます。`});
+    const doc = await run(['task', 'review', String(n)], {success: `#${n} の提出を手元に取り出しました。タスクブランチの画面でビルド・テスト・実行ができます。`});
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
   }
   async function judgeDialog(n, approve) {
@@ -518,8 +518,8 @@
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
   }
   async function revertDialog(n) {
-    if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `完了した #${n} の取り込みを取り消すタスクと作業空間を作ります（取り消しのコミットまで用意します）。確かめてから提出・完了してください。`, ok: '作る'})) return;
-    const doc = await run(['task', 'revert', String(n)], {success: r => `#${n} を取り消す作業空間 ${r.branch}（タスク #${r.task}）を作りました。`});
+    if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `完了した #${n} の取り込みを取り消すタスクとタスクブランチを作ります（取り消しのコミットまで用意します）。確かめてから提出・完了してください。`, ok: '作る'})) return;
+    const doc = await run(['task', 'revert', String(n)], {success: r => `#${n} を取り消すタスクブランチ ${r.branch}（タスク #${r.task}）を作りました。`});
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(); }
   }
   async function plan(n, key, value) {
@@ -553,10 +553,10 @@
   async function detailOf(n) { if (!st.details.has(n) || st.details.get(n).error) await loadDetail(n); return st.details.get(n); }
   function taskMenu(n, x, y) {
     const t = byNumber(n); if (!t) return;
-    const open = t.state === 'open', hasWorkspace = !!MOD.placeOfTask(n) || t.workspace || t.current, mine = me() && t.assignees.includes(me());
+    const open = t.state === 'open', hasWorkspace = !!MOD.placeOfTask(n) || t.task_branch || t.current, mine = me() && t.assignees.includes(me());
     ECO.menu([
       ['詳細を見る', () => select(n)],
-      ...(open ? [hasWorkspace ? ['作業空間を開く', () => MOD.openWorkspace(n)] : [t.remote ? '作業を再開…' : '作業を開始…', async () => { await detailOf(n); startDialog(n); }]] : []),
+      ...(open ? [hasWorkspace ? ['タスクブランチを開く', () => MOD.openWorkspace(n)] : [t.remote ? '作業を再開…' : '作業を開始…', async () => { await detailOf(n); startDialog(n); }]] : []),
       '-',
       ['担当者を追加…', async () => { await detailOf(n); addAssigneeDialog(n); }],
       ...(me() ? [mine ? ['自分を担当から外す', () => editList(n, '--remove-assignee', '@me', '担当から外れました。')] : ['自分を担当にする', () => editList(n, '--add-assignee', '@me', '担当にしました。')]] : []),
@@ -567,7 +567,7 @@
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
       open ? ['閉じる…', () => closeDialog(n)] : ['開き直す', async () => { if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); }],
-      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['手元の作業空間を削除…', () => removeWorkspace(n)]] : []), ['作業をやめる…', () => dropDialog(n)]] : []),
+      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['手元のタスクブランチを削除…', () => removeWorkspace(n)]] : []), ['作業をやめる…', () => dropDialog(n)]] : []),
       '-',
       ['GitHubで開く', () => window.open(t.url, '_blank', 'noopener')],
     ], x, y);
@@ -605,11 +605,11 @@
       return;
     }
     if (stage === 'in_progress') {
-      if (MOD.placeOfTask(n) || t.workspace) return ECO.toast('作業空間があるタスクは、すでに作業中です。', 'info');
+      if (MOD.placeOfTask(n) || t.task_branch) return ECO.toast('タスクブランチがあるタスクは、すでに作業中です。', 'info');
       await detailOf(n); return startDialog(n);
     }
-    if (stage === 'in_review') return ECO.toast('作業空間で提出すると、レビュー待ちに移ります。', 'info', 6000);
-    if (MOD.placeOfTask(n) || t.workspace || t.remote) return ECO.toast('作業空間があるタスクです。「作業をやめる」と未着手に戻ります。', 'info', 6000);
+    if (stage === 'in_review') return ECO.toast('タスクブランチで提出すると、レビュー待ちに移ります。', 'info', 6000);
+    if (MOD.placeOfTask(n) || t.task_branch || t.remote) return ECO.toast('タスクブランチがあるタスクです。「作業をやめる」と未着手に戻ります。', 'info', 6000);
     setStage(n, stage);
   });
   async function setStage(n, stage) { if (await run(['task', 'edit', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n); }

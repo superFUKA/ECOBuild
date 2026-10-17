@@ -10,15 +10,15 @@ def command(
     fetch: Annotated[bool, "GitHubの最新を取得してから表示する（作成元の遅れも表示）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ブランチ、作業空間、変更、提出の状態を表示します。"""
+    """ブランチ、タスクブランチ、変更、提出の状態を表示します。"""
 
     def render(r):
         if r.reviewing:
             where = (f"#{r.reviewing_task} の提出を確認中（ecobuild task approve／reject {r.reviewing_task}、"
                      "判定せずに戻るなら ecobuild task review --done）") if r.reviewing_task else \
                 f"PR #{r.reviewing} を確認中（ecobuild task review --done で戻る）"
-        elif r.workspace:
-            where = f"作業空間 #{r.workspace}（{r.branch}、作成元 {r.base}）"
+        elif r.task:
+            where = f"タスクブランチ #{r.task}（{r.branch}、作成元 {r.base}）"
         elif r.branch is None:
             where = "ブランチにいません（切り離された状態。依存先のcloneなら記録の版。作業は ecobuild task start）"
         else:
@@ -28,10 +28,10 @@ def command(
             + [f"  新しいファイル：{p}" for p in r.untracked if p not in excluded] + [f"  衝突：{p}" for p in r.conflicted]
         gone = None
         if r.upstream_gone:
-            gone = (f"#{r.workspace} は完了しています（ecobuild task prune {r.workspace} で片付けられます。"
+            gone = (f"#{r.task} は完了しています（ecobuild task prune {r.task} で片付けられます。"
                     "次の操作でも自動で片付きます）" if r.finished else
                     f"GitHubの {r.branch} は削除されています（別の場所で中止された可能性があります。"
-                    f"ecobuild task drop {r.workspace or ''} で片付けてください）")
+                    f"ecobuild task drop {r.task or ''} で片付けてください）")
         pr = r.pull_request
         return lines(
             where,

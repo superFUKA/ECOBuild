@@ -5,13 +5,13 @@ from ..._output import lines, run_command, split_list
 
 def command(
     title: Annotated[str, "提出の題名（既定はタスクの題名。提出済みなら変える）"] = "",
-    partial: Annotated[bool, "中間提出にする（取り込んでもタスクを閉じず、作業空間を作り直して続ける）"] = False,
+    partial: Annotated[bool, "中間提出にする（取り込んでもタスクを閉じず、タスクブランチを作り直して続ける）"] = False,
     check: Annotated[bool, "提出の前に ecobuild check（生成ファイル・衝突の印・ビルド・テスト）を行う"] = True,
     draft: Annotated[bool, "下書きとして提出する（完了できない。もう一度 task submit で解除）"] = False,
     reviewer: Annotated[str, "見てもらう人（カンマ区切りのGitHubのユーザー名）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """作業空間を提出します（確認 → push → 作成元への提出。作業空間でのみ）。
+    """タスクブランチを提出します（確認 → push → 作成元への提出。タスクブランチでのみ）。
 
     提出済みなら、新しいコミットを送り直します。下書きは --draft なしでもう一度実行すると解除します。
     未コミットの変更があれば止まります（ecobuild task commit で記録してから）。

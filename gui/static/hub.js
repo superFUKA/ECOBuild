@@ -1,5 +1,5 @@
 'use strict';
-// Hub: the list of modules (the clones on this PC: ecobuild module clones) and the settings shared by every module.
+// Hub: the list of modules (the workspaces on this PC: ecobuild workspace list) and the settings shared by every module.
 const $ = id => document.getElementById(id);
 const {esc} = ECO;
 
@@ -20,7 +20,7 @@ let modules = [];
 // and the others not in the list are offered to clone.
 // Read once (it asks GitHub about every repository) and again after archiving or deleting one.
 let githubModules = null, githubModulesLoading = null;
-// module clones answers at once but module list waits for GitHub: the list is shown at once. So that an archived module
+// workspace list answers at once but module list waits for GitHub: the list is shown at once. So that an archived module
 // does not show among the others meanwhile, the archived ones of the last answer are kept on this PC (a display cache:
 // GitHub's answer replaces it; one archived elsewhere since then moves when it comes).
 let clonesLoaded = false;
@@ -46,8 +46,8 @@ const sameRepository = (a, b) => {
   return key(a) === key(b);
 };
 const githubEntry = m => knownModules().find(g => sameRepository(g.repository, m.repository || m.name));
-// 「アーカイブ済み」 is what the CLI says (module list). The clones of an archived module stay recorded (module clones)
-// but leave the list: they are shown under the archived module, and deleting it can remove them (--remove-clone).
+// 「アーカイブ済み」 is what the CLI says (module list). The workspaces of an archived module stay recorded (workspace list)
+// but leave the list: they are shown under the archived module, and deleting it can remove them (--remove-workspaces).
 let archived = [];
 function renderArchived() {
   archived = knownModules().filter(g => g.archived).map(g => {
@@ -85,8 +85,8 @@ const baseName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
 const cloneRepository = c => c.repository || (c.url ? baseName(c.url).replace(/\.git$/, '') : '');
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
-  const [doc, saved] = await Promise.all([ECO.cli(null, ['module', 'clones'], {quiet: true}), ECO.call('modules/order', {}).catch(() => [])]);
-  if (!doc.ok) ECO.showError(doc, 'このPCのcloneの一覧を読めませんでした');
+  const [doc, saved] = await Promise.all([ECO.cli(null, ['workspace', 'list'], {quiet: true}), ECO.call('modules/order', {}).catch(() => [])]);
+  if (!doc.ok) ECO.showError(doc, 'このPCの作業空間の一覧を読めませんでした');
   clones = doc.ok ? doc.result : []; clonesLoaded = true;
   order = saved.map(pathKey);
   renderModules();
@@ -94,7 +94,13 @@ async function loadModules() {
 function renderModules() {
   if (!$('module-list') || !clonesLoaded) return;
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
-  modules = clones.filter(c => c.kind === 'module')
+  // One row per module. Of its workspaces on this PC: the one already in the list (order), else one not on a task branch.
+  const score = c => (order.includes(pathKey(c.path)) ? 0 : 2) + (c.task == null ? 0 : 1), chosen = new Map();
+  for (const c of clones) {
+    const id = (cloneRepository(c) || pathKey(c.path)).toLowerCase(), held = chosen.get(id);
+    if (!held || score(c) < score(held)) chosen.set(id, c);
+  }
+  modules = [...chosen.values()]
     .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url}))
     .filter(m => !githubEntry(m)?.archived)
     .map((m, i) => [m, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([m]) => m);
@@ -113,14 +119,14 @@ function renderModules() {
       <button type="button" data-action="remove" data-index="${i}">一覧から外す</button>
       <button type="button" class="danger-text" data-action="delete" data-index="${i}">片付ける（アーカイブ・削除）…</button></div></details></li>`).join('');
 }
-// 一覧から外す: ecobuild module forget (the folder and the GitHub repository stay). With a reason: the module cannot be
+// 一覧から外す: ecobuild workspace forget (the folder and the GitHub repository stay). With a reason: the module cannot be
 // opened or put away (its folder is gone, its GitHub repository is gone, or the folder is no longer a clone).
 async function forgetModule(m, reason = '') {
   const note = !m.exists ? 'フォルダはもうありません。' : `フォルダ（${m.path}）とGitHubのリポジトリはそのまま残ります。${reason ? '不要なら「フォルダを開く」から削除してください。' : 'なお、このフォルダで ecobuild を使うと（開発環境を開くなど）、再び一覧に表示されます。'}`;
   const choice = await ECO.dialog({title: reason ? `${m.name} は使えません` : '一覧から外す', body: `${reason ? `<p>${esc(reason)}</p>` : ''}<p>このPCの一覧から外します。${esc(note)}</p>`,
     buttons: [['キャンセル', '', false], ...(reason && m.exists ? [['フォルダを開く', '', 'folder']] : []), ['一覧から外す', 'primary', 'forget']]});
   if (choice === 'folder') { try { await ECO.call('open', {dir: m.path, path: ''}); } catch (e) { ECO.toast(e.message, 'bad'); } return; }
-  if (choice === 'forget' && await ECO.run(null, ['module', 'forget', m.path], {success: `${m.name} を一覧から外しました。`})) loadModules();
+  if (choice === 'forget' && await ECO.run(null, ['workspace', 'forget', m.path], {success: `${m.name} を一覧から外しました。`})) loadModules();
 }
 $('module-list').addEventListener('click', async event => {
   const action = event.target.closest('[data-action]');
@@ -195,7 +201,7 @@ addForm.addEventListener('submit', async event => {
   const data = new FormData(addForm), method = data.get('method'), error = $('add-error'), submit = addForm.querySelector('[type=submit]');
   error.textContent = '';
   if (method === 'register') {
-    const doc = await ECO.cli(null, ['module', 'register', data.get('folder').trim()], {quiet: true});
+    const doc = await ECO.cli(null, ['workspace', 'add', data.get('folder').trim()], {quiet: true});
     if (!doc.ok) { error.textContent = errorText(doc); return; }
     addDialog.close(); ECO.toast(baseName(doc.result.path) + ' を一覧に登録しました。'); loadModules();
     return;
@@ -361,12 +367,12 @@ async function deleteArchivedModule(m, repository, dir, question) {
         return;
       }
       if (v.confirmName.trim().toLowerCase() !== repository.toLowerCase()) return `削除するには、${repository} と入力してください。`;
-      const doc = await ECO.cli(dir, ['module', 'delete', repository, '--confirm', repository, ...(v.removeClone ? ['--remove-clone', ...(v.discardLocal ? ['--discard-local'] : [])] : [])]);
+      const doc = await ECO.cli(dir, ['module', 'delete', repository, '--confirm', repository, ...(v.removeClone ? ['--remove-workspaces', ...(v.discardLocal ? ['--discard-local'] : [])] : [])]);
       if (!doc.ok && doc.error?.code === 'github_permission') { permission = true; return; }
       if (!doc.ok) return errorText(doc);
       const r = doc.result;
       ECO.toast(`${r.repository} を削除しました（90日以内なら GitHub のアカウント設定から復元できます）。`, 'ok', 10000);
-      const left = v.removeClone ? (r.clones || []).filter(c => !(r.removed || []).includes(c)) : [];
+      const left = v.removeClone ? (r.workspaces || []).filter(c => !(r.removed || []).includes(c)) : [];
       if (left.length) ECO.toast(`手元のフォルダ ${left.join('、')} は他のプログラムが使用中のため削除できませんでした。プログラムを閉じてから削除してください。`, 'bad', 15000);
       await loadGithubModules(); loadModules();
     }});

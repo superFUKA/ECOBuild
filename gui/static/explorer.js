@@ -36,7 +36,7 @@ const shown = path => !restricted() || projectRoots.some(root => {
   if (path !== root && !path.startsWith(root + '/')) return false;
   return !path.slice(root.length).split('/').some(part => part.startsWith('.'));
 });
-const editable = () => !!(WS.status && WS.status.workspace && !WS.status.reviewing);
+const editable = () => !!(WS.status && WS.status.task && !WS.status.reviewing);
 
 function fileClass(path) {
   const kinds = WS.changes().get(path) || [];
@@ -203,7 +203,7 @@ async function menuAction(action, dir) {
     case 'remove': return removeFile(path);
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の未コミットの変更を破棄します。この操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
-      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore にパターンを追加します（すでに追跡しているファイルは対象外です）。作業空間でコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
+      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore にパターンを追加します（すでに追跡しているファイルは対象外です）。タスクブランチでコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
       if (v) { await WS.run(['ignore', v.pattern], {success: '.gitignore に追加しました：' + v.pattern}); await WS.reloadFiles(); }
       return;
     }

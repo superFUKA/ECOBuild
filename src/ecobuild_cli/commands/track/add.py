@@ -10,6 +10,6 @@ def command(
 ) -> int:
     """管理するファイルのパターンを足します。
 
-    ecobuild.toml の [files] include に書きます。作業空間でコミットしてください。
+    ecobuild.toml の [files] include に書きます。タスクブランチでコミットしてください。
     """
     return run_command("track add", lambda inv: inv.module.track(*patterns), render, json_output=json)

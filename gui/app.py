@@ -86,7 +86,7 @@ def _no_window() -> dict:
 
 
 class Store:
-    """GUIだけが使う記録。ファイルは gui.json。CLIから分かることは持たない（このPCにあるclone は ecobuild module clones、
+    """GUIだけが使う記録。ファイルは gui.json。CLIから分かることは持たない（このPCにある作業空間は ecobuild workspace list、
     アーカイブ済みか等は module list に聞く）。持つのは、ハブの一覧の並び順だけ。"""
 
     def __init__(self, path: Path):
@@ -119,7 +119,7 @@ class Store:
 
     def take_legacy(self) -> tuple[list[str], list[str]]:
         """以前の gui.json が持っていた、一覧のフォルダ（modules）と専用のclone（workspaces）。取り出して消す
-        （今は ecobuild module clones の記録に入れる。一覧の並びは order に残す）。"""
+        （今は ecobuild workspace list の記録に入れる。一覧の並びは order に残す）。"""
         with self._lock:
             data = self._load()
             if "modules" not in data and "workspaces" not in data:
@@ -206,11 +206,13 @@ def _last_json(text: str) -> dict | None:
 
 
 def _working_directory(directory: str | None, args: list[str]) -> str:
-    """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。module delete --remove-clone はその場所を消すので、親から
+    """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。module delete --remove-workspaces・workspace close はその場所を消すので、親から
     起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。"""
     if not directory:
         return str(Path.home())
-    return str(Path(directory).parent) if args[:2] == ["module", "delete"] else directory
+    removes = args[:2] in (["module", "delete"], ["workspace", "close"]) or (args[:2] == ["task", "finish"]
+                                                                            and "--close-workspace" in args)
+    return str(Path(directory).parent) if removes else directory
 
 
 def default_cli(explicit: str = "") -> list[str]:
@@ -538,11 +540,11 @@ class App:
         self.server: ThreadingHTTPServer | None = None
 
     def move_legacy(self) -> None:
-        """以前の gui.json に登録したフォルダを、ecobuild のcloneの記録（module register）へ移す（一度だけ）。"""
+        """以前の gui.json に登録したフォルダを、ecobuild の作業空間の記録（workspace add）へ移す（一度だけ）。"""
         modules, workspaces = self.store.take_legacy()
-        for path, extra in [(p, []) for p in modules] + [(p, ["--workspace"]) for p in workspaces]:
+        for path in modules + workspaces:
             if (Path(path) / MODULE_FILE).is_file():
-                self.cli.run(None, ["module", "register", path, *extra])
+                self.cli.run(None, ["workspace", "add", path])
 
     def api(self, name: str, body: dict) -> object:
         d = body.get

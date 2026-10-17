@@ -1,4 +1,4 @@
-"""gitのフック：作業空間（task/<番号>）でないブランチへの直接のコミット・pushを、git自体に止めさせる。
+"""gitのフック：タスクブランチ（task/<番号>）でないブランチへの直接のコミット・pushを、git自体に止めさせる。
 コミットのメッセージからは、AIの署名を消す（commit-msg）。
 
 ecowork（ECOBuild）の外でgitを直接使っても、作業の流れから外れられないようにする（ルールではなく仕組みで）。
@@ -15,19 +15,19 @@ MARKER = "# ecowork-guard"
 ALLOW = "ECOWORK_ALLOW"
 
 PRE_COMMIT = f"""#!/bin/sh
-{MARKER}：作業空間（task/<番号>）でないブランチへの直接のコミットを止める。
+{MARKER}：タスクブランチ（task/<番号>）でないブランチへの直接のコミットを止める。
 [ -n "${ALLOW}" ] && exit 0
 branch=$(git symbolic-ref --short -q HEAD)
 case "$branch" in
   task/*) exit 0 ;;
 esac
 echo "ECOBuild: ${{branch:-（切り離された状態）}} へは直接コミットできません。" >&2
-echo "  作業は作業空間で行います：ecobuild task start <Issue番号>" >&2
+echo "  作業はタスクブランチで行います：ecobuild task start <Issue番号>" >&2
 exit 1
 """
 
 PRE_PUSH = f"""#!/bin/sh
-{MARKER}：作業空間（task/<番号>）でないブランチへの直接のpush（削除を含む）を止める。
+{MARKER}：タスクブランチ（task/<番号>）でないブランチへの直接のpush（削除を含む）を止める。
 [ -n "${ALLOW}" ] && exit 0
 status=0
 while read -r local_ref local_sha remote_ref remote_sha; do

@@ -1,6 +1,6 @@
 """ライブラリの戻り値。CLIはこれを人向けの表示とJSONへ変換する。
 
-作業の進め方の戻り値（作業空間・PR・状態等）は ecowork.workspace にある。
+作業の進め方の戻り値（タスクブランチ・PR・状態等）は ecowork.model にある。
 """
 
 from __future__ import annotations
@@ -40,30 +40,38 @@ class ModuleInfo:
     url: str
     private: bool | None             # GitHubに問い合わせられなければNone
     archived: bool | None
-    default_base: str                # 作業空間の既定の作成元
+    default_base: str                # タスクブランチの既定の作成元
     projects: tuple[str, ...]
     dependencies: tuple[str, ...]    # 直接の依存先の名前
-    clones: tuple["CloneEntry", ...] = ()   # このPCにある、このモジュールのclone（記録したもの。ここも含む）
+    workspaces: tuple["WorkspaceEntry", ...] = ()   # このPCにある、このモジュールの作業空間（記録したもの。ここも含む）
 
 
 @dataclass(frozen=True)
-class CloneEntry:
-    """このPCにある、モジュールのclone（module clones）の1件。場所と種類は記録から、他はそのつどcloneから読む。"""
+class WorkspaceEntry:
+    """このPCにある作業空間（workspace list）の1件。場所は記録から、他はそのつど作業空間から読む。"""
     path: Path
-    kind: str                        # module：モジュールのclone、workspace：作業空間専用のclone（task start --dir）
     exists: bool                     # その場所にある（False：移動・削除したか、外付けのドライブを外している）
     repository: str | None = None    # 所有者/名前（origin が GitHub のものなら）
     url: str | None = None           # origin
     branch: str | None = None        # 今のブランチ
-    task: int | None = None          # 作業空間（task/<番号>）にいれば、その番号
+    task: int | None = None          # タスクブランチ（task/<番号>）にいれば、その番号
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
 
 
 @dataclass(frozen=True)
-class CloneForgotten:
+class WorkspaceForgotten:
     path: Path
     exists: bool                     # フォルダがまだある（中で ecobuild を使うと、また記録される）
+
+
+@dataclass(frozen=True)
+class WorkspaceClosed:
+    """作業空間を閉じた結果（workspace close・task finish --close-workspace）。"""
+    path: Path
+    removed: bool = True             # 場所ごと消えた（False：他のプログラムが使っている等で、空のフォルダーか一部が残った）
+    left: tuple[str, ...] = ()       # 消せずに残ったもの（removed が False のとき）
+    done: bool = True                # False：確かめただけ（まだ何も変えていない）
 
 
 @dataclass(frozen=True)
@@ -80,10 +88,10 @@ class ModuleDeleted:
     open_issues: int
     open_pull_requests: int
     task_data: bool                  # タスク管理の情報を閉じた（消さない。リポジトリを戻すと開き直す）
-    clone: Path | None = None        # 手元のclone（今いる・今いるディレクトリの <名前>。なければ記録の最初のもの）
-    clone_removed: bool = False      # そのcloneも削除した
-    clones: tuple[Path, ...] = ()    # このPCにある、このモジュールのcloneすべて（記録したもの・作業空間専用も）
-    removed: tuple[Path, ...] = ()   # そのうち削除したもの（--remove-clone。他のプログラムが使っているものは残る）
+    workspace: Path | None = None    # 手元の作業空間（今いる・今いるディレクトリの <名前>。なければ記録の最初のもの）
+    workspace_removed: bool = False  # その作業空間も削除した
+    workspaces: tuple[Path, ...] = ()   # このPCにある、このモジュールの作業空間すべて（記録したもの）
+    removed: tuple[Path, ...] = ()   # そのうち削除したもの（--remove-workspaces。他のプログラムが使っているものは残る）
     done: bool = True                # False：確かめただけ（まだ何も変えていない）
 
 

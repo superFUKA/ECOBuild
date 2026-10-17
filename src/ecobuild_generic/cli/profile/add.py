@@ -9,6 +9,6 @@ def command(
     configuration: Annotated[str, "構成（[commands] のコマンドの {configuration} に入る）"] = "Debug",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ビルド設定を追加（同じ名前なら上書き）します。ecobuild.toml が変わるので、作業空間でコミットしてください。"""
+    """ビルド設定を追加（同じ名前なら上書き）します。ecobuild.toml が変わるので、タスクブランチでコミットしてください。"""
     return run_command("profile add", lambda inv: inv.module.add_profile(name, Profile(configuration)),
                        render, json_output=json)

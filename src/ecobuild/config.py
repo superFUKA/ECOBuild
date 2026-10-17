@@ -124,7 +124,7 @@ def validate_ci(settings: CiSettings) -> None:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIの構成を1つ以上指定してください（例：Debug,Release）。")
     if settings.branches is not None and (not settings.branches or not all(
             isinstance(b, str) and b and not b.startswith("task/") for b in settings.branches)):
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIを動かすブランチを1つ以上指定してください（作業空間は除く）。")
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIを動かすブランチを1つ以上指定してください（タスクブランチは除く）。")
     if not isinstance(settings.shared, bool):
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です。")
 

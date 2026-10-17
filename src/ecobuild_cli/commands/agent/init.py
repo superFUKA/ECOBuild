@@ -4,7 +4,7 @@ from ..._output import run_command
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """AGENTS.md（エージェントが最初に読む、守ることの核）を作ります。作業空間でコミットしてください。
+    """AGENTS.md（エージェントが最初に読む、守ることの核）を作ります。タスクブランチでコミットしてください。
 
     module new では作りません。コーディングエージェントを使うモジュールで作ってください。
 

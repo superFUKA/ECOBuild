@@ -8,10 +8,10 @@ def command(
     dry_run: Annotated[bool, "pushせずに、pushするコミットの一覧を表示する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """作業空間のブランチをGitHubへpushします（作業空間でのみ）。"""
+    """タスクブランチのブランチをGitHubへpushします（タスクブランチでのみ）。"""
 
     def action(inv):
-        return inv.module.require_workspace("push").push(force=force, dry_run=dry_run)
+        return inv.module.require_task_branch("push").push(force=force, dry_run=dry_run)
 
     def render(r):
         listed = "\n".join(f"  {c}" for c in r.commits)

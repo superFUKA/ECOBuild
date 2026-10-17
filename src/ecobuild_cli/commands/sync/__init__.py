@@ -8,7 +8,7 @@ from ..._output import lines, run_command
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """GitHubの最新を取り込み、依存先と生成ファイルを最新にします。
 
-    作業空間でないブランチは早送り、作業空間は作成元の最新を取り込みます。
+    タスクブランチでないブランチは早送り、タスクブランチは作成元の最新を取り込みます。
     衝突したら、直して ecobuild sync continue（直したファイルは自動で登録します。やめるなら ecobuild sync abort）。
     """
 

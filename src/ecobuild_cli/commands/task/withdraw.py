@@ -5,10 +5,10 @@ from ..._output import lines, optional_argument, run_command
 
 def command(
     *number: Annotated[int, "提出を取り下げるタスクの番号（--task と同じ）"],
-    task: Annotated[int, "提出を取り下げるタスクの番号（既定は今いる作業空間）"] = 0,
+    task: Annotated[int, "提出を取り下げるタスクの番号（既定は今いるタスクブランチ）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """提出を取り下げて、作業中に戻します（作業空間はそのまま。もう一度 task submit で出し直せます）。
+    """提出を取り下げて、作業中に戻します（タスクブランチはそのまま。もう一度 task submit で出し直せます）。
 
     作業そのものをやめるなら ecobuild task drop。
     """

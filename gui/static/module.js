@@ -1,7 +1,7 @@
 'use strict';
-// Module window: left menu and the workspace tabs. A tab is a place on disk (the module's clone, or another clone of it
-// on this PC, e.g. a dedicated clone made by "task start --dir": ecobuild module clones); it shows whatever branch /
-// workspace is checked out there.
+// Module window: left menu and the workspace tabs. A tab is a workspace on disk (the module's clone, or another
+// workspace of it on this PC, e.g. one made by "task start --dir": ecobuild workspace list); it shows whatever branch /
+// task branch is checked out there.
 const MOD = (() => {
   const root = ECO.params.get('path') || '';
   const name = root.split(/[\\/]/).filter(Boolean).pop() || 'モジュール';
@@ -65,13 +65,13 @@ const addTabButton = document.createElement('button');
 addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、タスクごとに作業する場所（task/〈番号〉のブランチ）です。タスク管理で「作業を開始」すると、ここに表示されます。閉じたタブは「＋」から再表示できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、タスクブランチ（task/〈番号〉のブランチ）を置いて作業する場所です。タスク管理で「作業を開始」すると、ここに表示されます。閉じたタブは「＋」から再表示できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 panels.append(emptyNote);
 
-// Only workspaces are tabs: a place shows a tab while a workspace (task/<n>) is checked out there, or while a PR is
-// being checked there (task review). The module's clone on main / develop etc. is not a workspace, so it has no tab.
-const isWorkspace = dir => { const state = MOD.states.get(keyOf(dir)); return !!(state && (state.workspace || state.reviewing)); };
+// A place shows a tab while a task branch (task/<n>) is checked out there, or while a PR is being checked there
+// (task review). A workspace on main / develop etc. has no tab.
+const isWorkspace = dir => { const state = MOD.states.get(keyOf(dir)); return !!(state && (state.task || state.reviewing)); };
 const tabVisible = dir => isWorkspace(dir) && !hidden.has(keyOf(dir));
 function syncTabs() {
   for (const group of tabs.querySelectorAll('.workspace-tab-group')) {
@@ -89,7 +89,7 @@ function syncTabs() {
 const placeLabel = dir => {
   const state = MOD.states.get(keyOf(dir));
   const branch = state ? (state.reviewing ? `PR #${state.reviewing} を確認中` : state.branch || '（ブランチなし）') : '…';
-  const title = state?.workspace ? MOD.titles.get(keyOf(dir)) || '' : '';
+  const title = state?.task ? MOD.titles.get(keyOf(dir)) || '' : '';
   return {branch, title, where: keyOf(dir) === keyOf(MOD.root) ? '' : dir.split(/[\\/]/).pop()};
 };
 function renderTab(dir) {
@@ -168,10 +168,10 @@ async function ownIdentity(clones) {
   if (moduleIdentity === null) moduleIdentity = ((await ECO.call('module-repository', {dir: MOD.root}).catch(() => ({}))).repository || '').toLowerCase();
   return moduleIdentity;
 }
-// The other clones of this module on this PC (recorded by ecobuild: module clones).
+// The other workspaces of this module on this PC (recorded by ecobuild: workspace list).
 async function otherClones() {
-  const doc = await ECO.cli(null, ['module', 'clones'], {quiet: true});
-  if (!doc.ok) { ECO.toast(doc.error?.message || 'このPCのcloneの一覧を読めませんでした。', 'bad'); return []; }
+  const doc = await ECO.cli(null, ['workspace', 'list'], {quiet: true});
+  if (!doc.ok) { ECO.toast(doc.error?.message || 'このPCの作業空間の一覧を読めませんでした。', 'bad'); return []; }
   recorded = doc.result;
   const id = await ownIdentity(doc.result);
   return id ? doc.result.filter(c => c.exists && keyOf(c.path) !== keyOf(MOD.root) && identity(c) === id).map(c => c.path) : [];
@@ -183,7 +183,7 @@ async function loadPlaces() {
   restoreTabOrder();
   await Promise.all(MOD.places.map(refreshState));
 }
-// A clone made by "task start --dir" is recorded by the CLI; one made otherwise is recorded here (module register).
+// A workspace made by "task start --dir" is recorded by the CLI; a clone made otherwise is recorded here (workspace add).
 async function addPlace(dir) {
   let list = await otherClones();
   if (!list.some(d => keyOf(d) === keyOf(dir)) && keyOf(dir) !== keyOf(MOD.root)) {
@@ -192,12 +192,12 @@ async function addPlace(dir) {
     const theirs = recorded.find(c => inside(dir, c.path) && !inside(c.path, MOD.root) && !list.some(d => keyOf(d) === keyOf(c.path)));
     if (theirs) throw new Error(`${dir} は ${MOD.name} のcloneではありません（${theirs.path} は別のモジュールのcloneです）。`);
     const known = recorded.map(c => keyOf(c.path));
-    const doc = await ECO.cli(null, ['module', 'register', dir, '--workspace'], {quiet: true});
+    const doc = await ECO.cli(null, ['workspace', 'add', dir], {quiet: true});
     if (!doc.ok) throw new Error([doc.error?.message, doc.error?.hint].filter(Boolean).join('\n'));
     dir = doc.result.path;   // the clone's root (a folder inside it may be given)
     list = await otherClones();
     if (keyOf(dir) !== keyOf(MOD.root) && !list.some(d => keyOf(d) === keyOf(dir))) {   // another module's
-      if (!known.includes(keyOf(dir))) await ECO.cli(null, ['module', 'forget', dir], {quiet: true});
+      if (!known.includes(keyOf(dir))) await ECO.cli(null, ['workspace', 'forget', dir], {quiet: true});
       throw new Error(`${dir} は ${MOD.name} のcloneではありません。`);
     }
   }
@@ -206,16 +206,16 @@ async function addPlace(dir) {
   if (!added) throw new Error(`${dir} は ${MOD.name} のcloneではありません。`);
   return added;
 }
-// The place where workspace task/<n> is checked out (if any).
-MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.workspace === n) || null;
-MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.workspace);
+// The place where task branch task/<n> is checked out (if any).
+MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.task === n) || null;
+MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.task);
 MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
 MOD.keyOf = keyOf; MOD.activate = activate; MOD.reloadPlace = reloadPlace; MOD.addPlace = addPlace; MOD.refreshState = refreshState;
 MOD.openWorkspace = async n => {
   // Show the tab where task/<n> is checked out; otherwise switch the module's clone to it (task start).
   let place = MOD.placeOfTask(n);
   if (!place) {
-    const doc = await ECO.run(MOD.root, ['task', 'start', String(n)], {success: `作業空間 task/${n} に切り替えました。`});
+    const doc = await ECO.run(MOD.root, ['task', 'start', String(n)], {success: `タスクブランチ task/${n} に切り替えました。`});
     if (!doc) return false;
     place = MOD.root; await reloadPlace(place);
   }
@@ -252,7 +252,7 @@ tabs.addEventListener('contextmenu', e => {
     ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir, path: ''}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
     ['状態を更新', () => reloadPlace(dir)],
-    ...(state.workspace ? ['-', [`タスク #${state.workspace} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.workspace); }]] : []),
+    ...(state.task ? ['-', [`タスク #${state.task} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.task); }]] : []),
   ], e.clientX, e.clientY);
 });
 tabs.addEventListener('keydown', event => {
@@ -265,31 +265,37 @@ tabs.addEventListener('keydown', event => {
   activate(visible[next], true);
 });
 
-// "+" : show a hidden place, register an existing dedicated clone, or forget one. -----------------------------
+// "+" : show a hidden place, register an existing clone as a workspace, forget one or close one. -----------------------------
 addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
-    const place = main ? 'モジュールのclone' : '専用のclone ' + where;
-    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（作業空間ではありません）`;
-    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button>`}</div>`;
+    const place = main ? 'この作業空間' : '作業空間 ' + where;
+    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（タスクブランチではありません）`;
+    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button><button type="button" data-close-place="${i}" title="作業空間を閉じる（フォルダごと削除します）">閉じる</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業空間を表示</h2><p>作業空間（task/〈番号〉）が出ている場所だけをタブにします。作業空間はタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
-    <div class="picker-actions"><button type="button" data-register>既存の専用のcloneを登録…</button><button type="button" data-close>閉じる</button></div>`;
+  d.innerHTML = `<h2>作業空間を表示</h2><p>タスクブランチ（task/〈番号〉）が出ている作業空間だけをタブにします。タスクブランチはタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
+    <div class="picker-actions"><button type="button" data-register>既存のcloneを作業空間として登録…</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());
   d.addEventListener('click', async e => {
-    const show = e.target.closest('[data-show]'), forget = e.target.closest('[data-forget]');
+    const show = e.target.closest('[data-show]'), forget = e.target.closest('[data-forget]'), closing = e.target.closest('[data-close-place]');
     if (show) { d.close(); activate(MOD.places[Number(show.dataset.show)], true); }
     if (forget) {
       const dir = MOD.places[Number(forget.dataset.forget)]; d.close();
-      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCのcloneの記録とタブの一覧から外します。フォルダは削除しません（手元から削除するには、タスク管理の「手元の作業空間を削除」を使います）。このフォルダで ecobuild を使うと、再び記録されます。`, ok: '外す'})) {
-        if (await ECO.run(null, ['module', 'forget', dir])) removeTab(dir);
+      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCの作業空間の記録とタブの一覧から外します。フォルダは削除しません（手元から削除するには、タスク管理の「手元のタスクブランチを削除」を使います）。このフォルダで ecobuild を使うと、再び記録されます。`, ok: '外す'})) {
+        if (await ECO.run(null, ['workspace', 'forget', dir])) removeTab(dir);
+      }
+    }
+    if (closing) {
+      const dir = MOD.places[Number(closing.dataset.closePlace)]; d.close();
+      if (await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと削除し、記録から外します。GitHubにないもの（未コミットの変更・コミット・退避）があれば閉じません。ビルドの出力など除外したファイルも消えます。`, ok: '閉じる', danger: true})) {
+        if (await ECO.run(null, ['workspace', 'close', dir])) removeTab(dir);
       }
     }
     if (e.target.closest('[data-register]')) {
       try {
-        const {path} = await ECO.call('pick-folder', {title: '専用のcloneのフォルダを選択', initial: MOD.root});
+        const {path} = await ECO.call('pick-folder', {title: '作業空間にするcloneのフォルダを選択', initial: MOD.root});
         if (path) { const dir = await addPlace(path); d.close(); activate(dir, true); }
       } catch (err) { ECO.toast(err.message, 'bad'); }
     }
@@ -297,8 +303,8 @@ addTabButton.addEventListener('click', async () => {
   });
 });
 
-// What the other pages care about in a place's state (the task list shows which tasks have a workspace or a PR).
-const stateSignature = s => s ? [s.branch, s.workspace, s.reviewing, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
+// What the other pages care about in a place's state (the task list shows which tasks have a task branch or a PR).
+const stateSignature = s => s ? [s.branch, s.task, s.reviewing, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
 // Messages from workspace frames: their state changed (commit, switch...), so update the tab label.
 window.addEventListener('message', event => {
   if (event.origin !== location.origin) return;

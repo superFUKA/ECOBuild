@@ -16,7 +16,7 @@ def render(r) -> str:
         f"  {r.managed_note}・ECOBuildのコマンドで作ったファイルも含めます" if r.managed_note
         else "  ECOBuildのコマンドで作ったファイルも含めます",
         f"外しているもの：{', '.join(r.exclude)}" if r.exclude else None,
-        "変えるには ecobuild track add／remove \"<パターン>\"（ecobuild.toml の [files]。作業空間でコミット）",
+        "変えるには ecobuild track add／remove \"<パターン>\"（ecobuild.toml の [files]。タスクブランチでコミット）",
     )
 
 

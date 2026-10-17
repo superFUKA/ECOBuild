@@ -19,7 +19,7 @@ import click
 
 from ecowork import WorkError
 
-from ecobuild import clones as _clones
+from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
 
@@ -45,10 +45,10 @@ class Invocation:
         return self._module
 
     def use_module(self, module: Module) -> None:
-        """対象のモジュール。このPCのcloneの記録（module clones）にも入れる（以前からあるcloneも、使えば記録される）。"""
+        """対象のモジュール。このPCの作業空間の記録（workspace list）にも入れる（以前からあるcloneも、使えば記録される）。"""
         self._module = module
         _log.use_module(module.root)
-        _clones.record_quietly(module.root)
+        _workspaces.record_quietly(module.root)
 
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""

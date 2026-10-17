@@ -39,7 +39,7 @@ def test_start_claims_unassigned_task_only(repository):
     github = repository.github
     mine = repository.create_task("自分の作業")
     repository.git.run("switch", "--quiet", "main")
-    workspace = mine.start()
+    task_branch = mine.start()
     assert github.issues[mine.number].assignees == (github.owner,)  # 誰が作業しているかGitHubで分かる
     repository.git.run("switch", "--quiet", "main")
     theirs = repository.create_task("割り当て済み", assignees=("someone",))
@@ -47,7 +47,7 @@ def test_start_claims_unassigned_task_only(repository):
         theirs.start()
     assert error.value.code == ErrorCode.ASSIGNED_TO_OTHER
     assert github.issues[theirs.number].assignees == ("someone",)  # 既にいる担当者は変えない
-    assert workspace.number == mine.number
+    assert task_branch.number == mine.number
 
 
 def test_returning_to_workspace_claims_unassigned_task(repository):
@@ -57,14 +57,14 @@ def test_returning_to_workspace_claims_unassigned_task(repository):
     task.start()
     repository.edit_task(task.number, remove_assignees=("@me",))
     repository.git.run("switch", "--quiet", "main")
-    repository.task(task.number).start()                             # 手元にある作業空間へ戻る
+    repository.task(task.number).start()                             # 手元にあるタスクブランチへ戻る
     assert github.issues[task.number].assignees == (github.owner,)
 
 
 def test_comments_are_kept_on_the_issue(repository):
     task = repository.create_task("申し送り")
     task.start()
-    repository.comment_task(None, "途中まで：計算は済み、表示が残り")  # 今いる作業空間のタスク
+    repository.comment_task(None, "途中まで：計算は済み、表示が残り")  # 今いるタスクブランチのタスク
     repository.comment_task(task.number, "表示も済み")
     status = repository.task_status()
     assert [c.body for c in status.comments] == ["途中まで：計算は済み、表示が残り", "表示も済み"]
@@ -90,7 +90,7 @@ class Clock:
 
 def test_ci_wait_until_runs_of_pushed_commit_finish(repository):
     github = repository.github
-    workspace = repository.create_task("CIを待つ").start()
+    task_branch = repository.create_task("CIを待つ").start()
     sha = repository.git.rev_parse("origin/task/1")
     clock = Clock()
     github.runs = [_run(1, "old", conclusion="failure")]  # 前のコミットの実行は見ない
@@ -106,9 +106,9 @@ def test_ci_wait_until_runs_of_pushed_commit_finish(repository):
     assert [r.id for r in runs] == [2] and clock.sleeps == 4
 
     write(repository.root / "a.txt", "a\n")
-    workspace.stage("a.txt")
-    workspace.commit("失敗する")
-    workspace.push()
+    task_branch.stage("a.txt")
+    task_branch.commit("失敗する")
+    task_branch.push()
     new_sha = repository.git.rev_parse("origin/task/1")
     github.runs = [_run(3, new_sha, conclusion="failure")]
     with pytest.raises(WorkError) as error:
@@ -125,11 +125,11 @@ def test_ci_wait_until_runs_of_pushed_commit_finish(repository):
 
 def test_ci_wait_for_pull_request_and_secret_removal(repository):
     github = repository.github
-    workspace = repository.create_task("PRのCI").start()
+    task_branch = repository.create_task("PRのCI").start()
     write(repository.root / "a.txt", "a\n")
-    workspace.stage("a.txt")
-    workspace.commit("変更")
-    pr = workspace.submit()
+    task_branch.stage("a.txt")
+    task_branch.commit("変更")
+    pr = task_branch.submit()
     github.runs = [_run(5, github.get_pull_request(None, pr.number).head_sha)]
     repository.git.run("switch", "--quiet", "main")
     assert [r.id for r in repository.ci_wait(pr.number)] == [5]

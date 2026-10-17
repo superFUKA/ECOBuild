@@ -32,7 +32,7 @@ def test_next_tasks_order_and_reasons():
         task(7, priority="High", priority_rank=0, stage=m.PLANNED),            # 計画中は除く
         task(8, priority="High", priority_rank=0, stage=m.IN_PROGRESS),        # 作業中は除く
         task(9, priority="High", priority_rank=0, subtasks=2, subtasks_done=1),  # 子が残る親は除く
-        task(10, priority="High", priority_rank=0),                            # 作業空間がある（exclude）
+        task(10, priority="High", priority_rank=0),                            # タスクブランチがある（exclude）
         task(11, state="closed", stage=m.DONE),
     ]
     ranked = planning.next_tasks(tasks, TODAY, sprints=[S1, S2, S3], exclude={10})

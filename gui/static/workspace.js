@@ -1,5 +1,5 @@
 'use strict';
-// One place on disk (the module's clone or a dedicated clone): changes, commit, push, PR submission.
+// One workspace on disk: changes, commit, push, PR submission.
 // History is in the explorer's menu (a file, a folder, or the whole module); stashing is left to the CLI and TortoiseGit.
 const WS = {
   dir: ECO.params.get('dir') || '', module: ECO.params.get('module') || '',
@@ -37,18 +37,18 @@ const KIND_LABEL = {conflicted: '衝突', staged: 'ステージ済み', unstaged
 WS.refresh = async ({fetch = false} = {}) => {
   const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet: !fetch});
   if (!doc.ok) { WS.status = null; renderBanners(doc); renderChanges(); return; }
-  const before = WS.status?.workspace;
+  const before = WS.status?.task;
   // Whether the GitHub repository is archived is known only with --fetch: keep the last answer.
   if (doc.result.archived === null || doc.result.archived === undefined) doc.result.archived = WS.status?.archived ?? null;
   WS.status = doc.result;
   // The task (its title for the header) is read from GitHub, which takes seconds: the changes are shown first.
-  if (WS.status.workspace && WS.status.workspace !== before) {
-    const number = WS.status.workspace;
+  if (WS.status.task && WS.status.task !== before) {
+    const number = WS.status.task;
     WS.cli(['task', 'status', String(number)], {quiet: true}).then(t => {
-      if (WS.status?.workspace !== number) return;
+      if (WS.status?.task !== number) return;
       WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent();
     });
-  } else if (!WS.status.workspace) WS.task = null;
+  } else if (!WS.status.task) WS.task = null;
   const all = WS.changes();
   for (const p of [...WS.selected]) if (!all.has(p)) WS.selected.delete(p);
   renderHeader(); renderBanners(); renderChanges();
@@ -58,17 +58,17 @@ WS.refresh = async ({fetch = false} = {}) => {
 
 function renderHeader() {
   const s = WS.status;
-  const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.workspace ? `作業空間 · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
+  const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
   get('workspace-label').textContent = where;
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   const parts = [];
-  if (s.workspace) parts.push('作成元 ' + s.base);
+  if (s.task) parts.push('作成元 ' + s.base);
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
   if (s.behind) parts.push('GitHubより ' + s.behind + ' 遅れ');
   if (s.base_behind) parts.push('作成元より ' + s.base_behind + ' 遅れ');
-  get('branch-state').textContent = (s.workspace ? s.branch + '　' : '') + parts.join(' · ');
+  get('branch-state').textContent = (s.task ? s.branch + '　' : '') + parts.join(' · ');
   const pr = s.pull_request;
-  get('pr-state').textContent = pr && !s.finished ? `この作業空間：${submissionText(pr)}` : '';
+  get('pr-state').textContent = pr && !s.finished ? `このタスクブランチ：${submissionText(pr)}` : '';
 }
 
 // How the workspace's submission reads (PullRequestState). After a partial submission was taken in, none is open.
@@ -87,9 +87,9 @@ function renderBanners(errorDoc) {
   else {
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して完了</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
-    else if (!s.workspace) out.push(banner(`ここは作業空間ではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットは作業空間で行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
+    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
-    if (s.upstream_gone && s.finished) out.push(banner(`#${s.workspace} は完了しています。<button data-git="clean-finished">作業空間を片付ける</button>`));
+    if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
   }
@@ -125,7 +125,7 @@ function renderChanges() {
 WS.renderChanges = renderChanges;
 
 function updateButtons() {
-  const s = WS.status, editable = !!(s && s.workspace && !s.reviewing), all = WS.changes();
+  const s = WS.status, editable = !!(s && s.task && !s.reviewing), all = WS.changes();
   const hasMessage = !!get('commit-message').value.trim();
   get('commit').disabled = !editable || !hasMessage || (!WS.selected.size && !get('amend').checked);
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
@@ -192,7 +192,7 @@ const PUSH_LIST_KEY = 'ecobuild-gui-push-list-closed';
 let pushListClosed = false, pushListRead = 0;
 try { pushListClosed = localStorage.getItem(PUSH_LIST_KEY) === '1'; } catch (e) { /* storage blocked */ }
 async function renderPushList() {
-  const s = WS.status, box = get('push-commits'), ahead = s && s.workspace && !s.reviewing ? s.ahead : 0;
+  const s = WS.status, box = get('push-commits'), ahead = s && s.task && !s.reviewing ? s.ahead : 0;
   get('push-commits-open')?.remove();
   if (!ahead) { box.hidden = true; return; }
   if (pushListClosed) {
@@ -212,11 +212,11 @@ get('push-commits-close').addEventListener('click', () => setPushListClosed(true
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
 get('submit-pr').addEventListener('click', () => submitted() ? WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(() => WS.refreshPrs?.()) : ECO.form({
-  title: '提出する', intro: '確認（ビルド・テスト等）してから作業空間をPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へ提出します。',
+  title: '提出する', intro: '確認（ビルド・テスト等）してからタスクブランチをPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へ提出します。',
   fields: [
     {name: 'title', label: '題名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'},
     {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
-    {name: 'partial', label: '中間提出（取り込んでもタスクを閉じず、作業空間を作り直して続ける）', type: 'checkbox'},
+    {name: 'partial', label: '中間提出（取り込んでもタスクを閉じず、タスクブランチを作り直して続ける）', type: 'checkbox'},
     {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
     {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
   ], ok: '提出する',
@@ -228,11 +228,11 @@ get('submit-pr').addEventListener('click', () => submitted() ? WS.run(['task', '
   },
 }));
 get('finish').addEventListener('click', () => ECO.form({
-  title: '完了する', intro: (submitted() ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じて、この作業空間を片付けます（中間提出なら、取り込んだ後に作業空間を作り直して続けます）。',
+  title: '完了する', intro: (submitted() ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じて、このタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
   fields: [{name: 'subject', label: '取り込むコミットの件名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する',
   submit: async v => {
     const doc = await WS.run(['task', 'finish', ...(v.subject && v.subject !== WS.task?.title ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])],
-      {success: r => r.partial ? '中間提出を取り込み、作業空間を作り直しました。' : `#${r.task} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+      {success: r => r.partial ? '中間提出を取り込み、タスクブランチを作り直しました。' : `#${r.task} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
     if (!doc) return '完了できませんでした。';
     WS.reloadFiles?.(); WS.refreshPrs?.();
   },
@@ -244,7 +244,7 @@ async function gitAction(action) {
   switch (action) {
     case 'stage': return WS.run(['task', 'add', ...sel], {success: sel.length + '件をステージしました。'});
     case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
-    case 'clean-finished': return WS.run(['task', 'prune', String(WS.status.workspace)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
+    case 'clean-finished': return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));

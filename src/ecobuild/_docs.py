@@ -42,7 +42,7 @@ ecobuild build
 ecobuild test
 ```
 
-作業はIssueごとの作業空間で行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit --message "<内容>"` → `ecobuild task submit` → `ecobuild task finish`）。
+作業はIssueごとのタスクブランチで行います（`ecobuild task new "<題名>" --start` → 編集 → `ecobuild task commit --message "<内容>"` → `ecobuild task submit` → `ecobuild task finish`）。
 """ + ("\n" + usage if usage else "")
 
 
@@ -56,7 +56,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています。
 
 - 作業を始める前に `ecobuild agent guide` を実行し、手順を読んでください（このPCの ECOBuild に合った手順が出ます）。
-- gitを直接使わず `ecobuild` コマンドを使います。ファイルを変えるのは作業空間（`ecobuild task start <番号>`）でだけです。
+- gitを直接使わず `ecobuild` コマンドを使います。ファイルを変えるのはタスクブランチ（`ecobuild task start <番号>`）でだけです。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。
 {hand_edit}- 失敗したら、結果の `error.code` と `error.hint` に従ってください。
 """
@@ -83,16 +83,17 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
 5. `ecobuild task submit`（確認 → 提出。中間提出なら `--partial`）
-6. `ecobuild task finish`（CIを待って取り込み、タスクを閉じ、作業空間を片付けます）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
+6. `ecobuild task finish`（CIを待って取り込み、タスクを閉じ、タスクブランチを片付けます）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
 
 ## 守ること
 
-- ファイルを変える操作とコミットは、作業空間（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
+- ファイルを変える操作とコミットは、タスクブランチ（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。提出だけ取り下げるなら `ecobuild task withdraw`。
 - 番号はすべてタスク（Issue）の番号です。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。だれの作業かはアカウントで分かります（コミットの署名は自動で消えます）。
 - 途中経過・申し送りは `ecobuild task comment --message "<内容>"` でIssueに残します（`ecobuild task status` で読めます）。`task start` すると担当者になります。ほかの人が担当しているタスクは `task start` が止まります（重ねて作業しないでください。引き継ぐと決めたときだけ `--take-over`）。
-- 作業空間の本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task prune <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別のcloneでも同じ）。
+- タスクブランチの本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task prune <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別の作業空間でも同じ）。
+- 作業空間（作業をする場所＝clone）はタスクが終わっても残ります。並行作業は `ecobuild task start <番号> --dir ../<フォルダ>` で別の作業空間に作り、終わったら `ecobuild task finish --close-workspace`（または `ecobuild workspace close`）で閉じます。
 - 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild sync continue`（直したファイルは自動で登録されます。やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。
 - ソースはUTF-8で書きます。

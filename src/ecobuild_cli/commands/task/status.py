@@ -27,10 +27,10 @@ def submission(r) -> str:
 
 def command(
     *number: Annotated[int, "Issueの番号（--issue と同じ）"],
-    issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
+    issue: Annotated[int, "Issueの番号（既定：今いるタスクブランチ）"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスクの状態：Issue（ラベル・担当者・コメント）、作業空間、提出（レビュー・コメント・CIの結果）を表示します。"""
+    """タスクの状態：Issue（ラベル・担当者・コメント）、タスクブランチ、提出（レビュー・コメント・CIの結果）を表示します。"""
 
     issue = optional_argument(number, issue, "--issue", json)
 
@@ -56,10 +56,10 @@ def command(
             refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),
             refs("このタスクを待っているタスク", r.blocking),
             "Issueのコメント：\n" + "\n".join(f"  {c.author}：{c.body}" for c in r.comments) if r.comments else None,
-            f"作業空間：task/{r.number}（作成元 {r.base}）{elsewhere(r.workspace_path, here[0])}"
-            if r.workspace or r.workspace_path
-            else f"作業空間：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
-            else "作業空間：なし",
+            f"タスクブランチ：task/{r.number}（作成元 {r.base}）{elsewhere(r.workspace, here[0])}"
+            if r.task_branch or r.workspace
+            else f"タスクブランチ：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
+            else "タスクブランチ：なし",
             submission(r),
             f"  取り込み：{MERGEABLE.get(a.mergeable, '確認中')}" if a is not None and opened else None,
             "\n".join(details) or None,

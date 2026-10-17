@@ -14,8 +14,8 @@ def command(
     due: Annotated[str, "期限（YYYY-MM-DD）"] = "",
     planned_start: Annotated[str, "開始予定日（YYYY-MM-DD）"] = "",
     planned_end: Annotated[str, "終了予定日（YYYY-MM-DD）"] = "",
-    start: Annotated[bool, "続けて作業空間を作る"] = False,
-    base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親の作業空間に決まる）"] = "",
+    start: Annotated[bool, "続けてタスクブランチを作る"] = False,
+    base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親のタスクブランチに決まる）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（GitHub Issue）を作成します。"""
@@ -26,12 +26,12 @@ def command(
                                       parent=parent or None, blocked_by=blockers, milestone=milestone or None,
                                       plan={"due": due or None, "planned_start": planned_start or None,
                                             "planned_end": planned_end or None})
-        workspace = task.start(base=base or None) if start else None
-        return {"task": task, "workspace": workspace}
+        task_branch = task.start(base=base or None) if start else None
+        return {"task": task, "task_branch": task_branch}
 
     def render(r):
-        task, workspace = r["task"], r["workspace"]
+        task, task_branch = r["task"], r["task_branch"]
         text = f"Issue #{task.number} を作成しました：{task.url}"
-        return text + (f"\n作業空間 {workspace.branch} に切り替えました" if workspace else "")
+        return text + (f"\nタスクブランチ {task_branch.branch} に切り替えました" if task_branch else "")
 
     return run_command("task new", action, render, json_output=json)

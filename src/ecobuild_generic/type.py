@@ -157,7 +157,7 @@ test = { windows = "test.cmd", linux = "./test.sh" }
                                 else f"{operation} のコマンドがありません。",
                                 hint=f".ecobuild/ecobuild.toml の [{TABLE}] に {operation} = \"<コマンド>\"（すべてのOS）か "
                                      f"{operation} = {{ {system} = \"<コマンド>\" }}（OSごと）を書いてください"
-                                     "（作業空間でコミットします）。")
+                                     "（タスクブランチでコミットします）。")
         return command
 
     def _execute(self, operation: str, options: GenericOptions, code: str, message: str, *,

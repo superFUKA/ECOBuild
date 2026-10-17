@@ -14,7 +14,7 @@ __all__ = ["ErrorCode", "WorkError", "operation"]
 
 
 class ErrorCode(_TaskErrorCode):
-    NOT_IN_WORKSPACE = "not_in_workspace"
+    NOT_ON_TASK_BRANCH = "not_on_task_branch"
     RESERVED_BRANCH_NAME = "reserved_branch_name"
     INVALID_BASE = "invalid_base"
     PROTECTED_BRANCH = "protected_branch"

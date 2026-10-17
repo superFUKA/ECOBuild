@@ -34,7 +34,7 @@ def remote_and_clone(tmp_path):
 
 @pytest.fixture
 def module(remote_and_clone, tmp_path):
-    """CppBuildを使わない、gitだけのモジュール（ブランチ・作業空間の試験用）。"""
+    """CppBuildを使わない、gitだけのモジュール（ブランチ・タスクブランチの試験用）。"""
     from ecobuild import config
     from ecobuild_bundle import Module
     from fakes import FakeGitHub

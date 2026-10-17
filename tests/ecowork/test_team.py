@@ -20,8 +20,8 @@ def test_start_stops_on_someone_elses_task_and_take_over(repository):
         task.start()
     assert error.value.code == ErrorCode.ASSIGNED_TO_OTHER and "--take-over" in error.value.hint
     assert not repository.git.has_local_branch(f"task/{task.number}")
-    workspace = repository.task(task.number).start(take_over=True)
-    assert workspace.number == task.number
+    task_branch = repository.task(task.number).start(take_over=True)
+    assert task_branch.number == task.number
     assert repository.task(task.number).assignees == ("tester",)
     comments = repository.github.comments[task.number]
     assert "引き継ぎました" in comments[-1].body and "alice" in comments[-1].body
@@ -40,8 +40,8 @@ def test_start_is_fine_when_unassigned_or_shared(repository):
 
 def test_no_workspace_start_checks_the_assignee(repository):
     task = repository.create_task("調べる", assignees=("alice",))
-    assert code_of(lambda: repository.start_task_without_workspace(task.number)) == ErrorCode.ASSIGNED_TO_OTHER
-    repository.start_task_without_workspace(task.number, take_over=True)
+    assert code_of(lambda: repository.start_task_without_branch(task.number)) == ErrorCode.ASSIGNED_TO_OTHER
+    repository.start_task_without_branch(task.number, take_over=True)
     assert repository.task(task.number).assignees == ("tester",)
 
 
@@ -89,9 +89,9 @@ def test_protect_the_base_branch(repository):
 def test_finish_explains_a_branch_policy(repository, monkeypatch):
     """GitHub のブランチの保護に止められたら、承認を案内する。"""
     github = repository.github
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(repository.root / "a.txt", "a\n")
-    workspace.record("a")
+    task_branch.record("a")
 
     def refused(*args, **kwargs):
         raise WorkError(ErrorCode.APPROVAL_REQUIRED, "PR は取り込めません。")
@@ -99,4 +99,4 @@ def test_finish_explains_a_branch_policy(repository, monkeypatch):
     monkeypatch.setattr(github, "merge_pull_request", refused)
     with pytest.raises(WorkError) as error:
         repository.finish()
-    assert error.value.code == ErrorCode.APPROVAL_REQUIRED and f"task approve {workspace.number}" in error.value.hint
+    assert error.value.code == ErrorCode.APPROVAL_REQUIRED and f"task approve {task_branch.number}" in error.value.hint

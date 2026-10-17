@@ -37,10 +37,10 @@ def test_after_sync_runs_after_continue_but_not_on_conflict(repository, remote_a
     remote, _ = remote_and_clone
     hooks = Recorder()
     repo = with_hooks(repository, hooks)
-    workspace = repo.create_task("t").start()
+    task_branch = repo.create_task("t").start()
     write(repo.root / "README.md", "local\n")
-    workspace.stage("README.md")
-    workspace.commit("手元の変更")
+    task_branch.stage("README.md")
+    task_branch.commit("手元の変更")
     other = tmp_path / "other"
     git(tmp_path, "clone", "--quiet", str(remote), str(other))
     write(other / "README.md", "remote\n")
@@ -50,7 +50,7 @@ def test_after_sync_runs_after_continue_but_not_on_conflict(repository, remote_a
         repo.sync()
     assert hooks.calls == []
     write(repo.root / "README.md", "resolved\n")
-    workspace.stage("README.md")
+    task_branch.stage("README.md")
     result = repo.continue_sync()
     assert hooks.calls == ["after_sync"] and result.merged == ("merge",) and result.extra == 1
 
@@ -58,23 +58,23 @@ def test_after_sync_runs_after_continue_but_not_on_conflict(repository, remote_a
 def test_before_submit_can_stop_before_push(repository):
     hooks = Recorder(stop_submit=True)
     repo = with_hooks(repository, hooks)
-    workspace = repo.create_task("t").start()
+    task_branch = repo.create_task("t").start()
     write(repo.root / "a.txt", "a\n")
-    workspace.stage("a.txt")
-    workspace.commit("a")
+    task_branch.stage("a.txt")
+    task_branch.commit("a")
     with pytest.raises(WorkError) as error:
-        workspace.submit()
+        task_branch.submit()
     assert error.value.code == "stopped" and hooks.calls == ["before_submit"]
     assert repo.git.rev_parse("origin/task/1") != repo.git.rev_parse("task/1") and not repo.github.pulls  # pushしていない
 
 
 def test_hints_use_command_name(repository):
     with pytest.raises(WorkError) as error:
-        repository.require_workspace("コミット")
+        repository.require_task_branch("コミット")
     assert "ecobuild task start" in error.value.hint
     plain = Repository(repository.root, github=repository.github)
     with pytest.raises(WorkError) as error:
-        plain.require_workspace("コミット")
+        plain.require_task_branch("コミット")
     assert error.value.hint.startswith("task start ")
 
 

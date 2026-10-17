@@ -8,7 +8,7 @@ def command(
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """作業空間でないブランチを、手元とGitHubから削除します。"""
+    """タスクブランチでないブランチを、手元とGitHubから削除します。"""
 
     def action(inv):
         branch = inv.module.repository.branch(name)

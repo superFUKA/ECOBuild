@@ -1,6 +1,6 @@
 'use strict';
 // Module-wide screen: overview (module show), Projects, dependencies and links (deps tree), branches, build settings.
-// Changes to managed files (ecobuild.toml, CMake files) run in a workspace chosen in the dialog (committed via PR).
+// Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
@@ -25,10 +25,10 @@
       .map(g => [g.repository, g.description || g.type]);
   }
 
-  // Which place to show (the module's clone, or a dedicated clone / workspace with uncommitted changes).
+  // Which place to show (one of the module's workspaces, e.g. one on a task branch with uncommitted changes).
   function placeSelect() {
     const options = MOD.places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${esc(MOD.states.get(MOD.keyOf(p))?.branch || p)}${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? '' : '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
-    if (MOD.places.length < 2) return '';   // only the module's clone: nothing to choose
+    if (MOD.places.length < 2) return '';   // only one workspace: nothing to choose
     return `<div class="mi-place"><label class="mi-note">表示する場所<select id="mi-place">${options}</select></label></div>`;
   }
   // 概要: ecobuild module show.
@@ -43,7 +43,7 @@
       ${row('型', pill(r.type))}
       ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
       ${row('GitHubのリポジトリ', r.repository || r.url ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repository || r.url)}</a>` : esc(r.repository)} ${visibility} ${archived}` : '<span class="mi-sub">不明</span>')}
-      ${row('作業空間の作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
+      ${row('タスクブランチの作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
       ${row('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>')}
       ${row('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + ` <button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
       </tbody></table>${data.infoNotices?.length ? `<p class="mi-note">${data.infoNotices.map(esc).join('<br>')}</p>` : ''}`;
@@ -67,7 +67,7 @@
   function renderDeps() {
     const deps = data.deps, projects = data.projects || [];
     if (deps.error) return head('依存先', '') + `<p class="mi-note">${esc(deps.error.message)}</p>`;
-    return head('依存先', 'このモジュールが使う他のモジュールです。リンク・更新・リンク解除は管理ファイルを変更するため、作業空間でコミットし、PRで反映します。',
+    return head('依存先', 'このモジュールが使う他のモジュールです。リンク・更新・リンク解除は管理ファイルを変更するため、タスクブランチでコミットし、PRで反映します。',
       btn(depsFetched ? 'GitHubをもう一度確認' : 'GitHubと照らし合わせる', 'deps-fetch') + btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
       (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
@@ -87,7 +87,7 @@
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
     if (projects.error) return head('Project', '') + `<p class="mi-note">${esc(projects.error.message)}</p>`;
     const settings = data.settings, main = settings?.main_project;
-    return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更は作業空間で行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
+    return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
       (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
       ${projects.map(p => `<tr><td><strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
@@ -113,7 +113,7 @@
     const p = data.profiles;
     if (p.error) return head('ビルド設定', '') + `<p class="mi-note">${esc(p.error.message)}</p>`;
     const names = Object.keys(p.profiles);
-    return head('ビルド設定', '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。定義は .ecobuild/ecobuild.toml にあり、作業空間で変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
+    return head('ビルド設定', '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。定義は .ecobuild/ecobuild.toml にあり、タスクブランチで変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
       `<table class="mi-table"><thead><tr><th>このPCで使う</th><th>名前</th><th>構成</th><th>ライブラリ</th><th>並列数</th><th>そのほか・Projectごとの上書き</th><th></th></tr></thead><tbody>
       ${names.map(n => { const x = p.profiles[n], extra = optionsText(x.options), overrides = Object.entries(x.projects || {});
         return `<tr><td><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td><td>${x.shared ? 'すべて共有' : '静的'}</td><td>${x.parallel}</td>
@@ -129,13 +129,13 @@
     const node = (b, depth) => {
       const kids = branches.filter(c => c.base === b.name && c !== b), where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・');
       const pr = b.submission, n = /^task\/(\d+)$/.exec(b.name)?.[1];
-      const actions = b.is_workspace ? (n ? `<button type="button" data-open-ws="${n}">作業空間を開く</button>` : '')
+      const actions = b.is_task_branch ? (n ? `<button type="button" data-open-ws="${n}">タスクブランチを開く</button>` : '')
         : (pr ? btn('取り込む', 'branch-merge', b.name) : depth || b.base ? btn('提出する', 'branch-submit', b.name) : '') + (depth || b.base ? btn('削除', 'branch-delete', b.name, 'danger-text') : '');
-      return `<li><div class="mi-branch ${b.is_workspace ? 'ws' : ''}"><span class="mi-branch-name">${esc(b.name)}</span>${b.is_workspace ? pill('作業空間', 'ok') : pill('ブランチ')}
+      return `<li><div class="mi-branch ${b.is_task_branch ? 'ws' : ''}"><span class="mi-branch-name">${esc(b.name)}</span>${b.is_task_branch ? pill('タスクブランチ', 'ok') : pill('ブランチ')}
         <span class="mi-where">${where}</span>${pr ? pill(`${pr.draft ? '下書きの' : ''}${pr.partial ? '中間' : ''}提出 → ${b.submitted_to}`, 'pr') : ''}<span class="mi-row-actions">${actions}</span></div>
         ${kids.length ? `<ul>${kids.map(k => node(k, depth + 1)).join('')}</ul>` : ''}</li>`;
     };
-    return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。作業空間（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
+    return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。タスクブランチ（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
   const VIEWS = {overview: renderOverview, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
@@ -166,10 +166,10 @@
   const workspaceField = () => {
     const places = MOD.workspacePlaces();
     const current = places.find(p => MOD.keyOf(p) === MOD.keyOf(here())) || places[0] || '';
-    return {name: 'place', label: '変更する作業空間', type: 'select', value: current, options: places.map(p => [p, `${MOD.states.get(MOD.keyOf(p)).branch}（${p}）`]), help: '管理ファイルが変わります。作業空間でコミットし、PRで反映してください。'};
+    return {name: 'place', label: '変更するタスクブランチ', type: 'select', value: current, options: places.map(p => [p, `${MOD.states.get(MOD.keyOf(p)).branch}（${p}）`]), help: '管理ファイルが変わります。タスクブランチでコミットし、PRで反映してください。'};
   };
   async function inWorkspace(title, fields, ok, build, {danger = false, intro = '', success} = {}) {
-    if (!MOD.workspacePlaces().length) return ECO.dialog({title, body: '<p>管理ファイルを変える操作は作業空間で行います。タスク管理でタスクの「作業を開始」をしてから、もう一度行ってください。</p>'});
+    if (!MOD.workspacePlaces().length) return ECO.dialog({title, body: '<p>管理ファイルを変える操作はタスクブランチで行います。タスク管理でタスクの「作業を開始」をしてから、もう一度行ってください。</p>'});
     await ECO.form({title, intro, fields: [...fields, workspaceField()], ok, danger, submit: async v => {
       const args = build(v); if (typeof args === 'string') return args;
       // build may give several commands (run in order; the success message after the last).
@@ -385,12 +385,12 @@
     'profile-remove': name => inWorkspace(`ビルド設定を削除：${name}`, [], '削除', () => ['profile', 'remove', name], {danger: true, success: `${name} を削除しました。`}),
     // The branches' history with their merges (all branches) is drawn by TortoiseGit (ecobuild log --all --gui).
     'branch-log': async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); },
-    'branch-create': () => ECO.form({title: 'ブランチを作成', intro: '作業空間以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
-      {name: 'name', label: 'ブランチ名（task/ で始まる名前は作業空間専用）', required: true, placeholder: '例：develop'},
-      {name: 'base', label: '作成元', type: 'select', options: [['', '既定（default_base）'], ...(Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace).map(b => [b.name, b.name]) : [])]}], ok: '作成',
+    'branch-create': () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
+      {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},
+      {name: 'base', label: '作成元', type: 'select', options: [['', '既定（default_base）'], ...(Array.isArray(data.branches) ? data.branches.filter(b => !b.is_task_branch).map(b => [b.name, b.name]) : [])]}], ok: '作成',
       submit: async v => { if (!await ECO.run(here(), ['branch', 'create', v.name, ...(v.base ? ['--base', v.base] : [])], {success: `ブランチ ${v.name} を作成しました。`})) return '作成できませんでした。'; render(); }}),
     'branch-submit': name => ECO.form({title: `提出する：${name}`, fields: [
-      {name: 'into', label: '取り込み先', type: 'select', options: (Array.isArray(data.branches) ? data.branches.filter(b => !b.is_workspace && b.name !== name) : []).map(b => [b.name, b.name])},
+      {name: 'into', label: '取り込み先', type: 'select', options: (Array.isArray(data.branches) ? data.branches.filter(b => !b.is_task_branch && b.name !== name) : []).map(b => [b.name, b.name])},
       {name: 'title', label: '提出の題名'}], ok: '提出',
       submit: async v => { if (!v.into) return '取り込み先を選んでください。'; if (!await ECO.run(here(), ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : [])], {success: `${name} を ${v.into} へ提出しました。`})) return '提出できませんでした。'; render(); }}),
     'branch-merge': name => ECO.form({title: `${name} の提出を取り込む`, intro: 'ブランチ同士の提出を、マージコミットで取り込みます。', fields: [{name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'}], ok: '取り込む',

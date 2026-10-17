@@ -35,10 +35,10 @@ def test_sync_fast_forwards_main(repository, remote_and_clone, tmp_path):
 
 def test_sync_workspace_merges_base_and_resolves_conflict(repository, remote_and_clone, tmp_path):
     remote, _ = remote_and_clone
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(repository.root / "README.md", "local\n")
-    workspace.stage("README.md")
-    workspace.commit("手元の変更")
+    task_branch.stage("README.md")
+    task_branch.commit("手元の変更")
     push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
     assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
     status = repository.status()
@@ -56,10 +56,10 @@ def test_sync_workspace_merges_base_and_resolves_conflict(repository, remote_and
 def test_continue_sync_records_a_deleted_file(repository, remote_and_clone, tmp_path):
     """衝突したファイルを消して解決したら、削除として登録する。"""
     remote, _ = remote_and_clone
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(repository.root / "README.md", "local\n")
-    workspace.stage("README.md")
-    workspace.commit("手元の変更")
+    task_branch.stage("README.md")
+    task_branch.commit("手元の変更")
     push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
     assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
     (repository.root / "README.md").unlink()
@@ -70,10 +70,10 @@ def test_continue_sync_records_a_deleted_file(repository, remote_and_clone, tmp_
 
 def test_sync_abort(repository, remote_and_clone, tmp_path):
     remote, _ = remote_and_clone
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(repository.root / "README.md", "local\n")
-    workspace.stage("README.md")
-    workspace.commit("手元の変更")
+    task_branch.stage("README.md")
+    task_branch.commit("手元の変更")
     push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
     assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
     repository.abort_sync()
@@ -97,12 +97,12 @@ def test_sync_stops_when_changes_would_be_overwritten_then_stash(repository, rem
 
 
 def test_continue_after_rebuild_conflict(repository):
-    """作業空間の作り直し（rebase）が衝突で止まった場合も、sync continue で続けられる。"""
+    """タスクブランチの作り直し（rebase）が衝突で止まった場合も、sync continue で続けられる。"""
     root = repository.root
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(root / "a.txt", "1\n")
-    workspace.stage("a.txt")
-    workspace.commit("1")
+    task_branch.stage("a.txt")
+    task_branch.commit("1")
     git(root, "switch", "--quiet", "main")
     write(root / "a.txt", "main\n")
     git(root, "add", "a.txt")
@@ -111,48 +111,48 @@ def test_continue_after_rebuild_conflict(repository):
     completed = repository.git.rebase_onto("main", "main~1", "task/1")
     assert not completed.merged and repository.git.is_rebasing()
     write(root / "a.txt", "resolved\n")
-    workspace.stage("a.txt")
+    task_branch.stage("a.txt")
     assert repository.continue_sync().merged == ("rebase",)
     assert not repository.git.is_rebasing()
 
 
 def _conflict_in_workspace(repository, remote, tmp_path):
-    workspace = repository.create_task("t").start()
+    task_branch = repository.create_task("t").start()
     write(repository.root / "README.md", "local\n")
-    workspace.stage("README.md")
-    workspace.commit("手元の変更")
+    task_branch.stage("README.md")
+    task_branch.commit("手元の変更")
     push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
     assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
-    return workspace
+    return task_branch
 
 
 def test_continue_refuses_leftover_conflict_markers(repository, remote_and_clone, tmp_path):
     """衝突の印を残したまま登録しても、取り込みを完了しない（仮運用でmainに印が入った）。"""
     remote, _ = remote_and_clone
-    workspace = _conflict_in_workspace(repository, remote, tmp_path)
-    workspace.stage("README.md")  # 直さずに登録
+    task_branch = _conflict_in_workspace(repository, remote, tmp_path)
+    task_branch.stage("README.md")  # 直さずに登録
     with pytest.raises(WorkError) as error:
         repository.continue_sync()
     assert error.value.code == ErrorCode.CONFLICT_MARKERS and error.value.details == ["README.md:1", "README.md:3", "README.md:5"]
-    assert code_of(lambda: workspace.commit("取り込み")) == ErrorCode.CONFLICT_MARKERS
+    assert code_of(lambda: task_branch.commit("取り込み")) == ErrorCode.CONFLICT_MARKERS
     assert repository.status().merging
     write(repository.root / "README.md", "resolved\n")
-    assert code_of(lambda: workspace.commit("取り込み")) == ErrorCode.CONFLICT_MARKERS  # 未登録の分は見ない
-    workspace.commit("取り込み", all=True)
+    assert code_of(lambda: task_branch.commit("取り込み")) == ErrorCode.CONFLICT_MARKERS  # 未登録の分は見ない
+    task_branch.commit("取り込み", all=True)
     assert not repository.status().merging
 
 
 def test_sync_refuses_closed_workspace(repository):
-    """反映済み（Issueが閉じた）作業空間では取り込まず、片付けを案内する。"""
-    workspace = repository.create_task("t").start()
-    repository.github.close_issue(repository.root, workspace.number)
+    """反映済み（Issueが閉じた）タスクブランチでは取り込まず、片付けを案内する。"""
+    task_branch = repository.create_task("t").start()
+    repository.github.close_issue(repository.root, task_branch.number)
     with pytest.raises(WorkError) as error:
         repository.sync()
     assert error.value.code == ErrorCode.TASK_CLOSED and "ecobuild task prune" in error.value.hint
 
 
 def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_path):
-    """作業空間でないブランチでは add できないので、restore --staged で解決し、stash drop で片付ける。"""
+    """タスクブランチでないブランチでは add できないので、restore --staged で解決し、stash drop で片付ける。"""
     remote, _ = remote_and_clone
     write(repository.root / "README.md", "local\n")
     repository.stash()

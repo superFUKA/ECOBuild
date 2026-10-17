@@ -35,9 +35,9 @@ def test_generic_module(tmp_path):
     # コマンドを書くまでは対応しない
     assert code_of(module.build) == ErrorCode.NOT_SUPPORTED
     assert code_of(module.projects) == ErrorCode.NOT_SUPPORTED
-    assert code_of(lambda: module.link("STL")) == ErrorCode.NOT_IN_WORKSPACE
+    assert code_of(lambda: module.link("STL")) == ErrorCode.NOT_ON_TASK_BRANCH
 
-    workspace = module.repository.create_task("コマンドを書く").start()
+    task_branch = module.repository.create_task("コマンドを書く").start()
     commands = {"build": python("print('built {configuration}')"), "test": python("print('tested')"),
                 "run": python("import sys; print('run {arguments}')"), "clean": ""}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
@@ -62,21 +62,21 @@ def test_generic_module(tmp_path):
     workflow = (root / ci.path).read_text(encoding="utf-8")
     assert "ubuntu-latest" in workflow and "Build" in workflow and "workflow_dispatch" in workflow
     assert code_of(lambda: reloaded.add_file("a.txt")) == ErrorCode.NOT_SUPPORTED
-    workspace.stage(all=True)
-    workspace.commit("コマンドとCI")
-    assert workspace.submit().number
+    task_branch.stage(all=True)
+    task_branch.commit("コマンドとCI")
+    assert task_branch.submit().number
 
 
 def test_check_is_reused_while_unchanged(tmp_path):
     """ビルド・テストを含む check を通った版は、task submit --check で繰り返さない。変更・コミットで無効になる。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
-    workspace = module.repository.create_task("確認の使い回し").start()
+    task_branch = module.repository.create_task("確認の使い回し").start()
     commands = {"build": python("print('built')"), "test": python("print('tested')")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
     module.check()
     assert not module.checked()  # 変更が残っている（コミット前）
-    workspace.stage(all=True)
-    workspace.commit("コマンド")
+    task_branch.stage(all=True)
+    task_branch.commit("コマンド")
     assert not module.checked()  # コミットした版はまだ確かめていない
     module.check()
     assert module.checked()
@@ -90,8 +90,8 @@ def test_check_is_reused_while_unchanged(tmp_path):
     assert module.checked()
     failing = {**commands, "test": python("import sys; sys.exit(3)")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": failing}}))
-    workspace.stage(all=True)
-    workspace.commit("失敗するテスト")
+    task_branch.stage(all=True)
+    task_branch.commit("失敗するテスト")
     with pytest.raises(EcoBuildError):
         module.check()
     assert not module.checked()

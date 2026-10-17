@@ -42,6 +42,6 @@ def submission_text(state) -> str:
 
 
 def elsewhere(path, root) -> str:
-    """作業空間が、今いるのと別のclone（このPCの）にあれば、その場所。"""
-    from ecobuild import clones
-    return "" if path is None or clones.same(path, root) else f"（場所：{path}）"
+    """タスクブランチが、今いるのと別のclone（このPCの）にあれば、その場所。"""
+    from ecobuild import workspaces
+    return "" if path is None or workspaces.same(path, root) else f"（場所：{path}）"

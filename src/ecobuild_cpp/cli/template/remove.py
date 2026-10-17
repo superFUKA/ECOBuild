@@ -10,5 +10,5 @@ def command(
     name: Annotated[str, "外すテンプレート"],
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ファイルテンプレートを外します（ECOBuildの既定のものは外せません）。作業空間でコミットしてください。"""
+    """ファイルテンプレートを外します（ECOBuildの既定のものは外せません）。タスクブランチでコミットしてください。"""
     return run_command("template remove", lambda inv: cpp(inv.module).remove_template(name), render, json_output=json)

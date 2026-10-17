@@ -10,6 +10,6 @@ def command(
 ) -> int:
     """管理するファイルのパターンを外します。
 
-    型の既定は [files] exclude に書きます。作業空間でコミットしてください。
+    型の既定は [files] exclude に書きます。タスクブランチでコミットしてください。
     """
     return run_command("track remove", lambda inv: inv.module.track(*patterns, remove=True), render, json_output=json)

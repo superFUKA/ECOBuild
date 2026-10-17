@@ -8,7 +8,7 @@ def command(
     task: Annotated[int, "取り消す、完了したタスクの番号"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """完了したタスクの取り込み（中間提出も含む）を取り消すタスクと作業空間を作ります（取り消しのコミットまで）。
+    """完了したタスクの取り込み（中間提出も含む）を取り消すタスクとタスクブランチを作ります（取り消しのコミットまで）。
 
     確かめてから ecobuild task submit → task finish で反映します。
     """
@@ -17,5 +17,5 @@ def command(
         return missing("タスクの番号", json)
     return run_command(
         "task revert", lambda inv: inv.module.repository.revert_task(task),
-        lambda r: f"#{r.reverted_task} を取り消すコミットを作りました：作業空間 {r.branch}（タスク #{r.task}）\n"
+        lambda r: f"#{r.reverted_task} を取り消すコミットを作りました：タスクブランチ {r.branch}（タスク #{r.task}）\n"
                   "次：確かめてから ecobuild task submit → ecobuild task finish", json_output=json)

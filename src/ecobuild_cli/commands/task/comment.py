@@ -5,7 +5,7 @@ from ..._output import missing, optional_argument, run_command
 
 def command(
     *number: Annotated[int, "Issueの番号（--issue と同じ）"],
-    issue: Annotated[int, "Issueの番号（既定：今いる作業空間）"] = 0,
+    issue: Annotated[int, "Issueの番号（既定：今いるタスクブランチ）"] = 0,
     message: Annotated[str, "コメント"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:

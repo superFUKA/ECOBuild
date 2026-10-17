@@ -10,6 +10,6 @@ def command(
     parallel: Annotated[int, "並列の数"] = 1,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ビルド設定を追加（同じ名前なら上書き）します。ecobuild.toml が変わるので、作業空間でコミットしてください。"""
+    """ビルド設定を追加（同じ名前なら上書き）します。ecobuild.toml が変わるので、タスクブランチでコミットしてください。"""
     return run_command("profile add", lambda inv: inv.module.add_profile(name, Profile(configuration, False, parallel)),
                        render, json_output=json)

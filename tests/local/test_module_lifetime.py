@@ -20,7 +20,7 @@ def python(code: str) -> str:
 
 
 def test_config_is_reloaded_after_switching(tmp_path):
-    """main で取得した Module のまま、コマンドを書いた作業空間へ切り替えてもビルドできる。"""
+    """main で取得した Module のまま、コマンドを書いたタスクブランチへ切り替えてもビルドできる。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     first = module.repository.create_task("コマンドを書く").start()
     commands = {"build": python("print('built')"), "test": "", "run": "", "clean": ""}
@@ -36,13 +36,13 @@ def test_config_is_reloaded_after_switching(tmp_path):
         module.build()
     assert error.value.code == ErrorCode.NOT_SUPPORTED
 
-    module.repository.task(first.number).start()                   # 戻ると、その作業空間の設定を読み直す
+    module.repository.task(first.number).start()                   # 戻ると、そのタスクブランチの設定を読み直す
     assert module.build().configuration == "Debug"
     assert module.repository.default_base == "develop"
 
 
 def test_dedicated_clone_prepares_only_the_clone(module, tmp_path, monkeypatch):
-    """専用のcloneで作業空間を作るとき、型の準備（依存先・生成ファイル）は clone 先だけで行う。"""
+    """別の作業空間（clone）にタスクブランチを作るとき、型の準備（依存先・生成ファイル）は clone 先だけで行う。"""
     prepared = []
 
     def prepare(self):
@@ -52,6 +52,6 @@ def test_dedicated_clone_prepares_only_the_clone(module, tmp_path, monkeypatch):
     monkeypatch.setattr(CppType, "prepare", prepare)
     task = module.repository.create_task("並行作業")
     other = module.start_task_in(task.number, tmp_path / "Calc-1")
-    assert other.root != module.root and other.repository.current_workspace().number == task.number
+    assert other.root != module.root and other.repository.current_task_branch().number == task.number
     assert prepared and set(prepared) == {other.root}
-    assert module.repository.current_workspace() is None
+    assert module.repository.current_task_branch() is None

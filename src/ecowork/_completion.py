@@ -11,40 +11,40 @@ from dataclasses import replace
 
 from ecotask import board as _board
 from . import git as _git
-from . import workspace as ws
+from . import model as wm
 from .errors import ErrorCode, WorkError
 
 
 class Completion:
     # 提出と完了（番号はタスクの番号。PRはその実現の方法） ------------------------------------
 
-    def submission(self, number: int) -> ws.PullRequest | None:
-        """タスクの開いている提出（作業空間のPR）。なければNone。開いているものは1つ（あれば最新のもの）。"""
-        opened = [p for p in self.github.pull_requests_for_branch(self.root, ws.workspace_branch(number))
+    def submission(self, number: int) -> wm.PullRequest | None:
+        """タスクの開いている提出（タスクブランチのPR）。なければNone。開いているものは1つ（あれば最新のもの）。"""
+        opened = [p for p in self.github.pull_requests_for_branch(self.root, wm.task_branch_name(number))
                   if p.state == "open"]
-        return ws.PullRequest._from(self, max(opened, key=lambda p: p.number)) if opened else None
+        return wm.PullRequest._from(self, max(opened, key=lambda p: p.number)) if opened else None
 
-    def require_submission(self, number: int) -> ws.PullRequest:
+    def require_submission(self, number: int) -> wm.PullRequest:
         pr = self.submission(number)
         if pr is None:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"タスク #{number} の提出はありません。",
-                            hint=f"作業空間（task/{number}）で {self._op('task submit')} を実行して提出します。")
+                            hint=f"タスクブランチ（task/{number}）で {self._op('task submit')} を実行して提出します。")
         return pr
 
-    def review_task(self, number: int) -> ws.ReviewResult:
+    def review_task(self, number: int) -> wm.ReviewResult:
         """タスクの提出を手元に取り出して確認する（review と同じ。番号はタスクの番号）。"""
         return self.review(self.require_submission(number).number)
 
-    def withdraw(self, number: int | None = None) -> ws.PullRequest:
-        """提出を取り下げて作業中に戻す（PRを閉じる。作業空間は残る。もう一度 task submit で出し直せる）。"""
+    def withdraw(self, number: int | None = None) -> wm.PullRequest:
+        """提出を取り下げて作業中に戻す（PRを閉じる。タスクブランチは残る。もう一度 task submit で出し直せる）。"""
         if number is None:
-            number = self.require_workspace("番号を省略した提出の取り下げ").number
+            number = self.require_task_branch("番号を省略した提出の取り下げ").number
         pr = self.require_submission(number)
         self.github.close_pull_request(self.root, pr.number)
         self.tracker.set_stage(number, _board.IN_PROGRESS)
         return self.pull_request(pr.number)
 
-    def reject(self, number: int, message: str) -> ws.JudgeResult:
+    def reject(self, number: int, message: str) -> wm.JudgeResult:
         """差し戻す（修正を依頼する）。確認中（task review）なら、確認の前の場所へ戻る。"""
         if not message.strip():
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "差し戻す理由が必要です。",
@@ -52,9 +52,9 @@ class Completion:
         pr = self.require_submission(number)
         self._judge(pr, "request_changes", message)
         self.tracker.set_stage(number, _board.IN_PROGRESS)  # 直すのは作業者。出し直し（task submit）でレビュー待ちに戻る
-        return ws.JudgeResult(number, pr.number, pr.url, self._leave_review(pr.number))
+        return wm.JudgeResult(number, pr.number, pr.url, self._leave_review(pr.number))
 
-    def approve(self, number: int, message: str = "", **finish_options) -> ws.FinishResult:
+    def approve(self, number: int, message: str = "", **finish_options) -> wm.FinishResult:
         """承認し、そのまま完了する（finish と同じ手順）。確認中（task review）なら、先に確認の前の場所へ戻る。"""
         pr = self.require_submission(number)
         if pr.draft:
@@ -67,17 +67,17 @@ class Completion:
 
     def finish(self, number: int | None = None, *, wait: bool = True, ignore_checks: bool = False,
                subject: str | None = None, timeout: float = 1800, sleep: Callable[[float], None] = time.sleep,
-               clock: Callable[[], float] = time.monotonic) -> ws.FinishResult:
+               clock: Callable[[], float] = time.monotonic) -> wm.FinishResult:
         """タスクを完了する：未pushのコミットを送る → 提出がなければ作る → CIを待つ → （承認が必須なら確かめる）→
-        squashで取り込み、Issueを閉じ、GitHubのブランチを消す → 手元の作業空間を片付ける。
+        squashで取り込み、Issueを閉じ、GitHubのブランチを消す → 手元のタスクブランチを片付ける。
 
-        中間提出（--partial）なら、取り込んだ後に作業空間を作成元の最新から作り直して続ける（閉じない）。
+        中間提出（--partial）なら、取り込んだ後にタスクブランチを作成元の最新から作り直して続ける（閉じない）。
         どこで止まっても、もう一度実行すれば続きから行う。wait：CIを待つ（False なら、実行中なら止める）。
         ignore_checks：CIの失敗を承知で取り込む（待たない）。subject：取り込むコミットの件名（既定は題名）。
         """
         if number is None:
-            number = self.require_workspace("番号を省略したタスクの完了").number
-        branch = ws.workspace_branch(number)
+            number = self.require_task_branch("番号を省略したタスクの完了").number
+        branch = wm.task_branch_name(number)
         here = self.git.current_branch() == branch
         if here:
             tree = self.git.working_tree()
@@ -98,7 +98,7 @@ class Completion:
             return self._resume_finish(number, branch)
         if pr.draft:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
-                            hint=f"準備ができたら、作業空間で {self._op('task submit')} を実行して下書きを解除してください。")
+                            hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
         checks: tuple = ()
         if wait and not ignore_checks and self._has_workflows():
             try:
@@ -126,43 +126,43 @@ class Completion:
         return self._after_finish(number, branch, pr, merged, checks, subject or pr.title)
 
     def _merged_and_unchanged(self, number: int, branch: str) -> bool:
-        """最後の提出（中間提出でないもの）を取り込んだ後、作業空間に新しいコミットがないか（取り込みの後処理の途中で
+        """最後の提出（中間提出でないもの）を取り込んだ後、タスクブランチに新しいコミットがないか（取り込みの後処理の途中で
         止まった状態。もう一度 finish すれば、新しい提出を作らずに後処理の続きを行う）。"""
         merged = [p for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "merged"]
-        if not merged or ws.PullRequest._from(self, max(merged, key=lambda p: p.number)).partial:
+        if not merged or wm.PullRequest._from(self, max(merged, key=lambda p: p.number)).partial:
             return False
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
-        base = (self.git.get_config(ws.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
+        base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
         return not self._lost_commits(branch, base, local=local, remote=remote)
 
-    def _resume_finish(self, number: int, branch: str) -> ws.FinishResult:
+    def _resume_finish(self, number: int, branch: str) -> wm.FinishResult:
         """Issueが閉じ、開いている提出がないタスク：取り込みの後処理と手元の片付けの残りだけを行う。"""
         merged = [p for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "merged"]
         if not merged:
             raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は閉じています（取り込んだ提出はありません）。",
-                            hint=f"作業空間が残っていれば {self._op('task prune')} {number} で片付けられます。")
+                            hint=f"タスクブランチが残っていれば {self._op('task prune')} {number} で片付けられます。")
         info = max(merged, key=lambda p: p.number)
-        pr = ws.PullRequest._from(self, info)
+        pr = wm.PullRequest._from(self, info)
         try:
             result = self._finish_merge(pr, info, resumed=True)
         except WorkError as error:
             if error.code != ErrorCode.PULL_REQUEST_NOT_OPEN:
                 raise
-            result = ws.MergeResult(pr.number, "squash", None, False, True)
+            result = wm.MergeResult(pr.number, "squash", None, False, True)
         finished = self._after_finish(number, branch, pr, result, (), pr.title)
         if not (result.closed_issue or finished.removed):
             raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は完了しています（後処理も済んでいます）。")
         return finished
 
-    def _after_finish(self, number: int, branch: str, pr: ws.PullRequest, merged: ws.MergeResult,
-                      checks: tuple, subject: str) -> ws.FinishResult:
+    def _after_finish(self, number: int, branch: str, pr: wm.PullRequest, merged: wm.MergeResult,
+                      checks: tuple, subject: str) -> wm.FinishResult:
         removed, switched_to, upcoming = False, None, None
         if not pr.partial:
             removed, switched_to = self._clean_finished(branch)
             upcoming = self._upcoming()
-        return ws.FinishResult(number, pr.number, pr.url, subject, pr.partial, merged.resumed, merged.closed_issue,
-                               merged.workspace_rebuilt, removed, switched_to, checks, upcoming)
+        return wm.FinishResult(number, pr.number, pr.url, subject, pr.partial, merged.resumed, merged.closed_issue,
+                               merged.branch_rebuilt, removed, switched_to, checks, upcoming)
 
     def _push_if_ahead(self, branch: str) -> None:
         """手元のブランチに、GitHubにないコミットがあれば送る。"""
@@ -171,16 +171,16 @@ class Completion:
             return
         self.git.push(branch, set_upstream=not remote)
 
-    def _submit_for_finish(self, number: int, branch: str, here: bool) -> ws.PullRequest:
+    def _submit_for_finish(self, number: int, branch: str, here: bool) -> wm.PullRequest:
         """完了の前に、提出がなければ作る（レビューなしで完了するとき。PRは履歴として残る）。"""
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if not (local or remote):
-            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} の作業空間がありません。",
-                            hint=f"{self._op('task start')} {number} で作業空間を作り、変更を記録してから完了します"
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} のタスクブランチがありません。",
+                            hint=f"{self._op('task start')} {number} でタスクブランチを作り、変更を記録してから完了します"
                                  f"（コードを変えないタスクなら {self._op('task close')} {number}）。")
         if here:
             self.hooks.before_submit(self)
-        base = (self.git.get_config(ws.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
+        base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
         head, base_ref = f"{_git.REMOTE}/{branch}", f"{_git.REMOTE}/{base}"
         if self.git.count(f"{base_ref}..{head}") == 0 or not self.git.has_changes(base_ref, head):
@@ -191,16 +191,16 @@ class Completion:
         return self._create_submission(number, branch, base, title=None, partial=False, draft=False)
 
     def _create_submission(self, number: int, branch: str, base: str, *, title: str | None, partial: bool,
-                           draft: bool, reviewers: tuple[str, ...] = ()) -> ws.PullRequest:
+                           draft: bool, reviewers: tuple[str, ...] = ()) -> wm.PullRequest:
         issue = self.github.get_issue(self.root, number)
         info = self.github.create_pull_request(
             self.root, head=branch, base=base, title=title or issue.title,
-            body=ws.with_task_link("", number, partial=partial), draft=draft,
+            body=wm.with_task_link("", number, partial=partial), draft=draft,
         )
         if reviewers:
             self.github.edit_pull_request(self.root, info.number, add_reviewers=reviewers)
         self.tracker.set_stage(number, _board.IN_PROGRESS if draft else _board.IN_REVIEW)
-        pr = ws.PullRequest._from(self, info)
+        pr = wm.PullRequest._from(self, info)
         if not pr.partial:
             try:
                 self.tracker.check_finishable(number)
@@ -210,32 +210,32 @@ class Completion:
         return pr
 
     def _clean_finished(self, branch: str) -> tuple[bool, str | None]:
-        """完了したタスクの手元の作業空間を片付ける。今いれば作成元へ移って最新にする。失われるコミットがあれば残す。"""
+        """完了したタスクの手元のタスクブランチを片付ける。今いれば作成元へ移って最新にする。失われるコミットがあれば残す。"""
         if not self.git.has_local_branch(branch):
             return False, None
         reason = self._unsafe_to_remove(branch)
         if reason is not None:
-            self.notices.append(f"手元の作業空間 {branch} は残しました（{reason}）。")
+            self.notices.append(f"手元のタスクブランチ {branch} は残しました（{reason}）。")
             return False, None
         switched_to = None
         if self.git.current_branch() == branch:
             tree = self.git.working_tree()
             if tree.staged or tree.unstaged:
-                self.notices.append(f"手元の作業空間 {branch} は、未コミットの変更があるため残しました。")
+                self.notices.append(f"手元のタスクブランチ {branch} は、未コミットの変更があるため残しました。")
                 return False, None
-            switched_to = self.git.get_config(ws.base_key(branch)) or self.default_base
+            switched_to = self.git.get_config(wm.base_key(branch)) or self.default_base
             self._switch_to_latest(switched_to)
         self.git.delete_branch(branch, force=True)
-        self.git.unset_config(ws.base_key(branch))
+        self.git.unset_config(wm.base_key(branch))
         return True, switched_to
 
-    def _upcoming(self) -> ws.TaskRef | None:
+    def _upcoming(self) -> wm.TaskRef | None:
         """次のタスクの候補（task next の1番目）。調べられなければNone（知らせるだけなので）。"""
         try:
             ranked = self.next_tasks(assignee="@me", count=1)
         except WorkError:
             return None
-        return ws.TaskRef(ranked[0].task.number, ranked[0].task.title, ranked[0].task.state) if ranked else None
+        return wm.TaskRef(ranked[0].task.number, ranked[0].task.title, ranked[0].task.state) if ranked else None
 
     def _approved(self, pull_request: int) -> bool:
         """承認されているか（人ごとの最後の判定に、承認があり、修正依頼がない）。"""
@@ -245,12 +245,12 @@ class Completion:
                 latest[review.author] = review.state
         return "APPROVED" in latest.values() and "CHANGES_REQUESTED" not in latest.values()
 
-    def _judge(self, pr: ws.PullRequest, event: str, message: str) -> None:
+    def _judge(self, pr: wm.PullRequest, event: str, message: str) -> None:
         try:
             self.github.review_pull_request(self.root, pr.number, event=event, body=message)
         except WorkError as error:
             if error.code == ErrorCode.OWN_PULL_REQUEST:
-                task = ws.workspace_number(pr.head)
+                task = wm.task_number(pr.head)
                 error.message = "自分の提出は承認・差し戻しできません（GitHubの制限）。"
                 error.hint = (f"自分で完了するなら {self._op('task finish')} {task}、やめるなら "
                               f"{self._op('task withdraw')} {task}。")
@@ -265,7 +265,7 @@ class Completion:
         return returned
 
     def _tidy_finished(self) -> tuple[str, ...]:
-        """完了したタスクの手元の作業空間（GitHubのブランチがなく、Issueが閉じたもの）を片付ける。今いるものは除く。
+        """完了したタスクの手元のタスクブランチ（GitHubのブランチがなく、Issueが閉じたもの）を片付ける。今いるものは除く。
 
         fetch の後に呼ぶ。失われるコミットがあれば残す（task prune と同じ）。
         """
@@ -273,7 +273,7 @@ class Completion:
         remote = set(self.git.remote_branches())
         removed = []
         for branch in self.git.local_branches():
-            number = ws.workspace_number(branch)
+            number = wm.task_number(branch)
             if number is None or branch == current or branch in remote \
                     or self.git.get_config(f"branch.{branch}.merge") is None:   # GitHubへ送ったことがないもの
                 continue
@@ -283,31 +283,31 @@ class Completion:
             except WorkError:
                 continue
             self.git.delete_branch(branch, force=True)
-            self.git.unset_config(ws.base_key(branch))
+            self.git.unset_config(wm.base_key(branch))
             removed.append(branch)
         if removed:
-            self.notices.append(f"完了したタスクの手元の作業空間を片付けました：{', '.join(removed)}")
+            self.notices.append(f"完了したタスクの手元のタスクブランチを片付けました：{', '.join(removed)}")
         return tuple(removed)
 
     def task_diff(self, number: int | None = None) -> str:
-        """タスクの提出の差分。提出がなければ、作業空間の作成元との差分。"""
+        """タスクの提出の差分。提出がなければ、タスクブランチの作成元との差分。"""
         if number is None:
-            number = self.require_workspace("番号を省略した差分").number
+            number = self.require_task_branch("番号を省略した差分").number
         pr = self.submission(number)
         if pr is not None:
             return self.github.pull_request_diff(self.root, pr.number)
-        branch = ws.workspace_branch(number)
+        branch = wm.task_branch_name(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if not (local or remote):
-            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} の作業空間がありません。")
-        base = (self.git.get_config(ws.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} のタスクブランチがありません。")
+        base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
         return self.git.output("diff", f"{_git.REMOTE}/{base}...{branch if local else _git.REMOTE + '/' + branch}")
 
-    def revert_task(self, number: int) -> ws.RevertResult:
-        """完了したタスクの取り込み（中間提出も含めてすべて）を取り消す作業空間を作る。提出は task submit で出す。"""
-        merged = sorted((p for p in self.github.pull_requests_for_branch(self.root, ws.workspace_branch(number))
+    def revert_task(self, number: int) -> wm.RevertResult:
+        """完了したタスクの取り込み（中間提出も含めてすべて）を取り消すタスクブランチを作る。提出は task submit で出す。"""
+        merged = sorted((p for p in self.github.pull_requests_for_branch(self.root, wm.task_branch_name(number))
                          if p.state == "merged" and p.merge_commit), key=lambda p: p.number)
         if not merged:
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"タスク #{number} には、取り込んだ提出がありません。",
@@ -315,11 +315,11 @@ class Completion:
         title = self.github.get_issue(self.root, number).title
         return self._revert(merged, f"「{title}」を取り消す", f"#{number} の取り込みを取り消す。\n", task=number)
 
-    def merge_branch(self, name: str, *, ignore_checks: bool = False) -> ws.MergeResult:
+    def merge_branch(self, name: str, *, ignore_checks: bool = False) -> wm.MergeResult:
         """ブランチ同士の提出（branch submit で作ったPR。head が name）を、マージコミットで取り込む。"""
-        if ws.is_workspace_branch(name):
-            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{name} は作業空間です。",
-                            hint=f"作業空間の完了は {self._op('task finish')} です。")
+        if wm.is_task_branch(name):
+            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{name} はタスクブランチです。",
+                            hint=f"タスクブランチの完了は {self._op('task finish')} です。")
         opened = [p for p in self.github.pull_requests_for_branch(self.root, name) if p.state == "open"]
         if not opened:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"{name} の開いている提出（ブランチ同士のPR）がありません。",

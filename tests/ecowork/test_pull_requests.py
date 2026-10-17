@@ -20,11 +20,11 @@ def code_of(action):
 
 
 def submitted(repository, *, partial=False, name="a.txt", base=None):
-    workspace = repository.create_task("t").start(base=base)
+    task_branch = repository.create_task("t").start(base=base)
     write(repository.root / name, "a\n")
-    workspace.stage(name)
-    workspace.commit("a")
-    return workspace, workspace.submit(partial=partial)
+    task_branch.stage(name)
+    task_branch.commit("a")
+    return task_branch, task_branch.submit(partial=partial)
 
 
 def body_of(repository, number):
@@ -33,36 +33,36 @@ def body_of(repository, number):
 
 def test_editing_body_keeps_link_to_own_issue(repository):
     """別のIssueへの言及が先にあっても、そのPRのIssueとのつながり（途中の反映）を残す。"""
-    workspace, pr = submitted(repository, partial=True)
+    task_branch, pr = submitted(repository, partial=True)
     github = repository.github
-    github.pulls[pr.number] = replace(github.pulls[pr.number], body=f"Closes #3\nRefs #{workspace.number}\n")
+    github.pulls[pr.number] = replace(github.pulls[pr.number], body=f"Closes #3\nRefs #{task_branch.number}\n")
     edited = repository.edit_pull_request(pr.number, body="説明")
-    assert edited.partial and f"Refs #{workspace.number}" in body_of(repository, pr.number)
+    assert edited.partial and f"Refs #{task_branch.number}" in body_of(repository, pr.number)
     assert repository.pull_request(pr.number).merge().closed_issue is None  # 途中の反映のまま
-    assert repository.task(workspace.number).state == "open"
-    assert repository.git.has_remote_branch(workspace.branch)
+    assert repository.task(task_branch.number).state == "open"
+    assert repository.git.has_remote_branch(task_branch.branch)
 
 
 def test_body_can_be_cleared(repository):
-    workspace, pr = submitted(repository)
+    task_branch, pr = submitted(repository)
     assert code_of(lambda: repository.edit_pull_request(pr.number)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: repository.edit_pull_request(pr.number, title=" ")) == ErrorCode.INVALID_ARGUMENT
-    # 作業空間のPR：説明を消しても、Issueとのつながりは残る
+    # タスクブランチのPR：説明を消しても、Issueとのつながりは残る
     repository.edit_pull_request(pr.number, body="説明")
     repository.edit_pull_request(pr.number, body="")
-    assert body_of(repository, pr.number) == f"Closes #{workspace.number}\n"
+    assert body_of(repository, pr.number) == f"Closes #{task_branch.number}\n"
     # 新しい本文に書けば、通常の反映と途中の反映を切り替えられる
-    assert repository.edit_pull_request(pr.number, body=f"Refs #{workspace.number}").partial
-    assert not repository.edit_pull_request(pr.number, body=f"Closes #{workspace.number}\n\n戻す").partial
+    assert repository.edit_pull_request(pr.number, body=f"Refs #{task_branch.number}").partial
+    assert not repository.edit_pull_request(pr.number, body=f"Closes #{task_branch.number}\n\n戻す").partial
 
 
 def test_body_of_branch_pull_request_can_be_cleared(repository):
     repository.create_branch("develop")
-    workspace = repository.create_task("t").start(base="develop")
+    task_branch = repository.create_task("t").start(base="develop")
     write(repository.root / "a.txt", "a\n")
-    workspace.stage("a.txt")
-    workspace.commit("a")
-    workspace.submit()
+    task_branch.stage("a.txt")
+    task_branch.commit("a")
+    task_branch.submit()
     repository.pull_request().merge()
     pr = repository.branch("develop").submit(into="main")
     repository.edit_pull_request(pr.number, body="説明")
@@ -72,13 +72,13 @@ def test_body_of_branch_pull_request_can_be_cleared(repository):
 
 def test_merge_uses_latest_pull_request(repository):
     """古い PullRequest から merge しても、GitHubの最新の内容（途中の反映に変えた）で後処理する。"""
-    workspace, old = submitted(repository)
+    task_branch, old = submitted(repository)
     assert not old.partial
-    repository.edit_pull_request(old.number, body=f"Refs #{workspace.number}")
+    repository.edit_pull_request(old.number, body=f"Refs #{task_branch.number}")
     result = old.merge()
-    assert result.closed_issue is None and result.workspace_rebuilt
-    assert repository.task(workspace.number).state == "open"
-    assert repository.git.has_remote_branch(workspace.branch)
+    assert result.closed_issue is None and result.branch_rebuilt
+    assert repository.task(task_branch.number).state == "open"
+    assert repository.git.has_remote_branch(task_branch.branch)
 
 
 def test_merge_can_be_resumed_after_partial_failure(repository, monkeypatch):
@@ -87,7 +87,7 @@ def test_merge_can_be_resumed_after_partial_failure(repository, monkeypatch):
     develop へのマージでは、GitHubは本文の Closes でIssueを閉じない（ecowork が閉じる）。
     """
     repository.create_branch("develop")
-    workspace, pr = submitted(repository, base="develop")
+    task_branch, pr = submitted(repository, base="develop")
     github = repository.github
     close_issue = github.close_issue
 
@@ -97,23 +97,23 @@ def test_merge_can_be_resumed_after_partial_failure(repository, monkeypatch):
     monkeypatch.setattr(github, "close_issue", failing)
     with pytest.raises(WorkError) as error:
         pr.merge()
-    assert f"task finish {workspace.number}" in error.value.hint
+    assert f"task finish {task_branch.number}" in error.value.hint
     assert github.get_pull_request(repository.root, pr.number).state == "merged"
-    assert repository.git.has_remote_branch(workspace.branch)
+    assert repository.git.has_remote_branch(task_branch.branch)
 
     monkeypatch.setattr(github, "close_issue", close_issue)
     result = repository.pull_request(pr.number).merge()
-    assert (result.resumed, result.closed_issue) == (True, workspace.number)
-    assert repository.task(workspace.number).state == "closed"
+    assert (result.resumed, result.closed_issue) == (True, task_branch.number)
+    assert repository.task(task_branch.number).state == "closed"
     repository.git.fetch()
-    assert not repository.git.has_remote_branch(workspace.branch)
+    assert not repository.git.has_remote_branch(task_branch.branch)
     # 後処理まで済んだPRは、これまでどおり開いていない扱い
     assert code_of(lambda: repository.pull_request(pr.number).merge()) == ErrorCode.PULL_REQUEST_NOT_OPEN
 
 
 def test_resumed_partial_merge_does_not_rebuild_twice(repository):
     _, pr = submitted(repository, partial=True)
-    assert pr.merge().workspace_rebuilt
+    assert pr.merge().branch_rebuilt
     assert code_of(lambda: repository.pull_request(pr.number).merge()) == ErrorCode.PULL_REQUEST_NOT_OPEN
 
 
@@ -139,7 +139,7 @@ def test_stale_check_is_failure_everywhere(repository):
 
 
 def test_dedicated_clone_does_not_use_original_hooks(repository, tmp_path):
-    """専用のcloneには、元のcloneに結び付いたフックを渡さない（open で clone 先のものを作る）。"""
+    """別の作業空間（clone）には、元のcloneに結び付いたフックを渡さない（open で clone 先のものを作る）。"""
 
     class Recorder(Hooks):
         def __init__(self):
@@ -151,11 +151,11 @@ def test_dedicated_clone_does_not_use_original_hooks(repository, tmp_path):
     original = Recorder()
     repo = Repository(repository.root, github=repository.github, command="ecobuild", hooks=original)
     task = repo.create_task("並行作業")
-    repo.clone_workspace(task.number, tmp_path / "plain")
+    repo.clone_task_branch(task.number, tmp_path / "plain")
     assert original.roots == []
 
     clone_hooks = Recorder()
-    other = repo.clone_workspace(task.number, tmp_path / "hooked",
+    other = repo.clone_task_branch(task.number, tmp_path / "hooked",
                                  open=lambda root: Repository(root, github=repo.github, hooks=clone_hooks))
     assert original.roots == [] and clone_hooks.roots == [other.root]
 

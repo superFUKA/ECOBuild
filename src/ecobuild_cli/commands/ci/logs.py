@@ -6,7 +6,7 @@ from ..._output import optional_argument, run_command
 def command(
     *number: Annotated[int, "実行の番号（--run と同じ）"],
     run: Annotated[int, "実行の番号（既定：今いるブランチの最新の失敗した実行）"] = 0,
-    task: Annotated[int, "このタスクの作業空間の、最新の失敗した実行"] = 0,
+    task: Annotated[int, "このタスクのタスクブランチの、最新の失敗した実行"] = 0,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """失敗したCIの手順のログを表示します。"""

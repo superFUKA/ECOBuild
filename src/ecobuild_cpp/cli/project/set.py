@@ -41,7 +41,7 @@ def command(
     clear_folder: Annotated[bool, "ソリューションフォルダーを既定（モジュールの設定）に戻す"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """Projectの設定を変えます。管理ファイルが変わるので、作業空間でコミットしてください。
+    """Projectの設定を変えます。管理ファイルが変わるので、タスクブランチでコミットしてください。
 
     ビルドのたびに選ぶもの（C++の規格・ライブラリの形式の切り替え等）は ecobuild profile で設定します。
     """

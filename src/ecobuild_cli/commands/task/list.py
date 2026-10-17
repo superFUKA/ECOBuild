@@ -11,7 +11,7 @@ def command(
     mine: Annotated[bool, "自分が担当のタスクだけ（--assignee @me と同じ）"] = False,
     search: Annotated[str, "題名・本文の検索（GitHubの検索の書き方）"] = "",
     milestone: Annotated[str, "このマイルストーンのタスクだけ"] = "",
-    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・作業空間がなく、未着手のもの）"] = False,
+    ready: Annotated[bool, "着手できるタスクだけ（依存待ち・開いている子タスク・タスクブランチがなく、未着手のもの）"] = False,
     sprint: Annotated[str, "このスプリントのタスクだけ（スプリントの名前。current は今日を含むもの）"] = "",
     sort: Annotated[str, "並べる値（priority・due・estimate・sprint・planned_start・planned_end・started・created・"
                          "finished。優先度は高い順、日付・見積もりは小さい順）"] = "",
@@ -21,9 +21,9 @@ def command(
 ) -> int:
     """タスク（Issue）の一覧を表示します。
 
-    * は今いる作業空間、+ は手元に作業空間があるもの、- はGitHubにだけあるものです。
+    * は今いるタスクブランチ、+ は手元にタスクブランチがあるもの、- はGitHubにだけあるものです。
 
-    このPCの別のclone（task start --dir で作ったもの等）にいる作業空間は、その場所も出します。
+    このPCの別のclone（task start --dir で作ったもの等）にいるタスクブランチは、その場所も出します。
     """
     here = []
 
@@ -34,7 +34,7 @@ def command(
                                 sort=sort or None, sprint=sprint or None, submitted=submitted, to_review=to_review)
 
     def render(r):
-        return "\n".join(("* " if t.current else "+ " if t.workspace or t.workspace_path else "- " if t.remote else "  ")
+        return "\n".join(("* " if t.current else "+ " if t.task_branch or t.workspace else "- " if t.remote else "  ")
                          + f"#{t.number} {t.title}"
                          + (f"〈{STAGE_NAMES[t.stage]}〉" if t.stage in STAGE_NAMES else "")
                          + (f"（{submission_text(t.submission)}）" if t.submission else "")
@@ -46,7 +46,7 @@ def command(
                          + (f"（{t.blocked_by} 件を待っています）" if t.blocked_by and t.state == "open" else "")
                          + (f"〔{t.milestone}〕" if t.milestone else "")
                          + ("" if t.state == "open" else "（閉じています）")
-                         + elsewhere(t.workspace_path, here[0]) for t in r) or (
+                         + elsewhere(t.workspace, here[0]) for t in r) or (
             "着手できるタスクはありません" if ready else "提出中のタスクはありません" if submitted
             else "見るように頼まれている提出はありません" if to_review else "タスクはありません")
 

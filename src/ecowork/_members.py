@@ -6,7 +6,7 @@ Repository（repository.py）がこのクラスを継承する。self は Reposi
 from __future__ import annotations
 
 from . import github as _github
-from . import workspace as ws
+from . import model as wm
 from .errors import ErrorCode, WorkError
 
 
@@ -50,12 +50,12 @@ class Members:
 
     def protect(self, *, approvals: int = 0, require_ci: bool = False,
                 branch: str | None = None) -> _github.Protection:
-        """作業空間でないブランチ（既定は作成元）に、GitHub のブランチの保護を設定する：取り込みは PR だけ、
+        """タスクブランチでないブランチ（既定は作成元）に、GitHub のブランチの保護を設定する：取り込みは PR だけ、
         承認の数、（require_ci なら）最新のコミットの CI の項目が通っていること、強制 push・削除の禁止。
         管理者は保護を越えられる（1人で使うモジュールの task finish が止まらないように）。"""
         branch = branch or self.default_base
-        if ws.is_workspace_branch(branch):
-            raise WorkError(ErrorCode.INVALID_BASE, f"作業空間 {branch} は保護しません（作業空間でないブランチを守ります）。")
+        if wm.is_task_branch(branch):
+            raise WorkError(ErrorCode.INVALID_BASE, f"タスクブランチ {branch} は保護しません（タスクブランチでないブランチを守ります）。")
         if approvals < 0 or approvals > 6:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "承認の数は 0〜6 です。")
         checks: tuple[str, ...] = ()

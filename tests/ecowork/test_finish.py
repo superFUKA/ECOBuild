@@ -25,9 +25,9 @@ def started(repository, title="t", **options):
     return task, task.start(**options)
 
 
-def recorded(workspace, name="a.txt", text="a\n", message="a"):
-    write(workspace._repository.root / name, text)
-    return workspace.record(message)
+def recorded(task_branch, name="a.txt", text="a\n", message="a"):
+    write(task_branch._repository.root / name, text)
+    return task_branch.record(message)
 
 
 def by_someone_else(repository, number):
@@ -40,57 +40,57 @@ def by_someone_else(repository, number):
 # 記録（task commit） ------------------------------------------------------------------
 
 def test_record_includes_new_and_deleted_files(repository):
-    _, workspace = started(repository)
+    _, task_branch = started(repository)
     write(repository.root / "new.txt", "n\n")
     (repository.root / "README.md").unlink()
-    result = workspace.record("足して消す")
+    result = task_branch.record("足して消す")
     assert set(result.files) == {"new.txt", "README.md"} and result.skipped == ()
     assert repository.git.working_tree().clean
 
 
 def test_record_skips_new_files_that_are_not_included(repository):
-    _, workspace = started(repository)
+    _, task_branch = started(repository)
     write(repository.root / "keep.cpp", "k\n")
     write(repository.root / "junk.tmp", "j\n")
-    result = workspace.record("記録", include=lambda p: p.endswith(".cpp"))
+    result = task_branch.record("記録", include=lambda p: p.endswith(".cpp"))
     assert result.files == ("keep.cpp",) and result.skipped == ("junk.tmp",)
     assert repository.git.working_tree().untracked == ("junk.tmp",)
     # 何もなければ止め、含めなかったものを案内する
     with pytest.raises(WorkError) as error:
-        workspace.record("もう一度", include=lambda p: p.endswith(".cpp"))
+        task_branch.record("もう一度", include=lambda p: p.endswith(".cpp"))
     assert error.value.code == ErrorCode.NOTHING_TO_COMMIT and "junk.tmp" in error.value.hint
 
 
 def test_record_only_given_paths(repository):
-    _, workspace = started(repository)
+    _, task_branch = started(repository)
     write(repository.root / "a.txt", "a\n")
     write(repository.root / "b.txt", "b\n")
-    result = workspace.record("aだけ", ("a.txt",), include=lambda p: False)
+    result = task_branch.record("aだけ", ("a.txt",), include=lambda p: False)
     assert result.files == ("a.txt",)
     assert repository.git.working_tree().untracked == ("b.txt",)
 
 
 def test_record_amend_keeps_message(repository):
-    _, workspace = started(repository)
-    recorded(workspace, message="最初")
+    _, task_branch = started(repository)
+    recorded(task_branch, message="最初")
     write(repository.root / "b.txt", "b\n")
-    result = workspace.record("", amend=True)
+    result = task_branch.record("", amend=True)
     assert result.message == "最初" and set(result.files) == {"a.txt", "b.txt"}
 
 
 # 完了（task finish） ------------------------------------------------------------------
 
 def test_finish_submits_merges_and_cleans_up(repository):
-    """提出していなくても、提出してから取り込み、Issueを閉じ、手元とGitHubの作業空間を片付ける。"""
-    task, workspace = started(repository)
-    recorded(workspace)
+    """提出していなくても、提出してから取り込み、Issueを閉じ、手元とGitHubのタスクブランチを片付ける。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
     git(repository.root, "commit", "--quiet", "--allow-empty", "-m", "未push")   # 未pushのコミットも送る
     result = repository.finish()
     assert result.task == task.number and result.closed_issue == task.number and not result.partial
     assert result.removed and result.switched_to == "main"
     assert repository.git.current_branch() == "main" and (repository.root / "a.txt").exists()
-    assert not repository.git.has_local_branch(workspace.branch)
-    assert not repository.git.has_remote_branch(workspace.branch)
+    assert not repository.git.has_local_branch(task_branch.branch)
+    assert not repository.git.has_remote_branch(task_branch.branch)
     assert repository.task(task.number).state == "closed"
     merged = repository.github.pulls[result.pull_request]
     assert merged.state == "merged"
@@ -99,10 +99,10 @@ def test_finish_submits_merges_and_cleans_up(repository):
 
 
 def test_finish_with_subject_and_from_elsewhere(repository):
-    """番号を指定すれば作業空間の外からも完了できる。件名は --subject。"""
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    """番号を指定すればタスクブランチの外からも完了できる。件名は --subject。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     repository.git.switch("main")
     result = repository.finish(task.number, subject="中身に合った件名")
     assert result.subject == "中身に合った件名" and result.switched_to is None and result.removed
@@ -111,26 +111,26 @@ def test_finish_with_subject_and_from_elsewhere(repository):
 
 
 def test_finish_refuses_uncommitted_and_draft_and_nothing(repository):
-    task, workspace = started(repository)
+    task, task_branch = started(repository)
     assert code_of(repository.finish) == ErrorCode.NOTHING_TO_SUBMIT
     write(repository.root / "README.md", "変更\n")
     assert code_of(repository.finish) == ErrorCode.DIRTY_WORKING_TREE
-    workspace.record("変更")
-    workspace.submit(draft=True)
+    task_branch.record("変更")
+    task_branch.submit(draft=True)
     assert code_of(repository.finish) == ErrorCode.PULL_REQUEST_DRAFT
-    workspace.submit()                     # もう一度 submit で下書きを解除
+    task_branch.submit()                     # もう一度 submit で下書きを解除
     assert not repository.submission(task.number).draft
     assert repository.finish().closed_issue == task.number
 
 
 def test_finish_waits_for_ci(repository):
-    task, workspace = started(repository)
+    task, task_branch = started(repository)
     write(repository.root / ".github/workflows/ci.yml", "name: ci\n")
-    recorded(workspace)
-    pr = workspace.submit()
+    recorded(task_branch)
+    pr = task_branch.submit()
     sha = repository.github.get_pull_request(repository.root, pr.number).head_sha
     github = repository.github
-    github.runs = [RunInfo(1, "build", workspace.branch, "pull_request", "in_progress", "", "u", "t", sha)]
+    github.runs = [RunInfo(1, "build", task_branch.branch, "pull_request", "in_progress", "", "u", "t", sha)]
     ticks = []
 
     def sleep(seconds):
@@ -148,19 +148,19 @@ def test_finish_waits_for_ci(repository):
 
 
 def test_finish_partial_rebuilds_and_keeps_going(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit(partial=True)
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit(partial=True)
     result = repository.finish()
-    assert result.partial and result.workspace_rebuilt and not result.removed and result.next is None
+    assert result.partial and result.branch_rebuilt and not result.removed and result.next is None
     assert repository.task(task.number).state == "open"
-    assert repository.git.current_branch() == workspace.branch
+    assert repository.git.current_branch() == task_branch.branch
 
 
 def test_finish_resumes_after_a_failure(repository, monkeypatch):
     repository.create_branch("develop")    # main 以外へは GitHub が Issue を閉じない（ecowork が閉じる）
-    task, workspace = started(repository, base="develop")
-    recorded(workspace)
+    task, task_branch = started(repository, base="develop")
+    recorded(task_branch)
     github = repository.github
 
     def failing(*args, **kwargs):
@@ -178,9 +178,9 @@ def test_finish_resumes_after_a_failure(repository, monkeypatch):
 
 
 def test_finish_requires_approval_when_configured(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     repository.require_approval = True
     assert code_of(repository.finish) == ErrorCode.APPROVAL_REQUIRED
     by_someone_else(repository, task.number)
@@ -191,9 +191,9 @@ def test_finish_requires_approval_when_configured(repository):
 # 承認・差し戻し・取り下げ ------------------------------------------------------------
 
 def test_review_then_approve_returns_and_finishes(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     repository.git.switch("main")
     by_someone_else(repository, task.number)
     review = repository.review_task(task.number)
@@ -201,22 +201,22 @@ def test_review_then_approve_returns_and_finishes(repository):
     result = repository.approve(task.number, "よいです")
     assert result.returned_to == "main" and result.approved and result.closed_issue == task.number
     assert repository.status().reviewing is None and repository.git.current_branch() == "main"
-    assert not repository.git.has_local_branch(workspace.branch)    # 作業者の手元（同じclone）も片付いた
+    assert not repository.git.has_local_branch(task_branch.branch)    # 作業者の手元（同じclone）も片付いた
 
 
 def test_own_submission_cannot_be_approved(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     with pytest.raises(WorkError) as error:
         repository.approve(task.number)
     assert error.value.code == ErrorCode.OWN_PULL_REQUEST and f"task finish {task.number}" in error.value.hint
 
 
 def test_reject_and_resubmit(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     by_someone_else(repository, task.number)
     assert code_of(lambda: repository.reject(task.number, " ")) == ErrorCode.INVALID_ARGUMENT
     result = repository.reject(task.number, "名前を直して")
@@ -226,59 +226,59 @@ def test_reject_and_resubmit(repository):
 
 
 def test_withdraw_then_submit_again(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    first = workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    first = task_branch.submit()
     repository.withdraw()
     assert repository.submission(task.number) is None
     assert repository.github.pulls[first.number].state == "closed"
-    second = workspace.submit()
+    second = task_branch.submit()
     assert second.number != first.number and repository.submission(task.number).number == second.number
 
 
 # 片付け・取り消し・差分 ---------------------------------------------------------------
 
 def test_finished_workspaces_are_tidied_on_next_start(repository, tmp_path):
-    """別の場所で完了したタスクの手元の作業空間は、次の task start で片付く。"""
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    """別の場所で完了したタスクの手元のタスクブランチは、次の task start で片付く。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     repository.git.switch("main")
     repository.github.merge_pull_request(repository.root, repository.submission(task.number).number,
                                          squash=True, subject="別の場所で")
-    git(repository.root, "push", "--quiet", "origin", "--delete", workspace.branch)
+    git(repository.root, "push", "--quiet", "origin", "--delete", task_branch.branch)
     other = repository.create_task("次")
     repository.git.fetch()
     other.start()
-    assert not repository.git.has_local_branch(workspace.branch)
-    assert any(workspace.branch in n for n in repository.notices)
+    assert not repository.git.has_local_branch(task_branch.branch)
+    assert any(task_branch.branch in n for n in repository.notices)
 
 
 def test_clean_one_workspace(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.push()
-    result = repository.clean_workspace(task.number)      # 開いているタスク：手元の写しだけを消す
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.push()
+    result = repository.prune_task_branch(task.number)      # 開いているタスク：手元の写しだけを消す
     assert result.remote and result.switched_to == "main"
-    assert not repository.git.has_local_branch(workspace.branch) and repository.git.has_remote_branch(workspace.branch)
+    assert not repository.git.has_local_branch(task_branch.branch) and repository.git.has_remote_branch(task_branch.branch)
 
 
 def test_clean_dry_run_matches_the_real_run(repository):
-    """今いる作業空間に未コミットの変更があれば、dry-run でも「残す」に数える。"""
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    """今いるタスクブランチに未コミットの変更があれば、dry-run でも「残す」に数える。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     repository.github.merge_pull_request(repository.root, repository.submission(task.number).number,
                                          squash=True, subject="s")
     write(repository.root / "a.txt", "変更\n")
-    preview = repository.clean_workspaces(dry_run=True)
-    assert preview.removed == () and preview.skipped[0].branch == workspace.branch
+    preview = repository.prune_task_branches(dry_run=True)
+    assert preview.removed == () and preview.skipped[0].branch == task_branch.branch
 
 
 def test_revert_task_and_diff(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit()
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
     assert "+a" in repository.task_diff(task.number)
     repository.finish()
     reverted = repository.revert_task(task.number)
@@ -288,9 +288,9 @@ def test_revert_task_and_diff(repository):
 
 
 def test_tasks_show_submissions(repository):
-    task, workspace = started(repository)
-    recorded(workspace)
-    workspace.submit(draft=True)
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit(draft=True)
     listed = {t.number: t for t in repository.tasks()}
     assert listed[task.number].submission.draft
     assert [t.number for t in repository.tasks(submitted=True)] == [task.number]
@@ -298,8 +298,8 @@ def test_tasks_show_submissions(repository):
 
 def test_merge_branch_by_name(repository):
     repository.create_branch("develop")
-    task, workspace = started(repository, base="develop")
-    recorded(workspace)
+    task, task_branch = started(repository, base="develop")
+    recorded(task_branch)
     repository.finish()
     repository.branch("develop").submit(into="main")
     assert repository.merge_branch("develop").method == "merge"
@@ -307,9 +307,9 @@ def test_merge_branch_by_name(repository):
 
 
 def test_new_files_outside_the_work_do_not_block(repository):
-    """include_new に当たらない新しいファイル（メモ等）は、作業空間の切り替え・やめる等を止めない。"""
+    """include_new に当たらない新しいファイル（メモ等）は、タスクブランチの切り替え・やめる等を止めない。"""
     repository.include_new = lambda p: p.endswith(".cpp")
-    task, workspace = started(repository)
+    task, task_branch = started(repository)
     write(repository.root / "notes.tmp", "メモ\n")
     other = repository.create_task("次").start()          # 止まらない
     assert other.number != task.number and (repository.root / "notes.tmp").exists()

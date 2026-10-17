@@ -74,8 +74,10 @@
         <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのフォルダを登録</small></span></label>
       </fieldset>
       <fieldset id="new-fields" style="border:0;padding:0;margin:0">
-        <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label>
-          <label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
+        <label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label>
+        <div class="form-grid" id="kind-fields"><label class="field" id="app-field">最初に作るもの<select name="kind" id="kind-select"></select></label><label class="field" id="project-field">名前（任意）<input name="project" placeholder="省略時はモジュール名" pattern="[A-Za-z][A-Za-z0-9_]*" title="英字で始まる英数字・アンダースコア"></label></div>
+        <div class="form-grid"><label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
+        <label class="check" id="test-field"><input type="checkbox" name="test" checked> <span id="test-label">テスト用のProjectも作る</span></label>
       </fieldset>
       <fieldset id="clone-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">GitHubリポジトリ<input name="repository" placeholder="所有者/名前 または 名前" pattern="[^/\s]+(/[^/\s]+)?" required></label>
@@ -84,12 +86,10 @@
       </fieldset>
       <div id="parent-fields">
         <label class="field">保存先の親フォルダ<span class="dir-row"><input name="directory" required><button type="button" data-pick="directory">参照…</button></span></label>
-        <p class="note">このフォルダの下にモジュール名のフォルダを作ります（親フォルダがなければ作ります）。</p>
+        <p class="note">このフォルダの下にモジュール名のフォルダを作ります。</p>
       </div>
       <fieldset id="new-more" style="border:0;padding:0;margin:0">
-        <details class="more-options"><summary>詳細設定 <span>最初に作るもの・説明・所有者・公開範囲</span></summary>
-          <div class="form-grid" id="kind-fields"><label class="field" id="app-field">最初に作るもの<select name="kind" id="kind-select"></select></label><label class="field" id="project-field">名前（任意）<input name="project" placeholder="省略時はモジュール名" pattern="[A-Za-z][A-Za-z0-9_]*" title="英字で始まる英数字・アンダースコア"></label></div>
-          <label class="check" id="test-field"><input type="checkbox" name="test" checked> <span id="test-label">テスト用のProjectも作る</span></label>
+        <details class="more-options"><summary>詳細設定 <span>説明・所有者・公開範囲</span></summary>
           <label class="field">説明（任意）<textarea name="description" rows="2"></textarea></label>
           <label class="field">所有者（任意）<input name="owner" placeholder="省略時は既定の所有者（未設定ならログイン中のユーザー）"></label>
           <label class="check"><input type="checkbox" name="public"> 公開リポジトリにする</label>

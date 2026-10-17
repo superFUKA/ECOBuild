@@ -135,9 +135,10 @@ def open_solution(root: Path) -> Solution:
         raise _cppbuild_error("CppBuildのSolutionを開けません。", error) from error
 
 
-def create_module_solution(root: Path, name: str, kind: str, project: str | None = None) -> Solution:
+def create_module_solution(root: Path, name: str, kind: str, project: str | None = None, *,
+                           test: bool = True) -> Solution:
     """Solutionと、最初のProjectを作る（生成はしない）。kind：app＝実行ファイル <Project名>、
-    library＝ライブラリ <Project名> とテスト用 <Project名>Test、none＝Projectを作らない。
+    library＝静的ライブラリ <Project名> とテスト用 <Project名>Test（test が偽なら作らない）、none＝Projectを作らない。
     Project名は project（省略時はモジュール名）。
 
     CppBuildは最初に作ったProjectを main_project にし、他のモジュールからリンクされるのはそれだけ
@@ -153,7 +154,7 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
         if kind == "app":
             _create_linked(solution, project or name, "app", None)
         elif kind == "library":
-            _create_library(solution, project or name, test=True)
+            _create_library(solution, project or name, test=test)
         return solution
     except EcoBuildError:
         raise

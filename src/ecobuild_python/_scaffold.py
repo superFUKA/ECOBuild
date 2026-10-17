@@ -56,7 +56,8 @@ def package_name(module_name: str, project: str | None) -> str:
     return (project or module_name).lower()
 
 
-def populate(root: Path, module_name: str, kind: str, project: str | None) -> None:
+def populate(root: Path, module_name: str, kind: str, project: str | None, *, test: bool = True) -> None:
+    """test：パッケージのテスト（tests/test_<パッケージ>.py）も作る（偽なら tests/ は空で置く）。"""
     package = package_name(module_name, project)
     scripts = f'\n[project.scripts]\n{module_name} = "{package}.__main__:main"\n' if kind == "app" else ""
     write(root / "pyproject.toml", PYPROJECT.format(name=module_name, scripts=scripts))
@@ -70,7 +71,10 @@ def populate(root: Path, module_name: str, kind: str, project: str | None) -> No
     write(root / "src" / package / "__init__.py", f'"""{module_name}。"""\n')
     if kind == "app":
         write(root / "src" / package / "__main__.py", MAIN.format(name=module_name, package=package))
-    write(root / "tests" / f"test_{package}.py", IMPORT_TEST.format(package=package))
+    if test:
+        write(root / "tests" / f"test_{package}.py", IMPORT_TEST.format(package=package))
+    else:
+        write(root / "tests" / ".gitkeep", "")
 
 
 def write(path: Path, text: str) -> None:

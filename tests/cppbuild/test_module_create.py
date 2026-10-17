@@ -58,6 +58,14 @@ def test_create_module(short_tmp):
         assert completed.returncode == 0, completed.stdout[-2000:] + completed.stderr[-2000:]
 
 
+def test_library_without_its_test_project(short_tmp):
+    """module new --kind library --no-test：テスト用のProjectを作らない。"""
+    github = FakeGitHub(short_tmp / "gh")
+    Module.create("Calc", directory=short_tmp, kind="library", github=github, test=False)
+    files = git(github.bare, "ls-tree", "-r", "--name-only", "main").splitlines()
+    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitignore", "Calc", "README.md"]
+
+
 def test_existing_directory_is_rejected(short_tmp):
     (short_tmp / "Calc").mkdir()
     with pytest.raises(WorkError) as error:  # 作業の進め方（ecowork）のエラー

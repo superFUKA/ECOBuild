@@ -126,6 +126,7 @@ class Module:
         github: _github.GitHub | None = None,
         registry: Registry | None = None,
         progress: Callable[[str], None] | None = None,
+        test: bool = True,
     ) -> "Module":
         """GitHubリポジトリを作り、型が用意する中身と共に初回コミットをpushする。タスク管理も準備する
         （できなければ知らせ、タスクを初めて記録するときにもう一度行う）。
@@ -133,6 +134,7 @@ class Module:
         kind：最初に作るもの（型の new_kinds。C++：app＝実行ファイル〔既定〕・library＝ライブラリとテスト用・
         none＝作らない）。モジュールはリンクのための単位ではなく、中身は後から project add で足す。
         project：最初に作るProjectの名前（省略時はモジュール名。ライブラリならテスト用は <名前>Test）。
+        test：ライブラリのテスト（C++ ならテスト用のProject）も作る（既定）。
         type：モジュールの型（省略時は registry の既定の型）。githubは試験でGitHubへの接続を差し替えるためのもの。
         progress：経過（今している作業）を知らせる口。
         """
@@ -168,7 +170,7 @@ class Module:
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class), encoding="utf-8", newline="\n")
             (progress or _quiet)(_POPULATING.get(kind or type_class.default_new_kind or "", "モジュールの中身を用意中…"))
-            type_class.populate(root, module_config, kind or None, project or None)
+            type_class.populate(root, module_config, kind or None, project or None, test=test)
 
         repository = Repository.create(
             name, directory=directory, description=description, private=not public, owner=owner,

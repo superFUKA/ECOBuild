@@ -61,9 +61,11 @@ class ModuleType:
         return ModuleConfig.for_new_module(name, cls.name)
 
     @classmethod
-    def populate(cls, root: Path, config: "ModuleConfig", kind: str | None, project: str | None = None) -> None:
+    def populate(cls, root: Path, config: "ModuleConfig", kind: str | None, project: str | None = None, *,
+                 test: bool = True) -> None:
         """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。kind：new_kinds のどれか。
-        project：最初に作るProjectの名前（None ならモジュール名。new_kinds のある型だけに渡る）。"""
+        project：最初に作るProjectの名前（None ならモジュール名。new_kinds のある型だけに渡る）。
+        test：ライブラリのテスト（C++ ならテスト用のProject）も作る。"""
 
     @classmethod
     def gitignore(cls) -> str:

@@ -12,6 +12,7 @@ def command(
     project: Annotated[str, "最初に作るProjectの名前（既定はモジュール名。C++でライブラリならテスト用は <名前>Test。Python ではパッケージ名で、既定はモジュール名の小文字）"] = "",
     owner: Annotated[str, "リポジトリの所有者（組織名など。既定はログイン中のユーザー）"] = "",
     type: Annotated[str, "モジュールの型（ecobuild module types で一覧。既定は cpp）"] = "",
+    test: Annotated[bool, "library のとき、テスト（C++ ならテスト用のProject <名前>Test）も作る（--no-test で作らない）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """モジュール（GitHubリポジトリ）を作り、初回コミットをpushします。
@@ -27,7 +28,7 @@ def command(
         from ecobuild import settings
         module = Module.create(name, directory=inv.cwd, description=description, public=public,
                                kind=kind, project=project, owner=owner or settings.load_config().get("owner"), type=type or None,
-                               progress=inv.info)
+                               progress=inv.info, test=test)
         inv.use_module(module)
         return module.summary()
 

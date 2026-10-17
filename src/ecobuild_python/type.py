@@ -58,8 +58,9 @@ class PythonType(ModuleType, Builds, HasFiles):
     default_new_kind = "app"
 
     @classmethod
-    def populate(cls, root: Path, config: ModuleConfig, kind: str | None, project: str | None = None) -> None:
-        _scaffold.populate(root, config.name, kind or cls.default_new_kind, project)
+    def populate(cls, root: Path, config: ModuleConfig, kind: str | None, project: str | None = None, *,
+                 test: bool = True) -> None:
+        _scaffold.populate(root, config.name, kind or cls.default_new_kind, project, test=test)
 
     @classmethod
     def gitignore(cls) -> str:

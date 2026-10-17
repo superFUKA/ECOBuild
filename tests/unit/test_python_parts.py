@@ -51,6 +51,12 @@ def test_populate(tmp_path, kind, files):
     assert _python.script_name(tmp_path) == ("Calc" if kind == "app" else None)
 
 
+def test_library_without_tests(tmp_path):
+    PythonType.populate(tmp_path, ModuleConfig.for_new_module("Calc", "python"), "library", None, test=False)
+    assert {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()} == {
+        "pyproject.toml", "src/calc/__init__.py", "tests/.gitkeep"}
+
+
 def test_project_names_the_package(tmp_path):
     make(tmp_path, "library", project="Engine")
     assert (tmp_path / "src/engine/__init__.py").is_file() and (tmp_path / "tests/test_engine.py").is_file()

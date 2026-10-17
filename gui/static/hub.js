@@ -179,12 +179,16 @@ function updateFields() {
   const named = kinds.length > 0 && select.value !== 'none';   // --project names what is made first
   $('project-field').hidden = !named; field('project').disabled = !named;
   field('project').placeholder = type === 'python' ? '省略時はモジュール名の小文字（パッケージ名）' : '省略時はモジュール名';
+  // A library: whether its test is made too (module new --no-test when not).
+  const library = kinds.length > 0 && select.value === 'library';
+  $('test-field').hidden = !library; field('test').disabled = !library;
+  $('test-label').textContent = type === 'cpp' ? `テスト用のProject（${field('project').value.trim() || field('name').value.trim() || '名前'}Test）も作る` : 'テスト（tests/）も作る';
 }
 // module new --kind: the CLI's value and what it makes.
 const FALLBACK_KINDS = {cpp: ['app', 'library', 'none'], python: ['app', 'library', 'none']};
 const KIND_TEXT = {
-  cpp: {app: 'app（実行ファイル）', library: 'library（静的ライブラリ .lib ＋テスト用のProject）', none: 'none（Projectを作らない）'},
-  python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ＋テスト）', none: 'none（パッケージを作らない）'},
+  cpp: {app: 'app（実行ファイル）', library: 'library（静的ライブラリ .lib）', none: 'none（Projectを作らない）'},
+  python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ）', none: 'none（パッケージを作らない）'},
 };
 const kindText = (type, kind) => KIND_TEXT[type]?.[kind] || kind;
 $('add-module').addEventListener('click', async () => {
@@ -213,6 +217,7 @@ $('clone-candidates').addEventListener('click', event => {
   for (const b of $('clone-candidates').querySelectorAll('[data-candidate]')) b.classList.toggle('selected', b === pick);
 });
 addForm.addEventListener('change', updateFields);
+addForm.addEventListener('input', e => { if (e.target.name === 'name' || e.target.name === 'project') updateFields(); });
 addForm.addEventListener('click', async event => {
   const pick = event.target.closest('[data-pick]'); if (!pick) return;
   const input = field(pick.dataset.pick);
@@ -240,6 +245,7 @@ addForm.addEventListener('submit', async event => {
     for (const option of ['description', 'owner']) if (data.get(option).trim()) args.push('--' + option, data.get(option).trim());
     if (data.has('public')) args.push('--public');
     if (data.get('kind')) args.push('--kind', data.get('kind'));
+    if (data.get('kind') === 'library' && !data.has('test')) args.push('--no-test');
     if (data.get('project')?.trim()) args.push('--project', data.get('project').trim());
   }
   // Close the form and show the busy overlay ("ぐるぐる") with what the command is doing now (it reports each step).

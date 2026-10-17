@@ -127,9 +127,15 @@
   }
   const DAY = 86400000, WEEK = ['日', '月', '火', '水', '木', '金', '土'];
   const dayOf = d => Date.parse(d + 'T00:00:00Z') / DAY, weekday = n => new Date(n * DAY).getUTCDay();
-  // 日程: every task is a row. Tasks with planned start and end have a bar (drag to move, right edge to change the end);
+  // 日程 shows as 横の帯 (renderBars) or as a month calendar (renderCalendar); the choice is kept per PC.
+  let timelineMode = 'bars';
+  try { timelineMode = localStorage.getItem('ecobuild-gui-timeline-mode') === 'calendar' ? 'calendar' : 'bars'; } catch (e) { /* storage blocked */ }
+  const modeSwitch = () => `<div class="tl-modes" role="group" aria-label="日程の表示">${[['bars', '横の帯'], ['calendar', 'カレンダー']].map(([key, ja]) =>
+    `<button type="button" data-tl-mode="${key}" aria-pressed="${timelineMode === key}">${ja}</button>`).join('')}</div>`;
+  const renderTimeline = () => timelineMode === 'calendar' ? renderCalendar() : renderBars();
+  // 日程（横の帯）: every task is a row. Tasks with planned start and end have a bar (drag to move, right edge to change the end);
   // the others are rows without a bar, below them: drag across their days to give them a plan (task edit).
-  function renderTimeline() {
+  function renderBars() {
     const dated = visible().filter(t => t.planned_start && t.planned_end).sort((a, b) => a.planned_start.localeCompare(b.planned_start) || a.number - b.number);
     const undated = visible().filter(t => !t.planned_start || !t.planned_end).sort((a, b) => (a.state === 'open') === (b.state === 'open') ? a.number - b.number : a.state === 'open' ? -1 : 1);
     const now = dayOf(today()), tasks = [...dated, ...undated];
@@ -147,9 +153,45 @@
         return label(t, r, `undated ${i === 0 ? 'first' : ''}`)
           + `<div class="tl-empty ${open ? 'plannable' : ''} ${i === 0 ? 'first' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を設定' : '閉じたタスク'}"></div>`
           + (one ? `<div class="tl-point" style="grid-row:${r};grid-column:${col(dayOf(one))}" title="${t.planned_start ? '開始予定' : '終了予定'}だけ ${md(one)}"></div>` : '') + dueMark(t, r); }).join('');
-    return `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${tasks.length}, 34px)">
+    return modeSwitch() + `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${tasks.length}, 34px)">
       <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${tasks.length + 1}"></div>${rows}</div></div>
       <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated.length ? `<span><i class="tl-key empty"></i>日程のないタスク（行の上をドラッグして予定を設定）</span>` : ''}</div>`;
+  }
+  // 日程（カレンダー）: a month, a week per row (Monday first, as 横の帯). A task with a plan is a bar over its days, cut at
+  // the week's edges; its due date is a ◆ under the bars. Click one to see the task. Plans are changed in 横の帯 or the detail.
+  let calendarMonth = '';   // YYYY-MM; empty: this month
+  const monthOf = (y, m) => new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 7);   // m from 0, may be out of 0〜11
+  function renderCalendar() {
+    const month = calendarMonth || today().slice(0, 7), y = Number(month.slice(0, 4)), m = Number(month.slice(5, 7)) - 1;
+    const firstDay = dayOf(month + '-01'), lastDay = dayOf(monthOf(y, m + 1) + '-01') - 1, now = dayOf(today());
+    const first = firstDay - (weekday(firstDay) + 6) % 7, last = lastDay + 6 - (weekday(lastDay) + 6) % 7;
+    const tasks = visible(), dated = tasks.filter(t => t.planned_start && t.planned_end && t.planned_start <= t.planned_end);
+    const weeks = [];
+    for (let w = first; w <= last; w += 7) {
+      const lanes = [];   // the bars that do not overlap share a row
+      const bars = dated.filter(t => dayOf(t.planned_start) <= w + 6 && dayOf(t.planned_end) >= w)
+        .sort((a, b) => a.planned_start.localeCompare(b.planned_start) || b.planned_end.localeCompare(a.planned_end) || a.number - b.number)
+        .map(t => {
+          const from = Math.max(dayOf(t.planned_start), w), to = Math.min(dayOf(t.planned_end), w + 6);
+          let lane = lanes.findIndex(l => l.every(([a, b]) => to < a || from > b));
+          if (lane < 0) { lane = lanes.length; lanes.push([]); }
+          lanes[lane].push([from, to]);
+          const late = t.state === 'open' && dayOf(t.planned_end) < now;
+          return `<div class="cal-bar ${STAGE[stageOf(t)][2]} ${late ? 'late' : ''} ${from > dayOf(t.planned_start) ? 'cut-start' : ''} ${to < dayOf(t.planned_end) ? 'cut-end' : ''}" ${sel(t)}
+            style="grid-column:${from - w + 1} / ${to - w + 2};grid-row:${lane + 2}" title="#${t.number} ${esc(t.title)}（${md(t.planned_start)}〜${md(t.planned_end)}）"><span class="tk-num">#${t.number}</span> ${esc(t.title)}</div>`;
+        });
+      const days = Array.from({length: 7}, (_, i) => w + i), dueRow = lanes.length + 2;
+      weeks.push(`<div class="cal-week" style="grid-template-rows:24px repeat(${lanes.length}, 22px) minmax(26px, auto)">
+        ${days.map((n, i) => { const d = new Date(n * DAY), dues = tasks.filter(t => t.due && dayOf(t.due) === n);
+          return `<div class="cal-day ${i >= 5 ? 'off' : ''} ${n === now ? 'today' : ''} ${n < firstDay || n > lastDay ? 'other' : ''}" style="grid-column:${i + 1}"></div>`
+            + `<div class="cal-date ${n === now ? 'today' : ''}" style="grid-column:${i + 1}">${d.getUTCDate() === 1 ? `${d.getUTCMonth() + 1}/` : ''}${d.getUTCDate()}</div>`
+            + (dues.length ? `<div class="cal-dues" style="grid-column:${i + 1};grid-row:${dueRow}">${dues.map(t => `<div class="cal-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" ${sel(t)} title="期限 ${md(t.due)}：#${t.number} ${esc(t.title)}">◆ <span class="tk-num">#${t.number}</span> ${esc(t.title)}</div>`).join('')}</div>` : ''); }).join('')}
+        ${bars.join('')}</div>`);
+    }
+    const undated = tasks.filter(t => !t.planned_start || !t.planned_end).length;
+    return modeSwitch() + `<div class="cal-tools"><button type="button" data-cal-move="-1" aria-label="前の月">‹</button><strong>${y}年${m + 1}月</strong><button type="button" data-cal-move="1" aria-label="次の月">›</button><button type="button" data-cal-move="0">今月</button></div>
+      <div class="cal"><div class="cal-head">${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<div class="${i >= 5 ? 'off' : ''}">${w}</div>`).join('')}</div>${weeks.join('')}</div>
+      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated ? `<span>予定（開始・終了）のないタスク ${undated} 件は、「横の帯」でドラッグして予定を付けられます</span>` : ''}</div>`;
   }
   function scrollToToday() { const wrap = document.querySelector('.tl-wrap'), nowLine = document.querySelector('.tl-now'); if (wrap && nowLine) wrap.scrollLeft = Math.max(0, nowLine.offsetLeft - 220 - 7 * 28); }
 
@@ -255,7 +297,7 @@
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
-    if (st.view === 'timeline') scrollToToday();
+    if (st.view === 'timeline' && timelineMode === 'bars') scrollToToday();
     tkEl('tk-detail').hidden = !st.selected; document.querySelector('.tk-body').classList.toggle('no-detail', !st.selected);
     if (st.selected) renderDetail();
   }
@@ -742,6 +784,14 @@
     const removeAssignee = e.target.closest('[data-remove-assignee]'); if (removeAssignee) return editList(st.selected, '--remove-assignee', removeAssignee.dataset.removeAssignee, '担当者を外しました。');
     const removeLabel = e.target.closest('[data-remove-label]'); if (removeLabel) return editList(st.selected, '--remove-label', removeLabel.dataset.removeLabel, 'ラベルを外しました。');
     const person = e.target.closest('[data-person]'); if (person) return showPerson(person.dataset.person);
+    const mode = e.target.closest('[data-tl-mode]');
+    if (mode) { timelineMode = mode.dataset.tlMode; try { localStorage.setItem('ecobuild-gui-timeline-mode', timelineMode); } catch (error) { /* storage blocked */ } render(); return; }
+    const move = e.target.closest('[data-cal-move]');
+    if (move) {
+      const step = Number(move.dataset.calMove), month = calendarMonth || today().slice(0, 7);
+      calendarMonth = step ? monthOf(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + step) : '';
+      render(); return;
+    }
     const go = e.target.closest('[data-dash-go]'); if (go) { st.view = go.dataset.dashGo; render(); return; }
     const milestone = e.target.closest('[data-dash-milestone]'); if (milestone) { st.milestone = milestone.dataset.dashMilestone; renderFilterOptions(); st.view = 'list'; render(); return; }
     if (e.target.closest('[data-dash-unassigned]')) { st.assignee = '-'; tkEl('tk-assignee').value = '-'; st.view = 'list'; render(); return; }

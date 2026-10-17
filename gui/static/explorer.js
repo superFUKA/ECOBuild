@@ -200,9 +200,10 @@ async function openInEditor(path) {
 // Context menu ----------------------------------------------------------------------------------------
 let returnFocus = null;
 function closeMenu() { menu.hidden = true; }
+const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen']);   // deleting: shown in red
 function showMenu(items, x, y) {
   returnFocus = document.activeElement;
-  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${item[2] === false ? 'disabled' : ''}>${esc(item[1])}</button>`).join('');
+  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? 'disabled' : ''}>${esc(item[1])}</button>`).join('');
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - 240)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';

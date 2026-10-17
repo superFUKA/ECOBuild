@@ -154,3 +154,5 @@ body.resizing iframe { pointer-events: none; }
 #file-tree summary .tree-caret:hover { background: #2b333c; color: #edf1f5; }
 /* Chosen in the explorer (a click; Ctrl・Shift for several) */
 #file-tree .file.chosen, #file-tree summary.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
+#file-menu button.danger:not(:disabled) { color: #ff9b9b; }
+#file-menu button.danger:not(:disabled):hover, #file-menu button.danger:not(:disabled):focus-visible { background: #4a2528; color: #ffc4c4; }

@@ -36,6 +36,9 @@
 .build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .build-bar .vs-group .vs-more { padding: 3px 9px; font-size: 14px; line-height: 1; border: 1px solid #6c5a9c; border-left: 1px solid #3c3354; border-radius: 0 7px 7px 0; color: #d6c9f7; }
 .build-bar .vs-group .vs-more:hover { border-color: #b39ddb; }
+.build-bar .agent-group .agent-button, .build-bar .agent-group .vs-more { border-color: #3f7a6c; color: #b8eadb; }
+.build-bar .agent-group .vs-more { border-left-color: #2d4d45; }
+.build-bar .agent-group button:hover:not(:disabled) { border-color: #7fcdb8; }
 
 /* Explorer: Project folders vs ordinary folders. */
 #file-tree summary { display: flex; align-items: center; gap: 6px; }

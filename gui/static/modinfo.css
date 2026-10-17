@@ -82,3 +82,20 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-about-list dd { margin: 0; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
 .mi-about-list a { color: var(--accent); }
 @media (max-width: 900px) { .mi-home { grid-template-columns: minmax(0, 1fr); } .mi-about { order: -1; } }
+/* Project: the links as a picture */
+.mi-diagram { margin: 0 0 16px; padding: 10px; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.mi-diagram svg { display: block; }
+.mi-diagram .mi-note { margin-top: 6px; }
+.mi-edge { fill: none; stroke: #6b7684; stroke-width: 1.6; }
+#mi-arrow path { fill: #6b7684; }
+.mi-node rect { fill: #1f262e; stroke: #4a5562; stroke-width: 1.2; }
+.mi-node[data-mi] { cursor: pointer; }
+.mi-node[data-mi]:hover rect { stroke: var(--accent); }
+.mi-node-name { fill: #edf1f5; font: 600 12.5px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.mi-node-kind { fill: #8c96a3; font: 10.5px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.mi-node.k-static_library rect, .mi-node.k-shared_library rect, .mi-node.k-library rect { stroke: #3f7a6c; fill: #1a2a26; }
+.mi-node.k-executable rect, .mi-node.k-app rect { stroke: #40516c; fill: #1b2230; }
+.mi-node.k-test rect { stroke: #544565; fill: #231d2c; }
+.mi-node.k-bench rect { stroke: #7a5f35; fill: #2a2318; }
+.mi-node.k-module rect { stroke: #5fd38d; fill: #17241d; stroke-dasharray: 4 3; }
+.mi-node.k-other rect { stroke: #56616e; stroke-dasharray: 2 3; }

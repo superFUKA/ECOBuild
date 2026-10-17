@@ -4,7 +4,7 @@
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  let view = 'home', place = '', data = {};
+  let view = ['projects', 'deps', 'branches', 'profiles'].find(v => location.hash === '#modinfo/' + v) || 'home', place = '', data = {};
   // What the module's type offers (ECO.typeFeatures): Projects・dependencies・templates are of the types that have them.
   let features = ECO.typeFeatures('');
   const typeLoaded = ECO.moduleType(MOD.root).then(type => {
@@ -161,13 +161,52 @@
     if (d.latest && d.latest !== d.recorded) notes.push(`新しい版 <span class="mi-mono">${short(d.latest)}</span> があります（「更新」で記録を更新できます）`);
     return pill(label, cls) + notes.map(n => `<div class="mi-sub">${n}</div>`).join('');
   }
+  // The links between the Projects as a picture: who uses whom, left to right (a Project on the left links the ones to
+  // its right; the dependencies — other modules — at the right end). Click a Project for its settings.
+  function linkDiagram(projects, deps, main) {
+    const names = new Set(projects.map(p => p.name)), level = new Map();
+    const depth = (p, seen = new Set()) => {
+      if (level.has(p.name)) return level.get(p.name);
+      if (seen.has(p.name)) return 0;   // a loop (should not happen): stop there
+      seen.add(p.name);
+      const inner = p.links.filter(l => names.has(l)).map(l => depth(projects.find(x => x.name === l), seen));
+      const d = inner.length ? 1 + Math.max(...inner) : 0;
+      level.set(p.name, d); return d;
+    };
+    projects.forEach(p => depth(p));
+    const outside = [...new Set(projects.flatMap(p => p.links.filter(l => !names.has(l))))];
+    if (!projects.length) return '';
+    const top = Math.max(0, ...level.values());
+    const columns = [];
+    for (const p of projects) (columns[top - level.get(p.name)] ??= []).push({name: p.name, kind: p.kind, main: p.name === main});
+    if (outside.length) columns.push(outside.map(name => ({name, kind: deps.some(d => d.name === name) ? 'module' : 'other'})));
+    const W = 168, H = 40, GX = 92, GY = 18, PAD = 12, place = new Map();
+    columns.forEach((col, x) => (col || []).forEach((n, y) => place.set(n.name, {x: PAD + x * (W + GX), y: PAD + y * (H + GY), n})));
+    const width = PAD * 2 + columns.length * W + (columns.length - 1) * GX;
+    const height = PAD * 2 + Math.max(...columns.map(c => (c || []).length)) * (H + GY) - GY;
+    const LABEL = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定', module: '依存先のモジュール', other: 'リンク'};
+    const edges = projects.flatMap(p => p.links.map(l => [place.get(p.name), place.get(l)])).filter(([a, b]) => a && b).map(([a, b]) => {
+      const x1 = a.x + W, y1 = a.y + H / 2, x2 = b.x - 6, y2 = b.y + H / 2, mid = (x1 + x2) / 2;
+      return `<path class="mi-edge" d="M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}" marker-end="url(#mi-arrow)"/>`;
+    }).join('');
+    const nodes = [...place.values()].map(({x, y, n}) => {
+      const own = names.has(n.name);
+      return `<g class="mi-node k-${esc(n.kind)}" ${own ? `data-mi="project-settings" data-arg="${esc(n.name)}"` : ''} transform="translate(${x},${y})">
+        <title>${esc(n.name)}（${esc(LABEL[n.kind] || n.kind)}）${own ? '：押すと設定' : ''}</title>
+        <rect width="${W}" height="${H}" rx="8"/><text x="12" y="17" class="mi-node-name">${esc(n.name.length > 18 ? n.name.slice(0, 17) + '…' : n.name)}${n.main ? ' ★' : ''}</text>
+        <text x="12" y="32" class="mi-node-kind">${esc(LABEL[n.kind] || n.kind)}</text></g>`;
+    }).join('');
+    return `<div class="mi-diagram"><svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Projectのリンクの図">
+      <defs><marker id="mi-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      ${edges}${nodes}</svg><p class="mi-note">矢印はリンク（左のProjectが右のものを使う）。★ は main（他のモジュールからリンクされるProject）。押すとそのProjectの設定。</p></div>`;
+  }
   function renderProjects() {
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
     if (projects.error) return head('Project', '') + `<p class="mi-note">${esc(projects.error.message)}</p>`;
     const settings = data.settings, main = settings?.main_project;
     return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
       (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
-      (projects.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
+      linkDiagram(projects, deps, main) + (projects.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
       ${projects.map(p => `<tr><td><strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
       <p class="mi-note">緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +

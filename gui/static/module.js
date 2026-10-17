@@ -24,8 +24,9 @@ function showModulePage(page) {
   pageHooks[page]?.();
 }
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
-// module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded).
-if (PAGES.includes(location.hash.slice(1))) setTimeout(() => showModulePage(location.hash.slice(1)));
+// module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded); #modinfo/projects etc. that tab too.
+const hashPage = location.hash.slice(1).split('/')[0];
+if (PAGES.includes(hashPage)) setTimeout(() => showModulePage(hashPage));
 // Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).
 const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
 const navItems = () => [...nav.querySelectorAll('[data-nav]')];

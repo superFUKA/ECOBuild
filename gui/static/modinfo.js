@@ -1,16 +1,30 @@
 'use strict';
-// Module-wide screen: home (as a repository's page on GitHub: the files and the README, and module show beside them), Projects, dependencies and links (deps tree), branches, build settings.
+// Module-wide screens. モジュール（what the module is and holds）: home (as a repository's page on GitHub: the files and the
+// README, and module show beside them), Projects, dependencies and links (deps tree), branches. 設定（how it is built）:
+// build settings, the module's settings (module settings), file templates. Both pages share the reads and the dialogs.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  let view = ['projects', 'deps', 'branches', 'profiles'].find(v => location.hash === '#modinfo/' + v) || 'home', place = '', data = {};
+  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps', 'branches'], settings: ['profiles', 'general', 'templates']};
+  const [hashPage, hashView] = location.hash.slice(1).split('/');
+  let page = PAGE_VIEWS[hashPage] ? hashPage : 'modinfo';
+  const lastView = {modinfo: 'home', settings: 'profiles'};
+  if (PAGE_VIEWS[page].includes(hashView)) lastView[page] = hashView;
+  let view = lastView[page], place = '', data = {};
+  // The page shown (モジュール or 設定): its section and its main area.
+  const section = () => el(page + '-content'), mainArea = () => section().querySelector('.mi-main');
+  function usePage(next) { if (next !== page) { lastView[page] = view; page = next; view = lastView[next]; } }
   // What the module's type offers (ECO.typeFeatures): Projects・dependencies・templates are of the types that have them.
   let features = ECO.typeFeatures('');
   const typeLoaded = ECO.moduleType(MOD.root).then(type => {
     features = ECO.typeFeatures(type);
-    for (const tab of ['projects', 'deps']) document.querySelector(`.mi-tabs [data-mi-view="${tab}"]`).hidden = !features.projects;
-    if (!features.projects && (view === 'projects' || view === 'deps')) view = 'home';
+    // Projects・dependencies and the C++ module settings・templates are of the types that have them.
+    const shown = {projects: features.projects, deps: features.projects, general: features.projects, templates: features.templates};
+    for (const [tab, on] of Object.entries(shown)) document.querySelector(`.mi-tabs [data-mi-view="${tab}"]`).hidden = !on;
+    const tabHidden = v => !!document.querySelector(`.mi-tabs [data-mi-view="${v}"]`)?.hidden;
+    for (const p of Object.keys(lastView)) if (tabHidden(lastView[p])) lastView[p] = PAGE_VIEWS[p][0];
+    if (tabHidden(view)) view = PAGE_VIEWS[page][0];
   });
   const KIND = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定'};
   // deps list --fetch: what changed on GitHub (outside ECOBuild).
@@ -192,19 +206,30 @@
     if (projects.error) return head('Project', '') + `<p class="mi-note">${esc(projects.error.message)}</p>`;
     const settings = data.settings, main = settings?.main_project;
     return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
-      (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
+      btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
       ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-note">字下げした小さい行は、上のProjectのテスト・性能測定です（上のProjectへのリンクは省いています）。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
-      renderTemplates();
+      <p class="mi-note">字下げした小さい行は、上のProjectのテスト・性能測定です（上のProjectへのリンクは省いています）。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectで、左の「設定」の「全般」で変えられます。CMakeのパッケージ等のリンクは各行の「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>');
+  }
+  // The module's own settings (module settings): which Project other modules link, the MSVC runtime, the solution folders.
+  function renderGeneral() {
+    const m = data.settings;
+    if (!m) return head('全般', '') + '<p class="mi-note">このモジュールの設定を読めませんでした。</p>';
+    const f = m.folders, row = (label, value, note = '') => `<tr><th scope="row">${label}</th><td>${value}${note ? `<div class="mi-sub">${note}</div>` : ''}</td></tr>`;
+    return head('全般', 'モジュール全体の設定です。定義は .ecobuild の管理ファイルにあり、変更はタスクブランチで行います（コミットしてPRで反映します）。', btn('変更', 'module-settings', '', 'primary')) +
+      `<table class="mi-table mi-settings"><tbody>
+      ${row('他のモジュールからリンクされるProject（main）', m.main_project ? `<strong>${esc(m.main_project)}</strong>` : '<span class="mi-sub">なし（他のモジュールからリンクできない）</span>')}
+      ${row('MSVC のCランタイム', {dll: 'DLL（/MD）', static: '静的（/MT）'}[m.msvc_runtime] || '既定', 'このモジュールを頂点にしたビルド全体')}
+      ${f ? row('ソリューションフォルダー：自分のProject', esc(f.projects)) + row('ソリューションフォルダー：リンク先のモジュール', esc(f.linked_projects)) + row('ソリューションフォルダー：CMake・GoogleTest 等', esc(f.external), 'Visual Studio のソリューションでのまとめ方') : ''}
+      </tbody></table>`;
   }
   // File templates (template list): what ecobuild file add makes a new file from.
   function renderTemplates() {
     const templates = data.settings?.templates;
-    if (!templates) return '';
-    return `<h4 class="mi-subhead">ファイルテンプレート</h4><div class="mi-head"><p class="mi-note">新しいファイルを作るときの元になる内容です。{{header}}・{{name}}・{{suite}}・{{project}} は作るときに置き換わります。ECOBuildの既定のもの（header・source 等）は同じ名前で登録すると差し替えられます。</p><div class="mi-actions">${btn('＋ テンプレート', 'template-add')}</div></div>
-      <table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th></th></tr></thead><tbody>
+    if (!templates) return head('ファイルテンプレート', '') + '<p class="mi-note">ファイルテンプレートを読めませんでした。</p>';
+    return head('ファイルテンプレート', '新しいファイルを作るときの元になる内容です。{{header}}・{{name}}・{{suite}}・{{project}} は作るときに置き換わります。ECOBuildの既定のもの（header・source 等）は同じ名前で登録すると差し替えられます。', btn('＋ テンプレート', 'template-add', '', 'primary')) +
+      `<table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th></th></tr></thead><tbody>
       ${Object.entries(templates).map(([name, t]) => `<tr><td><strong>${esc(name)}</strong>${t.builtin ? ' ' + pill('既定') : ''}</td><td class="mi-mono">${esc(t.path)}</td><td class="mi-row-actions">${btn('差し替え', 'template-add', name)}${t.builtin ? '' : btn('削除', 'template-remove', name, 'danger-text')}</td></tr>`).join('')}</tbody></table>`;
   }
   // The C++ options of a build setting and its overrides for Projects, in words.
@@ -244,11 +269,11 @@
     return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。タスクブランチ（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
-  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
+  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, branches: renderBranches, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates};
   // The reads are cached (ECO.query): the kept answer shows at once and a newer one is drawn when it comes (not while
   // something is typed here, and not for another place than the one shown).
-  const typing = () => !!document.activeElement?.closest?.('#modinfo-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
-  function redraw() { if (!el('modinfo-content').hidden && !typing()) el('mi-main').innerHTML = placeSelect() + VIEWS[view](); }
+  const typing = () => !!document.activeElement?.closest?.('#' + page + '-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
+  function redraw() { if (!section().hidden && !typing()) mainArea().innerHTML = placeSelect() + VIEWS[view](); }
   const result = doc => doc.ok ? doc.result : {error: doc.error};
   function read(args, set) {
     const at = MOD.keyOf(here());
@@ -272,18 +297,20 @@
     },
     deps: () => Promise.all([LOADS.projects(), read(['deps', 'tree'], d => { data.tree = result(d); })]),
     profiles: () => read(['profile', 'list'], d => { data.profiles = result(d); }),
+    general: () => Promise.all([read(['project', 'list'], d => { data.projects = result(d); }), read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; })]),
+    templates: () => read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; }),
     branches: () => read(['branch', 'list'], d => { data.branches = result(d); }),
   };
   let rendering = 0;
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
   // shown reads it again).
-  const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());
+  const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());   // view names are unique over both pages
   // Read again when the tab was left while it was still loading (its loading screen is what is there).
-  const show = () => render(!loaded.has(loadKey()) || !!el('mi-main').querySelector(':scope > .eco-loading'));
+  const show = () => render(!loaded.has(loadKey()) || !!mainArea().querySelector(':scope > .eco-loading'));
   async function render(reload = true) {
     await typeLoaded;
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
-    const main = el('mi-main'), mine = ++rendering, shown = view;
+    const main = mainArea(), mine = ++rendering, shown = view;
     // A failure shows as what it is (with 再読み込み), not as a loading screen that never ends.
     const failed = error => {
       if (mine !== rendering) return;
@@ -608,7 +635,8 @@
     // README：エディター（既定のアプリ）で開く。変えたらタスクブランチでコミットする
     'readme-edit': () => ECO.action('folder', {dir: here(), path: data.readmeName}).catch(e => ECO.toast(e.message, 'bad')),
   };
-  el('modinfo-content').addEventListener('click', e => {
+  const sections = [el('modinfo-content'), el('settings-content')];
+  for (const sec of sections) sec.addEventListener('click', e => {
     const folder = e.target.closest('[data-mi-folder]');
     if (folder) {
       const path = folder.dataset.miFolder;
@@ -616,34 +644,38 @@
       const box = el('mi-files'), top = box.scrollTop; box.outerHTML = fileTree(); el('mi-files').scrollTop = top;
       return;
     }
-    if (e.target.closest('[data-mi-retry]')) { loaded.clear(); render(); return; }
+    if (e.target.closest('[data-mi-retry], [data-mi-reload]')) { loaded.clear(); render(); return; }
     const tab = e.target.closest('[data-mi-view]');
-    if (tab) { ECO.action('open', {module: MOD.root, tab: tab.dataset.miView}).catch(() => { view = tab.dataset.miView; show(); }); return; }
+    if (tab) { ECO.action('open', {module: MOD.root, tab: tab.dataset.miView}).catch(() => window.MODINFO_SHOW(tab.dataset.miView)); return; }
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const action = e.target.closest('[data-mi]');
     if (action) ACTIONS[action.dataset.mi](action.dataset.arg);
   });
-  el('modinfo-content').addEventListener('dblclick', e => {
+  for (const sec of sections) sec.addEventListener('dblclick', e => {
     const file = e.target.closest('[data-mi-file]');
     if (file) ECO.action('folder', {dir: here(), path: file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad'));
   });
-  el('modinfo-content').addEventListener('change', async e => {
+  for (const sec of sections) sec.addEventListener('change', async e => {
     if (e.target.id === 'mi-place') { place = e.target.value; loaded.clear(); render(); }
     if (e.target.name === 'mi-profile') {
       const doc = await ECO.run(here(), ['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定の使用をやめました。' : `このPCではビルド設定 ${e.target.value} を使います。`});
       render(!doc);
     }
   });
-  el('modinfo-content').addEventListener('contextmenu', e => {
+  for (const sec of sections) sec.addEventListener('contextmenu', e => {
     const row = e.target.closest('.mi-table tbody tr, .mi-branch'); if (!row) return;
     const buttons = [...row.querySelectorAll('[data-mi], [data-open-ws]')]; if (!buttons.length) return;
     e.preventDefault();
     ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), e.clientX, e.clientY);
   });
-  pageHooks.modinfo = show;
-  // The action "open" with a tab (a click here, or ecobuild gui open --tab).
-  window.MODINFO_SHOW = tab => { if (VIEWS[tab]) { view = tab; ECO.setState({tab}); show(); } };
-  ECO.onChange(() => { loaded.clear(); if (!el('modinfo-content').hidden) render(); });
-  el('mi-reload').addEventListener('click', () => { loaded.clear(); render(); });
+  pageHooks.modinfo = () => { usePage('modinfo'); show(); };
+  pageHooks.settings = () => { usePage('settings'); show(); };
+  // The action "open" with a tab (a click here, or ecobuild gui open --tab): the page of the tab, then the tab.
+  window.MODINFO_SHOW = tab => {
+    const of = Object.keys(PAGE_VIEWS).find(p => PAGE_VIEWS[p].includes(tab));
+    if (!of) return;
+    usePage(of); view = tab; ECO.setState({tab}); show();
+  };
+  ECO.onChange(() => { loaded.clear(); if (!section().hidden) render(); });
 })();

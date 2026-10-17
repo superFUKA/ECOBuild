@@ -13,7 +13,7 @@ document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'modinfo', 'help'];
+const PAGES = ['workspace', 'tasks', 'modinfo', 'settings', 'help'];
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
   ECO.setState({page});
@@ -23,10 +23,12 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
+// The tabs of 設定 (the others of a tab are モジュール's).
+const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  const target = page || (tab ? 'modinfo' : task ? 'tasks' : command ? 'help' : '');
+  const target = page || (tab ? (SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
   if (tab) window.MODINFO_SHOW?.(tab);
   if (task) window.TASKS_SELECT?.(Number(task));
@@ -49,8 +51,8 @@ if (PAGES.includes(hashPage)) window.addEventListener('load', () => {
 const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
 const navItems = () => [...nav.querySelectorAll('[data-nav]')];
 function saveNavOrder() { try { localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems().map(b => b.dataset.nav))); } catch (e) { /* storage blocked */ } }
-// ヘルプ stays at the bottom with the account (not reordered).
-const ORDERED = PAGES.filter(key => key !== 'help'), navBottom = nav.querySelector('.nav-bottom');
+// 設定・ヘルプ stay at the bottom with the account (not reordered).
+const ORDERED = PAGES.filter(key => key !== 'settings' && key !== 'help'), navBottom = nav.querySelector('.nav-bottom');
 for (const key of ORDERED) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
 try {
   const saved = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || '[]');

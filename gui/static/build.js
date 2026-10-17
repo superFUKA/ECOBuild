@@ -19,7 +19,7 @@ WS.onRefresh(renderPrDetail);
       const names = Object.keys(profiles);
       get('build-profile').innerHTML = names.map(n => `<option value="${esc(n)}">${esc(n)}（${esc(profiles[n].configuration)}${profiles[n].shared ? '・共有' : ''}）</option>`).join('') + '<option value="none">使わない</option>';
       get('build-profile').value = selectedProfile || 'none';
-      get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの「ビルド設定」タブで追加できます）';
+      get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの窓の左の「設定」で追加できます）';
     }
     showSetting();
     if (j.ok) {
@@ -112,7 +112,7 @@ WS.onRefresh(renderPrDetail);
       profile.value = o.value; profile.dispatchEvent(new Event('change'));
     }, !busy]);
     ECO.menu([['構成', null], ...configurations, '-', ['ビルド設定（このPCで使う）', null],
-      ...(names.length > 1 ? names : [['　ありません（モジュールの「ビルド設定」で追加）', null, false]])], r.left, r.bottom + 4);
+      ...(names.length > 1 ? names : [['　ありません（左の「設定」で追加）', null, false]])], r.left, r.bottom + 4);
   });
   // "Open in editor" split button: the button opens with the chosen editor; ▾ only chooses which one (it does not open).
   // The choice is kept per PC; Visual Studio 2026 by default.

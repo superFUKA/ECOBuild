@@ -37,8 +37,9 @@ class Action:
                             **({"choices": list(p.choices)} if p.choices else {})} for p in self.params]}
 
 
-PAGES = ("workspace", "tasks", "modinfo", "help")
-TABS = ("home", "projects", "deps", "branches", "profiles")
+PAGES = ("workspace", "tasks", "modinfo", "settings", "help")
+# 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）
+TABS = ("home", "projects", "deps", "branches", "profiles", "general", "templates")
 
 ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("run", "ECOBuild のコマンドを、GUIを通して実行します（開いている画面に反映されます）。",
@@ -52,7 +53,7 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
            "開いている窓があればそこで移り、なければ開きます。",
            (Param("module", "モジュール（フォルダか名前）。省くとハブ"),
             Param("page", "モジュールの窓の画面", choices=PAGES),
-            Param("tab", "「モジュール」の画面のタブ", choices=TABS),
+            Param("tab", "「モジュール」・「設定」の画面のタブ（タブのある画面へ移る）", choices=TABS),
             Param("task", "タスク管理で選ぶタスクの番号", "integer"),
             Param("command", "ヘルプで説明を出す ecobuild のコマンド（例：task start）"))),
     Action("folder", "フォルダ・ファイルを、既定のアプリ（フォルダならエクスプローラー）で開きます。", "",

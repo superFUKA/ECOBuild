@@ -111,9 +111,6 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .run-target button { padding: 0 9px; border: 0; border-radius: 0; background: transparent; color: #c8f5da; font-size: 12px; }
 .build-bar .run-target button:hover { background: #26603f; }
 .build-bar .run-target button.chosen { color: #5fd38d; }
-/* テスト: in the run group (the same target as 実行), a quieter green. */
-.build-bar .test-button { display: inline-flex; align-items: center; padding: 5px 11px; border: 0; border-left: 1px solid #2f7a52; border-radius: 0; background: #17241d; color: #9fdcb7; }
-.build-bar .test-button:hover:not(:disabled) { background: #26603f; }
 /* The lists of the selects: dark, like the bar (the system's white list with light text is hard to read). */
 .build-bar select option { background: #252b33; color: #edf1f5; }
 .run-target[hidden] { display: none !important; }

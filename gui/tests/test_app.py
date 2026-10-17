@@ -109,6 +109,22 @@ def test_local_operations_stay_inside_the_place(tmp_path):
             gui.remove_file(str(tmp_path), bad)
 
 
+def test_dropped_files_are_copied_into_the_folder_without_overwriting(tmp_path):
+    """エクスプローラーに落としたファイル・フォルダ（中身は base64）を、落とした先のフォルダに置く。"""
+    import base64
+    (tmp_path / "src").mkdir()
+    encoded = lambda text: base64.b64encode(text.encode("utf-8")).decode("ascii")  # noqa: E731
+    files = [{"path": "lib/a.h", "data": encoded("// a")}, {"path": "lib/sub/b.cpp", "data": encoded("// b")},
+             {"path": "lib/empty"}]
+    assert gui.import_files(str(tmp_path), "src", files) == {"files": ["src/lib/a.h", "src/lib/sub/b.cpp"]}
+    assert (tmp_path / "src/lib/sub/b.cpp").read_text(encoding="utf-8") == "// b" and (tmp_path / "src/lib/empty").is_dir()
+    with pytest.raises(gui.GuiError, match="src/lib/a.h"):        # 既にある：何も置かない
+        gui.import_files(str(tmp_path), "src", [{"path": "lib/new.h", "data": encoded("x")}, files[0]])
+    assert not (tmp_path / "src/lib/new.h").exists()
+    with pytest.raises(gui.GuiError):                             # 場所の外には置かない
+        gui.import_files(str(tmp_path), "", [{"path": "../outside.txt", "data": encoded("x")}])
+
+
 def test_cli_returns_the_json_document_and_the_command_line(tmp_path):
     # ecobuild の代わりに、引数をそのままJSONで返すコマンドを使う
     script = "import json, sys; print('進捗', file=sys.stderr); print(json.dumps({'ok': True, 'result': sys.argv[1:]}))"

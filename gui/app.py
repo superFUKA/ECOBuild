@@ -486,6 +486,38 @@ def move_file(directory: str, source: str, destination: str) -> dict:
     return {"paths": [target.relative_to(Path(directory).resolve()).as_posix()]}
 
 
+IMPORT_LIMIT = 100 * 1024 * 1024    # 一度に取り込む大きさの上限（画面から送るので、大きなものは送らない）
+
+
+def import_files(directory: str, target: str, files: list[dict]) -> dict:
+    """エクスプローラーに落としたファイル・フォルダ（PCのほかの場所のもの）を、作業空間の target の下に置く。
+    files：[{"path": target からの相対パス, "data": base64}]（フォルダは中のファイルを並べる。空のフォルダは "data" なし）。
+    既にあるファイルは上書きしない（1つでもあれば、何も置かずに止める）。"""
+    import base64
+    base = _inside(directory, target) if target else Path(directory).resolve()
+    if not base.is_dir():
+        raise GuiError(f"フォルダが見つかりません：{target}")
+    planned = []
+    for item in files:
+        relative = str(item.get("path") or "").replace("\\", "/").strip("/")
+        if not relative:
+            continue
+        destination = _inside(directory, f"{target}/{relative}" if target else relative)
+        planned.append((destination, item.get("data")))
+    existing = [p.relative_to(Path(directory).resolve()).as_posix() for p, data in planned if data is not None and p.exists()]
+    if existing:
+        raise GuiError("同じ名前のファイルがあります（上書きしません）：" + "、".join(existing[:5]) + ("…" if len(existing) > 5 else ""))
+    written = []
+    for destination, data in planned:
+        if data is None:
+            destination.mkdir(parents=True, exist_ok=True)
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(base64.b64decode(data))
+        written.append(destination.relative_to(Path(directory).resolve()).as_posix())
+    return {"files": written}
+
+
 def remove_file(directory: str, relative: str) -> dict:
     """ファイルを消す（型が ecobuild file remove に対応しないとき：generic 等）。"""
     target = _inside(directory, relative)
@@ -650,6 +682,8 @@ class App:
             return move_file(d("dir"), d("source"), d("destination"))
         if name == "remove-file":
             return remove_file(d("dir"), d("path"))
+        if name == "import-files":
+            return import_files(d("dir"), d("target") or "", list(d("files") or []))
         if name == "mkparent":
             return make_parent(d("path"))
         if name == "shortcut":

@@ -377,6 +377,55 @@ tree.addEventListener('drop', async e => {
 });
 tree.addEventListener('dragend', () => { dragged = ''; });
 
+// Drop files or folders from elsewhere on this PC (Explorer etc.) onto the explorer: they are copied into the folder they
+// are dropped on (anywhere else: the top of the workspace). Read here and written by the GUI (import-files); a file that
+// is there already is not overwritten. In a C++ module the generated files follow (check --no-build updates them).
+const fromOutside = e => !dragged && [...(e.dataTransfer?.types || [])].includes('Files');
+const dropFolder = e => e.target.closest('summary[data-directory]');
+const panel = tree.closest('aside');
+panel.addEventListener('dragover', e => {
+  if (!fromOutside(e)) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = editable() ? 'copy' : 'none';
+  panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  (dropFolder(e) || tree).classList.add('drop-target');
+});
+panel.addEventListener('dragleave', e => { if (!panel.contains(e.relatedTarget)) panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target')); });
+panel.addEventListener('drop', async e => {
+  if (!fromOutside(e)) return;
+  e.preventDefault();
+  panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  if (!editable()) { ECO.toast('ファイルを足すのはタスクブランチで行います（タスク管理で「作業を開始」）。', 'bad', 6000); return; }
+  const target = dropFolder(e)?.dataset.directory || '';
+  const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
+  const files = [];
+  let size = 0;
+  const readFile = entry => new Promise((resolve, reject) => entry.file(resolve, reject));
+  const readDirectory = reader => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+  async function walk(entry, path) {
+    if (entry.isFile) {
+      const file = await readFile(entry); size += file.size;
+      if (size > 100 * 1024 * 1024) throw new Error('大きすぎます（一度に100MBまで）。');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = ''; for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      files.push({path, data: btoa(binary)});
+      return;
+    }
+    if (entry.name === '.git') return;   // a clone's history is not part of the files
+    const reader = entry.createReader(), children = [];
+    for (let batch; (batch = await readDirectory(reader)).length;) children.push(...batch);
+    if (!children.length) files.push({path});   // an empty folder
+    for (const child of children) await walk(child, `${path}/${child.name}`);
+  }
+  try {
+    for (const entry of entries) await walk(entry, entry.name);
+    if (!files.length) return;
+    const {files: written} = await ECO.call('import-files', {dir: WS.dir, target, files});
+    if ((await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});
+    ECO.toast(`${written.length} 個のファイルを ${target || '作業空間'} に置きました。`);
+    await WS.refresh(); await WS.reloadFiles();
+  } catch (error) { ECO.toast(error.message, 'bad', 8000); }
+});
+
 // The files are listed without waiting for the status (its marks and the buttons follow when it arrives: WS.onRefresh).
 WS.reloadFiles();
 let lastFocus = Date.now();

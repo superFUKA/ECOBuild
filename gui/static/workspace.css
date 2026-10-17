@@ -139,3 +139,11 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .build-group .tool-button { border: 0; border-radius: 6px 0 0 6px; }
 .build-bar .build-group #build-menu { display: grid; place-items: center; padding: 0 8px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent; color: #9eaab8; font-size: 12px; }
 .build-bar .build-group #build-menu:hover { background: #252d36; color: #edf1f5; }
+
+/* 構成・ビルド設定: one box like Visual Studio's (the configuration in use, then the build setting). */
+.build-bar .config-button { display: inline-flex; align-items: center; gap: 8px; min-width: 120px; justify-content: space-between; padding: 5px 8px 5px 11px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #edf1f5; font-size: 12px; }
+.build-bar .config-button:hover { border-color: #56616e; }
+.build-bar .config-button svg { color: #9eaab8; }
+
+/* A drop from outside: the folder it goes into (the whole tree: the top of the workspace). */
+#file-tree.drop-target { outline: 2px dashed #9ee4d3; outline-offset: -4px; border-radius: 6px; background: #1b2a26; }

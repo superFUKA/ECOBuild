@@ -21,6 +21,7 @@ WS.onRefresh(renderPrDetail);
       get('build-profile').value = selectedProfile || 'none';
       get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの「ビルド設定」タブで追加できます）';
     }
+    showSetting();
     if (j.ok) {
       const chosen = get('build-project').value;
       get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
@@ -89,6 +90,28 @@ WS.onRefresh(renderPrDetail);
   get('build-profile').addEventListener('change', async e => {
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定の使用をやめました。' : `このPCではビルド設定 ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
+    showSetting();
+  });
+  // 構成・ビルド設定: one button like Visual Studio's configuration box. It shows the configuration a build uses (the one
+  // chosen here, else the build setting's, else Debug) and the build setting; ▾ chooses both (a menu with two parts).
+  // The values stay in the hidden selects (build-config: this screen only; build-profile: profile use, kept on this PC).
+  function showSetting() {
+    const configuration = get('build-config').value, profile = selectedProfile && profiles[selectedProfile];
+    const used = configuration || profile?.configuration || 'Debug';
+    get('build-setting-text').textContent = used + (selectedProfile ? ` · ${selectedProfile}` : '');
+    get('build-setting').dataset.tip = selectedProfile ? `構成・ビルド設定（${selectedProfile}）` : '構成・ビルド設定';
+  }
+  get('build-setting').addEventListener('click', () => {
+    const r = get('build-setting').getBoundingClientRect(), config = get('build-config'), profile = get('build-profile');
+    const mark = on => on ? '✓ ' : '　';
+    const fromProfile = selectedProfile && profiles[selectedProfile] ? `ビルド設定のまま（${profiles[selectedProfile].configuration}）` : '既定（Debug）';
+    const configurations = [...config.options].map(o => [mark(o.value === config.value) + (o.value ? o.textContent : fromProfile), () => { config.value = o.value; showSetting(); }]);
+    const names = [...profile.options].map(o => [mark(o.value === (selectedProfile || 'none')) + o.textContent, () => {
+      if (o.value === (selectedProfile || 'none')) return;
+      profile.value = o.value; profile.dispatchEvent(new Event('change'));
+    }, !busy]);
+    ECO.menu([['構成', null], ...configurations, '-', ['ビルド設定（このPCで使う）', null],
+      ...(names.length > 1 ? names : [['　ありません（モジュールの「ビルド設定」で追加）', null, false]])], r.left, r.bottom + 4);
   });
   // "Open in editor" split button: the button opens with the chosen editor; ▾ only chooses which one (it does not open).
   // The choice is kept per PC; Visual Studio 2026 by default.

@@ -6,12 +6,12 @@
 <header><strong>ECOBuild</strong><span class="divider">/</span><h1 id="module-name"></h1><span class="workspace" id="workspace-label"></span></header>
 <div class="build-bar" role="toolbar" aria-label="ビルド・テスト・実行">
   <div class="bar-left">
-    <label class="bar-field" title="構成（Debug・Release 等）"><span>構成</span><select id="build-config"><option value="">ビルド設定のまま</option><option>Debug</option><option>Release</option><option>RelWithDebInfo</option><option>MinSizeRel</option></select></label>
-    <label class="bar-field" title="このPCで使うビルド設定（profile use）"><span>ビルド設定</span><select id="build-profile"></select></label>
-  </div>
-  <div class="bar-center">
+    <button type="button" id="build-setting" class="config-button" aria-haspopup="menu" aria-label="構成・ビルド設定" data-tip="構成・ビルド設定"><span id="build-setting-text">Debug</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><select id="build-config" hidden><option value="">ビルド設定のまま</option></select><select id="build-profile" hidden></select>
+    <span class="bar-separator" aria-hidden="true"></span>
     <span class="build-group" role="group" aria-label="ビルド"><button type="button" class="tool-button" data-build="build" aria-label="ビルド" data-tip="ビルド"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg></button><button type="button" id="build-menu" aria-haspopup="menu" aria-label="ビルドのその他の操作" data-tip="ビルドの操作"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></span>
     <button type="button" class="tool-button" data-build="test" aria-label="テスト" data-tip="テスト"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/></svg></button>
+  </div>
+  <div class="bar-center">
     <span class="run-group" role="group" aria-label="実行"><button type="button" class="run-button" data-build="run" aria-label="実行" data-tip="実行"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8z" fill="currentColor"/></svg></button><span id="build-project-label" class="run-target"><button type="button" id="build-project-pick" aria-haspopup="menu" aria-label="ビルド・実行の対象" data-tip="対象"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><select id="build-project" hidden></select></span></span>
     <input id="build-run-args" type="hidden">
   </div>

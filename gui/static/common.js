@@ -331,6 +331,7 @@ const ECO = (() => {
     for (const item of items) {
       if (item === '-') { el.append(document.createElement('hr')); continue; }
       const [text, action, enabled = true] = item;
+      if (action === null) { const head = document.createElement('div'); head.className = 'eco-menu-head'; head.textContent = text; el.append(head); continue; }   // a heading of the items below
       const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled;
       b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
       el.append(b);

@@ -31,14 +31,18 @@ const ARCHIVED_KEY = 'ecobuild-gui-archived-modules';
 let lastArchived = [];
 try { lastArchived = JSON.parse(localStorage.getItem(ARCHIVED_KEY) || '[]'); } catch (e) { /* storage blocked */ }
 const knownModules = () => githubModules || lastArchived;
+// Cached (ECO.query): the last answer shows at once; GitHub's newer one replaces it when it comes.
+function applyGithubModules(doc) {
+  githubModules = doc.ok ? doc.result : [];
+  if (doc.ok) {
+    lastArchived = githubModules.filter(g => g.archived).map(g => ({repository: g.repository, description: g.description || '', archived: true}));
+    try { localStorage.setItem(ARCHIVED_KEY, JSON.stringify(lastArchived)); } catch (e) { /* storage blocked */ }
+  }
+  renderModules(); renderCloneCandidates();
+}
 function loadGithubModules() {
-  githubModulesLoading = ECO.cli(null, ['module', 'list', '--all'], {quiet: true}).then(doc => {
-    githubModules = doc.ok ? doc.result : [];
-    if (doc.ok) {
-      lastArchived = githubModules.filter(g => g.archived).map(g => ({repository: g.repository, description: g.description || '', archived: true}));
-      try { localStorage.setItem(ARCHIVED_KEY, JSON.stringify(lastArchived)); } catch (e) { /* storage blocked */ }
-    }
-    githubModulesLoading = null; renderModules(); renderCloneCandidates();
+  githubModulesLoading = ECO.query(null, ['module', 'list', '--all'], applyGithubModules).then(doc => {
+    githubModulesLoading = null; applyGithubModules(doc);
   });
   return githubModulesLoading;
 }
@@ -88,7 +92,7 @@ const baseName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
 const cloneRepository = c => c.repository || (c.url ? baseName(c.url).replace(/\.git$/, '') : '');
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
-  const [doc, saved] = await Promise.all([ECO.cli(null, ['workspace', 'list'], {quiet: true}), ECO.call('modules/order', {}).catch(() => [])]);
+  const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { clones = fresh.result; renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
   if (!doc.ok) ECO.showError(doc, 'このPCの作業空間の一覧を読めませんでした');
   clones = doc.ok ? doc.result : []; clonesLoaded = true;
   order = saved.map(pathKey);
@@ -179,7 +183,7 @@ function updateFields() {
 // module new --kind: the CLI's value and what it makes.
 const FALLBACK_KINDS = {cpp: ['app', 'library', 'none'], python: ['app', 'library', 'none']};
 const KIND_TEXT = {
-  cpp: {app: 'app（実行ファイル）', library: 'library（ライブラリ＋テスト用のProject）', none: 'none（Projectを作らない）'},
+  cpp: {app: 'app（実行ファイル）', library: 'library（静的ライブラリ .lib ＋テスト用のProject）', none: 'none（Projectを作らない）'},
   python: {app: 'app（実行できるパッケージ）', library: 'library（パッケージ＋テスト）', none: 'none（パッケージを作らない）'},
 };
 const kindText = (type, kind) => KIND_TEXT[type]?.[kind] || kind;
@@ -222,6 +226,7 @@ addForm.addEventListener('submit', async event => {
     const doc = await ECO.cli(null, ['workspace', 'add', data.get('folder').trim()], {quiet: true});
     if (!doc.ok) { error.textContent = errorText(doc); return; }
     addDialog.close(); ECO.toast(baseName(doc.result.path) + ' を一覧に登録しました。'); loadModules();
+    ECO.prefetch(doc.result.path).catch(() => null);   // behind: what its screens show first
     return;
   }
   const parent = data.get('directory').trim().replace(/[\\/]+$/, '');
@@ -242,7 +247,8 @@ addForm.addEventListener('submit', async event => {
   const overlay = ECO.busy({
     title: `${name.split('/').pop()} を${creating ? '作成' : '取得'}しています…`, sub: directory + '/' + name.split('/').pop(),
   });
-  const doc = await ECO.cli(directory, args, {quiet: true, onProgress: overlay.progress});
+  let reported = [];
+  const doc = await ECO.cli(directory, args, {quiet: true, onProgress: lines => { reported = lines; overlay.progress(lines); }});
   if (!doc.ok) {
     // Back to the form (the values stay) with the reason.
     overlay.end(); addDialog.showModal();
@@ -253,6 +259,9 @@ addForm.addEventListener('submit', async event => {
   }
   try { localStorage.setItem('ecobuild-gui-parent', parent); } catch (e) { /* storage blocked */ }
   const made = baseName(doc.result.root);
+  // While waiting anyway: read what the module's screens show first, so that it opens at once (ECO.prefetch).
+  overlay.progress([...reported, 'モジュールの情報を読み込み中…']);
+  await ECO.prefetch(doc.result.root).catch(() => null);
   await overlay.done(`${made} を${creating ? '作成' : '取得'}しました`);
   ECO.toast(`${made} を${creating ? '作成' : '取得'}しました。`);
   await loadModules();

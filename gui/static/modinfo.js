@@ -219,28 +219,34 @@
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
   const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
+  // The reads are cached (ECO.query): the kept answer shows at once and a newer one is drawn when it comes (not while
+  // something is typed here, and not for another place than the one shown).
+  const typing = () => !!document.activeElement?.closest?.('#modinfo-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
+  function redraw() { if (!el('modinfo-content').hidden && !typing()) el('mi-main').innerHTML = placeSelect() + VIEWS[view](); }
+  const result = doc => doc.ok ? doc.result : {error: doc.error};
+  function read(args, set) {
+    const at = MOD.keyOf(here());
+    return ECO.query(here(), args, doc => { if (MOD.keyOf(here()) === at) { set(doc); redraw(); } }).then(doc => { set(doc); return doc; });
+  }
   const LOADS = {
-    projects: async () => {
-      const [p, d, m] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])]), cli(['module', 'settings'])]);
-      data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; data.settings = m.ok ? m.result : null;
-    },
-    // The files and the README are read here (quick); the README is the one at the top (README.md etc.).
+    projects: () => Promise.all([
+      read(['project', 'list'], d => { data.projects = result(d); }),
+      read(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])], d => { data.deps = result(d); }),
+      read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; })]),
+    // The files and the README are read here (quick); the README is the one at the top (README.md etc.). module show
+    // (it asks GitHub) fills in beside them when it comes.
     home: async () => {
-      const key = loadKey();
       data.info = null;
-      cli(['module', 'show']).then(r => {
-        if (loadKey() !== key) return;   // another place was chosen meanwhile
-        data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || [];
-        if (el('mi-about')) el('mi-about').innerHTML = about();
-      });
+      read(['module', 'show'], d => { data.info = result(d); data.infoNotices = d.notices || []; })
+        .then(() => { if (view === 'home' && el('mi-about')) el('mi-about').innerHTML = about(); });
       data.files = await ECO.call('files', {dir: here()}).catch(e => ({error: e.message}));
       const top = (data.files.files || []).filter(f => !f.includes('/'));
       data.readmeName = top.find(f => /^readme\.md$/i.test(f)) || top.find(f => /^readme(\.|$)/i.test(f)) || '';
       data.readme = data.readmeName ? await ECO.call('read', {dir: here(), path: data.readmeName}).catch(e => ({error: e.message})) : null;
     },
-    deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
-    profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },
-    branches: async () => { const b = await cli(['branch', 'list']); data.branches = b.ok ? b.result : {error: b.error}; },
+    deps: () => Promise.all([LOADS.projects(), read(['deps', 'tree'], d => { data.tree = result(d); })]),
+    profiles: () => read(['profile', 'list'], d => { data.profiles = result(d); }),
+    branches: () => read(['branch', 'list'], d => { data.branches = result(d); }),
   };
   let rendering = 0;
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place

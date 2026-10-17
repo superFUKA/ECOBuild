@@ -6,7 +6,12 @@ ECO.info().then(info => { me = info.me || ''; });
 const SUBMISSION = s => !s ? 'なし' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み') : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
 
 WS.refreshPrs = async select => {
-  const [doc] = await Promise.all([WS.cli(['task', 'list', get('pr-all').checked ? '--to-review' : '--submitted'], {quiet: true}), WS.ready]);
+  // Cached (ECO.query): the kept list shows at once; a newer one replaces it when it comes.
+  const which = get('pr-all').checked ? '--to-review' : '--submitted';
+  const [doc] = await Promise.all([ECO.query(WS.dir, ['task', 'list', which], fresh => {
+    if ((get('pr-all').checked ? '--to-review' : '--submitted') !== which) return;
+    prs = fresh.result; renderPrList();
+  }), WS.ready]);
   if (!doc.ok) { get('pr-list').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`; return; }
   prs = doc.result;
   if (select) selectedPr = select;
@@ -22,7 +27,9 @@ function renderPrList() {
 async function loadPr(number) {
   selectedPr = number; renderPrList();
   get('pr-detail').innerHTML = ECO.loading();
-  const doc = await WS.cli(['task', 'status', String(number)], {quiet: true});
+  const doc = await ECO.query(WS.dir, ['task', 'status', String(number)], fresh => {
+    if (selectedPr === number) { prStatus = fresh.result; renderPrDetail(); }
+  });
   prStatus = doc.ok ? doc.result : null;
   if (!doc.ok) get('pr-detail').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`;
   else renderPrDetail();

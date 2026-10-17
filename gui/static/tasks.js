@@ -36,12 +36,18 @@
   const sprintTag = t => sprintName(t) ? `<span class="tk-sprint ${sprintName(t) === currentSprint() ? 'now' : ''}" title="スプリント">${esc(sprintName(t))}</span>` : '';
 
   // Loading ---------------------------------------------------------------------------------------
+  // The reads are cached (ECO.query): what was read before shows at once, and a newer answer replaces it when it comes
+  // (refresh). Not while something is being typed here (the screen would be drawn again under it).
+  const typing = () => !!document.activeElement?.closest?.('#tasks-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
+  function refresh() { if (!st.loaded || typing()) return; renderAssigneeOptions(); renderFilterOptions(); render(); }
+  const listArgs = () => ['task', 'list', ...(tkEl('tk-closed').checked ? ['--all'] : []), ...(tkEl('tk-ready').checked ? ['--ready'] : [])];
+  const query = (args, apply) => ECO.query(root(), args, doc => { apply(doc); refresh(); });
   async function load({full = false} = {}) {
     if (st.loading) return; st.loading = true;
     if (!st.loaded) tkEl('tk-main').innerHTML = ECO.loading('タスクを読み込んでいます…');
-    const args = ['task', 'list', ...(tkEl('tk-closed').checked ? ['--all'] : []), ...(tkEl('tk-ready').checked ? ['--ready'] : [])];
-    const jobs = [ECO.cli(root(), args, {quiet: true})];
-    if (full || !st.loaded) jobs.push(ECO.cli(root(), ['milestone', 'list'], {quiet: true}), ECO.cli(root(), ['sprint', 'list'], {quiet: true}));
+    const args = listArgs(), same = () => listArgs().join(' ') === args.join(' ');
+    const jobs = [query(args, d => { if (same()) st.tasks = d.result; })];
+    if (full || !st.loaded) jobs.push(query(['milestone', 'list'], d => { st.milestones = d.result; }), query(['sprint', 'list'], d => { st.sprints = d.result; }));
     const [list, milestones, sprints] = await Promise.all(jobs);
     st.loading = false; st.lastClosed = st.extra.closed?.ok ? st.extra.closed : st.lastClosed; st.extra = {};
     if (milestones?.ok) st.milestones = milestones.result;
@@ -92,7 +98,7 @@
   function renderStages() {
     let closed = null;
     if (!tkEl('tk-closed').checked) {
-      if (st.extra.closed === undefined) fetchExtra('closed', () => ECO.cli(root(), ['task', 'list', '--all'], {quiet: true}));
+      if (st.extra.closed === undefined) fetchExtra('closed', () => extra('closed', null, ['task', 'list', '--all']));
       const source = st.extra.closed?.ok ? st.extra.closed : st.lastClosed;   // the previous one while it is read again
       const all = source?.ok ? source.result : [];
       closed = all.filter(t => t.state !== 'open' && st.tasks.every(x => x.number !== t.number))
@@ -139,7 +145,7 @@
   function renderNext() {
     const mine = st.assignee === '@me', key = 'next' + (mine ? '-mine' : '');
     const data = st.extra[key];
-    if (!data) { fetchExtra(key, () => Promise.all([ECO.cli(root(), ['task', 'next', '--count', '10', ...(mine ? ['--mine'] : [])], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true})])); return ECO.loading('次にやるタスクを確認しています…'); }
+    if (!data) { fetchExtra(key, () => Promise.all([extra(key, 0, ['task', 'next', '--count', '10', ...(mine ? ['--mine'] : [])]), extra(key, 1, ['task', 'overdue', '--days', '7'])])); return ECO.loading('次にやるタスクを確認しています…'); }
     const [next, overdue] = data;
     if (!next.ok) return `<div class="eco-banner bad">${esc(next.error.message)}</div>`;
     const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${sprintTag(t)}${avatars(t)}</div>`;
@@ -156,7 +162,7 @@
     const name = st.sprintShown || currentSprint() || st.sprints[0].name, key = 'sprint:' + name;
     const picker = `<div class="tk-sprint-pick"><label>スプリント <select id="tk-sprint-shown">${st.sprints.map(s => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.name)}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}</option>`).join('')}</select></label></div>`;
     const data = st.extra[key];
-    if (!data) { fetchExtra(key, () => ECO.cli(root(), ['sprint', 'status', name], {quiet: true})); return picker + ECO.loading('スプリントを確認しています…'); }
+    if (!data) { fetchExtra(key, () => extra(key, null, ['sprint', 'status', name])); return picker + ECO.loading('スプリントを確認しています…'); }
     if (!data.ok) return picker + `<div class="eco-banner bad">${esc(data.error.message)}</div>`;
     const s = data.result, pct = (a, b) => b ? Math.round(a / b * 100) : 0;
     const tasks = s.tasks.map(t => byNumber(t.number) || t), numberOf = x => typeof x === 'number' ? x : x.number;
@@ -169,6 +175,12 @@
       ${list('見積もりのないタスク', s.unestimated)}${list('前のスプリントからの持ち越し', s.carried_over)}</section>
       ${tasks.length ? taskTable(tasks) : '<p class="tk-empty">このスプリントのタスクはありません。タスクの詳細または右クリックメニューからスプリントに追加できます（親タスクは数えません）。</p>'}`;
   }
+  // One read of a view (index: its place among the reads of that view, or null when it is the only one).
+  const extra = (key, index, args) => ECO.query(root(), args, doc => {
+    if (st.extra[key] == null) return;
+    if (index === null) st.extra[key] = doc; else st.extra[key][index] = doc;
+    refresh();
+  });
   function fetchExtra(key, job) {
     if (st.extra[key] !== undefined) return;
     st.extra[key] = null;
@@ -181,11 +193,11 @@
     const data = st.extra.summary;
     if (!data) {
       fetchExtra('summary', () => Promise.all([
-        currentSprint() ? ECO.cli(root(), ['sprint', 'status'], {quiet: true}) : null,
-        ECO.cli(root(), ['task', 'workload'], {quiet: true}), ECO.cli(root(), ['milestone', 'status'], {quiet: true}),
-        ECO.cli(root(), ['task', 'next', '--count', '5', '--mine'], {quiet: true}), ECO.cli(root(), ['task', 'overdue', '--days', '7'], {quiet: true}),
-        ECO.cli(root(), ['task', 'list', '--submitted'], {quiet: true}), ECO.cli(root(), ['task', 'list', '--to-review'], {quiet: true}),
-        ECO.cli(root(), ['task', 'list', '--all'], {quiet: true})]));
+        currentSprint() ? extra('summary', 0, ['sprint', 'status']) : null,
+        extra('summary', 1, ['task', 'workload']), extra('summary', 2, ['milestone', 'status']),
+        extra('summary', 3, ['task', 'next', '--count', '5', '--mine']), extra('summary', 4, ['task', 'overdue', '--days', '7']),
+        extra('summary', 5, ['task', 'list', '--submitted']), extra('summary', 6, ['task', 'list', '--to-review']),
+        extra('summary', 7, ['task', 'list', '--all'])]));
       return ECO.loading('集計しています…');
     }
     const [sprint, workload, milestones, next, overdue, prs, reviews, all] = data;
@@ -238,7 +250,10 @@
 
   // Detail ----------------------------------------------------------------------------------------
   async function loadDetail(n) {
-    const doc = await ECO.cli(root(), ['task', 'status', String(n)], {quiet: true});
+    const doc = await ECO.query(root(), ['task', 'status', String(n)], fresh => {
+      st.details.set(n, fresh.result);
+      if (st.selected === n && !typing()) renderDetail();
+    });
     st.details.set(n, doc.ok ? doc.result : {error: doc.error});
     if (st.selected === n) renderDetail();
   }
@@ -322,7 +337,7 @@
   // what its commands return: yourself and the assignees of the tasks (task list --all).
   async function members() {
     if (!st.members) {
-      const tasks = await ECO.cli(root(), ['task', 'list', '--all'], {quiet: true});
+      const tasks = await ECO.query(root(), ['task', 'list', '--all']);
       const names = new Set(tasks.ok ? tasks.result.flatMap(t => t.assignees) : []);
       if (me()) names.delete(me());
       st.members = [...(me() ? [me()] : []), ...[...names].sort((a, b) => a.localeCompare(b))];
@@ -349,7 +364,7 @@
     const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
     // The base is typed in or chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives):
     // the plain ones first, then the other workspaces.
-    const branchOptions = ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
+    const branchOptions = ECO.query(root(), ['branch', 'list']).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
       const task = b.is_task_branch ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
@@ -533,7 +548,7 @@
   async function showPerson(who) {
     st.person = who;
     const body = tkEl('tk-person-body'); body.innerHTML = ECO.loading(); if (!tkEl('tk-person-dialog').open) tkEl('tk-person-dialog').showModal();
-    const [workload, prs, reviews] = await Promise.all([ECO.cli(root(), ['task', 'workload'], {quiet: true}), ECO.cli(root(), ['task', 'list', '--submitted'], {quiet: true}), who === me() ? ECO.cli(root(), ['task', 'list', '--to-review'], {quiet: true}) : null]);
+    const [workload, prs, reviews] = await Promise.all([ECO.query(root(), ['task', 'workload']), ECO.query(root(), ['task', 'list', '--submitted']), who === me() ? ECO.query(root(), ['task', 'list', '--to-review']) : null]);
     if (st.person !== who) return;
     const w = workload.ok ? workload.result.find(x => x.assignee === who) : null;
     const ts = st.tasks.filter(t => t.state === 'open' && t.assignees.includes(who)), doing = ts.filter(t => ['in_progress', 'in_review'].includes(stageOf(t)));

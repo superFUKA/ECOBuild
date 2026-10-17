@@ -74,6 +74,104 @@ READ_ONLY = {
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
 
+# 覚えておく読むだけのコマンド（GitHubに問い合わせて秒単位でかかるもの等）。画面は覚えた結果をすぐ出し、同時に読み直す
+# （stale-while-revalidate：QueryCache）。変える操作を実行したら、覚えた結果はすべて「古い」にする（出してから読み直す）。
+CACHEABLE = {
+    ("task", "list"), ("task", "status"), ("task", "next"), ("task", "overdue"), ("task", "workload"),
+    ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
+    ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
+    ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"),
+}
+CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
+CACHE_DAYS = 14                     # これより古いものは読み込まない
+
+
+def _cacheable(args: list[str]) -> bool:
+    command = tuple(a for a in args[:2] if not a.startswith("-"))
+    return command in CACHEABLE and "--gui" not in args
+
+
+class QueryCache:
+    """読むだけのコマンドの結果を覚える（場所とコマンドごと）。GUIの設定の場所の cache.json に残し、起動し直しても使う。
+
+    同じものを同時に読むときは、1回だけ実行して結果を分ける（画面が2つあっても）。"""
+
+    def __init__(self, path: Path | None):
+        self.path = path
+        self.lock = threading.Lock()
+        self.entries: dict[str, dict] = {}
+        self.running: dict[str, threading.Event] = {}
+        if path is not None and path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                limit = time.time() - CACHE_DAYS * 86400
+                self.entries = {k: v for k, v in data.get("entries", {}).items() if v.get("time", 0) > limit}
+            except (OSError, ValueError):
+                self.entries = {}
+
+    @staticmethod
+    def key(directory: str | None, args: list[str]) -> str:
+        return (_key(directory) if directory else "") + "\n" + "\0".join(args)
+
+    def get(self, directory: str | None, args: list[str]) -> dict | None:
+        with self.lock:
+            entry = self.entries.get(self.key(directory, args))
+            if entry is not None:
+                entry["used"] = time.time()
+            return dict(entry) if entry is not None else None
+
+    def fetch(self, cli: "Cli", directory: str | None, args: list[str]) -> dict:
+        """実行して覚える（失敗した結果は覚えない）。同じものを実行中なら、その結果を待つ。"""
+        key = self.key(directory, args)
+        with self.lock:
+            waiting = self.running.get(key)
+            if waiting is None:
+                self.running[key] = threading.Event()
+        if waiting is not None:
+            waiting.wait(600)
+            entry = self.get(directory, args)
+            if entry is not None and not entry.get("stale"):
+                return entry
+            return {"doc": cli.run(directory, args), "time": time.time()}
+        try:
+            document = cli.run(directory, args)
+            entry = {"doc": document, "time": time.time(), "used": time.time()}
+            if document.get("ok"):
+                with self.lock:
+                    self.entries[key] = entry
+                    self._trim()
+                self._save()
+            return entry
+        finally:
+            with self.lock:
+                self.running.pop(key).set()
+
+    def invalidate(self) -> None:
+        """変える操作の後：覚えた結果をすべて「古い」にする（画面は出してから読み直す）。"""
+        with self.lock:
+            for entry in self.entries.values():
+                entry["stale"] = True
+        self._save()
+
+    def _trim(self) -> None:
+        if len(self.entries) > CACHE_ENTRIES:
+            for key, _ in sorted(self.entries.items(), key=lambda item: item[1].get("used", 0))[:len(self.entries) - CACHE_ENTRIES]:
+                del self.entries[key]
+
+    def _save(self) -> None:
+        if self.path is None:
+            return
+        with self.lock:
+            text = json.dumps({"entries": self.entries}, ensure_ascii=False)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_suffix(".tmp")
+            temporary.write_text(text, encoding="utf-8")
+            temporary.replace(self.path)
+        except OSError:
+            pass
+
+
 def _read_only(args: list[str]) -> bool:
     command = tuple(a for a in args[:2] if not a.startswith("-"))
     if "--fetch" in args and (command[:1] in FETCHING or command in FETCHING):
@@ -627,6 +725,7 @@ class App:
         self.last_contact = time.monotonic()
         self.server: ThreadingHTTPServer | None = None
         self.progress: dict[str, list[str]] = {}    # 実行中のコマンドの経過（画面が付けた番号 → 行）
+        self.cache = QueryCache(None if store is None else store.path.with_name("cache.json"))
 
     def move_legacy(self) -> None:
         """以前の gui.json に登録したフォルダを、ecobuild の作業空間の記録（workspace add）へ移す（一度だけ）。"""
@@ -638,14 +737,37 @@ class App:
     def api(self, name: str, body: dict) -> object:
         d = body.get
         if name == "cli":
+            args = list(d("args") or [])
+            if not _cacheable(args) and not _read_only(args):
+                self.cache.invalidate()        # 変える操作：覚えた結果は古い（実行中に読み直したものも古いことがあるので、後でもう一度）
             key = str(d("progress") or "")
-            if not key:
-                return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"))
-            lines = self.progress.setdefault(key, [])
             try:
-                return self.cli.run(d("dir") or None, list(d("args") or []), d("stdin"), progress=lines)
+                if not key:
+                    return self.cli.run(d("dir") or None, args, d("stdin"))
+                lines = self.progress.setdefault(key, [])
+                try:
+                    return self.cli.run(d("dir") or None, args, d("stdin"), progress=lines)
+                finally:
+                    self.progress.pop(key, None)
             finally:
-                self.progress.pop(key, None)
+                if not _cacheable(args) and not _read_only(args):
+                    self.cache.invalidate()
+        if name == "query":
+            # 覚える読むだけのコマンド。mode "cache"：覚えた結果だけ（なければ None）。"fresh"：実行して覚える。
+            # 答え：{"doc": 結果, "time": 実行した時刻（秒）, "stale": 変える操作の後なら true}
+            args = list(d("args") or [])
+            if not _cacheable(args):
+                raise GuiError("覚えておけないコマンドです：" + " ".join(args))
+            if d("mode") == "cache":
+                return self.cache.get(d("dir") or None, args)
+            return self.cache.fetch(self.cli, d("dir") or None, args)
+        if name == "prefetch":
+            # 最初の結果をまとめて読んで覚える（モジュールを作った・取得したとき。ひらく前に用意しておく）
+            from concurrent.futures import ThreadPoolExecutor
+            queries = [list(q) for q in d("queries") or [] if _cacheable(list(q))]
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                done = list(pool.map(lambda q: self.cache.fetch(self.cli, d("dir") or None, q)["doc"].get("ok", False), queries))
+            return {"read": sum(done), "of": len(queries)}
         if name == "progress":
             return {"lines": list(self.progress.get(str(d("id") or ""), []))}
         if name == "ping":

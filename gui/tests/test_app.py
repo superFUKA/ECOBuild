@@ -109,6 +109,41 @@ def test_local_operations_stay_inside_the_place(tmp_path):
             gui.remove_file(str(tmp_path), bad)
 
 
+def test_reads_are_cached_and_marked_stale_after_a_change(tmp_path):
+    """読むだけのコマンドの結果を覚える（stale-while-revalidate）。変える操作の後は「古い」になる。起動し直しても残る。"""
+    counter = tmp_path / "count.txt"
+    script = ("import json, sys, pathlib; p = pathlib.Path(sys.argv[1]); n = int(p.read_text()) + 1 if p.exists() else 1; "
+              "p.write_text(str(n)); print(json.dumps({'ok': True, 'result': n}))")
+    store = gui.Store(tmp_path / "gui.json")
+    app = gui.App(gui.Cli([sys.executable, "-c", script, str(counter)]), store, "t", 1)
+    assert app.api("query", {"args": ["task", "list"], "mode": "cache"}) is None
+    first = app.api("query", {"args": ["task", "list"], "mode": "fresh"})
+    assert first["doc"]["result"] == 1
+    kept = app.api("query", {"args": ["task", "list"], "mode": "cache"})
+    assert kept["doc"]["result"] == 1 and not kept.get("stale")
+    app.api("cli", {"args": ["task", "new", "x"]})                       # 変える操作
+    assert app.api("query", {"args": ["task", "list"], "mode": "cache"})["stale"]
+    assert app.api("query", {"args": ["task", "list"], "mode": "fresh"})["doc"]["result"] == 3
+    again = gui.App(gui.Cli([sys.executable, "-c", script, str(counter)]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    assert again.api("query", {"args": ["task", "list"], "mode": "cache"})["doc"]["result"] == 3   # cache.json に残る
+    with pytest.raises(gui.GuiError):
+        app.api("query", {"args": ["task", "new", "x"], "mode": "fresh"})   # 変える操作は覚えない
+    assert app.api("prefetch", {"queries": [["module", "show"], ["branch", "list"], ["build"]]}) == {"read": 2, "of": 2}
+
+
+def test_the_same_read_at_the_same_time_runs_once(tmp_path):
+    counter = tmp_path / "count.txt"
+    script = ("import json, sys, time, pathlib; p = pathlib.Path(sys.argv[1]); "
+              "p.write_text(p.read_text() + 'x' if p.exists() else 'x'); time.sleep(1); print(json.dumps({'ok': True, 'result': 1}))")
+    app = gui.App(gui.Cli([sys.executable, "-c", script, str(counter)]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    threads = [threading.Thread(target=app.api, args=("query", {"args": ["task", "list"], "mode": "fresh"})) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert counter.read_text() == "x"
+
+
 def test_dropped_files_are_copied_into_the_folder_without_overwriting(tmp_path):
     """エクスプローラーに落としたファイル・フォルダ（中身は base64）を、落とした先のフォルダに置く。"""
     import base64

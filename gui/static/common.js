@@ -42,7 +42,69 @@ const ECO = (() => {
   // Running commands, shown at the bottom left so long operations (build, clone) are visible.
   const running = document.createElement('div'); running.className = 'eco-running'; running.setAttribute('aria-live', 'polite');
   const toasts = document.createElement('div'); toasts.className = 'eco-toasts'; toasts.setAttribute('role', 'status');
-  document.addEventListener('DOMContentLoaded', () => document.body.append(running, toasts));
+  document.addEventListener('DOMContentLoaded', () => document.body.append(running, toasts, refreshing));
+
+  // Cached reads: stale-while-revalidate (as HTTP caches and React Query・SWR do). query() answers at once with what was
+  // read before (kept by the GUI server, across windows and restarts) and reads again behind it; when the new answer
+  // differs, onFresh(doc) gets it (the page shows it). Nothing kept: it waits for the command, as cli() does.
+  // - read again when older than STALE_MS, or after a command that changes something (the server marks all as stale)
+  // - the same read at the same time runs once (here and in the server)
+  // - when the window comes back (focus), the reads shown in the last minutes are read again if stale
+  // - the reads behind show as one small mark in the corner (更新中), not as loading screens
+  const STALE_MS = 15000, RECENT_MS = 10 * 60000, queries = new Map(), inflight = new Map();
+  const refreshing = document.createElement('div'); refreshing.className = 'eco-refreshing'; refreshing.hidden = true;
+  refreshing.setAttribute('role', 'status'); refreshing.innerHTML = '<span class="eco-spinner"></span><span>更新中</span>';
+  const behind = new Set();
+  function showRefreshing() {
+    refreshing.hidden = !behind.size;
+    refreshing.title = [...behind].map(k => 'ecobuild ' + queries.get(k)?.args.join(' ')).join('\n');
+  }
+  const queryKey = (dir, args) => (dir || '').replaceAll('\\', '/').toLowerCase() + '\n' + args.join('\0');
+  function fetchQuery(key) {
+    if (inflight.has(key)) return inflight.get(key);
+    const {dir, args} = queries.get(key);
+    const job = call('query', {dir, args, mode: 'fresh'})
+      .catch(e => ({doc: {ok: false, result: null, notices: [], error: {code: 'gui', message: e.message}, argv: ['ecobuild', ...args]}, time: Date.now() / 1000}))
+      .finally(() => inflight.delete(key));
+    inflight.set(key, job);
+    return job;
+  }
+  async function revalidate(key, shown) {
+    if (inflight.has(key) && behind.has(key)) return;
+    behind.add(key); showRefreshing();
+    try {
+      const {doc, time} = await fetchQuery(key), entry = queries.get(key);
+      entry.fetched = time * 1000;
+      if (doc.ok && JSON.stringify(doc.result) !== shown) { entry.shown = JSON.stringify(doc.result); entry.onFresh?.(doc); }
+    } finally { behind.delete(key); showRefreshing(); }
+  }
+  async function query(dir, args, onFresh) {
+    const key = queryKey(dir, args), entry = queries.get(key) || {};
+    Object.assign(entry, {dir, args, onFresh, used: Date.now()}); queries.set(key, entry);
+    const kept = await call('query', {dir, args, mode: 'cache'}).catch(() => null);
+    if (!kept) {
+      const {doc, time} = await fetchQuery(key);
+      entry.fetched = time * 1000; entry.shown = JSON.stringify(doc.result);
+      return doc;
+    }
+    entry.fetched = kept.time * 1000; entry.shown = JSON.stringify(kept.doc.result);
+    if (kept.stale || Date.now() - entry.fetched > STALE_MS) revalidate(key, entry.shown);
+    return kept.doc;
+  }
+  let hiddenSince = 0;
+  window.addEventListener('blur', () => { hiddenSince = Date.now(); });
+  window.addEventListener('focus', () => {
+    if (!hiddenSince || Date.now() - hiddenSince < 1000) return;
+    hiddenSince = 0;
+    for (const [key, entry] of queries) {
+      if (Date.now() - entry.used < RECENT_MS && Date.now() - (entry.fetched || 0) > STALE_MS) revalidate(key, entry.shown);
+    }
+  });
+  // What a module's screens read first (prefetch: kept when the module is made or taken, so it opens at once).
+  const FIRST_READS = [['module', 'show'], ['task', 'list'], ['milestone', 'list'], ['sprint', 'list'], ['branch', 'list'],
+    ['profile', 'list'], ['project', 'list'], ['module', 'settings'], ['deps', 'list'], ['task', 'list', '--to-review'], ['task', 'list', '--submitted'],
+    ['task', 'list', '--all'], ['task', 'next', '--count', '10'], ['task', 'overdue', '--days', '7'], ['task', 'workload'], ['milestone', 'status']];
+  const prefetch = (dir, extra = []) => call('prefetch', {dir, queries: [...FIRST_READS, ...extra]});
 
   function toast(message, kind = 'ok', ms = 4500) {
     const item = document.createElement('div'); item.className = 'eco-toast ' + kind; item.textContent = message;
@@ -439,5 +501,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch};
 })();

@@ -29,7 +29,8 @@ const sameServer = url => { try { return hubUrl && new URL(url).origin === new U
 
 // The window's top is the app's own (Windows・Linux): no system title bar; the close・maximize・minimize buttons stay,
 // in the app's colors (titleBarOverlay). The page draws the bar (frameless: preload.js) and makes it draggable.
-const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 40};
+// 39px: the page's bar is 40px with a line at its bottom, which stays visible under the buttons too.
+const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 39};
 function windowOptions([width, height]) {
   return {
     width, height, icon: ICON, backgroundColor: '#14181d', autoHideMenuBar: true,

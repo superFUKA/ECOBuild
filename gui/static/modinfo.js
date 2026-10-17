@@ -69,7 +69,7 @@
       : `<div class="mi-readme">${/\.(md|markdown)$/i.test(data.readmeName) ? markdown(readme.text) : `<pre>${esc(readme.text)}</pre>`}${readme.truncated ? '<p>…</p>' : ''}</div>`;
     return `<div class="mi-home"><div class="mi-home-main">
       <section class="mi-section">${fileTree()}</section>
-      ${readme ? `<section class="mi-section"><h3 class="mi-readme-title">${esc(data.readmeName || 'README')}</h3>${text}</section>` : ''}
+      ${readme ? `<section class="mi-section"><div class="mi-readme-head"><h3 class="mi-readme-title">${esc(data.readmeName || 'README')}</h3>${btn('編集', 'readme-edit')}</div>${text}</section>` : ''}
       </div><aside class="mi-about" id="mi-about">${about()}</aside></div>`;
   }
   // The README's Markdown, shown as on GitHub: headings, paragraphs, lists, quotes, code (fenced and inline), links,
@@ -385,14 +385,15 @@
       const libraries = (Array.isArray(data.projects) ? data.projects : []).filter(p => /library/.test(p.kind)).map(p => [p.name, p.name]);
       return inWorkspace('Projectを追加', [
         {name: 'name', label: '名前（ディレクトリ名にもなる）', required: true, row: 'project'},
-        {name: 'kind', label: '種類', type: 'select', value: 'app', row: 'project', options: [['library', 'ライブラリ'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]},
-        {name: 'link', label: 'リンクするライブラリ', type: 'select', showIf: v => v.kind !== 'library',
+        {name: 'kind', label: '種類', type: 'select', value: 'app', row: 'project', options: [['library', 'ライブラリ（静的 .lib）'], ['shared', 'ライブラリ（共有 .dll）'], ['app', '実行ファイル'], ['test', 'テスト'], ['bench', '性能測定']]},
+        {name: 'link', label: 'リンクするライブラリ', type: 'select', showIf: v => !/^(library|shared)$/.test(v.kind),
           options: [...(libraries.length === 1 ? [] : [['', libraries.length ? '選んでください' : 'なし']]), ...libraries],
           help: libraries.length ? 'テスト・性能測定にはライブラリが必要です。' : 'このモジュールにライブラリがありません（テスト・性能測定は作れません）。'},
-        {name: 'test', label: '組のテスト用Project（名前Test）も作る', type: 'checkbox', value: true, showIf: v => v.kind === 'library'}], '追加',
+        {name: 'test', label: '組のテスト用Project（名前Test）も作る', type: 'checkbox', value: true, showIf: v => /^(library|shared)$/.test(v.kind)}], '追加',
         v => {
           if ((v.kind === 'test' || v.kind === 'bench') && !v.link) return libraries.length ? 'リンクするライブラリを選んでください。' : 'ライブラリがないため、テスト・性能測定のProjectは作れません。';
-          return ['project', 'add', v.name, '--kind', v.kind, ...(v.kind !== 'library' && v.link ? ['--link', v.link] : []), ...(v.kind === 'library' && !v.test ? ['--no-test'] : [])];
+          const library = /^(library|shared)$/.test(v.kind);
+          return ['project', 'add', v.name, '--kind', v.kind, ...(!library && v.link ? ['--link', v.link] : []), ...(library && !v.test ? ['--no-test'] : [])];
         }, {success: r => `Projectを追加しました：${r.project || ''}`});
     },
     'project-remove': name => inWorkspace(`Projectを削除：${name}`, [], '削除', () => ['project', 'remove', name, '--yes'], {danger: true, intro: 'Projectを外し、そのディレクトリを削除します。他のProjectからのリンクも外します。最初に作ったProjectを外すと、他のモジュールからリンクできなくなります。', success: `${name} を削除しました。`}),
@@ -604,6 +605,8 @@
     'branch-merge': name => ECO.form({title: `${name} の提出を取り込む`, intro: 'ブランチ同士の提出を、マージコミットで取り込みます。', fields: [{name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'}], ok: '取り込む',
       submit: async v => { if (!await ECO.run(here(), ['branch', 'merge', name, ...(v.ignore ? ['--ignore-checks'] : [])], {success: `${name} の提出を取り込みました。`})) return '取り込めませんでした。'; render(); }}),
     'branch-delete': name => ECO.run(here(), ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`}).then(doc => doc && render()),
+    // README：エディター（既定のアプリ）で開く。変えたらタスクブランチでコミットする
+    'readme-edit': () => ECO.action('folder', {dir: here(), path: data.readmeName}).catch(e => ECO.toast(e.message, 'bad')),
   };
   el('modinfo-content').addEventListener('click', e => {
     const folder = e.target.closest('[data-mi-folder]');

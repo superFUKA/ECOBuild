@@ -94,3 +94,5 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-projects tr.mi-attached .mi-pill.kind { background: transparent; border: 1px solid #343c46; color: var(--muted); }
 .mi-projects tr.mi-attached .mi-mono { color: #aeb7c2; }
 .mi-error { margin: 10px 0 0; max-height: 240px; overflow: auto; color: #8c96a3; font: 11px Consolas, monospace; white-space: pre-wrap; }
+.mi-readme-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mi-readme-head .mi-readme-title { margin: 0; }

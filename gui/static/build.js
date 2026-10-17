@@ -70,6 +70,8 @@ WS.onRefresh(renderPrDetail);
   async function runAction(action, only = '') {
     if (busy) return;
     const project = only || get('build-project').value, configuration = get('build-config').value;
+    // ▶ on a test Project runs its tests, as Visual Studio does (ecobuild run is for executables only).
+    if (action === 'run' && project && [...get('build-project').options].find(o => o.value === project)?.dataset.kind === 'test') action = 'test';
     const args = action === 'check' ? ['check'] : [action, ...(project ? ['--project', project] : []), ...(configuration ? ['--configuration', configuration] : [])];
     if (action === 'run' && get('build-run-args').value.trim()) args.push('--arguments', get('build-run-args').value.trim());
     busy = true; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = true; });

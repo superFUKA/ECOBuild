@@ -163,6 +163,7 @@
   }
   // The Projects as a tree: a Project that links another one of this module is shown under it, indented (a library's test
   // under the library). One that links several is under the first of them. Only the name moves; the columns stay.
+  // The indent is "uses the one above" (not "contains"), so an indented row says so in words.
   function projectTree(projects) {
     const names = new Set(projects.map(p => p.name)), parent = new Map();
     for (const p of projects) {
@@ -176,7 +177,7 @@
     }
     const rows = [];
     const visit = (p, depth, last) => {
-      rows.push({p, depth, last});
+      rows.push({p, depth, last, parent: parent.get(p.name)});
       const kids = projects.filter(x => parent.get(x.name) === p.name);
       kids.forEach((k, i) => visit(k, depth + 1, i === kids.length - 1));
     };
@@ -191,9 +192,9 @@
     return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
       (settings ? btn('モジュールの設定', 'module-settings') : '') + btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
-      ${projectTree(projects).map(({p, depth}) => `<tr><td><span class="mi-indent" style="--depth:${depth}">${depth ? '<span class="mi-branch-line" aria-hidden="true">└</span>' : ''}<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}</span></td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
+      ${projectTree(projects).map(({p, depth, last, parent}) => `<tr><td><span class="mi-indent" style="--depth:${depth}">${depth ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>` : ''}<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}${parent ? `<span class="mi-uses">${esc(parent)} を使う</span>` : ''}</span></td><td>${pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-note">緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
+      <p class="mi-note">字下げしたProjectは、上のProjectを使う（リンクする）側です（ライブラリの下にそのテスト）。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectです。CMakeのパッケージ等のリンクは「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>') +
       renderTemplates();
   }
   // File templates (template list): what ecobuild file add makes a new file from.

@@ -65,6 +65,7 @@
   function renderOverview() {
     const r = data.info;
     const files = `<section class="mi-section"><div class="mi-head"><div><h3>ファイル構成</h3></div></div>${fileTree()}</section>`;
+    if (!r) return files + `<p class="mi-note"><span class="eco-spinner"></span> モジュールの情報を読み込んでいます…</p>`;
     if (r.error) return files + head('概要', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
     const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
     const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
@@ -177,9 +178,16 @@
       const [p, d, m] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])]), cli(['module', 'settings'])]);
       data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; data.settings = m.ok ? m.result : null;
     },
+    // The files show at once (read here, quick); module show asks GitHub (a few seconds) and fills in when it comes.
     overview: async () => {
-      const [r, files] = await Promise.all([cli(['module', 'show']), ECO.call('files', {dir: here()}).catch(e => ({error: e.message}))]);
-      data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || []; data.files = files;
+      const key = loadKey();
+      data.info = null;
+      cli(['module', 'show']).then(r => {
+        if (loadKey() !== key) return;   // another place was chosen meanwhile
+        data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || [];
+        if (view === 'overview' && !el('modinfo-content').hidden) el('mi-main').innerHTML = placeSelect() + VIEWS.overview();
+      });
+      data.files = await ECO.call('files', {dir: here()}).catch(e => ({error: e.message}));
     },
     deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },

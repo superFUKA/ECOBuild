@@ -88,7 +88,7 @@ main, body.embedded > main { flex: 1; height: auto; min-height: 0; }
 .build-more > div button:hover { background: #36483f; }
 .build-args { display: grid !important; gap: 4px !important; padding: 6px 8px 2px; border-top: 1px solid #3a424c; margin-top: 4px; }
 .build-args input { width: 100% !important; }
-.build-output { flex-shrink: 0; max-height: 34vh; display: flex; flex-direction: column; border-bottom: 1px solid #303640; background: #11141a; }
+.build-output { flex-shrink: 0; max-height: 34vh; display: flex; flex-direction: column; border-top: 1px solid #303640; background: #11141a; }   /* under the work area, as the output pane of an IDE */
 .build-output-head { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid #262c34; }
 .build-output-head button { margin-left: auto; padding: 0 8px; border: 0; background: transparent; color: #a5aeba; font-size: 16px; }
 .build-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; } .build-state.ok { background: #213a33; color: #a8ead9; } .build-state.bad { background: #43282b; color: #ffb4b4; }

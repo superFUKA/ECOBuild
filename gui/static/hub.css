@@ -65,7 +65,6 @@
     #add-feedback { color: #a8ead9; font-size: 13px; }
       #add-dialog { width: min(640px, calc(100% - 32px)); padding: 32px; box-shadow: 0 24px 100px #0008; }
     .dialog-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .eyebrow { display: block; color: #9ba8b5; font-size: 11px; margin-bottom: 10px; letter-spacing: .06em; }
     #add-title { font-size: 24px; margin: 0; }
     .mock-badge { padding: 4px 9px; border: 1px solid #46515e; border-radius: 20px; color: #b5c1ce; font-size: 11px; }
     .method-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border: 0; padding: 0; margin: 24px 0; }
@@ -78,7 +77,7 @@
     .form-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
     #add-form .field { font-size: 13px; gap: 9px; }
     #add-form input:focus-visible, #add-form select:focus-visible, #add-form textarea:focus-visible { outline: 2px solid #8bd7c2; outline-offset: 2px; }
-    .more-options { margin: 8px 0 24px; border-bottom: 1px solid #343c46; padding-bottom: 16px; }
+    .more-options { margin: 8px 0 0; }
     .more-options summary { padding: 8px 0; cursor: pointer; font-size: 13px; color: #dbe3eb; }
     .more-options summary span { color: #9ba8b5; font-size: 11px; margin-left: 10px; }
     .mock-note { font-size: 11px; line-height: 1.7; color: #9ba8b5; margin: 24px 0 0; }

@@ -338,6 +338,21 @@ const ECO = (() => {
     return true;
   }
 
+  // The module's type (module-defaults: read from .ecobuild/ecobuild.toml, without waiting for GitHub) and what the screens
+  // offer for it: the commands differ by type (ecobuild --help in the module). A type the GUI does not know gets the
+  // commands every type has (build・test・run・clean with a configuration, profile add with a configuration).
+  const TYPES = {
+    cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true},
+    python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true},
+    generic: {configurations: ['Debug', 'Release']},
+  };
+  const types = new Map();
+  function moduleType(dir) {
+    if (!types.has(dir)) types.set(dir, call('module-defaults', {dir}).then(d => d.type || '').catch(() => ''));
+    return types.get(dir);
+  }
+  const typeFeatures = type => TYPES[type] || {configurations: ['Debug', 'Release']};
+
   // Splits text into command arguments for comma lists.
   const commaList = text => String(text || '').split(',').map(s => s.trim()).filter(Boolean);
 
@@ -355,5 +370,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures};
 })();

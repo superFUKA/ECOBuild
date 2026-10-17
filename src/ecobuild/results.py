@@ -172,6 +172,14 @@ class AgentGuide:
 
 
 @dataclass(frozen=True)
+class AgentStarted:
+    """ecobuild agent start：起動したエージェント（新しい画面で動いている）。"""
+    pid: int
+    command: tuple[str, ...]
+    directory: Path
+
+
+@dataclass(frozen=True)
 class CiInitResult:
     path: str
     private_dependencies: tuple[str, ...]   # CIで取得するにはトークンが要る依存先

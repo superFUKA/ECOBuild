@@ -5,6 +5,13 @@
   const el = id => document.getElementById(id);
   const {esc} = ECO;
   let view = 'overview', place = '', data = {};
+  // What the module's type offers (ECO.typeFeatures): Projects・dependencies・templates are of the types that have them.
+  let features = ECO.typeFeatures('');
+  const typeLoaded = ECO.moduleType(MOD.root).then(type => {
+    features = ECO.typeFeatures(type);
+    for (const tab of ['projects', 'deps']) document.querySelector(`.mi-tabs [data-mi-view="${tab}"]`).hidden = !features.projects;
+    if (!features.projects && (view === 'projects' || view === 'deps')) view = 'overview';
+  });
   const KIND = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定'};
   // deps list --fetch: what changed on GitHub (outside ECOBuild).
   const DEP_REMOTE = {ok: ['GitHubにある', 'ok'], archived: ['アーカイブ済み（更新されない）', 'warn'], moved: ['名前が変わった', 'warn'], gone: ['GitHubにない', 'bad'], unknown: ['確認できない', '']};
@@ -44,8 +51,8 @@
       ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
       ${row('GitHubのリポジトリ', r.repository || r.url ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repository || r.url)}</a>` : esc(r.repository)} ${visibility} ${archived}` : '<span class="mi-sub">不明</span>')}
       ${row('タスクブランチの作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
-      ${row('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>')}
-      ${row('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + ` <button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
+      ${features.projects ? row('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>') : ''}
+      ${!features.projects ? '' : row('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + ` <button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
       </tbody></table>${data.infoNotices?.length ? `<p class="mi-note">${data.infoNotices.map(esc).join('<br>')}</p>` : ''}`;
   }
   // The dependency graph (ecobuild deps tree): the dependencies of the dependencies too; one seen again is not expanded.
@@ -105,21 +112,23 @@
   }
   // The C++ options of a build setting and its overrides for Projects, in words.
   const OPTION_LABEL = {architecture: 'アーキテクチャ', cpp_standard: 'C++', generator: '生成器', toolset: 'ツールセット', c_compiler: 'Cコンパイラ', cxx_compiler: 'C++コンパイラ',
-    toolchain_file: 'ツールチェーン', test_parallel: 'テストの並列数', googletest_archive: 'GoogleTestのZIP', type: '形式', artifact_directory: '成果物の置き場所'};
+    toolchain_file: 'ツールチェーン', windows_sdk: 'Windows SDK', test_parallel: 'テストの並列数', googletest_archive: 'GoogleTestのZIP', type: '形式', artifact_directory: '成果物の置き場所'};
   const optionText = (key, value) => key === 'test_continue_on_failure' ? (value ? '' : 'テストの失敗で止める') : key === 'fetch_git' ? (value ? '' : '依存先を自動でcloneしない')
     : `${OPTION_LABEL[key] || key} ${key === 'type' ? {static: '静的', shared: '共有', interface: 'インターフェース'}[value] || value : value}`;
   const optionsText = options => Object.entries(options || {}).map(([k, v]) => optionText(k, v)).filter(Boolean);
   function renderProfiles() {
     const p = data.profiles;
     if (p.error) return head('ビルド設定', '') + `<p class="mi-note">${esc(p.error.message)}</p>`;
-    const names = Object.keys(p.profiles);
-    return head('ビルド設定', '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。定義は .ecobuild/ecobuild.toml にあり、タスクブランチで変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
-      `<table class="mi-table"><thead><tr><th>このPCで使う</th><th>名前</th><th>構成</th><th>ライブラリ</th><th>並列数</th><th>そのほか・Projectごとの上書き</th><th></th></tr></thead><tbody>
+    const names = Object.keys(p.profiles), cpp = !!features.projects, parallel = cpp || !!features.parallel;
+    // The columns of the type: the form of the libraries and the overrides for Projects are C++'s.
+    const columns = ['このPCで使う', '名前', '構成', ...(cpp ? ['ライブラリ'] : []), ...(parallel ? ['並列数'] : []), ...(cpp ? ['そのほか・Projectごとの上書き'] : []), ''];
+    return head('ビルド設定', (cpp ? '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。' : `名前付きのビルド設定（構成${parallel ? '・並列数' : ''}）です。`) + '定義は .ecobuild/ecobuild.toml にあり、タスクブランチで変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
+      `<table class="mi-table"><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>
       ${names.map(n => { const x = p.profiles[n], extra = optionsText(x.options), overrides = Object.entries(x.projects || {});
-        return `<tr><td><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td><td>${x.shared ? 'すべて共有' : '静的'}</td><td>${x.parallel}</td>
-        <td>${extra.length ? `<div class="mi-sub">${extra.map(esc).join('・')}</div>` : ''}${overrides.map(([project, values]) => `<div>${pill(project)} ${esc(optionsText(values).join('・'))} ${btn('変更', 'profile-project', n + '\n' + project, 'mi-link')}${btn('外す', 'profile-project-clear', n + '\n' + project, 'mi-link danger-text')}</div>`).join('')}</td>
-        <td class="mi-row-actions">${btn('編集', 'profile-add', n)}${btn('Projectごとの上書き', 'profile-project', n + '\n')}${btn('削除', 'profile-remove', n, 'danger-text')}</td></tr>`; }).join('')}
-      <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="6" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
+        return `<tr><td><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td>${cpp ? `<td>${x.shared ? 'すべて共有' : '静的'}</td>` : ''}${parallel ? `<td>${x.parallel}</td>` : ''}
+        ${cpp ? `<td>${extra.length ? `<div class="mi-sub">${extra.map(esc).join('・')}</div>` : ''}${overrides.map(([project, values]) => `<div>${pill(project)} ${esc(optionsText(values).join('・'))} ${btn('変更', 'profile-project', n + '\n' + project, 'mi-link')}${btn('外す', 'profile-project-clear', n + '\n' + project, 'mi-link danger-text')}</div>`).join('')}</td>` : ''}
+        <td class="mi-row-actions">${btn('編集', 'profile-add', n)}${cpp ? btn('Projectごとの上書き', 'profile-project', n + '\n') : ''}${btn('削除', 'profile-remove', n, 'danger-text')}</td></tr>`; }).join('')}
+      <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="${columns.length - 1}" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
   }
   function renderBranches() {
     const branches = data.branches;
@@ -155,6 +164,7 @@
   const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());
   const show = () => render(!loaded.has(loadKey()));
   async function render(reload = true) {
+    await typeLoaded;
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
     const main = el('mi-main'), mine = ++rendering, shown = view;
     if (reload) { const key = loadKey(); main.innerHTML = placeSelect() + ECO.loading(); await LOADS[shown](); loaded.add(key); }
@@ -186,7 +196,50 @@
     if (!doc.ok) { ECO.showError(doc); return null; }
     return doc.result;
   }
-  const CONFIGURATIONS = ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'];
+  // The properties of a Project like Visual Studio's (project set): options and definitions with a condition (the compiler's
+  // kind・the configuration), and the commands of the build events. Shown one per line; the CLI adds and removes them.
+  const OPTION_KINDS = [['compile_options', 'compile-option', 'コンパイルオプション', '例：/permissive-'], ['link_options', 'link-option', 'リンクオプション', '例：/STACK:8388608'],
+    ['conditional_definitions', 'conditional-define', '条件付きの定義（NAME か NAME=値）', '例：_CRT_SECURE_NO_WARNINGS @ MSVC']];
+  const BUILD_EVENTS = [['pre_build', 'コンパイルの前に実行するコマンド'], ['pre_link', 'リンクの前に実行するコマンド'], ['post_build', 'ビルドの後に実行するコマンド']];
+  const optionLine = o => [o.value, [o.compiler, o.configuration].filter(Boolean).join(' ')].filter(Boolean).join(' @ ');
+  function parseOption(line) {
+    const at = line.lastIndexOf(' @ '), value = (at < 0 ? line : line.slice(0, at)).trim(), option = {value, compiler: null, configuration: null};
+    for (const word of at < 0 ? [] : line.slice(at + 3).trim().split(/\s+/).filter(Boolean)) {
+      const key = ECO.typeFeatures('cpp').configurations.includes(word) ? 'configuration' : 'compiler';
+      if (option[key]) return `「${line}」の条件は、コンパイラの種類と構成を1つずつです。`;
+      option[key] = word;
+    }
+    if (!value) return `「${line}」に値がありません。`;
+    if (value.includes(';')) return `「${value}」に ; は使えません。`;
+    return option;
+  }
+  // A build event's arguments as one line, quoted as the CLI splits it (shlex).
+  const commandLine = args => args.map(a => /^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", `'"'"'`)}'`).join(' ');
+  const lines = text => String(text || '').split('\n').map(s => s.trim()).filter(Boolean);
+  // The project set commands for the options (one per condition) and the build events (one per stage); a message if invalid.
+  function propertyCommands(name, d, v) {
+    const groups = new Map(), commands = [];
+    for (const [key, option] of OPTION_KINDS) {
+      const before = d[key].map(optionLine), after = [];
+      for (const line of lines(v[key])) { const o = parseOption(line); if (typeof o === 'string') return o; after.push(optionLine(o)); }
+      const change = (texts, verb) => { for (const text of texts) {
+        const o = parseOption(text), group = `${o.compiler || ''}\n${o.configuration || ''}`;
+        if (!groups.has(group)) groups.set(group, {compiler: o.compiler, configuration: o.configuration, args: new Map()});
+        const args = groups.get(group).args, flag = `--${verb}-${option}`;
+        args.set(flag, [...(args.get(flag) || []), o.value]);
+      } };
+      change(after.filter(x => !before.includes(x)), 'add'); change(before.filter(x => !after.includes(x)), 'remove');
+    }
+    for (const g of groups.values()) commands.push(['project', 'set', name, ...(g.compiler ? ['--compiler', g.compiler] : []), ...(g.configuration ? ['--configuration', g.configuration] : []),
+      ...[...g.args].flatMap(([flag, values]) => [flag, values.join(';')])]);
+    for (const [stage] of BUILD_EVENTS) {
+      const before = d.build_events[stage].map(commandLine), after = lines(v[`event_${stage}`]);
+      if (after.some(x => x.includes(';'))) return 'ビルドイベントのコマンドに ; は使えません（1行に1つのコマンドを書いてください）。';
+      const added = after.filter(x => !before.includes(x)), removed = before.filter(x => !after.includes(x));
+      if (added.length || removed.length) commands.push(['project', 'set', name, '--event', stage, ...(removed.length ? ['--remove-build-event', removed.join(';')] : []), ...(added.length ? ['--add-build-event', added.join(';')] : [])]);
+    }
+    return commands;
+  }
   const ACTIONS = {
     'deps-fetch': () => { depsFetched = true; view = 'deps'; return render(); },
     'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を記録の版に合わせます。手元にないものはcloneし、作業版や変更のあるものはそのままにします。管理ファイルは変更しません。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
@@ -255,6 +308,17 @@
         {name: 'systemLibs', label: 'OSのライブラリ（名前、カンマ区切り。例：ws2_32, d3d11）', value: list(d.system_libraries)},
         ...(library ? [{name: 'exportAll', label: 'Windowsで共有ライブラリのすべての関数を書き出す（dllexport を書かなくてよい）', type: 'checkbox', value: d.export_all_symbols}] : []),
         ...(d.folder !== null ? [{name: 'folder', label: 'Visual Studio のソリューションフォルダー（/ 区切り。空なら既定）', value: folderNow, placeholder: defaultFolder || 'Projects'}] : []),
+        {type: 'section', label: 'コンパイル・リンク・警告', note: '1行に1つ。条件は「値 @ MSVC Debug」のように @ の後にコンパイラの種類・構成', collapsed: true,
+          open: OPTION_KINDS.some(([key]) => d[key].length) || d.warning_level !== null || d.warnings_as_errors},
+        ...OPTION_KINDS.map(([key, , label, placeholder]) => ({name: key, label, type: 'textarea', rows: 2, value: d[key].map(optionLine).join('\n'), placeholder})),
+        {name: 'warningLevel', label: '警告のレベル', type: 'select', row: 'warn', value: d.warning_level === null ? 'default' : String(d.warning_level), options: [['default', '既定（MSVCは /W3）'], ...[0, 1, 2, 3, 4].map(n => [String(n), `${n}（/W${n}）`])]},
+        {name: 'warningsAsErrors', label: '警告をエラーにする', type: 'checkbox', row: 'warn', value: d.warnings_as_errors},
+        {type: 'section', end: true},
+        {type: 'section', label: 'ビルドイベント・出力ファイル', note: 'コマンドは1行に1つ（引数は空白で区切り、空白を含むものは引用符で囲む）', collapsed: true,
+          open: BUILD_EVENTS.some(([stage]) => d.build_events[stage].length) || d.output_files.length > 0},
+        ...BUILD_EVENTS.map(([stage, label]) => ({name: `event_${stage}`, label, type: 'textarea', rows: 2, value: d.build_events[stage].map(commandLine).join('\n')})),
+        {name: 'outputFiles', label: 'できたファイルの横へコピーするファイル・フォルダー（Projectからの相対、カンマ区切り）', value: list(d.output_files), placeholder: '例：assets, config.ini'},
+        {type: 'section', end: true},
       ];
       // The CLI adds and removes items: send the differences from what is saved.
       const diff = (option, before, text) => {
@@ -271,10 +335,16 @@
         }
         if (library && v.exportAll !== d.export_all_symbols) common.push('--export-all', v.exportAll ? 'on' : 'off');
         if (d.folder !== null && v.folder.trim() !== folderNow) common.push(...(v.folder.trim() ? ['--folder', v.folder.trim()] : ['--clear-folder']));
+        const level = d.warning_level === null ? 'default' : String(d.warning_level);
+        if (v.warningLevel !== level) common.push('--warning-level', v.warningLevel);
+        if (v.warningsAsErrors !== d.warnings_as_errors) common.push('--warnings-as-errors', v.warningsAsErrors ? 'on' : 'off');
+        common.push(...diff('output-file', d.output_files, v.outputFiles));
+        const extra = propertyCommands(name, d, v); if (typeof extra === 'string') return extra;
         // One project set per group of forms (the definitions of each form differ); the rest goes with the first.
         const commands = groups.map((g, i) => [...diff('define', g.values.defines, v[`defines${i}`]), ...diff('public-define', g.values.public_defines, v[`public${i}`]),
           ...diff('include', g.values.include_directories, v[`includes${i}`])]).map((changes, i) => changes.length ? ['project', 'set', name, ...(groups[i].types.length ? ['--type', groups[i].types.join(',')] : []), ...changes] : null).filter(Boolean);
         if (common.length) commands.unshift(['project', 'set', name, ...common]);
+        commands.push(...extra);
         return commands.length ? commands : '変更はありません。';
       }, {intro: `${esc(KIND[d.kind] || d.kind)}・${esc(d.directory)}/` + (d.links.length ? `<br>リンク：${d.links.map(l => esc(l.name)).join('、')}（「リンク」で変更）` : ''), success: `${name} の設定を保存しました。`});
     },
@@ -320,12 +390,14 @@
         .map(p => [p.name, /library/.test(p.kind) ? p.name : `${p.name}（ライブラリではないため、リンクはできません）`]);
       return inWorkspace('モジュールの設定', [
         {name: 'main', label: '他のモジュールからリンクされるProject（main）', type: 'select', value: m.main_project || '', options: [...libraries, ['', 'なし（他のモジュールからリンクできない）']], help: 'ライブラリのProjectだけを選べます。'},
+        {name: 'runtime', label: 'MSVC のCランタイム（このモジュールを頂点にしたビルド全体）', type: 'radio', inline: true, value: m.msvc_runtime || '', options: [...(m.msvc_runtime ? [] : [['', '既定']]), ['dll', 'DLL（/MD）'], ['static', '静的（/MT）']]},
         ...(f ? [{type: 'section', label: 'Visual Studio のソリューションフォルダー'},
           {name: 'projects', label: '自分のProject', row: 'f1', value: f.projects}, {name: 'linked', label: 'リンク先のモジュール', row: 'f1', value: f.linked_projects},
           {name: 'external', label: 'CMake・GoogleTest 等', row: 'f2', value: f.external}, {type: 'section', end: true}] : [])], '保存',
         v => {
           const args = ['module', 'settings'];
           if (v.main !== (m.main_project || '')) args.push(...(v.main ? ['--main', v.main] : ['--no-main']));
+          if (v.runtime && v.runtime !== (m.msvc_runtime || '')) args.push('--msvc-runtime', v.runtime);
           if (f) for (const [key, option, before] of [['projects', '--projects-folder', f.projects], ['linked', '--linked-folder', f.linked_projects], ['external', '--external-folder', f.external]]) if (v[key].trim() && v[key].trim() !== before) args.push(option, v[key].trim());
           return args.length > 2 ? args : '変更はありません。';
         }, {success: 'モジュールの設定を保存しました。'});
@@ -338,18 +410,25 @@
     'profile-add': name => {
       const x = name && data.profiles?.profiles?.[name], o = x?.options || {};
       const text = (field, label, row, extra = {}) => ({name: field, label, row, value: o[field] ?? '', ...extra});
+      const configurations = features.configurations.includes(x?.configuration || 'Debug') ? features.configurations : [...features.configurations, x.configuration];
+      // Types other than C++ have a configuration (python also a parallel count) only (their profile add).
+      if (!features.projects) return inWorkspace(name ? `ビルド設定：${name}` : 'ビルド設定を追加', [
+        {name: 'name', label: '名前', required: true, value: name || ''},
+        {name: 'configuration', label: '構成', type: 'select', row: 'build', value: x?.configuration || 'Debug', options: configurations.map(c => [c, c])},
+        ...(features.parallel ? [{name: 'parallel', label: '並列の数', type: 'number', row: 'build', min: 1, value: String(x?.parallel || 1)}] : [])], '保存',
+        v => ['profile', 'add', v.name, '--configuration', v.configuration, ...(features.parallel ? ['--parallel', v.parallel || '1'] : [])], {success: 'ビルド設定を保存しました。'});
       return inWorkspace(name ? `ビルド設定：${name}` : 'ビルド設定を追加', [
         {name: 'name', label: '名前', required: true, value: name || ''},
-        {name: 'configuration', label: '構成', type: 'select', row: 'build', value: x?.configuration || 'Debug', options: CONFIGURATIONS.map(c => [c, c])},
+        {name: 'configuration', label: '構成', type: 'select', row: 'build', value: x?.configuration || 'Debug', options: configurations.map(c => [c, c])},
         {name: 'parallel', label: '並列ビルドの数', type: 'number', row: 'build', min: 1, value: String(x?.parallel || 4)},
         {name: 'shared', label: 'ライブラリ（依存先を含む）をすべて共有ライブラリにする', type: 'checkbox', value: x?.shared, help: 'ライブラリごとに決めるには、下の「Projectごとの上書き」で形式を指定します。'},
-        {type: 'section', label: 'C++・コンパイラ', note: '空なら既定', collapsed: true, open: ['architecture', 'cpp_standard', 'generator', 'toolset', 'c_compiler', 'cxx_compiler', 'toolchain_file'].some(k => o[k])},
+        {type: 'section', label: 'C++・コンパイラ', note: '空なら既定', collapsed: true, open: ['architecture', 'cpp_standard', 'generator', 'toolset', 'c_compiler', 'cxx_compiler', 'toolchain_file', 'windows_sdk'].some(k => o[k])},
         {name: 'cpp_standard', label: 'C++の規格', type: 'select', row: 'cpp', value: String(o.cpp_standard || ''), options: [['', '既定（20）'], ['17', 'C++17'], ['20', 'C++20'], ['23', 'C++23']]},
         {name: 'architecture', label: 'アーキテクチャ', type: 'select', row: 'cpp', value: o.architecture || '', options: [['', '既定'], ['x64', 'x64'], ['Win32', 'Win32'], ['ARM64', 'ARM64']]},
         {name: 'generator', label: 'CMakeの生成器', type: 'select', row: 'gen', value: o.generator || '', options: [['', '既定（OSごと）'], ...['Visual Studio 18 2026', 'Visual Studio 17 2022', 'Ninja Multi-Config'].map(g => [g, g]), ...(o.generator && !['Visual Studio 18 2026', 'Visual Studio 17 2022', 'Ninja Multi-Config'].includes(o.generator) ? [[o.generator, o.generator]] : [])]},
         text('toolset', 'ツールセット', 'gen', {placeholder: 'v143、14.44 等'}),
         text('c_compiler', 'Cコンパイラ（Ninjaだけ）', 'cc', {placeholder: '名前か絶対パス'}), text('cxx_compiler', 'C++コンパイラ（Ninjaだけ）', 'cc', {placeholder: '例：clang++'}),
-        text('toolchain_file', 'CMakeのツールチェーンファイル（絶対パス）'),
+        text('toolchain_file', 'CMakeのツールチェーンファイル（絶対パス）', 'tc'), text('windows_sdk', 'Windows SDK の版（MSVCだけ）', 'tc', {placeholder: '例：10.0.22621.0'}),
         {type: 'section', end: true},
         {type: 'section', label: 'テスト・依存先', note: '空なら既定', collapsed: true, open: ['test_parallel', 'googletest_archive', 'test_continue_on_failure', 'fetch_git'].some(k => k in o)},
         {name: 'test_parallel', label: 'テストを並列に実行する数', type: 'number', min: 1, value: o.test_parallel ? String(o.test_parallel) : '', placeholder: '1'},
@@ -359,7 +438,7 @@
         {type: 'section', end: true}], '保存',
         v => ['profile', 'add', v.name, '--configuration', v.configuration, '--parallel', v.parallel || '1', ...(v.shared ? ['--shared'] : []),
           ...[['cpp_standard', '--cpp-standard'], ['architecture', '--architecture'], ['generator', '--generator'], ['toolset', '--toolset'], ['c_compiler', '--c-compiler'], ['cxx_compiler', '--cxx-compiler'],
-            ['toolchain_file', '--toolchain-file'], ['test_parallel', '--test-parallel'], ['googletest_archive', '--googletest-archive']].flatMap(([key, option]) => String(v[key] ?? '').trim() ? [option, String(v[key]).trim()] : []),
+            ['toolchain_file', '--toolchain-file'], ['windows_sdk', '--windows-sdk'], ['test_parallel', '--test-parallel'], ['googletest_archive', '--googletest-archive']].flatMap(([key, option]) => String(v[key] ?? '').trim() ? [option, String(v[key]).trim()] : []),
           ...(v.stop ? ['--stop-on-test-failure'] : []), ...(v.noFetch ? ['--no-fetch'] : [])], {success: 'ビルド設定を保存しました。'});
     },
     // Overrides of a build setting for one Project (profile project): the form of a library, its C++ standard, etc.

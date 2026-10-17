@@ -258,7 +258,7 @@ function newFilePlan(v) {
 }
 async function newFileDialog(dir = activeDirectory) {
   if (!editable()) return;
-  const cpp = restricted();
+  const cpp = restricted(), pythonTests = !cpp && !!ECO.typeFeatures(await ECO.moduleType(WS.dir)).fileTests;
   const settings = cpp ? await WS.cli(['module', 'settings'], {quiet: true}) : null;
   const templates = settings?.ok ? Object.keys(settings.result.templates || {}) : [];
   // In a Project, files go in its source folders (src・include): files elsewhere are not built (ecobuild file add refuses them).
@@ -276,6 +276,7 @@ async function newFileDialog(dir = activeDirectory) {
     ...(templates.length ? [{name: 'template', label: 'テンプレート', type: 'select', options: templates.map(t => [t, t]), showIf: v => v.kind === 'template',
       help: 'モジュール画面の「Project」タブで登録したもの・ECOBuildの既定のものです。'}] : []),
     ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作成する', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
+    ...(pythonTests ? [{name: 'test', label: 'src/<パッケージ>/ のソースなら、tests/ にテストも作成する', type: 'checkbox', value: true}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
     onChange: (v, formEl) => {
       const plan = newFilePlan(cpp ? v : {...v, kind: 'other'}), box = formEl.querySelector('.new-file-preview');
@@ -284,7 +285,7 @@ async function newFileDialog(dir = activeDirectory) {
     submit: v => {
       const plan = newFilePlan(cpp ? v : {...v, kind: 'other'});
       if (plan.error !== undefined) return plan.error || '名前を入力してください。';
-      return addFile(plan.paths, !cpp || v.test, cpp && v.kind === 'template' ? v.template : '');
+      return addFile(plan.paths, cpp || pythonTests ? v.test : true, cpp && v.kind === 'template' ? v.template : '');
     }});
 }
 
@@ -325,24 +326,35 @@ function inlineName({create, dir = '', rename}) {
   input.focus(); input.setSelectionRange(0, input.value.lastIndexOf('.') > 0 ? input.value.lastIndexOf('.') : input.value.length);
 }
 
+// Module types without file commands (generic): the GUI moves and removes the file itself, as it makes empty files.
+async function withoutFileCommand(doc, api, body) {
+  if (doc.ok || doc.error?.code !== 'not_supported') return doc;
+  try { return {ok: true, result: await ECO.call(api, {dir: WS.dir, ...body})}; }
+  catch (e) { return {ok: false, error: {message: e.message}}; }
+}
+// Whether the module's type makes tests with the files (file add・move・remove --test): cpp (a library's source), python.
+const typeHasFileTests = async () => { const features = ECO.typeFeatures(await ECO.moduleType(WS.dir)); return !!(features.projects || features.fileTests); };
 async function moveFile(source, destination, withTest = true) {
-  const doc = await WS.cli(['file', 'move', source, destination, ...(withTest ? [] : ['--no-test'])]);
+  const doc = await withoutFileCommand(await WS.cli(['file', 'move', source, destination, ...(withTest ? [] : ['--no-test'])]), 'move-file', {source, destination});
   if (!doc.ok) return doc.error.message + (doc.error.hint ? '\n' + doc.error.hint : '');
   await WS.refresh(); await afterFileChange(true, `移動しました：${source} → ${destination}`);
   WS.selectInTree(destination);
   return '';
 }
-function moveDialog(path) {
+const sourceTests = cpp => cpp ? 'ライブラリのソース' : 'src/ のソース';
+async function moveDialog(path) {
+  const tests = await typeHasFileTests(), cpp = restricted();
   return ECO.form({title: '名前の変更・移動', intro: esc(path), fields: [
-    {name: 'destination', label: '移動先（モジュールからの相対パス。同じProject内）', value: path, required: true},
-    {name: 'test', label: 'ライブラリのソースなら、対応するテストも移動する', type: 'checkbox', value: true}], ok: '移動',
-    submit: v => moveFile(path, v.destination, v.test)});
+    {name: 'destination', label: `移動先（モジュールからの相対パス${cpp ? '。同じProject内' : ''}）`, value: path, required: true},
+    ...(tests ? [{name: 'test', label: `${sourceTests(cpp)}なら、対応するテストも移動する`, type: 'checkbox', value: true}] : [])], ok: '移動',
+    submit: v => moveFile(path, v.destination, !tests || v.test)});
 }
 async function removeFile(path) {
-  const v = await ECO.form({title: 'ファイルを削除', intro: esc(path) + ' を削除します。', fields: [{name: 'test', label: 'ライブラリのソースなら、対応するテストも削除する', type: 'checkbox', value: true}], ok: '削除', danger: true});
+  const tests = await typeHasFileTests();
+  const v = await ECO.form({title: 'ファイルを削除', intro: esc(path) + ' を削除します。', fields: tests ? [{name: 'test', label: `${sourceTests(restricted())}なら、対応するテストも削除する`, type: 'checkbox', value: true}] : [], ok: '削除', danger: true});
   if (!v) return;
   const untracked = (WS.changes().get(path) || []).includes('untracked');
-  let doc = await WS.cli(['file', 'remove', path, ...(v.test ? [] : ['--no-test'])]);
+  const doc = await withoutFileCommand(await WS.cli(['file', 'remove', path, ...(!tests || v.test ? [] : ['--no-test'])]), 'remove-file', {path});
   if (!doc.ok) return ECO.showError(doc);
   await WS.refresh(); await afterFileChange(true, '削除しました：' + doc.result.paths.join('、') + (untracked ? '' : '（コミットすると削除が記録されます）'));
 }

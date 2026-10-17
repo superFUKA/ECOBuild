@@ -41,11 +41,24 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 ## GUIが自分で行うこと
 
-`ecobuild` にない手元の処理だけ：ハブの一覧の並び順（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`。一覧そのもの・作業空間は `ecobuild workspace list` の記録）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成、既定のアプリで開く、フォルダの選択、ショートカットの作成、ログイン中のアカウント名（`gh api user`）、既定値のための `.ecobuild/ecobuild.toml` の `default_base` の読み取り、ビルドで作られたソリューション（`build/**/*.sln`、VS 2026 のジェネレーターなら `.slnx`）を Visual Studio で開く（ボタンの右の ▾ で Visual Studio 2026／2022 を選ぶ。既定は 2026）。
+`ecobuild` にない手元の処理だけ：ハブの一覧の並び順（`ECOBUILD_GUI_HOME`、既定は `%APPDATA%\ecobuild-gui\gui.json`。一覧そのもの・作業空間は `ecobuild workspace list` の記録）、エクスプローラーのファイルの一覧、フォルダ・空のファイルの作成とファイルの移動・削除（型が `file add`・`file move`・`file remove` を持たないとき：generic 等）、既定のアプリで開く、フォルダの選択、ショートカットの作成、ログイン中のアカウント名（`gh api user`）、既定値と画面の出し分けのための `.ecobuild/ecobuild.toml` の `default_base`・型（`[module]` の `type`）の読み取り、ビルドで作られたソリューション（`build/**/*.sln`、VS 2026 のジェネレーターなら `.slnx`）を Visual Studio で開く（ボタンの右の ▾ で Visual Studio 2026／2022 を選ぶ。既定は 2026）。
+
+## モジュールの型
+
+型によってコマンドが違う（モジュールの中で `ecobuild --help`）ので、画面に出す操作も型に合わせる（`common.js` の `TYPES`）。
+
+- cpp：Project・依存・ファイルテンプレート・Visual Studio で開く・C++ のビルド設定（構成は Debug・Release・RelWithDebInfo・MinSizeRel）。
+- python：構成は Debug・Release、ビルド設定は構成と並列の数、新しいファイルで tests/ のテストも作るか選べる。
+- generic：構成は Debug・Release、ビルド設定は構成だけ。ファイルの作成・移動・削除は GUI が行う。
+- GUI が知らない型：すべての型にあるもの（build・test・run・clean と構成）だけ。
+
+## AI
+
+作業空間の「AIを起動」で `ecobuild agent start`（作業空間のルートで、エージェントを新しい画面で起動する。待たずに戻る）。▾ で、起動するコマンド（`--agent`。このPCで覚える）・AGENTS.md を作る（`agent init`）・AI向けの作業の手順（`agent guide`）。
 
 ## 表示を待たせない
 
-GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約8秒、`task list`・`task workload` 約4秒、`status --fetch` 約3秒、`module show` 約2秒、`branch list`・`module list` 約1秒。手元だけのもの（`status`・`project list`・`profile list`・`module settings`・`module clones` 等）は0.3秒前後）。
+GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約8秒、`task list`・`task workload` 約4秒、`status --fetch` 約3秒、`module show` 約2秒、`branch list`・`module list` 約1秒。手元だけのもの（`status`・`project list`・`profile list`・`module settings`・`workspace list` 等）は0.3秒前後）。
 
 - 画面・ダイアログは、それ自身が表示するもの以外を待たずに出す。見出しのタスクの題名など、添えるだけの情報は後から入れる。
 - ダイアログの選択肢・候補がGitHubにあるもの（担当者・ブランチ・GitHubのモジュール）は、分かっているものだけで開き、残りはフィールドの `more`（Promise）で開いたダイアログに足す（`ECO.form`）。
@@ -63,7 +76,7 @@ GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約
 | `static/hub.*` | ハブ：モジュールの一覧・追加、既定の所有者、環境チェック・準備 |
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |
 | `static/modinfo.*` | モジュール：概要（module show）・Project・依存（deps tree の図）・ブランチ・ビルド設定 |
-| `static/workspace.*`・`explorer.js`・`prs.js`・`build.js` | 作業空間：エクスプローラー・コミット・PR・ビルド |
+| `static/workspace.*`・`explorer.js`・`prs.js`・`build.js` | 作業空間：エクスプローラー・コミット・PR・ビルド・AI |
 | `static/tasks.*` | タスク管理：ダッシュボード（段階ごとのカード。ドラッグで段階を変える）・一覧・次にやる・日程・スプリント・集計・詳細・アカウント |
 | `static/common.*` | 共通：`ecobuild` の実行、ダイアログ、通知 |
 

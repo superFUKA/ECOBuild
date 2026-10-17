@@ -3,6 +3,8 @@
     ecotask（タスク管理）→ ecowork（作業の流れ）→ ecobuild（本体）→ ecobuild_cpp・ecobuild_generic・ecobuild_python
     （拡張）→ ecobuild_bundle（本体＋拡張）→ ecobuild_cli（CLI）
 
+ecoagent（AI）は ecotask・ecowork と並ぶ下の層で、本体が使う（CLI は本体を通して使う）。
+
 あわせて、ecobuild 系は作業の流れを ecowork からだけ使う（ecotask を直接使わない）、他のパッケージの
 非公開のもの（_ で始まるモジュール・名前）は使わない、を確かめる。
 
@@ -23,8 +25,9 @@ ECOBUILD = {"ecobuild"} | UPPER_THAN_CORE
 
 # パッケージ → import してはいけないもの（パッケージの先頭の名前）
 FORBIDDEN = {
-    "ecotask": {"ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
-    "ecowork": {"cppbuild"} | ECOBUILD | CLI_LIBRARIES,
+    "ecoagent": {"ecotask", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
+    "ecotask": {"ecoagent", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
+    "ecowork": {"ecoagent", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecobuild": {"ecotask", "cppbuild"} | UPPER_THAN_CORE | CLI_LIBRARIES,
     "ecobuild_cpp": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "ecobuild_generic", "ecobuild_python"} | CLI_LIBRARIES,
     "ecobuild_generic": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_python",
@@ -33,7 +36,7 @@ FORBIDDEN = {
                         "cppbuild"} | CLI_LIBRARIES,
     "ecobuild_bundle": {"ecotask", "ecobuild_cli"} | CLI_LIBRARIES,
     # CLI は型を知らない（型のコマンドは登録した型の cli パッケージを名前で読み込む）
-    "ecobuild_cli": {"ecotask", "cppbuild"} | set(TYPES),
+    "ecobuild_cli": {"ecoagent", "ecotask", "cppbuild"} | set(TYPES),
 }
 
 

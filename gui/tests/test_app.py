@@ -95,6 +95,19 @@ def test_local_operations_stay_inside_the_place(tmp_path):
         gui.make_file(str(tmp_path), "a/b/c.txt")      # 既にある
     assert gui.read_text(str(tmp_path), "a/b/c.txt")["text"] == ""
 
+    # 型が file move・file remove を持たないとき（generic）の代わり
+    assert gui.move_file(str(tmp_path), "a/b/c.txt", "d/c2.txt") == {"paths": ["d/c2.txt"]}
+    assert not (tmp_path / "a/b/c.txt").exists() and (tmp_path / "d/c2.txt").is_file()
+    gui.make_file(str(tmp_path), "e.txt")
+    for source, destination in (("d/c2.txt", "e.txt"), ("d/c2.txt", "../x.txt"), ("nothing.txt", "y.txt")):
+        with pytest.raises(gui.GuiError):
+            gui.move_file(str(tmp_path), source, destination)
+    assert gui.remove_file(str(tmp_path), "d/c2.txt") == {"paths": ["d/c2.txt"]}
+    assert not (tmp_path / "d/c2.txt").exists()
+    for bad in ("d/c2.txt", "d", "../x.txt"):
+        with pytest.raises(gui.GuiError):
+            gui.remove_file(str(tmp_path), bad)
+
 
 def test_cli_returns_the_json_document_and_the_command_line(tmp_path):
     # ecobuild の代わりに、引数をそのままJSONで返すコマンドを使う
@@ -164,6 +177,8 @@ def test_module_defaults_and_solution(tmp_path):
     a, b = _module(tmp_path / "A"), _module(tmp_path / "B")
     write(a / ".ecobuild" / "ecobuild.toml", '[branches]\ndefault_base = "develop"\n')
     assert gui.module_defaults(str(a)) == {"default_base": "develop"}
+    write(a / ".ecobuild" / "ecobuild.toml", '[module]\nname = "A"\ntype = "python"\n[branches]\ndefault_base = "develop"\n')
+    assert gui.module_defaults(str(a)) == {"type": "python", "default_base": "develop"}
     assert gui.module_defaults(str(tmp_path)) == {}            # モジュールでなければ空
 
     assert gui.find_solution(str(a)) is None

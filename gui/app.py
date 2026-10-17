@@ -69,6 +69,7 @@ READ_ONLY = {
     ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("release", "list"),
+    ("agent", "guide"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
@@ -322,15 +323,17 @@ def make_directory(directory: str, relative: str) -> dict:
 
 def module_defaults(directory: str) -> dict:
     """画面に既定値を入れておくための、モジュールの設定の一部（ecobuild.toml）。ecobuild にこれを返すコマンドがないため、
-    GUIが読む。読めなければ空（画面は既定値を入れないだけ）。"""
+    GUIが読む。読めなければ空（画面は既定値を入れないだけ）。
+
+    type：モジュールの型（画面に出す操作を型のコマンドに合わせる。module show にもあるが、GitHubを読むので待たせる）。"""
     import tomllib
     try:
         data = tomllib.loads((_module_root(Path(directory)) / MODULE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError, GuiError):
         return {}
-    branches = data.get("branches") if isinstance(data.get("branches"), dict) else {}
-    base = branches.get("default_base")
-    return {"default_base": base} if isinstance(base, str) and base else {}
+    table = lambda name: data.get(name) if isinstance(data.get(name), dict) else {}
+    found = {"type": table("module").get("type"), "default_base": table("branches").get("default_base")}
+    return {key: value for key, value in found.items() if isinstance(value, str) and value}
 
 
 def find_solution(directory: str) -> Path | None:
@@ -438,6 +441,27 @@ def make_file(directory: str, relative: str) -> dict:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.touch()
     return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
+
+
+def move_file(directory: str, source: str, destination: str) -> dict:
+    """ファイルを移す・名前を変える（型が ecobuild file move に対応しないとき：generic 等）。"""
+    origin, target = _inside(directory, source), _inside(directory, destination)
+    if not origin.is_file():
+        raise GuiError(f"見つかりません：{source}")
+    if target.exists():
+        raise GuiError(f"すでに存在します：{destination}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    origin.rename(target)
+    return {"paths": [target.relative_to(Path(directory).resolve()).as_posix()]}
+
+
+def remove_file(directory: str, relative: str) -> dict:
+    """ファイルを消す（型が ecobuild file remove に対応しないとき：generic 等）。"""
+    target = _inside(directory, relative)
+    if not target.is_file():
+        raise GuiError(f"見つかりません：{relative}")
+    target.unlink()
+    return {"paths": [target.relative_to(Path(directory).resolve()).as_posix()]}
 
 
 def make_parent(path: str) -> dict:
@@ -580,6 +604,10 @@ class App:
             return visual_studio_versions()
         if name == "touch":
             return make_file(d("dir"), d("path"))
+        if name == "move-file":
+            return move_file(d("dir"), d("source"), d("destination"))
+        if name == "remove-file":
+            return remove_file(d("dir"), d("path"))
         if name == "mkparent":
             return make_parent(d("path"))
         if name == "shortcut":

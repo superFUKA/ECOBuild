@@ -1,5 +1,7 @@
 'use strict';
 // Build / test / run toolbar of a place. Runs ecobuild build・test・run・rebuild・clean・check and shows the result.
+// What it offers follows the module's type (the configurations; Visual Studio only for types that make a solution).
+// It also starts the AI (coding agent) in the workspace: ecobuild agent start.
 WS.onRefresh(renderPrDetail);
 (() => {
   const LABEL = {build: 'ビルド', rebuild: 'リビルド', clean: 'クリーン', test: 'テスト', run: '実行', check: '提出前の確認'};
@@ -7,7 +9,11 @@ WS.onRefresh(renderPrDetail);
   let profiles = {}, selectedProfile = null, busy = false;
 
   async function loadOptions() {
-    const [p, j] = await Promise.all([WS.cli(['profile', 'list'], {quiet: true}), WS.cli(['project', 'list'], {quiet: true})]);
+    const [p, j, type] = await Promise.all([WS.cli(['profile', 'list'], {quiet: true}), WS.cli(['project', 'list'], {quiet: true}), ECO.moduleType(WS.dir)]);
+    const features = ECO.typeFeatures(type), config = get('build-config'), chosen = config.value;
+    config.innerHTML = '<option value="">ビルド設定のまま</option>' + features.configurations.map(c => `<option>${esc(c)}</option>`).join('');
+    config.value = features.configurations.includes(chosen) ? chosen : '';
+    get('vs-group').hidden = !features.solution;
     if (p.ok) {
       profiles = p.result.profiles; selectedProfile = p.result.selected;
       const names = Object.keys(profiles);
@@ -73,6 +79,35 @@ WS.onRefresh(renderPrDetail);
     ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
       () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
+  // AI (coding agent): ecobuild agent start opens it in a new window at the workspace's root and returns at once.
+  // The command to start (--agent) is kept per PC; empty means ECOBuild's default.
+  const AGENT_KEY = 'ecobuild-gui-agent';
+  const agentCommand = () => { try { return localStorage.getItem(AGENT_KEY) || ''; } catch (e) { return ''; } };
+  const setAgentCommand = command => { try { localStorage.setItem(AGENT_KEY, command); } catch (e) { /* storage blocked */ } };
+  const showAgent = () => {
+    const s = WS.status, ready = !!s, command = agentCommand();
+    get('agent-start').disabled = !ready;
+    get('agent-start').title = ready ? `この作業空間のルートで、AIを新しい画面で起動します（${command || '既定のエージェント'}）` : '作業空間の状態を読み込んでいます';
+  };
+  async function startAgent(command = agentCommand()) {
+    const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);
+    if (!doc.ok) return ECO.showError(doc);
+    say(`AIを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
+  }
+  get('agent-start').addEventListener('click', () => startAgent());
+  get('agent-more').addEventListener('click', () => {
+    const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
+    ECO.menu([
+      ['起動するコマンドを指定…', () => ECO.form({title: 'AIを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「AIを起動」でも使います。', fields: [
+        {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true}], ok: ready ? '起動' : '保存',
+        submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],
+      ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
+      ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
+    ], r.right - 240, r.bottom + 4);
+  });
+  WS.onRefresh(showAgent);
+  showAgent();
+
   loadOptions();   // the build settings and Projects do not need the status
   WS.reloadBuildOptions = loadOptions;
 })();

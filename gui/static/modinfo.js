@@ -275,7 +275,8 @@
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
   // shown reads it again).
   const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());
-  const show = () => render(!loaded.has(loadKey()));
+  // Read again when the tab was left while it was still loading (its loading screen is what is there).
+  const show = () => render(!loaded.has(loadKey()) || !!el('mi-main').querySelector(':scope > .eco-loading'));
   async function render(reload = true) {
     await typeLoaded;
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));

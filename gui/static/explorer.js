@@ -153,7 +153,8 @@ function fileMenu(path, x, y) {
 }
 function folderMenu(dir, x, y) {
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can]], x, y);
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+    ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }
 tree.addEventListener('contextmenu', e => {
@@ -161,6 +162,11 @@ tree.addEventListener('contextmenu', e => {
   if (row) { e.preventDefault(); delete menu.dataset.dir; fileMenu(row.dataset.path, e.clientX, e.clientY); }
   else if (folder) { e.preventDefault(); folderMenu(folder.dataset.directory, e.clientX, e.clientY); }
   else { e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY); }
+});
+// The empty part of the explorer below the files: the same menu as the top of the workspace (as in Explorer).
+tree.closest('aside').addEventListener('contextmenu', e => {
+  if (tree.contains(e.target) || e.target.closest('.explorer-heading, input, textarea')) return;
+  e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY);
 });
 get('changes').addEventListener('contextmenu', e => {
   const row = e.target.closest('.change'); if (!row) return;
@@ -196,6 +202,8 @@ async function menuAction(action, dir) {
     case 'open-default': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
+    case 'toggle-generated': return get('toggle-generated').click();
+    case 'reload': return get('reload-files').click();
     case 'new-file': return newFileDialog(dir ?? activeDirectory);
     case 'new-folder': return inlineName({create: 'folder', dir: dir ?? activeDirectory});
     case 'rename': return inlineName({rename: path});

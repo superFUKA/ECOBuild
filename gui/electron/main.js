@@ -73,6 +73,18 @@ ipcMain.handle('pick-folder', async (event, {title, initial} = {}) => {
   return {path: result.canceled || !result.filePaths.length ? '' : result.filePaths[0].replaceAll('\\', '/')};
 });
 
+// Open a file or folder with its app, or show it in Explorer (reveal), from this process: one the server opens comes up
+// behind the window (Windows does not bring a background process's window to the front). Same answer as the server's
+// open: {} or {error}.
+ipcMain.handle('open-path', async (event, {dir, path: relative = '', reveal = false} = {}) => {
+  const root = path.resolve(dir || '.'), target = path.resolve(root, relative || '.');
+  if (target !== root && !target.startsWith(root + path.sep)) return {error: 'この場所の外は指定できません。'};
+  if (!fs.existsSync(target)) return {error: `見つかりません：${relative}`};
+  if (reveal && fs.statSync(target).isFile()) { shell.showItemInFolder(target); return {}; }
+  const error = await shell.openPath(target);
+  return error ? {error} : {};
+});
+
 function startServer() {
   const args = [path.join(GUI, 'app.py'), '--electron'];
   if (process.env.ECOBUILD_GUI_ECOBUILD) args.push('--ecobuild', process.env.ECOBUILD_GUI_ECOBUILD);

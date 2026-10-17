@@ -55,6 +55,18 @@
     if (!list.ok) { tkEl('tk-main').innerHTML = `<div class="eco-banner bad">${esc(list.error.message)}${list.error.hint ? '<br>' + esc(list.error.hint) : ''}</div>`; return; }
     st.tasks = list.result; st.loaded = true;
     renderAssigneeOptions(); renderFilterOptions(); render();
+    warmDetails();
+  }
+  // Read behind (one at a time) the details likely to be opened: the open tasks that are mine or in progress / in review.
+  // Kept by ECO.query, so that opening one shows at once (it is read again then).
+  let warming = false;
+  async function warmDetails() {
+    if (warming) return; warming = true;
+    try {
+      const likely = st.tasks.filter(t => t.state === 'open' && (t.assignees.includes(me()) || ['in_progress', 'in_review'].includes(stageOf(t))))
+        .slice(0, 12);
+      for (const t of likely) if (!st.details.has(t.number)) await ECO.query(root(), ['task', 'status', String(t.number)]);
+    } finally { warming = false; }
   }
   async function reloadAfter(n) { if (n) st.details.delete(n); await load(); if (n && st.selected === n) loadDetail(n); }
 
@@ -281,10 +293,10 @@
     <div class="tk-d-actions">${primary}${open ? '<button type="button" data-tk="close">閉じる</button>' : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
-        ${hasWorkspace ? '<button type="button" data-tk="remove">手元のタスクブランチを削除</button>' : ''}
+        ${hasWorkspace ? '<button type="button" data-tk="remove" title="このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。">このPCから片付ける</button>' : ''}
         ${open && pr?.state === 'open' ? '<button type="button" data-tk="withdraw">提出を取り下げる</button>' : ''}
         ${!open && pr?.state === 'merged' ? '<button type="button" data-tk="revert">取り込みを取り消す…</button>' : ''}
-        ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop">作業をやめる</button>' : ''}
+        ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop" title="取り込まずに作業を捨てます。提出を閉じ、タスクブランチをこのPCとGitHubの両方から消します（タスクは開いたまま未着手に戻り、最初からやり直せます）。">作業を捨てる</button>' : ''}
         <button type="button" data-tk="github">GitHubで開く</button></div></details></div>
     <section class="tk-d-section"><p class="tk-d-body">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</p></section>
     <section class="tk-d-section"><h4>担当</h4><dl class="tk-kv">
@@ -476,14 +488,14 @@
     if (v && await run(['task', 'close', String(n), '--yes', ...(v.reason === 'not_planned' ? ['--not-planned'] : [])], {dir: placeFor(n), success: `#${n} を閉じました。`})) { await MOD.reloadPlace(placeFor(n)); reloadAfter(n); }
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業をやめる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
+    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
     if (!v) return;
     const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function removeWorkspace(n) {
     const place = placeFor(n);
-    const ok = await ECO.confirm({title: `手元のタスクブランチを削除：#${n}`, message: '手元のタスクブランチだけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
+    const ok = await ECO.confirm({title: `このPCから片付ける：#${n}`, message: '手元のタスクブランチだけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
     if (!ok) return;
     const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元のタスクブランチ ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
@@ -582,7 +594,7 @@
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
       open ? ['閉じる…', () => closeDialog(n)] : ['開き直す', async () => { if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); }],
-      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['手元のタスクブランチを削除…', () => removeWorkspace(n)]] : []), ['作業をやめる…', () => dropDialog(n)]] : []),
+      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['このPCから片付ける（GitHubには残す）…', () => removeWorkspace(n)]] : []), ['作業を捨てる（GitHubからも消す）…', () => dropDialog(n)]] : []),
       '-',
       ['GitHubで開く', () => window.open(t.url, '_blank', 'noopener')],
     ], x, y);
@@ -624,7 +636,7 @@
       await detailOf(n); return startDialog(n);
     }
     if (stage === 'in_review') return ECO.toast('タスクブランチで提出すると、レビュー待ちに移ります。', 'info', 6000);
-    if (MOD.placeOfTask(n) || t.task_branch || t.remote) return ECO.toast('タスクブランチがあるタスクです。「作業をやめる」と未着手に戻ります。', 'info', 6000);
+    if (MOD.placeOfTask(n) || t.task_branch || t.remote) return ECO.toast('タスクブランチがあるタスクです。「作業を捨てる」と未着手に戻ります。', 'info', 6000);
     setStage(n, stage);
   });
   async function setStage(n, stage) { if (await run(['task', 'edit', String(n), '--stage', stage], {success: `#${n} を${STAGE[stage][1]}にしました。`})) reloadAfter(n); }

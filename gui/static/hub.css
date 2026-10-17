@@ -142,3 +142,11 @@
 .clone-candidates button.selected { background: #213a33; }
 .clone-candidates strong { display: block; font-size: 13px; }
 .clone-candidates small { display: block; font-size: 11px; color: var(--muted, #9aa4af); margin-top: 2px; }
+    /* The bottom of the left menu: ヘルプ, a line, and the account. */
+    .sidebar { display: flex; flex-direction: column; }
+    .nav-bottom { margin-top: auto; display: grid; gap: 8px; }
+    .nav-account { display: flex; align-items: center; gap: 10px; padding: 14px 8px 0; border-top: 1px solid #292f36; color: #a5aeba; font-size: 13px; white-space: nowrap; overflow: hidden; }
+    .nav-avatar { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #293447; color: #b1cbef; font-weight: 600; }
+    .nav-account-name { overflow: hidden; text-overflow: ellipsis; }
+    body.nav-collapsed .nav-account { justify-content: center; padding: 14px 0 0; }
+    body.nav-collapsed .nav-account-name { display: none; }

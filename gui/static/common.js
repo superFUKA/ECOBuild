@@ -376,6 +376,16 @@ const ECO = (() => {
     return {end, done, progress};
   }
 
+  // The account at the bottom of the left menu (the hub and the module screen): the GitHub login, as in Teams.
+  document.addEventListener('DOMContentLoaded', () => {
+    const box = document.getElementById('nav-account'); if (!box) return;
+    info().then(i => {
+      const me = i.me || '';
+      box.querySelector('.nav-avatar').textContent = (me[0] || '?').toUpperCase();
+      box.querySelector('.nav-account-name').textContent = me || '（取得できませんでした）';
+      box.title = me ? `ログイン中のGitHubアカウント：${me}` : 'GitHubのアカウントを取得できませんでした（gh auth login）';
+    });
+  });
   // The left menu's fold button (the hub and the module screen): folded or not is kept on this PC, the same for both.
   const NAV_COLLAPSED_KEY = 'ecobuild-gui-nav-collapsed';
   function navToggle(toggle, target) {

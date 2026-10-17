@@ -26,21 +26,24 @@ function showModulePage(page) {
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
 // module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded); #modinfo/projects etc. that tab too.
 const hashPage = location.hash.slice(1).split('/')[0];
-if (PAGES.includes(hashPage)) setTimeout(() => showModulePage(hashPage));
+if (PAGES.includes(hashPage)) window.addEventListener('load', () => showModulePage(hashPage));
 // Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).
 const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
 const navItems = () => [...nav.querySelectorAll('[data-nav]')];
 function saveNavOrder() { try { localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems().map(b => b.dataset.nav))); } catch (e) { /* storage blocked */ } }
-for (const key of PAGES) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
+// ヘルプ stays at the bottom with the account (not reordered).
+const ORDERED = PAGES.filter(key => key !== 'help'), navBottom = nav.querySelector('.nav-bottom');
+for (const key of ORDERED) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
 try {
   const saved = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || '[]');
-  for (const key of saved) if (PAGES.includes(key)) nav.append(mEl(key + '-menu'));
+  for (const key of saved) if (ORDERED.includes(key)) nav.insertBefore(mEl(key + '-menu'), navBottom);
 } catch (e) { /* storage blocked or broken */ }
 let draggedNav = null;
 nav.addEventListener('dragstart', e => { draggedNav = e.target.closest('[data-nav]'); if (!draggedNav) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedNav.dataset.nav); draggedNav.classList.add('dragging'); });
 nav.addEventListener('dragover', e => {
   if (!draggedNav) return;
   const over = e.target.closest('[data-nav]'); e.preventDefault();
+  if (over && !over.dataset.nav) return;
   if (!over || over === draggedNav) return;
   const r = over.getBoundingClientRect();
   nav.insertBefore(draggedNav, e.clientY < r.top + r.height / 2 ? over : over.nextSibling);

@@ -4,6 +4,50 @@
 const HELP = (() => {
   const $ = id => document.getElementById(id);
   const {esc} = ECO;
+  // The page itself (the hub and the module window both have an empty <section id="help">).
+  $('help').innerHTML = `
+  <div class="page-heading"><h2 id="help-title">ヘルプ</h2>
+    <div class="help-tabs" role="tablist"><button type="button" role="tab" data-help-tab="guide" aria-selected="true">使い方</button><button type="button" role="tab" data-help-tab="commands" aria-selected="false">コマンド一覧</button></div></div>
+  <div id="help-guide">
+    <p class="note">ECOBuildの作業は、タスク（GitHubのIssue）ごとに進めます。GUIのボタンは、ecobuild のコマンドを実行しています。コマンドの名前を押すと、コマンド一覧の説明に移ります。</p>
+    <ol class="help-steps">
+      <li><span class="help-step-number">1</span><div><h4>モジュールを用意する</h4><p class="help-where">ハブ › ＋ モジュール追加</p><p class="note">新しく作るか、GitHubから取得するか、手元のフォルダを登録します。</p>
+        <p class="help-chips"><button type="button" data-goto="module new">module new</button><button type="button" data-goto="module clone">module clone</button><button type="button" data-goto="workspace add">workspace add</button></p></div></li>
+      <li><span class="help-step-number">2</span><div><h4>タスクを作る</h4><p class="help-where">モジュール › タスク管理 › ＋ 新しいタスク</p><p class="note">やることをタスク（Issue）にします。担当者・期限・見積もり・スプリントも付けられます。</p>
+        <p class="help-chips"><button type="button" data-goto="task new">task new</button><button type="button" data-goto="task list">task list</button><button type="button" data-goto="task next">task next</button></p></div></li>
+      <li><span class="help-step-number">3</span><div><h4>作業を開始する</h4><p class="help-where">タスク管理 › タスク › 作業を開始</p><p class="note">タスクブランチ（task/番号）を作り、作業空間（このPCで作業する場所）を開きます。</p>
+        <p class="help-chips"><button type="button" data-goto="task start">task start</button><button type="button" data-goto="status">status</button></p></div></li>
+      <li><span class="help-step-number">4</span><div><h4>作って、確かめて、コミットする</h4><p class="help-where">作業空間</p><p class="note">ファイルを編集し、ビルド・テストして、変更をコミットします。AIを起動して手伝わせることもできます。</p>
+        <p class="help-chips"><button type="button" data-goto="build">build</button><button type="button" data-goto="test">test</button><button type="button" data-goto="run">run</button><button type="button" data-goto="task commit">task commit</button><button type="button" data-goto="agent start">agent start</button></p></div></li>
+      <li><span class="help-step-number">5</span><div><h4>提出して、レビューを受ける</h4><p class="help-where">作業空間 › 提出する</p><p class="note">確認（生成ファイル・ビルド・テスト）をしてから、作成元へ提出（PR）します。</p>
+        <p class="help-chips"><button type="button" data-goto="check">check</button><button type="button" data-goto="task submit">task submit</button><button type="button" data-goto="task review">task review</button><button type="button" data-goto="task approve">task approve</button></p></div></li>
+      <li><span class="help-step-number">6</span><div><h4>完了する</h4><p class="help-where">作業空間 › 完了する</p><p class="note">提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。</p>
+        <p class="help-chips"><button type="button" data-goto="task finish">task finish</button><button type="button" data-goto="sync">sync</button></p></div></li>
+    </ol>
+    <h3 class="help-terms-title">用語</h3>
+    <dl class="help-terms">
+      <div><dt>モジュール</dt><dd>GitHubのリポジトリ1つ。制作・リンクの単位です。</dd></div>
+      <div><dt>型</dt><dd>モジュールの種類（C++・Python・汎用）。ビルドやファイルの扱いと、使えるコマンドが型で変わります。</dd></div>
+      <div><dt>タスク</dt><dd>GitHubのIssue。やることの単位です。</dd></div>
+      <div><dt>タスクブランチ</dt><dd>タスクの作業をするブランチ（task/番号）。変更はここでコミットし、提出で作成元に入ります。</dd></div>
+      <div><dt>作業空間</dt><dd>このPCでモジュールの作業をする場所（clone）。</dd></div>
+      <div><dt>提出</dt><dd>タスクブランチの変更を取り込んでもらうためのPR。レビューで承認されると完了できます。</dd></div>
+      <div><dt>ビルド設定（プロファイル）</dt><dd>名前を付けたビルドの設定（構成・並列数と、型ごとの項目）。</dd></div>
+    </dl>
+  </div>
+  <div id="help-commands" hidden>
+    <div class="help-toolbar">
+      <label class="help-search"><span class="sr-only">コマンドを探す</span><input id="help-search" type="search" placeholder="コマンド・説明・オプションで探す（/ で移動）" autocomplete="off"><small id="help-count"></small></label>
+      <div class="help-filter" id="help-type-filter" aria-label="型で絞り込む"></div>
+    </div>
+    <p class="note" id="help-type-note"></p>
+    <div class="help-panes">
+      <div class="help-list" id="help-commands-list"></div>
+      <article class="help-detail" id="help-detail" aria-live="polite"></article>
+    </div>
+  </div>
+`;
+  const shown = () => !!$('help').offsetParent;   // its page is the one shown
 
   // The headings of the list. A command not named here goes to 「その他」 (the CLI may add commands the GUI doesn't know).
   const CATEGORIES = [
@@ -236,7 +280,7 @@ const HELP = (() => {
 
   // Events ------------------------------------------------------------------------------------------
   document.addEventListener('click', event => {
-    if (!$('help') || $('help').hidden) return;
+    if (!shown()) return;
     const tab = event.target.closest('[data-help-tab]'); if (tab) return showTab(tab.dataset.helpTab);
     const goto = event.target.closest('[data-goto]');
     if (goto) { showTab('commands'); load().then(() => select(goto.dataset.goto)); return; }
@@ -263,7 +307,7 @@ const HELP = (() => {
     select(rows[next].dataset.command);
   });
   document.addEventListener('keydown', event => {
-    if (event.key !== '/' || $('help').hidden || $('help-commands').hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    if (event.key !== '/' || !shown() || $('help-commands').hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
     event.preventDefault(); $('help-search').focus();
   });
 

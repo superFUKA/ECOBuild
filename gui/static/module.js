@@ -14,8 +14,8 @@ document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'modinfo'];
-const pageHooks = {};
+const PAGES = ['workspace', 'tasks', 'modinfo', 'help'];
+const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
   for (const key of PAGES) {
     mEl(key + '-content').hidden = key !== page;

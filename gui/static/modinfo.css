@@ -41,8 +41,6 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi td.mi-row-actions button + button { margin-left: 6px; }
 
 /* 概要 and the dependency graph. */
-.mi-overview th { width: 170px; background: #191e24; font-size: 12px; border-bottom: 1px solid #262c34; }
-.mi-overview a { color: var(--accent); }
 .mi-subhead { margin: 22px 0 4px; font-size: 14px; }
 .mi-link { background: none; border: 0; padding: 0 4px; color: var(--accent); cursor: pointer; font-size: 12px; text-decoration: underline; }
 .mi-place { display: flex; justify-content: flex-end; margin: -6px 0 8px; }
@@ -62,3 +60,25 @@ td.mi-row-actions { display: table-cell; text-align: right; }
 .mi-caret { width: 10px; color: var(--muted); font-size: 11px; }
 .mi-icon { width: 14px; text-align: center; color: var(--muted); }
 .mi-file.dir .mi-icon { color: #e3c77a; }
+.mi-readme { padding: 6px 22px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: #cdd5df; font: 14px/1.75 "Segoe UI", "Yu Gothic UI", sans-serif; overflow-wrap: anywhere; }
+.mi-readme h2, .mi-readme h3, .mi-readme h4 { margin: 18px 0 8px; color: #edf1f5; }
+.mi-readme h2 { font-size: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.mi-readme h3 { font-size: 17px; padding-bottom: 4px; border-bottom: 1px solid #2a3139; }
+.mi-readme h4 { font-size: 15px; }
+.mi-readme p, .mi-readme ul, .mi-readme ol, .mi-readme blockquote { margin: 0 0 12px; }
+.mi-readme code { padding: 1px 5px; border-radius: 4px; background: #262c33; font: 12.5px Consolas, monospace; }
+.mi-readme pre { margin: 0 0 12px; padding: 12px 14px; border-radius: 8px; background: #14171b; overflow: auto; white-space: pre; }
+.mi-readme pre code { padding: 0; background: none; }
+.mi-readme blockquote { padding: 0 12px; border-left: 3px solid #46515e; color: var(--muted); }
+.mi-readme a { color: var(--accent); }
+.mi-readme hr { border: 0; border-top: 1px solid var(--line); margin: 16px 0; }
+/* ホーム (like a repository's page on GitHub): the files and the README, and what the module is beside them. */
+.mi-home { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; }
+.mi-home .mi-files { max-height: none; }
+.mi-readme-title { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
+.mi-about h3 { margin: 4px 0 12px; font-size: 15px; }
+.mi-about-list { margin: 0; display: grid; gap: 14px; }
+.mi-about-list dt { margin-bottom: 4px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.mi-about-list dd { margin: 0; font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.mi-about-list a { color: var(--accent); }
+@media (max-width: 900px) { .mi-home { grid-template-columns: minmax(0, 1fr); } .mi-about { order: -1; } }

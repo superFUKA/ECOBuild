@@ -1,16 +1,16 @@
 'use strict';
-// Module-wide screen: overview (the files at the top of the module and module show), Projects, dependencies and links (deps tree), branches, build settings.
+// Module-wide screen: home (as a repository's page on GitHub: the files and the README, and module show beside them), Projects, dependencies and links (deps tree), branches, build settings.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  let view = 'overview', place = '', data = {};
+  let view = 'home', place = '', data = {};
   // What the module's type offers (ECO.typeFeatures): Projects・dependencies・templates are of the types that have them.
   let features = ECO.typeFeatures('');
   const typeLoaded = ECO.moduleType(MOD.root).then(type => {
     features = ECO.typeFeatures(type);
     for (const tab of ['projects', 'deps']) document.querySelector(`.mi-tabs [data-mi-view="${tab}"]`).hidden = !features.projects;
-    if (!features.projects && (view === 'projects' || view === 'deps')) view = 'overview';
+    if (!features.projects && (view === 'projects' || view === 'deps')) view = 'home';
   });
   const KIND = {static_library: 'ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', app: '実行ファイル', test: 'テスト', bench: '性能測定'};
   // deps list --fetch: what changed on GitHub (outside ECOBuild).
@@ -61,24 +61,70 @@
     };
     return `<div class="mi-files" id="mi-files">${count('') ? level('') : '<p class="mi-note">ファイルはありません。</p>'}</div>`;
   }
-  // 概要: the files at the top of the module, then ecobuild module show.
-  function renderOverview() {
+  // ホーム: like a repository's page on GitHub. The files (as in the explorer) and the README; beside them what the module
+  // is (module show: it asks GitHub, so it fills in when it comes).
+  function renderHome() {
+    const readme = data.readme;
+    const text = !readme ? '' : readme.error ? `<p class="mi-note">${esc(readme.error)}</p>`
+      : `<div class="mi-readme">${/\.(md|markdown)$/i.test(data.readmeName) ? markdown(readme.text) : `<pre>${esc(readme.text)}</pre>`}${readme.truncated ? '<p>…</p>' : ''}</div>`;
+    return `<div class="mi-home"><div class="mi-home-main">
+      <section class="mi-section">${fileTree()}</section>
+      ${readme ? `<section class="mi-section"><h3 class="mi-readme-title">${esc(data.readmeName || 'README')}</h3>${text}</section>` : ''}
+      </div><aside class="mi-about" id="mi-about">${about()}</aside></div>`;
+  }
+  // The README's Markdown, shown as on GitHub: headings, paragraphs, lists, quotes, code (fenced and inline), links,
+  // bold and rules. Everything is escaped first; links open outside only for http(s).
+  function markdown(source) {
+    const inline = text => esc(text)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    const out = [], lines = source.replace(/\r\n?/g, '\n').split('\n');
+    let paragraph = [], list = null;
+    const flush = () => {
+      if (paragraph.length) { out.push(`<p>${inline(paragraph.join(' '))}</p>`); paragraph = []; }
+      if (list) { out.push(`<${list.tag}>${list.items.map(i => `<li>${inline(i)}</li>`).join('')}</${list.tag}>`); list = null; }
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const fence = line.match(/^\s*(```|~~~)/);
+      if (fence) {
+        flush(); const code = [];
+        for (i++; i < lines.length && !lines[i].trim().startsWith(fence[1]); i++) code.push(lines[i]);
+        out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); continue;
+      }
+      const heading = line.match(/^(#{1,6})\s+(.*)$/);
+      if (heading) { flush(); out.push(`<h${heading[1].length + 1}>${inline(heading[2])}</h${heading[1].length + 1}>`); continue; }
+      if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { flush(); out.push('<hr>'); continue; }
+      const item = line.match(/^\s*([-*+]|\d+\.)\s+(.*)$/);
+      if (item) {
+        const tag = /\d/.test(item[1]) ? 'ol' : 'ul';
+        if (paragraph.length || (list && list.tag !== tag)) flush();
+        list ??= {tag, items: []}; list.items.push(item[2]); continue;
+      }
+      const quote = line.match(/^>\s?(.*)$/);
+      if (quote) { flush(); out.push(`<blockquote>${inline(quote[1])}</blockquote>`); continue; }
+      if (!line.trim()) { flush(); continue; }
+      if (list) list.items[list.items.length - 1] += ' ' + line.trim(); else paragraph.push(line.trim());
+    }
+    flush();
+    return out.join('');
+  }
+  function about() {
     const r = data.info;
-    const files = `<section class="mi-section"><div class="mi-head"><div><h3>ファイル構成</h3></div></div>${fileTree()}</section>`;
-    if (!r) return files + `<p class="mi-note"><span class="eco-spinner"></span> モジュールの情報を読み込んでいます…</p>`;
-    if (r.error) return files + head('概要', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
+    if (!r) return `<h3>このモジュール</h3><p class="mi-note"><span class="eco-spinner"></span> 読み込んでいます…</p>`;
+    if (r.error) return `<h3>このモジュール</h3><p class="mi-note">${esc(r.error.message)}</p>`;
     const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
     const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
-    const row = (label, value) => `<tr><th scope="row">${label}</th><td>${value}</td></tr>`;
-    return files + head(`${esc(r.name)}`, '型・場所・GitHubのリポジトリ・Project・依存先', '') +
-      `<table class="mi-table mi-overview"><tbody>
-      ${row('型', pill(r.type))}
-      ${row('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
-      ${row('GitHubのリポジトリ', r.repository || r.url ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repository || r.url)}</a>` : esc(r.repository)} ${visibility} ${archived}` : '<span class="mi-sub">不明</span>')}
-      ${row('タスクブランチの作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
-      ${features.projects ? row('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>') : ''}
-      ${!features.projects ? '' : row('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + ` <button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
-      </tbody></table>${data.infoNotices?.length ? `<p class="mi-note">${data.infoNotices.map(esc).join('<br>')}</p>` : ''}`;
+    const item = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+    return `<h3>このモジュール</h3><dl class="mi-about-list">
+      ${item('GitHub', r.repository || r.url ? `${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.repository || r.url)}</a>` : esc(r.repository)}<br>${visibility} ${archived}` : '<span class="mi-sub">不明</span>')}
+      ${item('型', pill(r.type))}
+      ${item('タスクブランチの作成元', `<span class="mi-mono">${esc(r.default_base)}</span>`)}
+      ${features.projects ? item('Project', r.projects.length ? r.projects.map(p => pill(p)).join(' ') : '<span class="mi-sub">なし</span>') : ''}
+      ${!features.projects ? '' : item('依存先', r.dependencies.length ? r.dependencies.map(d => pill(d, 'dep')).join(' ') + `<br><button type="button" class="mi-link" data-mi-view="deps">依存関係の図</button>` : '<span class="mi-sub">なし</span>')}
+      ${item('場所', `<span class="mi-mono">${esc(r.root)}</span>`)}
+      </dl>${data.infoNotices?.length ? `<p class="mi-note">${data.infoNotices.map(esc).join('<br>')}</p>` : ''}`;
   }
   // The dependency graph (ecobuild deps tree): the dependencies of the dependencies too; one seen again is not expanded.
   function renderTree() {
@@ -172,22 +218,25 @@
     return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。タスクブランチ（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('履歴をTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
       `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
   }
-  const VIEWS = {overview: renderOverview, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
+  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, branches: renderBranches};
   const LOADS = {
     projects: async () => {
       const [p, d, m] = await Promise.all([cli(['project', 'list']), cli(['deps', 'list', ...(depsFetched ? ['--fetch'] : [])]), cli(['module', 'settings'])]);
       data.projects = p.ok ? p.result : {error: p.error}; data.deps = d.ok ? d.result : {error: d.error}; data.settings = m.ok ? m.result : null;
     },
-    // The files show at once (read here, quick); module show asks GitHub (a few seconds) and fills in when it comes.
-    overview: async () => {
+    // The files and the README are read here (quick); the README is the one at the top (README.md etc.).
+    home: async () => {
       const key = loadKey();
       data.info = null;
       cli(['module', 'show']).then(r => {
         if (loadKey() !== key) return;   // another place was chosen meanwhile
         data.info = r.ok ? r.result : {error: r.error}; data.infoNotices = r.notices || [];
-        if (view === 'overview' && !el('modinfo-content').hidden) el('mi-main').innerHTML = placeSelect() + VIEWS.overview();
+        if (el('mi-about')) el('mi-about').innerHTML = about();
       });
       data.files = await ECO.call('files', {dir: here()}).catch(e => ({error: e.message}));
+      const top = (data.files.files || []).filter(f => !f.includes('/'));
+      data.readmeName = top.find(f => /^readme\.md$/i.test(f)) || top.find(f => /^readme(\.|$)/i.test(f)) || '';
+      data.readme = data.readmeName ? await ECO.call('read', {dir: here(), path: data.readmeName}).catch(e => ({error: e.message})) : null;
     },
     deps: async () => { const [, t] = await Promise.all([LOADS.projects(), cli(['deps', 'tree'])]); data.tree = t.ok ? t.result : {error: t.error}; },
     profiles: async () => { const p = await cli(['profile', 'list']); data.profiles = p.ok ? p.result : {error: p.error}; },

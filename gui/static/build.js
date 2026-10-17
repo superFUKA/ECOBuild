@@ -22,8 +22,24 @@ WS.onRefresh(renderPrDetail);
       get('build-profile').disabled = !names.length; get('build-profile').title = names.length ? '' : 'ビルド設定はありません（モジュールの「ビルド設定」タブで追加できます）';
     }
     get('build-project-label').hidden = !j.ok;
-    if (j.ok) get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
+    if (j.ok) {
+      const chosen = get('build-project').value;
+      get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
+      if (j.result.some(x => x.name === chosen)) get('build-project').value = chosen;
+      showTarget();
+    }
   }
+  // The Project to build・run・test: ▾ next to ▶ chooses it (a menu); its name shows on hover. The value is kept in the
+  // hidden select (build-project), which runAction reads.
+  function showTarget() {
+    const select = get('build-project'), name = select.selectedOptions[0]?.textContent || 'すべてのProject';
+    get('build-project-pick').dataset.tip = `ビルド・実行の対象：${name}`;
+    get('build-project-pick').classList.toggle('chosen', !!select.value);
+  }
+  get('build-project-pick').addEventListener('click', () => {
+    const select = get('build-project'), r = get('build-project-pick').getBoundingClientRect();
+    ECO.menu([...select.options].map(o => [(o.value === select.value ? '✓ ' : '　') + o.textContent, () => { select.value = o.value; showTarget(); }]), r.left, r.bottom + 4);
+  });
 
   const out = (title, state, html) => {
     get('build-output-title').textContent = title;
@@ -69,7 +85,7 @@ WS.onRefresh(renderPrDetail);
   // The choice is kept per PC; Visual Studio 2026 by default.
   const EDITORS = [['2026', 'Visual Studio 2026'], ['2022', 'Visual Studio 2022']];
   let installed = null;
-  const showVs = () => { get('open-vs').textContent = `VS${ECO.vsVersion()} で開く`; };
+  const showVs = () => { get('open-vs').textContent = `VS${ECO.vsVersion()}`; };
   const openVs = version => ECO.openInVisualStudio(WS.dir, {version, build: async () => { await runAction('build'); return get('build-output-state').classList.contains('ok') ? {} : null; }});
   showVs();
   get('open-vs').addEventListener('click', () => openVs(ECO.vsVersion()));
@@ -92,13 +108,13 @@ WS.onRefresh(renderPrDetail);
   async function startAgent(command = agentCommand()) {
     const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);
     if (!doc.ok) return ECO.showError(doc);
-    say(`AIを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
+    say(`エージェントを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
   }
   get('agent-start').addEventListener('click', () => startAgent());
   get('agent-more').addEventListener('click', () => {
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
-      ['起動するコマンドを指定…', () => ECO.form({title: 'AIを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「AIを起動」でも使います。', fields: [
+      ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
         {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true}], ok: ready ? '起動' : '保存',
         submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],

@@ -281,9 +281,21 @@
     await typeLoaded;
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
     const main = el('mi-main'), mine = ++rendering, shown = view;
-    if (reload) { const key = loadKey(); main.innerHTML = placeSelect() + ECO.loading(); await LOADS[shown](); loaded.add(key); }
-    if (mine !== rendering) return;   // another tab was chosen while loading: that render shows it
-    main.innerHTML = placeSelect() + VIEWS[shown]();
+    // A failure shows as what it is (with 再読み込み), not as a loading screen that never ends.
+    const failed = error => {
+      if (mine !== rendering) return;
+      main.innerHTML = placeSelect() + `<div class="eco-banner bad">表示できませんでした：${esc(error?.message || String(error))}<br><button type="button" data-mi-retry>読み直す</button></div>` +
+        `<pre class="mi-error">${esc(error?.stack || '')}</pre>`;
+    };
+    try {
+      if (reload) {
+        const key = loadKey(); main.innerHTML = placeSelect() + ECO.loading();
+        await Promise.race([LOADS[shown](), new Promise((_, reject) => setTimeout(() => reject(new Error('30秒たっても読み込みが終わりません。')), 30000))]);
+        loaded.add(key);
+      }
+      if (mine !== rendering) return;   // another tab was chosen while loading: that render shows it
+      main.innerHTML = placeSelect() + VIEWS[shown]();
+    } catch (error) { failed(error); }
   }
 
   // Dialogs ---------------------------------------------------------------------------------------
@@ -598,6 +610,7 @@
       const box = el('mi-files'), top = box.scrollTop; box.outerHTML = fileTree(); el('mi-files').scrollTop = top;
       return;
     }
+    if (e.target.closest('[data-mi-retry]')) { loaded.clear(); render(); return; }
     const tab = e.target.closest('[data-mi-view]');
     if (tab) { view = tab.dataset.miView; show(); return; }
     const ws = e.target.closest('[data-open-ws]');

@@ -384,10 +384,31 @@ def gui_home() -> Path:
 
 # 手元の処理（CLIにないもの） -------------------------------------------------------------------
 
-def _git(root: Path, *args: str) -> str:
-    completed = subprocess.run(["git", "-C", str(root), *args], capture_output=True, encoding="utf-8",
-                               errors="replace", **_no_window())
-    return completed.stdout if completed.returncode == 0 else ""
+def _git(root: Path, *args: str, timeout: float = 60) -> str:
+    """git を実行して標準出力を返す（失敗なら空）。stdin は空に（GUIのサーバーの stdin を引き継がない）。
+
+    終わらなければ子ごと止めて GuiError（Windows の git は cmd/git.exe が本体を子で動かすので、片方だけ止めると
+    出力のパイプが閉じずに待ち続ける）。"""
+    process = subprocess.Popen(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, encoding="utf-8", errors="replace", **_no_window())
+    try:
+        stdout, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(process)
+        raise GuiError(f"git が{int(timeout)}秒たっても終わりません：git {' '.join(args)}") from None
+    return stdout if process.returncode == 0 else ""
+
+
+def _kill_tree(process: subprocess.Popen) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)], capture_output=True, stdin=subprocess.DEVNULL,
+                       **_no_window())
+    else:
+        process.kill()
+    try:
+        process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def list_files(directory: str) -> dict:
@@ -489,7 +510,7 @@ def _visual_studio(version: str) -> str | None:
     if vswhere is None or versions is None:
         return None
     completed = subprocess.run([str(vswhere), "-version", versions, "-prerelease", "-latest", "-property", "productPath"],
-                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+                               capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, **_no_window())
     path = completed.stdout.strip().splitlines()[0] if completed.stdout.strip() else ""
     return path if path and Path(path).is_file() else None
 
@@ -522,7 +543,7 @@ def _solution_is_open(solution: Path) -> bool:
     if os.name != "nt":
         return False
     completed = subprocess.run(["tasklist", "/v", "/fi", "imagename eq devenv.exe", "/fo", "csv", "/nh"],
-                               capture_output=True, encoding="mbcs", errors="replace", **_no_window())
+                               capture_output=True, encoding="mbcs", errors="replace", stdin=subprocess.DEVNULL, **_no_window())
     for row in csv.reader(completed.stdout.splitlines()):
         if row and row[0].lower() == "devenv.exe" and row[-1].split(" - ")[0].strip().lower() == solution.stem.lower():
             return True
@@ -673,7 +694,7 @@ print(path or "")
 def pick_folder(title: str, initial: str) -> dict:
     """フォルダを選ぶ窓（OSの標準）。選ばなければ空。"""
     completed = subprocess.run([sys.executable, "-c", _PICK, title or "フォルダを選ぶ", initial or ""],
-                               capture_output=True, encoding="utf-8", errors="replace")
+                               capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
     return {"path": completed.stdout.strip()}
 
 
@@ -684,7 +705,7 @@ def who_am_i() -> str:
     """ログイン中のGitHubのアカウント（画面で「自分」を示すため）。ecobuild にこれを返すコマンドはない。"""
     if "login" not in _me:
         try:
-            completed = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True,
+            completed = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True, stdin=subprocess.DEVNULL,
                                        encoding="utf-8", errors="replace", timeout=20, **_no_window())
             _me["login"] = completed.stdout.strip() if completed.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired):
@@ -979,7 +1000,7 @@ def _shortcut_places() -> list[Path]:
     """デスクトップとスタートメニューのプログラムのフォルダ（OneDrive に移したデスクトップも Windows に尋ねる）。"""
     completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
                                 "[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Environment]::GetFolderPath('Desktop'); [Environment]::GetFolderPath('Programs')"],
-                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+                               capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL, **_no_window())
     return [Path(line) for line in completed.stdout.splitlines() if line.strip()]
 
 
@@ -1000,7 +1021,7 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
                   "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save()")
         env = dict(os.environ, EG_LINK=str(link), EG_TARGET=_pythonw(), EG_SCRIPT=str(here / "ECOBuildGUI.pyw"),
                    EG_DIR=str(here), EG_ICON=str(here / "icon.ico"))
-        completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
+        completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env, stdin=subprocess.DEVNULL,
                                    capture_output=True, encoding="utf-8", errors="replace", **_no_window())
         if completed.returncode != 0 or not link.is_file():
             raise GuiError(f"ショートカットを作成できませんでした：{link}\n{completed.stderr.strip()}")

@@ -70,6 +70,21 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 ハブとモジュールの窓の「ヘルプ」（中身は help.js が両方の空の `<section id="help">` に入れる）。「使い方」は作業の流れ（GUIの場所と、そのとき動くコマンド）と用語。「コマンド一覧」は `ecobuild --help --json`（共通のコマンドと、型ごとのコマンド。説明・引数・オプション）を、目的ごとの見出しに分けて出す（見出しはGUIが決める。知らないコマンドは「その他」）。検索（`/`）・型での絞り込み・説明の中の `ecobuild …` から移動・使い方のコピー。`hub.html#help/commands/task%20start` で開ける。
 
+## 外から操作する（ecobuild gui・MCP）
+
+画面のボタンと、外（端末・AIエージェント）から呼ぶ口は、同じ「GUIの操作」（`actions.py`）を通る。片方にだけある操作はできない（`tests/test_actions.py` が、画面のコードが ecobuild や「開く」を直接頼んでいないこと、呼ぶ名前が一覧にあることを確かめる）。
+
+- `run`：ecobuild のコマンドを、GUIを通して実行する（ボタンが行うことの大半。引数は ecobuild のコマンドそのもの）。変える操作は、開いている画面に「誰が実行したか」付きで知らされ、画面は読み直す。
+- GUIにしかない操作：`open`（ハブ・モジュールの窓を開く／移る。画面・タブ・タスク・ヘルプのコマンド）、`folder`、`vs`、`notify`（人への知らせ）。
+- 状況を見る（エージェント向け）：`windows`（開いている窓と、表示しているモジュール・画面・タブ・タスク・作業空間）、`activity`（最近の操作）。
+
+外からは：
+
+- `ecobuild gui …`：ecobuild の外部サブコマンド（`ecobuild-gui`。GUIのサーバーが起動のたびに ecobuild と同じフォルダに置く `ecobuild-gui.cmd` が `ecobuild_gui.py` を呼ぶ）。例：`ecobuild gui`（ハブ）、`ecobuild gui -C <場所> task start 12`、`ecobuild gui open ECOSTL --tab projects`、`ecobuild gui windows --json`、`ecobuild gui actions`。GUIが動いていなければ起動する（`ECOBUILD_GUI_HOME` の `server.json` に、動いているサーバーの場所がある）。
+- `ecobuild gui mcp`：MCP サーバー（標準入出力）。ツールは `ecobuild`（コマンドの実行）・`ecobuild_commands`（コマンドの一覧）・`gui_open` 等。Claude Code なら `claude mcp add ecobuild-gui -- ecobuild gui mcp`。
+
+画面は、サーバーの `events` を待ち受けて（長いポーリング）、ほかの窓・エージェントが行ったことを表示し、移動・開くの頼みに応える。窓は今表示しているものを `window-state` で知らせる。
+
 ## キャッシュ（覚えた結果を先に出す）
 
 GUI全体の方針：stale-while-revalidate（HTTP のキャッシュ、React Query・SWR と同じ考え方）。

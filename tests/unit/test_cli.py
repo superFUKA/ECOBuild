@@ -165,3 +165,51 @@ def test_help_json_for_one_command(tmp_path, monkeypatch, capsys):
     assert code == 0 and document["result"]["path"] == "task close"
     code, document = _catalog(capsys, "nosuch")
     assert code == 2 and document["error"]["code"] == "usage_error"
+
+
+def _external_command(folder, name, body):
+    """PATH に置く外部サブコマンド ecobuild-<name>（Python のスクリプトを呼ぶ小さな起動役）。"""
+    import os
+    import sys
+    script = folder / f"{name}.py"
+    script.write_text(body, encoding="utf-8")
+    if os.name == "nt":
+        (folder / f"ecobuild-{name}.cmd").write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        launcher = folder / f"ecobuild-{name}"
+        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        launcher.chmod(0o755)
+
+
+def test_unknown_command_runs_the_external_one(tmp_path, monkeypatch, capfd):
+    """ecobuild hello a b → PATH の ecobuild-hello に引数ごと（git と同じ）。終了コードもそのまま。"""
+    import os
+    from ecobuild_cli import main
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _external_command(bin_dir, "hello", "import sys, os; print('hello', sys.argv[1:], os.getcwd()); sys.exit(3)")
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as stop:
+        main(["-C", str(work), "hello", "a", "b"])
+    assert stop.value.code == 3
+    out = capfd.readouterr().out
+    assert "hello ['a', 'b']" in out and str(work) in out          # -C のフォルダで実行
+    from ecobuild_cli import _extensions
+    assert "hello" in _extensions.available()
+    result = CliRunner().invoke(build_cli(None), ["--help"])
+    assert "拡張コマンド" in result.output and "hello" in result.output
+
+
+def test_builtin_commands_win_over_external_ones(tmp_path, monkeypatch):
+    import os
+    from ecobuild_cli import _external
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _external_command(bin_dir, "status", "print('external')")
+    _external_command(bin_dir, "build", "print('external')")
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    assert _external("status") is None and _external("build") is None     # 共通・型のコマンドが先
+    assert _external("nosuch") is None

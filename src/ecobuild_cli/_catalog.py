@@ -50,7 +50,11 @@ def catalog(build_cli: Callable[..., click.Command], sections: dict[tuple[str, .
         typed_ctx = click.Context(cli, info_name="ecobuild")
         types[name] = {"description": entry.description,
                        "commands": _children(cli, typed_ctx, (), sections, routes, common)}
-    return {"commands": _children(common, ctx, (), sections), "types": types}
+    from . import _extensions
+    names = {c["name"] for c in _children(common, ctx, (), {})}
+    extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json"}
+                  for n, path in sorted(_extensions.available().items()) if n not in names]
+    return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions}
 
 
 def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None]:

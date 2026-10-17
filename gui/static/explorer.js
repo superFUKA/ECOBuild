@@ -116,12 +116,12 @@ tree.addEventListener('click', e => {
 });
 tree.addEventListener('dblclick', e => { const row = e.target.closest('[data-path]'); if (row) openInEditor(row.dataset.path); });
 const dirOf = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-const openFile = (path, reveal = false) => ECO.call('open', {dir: WS.dir, path, reveal}).catch(e => ECO.toast(e.message, 'bad'));
+const openFile = (path, reveal = false) => ECO.action('folder', {dir: WS.dir, path, reveal}).catch(e => ECO.toast(e.message, 'bad'));
 // Open a file in Visual Studio (the version chosen next to 「VS〜で開く」): in the one that has this module's solution open,
 // or start it with the solution. Without Visual Studio, the file opens in its default app.
 async function openInEditor(path) {
   try {
-    const r = await ECO.call('open-file-vs', {dir: WS.dir, path, version: ECO.vsVersion()});
+    const r = await ECO.action('vs', {dir: WS.dir, path, version: ECO.vsVersion()});
     say(r.started ? `Visual Studio ${ECO.vsVersion()} を起動して ${path} を開きます（起動に少しかかります）。` : `Visual Studio で ${path} を開きました。`);
   } catch (e) {
     say(e.message + ' 既定のアプリで開きます。');

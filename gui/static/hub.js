@@ -6,7 +6,9 @@ const {esc} = ECO;
 // Navigation ------------------------------------------------------------------------------------
 ECO.navToggle($('nav-toggle'), document.body);
 const navigation = document.querySelectorAll('[data-page]');
-navigation.forEach(button => button.addEventListener('click', () => {
+function showHubPage(name) {
+  const button = document.querySelector(`[data-page="${name}"]`); if (!button) return;
+  ECO.setState({page: name});
   navigation.forEach(item => {
     const selected = item === button;
     if (selected) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
@@ -14,8 +16,19 @@ navigation.forEach(button => button.addEventListener('click', () => {
   });
   if (button.dataset.page === 'settings') loadSettings();
   if (button.dataset.page === 'help') HELP.show(location.hash.slice(1));
+}
+navigation.forEach(button => button.addEventListener('click', () => {
+  const page = button.dataset.page;
+  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定はハブだけのもの。
+  if (page === 'settings') showHubPage(page);
+  else ECO.action('open', page === 'help' ? {page: 'help'} : {}).catch(() => showHubPage(page));
 }));
-if (location.hash.startsWith('#help')) setTimeout(() => document.querySelector('[data-page=help]').click());
+ECO.onNavigate(({page, command}) => {
+  if (command) { location.hash = 'help/commands/' + encodeURIComponent(command); showHubPage('help'); HELP.show(location.hash.slice(1)); return; }
+  showHubPage(page === 'help' ? 'help' : 'modules');
+});
+ECO.onChange(() => loadModules());
+if (location.hash.startsWith('#help')) setTimeout(() => showHubPage('help'));
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
@@ -72,18 +85,15 @@ $('archived-list').addEventListener('click', async event => {
   const button = event.target.closest('[data-archived]'); if (!button) return;
   const m = archived[Number(button.dataset.i)];
   if (button.dataset.archived === 'delete') { putAwayModule(m); return; }
-  if (button.dataset.archived === 'folder') { ECO.call('open', {dir: m.path, path: ''}).catch(e => ECO.toast(e.message, 'bad')); return; }
+  if (button.dataset.archived === 'folder') { ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')); return; }
   const doc = await ECO.run(m.exists ? m.path : null, ['module', 'unarchive', m.repository],
     {success: r => `${r.repository} のアーカイブを解除しました。` + (m.exists ? '一覧に戻しました。' : '使うには「＋ モジュール追加」の「GitHubから取得」で取得してください。'), busy: `${m.repository} のアーカイブを解除しています…`});
   if (doc) { await loadGithubModules(); loadModules(); }
 });
 // A module opens in its own app window (like the hub), not in a browser tab: Electron opens window.open as a window,
 // otherwise the server starts it (Edge).
-const openModule = path => {
-  const page = 'module.html?path=' + encodeURIComponent(path);
-  if (window.ecobuildShell) return Promise.resolve(window.open(page, '_blank'));
-  return ECO.call('open-window', {page}).catch(() => window.open(page, '_blank'));
-};
+// (ECO.action open: an open window of the module comes forward instead of a second one.)
+const openModule = path => ECO.action('open', {module: path}).catch(e => ECO.toast(e.message, 'bad'));
 
 let clones = [], order = [];
 const pathKey = p => p.replaceAll('\\', '/').toLowerCase();
@@ -132,7 +142,7 @@ async function forgetModule(m, reason = '') {
   const note = !m.exists ? 'フォルダはもうありません。' : `フォルダ（${m.path}）とGitHubのリポジトリはそのまま残ります。${reason ? '不要なら「フォルダを開く」から削除してください。' : 'なお、このフォルダで ecobuild を使うと（開発環境を開くなど）、再び一覧に表示されます。'}`;
   const choice = await ECO.dialog({title: reason ? `${m.name} は使えません` : '一覧から外す', body: `${reason ? `<p>${esc(reason)}</p>` : ''}<p>このPCの一覧から外します。${esc(note)}</p>`,
     buttons: [['キャンセル', '', false], ...(reason && m.exists ? [['フォルダを開く', '', 'folder']] : []), ['一覧から外す', 'primary', 'forget']]});
-  if (choice === 'folder') { try { await ECO.call('open', {dir: m.path, path: ''}); } catch (e) { ECO.toast(e.message, 'bad'); } return; }
+  if (choice === 'folder') { try { await ECO.action('folder', {dir: m.path}); } catch (e) { ECO.toast(e.message, 'bad'); } return; }
   if (choice === 'forget' && await ECO.run(null, ['workspace', 'forget', m.path], {success: `${m.name} を一覧から外しました。`})) loadModules();
 }
 $('module-list').addEventListener('click', async event => {
@@ -140,7 +150,7 @@ $('module-list').addEventListener('click', async event => {
   if (action) {
     action.closest('details').removeAttribute('open');
     const m = modules[Number(action.dataset.index)];
-    if (action.dataset.action === 'folder') { try { await ECO.call('open', {dir: m.path, path: ''}); } catch (e) { ECO.toast(e.message, 'bad'); } }
+    if (action.dataset.action === 'folder') { try { await ECO.action('folder', {dir: m.path}); } catch (e) { ECO.toast(e.message, 'bad'); } }
     if (action.dataset.action === 'remove') forgetModule(m);
     if (action.dataset.action === 'delete') putAwayModule(m);
     return;
@@ -421,7 +431,7 @@ $('module-list').addEventListener('contextmenu', event => {
   const m = modules[Number(item.dataset.index)];
   ECO.menu([
     ['開発環境を開く', () => openModule(m.path), m.exists],
-    ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir: m.path, path: ''}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
+    ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists],
     '-',
     ['一覧から外す…', () => forgetModule(m)],

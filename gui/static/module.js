@@ -17,16 +17,35 @@ ECO.info().then(info => { MOD.me = info.me || ''; });
 const PAGES = ['workspace', 'tasks', 'modinfo', 'help'];
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
+  ECO.setState({page});
   for (const key of PAGES) {
     mEl(key + '-content').hidden = key !== page;
     if (key === page) mEl(key + '-menu').setAttribute('aria-current', 'page'); else mEl(key + '-menu').removeAttribute('aria-current');
   }
   pageHooks[page]?.();
 }
-for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
+// The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
+for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
+ECO.onNavigate(({page, tab, task, command}) => {
+  const target = page || (tab ? 'modinfo' : task ? 'tasks' : command ? 'help' : '');
+  if (target) showModulePage(target);
+  if (tab) window.MODINFO_SHOW?.(tab);
+  if (task) window.TASKS_SELECT?.(Number(task));
+  if (command && typeof HELP !== 'undefined') HELP.show('help/commands/' + encodeURIComponent(command));
+});
+// Something ran elsewhere (an agent, another window): the places it touched are read again.
+ECO.onChange(e => {
+  const touched = e.dir ? MOD.places.filter(p => keyOf(p) === keyOf(e.dir)) : MOD.places;
+  for (const place of touched) reloadPlace(place);
+  pageHooks.changed?.();
+});
 // module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded); #modinfo/projects etc. that tab too.
 const hashPage = location.hash.slice(1).split('/')[0];
-if (PAGES.includes(hashPage)) window.addEventListener('load', () => showModulePage(hashPage));
+if (PAGES.includes(hashPage)) window.addEventListener('load', () => {
+  showModulePage(hashPage);
+  const task = hashPage === 'tasks' && Number(location.hash.split('/')[1]);
+  if (task) window.TASKS_SELECT?.(task);
+});
 // Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).
 const NAV_ORDER_KEY = 'ecobuild-gui-nav-order', nav = document.querySelector('.module-nav');
 const navItems = () => [...nav.querySelectorAll('[data-nav]')];
@@ -124,7 +143,7 @@ function addTab(dir) {
 function activate(dir, focus = false) {
   const key = keyOf(dir);
   if (!MOD.places.some(p => keyOf(p) === key) || !isWorkspace(dir)) return;
-  hidden.delete(key); activePlace = key;
+  hidden.delete(key); activePlace = key; ECO.setState({workspace: dir});
   for (const group of tabs.querySelectorAll('.workspace-tab-group')) {
     const on = group.dataset.group === key; const place = MOD.places.find(p => keyOf(p) === group.dataset.group); group.hidden = !place || !tabVisible(place);
     const button = group.querySelector('[role=tab]'); button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1;
@@ -251,7 +270,7 @@ tabs.addEventListener('contextmenu', e => {
     ['タブを閉じる（作業空間は残ります）', () => closeTab(dir)],
     ['他のタブを閉じる', () => others.forEach(closeTab), others.length > 0],
     '-',
-    ['エクスプローラーでフォルダを開く', () => ECO.call('open', {dir, path: ''}).catch(err => ECO.toast(err.message, 'bad'))],
+    ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
     ['状態を更新', () => reloadPlace(dir)],
     ...(state.task ? ['-', [`タスク #${state.task} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.task); }]] : []),

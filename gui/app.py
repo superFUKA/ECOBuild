@@ -34,10 +34,12 @@ import threading
 import time
 import urllib.request
 import webbrowser
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+import urllib.parse
 
 VERSION = "0.1.0"
 # 起動した時の app.py。画面（static/）は毎回ファイルから配るが、サーバーのコードは起動した時のまま。
@@ -55,6 +57,8 @@ def server_is_stale() -> bool:
 STALE_MESSAGE = ("GUIが更新されました。GUIを起動し直すと新しい版に切り替わります（このウィンドウは閉じてください）。")
 IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
+sys.path.insert(0, str(Path(__file__).parent))
+import actions as gui_actions  # noqa: E402（GUIの操作の一覧。ecobuild_gui.py も使う）
 MODULE_FILE = Path(".ecobuild") / "ecobuild.toml"   # モジュールの印（ECOBuildの共有の設定）
 DEFAULT_PORT = 8765
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -740,6 +744,32 @@ def refresh_scope(scope: str) -> None:
 
 # HTTP --------------------------------------------------------------------------------------------
 
+class Events:
+    """開いている画面へ知らせること（実行したこと・画面の移動・知らせ）。画面は events で待ち受ける（長いポーリング）。"""
+
+    def __init__(self, keep: int = 300):
+        self.items: deque[dict] = deque(maxlen=keep)
+        self.seq = 0
+        self.changed = threading.Condition()
+
+    def publish(self, event: dict) -> dict:
+        with self.changed:
+            self.seq += 1
+            event = {**event, "seq": self.seq, "time": time.time()}
+            self.items.append(event)
+            self.changed.notify_all()
+        return event
+
+    def since(self, seq: int, wait: float) -> list[dict]:
+        with self.changed:
+            if not any(e["seq"] > seq for e in self.items):
+                self.changed.wait(wait)
+            return [e for e in self.items if e["seq"] > seq]
+
+
+WINDOW_ALIVE = 50     # 秒。画面はこれより短い間隔で events を呼ぶ（呼ばなくなった窓は閉じたとみなす）
+
+
 class App:
     def __init__(self, cli: Cli, store: Store, token: str, port: int):
         self.cli, self.store, self.token, self.port = cli, store, token, port
@@ -747,6 +777,108 @@ class App:
         self.server: ThreadingHTTPServer | None = None
         self.progress: dict[str, list[str]] = {}    # 実行中のコマンドの経過（画面が付けた番号 → 行）
         self.cache = QueryCache(None if store is None else store.path.with_name("cache.json"))
+        self.events = Events()
+        self.windows: dict[str, dict] = {}       # 開いている窓（画面が知らせる：種類・モジュール・画面・タブ・タスク）
+
+    # GUIの操作（actions.py）。画面のボタンも、ecobuild gui・MCP も、ここを通る ------------------------------------
+    def see_window(self, window: dict) -> None:
+        key = str(window.get("id") or "")
+        if key:
+            self.windows[key] = {**self.windows.get(key, {}), **window, "seen": time.time()}
+
+    def live_windows(self) -> list[dict]:
+        now = time.time()
+        return [w for w in self.windows.values() if now - w.get("seen", 0) < WINDOW_ALIVE]
+
+    def module_window(self, root: str) -> dict | None:
+        return next((w for w in self.live_windows() if w.get("kind") == "module" and w.get("module")
+                     and _same(w["module"], root)), None)
+
+    def action(self, name: str, params: dict, origin: str = "", progress=None) -> object:
+        try:
+            p = gui_actions.check(name, params)
+        except ValueError as error:
+            raise GuiError(str(error)) from None
+        by = "window" if origin and origin in self.windows else "agent"
+        if name == "run":
+            body = {"dir": p.get("dir"), "args": p["args"], "stdin": p.get("stdin"), "progress": progress}
+            document = self.api("cli", body)
+            if not _read_only(p["args"]) and not _cacheable(p["args"]):
+                error = document.get("error") or {}
+                self.events.publish({"type": "ran", "by": by, "origin": origin, "dir": p.get("dir"),
+                                     "args": p["args"], "ok": bool(document.get("ok")),
+                                     "message": error.get("message") if error else None})
+            return document
+        if name == "open":
+            return self._open(p, origin, by)
+        if name == "folder":
+            if origin in self.windows:
+                return {"apply": {"open": {"dir": p["dir"], "path": p.get("path", ""), "reveal": p.get("reveal", False)}}}
+            target = self.module_window(p["dir"]) or next(iter(self.live_windows()), None)
+            if target:
+                self.events.publish({"type": "open-path", "target": target["id"], "by": by, "dir": p["dir"],
+                                     "path": p.get("path", ""), "reveal": p.get("reveal", False)})
+                return {"done": "asked", "window": target["id"]}
+            return open_path(p["dir"], p.get("path", ""), p.get("reveal", False))
+        if name == "vs":
+            if p.get("path"):
+                return open_file_in_visual_studio(p["dir"], p["path"], p.get("version", "2026"))
+            return open_in_visual_studio(p["dir"], p.get("version", "2026"))
+        if name == "notify":
+            self.events.publish({"type": "notify", "by": by, "message": p["message"], "kind": p.get("kind", "info")})
+            return {"windows": len(self.live_windows())}
+        if name == "windows":
+            now = time.time()
+            return [{k: v for k, v in {**w, "seen_seconds_ago": round(now - w["seen"])}.items() if k != "seen"}
+                    for w in self.live_windows()]
+        if name == "activity":
+            count = p.get("count", 30)
+            return [e for e in self.events.items if e["type"] in ("ran", "notify", "navigate", "open-window")][-count:]
+        raise GuiError(f"GUIの操作 {name} はまだ使えません。")
+
+    def _open(self, p: dict, origin: str, by: str) -> dict:
+        """open：module を省けばハブ。開いている窓があれば移り、なければ開く（呼んだのが窓なら、その窓が行う）。"""
+        where = {k: p[k] for k in ("page", "tab", "task", "command") if k in p}
+        module = p.get("module")
+        if not module:
+            page = "hub.html" + ("#help" + ("/commands/" + urllib.parse.quote(p["command"]) if p.get("command") else "")
+                                 if p.get("page") == "help" or p.get("command") else "")
+            here = self.windows.get(origin)
+            target = here if here and here.get("kind") == "hub" else                 next((w for w in self.live_windows() if w.get("kind") == "hub"), None)
+        else:
+            root = self._module_path(module)
+            page = "module.html?path=" + urllib.parse.quote(root) + _hash(where)
+            here = self.windows.get(origin)
+            target = here if here and here.get("kind") == "module" and here.get("module") and _same(here["module"], root)                 else self.module_window(root)
+        if target:
+            event = {"type": "navigate", "target": target["id"], "by": by, **where}
+            if target["id"] == origin:
+                return {"apply": {"navigate": where}}
+            self.events.publish(event)
+            return {"done": "navigated", "window": target["id"]}
+        if origin in self.windows:
+            return {"apply": {"open-window": page}}
+        opener = next(iter(self.live_windows()), None)
+        if opener:      # Electron の窓は、開いている窓が開く（サーバーは Electron の窓を開けない）
+            self.events.publish({"type": "open-window", "target": opener["id"], "by": by, "page": page})
+            return {"done": "asked", "window": opener["id"]}
+        base, _, fragment = page.partition("#")
+        open_window(f"http://127.0.0.1:{self.port}/{base}{'&' if '?' in base else '?'}t={self.token}"
+                    + (f"#{fragment}" if fragment else ""))
+        return {"done": "opened"}
+
+    def _module_path(self, module: str) -> str:
+        """モジュールのフォルダか名前から、このPCの作業空間のフォルダ。"""
+        if Path(module).expanduser().is_dir():
+            return str(_module_root(Path(module)))
+        listed = self.cli.run(None, ["workspace", "list"])
+        for entry in listed.get("result") or []:
+            path = entry.get("path", "")
+            if entry.get("exists") and (Path(path).name.casefold() == module.casefold()
+                                        or (entry.get("repository") or "").casefold() in (module.casefold(),)
+                                        or (entry.get("repository") or "").split("/")[-1].casefold() == module.casefold()):
+                return path
+        raise GuiError(f"モジュール {module} がこのPCに見つかりません（ecobuild workspace list）。")
 
     def move_legacy(self) -> None:
         """以前の gui.json に登録したフォルダを、ecobuild の作業空間の記録（workspace add）へ移す（一度だけ）。"""
@@ -773,6 +905,22 @@ class App:
             finally:
                 if not _cacheable(args) and not _read_only(args):
                     self.cache.invalidate()
+        if name == "action":
+            if d("window"):
+                self.see_window(dict(d("window")))   # 呼んだ窓（まだ待ち受けを始めていなくても、その窓だと分かるように）
+            return self.action(str(d("name") or ""), dict(d("params") or {}), str(d("origin") or ""), d("progress"))
+        if name == "events":
+            # 画面の待ち受け：window（その窓の今の状態）を覚え、since より新しい知らせを返す（なければ少し待つ）
+            if d("window"):
+                self.see_window(dict(d("window")))
+            since = d("since")
+            if since is None:
+                return {"seq": self.events.seq, "events": []}
+            items = self.events.since(int(since), float(d("wait") or 20))
+            return {"seq": self.events.seq, "events": items}
+        if name == "window-state":
+            self.see_window(dict(d("window") or {}))
+            return {}
         if name == "query":
             # 覚える読むだけのコマンド。mode "cache"：覚えた結果だけ（なければ None）。"fresh"：実行して覚える。
             # 答え：{"doc": 結果, "time": 実行した時刻（秒）, "stale": 変える操作の後なら true}
@@ -852,6 +1000,17 @@ class App:
             return pick_folder(d("title") or "", d("initial") or "")
         raise GuiError(f"不明な操作です：{name}" + (f"。{STALE_MESSAGE}" if server_is_stale() else
                                                     "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
+
+
+def _hash(where: dict) -> str:
+    """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
+    page = where.get("page") or ("modinfo" if where.get("tab") else "tasks" if where.get("task") else
+                                 "help" if where.get("command") else "")
+    if not page:
+        return ""
+    extra = where.get("tab") if page == "modinfo" else str(where.get("task")) if page == "tasks" and where.get("task") else \
+        "commands/" + urllib.parse.quote(where["command"]) if page == "help" and where.get("command") else ""
+    return "#" + page + ("/" + extra if extra else "")
 
 
 def make_handler(app: App):
@@ -1118,6 +1277,31 @@ def launch(args) -> None:
     sys.exit(1)
 
 
+def install_command(ecobuild: list[str]) -> Path | None:
+    """ecobuild-gui コマンドを、ecobuild と同じフォルダに置く（ecobuild gui … で呼べる：ecobuild の外部サブコマンド）。
+    中身は、このGUIの ecobuild_gui.py を呼ぶだけ。書けなければ何もしない。"""
+    script = Path(__file__).with_name("ecobuild_gui.py").resolve()
+    python = Path(sys.executable)
+    if python.name.lower() == "pythonw.exe" and python.with_name("python.exe").is_file():
+        python = python.with_name("python.exe")      # 端末に出力するので、窓のない pythonw ではなく python
+    # ecobuild のある所（PATH の上）。リンク（pipx 等）はたどらない：たどった先は PATH にないことがある
+    folder = Path(os.path.abspath(ecobuild[0])).parent if ecobuild and Path(ecobuild[0]).exists() else None
+    if folder is None:
+        return None
+    if os.name == "nt":
+        target, text = folder / "ecobuild-gui.cmd", f'@"{python}" "{script}" %*\r\n'
+    else:
+        target, text = folder / "ecobuild-gui", f'#!/bin/sh\nexec "{python}" "{script}" "$@"\n'
+    try:
+        if not target.is_file() or target.read_text(encoding="utf-8") != text:
+            target.write_text(text, encoding="utf-8", newline="")
+            if os.name != "nt":
+                target.chmod(0o755)
+        return target
+    except OSError:
+        return None
+
+
 def _end_when_idle(server, app) -> None:
     """--serve：画面から連絡がなくなったら（窓がすべて閉じたら）終わる。"""
     def watch():
@@ -1169,9 +1353,12 @@ def serve(args) -> None:
     server.RequestHandlerClass = make_handler(app)
     state = {"pid": os.getpid(), "port": port, "token": token}
     url = _url(state)
+    # どの動き方でも、動いているサーバーの場所を残す（ecobuild gui がここに頼む）
+    _state_file().parent.mkdir(parents=True, exist_ok=True)
+    _state_file().write_text(json.dumps({**state, "mode": "serve" if args.serve else "electron" if args.electron else "foreground"}),
+                             encoding="utf-8")
+    install_command(cli.command)
     if args.serve:
-        _state_file().parent.mkdir(parents=True, exist_ok=True)
-        _state_file().write_text(json.dumps(state), encoding="utf-8")
         print(f"{time.strftime('%Y-%m-%d %H:%M:%S')} 起動：{url}（ecobuild：{' '.join(cli.command)}）")
         _end_when_idle(server, app)
     elif args.electron:
@@ -1191,7 +1378,7 @@ def serve(args) -> None:
         pass
     finally:
         server.server_close()
-        if args.serve and (_read_state() or {}).get("pid") == os.getpid():
+        if (_read_state() or {}).get("pid") == os.getpid():
             try:
                 _state_file().unlink()
             except OSError:

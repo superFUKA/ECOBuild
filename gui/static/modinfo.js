@@ -612,7 +612,7 @@
     }
     if (e.target.closest('[data-mi-retry]')) { loaded.clear(); render(); return; }
     const tab = e.target.closest('[data-mi-view]');
-    if (tab) { view = tab.dataset.miView; show(); return; }
+    if (tab) { ECO.action('open', {module: MOD.root, tab: tab.dataset.miView}).catch(() => { view = tab.dataset.miView; show(); }); return; }
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const action = e.target.closest('[data-mi]');
@@ -620,7 +620,7 @@
   });
   el('modinfo-content').addEventListener('dblclick', e => {
     const file = e.target.closest('[data-mi-file]');
-    if (file) ECO.call('open', {dir: here(), path: file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad'));
+    if (file) ECO.action('folder', {dir: here(), path: file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad'));
   });
   el('modinfo-content').addEventListener('change', async e => {
     if (e.target.id === 'mi-place') { place = e.target.value; loaded.clear(); render(); }
@@ -636,5 +636,8 @@
     ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), e.clientX, e.clientY);
   });
   pageHooks.modinfo = show;
+  // The action "open" with a tab (a click here, or ecobuild gui open --tab).
+  window.MODINFO_SHOW = tab => { if (VIEWS[tab]) { view = tab; ECO.setState({tab}); show(); } };
+  ECO.onChange(() => { loaded.clear(); if (!el('modinfo-content').hidden) render(); });
   el('mi-reload').addEventListener('click', () => { loaded.clear(); render(); });
 })();

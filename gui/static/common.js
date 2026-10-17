@@ -127,7 +127,7 @@ const ECO = (() => {
       }, 400);
     }
     try {
-      return await call('cli', {dir, args, stdin, progress});
+      return await call('action', {name: 'run', params: {dir: dir || undefined, args: args.map(String), stdin}, origin: windowId, window: topState(), progress});
     } catch (e) {
       return {ok: false, result: null, notices: [], error: {code: 'gui', message: e.message}, argv: ['ecobuild', ...args]};
     } finally { row?.remove(); clearInterval(poll); }
@@ -386,6 +386,71 @@ const ECO = (() => {
       box.title = me ? `ログイン中のGitHubアカウント：${me}` : 'GitHubのアカウントを取得できませんでした（gh auth login）';
     });
   });
+  // GUI actions (gui/actions.py) ------------------------------------------------------------------------------------
+  // The buttons and the outside (ecobuild gui・MCP, e.g. an AI agent) call the same actions. This window tells the
+  // server what it shows (window state: for ecobuild gui windows) and waits for what happens elsewhere (events): a
+  // command run by an agent or another window shows here, and an agent can move this window or open things from it.
+  const windowId = (() => { try { if (window.top !== window && window.top.ECO?.windowId) return window.top.ECO.windowId; } catch (e) { /* other origin */ }
+    return Math.random().toString(36).slice(2, 10); })();
+  const top = window.top === window;
+  const windowState = {id: windowId, kind: /module\.html$/.test(location.pathname) ? 'module' : 'hub', module: params.get('path') || undefined, title: document.title};
+  let stateTimer = null;
+  const topState = () => { try { if (!top) return window.top.ECO?.windowState; } catch (e) { /* other origin */ } return windowState; };
+  function setState(partial) {
+    if (!top) { try { window.top.ECO?.setState(partial); } catch (e) { /* other origin */ } return; }
+    Object.assign(windowState, partial);
+    clearTimeout(stateTimer);
+    stateTimer = setTimeout(() => call('window-state', {window: windowState}).catch(() => {}), 150);
+  }
+  const changeHandlers = [], navigateHandlers = [];
+  const onChange = fn => changeHandlers.push(fn);       // fn(event): something ran elsewhere (refresh what is shown)
+  const onNavigate = fn => navigateHandlers.push(fn);   // fn({page, tab, task, command}): go there in this window
+  // Opens a GUI page (module.html?path=…#…) as its own app window: Electron opens window.open as a window, otherwise
+  // the server starts it (Edge).
+  function openPage(page) {
+    if (window.ecobuildShell) return Promise.resolve(window.open(page, '_blank'));
+    return call('open-window', {page}).catch(() => window.open(page, '_blank'));
+  }
+  async function apply(effect) {
+    if (effect.navigate) for (const fn of navigateHandlers) fn(effect.navigate);
+    if (effect['open-window']) await openPage(effect['open-window']);
+    if (effect.open) await call('open', effect.open);
+  }
+  // An action by name (actions.py). What happens in this window (open, move) is done here.
+  async function action(name, actionParams = {}) {
+    const result = await call('action', {name, params: actionParams, origin: windowId, window: topState()});
+    if (result?.apply) await apply(result.apply);
+    return result;
+  }
+  const byWhom = e => e.by === 'agent' ? 'エージェント' : '別の画面';
+  async function handle(e) {
+    const mine = e.target ? e.target === windowId : true;
+    if (e.type === 'ran' && e.origin !== windowId) {
+      toast(`${byWhom(e)}が実行しました：ecobuild ${e.args.join(' ')}${e.ok ? '' : `（失敗：${e.message || ''}）`}`, e.ok ? 'info' : 'bad', 7000);
+      for (const fn of changeHandlers) { try { fn(e); } catch (error) { console.error(error); } }
+    } else if (e.type === 'notify') {
+      toast(`${e.by === 'agent' ? 'エージェントから' : '知らせ'}：${e.message}`, e.kind || 'info', 12000);
+    } else if (mine && e.type === 'navigate') {
+      for (const fn of navigateHandlers) fn(e);
+      window.focus();
+    } else if (mine && e.type === 'open-window') {
+      await openPage(e.page);
+    } else if (mine && e.type === 'open-path') {
+      await call('open', {dir: e.dir, path: e.path, reveal: e.reveal}).catch(error => toast(error.message, 'bad'));
+    }
+  }
+  async function listen() {
+    let since = null;
+    for (;;) {
+      try {
+        const answer = await call('events', {since, window: windowState, wait: 20});
+        if (since !== null) for (const e of answer.events) await handle(e);
+        since = answer.seq;
+      } catch (e) { await new Promise(r => setTimeout(r, 3000)); }
+    }
+  }
+  if (top) document.addEventListener('DOMContentLoaded', () => { listen(); });
+
   // The left menu's fold button (the hub and the module screen): folded or not is kept on this PC, the same for both.
   const NAV_COLLAPSED_KEY = 'ecobuild-gui-nav-collapsed';
   function navToggle(toggle, target) {
@@ -467,12 +532,12 @@ const ECO = (() => {
   // The solution is made by a build (cpp), so when there is none yet, offer to build first.
   async function openInVisualStudio(dir, {build, version = vsVersion()} = {}) {
     let opened;
-    try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
+    try { opened = await action('vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
     if (!opened.solution) {
       if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln／.slnx）がまだありません（ビルドすると作成されます）。ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
       const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});
       if (!doc) return false;
-      try { opened = await call('open-vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
+      try { opened = await action('vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
       if (!opened.solution) { toast('ビルドしましたが、ソリューションが見つかりませんでした（このモジュールの型ではソリューションが作成されない可能性があります）。', 'bad', 8000); return false; }
     }
     toast(`Visual Studio ${version} で開きます：` + opened.solution.split('/').pop());
@@ -511,5 +576,5 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState};
 })();

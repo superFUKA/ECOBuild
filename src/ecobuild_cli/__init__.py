@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from cli_framework import create_cli
 
-from . import _catalog, _log, _types, commands
+from . import _catalog, _extensions, _log, _types, commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
@@ -94,6 +94,10 @@ def _main(args: list[str]) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    external = _external(args[0]) if args and not args[0].startswith("-") else None
+    if external:
+        # 外部サブコマンド（ecobuild-<名前>。git と同じ）：引数ごと渡し、その終了コードで終わる
+        sys.exit(_extensions.run(external, args[1:]))
     if json_output and "--help" in args:
         # コマンドの一覧・説明をJSONで（_catalog）。--help より前の、オプションでないものがコマンドの道筋
         path = []
@@ -115,6 +119,13 @@ def _main(args: list[str]) -> None:
     except click.exceptions.Exit as exit_error:
         sys.exit(exit_error.exit_code)
     sys.exit(code if isinstance(code, int) else 0)
+
+
+def _external(name: str) -> str | None:
+    """name が ecobuild のコマンド（共通・どれかの型）でなく、PATH に ecobuild-<name> があれば、その場所。"""
+    if (name,) in _types.routes(commands) or any((name,) in found for found in _types.all_routes().values()):
+        return None
+    return _extensions.find(name)
 
 
 def _usage_message(error: click.UsageError) -> str:

@@ -114,6 +114,11 @@ def _root_help(common: list[str], typed: list[str], name: str | None):
             if rows:
                 with formatter.section(title):
                     formatter.write_dl(rows)
+        from . import _extensions
+        external = {n: path for n, path in _extensions.available().items() if n not in common and n not in typed}
+        if external:
+            with formatter.section("拡張コマンド（ecobuild の外のツール。ecobuild <名前> --help で使い方）"):
+                formatter.write_dl([(n, path) for n, path in sorted(external.items())])
         if name is None:
             with formatter.section("型ごとのコマンド"):
                 formatter.write_text("build・test・file 等、モジュールの型ごとのコマンドは、モジュールの中で "

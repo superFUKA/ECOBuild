@@ -269,7 +269,8 @@
     st.details.set(n, doc.ok ? doc.result : {error: doc.error});
     if (st.selected === n) renderDetail();
   }
-  function select(n) { st.selected = n; render(); if (!st.details.has(n)) loadDetail(n); }
+  function select(n) { st.selected = n; ECO.setState({task: n}); render(); if (!st.details.has(n)) loadDetail(n); }
+  ECO.onChange(() => { if (st.loaded) { st.details.clear(); load(); if (st.selected) loadDetail(st.selected); } });
   window.TASKS_SELECT = n => { if (!st.loaded) load().then(() => select(n)); else select(n); };
 
   function renderDetail() {

@@ -305,11 +305,14 @@ function poll() {
     if (read.state !== s.state) {
       // 返答の終わりは Stop フック（status.json の置き場所が分かっているとき）、分からなければ画面で見る
       if (!s.statusDir && s.state === 'thinking' && read.state === 'idle') replied(s, read.reply);
+      // Stop フックの返答が届かなかったとき（置き場所が消された等）のために、画面の返答を少し待って使う
+      if (s.statusDir && s.state === 'thinking' && read.state === 'idle') s.screenReply = {at: Date.now(), text: read.reply};
       s.state = read.state; changed = true;
     }
     const got = status.poll(s);
     if (got.info) changed = true;
-    if (got.replied) replied(s, got.replied.message);
+    if (got.replied) { s.screenReply = null; replied(s, got.replied.message); }
+    else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
     if (s.kind === 'operator' && (s.recording || read.state === 'choice')) changed = true;   // 聞き取った文・選択肢を右下に出し直す

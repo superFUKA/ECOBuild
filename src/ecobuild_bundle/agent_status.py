@@ -68,6 +68,21 @@ def prepare(name: str) -> Path:
     return folder
 
 
+def forget_old(prefix: str, days: float = 1.0) -> None:
+    """prefix で始まる置き場所のうち、しばらく使っていないもの（days 日より前）を消す（起動ごとに作るものの片付け）。"""
+    import shutil
+    import time
+    root = _settings.home() / FOLDER
+    if not root.is_dir():
+        return
+    for folder in root.glob(prefix + "*"):
+        try:
+            if time.time() - max(f.stat().st_mtime for f in [folder, *folder.iterdir()]) > days * 86400:
+                shutil.rmtree(folder, ignore_errors=True)
+        except (OSError, ValueError):
+            pass
+
+
 SETTINGS = "settings.json"   # Claude Code の --settings に渡すファイル（置き場所の中）
 # 画面を持つアプリが動かすときの設定：音声入力（Space を押し続ける間だけ録音。送るのは人。アプリはキーのリピートで
 # 押し続けをまねる）、入力欄に返答の候補を出さない（入力欄の文字を読むので、候補が混ざらないように）

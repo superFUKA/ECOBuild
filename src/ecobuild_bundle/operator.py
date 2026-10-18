@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,7 +94,9 @@ def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
     from . import agent_status
     command = tuple(command)
     if command[:1] == ("claude",):
-        folder = agent_status.prepare("operator")
+        # 起動ごとに別の置き場所（同じPCでオペレーターが2つ動いても、互いの状態を消さない）。古いものは片付ける
+        agent_status.forget_old("operator-")
+        folder = agent_status.prepare(f"operator-{os.getpid()}")
         agent_status.announce(folder)
         try:
             base = json.loads((directory() / ecoagent.kit.SETTINGS).read_text(encoding="utf-8"))

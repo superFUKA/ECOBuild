@@ -43,8 +43,8 @@ const OPERATOR = (() => {
       const li = document.createElement('li'); li.className = 'operator-empty';
       li.textContent = 'まだ会話はありません。下の欄に頼むことを書いて送ってください。'; log.append(li);
     }
-    const waiting = resident ? view && (['thinking', 'waiting'].includes(view.state) || view.queued > 0
-      || (messages.at(-1)?.role === 'user' && view.state !== 'choice')) : busy;
+    // 考え中は、オペレーターが本当に考え中・起動中・待たせているときだけ（返答を取りこぼしても止まって見えないように）
+    const waiting = resident ? view && (['thinking', 'waiting', 'starting'].includes(view.state) || view.queued > 0) : busy;
     if (waiting) {
       const li = document.createElement('li'); li.className = 'operator-message agent pending';
       li.innerHTML = `<div class="operator-bubble"><span class="eco-spinner"></span> ${view?.state === 'starting' ? '起動しています…' : '考え中…'}</div>`; log.append(li);

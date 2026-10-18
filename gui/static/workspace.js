@@ -268,7 +268,6 @@ async function loadHistory() {
   const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], shown);
   if (doc.ok) shown(doc); else historyView.error(doc.error.message);
 }
-get('history-open').addEventListener('click', () => showLog());
 WS.onRefresh(loadHistory);
 // Switching the task branch placed here (task start <n>: one already started, here or on GitHub). A new task is
 // started from タスク管理 (its dialog chooses the base and the place). A task branch placed in another workspace is
@@ -367,7 +366,7 @@ document.addEventListener('click', e => {
   if (b && !b.disabled) { e.preventDefault(); gitAction(b.dataset.git); }
 });
 
-// A log view (the ログ tab and the large log): the commits on the left (search, ↑↓, read more), the chosen one's
+// A log view (the ログ tab and the log dialog): the commits on the left (search, ↑↓, read more), the chosen one's
 // changes on the right, its files folded one by one (path: the files under it open first). menu(c, x, y): a commit's
 // menu (right click, or 操作 ▾). show(commits, more): the commits read (more: there may be more); onMore: read more.
 function logView(box, {path = '', selected = '', menu = null, onMore}) {
@@ -431,7 +430,7 @@ function logView(box, {path = '', selected = '', menu = null, onMore}) {
   };
 }
 
-// The log at length (the ログ tab's 「大きく表示」, the explorer's 「ログ」 without TortoiseGit; path: only its log). It opens
+// The log in a dialog (the explorer's 「ログ」 without TortoiseGit; path: only its log). It opens
 // at once and reads behind (ecobuild log asks GitHub for the merged submissions: seconds); one at a time.
 let logOpen = false;
 async function showLog(path = '', selected = '') {

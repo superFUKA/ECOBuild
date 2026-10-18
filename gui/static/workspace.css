@@ -178,11 +178,9 @@ body.resizing iframe { pointer-events: none; }
 .branch-button:hover { border-color: #56616e; }
 .branch-button #branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .branch-button svg { flex-shrink: 0; color: #9eaab8; }
-/* ログ tab: the log view (as the large one), as tall as the window allows. */
-.history-tools { display: flex; gap: 6px; align-items: center; }
-.history-tools button { padding: 4px 10px; font-size: 12px; }
+/* ログ tab: the log view, as tall as the window allows. */
 #history-view.log-view { height: max(360px, calc(100vh - 370px)); margin-top: 8px; }
-/* A log view (the ログ tab, the large log WS.showLog): the commits on the left, the chosen one's changes on the right. */
+/* A log view (the ログ tab, the log dialog WS.showLog): the commits on the left, the chosen one's changes on the right. */
 .log-view { display: grid; grid-template-columns: minmax(240px, 34%) minmax(0, 1fr); gap: 12px; height: 70vh; }
 .log-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .log-side input.log-search, .eco-dialog .log-side input.log-search { width: 100%; box-sizing: border-box; padding: 5px 9px; font-size: 12px; }

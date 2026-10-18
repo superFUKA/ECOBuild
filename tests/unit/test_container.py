@@ -150,6 +150,7 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     monkeypatch.setattr(container, "_docker", lambda runner, command: ("docker",))
     monkeypatch.setattr(container.docker, "run", fake.run)
     monkeypatch.setattr(container, "credentials", lambda: {"GH_TOKEN": "secret"})
+    container.save_token("sk-ant-oat01-abc")
     started = []
     monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))
                         or ecoagent.Session(1, tuple(command), Path(directory)))
@@ -161,6 +162,9 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     command, env = started[0]
     assert command[-2:] == ["claude", "--dangerously-skip-permissions"] and "--tty" in command
     assert env["GH_TOKEN"] == "secret" and "secret" not in command
+    assert env[container.TOKEN_VARIABLE] == "sk-ant-oat01-abc" and "sk-ant-oat01-abc" not in command
+    assert "TERM=xterm-256color" in command and "COLORTERM=truecolor" in command          # Claude のオレンジが赤にならない
+    assert any(args[-3:-1] == ["python3", "-c"] for args in fake.calls)                  # 初めての質問に先に答える
 
 
 def test_the_dockerfile_has_the_agent():
@@ -195,3 +199,27 @@ def test_settings_of_one_container(monkeypatch, root):
     cleared = container.configure(root, deny=(), image="", runner=fake.run)
     assert cleared.deny == () and cleared.custom_image == ""
     assert container.split_rules(" a ; ;b") == ("a", "b")
+
+
+def test_the_token_is_kept_without_spaces(monkeypatch, tmp_path):
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    assert container.load_token() == "" and not container.forget_token()
+    container.save_token("  sk-ant-oat01-xyz\n")
+    assert container.load_token() == "sk-ant-oat01-xyz"
+    with pytest.raises(WorkError):
+        container.save_token("sk-ant oat")
+    assert container.forget_token() and container.load_token() == ""
+
+
+def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    import sys
+    (tmp_path / ".claude.json").write_text(json.dumps({"numStartups": 3, "projects": {"/work": {"allowedTools": ["x"]}}}))
+    (tmp_path / "settings.json").write_text(json.dumps({"theme": "light"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    subprocess.run([sys.executable, "-c", container.first_run_script()], check=True)
+    state = json.loads((tmp_path / ".claude.json").read_text())
+    assert state["numStartups"] == 3 and state["hasCompletedOnboarding"] is True
+    assert state["projects"]["/work"] == {"allowedTools": ["x"], "hasTrustDialogAccepted": True}
+    assert json.loads((tmp_path / "settings.json").read_text()) == {"theme": "light", "skipDangerousModePermissionPrompt": True}

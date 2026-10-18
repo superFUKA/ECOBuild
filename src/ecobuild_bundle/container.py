@@ -55,6 +55,16 @@ AGENT_VOLUME = "ecobuild-agent" # AGENT_HOME に付けるボリューム（す�
 MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
 INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
 AGENT_FLAGS = {"claude": ("--dangerously-skip-permissions",)}   # 中で確認なしに動かすときに足すもの
+TOKEN_FILE = Path("agents") / "container-token"   # ECOBUILD_HOME の下：中のエージェントのログイン（claude setup-token）
+TOKEN_VARIABLE = "CLAUDE_CODE_OAUTH_TOKEN"
+# 中のエージェントの初めての質問に先に答えておく（足りないものだけ足す）。.claude.json：初めての案内・/work の信頼。
+# settings.json：テーマ・確認なしのモードの注意（コンテナなので出さない）
+FIRST_RUN = {
+    ".claude.json": {"hasCompletedOnboarding": True, "projects": {WORKDIR: {"hasTrustDialogAccepted": True}}},
+    "settings.json": {"theme": "dark", "skipDangerousModePermissionPrompt": True},
+}
+# 端末の色：docker exec -t は TERM=xterm（16色）にするので、Claude Code のオレンジが赤に寄ってしまう
+COLORS = {"TERM": "xterm-256color", "COLORTERM": "truecolor"}
 
 
 @dataclass(frozen=True)
@@ -325,7 +335,7 @@ def credentials() -> dict[str, str]:
 def exec_command(root: Path, prefix: tuple[str, ...], args: list[str] | tuple[str, ...], names: tuple[str, ...] = (),
                  *, directory: str = WORKDIR, tty: bool = False) -> list[str]:
     """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。"""
-    flags = ["--interactive", "--tty"] if tty else []
+    flags = ["--interactive", "--tty", *(item for k, v in COLORS.items() for item in ("--env", f"{k}={v}"))] if tty else []
     passed = [item for each in names for item in ("--env", each)]
     return [*prefix, "exec", *flags, *passed, "--workdir", directory, name(root), *args]
 
@@ -392,9 +402,12 @@ def start_agent(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (
     prefix = _docker(None, command)
     _run(None, [*prefix, "exec", "--user", "0", name(root), "sh", "-c", write_settings(deny)],
          "エージェントの設定を書けませんでした")
+    _run(None, [*prefix, "exec", name(root), "python3", "-c", first_run_script()], "エージェントの初めての設定を書けませんでした")
     if agent:
         agent = (*agent, *(flag for flag in AGENT_FLAGS.get(agent[0], ()) if flag not in agent))
     values = credentials()
+    if token := load_token():
+        values[TOKEN_VARIABLE] = token
     argv = exec_command(root, prefix, agent, tuple(values), tty=True)
     try:
         return ecoagent.start(root, argv, env=environment(prefix, values))
@@ -476,3 +489,73 @@ def prune_images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None 
 def _current_images(source: tuple[str, str]) -> dict[str, str]:
     from . import REGISTRY
     return {t.name: image_name(t, dockerfile(t, source)) for t in REGISTRY.available()}
+
+
+def first_run_script() -> str:
+    """中のエージェントの設定（AGENT_HOME）に FIRST_RUN を足す python3 のスクリプト（ある値は変えない）。
+    中身は base64 で渡す（WSL を通しても崩れないように）。"""
+    encoded = base64.b64encode(json.dumps(FIRST_RUN).encode()).decode("ascii")
+    return ("import base64,json,os\n"
+            f"want=json.loads(base64.b64decode('{encoded}'))\n"
+            "def merge(have,add):\n"
+            " for k,v in add.items():\n"
+            "  if isinstance(v,dict) and isinstance(have.get(k),dict): merge(have[k],v)\n"
+            "  elif k not in have: have[k]=v\n"
+            "home=os.environ.get('CLAUDE_CONFIG_DIR') or os.path.expanduser('~/.claude')\n"
+            "for name,add in want.items():\n"
+            " path=os.path.join(home,name)\n"
+            " try: have=json.load(open(path))\n"
+            " except Exception: have={}\n"
+            " merge(have,add)\n"
+            " tmp=path+'.ecobuild'\n"
+            " json.dump(have,open(tmp,'w'),indent=2)\n"
+            " os.chmod(tmp,0o600); os.replace(tmp,path)\n")
+
+
+# 中のエージェントのログイン（トークン） --------------------------------------------------------------
+# claude setup-token（このPCで1回、ブラウザーで許可する）が出す長く使えるトークンを覚え、中で起動するときに
+# CLAUDE_CODE_OAUTH_TOKEN で渡す（中でログインしなくてよい）。なければ、中で一度ログインする（ボリュームに残る）。
+
+def token_path() -> Path:
+    return _settings.home() / TOKEN_FILE
+
+
+def load_token() -> str:
+    try:
+        return token_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def save_token(token: str) -> Path:
+    token = token.strip()
+    if not token or any(c.isspace() for c in token):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "トークンが空か、空白を含んでいます。",
+                            hint="claude setup-token が最後に出す sk-ant-oat… の1行をそのまま貼ってください。")
+    path = token_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(token + "\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+def forget_token() -> bool:
+    try:
+        token_path().unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def token_login(command: tuple[str, ...] = ("claude", "setup-token")):
+    """このPCで、トークンを作る画面（claude setup-token）を新しい窓で開く。"""
+    import ecoagent
+    folder = token_path().parent
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        return ecoagent.start(folder, command)
+    except ecoagent.AgentError as error:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error

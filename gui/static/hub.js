@@ -310,9 +310,28 @@ $('images-prune').addEventListener('click', async () => {
   if (doc) loadImages(doc);
 });
 
+// The token the agents inside the containers log in with (ecobuild agent token …). Never shown: only whether there is one.
+async function loadToken() {
+  const doc = await ECO.cli(null, ['agent', 'token', 'status'], {quiet: true});
+  const saved = doc.ok && doc.result.saved;
+  $('token-status').textContent = !doc.ok ? (doc.error?.message || '状態を読めませんでした。')
+    : saved ? 'トークンを覚えています。コンテナの中の AI はログインせずに使えます。' : 'トークンはありません。';
+  $('token-remove').hidden = !saved;
+}
+$('token-login').addEventListener('click', () => ECO.run(null, ['agent', 'token', 'login'], {success: 'トークンを作る窓を開きました。ブラウザーで許可し、最後に出たトークンを貼って保存してください。'}));
+$('token-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const value = $('token-value').value.trim(); if (!value) return;
+  const doc = await ECO.run(null, ['agent', 'token', 'set'], {stdin: value, success: 'トークンを保存しました。'});
+  if (doc) { $('token-value').value = ''; loadToken(); }
+});
+$('token-remove').addEventListener('click', async () => {
+  if (await ECO.run(null, ['agent', 'token', 'remove'], {confirm: '覚えたトークンを消します（コンテナの中で一度ログインしていれば、そのログインで使えます）。', title: 'トークンを消す', success: 'トークンを消しました。'})) loadToken();
+});
+
 async function loadSettings() {
   if (!$('default-owner')) return;   // after "GUIを終了"
-  loadImages();
+  loadImages(); loadToken();
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();

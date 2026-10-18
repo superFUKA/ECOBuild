@@ -15,7 +15,10 @@ from .errors import EcoBuildError, ErrorCode, operation
 DIRECTORY = ".ecobuild"
 FILE_NAME = f"{DIRECTORY}/ecobuild.toml"
 LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild/.gitignore で除外）
-FORMAT = 1
+# モジュールの仕様の版（ecobuild.toml の format）。ECOBuild がモジュールに作るファイル（.gitignore・AGENTS.md 等）
+# の中身や置き場所を変えたら1つ上げる。古い版のモジュールは読めて、module upgrade で今の版にする（Module.upgrade）。
+# 1：最初の版。2：module upgrade ができた版（中身の変更なし）。
+FORMAT = 2
 
 
 @dataclass(frozen=True)
@@ -132,14 +135,20 @@ def validate_ci(settings: CiSettings) -> None:
 def load(path: Path) -> ModuleConfig:
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        if data.get("format") != FORMAT:
-            raise ValueError(f"format は {FORMAT} である必要があります")
+        version = data.get("format")
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise ValueError("format は1以上の整数です")
+        if version > FORMAT:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG,
+                                f"このモジュールは新しい ECOBuild の仕様（版 {version}）です。この ECOBuild は版 {FORMAT} までです。",
+                                hint="ECOBuild を新しくしてください（インストーラーをもう一度実行）。")
         module = data["module"]
         projects = data.get("projects")
         config = ModuleConfig(
             name=_text(module, "name"),
             type=_text(module, "type"),  # 型があるかは本体が登録ファイルで確かめる
             default_base=_text(data.get("branches", {"default_base": "main"}), "default_base"),
+            format=version,
             projects=None if projects is None else ProjectNames(
                 library=_text(projects, "library"),
                 test=_text(projects, "test"),

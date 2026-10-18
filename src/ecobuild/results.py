@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple, Protocol
 
+from ecowork import model as wm
+
 
 @dataclass(frozen=True)
 class ModuleCreated:
@@ -44,6 +46,25 @@ class ModuleInfo:
     projects: tuple[str, ...]
     dependencies: tuple[str, ...]    # 直接の依存先の名前
     workspaces: tuple["WorkspaceEntry", ...] = ()   # このPCにある、このモジュールの作業空間（記録したもの。ここも含む）
+    format: int = 0                  # モジュールの仕様の版（ecobuild.toml の format）
+    latest_format: int = 0           # この ECOBuild の版。format が小さければ module upgrade で上げられる
+
+
+@dataclass(frozen=True)
+class ModuleStatus(wm.Status):
+    """状態（status）に、モジュールの仕様の版を足したもの（ModuleInfo と同じ意味）。"""
+    format: int = 0
+    latest_format: int = 0
+
+
+@dataclass(frozen=True)
+class ModuleUpgraded:
+    """module upgrade：モジュールを今の ECOBuild の仕様に合わせた結果。"""
+    format: int                      # 前の版
+    latest_format: int               # 今の版（合わせた後の版）
+    paths: tuple[str, ...]           # 変えたファイル（dry_run なら変えるファイル。モジュールからの相対パス）
+    skipped: tuple[str, ...] = ()    # 手で編集してあるため作り直さなかったファイル
+    dry_run: bool = False
 
 
 @dataclass(frozen=True)

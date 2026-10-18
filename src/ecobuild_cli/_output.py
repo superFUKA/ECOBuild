@@ -234,6 +234,14 @@ def lines(*parts: str | None) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def upgrade_note(r) -> str | None:
+    """モジュールの仕様の版が古ければ、その案内（status・module show。r に format・latest_format）。"""
+    if r.format >= r.latest_format:
+        return None
+    return (f"このモジュールは以前の ECOBuild の仕様（版 {r.format}）です。ecobuild module upgrade で今の版 "
+            f"{r.latest_format} に合わせられます（タスクブランチで。--dry-run で変わるファイルを確認）")
+
+
 DETAIL_LINES = 30
 
 

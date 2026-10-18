@@ -16,7 +16,7 @@ import contextlib
 import re
 from collections.abc import Callable
 import tomllib
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import ecoagent
@@ -34,7 +34,7 @@ from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
-                      ModuleDeleted, ModuleEntry, ModuleInfo, PrepareResult, ProfileList,
+                      ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
@@ -52,6 +52,22 @@ logs/
 GITATTRIBUTES = """\
 * text eol=lf
 """
+
+
+# モジュールの仕様の版ごとの移行（版 → その版のモジュールを次の版にする処理）。ECOBuild が作るファイルの中身を
+# 変えただけなら要らない（Module.upgrade が毎回作り直す）。置き場所を変えた・設定の書き方を変えた等のときに足す。
+_MIGRATIONS: dict[int, Callable[["Module"], None]] = {}
+
+
+def _with_lines(current: str, wanted: str) -> str:
+    """current に、wanted の行（空行・# の行を除く）のうち足りないものを末尾に足す（.gitignore 等。足した行は残す）。"""
+    have = {line.strip() for line in current.splitlines()}
+    missing = [line for line in wanted.splitlines() if line.strip() and not line.startswith("#") and line.strip() not in have]
+    if not current:
+        return wanted
+    if not missing:
+        return current
+    return current + ("" if current.endswith("\n") else "\n") + "\n".join(missing) + "\n"
 
 
 class _TypeHooks(Hooks):
@@ -261,7 +277,8 @@ class Module:
             dependencies = ()
             self.repository.notices.append(f"依存先を読めませんでした（{error.message}）。")
         return ModuleInfo(self.name, self.config.type, self.root, repository, url, private, archived,
-                          self.config.default_base, self.project_names, dependencies, self.own_workspaces())
+                          self.config.default_base, self.project_names, dependencies, self.own_workspaces(),
+                          self.config.format, _config.FORMAT)
 
     @classmethod
     def archive(cls, name: str, *, archived: bool = True, github: _github.GitHub | None = None) -> ModuleArchived:
@@ -455,12 +472,15 @@ class Module:
 
     # 作業の流れのうち、型・管理するファイル・確認が関わるもの（ほかは module.repository） ---------------
 
-    def status(self, *, fetch: bool = False) -> wm.Status:
+    def status(self, *, fetch: bool = False) -> ModuleStatus:
         """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。
-        dependencies：手元の版が記録と違う依存先（依存先の依存先も。dependency_mismatches）。"""
+        dependencies：手元の版が記録と違う依存先（依存先の依存先も。dependency_mismatches）。
+        format・latest_format：モジュールの仕様の版と、この ECOBuild の版（古ければ module upgrade）。"""
         status = self.repository.status(fetch=fetch)
-        return replace(status, excluded=tuple(p for p in status.untracked if not self.is_tracked(p)),
-                       dependencies=self.dependency_mismatches())
+        return ModuleStatus(**{f.name: getattr(status, f.name) for f in fields(status)} | {
+            "excluded": tuple(p for p in status.untracked if not self.is_tracked(p)),
+            "dependencies": self.dependency_mismatches(),
+            "format": self.config.format, "latest_format": _config.FORMAT})
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
@@ -1020,6 +1040,63 @@ class Module:
         return self.type.dependencies() if isinstance(self.type, HasDependencies) else ()
 
     # 文書・CI・確認 -------------------------------------------------------------
+
+    def upgrade(self, *, dry_run: bool = False) -> ModuleUpgraded:
+        """モジュールを今の ECOBuild の仕様に合わせる（ecobuild.toml の format を今の版にする）。
+
+        版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
+        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、AGENTS.md・CIのワークフロー（あれば作り直す。
+        手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        今の版でも同じことをする（同じ版の中で変わった分もそろう）。コミットはしない（タスクブランチで task commit）。
+        dry_run：変えるファイルを返すだけ（版ごとの移行と型の生成ファイルの分は、行うまで分からないので含まない）。
+        """
+        if not dry_run:
+            self.require_task_branch("モジュールの更新")
+        start = self.config.format
+        before = set(self._changed_paths())
+        if not dry_run:
+            for version in range(start, _config.FORMAT):
+                if version in _MIGRATIONS:
+                    _MIGRATIONS[version](self)
+        planned: dict[str, str] = {}   # ECOBuild が書くファイル → 新しい中身
+        skipped = []
+        type_class = type(self.type)
+        for path, wanted in ((f"{_config.DIRECTORY}/.gitignore", GITIGNORE),
+                             (f"{_config.DIRECTORY}/.gitattributes", GITATTRIBUTES),
+                             (".gitignore", type_class.gitignore()), (".gitattributes", type_class.gitattributes())):
+            current = self._read(path)
+            merged = _with_lines(current, wanted)
+            if merged != current:
+                planned[path] = merged
+        if (self.root / "AGENTS.md").is_file():
+            planned["AGENTS.md"] = _docs.agents(self.config, type_class)
+        workflow_path = self.root / _docs.CI_WORKFLOW
+        if workflow_path.is_file():
+            if _docs.ci_edited(workflow_path.read_text(encoding="utf-8")):
+                skipped.append(_docs.CI_WORKFLOW)
+            elif (workflow := self.type.ci_workflow(self.config)) is not None:
+                planned[_docs.CI_WORKFLOW] = _docs.stamp_ci(workflow)
+        planned = {p: text for p, text in planned.items() if self._read(p) != text}
+        if start != _config.FORMAT:
+            planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
+        if dry_run:
+            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True)
+        for path, text in planned.items():
+            if path != _config.FILE_NAME:
+                (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+                (self.root / path).write_text(text, encoding="utf-8", newline="\n")
+        self._save_config(replace(self.config, format=_config.FORMAT))
+        self.type.refresh()
+        changed = (set(self._changed_paths()) - before) | set(planned)
+        return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(changed)), tuple(skipped))
+
+    def _read(self, path: str) -> str:
+        file = self.root / path
+        return file.read_text(encoding="utf-8") if file.is_file() else ""
+
+    def _changed_paths(self) -> tuple[str, ...]:
+        tree = self.repository.git.working_tree()
+        return (*tree.staged, *tree.unstaged, *tree.untracked)
 
     def write_agents(self) -> FilesChanged:
         """AGENTS.md（エージェント向けの使い方）を作り直す。"""

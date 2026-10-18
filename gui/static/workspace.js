@@ -77,6 +77,8 @@ function submissionText(pr) {
 const submitted = () => WS.status?.pull_request?.state === 'open' && !WS.status.finished;
 
 function banner(html, kind = '') { return `<div class="eco-banner ${kind}">${html}</div>`; }
+// 「あとで」 hides the old-format banner while this screen is open (it comes back when reopened).
+let upgradeLater = false;
 function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
@@ -88,6 +90,8 @@ function renderBanners(errorDoc) {
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
+    if (s.format < s.latest_format && !upgradeLater) out.push(banner(`このモジュールは以前の ECOBuild の仕様（版 ${s.format}）です。今の版 ${s.latest_format} に合わせられます（.gitignore・AGENTS.md・CI 等を今の中身に。README は変えません）。` +
+      (s.task && !s.reviewing ? '<button data-git="upgrade">最新の仕様にする</button>' : 'タスクブランチで「最新の仕様にする」を押せます。') + '<button data-git="upgrade-later">あとで</button>'));
   }
   get('banners').innerHTML = out.join('');
   // Not on a task branch (main etc.): nothing is committed, pushed or submitted here, so those panels are not shown
@@ -342,6 +346,13 @@ async function gitAction(action) {
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
     case 'sync-continue': return WS.run(['sync', 'continue'], {success: '取り込みを完了しました。'});
     case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みを中止し、取り込む前の状態に戻しました。', confirm: '止まっている取り込みを中止し、取り込む前の状態に戻します。', title: '取り込みを中止'}).then(() => WS.reloadFiles?.());
+    case 'upgrade': {
+      const plan = await WS.cli(['module', 'upgrade', '--dry-run'], {quiet: true});
+      if (!plan.ok) return ECO.showError(plan);
+      if (!await ECO.confirm({title: '最新の仕様にする', message: `ECOBuild の仕様（版 ${plan.result.format} → ${plan.result.latest_format}）に合わせて、次のファイルを変えます（生成ファイルも作り直します）。コミットはしないので、変わったファイルを確かめてからコミットしてください。`, detail: plan.result.paths.join('\n'), ok: '最新の仕様にする'})) return;
+      return WS.run(['module', 'upgrade'], {success: r => `最新の仕様にしました（${r.paths.length}件のファイル）。確かめてコミットしてください。` + (r.skipped.length ? `手で編集してあるため作り直していません：${r.skipped.join('、')}` : '')}).then(() => WS.reloadFiles?.());
+    }
+    case 'upgrade-later': upgradeLater = true; return renderBanners();
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
     case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());

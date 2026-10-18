@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ecobuild.workspaces import same
-from ..._output import lines, run_command
+from ..._output import lines, run_command, upgrade_note
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
@@ -20,6 +20,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             f"依存先：{', '.join(r.dependencies)}（依存先の依存先は ecobuild deps tree）" if r.dependencies
             else "依存先：なし",
             _workspaces(r),
+            upgrade_note(r),
         )
 
     return run_command("module show", lambda inv: inv.module.info(), render, json_output=json)

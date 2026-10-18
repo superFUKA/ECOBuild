@@ -2,7 +2,7 @@ from typing import Annotated
 
 from ecobuild.module import mismatch_text
 
-from .._output import lines, run_command
+from .._output import lines, run_command, upgrade_note
 from .task._show import submission_text
 
 
@@ -48,6 +48,7 @@ def command(
             if r.excluded else None,
             "手元の依存先が記録の版と違います（手元のビルドはこの版、CIは記録の版を使います）："
             + mismatch_text(r.dependencies) if r.dependencies else None,
+            upgrade_note(r),
         )
 
     return run_command("status", lambda inv: inv.module.status(fetch=fetch), render, json_output=json)

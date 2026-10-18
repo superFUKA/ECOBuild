@@ -23,20 +23,20 @@
   <section class="work" aria-labelledby="changes-title">
     <div class="heading"><h2 id="changes-title">コミット・共有</h2><button type="button" id="switch-branch" class="branch-button" aria-haspopup="menu" title="この作業空間に置くタスクブランチを切り替える"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="7" r="2.2"/><path d="M6 7.2v9.6M18 9.2c0 5-12 3-12 7.6"/></svg><span id="branch-name"></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
     <div id="banners"></div>
-    <section class="panel commit-panel" id="commit-panel" aria-labelledby="commit-title">
+    <div class="work-tabs" id="work-tabs" role="tablist" aria-label="コミット・Push・提出"><button type="button" role="tab" data-tab="commit-panel">コミット<span class="tab-count" id="commit-panel-count"></span></button><button type="button" role="tab" data-tab="share-panel">Push<span class="tab-count" id="share-panel-count"></span></button><button type="button" role="tab" data-tab="prs-panel">提出<span class="tab-count" id="prs-panel-count"></span></button><button type="button" role="tab" data-tab="history-panel">履歴</button></div>
+    <section class="panel commit-panel" id="commit-panel" role="tabpanel" aria-labelledby="commit-title">
       <div class="heading"><h3 id="commit-title">コミット</h3><span id="stage-status" class="muted"></span></div>
       <div class="change-head"><label class="select-all"><input type="checkbox" id="select-all"> 変更ファイル<span id="change-count"></span></label>
         <span class="change-tools"><span id="stage-tools" hidden><button data-git="stage" title="衝突を直したファイルを、直したものとして記録します">ステージ</button><button data-git="unstage">ステージを取り消す</button></span><button data-git="diff" title="差分を表示（TortoiseGit）">差分</button><button data-git="discard">元に戻す…</button></span></div>
       <div id="changes"></div>
       <textarea id="commit-message" rows="3" placeholder="コミットメッセージ（何を・なぜ変えたか）" aria-label="コミットメッセージ"></textarea>
       <div class="actions"><label title="直前のコミットに、この変更とメッセージをまとめ直します"><input type="checkbox" id="amend"> 直前のコミットを修正</label><button id="commit" class="primary">コミット</button></div></section>
-    <section class="panel share" id="share-panel" aria-labelledby="share-title">
-      <div class="heading"><h3 id="share-title">共有</h3><span id="push-state" class="muted"></span></div>
-      <p class="muted share-note"><span id="pr-state"></span></p>
+    <section class="panel share" id="share-panel" role="tabpanel" aria-labelledby="share-title">
+      <div class="heading"><h3 id="share-title">Push</h3><span id="push-state" class="muted"></span></div>
       <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">Pushするコミット</span><button type="button" id="push-commits-close" class="link-button" title="一覧を閉じる（「一覧」でまた開けます）">閉じる</button></div><ul id="push-commits-list" class="push-commits"></ul></div>
-      <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push">Push</button><button id="submit-pr">提出する</button><button id="finish" class="primary">完了する</button></div></section>
-    <section class="panel" id="prs-panel"><div class="heading"><h3>提出</h3><span><label class="muted"><input type="checkbox" id="pr-all"> 見るように頼まれたものだけ</label> <button data-git="pr-refresh">更新</button></span></div><div id="pr-list"></div><div id="pr-tools" class="git-toolbar"></div><div id="pr-detail"></div></section>
-    <section class="panel" id="history-panel"><div class="heading"><h3>履歴</h3><span class="muted" id="history-state"></span></div><ul id="history-list" class="history-list"></ul></section>
+      <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push" class="primary">Push</button></div></section>
+    <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3><span><label class="muted"><input type="checkbox" id="pr-all"> 見るように頼まれたものだけ</label> <button data-git="pr-refresh">更新</button></span></div><div id="pr-list"></div><div id="pr-detail"></div><div id="pr-tools"></div></section>
+    <section class="panel" id="history-panel" role="tabpanel" aria-labelledby="history-title"><div class="heading"><h3 id="history-title">履歴</h3><span class="muted" id="history-state"></span></div><ul id="history-list" class="history-list"></ul></section>
     <p id="operation-status" role="status"></p>
   </section>
 </main>

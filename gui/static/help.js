@@ -19,9 +19,9 @@ const HELP = (() => {
         <p class="help-chips"><button type="button" data-goto="task start">task start</button><button type="button" data-goto="status">status</button></p></div></li>
       <li><span class="help-step-number">4</span><div><h4>作って、確かめて、コミットする</h4><p class="help-where">作業空間</p><p class="note">ファイルを編集し、ビルド・テストして、変更をコミットします。AIを起動して手伝わせることもできます。</p>
         <p class="help-chips"><button type="button" data-goto="build">build</button><button type="button" data-goto="test">test</button><button type="button" data-goto="run">run</button><button type="button" data-goto="task commit">task commit</button><button type="button" data-goto="agent start">agent start</button></p></div></li>
-      <li><span class="help-step-number">5</span><div><h4>提出して、レビューを受ける</h4><p class="help-where">作業空間 › 提出する</p><p class="note">確認（生成ファイル・ビルド・テスト）をしてから、作成元へ提出（PR）します。</p>
+      <li><span class="help-step-number">5</span><div><h4>提出して、レビューを受ける</h4><p class="help-where">作業空間 › 提出 › 提出する</p><p class="note">確認（生成ファイル・ビルド・テスト）をしてから、作成元へ提出（PR）します。</p>
         <p class="help-chips"><button type="button" data-goto="check">check</button><button type="button" data-goto="task submit">task submit</button><button type="button" data-goto="task review">task review</button><button type="button" data-goto="task approve">task approve</button></p></div></li>
-      <li><span class="help-step-number">6</span><div><h4>完了する</h4><p class="help-where">作業空間 › 完了する</p><p class="note">提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。</p>
+      <li><span class="help-step-number">6</span><div><h4>完了する</h4><p class="help-where">作業空間 › 提出 › 完了する</p><p class="note">提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。</p>
         <p class="help-chips"><button type="button" data-goto="task finish">task finish</button><button type="button" data-goto="sync">sync</button></p></div></li>
     </ol>
     <h3 class="help-terms-title">用語</h3>

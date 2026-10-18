@@ -74,12 +74,28 @@
 .share-more button { white-space: nowrap; color: #f3a5a5; }
 .commit-panel > .heading { margin-bottom: 14px; }
 .share > .heading { margin-bottom: 4px; }
-.share-note { margin: 0; font-size: 12px; }
-.share-note #pr-state:not(:empty)::before { content: "　"; }
 #file-tree .file.generated { color: #84909e; font-style: italic; }
 .explorer-tools button[aria-pressed=true] { color: #9ee4d3; }
 .generated-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 10px; }
-/* The commits Push sends, under 「GitHubへ共有」. */
+/* コミット・Push・提出: one panel at a time, the tab shows how many things are there (changes, commits, submissions). */
+.work-tabs { display: flex; gap: 4px; margin: 0 0 -1px; border-bottom: 1px solid #303640; }
+.work-tabs button { border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; background: transparent; color: #9eaab8; padding: 6px 14px; }
+.work-tabs button[aria-selected=true] { color: #b0efdd; background: #232c32; border-color: #35443e; border-bottom-color: #9ee4d3; }
+.work-tabs button[hidden] { display: none; }
+.tab-count { margin-left: 8px; padding: 0 7px; border-radius: 9px; background: #2a323b; color: #cdd5df; font-size: 11px; line-height: 18px; display: inline-block; }
+.tab-count.zero { color: #6b7581; }
+.tab-off { display: none; }
+[role=tabpanel] > .heading h3, .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+/* 提出: looking at the submission on the left (small), what to do with it on the right. */
+#pr-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303640; }
+#pr-tools:empty { display: none; }
+.pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
+.pr-look button { border: 0; background: transparent; color: #a5aeba; padding: 4px 8px; font-size: 12px; }
+.pr-look button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
+.pr-act { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.pr-act .quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
+.pr-act .quiet-danger:hover:not(:disabled) { border-color: #7a3b3b; }
+/* The commits Push sends. */
 .push-commits-box { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid #333b45; border-radius: 7px; background: #1b2027; }
 .push-commits-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #a5aeba; }
 .push-commits { margin: 6px 0 0; padding-left: 18px; max-height: 160px; overflow: auto; font-size: 12px; line-height: 1.7; }

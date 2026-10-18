@@ -1,27 +1,38 @@
 'use strict';
 // Submissions of the module (task list --submitted): status (reviews, comments, CI), diff, local review, approve/reject,
 // finish, withdraw. Every number is a task number; the pull request behind a submission is the CLI's business.
-let prs = [], selectedPr = 0, prStatus = null, me = '';
+// The task branch placed here is listed too, before it is submitted (it is on GitHub from task start, and Push sends
+// its commits): submitting and finishing it are done here, the Push tab only pushes.
+let submissions = [], prs = [], selectedPr = 0, prStatus = null, me = '';
 ECO.info().then(info => { me = info.me || ''; });
-const SUBMISSION = s => !s ? 'なし' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み') : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
+const SUBMISSION = s => !s ? '未提出' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み') : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
 
+// The task branch here, while it is worked on (not finished, not reviewing someone's submission).
+const currentTask = () => { const s = WS.status; return s && s.task && !s.reviewing && !s.finished && !s.upstream_gone ? s.task : 0; };
+function listed() {
+  const n = currentTask();
+  if (!n || get('pr-all').checked || submissions.some(t => t.number === n)) return submissions;
+  const task = WS.task?.number === n ? WS.task : null;
+  return [{number: n, title: task?.title || '', assignees: task?.assignees || [], submission: null}, ...submissions];
+}
 WS.refreshPrs = async select => {
   // Cached (ECO.query): the kept list shows at once; a newer one replaces it when it comes.
   const which = get('pr-all').checked ? '--to-review' : '--submitted';
   const [doc] = await Promise.all([ECO.query(WS.dir, ['task', 'list', which], fresh => {
     if ((get('pr-all').checked ? '--to-review' : '--submitted') !== which) return;
-    prs = fresh.result; renderPrList();
+    submissions = fresh.result; prs = listed(); renderPrList();
   }), WS.ready]);
   if (!doc.ok) { get('pr-list').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`; return; }
-  prs = doc.result;
+  submissions = doc.result; prs = listed();
   if (select) selectedPr = select;
-  if (!selectedPr && WS.status?.task && WS.status?.pull_request?.state === 'open') selectedPr = WS.status.task;
+  if (!selectedPr && currentTask()) selectedPr = currentTask();
   if (selectedPr && !prs.some(t => t.number === selectedPr)) selectedPr = 0;
   renderPrList();
   if (selectedPr) await loadPr(selectedPr); else { prStatus = null; renderPrDetail(); }
 };
 function renderPrList() {
-  get('pr-list').innerHTML = prs.map(t => `<button type="button" data-select-pr="${t.number}" aria-pressed="${t.number === selectedPr}"><span>#${t.number} ${esc(t.title)}</span><span class="pr-state">${esc(SUBMISSION(t.submission))}${t.assignees.length ? ' · ' + esc(t.assignees.join(', ')) : ''}</span></button>`).join('')
+  WS.setTabCount?.('prs', prs.length);
+  get('pr-list').innerHTML = prs.map(t => `<button type="button" data-select-pr="${t.number}" aria-pressed="${t.number === selectedPr}"><span>#${t.number} ${esc(t.title)}${t.number === currentTask() ? ' <small class="muted">（ここのタスクブランチ）</small>' : ''}</span><span class="pr-state">${esc(SUBMISSION(t.submission))}${t.assignees.length ? ' · ' + esc(t.assignees.join(', ')) : ''}</span></button>`).join('')
     || `<p class="muted">${get('pr-all').checked ? '見るように頼まれた提出はありません。' : '提出中のタスクはありません。'}</p>`;
 }
 async function loadPr(number) {
@@ -35,27 +46,56 @@ async function loadPr(number) {
   else renderPrDetail();
 }
 const checkMark = c => c.status !== 'completed' ? '<span class="check-wait">実行中</span>' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? '<span class="check-ok">成功</span>' : `<span class="check-bad">${esc(c.conclusion || '失敗')}</span>`;
+// What each action does, shown when the pointer is on its button.
+const PR_HELP = {
+  refresh: 'GitHubから、この提出の最新の状態（レビュー・コメント・CI）を読み直します。',
+  diff: 'このタスクブランチと作成元との差分（取り込むと入る変更）を見ます。',
+  comment: '提出にコメントを書きます。',
+  task: 'タスク管理で、このタスクを開きます。',
+  submit: '提出：タスクブランチの変更を作成元へ取り込んでよいか、見てもらえるように出します（PR）。確認（ビルド・テスト）をしてから Push します。提出しても、コミットして Push すれば提出に加わります。',
+  ready: '下書きの提出を、見てもらえる状態にします。',
+  finish: '完了：CIの結果を待って、提出を作成元へ取り込み、タスクを閉じてタスクブランチを片付けます。提出していなければ、提出してから取り込みます。',
+  withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
+  'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
+  'review-done': '手元での確認をやめて、確認の前の場所へ戻ります（承認も差し戻しもしません）。',
+  approve: '承認して完了：提出を承認し、そのまま作成元へ取り込んでタスクを閉じます。',
+  reject: '差し戻し：直してほしいことを書いて、担当者へ戻します（タスクは作業中に戻ります）。',
+};
+function prButton(action, label, {enabled = true, kind = '', note = ''} = {}) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action === 'review-done' ? 'local-review' : action;
+  b.title = (PR_HELP[action] || '') + (note ? `\n（${note}）` : '');
+  if (kind) b.className = kind;
+  return b;
+}
 function renderPrDetail() {
   const t = prStatus, tools = get('pr-tools');
   tools.replaceChildren();
   if (!t || t.number !== selectedPr) { get('pr-detail').innerHTML = ''; return; }
-  const sub = t.pull_request, open = sub?.state === 'open', own = me && t.assignees.includes(me);
-  const s = WS.status || {}, reviewingThis = !!s.reviewing && s.reviewing_task === t.number;
-  const buttons = [
-    ['refresh', '状態を更新'], ['diff', '差分'], ['comment', 'コメント'],
-    ['local-review', reviewingThis ? '判定せずに戻る' : '手元で確認', reviewingThis || (open && !own)],
-    ['approve', '承認して完了', open && !own && !sub.draft], ['reject', '差し戻す', open && !own],
-    ['finish', '完了する', open && !sub.draft], ['withdraw', '取り下げる', open],
-    ['task', 'タスクを見る'],
-  ];
-  for (const [action, label, enabled = true] of buttons) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action; tools.append(b);
+  const sub = t.pull_request, open = sub?.state === 'open', own = me ? t.assignees.includes(me) : t.number === currentTask();
+  const s = WS.status || {}, reviewingThis = !!s.reviewing && s.reviewing_task === t.number, here = t.number === currentTask();
+  const draft = open && sub.draft;
+  // Left: looking at the submission (small). Right: what to do with it — only the actions that apply to this one:
+  // one's own (or the one here) is submitted and finished; someone else's is checked, approved or sent back.
+  const look = document.createElement('div'), act = document.createElement('div');
+  look.className = 'pr-look'; act.className = 'pr-act';
+  look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
+  if (reviewingThis) act.append(prButton('review-done', '判定せずに戻る'));
+  if (open && !own) {
+    if (!reviewingThis) act.append(prButton('local-review', '手元で確認'));
+    act.append(prButton('reject', '差し戻す'), prButton('approve', '承認して完了', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
+  } else if (own || here) {
+    if (open) act.append(prButton('withdraw', '取り下げ', {kind: 'quiet-danger'}));
+    if (here && !open) act.append(prButton('submit', '提出', {kind: 'primary'}));
+    if (draft) act.append(prButton(here ? 'ready' : 'submit', '下書きを解除', {enabled: here, kind: 'primary', note: here ? '' : 'このタスクブランチの作業空間で解除します'}));
+    if (open || here) act.append(prButton('finish', '完了', {enabled: !draft, kind: open && !draft ? 'primary' : '', note: draft ? '下書きの提出は完了できません。先に下書きを解除します' : ''}));
   }
+  tools.append(look, act);
   const a = t.activity || {reviews: [], comments: [], checks: [], mergeable: ''};
   const mergeable = {MERGEABLE: '取り込めます', CONFLICTING: '衝突があります（タスクブランチで最新を取り込んで解決してください）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
   get('pr-detail').innerHTML = `<dl>
       <dt>タスク</dt><dd><strong>#${t.number} ${esc(t.title)}</strong></dd>
-      <dt>提出</dt><dd>${esc(SUBMISSION(sub))}${open ? ' · ' + esc(mergeable) : ''}</dd>
+      <dt>提出</dt><dd>${esc(SUBMISSION(sub))}${open ? ' · ' + esc(mergeable) : ''}${here && s.ahead ? `（未Pushのコミット ${s.ahead}件。${open ? 'Pushすると提出に加わります' : '提出するとPushします'}）` : ''}</dd>
       <dt>タスクブランチ</dt><dd>task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}</dd>
       <dt>担当者</dt><dd>${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}</dd>
       <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
@@ -77,6 +117,27 @@ WS.judge = async (approve, number) => {
   if (doc) { WS.reloadFiles?.(); await WS.refreshPrs(); }
 };
 
+// Submitting the task branch here (task submit), or making its draft submission ready.
+function submitDialog(t) {
+  if (t.pull_request?.state === 'open') return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs(t.number));
+  return ECO.form({
+    title: `提出：#${t.number}`, intro: '確認（ビルド・テスト等）してからタスクブランチをPushし、作成元' + (t.base ? `（${esc(t.base)}）` : '') + 'へ提出します。',
+    fields: [
+      {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
+      {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
+      {name: 'partial', label: '中間提出（取り込んでもタスクを閉じず、タスクブランチを作り直して続ける）', type: 'checkbox'},
+      {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
+      {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
+    ], ok: '提出',
+    submit: async v => {
+      const args = ['task', 'submit', ...(v.title && v.title !== t.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.partial ? ['--partial'] : []), ...(v.reviewer ? ['--reviewer', v.reviewer] : []), ...(v.check ? [] : ['--no-check'])];
+      const doc = await WS.run(args, {success: r => `${r.partial ? '中間提出' : '提出'}しました。`});
+      if (!doc) return '提出できませんでした。';
+      await WS.refreshPrs(t.number);
+    },
+  });
+}
+
 async function prAction(action) {
   const t = prStatus, n = String(t.number);
   const after = async doc => { if (doc) await WS.refreshPrs(t.number); };
@@ -87,9 +148,10 @@ async function prAction(action) {
       submit: async v => { const doc = await WS.run(['task', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
     case 'approve': return WS.judge(true, t.number);
     case 'reject': return WS.judge(false, t.number);
+    case 'submit': case 'ready': return submitDialog(t);
     case 'finish': {
-      const v = await ECO.form({title: `完了する：#${n}`, intro: 'CIを待って取り込み、タスクを閉じてタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
-        fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する'});
+      const v = await ECO.form({title: `完了：#${n}`, intro: (t.pull_request?.state === 'open' ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じてタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
+        fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了'});
       if (!v) return;
       const doc = await WS.run(['task', 'finish', n, ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
       await after(doc); if (doc) WS.reloadFiles?.(); return;
@@ -107,6 +169,15 @@ get('pr-list').addEventListener('click', e => { const b = e.target.closest('[dat
 get('pr-tools').addEventListener('click', e => { const b = e.target.closest('[data-pr-action]'); if (b && !b.disabled && prStatus) prAction(b.dataset.prAction); });
 get('pr-all').addEventListener('change', () => WS.refreshPrs());
 WS.refreshPrs();
+// The task branch here comes and goes with the status (switched, finished, its title read): the list follows it.
+WS.taskLoaded = () => { prs = listed(); renderPrList(); };
+let shownCurrent = -1;
+WS.onRefresh(() => {
+  const n = currentTask();
+  prs = listed(); renderPrList();
+  if (n !== shownCurrent) { shownCurrent = n; if (n && !selectedPr) loadPr(n); }
+  else if (prStatus && prStatus.number === n) renderPrDetail();
+});
 
 // Right-click a submission in the list: the same actions as the buttons under the list.
 get('pr-list').addEventListener('contextmenu', async e => {

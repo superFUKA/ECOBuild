@@ -46,7 +46,7 @@ WS.refresh = async ({fetch = false} = {}) => {
     const number = WS.status.task;
     WS.cli(['task', 'status', String(number)], {quiet: true}).then(t => {
       if (WS.status?.task !== number) return;
-      WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent();
+      WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent(); WS.taskLoaded?.();
     });
   } else if (!WS.status.task) WS.task = null;
   const all = WS.changes();
@@ -63,18 +63,36 @@ function renderHeader() {
   get('branch-name').textContent = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.branch || '（ブランチなし）';
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
-  const pr = s.pull_request;
-  get('pr-state').textContent = pr && !s.finished ? `このタスクブランチ：${submissionText(pr)}` : '';
+  setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
 }
 
-// How the workspace's submission reads (PullRequestState). After a partial submission was taken in, none is open.
-function submissionText(pr) {
-  const kind = pr.partial ? '中間提出' : '提出';
-  if (pr.state === 'merged') return pr.partial ? '前回の中間提出は取り込み済み（今の提出はなし）' : `${kind}は取り込み済み`;
-  if (pr.state === 'closed') return `${kind}は取り下げ済み`;
-  return `${pr.draft ? '下書きの' : ''}${kind}中`;
+// コミット・Push・提出・履歴 are tabs (the one shown is kept on this PC). A tab whose panel is not shown here is hidden.
+const TAB_KEY = 'ecobuild-gui-work-tab', TABS = ['commit-panel', 'share-panel', 'prs-panel', 'history-panel'];
+let workTab = 'commit-panel';
+try { workTab = TABS.includes(localStorage.getItem(TAB_KEY)) ? localStorage.getItem(TAB_KEY) : workTab; } catch (e) { /* storage blocked */ }
+function setTabCount(tab, count) {
+  const badge = get(tab + '-count');
+  badge.textContent = count; badge.classList.toggle('zero', !count);
 }
-const submitted = () => WS.status?.pull_request?.state === 'open' && !WS.status.finished;
+WS.setTabCount = (name, count) => setTabCount(name === 'prs' ? 'prs-panel' : name, count);
+function renderTabs() {
+  const shown = TABS.filter(id => !get(id).hidden), current = shown.includes(workTab) ? workTab : shown[0];
+  get('work-tabs').hidden = shown.length < 2;
+  for (const b of get('work-tabs').querySelectorAll('[data-tab]')) {
+    b.hidden = !shown.includes(b.dataset.tab);
+    b.setAttribute('aria-selected', String(b.dataset.tab === current)); b.tabIndex = b.dataset.tab === current ? 0 : -1;
+  }
+  for (const id of TABS) get(id).classList.toggle('tab-off', id !== current);
+}
+WS.showTab = tab => { workTab = tab; try { localStorage.setItem(TAB_KEY, tab); } catch (e) { /* storage blocked */ } renderTabs(); };
+renderTabs();   // before the first status: only the kept tab's panel
+get('work-tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) WS.showTab(b.dataset.tab); });
+get('work-tabs').addEventListener('keydown', e => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const tabs = [...get('work-tabs').querySelectorAll('[data-tab]:not([hidden])')], i = tabs.findIndex(b => b.dataset.tab === workTab);
+  const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+  if (next) { WS.showTab(next.dataset.tab); next.focus(); }
+});
 
 function banner(html, kind = '') { return `<div class="eco-banner ${kind}">${html}</div>`; }
 // 「あとで」 hides the old-format banner while this screen is open (it comes back when reopened).
@@ -100,7 +118,10 @@ function renderBanners(errorDoc) {
   get('commit-panel').hidden = !working && !s.merging;
   get('share-panel').hidden = !working;
   get('prs-panel').hidden = !working;
-  get('changes-title').textContent = working ? 'コミット・共有' : '作業空間';
+  // On a task branch the tabs (コミット・Push・提出) say what this is: the heading is only for screen readers then.
+  get('changes-title').textContent = working ? 'コミット・Push・提出・履歴' : '作業空間';
+  get('changes-title').classList.toggle('visually-hidden', !!working);
+  renderTabs();
 }
 
 // The checked files are what is committed. A file staged elsewhere (git, TortoiseGit) starts checked, once.
@@ -110,6 +131,7 @@ function renderChanges() {
   for (const [path, kinds] of all) if (!seen.has(path) && kinds.includes('staged')) WS.selected.add(path);
   seen = new Set(all.keys());
   get('change-count').textContent = all.size;
+  setTabCount('commit-panel', all.size);
   list.replaceChildren();
   for (const [path, kinds] of all) {
     const label = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), kind = document.createElement('small');
@@ -138,12 +160,6 @@ function updateButtons() {
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
   get('push').disabled = !editable || !s.ahead;
   document.querySelector('[data-git=force-push]').disabled = !editable;
-  const open = submitted(), draft = open && s.pull_request.draft;
-  get('submit-pr').disabled = !editable || (open && !draft);
-  get('submit-pr').textContent = draft ? '下書きを解除' : '提出する';
-  get('submit-pr').title = open && !draft ? '提出済みです（コミットしてPushすると、提出に加わります）' : '';
-  get('finish').disabled = !editable || draft;
-  get('finish').title = draft ? '下書きの提出は完了できません（先に下書きを解除）' : '提出していなければ提出し、CIを待って取り込み、タスクを閉じます';
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
   // Staging is needed only to finish a merge that stopped on a conflict (sync continue); a commit stages what is checked.
@@ -189,11 +205,16 @@ get('commit').addEventListener('click', async () => {
   const paths = [...WS.selected];
   if (!paths.length && amend && WS.changes().size && !await ECO.confirm({title: '直前のコミットを修正', message: '印を付けたファイルがないため、変更（管理するファイル）をすべて直前のコミットに含めます。よろしいですか？', ok: '修正する'})) return;
   const doc = await WS.run(['task', 'commit', ...paths, '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message + (r.outside?.length ? `（管理外のファイル ${r.outside.length} 件も含めました）` : '')});
-  if (doc) { get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges(); if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。'); }
+  if (doc) {
+    get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges();
+    if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。');
+    else if (!WS.changes().size) WS.showTab('share-panel');
+  }
 });
-get('push').addEventListener('click', () => WS.run(['task', 'push'], {success: 'Pushしました。'}));
+// After a Push the task is in 提出 (submit or finish it there).
+get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。提出・完了は「提出」で。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
 
-// The commits Push sends (task push --dry-run: local and quick), listed under 「GitHubへ共有」 while there are any.
+// The commits Push sends (task push --dry-run: local and quick), listed under 「共有」 while there are any.
 // 閉じる folds the list (kept on this PC); 「一覧」 next to the count opens it again.
 const PUSH_LIST_KEY = 'ecobuild-gui-push-list-closed';
 let pushListClosed = false, pushListRead = 0;
@@ -249,33 +270,6 @@ function historyMenu(index, x, y) {
 get('history-list')?.addEventListener('click', e => { const b = e.target.closest('[data-history]'); if (b) { const r = b.getBoundingClientRect(); historyMenu(Number(b.dataset.history), r.left + 40, r.bottom); } });
 get('history-list')?.addEventListener('contextmenu', e => { const b = e.target.closest('[data-history]'); if (b) { e.preventDefault(); historyMenu(Number(b.dataset.history), e.clientX, e.clientY); } });
 WS.onRefresh(loadHistory);
-get('submit-pr').addEventListener('click', () => submitted() ? WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(() => WS.refreshPrs?.()) : ECO.form({
-  title: '提出する', intro: '確認（ビルド・テスト等）してからタスクブランチをPushし、作成元' + (WS.status?.base ? `（${esc(WS.status.base)}）` : '') + 'へ提出します。',
-  fields: [
-    {name: 'title', label: '題名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'},
-    {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
-    {name: 'partial', label: '中間提出（取り込んでもタスクを閉じず、タスクブランチを作り直して続ける）', type: 'checkbox'},
-    {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
-    {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
-  ], ok: '提出する',
-  submit: async v => {
-    const args = ['task', 'submit', ...(v.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.partial ? ['--partial'] : []), ...(v.reviewer ? ['--reviewer', v.reviewer] : []), ...(v.check ? [] : ['--no-check'])];
-    const doc = await WS.run(args, {success: r => `${r.partial ? '中間提出' : '提出'}しました。`});
-    if (!doc) return '提出できませんでした。';
-    WS.refreshPrs?.();
-  },
-}));
-get('finish').addEventListener('click', () => ECO.form({
-  title: '完了する', intro: (submitted() ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じて、このタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
-  fields: [{name: 'subject', label: '取り込むコミットの件名', value: WS.task?.title || '', placeholder: '空欄ならタスクの題名'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する',
-  submit: async v => {
-    const doc = await WS.run(['task', 'finish', ...(v.subject && v.subject !== WS.task?.title ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])],
-      {success: r => r.partial ? '中間提出を取り込み、タスクブランチを作り直しました。' : `#${r.task} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
-    if (!doc) return '完了できませんでした。';
-    WS.reloadFiles?.(); WS.refreshPrs?.();
-  },
-}));
-
 // Switching the task branch placed here (task start <n>: one already started, here or on GitHub). A new task is
 // started from タスク管理 (its dialog chooses the base and the place). A task branch placed in another workspace is
 // not placed here too: its tab is shown instead (one task branch, one place).
@@ -329,10 +323,11 @@ async function gitAction(action) {
       return WS.run(['restore', ...staged, '--staged'], {success: 'ステージを取り消しました。'});
     }
     case 'discard': {
-      const tracked = sel.filter(p => !WS.status.untracked.includes(p)), untracked = sel.filter(p => WS.status.untracked.includes(p));
-      if (!tracked.length) return say('未追跡のファイルは「元に戻す」の対象ではありません。不要ならエクスプローラーから削除してください。');
-      if (!await ECO.confirm({title: '変更を元に戻す', message: `${tracked.length}件のファイルの未コミットの変更を破棄します。この操作は元に戻せません。` + (untracked.length ? `（未追跡の ${untracked.length} 件はそのままです）` : ''), ok: '元に戻す', danger: true})) return;
-      return WS.run(['restore', ...tracked], {success: '変更を元に戻しました。'});
+      // restore: back to the last commit (staged changes too); a file added since (new, staged or not) is deleted.
+      if (!await ECO.confirm({title: '変更を元に戻す', message: `${sel.length}件のファイルの未コミットの変更を破棄し、最後のコミットの状態に戻します（追加したファイルは削除します）。この操作は元に戻せません。`, ok: '元に戻す', danger: true})) return;
+      const doc = await WS.run(['restore', ...sel], {success: '変更を元に戻しました。'});
+      if (doc) { WS.selected.clear(); renderChanges(); await WS.reloadFiles?.(); }
+      return doc;
     }
     case 'diff': return ECO.form({title: '差分', fields: [
       {name: 'path', label: '対象のパス（空欄ならすべて）', value: WS.activeFile || ''},

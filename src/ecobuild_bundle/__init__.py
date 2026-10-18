@@ -55,11 +55,23 @@ class Module(ecobuild.Module):
         if not container.enabled(self.root):
             return super().start_agent(command)
         self.require_task_branch("エージェントの起動")
-        local = container.split_rules(_config.load_local(self.root).get(container.DENY_KEY) or "")
-        deny = (*container.split_rules(_settings.load_config().get("agent_deny", "")), *local)
-        session = container.start_agent(self.root, tuple(command), deny=deny, command=self.command, source=source,
-                                        progress=progress)
+        session = container.start_agent(self.root, tuple(command), deny=self._agent_deny(), command=self.command,
+                                        source=source, progress=progress)
         return AgentStarted(session.pid, session.command, session.directory)
+
+    def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None) -> int:
+        """この端末で動かして待つ（start_agent と同じく、コンテナならその中で）。"""
+        from . import container
+        if not container.enabled(self.root):
+            return super().run_agent(command)
+        self.require_task_branch("エージェントの起動")
+        return container.start_agent(self.root, tuple(command), deny=self._agent_deny(), command=self.command,
+                                     source=source, progress=progress, here=True)
+
+    def _agent_deny(self) -> tuple[str, ...]:
+        from . import container
+        local = container.split_rules(_config.load_local(self.root).get(container.DENY_KEY) or "")
+        return (*container.split_rules(_settings.load_config().get("agent_deny", "")), *local)
 
 
 def doctor(extra: Iterable[DoctorItem] = (), *, command: str = "") -> tooling.DoctorReport:

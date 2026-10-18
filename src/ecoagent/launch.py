@@ -53,6 +53,25 @@ def start(directory: Path | str, command: list[str] | tuple[str, ...] = DEFAULT_
     return Session(process.pid, tuple(command), directory)
 
 
+def run(directory: Path | str, command: list[str] | tuple[str, ...] = DEFAULT_COMMAND,
+        env: dict[str, str] | None = None) -> int:
+    """directory を作業ディレクトリにして、command をこの端末で動かし、終わるまで待つ。終了コードを返す。
+    （画面を持つ別のアプリが、自分の端末の中で動かすときのためのもの）"""
+    directory = Path(directory).resolve()
+    if not directory.is_dir():
+        raise AgentError(ErrorCode.DIRECTORY_NOT_FOUND, f"フォルダーが見つかりません：{directory}")
+    if not command or (program := shutil.which(command[0])) is None:
+        name = command[0] if command else "（空）"
+        raise AgentError(ErrorCode.AGENT_NOT_FOUND, f"エージェント {name} が見つかりません。",
+                         hint=f"{name} をインストールし、PATH から実行できるようにしてください。")
+    try:
+        return subprocess.run([program, *command[1:]], cwd=directory, env=env).returncode
+    except OSError as error:
+        raise AgentError(ErrorCode.LAUNCH_FAILED, f"エージェントを起動できませんでした：{error}") from error
+    except KeyboardInterrupt:
+        return 130
+
+
 def _terminal() -> str:
     for name in (os.environ.get("TERMINAL"), "x-terminal-emulator"):
         if name and (path := shutil.which(name)):

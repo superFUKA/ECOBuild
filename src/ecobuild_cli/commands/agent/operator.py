@@ -1,5 +1,7 @@
 from typing import Annotated
 
+import click
+from ecobuild.errors import WorkError
 from ecobuild_bundle import operator
 
 from ... import build_cli
@@ -9,6 +11,7 @@ from ..._output import Invocation, execute
 
 def command(agent: Annotated[str, "起動するエージェントのコマンド（引数は空白で区切る。既定は claude）"] = "",
             prepare: Annotated[bool, "起動せずに、一式（指示・許可・フック）を置いて場所を表示する（別のアプリから起動するとき）"] = False,
+            here: Annotated[bool, "新しい画面を開かず、この端末で動かして終わるまで待つ（別のアプリが常駐させるとき）"] = False,
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """オペレーター（ECOBuild の操作係のエージェント）を新しい画面で起動します。
 
@@ -18,6 +21,14 @@ def command(agent: Annotated[str, "起動するエージェントのコマンド
     消す・取り返しのつかない操作は、ユーザーに聞いて「はい」と答えたときだけ実行します（フックで止めます）。
     画面を開かずに話しかけるのは ecobuild agent ask です。
     """
+    if here:
+        prepare_kit(build_cli)
+        try:
+            return operator.run(tuple(agent.split())) if agent.strip() else operator.run()
+        except WorkError as error:
+            click.echo(f"エラー：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""), err=True)
+            return 1
+
     def action(inv):
         kit = prepare_kit(build_cli)
         if prepare:

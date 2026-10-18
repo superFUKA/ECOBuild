@@ -69,6 +69,12 @@ def start(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorStarte
     return OperatorStarted(session.pid, session.command, session.directory)
 
 
+def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
+    """この端末で動かして待つ（画面を持つ別のアプリが、自分の端末の中で常駐させるとき）。"""
+    with _agent_error():
+        return ecoagent.run(directory(), command)
+
+
 def ask(text: str, *, session: str | None = None,
         command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorReply:
     with _agent_error():

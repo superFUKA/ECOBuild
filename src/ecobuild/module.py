@@ -1207,6 +1207,15 @@ class Module:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
         return AgentStarted(session.pid, session.command, session.directory)
 
+    def run_agent(self, command: list[str] | tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
+        """作業空間のルートで、エージェントをこの端末で動かし、終わるまで待つ（終了コード）。タスクブランチでだけ。
+        画面を持つ別のアプリ（GUI のエージェントの窓）が、自分の端末の中で動かすときに使う。"""
+        self.require_task_branch("エージェントの起動")
+        try:
+            return ecoagent.run(self.root, command)
+        except ecoagent.AgentError as error:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
+
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。
 

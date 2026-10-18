@@ -347,11 +347,11 @@ function poll() {
       if (s.pendingTitle) { s.proc.write(`/rename ${s.pendingTitle}\r`); s.pendingTitle = null; }
       else if (s.pendingModel) { s.proc.write(`/model ${s.pendingModel}\r`.replace('/model \r', '/model\r')); s.pendingModel = null; }
     }
-    if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;
+    if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
     if (s.kind === 'operator') {   // 考え中に実行しているコマンド（ハブに「実行中：…」と出す。待っている間も何をしているか分かるように）
       const doing = ['thinking', 'waiting'].includes(read.state) ? lastTool(screen) : '';
       if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
-    }   // 聞き取った文・選択肢を右下に出し直す
+    }
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();

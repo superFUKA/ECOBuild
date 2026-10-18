@@ -37,17 +37,24 @@ def test_old_module_is_upgraded(tmp_path):
     planned = old.upgrade(dry_run=True)
     assert planned.dry_run and planned.paths == (".ecobuild/.gitignore", ".ecobuild/ecobuild.toml", "AGENTS.md")
     assert (root / "AGENTS.md").read_text(encoding="utf-8") == "古い\n"   # 何も変えない
-    assert code_of(old.upgrade) == ErrorCode.NOT_ON_TASK_BRANCH
+    (root / "README.md").write_text("書きかけ\n", encoding="utf-8")
+    assert code_of(old.upgrade) == ErrorCode.DIRTY_WORKING_TREE   # 人の変更と混ざらないように
+    git(root, "checkout", "--quiet", "--", "README.md")
 
-    old.repository.create_task("ECOBuild の仕様に合わせる").start()
+    # タスクブランチでなくてもよい：「ECOBuild の更新」としてコミットし、GitHub へ push する
     done = old.upgrade()
+    assert done.commit and done.branch == "main" and done.pushed
+    assert git(root, "log", "-1", "--format=%s").strip() == "ECOBuild の更新"
+    assert git(root, "rev-parse", "origin/main").strip() == done.commit
+    assert git(root, "status", "--porcelain").strip() == ""
     assert (done.format, done.latest_format) == (1, config.FORMAT)
     assert set(planned.paths) <= set(done.paths)
     assert (root / ".ecobuild/.gitignore").read_text(encoding="utf-8") == "logs/\nmine/\necobuild.local.toml\n"
     assert "古い" not in (root / "AGENTS.md").read_text(encoding="utf-8")
     assert Module.find(root, github=github).config.format == config.FORMAT
     assert old.status().format == config.FORMAT
-    assert old.upgrade().paths == ()   # 今の版なら変えるものはない
+    again = old.upgrade()
+    assert again.paths == () and again.commit is None   # 今の版なら変えるものはない（コミットもしない）
 
 
 def test_hand_edited_workflow_is_kept(tmp_path):
@@ -57,7 +64,9 @@ def test_hand_edited_workflow_is_kept(tmp_path):
     path = module.root / ".github/workflows/ecobuild.yml"
     module.write_ci()
     path.write_text(path.read_text(encoding="utf-8") + "# 手で足した\n", encoding="utf-8")
+    module.commit("CI")
     result = module.upgrade()
+    assert not result.pushed   # タスクブランチでは push しない（いつもの Push・提出で）
     assert result.skipped == (".github/workflows/ecobuild.yml",)
     assert "# 手で足した" in path.read_text(encoding="utf-8")
 

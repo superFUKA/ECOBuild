@@ -65,6 +65,9 @@ class ModuleUpgraded:
     paths: tuple[str, ...]           # 変えたファイル（dry_run なら変えるファイル。モジュールからの相対パス）
     skipped: tuple[str, ...] = ()    # 手で編集してあるため作り直さなかったファイル
     dry_run: bool = False
+    commit: str | None = None        # 変えたファイルをコミットしたもの（「ECOBuild の更新」。変えたものがなければ None）
+    branch: str | None = None        # コミットしたブランチ
+    pushed: bool = False             # GitHub へ push したか（タスクブランチでないとき）
 
 
 @dataclass(frozen=True)

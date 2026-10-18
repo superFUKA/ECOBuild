@@ -345,6 +345,42 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
             )
         return task_branch
 
+    # ECOBuild 自身が変えてコミットするもの（モジュールの更新）。人の作業ではないので、タスクブランチでなくてもよい。
+    def check_own_commit(self, action: str) -> None:
+        """ECOBuild 自身のコミットの前の確認。自分が変えたものだけをコミットするので、未コミットの変更・取り込みの途中・
+        提出の確認中・ブランチのない状態では止める。タスクブランチでなければ push もするので、GitHub に遅れていれば止める。"""
+        if self._reviewing() is not None or self.git.current_branch() is None:
+            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"提出の確認中・ブランチのない状態では、{action}はできません。",
+                            hint=f"{self._op('task review --done')} で戻ってから実行してください。")
+        if self.git.is_merging():
+            raise WorkError(ErrorCode.MERGE_CONFLICT, f"取り込みの途中なので、{action}はできません。",
+                            hint=f"{self._op('sync continue')} か {self._op('sync abort')} で終えてから実行してください。")
+        tree = self.git.working_tree()
+        if tree.staged or tree.unstaged or tree.conflicted:
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, f"未コミットの変更があるため、{action}はできません（変更が混ざらないように）。",
+                            hint=f"変更をコミットするか、{self._op('stash')} で退避するか、元に戻してから実行してください。")
+        if self.current_task_branch() is None and self.git.has_remote_branch(tree.branch or ""):
+            self.git.fetch()
+            if self.git.working_tree().behind:
+                raise WorkError(ErrorCode.NOT_FAST_FORWARD, f"GitHub の {tree.branch} に手元にないコミットがあります。",
+                                hint=f"{self._op('sync')} で取り込んでから実行してください。")
+
+    def commit_own(self, paths: tuple[str, ...], message: str) -> tuple[str, str, bool]:
+        """ECOBuild 自身が変えたファイルをコミットする（check_own_commit の後で）。タスクブランチでなければ GitHub へ push する
+        （タスクブランチならいつもの Push・提出に乗る）。返り値：(コミット, ブランチ, push したか)。"""
+        branch = self.git.current_branch() or ""
+        self.git.add(paths, all=True)
+        commit = self.git.commit(message)
+        if self.current_task_branch() is not None:
+            return commit, branch, False
+        try:
+            self.git.push(branch)
+        except WorkError as error:
+            raise WorkError(error.code, f"「{message}」を {branch} にコミットしましたが、GitHub へ push できませんでした（{error.message}）。",
+                            hint="ブランチを保護していると直接の push は断られます。コミットは手元に残っています。",
+                            details=error.details) from error
+        return commit, branch, True
+
     def pull_request(self, number: int | None = None) -> wm.PullRequest:
         """PRを返す。番号を省略すると、今のタスクブランチの開いているPR。"""
         if number is not None:

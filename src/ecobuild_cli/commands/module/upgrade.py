@@ -7,11 +7,12 @@ def command(
     dry_run: Annotated[bool, "変えるファイルを表示するだけ（何も変えない）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """モジュールを今の ECOBuild の仕様に合わせます（タスクブランチで）。
+    """モジュールを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットします。
 
     ecobuild.toml の format（仕様の版）を今の版にし、ECOBuild が作ったファイルを今の中身にします：.gitignore・.gitattributes（足りない行を足す）、AGENTS.md・
     CIのワークフロー（あれば作り直す。手で編集したワークフローはそのまま）、型の生成ファイル。README は変えません。
-    コミットはしないので、変わったファイルを確かめて ecobuild task commit してください。
+    どのブランチでもできます。タスクブランチでなければ GitHub へ push もします（タスクブランチなら、いつもの Push・提出で）。
+    未コミットの変更があるときは止まります（変更が混ざらないように）。
     """
 
     def render(r):
@@ -25,7 +26,8 @@ def command(
         return lines(
             head,
             *(f"手で編集してあるため作り直していません：{p}（作り直すなら ecobuild ci init --force）" for p in r.skipped),
-            "確かめて ecobuild task commit --message \"ECOBuild の仕様に合わせる\" でコミットしてください" if r.paths else None,
+            (f"「ECOBuild の更新」として {r.branch} にコミットしました（{r.commit[:8]}）"
+             + ("。GitHub へ push しました" if r.pushed else "。Push・提出はいつものとおり") if r.commit else None),
         )
 
     return run_command("module upgrade", lambda inv: inv.module.upgrade(dry_run=dry_run), render, json_output=json)

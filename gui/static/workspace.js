@@ -108,8 +108,12 @@ function renderBanners(errorDoc) {
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
-    if (s.format < s.latest_format && !upgradeLater) out.push(banner(`このモジュールは以前の ECOBuild の仕様（版 ${s.format}）です。今の版 ${s.latest_format} に合わせられます（.gitignore・AGENTS.md・CI 等を今の中身に。README は変えません）。` +
-      (s.task && !s.reviewing ? '<button data-git="upgrade">最新の仕様にする</button>' : 'タスクブランチで「最新の仕様にする」を押せます。') + '<button data-git="upgrade-later">あとで</button>'));
+    // Changes left where nothing is committed (main etc.): they can only be thrown away here.
+    const left = !s.task && !s.reviewing && !s.merging ? WS.changes().size : 0;
+    if (left) out.push(banner(`未コミットの変更が ${left} 件残っています。タスクブランチではないので、ここではコミットできません。<button data-git="discard-left">変更を捨てる…</button>`));
+    // ECOBuild commits its own update (any branch; off a task branch it is pushed too).
+    if (s.format < s.latest_format && !upgradeLater) out.push(banner(`このモジュールは以前の ECOBuild の仕様（版 ${s.format}）です。今の版 ${s.latest_format} に合わせられます（.gitignore・AGENTS.md・CI 等を今の中身に。README は変えません。変えたファイルは「ECOBuild の更新」として自動でコミットします）。` +
+      (s.reviewing || s.merging ? '' : '<button data-git="upgrade">最新の仕様にする</button>') + '<button data-git="upgrade-later">あとで</button>'));
   }
   get('banners').innerHTML = out.join('');
   // Not on a task branch (main etc.): nothing is committed, pushed or submitted here, so those panels are not shown
@@ -344,10 +348,17 @@ async function gitAction(action) {
     case 'upgrade': {
       const plan = await WS.cli(['module', 'upgrade', '--dry-run'], {quiet: true});
       if (!plan.ok) return ECO.showError(plan);
-      if (!await ECO.confirm({title: '最新の仕様にする', message: `ECOBuild の仕様（版 ${plan.result.format} → ${plan.result.latest_format}）に合わせて、次のファイルを変えます（生成ファイルも作り直します）。コミットはしないので、変わったファイルを確かめてからコミットしてください。`, detail: plan.result.paths.join('\n'), ok: '最新の仕様にする'})) return;
-      return WS.run(['module', 'upgrade'], {success: r => `最新の仕様にしました（${r.paths.length}件のファイル）。確かめてコミットしてください。` + (r.skipped.length ? `手で編集してあるため作り直していません：${r.skipped.join('、')}` : '')}).then(() => WS.reloadFiles?.());
+      const where = WS.status?.task ? 'このタスクブランチにコミットします（Push・提出はいつものとおり）。' : `${WS.status?.branch || 'このブランチ'} にコミットし、GitHub へ push します。`;
+      if (!await ECO.confirm({title: '最新の仕様にする', message: `ECOBuild の仕様（版 ${plan.result.format} → ${plan.result.latest_format}）に合わせて、次のファイルを変えます（生成ファイルも作り直します）。変えたファイルは「ECOBuild の更新」として${where}`, detail: plan.result.paths.join('\n'), ok: '最新の仕様にする'})) return;
+      return WS.run(['module', 'upgrade'], {success: r => `最新の仕様にしました（${r.paths.length}件のファイル）。` + (r.commit ? `「ECOBuild の更新」として ${r.branch} にコミット${r.pushed ? 'し、push' : ''}しました。` : '') + (r.skipped.length ? `手で編集してあるため作り直していません：${r.skipped.join('、')}` : '')}).then(() => WS.reloadFiles?.());
     }
     case 'upgrade-later': upgradeLater = true; return renderBanners();
+    case 'discard-left': {
+      // Off a task branch: every change shown (added files too) goes back to the last commit (restore <paths>).
+      const paths = [...WS.changes().keys()];
+      if (!paths.length || !await ECO.confirm({title: '変更を捨てる', message: `${WS.status.branch || 'この作業空間'} の未コミットの変更 ${paths.length} 件を捨てて、最後のコミットの状態に戻します。追加したファイルは消えます。この操作は元に戻せません。`, detail: paths.join('\n'), ok: '捨てる', danger: true})) return;
+      return WS.run(['restore', ...paths], {success: '変更を捨てました。'}).then(() => WS.reloadFiles?.());
+    }
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
     case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());

@@ -54,6 +54,8 @@ GITATTRIBUTES = """\
 """
 
 
+UPGRADE_MESSAGE = "ECOBuild の更新"   # module upgrade のコミット（ECOBuild 自身が作る）
+
 # モジュールの仕様の版ごとの移行（版 → その版のモジュールを次の版にする処理）。ECOBuild が作るファイルの中身を
 # 変えただけなら要らない（Module.upgrade が毎回作り直す）。置き場所を変えた・設定の書き方を変えた等のときに足す。
 _MIGRATIONS: dict[int, Callable[["Module"], None]] = {}
@@ -1048,11 +1050,13 @@ class Module:
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
-        今の版でも同じことをする（同じ版の中で変わった分もそろう）。コミットはしない（タスクブランチで task commit）。
+        今の版でも同じことをする（同じ版の中で変わった分もそろう）。
+        変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
+        GitHub へ push もする。タスクブランチなら、いつもの Push・提出に乗る）。未コミットの変更があれば止める（混ざらないように）。
         dry_run：変えるファイルを返すだけ（版ごとの移行と型の生成ファイルの分は、行うまで分からないので含まない）。
         """
         if not dry_run:
-            self.require_task_branch("モジュールの更新")
+            self.repository.check_own_commit("モジュールの更新")
         start = self.config.format
         before = set(self._changed_paths())
         if not dry_run:
@@ -1088,8 +1092,11 @@ class Module:
                 (self.root / path).write_text(text, encoding="utf-8", newline="\n")
         self._save_config(replace(self.config, format=_config.FORMAT))
         self.type.refresh()
-        changed = (set(self._changed_paths()) - before) | set(planned)
-        return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(changed)), tuple(skipped))
+        changed = tuple(sorted((set(self._changed_paths()) - before) | set(planned)))
+        if not changed:
+            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped))
+        commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
+        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed)
 
     def _read(self, path: str) -> str:
         file = self.root / path

@@ -300,6 +300,7 @@ function historyMenu(c, x, y) {
   const s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
   const why = 'タスクブランチでだけ使えます';   // the reason a greyed item gives on hover
   ECO.menu([
+    ['変更を見る', () => historyView.showChanges(c.sha)],
     ['SHAをコピー', () => ECO.copyText(c.sha)],
     '-',
     ['この版の状態に戻す…', () => WS.run(['restore', '--source', c.sha],
@@ -311,7 +312,7 @@ function historyMenu(c, x, y) {
       .then(() => WS.reloadFiles?.()), onTask, onTask ? 'この版より後のコミットを捨てます' : why],
   ], x, y);
 }
-const historyView = LOG.view(get('history-view'), {dir: WS.dir, menu: historyMenu, onMore: () => { historyCount += 30; loadHistory(); }});
+const historyView = LOG.view(get('history-view'), {dir: WS.dir, menu: historyMenu, detail: false, onMore: () => { historyCount += 30; loadHistory(); }});
 async function loadHistory() {
   const shown = doc => historyView.show(doc.result, doc.result.length >= historyCount);
   const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], shown);

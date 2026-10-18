@@ -12,6 +12,7 @@
 .log-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-entries small { grid-column: 2; color: #84909e; font-size: 11px; }
 .log-side .log-more { padding: 4px 10px; font-size: 12px; }
+.log-view.log-list-only { grid-template-columns: minmax(0, 1fr); } .log-view.log-list-only .log-main { display: none; }
 .log-main { min-height: 0; overflow: auto; }
 .log-commit { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .log-commit strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }

@@ -6,8 +6,10 @@ const LOG = (() => {
   // A log view (the workspace's ログ tab, the log window log.html): the commits on the left (search, ↑↓, read more), the chosen one's
   // changes on the right, its files folded one by one (path: the files under it open first). menu(c, x, y): a commit's
   // menu (right click, or 操作 ▾). show(commits, more): the commits read (more: there may be more); onMore: read more.
-  function view(box, {dir, path = '', selected = '', menu = null, onMore}) {
-    box.classList.add('log-view');
+  // detail: false (the workspace's ログ tab) shows the commits only, across; a double-click (Enter) shows the changes
+  // in a window of their own.
+  function view(box, {dir, path = '', selected = '', menu = null, onMore, detail = true}) {
+    box.classList.add('log-view'); box.classList.toggle('log-list-only', !detail);
     box.innerHTML = `<div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む">
       <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"><li class="muted">読み込んでいます…</li></ul><button type="button" class="log-more" hidden>さらに読み込む</button></div><div class="log-main"></div>`;
     const list = box.querySelector('.log-entries'), main = box.querySelector('.log-main'), search = box.querySelector('.log-search'), more = box.querySelector('.log-more');
@@ -17,7 +19,8 @@ const LOG = (() => {
     const commit = sha => (entries || []).find(c => c.sha === sha);
     const renderList = () => {
       if (!entries) return;
-      list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"${menu ? ' title="右クリックで操作"' : ''}><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
+      const tip = [detail ? '' : 'ダブルクリックで変更を見る', menu ? '右クリックで操作' : ''].filter(Boolean).join('・');
+      list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"${tip ? ` title="${tip}"` : ''}><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
         <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></li>`).join('')
         || `<li class="muted">${entries.length ? '一致するコミットはありません。' : 'ログはありません。'}</li>`;
     };
@@ -25,6 +28,7 @@ const LOG = (() => {
       chosen = sha; drawn = sha; renderList();
       list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
       if (!sha) { main.innerHTML = ''; return; }
+      if (!detail) return;
       if (!diffs.has(sha)) {
         main.innerHTML = '<p class="muted">読み込んでいます…</p>';
         const doc = await ECO.cli(dir, ['show', sha], {quiet: true});
@@ -36,6 +40,14 @@ const LOG = (() => {
       main.scrollTop = 0;
     };
     list.addEventListener('click', e => { const row = e.target.closest('[data-sha]'); if (row) choose(row.dataset.sha); });
+    const showChanges = async sha => {
+      const doc = await ECO.cli(dir, ['show', sha], {quiet: true});
+      return doc.ok ? ECO.output(commit(sha)?.subject || 'コミットの変更', doc.result, {diff: true, sub: sha.slice(0, 8), focus: path}) : ECO.showError(doc);
+    };
+    if (!detail) {
+      list.addEventListener('dblclick', e => { const row = e.target.closest('[data-sha]'); if (row) showChanges(row.dataset.sha); });
+      list.addEventListener('keydown', e => { if (e.key === 'Enter' && chosen) { e.preventDefault(); showChanges(chosen); } });
+    }
     list.addEventListener('contextmenu', e => {
       const c = commit(e.target.closest('[data-sha]')?.dataset.sha);
       if (c && menu) { e.preventDefault(); if (c.sha !== chosen) choose(c.sha); menu(c, e.clientX, e.clientY); }
@@ -64,6 +76,7 @@ const LOG = (() => {
       },
       error(message) { list.innerHTML = `<li class="muted">読み込めませんでした：${esc(message)}</li>`; more.disabled = false; },
       focus() { list.focus(); },
+      showChanges,
     };
   }
   return {view};

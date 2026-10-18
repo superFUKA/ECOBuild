@@ -107,6 +107,11 @@ class ModuleType:
         """ecobuild config で設定できる、型が使うツールの項目（名前 → 説明。例：cpp の cmake）。"""
         return {}
 
+    @classmethod
+    def container_packages(cls) -> tuple[str, ...]:
+        """作業空間のコンテナ（Ubuntu）に入れる、型が使うツールのパッケージ（apt の名前）。"""
+        return ()
+
     # 生成ファイルと、手元をそろえる処理 -----------------------------------------------
 
     def is_generated(self, path: str) -> bool:

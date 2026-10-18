@@ -219,6 +219,10 @@ jobs:
                 "ctest": "C++のテストに使う ctest のパス（このPCだけ。既定は PATH の ctest）"}
 
     @classmethod
+    def container_packages(cls) -> tuple[str, ...]:
+        return ("cmake", "ninja-build", "g++")
+
+    @classmethod
     def doctor_items(cls):
         from ecobuild.results import DoctorItem
         try:

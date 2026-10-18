@@ -3,6 +3,11 @@
 選択はその作業空間の ecobuild.local.toml（コミットしない）の container に持つ。フォルダを動かしても選択はついてくる。
 ファイルは今までどおりこのPC（Windows 等）に置き、コンテナにはその作業空間のフォルダだけを /work として見せる。
 コンテナは作業空間ごとに1つ（名前は作業空間の場所から決まる）。root ではなく一般ユーザー（uid 1000）で動かす。
+
+コンテナの元（イメージ）は ECOBuild が型ごとに作る：Ubuntu に git・gh・uv・ECOBuild（このPCと同じ版）と、
+型が使うツール（ModuleType.container_packages）を入れる。中身（Dockerfile）が同じなら作り直さない（名前に中身の
+ハッシュ）ので、作るのは最初の1回（と ECOBuild・型のツールが変わったとき）だけ。ecobuild.local.toml の
+container_image で、別のイメージを使うこともできる。
 ビルド・テスト・エージェントをコンテナの中で動かすのはこれから（今はこのPCで動く）。
 """
 
@@ -11,17 +16,20 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from typing import Callable
 from pathlib import Path, PureWindowsPath
 
 from ecobuild import config as _config
+from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode, operation
 
 from . import docker
 
 KEY = "container"
-IMAGE_KEY = "container_image"   # ecobuild.local.toml：使うイメージ（なければ IMAGE）
-IMAGE = "ubuntu:24.04"
+IMAGE_KEY = "container_image"   # ecobuild.local.toml：使うイメージ（なければ型ごとに作る）
+BASE = "ubuntu:24.04"           # 作るイメージの元
+SOURCE = ("https://github.com/superFUKA/ECOBuild", "feature/mvp")   # 中に入れる ECOBuild（使う側が版を渡さなければ）
 WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
@@ -36,7 +44,8 @@ class WorkspaceContainer:
     docker_detail: str      # Docker の今の状態
     name: str = ""          # コンテナの名前
     state: str = "none"     # コンテナ：none（まだない）・running・exited 等（docker の State.Status）。Docker が使えなければ unknown
-    image: str = ""
+    image: str = ""         # コンテナのイメージ（コンテナがなければ空）
+    built: bool = False     # 今回イメージを作った
 
 
 def enabled(root: Path) -> bool:
@@ -49,12 +58,34 @@ def name(root: Path) -> str:
     return f"ecobuild-{folder[:40]}-{hashlib.sha1(_workspaces.key(root).encode()).hexdigest()[:8]}"
 
 
-def image(root: Path) -> str:
-    return _config.load_local(root).get(IMAGE_KEY) or IMAGE
+def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
+    """作業空間のコンテナのイメージの作り方。source：中に入れる ECOBuild（git のリポジトリ, 版）。"""
+    url, ref = source
+    packages = " ".join(("ca-certificates", "curl", "git", "gh", "python3", "python3-venv",   # venv：型 python・doctor
+                         *type_class.container_packages()))
+    return "\n".join([
+        f"# ECOBuild が作る、作業空間のコンテナのイメージ（型 {type_class.name}）",
+        f"FROM {BASE}",
+        "RUN apt-get update \\",
+        f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {packages} \\",
+        " && rm -rf /var/lib/apt/lists/*",
+        "USER ubuntu",
+        "ENV PATH=/home/ubuntu/.local/bin:$PATH",
+        f"RUN git config --global --add safe.directory {WORKDIR}",   # このPCのファイルは別の持ち主に見える
+        "RUN curl -LsSf https://astral.sh/uv/install.sh | sh \\",
+        f' && uv tool install --python python3 "git+{url}@{ref}"',
+        f"WORKDIR {WORKDIR}",
+        "",
+    ])
+
+
+def image_name(type_class, text: str) -> str:
+    """イメージの名前：ecobuild-<型>:<作り方のハッシュ>（作り方が同じなら同じ名前＝作り直さない）。"""
+    return f"ecobuild-{type_class.name}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
 
 
 def mount_path(root: Path, command: tuple[str, ...]) -> str:
-    """docker に渡す作業空間の場所。WSL の中の docker には /mnt/<ドライブ>/... で渡す。"""
+    """docker に渡すこのPCの場所。WSL の中の docker には /mnt/<ドライブ>/... で渡す。"""
     if command[:1] != ("wsl",):
         return str(root)
     path = PureWindowsPath(root)
@@ -81,8 +112,10 @@ def choose(root: Path, container: bool, runner: docker.Runner | None = None, *,
     return _result(root, container, changed, runner)
 
 
-def start(root: Path, runner: docker.Runner | None = None, *, command: str = "") -> WorkspaceContainer:
-    """コンテナを動かす（なければ作る）。"""
+def start(root: Path, runner: docker.Runner | None = None, *, command: str = "", source: tuple[str, str] = SOURCE,
+          progress: Callable[[str], None] = lambda message: None) -> WorkspaceContainer:
+    """コンテナを動かす（なければ作る。イメージもなければ作る：最初の1回は数分かかる）。
+    source：イメージに入れる ECOBuild（git のリポジトリ, 版）。使う側が今の ECOBuild の入れ元を渡す。"""
     if not enabled(root):
         raise EcoBuildError(ErrorCode.CONTAINER_ERROR, f"{root} はコンテナにしていません。",
                             hint=f"{operation(command, 'container on')} でコンテナにできます。")
@@ -90,13 +123,35 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "")
     state = _state(root, runner, prefix)
     if state == "running":
         return _result(root, True, False, runner)
+    built = False
     if state == "none":
+        image = _config.load_local(root).get(IMAGE_KEY)
+        if not image:
+            image, built = _image(root, runner, prefix, source, progress)
+        progress("コンテナを作ります")
         _run(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
                       "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--workdir", WORKDIR, "--user", USER,
-                      image(root), "sleep", "infinity"], "コンテナを作れませんでした")
+                      image, "sleep", "infinity"], "コンテナを作れませんでした")
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
-    return _result(root, True, True, runner)
+    return _result(root, True, True, runner, built=built)
+
+
+def _image(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...], source: tuple[str, str],
+           progress: Callable[[str], None]) -> tuple[str, bool]:
+    """型のイメージ（なければ作る）。作ったら True。作り方は ECOBUILD_HOME/containers/<名前>/Dockerfile に置く。"""
+    from . import REGISTRY
+    type_class = REGISTRY.load(_config.load(root / _config.FILE_NAME).type)
+    text = dockerfile(type_class, source)
+    image = image_name(type_class, text)
+    if (runner or docker.run)([*prefix, "image", "inspect", image]).ok:
+        return image, False
+    directory = _settings.home() / "containers" / image.replace(":", "-")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "Dockerfile").write_text(text, encoding="utf-8", newline="\n")
+    progress(f"コンテナのイメージ {image} を作ります（最初の1回だけ。数分かかります）")
+    _run(runner, [*prefix, "build", "--tag", image, mount_path(directory, prefix)], "コンテナのイメージを作れませんでした")
+    return image, True
 
 
 def stop(root: Path, runner: docker.Runner | None = None, *, command: str = "") -> WorkspaceContainer:
@@ -134,8 +189,16 @@ def _docker(runner: docker.Runner | None, command: str) -> tuple[str, ...]:
 
 
 def _state(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> str:
-    found = (runner or docker.run)([*prefix, "inspect", "--format", "{{.State.Status}}", name(root)])
-    return found.output.strip() if found.ok else "none"
+    return _inspect(root, runner, prefix)[0]
+
+
+def _inspect(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tuple[str, str]:
+    """コンテナの状態とイメージ（なければ none と空）。"""
+    found = (runner or docker.run)([*prefix, "inspect", "--format", "{{.State.Status}} {{.Config.Image}}", name(root)])
+    if not found.ok:
+        return "none", ""
+    state, _, image = found.output.strip().partition(" ")
+    return state, image
 
 
 def _exists(root: Path, runner: docker.Runner | None) -> bool:
@@ -149,7 +212,8 @@ def _run(runner: docker.Runner | None, args: list[str], message: str) -> None:
         raise EcoBuildError(ErrorCode.CONTAINER_ERROR, f"{message}：{found.output.strip() or f'終了コード {found.returncode}'}")
 
 
-def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | None) -> WorkspaceContainer:
+def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | None, *,
+            built: bool = False) -> WorkspaceContainer:
     found = docker.status(runner or docker.run)
-    state = _state(root, runner, found.command) if found.ready else "unknown"
-    return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image(root))
+    state, image = _inspect(root, runner, found.command) if found.ready else ("unknown", "")
+    return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image, built)

@@ -28,7 +28,7 @@ def command(
 ) -> int:
     """モジュール全体の設定（main・ソリューションフォルダー・MSVCのCランタイム）を表示します。オプションを付けると変えます。
 
-    タスクブランチで行い、変わった ECOBuild のファイル（.ecobuild の中）はそのままコミットします（Push はしません）。Projectごとの設定は ecobuild project set、
+    変えると管理ファイルが変わるので、タスクブランチでコミットしてください。Projectごとの設定は ecobuild project set、
     ビルドのたびに選ぶもの（構成・生成器・C++の規格等）は ecobuild profile で設定します。
     """
 

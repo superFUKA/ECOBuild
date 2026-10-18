@@ -233,9 +233,7 @@ def test_working_dependency_is_reported(short_tmp):
     github.others["STL"] = stl_github.bare
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
     task_branch = ecs.repository.create_task("STLを使う").start()
-    ecs.link("STL")
-    task_branch.stage(all=True)
-    task_branch.commit("STLをリンク")
+    ecs.link("STL")   # リンクは、それだけでコミットする
     assert ecs.status().dependencies == ()
     assert [d.name for d in ecs.check(build=False).items if d.name == "dependencies"] == []
 
@@ -301,9 +299,7 @@ def test_switching_aligns_dependencies(short_tmp):
     github.others["STL"] = stl_github.bare
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
     task_branch = ecs.repository.create_task("STLを使う").start()
-    ecs.link("STL")
-    task_branch.stage(all=True)
-    task_branch.commit("STLをリンク")
+    ecs.link("STL")   # リンクは、それだけでコミットする
     task_branch.submit()
     ecs.repository.pull_request().merge()
     ecs.repository.prune_task_branches()
@@ -315,9 +311,7 @@ def test_switching_aligns_dependencies(short_tmp):
 
     newer = new_stl_commit(stl.root, "#pragma once\n// v2\n")
     update = ecs.repository.create_task("STLを最新に").start()
-    ecs.update_dependencies()
-    update.stage(all=True)
-    update.commit("STLを最新に")
+    ecs.update_dependencies()   # 依存先の更新も、それだけでコミットする
     update.submit()
     ecs.repository.pull_request().merge()
 

@@ -99,7 +99,7 @@ def test_commit_paths_and_track(cli, module):
     assert cli("track", "add", "*.json").exit_code == 0
     assert 'include = ["*.json"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     committed = as_json(cli("task", "commit", "--message", "設定とデータ", "--json"))["result"]
-    assert set(committed["files"]) == {"b.json"}   # ecobuild.toml は track add がそのままコミットした（ECOBuild 自身のファイル）
+    assert set(committed["files"]) == {"b.json", ".ecobuild/ecobuild.toml"}
     assert cli("track", "remove", "*.md").exit_code == 0
     assert 'exclude = ["*.md"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     assert as_json(cli("track", "remove", ".ecobuild/ecobuild.toml", "--json"))["error"]["code"] == "invalid_argument"
@@ -108,13 +108,14 @@ def test_commit_paths_and_track(cli, module):
 
 
 def test_task_reset_keep_leaves_the_changes_uncommitted(cli, module):
-    """task reset --keep：コミットを取り消して変更を残す。取り消した ECOBuild のファイルの変更も、コミットし直さない。"""
+    """task reset --keep：コミットを取り消して変更を残す（ECOBuild のファイルの変更も、変更のまま）。"""
     assert cli("task", "new", "取り消し", "--start").exit_code == 0
     write(module.root / "a.txt", "a\n")
     assert cli("task", "commit", "a.txt", "--message", "a").exit_code == 0
-    assert cli("track", "add", "*.json").exit_code == 0          # ecobuild.toml をそれだけでコミットする
+    assert cli("track", "add", "*.json").exit_code == 0          # ecobuild.toml が変わる（コミットはしない）
+    assert cli("task", "commit", "--message", "設定", "--json").exit_code == 0
     head = as_json(cli("log", "--count", "3", "--json"))["result"]
-    assert head[0]["subject"].startswith("ECOBuild のファイルを更新")
+    assert head[0]["subject"] == "設定"
     reset = as_json(cli("task", "reset", head[1]["sha"] + "~1", "--keep", "--yes", "--json"))["result"]
     assert reset["kept"] and len(reset["dropped"]) == 2
     status = as_json(cli("status", "--json"))["result"]

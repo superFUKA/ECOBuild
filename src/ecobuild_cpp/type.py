@@ -73,8 +73,9 @@ GITIGNORE = """\
 /deps/
 /build/
 
-# CppBuildの中間ファイル・成果物
+# CppBuildの中間ファイル・成果物・作業中のロック
 /.ecobuild/.cppbuild/output/
+/.ecobuild/.cppbuild/operations/
 """
 
 
@@ -381,20 +382,29 @@ jobs:
     def link_package(self, name: str, package: str, *, target: str, directory: str) -> dict:
         """CMakeのパッケージ（find_package）をリンクする。"""
         self.module.require_task_branch("パッケージのリンク")
-        return _settings.link_package(self.root, name, package, target, directory)
+        before = self.module.own_changes()
+        result = _settings.link_package(self.root, name, package, target, directory)
+        self.module.commit_own_changes(f"{name} に {package}（{target}）をリンク", before)
+        return result
 
     def link_cmake(self, name: str, directory: str, *, target: str) -> dict:
         """CMakeのソース（add_subdirectory）をリンクする。"""
         self.module.require_task_branch("CMakeのソースのリンク")
-        return _settings.link_cmake(self.root, name, directory, target)
+        before = self.module.own_changes()
+        result = _settings.link_cmake(self.root, name, directory, target)
+        self.module.commit_own_changes(f"{name} に {directory}（{target}）をリンク", before)
+        return result
 
     def link_library_file(self, name: str, *, kind: str = "static", locations: dict[str, str] | None = None,
                           import_libraries: dict[str, str] | None = None,
                           include_directories: tuple[str, ...] = ()) -> dict:
         """ビルド済みのライブラリ（構成 → パス）をリンクする。"""
         self.module.require_task_branch("ビルド済みのライブラリのリンク")
-        return _settings.link_library_file(self.root, name, kind, locations or {}, import_libraries or {},
-                                           include_directories)
+        before = self.module.own_changes()
+        result = _settings.link_library_file(self.root, name, kind, locations or {}, import_libraries or {},
+                                             include_directories)
+        self.module.commit_own_changes(f"{name} にビルド済みのライブラリをリンク", before)
+        return result
 
     def unlink_project(self, name: str, link: str) -> dict:
         return _settings.unlink(self.root, name, link, command=self.module.command)

@@ -677,24 +677,13 @@ class Module:
             untracked = self.repository.git.working_tree().untracked
             outside = tuple(p for p in untracked
                             if any(r == "." or p == r or p.startswith(r + "/") for r in paths) and not self.is_tracked(p))
-        # ECOBuild 自身のファイルは、作業者のコミットに混ぜない：先に、それだけでコミットする
-        own = None if amend else self.commit_own_changes("作業のコミットの前")
-        if own and paths:
-            paths = tuple(p for p in paths if not self.is_own_file(p))
-            if not paths:
-                return own
-        try:
-            result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
-        except WorkError as error:
-            if own and error.code == ErrorCode.NOTHING_TO_COMMIT:
-                return own      # 変更は ECOBuild 自身のファイルだけだった
-            raise
+        result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
         self._forget_created(result.files)
         return replace(result, outside=outside)
 
-    # ECOBuild 自身のファイル（.ecobuild の中と、型の管理ファイル・生成ファイル）は ECOBuild が書き換えるもの。
-    # 書き換えたらそれだけでコミットし、作業者の変更に混ぜない（タスクブランチは squash で取り込むので、途中の
-    # コミットが分かれていても、取り込んだ結果は同じ）。
+    # ECOBuild 自身のファイル（.ecobuild の中と、型の管理ファイル・生成ファイル）。変わったら何でもコミットするのではなく、
+    # それを変えるのが目的の操作（リンク・提出の前の作り直し等）だけが、その操作のメッセージでコミットする
+    # （2026-10-19 ユーザーの指示）。ほかの操作（Project の設定等）の変更は、作業者が task commit でコミットする。
 
     def is_own_file(self, path: str) -> bool:
         """ECOBuild 自身のファイルか（.ecobuild の中〔無視するものは git に出てこない〕と、型の管理ファイル）。"""
@@ -703,7 +692,7 @@ class Module:
 
     def own_changes(self) -> dict[str, tuple[int, int] | None]:
         """未コミットの ECOBuild 自身のファイルと、その中身の印（大きさ・更新時刻。消したなら None）。
-        コマンドの前後で比べ、そのコマンドが書き換えたかを知る。"""
+        操作の前後で比べ、その操作が書き換えたファイルを知る（commit_own_changes）。"""
         tree = self.repository.git.working_tree()
         changes: dict[str, tuple[int, int] | None] = {}
         for path in {*tree.staged, *tree.unstaged, *tree.untracked, *tree.conflicted}:
@@ -715,21 +704,21 @@ class Module:
                     changes[path] = None
         return changes
 
-    def commit_own_changes(self, reason: str, before: dict | None = None) -> wm.RecordResult | None:
-        """ECOBuild 自身のファイルの未コミットの変更を、それだけでコミットする（しなければ None）。
-
-        before（own_changes）を渡すと、それから変わったときだけ（読むだけのコマンドの後には何もしない）。
+    def commit_own_changes(self, message: str, before: dict) -> wm.RecordResult | None:
+        """操作が書き換えた ECOBuild 自身のファイル（before〔own_changes〕から変わったもの）だけを、message で
+        コミットする（しなければ None。Push はしない）。前からあった未コミットの変更は、作業者のものとして残す。
         コミットするのはタスクブランチで、確認中・取り込み中・衝突の解決中でないときだけ。
         """
-        changes = self.own_changes()
-        if not changes or (before is not None and changes == before):
+        changed = tuple(sorted(p for p, mark in self.own_changes().items() if before.get(p, ...) != mark))
+        if not changed:
             return None
         task_branch = self.repository.current_task_branch()
         git = self.repository.git
         if task_branch is None or self.repository._reviewing() is not None or git.is_merging() or git.working_tree().conflicted:
             return None
-        result = task_branch.record(f"ECOBuild のファイルを更新（{reason}）", tuple(sorted(changes)))
+        result = task_branch.record(message, changed)
         self._forget_created(result.files)
+        self.repository.notices.append(f"「{message}」としてコミットしました（{result.sha[:7]}。Push はしていません）。")
         return result
 
     def relative_path(self, path: Path | str, cwd: Path | str) -> str:
@@ -1017,11 +1006,17 @@ class Module:
     def link_project(self, name: str, library: str, *, as_type: str | None = None) -> dict:
         """同じモジュールのライブラリをリンクする（他のモジュールは link）。"""
         self.require_task_branch("Projectのリンク")
-        return self._projects("Project のリンク").link_project(name, library, as_type=as_type)
+        before = self.own_changes()
+        result = self._projects("Project のリンク").link_project(name, library, as_type=as_type)
+        self.commit_own_changes(f"{name} に {library} をリンク", before)
+        return result
 
     def unlink_project(self, name: str, link: str) -> dict:
         self.require_task_branch("Projectのリンクの解除")
-        return self._projects("Project のリンク").unlink_project(name, link)
+        before = self.own_changes()
+        result = self._projects("Project のリンク").unlink_project(name, link)
+        self.commit_own_changes(f"{name} から {link} のリンクを外す", before)
+        return result
 
     def add_file(self, path: Path | str, *, test: bool = True, template: str | None = None) -> FilesChanged:
         """Projectにファイルを足す（テストを一緒に作るか等は型が決める）。template：使うファイルテンプレート。"""
@@ -1048,11 +1043,17 @@ class Module:
         self.require_task_branch("依存先のリンク")
         dependencies = self._dependencies("依存先")
         url = self.repository.github.get_repository(repository).clone_url
-        return dependencies.link(url, project=project, shared=shared)
+        before = self.own_changes()
+        result = dependencies.link(url, project=project, shared=shared)
+        self.commit_own_changes(f"{'・'.join(result.projects)} に {result.name}（{result.revision[:7]}）をリンク", before)
+        return result
 
     def unlink(self, name: str) -> LinkResult:
         self.require_task_branch("依存先のリンクの解除")
-        return self._dependencies("依存先").unlink(name)
+        before = self.own_changes()
+        result = self._dependencies("依存先").unlink(name)
+        self.commit_own_changes(f"{result.name} のリンクを外す", before)
+        return result
 
     def dependencies(self, *, fetch: bool = False, all: bool = False) -> tuple[DependencyState, ...]:
         """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。
@@ -1099,7 +1100,10 @@ class Module:
     def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
         """依存先の記録を、GitHubの最新にする（I-018）。"""
         self.require_task_branch("依存先の更新")
-        return self._dependencies("依存先").update_dependencies(name)
+        before = self.own_changes()
+        result = self._dependencies("依存先").update_dependencies(name)
+        self.commit_own_changes(f"依存先 {name} を最新に" if name else "依存先を最新に", before)
+        return result
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
@@ -1359,11 +1363,12 @@ class Module:
         return True
 
     def _check_generated_files(self) -> None:
-        """生成ファイルを作り直し、ECOBuild 自身のファイルの変更はコミットする。それでも生成・管理ファイルに未コミットの
-        変更が残れば止める（task submit の前）。"""
+        """生成ファイルを作り直し、作り直して変わったファイルはそれだけでコミットする。ほかに生成・管理ファイルの
+        未コミットの変更が残れば止める（task submit の前）。"""
+        before = self.own_changes()
         if not self.type.refresh():
             return
-        self.commit_own_changes("提出の前")
+        self.commit_own_changes("生成ファイルを作り直す（提出の前）", before)
         changed = self._uncommitted_managed_files()
         if changed:
             raise EcoBuildError(

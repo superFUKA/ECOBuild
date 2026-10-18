@@ -37,7 +37,6 @@ class Invocation:
         self.yes = yes
         self.cwd = Path.cwd() if cwd is None else cwd
         self._module: Module | None = None
-        self._own_before: dict | None = None   # 使い始めたときの ECOBuild 自身のファイルの状態（commit_own_after）
 
     @property
     def module(self) -> Module:
@@ -48,18 +47,8 @@ class Invocation:
     def use_module(self, module: Module) -> None:
         """対象のモジュール。このPCの作業空間の記録（workspace list）にも入れる（以前からあるcloneも、使えば記録される）。"""
         self._module = module
-        try:
-            self._own_before = module.own_changes()
-        except (EcoBuildError, WorkError):
-            self._own_before = None
         _log.use_module(module.root)
         _workspaces.record_quietly(module.root)
-
-    def keep_own_changes(self) -> None:
-        """ここまでに残った ECOBuild 自身のファイルの変更は、自動でコミットしない（取り消したコミットの変更を、
-        コミットしていない変更として手元に残すとき：task reset --keep）。"""
-        if self._module is not None and self._own_before is not None:
-            self._own_before = self._module.own_changes()
 
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""
@@ -103,7 +92,6 @@ def execute(
             if error.hint:
                 click.echo(f"ヒント：{error.hint}", err=True)
         return FAILURE
-    _commit_own_after(command, invocation)
     _log.logger.debug("%s", command, extra={"event": "command.result", "data": {
         "command": command, "result": to_data(result), "notices": _notices(invocation)}})
     if invocation.json_output:
@@ -116,22 +104,6 @@ def execute(
         for notice in _notices(invocation):
             click.echo(f"お知らせ：{notice}", err=True)
     return SUCCESS
-
-
-def _commit_own_after(command: str, invocation: Invocation) -> None:
-    """コマンドが ECOBuild 自身のファイル（.ecobuild の中・生成ファイル）を書き換えていたら、それだけでコミットする
-    （作業者の変更に混ぜない。Push はしない）。できなくてもコマンドは成功のまま、お知らせにする。"""
-    module = invocation._module
-    if module is None or invocation._own_before is None or not module.root.is_dir():   # 閉じた作業空間（finish --close-workspace）
-        return
-    try:
-        committed = module.commit_own_changes(f"ecobuild {command}", invocation._own_before)
-    except (EcoBuildError, WorkError, OSError) as error:
-        module.repository.notices.append(f"ECOBuild のファイルを自動でコミットできませんでした：{error.message}")
-        return
-    if committed is not None:
-        module.repository.notices.append(
-            f"ECOBuild のファイルをコミットしました（{committed.sha[:7]}・{len(committed.files)} 件。Push はしていません）。")
 
 
 # GitHub（gh・git）の失敗の出力から、リポジトリがECOBuildの外で変わったことを見分ける

@@ -11,9 +11,7 @@ def command(
     source: Annotated[str, "元にするファイル（今いるディレクトリからの相対）"],
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ファイルテンプレートを登録します。
-
-    タスクブランチで行い、変わった ECOBuild のファイル（.ecobuild の中）はそのままコミットします（Push はしません）。
+    """ファイルテンプレートを登録します。管理ファイルが変わるので、タスクブランチでコミットしてください。
 
     中の {{header}}・{{suite}}・{{name}}・{{project}} は、file add のときに読み込むヘッダー・ファイル名・
     ファイル名・Project名に置き換わります。ECOBuildの既定のテンプレート（header・source 等）も同じ名前で差し替えられます。

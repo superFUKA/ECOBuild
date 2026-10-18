@@ -27,10 +27,7 @@ def command(
                         f"（変更は手元に残ります）\n{listed}")
         else:
             inv.confirm(f"{preview.branch} を {preview.commit[:8]} まで戻し、次の {len(preview.dropped)} 件のコミットを捨てますか？\n{listed}")
-        result = inv.module.reset_task(commit, keep=keep)
-        if keep:
-            inv.keep_own_changes()   # 取り消した .ecobuild の変更も、変更のまま（自動でコミットし直さない）
-        return result
+        return inv.module.reset_task(commit, keep=keep)
 
     def render(r):
         if not r.dropped:

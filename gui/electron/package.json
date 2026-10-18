@@ -33,6 +33,7 @@
           "*.py",
           "*.pyw",
           "icon.ico",
+          "module.ico",
           "static/**/*",
           "!make_icon.py"
         ]

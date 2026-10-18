@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- The module's development environment: the hub's "E" of blocks (icon.svg) in amber, so the two apps differ on the
+       taskbar. module.ico (the window's and the module shortcut's icon) is made from this by make_icon.py. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3228"/><stop offset="1" stop-color="#1b1712"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#5e5446" stroke-width="2"/>
+  <rect x="14" y="13" width="36" height="11" rx="3" fill="#ffd9a0"/>
+  <rect x="14" y="27" width="27" height="10" rx="3" fill="#f5b961"/>
+  <rect x="14" y="40" width="36" height="11" rx="3" fill="#dc8f35"/>
+</svg>

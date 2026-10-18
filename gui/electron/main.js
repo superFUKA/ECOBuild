@@ -3,23 +3,29 @@
 // - 起動すると、このアプリ専用のサーバー（app.py --electron）を子プロセスで動かし、ハブの窓を開く。
 // - 窓をすべて閉じる、またはハブの「GUIを終了」でサーバーが終わると、アプリも終わる（サーバーは標準入力が閉じたら終わる）。
 // - 2つめの起動は、動いているアプリにハブの窓を開かせる。
+// - --open-module=<モジュールのフォルダ>：ハブではなく、そのモジュールの開発環境の窓を開く（開いていれば前に出す）。
+//   開発環境の窓はハブとは別のアプリ（モジュールごとの AppUserModelID・アイコン）なので、タスクバーのボタンが分かれ、
+//   ピン留めするとそのモジュールを開くボタンになる。ハブを閉じても開発環境の窓は残る（同じサーバーを使う）。
 // Python：環境変数 ECOBUILD_GUI_PYTHON、リポジトリの .venv、PATH の python の順。ecobuild の場所：ECOBUILD_GUI_ECOBUILD。
 // インストールしたアプリ（Setup.exe。app.isPackaged）は、同梱の Python（resources/python）・GUI（resources/gui）と、
 // インストール時に入れた ecobuild（bin/ecobuild.exe）を使う（bundle/ と package.json の build）。
 const {app, BrowserWindow, Menu, dialog, ipcMain, shell} = require('electron');
 const {spawn} = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
 const GUI = app.isPackaged ? path.join(process.resourcesPath, 'gui') : path.resolve(__dirname, '..');
 const BUNDLED_ECOBUILD = path.join(path.dirname(process.execPath), 'bin', 'ecobuild.exe');
 const ICON = path.join(GUI, 'icon.ico');
+const MODULE_ICON = path.join(GUI, 'module.ico');   // 開発環境の窓（ハブと見分ける）
 const HUB_SIZE = [1000, 720];      // app.py の HUB_WINDOW と同じ（ハブは一覧と設定だけなので小さめ）
 const MODULE_SIZE = [1360, 880];   // モジュールの窓
 
 let server = null;      // 子プロセスのサーバー
 let hubUrl = '';        // http://127.0.0.1:<port>/hub.html?t=<合言葉>
 let quitting = false;
+let pendingModule = '';   // サーバーが起動する前に頼まれた --open-module
 
 function python() {
   if (process.env.ECOBUILD_GUI_PYTHON) return process.env.ECOBUILD_GUI_PYTHON;
@@ -35,9 +41,9 @@ const sameServer = url => { try { return hubUrl && new URL(url).origin === new U
 // in the app's colors (titleBarOverlay). The page draws the bar (frameless: preload.js) and makes it draggable.
 // 39px: the page's bar is 40px with a line at its bottom, which stays visible under the buttons too.
 const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 39};
-function windowOptions([width, height]) {
+function windowOptions([width, height], icon = ICON) {
   return {
-    width, height, icon: ICON, backgroundColor: '#14181d', autoHideMenuBar: true,
+    width, height, icon, backgroundColor: '#14181d', autoHideMenuBar: true,
     ...(process.platform === 'darwin' ? {} : {titleBarStyle: 'hidden', titleBarOverlay: TITLE_BAR}),
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   };
@@ -53,10 +59,49 @@ function openHub() {
   new BrowserWindow(windowOptions(HUB_SIZE)).loadURL(hubUrl);
 }
 
+// The module's development environment (module.html?path=…) is an app of its own on the taskbar: one AppUserModelID
+// per module (app.py module_app_id makes the same one for the module's shortcut), its own icon, and pinning the window
+// gives a button that opens that module (relaunchCommand).
+const moduleArg = argv => (argv.find(a => a.toLowerCase().startsWith('--open-module=')) || '').slice('--open-module='.length);
+const moduleKey = root => root.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+const moduleAppId = root => 'ECOBuild.Module.' + crypto.createHash('sha1').update(moduleKey(root), 'utf8').digest('hex').slice(0, 12);
+function moduleOf(url) {
+  try { const u = new URL(url); return sameServer(url) && u.pathname === '/module.html' ? u.searchParams.get('path') || '' : ''; }
+  catch (e) { return ''; }
+}
+
+function asModuleApp(window, root) {
+  if (!root || process.platform !== 'win32') return;
+  const command = app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()];
+  window.setAppDetails({
+    appId: moduleAppId(root), appIconPath: MODULE_ICON, appIconIndex: 0,
+    relaunchCommand: [...command, `--open-module=${root}`].map(a => `"${a}"`).join(' '),
+    relaunchDisplayName: path.basename(root),
+  });
+}
+
+function openModule(root) {
+  const open = BrowserWindow.getAllWindows().find(w => moduleKey(moduleOf(w.webContents.getURL())) === moduleKey(root));
+  if (open) {
+    if (open.isMinimized()) open.restore();
+    open.focus();
+    return;
+  }
+  const hub = new URL(hubUrl);
+  const window = new BrowserWindow(windowOptions(MODULE_SIZE, MODULE_ICON));
+  asModuleApp(window, root);
+  window.loadURL(`${hub.origin}/module.html?path=${encodeURIComponent(root)}&t=${hub.searchParams.get('t')}`);
+}
+
+const openRequested = argv => { const root = moduleArg(argv); if (root) openModule(root); else openHub(); };
+
 // Every page: GUI pages open as app windows, other addresses (GitHub etc.) in the default browser.
+// outlivesOpener: a window stays when the one that opened it closes (closing the hub leaves the modules open).
 app.on('web-contents-created', (event, contents) => {
   contents.setWindowOpenHandler(({url}) => {
-    if (sameServer(url)) return {action: 'allow', overrideBrowserWindowOptions: windowOptions(MODULE_SIZE)};
+    if (sameServer(url)) {
+      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(MODULE_SIZE, moduleOf(url) ? MODULE_ICON : ICON)};
+    }
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return {action: 'deny'};
   });
@@ -65,6 +110,7 @@ app.on('web-contents-created', (event, contents) => {
     e.preventDefault();
     if (/^https?:/i.test(url)) shell.openExternal(url);
   });
+  contents.on('did-create-window', (window, {url}) => asModuleApp(window, moduleOf(url)));
   // メニューは出さないので、開発用の操作だけキーで残す。
   contents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
@@ -117,7 +163,7 @@ function startServer() {
     const found = !hubUrl && output.match(/http:\/\/127\.0\.0\.1:\d+\/hub\.html\?t=[\w-]+/);   // app.py の「ECOBuild GUI：<URL>」
     if (found) {
       hubUrl = found[0];
-      openHub();
+      if (pendingModule) openModule(pendingModule); else openHub();
     }
   };
   server.stdout.on('data', read);
@@ -146,7 +192,11 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.setAppUserModelId('ECOBuild.GUI');
-  app.on('second-instance', () => { if (hubUrl) openHub(); });
+  pendingModule = moduleArg(process.argv);
+  app.on('second-instance', (event, argv) => {
+    if (hubUrl) openRequested(argv);
+    else pendingModule = moduleArg(argv) || pendingModule;
+  });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', stopServer);
   app.whenReady().then(() => {

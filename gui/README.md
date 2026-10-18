@@ -16,6 +16,9 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 - Electron がこのアプリ専用のサーバー（`app.py --electron`）を子プロセスで動かし、ハブの窓を開く。モジュールの窓も Electron の窓で開く。GitHub などGUI以外のアドレスは既定のブラウザで開く。
 - 窓をすべて閉じる、またはハブの設定の「GUIを終了」で、Electron もサーバーもすぐ終わる。
 - 2つめの起動は新しく動かさず、動いている方のハブの窓を前に出す。
+- モジュールの開発環境の窓は、タスクバーではハブとは別のアプリ（モジュールごとの AppUserModelID `ECOBuild.Module.<場所のハッシュ>`、アイコンは `module.ico`）。ボタンはモジュールごとに分かれ、開いている窓をピン留めすると、そのモジュールを開くボタンになる。中身は同じアプリ・同じサーバーなので、操作も連携（更新・「GUIを終了」で全部の窓が閉じる等）も今までどおり。
+- ハブを閉じても開発環境の窓は残る（逆も同じ。最後の窓を閉じるとアプリが終わる）。
+- `--module <フォルダか名前>`（`python gui\app.py --module C:\ECO\Calc`）：ハブを開かず、そのモジュールの開発環境の窓だけを開く（開いていれば前に出す）。Electron には `--open-module=<フォルダ>` で渡す。Edge の窓でも同じ。
 - Python は `ECOBUILD_GUI_PYTHON`、リポジトリの `.venv`、PATH の python の順に探す（`app.py` から起動したときは、起動した Python）。
 - 開発用：F12（または Ctrl+Shift+I）で開発者ツール、F5（または Ctrl+R）で再読み込み。`npm start`（`gui\electron` で）でも起動できる。
 
@@ -38,7 +41,8 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 - ハブの設定の「ショートカットを作る」で、デスクトップとスタートメニューにアイコン付きの「ECOBuild GUI」を作る（端末からは `python gui\app.py --shortcut`）。
   - 中身は「その時の pythonw で `ECOBuildGUI.pyw` を開く」。gui フォルダや Python を移したら作り直す。
   - スタートメニューに置くと、タスクバーにピン留めもできる（スタートメニューで右クリック →「タスク バーにピン留めする」、または開いている窓のボタンを右クリック）。ショートカットには Electron の窓と同じ AppUserModelID（`ECOBuild.GUI`）を付けるので、ピン留めしたボタンと開いている窓は1つのボタンにまとまる。この ID が付く前に作ったショートカットは作り直す。
-- ショートカットのアイコン `icon.ico` は `icon.svg` から作る。アイコンを変えたら `python gui\make_icon.py`（Edge で描く）を実行してコミットする。
+- ハブのモジュールを右クリック →「デスクトップにショートカットを作る」で、そのモジュールの開発環境だけを開くショートカット（「<フォルダ名> - ECOBuild」。中身は `--module <フォルダ>`）を作る。開発環境の窓と同じ AppUserModelID を付けるので、ピン留めしたボタンと開いている窓はまとまる。
+- ショートカットのアイコン `icon.ico`（ハブ）は `static/icon.svg` から、`module.ico`（開発環境）は `static/module-icon.svg` から作る。アイコンを変えたら `python gui\make_icon.py`（Edge で描く）を実行してコミットする。
 
 ## インストーラー（Setup.exe）
 

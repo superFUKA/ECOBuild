@@ -1,4 +1,5 @@
-"""static/icon.svg から icon.ico（ショートカットのアイコン）を作る（開発用。アイコンを変えたら実行してコミットする）。
+"""static/icon.svg から icon.ico（ハブ・ショートカットのアイコン）を、static/module-icon.svg から module.ico（モジュールの
+開発環境の窓・ショートカットのアイコン）を作る（開発用。アイコンを変えたら実行してコミットする）。
 
 Edge（ヘッドレス）で大きさごとに PNG に描き、PNG を入れた .ico にまとめる（Windows Vista 以降で使える形）。
 """
@@ -43,10 +44,11 @@ def main() -> None:
     edge = app._edge()
     if not edge:
         sys.exit("Edge が見つかりません。")
-    with tempfile.TemporaryDirectory() as folder:
-        images = {size: render(edge, str(HERE / "static" / "icon.svg"), size, Path(folder)) for size in SIZES}
-    (HERE / "icon.ico").write_bytes(pack(images))
-    print(f"作りました：{HERE / 'icon.ico'}")
+    for svg, ico in (("icon.svg", "icon.ico"), ("module-icon.svg", "module.ico")):
+        with tempfile.TemporaryDirectory() as folder:
+            images = {size: render(edge, str(HERE / "static" / svg), size, Path(folder)) for size in SIZES}
+        (HERE / ico).write_bytes(pack(images))
+        print(f"作りました：{HERE / ico}")
 
 
 if __name__ == "__main__":

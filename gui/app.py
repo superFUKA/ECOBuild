@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import mimetypes
 import re
@@ -253,6 +254,20 @@ def _module_root(path: Path) -> Path:
 
 class GuiError(Exception):
     pass
+
+
+def find_module(cli: "Cli", module: str) -> str:
+    """モジュールのフォルダか名前から、このPCの作業空間のフォルダ。"""
+    if Path(module).expanduser().is_dir():
+        return str(_module_root(Path(module)))
+    listed = cli.run(None, ["workspace", "list"])
+    for entry in listed.get("result") or []:
+        path = entry.get("path", "")
+        if entry.get("exists") and (Path(path).name.casefold() == module.casefold()
+                                    or (entry.get("repository") or "").casefold() in (module.casefold(),)
+                                    or (entry.get("repository") or "").split("/")[-1].casefold() == module.casefold()):
+            return path
+    raise GuiError(f"モジュール {module} がこのPCに見つかりません（ecobuild workspace list）。")
 
 
 class Cli:
@@ -929,17 +944,7 @@ class App:
         return {"done": "opened"}
 
     def _module_path(self, module: str) -> str:
-        """モジュールのフォルダか名前から、このPCの作業空間のフォルダ。"""
-        if Path(module).expanduser().is_dir():
-            return str(_module_root(Path(module)))
-        listed = self.cli.run(None, ["workspace", "list"])
-        for entry in listed.get("result") or []:
-            path = entry.get("path", "")
-            if entry.get("exists") and (Path(path).name.casefold() == module.casefold()
-                                        or (entry.get("repository") or "").casefold() in (module.casefold(),)
-                                        or (entry.get("repository") or "").split("/")[-1].casefold() == module.casefold()):
-                return path
-        raise GuiError(f"モジュール {module} がこのPCに見つかりません（ecobuild workspace list）。")
+        return find_module(self.cli, module)
 
     def move_legacy(self) -> None:
         """以前の gui.json に登録したフォルダを、ecobuild の作業空間の記録（workspace add）へ移す（一度だけ）。"""
@@ -1047,6 +1052,8 @@ class App:
         if name == "mkparent":
             return make_parent(d("path"))
         if name == "shortcut":
+            if d("module"):
+                return {"made": [make_module_shortcut(find_module(self.cli, d("module")))]}
             return {"made": make_shortcuts()}
         if name == "relaunch-after":
             return relaunch_after(int(d("pid") or 0), str(d("commit") or ""), self.cli.command)
@@ -1200,6 +1207,21 @@ def _ping(state: dict | None) -> dict | None:
         return None
 
 
+def _open_module_on(state: dict, root: str) -> None:
+    """動いているサーバーに、モジュールの開発環境を開かせる（開いていればその窓が前に出る。GUIの操作 open）。"""
+    request = urllib.request.Request(f"http://127.0.0.1:{state['port']}/api/action", method="POST",
+                                     data=json.dumps({"name": "open", "params": {"module": root}, "origin": ""}).encode("utf-8"),
+                                     headers={"X-ECOBuild-Token": state["token"], "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            error = json.loads(response.read()).get("error")
+    except (OSError, ValueError) as failure:
+        error = str(failure)
+    if error:
+        _alert(f"開発環境を開けませんでした：{error}")
+        sys.exit(1)
+
+
 def _shutdown(state: dict) -> None:
     try:
         request = urllib.request.Request(f"http://127.0.0.1:{state['port']}/api/shutdown", data=b"{}", method="POST",
@@ -1274,33 +1296,54 @@ public static class EcoShortcut {
 """
 
 
+def _write_shortcut(link: Path, arguments: list[str], icon: str, app_id: str, description: str) -> None:
+    """ECOBuild GUI を起動するショートカット（.lnk）。arguments：起動に付ける引数。インストールしたアプリならその exe に、
+    そうでなければ「その時の pythonw で ECOBuildGUI.pyw」に付ける。"""
+    here = Path(__file__).resolve().parent
+    # .lnk は COM（WScript.Shell）で作る。値は環境変数で渡す（引用符の扱いを避ける）。
+    # そのあと AppUserModelID を付ける（WScript.Shell では付けられない）。
+    script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
+              "$s.Arguments = $env:EG_ARGS; $s.WorkingDirectory = $env:EG_DIR; "
+              "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = $env:EG_DESCRIPTION; $s.Save(); "
+              "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
+    target, before = (str(packaged_app()), []) if packaged_app() else (_pythonw(), [str(here / "ECOBuildGUI.pyw")])
+    env = dict(os.environ, EG_LINK=str(link), EG_TARGET=target, EG_ARGS=subprocess.list2cmdline(before + arguments),
+               EG_DIR=str(here), EG_ICON=str(here / icon), EG_DESCRIPTION=description, EG_CS=_SET_APP_ID, EG_APPID=app_id)
+    completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env, stdin=subprocess.DEVNULL,
+                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+    if completed.returncode != 0 or not link.is_file():
+        raise GuiError(f"ショートカットを作成できませんでした：{link}\n{completed.stderr.strip()}")
+
+
 def make_shortcuts(places: list[Path] | None = None) -> list[str]:
     """デスクトップとスタートメニューに「ECOBuild GUI」のショートカット（アイコン付き）を作る。Windowsだけ。"""
     if os.name != "nt":
         raise GuiError("ショートカットは Windows でのみ作成できます。")
-    here = Path(__file__).resolve().parent
     places = _shortcut_places() if places is None else places
     made = []
     for place in places:
-        if not place.is_dir():
-            continue
-        link = place / "ECOBuild GUI.lnk"
-        # .lnk は COM（WScript.Shell）で作る。値は環境変数で渡す（引用符の扱いを避ける）。
-        # そのあと AppUserModelID を付ける（WScript.Shell では付けられない）。
-        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
-                  "if ($env:EG_SCRIPT) { $s.Arguments = '\"' + $env:EG_SCRIPT + '\"' } else { $s.Arguments = '' }; $s.WorkingDirectory = $env:EG_DIR; "
-                  "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save(); "
-                  "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
-        # インストールしたアプリなら、その exe を開く（引数なし）
-        target, opens = (str(packaged_app()), "") if packaged_app() else (_pythonw(), str(here / "ECOBuildGUI.pyw"))
-        env = dict(os.environ, EG_LINK=str(link), EG_TARGET=target, EG_SCRIPT=opens,
-                   EG_DIR=str(here), EG_ICON=str(here / "icon.ico"), EG_CS=_SET_APP_ID, EG_APPID=APP_ID)
-        completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env, stdin=subprocess.DEVNULL,
-                                   capture_output=True, encoding="utf-8", errors="replace", **_no_window())
-        if completed.returncode != 0 or not link.is_file():
-            raise GuiError(f"ショートカットを作成できませんでした：{link}\n{completed.stderr.strip()}")
-        made.append(str(link))
+        if place.is_dir():
+            _write_shortcut(place / "ECOBuild GUI.lnk", [], "icon.ico", APP_ID, "ECOBuild GUI")
+            made.append(str(place / "ECOBuild GUI.lnk"))
     return made
+
+
+def module_app_id(root: str | Path) -> str:
+    """モジュールの開発環境の AppUserModelID。開発環境はハブとは別のアプリとして、モジュールごとにタスクバーのボタンが
+    分かれる（electron/main.js の moduleAppId と同じ作り方）。"""
+    key = str(root).replace("\\", "/").rstrip("/").lower()
+    return "ECOBuild.Module." + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+
+
+def make_module_shortcut(root: str, place: Path | None = None) -> str:
+    """モジュールの開発環境を開くショートカットをデスクトップに作る（ハブは開かず、その窓だけ）。Windowsだけ。"""
+    if os.name != "nt":
+        raise GuiError("ショートカットは Windows でのみ作成できます。")
+    place = _shortcut_places()[0] if place is None else place
+    name = re.sub(r'[\\/:*?"<>|]', "_", Path(root).name)
+    link = place / f"{name} - ECOBuild.lnk"
+    _write_shortcut(link, ["--module", str(root)], "module.ico", module_app_id(root), f"{Path(root).name}（ECOBuild の開発環境）")
+    return str(link)
 
 
 def relaunch_after(pid: int, commit: str, cli: list[str]) -> dict:
@@ -1412,8 +1455,23 @@ def launch_electron(electron: Path, args) -> None:
     env.pop("ELECTRON_RUN_AS_NODE", None)   # 設定されていると Electron が Node として動き、窓を出さない
     if ecobuild:
         env["ECOBUILD_GUI_ECOBUILD"] = ecobuild
-    _start_detached([str(electron)] if packaged_app() else [str(electron), str(ELECTRON_APP)], env=env)
+    # --module：ハブではなく、そのモジュールの開発環境の窓（main.js。動いていれば、動いている方が開く）
+    opens = [f"--open-module={_launch_module(args)}"] if args.module else []
+    _start_detached(([str(electron)] if packaged_app() else [str(electron), str(ELECTRON_APP)]) + opens, env=env)
     _say("ECOBuild GUI を開きました（Electron）。")
+
+
+def _launch_module(args) -> str:
+    """--module のモジュール（フォルダか名前）の場所。見つからなければ今知らせて終わる。"""
+    try:
+        return find_module(Cli(default_cli(args.ecobuild)), args.module)
+    except (GuiError, SystemExit) as error:
+        _alert(str(error))
+        sys.exit(1)
+
+
+def _module_page(root: str) -> str:
+    return "module.html?path=" + urllib.parse.quote(root)
 
 
 def launch(args) -> None:
@@ -1426,9 +1484,11 @@ def launch(args) -> None:
     state = _read_state()
     alive = _ping(state)
     if alive and not alive.get("stale"):
-        if not args.no_browser:
+        if args.module and not args.no_browser:
+            _open_module_on(state, _launch_module(args))
+        elif not args.no_browser:
             open_window(_url(state), HUB_WINDOW)
-        _say(f"ECOBuild GUI を開きました（動いているサーバーを使います）：{_url(state)}")
+        _say(f"ECOBuild GUI を開きました（動いているサーバーを使います）：" + (args.module if args.module else _url(state)))
         return
     old_token = (state or {}).get("token")
     if alive:   # 更新前のサーバー：止めてから新しく起動する
@@ -1439,6 +1499,8 @@ def launch(args) -> None:
     command = [_pythonw(), str(Path(__file__).resolve()), "--serve", "--port", str(args.port)]
     if ecobuild:
         command += ["--ecobuild", ecobuild]
+    if args.module:
+        command += ["--module", _launch_module(args)]
     if args.no_browser:
         command.append("--no-browser")
     process = _start_detached(command, no_window=True)
@@ -1550,7 +1612,10 @@ def serve(args) -> None:
     if cli_warning(cli.command):
         print("注意：" + cli_warning(cli.command), flush=True)
     if not args.no_browser and not args.electron:
-        open_window(url, HUB_WINDOW)
+        if args.module:     # モジュールの開発環境だけ（ハブは開かない）
+            open_window(f"http://127.0.0.1:{port}/{_module_page(args.module)}&t={token}")
+        else:
+            open_window(url, HUB_WINDOW)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -1575,6 +1640,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="デスクトップとスタートメニューにショートカット（アイコン付き）を作って終わる")
     parser.add_argument("--browser", action="store_true",
                         help="Electron があっても使わず、Edge（なければ既定のブラウザ）の窓で開く")
+    parser.add_argument("--module", default="",
+                        help="ハブではなく、このモジュール（フォルダか名前）の開発環境の窓を開く（開いていればその窓を前に出す）")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
     parser.add_argument("--electron", action="store_true", help=argparse.SUPPRESS)  # Electron の子プロセス（electron/main.js が使う）
     parser.add_argument("--relaunch-after", type=int, default=None, help=argparse.SUPPRESS)  # 更新の後に起動し直す（relaunch_after）

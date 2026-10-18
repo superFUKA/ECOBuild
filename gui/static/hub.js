@@ -499,6 +499,7 @@ $('module-list').addEventListener('contextmenu', event => {
     ['開発環境を開く', () => openModule(m.path), m.exists],
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists],
+    ['デスクトップにショートカットを作る', () => makeModuleShortcut(m), m.exists],
     '-',
     ['一覧から外す…', () => forgetModule(m)],
     ['片付ける（アーカイブ・削除）…', () => putAwayModule(m)],
@@ -528,6 +529,13 @@ $('make-shortcut').addEventListener('click', async () => {
   try { const {made} = await ECO.call('shortcut'); ECO.toast('ショートカットを作りました：' + made.map(p => p.split('\\').slice(-2).join('\\')).join('、')); }
   catch (e) { ECO.toast(e.message, 'bad', 9000); }
 });
+
+// A module's shortcut opens its development environment alone, without the hub (app.py --module). It is an app of its
+// own on the taskbar (pinned, it opens that module).
+async function makeModuleShortcut(m) {
+  try { const {made} = await ECO.call('shortcut', {module: m.path}); ECO.toast('ショートカットを作りました：' + made.map(p => p.split('\\').slice(-2).join('\\')).join('、')); }
+  catch (e) { ECO.toast(e.message, 'bad', 9000); }
+}
 
 // End the background server now (otherwise it ends a while after the last window closes). In Electron the app ends with it.
 $('quit-gui').addEventListener('click', async () => {

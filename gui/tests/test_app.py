@@ -320,6 +320,28 @@ def test_shortcut_has_the_icon(tmp_path):
     assert (gui.STATIC / "icon.svg").is_file()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")
+def test_module_shortcut_opens_the_module_alone(tmp_path):
+    place = tmp_path / "デスクトップ"
+    place.mkdir()
+    root = _module(tmp_path / "My Calc")
+    link = gui.make_module_shortcut(str(root), place)
+    assert link == str(place / "My Calc - ECOBuild.lnk")
+    read = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                           "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+                           "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.Arguments; $s.IconLocation; "
+                           "(New-Object -ComObject Shell.Application).NameSpace($env:EG_DIR).ParseName('My Calc - ECOBuild.lnk')"
+                           ".ExtendedProperty('System.AppUserModel.ID')"],
+                          env=dict(os.environ, EG_LINK=link, EG_DIR=str(place)), capture_output=True, encoding="utf-8")
+    arguments, icon, app_id = read.stdout.strip().splitlines()
+    assert arguments.endswith(f'--module "{root}"')
+    assert icon.endswith("module.ico,0")
+    # ハブとは別のアプリ：モジュールごとの ID（main.js の moduleAppId と同じ作り方。区切り・大文字小文字によらない）
+    assert app_id == gui.module_app_id(root) == gui.module_app_id(str(root).replace("\\", "/").upper() + "/") != gui.APP_ID
+    assert "'ECOBuild.Module.'" in (Path(gui.__file__).parent / "electron" / "main.js").read_text(encoding="utf-8")
+    assert (Path(gui.__file__).with_name("module.ico")).is_file()
+
+
 def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
     root = tmp_path / "Calc"
     root.mkdir()

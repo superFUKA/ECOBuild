@@ -1036,6 +1036,15 @@ class Module:
         self.require_task_branch("ファイルの移動")
         return self._created(self._files("ファイルの移動").move_file(Path(source), Path(destination), test=test))
 
+    def add_test(self, path: Path | str, destination: Path | str | None = None, *, dry_run: bool = False) -> FilesChanged:
+        """今あるファイルのテストを作る（C++：組のテスト用Projectの、同じ構成の場所に <名前>Test.cpp）。
+        dry_run：作らずに、作る場所だけ（GUI が既定の場所を出すため）。"""
+        files = self._files("テストの作成")
+        if dry_run:
+            return files.add_test(Path(path), Path(destination) if destination else None, dry_run=True)
+        self.require_task_branch("テストの作成")
+        return self._created(files.add_test(Path(path), Path(destination) if destination else None))
+
     # 依存先（型） -----------------------------------------------------------------
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:

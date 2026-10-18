@@ -249,6 +249,7 @@ function fileMenu(path, x, y) {
   showMenu([
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
     ...(isReadme(path) ? [] : [['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists]]),
+    ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
   ], x, y);
@@ -353,6 +354,7 @@ async function menuAction(action, dir) {
     case 'new-folder': return inlineName({create: 'folder', dir: dir ?? activeDirectory});
     case 'rename': return inlineName({rename: path});
     case 'move': return moveDialog(path);
+    case 'test': return testDialog(path);
     case 'remove': return removeFile(path);
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
@@ -411,6 +413,45 @@ function newFilePlan(v) {
   const sub = rel.slice(`include/${project}`.length).replace(/^\//, '');
   return {paths: [header, join(sub ? join(join(root, 'src'), sub) : join(root, 'src'), base + SOURCE)]};
 }
+// A test of a library's header or source (ecobuild file test): only where the library has its test Project (<名前>Test).
+const CPP_FILE = /\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i;
+const projectOfPath = path => projectsByDir.get((projectRoots || []).find(r => path.startsWith(r + '/')));
+function testable(path) {
+  const project = projectOfPath(path);
+  if (!restricted() || !CPP_FILE.test(path) || !project || !/library/.test(project.kind || '')) return false;
+  return [...projectsByDir.values()].some(p => p.name === project.name + 'Test' && p.kind === 'test');
+}
+// The new file screen for the test: by default in the test Project's src/, at the same place as the file
+// (include/<Project>/a/B.h・src/a/B.cpp → <Project>Test/src/a/BTest.cpp: what ecobuild says with --dry-run).
+async function testDialog(path) {
+  if (!editable()) return;
+  const planned = await WS.cli(['file', 'test', path, '--dry-run'], {quiet: true});
+  if (!planned.ok) return ECO.showError(planned);
+  const suggested = planned.result.paths[0], defaultFolder = dirOf(suggested), defaultName = suggested.split('/').pop();
+  const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build') && inSources(d));
+  const options = [...(folders.includes(defaultFolder) ? [] : [[defaultFolder, `${defaultFolder}（新しいフォルダ）`]]), ...folders.map(d => [d, d])];
+  const exists = p => WS.files.files.includes(p);
+  return ECO.form({title: 'テストを作成', intro: esc(path) + ' のテストを作ります（そのヘッダーを読み込むテストのひな形）。', busy: 'テストを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
+    {name: 'folder', label: '場所', type: 'select', value: defaultFolder, options, row: 'where'},
+    {name: 'name', label: '名前', value: defaultName, required: true, row: 'where', focus: true},
+    {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
+    onChange: (v, formEl) => {
+      const target = join(v.folder, v.name.trim());
+      formEl.querySelector('.new-file-preview').textContent = !validName(v.name.trim()) ? '使用できない文字が含まれています。'
+        : exists(target) ? `${target} は既にあります。` : '作成するファイル：' + target;
+    },
+    submit: async v => {
+      const name = v.name.trim(), target = join(v.folder, name);
+      if (!validName(name)) return '有効な名前を入力してください。';
+      const doc = await WS.cli(['file', 'test', path, ...(target === suggested ? [] : ['--to', target])]);
+      if (!doc.ok) return doc.error.message + (doc.error.hint ? '\n' + doc.error.hint : '');
+      await WS.refresh(); await afterFileChange(true, 'テストを作りました：' + doc.result.paths.join('、'));
+      WS.selectInTree(doc.result.paths[0]);
+      openInEditor(doc.result.paths[0]);
+      return '';
+    }});
+}
+
 async function newFileDialog(dir = activeDirectory) {
   if (!editable()) return;
   const cpp = restricted(), pythonTests = !cpp && !!ECO.typeFeatures(await ECO.moduleType(WS.dir)).fileTests;

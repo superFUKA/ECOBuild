@@ -230,6 +230,11 @@ class HasFiles(ABC):
     def move_file(self, source: Path, destination: Path, *, test: bool) -> "FilesChanged":
         ...
 
+    def add_test(self, path: Path, destination: Path | None = None, *, dry_run: bool = False) -> "FilesChanged":
+        """今あるファイルのテストを作る（destination：置く場所。既定は型が決める。dry_run：作らずに場所だけ）。
+        テストを作らない型は not_supported。"""
+        raise self.not_supported("テストの作成")   # type: ignore[attr-defined]   (ModuleType と一緒に継承する)
+
 
 class HasDependencies(ABC):
     """他のモジュール（GitHubのリポジトリ）を依存先にできる型。"""

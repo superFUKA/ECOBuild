@@ -60,6 +60,28 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     assert module.test().failed == 0
 
 
+def test_file_test_makes_the_test_of_a_file(module):
+    """file test：今あるヘッダー・ソースのテストを、組のテスト用Projectの同じ構成の場所に作る（場所は指定もできる）。"""
+    root = module.root
+    write(root / "Geo/include/Geo/calc/Add.h", "#pragma once\nnamespace geo { inline int add(int a, int b) { return a + b; } }\n")
+    assert module.add_test(root / "Geo/include/Geo/calc/Add.h", dry_run=True).paths == ("GeoTest/src/calc/AddTest.cpp",)
+    assert not (root / "GeoTest/src/calc/AddTest.cpp").exists()
+    assert module.add_test(root / "Geo/include/Geo/calc/Add.h").paths == ("GeoTest/src/calc/AddTest.cpp",)
+    text = (root / "GeoTest/src/calc/AddTest.cpp").read_text(encoding="utf-8")
+    assert '#include "Geo/calc/Add.h"' in text and "TEST(Add, Works)" in text
+    assert code_of(lambda: module.add_test(root / "Geo/include/Geo/calc/Add.h")) == ErrorCode.ALREADY_EXISTS
+    write(root / "Geo/src/calc/Mul.h", "#pragma once\nint mul(int a, int b);\n")   # 実装用のヘッダー（src/ に並べる）
+    write(root / "Geo/src/calc/Mul.cpp", '#include "Mul.h"\nint mul(int a, int b) { return a * b; }\n')
+    placed = module.add_test(root / "Geo/src/calc/Mul.cpp", root / "GeoTest/src/MulCheck.cpp")
+    assert placed.paths == ("GeoTest/src/MulCheck.cpp",)
+    assert '#include "../../Geo/src/calc/Mul.h"' in (root / "GeoTest/src/MulCheck.cpp").read_text(encoding="utf-8")
+    assert code_of(lambda: module.add_test(root / "GeoApp/src/main.cpp")) == ErrorCode.INVALID_ARGUMENT   # 組のテストがない
+    assert module.test().failed == 0
+    for path in ("GeoTest/src/calc/AddTest.cpp", "GeoTest/src/MulCheck.cpp", "Geo/src/calc/Mul.cpp", "Geo/src/calc/Mul.h"):
+        module.remove_file(root / path, test=False)
+    (root / "Geo/include/Geo/calc/Add.h").unlink()
+
+
 def test_projects_bench_pch_and_remove(module):
     added = module.add_project("GeoBench", "bench")
     assert added.paths == ("GeoBench/src/bench.cpp",)

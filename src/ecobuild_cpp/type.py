@@ -454,6 +454,56 @@ jobs:
                                             replacements={"header": test_header, "suite": Path(relative).stem}))
         return FilesChanged("file add", tuple(added), project)
 
+    def add_test(self, path: Path, destination: Path | None = None, *, dry_run: bool = False) -> FilesChanged:
+        """ライブラリのヘッダー・ソースのテストを作る。既定の場所は組のテスト用Project（<ライブラリ>Test）の src/ の、
+        同じ構成の場所（include/<Project>/a/B.h・src/a/B.cpp → src/a/BTest.cpp）。テストはそのヘッダーを読み込む。"""
+        project, relative = self._in_project(path)
+        rel = Path(relative)
+        suffix = rel.suffix.lower()
+        if suffix not in _cppbuild.HEADER_SUFFIXES and suffix not in _cppbuild.SOURCE_SUFFIXES:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{path} はヘッダーでもソースでもありません。",
+                                hint="テストを作れるのは、ライブラリのヘッダー・ソースです。")
+        if not (_cppbuild.project_root(self.root, project) / rel).is_file():
+            raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{path} がありません。")
+        test_project = _cppbuild.test_project_of(project)
+        if not self._has_test_project(project):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project {project} には組のテスト用Project（{test_project}）がありません。",
+                                hint=f"テストを作れるのは、組のテスト用Projectがあるライブラリのファイルです"
+                                     f"（{self.module.op('project list')} で確かめる）。")
+        parts = rel.parts
+        inner = Path(*parts[2:]) if parts[:2] == ("include", project) and len(parts) > 2 \
+            else Path(*parts[1:]) if parts[:1] in (("src",), ("include",)) and len(parts) > 1 else Path(rel.name)
+        if destination is None:
+            target_project, target = test_project, Path("src", inner).with_name(f"{inner.stem}Test.cpp").as_posix()
+        else:
+            target_project, target = self._in_project(destination)
+            self._require_source_directory(destination, target_project, target)
+        target_root = _cppbuild.project_root(self.root, target_project)
+        shown = (target_root / target).relative_to(self.root).as_posix()
+        if dry_run:   # 場所だけ（既にあるかは、作るときに確かめる）
+            return FilesChanged("file test", (shown,), target_project)
+        if (target_root / target).exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{shown} は既に存在します。")
+        header = rel if suffix in _cppbuild.HEADER_SUFFIXES else None
+        if header is None:
+            beside = self._header_beside(project, relative)
+            public = Path("include", project, inner).with_suffix(".h")
+            header = (beside.resolve().relative_to(_cppbuild.project_root(self.root, project).resolve()) if beside
+                      else public if (_cppbuild.project_root(self.root, project) / public).is_file() else None)
+        include = ""
+        if header is not None:
+            absolute = (_cppbuild.project_root(self.root, project) / header).resolve()
+            include_dir = (_cppbuild.project_root(self.root, project) / "include").resolve()
+            if target_project == test_project and absolute.is_relative_to(include_dir):
+                include = absolute.relative_to(include_dir).as_posix()   # テストはライブラリの include/ を使える
+            else:
+                include = Path(os.path.relpath(absolute, (target_root / target).parent.resolve())).as_posix()
+        else:
+            include = self._header_for(project, relative) or ""
+        added = _cppbuild.add_file(self.root, target_project, target, template="unit_test" if include else None,
+                                   replacements={"header": include, "suite": inner.stem} if include else None)
+        return FilesChanged("file test", (added,), target_project)
+
     def _pair_includes(self, project: str, relative: str, pair_header: Path) -> tuple[str, str | None]:
         """一緒に足したヘッダーの読み込み方：ソースからは相対パス。テストからは、ヘッダーが include/ の中なら
         include/ からの相対（テストはライブラリの include/ を使える）、外なら None（テストの場所からの相対にする）。"""

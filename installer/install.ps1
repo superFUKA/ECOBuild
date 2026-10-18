@@ -120,9 +120,53 @@ if ($LASTEXITCODE -ne 0) {
 Invoke-Python -m pipx ensurepath *> $null   # pipx が入れるコマンドの場所を、ユーザーの PATH に足す
 Update-SessionPath
 
+# 入っている ecobuild の入れ元・版・依存（JSON。入っていなければ空）。venv の Python で調べる
+$ProbeCode = @'
+import json
+from importlib.metadata import PackageNotFoundError, distribution
+try:
+    d = distribution("ecobuild")
+except PackageNotFoundError:
+    raise SystemExit(0)
+url = json.loads(d.read_text("direct_url.json") or "{}")
+print(json.dumps({"url": url.get("url", ""), "ref": url.get("vcs_info", {}).get("requested_revision", ""),
+                  "requires": sorted(d.requires or [])}))
+'@
+function Get-Installed([string]$VenvPython) {
+    $probe = Join-Path ([IO.Path]::GetTempPath()) ("ecobuild-probe-" + [Guid]::NewGuid().ToString("N") + ".py")
+    Set-Content -Path $probe -Value $ProbeCode -Encoding ASCII
+    $text = & $VenvPython $probe 2>$null
+    Remove-Item -Force $probe -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -ne 0 -or -not $text) { return $null }
+    return ($text | Out-String | ConvertFrom-Json)
+}
+
+# 更新を速く：同じ入れ元・版で入っていれば、venv を作り直さず ecobuild だけを入れ替える（pipx install --force は
+# 名前を調べるための仮の導入と、venv・依存の作り直しで倍ほどかかる）。版の番号が同じでも入れ替わるよう --force-reinstall、
+# 依存は --no-deps で触らない。入れ替えた ecobuild が求める依存が前と違えば（CppBuild の版が上がった等）、
+# pip は版の番号が同じ依存を入れ直さないので、いつもの pipx install --force で全部を入れ直す。
+function Update-InPlace {
+    $venvs = (Invoke-Python -m pipx environment --value PIPX_LOCAL_VENVS 2>$null | Out-String).Trim()
+    if (-not $venvs) { return $false }
+    $venvPython = Join-Path $venvs "ecobuild\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) { return $false }
+    $before = Get-Installed $venvPython
+    if ($null -eq $before -or $before.url -ne $Repository -or $before.ref -ne $Ref) { return $false }
+    & $venvPython -m pip install --quiet --disable-pip-version-check --force-reinstall --no-deps "ecobuild @ git+$Repository@$Ref" | Out-Host   # 出力を戻り値にしない
+    if ($LASTEXITCODE -ne 0) { return $false }
+    $after = Get-Installed $venvPython
+    if ($null -eq $after -or (($before.requires -join "`n") -ne ($after.requires -join "`n"))) {
+        Write-Host "    依存が変わったので、全部を入れ直します"
+        return $false
+    }
+    return $true
+}
+
 Write-Step "ECOBuild を導入します（少し時間がかかります）"
 if ($Source) {
     Invoke-Python -m pipx install --force --editable $Source
+} elseif (Update-InPlace) {
+    $global:LASTEXITCODE = 0
 } else {
     Invoke-Python -m pipx install --force "git+$Repository@$Ref"
 }

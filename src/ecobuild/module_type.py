@@ -61,6 +61,10 @@ class ModuleType:
         return ModuleConfig.for_new_module(name, cls.name)
 
     @classmethod
+    def check_new(cls, name: str, kind: str | None, project: str | None = None, *, test: bool = True) -> None:
+        """populate で作れるか（名前等）を、GitHubのリポジトリを作る前に確かめる。作れなければ EcoBuildError。"""
+
+    @classmethod
     def populate(cls, root: Path, config: "ModuleConfig", kind: str | None, project: str | None = None, *,
                  test: bool = True) -> None:
         """新しいモジュールの中身を作る（ecobuild.toml・README等は本体が作る）。kind：new_kinds のどれか。

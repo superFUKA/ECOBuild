@@ -144,6 +144,10 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     default_new_kind = "app"
 
     @classmethod
+    def check_new(cls, name: str, kind: str | None, project: str | None = None, *, test: bool = True) -> None:
+        _cppbuild.check_new_projects(name, kind or cls.default_new_kind, project, test=test)
+
+    @classmethod
     def populate(cls, root: Path, config: ModuleConfig, kind: str | None, project: str | None = None, *,
                  test: bool = True) -> None:
         _cppbuild.create_module_solution(root, config.name, kind or cls.default_new_kind, project, test=test)

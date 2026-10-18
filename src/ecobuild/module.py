@@ -174,6 +174,7 @@ class Module:
             if not _NAME.fullmatch(project):
                 raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {project!r} は使えません。",
                                     hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
+        type_class.check_new(name, kind or None, project or None, test=test)
         module_config = type_class.new_config(name)
 
         def populate(root: Path) -> None:

@@ -121,3 +121,14 @@ def test_yaml_text():
     from ecobuild.ci_workflow import yaml_list, yaml_text
     assert yaml_text("release/1.0") == "release/1.0" and yaml_text("1.0") == '"1.0"'
     assert yaml_text('a "b"') == '"a \\"b\\""' and yaml_list(()) == "[]"
+
+
+def test_cpp_project_names_must_not_be_cmake_names(tmp_path):
+    """CMakeのターゲット名はProject名そのもの。test・all 等は、GitHubのリポジトリを作る前に止める。"""
+    from fakes import FakeGitHub
+    github = FakeGitHub(tmp_path / "gh")
+    for name, kind in (("Test", "app"), ("All", "library")):
+        with pytest.raises(EcoBuildError) as error:
+            ecobuild_bundle.Module.create(name, directory=tmp_path, type="cpp", kind=kind, github=github)
+        assert error.value.code == ErrorCode.INVALID_ARGUMENT
+    assert not hasattr(github, "bare") and not (tmp_path / "Test").exists()   # リポジトリを作っていない

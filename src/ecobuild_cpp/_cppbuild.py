@@ -12,6 +12,8 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
+from cppbuild import workspace as _workspace
+
 from ecobuild.config import DIRECTORY
 from ecobuild.errors import EcoBuildError, ErrorCode, operation
 from ecobuild.fsutil import remove_tree
@@ -207,6 +209,23 @@ def library_header(library: str) -> str:
     return f"{library}/{library}.h"
 
 
+def check_project_name(name: str) -> None:
+    """CMakeのターゲット名はProject名そのもの（CppBuild e83c7a0〜）。CMake・生成器が使う名前（test・all 等。
+    大文字小文字は区別しない）にはできない（CppBuildも構成のときに止めるが、英語で、作った後になる）。"""
+    if name.casefold() in _workspace.RESERVED:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"Project名 {name} は使えません（CMakeが使う名前です）。",
+                            hint="別の名前にしてください（ALL_BUILD・test・all・install 等と、大文字小文字の違いだけの名前も使えません）。")
+
+
+def check_new_projects(name: str, kind: str, project: str | None, *, test: bool) -> None:
+    """module new で作るProjectの名前を、作る前に確かめる（create_module_solution と同じ決め方）。"""
+    if kind == "none":
+        return
+    first = project or name
+    for each in [first] + ([test_project_of(first)] if kind in LIBRARY_KINDS and test else []):
+        check_project_name(each)
+
+
 def test_project_of(library: str) -> str:
     """ライブラリと組のテスト用Project（ライブラリを作るときに一緒に作る。file add のテストの置き場所）。"""
     return f"{library}Test"
@@ -367,6 +386,7 @@ def add_project(root: Path, name: str, kind: str, *, link: str | None = None, te
     solution = open_solution(root)
     existing = solution.settings.get().projects
     for each in [name] + ([test_project_of(name)] if kind in LIBRARY_KINDS and test else []):
+        check_project_name(each)
         if each in existing:
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"Project {each} は既にあります。")
         if (root / each).exists():

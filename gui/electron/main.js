@@ -94,6 +94,15 @@ ipcMain.handle('open-path', async (event, {dir, path: relative = '', reveal = fa
   return error ? {error} : {};
 });
 
+// Bring the asking window up: restored when minimized, shown, in front (the page's window.focus() does neither).
+ipcMain.handle('focus-window', event => {
+  const window = BrowserWindow.fromWebContents(event.sender);
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
+
 function startServer() {
   const args = [path.join(GUI, 'app.py'), '--electron'];
   if (process.env.ECOBUILD_GUI_ECOBUILD) args.push('--ecobuild', process.env.ECOBUILD_GUI_ECOBUILD);

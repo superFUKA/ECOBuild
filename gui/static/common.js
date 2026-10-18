@@ -548,7 +548,8 @@ const ECO = (() => {
       toast(`${e.by === 'agent' ? 'エージェントから' : '知らせ'}：${e.message}`, e.kind || 'info', 12000);
     } else if (mine && e.type === 'navigate') {
       for (const fn of navigateHandlers) fn(e);
-      window.focus();
+      // Electron: the app brings the window up (restored when minimized, in front); window.focus() alone does not.
+      if (window.ecobuildShell?.focusWindow) window.ecobuildShell.focusWindow(); else window.focus();
     } else if (mine && e.type === 'open-window') {
       await openPage(e.page);
     } else if (mine && e.type === 'open-path') {
@@ -566,6 +567,14 @@ const ECO = (() => {
     }
   }
   if (top) document.addEventListener('DOMContentLoaded', () => { listen(); });
+  // A closed window is forgotten at once (else, for a while, opening its module would move to a window that is gone).
+  // keepalive: the request is sent although the page is going away.
+  if (top) window.addEventListener('pagehide', () => {
+    try {
+      fetch('/api/window-closed', {method: 'POST', keepalive: true, headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': token},
+        body: JSON.stringify({id: windowId})}).catch(() => {});
+    } catch (e) { /* the page is gone */ }
+  });
 
   // The left menu's fold button (the hub and the module screen): folded or not is kept on this PC, the same for both.
   const NAV_COLLAPSED_KEY = 'ecobuild-gui-nav-collapsed';

@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld('ecobuildShell', {
   frameless: process.platform !== 'darwin',   // the page draws the window's top bar (main.js: titleBarStyle hidden)
   pickFolder: options => ipcRenderer.invoke('pick-folder', options),
   openPath: options => ipcRenderer.invoke('open-path', options),
+  focusWindow: () => ipcRenderer.invoke('focus-window'),   // bring this window up (restore when minimized, to the front)
 });

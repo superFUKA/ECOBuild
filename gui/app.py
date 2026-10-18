@@ -982,6 +982,10 @@ class App:
         if name == "window-state":
             self.see_window(dict(d("window") or {}))
             return {}
+        if name == "window-closed":
+            # 閉じた窓はすぐ忘れる（覚えたままだと、ハブで開くときに、もう無い窓へ「移って」と頼んで何も起きない）
+            self.windows.pop(str(d("id") or ""), None)
+            return {}
         if name == "query":
             # 覚える読むだけのコマンド。mode "cache"：覚えた結果だけ（なければ None）。"fresh"：実行して覚える。
             # 答え：{"doc": 結果, "time": 実行した時刻（秒）, "stale": 変える操作の後なら true}

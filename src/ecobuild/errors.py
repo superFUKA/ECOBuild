@@ -42,6 +42,7 @@ class ErrorCode(_WorkErrorCode):
     AGENT_ERROR = "agent_error"         # エージェントを起動できない（details に ecoagent の code）
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
     NOT_UPDATABLE = "not_updatable"     # installer update：入れ方（手元のソース・同梱のインストーラー等）から更新できない
+    CONTAINER_ERROR = "container_error"   # 作業空間のコンテナ：コンテナにしていない・Docker が使えない・docker が失敗した
 
 
 class EcoBuildError(WorkError):

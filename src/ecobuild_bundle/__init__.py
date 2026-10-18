@@ -10,10 +10,13 @@
 from __future__ import annotations
 
 from importlib import resources
+from pathlib import Path
 from typing import Iterable
 
 import ecobuild
 from ecobuild import settings as _settings
+from ecobuild import workspaces as _workspaces
+from ecobuild.errors import WorkError
 from ecobuild.results import DoctorItem
 
 from . import tooling
@@ -28,6 +31,19 @@ REGISTRY = ecobuild.Registry.from_toml(
 class Module(ecobuild.Module):
     """同梱の型（REGISTRY）を使う Module。"""
     registry = REGISTRY
+
+    @classmethod
+    def close_workspace(cls, path, **options):
+        """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。"""
+        from . import container
+        try:   # 閉じると ecobuild.local.toml も消えるので、先に読む
+            chosen = container.enabled(_workspaces.module_root(Path(path)))
+        except WorkError:
+            chosen = False
+        closed = super().close_workspace(path, **options)
+        if closed.done and chosen:
+            container.discard(closed.path)
+        return closed
 
 
 def doctor(extra: Iterable[DoctorItem] = (), *, command: str = "") -> tooling.DoctorReport:

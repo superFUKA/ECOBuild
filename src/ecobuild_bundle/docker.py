@@ -91,8 +91,9 @@ def wsl(*args: str) -> list[str]:
     return ["wsl", "-d", DISTRO, "-u", "root", "--", *args]
 
 
-def status(runner: Runner = run, *, windows: bool | None = None) -> DockerStatus:
+def status(runner: Runner | None = None, *, windows: bool | None = None) -> DockerStatus:
     """docker が使えるか（デーモンに繋がるか）を調べる。Windows で WSL の中を調べるときは、その中を起動する。"""
+    runner = runner or run
     windows = os.name == "nt" if windows is None else windows
     if shutil.which("docker") is not None:
         version = runner(["docker", "version", "--format", "{{.Server.Version}}"])
@@ -119,16 +120,18 @@ def status(runner: Runner = run, *, windows: bool | None = None) -> DockerStatus
     return DockerStatus(True, "ready", f"Docker {version.output.strip()}（WSL の {DISTRO}）", tuple(wsl("docker")))
 
 
-def doctor_item(runner: Runner = run, *, command: str = "") -> DoctorItem:
+def doctor_item(runner: Runner | None = None, *, command: str = "") -> DoctorItem:
+    runner = runner or run
     found = status(runner)
     return DoctorItem(NAME, found.ready, False, found.detail if found.ready else f"{found.detail}（なくても使えます）",
                       f"{operation(command, 'setup')} --docker で導入できます（作業空間をコンテナで隔離するときに使います）。", FIX)
 
 
-def install(runner: Runner = run, *, windows: bool | None = None,
+def install(runner: Runner | None = None, *, windows: bool | None = None,
             progress: Callable[[str], None] = lambda message: None, command: str = "") -> DockerSetup:
     """docker が使えるまで、足りない段階を順に行う。再起動・ログインし直すことが要れば、そこで止まる。
     command：ヒントに書くプログラム名（errors.operation）。"""
+    runner = runner or run
     windows = os.name == "nt" if windows is None else windows
     done: list[str] = []
     again = f"もう一度 {operation(command, 'setup')} --docker を実行してください"

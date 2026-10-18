@@ -134,14 +134,15 @@ WS.onRefresh(renderPrDetail);
       () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
   // AI (coding agent): ecobuild agent start opens it in a new window at the workspace's root and returns at once.
-  // The command to start (--agent) is kept per PC; empty means ECOBuild's default.
+  // The command to start (--agent) is kept per PC; empty means ECOBuild's default. Only on a task branch (as the CLI).
   const AGENT_KEY = 'ecobuild-gui-agent';
   const agentCommand = () => { try { return localStorage.getItem(AGENT_KEY) || ''; } catch (e) { return ''; } };
   const setAgentCommand = command => { try { localStorage.setItem(AGENT_KEY, command); } catch (e) { /* storage blocked */ } };
   const showAgent = () => {
-    const s = WS.status, ready = !!s, command = agentCommand();
+    const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
-    get('agent-start').title = ready ? `この作業空間のルートで、AIを新しい画面で起動します（${command || '既定のエージェント'}）` : '作業空間の状態を読み込んでいます';
+    get('agent-start').title = ready ? `この作業空間のルートで、AIを新しい画面で起動します（${command || '既定のエージェント'}）`
+      : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
   async function startAgent(command = agentCommand()) {
     const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);

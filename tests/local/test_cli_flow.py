@@ -735,10 +735,12 @@ def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     started = []
     monkeypatch.setattr(ecoagent, "start", lambda directory, command: started.append((directory, command))
                         or ecoagent.Session(1, tuple(command), directory))
-    assert as_json(cli("agent", "start", "--json"))["ok"]          # タスクブランチでなくても、作業空間なら起動する
-    assert started == [(module.root, ecoagent.DEFAULT_COMMAND)]
+    assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ起動する
+    assert started == []
 
     cli("task", "new", "AIで作業", "--start")
+    assert as_json(cli("agent", "start", "--json"))["ok"]
+    assert started == [(module.root, ecoagent.DEFAULT_COMMAND)]
     (module.root / "sub").mkdir()
     monkeypatch.chdir(module.root / "sub")
     result = as_json(cli("agent", "start", "--agent", "codex --full-auto", "--json"))["result"]

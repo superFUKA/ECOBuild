@@ -39,6 +39,7 @@
 .build-bar .agent-group .agent-button, .build-bar .agent-group .vs-more { border-color: #3f7a6c; color: #b8eadb; }
 .build-bar .agent-group .vs-more { border-left-color: #2d4d45; }
 .build-bar .agent-group button:hover:not(:disabled) { border-color: #7fcdb8; }
+.build-bar .agent-group .agent-button:disabled { opacity: 1; border-color: #3a424c; color: #6b7581; background: transparent; cursor: not-allowed; }
 
 /* Explorer: Project folders vs ordinary folders. */
 #file-tree summary { display: flex; align-items: center; gap: 6px; }

@@ -1033,8 +1033,9 @@ class Module:
         return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
 
     def start_agent(self, command: list[str] | tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> AgentStarted:
-        """作業空間のルート（モジュールのルート）で、エージェントを新しい画面で起動する。どのブランチでもよい
-        （ファイルを変える操作は、エージェントが使う ecobuild がタスクブランチでだけ受け付ける）。"""
+        """作業空間のルート（モジュールのルート）で、エージェントを新しい画面で起動する。タスクブランチでだけ
+        （エージェントはタスクの作業をするもの。作業空間がタスクブランチでなければ起動しない）。"""
+        self.require_task_branch("エージェントの起動")
         try:
             session = ecoagent.start(self.root, command)
         except ecoagent.AgentError as error:

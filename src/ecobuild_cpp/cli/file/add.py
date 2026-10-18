@@ -12,6 +12,8 @@ def command(
     """ファイルをテンプレートから作ります。ライブラリの src/ にソースを足すと、テスト用Projectにテストも作ります。
 
     同じ名前のヘッダーとソースを一緒に足すと、ソースはそのヘッダーを相対パスで読み込みます（例：file add
-    include/App/Foo.h src/Foo.cpp → #include "../include/App/Foo.h"）。
+    include/App/Foo.h src/Foo.cpp → #include "../include/App/Foo.h"）。ソースだけ足したときも、同じフォルダーに
+    同じ名前のヘッダーがあればそれを読み込みます。include/<Project>/ は使う側に見せるヘッダー、src/ は実装用
+    （ヘッダーとソースを並べる）です。
     """
     return add_files(paths, test, template, json)

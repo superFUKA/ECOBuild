@@ -424,6 +424,8 @@ jobs:
         self._require_source_directory(path, project, relative)
         header = self._header_for(project, relative)
         test_header = header
+        if pair_header is None:
+            pair_header = self._header_beside(project, relative)
         if pair_header is not None:
             header, test_header = self._pair_includes(project, relative, pair_header)
         if template is not None:
@@ -450,6 +452,15 @@ jobs:
         source = Path(os.path.relpath(target, (root / relative).parent)).as_posix()
         include = root / "include"
         return source, target.relative_to(include).as_posix() if target.is_relative_to(include) else None
+
+    def _header_beside(self, project: str, relative: str) -> Path | None:
+        """ソースと同じフォルダーにある同じ名前のヘッダー（実装用のヘッダーは .cpp と並べる）。"""
+        path = Path(relative)
+        if path.suffix.lower() not in _cppbuild.SOURCE_SUFFIXES:
+            return None
+        root = _cppbuild.project_root(self.root, project)
+        return next((root / path.with_suffix(suffix) for suffix in _cppbuild.HEADER_SUFFIXES
+                     if (root / path.with_suffix(suffix)).is_file()), None)
 
     @staticmethod
     def _absolute(path: Path) -> Path:

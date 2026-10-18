@@ -245,6 +245,11 @@ def test_source_includes_the_header_added_with_it(module, monkeypatch):
     assert '#include "Cell.h"' in (module.root / "Shape/src/geo/Cell.cpp").read_text(encoding="utf-8")
     assert '#include "../../../Shape/src/geo/Cell.h"' in \
         (module.root / "ShapeTest/src/geo/CellTest.cpp").read_text(encoding="utf-8")
+    write(module.root / "Shape/src/geo/Grid.h", "#pragma once\n")   # ソースだけ足す：隣のヘッダーを読み込む
+    module.add_files(["Shape/src/geo/Grid.cpp"])
+    assert '#include "Grid.h"' in (module.root / "Shape/src/geo/Grid.cpp").read_text(encoding="utf-8")
+    assert '#include "../../../Shape/src/geo/Grid.h"' in \
+        (module.root / "ShapeTest/src/geo/GridTest.cpp").read_text(encoding="utf-8")
     assert module.test().failed == 0 and module.build(project="Viewer").artifacts
 
 

@@ -244,7 +244,7 @@ function fileMenu(path, x, y) {
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can && !outside], '-',
     ['rename', '名前の変更　F2', can && exists && !isReadme(path)], ['move', '移動先を指定…', can && exists && !isReadme(path)], ['remove', '削除　Delete', can && exists && !isReadme(path)],
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
-    ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
+    ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
   ], x, y);
 }
 // A Project's own folder: what Visual Studio's Solution Explorer offers on a project (build, test, run, the target).
@@ -360,7 +360,7 @@ async function menuAction(action, dir) {
       const target = dir !== undefined ? dir : path;
       return WS.inTortoiseGit(['log', ...(target ? [target] : [])], () => WS.showLog(target));
     }
-    case 'blame': return WS.inTortoiseGit(['blame', path], async () => { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('行ごとの変更履歴', doc.result, {sub: path}) : ECO.showError(doc); });
+    case 'blame': return WS.inTortoiseGit(['blame', path], async () => { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('注釈履歴', doc.result, {sub: path}) : ECO.showError(doc); });
   }
 }
 

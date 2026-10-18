@@ -70,10 +70,10 @@ function moduleOf(url) {
   try { const u = new URL(url); return sameServer(url) && u.pathname === '/module.html' ? u.searchParams.get('path') || '' : ''; }
   catch (e) { return ''; }
 }
-// The module a window belongs to on the taskbar: its window (module.html?path=), or a window it opened (log.html?module=).
+// The module a window belongs to on the taskbar: its window (module.html?path=), or a window it opened (log.html・panel.html?module=).
 // Only the hub is the hub's.
 function ownerOf(url) {
-  try { const u = new URL(url); return moduleOf(url) || (sameServer(url) && u.pathname === '/log.html' ? u.searchParams.get('module') || '' : ''); }
+  try { const u = new URL(url); return moduleOf(url) || (sameServer(url) && ['/log.html', '/panel.html'].includes(u.pathname) ? u.searchParams.get('module') || '' : ''); }
   catch (e) { return ''; }
 }
 
@@ -102,12 +102,28 @@ function openModule(root) {
 
 const openRequested = argv => { const root = moduleArg(argv); if (root) openModule(root); else openHub(); };
 
+// A panel dragged out of a window (panel.html, as Visual Studio's floating tool window): where it was dropped
+// (features left・top・width・height), over the window it came from (parent: it stays in front of it, has no
+// taskbar button of its own, and closes with it).
+function panelOptions(opener, url, features) {
+  const f = Object.fromEntries(String(features || '').split(',').map(kv => kv.split('=').map(s => s.trim())));
+  const number = (key, fallback) => Number.isFinite(Number(f[key])) && f[key] !== undefined && f[key] !== '' ? Number(f[key]) : fallback;
+  const parent = BrowserWindow.fromWebContents(opener);
+  return {
+    ...windowOptions([number('width', 900), number('height', 440)], ownerOf(url) ? MODULE_ICON : ICON),
+    ...(f.left !== undefined ? {x: number('left', 0), y: number('top', 0)} : {}),
+    ...(parent ? {parent} : {}), skipTaskbar: !!parent, minWidth: 360, minHeight: 160,
+  };
+}
+
 // Every page: GUI pages open as app windows, other addresses (GitHub etc.) in the default browser.
 // outlivesOpener: a window stays when the one that opened it closes (closing the hub leaves the modules open).
 app.on('web-contents-created', (event, contents) => {
-  contents.setWindowOpenHandler(({url}) => {
+  contents.setWindowOpenHandler(({url, features}) => {
     if (sameServer(url)) {
-      const size = new URL(url).pathname === '/log.html' ? LOG_SIZE : MODULE_SIZE;
+      const page = new URL(url).pathname;
+      const size = page === '/log.html' ? LOG_SIZE : MODULE_SIZE;
+      if (page === '/panel.html') return {action: 'allow', overrideBrowserWindowOptions: panelOptions(contents, url, features)};
       return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? MODULE_ICON : ICON)};
     }
     if (/^https?:/i.test(url)) shell.openExternal(url);

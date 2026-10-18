@@ -509,8 +509,8 @@ const ECO = (() => {
   const windowId = (() => { try { if (window.top !== window && window.top.ECO?.windowId) return window.top.ECO.windowId; } catch (e) { /* other origin */ }
     return Math.random().toString(36).slice(2, 10); })();
   const top = window.top === window;
-  // kind: the hub, a module's window, or a log window (log.html: never the place to open the hub or a module).
-  const windowState = {id: windowId, kind: /module\.html$/.test(location.pathname) ? 'module' : /log\.html$/.test(location.pathname) ? 'log' : 'hub', module: params.get('path') || undefined, title: document.title};
+  // kind: the hub, a module's window, or a tool window (log.html・panel.html: never the place to open the hub or a module).
+  const windowState = {id: windowId, kind: /module\.html$/.test(location.pathname) ? 'module' : /log\.html$/.test(location.pathname) || /panel\.html$/.test(location.pathname) ? 'tool' : 'hub', module: params.get('path') || undefined, title: document.title};
   let stateTimer = null;
   const topState = () => { try { if (!top) return window.top.ECO?.windowState; } catch (e) { /* other origin */ } return windowState; };
   function setState(partial) {
@@ -524,9 +524,10 @@ const ECO = (() => {
   const onNavigate = fn => navigateHandlers.push(fn);   // fn({page, tab, task, command}): go there in this window
   // Opens a GUI page (module.html?path=…#…, log.html?…) as its own app window: Electron opens window.open as a window
   // (also from a page inside the window, as the workspace's frame), otherwise the server starts it (Edge).
-  function openPage(page) {
+  // features: where and how large (left=…,top=…,width=…,height=…: a panel dragged out opens where it was dropped).
+  function openPage(page, features = '') {
     const electron = window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })();
-    if (electron) return Promise.resolve(window.open(page, '_blank'));
+    if (electron) return Promise.resolve(window.open(page, '_blank', features));
     return call('open-window', {page}).catch(() => window.open(page, '_blank'));
   }
   async function apply(effect) {

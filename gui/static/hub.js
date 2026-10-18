@@ -370,18 +370,25 @@ async function checkUpdate({quiet = true} = {}) {
     banner.querySelector('button').addEventListener('click', runUpdate);
   }
 }
-let updateGui = false;   // the installer puts the GUI in too (and closes it): installer update --check says
+// The GUI ends while the installer runs (so it can be replaced, and the new ecobuild is the one used) and opens again
+// when the installer's window has closed (relaunch-after: a process of its own waits for it).
+let updateGui = false;   // the installer puts the GUI in too: installer update --check says
 async function runUpdate() {
-  const message = updateGui
-    ? 'CLI と GUI を新しい版に入れ直します。別の窓でインストーラーが動き、GUI はすべての窓を閉じます（ビルド・実行中のものも止まります）。終わったら GUI を起動し直してください。'
-    : 'CLI（ecobuild）を新しい版に入れ直します。別の窓でインストーラーが動きます。この GUI はインストーラーで入れたものではないので、入れ直しません（開いたまま使えます）。';
+  const message = `${updateGui ? 'CLI と GUI' : 'CLI（ecobuild）'}を新しい版に入れ直します。GUI はいったんすべての窓を閉じ（ビルド・実行中のものも止まります）、別の窓のインストーラーが終わったら起動し直します。`;
   if (!await ECO.confirm({title: 'ECOBuild を更新', message, ok: '更新する'})) return;
   const doc = await ECO.run(null, ['installer', 'update']);
   if (!doc) return;
   const r = doc.result;
   if (r.up_to_date) { ECO.toast('最新です。', 'ok'); return checkUpdate(); }
-  $('update-status').textContent = r.gui ? '更新を始めました。別の窓のインストーラーが終わったら、GUI を起動し直してください。' : '更新を始めました。別の窓のインストーラーが終わると、新しい ecobuild が使われます。';
-  ECO.toast('更新を始めました。インストーラーの窓で進みます' + (r.gui ? '（GUI は閉じます）。' : '。'), 'ok', 15000);
+  try { await ECO.call('relaunch-after', {pid: r.process || 0}); }
+  catch (e) {
+    $('update-status').textContent = '更新を始めました。インストーラーの窓が閉じたら、GUI を起動し直してください。';
+    return ECO.toast(`GUI を自動で起動し直せません：${e.message}`, 'bad', 15000);
+  }
+  try { await ECO.call('shutdown'); } catch (e) { /* already gone */ }
+  if (window.ecobuildShell) return;
+  document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild を更新しています。インストーラーの窓が閉じると、GUI が起動し直します。このウィンドウは閉じてかまいません。</main>';
+  window.close();
 }
 $('check-update').addEventListener('click', () => checkUpdate({quiet: false}));
 $('run-update').addEventListener('click', runUpdate);

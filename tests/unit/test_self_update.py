@@ -20,6 +20,26 @@ def test_compares_with_the_latest_of_the_installed_branch(monkeypatch):
     assert _self_update.update(OLD).up_to_date and not _self_update.update(OLD).started   # 最新なら何もしない
 
 
+def test_update_starts_the_installer_in_another_window(monkeypatch, tmp_path):
+    """Windows：別の窓で、この ecobuild が終わってから。その窓のプロセスを返す（GUI はそれが終わってから起動し直す）。
+    うまくいけば窓は閉じ、失敗なら Enter を待つ。"""
+    monkeypatch.setattr(_self_update.os, "name", "nt")
+    monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("https://example.invalid/E", "main", OLD))
+    monkeypatch.setattr(_self_update, "_remote_commit", lambda url, ref: NEW)
+    monkeypatch.setattr(_self_update, "_installer", lambda url, commit, name: tmp_path / name)
+    started = []
+
+    class Process:
+        pid = 1234
+
+    monkeypatch.setattr(_self_update.subprocess, "CREATE_NEW_CONSOLE", 16, raising=False)
+    monkeypatch.setattr(_self_update.subprocess, "Popen", lambda command, **kwargs: started.append(command) or Process())
+    result = _self_update.update()
+    assert result.started and result.process == 1234
+    script = started[0][-1]
+    assert "Wait-Process" in script and "-Ref 'main'" in script and "if ($LASTEXITCODE -ne 0)" in script
+
+
 def test_source_installs_are_not_updated(monkeypatch):
     monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("file:///C:/src", None, None, editable=True))
     with pytest.raises(EcoBuildError) as error:

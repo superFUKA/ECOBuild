@@ -1044,6 +1044,8 @@ class App:
             return make_parent(d("path"))
         if name == "shortcut":
             return {"made": make_shortcuts()}
+        if name == "relaunch-after":
+            return relaunch_after(int(d("pid") or 0))
         if name == "module-repository":
             return {"repository": module_repository(d("dir"))}
         if name == "account":
@@ -1297,6 +1299,36 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
     return made
 
 
+def relaunch_after(pid: int) -> dict:
+    """pid のプロセス（ECOBuild を更新している窓）が終わったら GUI を起動し直す、切り離したプロセスを始める。
+    GUI はこの後に終了する（更新で置き換えられるように）。pid が 0 なら待たない。"""
+    _start_detached([_pythonw(), str(Path(__file__).resolve()), "--relaunch-after", str(pid)], no_window=True)
+    return {}
+
+
+def _wait_and_relaunch(pid: int) -> None:
+    """--relaunch-after：pid が終わるのを待ち（最長2時間）、古い GUI が終わる間をおいて、新しいプロセスで GUI を開く
+    （更新で入れ替わったファイルを読むように。ショートカットと同じ起動のしかた）。"""
+    if pid and os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+        if handle:
+            kernel32.WaitForSingleObject(handle, 2 * 60 * 60 * 1000)
+            kernel32.CloseHandle(handle)
+    elif pid:
+        deadline = time.monotonic() + 2 * 60 * 60
+        while time.monotonic() < deadline:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                break
+            time.sleep(1)
+    time.sleep(2)
+    here = Path(__file__).resolve().parent
+    _start_detached([str(packaged_app())] if packaged_app() else [_pythonw(), str(here / "ECOBuildGUI.pyw")], no_window=True)
+
+
 def _pythonw() -> str:
     candidate = Path(sys.executable).with_name("pythonw.exe")
     return str(candidate) if os.name == "nt" and candidate.is_file() else sys.executable
@@ -1515,8 +1547,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="Electron があっても使わず、Edge（なければ既定のブラウザ）の窓で開く")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
     parser.add_argument("--electron", action="store_true", help=argparse.SUPPRESS)  # Electron の子プロセス（electron/main.js が使う）
+    parser.add_argument("--relaunch-after", type=int, default=None, help=argparse.SUPPRESS)  # 更新の後に起動し直す（relaunch_after）
     args = parser.parse_args(argv)
-    if args.shortcut:
+    if args.relaunch_after is not None:
+        _wait_and_relaunch(args.relaunch_after)
+    elif args.shortcut:
         try:
             _say("作りました：\n" + "\n".join(make_shortcuts()))
         except GuiError as error:

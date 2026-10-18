@@ -205,3 +205,4 @@ if (-not $NoGui) {
 Write-Host "更新：ecobuild installer update（またはこのインストーラーをもう一度実行。ECOBuild も GUI も入れ替わります）。"
 Write-Host "入っているもの：ecobuild installer show。あとから入れる：ecobuild installer add docker（Docker）・tools（足りないツール）。"
 Write-Host "削除：pipx uninstall ecobuild。GUI は $GuiDir と、デスクトップ・スタートメニューの「ECOBuild GUI」を消す。"
+exit 0   # うまくいった（ecobuild installer update は終了コードで、窓を閉じるか待つかを決める）

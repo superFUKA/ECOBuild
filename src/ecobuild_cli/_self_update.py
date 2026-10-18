@@ -43,6 +43,7 @@ class SelfUpdate:
     up_to_date: bool
     started: bool = False    # 更新を始めた（Windows：別の窓で。終わるまで待たない）
     gui: bool = False        # GUI も入れ直す（インストーラーが入れた GUI があるとき）
+    process: int | None = None   # 更新している窓のプロセス（Windows。これが終われば更新も終わっている）
 
 
 def installed() -> Installed:
@@ -83,9 +84,13 @@ def update(ref: str | None = None) -> SelfUpdate:
     if os.name == "nt":
         command = (f"Wait-Process -Id {os.getpid()} -ErrorAction SilentlyContinue; "
                    f"& {_quote(script)} -Ref {_quote(result.ref)} -NoInit{'' if gui else ' -NoGui'}; "
-                   "Write-Host ''; Read-Host '閉じるには Enter を押してください'")
-        subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-                         creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=str(script.parent))
+                   # うまくいけば少し見せて閉じる（待っている人＝GUI の起動し直しがすぐ進む）。失敗なら読めるように待つ
+                   "if ($LASTEXITCODE -ne 0) { Write-Host ''; Read-Host '閉じるには Enter を押してください' } "
+                   "else { Start-Sleep -Seconds 3 }")
+        process = subprocess.Popen(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                                   creationflags=subprocess.CREATE_NEW_CONSOLE, cwd=str(script.parent))
+        return SelfUpdate(result.url, result.ref, result.current, result.latest, False, started=True, gui=gui,
+                          process=process.pid)
     else:
         completed = subprocess.run(["bash", str(script), "--ref", result.ref, "--no-init"])
         if completed.returncode != 0:

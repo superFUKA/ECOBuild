@@ -202,6 +202,12 @@ body.resizing iframe { pointer-events: none; }
 .work .panel { padding: 14px 16px; border-radius: 0 0 10px 10px; margin-bottom: 12px; }
 [role=tabpanel] > .heading:has(> h3:only-child) { display: none; }   /* a panel whose heading is only its (hidden) name */
 .work-tabs button { padding: 4px 12px; font-size: 13px; }
+/* The tabs stay at the top while the work area scrolls (the room above them is theirs, so nothing shows through). */
+.work, body.embedded .work { padding-top: 0; }
+.work-tabs { position: sticky; top: 0; z-index: 5; padding-top: 10px; background: #14171b; }
+.work > .heading { padding-top: 10px; }
+/* What an operation did is not written under the work area (it shows in what changed); kept for screen readers. */
+#operation-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 /* The task branch of this workspace (in the toolbar: it is about the whole workspace); a click switches it. */
 .branch-button { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 280px; padding: 5px 8px 5px 10px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #a8dfd0; font-size: 12px; }
 .branch-button:hover { border-color: #56616e; }

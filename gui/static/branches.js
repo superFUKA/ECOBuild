@@ -22,10 +22,9 @@
   // Reads: the branches and the submissions (cached: the kept answer shows at once, a newer one redraws). A submission
   // read from an older ecobuild has no base: its task's status (which has it) fills it in.
   async function load() {
-    const which = el('br-to-review').checked ? '--to-review' : '--submitted';
     const [branches, tasks] = await Promise.all([
       ECO.query(MOD.root, ['branch', 'list'], fresh => { st.branches = fresh.ok ? fresh.result : st.branches; render(); }),
-      ECO.query(MOD.root, ['task', 'list', which], fresh => { if (fresh.ok) { st.submissions = fresh.result; fillBases().then(render); } }),
+      ECO.query(MOD.root, ['task', 'list', '--submitted'], fresh => { if (fresh.ok) { st.submissions = fresh.result; fillBases().then(render); } }),
     ]);
     st.error = !branches.ok ? branches.error.message : !tasks.ok ? tasks.error.message : '';
     st.branches = branches.ok ? branches.result : [];
@@ -77,7 +76,7 @@
         <div class="mi-actions">${branchActions}</div></div>
       <h4 class="br-section">このブランチへの提出 <span class="br-count ${items.length ? '' : 'zero'}">${items.length}</span></h4>
       <div class="br-list" role="listbox" aria-label="このブランチへの提出">${items.map(i => itemRow(i)).join('') ||
-        `<p class="mi-note">${el('br-to-review').checked ? '見るように頼まれた提出はありません。' : '届いている提出はありません。'}</p>`}</div>
+        '<p class="mi-note">届いている提出はありません。</p>'}</div>
       <div id="br-detail" class="br-detail"></div>
       ${taskBranches.length ? `<details class="br-task-branches"><summary>このブランチから作ったタスクブランチ（${taskBranches.length}）</summary>
         <ul>${taskBranches.map(t => { const n = /^task\/(\d+)$/.exec(t.name)?.[1];
@@ -233,7 +232,6 @@
     }, st.item?.startsWith('task:') && !st.status ? 800 : 0);
   });
   el('br-reload').addEventListener('click', () => { st.status = null; load(); });
-  el('br-to-review').addEventListener('change', () => { st.item = null; st.status = null; load(); });
   el('br-log').addEventListener('click', async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); });
   el('br-create').addEventListener('click', () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
     {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},

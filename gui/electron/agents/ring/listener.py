@@ -705,6 +705,8 @@ class App:
         emit(event='gesture', gesture=name, mode=mode)
 
     def _on_event(self, event):
+        if self.args.mode == 'resident' and self.app_up:
+            return   # 常駐：ECOBuild が動いている間は何もしない（ECOBuild の受信係が受け持つ）
         log('in', event)
         burst = self.seg.feed(event, time.monotonic())
         if burst:
@@ -991,14 +993,14 @@ def main():
     if args.table:
         TABLE_PATH = args.table
         os.makedirs(os.path.dirname(TABLE_PATH) or '.', exist_ok=True)
-    if args.log and args.mode in ('serve', 'monitor', 'resident'):
-        open_log(args.log)
     if args.mode == 'resident':
-        # サインインごとに1つだけ（スタートアップと手で起動したものが重なっても二重にしない）
+        # サインインごとに1つだけ（スタートアップと手で起動したものが重なっても二重にしない）。記録を開く前に見る
+        # （開くと前の記録を消してしまう）
         mutex = create_mutex(None, False, 'Local\\ECOBuildRingResident')
         if not mutex or C.get_last_error() == ERROR_ALREADY_EXISTS:
-            log('resident already running')
             return
+    if args.log and args.mode in ('serve', 'monitor', 'resident'):
+        open_log(args.log)
     if args.mode == 'find':
         print(json.dumps(find_rings(), ensure_ascii=True), flush=True)
         return

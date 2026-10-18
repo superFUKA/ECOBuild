@@ -295,3 +295,7 @@
 .cal-due.overdue { color: var(--bad); } .cal-due:hover, .cal-due[aria-selected=true] { background: #ffffff12; }
 /* 完了にする on a task with a task branch: completed from its workspace (完了する), so not pressed here. */
 .tk .tk-d-actions button.tk-unavailable:disabled { opacity: 1; border-color: #3a424c; color: #6b7581; background: transparent; cursor: not-allowed; }
+/* Room: the page's head and its tabs low. */
+.tk-top { padding: 10px 16px 6px; }
+.tk h2 { font-size: 16px; }
+.tk .tk-views button { padding: 6px 12px; }

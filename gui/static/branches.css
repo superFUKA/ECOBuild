@@ -39,3 +39,5 @@
 .br-task-branches ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
 .br-task-branches button { padding: 2px 8px; font-size: 11px; }
 @media (max-width: 760px) { .br-body { grid-template-columns: 1fr; } .br-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 180px; } }
+/* Room: as the other pages of the module window. */
+.br-main { padding: 12px 16px 20px; }

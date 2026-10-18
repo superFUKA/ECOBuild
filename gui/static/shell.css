@@ -74,3 +74,8 @@ header .header-actions button:hover { border-color: #9ee4d3; }
 .module-shell.nav-collapsed .nav-account-name { display: none; }
 header .brand-icon { display: block; flex: none; }
 header { gap: 12px; }
+/* Room: the window's top bar and the menu use little space (as the workspace does). */
+header { padding: 10px 16px; }
+.module-nav { padding: 10px 6px; }
+.module-nav button { padding: 6px 10px; margin-bottom: 2px; }
+.module-nav .nav-toggle { margin-bottom: 6px; }

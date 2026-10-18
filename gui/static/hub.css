@@ -164,3 +164,18 @@
     html.frameless .sidebar { top: 40px; height: calc(100vh - 40px); }
     html.frameless .sidebar h1 { display: none; }
     html.frameless .sidebar-top { padding-bottom: 18px; }
+/* Room: the hub with less space around and smaller cards (as the module window). */
+main { padding: 22px 28px; }
+.page-heading h2, h2 { font-size: 22px; }
+.add-button { padding: 6px 14px; }
+.sidebar { padding: 14px 8px; }
+.sidebar-top { padding-bottom: 14px; }
+.sidebar nav { gap: 2px; }
+.nav-button { padding: 7px 10px; }
+.setup-banner { padding: 10px 14px; margin-bottom: 12px; }
+.setup-banner .add-button { padding: 5px 12px; }
+.module-list { margin-top: 16px; gap: 12px; }
+.module-list a { padding: 14px 16px; border-radius: 10px; }
+.module-icon { width: 34px; height: 34px; margin-bottom: 10px; border-radius: 9px; font-size: 15px; }
+.module-name { font-size: 16px; }
+.module-open { margin-top: 12px; padding-top: 8px; }

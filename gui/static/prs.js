@@ -30,8 +30,8 @@ async function loadPr(number) {
 function renderPrDetail() {
   const t = prStatus, tools = get('pr-tools');
   tools.replaceChildren();
-  // 1 while there is something here: a submission open, or commits to submit (not in the base yet).
-  WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr && (t.pull_request?.state === 'open' || t.commits?.length) ? 1 : 0);
+  // The commits going into the submission (not in the base yet), like the counts of the other tabs.
+  WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr ? t.commits?.length || 0 : 0);
   if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「ブランチ」で見られます。</p>'; return; }
   if (!t || t.number !== selectedPr) return;
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;

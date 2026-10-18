@@ -162,7 +162,38 @@ function Update-InPlace {
     return $true
 }
 
+# 動いている ecobuild（agent token login の窓・別の端末等）があると、ecobuild.exe を置き換えられない（WinError 32）。
+# 閉じられるまで待つ（更新を始めた ecobuild 自身は、この窓が始まる前に終わっている）。-Yes では待たずに止める
+function Get-RunningEcobuild {
+    $venvs = (Invoke-Python -m pipx environment --value PIPX_LOCAL_VENVS 2>$null | Out-String).Trim()
+    $bin = (Invoke-Python -m pipx environment --value PIPX_BIN_DIR 2>$null | Out-String).Trim()
+    if (-not $venvs) { return @() }
+    $places = @((Join-Path $venvs "ecobuild") + "\")
+    if ($bin) { $places += (Join-Path $bin "ecobuild.exe") }
+    return @(Get-CimInstance Win32_Process -Filter "Name='ecobuild.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $path = $_.ExecutablePath; $path -and ($places | Where-Object { $path.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }) })
+}
+function Wait-EcobuildClosed {
+    $running = Get-RunningEcobuild
+    if ($running.Count -eq 0) { return }
+    Write-Host "    動いている ecobuild があるため、入れ替えられません。閉じてください（閉じると自動で進みます）：" -ForegroundColor Yellow
+    foreach ($process in $running) { Write-Host ("      PID {0}：{1}" -f $process.ProcessId, $process.CommandLine) }
+    if ($Yes) { Stop-Install "動いている ecobuild を閉じてから、もう一度実行してください。" }
+    while ((Get-RunningEcobuild).Count -gt 0) { Start-Sleep -Seconds 1 }
+    Write-Done "閉じられました"
+}
+
+# pip が途中で失敗すると、外しかけたものが ~cobuild 等として残る（警告が出続ける）ので消す
+function Remove-PartialUninstall {
+    $venvs = (Invoke-Python -m pipx environment --value PIPX_LOCAL_VENVS 2>$null | Out-String).Trim()
+    if (-not $venvs) { return }
+    $sitePackages = Join-Path $venvs "ecobuild\Lib\site-packages"
+    if (Test-Path $sitePackages) { Get-ChildItem $sitePackages -Filter "~*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 Write-Step "ECOBuild を導入します（少し時間がかかります）"
+Wait-EcobuildClosed
+Remove-PartialUninstall
 if ($Source) {
     Invoke-Python -m pipx install --force --editable $Source
 } elseif (Update-InPlace) {

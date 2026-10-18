@@ -3,7 +3,7 @@
 // ほかの窓と同じく、サーバーの events を待ち受ける「窓」（kind: agents）として、今のタブの様子を知らせる（サーバーは
 // それで agents の一覧に答える）。サーバーが頼んできた操作（type: agents）を handle に渡す。
 const ID = 'agents-main';
-let base = '', token = '', since, describe = () => [], handle = () => {}, pending = null, stopped = false;
+let base = '', token = '', since, describe = () => [], handle = () => {}, openPage = () => {}, pending = null, stopped = false;
 
 async function post(api, body, timeoutMs = 30000) {
   const controller = new AbortController();
@@ -24,9 +24,11 @@ async function loop() {
       if (since === undefined) { since = answer.seq; continue; }
       since = answer.seq;
       for (const event of answer.events || []) {
-        if (event.type === 'agents' && event.target === ID) {
-          try { await handle(event.op, event.params || {}); } catch (e) { console.error('agents:', event.op, e.message); }
-        }
+        if (event.target !== ID) continue;
+        try {
+          if (event.type === 'agents') await handle(event.op, event.params || {});
+          else if (event.type === 'open-window') openPage(event.page);   // 画面の窓がないとき：ハブ・モジュールの窓を開く
+        } catch (e) { console.error('agents:', event.type, event.op, e.message); }
       }
     } catch (e) {
       await new Promise(r => setTimeout(r, 3000));   // サーバーが止まっている・まだ起動中
@@ -43,7 +45,7 @@ function changed() {
 function connect(hubUrl, options) {
   const url = new URL(hubUrl);
   base = url.origin; token = url.searchParams.get('t') || '';
-  describe = options.describe; handle = options.handle;
+  describe = options.describe; handle = options.handle; openPage = options.openPage || openPage;
   loop();
 }
 

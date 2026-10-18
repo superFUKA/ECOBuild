@@ -772,7 +772,7 @@ function setup({ecobuild, python, group}) {
 }
 
 // GUI のサーバーにつなぐ（外からの操作を受ける。main.js がサーバーの起動後に呼ぶ）
-function connect(hubUrl) { link.connect(hubUrl, {describe: externalList, handle: external}); }
+function connect(hubUrl, openPage) { link.connect(hubUrl, {describe: externalList, handle: external, openPage}); }
 
 // 外から（試験・GUIの操作）：タブに文字を送る
 function input(id, data) { findSession(id)?.proc?.write(data); }

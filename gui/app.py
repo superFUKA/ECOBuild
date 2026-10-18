@@ -900,7 +900,7 @@ class App:
         if name == "folder":
             if origin in self.windows:
                 return {"apply": {"open": {"dir": p["dir"], "path": p.get("path", ""), "reveal": p.get("reveal", False)}}}
-            target = self.module_window(p["dir"]) or next(iter(self.live_windows()), None)
+            target = self.module_window(p["dir"]) or next((w for w in self.live_windows() if w.get("kind") != "agents"), None)
             if target:
                 self.events.publish({"type": "open-path", "target": target["id"], "by": by, "dir": p["dir"],
                                      "path": p.get("path", ""), "reveal": p.get("reveal", False)})
@@ -947,8 +947,10 @@ class App:
             return {"done": "navigated", "window": target["id"]}
         if origin in self.windows:
             return {"apply": {"open-window": page}}
-        opener = next(iter(self.live_windows()), None)
-        if opener:      # Electron の窓は、開いている窓が開く（サーバーは Electron の窓を開けない）
+        # Electron の窓は、開いている窓が開く（サーバーは Electron の窓を開けない）。画面の窓がなければ Electron の main
+        # （エージェントの窓を持つもの。kind agents）が開く
+        opener = next((w for w in self.live_windows() if w.get("kind") != "agents"), None) or self.agents_window()
+        if opener:
             self.events.publish({"type": "open-window", "target": opener["id"], "by": by, "page": page})
             return {"done": "asked", "window": opener["id"]}
         base, _, fragment = page.partition("#")

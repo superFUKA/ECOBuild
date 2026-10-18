@@ -152,3 +152,14 @@ def test_agents_go_to_the_electron_window(tmp_path):
     with pytest.raises(gui.GuiError):
         app.action("agent-show", {"tab": 9})
     assert app.action("agent-open", {"dir": "C:/ECO/Calc"})["done"] == "asked"
+
+
+def test_opening_goes_to_a_page_window_or_the_electron_main(tmp_path, monkeypatch):
+    """開く頼み：画面の窓があればそこが開く。エージェントの窓を持つ Electron の main（kind agents）は、画面の窓がないときだけ。"""
+    app = make_app(tmp_path)
+    monkeypatch.setattr(gui, "find_module", lambda cli, module: "C:/ECO/Calc")
+    app.see_window({"id": "agents-main", "kind": "agents", "tabs": []})
+    assert app.action("open", {"module": "C:/ECO/Calc"})["window"] == "agents-main"     # 画面の窓がない：main が開く
+    app.see_window({"id": "w1", "kind": "hub"})
+    assert app.action("open", {"module": "C:/ECO/Calc"})["window"] == "w1"
+    assert app.events.items[-1]["type"] == "open-window" and app.events.items[-1]["target"] == "w1"

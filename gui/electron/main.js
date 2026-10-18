@@ -199,7 +199,11 @@ function startServer() {
     const found = !hubUrl && output.match(/http:\/\/127\.0\.0\.1:\d+\/hub\.html\?t=[\w-]+/);   // app.py の「ECOBuild GUI：<URL>」
     if (found) {
       hubUrl = found[0];
-      agents.connect(hubUrl);   // 外（ecobuild gui・オペレーター）からのエージェントの窓の操作を受ける
+      agents.connect(hubUrl, page => {   // 画面の窓がないときに頼まれた「開く」（ecobuild gui open 等）
+        const url = new URL(page, hubUrl);
+        if (url.pathname === '/module.html' && url.searchParams.get('path')) openModule(url.searchParams.get('path'));
+        else openHub();
+      });   // 外（ecobuild gui・オペレーター）からのエージェントの窓の操作を受ける
       if (pendingModule) openModule(pendingModule); else openHub();
     }
   };

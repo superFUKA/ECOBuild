@@ -174,12 +174,13 @@ function Get-RunningEcobuild {
         Where-Object { $path = $_.ExecutablePath; $path -and ($places | Where-Object { $path.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }) })
 }
 function Wait-EcobuildClosed {
-    $running = Get-RunningEcobuild
+    # @() で受ける：1つだけだと return の配列がほどけ、CimInstance の .Count は空になる（PowerShell 5.1）
+    $running = @(Get-RunningEcobuild)
     if ($running.Count -eq 0) { return }
     Write-Host "    動いている ecobuild があるため、入れ替えられません。閉じてください（閉じると自動で進みます）：" -ForegroundColor Yellow
     foreach ($process in $running) { Write-Host ("      PID {0}：{1}" -f $process.ProcessId, $process.CommandLine) }
     if ($Yes) { Stop-Install "動いている ecobuild を閉じてから、もう一度実行してください。" }
-    while ((Get-RunningEcobuild).Count -gt 0) { Start-Sleep -Seconds 1 }
+    while (@(Get-RunningEcobuild).Count -gt 0) { Start-Sleep -Seconds 1 }
     Write-Done "閉じられました"
 }
 

@@ -318,7 +318,11 @@ async function loadToken() {
     : saved ? 'トークンを覚えています。コンテナの中の AI はログインせずに使えます。' : 'トークンはありません。';
   $('token-remove').hidden = !saved;
 }
-$('token-login').addEventListener('click', () => ECO.run(null, ['agent', 'token', 'login'], {success: 'トークンを作る窓を開きました。ブラウザーで許可し、最後に出たトークンを貼って保存してください。'}));
+// The window it opens catches the token itself when claude setup-token ends: read the status again a few times.
+$('token-login').addEventListener('click', async () => {
+  if (!await ECO.run(null, ['agent', 'token', 'login'], {success: 'トークンを作る窓を開きました。ブラウザーで許可すると、出たトークンを自動で保存します。'})) return;
+  for (let i = 0; i < 60 && $('token-status'); i++) { await new Promise(r => setTimeout(r, 5000)); await loadToken(); if (!$('token-remove').hidden) { ECO.toast('トークンを保存しました。'); return; } }
+});
 $('token-form').addEventListener('submit', async event => {
   event.preventDefault();
   const value = $('token-value').value.trim(); if (!value) return;

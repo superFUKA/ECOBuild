@@ -554,12 +554,37 @@ def forget_token() -> bool:
         return False
 
 
-def token_login(command: tuple[str, ...] = ("claude", "setup-token")):
-    """このPCで、トークンを作る画面（claude setup-token）を新しい窓で開く。"""
+TOKEN_PATTERN = re.compile(r"sk-ant-oat\d*-[A-Za-z0-9_-]{20,}")
+SETUP_TOKEN = ("claude", "setup-token")
+
+
+def token_login(capture: tuple[str, ...]):
+    """このPCで、トークンを作る窓を開く。capture：その窓で動かすコマンド（setup-token を動かしてトークンを拾い、
+    覚えてから閉じる。使う側の ecobuild agent token capture）。"""
     import ecoagent
     folder = token_path().parent
     folder.mkdir(parents=True, exist_ok=True)
     try:
-        return ecoagent.start(folder, command)
+        return ecoagent.start(folder, capture)
     except ecoagent.AgentError as error:
         raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
+
+
+def find_token(text: str) -> str:
+    """画面の文字から、最後に出たトークン（なければ空）。"""
+    found = TOKEN_PATTERN.findall(text)
+    return found[-1] if found else ""
+
+
+def capture_token(command: tuple[str, ...] = SETUP_TOKEN) -> str:
+    """今の端末で command（claude setup-token）を動かし、終わったら画面からトークンを拾って覚える。拾えなければ空。"""
+    import ecoagent
+    program = shutil.which(command[0])
+    if program is None:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, f"{command[0]} が見つかりません。",
+                            hint=f"{command[0]} をインストールし、PATH から実行できるようにしてください。")
+    subprocess.run([program, *command[1:]])
+    token = find_token(ecoagent.console.screen_text())
+    if token:
+        save_token(token)
+    return token

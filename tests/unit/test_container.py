@@ -228,3 +228,19 @@ def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeyp
     assert state["numStartups"] == 3 and state["hasCompletedOnboarding"] is True
     assert state["projects"]["/work"] == {"allowedTools": ["x"], "hasTrustDialogAccepted": True}
     assert json.loads((tmp_path / "settings.json").read_text()) == {"theme": "light", "skipDangerousModePermissionPrompt": True}
+
+
+def test_the_token_is_caught_from_the_screen(monkeypatch, tmp_path):
+    import ecoagent
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = "sk-ant-oat01-" + "Ab3_-" * 20
+    ran = []
+    monkeypatch.setattr(container.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(container.subprocess, "run", lambda args, **kw: ran.append(args))
+    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: f"Your OAuth token:\n\n{fake}\n\nStore this token securely.\n")
+    assert container.capture_token() == fake and container.load_token() == fake
+    assert ran == [["/bin/claude", "setup-token"]]
+    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: "Login failed\n")
+    container.forget_token()
+    assert container.capture_token() == "" and container.load_token() == ""
+    assert container.find_token("old sk-ant-oat01-" + "a" * 30 + " new sk-ant-oat01-" + "b" * 30).endswith("b" * 30)

@@ -27,7 +27,7 @@ EFFECTS = {
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent guard", "agent operator", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent ask", "agent guard", "agent operator", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

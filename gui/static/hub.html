@@ -60,7 +60,7 @@
       </section>
       <section class="settings-card" aria-labelledby="token-title">
         <h3 id="token-title">AI のログイン（コンテナ用）</h3>
-        <p class="note">コンテナの中の AI に渡すトークンです。あれば、コンテナの中でログインしなくて済みます（なければ、最初の1回だけコンテナの中でログインします）。「トークンを作る」で開く窓（claude setup-token）でブラウザーから許可すると、最後に sk-ant-oat… のトークンが出るので、下に貼って保存してください。サブスクリプションのアカウントで作れ、1年使えます。</p>
+        <p class="note">コンテナの中の AI に渡すトークンです。あれば、コンテナの中でログインしなくて済みます（なければ、最初の1回だけコンテナの中でログインします）。「トークンを作る」で開く窓（claude setup-token）でブラウザーから許可すると、出たトークンを自動で保存します（拾えなかったときは、その窓か下の欄に貼ってください）。サブスクリプションのアカウントで作れ、1年使えます。</p>
         <p class="note" id="token-status" role="status">読み込んでいます…</p>
         <form id="token-form"><label class="field">トークン<input id="token-value" type="password" autocomplete="off" placeholder="sk-ant-oat…"></label>
           <div class="settings-actions"><button type="button" class="cancel" id="token-login" title="claude setup-token を新しい窓で開きます（ecobuild agent token login）">トークンを作る</button><button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="token-remove" hidden>消す</button></div></form>

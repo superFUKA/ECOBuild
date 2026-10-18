@@ -82,10 +82,10 @@ def _rows(nodes: list[dict]) -> list[str]:
 
 
 def prepare(build_cli) -> operator.OperatorKit:
-    return operator.prepare(instructions(build_cli), program=PROGRAM, guard=f'"{_program_path()}" agent guard')
+    return operator.prepare(instructions(build_cli), program=PROGRAM, guard=f'"{program_path()}" agent guard')
 
 
-def _program_path() -> str:
+def program_path() -> str:
     """フックで呼ぶ ecobuild（このコマンドを動かしているもの。見つからなければ PATH の名前）。"""
     here = Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
     for candidate in (here, here.with_suffix(".exe")) if here is not None and here.stem.lower() == PROGRAM else ():

@@ -66,6 +66,7 @@ function childEnv() {
 }
 
 let ecobuildPath = () => 'ecobuild';
+let groupWith = () => {};   // 窓をモジュールの窓の仲間にする（main.js の asModuleApp）
 const sessions = [];      // {id, num, name, dir, kind, agent, proc, term, history, exited, state, owner, statusDir, info}
 const windows = [];       // {win, tabs: [id], active, topmost, ready, mini}
 let nextId = 1;
@@ -125,7 +126,9 @@ function openSession({dir, agent = '', name = ''} = {}) {
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: name || path.basename(dir), dir, kind: 'workspace', agent,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   sessions.push(s);
-  const w = current && !current.win.isDestroyed() && !current.mini ? current : windows.find(x => !x.mini) || openWindow();
+  // 作業空間ごとの窓（タスクバーでは、その作業空間のモジュールの窓と一緒にまとまる）。なければ作る
+  const w = windows.find(x => x.module && sameDir(x.module, dir) && !x.win.isDestroyed()) || openWindow({module: dir});
+  if (w.mini) restoreWindow(w);
   spawnSession(s, w.size || {cols: 100, rows: 30});
   adopt(w, s);
   select(s.id, true);
@@ -164,7 +167,7 @@ const sameDir = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLo
 // ---- 窓 --------------------------------------------------------------------------------------------
 function send(w, channel, ...args) { if (w && !w.win.isDestroyed() && w.ready) w.win.webContents.send(channel, ...args); }
 
-function openWindow({bounds} = {}) {
+function openWindow({bounds, module = null} = {}) {
   const saved = readState().bounds;
   const area = display.getPrimaryDisplay().workArea;
   const b = bounds || (windows.length === 0 && saved) || {
@@ -173,8 +176,9 @@ function openWindow({bounds} = {}) {
     ...b, minWidth: 360, minHeight: 200, frame: false, icon: ICON, backgroundColor: '#14181d', show: false,
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   });
-  const w = {win, tabs: [], active: null, topmost: readState().topmost || 'always', ready: false, size: null, mini: false};
+  const w = {win, tabs: [], active: null, topmost: readState().topmost || 'always', ready: false, size: null, mini: false, module};
   windows.push(w);
+  if (module) groupWith(win, module);   // タスクバーではモジュールの窓と同じ仲間（同じ ID・アイコン）
   applyTopmost(w);
   win.loadFile(path.join(__dirname, 'window.html'));
   win.once('ready-to-show', () => { if (!w.mini) win.showInactive(); });   // 作業中のアプリのフォーカスを奪わない
@@ -247,7 +251,7 @@ function cycleTopmost(w) {
 function moveToNewWindow(id) {
   const s = findSession(id); if (!s) return;
   const from = s.owner?.win.getBounds();
-  const w = openWindow({bounds: from && {...from, x: from.x + 40, y: from.y + 40}});
+  const w = openWindow({bounds: from && {...from, x: from.x + 40, y: from.y + 40}, module: s.kind === 'workspace' ? s.dir : null});
   w.pending = s;   // 窓の画面ができてから移す
 }
 
@@ -613,8 +617,9 @@ function setNotify(patch) {
   for (const w of windows) send(w, 'agents:notify', notify, HOLD_STEPS);
 }
 
-function setup({ecobuild, python}) {
+function setup({ecobuild, python, group}) {
   ecobuildPath = ecobuild;
+  if (group) groupWith = group;
   loadOperatorLog();
   const saved = readState();
   ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};

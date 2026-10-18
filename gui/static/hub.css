@@ -179,6 +179,11 @@ main { padding: 22px 28px; }
 .module-icon { width: 34px; height: 34px; margin-bottom: 10px; border-radius: 9px; font-size: 15px; }
 .module-name { font-size: 16px; }
 .module-open { margin-top: 12px; padding-top: 8px; }
+/* The modules under a heading per type. */
+.module-list .module-type-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; margin: 8px 0 -4px; padding-bottom: 4px; border-bottom: 1px solid #292f36; }
+.module-list .module-type-head:first-child { margin-top: 0; }
+.module-type-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: #cdd5df; letter-spacing: .02em; }
+.module-type-head span { color: #84909e; font-size: 12px; }
     /* AI に頼む（オペレーターとの会話） */
     #operator:not([hidden]) { display: flex; flex-direction: column; height: calc(100vh - 88px); }
     .operator-tools { display: flex; align-items: center; gap: 10px; }

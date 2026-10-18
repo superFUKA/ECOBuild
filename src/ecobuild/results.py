@@ -81,6 +81,7 @@ class WorkspaceEntry:
     task: int | None = None          # タスクブランチ（task/<番号>）にいれば、その番号
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
+    type: str = ""                   # モジュールの型（ecobuild.toml の [module] type。読めなければ空）
 
 
 @dataclass(frozen=True)

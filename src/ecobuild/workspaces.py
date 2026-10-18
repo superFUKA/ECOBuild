@@ -134,7 +134,17 @@ def entry(item: Recorded) -> "WorkspaceEntry":
     except Exception:   # gitで読めない（壊れたclone 等）。場所だけ出す
         url, branch = None, None
     return WorkspaceEntry(item.path, True, github_name(url) if url else None, url, branch,
-                      wm.task_number(branch) if branch else None)
+                      wm.task_number(branch) if branch else None, type=_module_type(item.path))
+
+
+def _module_type(root: Path) -> str:
+    """作業空間のモジュールの型（ecobuild.toml の [module] type。読めなければ空）。"""
+    import tomllib
+    try:
+        value = tomllib.loads((root / _config.FILE_NAME).read_text(encoding="utf-8")).get("module", {}).get("type")
+    except (OSError, tomllib.TOMLDecodeError):
+        return ""
+    return value if isinstance(value, str) else ""
 
 
 def module_root(path: Path) -> Path:

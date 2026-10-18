@@ -120,7 +120,8 @@ function renderModules() {
     if (!held || score(c) < score(held)) chosen.set(id, c);
   }
   modules = [...chosen.values()]
-    .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url}))
+    .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url,
+      type: c.type || (cloneRepository(c) && githubEntry({repository: cloneRepository(c)})?.type) || ''}))
     .filter(m => !githubEntry(m)?.archived)
     .map((m, i) => [m, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([m]) => m);
   renderArchived();
@@ -130,14 +131,22 @@ function renderModules() {
     list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubからの取得・手元のフォルダの登録ができます。</li>';
     return;
   }
-  list.innerHTML = modules.map((m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
+  // A heading per type (in the order the types first come in the list; a module whose type is not known goes last).
+  const types = [...new Set(modules.map(m => m.type || ''))].sort((a, b) => (a === '') - (b === ''));
+  const card = (m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" data-type="${esc(m.type || '')}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
     <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span>
     ${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
     <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
       ${m.exists ? `<button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>` : ''}
       <button type="button" data-action="remove" data-index="${i}">一覧から外す</button>
-      <button type="button" class="danger-text" data-action="delete" data-index="${i}">片付ける（アーカイブ・削除）…</button></div></details></li>`).join('');
+      <button type="button" class="danger-text" data-action="delete" data-index="${i}">片付ける（アーカイブ・削除）…</button></div></details></li>`;
+  list.innerHTML = types.map(type => {
+    const members = modules.map((m, i) => [m, i]).filter(([m]) => (m.type || '') === type);
+    return `<li class="module-type-head" role="presentation"><h3>${esc(type ? typeLabel(type) : '型が分からないもの')}</h3><span>${members.length}</span></li>${members.map(([m, i]) => card(m, i)).join('')}`;
+  }).join('');
 }
+const TYPE_LABELS = {cpp: 'C++', python: 'Python', generic: 'その他（generic）'};
+const typeLabel = type => TYPE_LABELS[type] ? `${TYPE_LABELS[type]}` : type;
 // 一覧から外す: ecobuild workspace forget (the folder and the GitHub repository stay). With a reason: the module cannot be
 // opened or put away (its folder is gone, its GitHub repository is gone, or the folder is no longer a clone).
 async function forgetModule(m, reason = '') {
@@ -559,7 +568,7 @@ $('module-list').addEventListener('dragstart', event => { draggedModule = event.
 $('module-list').addEventListener('dragover', event => {
   if (!draggedModule) return;
   const over = event.target.closest('li[data-index]'); event.preventDefault();
-  if (!over || over === draggedModule) return;
+  if (!over || over === draggedModule || over.dataset.type !== draggedModule.dataset.type) return;
   const r = over.getBoundingClientRect(), before = event.clientY < r.top + r.height / 2 || (event.clientY < r.bottom && event.clientX < r.left + r.width / 2);
   $('module-list').insertBefore(draggedModule, before ? over : over.nextSibling);
 });

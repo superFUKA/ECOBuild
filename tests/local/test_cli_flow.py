@@ -485,7 +485,7 @@ def test_workspace_create(cli, module, monkeypatch):
     other = module.root.parent / "Calc-2"
     assert created["root"] == other.as_posix() and created["name"] == "Calc"
     listed = as_json(cli("workspace", "list", "--json"))["result"]
-    assert (other.as_posix(), "main", None) in [(c["path"], c["branch"], c["task"]) for c in listed]
+    assert (other.as_posix(), "main", None, "cpp") in [(c["path"], c["branch"], c["task"], c["type"]) for c in listed]
     assert as_json(cli("workspace", "create", "../Calc-2", "--json"))["error"]["code"] == "already_exists"
 
     assert cli("task", "new", "そこで作業").exit_code == 0

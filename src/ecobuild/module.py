@@ -858,10 +858,11 @@ class Module:
             self._after_sync()        # 管理ファイルも戻ったら、生成ファイル・依存先をそろえる
         return result
 
-    def reset_task(self, revision: str, *, dry_run: bool = False) -> wm.ResetResult:
-        """タスクブランチを以前の版まで戻す（その後の、まだ push していないコミットを捨てる）。"""
-        result = self.repository.reset_task(revision, dry_run=dry_run)
-        if result.dropped and not dry_run:
+    def reset_task(self, revision: str, *, keep: bool = False, dry_run: bool = False) -> wm.ResetResult:
+        """タスクブランチを以前の版まで戻す（その後の、まだ push していないコミットを捨てる）。
+        keep：ファイルはそのまま（捨てたコミットの変更は、コミットしていない変更として残る）。"""
+        result = self.repository.reset_task(revision, keep=keep, dry_run=dry_run)
+        if result.dropped and not dry_run and not keep:   # keep ではファイルが変わらないので、そろえ直すものもない
             self._after_sync()
         return result
 

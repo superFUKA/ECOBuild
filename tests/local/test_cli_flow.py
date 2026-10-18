@@ -107,6 +107,21 @@ def test_commit_paths_and_track(cli, module):
     assert as_json(cli("status", "--json"))["result"]["excluded"] == ["doc.md"]
 
 
+def test_task_reset_keep_leaves_the_changes_uncommitted(cli, module):
+    """task reset --keep：コミットを取り消して変更を残す。取り消した ECOBuild のファイルの変更も、コミットし直さない。"""
+    assert cli("task", "new", "取り消し", "--start").exit_code == 0
+    write(module.root / "a.txt", "a\n")
+    assert cli("task", "commit", "a.txt", "--message", "a").exit_code == 0
+    assert cli("track", "add", "*.json").exit_code == 0          # ecobuild.toml をそれだけでコミットする
+    head = as_json(cli("log", "--count", "3", "--json"))["result"]
+    assert head[0]["subject"].startswith("ECOBuild のファイルを更新")
+    reset = as_json(cli("task", "reset", head[1]["sha"] + "~1", "--keep", "--yes", "--json"))["result"]
+    assert reset["kept"] and len(reset["dropped"]) == 2
+    status = as_json(cli("status", "--json"))["result"]
+    assert ".ecobuild/ecobuild.toml" in status["unstaged"] and "a.txt" in status["untracked"]
+    assert as_json(cli("log", "--count", "1", "--json"))["result"][0]["sha"] == reset["commit"]   # コミットし直していない
+
+
 def test_task_drop_confirms_lost_commits(cli, module):
     as_json(cli("task", "new", "やめる作業", "--start", "--json"))
     write(module.root / "a.txt", "a\n")

@@ -238,8 +238,55 @@ async function renderPushList() {
   const commits = doc.ok ? doc.result.commits : [];
   box.hidden = !commits.length;
   get('push-commits-title').textContent = `Pushするコミット（${commits.length}件、新しい順）`;
-  get('push-commits-list').innerHTML = commits.map(c => { const [sha, ...subject] = c.split(' '); return `<li><code>${esc(sha)}</code> ${esc(subject.join(' '))}</li>`; }).join('');
+  get('push-commits-list').innerHTML = commits.map((c, i) => {
+    const [sha, ...subject] = c.split(' ');
+    return `<li class="push-commit${sha === chosenPushCommit ? ' chosen' : ''}" tabindex="0" data-sha="${esc(sha)}" data-index="${i}" title="ダブルクリックで変更を見る・右クリックで操作"><code>${esc(sha)}</code><span class="push-commit-subject">${esc(subject.join(' '))}</span><button type="button" class="push-commit-more" aria-label="操作" title="操作">⋯</button></li>`;
+  }).join('');
 }
+// A commit in the list: a click chooses it, a double-click (Enter) shows its changes, the right click (⋯) its menu.
+// Not pushed yet, so it can still be undone: task reset --keep to the one before (the changes stay, to commit again)
+// or task reset to it without --keep (the changes go: ecobuild asks first, listing the commits).
+let chosenPushCommit = '';
+const pushCommitOf = el => el?.closest('.push-commit');
+const showPushCommit = async sha => {
+  const doc = await WS.cli(['show', sha], {quiet: true});
+  return doc.ok ? ECO.output('コミットの変更', doc.result, {diff: true, sub: sha}) : ECO.showError(doc);
+};
+function choosePushCommit(row) {
+  chosenPushCommit = row.dataset.sha;
+  for (const el of get('push-commits-list').children) el.classList.toggle('chosen', el === row);
+}
+function pushCommitMenu(row, x, y) {
+  choosePushCommit(row);
+  const sha = row.dataset.sha, index = Number(row.dataset.index), subject = row.querySelector('.push-commit-subject').textContent;
+  const later = index === 0 ? 'このコミット' : `このコミットから後（${index + 1}件）`;
+  const reload = () => WS.reloadFiles?.();
+  ECO.menu([
+    ['変更を見る', () => showPushCommit(sha)],
+    ['SHAをコピー', () => ECO.copyText(sha)],
+    '-',
+    [`${later}を取り消す（変更は残す）`, () => WS.run(['task', 'reset', `${sha}~1`, '--keep', '--yes'],
+      {success: r => `コミット ${r.dropped.length} 件を取り消しました。変更は「コミット」に残っています。`}).then(reload), true,
+      'コミットだけを取り消し、その変更はコミットしていない変更として残します（直してコミットし直せます）'],
+    [`${later}を捨てる…`, () => WS.run(['task', 'reset', `${sha}~1`], {title: 'コミットを捨てる',
+      success: r => `コミット ${r.dropped.length} 件を捨てました。`}).then(reload), true,
+      `${sha}「${subject}」${index ? 'から後' : ''}のコミットと、その変更を捨てます（元に戻せません）`],
+  ], x, y);
+}
+const pushList = get('push-commits-list');
+pushList.addEventListener('click', e => {
+  const row = pushCommitOf(e.target); if (!row) return;
+  if (e.target.closest('.push-commit-more')) { const r = e.target.getBoundingClientRect(); return pushCommitMenu(row, r.left, r.bottom + 4); }
+  choosePushCommit(row);
+});
+pushList.addEventListener('dblclick', e => { const row = pushCommitOf(e.target); if (row && !e.target.closest('.push-commit-more')) showPushCommit(row.dataset.sha); });
+pushList.addEventListener('contextmenu', e => { const row = pushCommitOf(e.target); if (row) { e.preventDefault(); pushCommitMenu(row, e.clientX, e.clientY); } });
+pushList.addEventListener('keydown', e => {
+  const row = pushCommitOf(e.target); if (!row || e.target !== row) return;
+  if (e.key === 'Enter') { e.preventDefault(); showPushCommit(row.dataset.sha); }
+  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = row.getBoundingClientRect(); pushCommitMenu(row, r.left + 20, r.bottom); }
+  if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); const next = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling; if (next) { choosePushCommit(next); next.focus(); } }
+});
 const setPushListClosed = closed => { pushListClosed = closed; try { localStorage.setItem(PUSH_LIST_KEY, closed ? '1' : '0'); } catch (e) { /* storage blocked */ } renderPushList(); };
 get('push-commits-close').addEventListener('click', () => setPushListClosed(true));
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });

@@ -186,9 +186,10 @@ class Syncing:
         self.git.restore(paths, source=commit)
         return wm.RestoreResult(paths or (".",), False, commit)
 
-    def reset_task(self, revision: str, *, dry_run: bool = False) -> wm.ResetResult:
+    def reset_task(self, revision: str, *, keep: bool = False, dry_run: bool = False) -> wm.ResetResult:
         """タスクブランチを以前の版まで戻す（その後のコミットを捨てる）。まだ GitHub に push していないコミットだけ
-        捨てられる（push 済みを消すと、GitHub やほかの人とずれる：その時は restore --source で戻してコミットする）。"""
+        捨てられる（push 済みを消すと、GitHub やほかの人とずれる：その時は restore --source で戻してコミットする）。
+        keep：ファイルはそのままにして、捨てたコミットの変更をコミットしていない変更として残す（コミットの取り消し）。"""
         task_branch = self.require_task_branch("タスクブランチを以前の版まで戻すこと")
         commit = self._commit(revision)
         if not self.git.is_ancestor(commit, "HEAD"):
@@ -207,12 +208,18 @@ class Syncing:
                             hint=f"push 済みのコミットは消さずに、{self._op('restore')} --source {revision} でその版のファイルに戻し、"
                                  "変更としてコミットしてください。")
         tree = self.git.working_tree()
-        if dropped and (tree.staged or tree.unstaged or tree.conflicted):
+        if dropped and keep and (tree.conflicted or self.git.is_merging()):
+            raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "取り込みの途中です（衝突を解決するか、取り込みを中止してから戻します）。")
+        if dropped and not keep and (tree.staged or tree.unstaged or tree.conflicted):
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があります（戻すと失われます）。",
-                            hint=f"先に {self._op('task commit')} でコミットするか、{self._op('stash')} で退避してください。")
+                            hint=f"先に {self._op('task commit')} でコミットするか、{self._op('stash')} で退避してください。"
+                                 "コミットの変更を手元に残すなら --keep。")
         if dropped and not dry_run:
-            self.git.reset_hard(commit)
-        return wm.ResetResult(task_branch.branch, commit, dropped, dry_run)
+            if keep:
+                self.git.reset_mixed(commit)   # 今の変更（ステージしたものも）は、変更のまま残る
+            else:
+                self.git.reset_hard(commit)
+        return wm.ResetResult(task_branch.branch, commit, dropped, dry_run, keep)
 
     def _commit(self, revision: str) -> str:
         found = self.git.rev_parse(revision)

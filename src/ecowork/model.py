@@ -383,6 +383,7 @@ class ResetResult:
     commit: str
     dropped: tuple[tuple[str, str], ...]   # 捨てたコミット（コミット・件名。新しい順）
     dry_run: bool = False
+    kept: bool = False                     # 捨てたコミットの変更を、コミットしていない変更として残した（--keep）
 
 
 @dataclass(frozen=True)

@@ -266,3 +266,16 @@ def test_reset_task_drops_the_later_commits_not_pushed(repository):
     assert repository.reset_task(base, dry_run=True).dropped           # タスクの最初（作成元から分かれた所）までは戻せる
     git(root, "push", "--quiet", "origin", "HEAD")                      # push 済み
     assert code_of(lambda: repository.reset_task(first)) == ErrorCode.COMMITS_WOULD_BE_LOST
+
+
+def test_reset_task_keep_leaves_the_changes(repository):
+    """task reset --keep：コミットを取り消し、その変更（と今の変更）はコミットしていない変更として残す。"""
+    root = repository.root
+    task_branch = repository.create_task("t").start()
+    first, second = _commits(task_branch, root, ("a.txt", "1\n"), ("b.txt", "2\n"))
+    write(root / "c.txt", "c\n")                                        # 今の変更があっても取り消せる
+    result = repository.reset_task(first, keep=True)
+    assert result.kept and [sha for sha, _ in result.dropped] == [second]
+    assert git(root, "rev-parse", "HEAD").strip() == first
+    assert (root / "b.txt").read_text(encoding="utf-8") == "2\n" and (root / "c.txt").exists()
+    assert set(repository.status().untracked) >= {"b.txt", "c.txt"}

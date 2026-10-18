@@ -203,6 +203,10 @@ class Git:
     def reset_hard(self, revision: str) -> None:
         self.run("reset", "--hard", revision)
 
+    def reset_mixed(self, revision: str) -> None:
+        """ブランチだけ戻す（ファイルはそのまま。捨てたコミットの変更はコミットしていない変更になる）。"""
+        self.run("reset", "--mixed", "--quiet", revision)
+
     # 取り込み ---------------------------------------------------------------
 
     def merge(self, ref: str, *, message: str | None = None, ff_only: bool = False) -> MergeOutcome:

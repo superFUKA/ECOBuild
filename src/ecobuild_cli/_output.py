@@ -55,6 +55,12 @@ class Invocation:
         _log.use_module(module.root)
         _workspaces.record_quietly(module.root)
 
+    def keep_own_changes(self) -> None:
+        """ここまでに残った ECOBuild 自身のファイルの変更は、自動でコミットしない（取り消したコミットの変更を、
+        コミットしていない変更として手元に残すとき：task reset --keep）。"""
+        if self._module is not None and self._own_before is not None:
+            self._own_before = self._module.own_changes()
+
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""
         if self.yes:

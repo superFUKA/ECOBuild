@@ -156,14 +156,16 @@ WS.onRefresh(renderPrDetail);
   // The workspace as a container (ecobuild container …): the agent and the builds then run inside it. The button in the
   // bar shows it and has the container's operations and its own settings. The images are the hub's (ECOBuild × type).
   let box = null;
-  const BOX_STATES = {none: 'まだ作っていません', running: '動いています', exited: '止まっています', created: '作っただけです', unknown: '状態が分かりません'};
+  // Started and stopped by ECOBuild itself (on a build or the agent; WSL stops it when idle): running or stopped, it is
+  // ready to use. So the menu has no start/stop (ecobuild container start/stop remain).
+  const boxState = b => b.state === 'none' ? 'まだ作っていません（使うときに作ります）' : b.state === 'unknown' ? '状態が分かりません' : '準備済み';
   const loadContainer = async () => {
     const doc = await WS.cli(['container', 'status'], {quiet: true}); box = doc.ok ? doc.result : null;
     const button = get('container-button');
     button.classList.toggle('on', !!box?.container);
     get('container-label').textContent = box?.container ? 'コンテナ' : 'このPC';
     button.dataset.tip = !box ? 'コンテナの状態を読めませんでした' : box.container
-      ? `この作業空間はコンテナ（${BOX_STATES[box.state] || box.state}）。AI・ビルド・テストは中で動きます`
+      ? `この作業空間はコンテナ（${boxState(box)}）。AI・ビルド・テストは中で動きます`
       : 'この作業空間はこのPCで動きます（コンテナにすると AI・ビルドを隔離できます）';
     showAgent();
   };
@@ -180,9 +182,8 @@ WS.onRefresh(renderPrDetail);
     const r = get('container-button').getBoundingClientRect(), ready = !!box?.docker_ready;
     const noDocker = ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`;
     const items = box?.container ? [
-      [`コンテナ：${BOX_STATES[box.state] || box.state}${box.image ? '（' + box.image + '）' : ''}`, null],
-      ...(box.state === 'running' ? [] : [[box.state === 'none' ? '作る（最初の1回はイメージも作るので数分）' : '動かす', () => boxRun(['start'], {busy: 'コンテナを用意しています…', success: 'コンテナを動かしました。'}), ready, noDocker]]),
-      ...(box.state === 'running' ? [['止める', () => boxRun(['stop'], {success: 'コンテナを止めました。'}), ready, noDocker]] : []),
+      [`コンテナ：${boxState(box)}${box.image ? '（' + box.image + '）' : ''}`, null],
+      ...(box.state === 'none' ? [['前もって作る（初めて使うときの待ち時間をなくす。イメージから作ると数分）', () => boxRun(['start'], {busy: 'コンテナを作っています…', success: 'コンテナを作りました。'}), ready, noDocker]] : []),
       ...(box.state === 'none' ? [] : [
         ['作り直す', async () => { if (await boxRun(['remove'], {confirm: 'コンテナを消してから作り直します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナを作り直す'})) await boxRun(['start'], {busy: 'コンテナを作り直しています…', success: 'コンテナを作り直しました。'}); }, ready, noDocker],
         ['消す', () => boxRun(['remove'], {confirm: 'コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます。次に使うときにまた作ります）。', title: 'コンテナを消す', success: 'コンテナを消しました。'}), ready, noDocker]]),

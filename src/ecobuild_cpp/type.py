@@ -224,6 +224,10 @@ jobs:
         return ("cmake", "ninja-build", "g++")
 
     @classmethod
+    def container_caches(cls) -> tuple[str, ...]:
+        return ("build",)   # CMake の構成・出力・取ってきた依存（FetchContent）
+
+    @classmethod
     def doctor_items(cls):
         from ecobuild.results import DoctorItem
         try:

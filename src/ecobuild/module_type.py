@@ -112,6 +112,13 @@ class ModuleType:
         """作業空間のコンテナ（Ubuntu）に入れる、型が使うツールのパッケージ（apt の名前）。"""
         return ()
 
+    @classmethod
+    def container_caches(cls) -> tuple[str, ...]:
+        """作業空間のコンテナで、作業空間（このPCのフォルダ）ではなくコンテナの側に置くフォルダ（ルートからの場所）。
+        ビルドの出力・仮想環境など：このPCのフォルダは中から権限（chmod）を変えられず、ツールが止まることがある
+        （CMake の configure_file 等）。速くもなり、このPCのビルドの出力とも混ざらない。"""
+        return ()
+
     # 生成ファイルと、手元をそろえる処理 -----------------------------------------------
 
     def is_generated(self, path: str) -> bool:

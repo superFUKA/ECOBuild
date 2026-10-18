@@ -37,7 +37,7 @@ class FakeDocker:
             labels = [rest[i + 1] for i, a in enumerate(rest) if a == "--label"]
             version = next((l.split("=", 1)[1] for l in labels if l.startswith(container.VERSION_LABEL + "=")), "")
             self.containers[rest[rest.index("--name") + 1]] = ["running", rest[-3], version]
-        elif command == "exec":
+        elif command in ("exec", "volume"):
             pass
         elif command == "start":
             self.containers[rest[-1]][0] = "running"
@@ -256,3 +256,21 @@ def test_the_token_is_caught_from_the_screen(monkeypatch, tmp_path):
     container.forget_token()
     assert container.capture_token() == "" and container.load_token() == ""
     assert container.find_token("old sk-ant-oat01-" + "a" * 30 + " new sk-ant-oat01-" + "b" * 30).endswith("b" * 30)
+
+
+def test_type_caches_live_in_the_container(monkeypatch, tmp_path):
+    """型のキャッシュ（cpp の build）は作業空間ではなくコンテナの側のボリューム。中の一般ユーザーのものにし、コンテナと一緒に消す。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    root = tmp_path / "Calc"
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), root / config.FILE_NAME)
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    started = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc"))
+    run = next(args for args in fake.calls if args[1] == "run")
+    assert f"{started.name}-build:/work/build" in run
+    assert any(args[1:4] == ["exec", "--user", "0"] and args[-2:] == ["1000:1000", "/work/build"] for args in fake.calls)
+    container.remove(root, fake.run)
+    assert ["docker", "volume", "rm", "--force", f"{started.name}-build"] in fake.calls
+    generic = tmp_path / "Box"
+    config.save(config.ModuleConfig.for_new_module("Box", "generic"), generic / config.FILE_NAME)
+    assert container.caches(generic) == []

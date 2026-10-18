@@ -112,6 +112,10 @@ python -m venv .venv
     # このPCの準備 -------------------------------------------------------------------
 
     @classmethod
+    def container_caches(cls) -> tuple[str, ...]:
+        return (".venv", "build", "dist")   # 仮想環境（中の Python のもの）・配布の出力
+
+    @classmethod
     def tool_settings(cls) -> dict[str, str]:
         return {"python": "モジュールの .venv を作る Python のパス（このPCだけ。既定は ECOBuild と同じ Python）"}
 

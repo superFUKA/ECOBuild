@@ -34,7 +34,7 @@ from pathlib import Path, PureWindowsPath
 from ecobuild import config as _config
 from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
-from ecobuild.errors import EcoBuildError, ErrorCode, operation
+from ecobuild.errors import EcoBuildError, ErrorCode, WorkError, operation
 
 from . import docker
 
@@ -48,7 +48,7 @@ WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
-VERSION = "4"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク）
+VERSION = "5"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ）
 HOME = "/home/ubuntu"
 AGENT_HOME = f"{HOME}/.claude"  # 中のエージェントの設定・ログイン（CLAUDE_CONFIG_DIR）
 AGENT_VOLUME = "ecobuild-agent" # AGENT_HOME に付けるボリューム（すべてのコンテナで共有：ログインは1回）
@@ -218,7 +218,11 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
                       "--label", f"{VERSION_LABEL}={VERSION}",
                       "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--volume", f"{AGENT_VOLUME}:{AGENT_HOME}",
                       "--volume", f"{mount_path(status, prefix)}:{agent_status.INSIDE}", *sound(prefix),
+                      *(item for volume, place in caches(root) for item in ("--volume", f"{volume}:{place}")),
                       "--workdir", WORKDIR, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
+        if caches(root):   # 新しいボリュームは root のものになるので、中の一般ユーザーが書けるように
+            _run(runner, [*prefix, "exec", "--user", "0", name(root), "chown", USER, *(place for _, place in caches(root))],
+                 "キャッシュの置き場所を用意できませんでした")
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
     return _result(root, True, True, runner, built=built)
@@ -260,7 +264,21 @@ def remove(root: Path, runner: docker.Runner | None = None, *, command: str = ""
     changed = _state(root, runner, prefix) != "none"
     if changed:
         _run(runner, [*prefix, "rm", "--force", name(root)], "コンテナを消せませんでした")
+        for volume, _ in caches(root):   # 型のキャッシュ（ビルドの出力など）も消す。なければそのまま
+            (runner or docker.run)([*prefix, "volume", "rm", "--force", volume])
     return _result(root, enabled(root), changed, runner)
+
+
+def caches(root: Path) -> list[tuple[str, str]]:
+    """型のキャッシュ（ModuleType.container_caches）の [(ボリュームの名前, 中の場所)]。作業空間（このPCのフォルダ）の代わりに
+    コンテナの側に置く（中から権限を変えられ、速く、このPCのビルドの出力と混ざらない）。"""
+    from . import REGISTRY
+    try:
+        type_class = REGISTRY.load(_config.load(root / _config.FILE_NAME).type)
+    except WorkError:
+        return []
+    return [(f"{name(root)}-{re.sub(r'[^a-z0-9_.-]+', '-', place.lower()).strip('-.') or 'cache'}", f"{WORKDIR}/{place}")
+            for place in type_class.container_caches()]
 
 
 def discard(root: Path, runner: docker.Runner | None = None) -> bool:

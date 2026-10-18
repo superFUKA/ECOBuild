@@ -400,7 +400,8 @@ def start_agent(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (
     """コンテナの中でエージェントを起動する（確認なし。deny に書いたものだけ使わせない）。新しい画面で起動して
     Session を返す。here なら、この端末で動かして終わるまで待ち、終了コードを返す。"""
     import ecoagent
-    argv, env = agent_launch(root, agent, deny=deny, command=command, source=source, progress=progress)
+    argv, env = agent_launch(root, agent, deny=deny, command=command, source=source, progress=progress,
+                             tty=sys.stdin.isatty() if here else True)
     try:
         if here:
             return subprocess.run(argv, env=env).returncode
@@ -413,8 +414,9 @@ def start_agent(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (
 
 def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (), command: str = "",
                  source: tuple[str, str] | None = None,
-                 progress: Callable[[str], None] = lambda message: None) -> tuple[list[str], dict[str, str]]:
-    """コンテナを用意し（動かす・設定を書く）、中のエージェントを動かすコマンドと環境を返す。"""
+                 progress: Callable[[str], None] = lambda message: None,
+                 tty: bool = True) -> tuple[list[str], dict[str, str]]:
+    """コンテナを用意し（動かす・設定を書く）、中のエージェントを動かすコマンドと環境を返す。tty：端末として動かす。"""
     start(root, command=command, source=source, progress=progress)
     prefix = _docker(None, command)
     _run(None, [*prefix, "exec", "--user", "0", name(root), "sh", "-c", write_settings(deny)],
@@ -425,7 +427,7 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
     values = credentials()
     if token := load_token():
         values[TOKEN_VARIABLE] = token
-    return exec_command(root, prefix, agent, tuple(values), tty=True), environment(prefix, values)
+    return exec_command(root, prefix, agent, tuple(values), tty=tty), environment(prefix, values)
 
 
 def _output(args: list[str]) -> str:

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>エージェント - ECOBuild</title>
+  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="window.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="tabs" id="tabs" role="tablist" aria-label="エージェント"></div>
+    <div class="tools">
+      <button type="button" id="topmost" class="tool" title="最前面：常に"><span aria-hidden="true">📌</span><span id="topmost-label">常に</span></button>
+      <button type="button" id="minimize" class="tool" title="最小化" aria-label="最小化">–</button>
+      <button type="button" id="close" class="tool close" title="閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
+    </div>
+  </header>
+  <main id="screens"><p class="empty" id="empty">エージェントはありません。作業空間の「エージェント」から開きます。</p></main>
+  <footer class="status" id="status"></footer>
+  <div class="menu" id="menu" role="menu" hidden></div>
+  <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="window.js"></script>
+</body>
+</html>

@@ -205,7 +205,17 @@ WS.onRefresh(renderPrDetail);
     get('agent-start').title = ready ? `${where}（${command || '既定のエージェント'}）`
       : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
+  // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start
+  // --here: the container is made ready there, the progress shows in the tab). Elsewhere a new console window.
   async function startAgent(command = agentCommand()) {
+    const shell = window.ecobuildShell?.agents;
+    if (shell) {
+      const task = WS.status?.task;
+      const name = (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (task ? ` #${task}` : '');
+      try { await shell.open({dir: WS.dir, agent: command, name}); say(`エージェントの窓で開きました：${name}`); }
+      catch (e) { ECO.toast(e.message, 'bad'); }
+      return;
+    }
     if (box?.container) say('コンテナを用意しています（最初の1回はイメージを作るので数分かかります）…');
     const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);
     if (!doc.ok) return ECO.showError(doc);

@@ -14,6 +14,7 @@ const {spawn} = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const agents = require('./agents');   // エージェントの窓（タブの端末）
 
 const GUI = app.isPackaged ? path.join(process.resourcesPath, 'gui') : path.resolve(__dirname, '..');
 const BUNDLED_ECOBUILD = path.join(path.dirname(process.execPath), 'bin', 'ecobuild.exe');
@@ -164,6 +165,17 @@ ipcMain.handle('open-path', async (event, {dir, path: relative = '', reveal = fa
   return error ? {error} : {};
 });
 
+// The ecobuild the agents' terminals run (as the server's: ECOBUILD_GUI_ECOBUILD, the bundled one, or PATH's).
+function ecobuildPath() {
+  if (process.env.ECOBUILD_GUI_ECOBUILD) return process.env.ECOBUILD_GUI_ECOBUILD;
+  if (app.isPackaged && fs.existsSync(BUNDLED_ECOBUILD)) return BUNDLED_ECOBUILD;
+  const names = process.platform === 'win32' ? ['ecobuild.exe', 'ecobuild.cmd', 'ecobuild.bat'] : ['ecobuild'];
+  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
+    for (const name of names) { const found = path.join(dir, name); if (dir && fs.existsSync(found)) return found; }
+  }
+  return 'ecobuild';
+}
+
 // Bring the asking window up: restored when minimized, shown, in front (the page's window.focus() does neither).
 ipcMain.handle('focus-window', event => {
   const window = BrowserWindow.fromWebContents(event.sender);
@@ -225,6 +237,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', stopServer);
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
+    agents.setup({ecobuild: ecobuildPath});
     startServer();
   });
 }

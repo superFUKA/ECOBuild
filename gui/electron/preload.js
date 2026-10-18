@@ -10,4 +10,6 @@ contextBridge.exposeInMainWorld('ecobuildShell', {
   pickFolder: options => ipcRenderer.invoke('pick-folder', options),
   openPath: options => ipcRenderer.invoke('open-path', options),
   focusWindow: () => ipcRenderer.invoke('focus-window'),   // bring this window up (restore when minimized, to the front)
+  // エージェントをこのアプリの窓のタブで開く（agents/index.js。同じ作業空間のものがあれば前に出す）
+  agents: {open: options => ipcRenderer.invoke('agents:open', options), list: () => ipcRenderer.invoke('agents:list')},
 });

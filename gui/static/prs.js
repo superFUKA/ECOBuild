@@ -109,8 +109,8 @@ function renderPrDetail() {
 WS.judge = async (approve, number) => {
   if (!number) return;
   const v = await ECO.form(approve
-    ? {title: `承認して完了：#${number}`, intro: '提出を承認し、そのまま完了します（CIを待って取り込み、タスクを閉じます）。確認中なら、確認の前の場所へ戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
-    : {title: `差し戻す：#${number}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。確認中なら、確認の前の場所へ戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
+    ? {title: `承認して完了：#${number}`, intro: '提出を承認して完了します（CIが終わるのを待って取り込み、タスクを閉じます）。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+    : {title: `差し戻す：#${number}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
   if (!v) return;
   const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
     {success: approve ? `#${number} を承認して完了しました。` : `#${number} を差し戻しました。`});
@@ -121,7 +121,7 @@ WS.judge = async (approve, number) => {
 function submitDialog(t) {
   if (t.pull_request?.state === 'open') return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs(t.number));
   return ECO.form({
-    title: `提出：#${t.number}`, intro: '確認（ビルド・テスト等）してからタスクブランチをPushし、作成元' + (t.base ? `（${esc(t.base)}）` : '') + 'へ提出します。',
+    title: `提出：#${t.number}`, intro: 'ビルド・テストなどで確認してから、タスクブランチをPushして作成元' + (t.base ? `（${esc(t.base)}）` : '') + 'へ提出します。',
     fields: [
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
       {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
@@ -156,7 +156,7 @@ async function prAction(action) {
       const doc = await WS.run(['task', 'finish', n, ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
       await after(doc); if (doc) WS.reloadFiles?.(); return;
     }
-    case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。`, title: '提出を取り下げる', refresh: false}));
+    case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。`, title: '提出を取り下げる', refresh: false}));
     case 'local-review': {
       const done = !!WS.status?.reviewing && WS.status.reviewing_task === t.number;
       const doc = await WS.run(['task', 'review', ...(done ? ['--done'] : [n])], {success: done ? '確認を終えて戻りました。' : `#${n} の提出を手元に取り出しました。ビルド・テスト・実行で確認できます。`});

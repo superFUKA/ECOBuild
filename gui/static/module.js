@@ -306,13 +306,13 @@ addTabButton.addEventListener('click', async () => {
     if (show) { d.close(); activate(MOD.places[Number(show.dataset.show)], true); }
     if (forget) {
       const dir = MOD.places[Number(forget.dataset.forget)]; d.close();
-      if (await ECO.confirm({title: '一覧から外す', message: `${dir} を、このPCの作業空間の記録とタブの一覧から外します。フォルダは削除しません（手元から削除するには、タスク管理の「手元のタスクブランチを削除」を使います）。このフォルダで ecobuild を使うと、再び記録されます。`, ok: '外す'})) {
+      if (await ECO.confirm({title: '一覧から外す', message: `${dir} をタブの一覧から外します。フォルダは消しません。\nこのフォルダで ecobuild を使うと、また一覧に出ます。`, ok: '外す'})) {
         if (await ECO.run(null, ['workspace', 'forget', dir])) removeTab(dir);
       }
     }
     if (closing) {
       const dir = MOD.places[Number(closing.dataset.closePlace)]; d.close();
-      if (await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと削除し、記録から外します。GitHubにないもの（未コミットの変更・コミット・退避）があれば閉じません。ビルドの出力など除外したファイルも消えます。`, ok: '閉じる', danger: true})) {
+      if (await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと消します。ビルドの出力なども消えます。\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるときは消しません。`, ok: '閉じる', danger: true})) {
         if (await ECO.run(null, ['workspace', 'close', dir])) removeTab(dir);
       }
     }

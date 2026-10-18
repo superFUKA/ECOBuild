@@ -148,3 +148,4 @@ details.eco-file[open] > summary { border-bottom: 1px solid #2a3038; border-radi
 .eco-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 details.eco-file > summary .add { color: #9fe0a8; } details.eco-file > summary .del { color: #f3a5a5; }
 .eco-dialog details.eco-file pre { margin: 0; border: 0; border-radius: 0 0 6px 6px; max-height: none; }
+.eco-dialog p.eco-message { white-space: pre-line; }   /* a confirmation: its line breaks are kept */

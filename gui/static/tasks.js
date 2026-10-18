@@ -330,7 +330,7 @@
     const t = d.task || {}, open = d.state === 'open', place = MOD.placeOfTask(n);
     const view = {...(summary || {}), ...t, state: d.state, task_branch: d.task_branch, remote: d.remote};
     const hasWorkspace = !!place || d.task_branch;
-    const primary = !open ? `<button type="button" data-tk="reopen" title="${deleted(view) ? '削除をやめて、開いているタスクに戻します' : 'もう一度、開いているタスクにします'}">${deleted(view) ? '元に戻す' : '開き直す'}</button>`
+    const primary = !open ? `<button type="button" data-tk="reopen" title="${deleted(view) ? '削除を取り消して、タスクを戻します' : 'タスクをもう一度開きます'}">${deleted(view) ? '元に戻す' : '開き直す'}</button>`
       : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">タスクブランチを開く</button>'
       : `<button type="button" class="primary" data-tk="start">${d.remote ? '作業を再開' : '作業を開始'}</button>`;
     const dis = open ? '' : 'disabled';
@@ -341,16 +341,16 @@
     <div class="tk-d-head"><span class="tk-num">#${n}</span>${stageBadge(view)}${close}</div>
     <h3 class="tk-d-title">${esc(d.title)}</h3>
     <div class="tk-d-actions">${primary}${open ? (hasWorkspace || d.remote
-        ? '<button type="button" class="tk-unavailable" disabled title="タスクブランチがあります。作業空間の「完了する」で、作業を取り込んで完了します（取り込まずにやめるなら ⋯ の「削除」）">完了にする</button>'
-        : '<button type="button" data-tk="complete" title="作業を終えたタスクを完了にします（コードを変えないタスク等）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
+        ? '<button type="button" class="tk-unavailable" disabled title="タスクブランチがあるので、作業空間の「完了する」で完了します（作業をやめるなら ⋯ の「作業を捨てる」）">完了にする</button>'
+        : '<button type="button" data-tk="complete" title="タスクを完了にします（コードを変えないタスクなど）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
         ${hasWorkspace ? '<button type="button" data-tk="remove" title="このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。">このPCから片付ける</button>' : ''}
         ${open && pr?.state === 'open' ? '<button type="button" data-tk="withdraw">提出を取り下げる</button>' : ''}
         ${!open && pr?.state === 'merged' ? '<button type="button" data-tk="revert">取り込みを取り消す…</button>' : ''}
-        ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop" title="取り込まずに作業を捨てます。提出を閉じ、タスクブランチをこのPCとGitHubの両方から消します（タスクは開いたまま未着手に戻り、最初からやり直せます）。">作業を捨てる</button>' : ''}
+        ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop" title="作業を取り込まずに捨てます。タスクブランチと提出はこのPCとGitHubから消え、タスクは未着手に戻ります。">作業を捨てる</button>' : ''}
         <button type="button" data-tk="github">GitHubで開く</button>
-        ${open ? '<button type="button" class="danger-text" data-tk="delete" title="タスクを削除済みに移します（ふだんは表示しません。「元に戻す」で戻せます）">削除…</button>' : ''}</div></details></div>
+        ${open ? '<button type="button" class="danger-text" data-tk="delete" title="タスクを削除します（あとで元に戻せます）">削除…</button>' : ''}</div></details></div>
     <section class="tk-d-section"><p class="tk-d-body">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</p></section>
     <section class="tk-d-section"><h4>担当</h4><dl class="tk-kv">
       <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を追加">＋</button></dd>
@@ -547,20 +547,20 @@
   }
   async function deleteDialog(n) {
     const t = byNumber(n) || st.details.get(n) || {}, branch = hasTaskBranch(n);
-    if (!await ECO.confirm({title: `#${n} を削除`, message: `${t.title || ''}\nを削除します。削除したタスクは完了とは別の「削除済み」に移り、ふだんは表示しません（「削除したタスクも表示」で見られ、「元に戻す」で戻せます）。`
-      + (branch ? '\n\nタスクブランチの作業（開いている提出・取り込んでいないコミット）も、このPCとGitHubから捨てます。' : ''), ok: '削除', danger: true})) return;
+    if (!await ECO.confirm({title: `#${n} を削除`, message: `「${t.title || ''}」を削除します。あとで「元に戻す」で戻せます。`
+      + (branch ? '\n\nこのタスクの作業（タスクブランチと提出）は、このPCとGitHubから消えます。作業は戻せません。' : ''), ok: '削除', danger: true})) return;
     const place = placeFor(n);
     if (await run(['task', 'close', String(n), '--not-planned', '--yes'], {dir: place, success: `#${n} を削除しました。`})) { if (branch) await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも削除する（削除済みに移す）', type: 'checkbox'}], ok: 'やめる', danger: true});
+    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '作業を取り込まずに捨てます。提出を閉じ、タスクブランチをこのPCとGitHubから消して、元のブランチに戻ります。捨てた作業は戻せません。', fields: [{name: 'close', label: 'タスクも削除する', type: 'checkbox'}], ok: '作業を捨てる', danger: true});
     if (!v) return;
     const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function removeWorkspace(n) {
     const place = placeFor(n);
-    const ok = await ECO.confirm({title: `このPCから片付ける：#${n}`, message: '手元のタスクブランチだけを削除します。GitHubのブランチ・提出・タスクはそのまま残り、「作業を再開」でPush済みの状態から再開できます（未コミット・未Pushの変更がある場合は中止します）。', ok: '消す', danger: true});
+    const ok = await ECO.confirm({title: `このPCから片付ける：#${n}`, message: 'このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残るので、「作業を再開」でPushしたところから続けられます。\n未コミット・未Pushの変更があるときは消しません。', ok: '消す', danger: true});
     if (!ok) return;
     const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元のタスクブランチ ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
@@ -571,7 +571,7 @@
     const removable = results.filter(([, r]) => r.removed.length), skipped = results.flatMap(([, r]) => r.skipped);
     const body = (removable.length ? '<p>片付けるタスクブランチ：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付けるタスクブランチはありません。</p>')
       + (skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
-    const ok = await ECO.dialog({title: '完了したタスクブランチを片付ける', body: '<p class="eco-intro">タスクが閉じられたタスクブランチを片付けます。取り込まれていないコミットがあるタスクブランチは残します（「完了する」で終えたタスクブランチは自動で片付きます）。</p>' + body,
+    const ok = await ECO.dialog({title: '完了したタスクブランチを片付ける', body: '<p class="eco-intro">閉じたタスクのタスクブランチを消します。取り込んでいないコミットがあるものは残します。</p>' + body,
       buttons: removable.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
     if (!ok) return;
     for (const [place] of removable) {
@@ -584,7 +584,7 @@
   }
   // Submission and finishing (task submit／finish／approve／reject／withdraw). Numbers are task numbers.
   async function finishDialog(n) {
-    const v = await ECO.form({title: `完了する：#${n}`, intro: '提出していなければ提出し、CIを待って取り込み、タスクを閉じてタスクブランチを片付けます（中間提出なら、取り込んだ後にタスクブランチを作り直して続けます）。',
+    const v = await ECO.form({title: `完了する：#${n}`, intro: '作業を取り込んでタスクを完了します。未提出なら提出し、CI（自動の確認）が終わるのを待ってから取り込みます。タスクブランチは消えます（中間提出なら、続きのタスクブランチを作ります）。',
       fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する'});
     if (!v) return;
     const place = placeFor(n);
@@ -593,7 +593,7 @@
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function withdrawSubmission(n) {
-    if (!await ECO.confirm({title: `提出を取り下げる：#${n}`, message: '提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。', ok: '取り下げる'})) return;
+    if (!await ECO.confirm({title: `提出を取り下げる：#${n}`, message: '提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。', ok: '取り下げる'})) return;
     if (await run(['task', 'withdraw', String(n)], {dir: placeFor(n), success: `#${n} の提出を取り下げました。`})) reloadAfter(n);
   }
   async function reviewSubmission(n) {
@@ -602,7 +602,7 @@
   }
   async function judgeDialog(n, approve) {
     const v = await ECO.form(approve
-      ? {title: `承認して完了：#${n}`, intro: '提出を承認し、そのまま完了します（CIを待って取り込み、タスクを閉じます）。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+      ? {title: `承認して完了：#${n}`, intro: '提出を承認して完了します（CIが終わるのを待って取り込み、タスクを閉じます）。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
       : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
     if (!v) return;
     const doc = await run(['task', approve ? 'approve' : 'reject', String(n), ...(v.message ? ['--message', v.message] : [])],
@@ -610,7 +610,7 @@
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
   }
   async function revertDialog(n) {
-    if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `完了した #${n} の取り込みを取り消すタスクとタスクブランチを作ります（取り消しのコミットまで用意します）。確かめてから提出・完了してください。`, ok: '作る'})) return;
+    if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `#${n} で取り込んだ変更を元に戻すための、新しいタスクを作ります。変更を戻すコミットも用意するので、中身を確かめてから提出してください。`, ok: 'タスクを作る'})) return;
     const doc = await run(['task', 'revert', String(n)], {success: r => `#${n} を取り消すタスクブランチ ${r.branch}（タスク #${r.task}）を作りました。`});
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(); }
   }
@@ -693,8 +693,7 @@
     if (t.state !== 'open') {
       // Out of 完了・削除済み: reopen (task reopen), then put it in the stage it was dropped on when that is 計画中.
       if (!['planned', 'todo'].includes(stage)) return ECO.toast('閉じたタスクは、開き直して未着手か計画中に戻してから開始してください。', 'info', 6000);
-      if (!await ECO.confirm({title: `#${n} を開き直す`, message: `${t.title}
-を開き直して${STAGE[stage][1]}にします。`, ok: '開き直す'})) return;
+      if (!await ECO.confirm({title: `#${n} を開き直す`, message: `「${t.title}」を開き直して、${STAGE[stage][1]}にします。`, ok: '開き直す'})) return;
       if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) { if (stage === 'planned') await setStage(n, 'planned'); else reloadAfter(n); }
       return;
     }

@@ -346,9 +346,9 @@ async function menuAction(action, dir) {
     case 'rename': return inlineName({rename: path});
     case 'move': return moveDialog(path);
     case 'remove': return removeFile(path);
-    case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の未コミットの変更を破棄します。この操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
+    case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
-      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore にパターンを追加します（すでに追跡しているファイルは対象外です）。タスクブランチでコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
+      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore に追加して、git で管理しないようにします（すでに管理しているファイルには効きません）。変えた .gitignore はコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
       if (v) { await WS.run(['ignore', v.pattern], {success: '.gitignore に追加しました：' + v.pattern}); await WS.reloadFiles(); }
       return;
     }

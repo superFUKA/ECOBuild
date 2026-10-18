@@ -398,7 +398,7 @@
   }
   const ACTIONS = {
     'deps-fetch': () => { depsFetched = true; view = 'deps'; return render(); },
-    'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を記録の版に合わせます。手元にないものはcloneし、作業版や変更のあるものはそのままにします。管理ファイルは変更しません。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
+    'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を、記録してある版にそろえます。手元にないものは取ってきます。作業中のものや変更のあるものはそのままにします。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新に更新し、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
     'link': async () => inWorkspace('モジュールをリンク', [
       {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true, more: githubModules()},

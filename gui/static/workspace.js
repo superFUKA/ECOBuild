@@ -207,7 +207,7 @@ get('commit').addEventListener('click', async () => {
   const message = get('commit-message').value.trim(), amend = get('amend').checked;
   if (!message) return;
   const paths = [...WS.selected];
-  if (!paths.length && amend && WS.changes().size && !await ECO.confirm({title: '直前のコミットを修正', message: '印を付けたファイルがないため、変更（管理するファイル）をすべて直前のコミットに含めます。よろしいですか？', ok: '修正する'})) return;
+  if (!paths.length && amend && WS.changes().size && !await ECO.confirm({title: '直前のコミットを修正', message: 'ファイルを選んでいないので、すべての変更を直前のコミットに含めます。よろしいですか？', ok: '修正する'})) return;
   const doc = await WS.run(['task', 'commit', ...paths, '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message + (r.outside?.length ? `（管理外のファイル ${r.outside.length} 件も含めました）` : '')});
   if (doc) {
     get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges();
@@ -336,7 +336,7 @@ async function gitAction(action) {
     }
     case 'discard': {
       // restore: back to the last commit (staged changes too); a file added since (new, staged or not) is deleted.
-      if (!await ECO.confirm({title: '変更を元に戻す', message: `${sel.length}件のファイルの未コミットの変更を破棄し、最後のコミットの状態に戻します（追加したファイルは削除します）。この操作は元に戻せません。`, ok: '元に戻す', danger: true})) return;
+      if (!await ECO.confirm({title: '変更を元に戻す', message: `${sel.length} 件のファイルの変更を捨てて、最後のコミットの状態に戻します。追加したファイルは消えます。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) return;
       const doc = await WS.run(['restore', ...sel], {success: '変更を元に戻しました。'});
       if (doc) { WS.selected.clear(); renderChanges(); await WS.reloadFiles?.(); }
       return doc;
@@ -364,7 +364,7 @@ async function gitAction(action) {
     case 'discard-left': {
       // Off a task branch: every change shown (added files too) goes back to the last commit (restore <paths>).
       const paths = [...WS.changes().keys()];
-      if (!paths.length || !await ECO.confirm({title: '変更を捨てる', message: `${WS.status.branch || 'この作業空間'} の未コミットの変更 ${paths.length} 件を捨てて、最後のコミットの状態に戻します。追加したファイルは消えます。この操作は元に戻せません。`, detail: paths.join('\n'), ok: '捨てる', danger: true})) return;
+      if (!paths.length || !await ECO.confirm({title: '変更を捨てる', message: `${WS.status.branch || 'この作業空間'} の未コミットの変更 ${paths.length} 件を捨てて、最後のコミットの状態に戻します。追加したファイルは消えます。\nこの操作は元に戻せません。`, detail: paths.join('\n'), ok: '捨てる', danger: true})) return;
       return WS.run(['restore', ...paths], {success: '変更を捨てました。'}).then(() => WS.reloadFiles?.());
     }
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});

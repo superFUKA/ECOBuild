@@ -175,7 +175,7 @@ const ECO = (() => {
     const outdated = !doc.ok && doc.error?.code === 'generated_files_outdated' && Array.isArray(doc.error.details) ? doc.error.details : [];
     if (outdated.length) {
       overlay?.end();
-      const ok = await confirm({title: '生成ファイルのコミット', message: 'ECOBuild・CppBuild の更新などにより、生成ファイル・管理ファイルが変わりました。これらのファイルだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
+      const ok = await confirm({title: '生成ファイルのコミット', message: 'ECOBuild の更新などで、自動で作られるファイルが変わりました。先にこれらだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
       if (!ok) return null;
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
       const step = await cli(dir, ['task', 'commit', ...outdated, '--message', '生成ファイルを構成の更新に合わせる']);
@@ -219,7 +219,7 @@ const ECO = (() => {
     });
   }
 
-  const confirm = ({title, message, detail, ok = 'OK', danger = false}) => dialog({title, body: `<p>${esc(message)}</p>${detail ? `<pre>${esc(detail)}</pre>` : ''}`, wide: !!detail, buttons: [['キャンセル', '', false], [ok, danger ? 'danger' : 'primary', true]]}).then(Boolean);
+  const confirm = ({title, message, detail, ok = 'OK', danger = false}) => dialog({title, body: `<p class="eco-message">${esc(message)}</p>${detail ? `<pre>${esc(detail)}</pre>` : ''}`, wide: !!detail, buttons: [['キャンセル', '', false], [ok, danger ? 'danger' : 'primary', true]]}).then(Boolean);
 
   function colorDiff(text) {
     return String(text).split('\n').map(line => {

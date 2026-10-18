@@ -123,6 +123,8 @@
 .setup-banner strong { display: block; color: #f1c78e; }
 .setup-banner small { display: block; margin-top: 4px; color: #a5aeba; }
 .setup-banner .add-button { padding: 8px 14px; }
+.update-banner { border-color: #3a5a7a; background: #18222c; }
+.update-banner strong { color: #9ccaf5; }
 .settings-card pre { white-space: pre-wrap; font: 12px Consolas, monospace; color: #cdd5df; background: #14171b; padding: 10px; border-radius: 6px; }
 @media (max-width: 500px) { .method-options.three { grid-template-columns: 1fr; } }
 .module-list li[draggable=true] { cursor: grab; }

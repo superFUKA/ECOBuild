@@ -25,6 +25,7 @@
     <section id="modules" aria-labelledby="page-title">
       <div class="page-heading"><h2 id="page-title">モジュール一覧</h2><div class="add-action"><button type="button" class="add-button" id="add-module">＋ モジュール追加</button></div></div>
       <div class="setup-banner" id="setup-banner" role="status" hidden></div>
+      <div class="setup-banner update-banner" id="update-banner" role="status" hidden></div>
       <ul class="module-list" id="module-list" aria-label="モジュール一覧"><li class="empty-modules" style="grid-column:1/-1">読み込んでいます…</li></ul>
       <p class="empty-modules" id="no-active-modules" hidden>アーカイブしていないモジュールはありません。</p>
       <details class="archived-modules" id="archived-modules" hidden><summary>アーカイブ済み <span id="archived-count"></span></summary>
@@ -57,8 +58,10 @@
         <div id="setup-status" class="note" role="status"></div>
       </section>
       <section class="settings-card" aria-labelledby="about-title">
-        <h3 id="about-title">このGUI</h3>
+        <h3 id="about-title">ECOBuild（このGUI）</h3>
         <p class="note" id="about"></p>
+        <p class="note" id="update-status" role="status"></p>
+        <div class="settings-actions"><button type="button" class="cancel" id="check-update" title="GitHub に新しい版があるかを確かめます（ecobuild installer update --check）">更新を確かめる</button><button type="button" class="add-button" id="run-update" hidden title="CLI と GUI を新しい版に入れ直します（ecobuild installer update）">更新する</button></div>
         <p class="note">GUIはバックグラウンドで動いています。ウィンドウをすべて閉じると、しばらくして自動で終了します。すぐに終了するには「GUIを終了」を押してください。</p>
         <div class="settings-actions"><button type="button" class="cancel" id="make-shortcut" title="アイコン付きのショートカットを、デスクトップとスタートメニューに作る">ショートカットを作る</button><button type="button" class="cancel" id="quit-gui">GUIを終了</button></div>
       </section>

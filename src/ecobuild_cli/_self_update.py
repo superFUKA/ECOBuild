@@ -42,7 +42,7 @@ class SelfUpdate:
     latest: str              # GitHub のその版の最新のコミット
     up_to_date: bool
     started: bool = False    # 更新を始めた（Windows：別の窓で。終わるまで待たない）
-    gui: bool = False        # GUI も入れ直す
+    gui: bool = False        # GUI も入れ直す（インストーラーが入れた GUI があるとき）
 
 
 def installed() -> Installed:
@@ -69,7 +69,8 @@ def check(ref: str | None = None) -> SelfUpdate:
                             hint="ソースを更新（git pull 等）すれば、そのまま反映されます。")
     target = ref or current.ref or "HEAD"
     latest = target if _COMMIT.fullmatch(target) else _remote_commit(current.url, target)
-    return SelfUpdate(current.url, target, current.commit, latest, latest == current.commit)
+    return SelfUpdate(current.url, target, current.commit, latest, latest == current.commit,
+                      gui=(GUI_DIRECTORY / "app.py").is_file())
 
 
 def update(ref: str | None = None) -> SelfUpdate:
@@ -77,7 +78,7 @@ def update(ref: str | None = None) -> SelfUpdate:
     result = check(ref)
     if result.up_to_date:
         return result
-    gui = (GUI_DIRECTORY / "app.py").is_file()
+    gui = result.gui
     script = _installer(result.url, result.latest, "install.ps1" if os.name == "nt" else "install.sh")
     if os.name == "nt":
         command = (f"Wait-Process -Id {os.getpid()} -ErrorAction SilentlyContinue; "

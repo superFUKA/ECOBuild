@@ -350,6 +350,43 @@ $('setup-form').addEventListener('submit', async event => {
     + (r.commands.length ? '<p>足りないツールのインストールコマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');
 });
 
+// ECOBuild itself (CLI and GUI): a newer version on GitHub is offered above the list and in the settings. The update is
+// ecobuild installer update: the installer runs in another window once this ecobuild has ended, and closes the GUI.
+// An ecobuild that cannot be updated this way (installed from local source, or with the bundled Setup.exe) says nothing.
+const short = commit => commit ? commit.slice(0, 7) : '不明';
+async function checkUpdate({quiet = true} = {}) {
+  if (!quiet) $('update-status').textContent = '確かめています…';
+  const doc = await ECO.cli(null, ['installer', 'update', '--check'], {quiet: true});
+  const r = doc.ok ? doc.result : null, newer = !!r && !r.up_to_date;
+  updateGui = !!r?.gui;
+  $('run-update').hidden = !newer;
+  if (!doc.ok) $('update-status').textContent = quiet ? '' : `更新を確かめられません：${doc.error.message}${doc.error.hint ? '（' + doc.error.hint + '）' : ''}`;
+  else $('update-status').textContent = newer ? `新しい版があります：${short(r.current)} → ${short(r.latest)}（${r.ref}）` : `最新です：${short(r.latest)}（${r.ref}）`;
+  const banner = $('update-banner');
+  banner.hidden = !newer;
+  if (newer) {
+    banner.innerHTML = `<div><strong>ECOBuild の新しい版があります</strong><small>${esc(short(r.current))} → ${esc(short(r.latest))}（${esc(r.ref)}）。${r.gui ? 'CLI と GUI' : 'CLI'}を入れ直します。</small></div>
+      <button type="button" class="add-button">更新する</button>`;
+    banner.querySelector('button').addEventListener('click', runUpdate);
+  }
+}
+let updateGui = false;   // the installer puts the GUI in too (and closes it): installer update --check says
+async function runUpdate() {
+  const message = updateGui
+    ? 'CLI と GUI を新しい版に入れ直します。別の窓でインストーラーが動き、GUI はすべての窓を閉じます（ビルド・実行中のものも止まります）。終わったら GUI を起動し直してください。'
+    : 'CLI（ecobuild）を新しい版に入れ直します。別の窓でインストーラーが動きます。この GUI はインストーラーで入れたものではないので、入れ直しません（開いたまま使えます）。';
+  if (!await ECO.confirm({title: 'ECOBuild を更新', message, ok: '更新する'})) return;
+  const doc = await ECO.run(null, ['installer', 'update']);
+  if (!doc) return;
+  const r = doc.result;
+  if (r.up_to_date) { ECO.toast('最新です。', 'ok'); return checkUpdate(); }
+  $('update-status').textContent = r.gui ? '更新を始めました。別の窓のインストーラーが終わったら、GUI を起動し直してください。' : '更新を始めました。別の窓のインストーラーが終わると、新しい ecobuild が使われます。';
+  ECO.toast('更新を始めました。インストーラーの窓で進みます' + (r.gui ? '（GUI は閉じます）。' : '。'), 'ok', 15000);
+}
+$('check-update').addEventListener('click', () => checkUpdate({quiet: false}));
+$('run-update').addEventListener('click', runUpdate);
+checkUpdate();
+
 // The hub opens small (the list and the settings only). Edge may ignore the size it is started with when it is running
 // already, so the window is resized once when it first opens (an app window, not a browser tab; later the user's size).
 // Electron opens it at this size.

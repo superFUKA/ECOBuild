@@ -54,6 +54,7 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 - アプリ（`app.isPackaged`）は、同梱の Python でサーバーを動かし、`bin\ecobuild.exe` を使う。`ecobuild gui` から起動したときも、`app.py` はこのアプリの exe を開く（`packaged_app()`）。
 - ショートカットの AppUserModelID は `appId`（`ECOBuild.GUI`）で、窓と同じ。
 - 初期設定は `ecobuild init` を流さず、ハブが開いたときに `doctor` を見て、足りなければ一覧の上に「はじめに」を出す（「準備する」で設定の環境チェックへ。GitHub へのログイン・権限はそこのボタンから端末の窓で）。
+- ECOBuild 自体の更新：ハブが開いたときに `installer update --check` を見て、新しい版があれば一覧の上に出す（設定の「ECOBuild（このGUI）」にも。「更新を確かめる」で確かめ直す）。「更新する」は `installer update`（別の窓のインストーラーが CLI と GUI を入れ直し、GUI は閉じる。終わったら起動し直す）。手元のソースから入れたもの・同梱のインストーラーで入れたもの（更新できない）は何も出さない。
 - 署名はしていない（初めて開くと SmartScreen の「Windows によって PC が保護されました」が出る。「詳細情報」→「実行」）。
 - `bundle\out`・`bundle\cache`・`dist` はコミットしない。
 

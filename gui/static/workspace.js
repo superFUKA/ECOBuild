@@ -211,6 +211,7 @@ get('commit').addEventListener('click', async () => {
   const doc = await WS.run(['task', 'commit', ...paths, '--message', message, ...(amend ? ['--amend'] : [])], {success: r => 'コミットしました：' + r.message + (r.outside?.length ? `（管理外のファイル ${r.outside.length} 件も含めました）` : '')});
   if (doc) {
     get('commit-message').value = ''; get('amend').checked = false; WS.selected.clear(); renderChanges();
+    await WS.reloadFiles?.();   // deleted・moved files leave the explorer only when the list is read again
     if (amend && WS.status.ahead === 0) say('Push済みのコミットを修正した場合は「強制Push」でPushしてください。');
     else if (!WS.changes().size) WS.showTab('share-panel');
   }

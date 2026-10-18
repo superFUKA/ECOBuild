@@ -64,6 +64,8 @@ header .header-actions button:hover { border-color: #9ee4d3; }
 .nav-account { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 12px 6px 2px; border-top: 1px solid #303640; color: #a5aeba; font-size: 13px; white-space: nowrap; overflow: hidden; }
 .nav-avatar { flex-shrink: 0; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #293447; color: #b1cbef; font-weight: 600; font-size: 13px; }
 .nav-account-name { overflow: hidden; text-overflow: ellipsis; }
+.nav-account { cursor: pointer; border-radius: 0 0 8px 8px; }
+.nav-account:hover, .nav-account:focus-visible { color: #edf1f5; background: #ffffff0a; outline: none; }
 .module-shell.nav-collapsed .nav-account { justify-content: center; padding: 12px 0 2px; }
 .module-shell.nav-collapsed .nav-account-name { display: none; }
 header .brand-icon { display: block; flex: none; }

@@ -40,6 +40,22 @@
 @keyframes eco-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .eco-spinner { animation-duration: 3s; } }
 .eco-loading { color: #a5aeba; padding: 16px 0; display: flex; gap: 10px; align-items: center; font-size: 13px; }
+/* Account settings (the account at the bottom of the left menu). */
+.eco-account .eco-account-head { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid #343c46; }
+.eco-account .eco-account-head button { margin-left: auto; }
+.eco-account-avatar { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #293447; color: #b1cbef; font-size: 20px; font-weight: 600; }
+.eco-account-name { font-size: 16px; font-weight: 600; }
+.eco-account-part { padding: 4px 0 10px; border-bottom: 1px solid #2a3038; }
+.eco-account-part:last-child { border-bottom: 0; }
+.eco-account-part h3 { margin: 12px 0 4px; font-size: 13px; font-weight: 600; color: #cdd5df; }
+.eco-account-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.eco-account-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.eco-account-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; }
+.eco-account-list small { display: block; color: #84909e; font-size: 11px; margin-top: 2px; }
+.eco-account-list button { padding: 5px 12px; font-size: 12px; }
+.eco-account-scopes { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+.eco-account-ok { color: #9fe0a8; font-size: 12px; white-space: nowrap; }
+.eco-account-no { color: #84909e; font-size: 12px; white-space: nowrap; }
 .eco-empty { color: #a5aeba; font-size: 13px; padding: 12px 0; }
 .eco-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: #3d3324; color: #efc389; border: 1px solid #5c4b30; font-size: 13px; line-height: 1.6; }
 .eco-banner.bad { background: #43282b; color: #ffb4b4; border-color: #6a3a3f; }

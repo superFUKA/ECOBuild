@@ -379,15 +379,84 @@ const ECO = (() => {
   }
 
   // The account at the bottom of the left menu (the hub and the module screen): the GitHub login, as in Teams.
+  // Clicking it opens the account settings (accountSettings).
+  function showAccount(me) {
+    const box = document.getElementById('nav-account'); if (!box) return;
+    box.querySelector('.nav-avatar').textContent = (me[0] || '?').toUpperCase();
+    box.querySelector('.nav-account-name').textContent = me || '（取得できませんでした）';
+    box.title = (me ? `ログイン中のGitHubアカウント：${me}` : 'GitHubのアカウントを取得できませんでした（gh auth login）') + '（クリックでアカウントの設定）';
+  }
   document.addEventListener('DOMContentLoaded', () => {
     const box = document.getElementById('nav-account'); if (!box) return;
-    info().then(i => {
-      const me = i.me || '';
-      box.querySelector('.nav-avatar').textContent = (me[0] || '?').toUpperCase();
-      box.querySelector('.nav-account-name').textContent = me || '（取得できませんでした）';
-      box.title = me ? `ログイン中のGitHubアカウント：${me}` : 'GitHubのアカウントを取得できませんでした（gh auth login）';
-    });
+    box.setAttribute('role', 'button'); box.tabIndex = 0;
+    box.addEventListener('click', () => accountSettings());
+    box.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); accountSettings(); } });
+    info().then(i => showAccount(i.me || ''));
   });
+
+  // Account settings: the GitHub login (gh: log in with another account, switch, the permissions it has), the author of
+  // commits (git: ecobuild setup --name/--email) and the default owner of new modules (ecobuild config owner).
+  // The login and the permissions come from GitHub (account: ecobuild has no command for them); the rest from ecobuild.
+  const SCOPES = [['repo', 'リポジトリの読み書き', ''], ['project', 'タスク管理（GitHub Projects）', 'project'],
+    ['workflow', 'CI のワークフローの変更', 'workflow'], ['delete_repo', 'リポジトリの削除', 'delete_repo']];
+  async function accountSettings() {
+    let d = null;
+    const body = () => d?.querySelector('.eco-body');
+    const render = async () => {
+      if (!body()) return;
+      body().innerHTML = loading('アカウントの情報を読み込んでいます…');
+      const [account, doctor, config] = await Promise.all([call('account').catch(() => ({login: ''})),
+        cli(null, ['doctor'], {quiet: true}), cli(null, ['config', 'list'], {quiet: true})]);
+      if (!body()) return;
+      showAccount(account.login || '');
+      const item = name => (doctor.ok ? doctor.result.items : []).find(i => i.name === name);
+      const author = item('git の名前・メール'), [, name = '', email = ''] = (author?.ok && /^(.*?)\s*<(.*)>$/.exec(author.detail)) || [];
+      const owner = config.ok ? config.result.owner || '' : '';
+      const scopes = new Set(account.scopes || []);
+      const me = account.login;
+      body().innerHTML = `<div class="eco-account-head"><span class="eco-account-avatar" aria-hidden="true">${esc((me[0] || '?').toUpperCase())}</span>
+          <div><div class="eco-account-name">${esc(me || 'ログインしていません')}</div><div class="eco-help">${me ? esc(account.name ? account.name + '・GitHub アカウント' : 'GitHub アカウント') : 'GitHub CLI（gh）にログインしてください'}</div></div>
+          ${account.url ? `<button type="button" data-account="profile">GitHub で開く</button>` : ''}</div>
+        <section class="eco-account-part"><h3>GitHub のログイン</h3>
+          <p class="eco-help">ECOBuild は GitHub CLI（gh）のログインを使います。ターミナルが開き、ブラウザで承認します。</p>
+          <div class="eco-account-buttons"><button type="button" data-account="login">${me ? '別のアカウントでログイン' : 'ログイン'}</button>${me ? '<button type="button" data-account="switch">ログイン済みのアカウントに切り替える</button>' : ''}</div></section>
+        ${me ? `<section class="eco-account-part"><h3>権限</h3><ul class="eco-account-list eco-account-scopes">${SCOPES.map(([scope, text, add]) => `<li><span>${esc(text)}<small>${esc(scope)}</small></span>
+          ${scopes.has(scope) ? '<span class="eco-account-ok">あります</span>' : add ? `<button type="button" data-scope="${esc(add)}">権限を追加</button>` : '<span class="eco-account-no">ありません</span>'}</li>`).join('')}</ul></section>` : ''}
+        <section class="eco-account-part"><h3>コミットの作成者</h3><ul class="eco-account-list"><li><span>${author?.ok ? `${esc(name)}<small>${esc(email)}</small>` : `未設定<small>${esc(author?.hint || '')}</small>`}</span>
+          <button type="button" data-account="author">変更</button></li></ul></section>
+        <section class="eco-account-part"><h3>新しいモジュールの所有者</h3><ul class="eco-account-list"><li><span>${owner ? esc(owner) : `ログイン中のユーザー${me ? `（${esc(me)}）` : ''}`}<small>モジュールの作成・取得で所有者（ユーザー・組織）を指定しなかったとき</small></span>
+          <button type="button" data-account="owner">変更</button></li></ul></section>`;
+      d.author = {name, email}; d.owner = owner; d.profile = account.url;
+    };
+    const afterTerminal = text => toast(text + '終わったら「読み直す」を押してください。', 'ok', 8000);
+    const onClick = async e => {
+      const scope = e.target.closest('[data-scope]')?.dataset.scope, what = e.target.closest('[data-account]')?.dataset.account;
+      if (scope) { await call('gh-scope', {scope}).then(() => afterTerminal('ターミナルで権限の追加を承認してください。'), err => toast(err.message, 'bad')); return; }
+      if (what === 'profile') window.open(d.profile, '_blank', 'noopener');
+      if (what === 'login' || what === 'switch') await call('gh-login', {switch: what === 'switch'}).then(() => afterTerminal('ターミナルで続けてください。'), err => toast(err.message, 'bad'));
+      if (what === 'author') {
+        const done = await form({title: 'コミットの作成者', intro: 'コミットに記録する名前とメールアドレスです（git のこのPCの設定。すべてのモジュールに共通）。', fields: [
+          {name: 'name', label: '名前', value: d.author.name, required: true, focus: true}, {name: 'email', label: 'メールアドレス', type: 'email', value: d.author.email, required: true}], ok: '保存',
+          submit: async v => { if (!await run(null, ['setup', '--name', v.name.trim(), '--email', v.email.trim()], {success: 'コミットの作成者を保存しました。'})) return '保存できませんでした。'; }});
+        if (done) await render();
+      }
+      if (what === 'owner') {
+        const done = await form({title: '新しいモジュールの所有者', intro: 'モジュールの作成・取得で所有者を指定しなかったときに使う、GitHub のユーザーまたは組織です。空にするとログイン中のユーザーを使います。', fields: [
+          {name: 'owner', label: 'GitHub のユーザー名・組織名', value: d.owner, placeholder: '未設定ならログイン中のユーザー', focus: true}], ok: '保存',
+          submit: async v => { const owner = v.owner.trim(); if (!await run(null, owner ? ['config', 'set', 'owner', owner] : ['config', 'unset', 'owner'], {success: owner ? `既定の所有者を ${owner} にしました。` : 'ログイン中のユーザーを使います。'})) return '保存できませんでした。'; }});
+        if (done) await render();
+      }
+    };
+    const closed = dialog({title: 'アカウント', body: '', buttons: [['読み直す', '', 'reload'], ['閉じる', 'primary', null]], onOpen: el => {
+      d = el; d.classList.add('eco-account');
+      d.querySelector('.eco-body').addEventListener('click', onClick);
+      // 「読み直す」: ログインし直した・権限を足した後に。押しても閉じない。
+      const reload = [...d.querySelectorAll('.eco-actions button')].find(b => b.textContent === '読み直す');
+      reload.addEventListener('click', e => { e.stopImmediatePropagation(); render(); }, {capture: true});
+      render();
+    }});
+    await closed;
+  }
   // GUI actions (gui/actions.py) ------------------------------------------------------------------------------------
   // The buttons and the outside (ecobuild gui・MCP, e.g. an AI agent) call the same actions. This window tells the
   // server what it shows (window state: for ecobuild gui windows) and waits for what happens elsewhere (events): a

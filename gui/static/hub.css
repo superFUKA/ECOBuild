@@ -147,6 +147,8 @@
     .nav-account { display: flex; align-items: center; gap: 10px; padding: 14px 8px 0; border-top: 1px solid #292f36; color: #a5aeba; font-size: 13px; white-space: nowrap; overflow: hidden; }
     .nav-avatar { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #293447; color: #b1cbef; font-weight: 600; }
     .nav-account-name { overflow: hidden; text-overflow: ellipsis; }
+    .nav-account { cursor: pointer; border-radius: 0 0 8px 8px; }
+    .nav-account:hover, .nav-account:focus-visible { color: #edf1f5; background: #ffffff0a; outline: none; }
     body.nav-collapsed .nav-account { justify-content: center; padding: 14px 0 0; }
     body.nav-collapsed .nav-account-name { display: none; }
     /* Under the window's own top bar (html.frameless): the menu starts below it, and its ECOBuild title is the bar's. */

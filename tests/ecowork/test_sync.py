@@ -230,6 +230,23 @@ def test_restore_to_an_earlier_version(repository):
     assert code_of(lambda: repository.restore(source="nosuch")) == ErrorCode.REVISION_NOT_FOUND
 
 
+def test_restore_discards_staged_changes_and_added_files(repository):
+    """restore <ファイル>：最後のコミットの状態にする。ステージした変更も、追加したファイル（ステージ済み・未追跡）も取り消す。"""
+    root = repository.root
+    task_branch = repository.create_task("t").start()
+    _commits(task_branch, root, ("a.txt", "1\n"), ("b.txt", "1\n"))
+    write(root / "a.txt", "2\n"); task_branch.stage("a.txt")            # ステージした変更
+    write(root / "b.txt", "2\n")                                        # ステージしていない変更
+    write(root / "c.txt", "c\n"); task_branch.stage("c.txt")            # 追加してステージしたファイル
+    write(root / "d.txt", "d\n")                                        # 未追跡のファイル
+    write(root / "e.txt", "e\n")                                        # 名前を挙げない未追跡のファイルは残す
+    repository.restore("a.txt", "b.txt", "c.txt", "d.txt")
+    assert (root / "a.txt").read_text(encoding="utf-8") == "1\n" and (root / "b.txt").read_text(encoding="utf-8") == "1\n"
+    assert not (root / "c.txt").exists() and not (root / "d.txt").exists() and (root / "e.txt").exists()
+    status = repository.status()
+    assert not status.staged and not status.unstaged and status.untracked == ("e.txt",)
+
+
 def test_restore_to_a_version_only_on_a_task_branch(repository):
     head = git(repository.root, "rev-parse", "HEAD").strip()
     assert code_of(lambda: repository.restore(source=head)) == ErrorCode.NOT_ON_TASK_BRANCH

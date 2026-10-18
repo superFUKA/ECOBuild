@@ -160,10 +160,23 @@ class Syncing:
 
     def restore(self, *paths: str, staged: bool = False, source: str | None = None) -> wm.RestoreResult:
         """変更を取り消す。source：ファイルを以前の版（コミット）の状態に戻す（タスクブランチで。結果は未コミットの変更になり、
-        いつものようにコミットする。履歴は消さない）。paths を省くと全体。"""
+        いつものようにコミットする。履歴は消さない）。paths を省くと全体。
+        staged も source もなければ、ファイルを最後のコミットの状態にする（ステージした変更も取り消す。コミットに
+        なかったファイル＝追加したファイルは消える。未追跡のファイルも、名前を挙げたものは消す）。"""
+        if source is None and staged:
+            self.git.restore(paths, staged=True)
+            return wm.RestoreResult(paths, True)
         if source is None:
-            self.git.restore(paths, staged=staged)
-            return wm.RestoreResult(paths, staged)
+            untracked = set(self.git.working_tree().untracked)
+            tracked = tuple(p for p in paths if p.replace("\\", "/") not in untracked)
+            if not paths:
+                self.git.restore(paths)          # 全体は消さない（git がファイルを求めるエラーになる、以前のとおり）
+            elif tracked:
+                self.git.restore(tracked, source="HEAD")
+            for path in paths:
+                if path.replace("\\", "/") in untracked:
+                    (self.root / path).unlink(missing_ok=True)
+            return wm.RestoreResult(paths, False)
         self.require_task_branch("以前の版の状態に戻すこと")
         commit = self._commit(source)
         tree = self.git.working_tree()

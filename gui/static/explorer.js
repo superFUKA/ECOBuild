@@ -59,6 +59,7 @@ function renderTree() {
   for (const d of WS.files.dirs) if (shown(d)) nodeFor(d);
   const changed = new Set(WS.changes().keys());
   const generated = new Set(WS.files.generated || []);
+  const missingDirs = new Set(WS.files.missing_dirs || []);
   for (const f of new Set([...WS.files.files, ...[...changed].filter(p => !p.endsWith('/'))])) { if (!shown(f) || (generated.has(f) && !showGenerated)) continue; const i = f.lastIndexOf('/'); nodeFor(i < 0 ? '' : f.slice(0, i)).files.push(f); }
   const changedDirs = new Set([...changed].flatMap(p => p.split('/').slice(0, -1).map((_, i, a) => a.slice(0, i + 1).join('/'))));
   const walk = (node, parent, prefix) => {
@@ -77,8 +78,11 @@ function renderTree() {
         title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon folder" aria-hidden="true">${FOLDER_ICON}</span><span class="tree-name">${esc(name)}</span>`;
         title.title = `フォルダ：${dir}`;
       }
-      title.dataset.directory = dir; title.draggable = !project;   // a Project's own folder moves with project move
+      // A folder that is gone (moved or deleted; git still knows its files, shown struck through) is struck through too.
+      const gone = missingDirs.has(dir);
+      title.dataset.directory = dir; title.draggable = !project && !gone;   // a Project's own folder moves with project move
       if (changedDirs.has(dir)) title.classList.add('has-changes');
+      if (gone) { title.classList.add('deleted'); title.title += '（削除）'; }
       title.addEventListener('click', e => {
         activeDirectory = dir;
         if (e.detail > 0 && !e.target.closest('.tree-caret')) {   // not the triangle: choose only (again: rename)
@@ -571,7 +575,7 @@ tree.addEventListener('dragstart', e => {
 function dropDestination(e) {
   const folder = e.target.closest('summary[data-directory]'), row = e.target.closest('[data-path]');
   const dir = folder ? folder.dataset.directory : row ? dirOf(row.dataset.path) : restricted() ? null : '';
-  if (dir === null || (restricted() && !shown(dir))) return null;
+  if (dir === null || (restricted() && !shown(dir)) || (WS.files.missing_dirs || []).includes(dir)) return null;   // not into a folder that is gone
   if (dragged.dirs.some(d => dir === d || dir.startsWith(d + '/'))) return null;
   const moving = [...dragged.dirs, ...dragged.files].filter(p => dirOf(p) !== dir);
   return moving.length ? dir : null;

@@ -7,6 +7,7 @@
 #file-tree .file.deleted { color: #f3a5a5; text-decoration: line-through; }
 #file-tree .file.conflicted { color: #ff8f8f; font-weight: 700; }
 #file-tree summary.has-changes { color: #efc389; }
+#file-tree summary.deleted { color: #f3a5a5; } #file-tree summary.deleted .tree-name { text-decoration: line-through; }
 #file-tree summary.drop-target { background: #2b423c; }
 #file-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }
 #file-menu button { text-align: left; font-size: 12px; padding: 7px 10px; }

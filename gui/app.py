@@ -458,8 +458,10 @@ def list_files(directory: str) -> dict:
             dirs.add(path)
         subdirs[:] = keep
     missing = [f for f in files if not (root / f).exists()]
+    missing_dirs = [d for d in sorted(dirs) if not (root / d).is_dir()]   # left only by missing files (moved・deleted)
     generated = [f for f in files if _is_generated(root / f)]
-    return {"root": root.as_posix(), "files": files, "dirs": sorted(dirs), "missing": missing, "generated": generated}
+    return {"root": root.as_posix(), "files": files, "dirs": sorted(dirs), "missing": missing, "missing_dirs": missing_dirs,
+            "generated": generated}
 
 
 def _is_generated(path: Path) -> bool:

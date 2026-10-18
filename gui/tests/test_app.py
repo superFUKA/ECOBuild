@@ -83,6 +83,20 @@ def test_list_files_uses_git_and_keeps_empty_folders(tmp_path):
     assert listed["files"] == [".gitignore", "new.txt", "src/a.cpp"]
     assert listed["missing"] == ["src/a.cpp"]
     assert "build" not in listed["dirs"] and {"docs", "docs/empty", "src"} <= set(listed["dirs"])
+    assert listed["missing_dirs"] == []
+
+
+def test_list_files_tells_folders_that_are_gone(tmp_path):
+    root = tmp_path / "work"
+    git(tmp_path, "init", "--quiet", str(root))
+    write(root / "old" / "sub" / "a.cpp", "a\n")
+    git(root, "add", "old/sub/a.cpp")
+    git(root, "commit", "--quiet", "-m", "init")
+    (root / "old").rename(root / "new")   # moved by the GUI: git still knows old/sub/a.cpp
+
+    listed = gui.list_files(str(root))
+    assert listed["missing"] == ["old/sub/a.cpp"]
+    assert listed["missing_dirs"] == ["old", "old/sub"]
 
 
 def test_local_operations_stay_inside_the_place(tmp_path):

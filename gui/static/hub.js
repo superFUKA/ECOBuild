@@ -499,7 +499,7 @@ $('module-list').addEventListener('contextmenu', event => {
     ['開発環境を開く', () => openModule(m.path), m.exists],
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists],
-    ['デスクトップにショートカットを作る', () => makeModuleShortcut(m), m.exists],
+    ['ショートカットを作る…', () => makeModuleShortcut(m), m.exists],
     '-',
     ['一覧から外す…', () => forgetModule(m)],
     ['片付ける（アーカイブ・削除）…', () => putAwayModule(m)],
@@ -531,9 +531,17 @@ $('make-shortcut').addEventListener('click', async () => {
 });
 
 // A module's shortcut opens its development environment alone, without the hub (app.py --module). It is an app of its
-// own on the taskbar (pinned, it opens that module).
+// own on the taskbar (pinned, it opens that module). It goes in a folder chosen each time (the last one is kept on this PC).
+const SHORTCUT_PLACE_KEY = 'ecobuild.shortcutPlace';
 async function makeModuleShortcut(m) {
-  try { const {made} = await ECO.call('shortcut', {module: m.path}); ECO.toast('ショートカットを作りました：' + made.map(p => p.split('\\').slice(-2).join('\\')).join('、')); }
+  let last = ''; try { last = localStorage.getItem(SHORTCUT_PLACE_KEY) || ''; } catch (e) { /* storage blocked */ }
+  try {
+    const {path} = await ECO.call('pick-folder', {title: `${m.name} のショートカットを作るフォルダを選ぶ`, initial: last});
+    if (!path) return;
+    try { localStorage.setItem(SHORTCUT_PLACE_KEY, path); } catch (e) { /* storage blocked */ }
+    const {made} = await ECO.call('shortcut', {module: m.path, place: path});
+    ECO.toast('ショートカットを作りました：' + made.join('、'));
+  }
   catch (e) { ECO.toast(e.message, 'bad', 9000); }
 }
 

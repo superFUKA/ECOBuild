@@ -1053,8 +1053,7 @@ class App:
             return make_parent(d("path"))
         if name == "shortcut":
             if d("module"):
-                place = Path(d("place")) if d("place") else None
-                return {"made": [make_module_shortcut(find_module(self.cli, d("module")), place)]}
+                return {"made": [make_module_shortcut(find_module(self.cli, d("module")))]}
             return {"made": make_shortcuts()}
         if name == "relaunch-after":
             return relaunch_after(int(d("pid") or 0), str(d("commit") or ""), self.cli.command)
@@ -1337,11 +1336,9 @@ def module_app_id(root: str | Path) -> str:
 
 
 def make_module_shortcut(root: str, place: Path | None = None) -> str:
-    """モジュールの開発環境を開くショートカットを place（省くとデスクトップ）に作る（ハブは開かず、その窓だけ）。Windowsだけ。"""
+    """モジュールの開発環境を開くショートカットをデスクトップに作る（ハブは開かず、その窓だけ）。Windowsだけ。"""
     if os.name != "nt":
         raise GuiError("ショートカットは Windows でのみ作成できます。")
-    if place is not None and not place.is_dir():
-        raise GuiError(f"フォルダが見つかりません：{place}")
     place = _shortcut_places()[0] if place is None else place
     name = re.sub(r'[\\/:*?"<>|]', "_", Path(root).name)
     link = place / f"{name} - ECOBuild.lnk"

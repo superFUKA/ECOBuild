@@ -342,6 +342,12 @@ def test_module_shortcut_opens_the_module_alone(tmp_path):
     assert (Path(gui.__file__).with_name("module.ico")).is_file()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")
+def test_module_shortcut_needs_an_existing_folder(tmp_path):
+    with pytest.raises(gui.GuiError, match="フォルダが見つかりません"):
+        gui.make_module_shortcut(str(_module(tmp_path / "Calc")), tmp_path / "ない")
+
+
 def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
     root = tmp_path / "Calc"
     root.mkdir()

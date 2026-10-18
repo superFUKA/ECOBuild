@@ -17,7 +17,8 @@ details { padding-left: 12px; } summary { cursor: pointer; padding: 9px 0; color
 dialog { width: min(520px, calc(100% - 32px)); padding: 28px; background: #1c2128; color: inherit; border: 1px solid #46515e; border-radius: 12px; } dialog::backdrop { background: #0009; }
 @media(max-width: 700px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid #303640; } .work { padding: 22px 16px; } .panel { padding: 18px; } .heading { flex-wrap: wrap; } }
 .explorer-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 8px; }
-.explorer-heading h2 { margin: 0; }
+.explorer-tools { flex-shrink: 0; white-space: nowrap; }
+.explorer-heading h2 { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }   /* narrow: エクスプロー… */
 .explorer-heading button { padding: 3px 10px; font-size: 20px; }
 .file { display: block; border: 0; border-radius: 4px; background: transparent; width: 100%; text-align: left; overflow-wrap: anywhere; }
 .file.active { background: #2b423c; color: #b6f0de; }

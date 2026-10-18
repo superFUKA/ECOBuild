@@ -61,7 +61,11 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
     """ecobuild agent guide：エージェント向けの作業の手順（型ごとの部分は型から作る）。"""
     from .module_type import HasFiles
     generated = module_type.generated_note
-    add_file = "ファイルの追加は `ecobuild file add <パス>`" if issubclass(module_type, HasFiles) else ""
+    has_files = issubclass(module_type, HasFiles)
+    add_file = "ファイルの追加は `ecobuild file add <パス>`" if has_files else ""
+    files = ("- ファイルの追加・移動・削除は `ecobuild file add／move／remove <パス>`（対応するテストのファイル・管理ファイルも"
+             "一緒に直します）。シェルの `mv`・`rm` やエディターで直接しません。\n" if has_files else
+             "- この型にはファイルの操作のコマンドがないので、ファイルの追加・移動・削除は直接して構いません。\n")
     regenerate = f"{generated}は直さなくて構いません。" if generated else ""
     hand_edit = (f"- {generated}は手で編集しません（`ecobuild file`・`ecobuild project`・`ecobuild deps add` 等で変えます）。\n"
                  "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`（モジュール全体）・"
@@ -70,6 +74,13 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
     return f"""# ECOBuild の使い方（{config.name}、型：{module_type.name}）
 
 このリポジトリは ECOBuild で管理しています。コーディングエージェントは、gitを直接使わず `ecobuild` コマンドを使ってください。機械で読む場合は各コマンドに `--json` を付けます（標準出力にJSONが1つ、終了コード 0＝成功、1＝失敗、2＝引数の誤り）。
+
+## まず ECOBuild でできるかを考える
+
+- コードの中身を書く以外のこと（ファイルの追加・移動・削除、Project・依存・設定の変更、ビルド・テスト、コミット・提出 等）は、
+  手で（シェル・エディターで直接）する前に、ECOBuild のコマンドでできるかを確かめます（`ecobuild --help --json` で全部、
+  `ecobuild <コマンド> --help` で使い方）。ECOBuild のコマンドは、関係するもの（テスト・生成ファイル・管理ファイル・Issue）も一緒に直します。
+{files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
 
 ## 作業の流れ
 

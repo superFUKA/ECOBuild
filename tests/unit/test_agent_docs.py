@@ -56,6 +56,14 @@ def test_guide_follows_the_type():
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
+def test_guide_asks_for_ecobuild_first(name):
+    """手でする前に、ECOBuild のコマンドでできるかを確かめる（なければ直接でよい）。"""
+    guide = _documents(name)["agent guide"]
+    assert "## まず ECOBuild でできるかを考える" in guide and "直接して構いません" in guide
+    assert ("ecobuild file add／move／remove" in guide) == (name != "generic")
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
 def test_readme_is_modest(name):
     """README は題名・説明・型ごとの最低限の使い方だけで、ECOBuild のことは最後の1行だけ。"""
     readme = _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name), "サンプルの説明")

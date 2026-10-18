@@ -17,7 +17,7 @@
 //   （リングの LED のモード。信号が変わる操作は調整で「operator:<操作>」として登録）。選択肢が出ているときに押し込むと
 //   選択モード（上下左右で選び、押し込みで決定）。右下に返答のカードが出ているときのタッチは、カードを閉じる。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
-const {app, BrowserWindow, Notification, globalShortcut, ipcMain, screen: display} = require('electron');
+const {app, BrowserWindow, Notification, clipboard, globalShortcut, ipcMain, screen: display} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const pty = require('node-pty');
@@ -322,6 +322,7 @@ function poll() {
 function replied(s, message) {
   const text = (message || '').trim().slice(0, 1200);
   if (text) s.reply = text;
+  if (message?.trim()) s.lastMessage = message.trim();   // 全文（「最後の返答をコピー」）
   if (s.kind === 'operator') { operatorReplied(s, text); return; }
   const w = s.owner; if (!w) return;
   if (w.mini) { s.unseen = true; addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume}); return; }
@@ -642,6 +643,10 @@ function setup({ecobuild, python, group}) {
   ipcMain.handle('agents:open', (event, options) => openSession(options || {}));
   ipcMain.handle('agents:list', () => sessions.map(describe));
   ipcMain.handle('agents:picker', () => pickerList());
+  // クリップボード（窓の画面からは使えないことがあるので main で）
+  ipcMain.on('agents:copy', (event, text) => { if (typeof text === 'string' && text) clipboard.writeText(text); });
+  ipcMain.handle('agents:paste', () => clipboard.readText());
+  ipcMain.handle('agents:last-reply', (event, id) => findSession(id)?.lastMessage || findSession(id)?.reply || '');
   // ＋：このPCの作業空間（ecobuild workspace list）
   ipcMain.handle('agents:workspaces', () => new Promise(resolve => require('child_process').execFile(ecobuildPath(),
     ['workspace', 'list', '--json'], {windowsHide: true, timeout: 30000, env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, (error, stdout) => {

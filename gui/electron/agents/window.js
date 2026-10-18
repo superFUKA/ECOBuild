@@ -5,7 +5,9 @@
 // フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
 // リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
 // ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方とリング。
-// 端末：Ctrl+= / Ctrl+- / Ctrl+0 で文字の大きさ、Ctrl+Shift+C で選んだところをコピー、Ctrl+V で貼り付け。
+// 端末：Ctrl+= / Ctrl+- / Ctrl+0 で文字の大きさ、Ctrl+V で貼り付け。コピー：Claude Code の中でドラッグして選ぶ（Claude Code が
+// 端末へ OSC 52 でクリップボードに入れるよう頼む）か、Shift を押しながらドラッグして Ctrl+C・Ctrl+Shift+C。右クリックで
+// コピー・貼り付け・最後の返答をコピー（返答の全文）。クリップボードは main で扱う。
 const $ = id => document.getElementById(id);
 const terms = new Map();     // id → {term, fit, el}
 let tabs = [], active = null, fontSize = 14;
@@ -21,15 +23,27 @@ function makeTerm(info, history) {
   term.loadAddon(fit); term.open(el);
   term.onData(data => agents.input(info.id, data));
   term.attachCustomKeyEventHandler(event => keys(event, term));
+  // OSC 52：アプリ（Claude Code）が選んだ文字をクリップボードに入れるよう頼んでくる（"c;<base64>"。"?" は読み出しの頼みで、答えない）
+  term.parser.registerOscHandler(52, data => {
+    const encoded = data.slice(data.indexOf(';') + 1);
+    if (!encoded || encoded === '?') return true;
+    try { agents.copy(new TextDecoder().decode(Uint8Array.from(atob(encoded), c => c.charCodeAt(0)))); } catch (e) { /* 壊れた頼み */ }
+    return true;
+  });
+  el.addEventListener('contextmenu', event => { event.preventDefault(); termMenu(info, term, event.clientX, event.clientY); });
   if (history) term.write(history);
   terms.set(info.id, {term, fit, el});
 }
 
 function keys(event, term) {
   if (event.type !== 'keydown') return true;
-  if (event.ctrlKey && event.shiftKey && event.code === 'KeyC') { navigator.clipboard.writeText(term.getSelection()); return false; }
+  // Ctrl+Shift+C、選んでいるときの Ctrl+C はコピー（選んでいなければ Ctrl+C はそのまま Claude へ）
+  if (event.ctrlKey && event.code === 'KeyC' && (event.shiftKey || term.hasSelection())) {
+    if (term.hasSelection()) { agents.copy(term.getSelection()); term.clearSelection(); }
+    return false;
+  }
   if (event.ctrlKey && !event.shiftKey && event.code === 'KeyV') {
-    navigator.clipboard.readText().then(text => text && term.paste(text)); return false;
+    agents.paste().then(text => text && term.paste(text)); return false;
   }
   if (event.ctrlKey && ['Equal', 'Minus', 'Digit0', 'NumpadAdd', 'NumpadSubtract'].includes(event.code)) {
     fontSize = event.code === 'Digit0' ? 14 : Math.max(9, Math.min(28, fontSize + (/Equal|Add/.test(event.code) ? 1 : -1)));
@@ -137,6 +151,23 @@ function rename(button, info) {
   });
   input.addEventListener('blur', () => done(true));
   input.addEventListener('click', event => event.stopPropagation());
+}
+
+// 端末の右クリック：コピー（選んでいるとき）・貼り付け・最後の返答をコピー
+function termMenu(info, term, x, y) {
+  const menu = $('menu'); menu.replaceChildren();
+  const items = [];
+  if (term.hasSelection()) items.push(['コピー', () => { agents.copy(term.getSelection()); term.clearSelection(); }]);
+  items.push(['貼り付け', () => agents.paste().then(text => text && term.paste(text))]);
+  items.push(['最後の返答をコピー', async () => { const text = await agents.lastReply(info.id); if (text) agents.copy(text); }]);
+  const hint = document.createElement('div'); hint.className = 'head'; hint.textContent = '文字は Claude の中でドラッグして選ぶとコピーされます（Shift を押しながらドラッグでも選べます）';
+  for (const [label, action] of items) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    b.addEventListener('click', () => { menu.hidden = true; action(); }); menu.append(b);
+  }
+  menu.append(hint);
+  menu.hidden = false;
+  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + 'px';
 }
 
 function closeTab(info) {
@@ -273,7 +304,14 @@ $('ring-find').addEventListener('click', async () => {
 });
 $('ring-calibrate').addEventListener('click', () => agents.ringCalibrate(''));
 $('ring-calibrate-operator').addEventListener('click', () => agents.ringCalibrate('operator'));
-agents.onScroll((id, lines) => terms.get(id)?.term.scrollLines(lines));
+// スクロール：全画面の表示（Claude Code）は端末に履歴がないので、マウスホイールの合図を送る。そうでなければ端末の履歴を
+agents.onScroll((id, lines) => {
+  const t = terms.get(id); if (!t) return;
+  if (t.term.buffer.active.type === 'alternate') {
+    const wheel = `\x1b[<${lines < 0 ? 64 : 65};${Math.floor(t.term.cols / 2)};${Math.floor(t.term.rows / 2)}M`;
+    agents.input(id, wheel.repeat(Math.abs(lines)));
+  } else t.term.scrollLines(lines);
+});
 agents.onPicker(() => ($('picker-panel').hidden ? openPicker() : closePanels()));
 
 // ---- ＋：作業空間のエージェントを開く（このPCの作業空間の一覧から） ----------------------------------------------

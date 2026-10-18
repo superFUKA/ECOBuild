@@ -21,13 +21,17 @@ class FakeDocker:
             return docker.Completed(tuple(args), 0 if self.ready else 1, "29.1.3" if self.ready else "")
         if command == "inspect":
             state = self.containers.get(rest[-1])
-            return docker.Completed(tuple(args), 0 if state else 1, f"{state[0]} {state[1]}" if state else "No such object")
+            return docker.Completed(tuple(args), 0 if state else 1, " ".join(state) if state else "No such object")
         if args[1:3] == ["image", "inspect"]:
             return docker.Completed(tuple(args), 0 if rest[-1] in self.images else 1, "")
         if command == "build":
             self.images.add(rest[rest.index("--tag") + 1])
         elif command == "run":
-            self.containers[rest[rest.index("--name") + 1]] = ["running", rest[-3]]
+            labels = [rest[i + 1] for i, a in enumerate(rest) if a == "--label"]
+            version = next((l.split("=", 1)[1] for l in labels if l.startswith(container.VERSION_LABEL + "=")), "")
+            self.containers[rest[rest.index("--name") + 1]] = ["running", rest[-3], version]
+        elif command == "exec":
+            pass
         elif command == "start":
             self.containers[rest[-1]][0] = "running"
         elif command == "stop":
@@ -66,6 +70,7 @@ def test_container_lifecycle(monkeypatch, root, tmp_path):
     assert '"git+https://example.com/ECOBuild@abc123"' in built and "safe.directory /work" in built
     run = next(args for args in fake.calls if args[1] == "run")
     assert f"{root}:/work" in run and "1000:1000" in run and run[-3:] == [started.image, "sleep", "infinity"]
+    assert f"{container.AGENT_VOLUME}:{container.AGENT_HOME}" in run                     # エージェントのログインは共有
     assert not container.start(root, fake.run).changed                                    # 動いていれば何もしない
 
     assert container.stop(root, fake.run).state == "exited"
@@ -102,3 +107,57 @@ def test_type_tools_go_into_the_image():
     cpp, generic = container.dockerfile(REGISTRY.load("cpp")), container.dockerfile(REGISTRY.load("generic"))
     assert "cmake ninja-build g++" in cpp and "g++" not in generic
     assert container.image_name(REGISTRY.load("cpp"), cpp) != container.image_name(REGISTRY.load("cpp"), cpp + "#")
+
+
+def test_old_containers_are_made_again(monkeypatch, root, tmp_path):
+    """古い形（VERSION）のコンテナや、ECOBuild を更新して違うイメージになったコンテナは作り直す。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    first = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc123"))
+    fake.containers[first.name][2] = "1"
+    again = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc123"))
+    assert again.changed and fake.containers[first.name][2] == container.VERSION
+    assert ["docker", "rm", "--force", first.name] in fake.calls
+    newer = container.start(root, fake.run, source=("https://example.com/ECOBuild", "def456"))
+    assert newer.built and newer.image != first.image
+
+
+def test_running_inside_passes_the_keys_by_name(monkeypatch, tmp_path):
+    root = tmp_path / "Calc"
+    command = container.exec_command(root, ("wsl", "-d", "ECOBuild", "--", "docker"), ["ecobuild", "build"],
+                                     ("GH_TOKEN",), directory="/work/src", tty=False)
+    assert command[:6] == ["wsl", "-d", "ECOBuild", "--", "docker", "exec"]
+    assert command[6:10] == ["--env", "GH_TOKEN", "--workdir", "/work/src"] and "secret" not in command
+    monkeypatch.setenv("WSLENV", "USERPROFILE/p")
+    env = container.environment(("wsl",), {"GH_TOKEN": "secret"})
+    assert env["GH_TOKEN"] == "secret" and env["WSLENV"] == "USERPROFILE/p:GH_TOKEN"
+    assert container.inside_path(root, root / "src" / "a") == "/work/src/a"
+    assert container.inside_path(root, tmp_path) == "/work"
+
+
+def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
+    import ecoagent
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    monkeypatch.setattr(container, "_docker", lambda runner, command: ("docker",))
+    monkeypatch.setattr(container.docker, "run", fake.run)
+    monkeypatch.setattr(container, "credentials", lambda: {"GH_TOKEN": "secret"})
+    started = []
+    monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))
+                        or ecoagent.Session(1, tuple(command), Path(directory)))
+    container.choose(root, True, fake.run)
+    container.start_agent(root, ("claude",), deny=("WebFetch",))
+    written = next(args for args in fake.calls if args[1] == "exec")
+    assert written[2:4] == ["--user", "0"] and container.MANAGED_SETTINGS in written[-1]
+    assert container.write_settings(("WebFetch",)) == written[-1] and '"' not in written[-1]
+    command, env = started[0]
+    assert command[-2:] == ["claude", "--dangerously-skip-permissions"] and "--tty" in command
+    assert env["GH_TOKEN"] == "secret" and "secret" not in command
+
+
+def test_the_dockerfile_has_the_agent():
+    from ecobuild_bundle import REGISTRY
+    text = container.dockerfile(REGISTRY.load("generic"))
+    assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={container.AGENT_HOME}" in text
+    assert "gh auth git-credential" in text and f"{container.INSIDE}=1" in text

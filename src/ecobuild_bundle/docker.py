@@ -87,8 +87,8 @@ def elevated(args: list[str]) -> list[str]:
 
 
 def wsl(*args: str) -> list[str]:
-    """DISTRO の中で root として実行するコマンド。"""
-    return ["wsl", "-d", DISTRO, "-u", "root", "--", *args]
+    """DISTRO の中で root として実行するコマンド。--exec：シェルを通さない（-- だと bash を通り、引数の ' や $ が崩れる）。"""
+    return ["wsl", "-d", DISTRO, "-u", "root", "--exec", *args]
 
 
 def status(runner: Runner | None = None, *, windows: bool | None = None) -> DockerStatus:

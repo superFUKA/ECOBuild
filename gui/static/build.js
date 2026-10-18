@@ -153,13 +153,18 @@ WS.onRefresh(renderPrDetail);
   const AGENT_KEY = 'ecobuild-gui-agent';
   const agentCommand = () => { try { return localStorage.getItem(AGENT_KEY) || ''; } catch (e) { return ''; } };
   const setAgentCommand = command => { try { localStorage.setItem(AGENT_KEY, command); } catch (e) { /* storage blocked */ } };
+  // The workspace as a container (ecobuild container status/on/off): the agent and the builds then run inside it.
+  let box = null;
+  const loadContainer = async () => { const doc = await WS.cli(['container', 'status'], {quiet: true}); box = doc.ok ? doc.result : null; showAgent(); };
   const showAgent = () => {
     const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
-    get('agent-start').title = ready ? `この作業空間のルートで、AIを新しい画面で起動します（${command || '既定のエージェント'}）`
+    const where = box?.container ? 'この作業空間のコンテナの中で、AIを確認なしに新しい画面で起動します' : 'この作業空間のルートで、AIを新しい画面で起動します';
+    get('agent-start').title = ready ? `${where}（${command || '既定のエージェント'}）`
       : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
   async function startAgent(command = agentCommand()) {
+    if (box?.container) say('コンテナを用意しています（最初の1回はイメージを作るので数分かかります）…');
     const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);
     if (!doc.ok) return ECO.showError(doc);
     say(`エージェントを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
@@ -173,10 +178,16 @@ WS.onRefresh(renderPrDetail);
         submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
+      '-',
+      box?.container
+        ? ['コンテナをやめる（このPCで動かす）', () => WS.run(['container', 'off'], {confirm: 'この作業空間をコンテナにするのをやめ、コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナをやめる', success: 'コンテナをやめました。AI・ビルドはこのPCで動きます。'}).then(loadContainer)]
+        : ['コンテナで動かす（AI・ビルドを隔離）', () => WS.run(['container', 'on'], {success: 'コンテナにしました。AI・ビルド・テストはコンテナの中で動きます（AI は確認なし）。'}).then(loadContainer), !!box?.docker_ready,
+          box?.docker_ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`],
     ], r.right - 240, r.bottom + 4);
   });
   WS.onRefresh(showAgent);
   showAgent();
+  loadContainer();
 
   loadOptions();   // the build settings and Projects do not need the status
   WS.reloadBuildOptions = loadOptions;

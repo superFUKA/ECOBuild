@@ -73,7 +73,7 @@ READ_ONLY = {
     ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
     ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
-    ("ci", "status"), ("release", "list"),
+    ("ci", "status"), ("release", "list"), ("container", "status"),
     ("agent", "guide"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は

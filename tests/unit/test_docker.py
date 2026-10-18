@@ -67,7 +67,7 @@ def test_windows_installs_wsl_distro_and_engine(monkeypatch):
     machine = Machine(monkeypatch)
     shown = []
     found = docker.install(machine.run, windows=True, progress=shown.append, command="ecobuild")
-    assert found.ready and found.restart == "" and found.command == ("wsl", "-d", "ECOBuild", "-u", "root", "--", "docker")
+    assert found.ready and found.restart == "" and found.command == ("wsl", "-d", "ECOBuild", "-u", "root", "--exec", "docker")
     assert found.done == ("WSL 本体を導入しました", "WSL2 を有効にしました", "WSL に ECOBuild（Ubuntu-24.04）を作りました",
                           "WSL の ECOBuild に Docker（docker.io）を導入しました", "WSL の ECOBuild の Docker を起動しました")
     assert ["wsl", "--install", "Ubuntu-24.04", "--name", "ECOBuild", "--no-launch"] in machine.calls

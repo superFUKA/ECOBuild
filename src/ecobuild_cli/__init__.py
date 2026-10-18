@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from cli_framework import create_cli
 
-from . import _catalog, _extensions, _log, _types, commands
+from . import _catalog, _extensions, _inside, _log, _types, commands
 from ._output import USAGE_ERROR, use_utf8_when_redirected
 
 
@@ -94,6 +94,9 @@ def _main(args: list[str]) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    inside = _inside.route(args, json_output)    # 作業空間がコンテナなら、ビルド等は中の ecobuild で
+    if inside is not None:
+        sys.exit(inside)
     external = _external(args[0]) if args and not args[0].startswith("-") else None
     if external:
         # 外部サブコマンド（ecobuild-<名前>。git と同じ）：引数ごと渡し、その終了コードで終わる

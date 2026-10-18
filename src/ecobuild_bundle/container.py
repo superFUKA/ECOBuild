@@ -8,13 +8,25 @@
 型が使うツール（ModuleType.container_packages）を入れる。中身（Dockerfile）が同じなら作り直さない（名前に中身の
 ハッシュ）ので、作るのは最初の1回（と ECOBuild・型のツールが変わったとき）だけ。ecobuild.local.toml の
 container_image で、別のイメージを使うこともできる。
-ビルド・テスト・エージェントをコンテナの中で動かすのはこれから（今はこのPCで動く）。
+
+中で動かす（run_inside・start_agent）ときは、このPCの GitHub の鍵（gh auth token）と git の名前・メールを環境変数で渡す
+（docker exec のたび。コンテナの設定には残らず、コマンドラインにも値を書かない）。中の git は gh を認証に使う。
+エージェント（Claude Code）はイメージに入れてあり、ログインはすべてのコンテナで共有するボリューム（AGENT_VOLUME）に残る
+（中の CLAUDE_CONFIG_DIR。このPCの ~/.claude は見せない）。中は隔離されているので確認なしで動かし、使わせない道具・
+コマンドだけを managed-settings の deny に書く（ダメなものだけを列挙する）。
+コンテナの形（ボリューム等）を変えたら VERSION を上げる：古い形のコンテナは start で作り直す（ファイルは作業空間にある）。
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
+import os
 import re
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Callable
 from pathlib import Path, PureWindowsPath
@@ -33,6 +45,14 @@ SOURCE = ("https://github.com/superFUKA/ECOBuild", "feature/mvp")   # 中に入�
 WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
+VERSION_LABEL = "ecobuild.container"
+VERSION = "2"                   # コンテナの形の版（2：エージェントのボリューム）
+HOME = "/home/ubuntu"
+AGENT_HOME = f"{HOME}/.claude"  # 中のエージェントの設定・ログイン（CLAUDE_CONFIG_DIR）
+AGENT_VOLUME = "ecobuild-agent" # AGENT_HOME に付けるボリューム（すべてのコンテナで共有：ログインは1回）
+MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
+INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
+AGENT_FLAGS = {"claude": ("--dangerously-skip-permissions",)}   # 中で確認なしに動かすときに足すもの
 
 
 @dataclass(frozen=True)
@@ -70,8 +90,11 @@ def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
         f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {packages} \\",
         " && rm -rf /var/lib/apt/lists/*",
         "USER ubuntu",
-        "ENV PATH=/home/ubuntu/.local/bin:$PATH",
-        f"RUN git config --global --add safe.directory {WORKDIR}",   # このPCのファイルは別の持ち主に見える
+        f"ENV PATH={HOME}/.local/bin:$PATH CLAUDE_CONFIG_DIR={AGENT_HOME} {INSIDE}=1",
+        f"RUN git config --global --add safe.directory {WORKDIR} \\",   # このPCのファイルは別の持ち主に見える
+        " && git config --global credential.https://github.com.helper '!gh auth git-credential'",   # GH_TOKEN で push
+        f"RUN mkdir -p {AGENT_HOME} \\",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
+        " && curl -fsSL https://claude.ai/install.sh | bash",
         "RUN curl -LsSf https://astral.sh/uv/install.sh | sh \\",
         f' && uv tool install --python python3 "git+{url}@{ref}"',
         f"WORKDIR {WORKDIR}",
@@ -112,26 +135,36 @@ def choose(root: Path, container: bool, runner: docker.Runner | None = None, *,
     return _result(root, container, changed, runner)
 
 
-def start(root: Path, runner: docker.Runner | None = None, *, command: str = "", source: tuple[str, str] = SOURCE,
+def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
+          source: tuple[str, str] | None = None,
           progress: Callable[[str], None] = lambda message: None) -> WorkspaceContainer:
     """コンテナを動かす（なければ作る。イメージもなければ作る：最初の1回は数分かかる）。
-    source：イメージに入れる ECOBuild（git のリポジトリ, 版）。使う側が今の ECOBuild の入れ元を渡す。"""
+    source：イメージに入れる ECOBuild（git のリポジトリ, 版）。使う側が今の ECOBuild の入れ元を渡す。渡したときは、
+    コンテナのイメージがそれと違えば（ECOBuild を更新した）作り直す。古い形（VERSION）のコンテナも作り直す。"""
     if not enabled(root):
         raise EcoBuildError(ErrorCode.CONTAINER_ERROR, f"{root} はコンテナにしていません。",
                             hint=f"{operation(command, 'container on')} でコンテナにできます。")
     prefix = _docker(runner, command)
-    state = _state(root, runner, prefix)
+    state, current, version = _inspect(root, runner, prefix)
+    image = _config.load_local(root).get(IMAGE_KEY)
+    built = False
+    if state != "none":
+        if not image and source is not None:
+            image, built = _image(root, runner, prefix, source, progress)
+        if version != VERSION or (image and image != current):
+            progress("コンテナを作り直します（ECOBuild の更新に合わせる。作業空間のファイルはそのまま）")
+            _run(runner, [*prefix, "rm", "--force", name(root)], "古いコンテナを消せませんでした")
+            state = "none"
     if state == "running":
         return _result(root, True, False, runner)
-    built = False
     if state == "none":
-        image = _config.load_local(root).get(IMAGE_KEY)
         if not image:
-            image, built = _image(root, runner, prefix, source, progress)
+            image, built = _image(root, runner, prefix, source or SOURCE, progress)
         progress("コンテナを作ります")
         _run(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
-                      "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--workdir", WORKDIR, "--user", USER,
-                      image, "sleep", "infinity"], "コンテナを作れませんでした")
+                      "--label", f"{VERSION_LABEL}={VERSION}",
+                      "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--volume", f"{AGENT_VOLUME}:{AGENT_HOME}",
+                      "--workdir", WORKDIR, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
     return _result(root, True, True, runner, built=built)
@@ -192,13 +225,15 @@ def _state(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) ->
     return _inspect(root, runner, prefix)[0]
 
 
-def _inspect(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tuple[str, str]:
-    """コンテナの状態とイメージ（なければ none と空）。"""
-    found = (runner or docker.run)([*prefix, "inspect", "--format", "{{.State.Status}} {{.Config.Image}}", name(root)])
+def _inspect(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tuple[str, str, str]:
+    """コンテナの状態・イメージ・形の版（なければ none と空）。"""
+    labels = '{{index .Config.Labels "' + VERSION_LABEL + '"}}'
+    found = (runner or docker.run)([*prefix, "inspect", "--format", "{{.State.Status}} {{.Config.Image}} " + labels,
+                                    name(root)])
     if not found.ok:
-        return "none", ""
-    state, _, image = found.output.strip().partition(" ")
-    return state, image
+        return "none", "", ""
+    state, image, version = (found.output.strip().split() + ["", ""])[:3]
+    return state, image, version
 
 
 def _exists(root: Path, runner: docker.Runner | None) -> bool:
@@ -215,5 +250,111 @@ def _run(runner: docker.Runner | None, args: list[str], message: str) -> None:
 def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | None, *,
             built: bool = False) -> WorkspaceContainer:
     found = docker.status(runner or docker.run)
-    state, image = _inspect(root, runner, found.command) if found.ready else ("unknown", "")
+    state, image, _ = _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
     return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image, built)
+
+
+# 中で動かす -------------------------------------------------------------------------------------
+
+def credentials() -> dict[str, str]:
+    """中へ渡す環境変数：このPCの GitHub の鍵（gh auth token）と git の名前・メール（なければ渡さない）。"""
+    values = {}
+    token = os.environ.get("GH_TOKEN") or _output(["gh", "auth", "token"])
+    if token:
+        values["GH_TOKEN"] = token
+    for key, names in (("user.name", ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")),
+                       ("user.email", ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"))):
+        value = _output(["git", "config", "--global", "--get", key])
+        if value:
+            values.update(dict.fromkeys(names, value))
+    return values
+
+
+def exec_command(root: Path, prefix: tuple[str, ...], args: list[str] | tuple[str, ...], names: tuple[str, ...] = (),
+                 *, directory: str = WORKDIR, tty: bool = False) -> list[str]:
+    """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。"""
+    flags = ["--interactive", "--tty"] if tty else []
+    passed = [item for each in names for item in ("--env", each)]
+    return [*prefix, "exec", *flags, *passed, "--workdir", directory, name(root), *args]
+
+
+def environment(prefix: tuple[str, ...], values: dict[str, str]) -> dict[str, str]:
+    """exec_command に渡す環境。WSL の中の docker には WSLENV で名前を通す。"""
+    env = {**os.environ, **values}
+    if prefix[:1] == ("wsl",) and values:
+        env["WSLENV"] = ":".join(filter(None, [os.environ.get("WSLENV", ""), *values]))
+    return env
+
+
+def inside_path(root: Path, cwd: Path) -> str:
+    """このPCの場所 cwd（作業空間の中）に当たる、コンテナの中の場所。"""
+    try:
+        relative = Path(cwd).resolve().relative_to(Path(root).resolve())
+    except ValueError:
+        return WORKDIR
+    return "/".join([WORKDIR, *relative.parts])
+
+
+def run_inside(root: Path, args: list[str], *, cwd: Path, command: str = "", source: tuple[str, str] | None = None,
+               progress: Callable[[str], None] = lambda message: None, capture: bool = False) -> tuple[int, str]:
+    """コンテナの中で args（ecobuild 等）を実行する。(終了コード, 標準出力)。標準出力は capture のときだけ取り込み、
+    ほかは流す（標準エラーはいつも流す）。コンテナは動かしてから。"""
+    start(root, command=command, source=source, progress=progress)
+    prefix = _docker(None, command)
+    values = credentials()
+    tty = not capture and sys.stdin.isatty() and sys.stdout.isatty()
+    argv = exec_command(root, prefix, args, tuple(values), directory=inside_path(root, cwd), tty=tty)
+    done = subprocess.run(argv, env=environment(prefix, values), stdout=subprocess.PIPE if capture else None,
+                          encoding="utf-8" if capture else None, errors="replace" if capture else None)
+    return done.returncode, done.stdout or ""
+
+
+def outside(value, root: Path):
+    """中の場所（/work…）の文字を、このPCの場所に読み替える（結果の JSON の中身）。"""
+    if isinstance(value, str) and (value == WORKDIR or value.startswith(WORKDIR + "/")):
+        return Path(root).as_posix() + value[len(WORKDIR):]
+    if isinstance(value, list):
+        return [outside(v, root) for v in value]
+    if isinstance(value, dict):
+        return {k: outside(v, root) for k, v in value.items()}
+    return value
+
+
+def agent_settings(deny: tuple[str, ...]) -> str:
+    """中のエージェントの managed-settings（使わせないものだけ）。"""
+    return json.dumps({"permissions": {"deny": list(deny)}}, ensure_ascii=False)
+
+
+def write_settings(deny: tuple[str, ...]) -> str:
+    """managed-settings を書く sh のスクリプト。中身は base64 で渡す（WSL を通すと引数の " が崩れる）。"""
+    encoded = base64.b64encode(agent_settings(deny).encode("utf-8")).decode("ascii")
+    folder = MANAGED_SETTINGS.rsplit("/", 1)[0]
+    return f"mkdir -p {folder} && echo {encoded} | base64 -d > {MANAGED_SETTINGS}"
+
+
+def start_agent(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (), command: str = "",
+                source: tuple[str, str] | None = None, progress: Callable[[str], None] = lambda message: None):
+    """コンテナの中でエージェントを新しい画面で起動する（確認なし。deny に書いたものだけ使わせない）。"""
+    import ecoagent
+    start(root, command=command, source=source, progress=progress)
+    prefix = _docker(None, command)
+    _run(None, [*prefix, "exec", "--user", "0", name(root), "sh", "-c", write_settings(deny)],
+         "エージェントの設定を書けませんでした")
+    if agent:
+        agent = (*agent, *(flag for flag in AGENT_FLAGS.get(agent[0], ()) if flag not in agent))
+    values = credentials()
+    argv = exec_command(root, prefix, agent, tuple(values), tty=True)
+    try:
+        return ecoagent.start(root, argv, env=environment(prefix, values))
+    except ecoagent.AgentError as error:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
+
+
+def _output(args: list[str]) -> str:
+    if shutil.which(args[0]) is None:
+        return ""
+    try:
+        done = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""

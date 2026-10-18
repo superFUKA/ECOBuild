@@ -28,8 +28,9 @@ class Session:
     directory: Path
 
 
-def start(directory: Path | str, command: list[str] | tuple[str, ...] = DEFAULT_COMMAND) -> Session:
-    """directory を作業ディレクトリにして、command を新しい端末の画面で起動する。"""
+def start(directory: Path | str, command: list[str] | tuple[str, ...] = DEFAULT_COMMAND,
+          env: dict[str, str] | None = None) -> Session:
+    """directory を作業ディレクトリにして、command を新しい端末の画面で起動する。env：起動する環境（既定はこのプロセスの）。"""
     directory = Path(directory).resolve()
     if not directory.is_dir():
         raise AgentError(ErrorCode.DIRECTORY_NOT_FOUND, f"フォルダーが見つかりません：{directory}")
@@ -42,9 +43,9 @@ def start(directory: Path | str, command: list[str] | tuple[str, ...] = DEFAULT_
     args = [program, *command[1:]]
     try:
         if sys.platform == "win32":
-            process = subprocess.Popen(args, cwd=directory, creationflags=subprocess.CREATE_NEW_CONSOLE)
+            process = subprocess.Popen(args, cwd=directory, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
-            process = subprocess.Popen([_terminal(), "-e", *args], cwd=directory, start_new_session=True,
+            process = subprocess.Popen([_terminal(), "-e", *args], cwd=directory, env=env, start_new_session=True,
                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         raise AgentError(ErrorCode.LAUNCH_FAILED, f"エージェントを起動できませんでした：{error}") from error

@@ -13,11 +13,12 @@ from importlib import resources
 from pathlib import Path
 from typing import Iterable
 
+import ecoagent
 import ecobuild
 from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import WorkError
-from ecobuild.results import DoctorItem
+from ecobuild.results import AgentStarted, DoctorItem
 
 from . import tooling
 
@@ -44,6 +45,19 @@ class Module(ecobuild.Module):
         if closed.done and chosen:
             container.discard(closed.path)
         return closed
+
+    def start_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None,
+                    progress=lambda message: None) -> AgentStarted:
+        """コンテナにした作業空間では、コンテナの中で確認なしに起動する（使わせないものは設定 agent_deny）。
+        source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。"""
+        from . import container
+        if not container.enabled(self.root):
+            return super().start_agent(command)
+        self.require_task_branch("エージェントの起動")
+        deny = tuple(rule.strip() for rule in _settings.load_config().get("agent_deny", "").split(";") if rule.strip())
+        session = container.start_agent(self.root, tuple(command), deny=deny, command=self.command, source=source,
+                                        progress=progress)
+        return AgentStarted(session.pid, session.command, session.directory)
 
 
 def doctor(extra: Iterable[DoctorItem] = (), *, command: str = "") -> tooling.DoctorReport:

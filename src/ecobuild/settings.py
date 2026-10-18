@@ -26,6 +26,8 @@ CONFIG_KEYS = {
     "owner": "module new・clone・list・deps add 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
     "log_level": "ログに残す量：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）",
     "log_max_mb": "ログの大きさの上限（MB、置き場所ごと。既定 200。超えたら古い日から消す）",
+    "agent_deny": "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
+                  "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
 }
 
 # 値が決まっている項目 → 確かめ方（合わなければ説明）

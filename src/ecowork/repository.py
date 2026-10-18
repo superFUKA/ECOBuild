@@ -290,28 +290,41 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
 
     # タスクとタスクブランチ ---------------------------------------------------------
 
-    def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None,
-                        open: Callable[[Path], "Repository"] | None = None,
-                        ignore_blocked: bool = False, take_over: bool = False) -> "Repository":
-        """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。
+    def clone_to(self, directory: Path | str, *, open: Callable[[Path], "Repository"] | None = None) -> "Repository":
+        """このリポジトリ（origin）を directory へもう1つcloneする（新しい作業空間。ブランチは既定のまま）。
 
         open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
         省略するとフックなし。この Repository のフックは元のcloneに結び付いているため、clone先には渡さない。
         """
+        target, url = self._new_clone(directory)
+        return self._clone_into(target, url, open)
+
+    def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None,
+                        open: Callable[[Path], "Repository"] | None = None,
+                        ignore_blocked: bool = False, take_over: bool = False) -> "Repository":
+        """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。open は clone_to と同じ。"""
+        target, url = self._new_clone(directory)
+        self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
+        self.tracker.check_assignee(number, take_over=take_over)
+        other = self._clone_into(target, url, open)
+        other.task(number).start(base=base, ignore_blocked=ignore_blocked)
+        return other
+
+    def _new_clone(self, directory: Path | str) -> tuple[Path, str]:
         target = Path(directory).resolve()
         if target.exists():
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"{target} は既に存在します。")
         url = self.remote_url
         if url is None:
             raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
-        self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
-        self.tracker.check_assignee(number, take_over=take_over)
+        return target, url
+
+    def _clone_into(self, target: Path, url: str, open: Callable[[Path], "Repository"] | None) -> "Repository":
         _hooks.install(_git.clone(url, target).hooks_directory())
         if open is not None:
             other = open(target)
         else:
             other = type(self)(target, github=self.github, default_base=self.default_base, command=self.command)
-        other.task(number).start(base=base, ignore_blocked=ignore_blocked)
         other.notices[:0] = self.notices
         return other
 

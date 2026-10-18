@@ -29,7 +29,7 @@ def as_json(result):
 def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
-                 ["workspace", "list"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"],
+                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
                  ["container", "stop"], ["container", "remove"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
@@ -458,6 +458,24 @@ def parallel(cli, module, monkeypatch):
     assert cli("task", "start", "1", "--dir", "../Calc-1").exit_code == 0
     monkeypatch.chdir(module.root)
     return module.root.parent / "Calc-1"
+
+
+def test_workspace_create(cli, module, monkeypatch):
+    """作業空間を作る：既定のブランチのclone を記録し、タスクはそこで開始する。"""
+    from ecobuild.results import PrepareResult
+    from ecobuild_cpp.type import CppType
+    monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
+    created = as_json(cli("workspace", "create", "../Calc-2", "--json"))["result"]
+    other = module.root.parent / "Calc-2"
+    assert created["root"] == other.as_posix() and created["name"] == "Calc"
+    listed = as_json(cli("workspace", "list", "--json"))["result"]
+    assert (other.as_posix(), "main", None) in [(c["path"], c["branch"], c["task"]) for c in listed]
+    assert as_json(cli("workspace", "create", "../Calc-2", "--json"))["error"]["code"] == "already_exists"
+
+    assert cli("task", "new", "そこで作業").exit_code == 0
+    monkeypatch.chdir(other)
+    assert cli("task", "start", "1").exit_code == 0
+    assert as_json(cli("status", "--json"))["result"]["branch"] == "task/1"
 
 
 def test_workspaces(cli, module, parallel, monkeypatch):

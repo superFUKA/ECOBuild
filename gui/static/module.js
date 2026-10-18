@@ -85,10 +85,10 @@ const frames = new Map(), hidden = new Set();
 let activePlace = null;
 const keyOf = dir => dir.replaceAll('\\', '/').toLowerCase();
 const addTabButton = document.createElement('button');
-addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
+addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を作る・表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、このPCでモジュールの作業をする場所（clone）です。閉じたタブは「＋」から再表示できます。タスク管理で「作業を開始」すると、タスクブランチ（task/〈番号〉）で作業できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、このPCでモジュールの作業をする場所（clone）です。「＋」から新しい作業空間を作ったり、閉じたタブを再表示したりできます。タスク管理で「作業を開始」すると、選んだ作業空間にタスクブランチ（task/〈番号〉）を置いて作業できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 panels.append(emptyNote);
 
@@ -234,6 +234,23 @@ async function addPlace(dir) {
 MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.task === n) || null;
 MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.task);
 MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
+// The tab shown now (the place started tasks go to by default), or null.
+MOD.activePlace = () => MOD.places.find(p => keyOf(p) === activePlace) || null;
+// A new workspace (workspace create: another clone of the module, on the default branch) next to the module's clone.
+MOD.createWorkspace = async () => {
+  const taken = new Set(MOD.places.map(keyOf)), base = MOD.root.replace(/[\\/]+$/, '');
+  let n = 2; while (taken.has(keyOf(`${base}-${n}`))) n++;
+  let created = null;
+  await ECO.form({title: '新しい作業空間', intro: `${ECO.esc(MOD.name)} をもう1つcloneして、並行作業の場所にします（ブランチは既定のまま）。タスクはそこで「作業を開始」します。`,
+    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}], ok: '作成',
+    submit: async v => {
+      const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir], {success: r => `作業空間を作りました：${r.root}`});
+      if (!doc) return '作成できませんでした。';
+      created = await addPlace(doc.result.root);
+    }});
+  if (created) { await reloadPlace(created); showModulePage('workspace'); activate(created, true); }
+  return created;
+};
 MOD.keyOf = keyOf; MOD.activate = activate; MOD.reloadPlace = reloadPlace; MOD.addPlace = addPlace; MOD.refreshState = refreshState;
 MOD.openWorkspace = async n => {
   // Show the tab where task/<n> is checked out; otherwise switch the module's clone to it (task start).
@@ -289,7 +306,7 @@ tabs.addEventListener('keydown', event => {
   activate(visible[next], true);
 });
 
-// "+" : show a hidden place, register an existing clone as a workspace, forget one or close one. -----------------------------
+// "+" : create a workspace, show a hidden place, register an existing clone as a workspace, forget one or close one. -----------------------------
 addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
@@ -298,8 +315,8 @@ addTabButton.addEventListener('click', async () => {
     return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button><button type="button" data-close-place="${i}" title="作業空間を閉じる（フォルダごと削除します）">閉じる</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業空間を表示</h2><p>このPCにある、このモジュールの作業空間です。タスクブランチはタスク管理の「作業を開始」で作ります（並行作業用の専用のcloneも選べます）。</p><div>${rows}</div>
-    <div class="picker-actions"><button type="button" data-register>既存のcloneを作業空間として登録…</button><button type="button" data-close>閉じる</button></div>`;
+  d.innerHTML = `<h2>作業空間</h2><p>このPCにある、このモジュールの作業空間です。並行して作業するなら、作業空間を増やします。タスクブランチはタスク管理の「作業を開始」で、置く作業空間を選んで作ります。</p><div>${rows}</div>
+    <div class="picker-actions"><button type="button" data-create>新しい作業空間を作る…</button><button type="button" data-register>既存のcloneを作業空間として登録…</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());
   d.addEventListener('click', async e => {
@@ -317,6 +334,7 @@ addTabButton.addEventListener('click', async () => {
         if (await ECO.run(null, ['workspace', 'close', dir])) removeTab(dir);
       }
     }
+    if (e.target.closest('[data-create]')) { d.close(); MOD.createWorkspace(); }
     if (e.target.closest('[data-register]')) {
       try {
         const {path} = await ECO.call('pick-folder', {title: '作業空間にするcloneのフォルダを選択', initial: MOD.root});

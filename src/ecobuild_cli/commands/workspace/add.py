@@ -10,7 +10,7 @@ def command(
 ) -> int:
     """既にあるモジュールのcloneを、作業空間としてこのPCの記録（ecobuild workspace list）に入れます。
 
-    module new・module clone・task start --dir で作ったものと、中でコマンドを使ったものは自動で記録されます。
+    module new・module clone・workspace create・task start --dir で作ったものと、中でコマンドを使ったものは自動で記録されます。
     """
 
     def action(inv):

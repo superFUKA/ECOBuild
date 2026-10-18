@@ -435,11 +435,22 @@
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
+    // Where to place the task branch: a workspace of this PC (one being reviewed cannot switch), by default the tab
+    // shown now when nothing is placed there; or a new workspace; or none.
+    const places = MOD.places.filter(p => { const s = MOD.states.get(MOD.keyOf(p)); return s && !s.reviewing; });
+    const placeName = p => MOD.keyOf(p) === MOD.keyOf(root()) ? 'この作業空間' : '作業空間 ' + p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+    const placeOptions = places.map((p, i) => {
+      const s = MOD.states.get(MOD.keyOf(p));
+      return ['ws' + i, `${placeName(p)}に置く`, (s.task ? `今は task/${s.task} を置いています。task/${n} に切り替えます` : `task/${n} のブランチを作って切り替えます`) + `（${p}）`];
+    });
+    const free = places.filter(p => !MOD.states.get(MOD.keyOf(p)).task), active = MOD.activePlace?.();
+    const preferred = active && free.some(p => MOD.keyOf(p) === MOD.keyOf(active)) ? active : free[0];
+    const placeValue = preferred ? 'ws' + places.indexOf(preferred) : 'dir';
     const assignees = d.assignees || t.assignees || [], others = me() && !assignees.includes(me()) ? assignees : [];
     await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} のタスクブランチを用意しています…`, fields: [
-      {name: 'place', label: '作業の場所', type: 'radio', value: 'here', options: [
-        ['here', 'この作業空間にタスクブランチを作る', `task/${n} のブランチを作って切り替えます（${root()}）`],
-        ['dir', '新しい作業空間を作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
+      {name: 'place', label: 'タスクブランチを置く作業空間', type: 'radio', value: placeValue, options: [
+        ...placeOptions,
+        ['dir', '新しい作業空間を作って置く', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
         ['none', 'タスクブランチを作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
       {name: 'dir', label: '新しい作業空間の場所', value: suggested, showIf: v => v.place === 'dir'},
       {name: 'base', label: '作成元のブランチ', type: 'select', value: base, options: [[base, base + (base === defaults.default_base ? '（既定）' : '')]], showIf: v => v.place !== 'none', more: branchOptions,
@@ -452,10 +463,11 @@
         const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : []), ...(v.takeOver ? ['--take-over'] : [])];
         if (v.place === 'none') args.push('--no-branch');
         if (v.place === 'dir') { if (!v.dir) return '新しい作業空間の場所を入力してください。'; args.push('--dir', v.dir); }
-        const doc = await run(args, {success: v.place === 'none' ? `#${n} を作業中にしました。` : `タスクブランチ task/${n} を用意しました。`, quietErrors: true});
+        const place = v.place.startsWith('ws') ? places[Number(v.place.slice(2))] : null;
+        const doc = await run(args, {dir: place || root(), success: v.place === 'none' ? `#${n} を作業中にしました。` : `タスクブランチ task/${n} を用意しました。`, quietErrors: true});
         if (!doc) return '開始できませんでした。';
-        if (v.place === 'here') { await MOD.reloadPlace(root()); MOD.openWorkspace(n); }
-        if (v.place === 'dir') { const place = await MOD.addPlace(doc.module || v.dir); await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }
+        if (place) { await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }
+        if (v.place === 'dir') { const created = await MOD.addPlace(doc.module || v.dir); await MOD.reloadPlace(created); showModulePage('workspace'); MOD.activate(created, true); }
         reloadAfter(n);
       }});
   }

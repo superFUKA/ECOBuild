@@ -55,3 +55,18 @@ def test_dedicated_clone_prepares_only_the_clone(module, tmp_path, monkeypatch):
     assert other.root != module.root and other.repository.current_task_branch().number == task.number
     assert prepared and set(prepared) == {other.root}
     assert module.repository.current_task_branch() is None
+
+
+def test_created_workspace_prepares_only_the_clone(module, tmp_path, monkeypatch):
+    """新しい作業空間（clone）を作るとき、型の準備は clone 先だけで行い、ブランチは既定のまま。"""
+    prepared = []
+
+    def prepare(self):
+        prepared.append(self.module.root)
+        return PrepareResult((), False)
+
+    monkeypatch.setattr(CppType, "prepare", prepare)
+    other, _ = module.create_workspace(tmp_path / "Calc-2")
+    assert other.root != module.root and other.repository.git.current_branch() == "main"
+    assert other.repository.current_task_branch() is None
+    assert prepared and set(prepared) == {other.root}

@@ -770,6 +770,21 @@ class Module:
 
     # タスクブランチ・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
+    def create_workspace(self, directory: Path | str) -> tuple["Module", tuple[DependencyChange, ...]]:
+        """新しい作業空間（このモジュールのclone）を directory に作り、依存先と生成ファイルを用意する。
+
+        ブランチは既定のまま。タスクはそこで開始する（タスクブランチを置く）。準備はclone先でだけ行う。
+        """
+        opened: list[Module] = []
+
+        def open_clone(root: Path) -> Repository:
+            opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
+            return opened[0].repository
+
+        self.repository.clone_to(directory, open=open_clone)
+        dependencies, _ = opened[0]._after_sync()
+        return opened[0], dependencies
+
     def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False) -> "Module":
         """新しい作業空間（clone）にタスクブランチを作り（I-007）、依存先と生成ファイルを用意する。

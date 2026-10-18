@@ -251,15 +251,17 @@ let historyCount = 30;
 const matchesCommit = (c, query) => !query || [c.sha, c.subject, c.author, c.issue ? '#' + c.issue : ''].some(v => String(v).toLowerCase().includes(query));
 function historyMenu(c, x, y) {
   const s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
+  const why = 'タスクブランチでだけ使えます';   // the reason a greyed item gives on hover
   ECO.menu([
     ['SHAをコピー', () => ECO.copyText(c.sha)],
     '-',
-    [onTask ? 'この版の状態に戻す（変更としてコミットする）…' : 'この版の状態に戻す（タスクブランチで）', () => WS.run(['restore', '--source', c.sha],
+    ['この版の状態に戻す…', () => WS.run(['restore', '--source', c.sha],
       {confirm: `ファイルを ${short}「${c.subject}」のときの状態に戻します。これまでのコミットは消さず、戻した結果はコミットする変更になります。`, title: 'この版の状態に戻す',
-       success: `${short} の状態に戻しました。内容を確かめてコミットしてください。`}).then(() => WS.reloadFiles?.()), onTask],
-    [onTask ? 'ここまで戻す（後のコミットを捨てる）…' : 'ここまで戻す（タスクブランチで）', () => WS.run(['task', 'reset', c.sha],
+       success: `${short} の状態に戻しました。内容を確かめてコミットしてください。`}).then(() => WS.reloadFiles?.()), onTask,
+      onTask ? 'ファイルをこの版のときの状態に戻します（戻した結果をコミットします）' : why],
+    ['ここまで戻す…', () => WS.run(['task', 'reset', c.sha],
       {title: 'ここまで戻す', success: r => r.dropped.length ? `${short} まで戻しました（捨てたコミット ${r.dropped.length} 件）。` : '捨てるコミットはありません。'})
-      .then(() => WS.reloadFiles?.()), onTask],
+      .then(() => WS.reloadFiles?.()), onTask, onTask ? 'この版より後のコミットを捨てます' : why],
   ], x, y);
 }
 const historyView = logView(get('history-view'), {menu: historyMenu, onMore: () => { historyCount += 30; loadHistory(); }});

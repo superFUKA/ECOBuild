@@ -13,6 +13,9 @@
 // - 音声入力：Claude Code の音声入力（hold モード：Space を押し続ける間だけ録音）を、Space のキーリピートを送ってまねる。
 //   ほかのアプリを使っていても効くキー：Ctrl+Alt+V で録音の開始・停止、Ctrl+Alt+↓ で送信（録音中なら止めて、聞き取りが
 //   入力欄に入ってから）、Ctrl+Alt+↑ で入力欄を消す、Ctrl+Alt+← / → で前・次のタブ。対象は最後に使った窓の選んでいるタブ。
+// - リング（Ring II）：ジェスチャーを操作に割り当てる（ring.js が受信係を動かす）。作業モードとオペレーターモード
+//   （リングの LED のモード。信号が変わる操作は調整で「operator:<操作>」として登録）。選択肢が出ているときに押し込むと
+//   選択モード（上下左右で選び、押し込みで決定）。右下に返答のカードが出ているときのタッチは、カードを閉じる。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
 const {app, BrowserWindow, Notification, globalShortcut, ipcMain, screen: display} = require('electron');
 const fs = require('fs');
@@ -23,6 +26,7 @@ const parser = require('./screen');
 const status = require('./status');
 const dock = require('./dock');
 const link = require('./link');
+const ring = require('./ring');
 
 const HISTORY_LIMIT = 2 * 1024 * 1024;   // 後から開いた窓に流し直す出力（文字数）
 const POLL_MS = 1500;                     // 状態を読み直す間隔
@@ -38,6 +42,16 @@ const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 80
 const HOLD_STEPS = [3000, 5000, 8000, 15000, 30000, 60000, -1];
 const KEY_REPEAT_MS = 33;      // 録音中に Space を送る間隔（端末のキーリピートと同じくらい。Claude Code はこれで押し続けと見る）
 const CLEAR_REPEAT = 30;       // 入力欄を消すときの Ctrl+U の数（複数行も消えるように）
+// リングの割り当て（動作の名前は runAction）。左右・長押しはどちらのモードでも同じ（モードで信号が変わらないため）
+const RING_DEFAULTS = {
+  enabled: false, match: '', guard: true, keepalive: true, scroll_lines: 3,
+  actions: {left: 'prev', right: 'next', up: 'clear_or_minimize', down: 'submit', click: 'voice',
+            hold_left: 'scroll_up', hold_right: 'scroll_down', tap: 'dismiss'},
+  operator_actions: {click: 'operator_voice', down: 'operator_submit', up: 'operator_clear', left: 'prev', right: 'next',
+                     hold_left: 'scroll_up', hold_right: 'scroll_down', tap: 'dismiss'},
+  choice_actions: {up: 'key:up', down: 'key:down', left: 'key:left', right: 'key:right', click: 'key:enter'},
+};
+const HOLD_AFTER_CLICK_MS = 300;   // 強く押し込むと、続けて長押しの信号が届くことがある：押し込みの直後の長押しは無視する
 const SHORTCUTS = {'Control+Alt+V': () => toggleVoice(), 'Control+Alt+Down': () => submitActive(),
                    'Control+Alt+Up': () => clearActive(), 'Control+Alt+Left': () => step(-1), 'Control+Alt+Right': () => step(1)};
 // 親（このアプリを Claude Code の中から起動したとき等）から受け継ぐと、子のエージェントが自分を別の会話の一部だと思う
@@ -62,6 +76,10 @@ let peekOn = false;
 let operatorLog = [];     // [{role: user|agent, text, at}]
 let operatorWatchers = new Set();   // オペレーターとの会話を表示している画面（その窓が前にあれば右下に出さない）
 let operatorQueue = [];   // 起動を待っている間に頼まれた発言
+let ringConfig = {...RING_DEFAULTS};
+let ringMode = 'work';    // work・operator
+let choosing = null;      // 選択モードのタブの id
+let ignoreHoldUntil = 0;
 
 // ---- 記録（窓の場所・最前面・知らせ方・右下の場所） --------------------------------------------------
 function readState() { try { return JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8')); } catch (e) { return {}; } }
@@ -367,7 +385,7 @@ function operatorType(text) {
   s.proc.write('\x1b[200~' + text + '\x1b[201~');
   setTimeout(() => s.proc?.write('\r'), 120);
 }
-const KEYS = {up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b'};
+const KEYS = {up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D', enter: '\r', esc: '\x1b', tab: '\t'};
 function operatorKey(name) { const s = findOperator(); if (s?.proc && KEYS[name]) s.proc.write(KEYS[name]); }
 
 function operatorReplied(s, text) {
@@ -470,6 +488,81 @@ function registerShortcuts() {
   if (taken.length) console.warn('agents: これらのキーはほかのアプリが使っています：', taken.join(', '));
 }
 
+// ---- リング ----------------------------------------------------------------------------------------------
+function ringView() { return {...ring.status(), mode: ringMode, enabled: ringConfig.enabled, match: ringConfig.match,
+                              guard: ringConfig.guard, keepalive: ringConfig.keepalive, choosing: !!choosing}; }
+function pushRing() { for (const w of windows) send(w, 'agents:ring', ringView()); }
+
+function setRing(patch) {
+  ringConfig = {...ringConfig, ...patch};
+  writeState({ring: ringConfig});
+  if (ringConfig.enabled && ringConfig.match) ring.start(ringConfig); else ring.stop();
+  pushRing();
+}
+
+function setRingMode(next) {
+  if (next === ringMode || !['work', 'operator'].includes(next)) return;
+  ringMode = next; choosing = null; pushRing();
+}
+
+async function onGesture(gesture, gestureMode) {
+  const now = Date.now();
+  if (gesture === 'click') ignoreHoldUntil = now + HOLD_AFTER_CLICK_MS;
+  if (gesture.startsWith('hold_') && now < ignoreHoldUntil) { ignoreHoldUntil = now + HOLD_AFTER_CLICK_MS; return; }
+  if (gestureMode) setRingMode(gestureMode === 'work' ? 'work' : 'operator');
+  if (gesture === 'tap' && cards.length) { dropCards(() => true); pushDock(); return; }   // 右下の返答を閉じる
+  // 選択肢：出ているときに押し込むと選択モードへ。その間は上下左右で選び、押し込みで決定
+  const target = ringMode === 'operator' ? findOperator() : activeSession();
+  if (target && !target.recording) {
+    const shown = parser.parse(screenText(target)).state === 'choice';
+    if (!shown) choosing = null;
+    else if (choosing !== target.id && gesture === 'click') { choosing = target.id; pushRing(); return; }
+    else if (choosing === target.id && ringConfig.choice_actions[gesture]) {
+      runAction(ringConfig.choice_actions[gesture], target);
+      if (gesture === 'click') { choosing = null; pushRing(); }
+      return;
+    }
+  }
+  const action = (ringMode === 'operator' ? ringConfig.operator_actions : ringConfig.actions)[gesture];
+  if (action) runAction(action);
+}
+
+// 動作の名前：prev・next・submit・clear・clear_or_minimize・voice・scroll_up・scroll_down・minimize・picker・dismiss・
+// operator_voice・operator_submit・operator_clear・operator（タブで開く・裏に戻す）・mode。
+// key:<名前>（タブへキー：up・down・left・right・enter・esc）・text:<文字>（タブへ文字）・oskey:<組み合わせ>（前面のアプリへ）
+function runAction(action, target = null) {
+  const s = target || activeSession();
+  if (action.startsWith('key:')) { const k = KEYS[action.slice(4)]; if (k) s?.proc?.write(k); return; }
+  if (action.startsWith('text:')) { s?.proc?.write(action.slice(5)); return; }
+  if (action.startsWith('oskey:')) { ring.keys(action.slice(6)); return; }
+  const w = s?.owner || current;
+  switch (action) {
+    case 'prev': return step(-1);
+    case 'next': return step(1);
+    case 'submit': return submit(s);
+    case 'clear': return clear(s);
+    case 'clear_or_minimize': {
+      const mini = windows.find(x => x.mini);
+      if (mini) return restoreWindow(mini);
+      if (s && (s.recording || (parser.parse(screenText(s)).input || '').trim())) return clear(s);
+      if (w && !w.mini) return minimizeWindow(w);
+      return;
+    }
+    case 'voice': return toggleVoice(s);
+    case 'scroll_up': case 'scroll_down':
+      if (s?.owner) send(s.owner, 'agents:scroll', s.id, (action === 'scroll_up' ? -1 : 1) * ringConfig.scroll_lines);
+      return;
+    case 'minimize': return w?.mini ? restoreWindow(w) : w && minimizeWindow(w);
+    case 'picker': return w && send(w, 'agents:picker');
+    case 'dismiss': dropCards(() => true); peekOn = false; return pushDock();
+    case 'operator_voice': return toggleVoice(startOperator());
+    case 'operator_submit': return submit(findOperator());
+    case 'operator_clear': return clear(findOperator());
+    case 'operator': return findOperator()?.owner ? hideOperator() : showOperator();
+    case 'mode': return setRingMode(ringMode === 'work' ? 'operator' : 'work');
+  }
+}
+
 // ---- 外からの操作（GUI のサーバーを通して：ecobuild gui agent-… ） --------------------------------------------
 const byNum = num => sessions.find(s => s.num === Number(num));
 function external(op, p) {
@@ -513,10 +606,14 @@ function setNotify(patch) {
   for (const w of windows) send(w, 'agents:notify', notify, HOLD_STEPS);
 }
 
-function setup({ecobuild}) {
+function setup({ecobuild, python}) {
   ecobuildPath = ecobuild;
   loadOperatorLog();
   const saved = readState();
+  ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};
+  for (const key of ['actions', 'operator_actions', 'choice_actions']) ringConfig[key] = {...RING_DEFAULTS[key], ...(saved.ring?.[key] || {})};
+  ring.setup({python: python || (() => 'python'), onGesture: (g, m) => onGesture(g, m).catch(() => {}), onStatus: pushRing});
+  if (ringConfig.enabled && ringConfig.match) ring.start(ringConfig);
   notify = {...NOTIFY_DEFAULTS, ...(saved.notify || {})};
   dock.setup({
     initialAnchor: saved.dock, onAnchor: anchor => writeState({dock: anchor}),
@@ -539,6 +636,7 @@ function setup({ecobuild}) {
     if (w.pending) { const s = w.pending; w.pending = null; adopt(w, s); }
     send(w, 'agents:topmost', w.topmost);
     send(w, 'agents:notify', notify, HOLD_STEPS);
+    send(w, 'agents:ring', ringView());
     if (w.active) send(w, 'agents:select', w.active);
     pushTabs();
   });
@@ -581,9 +679,14 @@ function setup({ecobuild}) {
   ipcMain.on('agents:submit', (event, id) => submit(findSession(id)));
   ipcMain.on('agents:clear-input', (event, id) => clear(findSession(id)));
   registerShortcuts();
+  ipcMain.on('agents:ring-config', (event, patch) => setRing(patch || {}));
+  ipcMain.handle('agents:ring-find', () => ring.find());
+  ipcMain.on('agents:ring-calibrate', (event, prefix) => {
+    if (ringConfig.match) ring.calibrate({match: ringConfig.match, prefix: prefix || ''});
+  });
   setInterval(poll, POLL_MS);
   app.on('before-quit', () => {
-    app.isQuitting = true; link.stop(); globalShortcut.unregisterAll();
+    app.isQuitting = true; link.stop(); globalShortcut.unregisterAll(); ring.stop();
     for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
   });
 }

@@ -238,7 +238,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', stopServer);
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    agents.setup({ecobuild: ecobuildPath});
+    agents.setup({ecobuild: ecobuildPath, python});
     startServer();
   });
 }

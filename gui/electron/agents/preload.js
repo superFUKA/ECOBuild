@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('agents', {
   setNotify: patch => ipcRenderer.send('agents:notify', patch),
   testSound: () => ipcRenderer.send('agents:test-sound'),
   voice: id => ipcRenderer.send('agents:voice', id),
+  ringConfig: patch => ipcRenderer.send('agents:ring-config', patch),
+  ringFind: () => ipcRenderer.invoke('agents:ring-find'),
+  ringCalibrate: prefix => ipcRenderer.send('agents:ring-calibrate', prefix),
 
   onAdopt: on('agents:adopt'),
   onRelease: on('agents:release'),
@@ -32,6 +35,9 @@ contextBridge.exposeInMainWorld('agents', {
   onTabs: on('agents:tabs'),
   onTopmost: on('agents:topmost'),
   onNotify: on('agents:notify'),
+  onRing: on('agents:ring'),
+  onScroll: on('agents:scroll'),
+  onPicker: on('agents:picker'),
 });
 
 contextBridge.exposeInMainWorld('dock', {

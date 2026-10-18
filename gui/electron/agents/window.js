@@ -98,8 +98,15 @@ function renderStatus(current) {
     add(`${label} 残り ${limit.remaining}%`, cls, limit.resetsAt ? `リセット：${resetText(limit.resetsAt)}` : '');
   }
   add('', 'gap');
+  if (ringState?.enabled) {
+    const ok = ringState.online && ringState.connected;
+    add(`リング ${ok ? '●' : '○'}${ringState.battery != null ? ` 🔋${ringState.battery}%` : ''}`, 'ring ' + (ok ? 'ok' : 'off'), ringState.message || '');
+    if (ringState.mode === 'operator') add('オペレーターモード', 'mode-op');
+    if (ringState.choosing) add('選択モード（上下左右で選んで押し込みで決定）', 'mode-op');
+  }
   add(current.dir, 'where', current.dir);
 }
+let ringState = null;
 
 function resetText(seconds) {
   const at = new Date(seconds * 1000), hours = Math.max(0, (at - Date.now()) / 3600000);
@@ -226,3 +233,27 @@ $('settings-close').addEventListener('click', closePanels);
 
 // ---- 音声入力（🎤：録音の開始・停止。Ctrl+Alt+V でも。Ctrl+Alt+↓ で送信、Ctrl+Alt+↑ で消す） ---------------------
 $('voice').addEventListener('click', () => { if (active) agents.voice(active); });
+
+// ---- リング（⚙ の中） --------------------------------------------------------------------------------------
+agents.onRing(state => {
+  ringState = state;
+  $('ring-enabled').checked = !!state.enabled; $('ring-guard').checked = state.guard !== false; $('ring-keepalive').checked = state.keepalive !== false;
+  if (document.activeElement !== $('ring-match')) $('ring-match').value = state.match || '';
+  $('ring-status').textContent = !state.enabled ? '使っていません' : `${state.message || ''}${state.calibrated === false && state.connected ? '（操作がまだ登録されていません）' : ''}`;
+  renderStatus(tabs.find(t => t.id === active));
+});
+$('ring-enabled').addEventListener('change', () => agents.ringConfig({enabled: $('ring-enabled').checked, match: $('ring-match').value.trim()}));
+$('ring-guard').addEventListener('change', () => agents.ringConfig({guard: $('ring-guard').checked}));
+$('ring-keepalive').addEventListener('change', () => agents.ringConfig({keepalive: $('ring-keepalive').checked}));
+$('ring-match').addEventListener('change', () => agents.ringConfig({match: $('ring-match').value.trim()}));
+$('ring-find').addEventListener('click', async () => {
+  $('ring-status').textContent = '探しています…';
+  const found = await agents.ringFind();
+  if (!found.length) { $('ring-status').textContent = 'Ring II が見つかりませんでした（ペアリング・接続を確かめ、リングを操作して起こしてください）'; return; }
+  $('ring-match').value = found[0].match; agents.ringConfig({match: found[0].match});
+  $('ring-status').textContent = `見つかりました：${found[0].match}`;
+});
+$('ring-calibrate').addEventListener('click', () => agents.ringCalibrate(''));
+$('ring-calibrate-operator').addEventListener('click', () => agents.ringCalibrate('operator'));
+agents.onScroll((id, lines) => terms.get(id)?.term.scrollLines(lines));
+agents.onPicker(() => ($('picker-panel').hidden ? openPicker() : closePanels()));

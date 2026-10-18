@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test agents/screen.test.js",
+    "test": "node --test agents/screen.test.js && python -m unittest discover -s agents/ring -q",
     "prepare-bundle": "python bundle/prepare.py",
     "dist": "electron-builder --win nsis"
   },
@@ -26,10 +26,14 @@
       "preload.js",
       "agents/**/*",
       "!agents/*.test.js",
+      "!agents/ring/test_*.py",
+      "!agents/ring/fixtures/**",
+      "!agents/ring/__pycache__/**",
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/node-pty/**"
+      "node_modules/node-pty/**",
+      "agents/ring/**"
     ],
     "extraResources": [
       {

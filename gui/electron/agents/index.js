@@ -490,12 +490,19 @@ function registerShortcuts() {
 
 // ---- リング ----------------------------------------------------------------------------------------------
 function ringView() { return {...ring.status(), mode: ringMode, enabled: ringConfig.enabled, match: ringConfig.match,
-                              guard: ringConfig.guard, keepalive: ringConfig.keepalive, choosing: !!choosing}; }
+                              guard: ringConfig.guard, keepalive: ringConfig.keepalive, choosing: !!choosing,
+                              resident: ring.residentEnabled()}; }
 function pushRing() { for (const w of windows) send(w, 'agents:ring', ringView()); }
 
 function setRing(patch) {
-  ringConfig = {...ringConfig, ...patch};
+  const {resident, ...rest} = patch;
+  ringConfig = {...ringConfig, ...rest};
   writeState({ring: ringConfig});
+  // 常駐：選んだとき・識別子などが変わったときに置き直す（常駐は ECOBuild が閉じている間だけ働く）
+  if (resident === false) ring.disableResident();
+  else if (resident === true || (ring.residentEnabled() && ['match', 'guard', 'keepalive'].some(k => k in rest))) {
+    if (ringConfig.match) ring.enableResident(ringConfig);
+  }
   if (ringConfig.enabled && ringConfig.match) ring.start(ringConfig); else ring.stop();
   pushRing();
 }
@@ -613,6 +620,7 @@ function setup({ecobuild, python}) {
   ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};
   for (const key of ['actions', 'operator_actions', 'choice_actions']) ringConfig[key] = {...RING_DEFAULTS[key], ...(saved.ring?.[key] || {})};
   ring.setup({python: python || (() => 'python'), onGesture: (g, m) => onGesture(g, m).catch(() => {}), onStatus: pushRing});
+  ring.markRunning();   // 常駐に、ECOBuild が動いていることを知らせる（常駐はその間リングを手放す）
   if (ringConfig.enabled && ringConfig.match) ring.start(ringConfig);
   notify = {...NOTIFY_DEFAULTS, ...(saved.notify || {})};
   dock.setup({

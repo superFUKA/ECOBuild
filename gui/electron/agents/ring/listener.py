@@ -6,6 +6,9 @@
   --calibrate   各操作を実機で登録して、登録表（--table）に保存する
   --monitor     受信した操作の特徴と判定結果を表示（調査用）
   --find        つながっている Ring II の識別子（Bluetooth のアドレス）を探して JSON で出す
+  --resident    常駐（PC にサインインしたときに窓なしで起動する）。ECOBuild が閉じている間だけ、リングの入力
+                （カーソル移動・クリック・音量など）を止め、接続を保ち、押し込みで ECOBuild を起動する。
+                ECOBuild が動いている間は待つ（ECOBuild 自身の受信係が受け持つ）
 """
 import argparse
 import ctypes as C
@@ -605,6 +608,49 @@ def save_table(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+# ---- 常駐（--resident） ----
+# ECOBuild が動いているかは、ECOBuild が起動時に書くファイル（--running：プロセスの番号）で見る。ECOBuild は終わっても
+# このファイルを消さない（終わる途中で消すと、まだ残っているうちに新しく起動してしまう）ので、その番号のプロセスが
+# 生きていて、実行ファイルの名前が ECOBuild の GUI のものかも確かめる。起動するコマンドは --launch（JSON の並び）。
+open_process = bind(K, 'OpenProcess', W.HANDLE, W.DWORD, W.BOOL, W.DWORD)
+exit_code = bind(K, 'GetExitCodeProcess', W.BOOL, W.HANDLE, C.POINTER(W.DWORD))
+create_mutex = bind(K, 'CreateMutexW', W.HANDLE, C.c_void_p, W.BOOL, W.LPCWSTR)
+image_name = bind(K, 'QueryFullProcessImageNameW', W.BOOL, W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD))
+STILL_ACTIVE, PROCESS_QUERY_LIMITED_INFORMATION, ERROR_ALREADY_EXISTS = 259, 0x1000, 183
+APP_IMAGES = ('electron.exe', 'ecobuild gui.exe')
+
+
+def app_running(running_file):
+    try:
+        with open(running_file, encoding='utf-8') as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError, TypeError):
+        return False
+    handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = W.DWORD()
+        if not (exit_code(handle, C.byref(code)) and code.value == STILL_ACTIVE):
+            return False
+        buf, size = C.create_unicode_buffer(1024), W.DWORD(1024)
+        if not image_name(handle, 0, buf, C.byref(size)):
+            return True  # 名前が取れなければ、生きていることだけで決める
+        return os.path.basename(buf.value).lower() in APP_IMAGES
+    finally:
+        close_handle(handle)
+
+
+def launch_app(command):
+    """ECOBuild を起動する（このプロセスとは切り離して）。"""
+    try:
+        subprocess.Popen(command, creationflags=0x00000008 | 0x00000200, close_fds=True)   # DETACHED_PROCESS・NEW_PROCESS_GROUP
+        return True
+    except (OSError, TypeError) as exc:
+        log('launch failed', exc)
+        return False
+
+
 def find_rings():
     """つながっている Ring II（デバイスパスに RING_VID_PID を含むもの）の識別子。パスの中の 12 桁の16進（Bluetooth の
     アドレス）を識別子にする（--match に使い、接続の維持にも使う）。"""
@@ -635,6 +681,9 @@ class App:
         self.present = None
         self.handled = False
         self.last_report = None
+        self.app_up = None           # 常駐：ECOBuild が動いているか（None はまだ調べていない）
+        self.next_app_check = 0.0
+        self.launch_cooldown = 0.0
         self.keepalive = None
         if args.mode == 'calibrate':
             self.plan = [g for g in args.gestures for _ in range(args.repeat)]
@@ -686,6 +735,14 @@ class App:
                 self._emit_gesture(name)
             else:
                 emit(event='unknown', signature=describe(sig))
+        elif mode == 'resident':
+            if self.app_up or sig is None:
+                return
+            name = classify(sig, self.table, self.invert_drag)
+            log('resident gesture', name)
+            if name and name.split(':')[-1] == 'click' and time.monotonic() >= self.launch_cooldown:
+                self.launch_cooldown = time.monotonic() + 15.0  # 起動を待つ間に何度押しても、二重に起動しない
+                log('launch', launch_app(json.loads(self.args.launch or '[]')))
         elif mode == 'monitor':
             print(f'{time.strftime("%H:%M:%S")} {describe(sig):40s} -> {classify(sig, self.table, self.invert_drag) if sig else "-"}', flush=True)
         else:
@@ -809,6 +866,27 @@ class App:
             else:
                 print('マウス入力: ' + ('専用（OS には届かない）' if exclusive else 'OS にも届く（カーソルの動き・クリックはここで止める）'), flush=True)
 
+    def _check_app(self):
+        """常駐：ECOBuild の起動・終了に合わせて、フックの付け外しと接続の維持を切り替える。設定のファイルが
+        なくなったら（常駐をやめた）終わる。"""
+        self.next_app_check = time.monotonic() + 1.0
+        if self.args.config and not os.path.exists(self.args.config):
+            log('resident stopped', 'config removed')
+            self.running = False
+            return
+        running = app_running(self.args.running)
+        if running == self.app_up:
+            return
+        self.app_up = running
+        log('app running', running)
+        if running:
+            self.guard.uninstall()
+            self._stop_keepalive()
+        else:
+            if not self.args.no_guard:
+                self.guard.install()
+            self._start_keepalive()
+
     def _start_keepalive(self):
         if self.keepalive and self.keepalive.poll() is None:
             return
@@ -841,9 +919,10 @@ class App:
         elif mode == 'calibrate':
             print('キャリブレーションを始めます。Ctrl+C で中止。', flush=True)
             self._prompt()
-        else:
+        elif mode != 'resident':
             print('受信中。Ring II を操作してください。Ctrl+C で終了。', flush=True)
-        self.guard.install()
+        if mode != 'resident':
+            self.guard.install()   # 常駐は ECOBuild が閉じている間だけ付ける（_check_app）
         msg = W.MSG()
         try:
             while self.running:
@@ -861,6 +940,8 @@ class App:
                     self._status()
                 while not self.commands.empty():
                     self._handle(self.commands.get())
+                if mode == 'resident' and time.monotonic() >= self.next_app_check:
+                    self._check_app()
         except KeyboardInterrupt:
             pass
         finally:
@@ -876,6 +957,11 @@ def main():
     group.add_argument('--calibrate', dest='mode', action='store_const', const='calibrate')
     group.add_argument('--monitor', dest='mode', action='store_const', const='monitor')
     group.add_argument('--find', dest='mode', action='store_const', const='find')
+    group.add_argument('--resident', dest='mode', action='store_const', const='resident')
+    parser.add_argument('--running', help='常駐：ECOBuild が動いている間、そのプロセスの番号が書いてあるファイル')
+    parser.add_argument('--launch', help='常駐：押し込みで ECOBuild を起動するコマンド（JSON の並び）')
+    parser.add_argument('--config', help='常駐：設定のファイル（JSON：match・table・running・launch・guard・keepalive）。'
+                                         'このファイルを消すと常駐も終わる')
     parser.add_argument('--match', default=RING_VID_PID, help='対象デバイスパスに含まれる文字列（--find の識別子）')
     parser.add_argument('--table', help='登録表（ジェスチャーの登録）のファイル')
     parser.add_argument('--log', help='記録のファイル（serve・monitor）')
@@ -888,12 +974,31 @@ def main():
     parser.add_argument('--no-guard', action='store_true', help='カーソル保護フックを使わない')
     parser.set_defaults(mode='monitor')
     args = parser.parse_args()
+    if args.config:
+        try:
+            with open(args.config, encoding='utf-8') as f:
+                config = json.load(f)
+        except (OSError, ValueError):
+            return
+        args.match = config.get('match') or args.match
+        args.table = config.get('table') or args.table
+        args.running = config.get('running') or args.running
+        args.launch = json.dumps(config.get('launch') or [])
+        args.no_guard = config.get('guard') is False
+        args.keepalive = config.get('keepalive') is not False
+        args.log = config.get('log') or args.log
     global TABLE_PATH
     if args.table:
         TABLE_PATH = args.table
         os.makedirs(os.path.dirname(TABLE_PATH) or '.', exist_ok=True)
-    if args.log and args.mode in ('serve', 'monitor'):
+    if args.log and args.mode in ('serve', 'monitor', 'resident'):
         open_log(args.log)
+    if args.mode == 'resident':
+        # サインインごとに1つだけ（スタートアップと手で起動したものが重なっても二重にしない）
+        mutex = create_mutex(None, False, 'Local\\ECOBuildRingResident')
+        if not mutex or C.get_last_error() == ERROR_ALREADY_EXISTS:
+            log('resident already running')
+            return
     if args.mode == 'find':
         print(json.dumps(find_rings(), ensure_ascii=True), flush=True)
         return

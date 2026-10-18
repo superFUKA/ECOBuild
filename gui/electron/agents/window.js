@@ -237,12 +237,14 @@ $('voice').addEventListener('click', () => { if (active) agents.voice(active); }
 // ---- リング（⚙ の中） --------------------------------------------------------------------------------------
 agents.onRing(state => {
   ringState = state;
+  $('ring-resident').checked = !!state.resident; $('ring-resident').disabled = !state.match;
   $('ring-enabled').checked = !!state.enabled; $('ring-guard').checked = state.guard !== false; $('ring-keepalive').checked = state.keepalive !== false;
   if (document.activeElement !== $('ring-match')) $('ring-match').value = state.match || '';
   $('ring-status').textContent = !state.enabled ? '使っていません' : `${state.message || ''}${state.calibrated === false && state.connected ? '（操作がまだ登録されていません）' : ''}`;
   renderStatus(tabs.find(t => t.id === active));
 });
 $('ring-enabled').addEventListener('change', () => agents.ringConfig({enabled: $('ring-enabled').checked, match: $('ring-match').value.trim()}));
+$('ring-resident').addEventListener('change', () => agents.ringConfig({resident: $('ring-resident').checked}));
 $('ring-guard').addEventListener('change', () => agents.ringConfig({guard: $('ring-guard').checked}));
 $('ring-keepalive').addEventListener('change', () => agents.ringConfig({keepalive: $('ring-keepalive').checked}));
 $('ring-match').addEventListener('change', () => agents.ringConfig({match: $('ring-match').value.trim()}));

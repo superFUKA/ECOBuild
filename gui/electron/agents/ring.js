@@ -72,4 +72,48 @@ function calibrate({match, prefix = ''}) {
   return true;
 }
 
-module.exports = {setup, start, stop, keys, find, calibrate, status: () => status, GESTURES};
+// ---- 常駐（PC にサインインしたときから。ECOBuild が閉じている間だけ働く：listener の --resident） ----------------
+// 設定は ring-resident.json（これを消すと常駐は1秒ほどで終わる）。サインインのたびに起動するのは、スタートアップの
+// ショートカット（管理者の権限は要らない）。ECOBuild が動いているかは running.pid（起動のたびに書く）で見分ける。
+const fs = require('fs');
+const os = require('os');
+const runningFile = () => path.join(app.getPath('userData'), 'running.pid');
+const residentFile = () => path.join(app.getPath('userData'), 'ring-resident.json');
+const startupLink = () => path.join(process.env.APPDATA || os.homedir(), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'ECOBuild リング.lnk');
+
+function markRunning() { try { fs.writeFileSync(runningFile(), String(process.pid)); } catch (e) { /* 常駐が待たないだけ */ } }
+
+// 窓を出さない Python（pythonw）。なければ python
+function windowless() {
+  const p = python();
+  const w = p.replace(/python(\.exe)?$/i, m => (m.toLowerCase().endsWith('.exe') ? 'pythonw.exe' : 'pythonw'));
+  return w !== p && fs.existsSync(w) ? w : p;
+}
+
+function residentEnabled() { return fs.existsSync(residentFile()); }
+
+function enableResident(options) {
+  const config = {match: options.match, table: table(), running: runningFile(), guard: options.guard !== false,
+                  keepalive: options.keepalive !== false, log: path.join(app.getPath('userData'), 'ring-resident.log'),
+                  launch: [process.execPath, ...(app.isPackaged ? [] : [app.getAppPath()])]};
+  const restart = residentEnabled();
+  if (restart) fs.rmSync(residentFile(), {force: true});   // 動いている常駐を一度終わらせる（設定を読み直させる）
+  setTimeout(() => {
+    fs.writeFileSync(residentFile(), JSON.stringify(config, null, 2));
+    // スタートアップのショートカット（引数は環境変数で渡す：引用符が崩れないように）
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      '$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:ECO_LINK); $s.TargetPath = $env:ECO_TARGET; ' +
+      '$s.Arguments = $env:ECO_ARGS; $s.WindowStyle = 7; $s.Description = "ECOBuild のリングの常駐"; $s.Save()'],
+    {windowsHide: true, env: {...process.env, ECO_LINK: startupLink(), ECO_TARGET: windowless(),
+                              ECO_ARGS: `"${LISTENER}" --resident --config "${residentFile()}"`}}, () => {});
+    spawn(windowless(), [LISTENER, '--resident', '--config', residentFile()], {detached: true, stdio: 'ignore', windowsHide: true}).unref();
+  }, restart ? 1500 : 0);
+}
+
+function disableResident() {
+  fs.rmSync(residentFile(), {force: true});
+  fs.rmSync(startupLink(), {force: true});
+}
+
+module.exports = {setup, start, stop, keys, find, calibrate, status: () => status, GESTURES,
+                  markRunning, residentEnabled, enableResident, disableResident};

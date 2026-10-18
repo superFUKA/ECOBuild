@@ -48,7 +48,8 @@ const OPERATOR = (() => {
     const waiting = resident ? view && (['thinking', 'waiting', 'starting'].includes(view.state) || view.queued > 0) : busy;
     if (waiting) {
       const li = document.createElement('li'); li.className = 'operator-message agent pending';
-      li.innerHTML = `<div class="operator-bubble"><span class="eco-spinner"></span> ${view?.state === 'starting' ? '起動しています…' : '考え中…'}</div>`;
+      li.innerHTML = `<div class="operator-bubble"><span class="eco-spinner"></span> ${view?.state === 'starting' ? '起動しています…' : '考え中…'}</div>`
+        + (resident && view?.doing ? `<div class="operator-doing">実行中：<code>${esc(view.doing)}</code></div>` : '');
       // 起動中のまま：オペレーターの画面の最後の数行と、10秒たったらタブで開いて確かめるボタン
       if (resident && view?.state === 'starting' && view.screen) {
         const pre = document.createElement('pre'); pre.className = 'operator-screen'; pre.textContent = view.screen; li.append(pre);

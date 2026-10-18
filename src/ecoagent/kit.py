@@ -24,14 +24,20 @@ class Kit:
 
 
 def prepare(directory: Path | str, instructions: str, *, allow: tuple[str, ...] = (),
-            deny: tuple[str, ...] = EDIT_TOOLS, guard: str | None = None) -> Kit:
+            deny: tuple[str, ...] = EDIT_TOOLS, guard: str | None = None, context: str | None = None) -> Kit:
     """directory に一式を書く（毎回作り直す。使う側の版が変わっても古い指示が残らないように）。
-    allow・deny：許可の規則（"Bash(ecobuild:*)" 等）。guard：シェルのコマンドの前に実行するフックのコマンド。"""
+    allow・deny：許可の規則（"Bash(ecobuild:*)" 等）。guard：シェルのコマンドの前に実行するフックのコマンド。
+    context：話しかけられるたびに実行し、出力を発言と一緒に渡すフックのコマンド（今の状況。調べる手間を省く）。"""
     directory = Path(directory)
     (directory / SETTINGS).parent.mkdir(parents=True, exist_ok=True)
     settings: dict = {"permissions": {"allow": list(allow), "deny": list(deny)}}
+    hooks = {}
     if guard:
-        settings["hooks"] = {"PreToolUse": [{"matcher": SHELL_TOOLS, "hooks": [{"type": "command", "command": guard}]}]}
+        hooks["PreToolUse"] = [{"matcher": SHELL_TOOLS, "hooks": [{"type": "command", "command": guard}]}]
+    if context:
+        hooks["UserPromptSubmit"] = [{"hooks": [{"type": "command", "command": context}]}]
+    if hooks:
+        settings["hooks"] = hooks
     _write(directory / INSTRUCTIONS, instructions if instructions.endswith("\n") else instructions + "\n")
     _write(directory / SETTINGS, json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
     return Kit(directory, directory / INSTRUCTIONS, directory / SETTINGS)

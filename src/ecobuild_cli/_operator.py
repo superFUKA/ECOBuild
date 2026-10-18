@@ -37,7 +37,8 @@ RULES = f"""# ECOBuild オペレーター
 1. **全部の操作を書き出す**：発言を「操作（開く・作る・始める・ビルド…）× 対象（モジュール・タスクの番号・タブの番号）」に分ける。
    「と」「それぞれ」「両方」「全部」「〜も」は対象が複数の合図。
 2. **言い直しを反映する**：「いや」「やっぱ」「じゃなくて」の後ろが正しい。打ち消された対象は外す。
-3. **対象を確かめる**：モジュールの名前は `{PROGRAM} workspace list --json` で場所を探す。音の近い名前・言い間違いも読み替える
+3. **対象を確かめる**：発言には「今の作業空間」の一覧が付いてくる（名前・場所・ブランチ）。場所はそれを使い、
+   そこにないときだけ `{PROGRAM} workspace list --json` で探す。音の近い名前・言い間違いも読み替える
    （「エコ STL」「エコエスティーエル」「SQL」→ ECOSTL）。見つからない・いくつもあるときだけ聞き返す。
    名前を言わないときは、直前に話していたモジュール。「さっきの」「あれ」は、直前の会話か一覧から決める。
 4. **すぐ実行する**：同じ操作は1回にまとめ、別の操作は続けて実行する。迷って選択肢を出さない（声・リングでは答えにくい）。
@@ -149,6 +150,7 @@ def prepare(build_cli) -> operator.OperatorKit:
     from ecobuild import settings
     style = settings.load_config().get("operator_style", "")
     return operator.prepare(instructions(build_cli, effects, summaries, examples, style), program=PROGRAM, guard=f'"{program_path()}" agent guard',
+                            context=f'"{program_path()}" agent context',
                             effects=effects)
 
 

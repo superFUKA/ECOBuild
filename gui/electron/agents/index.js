@@ -347,7 +347,11 @@ function poll() {
       if (s.pendingTitle) { s.proc.write(`/rename ${s.pendingTitle}\r`); s.pendingTitle = null; }
       else if (s.pendingModel) { s.proc.write(`/model ${s.pendingModel}\r`.replace('/model \r', '/model\r')); s.pendingModel = null; }
     }
-    if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
+    if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;
+    if (s.kind === 'operator') {   // 考え中に実行しているコマンド（ハブに「実行中：…」と出す。待っている間も何をしているか分かるように）
+      const doing = ['thinking', 'waiting'].includes(read.state) ? lastTool(screen) : '';
+      if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
+    }   // 聞き取った文・選択肢を右下に出し直す
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
@@ -495,8 +499,15 @@ function operatorView() {
   const screen = s?.term && ['starting', 'choice'].includes(s.state) ? parser.lastLines(screenText(s), 6) : '';
   const startingFor = s?.state === 'starting' && s.startedAt ? Date.now() - s.startedAt : 0;
   return {state: s ? (s.recording ? 'listening' : s.state) : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
-          screen, startingFor, icon: icons.operator,
+          screen, startingFor, icon: icons.operator, doing: s?.doing || '',
           log: operatorLog.slice(-100), queued: operatorQueue.length};
+}
+// 画面の最後のシェルの呼び出しのコマンド（「⎿  $ <コマンド>」・「● Running <コマンド>」・古い形の「⏺ Bash(<コマンド>)」）
+function lastTool(screen) {
+  const text = String(screen);
+  const found = [...text.matchAll(/^\s*⎿\s+\$ (.+?)\s*$/gm)].pop() || [...text.matchAll(/^[●⏺]\s*Running (.+?)(?: · \d+s)?\s*$/gm)].pop()
+    || [...text.matchAll(/^[●⏺]\s*(?:Bash|PowerShell)\((.+?)\)?\s*$/gm)].pop();
+  return found ? found[1].replace(/\s*\(\d+s(?: · [^)]*)?\)$/, '').trim().slice(0, 160) : '';
 }
 function pushOperator() {
   pushQuick();

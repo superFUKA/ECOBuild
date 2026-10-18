@@ -259,3 +259,5 @@ main { padding: 22px 28px; }
 .image-types small { grid-column: 2 / 4; color: #a5aeba; }
 .image-types .ok { color: #9ee4d3; white-space: nowrap; }
 .image-types .missing { color: #f1c78e; white-space: nowrap; }
+.operator-doing { color: #a5aeba; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operator-doing code { color: #cdd5df; }

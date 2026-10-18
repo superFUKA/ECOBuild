@@ -61,12 +61,13 @@ def directory() -> Path:
 EFFECTS = "effects.json"   # 一式の中：拡張が名乗った操作の重さ（フックが読む）
 
 
-def prepare(instructions: str, *, program: str, guard: str, effects: dict[str, str] | None = None) -> OperatorKit:
+def prepare(instructions: str, *, program: str, guard: str, effects: dict[str, str] | None = None,
+            context: str | None = None) -> OperatorKit:
     """一式を置く。program：許すコマンドの名前（ecobuild）。guard：シェルのコマンドの前に実行するフック。
-    effects：拡張の操作の重さ（"<拡張> <操作>" → 重さ）。"""
+    effects：拡張の操作の重さ（"<拡張> <操作>" → 重さ）。context：話しかけられるたびに今の状況を渡すフック。"""
     import json
     allow = tuple(f"{tool}({program}:*)" for tool in ("Bash", "PowerShell"))
-    kit = ecoagent.kit.prepare(directory(), instructions, allow=allow, guard=guard)
+    kit = ecoagent.kit.prepare(directory(), instructions, allow=allow, guard=guard, context=context)
     (kit.directory / EFFECTS).write_text(json.dumps(effects or {}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return OperatorKit(kit.directory, kit.instructions, kit.settings)
 
@@ -81,7 +82,16 @@ def effects() -> dict[str, str]:
     return {k: v for k, v in found.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(found, dict) else {}
 
 
+def quick(command: tuple[str, ...]) -> tuple[str, ...]:
+    """オペレーターは短い操作が主なので、Claude Code なら考える量を少なく（--effort low。指定があればそのまま）。"""
+    command = tuple(command)
+    if command[:1] == ("claude",) and "--effort" not in command:
+        command = (*command, "--effort", "low")
+    return command
+
+
 def start(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorStarted:
+    command = quick(command)
     with _agent_error():
         session = ecoagent.start(directory(), command)
     return OperatorStarted(session.pid, session.command, session.directory)
@@ -93,7 +103,7 @@ def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
     信頼を待たずに効く）。"""
     import json
     from . import agent_status
-    command = tuple(command)
+    command = quick(command)
     if command[:1] == ("claude",):
         # 起動ごとに別の置き場所（同じPCでオペレーターが2つ動いても、互いの状態を消さない）。古いものは片付ける
         agent_status.forget_old("operator-")
@@ -110,6 +120,7 @@ def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
 
 def ask(text: str, *, session: str | None = None,
         command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorReply:
+    command = quick(command)
     with _agent_error():
         reply = ecoagent.ask(directory(), text, session=session, command=command,
                              settings=directory() / ecoagent.kit.SETTINGS)

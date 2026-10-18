@@ -15,12 +15,15 @@
   const me = () => MOD.me;
   const root = () => MOD.root;
 
-  // A task's stage on screen: closed = done; not recorded yet = in progress when it has a task branch, else todo.
-  const stageOf = t => t.state !== 'open' ? 'done' : t.stage || (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo');
+  // A deleted task is one closed as "not planned" (GitHub keeps it): not done, kept apart and hidden unless asked for.
+  const deleted = t => t.state !== 'open' && t.closed_reason === 'not_planned';
+  const showDeleted = () => tkEl('tk-deleted').checked;
+  // A task's stage on screen: closed = done (or deleted); not recorded yet = in progress when it has a task branch, else todo.
+  const stageOf = t => deleted(t) ? 'deleted' : t.state !== 'open' ? 'done' : t.stage || (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo');
   // Also the recently closed tasks the dashboard's 完了 column shows (read with task list --all).
   const byNumber = n => st.tasks.find(t => t.number === n) || ((st.extra.closed?.ok ? st.extra.closed : st.lastClosed)?.result || []).find(t => t.number === n);
   const md = d => d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) : '';
-  const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${t.closed_reason === 'not_planned' ? 'not_planned' : 'done'}">${t.closed_reason === 'not_planned' ? '対応しない' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][2]}">${STAGE[stageOf(t)][1]}</span>`;
+  const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${deleted(t) ? 'not_planned' : 'done'}">${deleted(t) ? '削除済み' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][2]}">${STAGE[stageOf(t)][1]}</span>`;
   const prio = t => t.priority ? `<span class="tk-prio ${esc(t.priority)}">${esc(t.priority)}</span>` : '';
   const due = t => t.due ? `<span class="tk-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}">${md(t.due)}</span>` : '';
   const isAgent = who => /agent|bot/i.test(who);
@@ -40,7 +43,7 @@
   // (refresh). Not while something is being typed here (the screen would be drawn again under it).
   const typing = () => !!document.activeElement?.closest?.('#tasks-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
   function refresh() { if (!st.loaded || typing()) return; renderAssigneeOptions(); renderFilterOptions(); render(); }
-  const listArgs = () => ['task', 'list', ...(tkEl('tk-closed').checked ? ['--all'] : []), ...(tkEl('tk-ready').checked ? ['--ready'] : [])];
+  const listArgs = () => ['task', 'list', ...(tkEl('tk-closed').checked || showDeleted() ? ['--all'] : []),...(tkEl('tk-ready').checked ? ['--ready'] : [])];
   const query = (args, apply) => ECO.query(root(), args, doc => { apply(doc); refresh(); });
   async function load({full = false} = {}) {
     if (st.loading) return; st.loading = true;
@@ -90,11 +93,12 @@
   const search = () => tkEl('tk-search').value.trim().toLowerCase();
   const inSprint = (t, s) => s === '' ? true : s === '-' ? !sprintName(t) : sprintName(t) === (s === 'current' ? currentSprint() : s);
   const inMilestone = (t, m) => m === '' ? true : m === '-' ? !t.milestone : t.milestone === m;
-  const visible = () => st.tasks.filter(t => assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone)
+  const shown = t => t.state === 'open' || (deleted(t) ? showDeleted() : tkEl('tk-closed').checked);
+  const visible = () => st.tasks.filter(t => shown(t) && assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone)
     && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()));
   const PRIO_RANK = t => t.priority ? PRIORITIES.indexOf(t.priority) : 99;
   const SPRINT_RANK = t => { const i = st.sprints.findIndex(s => s.name === sprintName(t)); return i < 0 ? 9999 : i; };
-  const SORT_KEYS = {number: t => t.number, title: t => t.title, stage: t => STAGES.findIndex(s => s[0] === stageOf(t)), priority: PRIO_RANK, due: t => t.due || '9999',
+  const SORT_KEYS = {number: t => t.number, title: t => t.title, stage: t => deleted(t) ? STAGES.length : STAGES.findIndex(s => s[0] === stageOf(t)), priority: PRIO_RANK, due: t => t.due || '9999',
     estimate: t => t.estimate ?? 1e9, sprint: SPRINT_RANK, assignee: t => t.assignees[0] || '￿'};
   const sorted = ts => [...ts].sort((a, b) => { const f = SORT_KEYS[st.sort.key], x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : a.number - b.number) * st.sort.dir; });
   const sortHead = (key, label) => `<th><button type="button" class="tk-sort ${st.sort.key === key ? 'on' : ''}" data-sort="${key}">${label}<span aria-hidden="true">${st.sort.key === key ? (st.sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
@@ -105,19 +109,22 @@
     return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了したタスクブランチを片付ける</button></div>';
   }
   // The dashboard: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
-  // 完了 shows the recently closed tasks (task list --all) even when 「閉じたものも」 is off.
+  // 完了 shows the recently completed tasks (task list --all) even when 「完了したタスクも表示」 is off. Deleted tasks are
+  // not done: they have their own column, shown with 「削除したタスクも表示」.
   const RECENT_DONE = 15;
+  const DELETED_COLUMN = ['deleted', '削除済み', 'not_planned'];
   function renderStages() {
     let closed = null;
     if (!tkEl('tk-closed').checked) {
-      if (st.extra.closed === undefined) fetchExtra('closed', () => extra('closed', null, ['task', 'list', '--all']));
-      const source = st.extra.closed?.ok ? st.extra.closed : st.lastClosed;   // the previous one while it is read again
+      // With 「削除したタスクも表示」 the list itself was read with --all.
+      if (!showDeleted() && st.extra.closed === undefined) fetchExtra('closed', () => extra('closed', null, ['task', 'list', '--all']));
+      const source = showDeleted() ? {ok: true, result: st.tasks} : st.extra.closed?.ok ? st.extra.closed : st.lastClosed;   // the previous one while it is read again
       const all = source?.ok ? source.result : [];
-      closed = all.filter(t => t.state !== 'open' && st.tasks.every(x => x.number !== t.number))
+      closed = all.filter(t => t.state !== 'open' && !deleted(t))
         .filter(t => assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone) && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()))
         .sort((a, b) => (b.finished || '').localeCompare(a.finished || '') || b.number - a.number).slice(0, RECENT_DONE);
     }
-    return `<div class="tk-kanban">${STAGES.map(([key, ja, cls]) => {
+    return `<div class="tk-kanban ${showDeleted() ? 'with-deleted' : ''}">${[...STAGES, ...(showDeleted() ? [DELETED_COLUMN] : [])].map(([key, ja, cls]) => {
       const cards = key === 'done' && closed ? closed : visible().filter(t => stageOf(t) === key);
       const note = key === 'done' && closed ? `<small title="「閉じたタスクも表示」ですべて表示">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
       return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span>${note}</div><div class="tk-column-cards">
@@ -259,7 +266,7 @@
     const open = st.tasks.filter(t => t.state === 'open'), count = stage => open.filter(t => stageOf(t) === stage).length;
     const late = ok(overdue)?.overdue || [], soon = ok(overdue)?.soon || [];
     const weekAgo = ECO.localTime(new Date(Date.now() - 7 * 86400000).toISOString());   // this PC's date, like today()
-    const finished = (ok(all) || []).filter(t => t.state !== 'open' && t.finished).sort((a, b) => b.finished.localeCompare(a.finished));
+    const finished = (ok(all) || []).filter(t => t.state !== 'open' && !deleted(t) && t.finished).sort((a, b) => b.finished.localeCompare(a.finished));
     const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
     const card = (title, body, {wide = false, go = '', sub = ''} = {}) => `<section class="tk-card tk-dash-card ${wide ? 'wide' : ''}"><div class="tk-section-head"><h3>${title}${sub ? `<span class="tk-muted">${sub}</span>` : ''}</h3>${go ? `<button type="button" class="tk-link" data-dash-go="${go}">開く ›</button>` : ''}</div>${body}</section>`;
     const big = (label, value, {cls = '', go = ''} = {}) => `<button type="button" class="tk-dash-stat ${cls}" ${go ? `data-dash-go="${go}"` : 'disabled'}><b>${value}</b><span>${label}</span></button>`;
@@ -323,7 +330,7 @@
     const t = d.task || {}, open = d.state === 'open', place = MOD.placeOfTask(n);
     const view = {...(summary || {}), ...t, state: d.state, task_branch: d.task_branch, remote: d.remote};
     const hasWorkspace = !!place || d.task_branch;
-    const primary = !open ? '<button type="button" data-tk="reopen">開き直す</button>'
+    const primary = !open ? `<button type="button" data-tk="reopen" title="${deleted(view) ? '削除をやめて、開いているタスクに戻します' : 'もう一度、開いているタスクにします'}">${deleted(view) ? '元に戻す' : '開き直す'}</button>`
       : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">タスクブランチを開く</button>'
       : `<button type="button" class="primary" data-tk="start">${d.remote ? '作業を再開' : '作業を開始'}</button>`;
     const dis = open ? '' : 'disabled';
@@ -333,14 +340,17 @@
     tkEl('tk-detail').innerHTML = `
     <div class="tk-d-head"><span class="tk-num">#${n}</span>${stageBadge(view)}${close}</div>
     <h3 class="tk-d-title">${esc(d.title)}</h3>
-    <div class="tk-d-actions">${primary}${open ? '<button type="button" data-tk="close">閉じる</button>' : ''}<button type="button" data-tk="edit">編集</button>
+    <div class="tk-d-actions">${primary}${open ? (hasWorkspace || d.remote
+        ? '<button type="button" class="tk-unavailable" disabled title="タスクブランチがあります。作業空間の「完了する」で、作業を取り込んで完了します（取り込まずにやめるなら ⋯ の「削除」）">完了にする</button>'
+        : '<button type="button" data-tk="complete" title="作業を終えたタスクを完了にします（コードを変えないタスク等）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
         ${hasWorkspace ? '<button type="button" data-tk="remove" title="このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。">このPCから片付ける</button>' : ''}
         ${open && pr?.state === 'open' ? '<button type="button" data-tk="withdraw">提出を取り下げる</button>' : ''}
         ${!open && pr?.state === 'merged' ? '<button type="button" data-tk="revert">取り込みを取り消す…</button>' : ''}
         ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop" title="取り込まずに作業を捨てます。提出を閉じ、タスクブランチをこのPCとGitHubの両方から消します（タスクは開いたまま未着手に戻り、最初からやり直せます）。">作業を捨てる</button>' : ''}
-        <button type="button" data-tk="github">GitHubで開く</button></div></details></div>
+        <button type="button" data-tk="github">GitHubで開く</button>
+        ${open ? '<button type="button" class="danger-text" data-tk="delete" title="タスクを削除済みに移します（ふだんは表示しません。「元に戻す」で戻せます）">削除…</button>' : ''}</div></details></div>
     <section class="tk-d-section"><p class="tk-d-body">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</p></section>
     <section class="tk-d-section"><h4>担当</h4><dl class="tk-kv">
       <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を追加">＋</button></dd>
@@ -417,9 +427,10 @@
     const parent = d.parent?.number || t.parent || 0;
     // The default base: a child task starts from its parent's task branch; otherwise default_base (ecobuild.toml).
     const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
-    // The base is typed in or chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives):
-    // the plain ones first, then the other workspaces.
-    const branchOptions = ECO.query(root(), ['branch', 'list']).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
+    // The base is chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives): the plain
+    // ones first, then the other workspaces. Read afresh (not the cached list): a branch just made must be there. A
+    // child task's base is its parent's task branch, and a task branch on GitHub resumes from its recorded base: no choice.
+    const branchOptions = parent || d.remote ? null : ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
       const task = b.is_task_branch ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
@@ -431,7 +442,7 @@
         ['dir', '新しい作業空間を作る', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
         ['none', 'タスクブランチを作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
       {name: 'dir', label: '新しい作業空間の場所', value: suggested, showIf: v => v.place === 'dir'},
-      {name: 'base', label: '作成元のブランチ', value: base, showIf: v => v.place !== 'none', more: branchOptions,
+      {name: 'base', label: '作成元のブランチ', type: 'select', value: base, options: [[base, base + (base === defaults.default_base ? '（既定）' : '')]], showIf: v => v.place !== 'none', more: branchOptions,
         help: parent ? `子タスクは親タスクのタスクブランチ（task/${parent}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : []),
       ...(others.length ? [{name: 'takeOver', label: `${others.join('、')} から引き継ぐ（担当者を自分にし、タスクに残します）`, type: 'checkbox', help: 'ほかの人が担当しています。重ねて作業しないよう、相談してから引き継いでください。'}] : [])], ok: '開始',
@@ -525,13 +536,24 @@
     const who = v ? [...new Set([...v.who, ...ECO.commaList(v.other)])] : [];
     if (who.length) editList(n, '--add-assignee', who.join(','), '担当者を追加しました。');
   }
-  async function closeDialog(n) {
-    const v = await ECO.form({title: `タスク #${n} を閉じる`, fields: [{name: 'reason', label: '閉じる理由', type: 'radio', value: 'completed', options: [['completed', '完了', '作業を終えた'], ['not_planned', '対応しない', '対応しないと決めた']]}],
-      extra: '<p class="eco-intro">コードを変えないタスク向けです。タスクブランチに提出や取り込んでいないコミットがあれば、その作業を捨てて「対応しない」として閉じます。取り込むなら「完了する」を使います。</p>', ok: '閉じる'});
-    if (v && await run(['task', 'close', String(n), '--yes', ...(v.reason === 'not_planned' ? ['--not-planned'] : [])], {dir: placeFor(n), success: `#${n} を閉じました。`})) { await MOD.reloadPlace(placeFor(n)); reloadAfter(n); }
+  // 完了にする: a task without a task branch (one with a task branch is completed by 完了する in its workspace, which takes
+  // the work in). 削除: closed as "not planned" (task close --not-planned); its task branch, if any, is thrown away.
+  const hasTaskBranch = n => { const d = st.details.get(n), t = byNumber(n); return !!(MOD.placeOfTask(n) || d?.task_branch || d?.remote || t?.task_branch || t?.remote); };
+  async function completeDialog(n) {
+    if (hasTaskBranch(n)) return ECO.toast('タスクブランチがあるタスクは、作業空間の「完了する」で作業を取り込んで完了します。', 'info', 6000);
+    const t = byNumber(n) || st.details.get(n) || {};
+    if (!await ECO.confirm({title: `#${n} を完了にする`, message: `${t.title || ''}\nを完了にします。`, ok: '完了にする'})) return;
+    if (await run(['task', 'close', String(n)], {success: `#${n} を完了にしました。`})) reloadAfter(n);
+  }
+  async function deleteDialog(n) {
+    const t = byNumber(n) || st.details.get(n) || {}, branch = hasTaskBranch(n);
+    if (!await ECO.confirm({title: `#${n} を削除`, message: `${t.title || ''}\nを削除します。削除したタスクは完了とは別の「削除済み」に移り、ふだんは表示しません（「削除したタスクも表示」で見られ、「元に戻す」で戻せます）。`
+      + (branch ? '\n\nタスクブランチの作業（開いている提出・取り込んでいないコミット）も、このPCとGitHubから捨てます。' : ''), ok: '削除', danger: true})) return;
+    const place = placeFor(n);
+    if (await run(['task', 'close', String(n), '--not-planned', '--yes'], {dir: place, success: `#${n} を削除しました。`})) { if (branch) await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも「対応しない」として閉じる', type: 'checkbox'}], ok: 'やめる', danger: true});
+    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '取り込まずに作業をやめます。開いている提出を閉じ、タスクブランチを手元とGitHubから削除して、作成元のブランチに戻ります。', fields: [{name: 'close', label: 'タスクも削除する（削除済みに移す）', type: 'checkbox'}], ok: 'やめる', danger: true});
     if (!v) return;
     const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
@@ -665,9 +687,11 @@
     e.preventDefault(); column.classList.remove('drop');
     const n = draggedCard, t = byNumber(n), stage = column.dataset.stage; draggedCard = 0;
     if (!t || stageOf(t) === stage) return;
-    if (stage === 'done') return closeDialog(n);
+    if (t.state !== 'open' && (stage === 'done' || stage === 'deleted')) return ECO.toast(`閉じたタスクは、開き直してから${STAGE[stage]?.[1] || '削除済み'}に移してください。`, 'info', 6000);
+    if (stage === 'done') return completeDialog(n);
+    if (stage === 'deleted') return deleteDialog(n);
     if (t.state !== 'open') {
-      // Out of 完了: reopen (task reopen), then put it in the stage it was dropped on when that is 計画中.
+      // Out of 完了・削除済み: reopen (task reopen), then put it in the stage it was dropped on when that is 計画中.
       if (!['planned', 'todo'].includes(stage)) return ECO.toast('閉じたタスクは、開き直して未着手か計画中に戻してから開始してください。', 'info', 6000);
       if (!await ECO.confirm({title: `#${n} を開き直す`, message: `${t.title}
 を開き直して${STAGE[stage][1]}にします。`, ok: '開き直す'})) return;
@@ -748,6 +772,7 @@
   tkEl('tk-milestone').addEventListener('change', e => { st.milestone = e.target.value; render(); });
   tkEl('tk-ready').addEventListener('change', () => load());
   tkEl('tk-closed').addEventListener('change', () => load());
+  tkEl('tk-deleted').addEventListener('change', () => load());
   tkEl('tk-reload').addEventListener('click', () => { st.details.clear(); load({full: true}).then(() => st.selected && loadDetail(st.selected)); });
   tkEl('tk-new').addEventListener('click', newTaskDialog);
   tkEl('tk-person-dialog').addEventListener('close', () => { st.person = ''; });
@@ -763,7 +788,8 @@
         case 'start': return startDialog(n);
         case 'open-ws': return MOD.openWorkspace(n);
         case 'reopen': if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); return;
-        case 'close': return closeDialog(n);
+        case 'complete': return completeDialog(n);
+        case 'delete': return deleteDialog(n);
         case 'edit': return editDialog(n);
         case 'drop': return dropDialog(n);
         case 'remove': return removeWorkspace(n);

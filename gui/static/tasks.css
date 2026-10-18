@@ -60,6 +60,8 @@
 
 /* Kanban. */
 .tk-kanban { display: grid; grid-template-columns: repeat(5, minmax(166px, 1fr)); gap: 10px; min-width: 870px; align-items: start; }
+.tk-kanban.with-deleted { grid-template-columns: repeat(6, minmax(150px, 1fr)); min-width: 960px; }
+.tk-column[data-stage=deleted] { opacity: .8; }
 .tk-column { background: #181d23; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .tk-column-head { display: flex; align-items: center; justify-content: space-between; margin: 2px 4px 10px; font-size: 13px; font-weight: 600; }
 .tk-column-head small { color: var(--muted); font-weight: normal; margin-left: 6px; }
@@ -291,3 +293,5 @@
 .cal-dues { padding: 2px 4px 4px; z-index: 1; min-width: 0; }
 .cal-due { font-size: 11px; color: var(--warn); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; border-radius: 4px; padding: 1px 3px; }
 .cal-due.overdue { color: var(--bad); } .cal-due:hover, .cal-due[aria-selected=true] { background: #ffffff12; }
+/* 完了にする on a task with a task branch: completed from its workspace (完了する), so not pressed here. */
+.tk .tk-d-actions button.tk-unavailable:disabled { opacity: 1; border-color: #3a424c; color: #6b7581; background: transparent; cursor: not-allowed; }

@@ -37,7 +37,8 @@
       <select id="tk-sprint" aria-label="スプリント"></select>
       <select id="tk-milestone" aria-label="マイルストーン"></select>
       <label class="tk-check"><input type="checkbox" id="tk-ready"> 着手できるものだけ</label>
-      <label class="tk-check"><input type="checkbox" id="tk-closed"> 閉じたタスクも表示</label>
+      <label class="tk-check"><input type="checkbox" id="tk-closed"> 完了したタスクも表示</label>
+      <label class="tk-check" title="削除したタスク（GitHubでは「対応しない」として閉じたもの）は、ふだんは表示しません"><input type="checkbox" id="tk-deleted"> 削除したタスクも表示</label>
     </form>
     <div class="tk-body"><div class="tk-main" id="tk-main"></div><aside class="tk-detail" id="tk-detail" aria-label="タスクの詳細"></aside></div>
   </section>

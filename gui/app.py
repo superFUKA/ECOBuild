@@ -360,10 +360,12 @@ def default_cli(explicit: str = "") -> list[str]:
     found = shutil.which("ecobuild")
     if found:
         return [found]
-    scripts = Path(sys.executable).parent
-    for name in ("ecobuild.exe", "ecobuild"):
-        if (scripts / name).is_file():
-            return [str(scripts / name)]
+    # pipx の置き場所も（インストーラーが PATH に足しても、サインインし直すまでショートカットから起動した GUI には届かないことがある）
+    pipx_bin = Path(os.environ.get("PIPX_BIN_DIR") or Path.home() / ".local" / "bin")
+    for scripts in (Path(sys.executable).parent, pipx_bin):
+        for name in ("ecobuild.exe", "ecobuild"):
+            if (scripts / name).is_file():
+                return [str(scripts / name)]
     raise SystemExit("ecobuild コマンドが見つかりません。--ecobuild <パス> で指定してください。")
 
 
@@ -742,6 +744,35 @@ def who_am_i() -> str:
     return os.environ.get("ECOBUILD_GUI_ME") or _me["login"]
 
 
+def github_account() -> dict:
+    """ログイン中の GitHub のアカウント（アカウントの画面のため）：ログイン名・プロフィールの名前・URL と、gh のログインの権限。
+    ecobuild にこれを返すコマンドはない。ログインし直した後のために、毎回 GitHub に聞く（「自分」も覚え直す）。"""
+    try:
+        completed = subprocess.run(["gh", "api", "-i", "user"], capture_output=True, stdin=subprocess.DEVNULL,
+                                   encoding="utf-8", errors="replace", timeout=20, **_no_window())
+    except (OSError, subprocess.TimeoutExpired):
+        completed = None
+    account = {"login": "", "name": "", "url": "", "scopes": []}
+    if completed is not None and completed.returncode == 0:
+        head, _, body = completed.stdout.replace("
+", "
+").partition("
+
+")
+        for line in head.splitlines():
+            key, _, value = line.partition(":")
+            if key.strip().lower() == "x-oauth-scopes":
+                account["scopes"] = sorted(s.strip() for s in value.split(",") if s.strip())
+        try:
+            user = json.loads(body)
+        except ValueError:
+            user = {}
+        account.update(login=user.get("login") or "", name=user.get("name") or "", url=user.get("html_url") or "")
+    _me["login"] = account["login"]
+    account["login"] = who_am_i()
+    return account
+
+
 def module_repository(directory: str) -> str:
     """モジュールの GitHub のリポジトリ（所有者/名前）。ecobuild module delete に渡す。origin の URL から読む（ecobuild にこれを返す
     コマンドはない）。GitHub の URL でなければ（手元の bare 等）名前だけ。読めなければ空。"""
@@ -754,7 +785,7 @@ def module_repository(directory: str) -> str:
     return re.sub(r"\.git$", "", re.split(r"[\\/]", url.rstrip("/\\"))[-1])
 
 
-GH_SCOPES = {"delete_repo", "project"}   # 画面から追加を頼める gh の権限
+GH_SCOPES = {"delete_repo", "project", "workflow"}   # 画面から追加を頼める gh の権限
 
 
 def refresh_scope(scope: str) -> None:
@@ -765,6 +796,15 @@ def refresh_scope(scope: str) -> None:
         raise GuiError(f"ターミナルで gh auth refresh -h github.com -s {scope} を実行してください。")
     subprocess.Popen(["cmd", "/c", f"gh auth refresh -h github.com -s {scope} & pause"],
                      creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+
+def gh_login(switch: bool) -> None:
+    """gh に別のアカウントでログインする（gh auth login。ブラウザで承認する）か、ログイン済みのアカウントに切り替える
+    （gh auth switch）。対話が要るので、新しい端末の窓で動かす。"""
+    command = "gh auth switch -h github.com" if switch else "gh auth login -h github.com -w -s project"
+    if os.name != "nt":
+        raise GuiError(f"ターミナルで {command} を実行してください。")
+    subprocess.Popen(["cmd", "/c", f"{command} & pause"], creationflags=subprocess.CREATE_NEW_CONSOLE)
 
 
 # HTTP --------------------------------------------------------------------------------------------
@@ -1010,6 +1050,11 @@ class App:
             return {"made": make_shortcuts()}
         if name == "module-repository":
             return {"repository": module_repository(d("dir"))}
+        if name == "account":
+            return github_account()
+        if name == "gh-login":
+            gh_login(bool(d("switch")))
+            return {}
         if name == "gh-scope":
             refresh_scope(d("scope") or "")
             return {}

@@ -4,6 +4,7 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 ## 起動
 
+- インストーラー（`installer/install.cmd`）で入れたときは、スタートメニュー・デスクトップの「ECOBuild GUI」（GUI は `%LOCALAPPDATA%\Programs\ECOBuild GUI`）。
 - `gui\ECOBuildGUI.pyw` をダブルクリック（コマンドプロンプトは出ない）。
 - または端末で `python C:\ECO\ECOBuild\gui\app.py`（どのフォルダからでも同じ）。
 

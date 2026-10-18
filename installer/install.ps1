@@ -5,7 +5,9 @@
 .DESCRIPTION
   1. Python 3.11 以上と git がなければ、winget で導入する（確認してから）
   2. pipx を導入し、ECOBuild を GitHub から導入する（ecobuild コマンドが PATH に入る）
-  3. ecobuild init を起動し、質問しながら初期設定を行う
+  3. ECOBuild GUI を同じ版で導入する（%LOCALAPPDATA%\Programs\ECOBuild GUI。Node.js があれば Electron も入れる。
+     デスクトップとスタートメニューにショートカットを作るので、タスクバーにもピン留めできる）
+  4. ecobuild init を起動し、質問しながら初期設定を行う
      （設定を置くディレクトリ、gh・ビルドツール、GitHub へのログイン、git の名前・メール、既定の所有者）
 
   何度実行してもよい（入っているものは入れ直さず、ECOBuild は指定の版に入れ替える）。
@@ -22,6 +24,9 @@
 .PARAMETER NoInit
   ecobuild init を起動しない。
 
+.PARAMETER NoGui
+  ECOBuild GUI を導入しない。
+
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File install.ps1
 .EXAMPLE
@@ -31,7 +36,8 @@ param(
     [string]$Ref = $(if ($env:ECOBUILD_REF) { $env:ECOBUILD_REF } else { "feature/mvp" }),
     [string]$Source = "",
     [switch]$Yes,
-    [switch]$NoInit
+    [switch]$NoInit,
+    [switch]$NoGui
 )
 
 # 外部のコマンドの失敗は終了コードで確かめる（Windows PowerShell 5.1 では標準エラーを例外にしない）
@@ -126,7 +132,63 @@ $ecobuild = Join-Path $bin "ecobuild.exe"
 if (-not (Test-Path $ecobuild)) { Stop-Install "ecobuild が見つかりません（$ecobuild）。" }
 Write-Done "ECOBuild を導入しました：$ecobuild"
 
-# 3. 初期設定
+# 3. GUI（ECOBuild のパッケージには入っていないので、リポジトリの gui/ を同じ版で置く）
+$GuiDir = Join-Path $env:LOCALAPPDATA "Programs\ECOBuild GUI"
+function Install-Gui {
+    Write-Step "ECOBuild GUI を導入します"
+    if ($Source) {
+        # 開発用：手元のソースの gui/ をそのまま使う（変更がそのまま反映される）
+        $script:GuiDir = Join-Path (Resolve-Path $Source) "gui"
+        if (-not (Test-Path (Join-Path $script:GuiDir "app.py"))) { Stop-Install "GUI が見つかりません（$script:GuiDir）。" }
+    } else {
+        # 指定の版だけを取り出す（ブランチ・タグ・コミットのどれでも）
+        $temp = Join-Path ([IO.Path]::GetTempPath()) ("ecobuild-gui-" + [Guid]::NewGuid().ToString("N"))
+        git init --quiet $temp
+        git -C $temp fetch --quiet --depth 1 "$Repository" $Ref
+        if ($LASTEXITCODE -eq 0) { git -C $temp checkout --quiet FETCH_HEAD }
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $temp "gui\app.py"))) {
+            Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
+            Stop-Install "GUI を取り出せませんでした（$Repository の $Ref）。"
+        }
+        # 動いている GUI（Electron）は止める（electron.exe が使用中だと置き換えられない）
+        Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($GuiDir, [StringComparison]::OrdinalIgnoreCase) } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+        # 入れ替える。Electron 本体（node_modules）は残して、入れ直しの時間を省く
+        robocopy (Join-Path $temp "gui") $GuiDir /MIR /XD node_modules __pycache__ tests /NFL /NDL /NJH /NJS /NP | Out-Null
+        $copied = $LASTEXITCODE
+        Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
+        if ($copied -ge 8) { Stop-Install "GUI を $GuiDir に置けませんでした（robocopy の終了コード $copied）。" }
+    }
+    Write-Done "GUI：$script:GuiDir"
+
+    # Electron（アプリの窓）。なければ Edge の窓で開く
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            if (Confirm-Step "GUI をアプリの窓（Electron）で開くには Node.js が要ります。winget で導入しますか？（なしでも Edge の窓で使えます）") {
+                winget install --id OpenJS.NodeJS.LTS --exact --silent --accept-package-agreements --accept-source-agreements
+                Update-SessionPath
+            }
+        }
+    }
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Write-Host "    Electron を導入します（初回は少し時間がかかります）"
+        Push-Location (Join-Path $script:GuiDir "electron")
+        npm install --no-audit --no-fund --loglevel=error
+        $npmCode = $LASTEXITCODE
+        Pop-Location
+        if ($npmCode -eq 0) { Write-Done "Electron を導入しました" }
+        else { Write-Host "    Electron を導入できませんでした。GUI は Edge の窓で開きます。" -ForegroundColor Yellow }
+    } else {
+        Write-Host "    Node.js がないので、GUI は Edge の窓で開きます（あとで Node.js を入れて、もう一度実行すると Electron になります）。" -ForegroundColor Yellow
+    }
+
+    # ショートカット（デスクトップとスタートメニュー。スタートメニューのものはタスクバーにピン留めできる）
+    Invoke-Python (Join-Path $script:GuiDir "app.py") --shortcut
+    if ($LASTEXITCODE -ne 0) { Stop-Install "GUI のショートカットを作れませんでした。" }
+}
+if (-not $NoGui) { Install-Gui }
+
+# 4. 初期設定
 if (-not $NoInit) {
     Write-Step "初期設定（ecobuild init）"
     if ($Yes) { & $ecobuild init --yes } else { & $ecobuild init }
@@ -137,4 +199,8 @@ if (-not $NoInit) {
 
 Write-Host ""
 Write-Host "完了しました。新しく開いた端末では、どのディレクトリからでも ecobuild が使えます（ecobuild --help）。" -ForegroundColor Green
-Write-Host "更新：もう一度このインストーラーを実行（または pipx upgrade ecobuild）。削除：pipx uninstall ecobuild"
+if (-not $NoGui) {
+    Write-Host "GUI：スタートメニューまたはデスクトップの「ECOBuild GUI」（スタートメニューで右クリック →「タスク バーにピン留めする」）。" -ForegroundColor Green
+}
+Write-Host "更新：もう一度このインストーラーを実行（ECOBuild も GUI も入れ替わります）。"
+Write-Host "削除：pipx uninstall ecobuild。GUI は $GuiDir と、デスクトップ・スタートメニューの「ECOBuild GUI」を消す。"

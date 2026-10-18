@@ -16,6 +16,8 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 
 終わったら新しい端末を開くと、どのディレクトリからでも `ecobuild <コマンド>` が使えます（`ecobuild --help`）。
 
+GUI（[`gui/`](gui/README.md)）も同じ版で `%LOCALAPPDATA%\Programs\ECOBuild GUI` に入り、デスクトップとスタートメニューに「ECOBuild GUI」ができます（スタートメニューで右クリック →「タスク バーにピン留めする」）。Node.js があれば Electron の窓で、なければ（入れるか聞きます）Edge の窓で開きます。
+
 ### 初期設定（`ecobuild init`）
 
 インストーラーの最後に起動します。後からいつでも実行できます（直っているものは聞きません）。
@@ -47,8 +49,9 @@ PATH に通し、最後に `ecobuild init` で初期設定を質問しながら�
 | `-Source <ディレクトリ>` | 手元のソースから導入する（開発用。ソースの変更がそのまま反映されます） |
 | `-Yes` | 確認せずに進める（`ecobuild init --yes`。GitHub へのログインは行いません） |
 | `-NoInit` | `ecobuild init` を起動しない |
+| `-NoGui` | GUI を導入しない（`-Source` のときは、ソースの `gui/` をそのまま使います） |
 
-更新はインストーラーをもう一度実行するか `pipx upgrade ecobuild`、削除は `pipx uninstall ecobuild` です。
+更新はインストーラーをもう一度実行（GUI も入れ替わります）するか `pipx upgrade ecobuild`、削除は `pipx uninstall ecobuild` と、GUI のフォルダ・ショートカットを消すことです。
 
 ## 導入（Linux）
 

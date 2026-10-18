@@ -157,6 +157,36 @@ def test_finish_partial_rebuilds_and_keeps_going(repository):
     assert repository.git.current_branch() == task_branch.branch
 
 
+def test_finish_chooses_whether_to_close(repository):
+    """完了で閉じるかを決める：中間提出も partial=False なら閉じる。partial=True なら最後の提出でも続ける。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit(partial=True)
+    result = repository.finish(partial=False)
+    assert not result.partial and result.closed_issue == task.number and result.removed
+    assert repository.task(task.number).state == "closed"
+
+    task, task_branch = started(repository, title="u")
+    recorded(task_branch, name="b.txt")
+    task_branch.submit()
+    result = repository.finish(partial=True)
+    assert result.partial and result.branch_rebuilt and repository.task(task.number).state == "open"
+
+
+def test_finish_closes_after_partial_with_nothing_new(repository):
+    """中間の取り込みの後、続きの変更がないまま完了：取り込むものなしで閉じて片付ける。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    first = repository.finish(partial=True)
+    assert first.partial and repository.task(task.number).state == "open"
+    assert code_of(lambda: repository.finish(partial=True)) == ErrorCode.NOTHING_TO_SUBMIT
+    result = repository.finish(task.number)
+    assert not result.partial and result.pull_request == first.pull_request and result.closed_issue == task.number
+    assert result.removed and result.switched_to == "main"
+    assert repository.task(task.number).state == "closed"
+    assert not repository.git.has_remote_branch(task_branch.branch)
+
+
 def test_finish_resumes_after_a_failure(repository, monkeypatch):
     repository.create_branch("develop")    # main 以外へは GitHub が Issue を閉じない（ecowork が閉じる）
     task, task_branch = started(repository, base="develop")

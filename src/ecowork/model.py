@@ -83,6 +83,14 @@ def with_task_link(body: str, task: int, *, partial: bool) -> str:
     return link_line(task, partial=partial) + ("\n\n" + body if body else "\n")
 
 
+def with_link_kind(body: str, task: int, *, partial: bool) -> str:
+    """つながりの行を、中間提出（Refs）か最後の提出（Closes）に合わせる（なければ先頭に足す）。"""
+    for match in _LINK.finditer(body or ""):
+        if int(match.group(2)) == task:
+            return body[:match.start()] + link_line(task, partial=partial) + body[match.end():]
+    return with_task_link(body, task, partial=partial)
+
+
 @dataclass(frozen=True)
 class Task:
     """GitHub Issue。"""

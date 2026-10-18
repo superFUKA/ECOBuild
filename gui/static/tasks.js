@@ -596,11 +596,11 @@
   }
   // Submission and finishing (task submit／finish／approve／reject／withdraw). Numbers are task numbers.
   async function finishDialog(n) {
-    const v = await ECO.form({title: `完了する：#${n}`, intro: '作業を取り込んでタスクを完了します。未提出なら提出し、CI（自動の確認）が終わるのを待ってから取り込みます。タスクブランチは消えます（中間提出なら、続きのタスクブランチを作ります）。',
-      fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了する'});
+    const v = await ECO.form({title: `完了する：#${n}`, intro: '作業を取り込んでタスクを完了します。未提出なら提出し、CI（自動の確認）が終わるのを待ってから取り込みます。タスクブランチは消えます。',
+      fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}, {name: 'partial', label: 'タスクを閉じずに続ける（取り込んだ後、タスクブランチを作り直して作業を続ける）', type: 'checkbox'}], ok: '完了する'});
     if (!v) return;
     const place = placeFor(n);
-    const doc = await run(['task', 'finish', String(n), ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : [])],
+    const doc = await run(['task', 'finish', String(n), ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : []), ...(v.partial ? ['--partial'] : [])],
       {dir: place, success: r => r.partial ? '中間提出を取り込み、タスクブランチを作り直しました。' : `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }

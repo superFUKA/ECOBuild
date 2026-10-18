@@ -31,14 +31,16 @@ def command(
     wait: Annotated[bool, "CIの結果を待つ（待たない場合、実行中なら止まります）"] = True,
     ignore_checks: Annotated[bool, "CIが失敗していても完了する（待たない）"] = False,
     subject: Annotated[str, "取り込むコミットの件名（既定はタスクの題名）"] = "",
+    partial: Annotated[bool, "取り込んでもタスクを閉じず、タスクブランチを作り直して続ける（中間の取り込み）"] = False,
     timeout: Annotated[int, "CIを待つ時間の上限（秒）"] = 1800,
     close_workspace: Annotated[bool, "完了したら、この作業空間を閉じる（場所ごと削除する。GitHubにないものがあれば閉じない）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチを片付けます。
 
-    提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。中間提出なら、取り込んだ後にタスクブランチを
-    作り直して続けます。途中で止まったら、もう一度実行すると続きから行います。
+    提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。中間提出として出した提出も、完了ならタスクを
+    閉じます。--partial なら、取り込んだ後にタスクブランチを作り直して続けます（閉じない）。途中で止まったら、もう一度
+    実行すると続きから行います。
     """
     task = optional_argument(number, task, "--task", json)
 
@@ -48,6 +50,6 @@ def command(
         if close_workspace:
             leave(inv.module.root)
         return inv.module.finish(task or None, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
-                                 timeout=timeout, close_workspace=close_workspace)
+                                 partial=partial, timeout=timeout, close_workspace=close_workspace)
 
     return run_command("task finish", action, render_finish, json_output=json)

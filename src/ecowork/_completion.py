@@ -66,12 +66,15 @@ class Completion:
         return replace(result, approved=True, returned_to=returned)
 
     def finish(self, number: int | None = None, *, wait: bool = True, ignore_checks: bool = False,
-               subject: str | None = None, timeout: float = 1800, sleep: Callable[[float], None] = time.sleep,
+               subject: str | None = None, partial: bool | None = None, timeout: float = 1800,
+               sleep: Callable[[float], None] = time.sleep,
                clock: Callable[[], float] = time.monotonic) -> wm.FinishResult:
         """タスクを完了する：未pushのコミットを送る → 提出がなければ作る → CIを待つ → （承認が必須なら確かめる）→
         squashで取り込み、Issueを閉じ、GitHubのブランチを消す → 手元のタスクブランチを片付ける。
 
-        中間提出（--partial）なら、取り込んだ後にタスクブランチを作成元の最新から作り直して続ける（閉じない）。
+        partial：True なら取り込んだ後もタスクを閉じず、タスクブランチを作成元の最新から作り直して続ける（中間の取り込み）。
+        False なら閉じる。開いている提出の中間提出か（本文の Refs／Closes）は、これに合わせて書き換える。None なら提出のまま
+        （task approve。提出がなければ閉じる）。中間提出を取り込んだ後、新しい変更がなければ、取り込むものなしで閉じる。
         どこで止まっても、もう一度実行すれば続きから行う。wait：CIを待つ（False なら、実行中なら止める）。
         ignore_checks：CIの失敗を承知で取り込む（待たない）。subject：取り込むコミットの件名（既定は題名）。
         """
@@ -92,10 +95,18 @@ class Completion:
             self._push_if_ahead(branch)
             if pr is not None:
                 pr = self.submission(number)
-        if pr is None and issue.state == "open" and not self._merged_and_unchanged(number, branch):
-            pr = self._submit_for_finish(number, branch, here)
+        if pr is None and issue.state == "open":
+            last = self._merged_and_unchanged(number, branch)
+            if last is not None and last.partial and not partial:
+                return self._close_after_partial(number, branch, last)
+            if last is None or last.partial:
+                pr = self._submit_for_finish(number, branch, here, partial=bool(partial))
         if pr is None:
             return self._resume_finish(number, branch)
+        if partial is not None and pr.partial != partial:
+            body = self.github.get_pull_request(self.root, pr.number).body
+            self.github.edit_pull_request(self.root, pr.number, body=wm.with_link_kind(body, number, partial=partial))
+            pr = self.submission(number)
         if pr.draft:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
@@ -125,16 +136,32 @@ class Completion:
             raise
         return self._after_finish(number, branch, pr, merged, checks, subject or pr.title)
 
-    def _merged_and_unchanged(self, number: int, branch: str) -> bool:
-        """最後の提出（中間提出でないもの）を取り込んだ後、タスクブランチに新しいコミットがないか（取り込みの後処理の途中で
-        止まった状態。もう一度 finish すれば、新しい提出を作らずに後処理の続きを行う）。"""
+    def _merged_and_unchanged(self, number: int, branch: str) -> wm.PullRequest | None:
+        """取り込んだ最後の提出。その後タスクブランチに新しいコミットがなければ返す（あれば None）。
+
+        最後の提出（中間提出でないもの）なら、取り込みの後処理の途中で止まった状態（もう一度 finish すれば、新しい提出を
+        作らずに後処理の続きを行う）。中間提出なら、続きの作業がまだない状態（finish すれば、そのまま閉じる）。"""
         merged = [p for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "merged"]
-        if not merged or wm.PullRequest._from(self, max(merged, key=lambda p: p.number)).partial:
-            return False
+        if not merged:
+            return None
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
-        return not self._lost_commits(branch, base, local=local, remote=remote)
+        if self._lost_commits(branch, base, local=local, remote=remote):
+            return None
+        return wm.PullRequest._from(self, max(merged, key=lambda p: p.number))
+
+    def _close_after_partial(self, number: int, branch: str, last: wm.PullRequest) -> wm.FinishResult:
+        """中間提出を取り込んだ後、新しい変更がないまま完了する：取り込むものはないので、タスクを閉じて片付けるだけ。"""
+        self.tracker.check_finishable(number, action="完了")
+        title = self.github.get_issue(self.root, number).title
+        self.github.close_issue(self.root, number)
+        if self.git.has_remote_branch(branch):
+            self.git.push_delete(branch)
+        self.tracker.closed(number)
+        removed, switched_to = self._clean_finished(branch)
+        return wm.FinishResult(number, last.number, last.url, title, False, False, number, False, removed, switched_to,
+                               (), self._upcoming())
 
     def _resume_finish(self, number: int, branch: str) -> wm.FinishResult:
         """Issueが閉じ、開いている提出がないタスク：取り込みの後処理と手元の片付けの残りだけを行う。"""
@@ -171,7 +198,7 @@ class Completion:
             return
         self.git.push(branch, set_upstream=not remote)
 
-    def _submit_for_finish(self, number: int, branch: str, here: bool) -> wm.PullRequest:
+    def _submit_for_finish(self, number: int, branch: str, here: bool, *, partial: bool) -> wm.PullRequest:
         """完了の前に、提出がなければ作る（レビューなしで完了するとき。PRは履歴として残る）。"""
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if not (local or remote):
@@ -188,7 +215,7 @@ class Completion:
                             hint=f"変更を {self._op('task commit')} で記録してから実行してください（変更が要らないなら "
                                  f"{self._op('task close')} {number}）。")
         self._refuse_conflict_markers(self.git.conflict_markers(f"{base_ref}...{head}"), committed=True)
-        return self._create_submission(number, branch, base, title=None, partial=False, draft=False)
+        return self._create_submission(number, branch, base, title=None, partial=partial, draft=False)
 
     def _create_submission(self, number: int, branch: str, base: str, *, title: str | None, partial: bool,
                            draft: bool, reviewers: tuple[str, ...] = ()) -> wm.PullRequest:

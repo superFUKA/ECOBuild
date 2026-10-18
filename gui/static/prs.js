@@ -30,7 +30,8 @@ async function loadPr(number) {
 function renderPrDetail() {
   const t = prStatus, tools = get('pr-tools');
   tools.replaceChildren();
-  WS.setTabCount?.('prs', t?.pull_request?.state === 'open' ? 1 : 0);
+  // 1 while there is something here: a submission open, or commits to submit (not in the base yet).
+  WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr && (t.pull_request?.state === 'open' || t.commits?.length) ? 1 : 0);
   if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「ブランチ」で見られます。</p>'; return; }
   if (!t || t.number !== selectedPr) return;
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;
@@ -115,7 +116,11 @@ async function prAction(action) {
 get('pr-tools').addEventListener('click', e => { const b = e.target.closest('[data-pr-action]'); if (b && !b.disabled && prStatus) prAction(b.dataset.prAction); });
 WS.refreshPrs();
 // The task here comes and goes with the status (switched, reviewing, finished): the tab follows it.
+// A commit or a Push changes the commits to submit (and the count): read it again when the unpushed count changes.
+let seenAhead = null;
 WS.onRefresh(() => {
-  if (hereTask() !== selectedPr) WS.refreshPrs();
+  const ahead = WS.status?.ahead ?? null, moved = seenAhead !== null && ahead !== seenAhead;
+  seenAhead = ahead;
+  if (hereTask() !== selectedPr || moved) WS.refreshPrs();
   else if (prStatus) renderPrDetail();
 });

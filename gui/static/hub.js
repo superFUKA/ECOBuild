@@ -16,11 +16,12 @@ function showHubPage(name) {
   });
   if (button.dataset.page === 'settings') loadSettings();
   if (button.dataset.page === 'help') HELP.show(location.hash.slice(1));
+  if (button.dataset.page === 'operator') OPERATOR.show();
 }
 navigation.forEach(button => button.addEventListener('click', () => {
   const page = button.dataset.page;
-  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定はハブだけのもの。
-  if (page === 'settings') showHubPage(page);
+  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定・AI に頼むはハブだけのもの。
+  if (page === 'settings' || page === 'operator') showHubPage(page);
   else ECO.action('open', page === 'help' ? {page: 'help'} : {}).catch(() => showHubPage(page));
 }));
 ECO.onNavigate(({page, command}) => {
@@ -553,3 +554,4 @@ $('quit-gui').addEventListener('click', async () => {
   document.body.innerHTML = '<main style="padding:48px;font:15px \'Segoe UI\', \'Yu Gothic UI\', sans-serif;color:#edf1f5">ECOBuild GUI を終了しました。このウィンドウを閉じてください。</main>';
   window.close();
 });
+window.addEventListener('eco-operator-acted', () => loadModules());   // AI に頼んだ操作で、一覧が変わったかもしれない

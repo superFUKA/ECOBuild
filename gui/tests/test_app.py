@@ -383,6 +383,12 @@ def test_commands_that_fetch_wait_for_the_others():
         assert not gui._read_only(args), args
 
 
+def test_asking_the_operator_does_not_hold_the_others():
+    """AI に頼む（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
+    assert gui._unlocked(["agent", "ask", "--session", "s1"]) and not gui._read_only(["agent", "ask"])
+    assert not gui._unlocked(["task", "start", "12"])
+
+
 def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monkeypatch):
     """ソリューションを開いた Visual Studio があればそこで（/edit）、なければソリューションごと起動して開く。"""
     root = _module(tmp_path / "Calc")

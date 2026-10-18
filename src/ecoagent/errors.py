@@ -8,6 +8,9 @@ class ErrorCode:
     DIRECTORY_NOT_FOUND = "directory_not_found"
     NO_TERMINAL = "no_terminal"                 # 新しい画面を開く端末が見つからない（Windows 以外）
     LAUNCH_FAILED = "launch_failed"
+    EMPTY_PROMPT = "empty_prompt"               # 話しかける文が空
+    ASK_FAILED = "ask_failed"                   # 返答の終わりの印がないまま終わった
+    TIMEOUT = "timeout"
 
 
 class AgentError(Exception):

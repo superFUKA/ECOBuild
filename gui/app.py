@@ -76,6 +76,9 @@ READ_ONLY = {
     ("ci", "status"), ("release", "list"),
     ("agent", "guide"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
+# 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
+# オペレーターが別の ecobuild で行う。変えたかもしれないので、終わったら覚えた結果は古くする）
+UNLOCKED = {("agent", "ask")}
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
 
@@ -182,6 +185,10 @@ def _read_only(args: list[str]) -> bool:
     if "--fetch" in args and (command[:1] in FETCHING or command in FETCHING):
         return False
     return command in READ_ONLY or command[:1] in READ_ONLY
+
+
+def _unlocked(args: list[str]) -> bool:
+    return tuple(a for a in args[:2] if not a.startswith("-")) in UNLOCKED
 
 
 def _no_window() -> dict:
@@ -291,7 +298,7 @@ class Cli:
         if directory and not Path(directory).is_dir():
             raise GuiError(f"フォルダが見つかりません：{directory}")
         argv = list(self.command) + (["-C", directory] if directory else []) + args + ["--json"]
-        lock = None if _read_only(args) else self._lock_for(directory)
+        lock = None if _read_only(args) or _unlocked(args) else self._lock_for(directory)
         if lock:
             lock.acquire()
         try:

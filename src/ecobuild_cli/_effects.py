@@ -1,0 +1,77 @@
+"""コマンドの重さ：見るだけ（read）・変える（change）・確認が要る（confirm）・人がする（human）。
+
+コマンドの一覧（ecobuild --help --json の effect）と、オペレーターのフック（ecobuild agent guard）が使う。
+- confirm：消す・取り返しがつかない・ほかの人に届く操作。エージェントは実行する前にユーザーに聞く。
+- human：人が画面で答える・管理者の権限が要る・エージェント自身を動かす操作。エージェントは使わない。
+書いていないコマンドは change。重さを上げるオプション（--yes 等）が付けば confirm。
+"""
+
+from __future__ import annotations
+
+from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ
+
+EFFECTS = {
+    READ: (
+        "agent guide", "blame", "branch list", "check", "ci logs", "ci secret list", "ci status", "ci wait",
+        "config get", "config list", "container status", "deps list", "deps tree", "diff", "doctor",
+        "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
+        "module show", "module types", "profile list", "project list", "project show", "release list", "show",
+        "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
+        "task overdue", "task status", "task workload", "template list", "track", "workspace list",
+    ),
+    CONFIRM: (
+        "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container off",
+        "container remove", "file remove", "module archive", "module delete", "module members add",
+        "module members remove", "module protect", "module unarchive", "project remove", "release create",
+        "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
+        "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
+    ),
+    HUMAN: (
+        "agent ask", "agent guard", "agent operator", "ci secret set", "init", "installer add",
+        "installer update", "setup",
+    ),
+}
+# 上の表より細かい指定（短い名前が read でも、その下のコマンドは変える）
+OVERRIDES = {"track add": CHANGE, "track remove": CHANGE}
+CONFIRM_OPTIONS = ("--yes", "-y", "--discard-local", "--force", "--remove-workspaces")
+GLOBAL_OPTIONS = ("-C", "--directory")
+
+_TABLE = {path: effect for effect, paths in EFFECTS.items() for path in paths}
+_TABLE.update(OVERRIDES)
+
+
+def effect(path: str, options: tuple[str, ...] = ()) -> str:
+    """コマンド（"task start" 等）の重さ。options：付けたオプション。"""
+    words = path.split()
+    found = CHANGE
+    for length in range(len(words), 0, -1):
+        if " ".join(words[:length]) in _TABLE:
+            found = _TABLE[" ".join(words[:length])]
+            break
+    if path == "module settings" and any(o.startswith("-") and o != "--json" for o in options):
+        found = CHANGE      # 値を渡すと設定を変える
+    if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options):
+        found = CONFIRM
+    return found
+
+
+def classify(args: list[str]) -> tuple[str, str]:
+    """ecobuild に渡す引数から (重さ, コマンドの名前)。-C <場所> は飛ばす。--help は見るだけ。"""
+    rest = list(args)
+    while rest and (rest[0] in GLOBAL_OPTIONS or rest[0].startswith(("--directory=", "-C"))):
+        rest = rest[2:] if rest[0] in GLOBAL_OPTIONS else rest[1:]
+    words = [w for w in rest if not w.startswith("-")]
+    options = tuple(w for w in rest if w.startswith("-"))
+    if "--help" in options or "-h" in options or not words:
+        return READ, "help"
+    path = _path(words)
+    return effect(path, options), path
+
+
+def _path(words: list[str]) -> str:
+    """引数の先頭のうち、表にある一番長いコマンドの名前（なければ先頭の2語まで）。"""
+    for length in range(min(len(words), 3), 0, -1):
+        name = " ".join(words[:length])
+        if name in _TABLE:
+            return name
+    return " ".join(words[:2])

@@ -179,3 +179,25 @@ main { padding: 22px 28px; }
 .module-icon { width: 34px; height: 34px; margin-bottom: 10px; border-radius: 9px; font-size: 15px; }
 .module-name { font-size: 16px; }
 .module-open { margin-top: 12px; padding-top: 8px; }
+    /* AI に頼む（オペレーターとの会話） */
+    #operator:not([hidden]) { display: flex; flex-direction: column; height: calc(100vh - 88px); }
+    .operator-tools { display: flex; align-items: center; gap: 10px; }
+    .operator-state { color: #a5aeba; font-size: 12px; }
+    .operator-state.thinking { color: #f0d58a; }
+    .operator-log { flex: 1; min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 10px; margin: 14px 0 10px; padding: 4px 2px; list-style: none; }
+    .operator-empty { color: #84909e; font-size: 13px; }
+    .operator-message { display: grid; gap: 4px; max-width: 82%; }
+    .operator-message.user { justify-self: end; }
+    .operator-bubble { padding: 9px 12px; border: 1px solid #343c46; border-radius: 10px; background: #1c2128; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+    .operator-message.user .operator-bubble { background: #263c37; border-color: #39584f; }
+    .operator-message.failed .operator-bubble { border-color: #7a4a4a; }
+    .operator-bubble code, .operator-actions code { font-family: Consolas, monospace; font-size: 12px; color: #b1cbef; }
+    .operator-actions { color: #a5aeba; font-size: 12px; }
+    .operator-actions summary { cursor: pointer; }
+    .operator-actions ul { margin: 4px 0 0; padding-left: 18px; }
+    .operator-actions li.failed code { color: #e6a3a3; }
+    .operator-actions li span { margin-left: 8px; color: #e6a3a3; }
+    .operator-form { display: flex; gap: 8px; align-items: flex-end; }
+    .operator-form textarea { flex: 1; resize: vertical; min-height: 44px; max-height: 40vh; padding: 9px 11px; border: 1px solid #46515e; border-radius: 8px; background: #14171b; color: #edf1f5; font: inherit; font-size: 14px; }
+    .operator-form textarea:focus-visible { outline: 2px solid #8be1cd; outline-offset: 1px; }
+    .operator-message.pending .operator-bubble { display: flex; align-items: center; gap: 8px; color: #a5aeba; }

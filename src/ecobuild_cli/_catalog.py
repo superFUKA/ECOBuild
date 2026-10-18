@@ -2,6 +2,7 @@
 
 - ecobuild --help --json：共通のコマンドと、型ごとのコマンド（型のcliパッケージにあるもの）のすべて。
 - ecobuild <コマンド>... --help --json：そのコマンド（今いるモジュールの型のコマンドも含む）だけ。
+実行できるコマンドには重さ（effect：read・change・confirm・human。_effects）を付ける。
 --json と --help（どのコマンドにもある）は、一覧に入れない。
 """
 
@@ -15,7 +16,7 @@ import click
 
 from ecobuild_bundle import REGISTRY
 
-from . import _types
+from . import _effects, _types
 
 COMMON_OPTIONS = ("--json", "--help")
 
@@ -113,6 +114,7 @@ def _node(command: click.Command, ctx: click.Context, path: tuple[str, ...], sec
             node["default_help"] = _help_text(runnable.help)
     node["runnable"] = runnable is not None
     if runnable is not None:
+        node["effect"] = _effects.effect(" ".join(path))    # 見る・変える・確認が要る・人がする（_effects）
         params = runnable.get_params(ctx)
         node["arguments"] = [_argument(p) for p in params if isinstance(p, click.Argument)]
         node["options"] = [_option(p, ctx) for p in params

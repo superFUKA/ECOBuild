@@ -4,7 +4,7 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
 
 ## 起動
 
-- インストーラー（`installer/install.cmd`）で入れたときは、スタートメニュー・デスクトップの「ECOBuild GUI」（GUI は `%LOCALAPPDATA%\Programs\ECOBuild GUI`）。
+- インストーラー（Setup.exe、または `installer/install.cmd`）で入れたときは、スタートメニュー・デスクトップの「ECOBuild GUI」。
 - `gui\ECOBuildGUI.pyw` をダブルクリック（コマンドプロンプトは出ない）。
 - または端末で `python C:\ECO\ECOBuild\gui\app.py`（どのフォルダからでも同じ）。
 
@@ -39,6 +39,23 @@ ECOBuild を画面から使うためのアプリ。ECOBuild の実装（`src/` �
   - 中身は「その時の pythonw で `ECOBuildGUI.pyw` を開く」。gui フォルダや Python を移したら作り直す。
   - スタートメニューに置くと、タスクバーにピン留めもできる（スタートメニューで右クリック →「タスク バーにピン留めする」、または開いている窓のボタンを右クリック）。ショートカットには Electron の窓と同じ AppUserModelID（`ECOBuild.GUI`）を付けるので、ピン留めしたボタンと開いている窓は1つのボタンにまとまる。この ID が付く前に作ったショートカットは作り直す。
 - ショートカットのアイコン `icon.ico` は `icon.svg` から作る。アイコンを変えたら `python gui\make_icon.py`（Edge で描く）を実行してコミットする。
+
+## インストーラー（Setup.exe）
+
+利用者向けのふつうのアプリのインストーラー（electron-builder の NSIS。ユーザーごと・管理者の権限なし・「次へ」で進む画面）。作るのは配る側で、`gui\electron` で：
+
+```
+python bundle\prepare.py     # 同梱する Python（NuGet の python パッケージ）と、ecobuild・依存・pip の wheel を bundle\out に
+npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
+```
+
+- 中身：Electron のアプリ（`ECOBuild GUI.exe`）、`resources\gui`（この GUI の .py と static）、`resources\python`（フォルダごと動く Python。venv もある）、`resources\wheels`。
+- インストールの最後に `bundle\installer.nsh` → `bundle\install_cli.py install` が、wheel から ecobuild を同梱の Python に入れ、`<入れた場所>in\ecobuild.exe` を置き、`bin` をユーザーの PATH に足す（端末・AI エージェントからも使える。`Scripts` は pip 等もあるので PATH に出さない）。アンインストールで PATH から外す。
+- アプリ（`app.isPackaged`）は、同梱の Python でサーバーを動かし、`bin\ecobuild.exe` を使う。`ecobuild gui` から起動したときも、`app.py` はこのアプリの exe を開く（`packaged_app()`）。
+- ショートカットの AppUserModelID は `appId`（`ECOBuild.GUI`）で、窓と同じ。
+- 初期設定は `ecobuild init` を流さず、ハブが開いたときに `doctor` を見て、足りなければ一覧の上に「はじめに」を出す（「準備する」で設定の環境チェックへ。GitHub へのログイン・権限はそこのボタンから端末の窓で）。
+- 署名はしていない（初めて開くと SmartScreen の「Windows によって PC が保護されました」が出る。「詳細情報」→「実行」）。
+- `bundle\out`・`bundle\cache`・`dist` はコミットしない。
 
 ## GUIが自分で行うこと
 
@@ -112,7 +129,7 @@ GitHubを読むコマンドは秒単位でかかる（目安：`task status` 約
 | ファイル | 内容 |
 | --- | --- |
 | `app.py` | サーバー（画面の配布、`ecobuild` の実行、手元の処理） |
-| `electron/` | Electron の窓（`main.js`：サーバーの起動と窓の管理、`preload.js`：画面に Electron の中だと伝える） |
+| `electron/` | Electron の窓（`main.js`：サーバーの起動と窓の管理、`preload.js`：画面に Electron の中だと伝える）。`bundle/`：インストーラーに入れる Python・ecobuild |
 | `icon.ico`・`make_icon.py`・`static/icon.svg` | アイコン（`.ico` は `.svg` から作る） |
 | `static/hub.*` | ハブ：モジュールの一覧・追加、既定の所有者、環境チェック・準備 |
 | `static/module.*`・`shell.css` | モジュールの窓：左メニューと作業の場所のタブ |

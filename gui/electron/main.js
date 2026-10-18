@@ -4,12 +4,15 @@
 // - 窓をすべて閉じる、またはハブの「GUIを終了」でサーバーが終わると、アプリも終わる（サーバーは標準入力が閉じたら終わる）。
 // - 2つめの起動は、動いているアプリにハブの窓を開かせる。
 // Python：環境変数 ECOBUILD_GUI_PYTHON、リポジトリの .venv、PATH の python の順。ecobuild の場所：ECOBUILD_GUI_ECOBUILD。
+// インストールしたアプリ（Setup.exe。app.isPackaged）は、同梱の Python（resources/python）・GUI（resources/gui）と、
+// インストール時に入れた ecobuild（bin/ecobuild.exe）を使う（bundle/ と package.json の build）。
 const {app, BrowserWindow, Menu, dialog, ipcMain, shell} = require('electron');
 const {spawn} = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const GUI = path.resolve(__dirname, '..');
+const GUI = app.isPackaged ? path.join(process.resourcesPath, 'gui') : path.resolve(__dirname, '..');
+const BUNDLED_ECOBUILD = path.join(path.dirname(process.execPath), 'bin', 'ecobuild.exe');
 const ICON = path.join(GUI, 'icon.ico');
 const HUB_SIZE = [1000, 720];      // app.py の HUB_WINDOW と同じ（ハブは一覧と設定だけなので小さめ）
 const MODULE_SIZE = [1360, 880];   // モジュールの窓
@@ -20,6 +23,7 @@ let quitting = false;
 
 function python() {
   if (process.env.ECOBUILD_GUI_PYTHON) return process.env.ECOBUILD_GUI_PYTHON;
+  if (app.isPackaged) return path.join(process.resourcesPath, 'python', 'python.exe');
   const venv = process.platform === 'win32'
     ? path.join(GUI, '..', '.venv', 'Scripts', 'python.exe') : path.join(GUI, '..', '.venv', 'bin', 'python');
   return fs.existsSync(venv) ? venv : (process.platform === 'win32' ? 'python' : 'python3');
@@ -93,6 +97,7 @@ ipcMain.handle('open-path', async (event, {dir, path: relative = '', reveal = fa
 function startServer() {
   const args = [path.join(GUI, 'app.py'), '--electron'];
   if (process.env.ECOBUILD_GUI_ECOBUILD) args.push('--ecobuild', process.env.ECOBUILD_GUI_ECOBUILD);
+  else if (app.isPackaged && fs.existsSync(BUNDLED_ECOBUILD)) args.push('--ecobuild', BUNDLED_ECOBUILD);
   server = spawn(python(), args, {
     cwd: GUI, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     env: {...process.env, PYTHONUTF8: '1', PYTHONIOENCODING: 'utf-8'},

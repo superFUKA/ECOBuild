@@ -1282,10 +1282,12 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
         # .lnk は COM（WScript.Shell）で作る。値は環境変数で渡す（引用符の扱いを避ける）。
         # そのあと AppUserModelID を付ける（WScript.Shell では付けられない）。
         script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
-                  "$s.Arguments = '\"' + $env:EG_SCRIPT + '\"'; $s.WorkingDirectory = $env:EG_DIR; "
+                  "if ($env:EG_SCRIPT) { $s.Arguments = '\"' + $env:EG_SCRIPT + '\"' } else { $s.Arguments = '' }; $s.WorkingDirectory = $env:EG_DIR; "
                   "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save(); "
                   "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
-        env = dict(os.environ, EG_LINK=str(link), EG_TARGET=_pythonw(), EG_SCRIPT=str(here / "ECOBuildGUI.pyw"),
+        # インストールしたアプリなら、その exe を開く（引数なし）
+        target, opens = (str(packaged_app()), "") if packaged_app() else (_pythonw(), str(here / "ECOBuildGUI.pyw"))
+        env = dict(os.environ, EG_LINK=str(link), EG_TARGET=target, EG_SCRIPT=opens,
                    EG_DIR=str(here), EG_ICON=str(here / "icon.ico"), EG_CS=_SET_APP_ID, EG_APPID=APP_ID)
         completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env, stdin=subprocess.DEVNULL,
                                    capture_output=True, encoding="utf-8", errors="replace", **_no_window())
@@ -1303,8 +1305,16 @@ def _pythonw() -> str:
 ELECTRON_APP = Path(__file__).resolve().with_name("electron")
 
 
+def packaged_app() -> Path | None:
+    """インストーラー（Setup.exe）で入れた GUI なら、そのアプリの exe。この GUI は <入れた場所>/resources/gui にある。"""
+    candidate = Path(__file__).resolve().parent.parent.parent / "ECOBuild GUI.exe"
+    return candidate if os.name == "nt" and Path(__file__).resolve().parent.parent.name == "resources" and candidate.is_file() else None
+
+
 def _electron() -> Path | None:
-    """electron/ に入れた Electron（cd gui/electron; npm install）。なければ None。"""
+    """インストールしたアプリ、または electron/ に入れた Electron（cd gui/electron; npm install）。なければ None。"""
+    if packaged_app():
+        return packaged_app()
     name = "electron.exe" if os.name == "nt" else "electron"
     candidate = ELECTRON_APP / "node_modules" / "electron" / "dist" / name
     return candidate if candidate.is_file() else None
@@ -1340,7 +1350,7 @@ def launch_electron(electron: Path, args) -> None:
     env.pop("ELECTRON_RUN_AS_NODE", None)   # 設定されていると Electron が Node として動き、窓を出さない
     if ecobuild:
         env["ECOBUILD_GUI_ECOBUILD"] = ecobuild
-    _start_detached([str(electron), str(ELECTRON_APP)], env=env)
+    _start_detached([str(electron)] if packaged_app() else [str(electron), str(ELECTRON_APP)], env=env)
     _say("ECOBuild GUI を開きました（Electron）。")
 
 

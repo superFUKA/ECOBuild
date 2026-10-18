@@ -3,6 +3,18 @@
 
 ## 導入（Windows）
 
+### アプリとして入れる（ふつうはこちら）
+
+`ECOBuild-GUI-Setup-<版>.exe` を開き、「次へ」で進めます（管理者の権限は要りません。作り方は [gui/README](gui/README.md) の「インストーラー（Setup.exe）」）。
+
+- Python も ECOBuild も中に入っているので、PC に Python がなくても使えます。
+- デスクトップとスタートメニューに「ECOBuild GUI」ができます（タスクバーにピン留めもできます）。
+- `ecobuild` コマンドも PATH に入るので、端末や AI エージェント（Claude Code 等）からも使えます。
+- 初期設定（GitHub へのログイン・git の名前とメール等）は、初めて開いたときに GUI のハブが「はじめに」で案内します（設定の「環境チェック」「環境の準備」）。
+- 削除は「設定 → アプリ → インストールされているアプリ」の「ECOBuild GUI」から（PATH からも外れます）。
+
+### 端末で入れる（端末だけで使う人・開発用）
+
 次のどちらかで導入します。どちらも、足りない Python・git を winget で入れ、ECOBuild を入れて `ecobuild` コマンドを
 PATH に通し、最後に `ecobuild init` で初期設定を質問しながら行います。
 

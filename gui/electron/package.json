@@ -6,9 +6,68 @@
   "description": "ECOBuild GUI の窓（Electron）。中身は gui/app.py のサーバーが配る画面。",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "prepare-bundle": "python bundle/prepare.py",
+    "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
-    "electron": "^38.8.6"
+    "electron": "^38.8.6",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "ECOBuild.GUI",
+    "productName": "ECOBuild GUI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "gui",
+        "filter": [
+          "*.py",
+          "*.pyw",
+          "icon.ico",
+          "static/**/*",
+          "!make_icon.py"
+        ]
+      },
+      {
+        "from": "bundle/out/python",
+        "to": "python"
+      },
+      {
+        "from": "bundle/out/wheels",
+        "to": "wheels"
+      },
+      {
+        "from": "bundle/install_cli.py",
+        "to": "setup/install_cli.py"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ECOBuild GUI",
+      "runAfterFinish": true,
+      "include": "bundle/installer.nsh",
+      "installerLanguages": [
+        "ja_JP"
+      ],
+      "language": "1041",
+      "artifactName": "ECOBuild-GUI-Setup-${version}.exe"
+    }
   }
 }

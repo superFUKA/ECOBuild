@@ -304,12 +304,32 @@ $('reset-owner').addEventListener('click', async () => {
   const doc = await ECO.run(null, ['config', 'unset', 'owner']);
   if (doc) { $('default-owner').value = ''; $('owner-status').textContent = '既定に戻しました。ログイン中のユーザーを使います。'; ownerHint(''); }
 });
+// The fixes the screen can start (a new terminal window: they need the browser): doctor's fix → [label, GUI action, params].
+const FIXES = {login: ['ログイン', 'gh-login', {switch: false}], scope: ['権限を追加', 'gh-scope', {scope: 'project'}]};
 function renderDiagnosis(items) {
   $('doctor-results').innerHTML = items.map(item => `<li><div><span class="item-name">${esc(item.name)}</span><small>${esc(item.detail)}${item.ok ? '' : '<br>' + esc(item.hint)}</small></div>
-    <span class="${item.ok ? 'ok' : 'missing'}">${item.ok ? '確認済み' : item.required ? '要対応' : '任意'}</span></li>`).join('');
+    <span class="${item.ok ? 'ok' : 'missing'}">${item.ok ? '確認済み' : item.required ? '要対応' : '任意'}${!item.ok && FIXES[item.fix] ? `<button type="button" data-fix="${esc(item.fix)}">${FIXES[item.fix][0]}</button>` : ''}</span></li>`).join('');
   const missing = items.filter(i => !i.ok && i.required).length;
   $('doctor-status').textContent = missing ? `対応が必要な項目が ${missing} 件あります。` : '開発に必要な環境が整っています。';
 }
+$('doctor-results').addEventListener('click', event => {
+  const fix = FIXES[event.target.closest('[data-fix]')?.dataset.fix];
+  if (fix) ECO.call(fix[1], fix[2]).then(() => ECO.toast('ターミナルで続けてください。終わったら「チェックする」で確かめられます。'), e => ECO.toast(e.message, 'bad'));
+});
+
+// First run (installed with Setup.exe: no ecobuild init) and later: when the environment is not ready, say so above
+// the list and lead to the settings (環境チェック・環境の準備).
+async function checkEnvironment() {
+  const doc = await ECO.cli(null, ['doctor'], {quiet: true});
+  const banner = $('setup-banner'), missing = doc.ok ? doc.result.items.filter(i => !i.ok && i.required) : [];
+  banner.hidden = !missing.length;
+  if (!missing.length) return;
+  banner.innerHTML = `<div><strong>はじめに：開発の環境を準備してください</strong><small>足りないもの：${missing.map(i => esc(i.name)).join('、')}</small></div>
+    <button type="button" class="add-button">準備する</button>`;
+  banner.querySelector('button').addEventListener('click', () => { showHubPage('settings'); renderDiagnosis(doc.result.items); $('doctor-status').scrollIntoView(); });
+}
+checkEnvironment();
+window.addEventListener('focus', () => { if (!$('setup-banner').hidden) checkEnvironment(); });
 $('run-doctor').addEventListener('click', async () => {
   $('doctor-status').textContent = 'チェックしています…';
   const doc = await ECO.cli(null, ['doctor']);
@@ -324,6 +344,7 @@ $('setup-form').addEventListener('submit', async event => {
   const doc = await ECO.run(null, args);
   if (!doc) { $('setup-status').textContent = ''; return; }
   const r = doc.result;
+  checkEnvironment();
   $('setup-status').innerHTML = (r.done.length ? '<p>' + r.done.map(esc).join('<br>') + '</p>' : '<p>変更はありませんでした（すでに準備できています）。</p>')
     + (r.remaining.length ? '<p>まだ足りないもの：' + r.remaining.map(i => esc(i.name)).join('、') + '</p>' : '')
     + (r.commands.length ? '<p>足りないツールのインストールコマンド：</p><pre>' + r.commands.map(esc).join('\n') + '</pre>' : '');

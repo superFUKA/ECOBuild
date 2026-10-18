@@ -15,7 +15,7 @@ def command(
     ファイル）は消えます。--staged ならステージだけを取り消します。
 
     --source <コミット> を付けると、ファイルを以前の版の状態に戻します（ファイルを省くと全体。その版になかったファイルは
-    消えます）。履歴は消さず、戻した結果を ecobuild task commit でコミットします。コミットごと捨てるなら ecobuild task reset。
+    消えます）。これまでのコミットは消さず、戻した結果を ecobuild task commit でコミットします。コミットごと捨てるなら ecobuild task reset。
     """
 
     def action(inv):

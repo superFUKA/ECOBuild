@@ -1,4 +1,4 @@
-"""TortoiseGit による履歴・差分の表示（Windows・任意。I-013）。画面を開くのは CLI の関心なので、CLI に置く。"""
+"""TortoiseGit によるログ・差分の表示（Windows・任意。I-013）。画面を開くのは CLI の関心なので、CLI に置く。"""
 
 from __future__ import annotations
 

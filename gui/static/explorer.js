@@ -243,7 +243,7 @@ function fileMenu(path, x, y) {
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can && !outside], '-',
     ['rename', '名前の変更　F2', can && exists && !isReadme(path)], ['move', '移動先を指定…', can && exists && !isReadme(path)], ['remove', '削除　Delete', can && exists && !isReadme(path)],
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
-    ['diff', '差分', kinds.length > 0], ['log', '履歴', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
+    ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '行ごとの変更履歴', tracked && exists],
   ], x, y);
 }
 // A Project's own folder: what Visual Studio's Solution Explorer offers on a project (build, test, run, the target).
@@ -254,14 +254,14 @@ function projectMenu(dir, x, y) {
     ...(testing ? [['p-test', 'テストを実行']] : []), ...(runnable ? [['p-run', '実行']] : []),
     ['p-target', '実行の対象にする（▶ で動かす）'], '-',
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
-    ['reveal-dir', 'エクスプローラーで開く'], ['log', '履歴'], '-',
+    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], '-',
     ['p-move', '移動…', can], ['p-remove', 'Projectを削除…', can], ['p-settings', 'Projectの設定（リンク等）']], x, y);
   menu.dataset.dir = dir;
 }
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダの履歴'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダのログ'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }

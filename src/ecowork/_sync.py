@@ -192,7 +192,7 @@ class Syncing:
         task_branch = self.require_task_branch("タスクブランチを以前の版まで戻すこと")
         commit = self._commit(revision)
         if not self.git.is_ancestor(commit, "HEAD"):
-            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"{revision} は {task_branch.branch} の履歴にありません。",
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"{revision} は {task_branch.branch} のコミットにありません。",
                             hint=f"{self._op('log')} で、戻す先のコミットを確かめてください。")
         base = f"{_git.REMOTE}/{task_branch.base}" if self.git.rev_parse(f"{_git.REMOTE}/{task_branch.base}") else task_branch.base
         fork = self.git.output("merge-base", "HEAD", base)

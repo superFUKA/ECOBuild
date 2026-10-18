@@ -66,7 +66,7 @@ function renderHeader() {
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
 }
 
-// コミット・Push・提出・履歴 are tabs (the one shown is kept on this PC). A tab whose panel is not shown here is hidden.
+// コミット・Push・提出・ログ are tabs (the one shown is kept on this PC). A tab whose panel is not shown here is hidden.
 const TAB_KEY = 'ecobuild-gui-work-tab', TABS = ['commit-panel', 'share-panel', 'prs-panel', 'history-panel'];
 let workTab = 'commit-panel';
 try { workTab = TABS.includes(localStorage.getItem(TAB_KEY)) ? localStorage.getItem(TAB_KEY) : workTab; } catch (e) { /* storage blocked */ }
@@ -123,7 +123,7 @@ function renderBanners(errorDoc) {
   get('share-panel').hidden = !working;
   get('prs-panel').hidden = !working;
   // On a task branch the tabs (コミット・Push・提出) say what this is: the heading is only for screen readers then.
-  get('changes-title').textContent = working ? 'コミット・Push・提出・履歴' : '作業空間';
+  get('changes-title').textContent = working ? 'コミット・Push・提出・ログ' : '作業空間';
   get('changes-title').classList.toggle('visually-hidden', !!working);
   renderTabs();
 }
@@ -244,7 +244,7 @@ get('push-commits-close').addEventListener('click', () => setPushListClosed(true
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
 
-// 履歴 (ecobuild log): a commit's menu shows its changes, or goes back to it — the files as they were (restore --source:
+// ログ (ecobuild log): a commit's menu shows its changes, or goes back to it — the files as they were (restore --source:
 // a change to commit, the history stays) or the task branch itself (task reset: the later commits, not pushed, go).
 let history = [];
 async function loadHistory() {
@@ -256,7 +256,7 @@ function renderHistory() {
   box.innerHTML = history.map((c, i) => `<li><button type="button" data-history="${i}" title="${esc(c.sha)}　右クリック・押すと操作">
     <code>${esc(c.sha.slice(0, 8))}</code><span class="history-subject">${esc(c.subject)}</span>
     <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></button></li>`).join('')
-    || '<li class="muted">履歴はありません。</li>';
+    || '<li class="muted">ログはありません。</li>';
 }
 function historyMenu(index, x, y) {
   const c = history[index], s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
@@ -264,7 +264,7 @@ function historyMenu(index, x, y) {
     ['差分を見る', async () => { const doc = await WS.cli(['show', c.sha], {quiet: true}); return doc.ok ? ECO.output(`${short} ${c.subject}`, doc.result, {diff: true}) : ECO.showError(doc); }],
     '-',
     [onTask ? 'この版の状態に戻す（変更としてコミットする）…' : 'この版の状態に戻す（タスクブランチで）', () => WS.run(['restore', '--source', c.sha],
-      {confirm: `ファイルを ${short}「${c.subject}」のときの状態に戻します。履歴は消さず、戻した結果はコミットする変更になります。`, title: 'この版の状態に戻す',
+      {confirm: `ファイルを ${short}「${c.subject}」のときの状態に戻します。これまでのコミットは消さず、戻した結果はコミットする変更になります。`, title: 'この版の状態に戻す',
        success: `${short} の状態に戻しました。内容を確かめてコミットしてください。`}).then(() => WS.reloadFiles?.()), onTask],
     [onTask ? 'ここまで戻す（後のコミットを捨てる）…' : 'ここまで戻す（タスクブランチで）', () => WS.run(['task', 'reset', c.sha],
       {title: 'ここまで戻す', success: r => r.dropped.length ? `${short} まで戻しました（捨てたコミット ${r.dropped.length} 件）。` : '捨てるコミットはありません。'})
@@ -373,7 +373,7 @@ document.addEventListener('click', e => {
 
 function showLog(entries, path) {
   const text = entries.map(e => `${e.sha.slice(0, 8)}  ${ECO.localTime(e.date, true)}  ${e.author}\n    ${e.subject}${e.issue ? `  (タスク #${e.issue})` : ''}`).join('\n');
-  ECO.output('コミット履歴', text || '履歴はありません。', {sub: path || ''});
+  ECO.output('ログ', text || 'ログはありません。', {sub: path || ''});
 }
 WS.showLog = showLog;
 

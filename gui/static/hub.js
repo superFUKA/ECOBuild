@@ -611,3 +611,24 @@ $('quit-gui').addEventListener('click', async () => {
   window.close();
 });
 window.addEventListener('eco-operator-acted', () => loadModules());   // AI に頼んだ操作で、一覧が変わったかもしれない
+
+// リング・オペレーターのかんたんな切り替え（Electron の GUI だけ。中身はエージェントの窓の設定と同じ）
+(async () => {
+  const quick = window.ecobuildShell?.agents?.quick; if (!quick) return;
+  $('quick-toggles').hidden = false;
+  let view = null;
+  const show = next => {
+    view = next;
+    const ring = next.ring || {}, op = next.operator || {};
+    const ringOk = ring.enabled && ring.online && ring.connected && ring.calibrated;
+    $('quick-ring').className = 'nav-button quick' + (ring.enabled ? (ringOk ? ' on' : ' warn') : '');
+    $('quick-ring').title = !ring.enabled ? 'リング：使っていません（押すと使う）'
+      : `リング：${ring.message || ''}${ring.mode === 'operator' ? '・オペレーターモード' : ''}（押すと使わない）`;
+    $('quick-operator').className = 'nav-button quick' + (op.running ? (['thinking', 'waiting', 'starting'].includes(op.state) ? ' busy' : ' on') : '');
+    $('quick-operator').title = op.running ? `オペレーター：動いています（${op.state}）。押すと止める` : 'オペレーター：止まっています（押すと裏で動かす）';
+  };
+  show(await quick.watch());
+  quick.onQuick(show);
+  $('quick-ring').addEventListener('click', () => quick.ring(!view?.ring?.enabled));
+  $('quick-operator').addEventListener('click', () => quick.operator(!view?.operator?.running));
+})();

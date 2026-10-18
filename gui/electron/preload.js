@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('ecobuildShell', {
   // エージェントをこのアプリの窓のタブで開く（agents/index.js。同じ作業空間のものがあれば前に出す）
   agents: {
     open: options => ipcRenderer.invoke('agents:open', options), list: () => ipcRenderer.invoke('agents:list'),
+    // リング・オペレーターのかんたんな切り替え（ハブ）：watch で今の様子、onQuick で変わったとき
+    quick: {
+      watch: () => ipcRenderer.invoke('agents:status-watch'),
+      ring: enabled => ipcRenderer.send('agents:ring-config', {enabled}),
+      operator: on => ipcRenderer.send('operator:run', on),
+      onQuick: fn => ipcRenderer.on('agents:quick', (event, view) => fn(view)),
+    },
     // オペレーター（裏で動いている ECOBuild の操作係）との会話：watch で表示を始め（起動もする）、onUpdate で様子が届く
     operator: {
       watch: on => ipcRenderer.invoke('operator:watch', on),

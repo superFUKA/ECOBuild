@@ -213,3 +213,12 @@ main { padding: 22px 28px; }
     .operator-mic.on { background: #5a2020; border-color: #a04040; color: #fff; }
     .operator-heard { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #a04040; border-radius: 8px; background: #2a1c1c; font-size: 13px; }
     .operator-heard .t { flex: 1; overflow-wrap: anywhere; }
+    /* リング・オペレーターのかんたんな切り替え（Electron の GUI だけ） */
+    .quick-toggles { display: grid; gap: 2px; margin: 4px 0 6px; }
+    .nav-button.quick { padding: 6px 12px; font-size: 13px; }
+    .quick-dot { flex-shrink: 0; width: 9px; height: 9px; margin: 0 4px 0 4px; border-radius: 50%; background: #4a525c; }
+    .nav-button.quick.on .quick-dot { background: #3fb950; }
+    .nav-button.quick.warn .quick-dot { background: #d29922; }
+    .nav-button.quick.busy .quick-dot { background: #e3b341; animation: quick-blink 1.4s ease-in-out infinite; }
+    @keyframes quick-blink { 50% { opacity: .35; } }
+    body.nav-collapsed .nav-button.quick { justify-content: center; padding: 8px 0; }

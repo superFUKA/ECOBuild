@@ -427,6 +427,18 @@ function operatorReplied(s, text) {
   }
 }
 
+// オペレーターを止める（裏で動いているものも終わらせる。次に話しかけたときにまた起動する）
+function stopOperator() {
+  const s = findOperator(); if (!s) return;
+  if (s.recording) toggleVoice(s, false);
+  try { s.proc?.kill(); } catch (e) { /* もう終わっている */ }
+  s.term?.dispose();
+  if (s.owner) leave(s.owner, s);
+  sessions.splice(sessions.indexOf(s), 1);
+  operatorQueue = [];
+  pushTabs(); pushDock(); pushOperator(); pushQuick();
+}
+
 function showOperator() {
   const s = startOperator();
   const w = current && !current.win.isDestroyed() && !current.mini ? current : windows.find(x => !x.mini) || openWindow();
@@ -444,6 +456,7 @@ function operatorView() {
           log: operatorLog.slice(-100), queued: operatorQueue.length};
 }
 function pushOperator() {
+  pushQuick();
   const view = operatorView();
   for (const contents of operatorWatchers) if (!contents.isDestroyed()) contents.send('operator:update', view);
 }
@@ -522,7 +535,11 @@ function registerShortcuts() {
 function ringView() { return {...ring.status(), mode: ringMode, enabled: ringConfig.enabled, match: ringConfig.match,
                               guard: ringConfig.guard, keepalive: ringConfig.keepalive, choosing: !!choosing,
                               resident: ring.residentEnabled()}; }
-function pushRing() { for (const w of windows) send(w, 'agents:ring', ringView()); }
+// ほかの窓（ハブ）でリング・オペレーターの様子を出すもの（agents:status-watch）
+const statusWatchers = new Set();
+function quickView() { const op = findOperator(); return {ring: ringView(), operator: {running: !!op && !op.exited, state: op?.state || 'none'}}; }
+function pushQuick() { const view = quickView(); for (const c of statusWatchers) if (!c.isDestroyed()) c.send('agents:quick', view); }
+function pushRing() { for (const w of windows) send(w, 'agents:ring', ringView()); pushQuick(); }
 
 function setRing(patch) {
   const {resident, ...rest} = patch;
@@ -719,6 +736,11 @@ function setup({ecobuild, python, group}) {
     return operatorView();
   });
   ipcMain.on('operator:send', (event, text) => operatorSend(text));
+  ipcMain.on('operator:run', (event, on) => { if (on) { startOperator(); pushQuick(); } else stopOperator(); });
+  ipcMain.handle('agents:status-watch', event => {
+    statusWatchers.add(event.sender); event.sender.once('destroyed', () => statusWatchers.delete(event.sender));
+    return quickView();
+  });
   ipcMain.on('operator:key', (event, name) => operatorKey(name));
   ipcMain.on('operator:show', (event, on) => (on ? showOperator() : hideOperator()));
   ipcMain.on('operator:restart', () => { const s = findOperator(); if (s) restartSession(s.id); else startOperator(); });

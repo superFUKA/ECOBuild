@@ -167,6 +167,18 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     assert any(args[-3:-1] == ["python3", "-c"] for args in fake.calls)                  # 初めての質問に先に答える
 
 
+def test_the_microphone_reaches_the_container(monkeypatch, tmp_path):
+    """Windows（WSL の docker）は WSLg の PulseAudio を、Linux はそのユーザーの PulseAudio を見せる。なければ何もしない。"""
+    assert container.sound(("wsl", "-d", "ECOBuild", "--exec", "docker"))[:2] == ["--volume", "/mnt/wslg:/mnt/wslg"]
+    assert "PULSE_SERVER=unix:/mnt/wslg/PulseServer" in container.sound(("wsl",))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert container.sound(("docker",)) == []
+    (tmp_path / "pulse").mkdir(); (tmp_path / "pulse" / "native").write_text("")
+    assert "PULSE_SERVER=unix:/run/ecobuild-pulse/native" in container.sound(("docker",))
+    from ecobuild_bundle import REGISTRY
+    assert "sox libsox-fmt-pulse" in container.dockerfile(REGISTRY.load("generic"))
+
+
 def test_the_dockerfile_has_the_agent():
     from ecobuild_bundle import REGISTRY
     text = container.dockerfile(REGISTRY.load("generic"))

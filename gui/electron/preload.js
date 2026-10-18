@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld('ecobuildShell', {
       show: on => ipcRenderer.send('operator:show', on),            // タブで開く・裏に戻す
       restart: () => ipcRenderer.send('operator:restart'),
       clear: () => ipcRenderer.send('operator:clear'),
+      voice: on => ipcRenderer.send('operator:voice', on),           // 録音の開始・停止
+      voiceSubmit: () => ipcRenderer.send('operator:voice-submit'),  // 聞き取った文を送る（録音中なら止めてから）
+      voiceClear: () => ipcRenderer.send('operator:voice-clear'),    // 聞き取った文を消す（録音中なら取り消す）
       onUpdate: fn => ipcRenderer.on('operator:update', (event, view) => fn(view)),
     },
   },

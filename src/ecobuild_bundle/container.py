@@ -48,7 +48,7 @@ WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
-VERSION = "3"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所）
+VERSION = "4"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク）
 HOME = "/home/ubuntu"
 AGENT_HOME = f"{HOME}/.claude"  # 中のエージェントの設定・ログイン（CLAUDE_CONFIG_DIR）
 AGENT_VOLUME = "ecobuild-agent" # AGENT_HOME に付けるボリューム（すべてのコンテナで共有：ログインは1回）
@@ -117,6 +117,7 @@ def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
     """作業空間のコンテナのイメージの作り方。source：中に入れる ECOBuild（git のリポジトリ, 版）。"""
     url, ref = source
     packages = " ".join(("ca-certificates", "curl", "git", "gh", "python3", "python3-venv",   # venv：型 python・doctor
+                         "sox", "libsox-fmt-pulse",   # エージェントの音声入力（PulseAudio で録音する。sound() を見る）
                          *type_class.container_packages()))
     return "\n".join([
         f"# ECOBuild が作る、作業空間のコンテナのイメージ（型 {type_class.name}）",
@@ -140,6 +141,20 @@ def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
 def image_name(type_class, text: str) -> str:
     """イメージの名前：ecobuild-<型>:<作り方のハッシュ>（作り方が同じなら同じ名前＝作り直さない）。"""
     return f"ecobuild-{type_class.name}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
+
+
+def sound(prefix: tuple[str, ...]) -> list[str]:
+    """コンテナの中で、このPCのマイク（と音）を使う docker run の引数。Windows：WSL の WSLg の PulseAudio
+    （/mnt/wslg/PulseServer。Windows のマイクが RDPSource として見える）。Linux：そのユーザーの PulseAudio
+    （PipeWire の互換も同じ）。どちらも見つからなければ何も足さない（音声入力が使えないだけ）。"""
+    if prefix[:1] == ("wsl",):
+        return ["--volume", "/mnt/wslg:/mnt/wslg", "--env", "PULSE_SERVER=unix:/mnt/wslg/PulseServer",
+                "--env", "AUDIODRIVER=pulseaudio"]
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime and (Path(runtime) / "pulse" / "native").exists():
+        return ["--volume", f"{Path(runtime) / 'pulse'}:/run/ecobuild-pulse", "--env", "PULSE_SERVER=unix:/run/ecobuild-pulse/native",
+                "--env", "AUDIODRIVER=pulseaudio"]
+    return []
 
 
 def mount_path(root: Path, command: tuple[str, ...]) -> str:
@@ -202,7 +217,7 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         _run(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
                       "--label", f"{VERSION_LABEL}={VERSION}",
                       "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--volume", f"{AGENT_VOLUME}:{AGENT_HOME}",
-                      "--volume", f"{mount_path(status, prefix)}:{agent_status.INSIDE}",
+                      "--volume", f"{mount_path(status, prefix)}:{agent_status.INSIDE}", *sound(prefix),
                       "--workdir", WORKDIR, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")

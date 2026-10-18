@@ -69,6 +69,18 @@ def prepare(name: str) -> Path:
 
 
 SETTINGS = "settings.json"   # Claude Code の --settings に渡すファイル（置き場所の中）
+# 画面を持つアプリが動かすときの設定：音声入力（Space を押し続ける間だけ録音。送るのは人。アプリはキーのリピートで
+# 押し続けをまねる）、入力欄に返答の候補を出さない（入力欄の文字を読むので、候補が混ざらないように）
+VOICE = {"voice": {"enabled": True, "mode": "hold", "autoSubmit": False}, "promptSuggestionEnabled": False}
+
+
+def _host_language() -> str:
+    """このPCの Claude Code の設定（~/.claude/settings.json）の language（なければ空）。"""
+    try:
+        found = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8")).get("language")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return found if isinstance(found, str) else ""
 
 
 def claude_settings(folder: str, python: str, base: dict | None = None) -> str:
@@ -76,6 +88,10 @@ def claude_settings(folder: str, python: str, base: dict | None = None) -> str:
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
+    settings.update(VOICE)
+    language = _host_language()
+    if language and "language" not in settings:
+        settings["language"] = language     # 音声入力の言語（設定がなければ英語になる）：このPCの Claude の設定に合わせる
     settings["statusLine"] = {"type": "command", "command": f"{script} statusline", "padding": 0}
     hooks = settings.setdefault("hooks", {})
     hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied"}]}]

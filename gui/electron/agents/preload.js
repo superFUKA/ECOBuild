@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('agents', {
   picker: () => ipcRenderer.invoke('agents:picker'),
   setNotify: patch => ipcRenderer.send('agents:notify', patch),
   testSound: () => ipcRenderer.send('agents:test-sound'),
+  voice: id => ipcRenderer.send('agents:voice', id),
 
   onAdopt: on('agents:adopt'),
   onRelease: on('agents:release'),

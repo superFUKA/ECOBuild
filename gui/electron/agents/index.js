@@ -10,8 +10,11 @@
 // - オペレーター（ECOBuild の操作係）は番号 0 で、ふだんはタブにせず裏で動かす（`ecobuild agent operator --here`）。
 //   ハブの「AI に頼む」がこれと話す（会話の記録はここが持つ）。頼まれればタブで開く。
 // - 外（ecobuild gui・MCP・オペレーター）からの操作は、GUI のサーバーを通して届く（link.js）。
+// - 音声入力：Claude Code の音声入力（hold モード：Space を押し続ける間だけ録音）を、Space のキーリピートを送ってまねる。
+//   ほかのアプリを使っていても効くキー：Ctrl+Alt+V で録音の開始・停止、Ctrl+Alt+↓ で送信（録音中なら止めて、聞き取りが
+//   入力欄に入ってから）、Ctrl+Alt+↑ で入力欄を消す、Ctrl+Alt+← / → で前・次のタブ。対象は最後に使った窓の選んでいるタブ。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
-const {app, BrowserWindow, Notification, ipcMain, screen: display} = require('electron');
+const {app, BrowserWindow, Notification, globalShortcut, ipcMain, screen: display} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const pty = require('node-pty');
@@ -33,6 +36,10 @@ const ICON = path.join(__dirname, '..', '..', 'icon.ico');
 // hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）
 const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 8000};
 const HOLD_STEPS = [3000, 5000, 8000, 15000, 30000, 60000, -1];
+const KEY_REPEAT_MS = 33;      // 録音中に Space を送る間隔（端末のキーリピートと同じくらい。Claude Code はこれで押し続けと見る）
+const CLEAR_REPEAT = 30;       // 入力欄を消すときの Ctrl+U の数（複数行も消えるように）
+const SHORTCUTS = {'Control+Alt+V': () => toggleVoice(), 'Control+Alt+Down': () => submitActive(),
+                   'Control+Alt+Up': () => clearActive(), 'Control+Alt+Left': () => step(-1), 'Control+Alt+Right': () => step(1)};
 // 親（このアプリを Claude Code の中から起動したとき等）から受け継ぐと、子のエージェントが自分を別の会話の一部だと思う
 // （会話を保存しない・題名が親のもの・白黒になる）印。端末を起動するときに外す
 const PARENT_MARKERS = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID',
@@ -65,7 +72,7 @@ function writeState(patch) {
 // ---- エージェント（タブ） -------------------------------------------------------------------------
 function findSession(id) { return sessions.find(s => s.id === id); }
 function describe(s) {
-  return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.state,
+  return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.recording ? 'listening' : s.state,
           window: windows.indexOf(s.owner), info: status.summary(s)};
 }
 const findOperator = () => sessions.find(s => s.kind === 'operator');
@@ -388,7 +395,7 @@ function hideOperator() {
 
 function operatorView() {
   const s = findOperator();
-  return {state: s ? s.state : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
+  return {state: s ? (s.recording ? 'listening' : s.state) : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
           log: operatorLog.slice(-100), queued: operatorQueue.length};
 }
 function pushOperator() {
@@ -399,6 +406,68 @@ function loadOperatorLog() { try { operatorLog = JSON.parse(fs.readFileSync(OPER
 function saveOperatorLog() {
   operatorLog = operatorLog.slice(-200);
   try { fs.writeFileSync(OPERATOR_LOG(), JSON.stringify(operatorLog)); } catch (e) { /* 記録できなくても話せる */ }
+}
+
+// ---- 音声入力・キー ------------------------------------------------------------------------------------------
+function activeSession() {
+  const w = current && !current.win.isDestroyed() ? current : windows[0];
+  return w ? findSession(w.active) : null;
+}
+
+// 録音の開始・停止（Space のキーリピートを送る間が録音中）
+function toggleVoice(s = activeSession(), on = !s?.recording) {
+  if (!s?.proc || s.exited) return;
+  if (on && !s.recording) {
+    for (const other of sessions) if (other.recording && other !== s) toggleVoice(other, false);   // 同時に録音するのは1つ
+    s.recording = setInterval(() => s.proc?.write(' '), KEY_REPEAT_MS);
+  } else if (!on && s.recording) {
+    clearInterval(s.recording); s.recording = null;
+  }
+  pushTabs(); pushDock(); if (s.kind === 'operator') pushOperator();
+}
+
+// 送信：録音中なら止め、聞き取りが入力欄に入りきってから（入力欄の文字がしばらく変わらなくなってから）Enter
+async function submit(s) {
+  if (!s?.proc) return;
+  const was = !!s.recording;
+  if (was) toggleVoice(s, false);
+  if (was) {
+    let last = null, stable = 0;
+    for (let i = 0; i < 40 && stable < 3; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      const input = parser.parse(screenText(s)).input ?? '';
+      stable = input === last ? stable + 1 : 0; last = input;
+    }
+  }
+  const input = parser.parse(screenText(s)).input || '';
+  if (s.kind === 'operator' && input.trim()) { operatorLog.push({role: 'user', text: input.trim(), at: Date.now()}); saveOperatorLog(); pushOperator(); }
+  s.proc.write('\r');
+}
+const submitActive = () => submit(activeSession());
+
+function clear(s) {
+  if (!s?.proc) return;
+  if (s.recording) { toggleVoice(s, false); s.proc.write('\x1b'); return; }   // 録音中は取り消す（Esc：聞き取りを捨てる）
+  s.proc.write('\x15'.repeat(CLEAR_REPEAT));
+}
+const clearActive = () => clear(activeSession());
+
+// 前・次のタブ（番号の順。別の窓のタブなら、その窓へ）
+function step(delta) {
+  const list = sessions.filter(s => s.owner).sort((a, b) => a.num - b.num);
+  if (!list.length) return;
+  const at = list.indexOf(activeSession());
+  const next = list[(at + delta + list.length) % list.length];
+  if (next.owner.mini) restoreWindow(next.owner);
+  select(next.id, true);
+}
+
+function registerShortcuts() {
+  const taken = [];
+  for (const [key, run] of Object.entries(SHORTCUTS)) {
+    try { if (!globalShortcut.register(key, run)) taken.push(key); } catch (e) { taken.push(key); }
+  }
+  if (taken.length) console.warn('agents: これらのキーはほかのアプリが使っています：', taken.join(', '));
 }
 
 // ---- 外からの操作（GUI のサーバーを通して：ecobuild gui agent-… ） --------------------------------------------
@@ -505,9 +574,16 @@ function setup({ecobuild}) {
   ipcMain.on('operator:show', (event, on) => (on ? showOperator() : hideOperator()));
   ipcMain.on('operator:restart', () => { const s = findOperator(); if (s) restartSession(s.id); else startOperator(); });
   ipcMain.on('operator:clear', () => { operatorLog = []; saveOperatorLog(); pushOperator(); });
+  ipcMain.on('operator:voice', (event, on) => toggleVoice(startOperator(), on));
+  ipcMain.on('operator:voice-submit', () => submit(findOperator()));
+  ipcMain.on('operator:voice-clear', () => clear(findOperator()));
+  ipcMain.on('agents:voice', (event, id) => toggleVoice(findSession(id)));
+  ipcMain.on('agents:submit', (event, id) => submit(findSession(id)));
+  ipcMain.on('agents:clear-input', (event, id) => clear(findSession(id)));
+  registerShortcuts();
   setInterval(poll, POLL_MS);
   app.on('before-quit', () => {
-    app.isQuitting = true; link.stop();
+    app.isQuitting = true; link.stop(); globalShortcut.unregisterAll();
     for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
   });
 }

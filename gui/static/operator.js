@@ -12,7 +12,7 @@ const OPERATOR = (() => {
   const resident = window.ecobuildShell?.agents?.operator;
   const KEY = 'ecobuild.operator', KEEP = 100;
   const STATES = {none: '止まっています', starting: '起動中…', idle: '待機中', thinking: '考え中…', waiting: '裏で実行中…',
-                  choice: '選択肢を出しています', exited: '終わりました'};
+                  choice: '選択肢を出しています', exited: '終わりました', listening: '聞き取り中…'};
   let state = load(), busy = false, shown = false, view = null;
 
   function load() {
@@ -72,6 +72,14 @@ const OPERATOR = (() => {
     $('operator-state').textContent = STATES[view.state] || view.state;
     $('operator-state').classList.toggle('thinking', ['thinking', 'waiting', 'starting'].includes(view.state));
     const tab = $('operator-tab'); if (tab) tab.textContent = view.shown ? '裏に戻す' : 'タブで開く';
+    // 声：録音中と、聞き取った文（オペレーターの入力欄にある）。送る・消すは聞き取った文があるときだけ
+    const mic = $('operator-mic'), heard = $('operator-heard');
+    if (mic) {
+      mic.classList.toggle('on', view.state === 'listening');
+      mic.textContent = view.state === 'listening' ? '■ 止める' : '🎤 声で';
+      heard.hidden = !(view.state === 'listening' || view.input);
+      heard.querySelector('.t').textContent = view.state === 'listening' ? `聞き取り中…${view.input ? '：' + view.input : ''}` : `聞き取った文：${view.input}`;
+    }
     if (shown) render();
     const last = view.log.at(-1);
     if (last?.role === 'agent' && last.at !== lastSeen) { lastSeen = last.at; window.dispatchEvent(new CustomEvent('eco-operator-acted')); }
@@ -119,6 +127,14 @@ const OPERATOR = (() => {
     box.addEventListener('click', e => { const key = e.target.closest('[data-key]')?.dataset.key; if (key) resident.key(key); });
     $('operator-form').before(box);
     resident.onUpdate(showView);
+    const mic = document.createElement('button'); mic.type = 'button'; mic.className = 'cancel operator-mic'; mic.id = 'operator-mic';
+    mic.title = '声で頼む（押すと録音、もう一度押すと止める。聞き取った文は確かめてから送る）'; mic.textContent = '🎤 声で';
+    mic.addEventListener('click', () => resident.voice(view?.state !== 'listening'));
+    $('operator-send').before(mic);
+    const heard = document.createElement('div'); heard.className = 'operator-heard'; heard.id = 'operator-heard'; heard.hidden = true;
+    heard.innerHTML = '<span class="t"></span><button type="button" class="add-button" data-v="send">送る</button><button type="button" class="cancel" data-v="clear">消す</button>';
+    heard.addEventListener('click', e => { const v = e.target.closest('[data-v]')?.dataset.v; if (v === 'send') resident.voiceSubmit(); if (v === 'clear') resident.voiceClear(); });
+    $('operator-form').before(heard);
   }
 
   wire();

@@ -210,3 +210,6 @@ main { padding: 22px 28px; }
     .operator-choice p { margin: 0 0 4px; font-size: 13px; }
     .operator-choice .c { color: #b1cbef; font-family: Consolas, monospace; }
     .operator-message.system .operator-bubble { background: transparent; border-style: dashed; color: #a5aeba; font-size: 12px; }
+    .operator-mic.on { background: #5a2020; border-color: #a04040; color: #fff; }
+    .operator-heard { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 8px 10px; border: 1px solid #a04040; border-radius: 8px; background: #2a1c1c; font-size: 13px; }
+    .operator-heard .t { flex: 1; overflow-wrap: anywhere; }

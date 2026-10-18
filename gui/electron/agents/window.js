@@ -7,7 +7,8 @@
 const $ = id => document.getElementById(id);
 const terms = new Map();     // id → {term, fit, el}
 let tabs = [], active = null, fontSize = 14;
-const STATE_LABELS = {thinking: '考え中', waiting: '裏で実行中', choice: '選択肢', idle: '待機中', starting: '起動中', exited: '終了'};
+const STATE_LABELS = {thinking: '考え中', waiting: '裏で実行中', choice: '選択肢', idle: '待機中', starting: '起動中', exited: '終了',
+                      listening: '聞き取り中'};
 const TOPMOST_LABELS = {always: '常に', auto: '自動', off: 'オフ'};
 
 function makeTerm(info, history) {
@@ -76,7 +77,10 @@ function renderTabs() {
     });
     bar.append(b);
   }
-  renderStatus(tabs.find(t => t.id === active));
+  const current = tabs.find(t => t.id === active);
+  document.body.classList.toggle('listening', current?.state === 'listening');
+  $('voice').classList.toggle('on', current?.state === 'listening');
+  renderStatus(current);
 }
 
 // 下のバー
@@ -219,3 +223,6 @@ $('notify-hold').addEventListener('change', () => agents.setNotify({hold: Number
 $('notify-test').addEventListener('click', () => agents.testSound());
 $('settings').addEventListener('click', () => { const open = $('settings-panel').hidden; closePanels(); $('settings-panel').hidden = !open; });
 $('settings-close').addEventListener('click', closePanels);
+
+// ---- 音声入力（🎤：録音の開始・停止。Ctrl+Alt+V でも。Ctrl+Alt+↓ で送信、Ctrl+Alt+↑ で消す） ---------------------
+$('voice').addEventListener('click', () => { if (active) agents.voice(active); });

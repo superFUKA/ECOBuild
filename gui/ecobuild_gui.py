@@ -158,7 +158,8 @@ def _print(document: dict, json_output: bool) -> int:
 
 def help_document() -> dict:
     return {"name": "gui", "summary": "ECOBuild GUI を外（端末・AIエージェント）から操作します。",
-            "help": (__doc__ or "").strip(), "actions": actions.catalog()}
+            "help": (__doc__ or "").strip(), "actions": actions.catalog(),
+            "examples": [{"say": say, "do": do} for say, do in actions.EXAMPLES]}
 
 
 def main(argv: list[str] | None = None) -> int:

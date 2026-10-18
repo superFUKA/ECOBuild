@@ -26,6 +26,20 @@ RULES = f"""# ECOBuild オペレーター
 - 1回の発言に操作がいくつも入っていることが多い。最初に、全部の「操作×対象」を書き出す。
   「いや」「やっぱ」「じゃなくて」の後ろが正しい（打ち消された対象は外す）。
 - 本当にどちらとも読めるときだけ、実行する前に短く聞き返す。分かるところだけやって残りを黙って落とさない。
+- 「〇〇を開いて」「〇〇を見せて」「〇〇の開発環境」は、まず開く操作（拡張の画面の操作。下の一覧の説明を見る）を探して、
+  そのまま実行する。選択肢の画面（質問のツール）は出さない（声・リングでは答えにくい）。聞き返すときも1行の文で。
+
+## 頼みをコマンドに落とす手順（毎回やる）
+
+1. **全部の操作を書き出す**：発言を「操作（開く・作る・始める・ビルド…）× 対象（モジュール・タスクの番号・タブの番号）」に分ける。
+   「と」「それぞれ」「両方」「全部」「〜も」は対象が複数の合図。
+2. **言い直しを反映する**：「いや」「やっぱ」「じゃなくて」の後ろが正しい。打ち消された対象は外す。
+3. **対象を確かめる**：モジュールの名前は `{PROGRAM} workspace list --json` で場所を探す。音の近い名前・言い間違いも読み替える
+   （「エコ STL」「エコエスティーエル」「SQL」→ ECOSTL）。見つからない・いくつもあるときだけ聞き返す。
+   名前を言わないときは、直前に話していたモジュール。「さっきの」「あれ」は、直前の会話か一覧から決める。
+4. **すぐ実行する**：同じ操作は1回にまとめ、別の操作は続けて実行する。迷って選択肢を出さない（声・リングでは答えにくい）。
+5. **全部済んだか照らし合わせる**：1 で書き出した操作が全部成功したかを確かめてから、やったことを全部並べて返す。
+   できなかったものがあれば、それも書く。
 
 ## 実行のしかた
 
@@ -68,10 +82,29 @@ RULES = f"""# ECOBuild オペレーター
 """
 
 
-def instructions(build_cli, effects: dict[str, str] | None = None) -> str:
-    """指示書：決まりと、今のコマンドの一覧（重さ付き）。effects：拡張が名乗った重さ。"""
+EXAMPLES = (
+    ("「ECOSTL 今どうなってる？」「エコ STL の状況は」", f"{PROGRAM} -C <場所> status --json と task status を読み、1〜2行で"),
+    ("「ECOSTL のタスク見せて」「やること一覧」", f"{PROGRAM} -C <場所> task list --json（多ければ上から数件を短く）"),
+    ("「ECOSTL に、ログを出すってタスク作って」", f"{PROGRAM} -C <場所> task new \"ログを出す\""),
+    ("「次やるのどれ？」", f"{PROGRAM} -C <場所> task next --json"),
+    ("「12番始めて」「12番に取りかかって」", f"{PROGRAM} -C <場所> task start 12（新しく作るなら --name に短い名前）"),
+    ("「ECOSTL ビルドして」「テスト回して」", f"{PROGRAM} -C <場所> build ／ test（結果は成功か、失敗なら原因を1行）"),
+    ("「提出して」「PR 出して」", f"{PROGRAM} -C <場所> task submit（[確認]：コマンドを示して聞いてから）"),
+    ("「GitHub にあるモジュールは？」", f"{PROGRAM} module list --json"),
+    ("「新しいモジュール作って、名前は Calc」", f"{PROGRAM} module new Calc（型を言われたら --type。言われなければ聞き返す）"),
+    ("「設定見せて」", f"{PROGRAM} config list --json"),
+)
+
+
+def instructions(build_cli, effects: dict[str, str] | None = None, summaries: dict[str, str] | None = None,
+                 examples: list[tuple[str, str]] | None = None) -> str:
+    """指示書：決まり・話し言葉の例・今のコマンドの一覧（重さ付き）。effects・summaries・examples：拡張が名乗ったもの。"""
     catalog = _catalog.catalog(build_cli, {})
-    lines = [RULES, "## コマンド", "", f"共通（どこでも。モジュールの中のものは `-C <場所>` を付ける）：", ""]
+    lines = [RULES, "## 例（言われたこと → すること）", ""]
+    for say, do in (*EXAMPLES, *(examples or ())):
+        command, _, note = do.partition("（")       # コマンドと注意書きを分ける
+        lines.append(f"- {say} → `{command.strip()}`" + (f"（{note}" if note else ""))
+    lines += ["", "## コマンド", "", f"共通（どこでも。モジュールの中のものは `-C <場所>` を付ける）：", ""]
     lines += _rows(catalog["commands"])
     for name, entry in catalog["types"].items():
         rows = _rows(entry["commands"])
@@ -79,7 +112,8 @@ def instructions(build_cli, effects: dict[str, str] | None = None) -> str:
             lines += ["", f"型 {name} のモジュールだけ（{entry['description']}）：", ""] + rows
     if effects:
         lines += ["", "拡張（名乗った重さ。使い方は `--help --json`）：", ""]
-        lines += [f"- `{PROGRAM} {path}` [{MARKS.get(effect, effect)}]" for path, effect in sorted(effects.items())]
+        lines += [f"- `{PROGRAM} {path}` [{MARKS.get(effect, effect)}]" + (f"：{(summaries or {}).get(path)}" if (summaries or {}).get(path) else "")
+                  for path, effect in sorted(effects.items())]
     return "\n".join(lines) + "\n"
 
 
@@ -94,10 +128,13 @@ def _rows(nodes: list[dict]) -> list[str]:
 
 def prepare(build_cli) -> operator.OperatorKit:
     from . import _extensions
-    effects = {}
+    effects, summaries, examples = {}, {}, []
     for name, path in sorted(_extensions.available().items()):
-        effects.update(_extensions.effects(name, path))
-    return operator.prepare(instructions(build_cli, effects), program=PROGRAM, guard=f'"{program_path()}" agent guard',
+        found, said = _extensions.help_of(name, path)
+        for command, (effect, summary) in found.items():
+            effects[command], summaries[command] = effect, summary
+        examples += said
+    return operator.prepare(instructions(build_cli, effects, summaries, examples), program=PROGRAM, guard=f'"{program_path()}" agent guard',
                             effects=effects)
 
 

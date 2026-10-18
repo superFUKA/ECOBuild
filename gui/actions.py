@@ -52,7 +52,7 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
             Param("dir", "実行する場所（モジュール・作業空間のフォルダ。省略時は ecobuild gui を実行したフォルダ）"),
             Param("stdin", "標準入力に渡す文字列（コミットメッセージ等を標準入力で渡すコマンド用）")),
            effect="confirm"),   # 中のコマンドの重さは分からない（エージェントは ecobuild を直接使う）
-    Action("open", "GUIの画面を開くか、そこへ移ります。",
+    Action("open", "GUIの画面（ハブ・モジュールの開発環境の窓）を開くか、そこへ移ります。「〇〇を開いて」「〇〇の開発環境」はこれ（module に作業空間の場所か名前）。",
            "module を省くとハブ。module はモジュールのフォルダ（このPCの作業空間）か、ハブの一覧にあるモジュール名。"
            "開いている窓があればそこで移り、なければ開きます。",
            (Param("module", "モジュール（フォルダか名前）。省くとハブ"),
@@ -127,6 +127,21 @@ def check(name: str, params: dict) -> dict:
             raise ValueError(f"{name} の {p.name} は {'・'.join(p.choices)} のどれかです。")
         result[p.name] = value
     return result
+
+
+# 話し言葉の例（エージェント・オペレーターが頼みを操作に読み替えるため。ecobuild gui --help --json の examples）
+EXAMPLES = (
+    ("「ECOSTL を開いて」「ECOSTL の開発環境出して」「エコ STL 見せて」", "ecobuild gui open --module C:/ECO/ECOSTL（場所は ecobuild workspace list で探す）"),
+    ("「ハブ出して」「ハブに戻って」", "ecobuild gui open"),
+    ("「ECOSTL でエージェント起動して」「ECOSTL の AI 開いて」「エコ STL で作業始めて」", "ecobuild gui agent-open --dir C:/ECO/ECOSTL（タスクブランチの作業空間でだけ）"),
+    ("「みんな今どうなってる？」「エージェントの様子は？」", "ecobuild gui agents を読み、各タブの状態・最後の返答を1〜2行ずつ"),
+    ("「1番に、テストを実行してって送って」", "ecobuild gui agent-send --tab 1 --text \"テストを実行して\"（「送って」「伝えて」と言われたときだけ。文はユーザーの言葉のまま）"),
+    ("「1番を前に出して」「2番見せて」", "ecobuild gui agent-show --tab 1"),
+    ("「エージェントの窓しまって」「最小化して」／「戻して」", "ecobuild gui agents-window --state minimize ／ restore"),
+    ("「VS で開いて」「ビジュアルスタジオで ECOSTL」", "ecobuild gui vs --dir C:/ECO/ECOSTL"),
+    ("「ECOSTL のフォルダ開いて」", "ecobuild gui folder --dir C:/ECO/ECOSTL"),
+    ("「ECOSTL のタスク管理出して」", "ecobuild gui open --module C:/ECO/ECOSTL --page tasks"),
+)
 
 
 def catalog() -> list[dict]:

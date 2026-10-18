@@ -218,6 +218,7 @@ function closeMenu() { menu.hidden = true; }
 const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen', 'p-remove']);   // deleting: shown in red
 // Why an item is grey (the usual reasons; the menus pass false for these).
 function why(key) {
+  if (key === 'blame-dir') return '注釈履歴はファイルごとです。ファイルを右クリックしてください。';
   if (key === 'new-folder' && editable()) return 'C++ のモジュールでは、フォルダは Project のフォルダの中に作ります。';
   if (['rename', 'move', 'remove'].includes(key) && WS.activeFile && isReadme(WS.activeFile)) return 'README はモジュールの一番上に置くファイルです（名前の変更・移動・削除はしません。開いて編集はできます）。';
   if (!editable()) return WS.status?.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
@@ -255,14 +256,14 @@ function projectMenu(dir, x, y) {
     ...(testing ? [['p-test', 'テストを実行']] : []), ...(runnable ? [['p-run', '実行']] : []),
     ['p-target', '実行の対象にする（▶ で動かす）'], '-',
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
-    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], '-',
+    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['blame-dir', '注釈履歴', false], '-',
     ['p-move', '移動…', can], ['p-remove', 'Projectを削除…', can], ['p-settings', 'Projectの設定（リンク等）']], x, y);
   menu.dataset.dir = dir;
 }
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['blame-dir', '注釈履歴', false], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }

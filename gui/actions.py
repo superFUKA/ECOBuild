@@ -37,8 +37,8 @@ class Action:
                             **({"choices": list(p.choices)} if p.choices else {})} for p in self.params]}
 
 
-PAGES = ("workspace", "tasks", "modinfo", "settings", "help")
-# 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）
+PAGES = ("workspace", "tasks", "branches", "modinfo", "settings", "help")
+# 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）。branches は「ブランチ」の画面へ移る（以前のタブ）
 TABS = ("home", "projects", "deps", "branches", "profiles", "general", "templates")
 
 ACTIONS: dict[str, Action] = {a.name: a for a in (

@@ -5,7 +5,7 @@
 // its commits): submitting and finishing it are done here, the Push tab only pushes.
 let submissions = [], prs = [], selectedPr = 0, prStatus = null, me = '';
 ECO.info().then(info => { me = info.me || ''; });
-const SUBMISSION = s => !s ? '未提出' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み') : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
+const SUBMISSION = ECO.submissionText, prButton = ECO.submissionButton;
 
 // The task branch here, while it is worked on (not finished, not reviewing someone's submission).
 const currentTask = () => { const s = WS.status; return s && s.task && !s.reviewing && !s.finished && !s.upstream_gone ? s.task : 0; };
@@ -45,29 +45,6 @@ async function loadPr(number) {
   if (!doc.ok) get('pr-detail').innerHTML = `<p class="muted">${esc(doc.error.message)}</p>`;
   else renderPrDetail();
 }
-const checkMark = c => c.status !== 'completed' ? '<span class="check-wait">実行中</span>' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? '<span class="check-ok">成功</span>' : `<span class="check-bad">${esc(c.conclusion || '失敗')}</span>`;
-// What each action does, shown when the pointer is on its button.
-const PR_HELP = {
-  refresh: 'GitHubから、この提出の最新の状態（レビュー・コメント・CI）を読み直します。',
-  diff: 'このタスクブランチと作成元との差分（取り込むと入る変更）を見ます。',
-  comment: '提出にコメントを書きます。',
-  task: 'タスク管理で、このタスクを開きます。',
-  submit: '提出：タスクブランチの変更を作成元へ取り込んでよいか、見てもらえるように出します（PR）。確認（ビルド・テスト）をしてから Push します。提出しても、コミットして Push すれば提出に加わります。',
-  ready: '下書きの提出を、見てもらえる状態にします。',
-  finish: '完了：CIの結果を待って、提出を作成元へ取り込み、タスクを閉じてタスクブランチを片付けます。提出していなければ、提出してから取り込みます。',
-  withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
-  'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
-  'review-done': '手元での確認をやめて、確認の前の場所へ戻ります（承認も差し戻しもしません）。',
-  approve: '承認して完了：提出を承認し、そのまま作成元へ取り込んでタスクを閉じます。',
-  reject: '差し戻し：直してほしいことを書いて、担当者へ戻します（タスクは作業中に戻ります）。',
-};
-function prButton(action, label, {enabled = true, kind = '', note = ''} = {}) {
-  const b = document.createElement('button');
-  b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action === 'review-done' ? 'local-review' : action;
-  b.title = (PR_HELP[action] || '') + (note ? `\n（${note}）` : '');
-  if (kind) b.className = kind;
-  return b;
-}
 function renderPrDetail() {
   const t = prStatus, tools = get('pr-tools');
   tools.replaceChildren();
@@ -91,18 +68,8 @@ function renderPrDetail() {
     if (open || here) act.append(prButton('finish', '完了', {enabled: !draft, kind: open && !draft ? 'primary' : '', note: draft ? '下書きの提出は完了できません。先に下書きを解除します' : ''}));
   }
   tools.append(look, act);
-  const a = t.activity || {reviews: [], comments: [], checks: [], mergeable: ''};
-  const mergeable = {MERGEABLE: '取り込めます', CONFLICTING: '衝突があります（タスクブランチで最新を取り込んで解決してください）', UNKNOWN: '確認中'}[a.mergeable] || a.mergeable;
-  get('pr-detail').innerHTML = `<dl>
-      <dt>タスク</dt><dd><strong>#${t.number} ${esc(t.title)}</strong></dd>
-      <dt>提出</dt><dd>${esc(SUBMISSION(sub))}${open ? ' · ' + esc(mergeable) : ''}${here && s.ahead ? `（未Pushのコミット ${s.ahead}件。${open ? 'Pushすると提出に加わります' : '提出するとPushします'}）` : ''}</dd>
-      <dt>タスクブランチ</dt><dd>task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}</dd>
-      <dt>担当者</dt><dd>${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}</dd>
-      <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
-      ${sub ? `<dt>URL</dt><dd>${esc(sub.url)}</dd>` : ''}</dl>
-    ${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
-    ${a.comments.map(c => `<div class="entry"><b>${esc(c.author)}</b>\n${esc(c.body)}</div>`).join('')}
-    ${(t.comments || []).map(c => `<div class="entry"><b>${esc(c.author)}</b>（タスク）\n${esc(c.body)}</div>`).join('')}`;
+  get('pr-detail').innerHTML = ECO.submissionDetail(t, {own,
+    note: here && s.ahead ? `（未Pushのコミット ${s.ahead}件。${open ? 'Pushすると提出に加わります' : '提出するとPushします'}）` : ''});
 }
 
 // Approve (and finish) or reject. Also used from the banner while reviewing a submission here.

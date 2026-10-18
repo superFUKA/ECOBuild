@@ -13,7 +13,7 @@ document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'modinfo', 'settings', 'help'];
+const PAGES = ['workspace', 'tasks', 'branches', 'modinfo', 'settings', 'help'];
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
   ECO.setState({page});
@@ -28,9 +28,10 @@ const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  const target = page || (tab ? (SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
+  // The tab 「ブランチ」 of モジュール is a page of its own now (ブランチ): --tab branches still leads there.
+  const target = page || (tab ? (tab === 'branches' ? 'branches' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
-  if (tab) window.MODINFO_SHOW?.(tab);
+  if (tab && tab !== 'branches') window.MODINFO_SHOW?.(tab);
   if (task) window.TASKS_SELECT?.(Number(task));
   if (command && typeof HELP !== 'undefined') HELP.show('help/commands/' + encodeURIComponent(command));
 });

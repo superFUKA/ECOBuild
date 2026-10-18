@@ -1,0 +1,41 @@
+/* ブランチ: the shared branches as tabs on the left (with the submissions coming in), the chosen one on the right. */
+.br-top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; }
+.br-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.br-side { min-height: 0; overflow: auto; padding: 10px 8px; border-right: 1px solid var(--line); background: #171c22; display: flex; flex-direction: column; gap: 2px; }
+.mi .br-side button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; width: 100%; text-align: left;
+  padding: 7px 10px 7px calc(10px + var(--depth, 0) * 14px); border: 0; border-left: 2px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
+.mi .br-side button:hover { background: #222932; }
+.mi .br-side button[aria-selected=true] { background: #232c32; border-left-color: var(--accent); color: #b0efdd; }
+.br-side-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.br-side-sub { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.br-count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #3a3156; color: #e3d9ff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600; }
+.br-count.zero { background: #2a323b; color: #6b7581; font-weight: 400; }
+.br-main { min-width: 0; min-height: 0; overflow: auto; padding: 18px 20px 28px; }
+.br-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.br-head h3 { margin: 0 0 6px; font-size: 16px; }
+.br-section { margin: 18px 0 8px; font-size: 13px; color: #cdd5df; display: flex; align-items: center; gap: 8px; }
+.br-list { display: flex; flex-direction: column; gap: 4px; }
+.mi .br-list button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: #edf1f5; }
+.mi .br-list button[aria-selected=true] { border-color: var(--accent); background: #1f2a2a; }
+.br-item-state { margin-left: auto; font-size: 11px; color: #a5aeba; white-space: nowrap; }
+.br-detail { margin-top: 12px; font-size: 13px; line-height: 1.7; }
+.br-detail:empty { display: none; }
+.br-detail dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 8px 0; font-size: 12px; }
+.br-detail dt { color: #a5aeba; }
+.br-detail dd { margin: 0; overflow-wrap: anywhere; }
+.br-detail .entry { border-top: 1px solid #303640; padding: 6px 0; font-size: 12px; white-space: pre-wrap; }
+.br-detail .entry b { color: #cdd5df; }
+.br-detail .check-ok { color: #9fe0a8; } .br-detail .check-bad { color: #f3a5a5; } .br-detail .check-wait { color: #efc389; }
+/* Looking at the submission on the left (small), what to do with it on the right (as in the workspace's 提出). */
+.br-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303640; }
+.br-tools .pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
+.mi .br-tools .pr-look button { border: 0; background: transparent; color: #a5aeba; padding: 4px 8px; font-size: 12px; }
+.mi .br-tools .pr-look button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
+.br-tools .pr-act { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.mi .quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
+.mi .quiet-danger:hover:not(:disabled) { border-color: #7a3b3b; }
+.br-task-branches { margin-top: 22px; font-size: 12px; color: #cdd5df; }
+.br-task-branches summary { cursor: pointer; color: var(--muted); }
+.br-task-branches ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
+.br-task-branches button { padding: 2px 8px; font-size: 11px; }
+@media (max-width: 760px) { .br-body { grid-template-columns: 1fr; } .br-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 180px; } }

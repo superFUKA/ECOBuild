@@ -1,12 +1,12 @@
 'use strict';
 // Module-wide screens. モジュール（what the module is and holds）: home (as a repository's page on GitHub: the files and the
-// README, and module show beside them), Projects, dependencies and links (deps tree), branches. 設定（how it is built）:
+// README, and module show beside them), Projects, dependencies and links (deps tree). 設定（how it is built）:
 // build settings, the module's settings (module settings), file templates. Both pages share the reads and the dialogs.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps', 'branches'], settings: ['profiles', 'general', 'templates']};
+  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps'], settings: ['profiles', 'general', 'templates']};
   const [hashPage, hashView] = location.hash.slice(1).split('/');
   let page = PAGE_VIEWS[hashPage] ? hashPage : 'modinfo';
   const lastView = {modinfo: 'home', settings: 'profiles'};
@@ -252,24 +252,7 @@
         <td class="mi-row-actions">${btn('編集', 'profile-add', n)}${cpp ? btn('Projectごとの上書き', 'profile-project', n + '\n') : ''}${btn('削除', 'profile-remove', n, 'danger-text')}</td></tr>`; }).join('')}
       <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="${columns.length - 1}" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
   }
-  function renderBranches() {
-    const branches = data.branches;
-    if (branches.error) return head('ブランチ', '') + `<p class="mi-note">${esc(branches.error.message)}</p>`;
-    const names = new Set(branches.map(b => b.name));
-    const roots = branches.filter(b => !b.base || !names.has(b.base));
-    const node = (b, depth) => {
-      const kids = branches.filter(c => c.base === b.name && c !== b), where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・');
-      const pr = b.submission, n = /^task\/(\d+)$/.exec(b.name)?.[1];
-      const actions = b.is_task_branch ? (n ? `<button type="button" data-open-ws="${n}">タスクブランチを開く</button>` : '')
-        : (pr ? btn('取り込む', 'branch-merge', b.name) : depth || b.base ? btn('提出する', 'branch-submit', b.name) : '') + (depth || b.base ? btn('削除', 'branch-delete', b.name, 'danger-text') : '');
-      return `<li><div class="mi-branch ${b.is_task_branch ? 'ws' : ''}"><span class="mi-branch-name">${esc(b.name)}</span>${b.is_task_branch ? pill('タスクブランチ', 'ok') : pill('ブランチ')}
-        <span class="mi-where">${where}</span>${pr ? pill(`${pr.draft ? '下書きの' : ''}${pr.partial ? '中間' : ''}提出 → ${b.submitted_to}`, 'pr') : ''}<span class="mi-row-actions">${actions}</span></div>
-        ${kids.length ? `<ul>${kids.map(k => node(k, depth + 1)).join('')}</ul>` : ''}</li>`;
-    };
-    return head('ブランチ', '作成元のつながりで並べたブランチの全体像です。タスクブランチ（task/〜）はタスクの作業用、それ以外は develop などの共有ブランチです。', btn('ログをTortoiseGitで見る', 'branch-log') + btn('＋ ブランチ', 'branch-create', '', 'primary')) +
-      `<ul class="mi-tree">${roots.map(b => node(b, 0)).join('')}</ul>`;
-  }
-  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, branches: renderBranches, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates};
+  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates};
   // The reads are cached (ECO.query): the kept answer shows at once and a newer one is drawn when it comes (not while
   // something is typed here, and not for another place than the one shown).
   const typing = () => !!document.activeElement?.closest?.('#' + page + '-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
@@ -299,7 +282,6 @@
     profiles: () => read(['profile', 'list'], d => { data.profiles = result(d); }),
     general: () => Promise.all([read(['project', 'list'], d => { data.projects = result(d); }), read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; })]),
     templates: () => read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; }),
-    branches: () => read(['branch', 'list'], d => { data.branches = result(d); }),
   };
   let rendering = 0;
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
@@ -619,19 +601,6 @@
     },
     'profile-project-clear': key => { const [name, project] = key.split('\n'); return inWorkspace(`上書きを外す：${name} の ${project}`, [], '外す', () => ['profile', 'project', name, project, '--clear'], {success: '上書きを外しました。'}); },
     'profile-remove': name => inWorkspace(`ビルド設定を削除：${name}`, [], '削除', () => ['profile', 'remove', name], {danger: true, success: `${name} を削除しました。`}),
-    // The branches' history with their merges (all branches) is drawn by TortoiseGit (ecobuild log --all --gui).
-    'branch-log': async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); },
-    'branch-create': () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
-      {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},
-      {name: 'base', label: '作成元', type: 'select', options: [['', '既定（default_base）'], ...(Array.isArray(data.branches) ? data.branches.filter(b => !b.is_task_branch).map(b => [b.name, b.name]) : [])]}], ok: '作成',
-      submit: async v => { if (!await ECO.run(here(), ['branch', 'create', v.name, ...(v.base ? ['--base', v.base] : [])], {success: `ブランチ ${v.name} を作成しました。`})) return '作成できませんでした。'; render(); }}),
-    'branch-submit': name => ECO.form({title: `提出する：${name}`, fields: [
-      {name: 'into', label: '取り込み先', type: 'select', options: (Array.isArray(data.branches) ? data.branches.filter(b => !b.is_task_branch && b.name !== name) : []).map(b => [b.name, b.name])},
-      {name: 'title', label: '提出の題名'}], ok: '提出',
-      submit: async v => { if (!v.into) return '取り込み先を選んでください。'; if (!await ECO.run(here(), ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : [])], {success: `${name} を ${v.into} へ提出しました。`})) return '提出できませんでした。'; render(); }}),
-    'branch-merge': name => ECO.form({title: `${name} の提出を取り込む`, intro: 'ブランチ同士の提出を、マージコミットで取り込みます。', fields: [{name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'}], ok: '取り込む',
-      submit: async v => { if (!await ECO.run(here(), ['branch', 'merge', name, ...(v.ignore ? ['--ignore-checks'] : [])], {success: `${name} の提出を取り込みました。`})) return '取り込めませんでした。'; render(); }}),
-    'branch-delete': name => ECO.run(here(), ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`}).then(doc => doc && render()),
     // README：エディター（既定のアプリ）で開く。変えたらタスクブランチでコミットする
     'readme-edit': () => ECO.action('folder', {dir: here(), path: data.readmeName}).catch(e => ECO.toast(e.message, 'bad')),
   };

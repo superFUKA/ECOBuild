@@ -21,6 +21,7 @@ const ICON = path.join(GUI, 'icon.ico');
 const MODULE_ICON = path.join(GUI, 'module.ico');   // 開発環境の窓（ハブと見分ける）
 const HUB_SIZE = [1000, 720];      // app.py の HUB_WINDOW と同じ（ハブは一覧と設定だけなので小さめ）
 const MODULE_SIZE = [1360, 880];   // モジュールの窓
+const LOG_SIZE = [1100, 760];      // ファイル・フォルダのログの窓（log.html。いくつも並べる）
 
 let server = null;      // 子プロセスのサーバー
 let hubUrl = '';        // http://127.0.0.1:<port>/hub.html?t=<合言葉>
@@ -100,7 +101,8 @@ const openRequested = argv => { const root = moduleArg(argv); if (root) openModu
 app.on('web-contents-created', (event, contents) => {
   contents.setWindowOpenHandler(({url}) => {
     if (sameServer(url)) {
-      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(MODULE_SIZE, moduleOf(url) ? MODULE_ICON : ICON)};
+      const size = new URL(url).pathname === '/log.html' ? LOG_SIZE : MODULE_SIZE;
+      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(size, moduleOf(url) ? MODULE_ICON : ICON)};
     }
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return {action: 'deny'};

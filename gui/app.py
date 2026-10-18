@@ -1070,7 +1070,7 @@ class App:
         if name == "open-window":
             # GUIの別の画面（モジュールの窓）を、ハブと同じアプリの窓で開く（画面の window.open では普通のタブになるため）。
             page = d("page") or ""
-            if not page.startswith(("module.html?", "hub.html")) or "//" in page or "\\" in page.split("?")[0]:
+            if not page.startswith(("module.html?", "hub.html", "log.html?")) or "//" in page or "\\" in page.split("?")[0]:
                 raise GuiError("この画面は開けません。")
             separator = "&" if "?" in page else "?"
             open_window(f"http://127.0.0.1:{self.port}/{page}{separator}t={self.token}")

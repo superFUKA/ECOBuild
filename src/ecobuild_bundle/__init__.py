@@ -24,6 +24,7 @@ from ecobuild.results import AgentStarted, DoctorItem
 
 from . import tooling
 
+AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置き場所（コミットしない。prepare_agent_area）
 REGISTRY_FILE = "module_types.toml"
 DEFAULT_TYPE = "cpp"
 
@@ -51,12 +52,15 @@ class Module(ecobuild.Module):
     def start_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None,
                     progress=lambda message: None) -> AgentStarted:
         """コンテナにした作業空間では、コンテナの中で確認なしに起動する（使わせないものは設定 agent_deny）。
-        source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。"""
-        from . import container
-        if not container.enabled(self.root):
+        source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。Claude Code には、ECOBuild の使い方
+        （agent_briefing）を最初から渡す。"""
+        from . import agent_status, container
+        inside = container.enabled(self.root)
+        task = self.require_task_branch("エージェントの起動")
+        command = self._briefed(tuple(command), agent_status.prepare(container.name(self.root)), inside, task)
+        if not inside:
             return super().start_agent(command)
-        self.require_task_branch("エージェントの起動")
-        session = container.start_agent(self.root, tuple(command), deny=self._agent_deny(), command=self.command,
+        session = container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
                                         source=source, progress=progress)
         return AgentStarted(session.pid, session.command, session.directory)
 
@@ -65,17 +69,69 @@ class Module(ecobuild.Module):
         使用量・返答の終わり）を書き出させ、その置き場所を端末に知らせる（agent_status。画面を持つアプリが読む）。"""
         from . import agent_status, container
         inside = container.enabled(self.root)
-        self.require_task_branch("エージェントの起動")
+        task = self.require_task_branch("エージェントの起動")
         command = tuple(command)
         if command[:1] == ("claude",):
             folder = agent_status.prepare(container.name(self.root))
             agent_status.announce(folder)
             where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), agent_status.host_python())
             command = (*command, "--settings", agent_status.settings_argument(folder, where, python))
+            command = self._briefed(command, folder, inside, task)
         if not inside:
             return super().run_agent(command)
         return container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
                                      source=source, progress=progress, here=True)
+
+    def agent_briefing(self, task) -> str:
+        """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチと、ECOBuild の使い方（agent guide）。
+        AGENTS.md がないモジュールでも、最初から ECOBuild のコマンドで作業させるため。"""
+        program = self.command or "ecobuild"
+        return "\n".join([
+            "# ECOBuild から：この作業空間での作業のしかた",
+            "",
+            f"- ここは ECOBuild のモジュール「{self.config.name}」の作業空間で、タスクブランチ `{task.branch}`"
+            f"（タスク #{task.number}）にいます。タスクの内容は `{program} task status` で確かめてください。",
+            f"- 作業は下の手順のとおり、`{program}` のコマンドで行います。とくに、ビルド・テスト・実行は必ず "
+            f"`{program} build`・`{program} test`・`{program} run`（提出の前は `{program} check`）。"
+            "cmake・ninja・msbuild・pytest などを直接使いません。",
+            f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
+            "コマンドを使わずにここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
+            "",
+            self.agent_guide().text,
+        ])
+
+    def prepare_agent_area(self) -> Path:
+        """エージェント用の置き場所（AGENT_AREA）を作り、この clone の git の除外（info/exclude）に足す。リポジトリの
+        ファイルは変えないので、コミットは要らない（今あるモジュールでもすぐ使える）。"""
+        import subprocess
+        area = self.root / AGENT_AREA
+        area.mkdir(parents=True, exist_ok=True)
+        try:
+            found = subprocess.run(["git", "-C", str(self.root), "rev-parse", "--git-path", "info/exclude"],
+                                   capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return area
+        if found.returncode == 0 and found.stdout.strip():
+            exclude = Path(found.stdout.strip())
+            exclude = exclude if exclude.is_absolute() else self.root / exclude
+            line = f"/{AGENT_AREA}/"
+            text = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
+            if line not in text.splitlines():
+                exclude.parent.mkdir(parents=True, exist_ok=True)
+                exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
+                                   + f"# ECOBuild：エージェント用の置き場所（コミットしない）\n{line}\n", encoding="utf-8")
+        return area
+
+    def _briefed(self, command: tuple[str, ...], folder: Path, inside: bool, task) -> tuple[str, ...]:
+        """Claude Code なら、使い方の文をファイル（状態の置き場所の guide.md）にして --append-system-prompt-file で渡す
+        （長い文を引数にしない：claude.cmd は cmd.exe を通る）。"""
+        from . import agent_status
+        if command[:1] != ("claude",) or "--append-system-prompt-file" in command:
+            return command
+        self.prepare_agent_area()
+        (folder / "guide.md").write_text(self.agent_briefing(task), encoding="utf-8", newline="\n")
+        where = agent_status.INSIDE if inside else folder.as_posix()
+        return (*command, "--append-system-prompt-file", f"{where}/guide.md")
 
     def _agent_deny(self) -> tuple[str, ...]:
         from . import container

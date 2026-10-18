@@ -60,6 +60,7 @@ def test_guide_asks_for_ecobuild_first(name):
     """手でする前に、ECOBuild のコマンドでできるかを確かめる（なければ直接でよい）。"""
     guide = _documents(name)["agent guide"]
     assert "## まず ECOBuild でできるかを考える" in guide and "直接して構いません" in guide
+    assert "`ecobuild build`・`ecobuild test`・`ecobuild run`" in guide and "直接使いません" in guide
     assert ("ecobuild file add／move／remove" in guide) == (name != "generic")
 
 

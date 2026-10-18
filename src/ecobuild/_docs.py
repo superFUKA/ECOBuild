@@ -80,6 +80,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - コードの中身を書く以外のこと（ファイルの追加・移動・削除、Project・依存・設定の変更、ビルド・テスト、コミット・提出 等）は、
   手で（シェル・エディターで直接）する前に、ECOBuild のコマンドでできるかを確かめます（`ecobuild --help --json` で全部、
   `ecobuild <コマンド> --help` で使い方）。ECOBuild のコマンドは、関係するもの（テスト・生成ファイル・管理ファイル・Issue）も一緒に直します。
+- ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`（提出の前の確認は `ecobuild check`）。型のツール
+  （cmake・ninja・msbuild・pytest など）を直接使いません。ECOBuild がビルド設定・依存先・コンテナに合わせて動かします。
 {files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
 
 ## 作業の流れ

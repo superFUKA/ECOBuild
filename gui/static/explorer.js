@@ -356,8 +356,9 @@ async function menuAction(action, dir) {
       return WS.openDiff(path, WS.changes().get(path) || []);
     }
     case 'log': {
+      // The GUI's own log (not TortoiseGit's, whose window offers many operations on the history).
       const target = dir !== undefined ? dir : path;
-      return WS.inTortoiseGit(['log', ...(target ? [target] : [])], () => WS.showLog(target));
+      return WS.showLog(target);
     }
     case 'blame': return WS.inTortoiseGit(['blame', path], async () => { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('注釈履歴', doc.result, {sub: path}) : ECO.showError(doc); });
   }

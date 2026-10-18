@@ -432,7 +432,7 @@ function logView(box, {path = '', selected = '', menu = null, onMore}) {
   };
 }
 
-// The log in a dialog (the explorer's 「ログ」 without TortoiseGit; path: only its log). It opens
+// The log in a dialog (the explorer's 「ログ」 of a file or folder; path: only its log). It opens
 // at once and reads behind (ecobuild log asks GitHub for the merged submissions: seconds); one at a time.
 let logOpen = false;
 async function showLog(path = '', selected = '') {

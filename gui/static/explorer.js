@@ -210,6 +210,7 @@ async function openInEditor(path) {
     return openFile(path);
   }
 }
+WS.openInEditor = openInEditor;   // the output pane's file(line)
 
 // Context menu ----------------------------------------------------------------------------------------
 let returnFocus = null;
@@ -357,7 +358,7 @@ async function menuAction(action, dir) {
     }
     case 'log': {
       const target = dir !== undefined ? dir : path;
-      return WS.inTortoiseGit(['log', ...(target ? [target] : [])], async () => { const doc = await WS.cli(['log', ...(target ? [target] : []), '--count', '50']); return doc.ok ? WS.showLog(doc.result, target) : ECO.showError(doc); });
+      return WS.inTortoiseGit(['log', ...(target ? [target] : [])], () => WS.showLog(target));
     }
     case 'blame': return WS.inTortoiseGit(['blame', path], async () => { const doc = await WS.cli(['blame', path]); return doc.ok ? ECO.output('行ごとの変更履歴', doc.result, {sub: path}) : ECO.showError(doc); });
   }

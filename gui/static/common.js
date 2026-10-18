@@ -227,7 +227,52 @@ const ECO = (() => {
       return cls ? `<span class="${cls}">${esc(line)}</span>` : esc(line);
     }).join('\n');
   }
-  const output = (title, text, {diff = false, sub = ''} = {}) => dialog({title, wide: true, body: `${sub ? `<p class="eco-intro">${esc(sub)}</p>` : ''}<pre class="${diff ? 'eco-diff' : ''}">${diff ? colorDiff(text || '') : esc(text || '')}</pre>`});
+  // A diff in one section per file (folded when there is much: open the files to read), after what comes before the
+  // first file (git show: the commit and its --stat). focus: the files under this path open, the others are folded.
+  // query: only the files whose path or lines have it.
+  function diffHtml(text, {focus = '', query = ''} = {}) {
+    const parts = String(text || '').split(/^(?=diff --git )/m);
+    const head = parts[0].startsWith('diff --git ') ? '' : parts.shift();
+    const q = query.toLowerCase(), files = parts.filter(p => !q || p.toLowerCase().includes(q));
+    const size = files.reduce((n, p) => n + p.split('\n').length, 0), openAll = !focus && size <= 1500 && files.length <= 12;
+    const sections = files.map(part => {
+      const first = part.indexOf('\n'), path = (part.slice(0, first).match(/ b\/(.*)$/) || [, part.slice(11, first)])[1];
+      const lines = part.slice(first + 1).replace(/\n$/, '').split('\n');
+      const added = lines.filter(l => l.startsWith('+') && !l.startsWith('+++')).length, removed = lines.filter(l => l.startsWith('-') && !l.startsWith('---')).length;
+      const open = focus ? path === focus || path.startsWith(focus.replace(/\/?$/, '/')) : openAll;
+      return `<details class="eco-file"${open ? ' open' : ''}><summary><span class="eco-file-path">${esc(path)}</span><span class="add">+${added}</span><span class="del">−${removed}</span></summary><pre class="eco-diff">${colorDiff(lines.join('\n'))}</pre></details>`;
+    });
+    return (head.trim() && !q ? `<pre class="eco-diff-head">${esc(head.replace(/\n+$/, ''))}</pre>` : '') + (sections.join('') || (q ? '<p class="eco-intro">一致するファイルはありません。</p>' : ''));
+  }
+  // Lines that have the query, with it marked (the whole text when there is none).
+  function filterLines(text, query) {
+    if (!query) return {html: esc(text), shown: null};
+    const q = query.toLowerCase(), hits = String(text).split('\n').filter(l => l.toLowerCase().includes(q));
+    const mark = line => { let out = '', at = 0, i; const low = line.toLowerCase(); while ((i = low.indexOf(q, at)) >= 0) { out += esc(line.slice(at, i)) + `<mark>${esc(line.slice(i, i + q.length))}</mark>`; at = i + q.length; } return out + esc(line.slice(at)); };
+    return {html: hits.map(mark).join('\n'), shown: hits.length};
+  }
+  const copyText = text => navigator.clipboard.writeText(text).then(() => toast('コピーしました。'), () => toast('コピーできませんでした。', 'bad'));
+  // Text (a log, blame, a guide) or a diff to read: a search box (text: only the lines that have it; diff: only the files
+  // that have it), copy, and for a diff the files folded and opened together.
+  const output = (title, text, {diff = false, sub = '', focus = ''} = {}) => dialog({title, wide: true,
+    body: `${sub ? `<p class="eco-intro">${esc(sub)}</p>` : ''}<div class="eco-out-tools"><input type="search" class="eco-out-search" placeholder="${diff ? 'ファイル・内容で絞り込み' : '絞り込み（この文字を含む行だけ）'}" aria-label="絞り込み"><span class="eco-out-count"></span>
+      ${diff ? '<button type="button" data-out="open">すべて開く</button><button type="button" data-out="fold">すべて閉じる</button>' : ''}<button type="button" data-out="copy">コピー</button></div><div class="eco-out-body"></div>`,
+    onOpen: d => {
+      d.classList.add('eco-output');
+      const box = d.querySelector('.eco-out-body'), search = d.querySelector('.eco-out-search'), count = d.querySelector('.eco-out-count');
+      const render = () => {
+        if (diff) { box.innerHTML = diffHtml(text, {focus, query: search.value.trim()}); return; }
+        const {html, shown} = filterLines(text || '', search.value.trim());
+        box.innerHTML = `<pre>${html}</pre>`; count.textContent = shown == null ? '' : `${shown} 行`;
+      };
+      render();
+      search.addEventListener('input', render);
+      d.querySelector('.eco-out-tools').addEventListener('click', e => {
+        const what = e.target.closest('[data-out]')?.dataset.out;
+        if (what === 'copy') copyText(text || '');
+        if (what === 'open' || what === 'fold') box.querySelectorAll('details.eco-file').forEach(f => { f.open = what === 'open'; });
+      });
+    }});
 
   // Form dialog. fields: {name, label, type, value, options: [[value, label, note]], placeholder, required, help, min}.
   // submit(values) may return an error string to keep the dialog open. Resolves with the values (or null when cancelled).
@@ -651,7 +696,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState};
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
 window.ECO = ECO;

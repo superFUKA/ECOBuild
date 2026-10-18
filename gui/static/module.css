@@ -89,9 +89,31 @@ main, body.embedded > main { flex: 1; height: auto; min-height: 0; }
 .build-more > div button:hover { background: #36483f; }
 .build-args { display: grid !important; gap: 4px !important; padding: 6px 8px 2px; border-top: 1px solid #3a424c; margin-top: 4px; }
 .build-args input { width: 100% !important; }
-.build-output { flex-shrink: 0; max-height: 34vh; display: flex; flex-direction: column; border-top: 1px solid #303640; background: #11141a; }   /* under the work area, as the output pane of an IDE */
-.build-output-head { display: flex; align-items: center; gap: 10px; padding: 6px 14px; font-size: 12px; border-bottom: 1px solid #262c34; }
-.build-output-head button { margin-left: auto; padding: 0 8px; border: 0; background: transparent; color: #a5aeba; font-size: 16px; }
-.build-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; } .build-state.ok { background: #213a33; color: #a8ead9; } .build-state.bad { background: #43282b; color: #ffb4b4; }
-.build-output pre { margin: 0; padding: 10px 14px; overflow: auto; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; color: #cdd5df; white-space: pre-wrap; }
+.build-output { position: relative; flex-shrink: 0; height: 260px; min-height: 90px; display: flex; flex-direction: column; border-top: 1px solid #303640; background: #11141a; }   /* under the work area, as the output pane of an IDE */
+.build-output.max { height: 72vh !important; }
+.build-output-resize { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; z-index: 5; }
+.build-output-resize:hover { background: linear-gradient(transparent 3px, #9ee4d3 3px, #9ee4d3 5px, transparent 5px); }
+.build-output-head { display: flex; align-items: center; gap: 10px; padding: 5px 10px 5px 14px; font-size: 12px; border-bottom: 1px solid #262c34; flex-wrap: wrap; }
+.build-output-head strong { white-space: nowrap; }
+.build-output-time { color: #84909e; font-size: 11px; white-space: nowrap; }
+.build-counts { display: inline-flex; gap: 8px; padding: 1px 8px; border: 1px solid #3a424c; border-radius: 10px; background: transparent; font-size: 11px; cursor: pointer; }
+.build-counts:hover { border-color: #56616e; }
+.build-counts .bad { color: #ffb4b4; } .build-counts .warn { color: #efc389; }
+.build-output-tools { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.build-output-tools input { width: 150px; padding: 3px 8px; font-size: 12px; border-radius: 5px; }
+.build-output-tools button { padding: 2px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #a5aeba; font-size: 12px; cursor: pointer; }
+.build-output-tools button:hover { color: #edf1f5; background: #222930; }
+.build-output-tools button[aria-pressed=true] { color: #9ee4d3; border-color: #2f5a50; background: #1b2a26; }
+.build-output-tools button.close { font-size: 16px; line-height: 1; padding: 0 8px; }
+.build-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; } .build-state.ok { background: #213a33; color: #a8ead9; } .build-state.bad { background: #43282b; color: #ffb4b4; } .build-state.run { background: #22344a; color: #9ccaf5; }
+.build-output pre { flex: 1; min-height: 0; margin: 0; padding: 6px 0; overflow: auto; font: 12px/1.55 Consolas, "Yu Gothic UI", monospace; color: #cdd5df; white-space: pre-wrap; overflow-wrap: anywhere; }
+.build-output pre.nowrap { white-space: pre; overflow-wrap: normal; }
+.build-output pre .line { display: block; padding: 0 14px; border-left: 3px solid transparent; }
+.build-output pre .line:hover { background: #181d23; }
+.build-output pre .line.bad { color: #f3a5a5; background: #2a1a1d; border-left-color: #e0868c; }
+.build-output pre .line.warn { color: #efc389; background: #2a2418; border-left-color: #c9a35a; }
+.build-output pre .line.ok { color: #9fe0a8; }
+.build-output pre .line.muted { color: #7d8794; }
+.build-output pre a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+.build-output pre a:hover { color: #9ee4d3; }
 @media(max-width: 700px) { body { height: auto; } }

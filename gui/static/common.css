@@ -131,3 +131,20 @@ html.frameless body > header { -webkit-app-region: drag; user-select: none; min-
 html.frameless body > header button, html.frameless body > header a, html.frameless body > header input { -webkit-app-region: no-drag; }
 html.frameless body > header h1 { font-size: 13px; }
 html.frameless body > header .brand-icon { width: 16px; height: 16px; }
+/* Text and diffs to read (ECO.output): search and copy above, the files of a diff folded one by one. */
+.eco-dialog.eco-output { width: min(1180px, calc(100% - 32px)); }
+.eco-out-tools { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; flex-wrap: wrap; }
+.eco-dialog .eco-out-tools input.eco-out-search { flex: 1; min-width: 180px; width: auto; padding: 5px 9px; font-size: 12px; }
+.eco-dialog .eco-out-tools button { padding: 4px 10px; font-size: 12px; }
+.eco-out-count { color: #84909e; font-size: 12px; white-space: nowrap; }
+.eco-out-body { max-height: 68vh; overflow: auto; }
+.eco-dialog .eco-out-body pre { max-height: none; margin: 0; }
+.eco-dialog pre mark, .build-output pre mark { background: #6b5a1f; color: #fff3c4; border-radius: 2px; }
+.eco-dialog pre.eco-diff-head { margin: 0 0 8px; color: #b4bec9; }
+details.eco-file { margin: 0 0 6px; border: 1px solid #2a3038; border-radius: 6px; background: #11141a; }
+details.eco-file > summary { display: flex; align-items: center; gap: 10px; padding: 6px 10px; cursor: pointer; font: 12px Consolas, "Yu Gothic UI", monospace; color: #dfe5eb; position: sticky; top: 0; background: #181c22; border-radius: 6px; }
+details.eco-file > summary:hover { background: #20262d; }
+details.eco-file[open] > summary { border-bottom: 1px solid #2a3038; border-radius: 6px 6px 0 0; }
+.eco-file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+details.eco-file > summary .add { color: #9fe0a8; } details.eco-file > summary .del { color: #f3a5a5; }
+.eco-dialog details.eco-file pre { margin: 0; border: 0; border-radius: 0 0 6px 6px; max-height: none; }

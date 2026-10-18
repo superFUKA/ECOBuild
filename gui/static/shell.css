@@ -6,9 +6,9 @@ header { display: flex; gap: 18px; align-items: center; padding: 18px 24px; bord
 .tabs button[aria-selected=true] { color: #b0efdd; background: #232c32; border-color: #35443e; border-bottom-color: #9ee4d3; }
 .tabs small { margin-left: 10px; font-size: 12px; } button:focus-visible { outline: 2px solid #9ee4d3; outline-offset: -3px; }
 .panels { flex: 1; min-height: 0; } [role=tabpanel] { height: 100%; } iframe { display: block; width: 100%; height: 100%; border: 0; } [hidden] { display: none !important; }
-.module-shell { display: grid; grid-template-columns: 176px minmax(0, 1fr); flex: 1; min-height: 0; }
-.module-nav { padding: 18px 10px; background: #181d23; border-right: 1px solid #303640; }
-.module-nav button { width: 100%; padding: 12px 14px; text-align: left; border: 1px solid #39584f; border-radius: 7px; background: #263c37; color: #a8ead9; font: inherit; cursor: pointer; }
+.module-shell { display: grid; grid-template-columns: 148px minmax(0, 1fr); flex: 1; min-height: 0; }
+.module-nav { padding: 16px 8px; background: #181d23; border-right: 1px solid #303640; }
+.module-nav button { width: 100%; padding: 9px 12px; text-align: left; border: 1px solid #39584f; border-radius: 7px; background: #263c37; color: #a8ead9; font: inherit; cursor: pointer; }
 .module-content { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 @media(max-width: 650px) { .module-shell { grid-template-columns: 112px minmax(0, 1fr); } .module-nav { padding: 12px 6px; } .module-nav button { padding: 10px 8px; font-size: 12px; } }
 .module-nav button { margin-bottom: 8px; background: transparent; border-color: transparent; color: #a5aeba; }
@@ -19,8 +19,8 @@ header { display: flex; gap: 18px; align-items: center; padding: 18px 24px; bord
 .module-nav svg { flex-shrink: 0; }
 .module-nav .nav-toggle { width: auto; padding: 6px 8px; margin: 0 auto 10px 0; color: #84909e; }
 .module-nav .nav-toggle:hover { color: #edf1f5; background: #252d36; }
-.module-shell.nav-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
-.module-shell.nav-collapsed .module-nav { padding: 18px 8px; }
+.module-shell.nav-collapsed { grid-template-columns: 48px minmax(0, 1fr); }
+.module-shell.nav-collapsed .module-nav { padding: 16px 6px; }
 .module-shell.nav-collapsed .module-nav button { justify-content: center; padding: 10px 0; }
 .module-shell.nav-collapsed .module-nav button span { display: none; }
 .module-shell.nav-collapsed .nav-toggle { margin: 0 0 10px; width: 100%; }

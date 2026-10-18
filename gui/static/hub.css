@@ -20,26 +20,26 @@
     .module-open span { font-size: 18px; }
     @media (max-width: 600px) { header { padding: 18px 20px; } main { padding: 32px 20px; } h2 { font-size: 24px; } }
     @media (prefers-reduced-motion: reduce) { .module-list a { transition: none; } }
-      body { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+      body { display: grid; grid-template-columns: 176px minmax(0, 1fr); }
     /* The menu stays while the page scrolls (it scrolls by itself only when the window is too low for it). */
-    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; background: #181c21; border-right: 1px solid #292f36; padding: 28px 16px; }
+    .sidebar { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; background: #181c21; border-right: 1px solid #292f36; padding: 24px 10px; }
     .sidebar-top { display: flex; align-items: center; gap: 6px; padding: 0 0 28px; }
-    .sidebar h1 { padding: 0 6px; white-space: nowrap; overflow: hidden; }
+    .sidebar h1 { padding: 0 4px; font-size: 16px; white-space: nowrap; overflow: hidden; }
     .nav-toggle { flex-shrink: 0; display: grid; place-items: center; padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #84909e; cursor: pointer; }
     .nav-toggle:hover { color: #edf1f5; background: #252d36; }
     .nav-button { display: flex; align-items: center; gap: 10px; white-space: nowrap; overflow: hidden; }
     .nav-button svg { flex-shrink: 0; }
     body { transition: grid-template-columns .15s; }
-    body.nav-collapsed { grid-template-columns: 56px minmax(0, 1fr); }
-    body.nav-collapsed .sidebar { padding: 28px 8px; }
+    body.nav-collapsed { grid-template-columns: 48px minmax(0, 1fr); }
+    body.nav-collapsed .sidebar { padding: 24px 6px; }
     body.nav-collapsed .sidebar h1, body.nav-collapsed .nav-button span { display: none; }
     body.nav-collapsed .sidebar-top { justify-content: center; }
-    body.nav-collapsed .nav-button { justify-content: center; padding: 11px 0; }
+    body.nav-collapsed .nav-button { justify-content: center; padding: 10px 0; }
     body.nav-collapsed .nav-toggle svg { transform: rotate(180deg); }
     @media (prefers-reduced-motion: reduce) { body { transition: none; } }
     .sidebar nav { display: grid; gap: 8px; }
     button { font: inherit; }
-    .nav-button { width: 100%; padding: 13px 14px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #a5aeba; text-align: left; cursor: pointer; }
+    .nav-button { width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #a5aeba; text-align: left; cursor: pointer; }
     .nav-button:hover { background: #222930; color: #edf1f5; }
     .nav-button[aria-current="page"] { background: #263c37; border-color: #39584f; color: #a8ead9; }
     button:focus-visible { outline: 3px solid #8be1cd; outline-offset: 3px; }

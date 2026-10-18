@@ -11,12 +11,12 @@
 #file-tree summary.drop-target { background: #2b423c; }
 #file-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }
 #file-menu button { text-align: left; font-size: 12px; padding: 7px 10px; }
-.change { padding: 7px 0; font-size: 13px; }
+.change { padding: 4px 0; font-size: 13px; }
 .change .kind { margin-left: auto; color: #efc389; white-space: nowrap; font-size: 11px; }
 .change .kind.staged { color: #8fb7ef; } .change .kind.untracked { color: #9fe0a8; } .change .kind.conflicted { color: #ff8f8f; } .change .kind.deleted { color: #f3a5a5; }
 .select-all { font-size: 12px; color: #a5aeba; display: flex; gap: 6px; align-items: center; }
 .panel .heading h3 { margin-bottom: 0; }
-#pr-detail { margin-top: 12px; font-size: 13px; line-height: 1.7; }
+#pr-detail { margin-top: 4px; font-size: 13px; line-height: 1.7; }
 #pr-detail .pr-body { white-space: pre-wrap; background: #14171b; border-radius: 6px; padding: 10px; margin: 8px 0; font-size: 12px; }
 #pr-detail dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 8px 0; font-size: 12px; }
 #pr-detail dt { color: #a5aeba; }
@@ -40,13 +40,13 @@
 .build-bar .agent-group .agent-button:disabled { opacity: 1; border-color: #3a424c; color: #6b7581; background: transparent; cursor: not-allowed; }
 
 /* Explorer: Project folders vs ordinary folders. */
-#file-tree summary { display: flex; align-items: center; gap: 6px; }
+#file-tree summary { display: flex; align-items: center; gap: 3px; }
 #file-tree summary { list-style: none; } #file-tree summary::-webkit-details-marker { display: none; }
 #file-tree summary .tree-caret { width: 10px; color: #a5aeba; font-size: 13px; line-height: 1; flex: none; transition: transform .1s; } #file-tree details[open] > summary .tree-caret { transform: rotate(90deg); }
 #file-tree summary .tree-icon { width: 14px; text-align: center; color: #84909e; font-size: 10px; flex: none; }
 #file-tree summary .tree-icon.folder { color: #c8a96a; }
 #file-tree .tree-icon svg { display: block; margin: 0 auto; }
-#file-tree .file .tree-icon { display: inline-block; width: 14px; margin-right: 5px; vertical-align: -2px; color: #84909e; }
+#file-tree .file .tree-icon { display: inline-block; width: 14px; margin-right: 3px; vertical-align: -2px; color: #84909e; }
 #file-tree summary .tree-icon.project { color: #9ee4d3; font-size: 11px; }
 #file-tree summary .tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #file-tree summary.project { font-weight: 600; color: #e6fff7; }
@@ -88,12 +88,23 @@
 .tab-off { display: none; }
 [role=tabpanel] > .heading h3, .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 /* 提出: looking at the submission on the left (small), what to do with it on the right. */
-#pr-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303640; }
+.pr-head { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.pr-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }
+.pr-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-state { flex-shrink: 0; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: #2a323b; color: #cdd5df; border: 1px solid #3a424c; }
+.pr-state.open { background: #1f3a30; color: #9fe0c4; border-color: #2f5a4a; } .pr-state.draft { background: #2a2f37; color: #b9c2cc; }
+.pr-state.merged { background: #2b2540; color: #cbb8f5; border-color: #4a3d6e; } .pr-state.closed { background: #3a2427; color: #f3a5a5; border-color: #6a3a3f; }
+.pr-meta-row { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; margin-top: 4px; padding-bottom: 8px; border-bottom: 1px solid #303640; }
+.pr-meta { flex: 1; min-width: 0; font-size: 12px; color: #a5aeba; overflow-wrap: anywhere; }
+.pr-meta .sep { color: #56616e; margin: 0 6px; }
+#pr-detail .pr-note { margin: 8px 0 0; font-size: 12px; color: #efc389; }
+#pr-tools { margin-top: 0; }
 #pr-tools:empty { display: none; }
 .pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
 .pr-look button { border: 0; background: transparent; color: #a5aeba; padding: 4px 8px; font-size: 12px; }
 .pr-look button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
 .pr-act { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.pr-look { margin-left: auto; }
 .pr-act .quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
 .pr-act .quiet-danger:hover:not(:disabled) { border-color: #7a3b3b; }
 /* The commits Push sends. */
@@ -176,7 +187,8 @@ body.resizing iframe { pointer-events: none; }
 
 /* A folder opens and closes by its triangle (the name only chooses it): the triangle is the thing to press. */
 #file-tree summary { cursor: default; }
-#file-tree summary .tree-caret { cursor: pointer; display: inline-block; width: 16px; margin: 0 1px 0 -3px; text-align: center; border-radius: 3px; }
+#file-tree summary .tree-caret { cursor: pointer; display: inline-block; width: 12px; margin: 0 1px 0 -3px; text-align: center; border-radius: 3px; }
+#file-tree .file { padding-left: 16px; }   /* its icon under the icons of the folders beside it */
 #file-tree summary .tree-caret:hover { background: #2b333c; color: #edf1f5; }
 /* Chosen in the explorer (a click; Ctrl・Shift for several) */
 #file-tree .file.chosen, #file-tree summary.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
@@ -185,6 +197,11 @@ body.resizing iframe { pointer-events: none; }
 /* The task branch placed in this workspace (switched from its menu). */
 .work > .heading { justify-content: flex-start; gap: 14px; }
 .work > .heading:has(> h2.visually-hidden:only-child) { display: none; }   /* on a task branch the tabs are the heading */
+/* Room: the work area and its panels use little space around them (the explorer has none either) and the whole width. */
+.work, body.embedded .work { padding: 10px 14px 14px; max-width: none; }
+.work .panel { padding: 14px 16px; border-radius: 0 0 10px 10px; margin-bottom: 12px; }
+[role=tabpanel] > .heading:has(> h3:only-child) { display: none; }   /* a panel whose heading is only its (hidden) name */
+.work-tabs button { padding: 4px 12px; font-size: 13px; }
 /* The task branch of this workspace (in the toolbar: it is about the whole workspace); a click switches it. */
 .branch-button { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 280px; padding: 5px 8px 5px 10px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #a8dfd0; font-size: 12px; }
 .branch-button:hover { border-color: #56616e; }

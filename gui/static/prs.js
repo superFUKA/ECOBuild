@@ -38,8 +38,16 @@ function renderPrDetail() {
   const s = WS.status || {}, reviewing = !!s.reviewing && s.reviewing_task === t.number, own = me ? t.assignees.includes(me) : !reviewing;
   // Left: looking at the submission (small). Right: what to do with it. Someone's submission being reviewed here is
   // approved or sent back; the task branch here is submitted, finished or withdrawn.
+  const head = document.createElement('div'), title = document.createElement('div'), metaRow = document.createElement('div'), meta = document.createElement('div');
   const look = document.createElement('div'), act = document.createElement('div');
+  head.className = 'pr-head'; title.className = 'pr-title'; metaRow.className = 'pr-meta-row'; meta.className = 'pr-meta';
   look.className = 'pr-look'; act.className = 'pr-act';
+  const state = !sub ? 'none' : sub.state === 'open' ? (draft ? 'draft' : 'open') : sub.state;
+  title.innerHTML = `<strong title="${esc(t.title)}">#${t.number} ${esc(t.title)}</strong><span class="pr-state ${state}">${esc(ECO.submissionText(sub))}</span>`;
+  const a = t.activity || {checks: [], mergeable: ''};
+  const mergeable = open ? {MERGEABLE: '取り込めます', CONFLICTING: '衝突があります（タスクブランチで最新を取り込んで解決してください）', UNKNOWN: '取り込めるか確認中'}[a.mergeable] || a.mergeable : '';
+  meta.innerHTML = [`task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}`, `担当 ${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}`,
+    `CI ${a.checks.length ? a.checks.map(c => `${esc(c.name)} ${ECO.checkMark(c)}`).join('、') : 'なし'}`, ...(mergeable ? [esc(mergeable)] : [])].join('<span class="sep">·</span>');
   look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
   if (reviewing) {
     act.append(prButton('review-done', '判定せずに戻る'));
@@ -50,9 +58,10 @@ function renderPrDetail() {
     if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
     act.append(prButton('finish', '完了', {enabled: !draft, kind: open && !draft ? 'primary' : '', note: draft ? '下書きの提出は完了できません。先に下書きを解除します' : ''}));
   }
-  tools.append(look, act);
-  get('pr-detail').innerHTML = ECO.submissionDetail(t, {own,
-    note: !reviewing && s.ahead ? `（未Pushのコミット ${s.ahead}件。${open ? 'Pushすると提出に加わります' : '提出するとPushします'}）` : ''});
+  head.append(title, act); metaRow.append(meta, look); tools.append(head, metaRow);
+  const note = !reviewing && s.ahead ? `<p class="pr-note">未Pushのコミット ${s.ahead}件：${open ? 'Pushすると提出に加わります' : '提出するとPushします'}。</p>` : '';
+  const entries = ECO.submissionDetail(t, {own}).split('</dl>').slice(1).join('</dl>');   // the commits and the conversation
+  get('pr-detail').innerHTML = note + entries;
 }
 
 // Approve (and finish) or reject. Also used from the banner while reviewing a submission here.

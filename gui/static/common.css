@@ -18,7 +18,7 @@
 .eco-dialog fieldset label:has(input:checked) { border-color: #8bd7c2; background: #253c36; }
 .eco-dialog fieldset small { display: block; color: #b4bec9; font-size: 11px; margin-top: 3px; }
 .eco-dialog .eco-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #343c46; flex-wrap: wrap; }
-.eco-dialog button { padding: 8px 16px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; font: inherit; cursor: pointer; }
+.eco-dialog button { padding: 5px 14px; border: 1px solid #46515e; border-radius: 7px; background: #252d36; color: #edf1f5; font: inherit; cursor: pointer; }
 .eco-dialog button:hover:not(:disabled) { border-color: #9ee4d3; }
 .eco-dialog button.primary { background: #9ee4d3; color: #17332c; border-color: #9ee4d3; font-weight: 600; }
 .eco-dialog button.danger { background: #e0868c; color: #2b1013; border-color: #e0868c; font-weight: 600; }

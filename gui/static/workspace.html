@@ -25,7 +25,7 @@
     <div id="banners"></div>
     <div class="work-tabs" id="work-tabs" role="tablist" aria-label="コミット・Push・提出・ログ"><button type="button" role="tab" data-tab="commit-panel">コミット<span class="tab-count" id="commit-panel-count"></span></button><button type="button" role="tab" data-tab="share-panel">Push<span class="tab-count" id="share-panel-count"></span></button><button type="button" role="tab" data-tab="prs-panel">提出<span class="tab-count" id="prs-panel-count"></span></button><button type="button" role="tab" data-tab="history-panel">ログ</button></div>
     <section class="panel commit-panel" id="commit-panel" role="tabpanel" aria-labelledby="commit-title">
-      <div class="heading"><h3 id="commit-title">コミット</h3><span id="stage-status" class="muted"></span></div>
+      <div class="heading"><h3 id="commit-title">コミット</h3></div>
       <div class="change-head"><label class="select-all"><input type="checkbox" id="select-all"> 変更ファイル<span id="change-count"></span></label>
         <span class="change-tools"><span id="stage-tools" hidden><button data-git="stage" title="衝突を直したファイルを、直したものとして記録します">ステージ</button><button data-git="unstage">ステージを取り消す</button></span><button data-git="diff" title="差分を表示（TortoiseGit）">差分</button><button data-git="discard">元に戻す…</button></span></div>
       <div id="changes"></div>
@@ -35,7 +35,7 @@
       <div class="heading"><h3 id="share-title">Push</h3><span id="push-state" class="muted"></span></div>
       <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">Pushするコミット</span><button type="button" id="push-commits-close" class="link-button" title="一覧を閉じる（「一覧」でまた開けます）">閉じる</button></div><ul id="push-commits-list" class="push-commits"></ul></div>
       <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push" class="primary">Push</button></div></section>
-    <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3></div><div id="pr-detail"></div><div id="pr-tools"></div></section>
+    <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3></div><div id="pr-tools"></div><div id="pr-detail"></div></section>
     <section class="panel" id="history-panel" role="tabpanel" aria-labelledby="history-title"><div class="heading"><h3 id="history-title">ログ</h3></div><div id="history-view"></div></section>
     <p id="operation-status" role="status"></p>
   </section>

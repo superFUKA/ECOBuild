@@ -168,7 +168,6 @@ function updateButtons() {
   document.querySelector('[data-git=diff]').disabled = !all.size;
   // Staging is needed only to finish a merge that stopped on a conflict (sync continue); a commit stages what is checked.
   get('stage-tools').hidden = !(s && (s.merging || s.conflicted?.length));
-  get('stage-status').textContent = all.size ? `${all.size}件の変更のうち ${WS.selected.size}件をコミット` : '';
 }
 WS.updateButtons = updateButtons;
 for (const id of ['commit-message', 'amend']) get(id).addEventListener('input', updateButtons);

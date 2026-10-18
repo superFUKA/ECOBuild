@@ -64,7 +64,7 @@
 .change-tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .change-tools button { padding: 4px 10px; font-size: 12px; }
 #stage-tools { display: inline-flex; gap: 6px; } #stage-tools[hidden] { display: none; }
-#changes { max-height: 320px; overflow-y: auto; }
+#changes { max-height: 320px; overflow-y: auto; margin-bottom: 10px; padding-right: 6px; border-bottom: 1px solid #303640; }   /* the list ends with a line, apart from the message */
 .change-hint { margin: 8px 0 14px; font-size: 11px; }
 .commit-panel textarea { width: 100%; box-sizing: border-box; }
 .commit-panel .actions, .share .actions { align-items: center; }

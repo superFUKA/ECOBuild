@@ -124,15 +124,26 @@ class TaskManagement:
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
         self.git.fetch()
         local = self.git.has_local_branch(branch)
+        base = self.git.get_config(wm.base_key(branch)) or wm.issue_base(details.body)
         return wm.TaskStatus(
             number, task.title, task.state, task.url, wm.without_base(details.body), self.git.has_local_branch(branch),
-            self.git.get_config(wm.base_key(branch)) or wm.issue_base(details.body),
+            base,
             None if latest is None else self._submission_state(latest), activity,
             self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
             details.parent, details.subtasks, details.blocked_by, details.blocking,
             wm.TaskSummary._from(task, task_branch=local, current=self.git.current_branch() == branch,
                                  remote=self.git.has_remote_branch(branch), path=self.root),
-            self.root if local else None)
+            self.root if local else None, self._task_commits(branch, base or self.default_base, local))
+
+    def _task_commits(self, branch: str, base: str, local: bool) -> tuple[str, ...]:
+        """提出に入るコミット：タスクブランチ（手元、なければ GitHub のもの）にあって、作成元（GitHub のもの）にないもの。"""
+        remote = f"origin/{branch}"
+        head = branch if local else remote if self.git.rev_parse(remote) else None
+        target = f"origin/{base}" if self.git.rev_parse(f"origin/{base}") else base if self.git.rev_parse(base) else None
+        if head is None or target is None:
+            return ()
+        log = self.git.output("log", "--format=%h %s", f"{target}..{head}")
+        return tuple(log.splitlines()) if log else ()
 
     def edit_task(self, number: int, *, body: str | None = None, **changes) -> wm.Task:
         """題名・本文・ラベル・担当者（@me は自分）・親タスク・先に終わるべきタスク・マイルストーンを変える

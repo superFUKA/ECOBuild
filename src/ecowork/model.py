@@ -475,6 +475,7 @@ class TaskStatus:
     blocking: tuple["TaskRef", ...] = ()         # このタスクを待っているタスク
     task: TaskSummary | None = None              # 段階・計画の値（優先度・期限・見積もり・スプリント等）・日付
     workspace: Path | None = None           # タスクブランチのある手元の場所（TaskSummary と同じ）
+    commits: tuple[str, ...] = ()           # 提出に入るコミット（作成元にない、タスクブランチのもの。新しい順、「短いID 件名」）
 
 
 @dataclass(frozen=True)

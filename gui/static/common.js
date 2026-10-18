@@ -530,6 +530,16 @@ const ECO = (() => {
     return b;
   }
   const checkMark = c => c.status !== 'completed' ? '<span class="check-wait">実行中</span>' : ['success', 'skipped', 'neutral'].includes(c.conclusion) ? '<span class="check-ok">成功</span>' : `<span class="check-bad">${esc(c.conclusion || '失敗')}</span>`;
+  // The commits a submission takes in (task status: on the task branch, not on its base; newest first, "sha subject").
+  // An older ecobuild does not say: nothing is shown then.
+  function submissionCommits(commits) {
+    if (!Array.isArray(commits)) return '';
+    if (!commits.length) return '<p class="sub-commits-none">提出に入るコミットはありません（作成元と同じです）。</p>';
+    return `<div class="sub-commits"><div class="sub-commits-head">提出に入るコミット（${commits.length}件、新しい順）</div><ul>${commits.map(c => {
+      const [sha, ...subject] = c.split(' ');
+      return `<li><code>${esc(sha)}</code> ${esc(subject.join(' '))}</li>`;
+    }).join('')}</ul></div>`;
+  }
   // The details of a task's submission (task status): state, branch, assignees, CI, reviews and comments.
   // note: added after the state (HTML).
   function submissionDetail(t, {own = false, note = ''} = {}) {
@@ -543,6 +553,7 @@ const ECO = (() => {
       <dt>担当者</dt><dd>${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}</dd>
       <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
       ${sub ? `<dt>URL</dt><dd>${esc(sub.url)}</dd>` : ''}</dl>
+    ${submissionCommits(t.commits)}
     ${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
     ${a.comments.map(c => `<div class="entry"><b>${esc(c.author)}</b>\n${esc(c.body)}</div>`).join('')}
     ${(t.comments || []).map(c => `<div class="entry"><b>${esc(c.author)}</b>（タスク）\n${esc(c.body)}</div>`).join('')}`;
@@ -755,7 +766,7 @@ const ECO = (() => {
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
   return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
-    submissionText, submissionHelp: SUBMISSION_HELP, submissionButton, submissionDetail};
+    submissionText, submissionHelp: SUBMISSION_HELP, submissionButton, submissionDetail, submissionCommits};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
 window.ECO = ECO;

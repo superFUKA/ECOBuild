@@ -58,6 +58,7 @@ def test_task_status_shows_reviews_and_checks(repository):
         (Check("build", "completed", "failure"),), "MERGEABLE")
     status = repository.task_status(1)
     assert status.pull_request.number == pr.number
+    assert [c.split(" ", 1)[1] for c in status.commits] == ["a"]     # 提出に入るコミット（作成元にないもの）
     assert status.activity.reviews[0].state == "CHANGES_REQUESTED" and status.activity.checks[0].conclusion == "failure"
 
 

@@ -216,15 +216,14 @@ WS.openInEditor = openInEditor;   // the output pane's file(line)
 let returnFocus = null;
 function closeMenu() { menu.hidden = true; }
 const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen', 'p-remove']);   // deleting: shown in red
+// Menus: an operation that cannot be done here now (not a task branch, no change, ...) is grey; one that never applies to
+// the item (a new file on a file, renaming README, blame on a folder) is not shown.
 // Why an item is grey (the usual reasons; the menus pass false for these).
 function why(key) {
-  if (key === 'blame-dir') return '注釈履歴はファイルごとです。ファイルを右クリックしてください。';
-  if (key === 'new-folder' && editable()) return 'C++ のモジュールでは、フォルダは Project のフォルダの中に作ります。';
   if (['rename', 'move', 'remove'].includes(key) && WS.activeFile && isReadme(WS.activeFile)) return 'README はモジュールの一番上に置くファイルです（名前の変更・移動・削除はしません。開いて編集はできます）。';
+  if (['log', 'blame'].includes(key)) return 'まだ git の管理に入っていないファイルです。';
   if (!editable()) return WS.status?.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
   if (['restore', 'diff'].includes(key)) return '変更がありません。';
-  if (['log', 'blame'].includes(key)) return 'まだ git の管理に入っていないファイルです。';
-  if (key === 'rename-dir' || key === 'remove-dir' || key === 'ignore-dir') return 'このフォルダはこの操作の対象にできません。';
   return 'いまは使えません。';
 }
 function showMenu(items, x, y) {
@@ -238,12 +237,10 @@ function showMenu(items, x, y) {
 }
 function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
-  const outside = restricted() && !dirOf(path);   // the top (README): a new folder goes in a Project (a new file's dialog chooses one)
   const kinds = WS.changes().get(path) || [], tracked = !kinds.includes('untracked'), exists = !WS.files.missing.includes(path), can = editable();
   showMenu([
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
-    ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can && !outside], '-',
-    ['rename', '名前の変更　F2', can && exists && !isReadme(path)], ['move', '移動先を指定…', can && exists && !isReadme(path)], ['remove', '削除　Delete', can && exists && !isReadme(path)],
+    ...(isReadme(path) ? [] : [['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists]]),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
   ], x, y);
@@ -256,14 +253,14 @@ function projectMenu(dir, x, y) {
     ...(testing ? [['p-test', 'テストを実行']] : []), ...(runnable ? [['p-run', '実行']] : []),
     ['p-target', '実行の対象にする（▶ で動かす）'], '-',
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
-    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['blame-dir', '注釈履歴', false], '-',
+    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], '-',
     ['p-move', '移動…', can], ['p-remove', 'Projectを削除…', can], ['p-settings', 'Projectの設定（リンク等）']], x, y);
   menu.dataset.dir = dir;
 }
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['blame-dir', '注釈履歴', false], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ...(dir ? [['rename-dir', '名前の変更　F2', can], ['remove-dir', '削除　Delete', can]] : []), '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ...(dir ? [['ignore-dir', '除外パターンに追加', can]] : []), '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }

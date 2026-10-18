@@ -193,6 +193,9 @@ main { padding: 22px 28px; }
     .operator-empty { color: #84909e; font-size: 13px; }
     .operator-message { display: grid; gap: 4px; max-width: 82%; }
     .operator-message.user { justify-self: end; }
+    .operator-message:has(.operator-avatar) { grid-template-columns: 32px 1fr; column-gap: 8px; }
+    .operator-message:has(.operator-avatar) > :not(.operator-avatar) { grid-column: 2; }
+    .operator-avatar { grid-row: 1 / span 2; width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
     .operator-bubble { padding: 9px 12px; border: 1px solid #343c46; border-radius: 10px; background: #1c2128; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
     .operator-message.user .operator-bubble { background: #263c37; border-color: #39584f; }
     .operator-message.failed .operator-bubble { border-color: #7a4a4a; }

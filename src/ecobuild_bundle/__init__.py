@@ -97,8 +97,16 @@ class Module(ecobuild.Module):
             f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
             "コマンドを使わずにここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",
+            *self._style(),
             self.agent_guide().text,
         ])
+
+    @staticmethod
+    def _style() -> list[str]:
+        """ユーザーが決めた話し方（設定 agent_style）。"""
+        style = _settings.load_config().get("agent_style", "").strip()
+        return ["## 話し方（ユーザーの指定）", "", style, "",
+                "（口調・言い回し・呼び方だけを変える。手順・確認・決まり・報告の中身（コマンド・結果・エラー・数字）は変えず、正確に伝える。コミット・PR・コード・文書など、成果物の文には使わない）", ""] if style else []
 
     def prepare_agent_area(self) -> Path:
         """エージェント用の置き場所（AGENT_AREA）を作り、この clone の git の除外（info/exclude）に足す。リポジトリの

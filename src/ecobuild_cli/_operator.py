@@ -100,11 +100,19 @@ EXAMPLES = (
 )
 
 
+STYLE_NOTE = "口調・言い回し・呼び方だけを変える。手順・確認・決まり・報告の中身（コマンド・結果・エラー・数字）は変えず、正確に伝える。コミット・PR・コード・文書など、成果物の文には使わない"
+
+
+def style_section(style: str) -> list[str]:
+    """ユーザーが決めた話し方（設定 operator_style・agent_style）。"""
+    return ["## 話し方（ユーザーの指定）", "", style.strip(), "", f"（{STYLE_NOTE}）", ""] if style.strip() else []
+
+
 def instructions(build_cli, effects: dict[str, str] | None = None, summaries: dict[str, str] | None = None,
-                 examples: list[tuple[str, str]] | None = None) -> str:
+                 examples: list[tuple[str, str]] | None = None, style: str = "") -> str:
     """指示書：決まり・話し言葉の例・今のコマンドの一覧（重さ付き）。effects・summaries・examples：拡張が名乗ったもの。"""
     catalog = _catalog.catalog(build_cli, {})
-    lines = [RULES, "## 例（言われたこと → すること）", ""]
+    lines = [RULES, *style_section(style), "## 例（言われたこと → すること）", ""]
     for say, do in (*EXAMPLES, *(examples or ())):
         command, _, note = do.partition("（")       # コマンドと注意書きを分ける
         lines.append(f"- {say} → `{command.strip()}`" + (f"（{note}" if note else ""))
@@ -138,7 +146,9 @@ def prepare(build_cli) -> operator.OperatorKit:
         for command, (effect, summary) in found.items():
             effects[command], summaries[command] = effect, summary
         examples += said
-    return operator.prepare(instructions(build_cli, effects, summaries, examples), program=PROGRAM, guard=f'"{program_path()}" agent guard',
+    from ecobuild import settings
+    style = settings.load_config().get("operator_style", "")
+    return operator.prepare(instructions(build_cli, effects, summaries, examples, style), program=PROGRAM, guard=f'"{program_path()}" agent guard',
                             effects=effects)
 
 

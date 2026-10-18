@@ -30,7 +30,8 @@ const OPERATOR = (() => {
   function item(m) {
     const li = document.createElement('li'); li.className = 'operator-message ' + m.role + (m.ok === false ? ' failed' : '');
     const actions = (m.actions || []).filter(a => a.command);
-    li.innerHTML = `<div class="operator-bubble">${text(m.text || (m.role === 'agent' ? '（返答なし）' : ''))}</div>`
+    li.innerHTML = (m.role === 'agent' && view?.icon ? `<img class="operator-avatar" alt="" src="${esc(view.icon)}">` : '')
+      + `<div class="operator-bubble">${text(m.text || (m.role === 'agent' ? '（返答なし）' : ''))}</div>`
       + (actions.length ? `<details class="operator-actions"><summary>実行したコマンド（${actions.length}）</summary><ul>${actions.map(a =>
         `<li class="${a.ok === false ? 'failed' : ''}"><code>${esc(a.command)}</code>${a.ok === false ? '<span>止められた・失敗</span>' : ''}</li>`).join('')}</ul></details>` : '');
     return li;

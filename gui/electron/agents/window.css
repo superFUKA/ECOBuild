@@ -113,3 +113,12 @@ body.operator .status .mode { display: inline-block; }
 .tab.unread::after { content: " •"; color: var(--accent); }
 .status .info .model { -webkit-app-region: no-drag; cursor: pointer; }
 .status .info .model:hover { color: var(--text); text-decoration: underline; }
+.tab .avatar { width: 16px; height: 16px; margin-right: 4px; border-radius: 50%; object-fit: cover; flex: none; }
+.persona .who { display: flex; gap: 12px; margin-top: 10px; }
+.persona .fields { flex: 1; min-width: 0; }
+.persona .row b { color: #fff; margin-right: auto; }
+.avatar.big { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; border: 1px solid var(--line); }
+.avatar.big.none { opacity: .35; }
+.persona textarea { width: 100%; padding: 6px 8px; border: 1px solid #3a404c; border-radius: 6px; background: #121419; color: var(--text);
+  font: inherit; resize: vertical; }
+.persona textarea:focus { outline: none; border-color: var(--accent); }

@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>エージェント - ECOBuild</title>
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="window.css">
@@ -49,6 +49,24 @@
       <div class="row"><label><input type="checkbox" id="reopen-tabs">GUI を開き直したとき、前回のタブを会話の続きから開き直す</label></div>
       <div class="row"><span>オペレーターのモデル</span><select id="operator-model"></select></div>
       <p class="note">オペレーターのモデルは、次にオペレーターを起動したときから（ハブの「オペレーター」で止めて動かし直すと、すぐに）。</p>
+    </div>
+    <div class="card persona">
+      <h2>アイコンと話し方</h2>
+      <div class="who" data-kind="operator">
+        <img class="avatar big" alt=""><div class="fields">
+          <div class="row"><b>オペレーター</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
+          <textarea rows="3" placeholder="話し方・答え方（例：やさしい敬語で、短く。結果は最初に一言で）"></textarea>
+          <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
+        </div>
+      </div>
+      <div class="who" data-kind="agent">
+        <img class="avatar big" alt=""><div class="fields">
+          <div class="row"><b>作業用のエージェント</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
+          <textarea rows="3" placeholder="話し方・答え方（例：報告は箇条書きで）"></textarea>
+          <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
+        </div>
+      </div>
+      <p class="note">話し方は、次に起動したエージェントから効きます（口調・言い回しだけ。決まりや確認、報告の中身は変わりません）。ECOBuild の設定 operator_style・agent_style です。</p>
     </div>
     <div class="card">
       <h2>リング（Ring II）</h2>

@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('agents', {
   model: (id, model) => ipcRenderer.send('agents:model', id, model),
   pickerOpen: open => ipcRenderer.send('agents:picker-open', open),
   setPrefs: patch => ipcRenderer.send('agents:prefs', patch),
+  iconPick: kind => ipcRenderer.invoke('agents:icon-pick', kind),
+  iconClear: kind => ipcRenderer.send('agents:icon-clear', kind),
+  styleSet: (kind, text) => ipcRenderer.invoke('agents:style-set', kind, text),
 
   onAdopt: on('agents:adopt'),
   onRelease: on('agents:release'),

@@ -106,3 +106,11 @@ def test_sending_text_needs_the_users_request():
     command = 'ecobuild gui agent-send --tab 1 --text "テストを実行して"'
     assert guard.check(command, policy, guard.Exchange(prompt="1番にテストを実行してって送って")) is None
     assert "頼んだときだけ" in guard.check(command, policy, guard.Exchange(prompt="ECOSTL で作業始めて"))
+
+
+def test_operator_style_goes_into_the_instructions():
+    """話し方（設定 operator_style）は指示書に載る。中身・決まりは変えないという但し書き付き。"""
+    from ecobuild_cli import _operator, build_cli
+    text = _operator.instructions(build_cli, style="語尾に「にゃ」を付けて")
+    assert "## 話し方（ユーザーの指定）" in text and "語尾に「にゃ」を付けて" in text and "報告の中身" in text
+    assert "## 話し方" not in _operator.instructions(build_cli)

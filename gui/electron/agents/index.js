@@ -17,7 +17,7 @@
 //   （リングの LED のモード。信号が変わる操作は調整で「operator:<操作>」として登録）。選択肢が出ているときに押し込むと
 //   選択モード（上下左右で選び、押し込みで決定）。右下に返答のカードが出ているときのタッチは、カードを閉じる。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
-const {app, BrowserWindow, Notification, clipboard, globalShortcut, ipcMain, screen: display} = require('electron');
+const {app, BrowserWindow, Notification, clipboard, dialog, globalShortcut, ipcMain, nativeImage, screen: display} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const pty = require('node-pty');
@@ -82,6 +82,10 @@ const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', ''];
 let operatorModel = 'sonnet';
 let reopenTabs = true;    // GUI を開き直したとき、前回のタブを会話の続きから開き直す
 let pickerWindow = null;  // タブの一覧（☰）を出している窓（リングで選ぶ）
+// アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）と、話し方（ECOBuild の設定。ここは表示と書き換えだけ）
+let icons = {operator: '', agent: ''};
+let styles = {operator: '', agent: ''};
+const iconOf = s => icons[s?.kind === 'operator' ? 'operator' : 'agent'] || '';
 let ringConfig = {...RING_DEFAULTS};
 let ringMode = 'work';    // work・operator
 let choosing = null;      // 選択モードのタブの id
@@ -363,7 +367,7 @@ function replied(s, message) {
   if (notify.style === 'ecobuild') { addCard(s, text); dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (Notification.isSupported()) {
     const n = new Notification({title: `${s.num}  ${s.name}`, body: text.replace(/\s+/g, ' ').slice(0, 200) || '返答が終わりました',
-                                icon: ICON, silent: false});
+                                icon: iconOf(s) ? nativeImage.createFromDataURL(iconOf(s)) : ICON, silent: false});
     n.on('click', () => focusTab(s.id, true));
     live.add(n); n.on('close', () => live.delete(n));
     n.show();
@@ -411,7 +415,9 @@ function pushDock() {
   }
   const peekTarget = chip?.kind === 'operator' ? op : s;
   const peek = chip && peekOn && peekTarget?.term ? {lines: parser.lastLines(screenText(peekTarget), 12), input: peekTarget.input} : null;
-  dock.update({chip, peek, cards: [...cards.map(c => ({...c, num: findSession(c.id)?.kind === 'operator' ? '◆' : findSession(c.id)?.num ?? c.num})), ...extra]});
+  dock.update({chip, peek, icons, cards: [...cards.map(c => ({...c, num: findSession(c.id)?.kind === 'operator' ? '◆' : findSession(c.id)?.num ?? c.num,
+                                                              kind: findSession(c.id)?.kind === 'operator' ? 'operator' : 'agent'})),
+                                          ...extra.map(c => ({...c, kind: 'operator'}))]});
 }
 
 // ---- オペレーター（番号 0。裏で動かす） ----------------------------------------------------------------------
@@ -486,7 +492,7 @@ function operatorView() {
   const screen = s?.term && ['starting', 'choice'].includes(s.state) ? parser.lastLines(screenText(s), 6) : '';
   const startingFor = s?.state === 'starting' && s.startedAt ? Date.now() - s.startedAt : 0;
   return {state: s ? (s.recording ? 'listening' : s.state) : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
-          screen, startingFor,
+          screen, startingFor, icon: icons.operator,
           log: operatorLog.slice(-100), queued: operatorQueue.length};
 }
 function pushOperator() {
@@ -710,6 +716,8 @@ function setup({ecobuild, python, group}) {
   loadOperatorLog();
   const saved = readState();
   if (OPERATOR_MODELS.includes(saved.operatorModel)) operatorModel = saved.operatorModel;
+  if (saved.icons) icons = {operator: String(saved.icons.operator || ''), agent: String(saved.icons.agent || '')};
+  loadStyles();
   reopenTabs = saved.reopen !== false;
   if (reopenTabs && Array.isArray(saved.tabs) && saved.tabs.length) {
     setTimeout(() => { for (const t of saved.tabs) if (t?.dir) try { openSession({dir: t.dir, name: t.name, agent: t.agent || '', resume: true}); } catch (e) { /* もうない */ } }, 1500);
@@ -754,7 +762,7 @@ function setup({ecobuild, python, group}) {
     send(w, 'agents:topmost', w.topmost);
     send(w, 'agents:notify', notify, HOLD_STEPS);
     send(w, 'agents:ring', ringView());
-    send(w, 'agents:prefs', {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs});
+    send(w, 'agents:prefs', prefsView());
     if (w.active) send(w, 'agents:select', w.active);
     pushTabs();
   });
@@ -808,7 +816,33 @@ function setup({ecobuild, python, group}) {
   ipcMain.on('agents:prefs', (event, patch) => {
     if (patch && OPERATOR_MODELS.includes(patch.operatorModel)) { operatorModel = patch.operatorModel; writeState({operatorModel}); }
     if (patch && typeof patch.reopen === 'boolean') { reopenTabs = patch.reopen; writeState({reopen: reopenTabs}); }
-    for (const w of windows) send(w, 'agents:prefs', {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs});
+    pushPrefs();
+  });
+  ipcMain.handle('agents:icon-pick', async (event, kind) => {
+    if (!(kind in icons)) return;
+    const w = windowOf(event);
+    const picked = await dialog.showOpenDialog(w?.win, {title: 'アイコンの画像', properties: ['openFile'],
+      filters: [{name: '画像', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico']}]});
+    if (picked.canceled || !picked.filePaths[0]) return;
+    const image = nativeImage.createFromPath(picked.filePaths[0]);
+    if (image.isEmpty()) return;
+    const {width, height} = image.getSize(), side = Math.min(width, height);   // 真ん中の正方形を 96px に
+    icons[kind] = image.crop({x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side})
+      .resize({width: 96, height: 96, quality: 'best'}).toDataURL();
+    writeState({icons}); pushPrefs(); pushTabs(); pushDock(); pushOperator();
+  });
+  ipcMain.on('agents:icon-clear', (event, kind) => {
+    if (!(kind in icons)) return;
+    icons[kind] = ''; writeState({icons}); pushPrefs(); pushTabs(); pushDock(); pushOperator();
+  });
+  ipcMain.handle('agents:style-set', async (event, kind, text) => {
+    if (!(kind in styles)) return;
+    const key = kind === 'operator' ? 'operator_style' : 'agent_style';
+    const value = String(text || '').trim();
+    const ok = await ecobuildRun(value ? ['config', 'set', key, value] : ['config', 'unset', key]);
+    if (ok) styles[kind] = value;
+    pushPrefs();
+    return ok;
   });
   ipcMain.handle('agents:ring-find', () => ring.find());
   ipcMain.on('agents:ring-calibrate', (event, prefix) => {
@@ -832,3 +866,26 @@ function screenOf(num) { const s = sessions.find(x => x.num === num); return s?.
 
 module.exports = {setup, connect, openSession, input, operatorSend, screenOf, sessions: () => sessions.map(describe),
                   operator: () => operatorView()};
+
+// ---- アイコン・話し方 ----------------------------------------------------------------------------------
+function prefsView() {
+  return {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs, icons, styles};
+}
+function pushPrefs() { for (const w of windows) send(w, 'agents:prefs', prefsView()); }
+
+// ecobuild を実行する（設定の読み書き）。答えの JSON を返す（失敗は null）
+function ecobuildRun(args) {
+  return new Promise(resolve => {
+    const program = ecobuildPath?.(); if (!program) return resolve(null);
+    require('child_process').execFile(program, [...args, '--json'], {windowsHide: true, timeout: 30000, encoding: 'utf8'}, (error, stdout) => {
+      try { const doc = JSON.parse(String(stdout).trim().split(/\r?\n/).pop()); resolve(doc.ok ? doc : null); } catch (e) { resolve(null); }
+    });
+  });
+}
+async function loadStyles() {
+  for (const [kind, key] of [['operator', 'operator_style'], ['agent', 'agent_style']]) {
+    const doc = await ecobuildRun(['config', 'get', key]);
+    styles[kind] = doc?.result?.value || '';
+  }
+  pushPrefs();
+}

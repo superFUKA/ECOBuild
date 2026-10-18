@@ -76,6 +76,8 @@ function renderTabs() {
     b.title = `${info.num}  ${info.name}（${STATE_LABELS[info.state] || info.state}）\n${info.dir}`;
     b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
     b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.num; b.querySelector('b').dataset.kind = info.kind;
+    const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
+    if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
     b.querySelector('.name').textContent = info.name;
     if (info.kind === 'operator') b.querySelector('.x').title = '裏に戻す（オペレーターは止めません）';
     b.addEventListener('click', event => {
@@ -359,10 +361,32 @@ function modelMenu(info, x, y) {
 }
 
 // ⚙ の「エージェント」：オペレーターのモデル・前回のタブを開き直すか
-agents.onPrefs(prefs => {
+let prefs = null;
+const NO_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><circle cx="28" cy="28" r="27" fill="#2b303a"/><circle cx="28" cy="22" r="9" fill="#7b808c"/><path d="M11 46c3-9 10-13 17-13s14 4 17 13" fill="#7b808c"/></svg>');
+agents.onPrefs(next => {
+  prefs = next; renderTabs();
+  for (const who of document.querySelectorAll('.persona .who')) {
+    const kind = who.dataset.kind, img = who.querySelector('img');
+    img.src = prefs.icons?.[kind] || NO_ICON; img.classList.toggle('none', !prefs.icons?.[kind]);
+    const area = who.querySelector('textarea');
+    if (document.activeElement !== area && !area.dataset.dirty) area.value = prefs.styles?.[kind] || '';
+  }
   const select = $('operator-model'); select.replaceChildren();
   for (const m of prefs.operatorModels) { const o = document.createElement('option'); o.value = m; o.textContent = m || 'Claude Code の既定'; select.append(o); }
   select.value = prefs.operatorModel; $('reopen-tabs').checked = !!prefs.reopen;
 });
 $('operator-model').addEventListener('change', () => agents.setPrefs({operatorModel: $('operator-model').value}));
 $('reopen-tabs').addEventListener('change', () => agents.setPrefs({reopen: $('reopen-tabs').checked}));
+
+for (const who of document.querySelectorAll('.persona .who')) {
+  const kind = who.dataset.kind, area = who.querySelector('textarea'), saved = who.querySelector('.saved');
+  who.querySelector('.pick').addEventListener('click', () => agents.iconPick(kind));
+  who.querySelector('.clear').addEventListener('click', () => agents.iconClear(kind));
+  area.addEventListener('input', () => { area.dataset.dirty = '1'; saved.textContent = ''; });
+  who.querySelector('.save').addEventListener('click', async () => {
+    saved.textContent = '保存しています…';
+    const ok = await agents.styleSet(kind, area.value);
+    if (ok) delete area.dataset.dirty;
+    saved.textContent = ok ? '保存しました（次に起動したときから）' : '保存できませんでした';
+  });
+}

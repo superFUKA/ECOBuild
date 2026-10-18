@@ -10,7 +10,10 @@ function render(view) {
   root.replaceChildren();
   for (const card of view.cards) {
     const c = el('div', 'card');
-    const head = el('div', 'head'); head.append(el('span', '', `${card.num}  ${card.name}`), el('span', '', card.label || '返答'));
+    const head = el('div', 'head');
+    const icon = view.icons?.[card.kind];
+    if (icon) { const img = el('img', 'avatar'); img.src = icon; img.alt = ''; head.append(img); }
+    head.append(el('span', 'who', `${card.num}  ${card.name}`), el('span', '', card.label || '返答'));
     if (card.key === 'heard') c.classList.add('heard');
     c.append(head, el('div', 'text', card.text || '返答が終わりました'));
     c.addEventListener('click', () => (card.num === '◆' ? dock.action('operator') : dock.action('open', card.id)));

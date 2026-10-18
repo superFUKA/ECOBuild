@@ -5,6 +5,11 @@
 .eco-dialog h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
 .eco-dialog p { margin: 8px 0; line-height: 1.7; }
 .eco-dialog .eco-intro { color: #a5aeba; font-size: 13px; }
+div.eco-intro { margin: 8px 0; line-height: 1.7; }   /* the form's intro: may hold blocks (a list, the outcome) */
+/* What submitting or finishing does (PR・取り込み・タスク), one row each. */
+.eco-outcome { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 4px 0 10px; padding: 8px 12px; border: 1px solid #303640; border-radius: 7px; background: #1b2128; }
+.eco-outcome dt { color: #8d98a6; font-size: 12px; }
+.eco-outcome dd { margin: 0; color: #edf1f5; }
 .eco-dialog label.eco-field { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }
 .eco-dialog label.eco-check { display: flex; gap: 8px; align-items: center; margin: 10px 0; font-size: 13px; }
 .eco-dialog .eco-help { color: #a5aeba; font-size: 12px; }

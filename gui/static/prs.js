@@ -80,7 +80,7 @@ WS.judge = async (approve, number) => {
 function submitDialog(t) {
   if (t.pull_request?.state === 'open') return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs());
   return ECO.form({
-    title: `提出：#${t.number}`, intro: 'ビルド・テストなどで確認してから、タスクブランチをPushして作成元' + (t.base ? `（${esc(t.base)}）` : '') + 'へ提出します。' + ECO.submissionCommits(t.commits),
+    title: `提出：#${t.number}`, intro: ECO.submitOutcome(t.base) + ECO.submissionCommits(t.commits),
     fields: [
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
       {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
@@ -108,10 +108,9 @@ async function prAction(action) {
     case 'reject': return WS.judge(false, t.number);
     case 'submit': case 'ready': return submitDialog(t);
     case 'finish': {
-      const v = await ECO.form({title: `完了：#${n}`, intro: (t.pull_request?.state === 'open' ? '' : '提出していないので、提出してから取り込みます。') + 'CIを待って取り込み、タスクを閉じてタスクブランチを片付けます。',
-        fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}, {name: 'partial', label: 'タスクを閉じずに続ける（取り込んだ後、タスクブランチを作り直して作業を続ける）', type: 'checkbox'}], ok: '完了'});
-      if (!v) return;
-      const doc = await WS.run(['task', 'finish', n, ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : []), ...(v.partial ? ['--partial'] : [])], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
+      const options = await ECO.finishForm({number: n, submitted: t.pull_request?.state === 'open', base: t.base});
+      if (!options) return;
+      const doc = await WS.run(['task', 'finish', n, ...options], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
       await after(doc); if (doc) WS.reloadFiles?.(); return;
     }
     case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。`, title: '提出を取り下げる', refresh: false}));

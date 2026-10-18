@@ -334,7 +334,7 @@ const ECO = (() => {
         html += wrap(f); i++;
       }
       html += closing;
-      d.innerHTML = `<form><h2>${esc(title)}</h2>${intro ? `<p class="eco-intro">${intro}</p>` : ''}${html}${extra}<p class="eco-error" role="alert"></p><div class="eco-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></form>`;
+      d.innerHTML = `<form><h2>${esc(title)}</h2>${intro ? `<div class="eco-intro">${intro}</div>` : ''}${html}${extra}<p class="eco-error" role="alert"></p><div class="eco-actions"><button type="button" data-cancel>キャンセル</button><button type="submit" class="${danger ? 'danger' : 'primary'}">${esc(ok)}</button></div></form>`;
       const formEl = d.querySelector('form'), error = d.querySelector('.eco-error'), okButton = d.querySelector('[type=submit]');
       let result = null, working = false;
       d.querySelector('[data-cancel]').addEventListener('click', () => d.close());
@@ -526,9 +526,9 @@ const ECO = (() => {
     diff: 'このタスクブランチと作成元との差分（取り込むと入る変更）を見ます。',
     comment: '提出にコメントを書きます。',
     task: 'タスク管理で、このタスクを開きます。',
-    submit: '提出：タスクブランチの変更を作成元へ取り込んでよいか、見てもらえるように出します（PR）。確認（ビルド・テスト）をしてから Push します。提出しても、コミットして Push すれば提出に加わります。',
+    submit: '提出：PR を出して、見てもらえるようにします（取り込みはせず、タスクは開いたまま）。確認（ビルド・テスト）をしてから Push します。提出しても、コミットして Push すれば提出に加わります。',
     ready: '下書きの提出を、見てもらえる状態にします。',
-    finish: '完了：CIの結果を待って、提出を作成元へ取り込み、タスクを閉じてタスクブランチを片付けます。提出していなければ、提出してから取り込みます。',
+    finish: '完了：CIの結果を待って、提出（PR）を作成元へ取り込み、タスクを閉じてタスクブランチを片付けます。提出していなければ、ここで PR を出してから取り込みます。',
     withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
     'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
     'review-done': '手元での確認をやめて、確認の前の場所へ戻ります（承認も差し戻しもしません）。',
@@ -536,6 +536,22 @@ const ECO = (() => {
     reject: '差し戻し：直してほしいことを書いて、担当者へ戻します（タスクは作業中に戻ります）。',
     merge: '取り込む：ブランチ同士の提出を、マージコミットで取り込み先へ取り込みます。',
   };
+  // What submitting and finishing do, side by side in their dialogs: both send a PR; only finishing takes it in and
+  // closes the task. A row with a key can be rewritten while the dialog is open (finishing without closing).
+  const outcome = rows => `<dl class="eco-outcome">${rows.map(([k, v, key]) => `<dt>${k}</dt><dd${key ? ` data-outcome="${key}"` : ''}>${v}</dd>`).join('')}</dl>`;
+  const into = base => '作成元' + (base ? `（${esc(base)}）` : '');
+  const submitOutcome = base => outcome([['PR', `${into(base)}へ出します（Push してから）`], ['取り込み', 'しません（「完了」で取り込みます）'], ['タスク', '開いたまま（レビュー待ちになります）']]);
+  const CLOSE_TEXT = '閉じて、タスクブランチを片付けます', KEEP_TEXT = '閉じずに続けます（タスクブランチを作成元の最新から作り直します）';
+  // The finish dialog (task finish), the same wherever it is: resolves to the CLI's arguments after the number, or null.
+  // submitted: a submission is open (else finishing submits first). partial: the default for 閉じずに続ける.
+  async function finishForm({number, submitted, base, partial = false}) {
+    const v = await form({title: `完了：#${number}`,
+      intro: outcome([['PR', submitted ? '出している提出を使います' : 'まだ出していないので、ここで出します'], ['取り込み', `CI を待って、${into(base)}へ取り込みます`], ['タスク', partial ? KEEP_TEXT : CLOSE_TEXT, 'task']]),
+      fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'},
+        {name: 'partial', label: 'タスクを閉じずに続ける（途中の取り込み）', type: 'checkbox', value: partial}], ok: '完了',
+      onChange: (values, formEl) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = values.partial ? KEEP_TEXT : CLOSE_TEXT; }});
+    return v ? [...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : []), ...(v.partial ? ['--partial'] : [])] : null;
+  }
   // A button for an action on a submission (data-pr-action): its help as the title, a note after it (why it is off etc.).
   function submissionButton(action, label, {enabled = true, kind = '', note = ''} = {}) {
     const b = document.createElement('button');
@@ -793,7 +809,7 @@ const ECO = (() => {
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
   return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
-    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submissionButton, submissionDetail, submissionCommits};
+    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, finishForm, submissionButton, submissionDetail, submissionCommits};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
 window.ECO = ECO;

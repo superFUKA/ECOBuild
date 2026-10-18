@@ -164,11 +164,10 @@
         return after(doc);
       }
       case 'finish': {
-        const v = await ECO.form({title: `完了：#${n}`, intro: 'CIを待って取り込み、タスクを閉じてタスクブランチを片付けます。',
-          fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}, {name: 'partial', label: 'タスクを閉じずに続ける（取り込んだ後、タスクブランチを作り直して作業を続ける）', type: 'checkbox', value: !!t.pull_request?.partial}], ok: '完了'});
-        if (!v) return;
+        const options = await ECO.finishForm({number: n, submitted: t.pull_request?.state === 'open', base: t.base, partial: !!t.pull_request?.partial});
+        if (!options) return;
         const place = MOD.placeOfTask(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', 'finish', n, ...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : []), ...(v.partial ? ['--partial'] : [])], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
+        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
         if (doc) MOD.reloadPlace(place);
         return after(doc);
       }

@@ -113,7 +113,8 @@
 .pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
 .pr-look button { border: 0; background: transparent; color: #a5aeba; padding: 4px 8px; font-size: 12px; }
 .pr-look button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
-.pr-act { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.pr-act { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.pr-act button { padding: 5px 14px; }   /* the plain button (10px 16px) is too tall for this row */
 .pr-look { margin-left: auto; }
 .pr-act .quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
 .pr-act .quiet-danger:hover:not(:disabled) { border-color: #7a3b3b; }

@@ -533,6 +533,10 @@ def save_token(token: str) -> Path:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "トークンが空か、空白を含んでいます。",
                             hint="claude setup-token が最後に出す sk-ant-oat… の1行をそのまま貼ってください。")
     path = token_path()
+    repository = next((p for p in path.resolve().parents if (p / ".git").exists()), None)
+    if repository is not None:     # コミットされてしまう場所には置かない（ECOBUILD_HOME をリポジトリの中にした等）
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"トークンの置き場所 {path} が git のリポジトリ（{repository}）の中です。",
+                            hint="コミットされないよう、ECOBUILD_HOME をリポジトリの外にしてください。")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(token + "\n", encoding="utf-8")
     try:

@@ -209,6 +209,11 @@ def test_the_token_is_kept_without_spaces(monkeypatch, tmp_path):
     with pytest.raises(WorkError):
         container.save_token("sk-ant oat")
     assert container.forget_token() and container.load_token() == ""
+    (tmp_path / "repo" / ".git").mkdir(parents=True)                       # リポジトリの中には置かない
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "repo" / "home"))
+    with pytest.raises(WorkError) as raised:
+        container.save_token("sk-ant-oat01-xyz")
+    assert "リポジトリ" in raised.value.message and not container.token_path().exists()
 
 
 def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeypatch):

@@ -637,6 +637,12 @@ function setup({ecobuild, python}) {
   ipcMain.handle('agents:open', (event, options) => openSession(options || {}));
   ipcMain.handle('agents:list', () => sessions.map(describe));
   ipcMain.handle('agents:picker', () => pickerList());
+  // ＋：このPCの作業空間（ecobuild workspace list）
+  ipcMain.handle('agents:workspaces', () => new Promise(resolve => require('child_process').execFile(ecobuildPath(),
+    ['workspace', 'list', '--json'], {windowsHide: true, timeout: 30000, env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, (error, stdout) => {
+      try { resolve((JSON.parse(String(stdout).trim().split('\n').pop()).result || []).filter(w => w.exists !== false)); }
+      catch (e) { resolve([]); }
+    })));
   ipcMain.on('agents:ready', event => {
     const w = windowOf(event); if (!w) return;
     w.ready = true;

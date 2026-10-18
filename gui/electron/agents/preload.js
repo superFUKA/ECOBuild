@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('agents', {
   minimize: () => ipcRenderer.send('agents:minimize'),
   closeWindow: () => ipcRenderer.send('agents:close-window'),
   picker: () => ipcRenderer.invoke('agents:picker'),
+  workspaces: () => ipcRenderer.invoke('agents:workspaces'),
+  open: options => ipcRenderer.invoke('agents:open', options),
   setNotify: patch => ipcRenderer.send('agents:notify', patch),
   testSound: () => ipcRenderer.send('agents:test-sound'),
   voice: id => ipcRenderer.send('agents:voice', id),

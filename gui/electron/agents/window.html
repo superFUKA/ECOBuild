@@ -9,40 +9,52 @@
 </head>
 <body>
   <header class="bar">
-    <div class="tabs" id="tabs" role="tablist" aria-label="エージェント"></div>
-    <div class="tools">
-      <button type="button" id="voice" class="tool" title="音声入力：録音の開始・停止（Ctrl+Alt+V。ほかのアプリを使っていても効きます）。送るのは Ctrl+Alt+↓、消すのは Ctrl+Alt+↑" aria-label="音声入力">🎤</button>
-      <button type="button" id="picker" class="tool" title="タブの一覧（状況・最後の出力。Ctrl+Shift+A）" aria-label="タブの一覧">☰</button>
-      <button type="button" id="settings" class="tool" title="知らせ方の設定" aria-label="知らせ方の設定">⚙</button>
-      <button type="button" id="topmost" class="tool" title="最前面：常に"><span aria-hidden="true">📌</span><span id="topmost-label">常に</span></button>
-      <button type="button" id="minimize" class="tool" title="最小化（右下の小さな表示になります）" aria-label="最小化">–</button>
-      <button type="button" id="close" class="tool close" title="閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
-    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="エージェント"></nav>
+    <button type="button" id="add" class="icon" title="作業空間のエージェントを開く" aria-label="エージェントを開く">＋</button>
+    <button type="button" id="picker" class="icon" title="タブの一覧から選ぶ（Ctrl+Shift+A）" aria-label="タブの一覧">☰</button>
+    <button type="button" id="voice" class="icon" title="音声入力：録音の開始・停止（Ctrl+Alt+V。ほかのアプリを使っていても効きます）。送るのは Ctrl+Alt+↓、消すのは Ctrl+Alt+↑" aria-label="音声入力">🎙</button>
+    <button type="button" id="topmost" class="topmost" data-mode="always" title="最前面：常に">📌 常に</button>
+    <button type="button" id="settings" class="icon" title="設定（知らせ方・リング）" aria-label="設定">⚙</button>
+    <button type="button" id="minimize" class="icon" title="最小化（右下の小さな表示になります）" aria-label="最小化">–</button>
+    <button type="button" id="close" class="icon close" title="この窓を閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
   </header>
-  <main id="screens"><p class="empty" id="empty">エージェントはありません。作業空間の「エージェント」から開きます。</p></main>
-  <footer class="status" id="status"></footer>
+  <main id="screens"><p class="empty" id="empty">エージェントはありません。＋ か、作業空間の「エージェント」から開きます。</p></main>
+  <footer class="status">
+    <span class="mode" title="オペレーターモード（リングの LED のモードで切り替わります）">オペレーター</span>
+    <span class="info" id="status"></span>
+    <span class="dot" id="ring-dot" hidden title="リング"></span>
+  </footer>
   <div class="menu" id="menu" role="menu" hidden></div>
-  <section class="panel" id="picker-panel" hidden aria-label="タブの一覧"><ol id="picker-list"></ol><p class="hint">クリック・数字キー・↑↓ と Enter で選ぶ。Esc で閉じる</p></section>
-  <section class="panel" id="settings-panel" hidden aria-label="知らせ方の設定">
-    <h2>返答の知らせ方</h2>
-    <div class="choices" id="notify-style">
-      <label><input type="radio" name="style" value="windows">Windows の通知（音・集中モードは Windows の設定どおり）</label>
-      <label><input type="radio" name="style" value="ecobuild">右下のカードと音（ECOBuild の知らせ。全画面のアプリの上にも出ます）</label>
-      <label><input type="radio" name="style" value="off">知らせない（最小化中は右下に出します）</label>
+
+  <section class="panel" id="picker-panel" hidden aria-label="タブの一覧">
+    <ol id="picker-list"></ol>
+    <p class="note">クリック・数字キー・↑↓ と Enter で選ぶ。Esc で閉じる</p>
+  </section>
+
+  <section class="panel" id="settings-panel" hidden aria-label="設定">
+    <div class="head"><button type="button" id="settings-close" class="icon" title="閉じる（Esc）" aria-label="閉じる">×</button></div>
+    <div class="card">
+      <h2>返答の知らせ方</h2>
+      <div class="choices" id="notify-style">
+        <label><input type="radio" name="style" value="windows">Windows の通知（音・集中モードは Windows の設定どおり）</label>
+        <label><input type="radio" name="style" value="ecobuild">右下のカードと音（全画面のアプリの上にも出ます）</label>
+        <label><input type="radio" name="style" value="off">知らせない（最小化中は右下に出します）</label>
+      </div>
+      <div class="row"><span>音</span><select id="notify-sound"></select><button type="button" id="notify-test" class="tool">試す</button></div>
+      <div class="row"><span>音量</span><input type="range" id="notify-volume" min="0" max="1" step="0.05"></div>
+      <div class="row"><span>右下に返答を出しておく時間</span><select id="notify-hold"></select></div>
     </div>
-    <div class="row"><label>音<select id="notify-sound"></select></label><button type="button" id="notify-test" class="tool">試す</button></div>
-    <div class="row"><label>音量<input type="range" id="notify-volume" min="0" max="1" step="0.05"></label></div>
-    <div class="row"><label>右下に返答を出しておく時間<select id="notify-hold"></select></label></div>
-    <h2>リング（Ring II）</h2>
-    <p class="note" id="ring-status">—</p>
-    <div class="row"><label><input type="checkbox" id="ring-enabled">リングで操作する</label></div>
-    <div class="row"><label>識別子<input type="text" id="ring-match" placeholder="例：ccb8f18d6cc0" size="16"></label><button type="button" id="ring-find" class="tool">探す</button></div>
-    <div class="row"><button type="button" id="ring-calibrate" class="tool" title="新しい窓で、各操作を3回ずつ行って登録します">操作を登録する</button><button type="button" id="ring-calibrate-operator" class="tool" title="リングをオペレーターモード（LED の色）にしてから。信号が変わる操作を、オペレーターモードの信号として足します">オペレーターモードを登録する</button></div>
-    <div class="row"><label><input type="checkbox" id="ring-guard">リングでカーソルが飛ぶのを止める</label></div>
-    <div class="row"><label><input type="checkbox" id="ring-keepalive">接続を保つ（電池の減りは早くなります）</label></div>
-    <div class="row"><label><input type="checkbox" id="ring-resident">PC にサインインしたときから常駐する（ECOBuild が閉じている間もリングでカーソルが飛ばず、押し込みで ECOBuild を開きます）</label></div>
-    <p class="note">ほかのアプリも同じリングを受けていると、二重に反応します。使うのはどちらか一方にしてください。</p>
-    <div class="row"><button type="button" id="settings-close" class="tool">閉じる</button></div>
+    <div class="card">
+      <h2>リング（Ring II）</h2>
+      <p class="note" id="ring-status">—</p>
+      <div class="row"><label><input type="checkbox" id="ring-enabled">リングで操作する</label></div>
+      <div class="row"><span>識別子</span><input type="text" id="ring-match" placeholder="例：ccb8f18d6cc0" size="16"><button type="button" id="ring-find" class="tool">探す</button></div>
+      <div class="row"><button type="button" id="ring-calibrate" class="tool" title="新しい窓で、各操作を3回ずつ行って登録します">操作を登録する</button><button type="button" id="ring-calibrate-operator" class="tool" title="リングをオペレーターモード（LED の色）にしてから。信号が変わる操作を、オペレーターモードの信号として足します">オペレーターモードを登録する</button></div>
+      <div class="row"><label><input type="checkbox" id="ring-guard">リングでカーソルが飛ぶのを止める</label></div>
+      <div class="row"><label><input type="checkbox" id="ring-keepalive">接続を保つ（電池の減りは早くなります）</label></div>
+      <div class="row"><label><input type="checkbox" id="ring-resident">PC にサインインしたときから常駐する（ECOBuild が閉じている間もリングでカーソルが飛ばず、押し込みで ECOBuild を開きます）</label></div>
+      <p class="note">ほかのアプリも同じリングを受けていると、二重に反応します。使うのはどちらか一方にしてください。</p>
+    </div>
   </section>
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>

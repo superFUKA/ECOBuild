@@ -1,8 +1,10 @@
 'use strict';
 // エージェントの窓の画面：タブ（番号・名前・状態）と、タブごとの端末（xterm.js）。表示するのは選んでいるタブだけ。
 // タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
-// 下のバー：状態・モデル・コンテキスト・使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・場所。
-// ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方。
+// ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線）・＋（作業空間のエージェントを開く）・☰・🎙・📌・⚙・–・×。
+// フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
+// リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
+// ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方とリング。
 // 端末：Ctrl+= / Ctrl+- / Ctrl+0 で文字の大きさ、Ctrl+Shift+C で選んだところをコピー、Ctrl+V で貼り付け。
 const $ = id => document.getElementById(id);
 const terms = new Map();     // id → {term, fit, el}
@@ -14,7 +16,7 @@ const TOPMOST_LABELS = {always: '常に', auto: '自動', off: 'オフ'};
 function makeTerm(info, history) {
   const el = document.createElement('div'); el.className = 'screen'; el.hidden = true; $('screens').append(el);
   const term = new Terminal({fontFamily: 'Cascadia Mono, Consolas, "BIZ UDGothic", monospace', fontSize, cursorBlink: true,
-    scrollback: 5000, allowProposedApi: true, theme: {background: '#14181d', foreground: '#edf1f5'}});
+    scrollback: 5000, allowProposedApi: true, theme: {background: '#15171c', foreground: '#d7dae0'}});
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit); term.open(el);
   term.onData(data => agents.input(info.id, data));
@@ -53,11 +55,13 @@ function show(id) {
 function renderTabs() {
   const bar = $('tabs'); bar.replaceChildren();
   for (const info of tabs) {
-    const b = document.createElement('button'); b.type = 'button'; b.className = 'tab ' + (info.state || ''); b.setAttribute('role', 'tab');
-    b.setAttribute('aria-selected', String(info.id === active)); b.draggable = true; b.dataset.id = info.id;
+    const b = document.createElement('button'); b.type = 'button';
+    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : ''); b.dataset.state = info.state || '';
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = true; b.dataset.id = info.id;
     b.title = `${info.num}  ${info.name}（${STATE_LABELS[info.state] || info.state}）\n${info.dir}`;
-    b.innerHTML = `<span class="num"></span><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('.num').textContent = info.kind === 'operator' ? '◆' : info.num; b.querySelector('.name').textContent = info.name;
+    b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
+    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.num; b.querySelector('b').dataset.kind = info.kind;
+    b.querySelector('.name').textContent = info.name;
     if (info.kind === 'operator') b.querySelector('.x').title = '裏に戻す（オペレーターは止めません）';
     b.addEventListener('click', event => {
       if (event.target.classList.contains('x')) return closeTab(info);
@@ -83,30 +87,39 @@ function renderTabs() {
   renderStatus(current);
 }
 
-// 下のバー
+// フッター
 function renderStatus(current) {
   const bar = $('status'); bar.replaceChildren();
   document.title = current ? `${current.num} ${current.name} - エージェント` : 'エージェント - ECOBuild';
+  document.body.classList.toggle('operator', ringState?.enabled && ringState.mode === 'operator');
+  renderRingDot();
   if (!current) return;
   const add = (text, cls = '', title = '') => { const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls; if (title) s.title = title; bar.append(s); return s; };
   const info = current.info || {};
-  add(STATE_LABELS[current.state] || '');
-  if (info.model) add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''));
-  for (const [label, limit] of [['5時間', info.fiveHour], ['週', info.weekly]]) {
-    if (!limit) { add(`${label} —`, '', '使用量の制限は、Claude が最初に返答した後に届きます'); continue; }
-    const cls = limit.remaining <= 5 ? 'bad' : limit.remaining <= 20 ? 'warn' : '';
-    add(`${label} 残り ${limit.remaining}%`, cls, limit.resetsAt ? `リセット：${resetText(limit.resetsAt)}` : '');
+  if (ringState?.choosing) add('選択モード', 'choosing', '上下左右で選んで、押し込みで決定');
+  add(STATE_LABELS[current.state] || '', current.state === 'listening' ? 'listening' : '');
+  if (info.model) add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''), 'model');
+  add(current.kind === 'operator' ? 'オペレーター' : shortDir(current.dir), 'where', current.dir);
+  let first = true;
+  for (const [label, limit] of [['5h', info.fiveHour], ['週', info.weekly]]) {
+    const s = !limit ? add(`${label} —`, 'limit', '使用量の制限は、Claude が最初に返答した後に届きます')
+      : add(`${label} ${limit.remaining}%`, 'limit' + (limit.remaining <= 5 ? ' bad' : limit.remaining <= 20 ? ' low' : ''),
+            `残り ${limit.remaining}%` + (limit.resetsAt ? `。リセット：${resetText(limit.resetsAt)}` : ''));
+    if (first) { s.classList.add('right'); first = false; }
   }
-  add('', 'gap');
-  if (ringState?.enabled) {
-    const ok = ringState.online && ringState.connected;
-    add(`リング ${ok ? '●' : '○'}${ringState.battery != null ? ` 🔋${ringState.battery}%` : ''}`, 'ring ' + (ok ? 'ok' : 'off'), ringState.message || '');
-    if (ringState.mode === 'operator') add('オペレーターモード', 'mode-op');
-    if (ringState.choosing) add('選択モード（上下左右で選んで押し込みで決定）', 'mode-op');
-  }
-  add(current.dir, 'where', current.dir);
+  if (ringState?.enabled && ringState.battery != null) add(`🔋${ringState.battery}%`, 'limit' + (ringState.battery <= 10 ? ' bad' : ringState.battery <= 25 ? ' low' : ''), 'リングの電池');
 }
 let ringState = null;
+const shortDir = dir => String(dir || '').replaceAll('\\', '/').split('/').filter(Boolean).slice(-2).join('/');
+
+// リングの丸：緑＝つながっていて登録あり、黄＝つながっているが登録なし・見つからない、赤＝受信係が止まっている
+function renderRingDot() {
+  const dot = $('ring-dot'), r = ringState;
+  dot.hidden = !r?.enabled;
+  if (!r?.enabled) return;
+  dot.className = 'dot ' + (!r.online ? 'off' : r.connected && r.calibrated ? 'ok' : 'warn');
+  dot.title = `リング：${r.message || ''}${r.calibrated === false && r.connected ? '（操作が登録されていません）' : ''}`;
+}
 
 function resetText(seconds) {
   const at = new Date(seconds * 1000), hours = Math.max(0, (at - Date.now()) / 3600000);
@@ -160,10 +173,13 @@ agents.onTabs(({tabs: list, active: selected}) => {
   $('empty').hidden = terms.size > 0;
 });
 agents.onTopmost(mode => {
-  $('topmost-label').textContent = TOPMOST_LABELS[mode] || mode;
+  $('topmost').textContent = `📌 ${TOPMOST_LABELS[mode] || mode}`; $('topmost').dataset.mode = mode;
   $('topmost').title = `最前面：${TOPMOST_LABELS[mode]}（押すと 常に → 自動 → オフ。自動は返答が届いたときだけ前に出ます）`;
-  $('topmost').classList.toggle('on', mode !== 'off');
 });
+// 選んでいる窓（フォーカスがある）は枠を青く
+addEventListener('focus', () => document.body.classList.add('selected'));
+addEventListener('blur', () => document.body.classList.remove('selected'));
+document.body.classList.toggle('selected', document.hasFocus());
 $('topmost').addEventListener('click', () => agents.topmost());
 $('minimize').addEventListener('click', () => agents.minimize());
 $('close').addEventListener('click', () => agents.closeWindow());
@@ -185,7 +201,7 @@ function renderPicker() {
   const list = $('picker-list'); list.replaceChildren();
   pickerItems.forEach((item, i) => {
     const li = document.createElement('li'); li.className = (item.state || '') + (i === pickerIndex ? ' current' : '');
-    li.innerHTML = '<div class="head"><span class="num"></span><span class="name"></span><span class="state"></span></div><pre></pre>';
+    li.innerHTML = '<div class="line"><span class="num"></span><span class="name"></span><span class="state"></span></div><pre></pre>';
     li.querySelector('.num').textContent = item.num; li.querySelector('.name').textContent = item.name + (item.mini ? '（最小化中）' : '');
     li.querySelector('.state').textContent = STATE_LABELS[item.state] || item.state;
     li.querySelector('pre').textContent = [item.lines, item.input && '❯ ' + item.input].filter(Boolean).join('\n');
@@ -231,7 +247,7 @@ $('notify-test').addEventListener('click', () => agents.testSound());
 $('settings').addEventListener('click', () => { const open = $('settings-panel').hidden; closePanels(); $('settings-panel').hidden = !open; });
 $('settings-close').addEventListener('click', closePanels);
 
-// ---- 音声入力（🎤：録音の開始・停止。Ctrl+Alt+V でも。Ctrl+Alt+↓ で送信、Ctrl+Alt+↑ で消す） ---------------------
+// ---- 音声入力（🎙：録音の開始・停止。Ctrl+Alt+V でも。Ctrl+Alt+↓ で送信、Ctrl+Alt+↑ で消す） ---------------------
 $('voice').addEventListener('click', () => { if (active) agents.voice(active); });
 
 // ---- リング（⚙ の中） --------------------------------------------------------------------------------------
@@ -259,3 +275,22 @@ $('ring-calibrate').addEventListener('click', () => agents.ringCalibrate(''));
 $('ring-calibrate-operator').addEventListener('click', () => agents.ringCalibrate('operator'));
 agents.onScroll((id, lines) => terms.get(id)?.term.scrollLines(lines));
 agents.onPicker(() => ($('picker-panel').hidden ? openPicker() : closePanels()));
+
+// ---- ＋：作業空間のエージェントを開く（このPCの作業空間の一覧から） ----------------------------------------------
+$('add').addEventListener('click', async event => {
+  const menu = $('menu'); menu.replaceChildren();
+  const head = document.createElement('div'); head.className = 'head'; head.textContent = '読み込んでいます…'; menu.append(head);
+  const r = event.currentTarget.getBoundingClientRect();
+  menu.hidden = false; menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + 'px'; menu.style.top = (r.bottom + 2) + 'px';
+  event.stopPropagation();
+  const list = await agents.workspaces();
+  head.textContent = list.length ? '作業空間（タスクブランチのものだけ開けます）' : '記録した作業空間はありません';
+  for (const w of list) {
+    const b = document.createElement('button'); b.type = 'button';
+    const folder = shortDir(w.path).split('/').pop();
+    b.textContent = `${folder}  ${w.branch || ''}${w.task ? `（#${w.task}）` : ''}`; b.title = w.path; b.disabled = !w.task;
+    if (!w.task) b.style.opacity = '.45';
+    b.addEventListener('click', () => { menu.hidden = true; agents.open({dir: w.path, name: folder + (w.task ? ` #${w.task}` : '')}); });
+    menu.append(b);
+  }
+});

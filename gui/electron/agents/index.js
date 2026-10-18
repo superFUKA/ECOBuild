@@ -315,7 +315,7 @@ function poll() {
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
-    if (s.kind === 'operator' && (s.recording || read.state === 'choice')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
+    if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
@@ -455,7 +455,11 @@ function hideOperator() {
 
 function operatorView() {
   const s = findOperator();
+  // 起動中・選択肢のときは画面の最後の数行も（入力欄が出ないまま止まっているときに、何が出ているか分かるように）
+  const screen = s?.term && ['starting', 'choice'].includes(s.state) ? parser.lastLines(screenText(s), 6) : '';
+  const startingFor = s?.state === 'starting' && s.startedAt ? Date.now() - s.startedAt : 0;
   return {state: s ? (s.recording ? 'listening' : s.state) : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
+          screen, startingFor,
           log: operatorLog.slice(-100), queued: operatorQueue.length};
 }
 function pushOperator() {

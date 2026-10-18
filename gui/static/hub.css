@@ -222,3 +222,4 @@ main { padding: 22px 28px; }
     .nav-button.quick.busy .quick-dot { background: #e3b341; animation: quick-blink 1.4s ease-in-out infinite; }
     @keyframes quick-blink { 50% { opacity: .35; } }
     body.nav-collapsed .nav-button.quick { justify-content: center; padding: 8px 0; }
+    .operator-screen { margin: 6px 0 4px; padding: 6px 8px; border: 1px solid #343c46; border-radius: 6px; background: #14171b; color: #a5aeba; font: 11px/1.4 Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: hidden; }

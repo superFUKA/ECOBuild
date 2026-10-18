@@ -27,7 +27,7 @@ def command(
             f"{'下書きとして' if r.draft else ''}{kind}しました：{r.title}（{r.url}）",
             "次：準備ができたら ecobuild task submit（下書きを解除）" if r.draft
             else "次：ecobuild task finish（CIを待って完了）。見てもらうなら、見る人が ecobuild task review "
-                 f"{r.head.removeprefix('task/')} → task approve／reject",
+                 f"{r.head.removeprefix('task/').split('-')[0]} → task approve／reject",
         )
 
     return run_command("task submit", action, render, json_output=json)

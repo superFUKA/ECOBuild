@@ -408,7 +408,7 @@ get('switch-branch').addEventListener('click', async () => {
     const others = WS.me && t.assignees?.length && !t.assignees.includes(WS.me) ? t.assignees : [];
     if (others.length) return [`${label}（担当：${others.join('、')}）`, () => {}, false, 'ほかの人が担当しています。引き継ぐなら、タスク管理の「作業を開始」から'];
     return [label + (t.task_branch ? '' : '（GitHubから再開）'), () => WS.run(['task', 'start', String(t.number)],
-      {success: `タスクブランチ task/${t.number} に切り替えました。`}).then(d => d && WS.reloadFiles?.()), !why, why];
+      {success: r => `タスクブランチ ${r.branch} に切り替えました。`}).then(d => d && WS.reloadFiles?.()), !why, why];
   });
   ECO.menu([
     [why || 'この作業空間に置くタスクブランチ', null],

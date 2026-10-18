@@ -19,11 +19,37 @@ if TYPE_CHECKING:
     from .repository import Repository
 
 TASK_BRANCH_PREFIX = "task/"
-_TASK_BRANCH = re.compile(r"task/(\d+)")
+_TASK_BRANCH = re.compile(r"task/(\d+)(?:-.+)?")
 
 
-def task_branch_name(number: int) -> str:
-    return f"{TASK_BRANCH_PREFIX}{number}"
+def task_branch_name(number: int, name: str | None = None) -> str:
+    """タスクブランチの名前：task/<番号>-<名前>（名前がなければ task/<番号>。名前を付ける前に作ったものはこの形）。"""
+    return f"{TASK_BRANCH_PREFIX}{number}" + (f"-{name}" if name else "")
+
+
+# タスクブランチの名前に使えない文字：gitの決まりと、Windowsのファイル名に使えない文字、Issueの印（HTMLのコメント）を
+# 壊す文字。日本語はそのまま使える。
+_UNUSABLE = re.compile(r'[\s~^:?*\[\]\\/"<>|\x00-\x1f\x7f]+|\.{2,}|@\{')
+
+
+def branch_label(title: str) -> str:
+    """題名から作る、タスクブランチの名前の既定（使えない文字を - にする。何も残らなければ空）。"""
+    label = re.sub(r"-{2,}", "-", _UNUSABLE.sub("-", title)).strip("-.")
+    while label.endswith(".lock"):
+        label = label.removesuffix(".lock").rstrip("-.")
+    return label
+
+
+def check_branch_label(name: str) -> str:
+    """タスクブランチの名前（task/<番号>- の後ろ）を確かめて返す。空か、使えない文字があれば止める。"""
+    name = name.strip()
+    if not name:
+        raise WorkError(ErrorCode.BRANCH_NAME_REQUIRED, "タスクブランチの名前を指定してください。",
+                        hint="--name で指定します（日本語も使えます。例：--name ログイン画面）。")
+    if branch_label(name) != name:
+        raise WorkError(ErrorCode.INVALID_BRANCH_NAME, f"タスクブランチの名前に使えない文字があります：{name}",
+                        hint=f'空白と ~ ^ : ? * [ ] \\ / " < > | と「..」は使えません（例：{branch_label(name) or "ログイン画面"}）。')
+    return name
 
 
 def is_task_branch(name: str) -> bool:
@@ -41,8 +67,8 @@ def base_key(branch: str) -> str:
 
 
 # タスクブランチの本体はGitHubにあり、手元はその写し（消しても task start で作り直せる）。
-# 作成元もGitHubに残すため、Issueの本文の末尾に印（表示されないHTMLのコメント）を書く。
-_BASE_MARK = re.compile(r"\s*<!-- ecowork-base: (\S+) -->\s*$")
+# 作成元とタスクブランチの名前もGitHubに残すため、Issueの本文の末尾に印（表示されないHTMLのコメント）を書く。
+_BASE_MARK = re.compile(r"\s*<!-- ecowork-base: (\S+)(?: branch: (\S+))? -->\s*$")
 
 
 def issue_base(body: str) -> str | None:
@@ -50,13 +76,21 @@ def issue_base(body: str) -> str | None:
     return None if match is None else match.group(1)
 
 
+def issue_branch(body: str) -> str | None:
+    """Issueに記録したタスクブランチの名前（名前を記録する前に作ったものはNone）。"""
+    match = _BASE_MARK.search(body or "")
+    return None if match is None else match.group(2)
+
+
 def without_base(body: str) -> str:
     return _BASE_MARK.sub("", body or "")
 
 
-def with_base(body: str, base: str) -> str:
+def with_base(body: str, base: str, branch: str | None = None) -> str:
+    """作成元（とタスクブランチの名前）の印を書いた本文。branch を省くと、記録してある名前を残す。"""
+    branch = branch or issue_branch(body)
     text = without_base(body)
-    return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base} -->"
+    return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base}" + (f" branch: {branch}" if branch else "") + " -->"
 
 
 # タスクブランチのPRとIssueのつながり：本文の行 Closes #<番号>（マージでIssueを閉じる）か Refs #<番号>（途中の反映）。
@@ -109,16 +143,20 @@ class Task:
         return cls(info.number, info.title, info.url, info.state, repository, info.labels, info.assignees,
                    info.milestone)
 
-    def start(self, *, base: str | None = None, ignore_blocked: bool = False, take_over: bool = False) -> "TaskBranch":
-        """タスクブランチを作る。新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
+    def start(self, *, base: str | None = None, name: str | None = None, ignore_blocked: bool = False,
+              take_over: bool = False) -> "TaskBranch":
+        """タスクブランチを作る。name：新しく作るときの名前（task/<番号>-<名前>。既にあれば使わない）。None なら
+        task/<番号>。空なら、新しく作るときに止める（名前を必ず入れてもらう利用側向け）。
+        新しく作るときは、先に終わるべきタスクが開いていれば止める（ignore_blocked で続ける）。
         子タスクの作成元は親のタスクブランチ（GitHubになければ作る。他の base は指定できない）。
         他の人が担当していれば止める（take_over で引き継ぐ）。"""
-        return self._repository._start_task_branch(self, base, ignore_blocked=ignore_blocked, take_over=take_over)
+        return self._repository._start_task_branch(self, base, name=name, ignore_blocked=ignore_blocked,
+                                                   take_over=take_over)
 
 
 @dataclass(frozen=True)
 class TaskBranch:
-    """タスクブランチ：Issue＋作業用ブランチ task/<番号>。コミットはここでだけ行う。"""
+    """タスクブランチ：Issue＋作業用ブランチ task/<番号>-<名前>。コミットはここでだけ行う。"""
 
     number: int
     branch: str
@@ -449,16 +487,18 @@ class TaskSummary:
     finished: _datetime.date | None = None        # 終了日（閉じた日）
     workspace: Path | None = None            # タスクブランチのある手元の場所（このclone。利用側が他のcloneも足す）
     submission: PullRequestState | None = None    # 開いている提出（task list で分かるとき）
+    branch: str | None = None                     # タスクブランチの名前（手元かGitHubにあるとき）
 
     @classmethod
     def _from(cls, task: _model.Task, *, task_branch: bool, current: bool, remote: bool,
-              path: Path | None = None, submission: "PullRequestState | None" = None) -> "TaskSummary":
+              path: Path | None = None, submission: "PullRequestState | None" = None,
+              branch: str | None = None) -> "TaskSummary":
         return cls(task.number, task.title, task.state, task.url, task_branch, current, remote, task.labels,
                    task.assignees, task.milestone, task.parent, task.subtasks, task.subtasks_done, task.blocked_by,
                    task.stage, task.priority, task.due, task.estimate,
                    None if task.sprint is None else task.sprint.name, task.milestone_due, task.closed_reason,
                    task.planned_start, task.planned_end, task.created, task.started, task.finished,
-                   path if task_branch else None, submission)
+                   path if task_branch else None, submission, branch if task_branch or remote else None)
 
 
 @dataclass(frozen=True)
@@ -485,6 +525,7 @@ class TaskStatus:
     task: TaskSummary | None = None              # 段階・計画の値（優先度・期限・見積もり・スプリント等）・日付
     workspace: Path | None = None           # タスクブランチのある手元の場所（TaskSummary と同じ）
     commits: tuple[str, ...] = ()           # 提出に入るコミット（作成元にない、タスクブランチのもの。新しい順、「短いID 件名」）
+    branch: str | None = None               # タスクブランチの名前（手元かGitHubにあるとき）
 
 
 @dataclass(frozen=True)

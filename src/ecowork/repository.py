@@ -299,15 +299,15 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         target, url = self._new_clone(directory)
         return self._clone_into(target, url, open)
 
-    def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None,
-                        open: Callable[[Path], "Repository"] | None = None,
-                        ignore_blocked: bool = False, take_over: bool = False) -> "Repository":
+    def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
+                          open: Callable[[Path], "Repository"] | None = None,
+                          ignore_blocked: bool = False, take_over: bool = False) -> "Repository":
         """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。open は clone_to と同じ。"""
         target, url = self._new_clone(directory)
         self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
         self.tracker.check_assignee(number, take_over=take_over)
         other = self._clone_into(target, url, open)
-        other.task(number).start(base=base, ignore_blocked=ignore_blocked)
+        other.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked)
         return other
 
     def _new_clone(self, directory: Path | str) -> tuple[Path, str]:
@@ -650,12 +650,33 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         base = self.git.get_config(wm.base_key(name)) if is_task_branch else None
         return wm.Branch(name, is_task_branch, base, local, remote, self)
 
+    def _existing_task_branch(self, number: int) -> str | None:
+        """タスクのタスクブランチで、手元かGitHub（取得済みの写し）にあるものの名前。なければNone。"""
+        for names in (self.git.local_branches(), self.git.remote_branches()):
+            found = [name for name in names if wm.task_number(name) == number]
+            if found:
+                return found[0]
+        return None
+
+    def _task_branch_of(self, number: int) -> str:
+        """タスクのタスクブランチの名前（task/<番号>-<名前>）。手元・GitHub・Issueの記録の順に探す。
+
+        どこにもなければ（名前を付ける前に作り、もう消したもの等）task/<番号>。"""
+        return (self._existing_task_branch(number) or wm.issue_branch(self.github.get_issue(self.root, number).body)
+                or wm.task_branch_name(number))
+
     def _parent_task_branch(self, number: int) -> str | None:
-        """子タスクの作成元にする、親タスクのタスクブランチ（親が開いていれば task/<親>）。親がなければNone。"""
+        """子タスクの作成元にする、親タスクのタスクブランチ（親が開いていれば task/<親>-<名前>）。親がなければNone。
+
+        親のタスクブランチがまだなければ、作るときの名前（記録したもの、なければ親の題名から）。"""
         parent = self.github.issue_relation(self.root, number).parent
-        if parent is None or self.github.get_issue(self.root, parent).state != "open":
+        if parent is None:
             return None
-        return wm.task_branch_name(parent)
+        info = self.github.get_issue(self.root, parent)
+        if info.state != "open":
+            return None
+        return (self._existing_task_branch(parent) or wm.issue_branch(info.body)
+                or wm.task_branch_name(parent, wm.branch_label(info.title) or None))
 
     def _child_base(self, number: int, base: str | None, parent_branch: str | None) -> str | None:
         """新しいタスクブランチの作成元。子タスクなら親のタスクブランチ（GitHubになければ作る）で、他は指定できない。"""
@@ -665,16 +686,16 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
             raise WorkError(ErrorCode.INVALID_BASE,
                             f"#{number} は子タスクなので、作成元は親のタスクブランチ {parent_branch} です（{base} は指定できません）。",
                             hint=f"親子をやめるなら {self._op('task edit')} {number} --clear-parent。")
-        self._ensure_task_branch(wm.task_number(parent_branch))
+        self._ensure_task_branch(parent_branch)
         return parent_branch
 
-    def _ensure_task_branch(self, number: int) -> None:
+    def _ensure_task_branch(self, branch: str) -> None:
         """タスクのタスクブランチのブランチがGitHubになければ作る（手元には作らない）。親の親も同じ。
 
         子タスクを始めるとき、まだ始めていない親のタスクブランチを用意するために使う。作成元は、親があれば親のタスクブランチ、
         なければIssueに記録したもの（なければ default_base）。
         """
-        branch = wm.task_branch_name(number)
+        number = wm.task_number(branch)
         if self.git.has_remote_branch(branch):
             return
         parent_branch = self._parent_task_branch(number)
@@ -683,7 +704,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         self.git.run("push", "--quiet", _git.REMOTE,
                      f"{self._base_start_point(base, task_branch=parent_branch)}:refs/heads/{branch}")
         self.git.fetch()
-        self._record_base(number, base)
+        self._record_base(number, base, branch=branch)
         self.notices.append(f"親タスク #{number} のタスクブランチ {branch} をGitHubに作りました（作成元 {base}）。"
                             f"親の作業は {self._op('task start')} {number} で始められます。")
 
@@ -729,8 +750,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         if branch.remote:
             self.git.push_delete(branch.name)
 
-    def _start_task_branch(self, task: wm.Task, base: str | None, *, ignore_blocked: bool = False,
-                         take_over: bool = False) -> wm.TaskBranch:
+    def _start_task_branch(self, task: wm.Task, base: str | None, *, name: str | None = None,
+                           ignore_blocked: bool = False, take_over: bool = False) -> wm.TaskBranch:
         if task.state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
                             hint="作業を再開するには、GitHubでIssueを開き直してください。")
@@ -744,8 +765,10 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         self.install_hooks()  # 前からあるcloneにも、作業を始めるときに入れる
         self.git.fetch()
         self._tidy_finished()
-        branch = wm.task_branch_name(task.number)
-        if self.git.has_local_branch(branch):
+        if name:
+            name = wm.check_branch_label(name)   # 作業を始める前に確かめる（既にあるタスクブランチなら使わない）
+        branch = self._existing_task_branch(task.number)
+        if branch is not None and self.git.has_local_branch(branch):
             # 既にあるタスクブランチへ戻る。別の場所でpushされた続きがあれば早送りで取り込む
             # （手元にだけのコミットもあって早送りできないときは、sync で取り込む）。
             self.git.switch(branch)
@@ -759,9 +782,22 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         else:
             # 手元にないタスクブランチ：GitHubにあればそこから再開し、作成元も記録したものにする。
             self.git.fetch()
-            remote = self.git.has_remote_branch(branch)
+            remote = branch is not None and self.git.has_remote_branch(branch)
+            if not remote and not name:
+                # 前に作って消したタスクブランチなら、Issueに記録した名前で作り直す
+                recorded = wm.issue_branch(self.github.get_issue(self.root, task.number).body) or ""
+                prefix = wm.task_branch_name(task.number) + "-"
+                if recorded.startswith(prefix):
+                    name = recorded.removeprefix(prefix)
             if not remote:
                 self.tracker.check_startable(task.number, ignore_blocked=ignore_blocked)
+                if name == "":
+                    suggestion = wm.branch_label(task.title) or "<名前>"
+                    raise WorkError(ErrorCode.BRANCH_NAME_REQUIRED,
+                                    f"新しいタスクブランチの名前を指定してください（task/{task.number}-<名前>）。",
+                                    hint=f"{self._op('task start')} {task.number} --name {suggestion}"
+                                         "（題名から作った例。日本語も使えます）")
+                branch = wm.task_branch_name(task.number, name)
             if base is None and remote:
                 base = self._recorded_base(task.number, branch)
             parent_branch = self._parent_task_branch(task.number)
@@ -783,7 +819,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
                     raise
             self.git.switch(branch)
             self.git.set_config(wm.base_key(branch), base)
-            self._record_base(task.number, base, claim=True)
+            self._record_base(task.number, base, claim=True, branch=branch)
             if not remote:
                 self.tracker.set_stage(task.number, _board.IN_PROGRESS)
         task_branch = self.current_task_branch()

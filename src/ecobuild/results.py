@@ -78,7 +78,7 @@ class WorkspaceEntry:
     repository: str | None = None    # 所有者/名前（origin が GitHub のものなら）
     url: str | None = None           # origin
     branch: str | None = None        # 今のブランチ
-    task: int | None = None          # タスクブランチ（task/<番号>）にいれば、その番号
+    task: int | None = None          # タスクブランチ（task/<番号>-<名前>）にいれば、その番号
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
     type: str = ""                   # モジュールの型（ecobuild.toml の [module] type。読めなければ空）

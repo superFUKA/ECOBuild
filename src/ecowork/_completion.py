@@ -20,7 +20,7 @@ class Completion:
 
     def submission(self, number: int) -> wm.PullRequest | None:
         """タスクの開いている提出（タスクブランチのPR）。なければNone。開いているものは1つ（あれば最新のもの）。"""
-        opened = [p for p in self.github.pull_requests_for_branch(self.root, wm.task_branch_name(number))
+        opened = [p for p in self.github.pull_requests_for_branch(self.root, self._task_branch_of(number))
                   if p.state == "open"]
         return wm.PullRequest._from(self, max(opened, key=lambda p: p.number)) if opened else None
 
@@ -28,7 +28,7 @@ class Completion:
         pr = self.submission(number)
         if pr is None:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"タスク #{number} の提出はありません。",
-                            hint=f"タスクブランチ（task/{number}）で {self._op('task submit')} を実行して提出します。")
+                            hint=f"タスク #{number} のタスクブランチで {self._op('task submit')} を実行して提出します。")
         return pr
 
     def review_task(self, number: int) -> wm.ReviewResult:
@@ -80,7 +80,7 @@ class Completion:
         """
         if number is None:
             number = self.require_task_branch("番号を省略したタスクの完了").number
-        branch = wm.task_branch_name(number)
+        branch = self._task_branch_of(number)
         here = self.git.current_branch() == branch
         if here:
             tree = self.git.working_tree()
@@ -339,7 +339,7 @@ class Completion:
 
     def _task_ends(self, number: int) -> tuple[str, str]:
         """提出のないタスクの差分の両端（作成元, タスクブランチ。手元になければ GitHub のもの）。"""
-        branch = wm.task_branch_name(number)
+        branch = self._task_branch_of(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if not (local or remote):
@@ -350,7 +350,7 @@ class Completion:
 
     def revert_task(self, number: int) -> wm.RevertResult:
         """完了したタスクの取り込み（中間提出も含めてすべて）を取り消すタスクブランチを作る。提出は task submit で出す。"""
-        merged = sorted((p for p in self.github.pull_requests_for_branch(self.root, wm.task_branch_name(number))
+        merged = sorted((p for p in self.github.pull_requests_for_branch(self.root, self._task_branch_of(number))
                          if p.state == "merged" and p.merge_commit), key=lambda p: p.number)
         if not merged:
             raise WorkError(ErrorCode.PULL_REQUEST_NOT_OPEN, f"タスク #{number} には、取り込んだ提出がありません。",

@@ -564,7 +564,7 @@ const ECO = (() => {
     return `<dl>
       <dt>タスク</dt><dd><strong>#${t.number} ${esc(t.title)}</strong></dd>
       <dt>提出</dt><dd>${esc(submissionText(sub))}${open ? ' · ' + esc(mergeable) : ''}${note}</dd>
-      <dt>タスクブランチ</dt><dd>task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}</dd>
+      <dt>タスクブランチ</dt><dd>${esc(t.branch || `task/${t.number}`)}${t.base ?` → ${esc(t.base)}` : ''}</dd>
       <dt>担当者</dt><dd>${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}</dd>
       <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
       ${sub ? `<dt>URL</dt><dd>${esc(sub.url)}</dd>` : ''}</dl>
@@ -766,6 +766,18 @@ const ECO = (() => {
   // Splits text into command arguments for comma lists.
   const commaList = text => String(text || '').split(',').map(s => s.trim()).filter(Boolean);
 
+  // The name of a task branch (task/<n>-<name>), as ecowork's branch_label: Japanese stays as it is; what git or
+  // Windows cannot take becomes "-". branchNameError: why a name typed cannot be used ('' if it can).
+  const branchLabel = title => {
+    let label = String(title || '').replace(/[\s~^:?*[\]\\/"<>|\x00-\x1f\x7f]+|\.{2,}|@\{/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+    while (label.endsWith('.lock')) label = label.slice(0, -5).replace(/[-.]+$/, '');
+    return label;
+  };
+  const branchNameError = name => !name.trim() ? 'タスクブランチの名前を入力してください。'
+    : branchLabel(name.trim()) !== name.trim() ? 'タスクブランチの名前に使えない文字があります（空白と ~ ^ : ? * [ ] \\ / " < > | と「..」）。' : '';
+  // The task number of a task branch (task/<n> or task/<n>-<name>), or null.
+  const taskOfBranch = name => { const m = /^task\/(\d+)(?:-.+)?$/.exec(name || ''); return m ? Number(m[1]) : null; };
+
   let infoPromise;
   const info = () => (infoPromise ||= call('info').catch(() => ({me: ''})));
   // The server runs in the background and ends when no window has contacted it for a while: tell it this window is open.
@@ -780,7 +792,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submissionButton, submissionDetail, submissionCommits};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.

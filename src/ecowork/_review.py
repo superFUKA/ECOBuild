@@ -166,9 +166,9 @@ class Reviewing:
         """
         if number is None:
             number = self.require_task_branch("番号を省略したタスクブランチの指定").number
-        branch = wm.task_branch_name(number)
+        branch = self._existing_task_branch(number) or wm.task_branch_name(number)
         if not self.git.has_local_branch(branch):
-            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスクブランチ {branch} はありません。")
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスク #{number} のタスクブランチはありません。")
         current = self.git.current_branch() == branch
         if current and self._dirty():
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、手元のタスクブランチを消せません。",
@@ -204,13 +204,17 @@ class Reviewing:
             return max(opened, key=lambda p: p.number).base
         return wm.issue_base(self.github.get_issue(self.root, number).body)
 
-    def _record_base(self, number: int, base: str, *, claim: bool = False) -> None:
-        """作成元をIssueの本文に記録する（手元のタスクブランチを消しても、同じ作成元で再開できるように）。
+    def _record_base(self, number: int, base: str, *, claim: bool = False, branch: str | None = None) -> None:
+        """作成元（branch があればタスクブランチの名前も）をIssueの本文に記録する（手元のタスクブランチを消しても、
+        同じ名前・作成元で再開できるように）。
 
         claim：担当者がいなければ自分を担当者にする（誰が作業しているかをGitHubで分かるように）。
         """
+        if branch == wm.task_branch_name(number):
+            branch = None   # 名前のないタスクブランチ（task/<番号>）は記録しなくても分かる
         issue = self.github.get_issue(self.root, number)
-        body = None if wm.issue_base(issue.body) == base else wm.with_base(issue.body, base)
+        recorded = wm.issue_base(issue.body) == base and (branch is None or wm.issue_branch(issue.body) == branch)
+        body = None if recorded else wm.with_base(issue.body, base, branch)
         assignees = ("@me",) if claim and not issue.assignees else ()
         if body is not None or assignees:
             self.github.edit_issue(self.root, number, body=body, add_assignees=assignees)
@@ -222,7 +226,7 @@ class Reviewing:
             return self.remove_task_branch(number)
         result = self.prune_task_branches(only=number)
         if not (result.removed or result.skipped):
-            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスクブランチ {wm.task_branch_name(number)} はありません。")
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスク #{number} のタスクブランチはありません。")
         return result
 
     def prune_task_branches(self, *, dry_run: bool = False, only: int | None = None) -> wm.CleanResult:
@@ -276,7 +280,7 @@ class Reviewing:
             task_branch = self.require_task_branch("作業の中断")
             number, branch = task_branch.number, task_branch.branch
         else:
-            branch = wm.task_branch_name(number)
+            branch = self._existing_task_branch(number) or wm.task_branch_name(number)
         # 子タスクのタスクブランチは親のタスクブランチから派生する：親のタスクブランチを消す・閉じるのは子が終わってから
         self.tracker.check_finishable(number, action="作業をやめることは")
         current = self.git.current_branch()

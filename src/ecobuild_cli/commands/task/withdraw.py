@@ -15,7 +15,7 @@ def command(
     task = optional_argument(number, task, "--task", json)
 
     def render(r):
-        number = r.head.removeprefix("task/")
+        number = r.head.removeprefix("task/").split("-")[0]
         return lines(f"#{number} の提出を取り下げました（作業中に戻しました）",
                      f"次：直して ecobuild task submit で出し直す（やめるなら ecobuild task drop {number}）")
 

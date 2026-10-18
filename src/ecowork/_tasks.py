@@ -46,11 +46,16 @@ class TaskManagement:
         if to_review:
             wanted = {wm.task_number(i.head)
                       for i in self.github.list_pull_requests(self.root, closed=False, review_requested="@me")}
+        branches = {}   # タスクの番号 → タスクブランチ（手元のものを先に）
+        for name in sorted(remote) + sorted(local):
+            number = wm.task_number(name)
+            if number is not None:
+                branches[number] = name
         for task in tasks:
-            branch = wm.task_branch_name(task.number)
+            branch = branches.get(task.number, wm.task_branch_name(task.number))
             summary = wm.TaskSummary._from(task, task_branch=branch in local, current=branch == current,
                                            remote=branch in remote, path=self.root,
-                                           submission=submissions.get(task.number))
+                                           submission=submissions.get(task.number), branch=branch)
             if ready and not (self.tracker.startable(task) and not (summary.task_branch or summary.remote)):
                 continue
             if (submitted and summary.submission is None) or (wanted is not None and task.number not in wanted):
@@ -108,9 +113,10 @@ class TaskManagement:
         """計画の値（priority・due・estimate・sprint〔current 可〕・planned_start・planned_end・clear）と、
         作業を始める前の段階（stage：planned・todo）を設定する。"""
         task = self.tracker.plan(number, **values)
-        branch = wm.task_branch_name(number)
-        return wm.TaskSummary._from(task, task_branch=self.git.has_local_branch(branch),
-                                    current=self.git.current_branch() == branch, remote=False, path=self.root)
+        branch = self._existing_task_branch(number)
+        local = branch is not None and self.git.has_local_branch(branch)
+        return wm.TaskSummary._from(task, task_branch=local, current=local and self.git.current_branch() == branch,
+                                    remote=False, path=self.root, branch=branch)
 
     def task_status(self, number: int | None = None) -> wm.TaskStatus:
         """Issueと、タスクブランチ・PR（レビュー・コメント・CIの結果）の状態。省略時は今いるタスクブランチ。"""
@@ -118,11 +124,11 @@ class TaskManagement:
             number = self.require_task_branch("番号を省略したタスクの指定").number
         details = self.tracker.details(number)
         task = details.task
-        branch = wm.task_branch_name(number)
+        self.git.fetch()
+        branch = self._existing_task_branch(number) or wm.issue_branch(details.body) or wm.task_branch_name(number)
         pulls = self.github.pull_requests_for_branch(self.root, branch)
         latest = max(pulls, key=lambda p: p.number) if pulls else None
         activity = None if latest is None else self.github.pull_request_activity(self.root, latest.number)
-        self.git.fetch()
         local = self.git.has_local_branch(branch)
         base = self.git.get_config(wm.base_key(branch)) or wm.issue_base(details.body)
         return wm.TaskStatus(
@@ -132,8 +138,9 @@ class TaskManagement:
             self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
             details.parent, details.subtasks, details.blocked_by, details.blocking,
             wm.TaskSummary._from(task, task_branch=local, current=self.git.current_branch() == branch,
-                                 remote=self.git.has_remote_branch(branch), path=self.root),
-            self.root if local else None, self._task_commits(branch, base or self.default_base, local))
+                                 remote=self.git.has_remote_branch(branch), path=self.root, branch=branch),
+            self.root if local else None, self._task_commits(branch, base or self.default_base, local),
+            branch if local or self.git.has_remote_branch(branch) else None)
 
     def _task_commits(self, branch: str, base: str, local: bool) -> tuple[str, ...]:
         """提出に入るコミット：タスクブランチ（手元、なければ GitHub のもの）にあって、作成元（GitHub のもの）にないもの。"""
@@ -170,7 +177,8 @@ class TaskManagement:
         タスクブランチの変更が宙に浮く）。
         """
         self.tracker.check_closable(number)
-        branch = wm.task_branch_name(number)
+        self.git.fetch()
+        branch = self._task_branch_of(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if local or remote:

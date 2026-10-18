@@ -69,7 +69,7 @@ class History:
     def _revert(self, pulls: list, title: str, body: str, *, task: int | None = None) -> wm.RevertResult:
         """取り込んだPR（古い順）を、新しいものから順に取り消すコミットを、新しいタスクのタスクブランチに作る。"""
         created = self.create_task(title, body=body)
-        task_branch = created.start(base=pulls[-1].base)
+        task_branch = created.start(base=pulls[-1].base, name=wm.branch_label(title) or None)
         self.git.fetch()
         for pr in reversed(pulls):
             parents = self.git.output("rev-list", "--parents", "-n", "1", pr.merge_commit).split()

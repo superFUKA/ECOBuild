@@ -15,7 +15,7 @@ const HELP = (() => {
         <p class="help-chips"><button type="button" data-goto="module new">module new</button><button type="button" data-goto="module clone">module clone</button><button type="button" data-goto="workspace add">workspace add</button></p></div></li>
       <li><span class="help-step-number">2</span><div><h4>タスクを作る</h4><p class="help-where">モジュール › タスク管理 › ＋ 新しいタスク</p><p class="note">やることをタスク（Issue）にします。担当者・期限・見積もり・スプリントも付けられます。</p>
         <p class="help-chips"><button type="button" data-goto="task new">task new</button><button type="button" data-goto="task list">task list</button><button type="button" data-goto="task next">task next</button></p></div></li>
-      <li><span class="help-step-number">3</span><div><h4>作業を開始する</h4><p class="help-where">タスク管理 › タスク › 作業を開始</p><p class="note">タスクブランチ（task/番号）を作り、作業空間（このPCで作業する場所）を開きます。</p>
+      <li><span class="help-step-number">3</span><div><h4>作業を開始する</h4><p class="help-where">タスク管理 › タスク › 作業を開始</p><p class="note">タスクブランチ（task/番号-名前。名前は入力します。日本語も使えます）を作り、作業空間（このPCで作業する場所）を開きます。</p>
         <p class="help-chips"><button type="button" data-goto="task start">task start</button><button type="button" data-goto="status">status</button></p></div></li>
       <li><span class="help-step-number">4</span><div><h4>作って、確かめて、コミットする</h4><p class="help-where">作業空間</p><p class="note">ファイルを編集し、ビルド・テストして、変更をコミットします。AIを起動して手伝わせることもできます。</p>
         <p class="help-chips"><button type="button" data-goto="build">build</button><button type="button" data-goto="test">test</button><button type="button" data-goto="run">run</button><button type="button" data-goto="task commit">task commit</button><button type="button" data-goto="agent start">agent start</button></p></div></li>
@@ -29,7 +29,7 @@ const HELP = (() => {
       <div><dt>モジュール</dt><dd>GitHubのリポジトリ1つ。制作・リンクの単位です。</dd></div>
       <div><dt>型</dt><dd>モジュールの種類（C++・Python・汎用）。ビルドやファイルの扱いと、使えるコマンドが型で変わります。</dd></div>
       <div><dt>タスク</dt><dd>GitHubのIssue。やることの単位です。</dd></div>
-      <div><dt>タスクブランチ</dt><dd>タスクの作業をするブランチ（task/番号）。変更はここでコミットし、提出で作成元に入ります。</dd></div>
+      <div><dt>タスクブランチ</dt><dd>タスクの作業をするブランチ（task/番号-名前）。変更はここでコミットし、提出で作成元に入ります。</dd></div>
       <div><dt>作業空間</dt><dd>このPCでモジュールの作業をする場所（clone）。</dd></div>
       <div><dt>提出</dt><dd>タスクブランチの変更を取り込んでもらうためのPR。レビューで承認されると完了できます。</dd></div>
       <div><dt>ビルド設定（プロファイル）</dt><dd>名前を付けたビルドの設定（構成・並列数と、型ごとの項目）。</dd></div>

@@ -86,7 +86,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 ## 作業の流れ
 
-1. `ecobuild task new "<題名>" --body "<内容>" --start`（既存のIssueなら `ecobuild task start <番号>`）
+1. `ecobuild task new "<題名>" --body "<内容>" --start --name "<タスクブランチの名前>"`（既存のIssueなら `ecobuild task start <番号> --name "<名前>"`。名前は task/<番号>-<名前> のブランチになり、日本語も使えます。空白や ~ ^ : ? * [ ] \\ / " < > | は使えません。既にあるタスクブランチへ戻るときは --name は要りません）
 2. 編集する。{add_file}
 3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
@@ -95,7 +95,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 ## 守ること
 
-- ファイルを変える操作とコミットは、タスクブランチ（`task/<Issue番号>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
+- ファイルを変える操作とコミットは、タスクブランチ（`task/<Issue番号>-<名前>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。提出だけ取り下げるなら `ecobuild task withdraw`。
 - 番号はすべてタスク（Issue）の番号です。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。だれの作業かはアカウントで分かります（コミットの署名は自動で消えます）。

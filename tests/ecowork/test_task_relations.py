@@ -48,7 +48,7 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     parent = repository.create_task("親")
     first = repository.create_task("先", parent=parent.number)
     second = repository.create_task("後", parent=parent.number, blocked_by=(first.number,))
-    parent_branch = f"task/{parent.number}"
+    parent_branch = f"task/{parent.number}-親"   # 親のタスクブランチの名前は親の題名から
     assert code_of(lambda: repository.task(second.number).start()) == ErrorCode.TASK_BLOCKED
     assert code_of(lambda: repository.close_task(parent.number)) == ErrorCode.OPEN_SUBTASKS
     assert code_of(lambda: repository.task(first.number).start(base="main")) == ErrorCode.INVALID_BASE

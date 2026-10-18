@@ -16,6 +16,8 @@ __all__ = ["ErrorCode", "WorkError", "operation"]
 class ErrorCode(_TaskErrorCode):
     NOT_ON_TASK_BRANCH = "not_on_task_branch"
     RESERVED_BRANCH_NAME = "reserved_branch_name"
+    BRANCH_NAME_REQUIRED = "branch_name_required"
+    INVALID_BRANCH_NAME = "invalid_branch_name"
     INVALID_BASE = "invalid_base"
     PROTECTED_BRANCH = "protected_branch"
     DIRTY_WORKING_TREE = "dirty_working_tree"

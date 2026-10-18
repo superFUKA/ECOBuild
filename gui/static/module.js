@@ -88,7 +88,7 @@ const addTabButton = document.createElement('button');
 addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を作る・表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、このPCでモジュールの作業をする場所（clone）です。「＋」から新しい作業空間を作ったり、閉じたタブを再表示したりできます。タスク管理で「作業を開始」すると、選んだ作業空間にタスクブランチ（task/〈番号〉）を置いて作業できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、このPCでモジュールの作業をする場所（clone）です。「＋」から新しい作業空間を作ったり、閉じたタブを再表示したりできます。タスク管理で「作業を開始」すると、選んだ作業空間にタスクブランチ（task/〈番号〉-〈名前〉）を置いて作業できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 panels.append(emptyNote);
 
@@ -118,7 +118,7 @@ const placeLabel = dir => {
 function renderTab(dir) {
   const button = tabs.querySelector(`[data-dir="${CSS.escape(keyOf(dir))}"]`); if (!button) return;
   const {branch, title, where} = placeLabel(dir);
-  // A task's tab shows the task's title (its branch, task/<n>, on hover); another workspace shows its branch.
+  // A task's tab shows the task's title (its branch, task/<n>-<name>, on hover); another workspace shows its branch.
   button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
   button.title = `${branch}　${dir}`;
   syncTabs();
@@ -230,7 +230,7 @@ async function addPlace(dir) {
   if (!added) throw new Error(`${dir} は ${MOD.name} のcloneではありません。`);
   return added;
 }
-// The place where task branch task/<n> is checked out (if any).
+// The place where task <n>'s task branch (task/<n>-<name>) is checked out (if any).
 MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.task === n) || null;
 MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.task);
 MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
@@ -253,10 +253,10 @@ MOD.createWorkspace = async () => {
 };
 MOD.keyOf = keyOf; MOD.activate = activate; MOD.reloadPlace = reloadPlace; MOD.addPlace = addPlace; MOD.refreshState = refreshState;
 MOD.openWorkspace = async n => {
-  // Show the tab where task/<n> is checked out; otherwise switch the module's clone to it (task start).
+  // Show the tab where task <n>'s task branch is checked out; otherwise switch the module's clone to it (task start).
   let place = MOD.placeOfTask(n);
   if (!place) {
-    const doc = await ECO.run(MOD.root, ['task', 'start', String(n)], {success: `タスクブランチ task/${n} に切り替えました。`});
+    const doc = await ECO.run(MOD.root, ['task', 'start', String(n)], {success: r => `タスクブランチ ${r.branch} に切り替えました。`});
     if (!doc) return false;
     place = MOD.root; await reloadPlace(place);
   }

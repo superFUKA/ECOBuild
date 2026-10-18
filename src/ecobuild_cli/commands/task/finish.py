@@ -18,7 +18,7 @@ def render_finish(r) -> str:
     return lines(
         "\n".join(waited) or None,
         f"確認の前の場所 {r.returned_to} に戻りました" if r.returned_to else None,
-        f"手元のタスクブランチ task/{r.task} を片付けました" + (f"（{r.switched_to} に移りました）" if r.switched_to else "")
+        f"手元の #{r.task} のタスクブランチを片付けました" + (f"（{r.switched_to} に移りました）" if r.switched_to else "")
         if r.removed else None,
         ("承認して" if r.approved else "") + done,
         render_closed(r.closed_workspace) if r.closed_workspace else follow,

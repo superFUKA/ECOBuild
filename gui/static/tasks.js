@@ -370,7 +370,7 @@
     </dl></section>
     ${relations.length ? `<section class="tk-d-section"><h4>つながり</h4><dl class="tk-kv">${relations.map(([label, xs]) => `<dt>${label}</dt><dd>${xs.map(rel).join('')}</dd>`).join('')}</dl></section>` : ''}
     <section class="tk-d-section"><h4>作業</h4><dl class="tk-kv">
-      <dt>タスクブランチ</dt><dd>${hasWorkspace ? `task/${n}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
+      <dt>タスクブランチ</dt><dd>${hasWorkspace ? `${esc(d.branch || t.branch || `task/${n}`)}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
       <dt>提出</dt><dd>${submissionText(pr, open)}</dd>
     </dl>${open ? submissionButtons(n, pr, hasWorkspace) : ''}</section>
     <section class="tk-d-section"><h4>コメント ${d.comments.length}</h4>${d.comments.map(c => `<article class="tk-comment"><header>${esc(c.author)}</header><p>${esc(c.body)}</p></article>`).join('')}
@@ -425,13 +425,18 @@
     const t = byNumber(n) || {}, d = st.details.get(n) || {};
     const defaults = await moduleDefaults();
     const parent = d.parent?.number || t.parent || 0;
-    // The default base: a child task starts from its parent's task branch; otherwise default_base (ecobuild.toml).
-    const base = parent ? `task/${parent}` : d.remote && d.base ? d.base : defaults.default_base || '';
+    // The task branch there is already (here or on GitHub): its name is kept. A new one needs a name (required).
+    const existing = d.branch || t.branch || null;
+    // The default base: a child task starts from its parent's task branch (named from the parent's title if it is
+    // not made yet, as the CLI does); otherwise default_base (ecobuild.toml).
+    const parentTask = parent ? byNumber(parent) : null;
+    const parentBranch = parent ? parentTask?.branch || `task/${parent}` + (parentTask && ECO.branchLabel(parentTask.title) ? '-' + ECO.branchLabel(parentTask.title) : '') : '';
+    const base = parent ? parentBranch : d.remote && d.base ? d.base : defaults.default_base || '';
     // The base is chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives): the plain
     // ones first, then the other workspaces. Read afresh (not the cached list): a branch just made must be there. A
     // child task's base is its parent's task branch, and a task branch on GitHub resumes from its recorded base: no choice.
-    const branchOptions = parent || d.remote ? null : ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && b.name !== `task/${n}`)].map(b => {
-      const task = b.is_task_branch ? byNumber(Number(b.name.replace(/^task\//, ''))) : null;
+    const branchOptions = parent || d.remote ? null : ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && ECO.taskOfBranch(b.name) !== n)].map(b => {
+      const task = b.is_task_branch ? byNumber(ECO.taskOfBranch(b.name)) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
     const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
@@ -441,7 +446,8 @@
     const placeName = p => MOD.keyOf(p) === MOD.keyOf(root()) ? 'この作業空間' : '作業空間 ' + p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
     const placeOptions = places.map((p, i) => {
       const s = MOD.states.get(MOD.keyOf(p));
-      return ['ws' + i, `${placeName(p)}に置く`, (s.task ? `今は task/${s.task} を置いています。task/${n} に切り替えます` : `task/${n} のブランチを作って切り替えます`) + `（${p}）`];
+      const now = s.task ? `今は ${s.branch || `#${s.task} のタスクブランチ`} を置いています。` : '';
+      return ['ws' + i, `${placeName(p)}に置く`, now + (existing ? `${existing} に切り替えます` : 'タスクブランチを作って切り替えます') + `（${p}）`];
     });
     const free = places.filter(p => !MOD.states.get(MOD.keyOf(p)).task), active = MOD.activePlace?.();
     const preferred = active && free.some(p => MOD.keyOf(p) === MOD.keyOf(active)) ? active : free[0];
@@ -453,8 +459,10 @@
         ['dir', '新しい作業空間を作って置く', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
         ['none', 'タスクブランチを作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
       {name: 'dir', label: '新しい作業空間の場所', value: suggested, showIf: v => v.place === 'dir'},
+      ...(existing ? [] : [{name: 'branchName', label: 'タスクブランチの名前', required: true, value: ECO.branchLabel(t.title || d.title || ''), showIf: v => v.place !== 'none',
+        help: `task/${n}-〈名前〉のブランチになります。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。`}]),
       {name: 'base', label: '作成元のブランチ', type: 'select', value: base, options: [[base, base + (base === defaults.default_base ? '（既定）' : '')]], showIf: v => v.place !== 'none', more: branchOptions,
-        help: parent ? `子タスクは親タスクのタスクブランチ（task/${parent}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
+        help: parent ? `子タスクは親タスクのタスクブランチ（${parentBranch}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : []),
       ...(others.length ? [{name: 'takeOver', label: `${others.join('、')} から引き継ぐ（担当者を自分にし、タスクに残します）`, type: 'checkbox', help: 'ほかの人が担当しています。重ねて作業しないよう、相談してから引き継いでください。'}] : [])], ok: '開始',
       submit: async v => {
@@ -462,9 +470,10 @@
         if (others.length && !v.takeOver) return `${others.join('、')} が担当しています。引き継ぐ場合は「引き継ぐ」に印を付けてください。`;
         const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : []), ...(v.takeOver ? ['--take-over'] : [])];
         if (v.place === 'none') args.push('--no-branch');
+        else if (!existing) { const error = ECO.branchNameError(v.branchName || ''); if (error) return error; args.push('--name', v.branchName.trim()); }
         if (v.place === 'dir') { if (!v.dir) return '新しい作業空間の場所を入力してください。'; args.push('--dir', v.dir); }
         const place = v.place.startsWith('ws') ? places[Number(v.place.slice(2))] : null;
-        const doc = await run(args, {dir: place || root(), success: v.place === 'none' ? `#${n} を作業中にしました。` : `タスクブランチ task/${n} を用意しました。`, quietErrors: true});
+        const doc = await run(args, {dir: place || root(), success: v.place === 'none' ? `#${n} を作業中にしました。` : r => `タスクブランチ ${r.branch} を用意しました。`, quietErrors: true});
         if (!doc) return '開始できませんでした。';
         if (place) { await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }
         if (v.place === 'dir') { const created = await MOD.addPlace(doc.module || v.dir); await MOD.reloadPlace(created); showModulePage('workspace'); MOD.activate(created, true); }
@@ -494,13 +503,21 @@
       {name: 'parent', label: '親タスク', type: 'select', row: 'links', value: preset.parent ? String(preset.parent) : '', options: parentOptions(0, 0)},
       {name: 'blockedBy', label: '先に終わるべきタスク', row: 'links', placeholder: '番号（カンマ区切り）'},
       {type: 'section', end: true},
-      {name: 'start', label: '作成したら、この作業空間で作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'}], ok: '作成',
+      {name: 'start', label: '作成したら、この作業空間で作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'},
+      {name: 'branchName', label: 'タスクブランチの名前', required: true, showIf: v => v.start,
+        help: 'task/〈番号〉-〈名前〉のブランチになります（既定は題名）。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。'}], ok: '作成',
+      // The branch name follows the title until it is changed by hand.
+      onChange: (v, formEl) => {
+        const field = formEl.elements.branchName; if (!field) return;
+        if (field.value === (field.dataset.auto ?? '')) field.value = field.dataset.auto = ECO.branchLabel(v.title);
+      },
       submit: async v => {
+        if (v.start) { const error = ECO.branchNameError(v.branchName || ''); if (error) return error; }
         const args = ['task', 'new', v.title];
         const assignees = [...v.assignees, ...ECO.commaList(v.otherAssignees)];
         if (assignees.length) args.push('--assignee', [...new Set(assignees)].join(','));
         for (const [key, option] of [['body', '--body'], ['label', '--label'], ['parent', '--parent'], ['blockedBy', '--blocked-by'], ['milestone', '--milestone'], ['due', '--due'], ['plannedStart', '--planned-start'], ['plannedEnd', '--planned-end']]) if (v[key]) args.push(option, v[key]);
-        if (v.start) args.push('--start');
+        if (v.start) args.push('--start', '--name', v.branchName.trim());
         const doc = await run(args, {success: r => `タスク #${(r.task || r).number} を作成しました。`, quietErrors: true});
         if (!doc) return '作成できませんでした。';
         const n = (doc.result.task || doc.result).number;

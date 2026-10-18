@@ -120,7 +120,7 @@ class Ci:
         if pull_request is not None:
             return self.github.get_pull_request(self.root, pull_request).head
         if task is not None:
-            return wm.task_branch_name(task)
+            return self._task_branch_of(task)
         branch = self.git.current_branch()
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。",

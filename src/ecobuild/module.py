@@ -774,7 +774,7 @@ class Module:
         dependencies, _ = opened[0]._after_sync()
         return opened[0], dependencies
 
-    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None,
+    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False) -> "Module":
         """新しい作業空間（clone）にタスクブランチを作り（I-007）、依存先と生成ファイルを用意する。
 
@@ -786,8 +786,8 @@ class Module:
             opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
             return opened[0].repository
 
-        self.repository.clone_task_branch(number, directory, base=base, open=open_clone, ignore_blocked=ignore_blocked,
-                                        take_over=take_over)
+        self.repository.clone_task_branch(number, directory, base=base, name=name, open=open_clone,
+                                          ignore_blocked=ignore_blocked, take_over=take_over)
         return opened[0]
 
     def require_task_branch(self, action: str) -> wm.TaskBranch:

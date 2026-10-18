@@ -56,7 +56,7 @@ def command(
             refs("子タスク", r.subtasks), refs("先に終わるべきタスク", r.blocked_by),
             refs("このタスクを待っているタスク", r.blocking),
             "Issueのコメント：\n" + "\n".join(f"  {c.author}：{c.body}" for c in r.comments) if r.comments else None,
-            f"タスクブランチ：task/{r.number}（作成元 {r.base}）{elsewhere(r.workspace, here[0])}"
+            f"タスクブランチ：{r.branch or f'task/{r.number}'}（作成元 {r.base}）{elsewhere(r.workspace, here[0])}"
             if r.task_branch or r.workspace
             else f"タスクブランチ：GitHubにだけあります（ecobuild task start {r.number} で再開）" if r.remote
             else "タスクブランチ：なし",

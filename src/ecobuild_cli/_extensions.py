@@ -77,7 +77,7 @@ def help_of(name: str, path: str, timeout: float = 20) -> tuple[dict[str, tuple[
     result = document.get("result") if isinstance(document, dict) else None
     items = (result.get("actions") or result.get("commands") or []) if isinstance(result, dict) else []
     found = {f"{name} {item['name']}": (item["effect"], str(item.get("summary") or "")) for item in items
-             if isinstance(item, dict) and isinstance(item.get("name"), str) and item.get("effect") in ("read", "change", "confirm", "human")}
+             if isinstance(item, dict) and isinstance(item.get("name"), str) and item.get("effect") in ("read", "change", "confirm", "human", "requested")}
     examples = [(str(e["say"]), str(e["do"])) for e in (result.get("examples") or [] if isinstance(result, dict) else [])
                 if isinstance(e, dict) and e.get("say") and e.get("do")]
     return found, examples

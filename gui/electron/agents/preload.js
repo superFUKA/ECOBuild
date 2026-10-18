@@ -30,6 +30,9 @@ contextBridge.exposeInMainWorld('agents', {
   ringConfig: patch => ipcRenderer.send('agents:ring-config', patch),
   ringFind: () => ipcRenderer.invoke('agents:ring-find'),
   ringCalibrate: prefix => ipcRenderer.send('agents:ring-calibrate', prefix),
+  model: (id, model) => ipcRenderer.send('agents:model', id, model),
+  pickerOpen: open => ipcRenderer.send('agents:picker-open', open),
+  setPrefs: patch => ipcRenderer.send('agents:prefs', patch),
 
   onAdopt: on('agents:adopt'),
   onRelease: on('agents:release'),
@@ -43,6 +46,8 @@ contextBridge.exposeInMainWorld('agents', {
   onRing: on('agents:ring'),
   onScroll: on('agents:scroll'),
   onPicker: on('agents:picker'),
+  onPickerKey: on('agents:picker-key'),
+  onPrefs: on('agents:prefs'),
 });
 
 contextBridge.exposeInMainWorld('dock', {

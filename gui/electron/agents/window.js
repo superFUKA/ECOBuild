@@ -70,7 +70,8 @@ function renderTabs() {
   const bar = $('tabs'); bar.replaceChildren();
   for (const info of tabs) {
     const b = document.createElement('button'); b.type = 'button';
-    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : ''); b.dataset.state = info.state || '';
+    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : '') + (info.unread && info.id !== active ? ' unread' : '');
+    b.dataset.state = info.state || '';
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = true; b.dataset.id = info.id;
     b.title = `${info.num}  ${info.name}（${STATE_LABELS[info.state] || info.state}）\n${info.dir}`;
     b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
@@ -112,7 +113,10 @@ function renderStatus(current) {
   const info = current.info || {};
   if (ringState?.choosing) add('選択モード', 'choosing', '上下左右で選んで、押し込みで決定');
   add(STATE_LABELS[current.state] || '', current.state === 'listening' ? 'listening' : '');
-  if (info.model) add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''), 'model');
+  if (info.model) {
+    const m = add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''), 'model', 'クリックでモデルを切り替える');
+    m.addEventListener('click', event => { event.stopPropagation(); modelMenu(current, event.clientX, event.clientY); });
+  }
   add(current.kind === 'operator' ? 'オペレーター' : shortDir(current.dir), 'where', current.dir);
   let first = true;
   for (const [label, limit] of [['5h', info.fiveHour], ['週', info.weekly]]) {
@@ -221,7 +225,7 @@ agents.ready();
 let pickerItems = [], pickerIndex = 0, pickerTimer = null;
 async function openPicker() {
   closePanels();
-  $('picker-panel').hidden = false;
+  $('picker-panel').hidden = false; agents.pickerOpen(true);
   await refreshPicker();
   pickerIndex = Math.max(0, pickerItems.findIndex(item => item.id === active));
   renderPicker();
@@ -242,6 +246,7 @@ function renderPicker() {
 }
 function pick(i) { const item = pickerItems[i]; closePanels(); if (item) agents.focusTab(item.id); }
 function closePanels() {
+  if (!$('picker-panel').hidden) agents.pickerOpen(false);
   $('picker-panel').hidden = true; $('settings-panel').hidden = true;
   clearInterval(pickerTimer); pickerTimer = null;
 }
@@ -332,3 +337,32 @@ $('add').addEventListener('click', async event => {
     menu.append(b);
   }
 });
+
+// リングでタブの一覧を操作する（上・左で前、下・右で次、押し込みで決定、ほかで閉じる）
+agents.onPickerKey(gesture => {
+  if ($('picker-panel').hidden) return;
+  if (gesture === 'up' || gesture === 'left') { pickerIndex = Math.max(0, pickerIndex - 1); renderPicker(); }
+  else if (gesture === 'down' || gesture === 'right') { pickerIndex = Math.min(pickerItems.length - 1, pickerIndex + 1); renderPicker(); }
+  else if (gesture === 'click') pick(pickerIndex);
+  else closePanels();
+});
+
+// フッターのモデル名：クリックで切り替え（待機中で入力欄が空のときに /model を送る）
+function modelMenu(info, x, y) {
+  const menu = $('menu'); menu.replaceChildren();
+  for (const [label, model] of [['Opus', 'opus'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku'], ['その他…（Claude の選択画面）', '']]) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    b.addEventListener('click', () => { menu.hidden = true; agents.model(info.id, model); }); menu.append(b);
+  }
+  menu.hidden = false;
+  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.max(8, y - menu.offsetHeight - 8) + 'px';
+}
+
+// ⚙ の「エージェント」：オペレーターのモデル・前回のタブを開き直すか
+agents.onPrefs(prefs => {
+  const select = $('operator-model'); select.replaceChildren();
+  for (const m of prefs.operatorModels) { const o = document.createElement('option'); o.value = m; o.textContent = m || 'Claude Code の既定'; select.append(o); }
+  select.value = prefs.operatorModel; $('reopen-tabs').checked = !!prefs.reopen;
+});
+$('operator-model').addEventListener('change', () => agents.setPrefs({operatorModel: $('operator-model').value}));
+$('reopen-tabs').addEventListener('change', () => agents.setPrefs({reopen: $('reopen-tabs').checked}));

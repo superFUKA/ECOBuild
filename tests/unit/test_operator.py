@@ -97,3 +97,12 @@ def test_extensions_name_their_effects(tmp_path):
     assert _effects.classify(["box", "-C", "x", "module", "delete"], found)[0] == "confirm"
     assert _effects.classify(["status"], found) == ("read", "status")
     assert _extensions.effects("none", str(tmp_path / "missing.exe")) == {}
+
+
+def test_sending_text_needs_the_users_request():
+    """[頼まれたら]：ほかのエージェントへ文字を送るのは、ユーザーが直前の発言で頼んだときだけ。"""
+    from ecoagent import guard
+    policy = guard.Policy(frozenset({"ecobuild"}), lambda args: (guard.REQUESTED, " ".join(args)))
+    command = 'ecobuild gui agent-send --tab 1 --text "テストを実行して"'
+    assert guard.check(command, policy, guard.Exchange(prompt="1番にテストを実行してって送って")) is None
+    assert "頼んだときだけ" in guard.check(command, policy, guard.Exchange(prompt="ECOSTL で作業始めて"))

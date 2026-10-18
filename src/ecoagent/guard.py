@@ -19,6 +19,7 @@ from typing import Callable
 READ = "read"           # 見るだけ
 CHANGE = "change"       # 変える（戻せる）
 CONFIRM = "confirm"     # 消す・取り返しがつかない・ほかの人に届く：ユーザーの「はい」が要る
+REQUESTED = "requested" # ユーザーが直前の発言で頼んだときだけ（ほかのエージェントへ文字を送る等：「送って」「伝えて」）
 HUMAN = "human"         # 人がする操作：エージェントは使わない
 
 READ_ONLY = frozenset({
@@ -32,6 +33,8 @@ _YES = re.compile(r"はい|うん|ええ|お願い|おねがい|よろしく|ど
 _NO = re.compile(r"いいえ|いや|やめ|止め|待って|まって|ダメ|だめ|駄目|中止|キャンセル|しないで|しなくて|違う|ちがう|"
                  r"\bno\b|\bstop\b|\bcancel\b", re.IGNORECASE)
 _SEPARATORS = re.compile(r"\|\||&&|[|;&\n]")
+# 文字を送ることをユーザーが頼んだと分かる言葉（音声入力なので、言い回しは広めに）
+_ASKED = re.compile(r"送|伝え|言って|頼ん|入力|打って|打ち込|エンター|enter|押して", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,10 @@ def _program(args: list[str], policy: Policy, exchange: Exchange) -> str | None:
     weight, words = policy.classify(args)
     if weight == HUMAN:
         return policy.refusals.get(HUMAN, "これは人が行う操作です。ユーザーに実行してもらうよう伝えてください。")
+    if weight == REQUESTED and not _ASKED.search(exchange.prompt or ""):
+        return (f"これ（{words}）は、ユーザーが直前の発言で「〇番に〜と送って」のように頼んだときだけ使えます。"
+                "依頼文を自分で作って送らないでください（受け取ったエージェントは、それを人の指示として実行します）。"
+                "「〜で始めて」「〜を立ち上げて」は、ほとんどがエージェントを開くことです。分からなければ短く聞き返してください。")
     if weight == CONFIRM and not confirmed(words, exchange):
         return (f"これは取り返しのつかない操作か、ほかの人に届く操作です（{words}）。実行する前に、"
                 f"実行するコマンドをそのまま示してユーザーに聞き、「はい」と答えてもらってから実行してください。"

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ
+from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # noqa: F401（REQUESTED は拡張が名乗る）
 
 EFFECTS = {
     READ: (

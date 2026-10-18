@@ -77,6 +77,11 @@ let peekOn = false;
 let operatorLog = [];     // [{role: user|agent, text, at}]
 let operatorWatchers = new Set();   // オペレーターとの会話を表示している画面（その窓が前にあれば右下に出さない）
 let operatorQueue = [];   // 起動を待っている間に頼まれた発言
+// オペレーターのモデル（簡単な操作が主なので、既定は速いもの。'' は Claude Code の既定）
+const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', ''];
+let operatorModel = 'sonnet';
+let reopenTabs = true;    // GUI を開き直したとき、前回のタブを会話の続きから開き直す
+let pickerWindow = null;  // タブの一覧（☰）を出している窓（リングで選ぶ）
 let ringConfig = {...RING_DEFAULTS};
 let ringMode = 'work';    // work・operator
 let choosing = null;      // 選択モードのタブの id
@@ -92,6 +97,7 @@ function writeState(patch) {
 function findSession(id) { return sessions.find(s => s.id === id); }
 function describe(s) {
   return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.recording ? 'listening' : s.state,
+          unread: !!s.unread,
           window: windows.indexOf(s.owner), info: status.summary(s)};
 }
 const findOperator = () => sessions.find(s => s.kind === 'operator');
@@ -119,11 +125,12 @@ function spawnSession(s, size) {
   });
 }
 
-function openSession({dir, agent = '', name = ''} = {}) {
+function openSession({dir, agent = '', name = '', resume = false} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
   const same = sessions.find(s => !s.exited && s.kind === 'workspace' && sameDir(s.dir, dir));
   if (same) { focusTab(same.id); return describe(same); }   // 同じ作業空間のエージェントは1つ（前に出す）
-  const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: name || path.basename(dir), dir, kind: 'workspace', agent,
+  const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: name || path.basename(dir), dir, kind: 'workspace',
+             agent: agent || (resume ? 'claude --continue' : ''), savedAgent: agent,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   sessions.push(s);
   // 作業空間ごとの窓（タスクバーでは、その作業空間のモジュールの窓と一緒にまとまる）。なければ作る
@@ -132,7 +139,15 @@ function openSession({dir, agent = '', name = ''} = {}) {
   spawnSession(s, w.size || {cols: 100, rows: 30});
   adopt(w, s);
   select(s.id, true);
+  saveTabs();
   return describe(s);
+}
+
+// 開いているタブ（作業空間のエージェント）を覚える：GUI を開き直したとき、会話の続きから開き直す（reopen）
+function saveTabs() {
+  if (app.isQuitting) return;   // 終わるときに閉じたものは忘れない
+  writeState({tabs: sessions.filter(s => s.kind === 'workspace' && !s.exited).sort((a, b) => a.num - b.num)
+    .map(s => ({dir: s.dir, name: s.name, agent: s.savedAgent || ''}))});
 }
 
 function closeSession(id) {
@@ -145,6 +160,7 @@ function closeSession(id) {
   if (s.owner) leave(s.owner, s);
   dropCards(c => c.id === id);
   pushTabs();
+  saveTabs();
 }
 
 function restartSession(id, agent) {
@@ -159,8 +175,12 @@ function restartSession(id, agent) {
 
 function renameSession(id, name) {
   const s = findSession(id); if (!s || !name.trim()) return;
-  s.name = name.trim(); pushTabs();
+  s.name = name.trim(); pushTabs(); saveTabs();
+  // Claude Code の会話の名前もそろえる（続きから再開の一覧にその名前で出る）。書きかけ・考え中に混ざらないよう、
+  // 待機中で入力欄が空になってから /rename を送る（poll）
+  if (isClaude(s)) s.pendingTitle = s.name;
 }
+const isClaude = s => !s.agent || /^claude(\s|$)/.test(s.agent);
 
 const sameDir = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
@@ -217,7 +237,7 @@ function leave(w, s) {
 
 function select(id, front) {
   const s = findSession(id); if (!s?.owner) return;
-  s.owner.active = id; current = s.owner; s.unseen = false;
+  s.owner.active = id; current = s.owner; s.unseen = false; s.unread = false;
   send(s.owner, 'agents:select', id);
   if (front) bringToFront(s.owner);
   pushTabs(); pushDock();
@@ -315,6 +335,11 @@ function poll() {
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
+    // 名前・モデルの変更は、待機中で入力欄が空のときに送る
+    if (read.state === 'idle' && !read.input && !s.recording) {
+      if (s.pendingTitle) { s.proc.write(`/rename ${s.pendingTitle}\r`); s.pendingTitle = null; }
+      else if (s.pendingModel) { s.proc.write(`/model ${s.pendingModel}\r`.replace('/model \r', '/model\r')); s.pendingModel = null; }
+    }
     if (s.kind === 'operator' && (s.recording || read.state === 'choice' || read.state === 'starting')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
@@ -333,6 +358,7 @@ function replied(s, message) {
   if (w.mini) { s.unseen = true; addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (w.topmost === 'auto') bringToFront(w);
   const watching = w.win.isFocused() && w.active === s.id;
+  if (w.active !== s.id) { s.unread = true; pushTabs(); }   // 見ていないタブ：タブに印
   if (watching || notify.style === 'off') return;
   if (notify.style === 'ecobuild') { addCard(s, text); dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (Notification.isSupported()) {
@@ -393,7 +419,8 @@ function startOperator() {
   let s = findOperator();
   if (s && !s.exited) return s;
   if (!s) {
-    s = {id: nextId++, num: 0, name: 'オペレーター', dir: app.getPath('home'), kind: 'operator', agent: '',
+    s = {id: nextId++, num: 0, name: 'オペレーター', dir: app.getPath('home'), kind: 'operator',
+         agent: operatorModel ? `claude --model ${operatorModel}` : '',
          history: [], size: 0, exited: false, state: 'starting', owner: null};
     sessions.push(s);
     spawnSession(s, OPERATOR_SIZE);
@@ -571,6 +598,8 @@ async function onGesture(gesture, gestureMode) {
   if (gesture === 'click') ignoreHoldUntil = now + HOLD_AFTER_CLICK_MS;
   if (gesture.startsWith('hold_') && now < ignoreHoldUntil) { ignoreHoldUntil = now + HOLD_AFTER_CLICK_MS; return; }
   if (gestureMode) setRingMode(gestureMode === 'work' ? 'work' : 'operator');
+  // タブの一覧が出ている間：上・左で前、下・右で次、押し込みで決定、ほかで閉じる
+  if (pickerWindow && !pickerWindow.win.isDestroyed()) { send(pickerWindow, 'agents:picker-key', gesture); return; }
   if (gesture === 'tap' && cards.length) { dropCards(() => true); pushDock(); return; }   // 右下の返答を閉じる
   // 選択肢：出ているときに押し込むと選択モードへ。その間は上下左右で選び、押し込みで決定
   const target = ringMode === 'operator' ? findOperator() : activeSession();
@@ -672,6 +701,11 @@ function setup({ecobuild, python, group}) {
   if (group) groupWith = group;
   loadOperatorLog();
   const saved = readState();
+  if (OPERATOR_MODELS.includes(saved.operatorModel)) operatorModel = saved.operatorModel;
+  reopenTabs = saved.reopen !== false;
+  if (reopenTabs && Array.isArray(saved.tabs) && saved.tabs.length) {
+    setTimeout(() => { for (const t of saved.tabs) if (t?.dir) try { openSession({dir: t.dir, name: t.name, agent: t.agent || '', resume: true}); } catch (e) { /* もうない */ } }, 1500);
+  }
   ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};
   for (const key of ['actions', 'operator_actions', 'choice_actions']) ringConfig[key] = {...RING_DEFAULTS[key], ...(saved.ring?.[key] || {})};
   ring.setup({python: python || (() => 'python'), onGesture: (g, m) => onGesture(g, m).catch(() => {}), onStatus: pushRing});
@@ -712,6 +746,7 @@ function setup({ecobuild, python, group}) {
     send(w, 'agents:topmost', w.topmost);
     send(w, 'agents:notify', notify, HOLD_STEPS);
     send(w, 'agents:ring', ringView());
+    send(w, 'agents:prefs', {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs});
     if (w.active) send(w, 'agents:select', w.active);
     pushTabs();
   });
@@ -760,6 +795,13 @@ function setup({ecobuild, python, group}) {
   ipcMain.on('agents:clear-input', (event, id) => clear(findSession(id)));
   registerShortcuts();
   ipcMain.on('agents:ring-config', (event, patch) => setRing(patch || {}));
+  ipcMain.on('agents:model', (event, id, model) => { const s = findSession(id); if (s && isClaude(s)) s.pendingModel = String(model || ''); });
+  ipcMain.on('agents:picker-open', (event, open) => { const w = windowOf(event); pickerWindow = open ? w : (pickerWindow === w ? null : pickerWindow); });
+  ipcMain.on('agents:prefs', (event, patch) => {
+    if (patch && OPERATOR_MODELS.includes(patch.operatorModel)) { operatorModel = patch.operatorModel; writeState({operatorModel}); }
+    if (patch && typeof patch.reopen === 'boolean') { reopenTabs = patch.reopen; writeState({reopen: reopenTabs}); }
+    for (const w of windows) send(w, 'agents:prefs', {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs});
+  });
   ipcMain.handle('agents:ring-find', () => ring.find());
   ipcMain.on('agents:ring-calibrate', (event, prefix) => {
     if (ringConfig.match) ring.calibrate({match: ringConfig.match, prefix: prefix || ''});

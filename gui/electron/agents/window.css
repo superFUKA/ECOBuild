@@ -110,3 +110,6 @@ body.operator .status .mode { display: inline-block; }
 #picker-list li.choice .state { color: var(--accent); }
 #picker-list li.listening .state { color: var(--rec); }
 #picker-list li pre { margin: 4px 0 0; color: var(--muted); font: 11px/1.4 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 3em; overflow: hidden; }
+.tab.unread::after { content: " •"; color: var(--accent); }
+.status .info .model { -webkit-app-region: no-drag; cursor: pointer; }
+.status .info .model:hover { color: var(--text); text-decoration: underline; }

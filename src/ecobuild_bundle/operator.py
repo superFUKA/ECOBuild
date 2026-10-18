@@ -19,6 +19,7 @@ from ecobuild.errors import EcoBuildError, ErrorCode
 
 FOLDER = Path("agents") / "operator"
 READ, CHANGE, CONFIRM, HUMAN = ecoagent.guard.READ, ecoagent.guard.CHANGE, ecoagent.guard.CONFIRM, ecoagent.guard.HUMAN
+REQUESTED = ecoagent.guard.REQUESTED
 
 
 @dataclass(frozen=True)

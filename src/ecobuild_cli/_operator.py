@@ -11,7 +11,8 @@ from ecobuild_bundle import operator
 from . import _catalog, _effects
 from ._module import PROGRAM
 
-MARKS = {_effects.READ: "見る", _effects.CHANGE: "変える", _effects.CONFIRM: "確認", _effects.HUMAN: "人"}
+MARKS = {_effects.READ: "見る", _effects.CHANGE: "変える", _effects.CONFIRM: "確認", _effects.HUMAN: "人",
+         _effects.REQUESTED: "頼まれたら"}
 
 RULES = f"""# ECOBuild オペレーター
 
@@ -60,6 +61,7 @@ RULES = f"""# ECOBuild オペレーター
   ユーザーが「はい」と答えたら、そのコマンドを実行する（ECOBuild 自身の確認は --yes で済ませる）。
   `--yes`・`--discard-local`・`--force`・`--remove-workspaces` を付けると、どのコマンドでも [確認] になる。
 - [人]：ECOBuild の準備・更新・秘密の値の入力など。使わずに、ユーザーに実行してもらうよう伝える。
+- [頼まれたら]：ユーザーが直前の発言でそれを頼んだときだけ（ほかのエージェントへ文字を送る：「〇番に〜と送って」）。
 - これはフックでも止めてある。止められたら、回避しようとしない（別のコマンドで同じことをしない）。
 
 ## 拡張のコマンド

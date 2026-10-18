@@ -206,3 +206,7 @@ main { padding: 22px 28px; }
     .operator-form textarea { flex: 1; resize: vertical; min-height: 44px; max-height: 40vh; padding: 9px 11px; border: 1px solid #46515e; border-radius: 8px; background: #14171b; color: #edf1f5; font: inherit; font-size: 14px; }
     .operator-form textarea:focus-visible { outline: 2px solid #8be1cd; outline-offset: 1px; }
     .operator-message.pending .operator-bubble { display: flex; align-items: center; gap: 8px; color: #a5aeba; }
+    .operator-choice { margin: 0 0 10px; padding: 10px 12px; border: 1px solid #40516c; border-radius: 10px; background: #1d2633; }
+    .operator-choice p { margin: 0 0 4px; font-size: 13px; }
+    .operator-choice .c { color: #b1cbef; font-family: Consolas, monospace; }
+    .operator-message.system .operator-bubble { background: transparent; border-style: dashed; color: #a5aeba; font-size: 12px; }

@@ -7,7 +7,10 @@
 // - 状態（考え中・裏で実行中・選択肢・待機中・終了）は画面を読んで決める（screen.js）。モデル・使用量の制限・返答の終わりは、
 //   エージェントが書き出すもの（status.js。ecobuild が置き場所を端末の見えない印で知らせる）。
 // - 最小化すると窓は隠れ、右下の表示（dock.js）になる。返答の知らせは Windows の通知か、右下のカードと音（notify）。
-// 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間）からは preload.js の agents.open で開く。
+// - オペレーター（ECOBuild の操作係）は番号 0 で、ふだんはタブにせず裏で動かす（`ecobuild agent operator --here`）。
+//   ハブの「AI に頼む」がこれと話す（会話の記録はここが持つ）。頼まれればタブで開く。
+// - 外（ecobuild gui・MCP・オペレーター）からの操作は、GUI のサーバーを通して届く（link.js）。
+// 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
 const {app, BrowserWindow, Notification, ipcMain, screen: display} = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -16,17 +19,30 @@ const {Terminal} = require('@xterm/headless');
 const parser = require('./screen');
 const status = require('./status');
 const dock = require('./dock');
+const link = require('./link');
 
 const HISTORY_LIMIT = 2 * 1024 * 1024;   // 後から開いた窓に流し直す出力（文字数）
 const POLL_MS = 1500;                     // 状態を読み直す間隔
 const TOPMOST = ['always', 'auto', 'off'];
 const WINDOW_SIZE = {width: 760, height: 520};
 const STATE_FILE = () => path.join(app.getPath('userData'), 'agents.json');
+const OPERATOR_LOG = () => path.join(app.getPath('userData'), 'operator.json');   // オペレーターとの会話（表示用）
+const OPERATOR_SIZE = {cols: 110, rows: 32};   // 裏で動かすときの端末の大きさ
 const ICON = path.join(__dirname, '..', '..', 'icon.ico');
 // 返答の知らせ。style：windows（Windows の通知。音も Windows の設定どおり）・ecobuild（右下のカードと音）・off。
 // hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）
 const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 8000};
 const HOLD_STEPS = [3000, 5000, 8000, 15000, 30000, 60000, -1];
+// 親（このアプリを Claude Code の中から起動したとき等）から受け継ぐと、子のエージェントが自分を別の会話の一部だと思う
+// （会話を保存しない・題名が親のもの・白黒になる）印。端末を起動するときに外す
+const PARENT_MARKERS = ['CLAUDECODE', 'CLAUDE_PID', 'CLAUDE_EFFORT', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_SESSION_ATTENDED', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN', 'CLAUDE_JOB_DIR', 'CLAUDE_CODE_ALT_SCREEN_FULL_REPAINT', 'AI_AGENT', 'NO_COLOR'];
+function childEnv() {
+  const env = {...process.env, COLORTERM: 'truecolor', FORCE_COLOR: '3'};
+  for (const key of PARENT_MARKERS) delete env[key];
+  return env;
+}
 
 let ecobuildPath = () => 'ecobuild';
 const sessions = [];      // {id, num, name, dir, kind, agent, proc, term, history, exited, state, owner, statusDir, info}
@@ -36,6 +52,9 @@ let current = null;       // 最後に使った窓（新しいタブはここに
 let notify = {...NOTIFY_DEFAULTS};
 const cards = [];         // 右下の返答のカード：{key, id, num, name, text, until}
 let peekOn = false;
+let operatorLog = [];     // [{role: user|agent, text, at}]
+let operatorWatchers = new Set();   // オペレーターとの会話を表示している画面（その窓が前にあれば右下に出さない）
+let operatorQueue = [];   // 起動を待っている間に頼まれた発言
 
 // ---- 記録（窓の場所・最前面・知らせ方・右下の場所） --------------------------------------------------
 function readState() { try { return JSON.parse(fs.readFileSync(STATE_FILE(), 'utf8')); } catch (e) { return {}; } }
@@ -49,14 +68,16 @@ function describe(s) {
   return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.state,
           window: windows.indexOf(s.owner), info: status.summary(s)};
 }
+const findOperator = () => sessions.find(s => s.kind === 'operator');
 
 function spawnSession(s, size) {
-  const args = ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : [])];
+  const args = s.kind === 'operator' ? ['agent', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
+    : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : [])];
   s.term = new Terminal({cols: size.cols, rows: size.rows, scrollback: 3000, allowProposedApi: true});
   s.startedAt = Date.now(); s.statusDir = null; s.info = null; s.repliedAt = undefined;
   s.proc = pty.spawn(ecobuildPath(), args, {
     name: 'xterm-256color', cols: size.cols, rows: size.rows, cwd: s.dir,
-    env: {...process.env, COLORTERM: 'truecolor', FORCE_COLOR: '3'},
+    env: childEnv(),
   });
   s.proc.onData(data => {
     if (!s.statusDir) s.statusDir = status.found(data);
@@ -76,7 +97,7 @@ function openSession({dir, agent = '', name = ''} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
   const same = sessions.find(s => !s.exited && s.kind === 'workspace' && sameDir(s.dir, dir));
   if (same) { focusTab(same.id); return describe(same); }   // 同じ作業空間のエージェントは1つ（前に出す）
-  const s = {id: nextId++, num: sessions.length + 1, name: name || path.basename(dir), dir, kind: 'workspace', agent,
+  const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: name || path.basename(dir), dir, kind: 'workspace', agent,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   sessions.push(s);
   const w = current && !current.win.isDestroyed() && !current.mini ? current : windows.find(x => !x.mini) || openWindow();
@@ -88,22 +109,23 @@ function openSession({dir, agent = '', name = ''} = {}) {
 
 function closeSession(id) {
   const s = findSession(id); if (!s) return;
+  if (s.kind === 'operator' && !app.isQuitting) { hideOperator(); return; }   // オペレーターは閉じずに裏に戻す
   try { s.proc?.kill(); } catch (e) { /* もう終わっている */ }
   s.term?.dispose();
   sessions.splice(sessions.indexOf(s), 1);
-  for (const other of sessions) if (other.num > s.num) other.num--;   // 番号は 1 から続く
+  for (const other of sessions) if (other.kind !== 'operator' && other.num > s.num) other.num--;   // 番号は 1 から続く
   if (s.owner) leave(s.owner, s);
   dropCards(c => c.id === id);
   pushTabs();
 }
 
 function restartSession(id, agent) {
-  const s = findSession(id); if (!s || !s.owner) return;
+  const s = findSession(id); if (!s || (!s.owner && s.kind !== 'operator')) return;
   try { s.proc?.kill(); } catch (e) { /* もう終わっている */ }
   s.term?.dispose(); s.history = []; s.size = 0; s.exited = false; s.state = 'starting';
   if (agent !== undefined) s.agent = agent;
   send(s.owner, 'agents:reset', s.id);
-  spawnSession(s, s.owner.size || {cols: 100, rows: 30});
+  spawnSession(s, s.owner?.size || (s.kind === 'operator' ? OPERATOR_SIZE : {cols: 100, rows: 30}));
   pushTabs();
 }
 
@@ -224,6 +246,7 @@ function pushTabs() {
     send(w, 'agents:tabs', {tabs: w.tabs.map(findSession).filter(Boolean).map(describe), active: w.active,
                             topmost: w.topmost});
   }
+  link.changed();
 }
 
 // ---- 状態（画面と、エージェントが書き出すもの） ----------------------------------------------------------
@@ -237,8 +260,19 @@ function poll() {
   let changed = false;
   for (const s of sessions) {
     if (s.exited || !s.term) continue;
-    const read = parser.parse(screenText(s));
-    s.input = read.input || '';
+    const screen = screenText(s), read = parser.parse(screen);
+    // オペレーターの作業フォルダーは ECOBuild が作った一式なので、初めての「このフォルダーを信頼するか」には信頼すると答える
+    if (s.kind === 'operator' && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
+      s.trusted = true;
+      const options = screen.split('\n').filter(l => /^\s*❯?\s*(No, exit|Yes, I trust this folder)/.test(l));
+      const down = options.findIndex(l => /Yes, I trust/.test(l)) - options.findIndex(l => /❯/.test(l));
+      s.proc.write('\x1b[B'.repeat(Math.max(0, down)) + '\r');
+      operatorLog.push({role: 'system', text: '（ECOBuild が作ったオペレーターのフォルダーを、初めての確認で「信頼する」にしました）', at: Date.now()});
+      saveOperatorLog();
+      continue;
+    }
+    if (read.reply) s.reply = read.reply;
+    s.input = read.input || ''; s.choice = read.state === 'choice' ? {question: read.question, choice: read.choice} : null;
     if (read.state !== s.state) {
       // 返答の終わりは Stop フック（status.json の置き場所が分かっているとき）、分からなければ画面で見る
       if (!s.statusDir && s.state === 'thinking' && read.state === 'idle') replied(s, read.reply);
@@ -247,8 +281,9 @@ function poll() {
     const got = status.poll(s);
     if (got.info) changed = true;
     if (got.replied) replied(s, got.replied.message);
+    if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
   }
-  if (changed) { pushTabs(); pushDock(); }
+  if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
   if (dropCards(c => c.until !== -1 && c.until < now)) pushDock();
 }
@@ -256,8 +291,10 @@ function poll() {
 // 返答が終わった：最小化中なら右下でバッジとカード。そうでなく最前面が「自動」なら前に出す。
 // 見ている（その窓にフォーカスがあり、そのタブを出している）ときは知らせない。知らせ方は notify.style
 function replied(s, message) {
-  const w = s.owner; if (!w) return;
   const text = (message || '').trim().slice(0, 1200);
+  if (text) s.reply = text;
+  if (s.kind === 'operator') { operatorReplied(s, text); return; }
+  const w = s.owner; if (!w) return;
   if (w.mini) { s.unseen = true; addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (w.topmost === 'auto') bringToFront(w);
   const watching = w.win.isFocused() && w.active === s.id;
@@ -297,6 +334,98 @@ function pushDock() {
   dock.update({chip, peek, cards: cards.map(c => ({...c, num: findSession(c.id)?.num ?? c.num}))});
 }
 
+// ---- オペレーター（番号 0。裏で動かす） ----------------------------------------------------------------------
+function startOperator() {
+  let s = findOperator();
+  if (s && !s.exited) return s;
+  if (!s) {
+    s = {id: nextId++, num: 0, name: 'オペレーター', dir: app.getPath('home'), kind: 'operator', agent: '',
+         history: [], size: 0, exited: false, state: 'starting', owner: null};
+    sessions.push(s);
+    spawnSession(s, OPERATOR_SIZE);
+  } else restartSession(s.id);
+  return s;
+}
+
+// 発言を送る（入力欄に貼り付けて Enter）。起動中なら、入力を待つようになってから
+function operatorSend(text) {
+  text = String(text || '').trim(); if (!text) return;
+  const s = startOperator();
+  operatorLog.push({role: 'user', text, at: Date.now()}); saveOperatorLog();
+  if (s.state === 'idle' || s.state === 'thinking' || s.state === 'waiting') operatorType(text); else operatorQueue.push(text);
+  pushOperator();
+}
+function operatorType(text) {
+  const s = findOperator(); if (!s?.proc) return;
+  s.proc.write('\x1b[200~' + text + '\x1b[201~');
+  setTimeout(() => s.proc?.write('\r'), 120);
+}
+const KEYS = {up: '\x1b[A', down: '\x1b[B', enter: '\r', esc: '\x1b'};
+function operatorKey(name) { const s = findOperator(); if (s?.proc && KEYS[name]) s.proc.write(KEYS[name]); }
+
+function operatorReplied(s, text) {
+  operatorLog.push({role: 'agent', text: text || '（返答の文はありませんでした）', at: Date.now()}); saveOperatorLog();
+  pushOperator();
+  // 会話を見ている画面が前にあれば、右下には出さない
+  const watching = [...operatorWatchers].some(contents => {
+    const w = BrowserWindow.fromWebContents(contents); return w && !w.isDestroyed() && w.isFocused();
+  });
+  if (!watching && !(s.owner && s.owner.win.isFocused() && s.owner.active === s.id)) {
+    addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume});
+  }
+}
+
+function showOperator() {
+  const s = startOperator();
+  const w = current && !current.win.isDestroyed() && !current.mini ? current : windows.find(x => !x.mini) || openWindow();
+  if (w.mini) restoreWindow(w);
+  adopt(w, s); select(s.id, true);
+}
+function hideOperator() {
+  const s = findOperator(); if (!s?.owner) return;
+  const w = s.owner; leave(w, s); s.owner = null; pushTabs();
+}
+
+function operatorView() {
+  const s = findOperator();
+  return {state: s ? s.state : 'none', input: s?.input || '', choice: s?.choice || null, shown: !!s?.owner,
+          log: operatorLog.slice(-100), queued: operatorQueue.length};
+}
+function pushOperator() {
+  const view = operatorView();
+  for (const contents of operatorWatchers) if (!contents.isDestroyed()) contents.send('operator:update', view);
+}
+function loadOperatorLog() { try { operatorLog = JSON.parse(fs.readFileSync(OPERATOR_LOG(), 'utf8')).slice(-200); } catch (e) { operatorLog = []; } }
+function saveOperatorLog() {
+  operatorLog = operatorLog.slice(-200);
+  try { fs.writeFileSync(OPERATOR_LOG(), JSON.stringify(operatorLog)); } catch (e) { /* 記録できなくても話せる */ }
+}
+
+// ---- 外からの操作（GUI のサーバーを通して：ecobuild gui agent-… ） --------------------------------------------
+const byNum = num => sessions.find(s => s.num === Number(num));
+function external(op, p) {
+  if (op === 'agent-open') return openSession({dir: p.dir, name: p.name || '', agent: p.agent || ''});
+  if (op === 'agent-send') {
+    const s = byNum(p.tab); if (!s?.proc) return;
+    if (s.kind === 'operator') { operatorSend(p.text); return; }
+    s.proc.write('\x1b[200~' + p.text + '\x1b[201~');
+    if (p.enter !== false) setTimeout(() => s.proc?.write('\r'), 120);
+    return;
+  }
+  if (op === 'agent-show') { const s = byNum(p.tab); if (s?.kind === 'operator') showOperator(); else if (s) focusTab(s.id); return; }
+  if (op === 'agent-close') { const s = byNum(p.tab); if (s) closeSession(s.id); return; }
+  if (op === 'agents-window') {
+    if (p.state === 'minimize') for (const w of windows.filter(x => !x.mini)) minimizeWindow(w);
+    else for (const w of windows.filter(x => x.mini)) restoreWindow(w);
+    return;
+  }
+  if (op === 'operator') { if (p.state === 'show') showOperator(); else hideOperator(); }
+}
+function externalList() {
+  return sessions.map(s => ({num: s.num, name: s.name, dir: s.kind === 'operator' ? null : s.dir, kind: s.kind, state: s.state,
+                             reply: s.reply || '', minimized: !!s.owner?.mini, shown: !!s.owner}));
+}
+
 // ---- タブの一覧（☰） --------------------------------------------------------------------------------------
 function pickerList() {
   return sessions.map(s => ({...describe(s), lines: s.term ? parser.lastLines(screenText(s), 2) : '', input: s.input || '',
@@ -317,6 +446,7 @@ function setNotify(patch) {
 
 function setup({ecobuild}) {
   ecobuildPath = ecobuild;
+  loadOperatorLog();
   const saved = readState();
   notify = {...NOTIFY_DEFAULTS, ...(saved.notify || {})};
   dock.setup({
@@ -364,11 +494,32 @@ function setup({ecobuild}) {
   ipcMain.on('agents:restart', (event, id, resume) => restartSession(id, resume ? 'claude --continue' : undefined));
   ipcMain.on('agents:notify', (event, patch) => setNotify(patch || {}));
   ipcMain.on('agents:test-sound', () => dock.play({id: notify.sound, volume: notify.volume}));
+  // オペレーター（ハブの「AI に頼む」から）
+  ipcMain.handle('operator:watch', (event, on) => {
+    if (on) { operatorWatchers.add(event.sender); event.sender.once('destroyed', () => operatorWatchers.delete(event.sender)); startOperator(); }
+    else operatorWatchers.delete(event.sender);
+    return operatorView();
+  });
+  ipcMain.on('operator:send', (event, text) => operatorSend(text));
+  ipcMain.on('operator:key', (event, name) => operatorKey(name));
+  ipcMain.on('operator:show', (event, on) => (on ? showOperator() : hideOperator()));
+  ipcMain.on('operator:restart', () => { const s = findOperator(); if (s) restartSession(s.id); else startOperator(); });
+  ipcMain.on('operator:clear', () => { operatorLog = []; saveOperatorLog(); pushOperator(); });
   setInterval(poll, POLL_MS);
-  app.on('before-quit', () => { for (const s of sessions) try { s.proc?.kill(); } catch (e) { /* 終わっている */ } });
+  app.on('before-quit', () => {
+    app.isQuitting = true; link.stop();
+    for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
+  });
 }
+
+// GUI のサーバーにつなぐ（外からの操作を受ける。main.js がサーバーの起動後に呼ぶ）
+function connect(hubUrl) { link.connect(hubUrl, {describe: externalList, handle: external}); }
 
 // 外から（試験・GUIの操作）：タブに文字を送る
 function input(id, data) { findSession(id)?.proc?.write(data); }
 
-module.exports = {setup, openSession, input, sessions: () => sessions.map(describe)};
+// 試験用：番号のタブの画面の文字
+function screenOf(num) { const s = sessions.find(x => x.num === num); return s?.term ? screenText(s) : ''; }
+
+module.exports = {setup, connect, openSession, input, operatorSend, screenOf, sessions: () => sessions.map(describe),
+                  operator: () => operatorView()};

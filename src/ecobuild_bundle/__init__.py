@@ -70,8 +70,8 @@ class Module(ecobuild.Module):
         if command[:1] == ("claude",):
             folder = agent_status.prepare(container.name(self.root))
             agent_status.announce(folder)
-            where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), f'"{Path(sys.executable).as_posix()}"')
-            command = (*command, "--settings", agent_status.claude_settings(where, python))
+            where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), agent_status.host_python())
+            command = (*command, "--settings", agent_status.settings_argument(folder, where, python))
         if not inside:
             return super().run_agent(command)
         return container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,

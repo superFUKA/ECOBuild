@@ -81,3 +81,19 @@ def test_ask_turns_agent_errors_into_ecobuild_errors(monkeypatch):
     document = json.loads(result.output)
     assert result.exit_code == 1 and document["error"]["code"] == "agent_error"
     assert document["error"]["details"] == "agent_not_found"
+
+
+def test_extensions_name_their_effects(tmp_path):
+    """拡張は --help --json の actions に {name, effect} を書いて重さを名乗る。名乗っていない呼び方は確認が要る。"""
+    from ecobuild_cli import _extensions
+    script = tmp_path / "ecobuild-box.py"
+    script.write_text("import json\nprint(json.dumps({'ok': True, 'result': {'actions': ["
+                      "{'name': 'peek', 'effect': 'read'}, {'name': 'send', 'effect': 'confirm'}, {'name': 'odd', 'effect': 'x'}]}}))\n",
+                      encoding="utf-8")
+    found = _extensions.effects("box", str(script))
+    assert found == {"box peek": "read", "box send": "confirm"}
+    assert _effects.classify(["box", "peek"], found) == ("read", "box peek")
+    assert _effects.classify(["box", "send", "--text", "hi"], found) == ("confirm", "box send")
+    assert _effects.classify(["box", "-C", "x", "module", "delete"], found)[0] == "confirm"
+    assert _effects.classify(["status"], found) == ("read", "status")
+    assert _extensions.effects("none", str(tmp_path / "missing.exe")) == {}

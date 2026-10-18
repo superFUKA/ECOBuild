@@ -5,6 +5,7 @@
 - run：ecobuild のコマンドを、GUIを通して実行する。ボタンが行うことの大半はこれ（引数は ecobuild のコマンドそのもの。
   一覧と使い方は ecobuild --help --json）。開いている画面には、実行したことが伝わる（別の画面・エージェントが実行しても）。
 - そのほか：GUIにしかない操作（画面を開く・移る、フォルダ・Visual Studio で開く、知らせを出す）。
+- agents・agent-…：エージェントの窓（Electron の GUI だけ。タブ＝作業空間のエージェント）。番号はタブの番号（0 はオペレーター）。
 
 呼ぶ側（origin）が画面なら、画面の中で行うこと（窓を開く・移る・開く）はその画面が行う（答えの "apply"）。
 外（ecobuild gui・MCP）から呼んだときは、開いている画面に頼み（events）、なければサーバーが行う。
@@ -30,9 +31,11 @@ class Action:
     summary: str
     help: str = ""
     params: tuple[Param, ...] = field(default_factory=tuple)
+    # 重さ（ecobuild のコマンドと同じ：read・change・confirm）。エージェント（オペレーター）は confirm を人に聞いてから使う
+    effect: str = "change"
 
     def describe(self) -> dict:
-        return {"name": self.name, "summary": self.summary, "help": self.help,
+        return {"name": self.name, "summary": self.summary, "help": self.help, "effect": self.effect,
                 "params": [{"name": p.name, "help": p.help, "kind": p.kind, "required": p.required,
                             **({"choices": list(p.choices)} if p.choices else {})} for p in self.params]}
 
@@ -47,7 +50,8 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
            "確認が要るコマンドは confirmation_required で止まるので、内容を確かめてから --yes を付けて実行し直します。",
            (Param("args", "ecobuild の引数（例：[\"task\", \"start\", \"12\"]）", "array", True),
             Param("dir", "実行する場所（モジュール・作業空間のフォルダ。省略時は ecobuild gui を実行したフォルダ）"),
-            Param("stdin", "標準入力に渡す文字列（コミットメッセージ等を標準入力で渡すコマンド用）"))),
+            Param("stdin", "標準入力に渡す文字列（コミットメッセージ等を標準入力で渡すコマンド用）")),
+           effect="confirm"),   # 中のコマンドの重さは分からない（エージェントは ecobuild を直接使う）
     Action("open", "GUIの画面を開くか、そこへ移ります。",
            "module を省くとハブ。module はモジュールのフォルダ（このPCの作業空間）か、ハブの一覧にあるモジュール名。"
            "開いている窓があればそこで移り、なければ開きます。",
@@ -67,10 +71,30 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("notify", "開いているGUIの画面に知らせを出します（エージェントから人へ）。", "",
            (Param("message", "知らせる文", required=True),
             Param("kind", "種類", choices=("ok", "info", "bad")))),
+    # エージェントの窓（Electron の GUI：agents/。Edge の窓では使えない）
+    Action("agents", "エージェントの窓のタブの一覧（番号・名前・作業空間・状態・最後の返答・最小化しているか）。", effect="read"),
+    Action("agent-open", "作業空間のエージェントを、エージェントの窓のタブで開きます（あれば前に出す）。",
+           "タスクブランチの作業空間でだけ起動できます。作業空間がコンテナなら、その中で確認なしに動きます。",
+           (Param("dir", "作業空間のフォルダ", required=True),
+            Param("name", "タブの名前（省略時はフォルダ名）"),
+            Param("agent", "起動するエージェントのコマンド（省略時は claude）"))),
+    Action("agent-send", "タブのエージェントに文字を送ります（enter で送信まで）。",
+           "エージェントはそれを人からの指示として実行します。人が送ることをはっきり頼んだときだけ使います。",
+           (Param("tab", "タブの番号", "integer", True),
+            Param("text", "送る文字", required=True),
+            Param("enter", "最後に Enter を押して送信する（既定 true）", "boolean")), effect="confirm"),
+    Action("agent-show", "タブを前に出します（最小化していれば戻す）。", "", (Param("tab", "タブの番号", "integer", True),)),
+    Action("agent-close", "タブを閉じます（そのエージェントは終わります）。", "", (Param("tab", "タブの番号", "integer", True),),
+           effect="confirm"),
+    Action("agents-window", "エージェントの窓を最小化する（右下の小さな表示に）か、元に戻します。", "",
+           (Param("state", "minimize・restore", required=True, choices=("minimize", "restore")),)),
+    Action("operator", "オペレーター（裏で動いている ECOBuild の操作係）を、タブで開くか裏に戻します。", "",
+           (Param("state", "show（タブで開く）・hide（裏に戻す）", required=True, choices=("show", "hide")),)),
     # 状況を見る（画面のボタンにはないが、エージェントが今の様子を知るために使う）
-    Action("windows", "開いているGUIの窓と、それぞれが今表示しているもの（モジュール・画面・タブ・選んだタスク・作業空間）。"),
+    Action("windows", "開いているGUIの窓と、それぞれが今表示しているもの（モジュール・画面・タブ・選んだタスク・作業空間）。",
+           effect="read"),
     Action("activity", "GUIで最近行われたこと（実行したコマンドと結果・知らせ・画面の移動。誰が行ったか付き）。", "",
-           (Param("count", "いくつ（既定 30）", "integer"),)),
+           (Param("count", "いくつ（既定 30）", "integer"),), effect="read"),
 )}
 
 

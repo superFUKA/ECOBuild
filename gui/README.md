@@ -81,6 +81,16 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 
 作業空間の上のバーの「コンテナ」（コンテナにしていれば緑、していなければ「このPC」）：コンテナにする・やめる（`container on/off`）、前もって作る・作り直す・消す（`container start/remove`。当てはまらない操作は出さず、Docker が使えなければ灰色）。動かす・止めるはない（ECOBuild が使うときに動かし、WSL が使わなくなると止める。止まっていても「準備済み」）、このコンテナの設定（`container set`：AI に使わせないもの・使うイメージ）。コンテナの中の AI のログインは、ハブの設定の「AI のログイン（コンテナ用）」（`agent token login/set/status/remove`。トークンは表示しない）。イメージは ECOBuild の版×型ごとなので、ハブの設定の「コンテナのイメージ」（`container image list/build/prune`）で扱う。コンテナにした作業空間では、エージェントはコンテナの中で確認なしに起動し、ビルド・テスト等も中で動く（CLI が渡す。GUI は変わらない）。
 
+## エージェントの窓（Electron だけ。`electron/agents/`）
+
+- 作業空間の「エージェント」は、このアプリの小さな窓のタブで開く（Edge の窓ではコンソール）。タブの端末（node-pty）は `ecobuild -C <場所> agent start --here` を動かす（コンテナの用意・鍵は ecobuild がする。GUI はトークンに触れない）。同じ作業空間のエージェントは1つ（もう一度押すと前に出す）。
+- タブ：番号は 1 から続く（閉じると詰める）。ダブルクリックで名前、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」（`claude --continue`）「閉じる」。下の線で状態（考え中＝黄の明滅・裏で実行中＝黄・選択肢＝青）。状態は main 側の見えない端末（@xterm/headless）の画面を読む（`screen.js`、`npm test`）。
+- 窓：枠なし。📌 で最前面（常に → 自動 → オフ。自動は返答が届いたときだけ前に出る）。☰（Ctrl+Shift+A）でタブの一覧（状況・最後の出力・入力中の文字）。⚙ で返答の知らせ方（Windows の通知・右下のカードと音・知らせない。音・音量・出しておく時間）。– で最小化すると右下の表示（番号＋名前、縁で状態、返答のバッジ、クリックでのぞき見、⤢ で戻す、ドラッグで動かす）。窓を出すときにフォーカスを奪わない。
+- 下のバー：状態・モデル・コンテキスト・使用量の制限の残り（5時間・週）・場所。`agent start --here` が Claude Code に statusLine と Stop フックを渡し、作業空間ごとの置き場所（`ECOBUILD_HOME/agents/status`）に書き出させる。置き場所は端末の出力の見えない印（OSC 1337 `ECOBuildAgentStatus=`）で知る（`status.js`）。
+- オペレーター（番号 0）は裏で常駐（`ecobuild agent operator --here`）。ハブの「AI に頼む」は Electron ではこれと話す（会話の記録は main が持つ。選択肢は ↑↓・決定で答える。「タブで開く」で直接やり取り）。作業フォルダーの初めての「信頼するか」には ECOBuild が答える（ECOBuild が作った一式なので）。
+- 外からの操作：GUI の操作 `agents`・`agent-open`・`agent-send`・`agent-show`・`agent-close`・`agents-window`・`operator`（`ecobuild gui …`・MCP）。Electron の main は kind が agents の窓としてサーバーの events を待ち受け、タブの様子を知らせ、頼まれた操作をする（`link.js`）。操作の重さ（`actions.py` の effect）は `ecobuild gui --help --json` で名乗り、オペレーターのフックが使う（`agent-send`・`agent-close`・`run` は確認が要る）。
+- 端末の部品（node-pty・@xterm）は `npm install` で入る。インストーラーでは node-pty を asar の外に出す（`asarUnpack`）。
+
 ハブの「AI に頼む」：オペレーター（ECOBuild の操作係のエージェント。コードは書かず、ecobuild のコマンドで操作する）との会話。発言ごとに `ecobuild agent ask`（文は標準入力、続きは `--session`）を呼び、返答と実行したコマンドを出す。会話（session と表示している発言）はその窓の localStorage に置くだけ（「新しい会話」で消す）。待つ間も、ほかの操作は止めない（`app.py` の `UNLOCKED`）。返答に実行したコマンドがあれば、モジュールの一覧を読み直す。消す・取り返しのつかない操作は、オペレーターが聞いて「はい」と答えたときだけ実行される（CLI のフックが止める）。
 
 ## モジュールの画面

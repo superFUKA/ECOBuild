@@ -46,6 +46,14 @@ RULES = f"""# ECOBuild オペレーター
 - [人]：ECOBuild の準備・更新・秘密の値の入力など。使わずに、ユーザーに実行してもらうよう伝える。
 - これはフックでも止めてある。止められたら、回避しようとしない（別のコマンドで同じことをしない）。
 
+## 拡張のコマンド
+
+- `{PROGRAM} --help --json` の extensions にあるもの（画面の操作など）は、`{PROGRAM} <名前> --help --json` で使い方と重さが分かる。
+  下の一覧にも、名乗った重さで載せてある。
+- ほかのエージェントに文字を送る操作は、ユーザーが「〇番に〜と送って」のように **送ること自体をはっきり頼んだときだけ** 使う。
+  依頼文を自分で考えて送らない（受け取ったエージェントは、それを人の指示として実行してしまう）。「〜で始めて」「〜を立ち上げて」は、
+  ほとんどがエージェントを開くこと。
+
 ## しないこと
 
 - ファイルの作成・編集・移動・削除、コードを書く、調べものをする。頼まれたら「作業空間のエージェントに頼んでください」と返す。
@@ -60,8 +68,8 @@ RULES = f"""# ECOBuild オペレーター
 """
 
 
-def instructions(build_cli) -> str:
-    """指示書：決まりと、今のコマンドの一覧（重さ付き）。"""
+def instructions(build_cli, effects: dict[str, str] | None = None) -> str:
+    """指示書：決まりと、今のコマンドの一覧（重さ付き）。effects：拡張が名乗った重さ。"""
     catalog = _catalog.catalog(build_cli, {})
     lines = [RULES, "## コマンド", "", f"共通（どこでも。モジュールの中のものは `-C <場所>` を付ける）：", ""]
     lines += _rows(catalog["commands"])
@@ -69,6 +77,9 @@ def instructions(build_cli) -> str:
         rows = _rows(entry["commands"])
         if rows:
             lines += ["", f"型 {name} のモジュールだけ（{entry['description']}）：", ""] + rows
+    if effects:
+        lines += ["", "拡張（名乗った重さ。使い方は `--help --json`）：", ""]
+        lines += [f"- `{PROGRAM} {path}` [{MARKS.get(effect, effect)}]" for path, effect in sorted(effects.items())]
     return "\n".join(lines) + "\n"
 
 
@@ -82,7 +93,12 @@ def _rows(nodes: list[dict]) -> list[str]:
 
 
 def prepare(build_cli) -> operator.OperatorKit:
-    return operator.prepare(instructions(build_cli), program=PROGRAM, guard=f'"{program_path()}" agent guard')
+    from . import _extensions
+    effects = {}
+    for name, path in sorted(_extensions.available().items()):
+        effects.update(_extensions.effects(name, path))
+    return operator.prepare(instructions(build_cli, effects), program=PROGRAM, guard=f'"{program_path()}" agent guard',
+                            effects=effects)
 
 
 def program_path() -> str:

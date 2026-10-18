@@ -25,7 +25,7 @@ import json, os, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
 kind = sys.argv[1] if len(sys.argv) > 1 else "statusline"
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))   # Windows でも UTF-8 として読む
 except Exception:
     data = {}
 def write(name, value):
@@ -49,7 +49,7 @@ else:
     parts = [info["model"] or "Claude"]
     if info["context"] is not None:
         parts.append("ctx %d%%" % round(info["context"]))
-    sys.stdout.write(" · ".join(parts))
+    sys.stdout.buffer.write(" · ".join(parts).encode("utf-8"))
 '''
 
 
@@ -68,12 +68,30 @@ def prepare(name: str) -> Path:
     return folder
 
 
-def claude_settings(folder: str, python: str) -> str:
-    """Claude Code の --settings に渡す JSON（folder・python：エージェントから見た置き場所と Python）。"""
+SETTINGS = "settings.json"   # Claude Code の --settings に渡すファイル（置き場所の中）
+
+
+def claude_settings(folder: str, python: str, base: dict | None = None) -> str:
+    """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
+    base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
-    return json.dumps({"statusLine": {"type": "command", "command": f"{script} statusline", "padding": 0},
-                       "hooks": {"Stop": [{"hooks": [{"type": "command", "command": f"{script} replied"}]}]}},
-                      ensure_ascii=False)
+    settings = json.loads(json.dumps(base or {}))
+    settings["statusLine"] = {"type": "command", "command": f"{script} statusline", "padding": 0}
+    hooks = settings.setdefault("hooks", {})
+    hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied"}]}]
+    return json.dumps(settings, ensure_ascii=False)
+
+
+def settings_argument(host: Path, folder: str, python: str, base: dict | None = None) -> str:
+    """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
+    JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
+    (host / SETTINGS).write_text(claude_settings(folder, python, base), encoding="utf-8", newline="\n")
+    return f"{folder}/{SETTINGS}"
+
+
+def host_python() -> str:
+    """このPCで動かすエージェントのフックが使う Python（この ecobuild の Python）。"""
+    return '"' + Path(sys.executable).as_posix() + '"'
 
 
 def announce(folder: Path) -> None:

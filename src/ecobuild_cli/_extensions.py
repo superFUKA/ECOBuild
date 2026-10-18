@@ -7,6 +7,7 @@ ecobuild --help には「拡張コマンド」として名前が出る（ecobuil
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -51,6 +52,22 @@ def available() -> dict[str, str]:
             if _NAME.match(name) and name not in found and entry.is_file():
                 found[name] = str(entry)
     return found
+
+
+def effects(name: str, path: str, timeout: float = 20) -> dict[str, str]:
+    """外部サブコマンドの操作の重さ（"<名前> <操作>" → read・change・confirm）。拡張は `--help --json` の結果の actions
+    （か commands）に {name, effect} を書いて名乗る（書かなければ、ここでは何も分からない＝change として扱われる）。"""
+    command = [sys.executable, path] if path.lower().endswith(".py") else [path]
+    try:
+        done = subprocess.run([*command, "--help", "--json"], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=timeout)
+        document = json.loads(done.stdout.strip().splitlines()[-1]) if done.stdout.strip() else {}
+    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+        return {}
+    result = document.get("result") if isinstance(document, dict) else None
+    items = (result.get("actions") or result.get("commands") or []) if isinstance(result, dict) else []
+    return {f"{name} {item['name']}": item["effect"] for item in items
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and item.get("effect") in ("read", "change", "confirm", "human")}
 
 
 def run(path: str, args: list[str]) -> int:

@@ -136,3 +136,19 @@ def test_the_command_is_put_next_to_ecobuild(tmp_path):
     made = gui.install_command([str(ecobuild)])
     assert made is not None and made.parent == tmp_path and "ecobuild_gui.py" in made.read_text(encoding="utf-8")
     assert gui.install_command([str(ecobuild)]) == made        # 同じなら書き直さない
+
+
+def test_agents_go_to_the_electron_window(tmp_path):
+    """エージェントの窓の操作：一覧は Electron の main が知らせた様子、ほかは main に頼む。窓がなければ失敗。"""
+    app = make_app(tmp_path)
+    with pytest.raises(gui.GuiError):
+        app.action("agents", {})
+    tabs = [{"num": 1, "name": "Calc #12", "dir": "C:/ECO/Calc", "state": "idle"}]
+    app.see_window({"id": "agents-main", "kind": "agents", "tabs": tabs})
+    assert app.action("agents", {}) == tabs
+    assert app.action("agent-send", {"tab": "1", "text": "テストして"}) == {"done": "asked", "window": "agents-main"}
+    event = app.events.items[-1]
+    assert event["type"] == "agents" and event["op"] == "agent-send" and event["params"] == {"tab": 1, "text": "テストして"}
+    with pytest.raises(gui.GuiError):
+        app.action("agent-show", {"tab": 9})
+    assert app.action("agent-open", {"dir": "C:/ECO/Calc"})["done"] == "asked"

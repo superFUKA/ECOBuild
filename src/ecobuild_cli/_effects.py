@@ -55,8 +55,9 @@ def effect(path: str, options: tuple[str, ...] = ()) -> str:
     return found
 
 
-def classify(args: list[str]) -> tuple[str, str]:
-    """ecobuild に渡す引数から (重さ, コマンドの名前)。-C <場所> は飛ばす。--help は見るだけ。"""
+def classify(args: list[str], extra: dict[str, str] | None = None) -> tuple[str, str]:
+    """ecobuild に渡す引数から (重さ, コマンドの名前)。-C <場所> は飛ばす。--help は見るだけ。
+    extra：拡張が名乗った重さ（"<拡張> <操作>" → 重さ。_extensions.effects）。"""
     rest = list(args)
     while rest and (rest[0] in GLOBAL_OPTIONS or rest[0].startswith(("--directory=", "-C"))):
         rest = rest[2:] if rest[0] in GLOBAL_OPTIONS else rest[1:]
@@ -64,6 +65,12 @@ def classify(args: list[str]) -> tuple[str, str]:
     options = tuple(w for w in rest if w.startswith("-"))
     if "--help" in options or "-h" in options or not words:
         return READ, "help"
+    name = " ".join(words[:2])
+    if extra and name not in extra and any(key.startswith(words[0] + " ") for key in extra):
+        return CONFIRM, name     # 拡張の、名乗っていない呼び方（ほかのコマンドを中で動かす等）：分からないので確認する
+    if extra and name in extra:
+        found = extra[name]
+        return (CONFIRM if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options) else found), name
     path = _path(words)
     return effect(path, options), path
 

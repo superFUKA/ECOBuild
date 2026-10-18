@@ -56,7 +56,8 @@ function renderTabs() {
     b.setAttribute('aria-selected', String(info.id === active)); b.draggable = true; b.dataset.id = info.id;
     b.title = `${info.num}  ${info.name}（${STATE_LABELS[info.state] || info.state}）\n${info.dir}`;
     b.innerHTML = `<span class="num"></span><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('.num').textContent = info.num; b.querySelector('.name').textContent = info.name;
+    b.querySelector('.num').textContent = info.kind === 'operator' ? '◆' : info.num; b.querySelector('.name').textContent = info.name;
+    if (info.kind === 'operator') b.querySelector('.x').title = '裏に戻す（オペレーターは止めません）';
     b.addEventListener('click', event => {
       if (event.target.classList.contains('x')) return closeTab(info);
       agents.select(info.id); show(info.id);
@@ -115,6 +116,7 @@ function rename(button, info) {
 }
 
 function closeTab(info) {
+  if (info.kind === 'operator') { agents.closeTab(info.id); return; }   // 裏に戻す
   if (!info.exited && !confirm(`${info.num}  ${info.name} のエージェントを終わらせて閉じますか？`)) return;
   agents.closeTab(info.id);
 }

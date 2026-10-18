@@ -56,11 +56,27 @@ def directory() -> Path:
     return _settings.home() / FOLDER
 
 
-def prepare(instructions: str, *, program: str, guard: str) -> OperatorKit:
-    """一式を置く。program：許すコマンドの名前（ecobuild）。guard：シェルのコマンドの前に実行するフック。"""
+EFFECTS = "effects.json"   # 一式の中：拡張が名乗った操作の重さ（フックが読む）
+
+
+def prepare(instructions: str, *, program: str, guard: str, effects: dict[str, str] | None = None) -> OperatorKit:
+    """一式を置く。program：許すコマンドの名前（ecobuild）。guard：シェルのコマンドの前に実行するフック。
+    effects：拡張の操作の重さ（"<拡張> <操作>" → 重さ）。"""
+    import json
     allow = tuple(f"{tool}({program}:*)" for tool in ("Bash", "PowerShell"))
     kit = ecoagent.kit.prepare(directory(), instructions, allow=allow, guard=guard)
+    (kit.directory / EFFECTS).write_text(json.dumps(effects or {}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return OperatorKit(kit.directory, kit.instructions, kit.settings)
+
+
+def effects() -> dict[str, str]:
+    """一式に置いた拡張の操作の重さ（なければ空）。"""
+    import json
+    try:
+        found = json.loads((directory() / EFFECTS).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in found.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(found, dict) else {}
 
 
 def start(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorStarted:
@@ -70,7 +86,20 @@ def start(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> OperatorStarte
 
 
 def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
-    """この端末で動かして待つ（画面を持つ別のアプリが、自分の端末の中で常駐させるとき）。"""
+    """この端末で動かして待つ（画面を持つ別のアプリが、自分の端末の中で常駐させるとき）。Claude Code なら、一式の
+    許可・フックと、状態の書き出し（agent_status：返答の終わり・モデル）を1つの --settings で渡す（フォルダーの
+    信頼を待たずに効く）。"""
+    import json
+    from . import agent_status
+    command = tuple(command)
+    if command[:1] == ("claude",):
+        folder = agent_status.prepare("operator")
+        agent_status.announce(folder)
+        try:
+            base = json.loads((directory() / ecoagent.kit.SETTINGS).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            base = {}
+        command = (*command, "--settings", agent_status.settings_argument(folder, folder.as_posix(), agent_status.host_python(), base))
     with _agent_error():
         return ecoagent.run(directory(), command)
 

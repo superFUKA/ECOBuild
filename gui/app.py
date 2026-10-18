@@ -917,6 +917,8 @@ class App:
             now = time.time()
             return [{k: v for k, v in {**w, "seen_seconds_ago": round(now - w["seen"])}.items() if k != "seen"}
                     for w in self.live_windows()]
+        if name == "agents" or name.startswith("agent-") or name in ("agents-window", "operator"):
+            return self._agents(name, p)
         if name == "activity":
             count = p.get("count", 30)
             return [e for e in self.events.items if e["type"] in ("ran", "notify", "navigate", "open-window")][-count:]
@@ -953,6 +955,22 @@ class App:
         open_window(f"http://127.0.0.1:{self.port}/{base}{'&' if '?' in base else '?'}t={self.token}"
                     + (f"#{fragment}" if fragment else ""))
         return {"done": "opened"}
+
+    def agents_window(self) -> dict | None:
+        """エージェントの窓を持つもの（Electron の main。kind が agents の窓として events を待ち受ける）。"""
+        return next((w for w in self.live_windows() if w.get("kind") == "agents"), None)
+
+    def _agents(self, name: str, p: dict) -> object:
+        """エージェントの窓の操作：一覧は Electron の main が知らせた様子から、ほかは main に頼む（events）。"""
+        holder = self.agents_window()
+        if holder is None:
+            raise GuiError("エージェントの窓は、Electron の GUI でだけ使えます（今は開いていません）。")
+        if name == "agents":
+            return holder.get("tabs") or []
+        if name.startswith("agent-") and name != "agent-open" and not any(t.get("num") == p["tab"] for t in holder.get("tabs") or []):
+            raise GuiError(f"タブ {p['tab']} はありません（ecobuild gui agents で一覧を確かめてください）。")
+        self.events.publish({"type": "agents", "target": holder["id"], "op": name, "params": p})
+        return {"done": "asked", "window": holder["id"]}
 
     def _module_path(self, module: str) -> str:
         return find_module(self.cli, module)

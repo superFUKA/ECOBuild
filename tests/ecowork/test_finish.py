@@ -292,7 +292,7 @@ def test_tasks_show_submissions(repository):
     recorded(task_branch)
     task_branch.submit(draft=True)
     listed = {t.number: t for t in repository.tasks()}
-    assert listed[task.number].submission.draft
+    assert listed[task.number].submission.draft and listed[task.number].submission.base == "main"   # 取り込み先も
     assert [t.number for t in repository.tasks(submitted=True)] == [task.number]
 
 

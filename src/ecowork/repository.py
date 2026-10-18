@@ -208,7 +208,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
 
     def _submission_state(self, info: _github.PullRequestInfo) -> wm.PullRequestState:
         pr = wm.PullRequest._from(self, info)
-        return wm.PullRequestState(info.number, info.url, info.state, info.draft, pr.partial)
+        return wm.PullRequestState(info.number, info.url, info.state, info.draft, pr.partial, info.base)
 
     def check_repository(self, *, notify_archived: bool = True) -> bool | None:
         """GitHubで（ECOBuildの外で）変わったリポジトリの状態を確かめ、知らせる。fetch の後に呼ぶ。

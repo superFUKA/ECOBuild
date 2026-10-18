@@ -384,6 +384,7 @@ class PullRequestState:
     state: str
     draft: bool = False
     partial: bool = False            # 中間提出（取り込んでも閉じない）
+    base: str = ""                   # 取り込み先のブランチ
 
 
 @dataclass(frozen=True)

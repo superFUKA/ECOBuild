@@ -4,8 +4,9 @@
 // It reads again when a command ran in another window (a commit, a reset).
 (() => {
   const dir = ECO.params.get('dir') || '', path = ECO.params.get('path') || '';
-  const name = path || dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
-  document.title = `ログ：${name} — ECOBuild`;
+  const module = (ECO.params.get('module') || dir).replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  document.title = `ログ：${path || '全体'} — ${module}`;
+  document.getElementById('log-module').textContent = module;
   document.getElementById('log-title').textContent = `ログ：${path || '全体'}`;
   document.getElementById('log-where').textContent = dir;
   let count = 50;

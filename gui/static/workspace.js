@@ -369,7 +369,8 @@ document.addEventListener('click', e => {
 
 // The log of a file or folder (the explorer's 「ログ」) opens in a window of its own (log.html): several can be open
 // side by side and moved freely.
-WS.showLog = (path = '') => ECO.openPage(`log.html?dir=${encodeURIComponent(WS.dir)}&path=${encodeURIComponent(path)}`);
+// module: the window is the module's (its taskbar button and icon), not the hub's.
+WS.showLog = (path = '') => ECO.openPage(`log.html?dir=${encodeURIComponent(WS.dir)}&path=${encodeURIComponent(path)}&module=${encodeURIComponent(WS.module || WS.dir)}`);
 
 WS.ready = WS.refresh();
 // After the archive was undone (from an error, or the banner), read the state again.

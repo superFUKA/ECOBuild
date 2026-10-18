@@ -70,6 +70,12 @@ function moduleOf(url) {
   try { const u = new URL(url); return sameServer(url) && u.pathname === '/module.html' ? u.searchParams.get('path') || '' : ''; }
   catch (e) { return ''; }
 }
+// The module a window belongs to on the taskbar: its window (module.html?path=), or a window it opened (log.html?module=).
+// Only the hub is the hub's.
+function ownerOf(url) {
+  try { const u = new URL(url); return moduleOf(url) || (sameServer(url) && u.pathname === '/log.html' ? u.searchParams.get('module') || '' : ''); }
+  catch (e) { return ''; }
+}
 
 function asModuleApp(window, root) {
   if (!root || process.platform !== 'win32') return;
@@ -102,7 +108,7 @@ app.on('web-contents-created', (event, contents) => {
   contents.setWindowOpenHandler(({url}) => {
     if (sameServer(url)) {
       const size = new URL(url).pathname === '/log.html' ? LOG_SIZE : MODULE_SIZE;
-      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(size, moduleOf(url) ? MODULE_ICON : ICON)};
+      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? MODULE_ICON : ICON)};
     }
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return {action: 'deny'};
@@ -112,7 +118,7 @@ app.on('web-contents-created', (event, contents) => {
     e.preventDefault();
     if (/^https?:/i.test(url)) shell.openExternal(url);
   });
-  contents.on('did-create-window', (window, {url}) => asModuleApp(window, moduleOf(url)));
+  contents.on('did-create-window', (window, {url}) => asModuleApp(window, ownerOf(url)));
   // メニューは出さないので、開発用の操作だけキーで残す。
   contents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;

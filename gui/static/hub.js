@@ -380,7 +380,7 @@ async function runUpdate() {
   if (!doc) return;
   const r = doc.result;
   if (r.up_to_date) { ECO.toast('最新です。', 'ok'); return checkUpdate(); }
-  try { await ECO.call('relaunch-after', {pid: r.process || 0}); }
+  try { await ECO.call('relaunch-after', {pid: r.process || 0, commit: r.latest}); }
   catch (e) {
     $('update-status').textContent = '更新を始めました。インストーラーの窓が閉じたら、GUI を起動し直してください。';
     return ECO.toast(`GUI を自動で起動し直せません：${e.message}`, 'bad', 15000);

@@ -1045,7 +1045,7 @@ class App:
         if name == "shortcut":
             return {"made": make_shortcuts()}
         if name == "relaunch-after":
-            return relaunch_after(int(d("pid") or 0))
+            return relaunch_after(int(d("pid") or 0), str(d("commit") or ""), self.cli.command)
         if name == "module-repository":
             return {"repository": module_repository(d("dir"))}
         if name == "account":
@@ -1299,16 +1299,45 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
     return made
 
 
-def relaunch_after(pid: int) -> dict:
-    """pid のプロセス（ECOBuild を更新している窓）が終わったら GUI を起動し直す、切り離したプロセスを始める。
-    GUI はこの後に終了する（更新で置き換えられるように）。pid が 0 なら待たない。"""
-    _start_detached([_pythonw(), str(Path(__file__).resolve()), "--relaunch-after", str(pid)], no_window=True)
+def relaunch_after(pid: int, commit: str, cli: list[str]) -> dict:
+    """ECOBuild の更新が終わったら GUI を起動し直す、切り離したプロセスを始める。GUI はこの後に終了する（更新で
+    置き換えられるように）。pid：更新している窓（分からなければ 0）。commit：入る版（入っている ecobuild がこの版に
+    なるまで待つ）。cli：版を確かめる ecobuild。"""
+    _start_detached([_pythonw(), str(Path(__file__).resolve()), "--relaunch-after", str(pid),
+                     "--relaunch-commit", commit, "--relaunch-cli", json.dumps(cli)], no_window=True)
     return {}
 
 
-def _wait_and_relaunch(pid: int) -> None:
-    """--relaunch-after：pid が終わるのを待ち（最長2時間）、古い GUI が終わる間をおいて、新しいプロセスで GUI を開く
-    （更新で入れ替わったファイルを読むように。ショートカットと同じ起動のしかた）。"""
+RELAUNCH_WAIT = 30 * 60   # 入っている版が変わるのを待つ最長（秒）
+
+
+def _installed_commit(cli: list[str]) -> str:
+    """入っている ecobuild の版（installer show）。入れ替えの途中などで読めなければ空。"""
+    try:
+        completed = subprocess.run([*cli, "installer", "show", "--json"], capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace", timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return (json.loads(completed.stdout).get("result") or {}).get("commit") or ""
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+
+
+def _wait_and_relaunch(pid: int, commit: str = "", cli: list[str] | None = None) -> None:
+    """--relaunch-after：更新が終わるのを待ち、古い GUI が終わる間をおいて、新しいプロセスで GUI を開く（更新で入れ替わった
+    ファイルを読むように。ショートカットと同じ起動のしかた）。待つのは2つ：更新している窓（pid）が閉じること、入っている
+    ecobuild が commit の版になること（窓を返さない古い ecobuild が始めた更新でも、終わってから開くように。最長30分）。
+    窓が閉じたのに版が変わっていなければ、更新は失敗している：待たずに開く（前の版のまま使える）。"""
+    _wait_for_process(pid)
+    if commit and cli and not pid:
+        deadline = time.monotonic() + RELAUNCH_WAIT
+        while time.monotonic() < deadline and _installed_commit(cli) != commit:
+            time.sleep(3)
+    time.sleep(2)
+    here = Path(__file__).resolve().parent
+    _start_detached([str(packaged_app())] if packaged_app() else [_pythonw(), str(here / "ECOBuildGUI.pyw")], no_window=True)
+
+
+def _wait_for_process(pid: int) -> None:
+    """pid が終わるまで待つ（最長2時間）。0・もうないなら待たない。"""
     if pid and os.name == "nt":
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -1324,9 +1353,6 @@ def _wait_and_relaunch(pid: int) -> None:
             except OSError:
                 break
             time.sleep(1)
-    time.sleep(2)
-    here = Path(__file__).resolve().parent
-    _start_detached([str(packaged_app())] if packaged_app() else [_pythonw(), str(here / "ECOBuildGUI.pyw")], no_window=True)
 
 
 def _pythonw() -> str:
@@ -1548,9 +1574,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)   # 裏で動くサーバー（launch が使う）
     parser.add_argument("--electron", action="store_true", help=argparse.SUPPRESS)  # Electron の子プロセス（electron/main.js が使う）
     parser.add_argument("--relaunch-after", type=int, default=None, help=argparse.SUPPRESS)  # 更新の後に起動し直す（relaunch_after）
+    parser.add_argument("--relaunch-commit", default="", help=argparse.SUPPRESS)
+    parser.add_argument("--relaunch-cli", default="", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.relaunch_after is not None:
-        _wait_and_relaunch(args.relaunch_after)
+        _wait_and_relaunch(args.relaunch_after, args.relaunch_commit, json.loads(args.relaunch_cli) if args.relaunch_cli else None)
     elif args.shortcut:
         try:
             _say("作りました：\n" + "\n".join(make_shortcuts()))

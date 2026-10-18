@@ -10,7 +10,7 @@ def command(
 ) -> int:
     """依存先の記録をGitHubの最新にし、手元のcloneと生成ファイルも合わせます。
 
-    タスクブランチでコミットし、PRで反映してください。
+    タスクブランチで行い、変わった ECOBuild のファイル（.ecobuild の中）はそのままコミットします（Push はしません）。PRで反映してください。
     """
     name = optional_argument(names, name, "--name", json)
     return run_command("deps update", lambda inv: list(inv.module.update_dependencies(name or None)),

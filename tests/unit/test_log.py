@@ -50,9 +50,10 @@ def test_module_command_is_logged_in_the_module(module_root, capsys):
     run_in_module(module_root, action)
     log = _log.module_directory(module_root)
     found = entries(log)
-    assert [e["event"] for e in found] == ["command.start", "progress", "process", "command.result", "command.end"]
+    # process：実行した git 等（ECOBuild 自身のファイルを調べる git status も記録される）
+    assert [e["event"] for e in found if e["event"] != "process"] == ["command.start", "progress", "command.result", "command.end"]
     assert len({e["run"] for e in found}) == 1
-    process = found[2]["data"]
+    process = next(e["data"] for e in found if e["event"] == "process" and e["data"]["args"] == ["git", "status", "--short"])
     assert process["args"] == ["git", "status", "--short"] and process["returncode"] == 0
     assert "stdout" in process and "seconds" in process
     # ECOBuildのログには要約だけ（詳しいログの場所つき）

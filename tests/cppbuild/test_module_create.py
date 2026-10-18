@@ -79,7 +79,8 @@ def test_invalid_name(short_tmp):
     assert error.value.code == ErrorCode.INVALID_CONFIG
 
 
-def test_submit_requires_generated_files(short_tmp):
+def test_submit_commits_the_generated_files(short_tmp):
+    """提出の前に生成ファイルを作り直し、ECOBuild 自身のファイルの変更はそれだけでコミットしてから提出する。"""
     github = FakeGitHub(short_tmp / "gh")
     module = Module.create("Calc", directory=short_tmp, github=github)
     task_branch = module.repository.create_task("生成ファイルの確認").start()
@@ -89,14 +90,34 @@ def test_submit_requires_generated_files(short_tmp):
     (module.root / "Calc" / "src" / "Extra.cpp").write_text("int extra() { return 1; }\n", encoding="utf-8")
     task_branch.stage(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
     task_branch.commit("生成ファイルを書き換え")
-    with pytest.raises(EcoBuildError) as error:
-        task_branch.submit()
-    assert error.value.code == ErrorCode.GENERATED_FILES_OUTDATED
-    assert ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in error.value.details
-    task_branch.stage(all=True)
-    task_branch.commit("生成ファイルを更新")
     pr = task_branch.submit()
     assert pr.head == "task/1"
+    git = module.repository.git
+    assert git.output("log", "-1", "--format=%s") == "ECOBuild のファイルを更新（提出の前）"
+    assert ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in git.output("show", "--name-only", "--format=", "HEAD").splitlines()
+    assert not module.repository.status().unstaged
+
+
+def test_own_files_are_committed_apart_from_the_workers_changes(short_tmp):
+    """ECOBuild 自身のファイル（.ecobuild の中）を書き換えたら、それだけでコミットする。作業者の変更は残し、
+    作業者のコミット（task commit）にも混ぜない。変わっていなければ何もしない。"""
+    module = Module.create("Calc", directory=short_tmp, github=FakeGitHub(short_tmp / "gh"))
+    module.repository.create_task("own").start()
+    git_ = module.repository.git
+    (module.root / "Calc" / "src" / "Work.cpp").write_text("int work() { return 1; }\n", encoding="utf-8")   # 作業者の変更
+    before = module.own_changes()
+    assert module.commit_own_changes("何もしない", before) is None and module.is_own_file(".ecobuild/ecobuild.toml")
+    module.add_project("Lib", "library", test=False)   # .ecobuild の中と Lib/ を書き換える
+    committed = module.commit_own_changes("ecobuild project add", before)
+    assert committed is not None and committed.files and all(module.is_own_file(f) for f in committed.files)
+    assert git_.output("log", "-1", "--format=%s") == "ECOBuild のファイルを更新（ecobuild project add）"
+    assert not module.own_changes() and "Calc/src/Work.cpp" in git_.working_tree().untracked   # 作業者の変更は残る
+    # task commit：先に ECOBuild 自身のファイルを別にコミットし、作業者のコミットには作業者の変更だけ
+    toml = module.root / ".ecobuild" / "ecobuild.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    result = module.commit("作業", ("Calc/src/Work.cpp", ".ecobuild/ecobuild.toml"))
+    assert result.files == ("Calc/src/Work.cpp",)
+    assert git_.output("log", "-2", "--format=%s").splitlines() == ["作業", "ECOBuild のファイルを更新（作業のコミットの前）"]
 
 
 def test_create_module_names_its_first_project(short_tmp):

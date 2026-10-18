@@ -23,7 +23,9 @@ def command(
     no_fetch: Annotated[bool, "足りない依存先を、ビルドの前に自動でcloneしない"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """ビルド設定を追加（同じ名前なら上書き）します。ecobuild.toml が変わるので、タスクブランチでコミットしてください。
+    """ビルド設定を追加（同じ名前なら上書き）します。
+
+    タスクブランチで行い、変わった ECOBuild のファイル（.ecobuild の中）はそのままコミットします（Push はしません）。
 
     Projectごとの上書き（ecobuild profile project）は、上書きしても残ります。
     """

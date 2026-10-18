@@ -99,7 +99,7 @@ def test_commit_paths_and_track(cli, module):
     assert cli("track", "add", "*.json").exit_code == 0
     assert 'include = ["*.json"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     committed = as_json(cli("task", "commit", "--message", "設定とデータ", "--json"))["result"]
-    assert set(committed["files"]) == {"b.json", ".ecobuild/ecobuild.toml"}
+    assert set(committed["files"]) == {"b.json"}   # ecobuild.toml は track add がそのままコミットした（ECOBuild 自身のファイル）
     assert cli("track", "remove", "*.md").exit_code == 0
     assert 'exclude = ["*.md"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     assert as_json(cli("track", "remove", ".ecobuild/ecobuild.toml", "--json"))["error"]["code"] == "invalid_argument"

@@ -677,9 +677,60 @@ class Module:
             untracked = self.repository.git.working_tree().untracked
             outside = tuple(p for p in untracked
                             if any(r == "." or p == r or p.startswith(r + "/") for r in paths) and not self.is_tracked(p))
-        result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
+        # ECOBuild 自身のファイルは、作業者のコミットに混ぜない：先に、それだけでコミットする
+        own = None if amend else self.commit_own_changes("作業のコミットの前")
+        if own and paths:
+            paths = tuple(p for p in paths if not self.is_own_file(p))
+            if not paths:
+                return own
+        try:
+            result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
+        except WorkError as error:
+            if own and error.code == ErrorCode.NOTHING_TO_COMMIT:
+                return own      # 変更は ECOBuild 自身のファイルだけだった
+            raise
         self._forget_created(result.files)
         return replace(result, outside=outside)
+
+    # ECOBuild 自身のファイル（.ecobuild の中と、型の管理ファイル・生成ファイル）は ECOBuild が書き換えるもの。
+    # 書き換えたらそれだけでコミットし、作業者の変更に混ぜない（タスクブランチは squash で取り込むので、途中の
+    # コミットが分かれていても、取り込んだ結果は同じ）。
+
+    def is_own_file(self, path: str) -> bool:
+        """ECOBuild 自身のファイルか（.ecobuild の中〔無視するものは git に出てこない〕と、型の管理ファイル）。"""
+        path = path.replace("\\", "/").strip("/")
+        return path.startswith(_config.DIRECTORY + "/") or self.type.is_managed(path)
+
+    def own_changes(self) -> dict[str, tuple[int, int] | None]:
+        """未コミットの ECOBuild 自身のファイルと、その中身の印（大きさ・更新時刻。消したなら None）。
+        コマンドの前後で比べ、そのコマンドが書き換えたかを知る。"""
+        tree = self.repository.git.working_tree()
+        changes: dict[str, tuple[int, int] | None] = {}
+        for path in {*tree.staged, *tree.unstaged, *tree.untracked, *tree.conflicted}:
+            if self.is_own_file(path):
+                try:
+                    stat = (self.root / path).stat()
+                    changes[path] = (stat.st_size, stat.st_mtime_ns)
+                except OSError:
+                    changes[path] = None
+        return changes
+
+    def commit_own_changes(self, reason: str, before: dict | None = None) -> wm.RecordResult | None:
+        """ECOBuild 自身のファイルの未コミットの変更を、それだけでコミットする（しなければ None）。
+
+        before（own_changes）を渡すと、それから変わったときだけ（読むだけのコマンドの後には何もしない）。
+        コミットするのはタスクブランチで、確認中・取り込み中・衝突の解決中でないときだけ。
+        """
+        changes = self.own_changes()
+        if not changes or (before is not None and changes == before):
+            return None
+        task_branch = self.repository.current_task_branch()
+        git = self.repository.git
+        if task_branch is None or self.repository._reviewing() is not None or git.is_merging() or git.working_tree().conflicted:
+            return None
+        result = task_branch.record(f"ECOBuild のファイルを更新（{reason}）", tuple(sorted(changes)))
+        self._forget_created(result.files)
+        return result
 
     def relative_path(self, path: Path | str, cwd: Path | str) -> str:
         """cwd からの相対・絶対パスを、モジュールのルートからの相対パス（/ 区切り）にする（CLIの引数用）。"""
@@ -1292,9 +1343,11 @@ class Module:
         return True
 
     def _check_generated_files(self) -> None:
-        """生成ファイルを作り直し、生成・管理ファイルに未コミットの変更があれば止める（task submit の前）。"""
+        """生成ファイルを作り直し、ECOBuild 自身のファイルの変更はコミットする。それでも生成・管理ファイルに未コミットの
+        変更が残れば止める（task submit の前）。"""
         if not self.type.refresh():
             return
+        self.commit_own_changes("提出の前")
         changed = self._uncommitted_managed_files()
         if changed:
             raise EcoBuildError(

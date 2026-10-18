@@ -261,7 +261,7 @@ function projectMenu(dir, x, y) {
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'このフォルダのログ'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ['rename-dir', '名前の変更　F2', can && !!dir], ['remove-dir', '削除　Delete', can && !!dir], '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ['ignore-dir', '除外パターンに追加', can && !!dir], '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }

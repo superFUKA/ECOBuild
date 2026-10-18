@@ -378,9 +378,9 @@ async function addFile(relatives, withTest = true, template = '') {
 }
 
 // New file: where (the folder, in a Project), what (a header and a source / a source / a header / any file) and the name.
-// The files to make are shown as they are typed. A pair puts the header under include/<Project>/ and the source under
-// src/ when the folder is in either (as the module is laid out); ecobuild file add makes the header first, so the source
-// includes it, and adds the test of a library source.
+// The files to make are shown as they are typed. A pair goes in the folder; with 「分ける」 (off by default) the header goes
+// under include/<Project>/ and the source under src/, at the same place below each (the folder is in either);
+// ecobuild file add makes the header first, so the source includes it, and adds the test of a library source.
 const HEADER = '.h', SOURCE = '.cpp';
 function newFilePlan(v) {
   const name = v.name.trim(), folder = v.folder;
@@ -390,16 +390,16 @@ function newFilePlan(v) {
   if (v.kind === 'other' || v.kind === 'template') return {paths: [join(folder, base)]};
   if (v.kind === 'source') return {paths: [join(folder, base + SOURCE)]};
   if (v.kind === 'header') return {paths: [join(folder, base + HEADER)]};
+  if (!v.split) return {paths: [join(folder, base + HEADER), join(folder, base + SOURCE)]};
   const root = (projectRoots || []).find(r => folder === r || folder.startsWith(r + '/'));
   const project = root !== undefined ? projectsByDir.get(root)?.name : null;
   const rel = root !== undefined ? folder.slice(root.length).replace(/^\//, '') : null;
   let sub = null;
   if (rel !== null && (rel === 'src' || rel.startsWith('src/'))) sub = rel.slice(3).replace(/^\//, '');
   else if (rel !== null && project && (rel === `include/${project}` || rel.startsWith(`include/${project}/`))) sub = rel.slice(`include/${project}`.length).replace(/^\//, '');
-  if (sub === null) return {paths: [join(folder, base + HEADER), join(folder, base + SOURCE)]};
+  if (sub === null) return {error: `分けるときは、場所を src/ か include/${project || '<Project>'}/ の中にしてください。`};
   const under = (top, rest) => rest ? join(top, rest) : top;
-  const sources = under(join(root, 'src'), sub), includes = WS.files.dirs.includes(join(root, `include/${project}`)) ? under(join(root, `include/${project}`), sub) : sources;
-  return {paths: [join(includes, base + HEADER), join(sources, base + SOURCE)]};
+  return {paths: [join(under(join(root, `include/${project}`), sub), base + HEADER), join(under(join(root, 'src'), sub), base + SOURCE)]};
 }
 async function newFileDialog(dir = activeDirectory) {
   if (!editable()) return;
@@ -420,6 +420,8 @@ async function newFileDialog(dir = activeDirectory) {
       ...(templates.length ? [['template', 'テンプレートから', '拡張子も入力']] : [])]}] : []),
     ...(templates.length ? [{name: 'template', label: 'テンプレート', type: 'select', options: templates.map(t => [t, t]), showIf: v => v.kind === 'template',
       help: 'モジュール画面の「Project」タブで登録したもの・ECOBuildの既定のものです。'}] : []),
+    ...(cpp ? [{name: 'split', label: 'ヘッダーとソースを分ける（ヘッダーは include/<Project>/、ソースは src/ の、同じ構成の場所に）', type: 'checkbox', value: false, showIf: v => v.kind === 'pair',
+      help: 'include/<Project>/ のヘッダーは、このProjectを使う側からも読み込めます（公開するヘッダー）。'}] : []),
     ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作成する', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
     ...(pythonTests ? [{name: 'test', label: 'src/<パッケージ>/ のソースなら、tests/ にテストも作成する', type: 'checkbox', value: true}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],

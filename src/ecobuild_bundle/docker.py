@@ -28,6 +28,7 @@ FIX = "docker"              # DoctorItem.fix：setup --docker・init が導入�
 
 _APT = "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --yes docker.io"
 _START = "systemctl enable --now docker 2>/dev/null || service docker start"
+_NO_VIRTUALIZATION = "aka.ms/enablevirtualization"   # wsl --status の案内の URL（文は言語で変わるので URL で見分ける）
 
 Runner = Callable[[list[str]], "Completed"]
 
@@ -103,8 +104,10 @@ def status(runner: Runner = run, *, windows: bool | None = None) -> DockerStatus
                                 "docker を使う権限がありません（docker グループ）" if denied else "Docker のデーモンに繋がりません")
     if not windows:
         return DockerStatus(False, "no_docker", "見つかりません")
-    if shutil.which("wsl") is None or not runner(["wsl", "--status"]).ok:
+    if shutil.which("wsl") is None or not (found := runner(["wsl", "--status"])).ok:
         return DockerStatus(False, "no_wsl", "WSL2 がありません")
+    if _NO_VIRTUALIZATION in found.output:   # WSL 本体はあるが、仮想マシン プラットフォームが無効（終了コードは 0）
+        return DockerStatus(False, "no_wsl", "WSL2 が有効になっていません（仮想マシン プラットフォーム）")
     names = runner(["wsl", "--list", "--quiet"])
     if DISTRO.casefold() not in (line.strip().casefold() for line in names.output.splitlines()):
         return DockerStatus(False, "no_distro", f"WSL に {DISTRO} がありません")

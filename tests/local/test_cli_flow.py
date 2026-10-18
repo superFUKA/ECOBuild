@@ -30,6 +30,7 @@ def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
                  ["workspace", "list"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"],
+                 ["workspace", "container"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
                  ["deps", "remove"],
                  ["build"], ["test"], ["run"], ["status"], ["task", "add"], ["task", "commit"], ["task", "push"], ["restore"],
@@ -748,3 +749,17 @@ def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     assert result["command"] == ["codex", "--full-auto"]
     cli("agent", "start")
     assert started[-1] == (module.root, ecoagent.DEFAULT_COMMAND)
+
+
+def test_workspace_container(cli, module):
+    """作業空間をコンテナにするかは、このPCの ecobuild.local.toml に持つ（コミットしない）。今は選ぶだけ。"""
+    shown = as_json(cli("workspace", "container", "--json"))["result"]
+    assert not shown["container"] and not shown["changed"]
+    chosen = as_json(cli("workspace", "container", "--on", "--json"))["result"]
+    assert chosen["container"] and chosen["changed"] and not chosen["docker_ready"]
+    assert "container = true" in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")
+    assert "前からこの選択です" in cli("workspace", "container", "--on").output
+    assert "setup --docker" in cli("workspace", "container").output
+    assert as_json(cli("workspace", "container", "--off", "--json"))["result"]["changed"]
+    assert "container" not in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")
+    assert cli("workspace", "container", "--on", "--off").exit_code == 2

@@ -9,7 +9,7 @@ class Machine:
     def __init__(self, monkeypatch, *, windows=True, **state):
         self.windows = windows
         self.state = {"docker": False, "package": False, "wsl": False, "reboot": False, "distro": False, "engine": False,
-                      "running": False, "permission": True, **state}
+                      "running": False, "permission": True, "virtualization": True, **state}
         self.calls, self.elevated = [], []
         monkeypatch.setattr(docker.shutil, "which",
                             lambda name: name if name == "wsl" and windows or name == "docker" and self.state["docker"]
@@ -32,9 +32,12 @@ class Machine:
             s["package"] = True
         elif args == ["wsl", "--status"]:
             ok = s["wsl"]
+            if not s["virtualization"]:             # 仮想マシン プラットフォームが無効でも終了コードは 0
+                ok, output = True, "WSL2 を開始できません。詳細については、https://aka.ms/enablevirtualization をご覧ください"
         elif args == ["wsl", "--install", "--no-distribution"]:
             ok = s["package"]                       # 最初からある wsl.exe は --no-distribution を知らない
             s["wsl"] = ok and not s["reboot"]
+            s["virtualization"] |= s["wsl"]         # 再起動が要らなければ、すぐ有効になる
         elif args == ["wsl", "--list", "--quiet"]:
             output = "Ubuntu\r\n" + ("ECOBuild\r\n" if s["distro"] else "")
         elif args[:3] == ["wsl", "--install", docker.IMAGE]:
@@ -142,3 +145,11 @@ def test_setup_installs_docker_only_when_asked(monkeypatch):
     assert tooling.setup().docker is None and calls == []
     report = tooling.setup(docker=True, command="ecobuild")
     assert report.docker == result and "WSL2 を有効にしました" in report.done and calls[0]["command"] == "ecobuild"
+
+
+def test_windows_without_virtual_machine_platform_enables_it(monkeypatch):
+    machine = Machine(monkeypatch, package=True, virtualization=False, reboot=True)
+    found = docker.status(machine.run, windows=True)
+    assert found.stage == "no_wsl" and "仮想マシン プラットフォーム" in found.detail
+    setup = docker.install(machine.run, windows=True, command="ecobuild")
+    assert setup.done == ("WSL2 を有効にしました",) and "再起動" in setup.restart and not machine.state["distro"]

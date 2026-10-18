@@ -277,8 +277,9 @@ tree.addEventListener('contextmenu', e => {
   else { e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY); }
 });
 // The empty part of the explorer below the files: the same menu as the top of the workspace (as in Explorer).
+// (Not when the tree has shown its menu: fileMenu redraws the tree, so e.target is no longer in it.)
 tree.closest('aside').addEventListener('contextmenu', e => {
-  if (tree.contains(e.target) || e.target.closest('.explorer-heading, input, textarea')) return;
+  if (e.defaultPrevented || tree.contains(e.target) || e.target.closest('.explorer-heading, input, textarea')) return;
   e.preventDefault(); folderMenu(restricted() ? activeDirectory : '', e.clientX, e.clientY);
 });
 get('changes').addEventListener('contextmenu', e => {

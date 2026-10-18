@@ -111,18 +111,21 @@ function spawnSession(s, size) {
     : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : [])];
   s.term = new Terminal({cols: size.cols, rows: size.rows, scrollback: 3000, allowProposedApi: true});
   s.startedAt = Date.now(); s.statusDir = null; s.info = null; s.repliedAt = undefined;
-  s.proc = pty.spawn(ecobuildPath(), args, {
+  const proc = s.proc = pty.spawn(ecobuildPath(), args, {
     name: 'xterm-256color', cols: size.cols, rows: size.rows, cwd: s.dir,
     env: childEnv(),
   });
-  s.proc.onData(data => {
+  // 起動し直したあとに届く前のプロセスの出力・終わりは捨てる（新しいほうを「終わった」にしない）
+  proc.onData(data => {
+    if (s.proc !== proc) return;
     if (!s.statusDir) s.statusDir = status.found(data);
     s.history.push(data); s.size += data.length;
     while (s.size > HISTORY_LIMIT && s.history.length > 1) s.size -= s.history.shift().length;
     s.term.write(data);
     send(s.owner, 'agents:data', s.id, data);
   });
-  s.proc.onExit(({exitCode}) => {
+  proc.onExit(({exitCode}) => {
+    if (s.proc !== proc) return;
     s.exited = true; s.state = 'exited';
     send(s.owner, 'agents:exit', s.id, exitCode);
     pushTabs();

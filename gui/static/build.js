@@ -208,7 +208,8 @@ WS.onRefresh(renderPrDetail);
   // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start
   // --here: the container is made ready there, the progress shows in the tab). Elsewhere a new console window.
   async function startAgent(command = agentCommand()) {
-    const shell = window.ecobuildShell?.agents;
+    // The workspace is a frame of the module window: the Electron bridge is on the top window.
+    const shell = (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
     if (shell) {
       const task = WS.status?.task;
       const name = (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (task ? ` #${task}` : '');

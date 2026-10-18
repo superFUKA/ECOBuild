@@ -305,11 +305,35 @@ async function loadImages(doc = null) {
   if (!r) { $('images-status').textContent = doc.error?.message || 'イメージの一覧を読めませんでした。'; $('images-list').innerHTML = ''; return; }
   if (!ready) { $('images-status').textContent = `Docker が使えません（${r.docker_detail}）。環境の準備で導入できます。`; $('images-list').innerHTML = ''; return; }
   const old = r.images.filter(i => !i.current && !i.used_by.length).length;
-  $('images-status').textContent = (r.missing.length ? `今の版のイメージがまだない型：${r.missing.join('・')}。` : '今の版のイメージはすべてあります。')
-    + (old ? `古いイメージが ${old} 個あります。` : '');
-  $('images-list').innerHTML = r.images.map(i => `<li><div><span class="item-name">${esc(i.name)}</span><small>${esc(i.size)}・${esc(i.created)}${i.used_by.length ? '<br>使っている作業空間：' + esc(i.used_by.join('、')) : ''}</small></div>
-    <span class="${i.current ? 'ok' : 'missing'}">${i.current ? '今の版' : i.used_by.length ? '古い版（使用中）' : '古い版'}</span></li>`).join('');
+  $('images-status').textContent = old ? `どのコンテナも使っていない前の版が ${old} 個あります（「古いものを消す」で消せます）。` : '';
+  // 型ごとに1行：今の版（なければ「まだない」）と、残っている前の版
+  const typeOf = name => name.replace(/^ecobuild-/, '').replace(/:.*$/, '');
+  const types = [...new Set([...r.images.map(i => typeOf(i.name)), ...r.missing])].sort();
+  $('images-list').innerHTML = types.map(type => {
+    const mine = r.images.filter(i => typeOf(i.name) === type), now = mine.find(i => i.current), older = mine.filter(i => !i.current);
+    const used = mine.flatMap(i => i.used_by);
+    const parts = [now ? `${esc(now.size)}・${esc(now.created)}` : '',
+      used.length ? '使っている作業空間：' + esc(used.map(u => u.split(/[\\/]/).pop()).join('、')) : '',
+      older.length ? `前の版 ${older.length} 個（${older.map(i => esc(i.size)).join('・')}${older.some(i => i.used_by.length) ? '。使用中のものは、そのコンテナを次に動かすときに入れ替わります' : ''}）` : ''].filter(Boolean);
+    return `<li><span class="type">${esc(type)}</span><span class="img-tag" title="${esc(now?.name || '')}">${now ? esc(now.name.split(':')[1]) : '—'}</span>
+      <span class="${now ? 'ok' : 'missing'}">${now ? '今の版' : 'まだない'}</span>${parts.length ? `<small>${parts.join('　')}</small>` : ''}</li>`;
+  }).join('');
 }
+
+// 設定の種類（全般・AI・コンテナ・ECOBuild）
+function showSettingsGroup(group) {
+  const tabs = [...document.querySelectorAll('[data-settings-group]')];
+  if (!tabs.some(t => t.dataset.settingsGroup === group)) group = 'general';
+  for (const t of tabs) t.setAttribute('aria-selected', String(t.dataset.settingsGroup === group));
+  for (const card of document.querySelectorAll('#settings .settings-card')) card.hidden = card.dataset.group !== group;
+  try { localStorage.setItem('ecobuild.settingsGroup', group); } catch (e) { /* 覚えられなくてよい */ }
+}
+for (const t of document.querySelectorAll('[data-settings-group]')) t.addEventListener('click', () => showSettingsGroup(t.dataset.settingsGroup));
+showSettingsGroup((() => { try { return localStorage.getItem('ecobuild.settingsGroup'); } catch (e) { return ''; } })() || 'general');
+$('open-agents-settings').addEventListener('click', () => {
+  if (window.ecobuildShell?.agents?.open) window.ecobuildShell.agents.open({settings: true});
+  else ECO.toast?.('エージェントの窓は、アプリの GUI（Electron）でだけ使えます。', 'info');
+});
 $('images-build').addEventListener('click', async () => {
   const doc = await ECO.run(null, ['container', 'image', 'build'], {busy: 'イメージを作っています（1つ数分かかります）…', success: r => r.built.length ? `${r.built.length} 個のイメージを作りました。` : '今の版のイメージはすべてあります。'});
   if (doc) loadImages(doc);

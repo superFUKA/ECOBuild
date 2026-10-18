@@ -390,3 +390,5 @@ for (const who of document.querySelectorAll('.persona .who')) {
     saved.textContent = ok ? '保存しました（次に起動したときから）' : '保存できませんでした';
   });
 }
+
+agents.onOpenSettings(() => { closePanels(); $('settings-panel').hidden = false; });

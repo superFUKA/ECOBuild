@@ -40,21 +40,27 @@
     <section id="settings" aria-labelledby="settings-title" hidden>
       <h2 id="settings-title">設定</h2>
       <p class="note">すべてのモジュールに共通する設定と開発環境</p>
-      <section class="settings-card" aria-labelledby="owner-title">
+      <nav class="settings-tabs" role="tablist" aria-label="設定の種類">
+        <button type="button" role="tab" data-settings-group="general">全般</button>
+        <button type="button" role="tab" data-settings-group="ai">AI</button>
+        <button type="button" role="tab" data-settings-group="container">コンテナ</button>
+        <button type="button" role="tab" data-settings-group="about">ECOBuild</button>
+      </nav>
+      <section class="settings-card" data-group="general" aria-labelledby="owner-title">
         <h3 id="owner-title">既定の所有者</h3>
-        <p class="note">モジュールの作成・取得で所有者を指定しなかったときに使う、GitHubのユーザーまたは組織です。</p>
-        <form id="owner-form"><label class="field">GitHubのユーザー名・組織名<input id="default-owner" placeholder="未設定ならログイン中のユーザー" autocomplete="off"></label>
-          <div class="settings-actions"><button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="reset-owner">既定に戻す</button></div></form>
+        <p class="note">モジュールの作成・取得で所有者を指定しなかったときに使う、GitHub のユーザーまたは組織。</p>
+        <form id="owner-form" class="inline-form"><label class="field"><span class="sr-only">GitHubのユーザー名・組織名</span><input id="default-owner" placeholder="未設定ならログイン中のユーザー" autocomplete="off"></label>
+          <button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="reset-owner">既定に戻す</button></form>
         <p id="owner-status" class="note" role="status"></p>
       </section>
-      <section class="settings-card" aria-labelledby="doctor-title">
+      <section class="settings-card" data-group="general" aria-labelledby="doctor-title">
         <div class="page-heading"><h3 id="doctor-title">環境チェック</h3><button type="button" class="cancel" id="run-doctor">チェックする</button></div>
         <p class="note" id="doctor-status" role="status">まだチェックしていません。</p>
         <ul id="doctor-results" class="diagnostics"></ul>
       </section>
-      <section class="settings-card" aria-labelledby="setup-title">
+      <section class="settings-card" data-group="general" aria-labelledby="setup-title">
         <h3 id="setup-title">環境の準備</h3>
-        <p class="note">Git が GitHub CLI の認証を使うように設定し、コミットの作成者（名前・メールアドレス）を設定します。</p>
+        <p class="note">Git が GitHub CLI の認証を使うようにし、コミットの作成者（名前・メールアドレス）を設定します。</p>
         <form id="setup-form">
           <div class="form-grid"><label class="field">名前<input name="name" autocomplete="name" placeholder="変更するときだけ入力"></label><label class="field">メールアドレス<input name="email" type="email" autocomplete="email" placeholder="変更するときだけ入力"></label></div>
           <label class="check"><input type="checkbox" name="install"> 不足しているツールもインストールする（winget）</label>
@@ -62,26 +68,33 @@
         </form>
         <div id="setup-status" class="note" role="status"></div>
       </section>
-      <section class="settings-card" aria-labelledby="token-title">
+      <section class="settings-card" data-group="ai" aria-labelledby="token-title">
         <h3 id="token-title">AI のログイン（コンテナ用）</h3>
-        <p class="note">コンテナの中の AI に渡すトークンです。あれば、コンテナの中でログインしなくて済みます（なければ、最初の1回だけコンテナの中でログインします）。「トークンを作る」で開く窓（claude setup-token）でブラウザーから許可すると、出たトークンを自動で保存します（拾えなかったときは、その窓か下の欄に貼ってください）。サブスクリプションのアカウントで作れ、1年使えます。</p>
+        <p class="note">コンテナの中の AI に渡すトークン。あれば、コンテナの中でログインせずに使えます。</p>
         <p class="note" id="token-status" role="status">読み込んでいます…</p>
-        <form id="token-form"><label class="field">トークン<input id="token-value" type="password" autocomplete="off" placeholder="sk-ant-oat…"></label>
-          <div class="settings-actions"><button type="button" class="cancel" id="token-login" title="claude setup-token を新しい窓で開きます（ecobuild agent token login）">トークンを作る</button><button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="token-remove" hidden>消す</button></div></form>
+        <form id="token-form" class="inline-form"><label class="field"><span class="sr-only">トークン</span><input id="token-value" type="password" autocomplete="off" placeholder="sk-ant-oat…（貼り付け）"></label>
+          <button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="token-login" title="claude setup-token を新しい窓で開きます（ecobuild agent token login）">トークンを作る</button><button type="button" class="cancel danger-text" id="token-remove" hidden>消す</button></form>
+        <details class="more"><summary>トークンの作り方</summary><p class="note">「トークンを作る」で開く窓（claude setup-token）でブラウザーから許可すると、出たトークンを自動で保存します。拾えなかったときは、その窓か上の欄に貼ってください。サブスクリプションのアカウントで作れ、1年使えます。トークンがなければ、最初の1回だけコンテナの中でログインします。</p></details>
       </section>
-      <section class="settings-card" aria-labelledby="images-title">
+      <section class="settings-card" data-group="ai" aria-labelledby="agents-title">
+        <h3 id="agents-title">エージェントの窓</h3>
+        <p class="note">アイコン・話し方（オペレーター・作業用）、オペレーターのモデル、返答の知らせ方、リングは、エージェントの窓の ⚙ で設定します。</p>
+        <div class="settings-actions"><button type="button" class="cancel" id="open-agents-settings">エージェントの窓を開く</button></div>
+      </section>
+      <section class="settings-card" data-group="container" aria-labelledby="images-title">
         <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の版でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="今の ECOBuild の型のイメージを作ります（ecobuild container image build。1つ数分）">今の版を作る</button></div></div>
-        <p class="note">作業空間をコンテナにすると、その元になるイメージです。ECOBuild の版と型（cpp・generic 等）ごとに1つで、同じ型のモジュールは同じイメージを使います。作っておくと、コンテナを初めて動かすときに待たずに済みます。</p>
+        <p class="note">作業空間をコンテナにしたときの元。型（cpp・generic 等）ごとに1つで、ECOBuild を更新すると作り直します（前の版は自動で片付けます）。</p>
         <p class="note" id="images-status" role="status">読み込んでいます…</p>
-        <ul id="images-list" class="diagnostics"></ul>
+        <ul id="images-list" class="image-types"></ul>
       </section>
-      <section class="settings-card" aria-labelledby="about-title">
-        <h3 id="about-title">ECOBuild（このGUI）</h3>
+      <section class="settings-card" data-group="about" aria-labelledby="about-title">
+        <div class="page-heading"><h3 id="about-title">ECOBuild</h3><div class="settings-actions"><button type="button" class="cancel" id="check-update" title="GitHub に新しい版があるかを確かめます（ecobuild installer update --check）">更新を確かめる</button><button type="button" class="add-button" id="run-update" hidden title="CLI と GUI を新しい版に入れ直します（ecobuild installer update）">更新する</button></div></div>
         <p class="note" id="about"></p>
         <p class="note" id="update-status" role="status"></p>
-        <div class="settings-actions"><button type="button" class="cancel" id="check-update" title="GitHub に新しい版があるかを確かめます（ecobuild installer update --check）">更新を確かめる</button><button type="button" class="add-button" id="run-update" hidden title="CLI と GUI を新しい版に入れ直します（ecobuild installer update）">更新する</button></div>
-        <p class="note">GUIはバックグラウンドで動いています。ウィンドウをすべて閉じると、しばらくして自動で終了します。すぐに終了するには「GUIを終了」を押してください。</p>
-        <div class="settings-actions"><button type="button" class="cancel" id="make-shortcut" title="アイコン付きのショートカットを、デスクトップとスタートメニューに作る">ショートカットを作る</button><button type="button" class="cancel" id="quit-gui">GUIを終了</button></div>
+      </section>
+      <section class="settings-card" data-group="about" aria-labelledby="gui-title">
+        <div class="page-heading"><h3 id="gui-title">この GUI</h3><div class="settings-actions"><button type="button" class="cancel" id="make-shortcut" title="アイコン付きのショートカットを、デスクトップとスタートメニューに作る">ショートカットを作る</button><button type="button" class="cancel" id="quit-gui">GUIを終了</button></div></div>
+        <p class="note">ウィンドウをすべて閉じると、しばらくして自動で終了します（裏で動いています）。</p>
       </section>
     </section>
     <section id="operator" aria-labelledby="operator-title" hidden>

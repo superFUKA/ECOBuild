@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('agents', {
   onPicker: on('agents:picker'),
   onPickerKey: on('agents:picker-key'),
   onPrefs: on('agents:prefs'),
+  onOpenSettings: on('agents:open-settings'),
 });
 
 contextBridge.exposeInMainWorld('dock', {

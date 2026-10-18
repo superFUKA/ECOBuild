@@ -744,7 +744,7 @@ function setup({ecobuild, python, group}) {
     },
   });
   dock.wire(ipcMain);
-  ipcMain.handle('agents:open', (event, options) => openSession(options || {}));
+  ipcMain.handle('agents:open', (event, options) => (options?.settings ? openSettings() : openSession(options || {})));
   ipcMain.handle('agents:list', () => sessions.map(describe));
   ipcMain.handle('agents:picker', () => pickerList());
   // クリップボード（窓の画面からは使えないことがあるので main で）
@@ -891,4 +891,12 @@ async function loadStyles() {
     styles[kind] = doc?.result?.value || '';
   }
   pushPrefs();
+}
+
+// ハブの設定から：エージェントの窓の ⚙ を開く（窓がなければ空の窓を開く）
+function openSettings() {
+  const w = current && !current.win.isDestroyed() && !current.mini ? current : windows.find(x => !x.mini) || openWindow();
+  if (w.mini) restoreWindow(w);
+  const show = () => { w.win.show(); w.win.focus(); send(w, 'agents:open-settings'); };
+  if (w.win.webContents.isLoading()) w.win.webContents.once('did-finish-load', () => setTimeout(show, 200)); else show();
 }

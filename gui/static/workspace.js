@@ -244,31 +244,14 @@ get('push-commits-close').addEventListener('click', () => setPushListClosed(true
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
 
-// ログ (ecobuild log): a commit's menu shows its changes, or goes back to it — the files as they were (restore --source:
-// a change to commit, the history stays) or the task branch itself (task reset: the later commits, not pushed, go).
-// The tab shows 30 commits; 「さらに読み込む」 reads 30 more, the search box narrows them (subject, author, SHA, #task).
-let history = [], historyCount = 30;
+// ログ (ecobuild log): the tab is a log view (see logView). A commit's menu (right click, or 操作 ▾) goes back to it —
+// the files as they were (restore --source: a change to commit, the history stays) or the task branch itself (task
+// reset: the later commits, not pushed, go). The tab reads 30 commits; 「さらに読み込む」 reads 30 more.
+let historyCount = 30;
 const matchesCommit = (c, query) => !query || [c.sha, c.subject, c.author, c.issue ? '#' + c.issue : ''].some(v => String(v).toLowerCase().includes(query));
-async function loadHistory() {
-  const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], fresh => { history = fresh.result; renderHistory(); });
-  history = doc.ok ? doc.result : []; renderHistory();
-}
-function renderHistory() {
-  const box = get('history-list'); if (!box) return;
-  const query = get('history-search').value.trim().toLowerCase();
-  box.innerHTML = history.map((c, i) => matchesCommit(c, query) ? `<li><button type="button" data-history="${i}" title="${esc(c.sha)}　右クリック・押すと操作">
-    <code>${esc(c.sha.slice(0, 8))}</code><span class="history-subject">${esc(c.subject)}</span>
-    <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></button></li>` : '').join('')
-    || `<li class="muted">${query ? '一致するコミットはありません。' : 'ログはありません。'}</li>`;
-  get('history-more').hidden = history.length < historyCount;
-}
-get('history-search').addEventListener('input', renderHistory);
-get('history-more').addEventListener('click', () => { historyCount += 30; loadHistory(); });
-get('history-open').addEventListener('click', () => showLog());
-function historyMenu(index, x, y) {
-  const c = history[index], s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
+function historyMenu(c, x, y) {
+  const s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
   ECO.menu([
-    ['差分を見る', () => showLog('', c.sha)],
     ['SHAをコピー', () => ECO.copyText(c.sha)],
     '-',
     [onTask ? 'この版の状態に戻す（変更としてコミットする）…' : 'この版の状態に戻す（タスクブランチで）', () => WS.run(['restore', '--source', c.sha],
@@ -279,8 +262,13 @@ function historyMenu(index, x, y) {
       .then(() => WS.reloadFiles?.()), onTask],
   ], x, y);
 }
-get('history-list')?.addEventListener('click', e => { const b = e.target.closest('[data-history]'); if (b) { const r = b.getBoundingClientRect(); historyMenu(Number(b.dataset.history), r.left + 40, r.bottom); } });
-get('history-list')?.addEventListener('contextmenu', e => { const b = e.target.closest('[data-history]'); if (b) { e.preventDefault(); historyMenu(Number(b.dataset.history), e.clientX, e.clientY); } });
+const historyView = logView(get('history-view'), {menu: historyMenu, onMore: () => { historyCount += 30; loadHistory(); }});
+async function loadHistory() {
+  const shown = doc => historyView.show(doc.result, doc.result.length >= historyCount);
+  const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], shown);
+  if (doc.ok) shown(doc); else historyView.error(doc.error.message);
+}
+get('history-open').addEventListener('click', () => showLog());
 WS.onRefresh(loadHistory);
 // Switching the task branch placed here (task start <n>: one already started, here or on GitHub). A new task is
 // started from タスク管理 (its dialog chooses the base and the place). A task branch placed in another workspace is
@@ -379,62 +367,90 @@ document.addEventListener('click', e => {
   if (b && !b.disabled) { e.preventDefault(); gitAction(b.dataset.git); }
 });
 
-// The log to read at length (the ログ tab's 「大きく表示」・「差分を見る」, the explorer's 「ログ」 without TortoiseGit): the
-// commits on the left (search, ↑↓, read more), the chosen one's changes on the right (path: only its log, its files open).
-async function showLog(path = '', selected = '') {
-  let count = 50, entries = [], chosen = selected;
+// A log view (the ログ tab and the large log): the commits on the left (search, ↑↓, read more), the chosen one's
+// changes on the right, its files folded one by one (path: the files under it open first). menu(c, x, y): a commit's
+// menu (right click, or 操作 ▾). show(commits, more): the commits read (more: there may be more); onMore: read more.
+function logView(box, {path = '', selected = '', menu = null, onMore}) {
+  box.classList.add('log-view');
+  box.innerHTML = `<div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む">
+    <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"><li class="muted">読み込んでいます…</li></ul><button type="button" class="log-more" hidden>さらに読み込む</button></div><div class="log-main"></div>`;
+  const list = box.querySelector('.log-entries'), main = box.querySelector('.log-main'), search = box.querySelector('.log-search'), more = box.querySelector('.log-more');
   const diffs = new Map();
+  let entries = null, chosen = selected, drawn = '';
+  const visible = () => (entries || []).filter(c => matchesCommit(c, search.value.trim().toLowerCase()));
+  const commit = sha => (entries || []).find(c => c.sha === sha);
+  const renderList = () => {
+    if (!entries) return;
+    list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"${menu ? ' title="右クリックで操作"' : ''}><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
+      <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></li>`).join('')
+      || `<li class="muted">${entries.length ? '一致するコミットはありません。' : 'ログはありません。'}</li>`;
+  };
+  const choose = async sha => {
+    chosen = sha; drawn = sha; renderList();
+    list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
+    if (!sha) { main.innerHTML = ''; return; }
+    if (!diffs.has(sha)) {
+      main.innerHTML = '<p class="muted">読み込んでいます…</p>';
+      const doc = await WS.cli(['show', sha], {quiet: true});
+      diffs.set(sha, doc.ok ? doc.result : `読み込めませんでした：${doc.error.message}`);
+    }
+    if (chosen !== sha) return;
+    main.innerHTML = `<div class="log-commit"><strong>${esc(commit(sha)?.subject || sha.slice(0, 8))}</strong>${menu && commit(sha) ? '<button type="button" data-menu>操作 ▾</button>' : ''}<button type="button" data-copy="${esc(sha)}">SHAをコピー</button>
+      <button type="button" data-fold="open">すべて開く</button><button type="button" data-fold="close">すべて閉じる</button></div>${ECO.diffHtml(diffs.get(sha), {focus: path})}`;
+    main.scrollTop = 0;
+  };
+  list.addEventListener('click', e => { const row = e.target.closest('[data-sha]'); if (row) choose(row.dataset.sha); });
+  list.addEventListener('contextmenu', e => {
+    const c = commit(e.target.closest('[data-sha]')?.dataset.sha);
+    if (c && menu) { e.preventDefault(); if (c.sha !== chosen) choose(c.sha); menu(c, e.clientX, e.clientY); }
+  });
+  list.addEventListener('keydown', e => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const shown = visible(), i = shown.findIndex(c => c.sha === chosen), next = shown[Math.max(0, Math.min(shown.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
+    if (next && next.sha !== chosen) choose(next.sha);
+  });
+  main.addEventListener('click', e => {
+    const copy = e.target.closest('[data-copy]'), fold = e.target.closest('[data-fold]')?.dataset.fold, button = e.target.closest('[data-menu]');
+    if (copy) ECO.copyText(copy.dataset.copy);
+    if (fold) main.querySelectorAll('details.eco-file').forEach(f => { f.open = fold === 'open'; });
+    if (button && commit(chosen)) { const r = button.getBoundingClientRect(); menu(commit(chosen), r.left, r.bottom + 4); }
+  });
+  search.addEventListener('input', renderList);
+  more.addEventListener('click', () => { more.disabled = true; onMore(); });
+  return {
+    show(commits, hasMore) {
+      entries = commits; more.hidden = !hasMore; more.disabled = false;
+      // The chosen commit stays; one gone (after ここまで戻す) gives way to the newest. The one asked for may be older.
+      if (!chosen || (!commit(chosen) && chosen !== selected)) choose(entries[0]?.sha || '');
+      else if (drawn !== chosen) choose(chosen);
+      else renderList();
+    },
+    error(message) { list.innerHTML = `<li class="muted">読み込めませんでした：${esc(message)}</li>`; more.disabled = false; },
+    focus() { list.focus(); },
+  };
+}
+
+// The log at length (the ログ tab's 「大きく表示」, the explorer's 「ログ」 without TortoiseGit; path: only its log). It opens
+// at once and reads behind (ecobuild log asks GitHub for the merged submissions: seconds); one at a time.
+let logOpen = false;
+async function showLog(path = '', selected = '') {
+  if (logOpen) return;
+  logOpen = true;
+  let count = 50, view;
   const load = async () => {
     const doc = await WS.cli(['log', ...(path ? [path] : []), '--count', String(count)], {quiet: true});
-    if (doc.ok) entries = doc.result; else ECO.showError(doc);
-    return doc.ok;
+    if (doc.ok) view.show(doc.result, doc.result.length >= count); else view.error(doc.error.message);
   };
-  if (!await load()) return;
-  chosen ||= entries[0]?.sha || '';
-  return ECO.dialog({title: path ? `ログ：${path}` : 'ログ', wide: true,
-    body: `<div class="log-view"><div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む">
-      <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"></ul><button type="button" class="log-more">さらに読み込む</button></div><div class="log-main"></div></div>`,
-    onOpen: d => {
+  try {
+    await ECO.dialog({title: path ? `ログ：${path}` : 'ログ', wide: true, body: '<div class="log-box"></div>', onOpen: d => {
       d.classList.add('eco-output', 'log-dialog');
-      const list = d.querySelector('.log-entries'), main = d.querySelector('.log-main'), search = d.querySelector('.log-search'), more = d.querySelector('.log-more');
-      const visible = () => entries.filter(c => matchesCommit(c, search.value.trim().toLowerCase()));
-      const renderList = () => {
-        list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
-          <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></li>`).join('') || '<li class="muted">一致するコミットはありません。</li>';
-        more.hidden = entries.length < count;
-      };
-      const choose = async sha => {
-        chosen = sha; renderList();
-        list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
-        if (!sha) { main.innerHTML = '<p class="muted">ログはありません。</p>'; return; }
-        if (!diffs.has(sha)) {
-          main.innerHTML = '<p class="muted">読み込んでいます…</p>';
-          const doc = await WS.cli(['show', sha], {quiet: true});
-          diffs.set(sha, doc.ok ? doc.result : `読み込めませんでした：${doc.error.message}`);
-        }
-        if (chosen !== sha) return;
-        const c = entries.find(x => x.sha === sha);
-        main.innerHTML = `<div class="log-commit"><strong>${esc(c?.subject || sha.slice(0, 8))}</strong><button type="button" data-copy="${esc(sha)}">SHAをコピー</button>
-          <button type="button" data-fold="open">すべて開く</button><button type="button" data-fold="close">すべて閉じる</button></div>${ECO.diffHtml(diffs.get(sha), {focus: path})}`;
-        main.scrollTop = 0;
-      };
-      list.addEventListener('click', e => { const row = e.target.closest('[data-sha]'); if (row) choose(row.dataset.sha); });
-      list.addEventListener('keydown', e => {
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-        e.preventDefault();
-        const shown = visible(), i = shown.findIndex(c => c.sha === chosen), next = shown[Math.max(0, Math.min(shown.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))];
-        if (next && next.sha !== chosen) choose(next.sha);
-      });
-      main.addEventListener('click', e => {
-        const copy = e.target.closest('[data-copy]'), fold = e.target.closest('[data-fold]')?.dataset.fold;
-        if (copy) ECO.copyText(copy.dataset.copy);
-        if (fold) main.querySelectorAll('details.eco-file').forEach(f => { f.open = fold === 'open'; });
-      });
-      search.addEventListener('input', renderList);
-      more.addEventListener('click', async () => { count += 50; if (await load()) renderList(); });
-      choose(chosen);
-      setTimeout(() => list.focus());   // after the dialog focuses its button
+      // No commit menu here: a menu opens behind the dialog (the dialog is modal).
+      view = logView(d.querySelector('.log-box'), {path, selected, onMore: () => { count += 50; load(); }});
+      load();
+      setTimeout(() => view.focus());   // after the dialog focuses its button
     }});
+  } finally { logOpen = false; }
 }
 WS.showLog = showLog;
 

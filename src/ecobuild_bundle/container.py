@@ -223,9 +223,31 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         if caches(root):   # 新しいボリュームは root のものになるので、中の一般ユーザーが書けるように
             _run(runner, [*prefix, "exec", "--user", "0", name(root), "chown", USER, *(place for _, place in caches(root))],
                  "キャッシュの置き場所を用意できませんでした")
+        tidy(image, runner, prefix)   # 作り直した：前の版のイメージは、もうどのコンテナも使っていなければ消す
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
     return _result(root, True, True, runner, built=built)
+
+
+def tidy(keep: str, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tuple[str, ...]:
+    """keep と同じ型の、ECOBuild が作った前の版のイメージのうち、どのコンテナも使っていないものを消す（ECOBuild を
+    更新するとイメージの名前が変わるので、放っておくと更新のたびに増える）。消せなくても止めない。消したものを返す。"""
+    repository = keep.rsplit(":", 1)[0]
+    if not repository.startswith(IMAGE_PREFIX):
+        return ()     # 作業空間で指定したイメージ（ECOBuild が作ったものでない）は触らない
+    run = runner or docker.run
+    listed = run([*prefix, "image", "ls", repository, "--format", "{{.Repository}}:{{.Tag}}"])
+    used = run([*prefix, "ps", "--all", "--format", "{{.Image}}"])
+    if not listed.ok or not used.ok:
+        return ()
+    first = lambda output: [line.split()[0] for line in output.splitlines() if line.strip()]
+    in_use = set(first(used.output))
+    removed = []
+    for image in first(listed.output):
+        if image != keep and image not in in_use and run([*prefix, "image", "rm", image]).ok:
+            removed.append(image)
+            shutil.rmtree(_settings.home() / "containers" / image.replace(":", "-"), ignore_errors=True)
+    return tuple(removed)
 
 
 def _image(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...], source: tuple[str, str],
@@ -520,6 +542,7 @@ def build_images(types: tuple[str, ...] = (), source: tuple[str, str] = SOURCE, 
         image, made = _type_image(type_class, runner, prefix, source, progress)
         if made:
             built.append(image)
+            tidy(image, runner, prefix)
     listed = images(source, runner, command=command)
     return ImageList(listed.images, listed.docker_ready, listed.docker_detail, listed.missing, (), tuple(built))
 

@@ -25,7 +25,9 @@ class FakeDocker:
         if args[1:3] == ["image", "inspect"]:
             return docker.Completed(tuple(args), 0 if rest[-1] in self.images else 1, "")
         if args[1:3] == ["image", "ls"]:
-            return docker.Completed(tuple(args), 0, "\n".join(f"{i}\t420MB\t2 hours ago" for i in sorted(self.images)))
+            wanted = rest[1] if len(rest) > 1 and not rest[1].startswith("-") else ""   # 名前（リポジトリ）で絞る
+            return docker.Completed(tuple(args), 0, "\n".join(f"{i}\t420MB\t2 hours ago" for i in sorted(self.images)
+                                                               if not wanted or i.rsplit(":", 1)[0] == wanted))
         if args[1:3] == ["image", "rm"]:
             self.images.discard(rest[-1])
             return docker.Completed(tuple(args), 0, "")
@@ -274,3 +276,15 @@ def test_type_caches_live_in_the_container(monkeypatch, tmp_path):
     generic = tmp_path / "Box"
     config.save(config.ModuleConfig.for_new_module("Box", "generic"), generic / config.FILE_NAME)
     assert container.caches(generic) == []
+
+
+def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch, tmp_path):
+    """ECOBuild を更新するとイメージの名前が変わる。作り直したら、どのコンテナも使っていない前の版は消す（増え続けない）。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    container.start(root, fake.run, source=("https://example.com/ECOBuild", "v1"))
+    old = next(iter(fake.images))
+    fake.images.add("ecobuild-cpp:someother")          # 別の型のイメージは消さない
+    container.start(root, fake.run, source=("https://example.com/ECOBuild", "v2"))
+    assert old not in fake.images and "ecobuild-cpp:someother" in fake.images and len(fake.images) == 2

@@ -164,3 +164,9 @@ body.resizing iframe { pointer-events: none; }
 .history-list code { color: #9ee4d3; font: 12px Consolas, monospace; }
 .history-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-list small { grid-column: 2; color: #84909e; font-size: 11px; }
+/* The task branch placed in this workspace (switched from its menu). */
+.work > .heading { justify-content: flex-start; gap: 14px; }
+.branch-button { display: inline-flex; align-items: center; gap: 7px; max-width: 420px; padding: 4px 8px 4px 10px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #a8dfd0; font-size: 12px; }
+.branch-button:hover { border-color: #56616e; }
+.branch-button #branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.branch-button svg { flex-shrink: 0; color: #9eaab8; }

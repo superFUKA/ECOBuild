@@ -60,6 +60,7 @@ function renderHeader() {
   const s = WS.status;
   const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
   get('workspace-label').textContent = where;
+  get('branch-name').textContent = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.branch || '（ブランチなし）';
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
   const pr = s.pull_request;
@@ -82,7 +83,7 @@ function renderBanners(errorDoc) {
   else {
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して完了</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
-    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。タスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
+    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチから切り替え、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
@@ -270,6 +271,45 @@ get('finish').addEventListener('click', () => ECO.form({
     WS.reloadFiles?.(); WS.refreshPrs?.();
   },
 }));
+
+// Switching the task branch placed here (task start <n>: one already started, here or on GitHub). A new task is
+// started from タスク管理 (its dialog chooses the base and the place). A task branch placed in another workspace is
+// not placed here too: its tab is shown instead (one task branch, one place).
+const keyOf = dir => dir.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+ECO.info().then(info => { WS.me = info.me || ''; }).catch(() => {});
+function whyNotSwitch(s) {
+  if (!s) return 'この場所の状態を読めません。';
+  if (s.merging) return '取り込みの途中です（完了するか中止してから切り替えます）。';
+  if (s.reviewing) return '提出を確認中です（「判定せずに戻る」で戻ってから切り替えます）。';
+  const excluded = new Set(s.excluded || []);
+  if (s.staged.length || s.unstaged.length || s.conflicted.length || s.untracked.some(p => !excluded.has(p))) return '未コミットの変更があります（コミットするか退避してから切り替えます）。';
+  return '';
+}
+get('switch-branch').addEventListener('click', async () => {
+  const button = get('switch-branch'), r = button.getBoundingClientRect(), s = WS.status;
+  const doc = await ECO.query(WS.dir, ['task', 'list']);
+  if (!doc.ok) return ECO.showError(doc);
+  const why = whyNotSwitch(s), here = keyOf(WS.dir);
+  const started = doc.result.filter(t => t.state === 'open' && (t.current || t.task_branch || t.remote || t.workspace));
+  const items = started.map(t => {
+    const label = `#${t.number} ${t.title}`;
+    if (t.current) return [`✓ ${label}（ここに置いています）`, () => {}, false];
+    if (t.workspace && keyOf(t.workspace) !== here) {
+      return [`${label}（作業空間 ${t.workspace.split(/[\\/]/).pop()}）`, () => window.parent.postMessage({type: 'open-place', dir: t.workspace}, location.origin),
+        window.parent !== window, `別の作業空間に置いてあります。そのタブを表示します（${t.workspace}）`];
+    }
+    const others = WS.me && t.assignees?.length && !t.assignees.includes(WS.me) ? t.assignees : [];
+    if (others.length) return [`${label}（担当：${others.join('、')}）`, () => {}, false, 'ほかの人が担当しています。引き継ぐなら、タスク管理の「作業を開始」から'];
+    return [label + (t.task_branch ? '' : '（GitHubから再開）'), () => WS.run(['task', 'start', String(t.number)],
+      {success: `タスクブランチ task/${t.number} に切り替えました。`}).then(d => d && WS.reloadFiles?.()), !why, why];
+  });
+  ECO.menu([
+    [why || 'この作業空間に置くタスクブランチ', null],
+    ...items,
+    ...(started.some(t => !t.current) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
+    ...(window.parent !== window ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
+  ], r.left, r.bottom + 4);
+});
 
 // Toolbar actions.
 async function gitAction(action) {

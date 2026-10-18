@@ -9,6 +9,9 @@ const tree = get('file-tree'), menu = get('file-menu');
 // has Projects (project list), the explorer shows only those folders, without tool folders (.cppbuild 等) inside.
 // Types without Projects (generic) show the whole place.
 let projectRoots = null, projectsByDir = new Map();   // directory → the Project (project list: name, kind)
+// Ordinary folders and files: an icon before the name (as in Explorer).
+const FOLDER_ICON = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M1.5 3.5h4.2l1.5 1.5h7.3v8.5h-13z" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-linejoin="round"/></svg>';
+const FILE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5 1.5h6l3 3v10h-9z" fill="none" stroke="currentColor" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-linejoin="round"/></svg>';
 // How a Project folder is told apart from an ordinary folder: an icon and the kind of the Project.
 const PROJECT_KINDS = {static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定'};
 WS.reloadFiles = async () => {
@@ -71,7 +74,7 @@ function renderTree() {
         title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon project" aria-hidden="true">◆</span><span class="tree-name">${esc(name)}</span>${project.name !== name ? `<span class="tree-sub">${esc(project.name)}</span>` : ''}<span class="tree-kind ${esc(project.kind || '')}">${esc(kind)}</span>`;
         title.title = `Project ${project.name}（${kind}）：${dir}`; title.classList.add('project');
       } else {
-        title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon" aria-hidden="true">▭</span><span class="tree-name">${esc(name)}</span>`;
+        title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon folder" aria-hidden="true">${FOLDER_ICON}</span><span class="tree-name">${esc(name)}</span>`;
         title.title = `フォルダ：${dir}`;
       }
       title.dataset.directory = dir; title.draggable = !project;   // a Project's own folder moves with project move
@@ -94,7 +97,8 @@ function renderTree() {
       const row = document.createElement('button'); row.type = 'button'; row.dataset.path = path; row.draggable = !isReadme(path);
       const cls = fileClass(path);
       row.className = 'file ' + cls + (WS.activeFile === path ? ' active' : '') + (generated.has(path) ? ' generated' : '');
-      row.textContent = (cls === 'untracked' ? '+ ' : cls && cls !== 'staged' ? '• ' : cls === 'staged' ? '✓ ' : '') + path.split('/').pop();
+      row.innerHTML = `<span class="tree-icon" aria-hidden="true">${FILE_ICON}</span>`;
+      row.append((cls === 'untracked' ? '+ ' : cls && cls !== 'staged' ? '• ' : cls === 'staged' ? '✓ ' : '') + path.split('/').pop());
       row.title = path + (cls ? '（' + {deleted: '削除', conflicted: '衝突', untracked: '未追跡', modified: '変更', staged: 'ステージ済み'}[cls] + '）' : '') + (generated.has(path) ? '　生成ファイル：CppBuild が作り直すので、編集しないでください' : '');
       parent.append(row);
     }

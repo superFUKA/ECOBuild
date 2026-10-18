@@ -666,6 +666,14 @@ function external(op, p) {
   }
   if (op === 'agent-show') { const s = byNum(p.tab); if (s?.kind === 'operator') showOperator(); else if (s) focusTab(s.id); return; }
   if (op === 'agent-close') { const s = byNum(p.tab); if (s) closeSession(s.id); return; }
+  if (op === 'agent-rename') { const s = byNum(p.tab); if (s && s.kind !== 'operator') renameSession(s.id, p.name); return; }
+  if (op === 'agent-restart') {
+    const s = byNum(p.tab); if (!s) return;
+    const base = s.kind === 'operator' ? s.agent.replace(' --continue', '') : (s.savedAgent || '');
+    restartSession(s.id, p.continue ? (base || 'claude') + ' --continue' : base);
+    return;
+  }
+  if (op === 'agent-model') { const s = byNum(p.tab); if (s && isClaude(s)) s.pendingModel = String(p.model); return; }
   if (op === 'agents-window') {
     if (p.state === 'minimize') for (const w of windows.filter(x => !x.mini)) minimizeWindow(w);
     else for (const w of windows.filter(x => x.mini)) restoreWindow(w);

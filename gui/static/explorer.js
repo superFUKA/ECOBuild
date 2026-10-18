@@ -74,7 +74,7 @@ function renderTree() {
         title.innerHTML = `<span class="tree-caret" aria-hidden="true">▸</span><span class="tree-icon" aria-hidden="true">▭</span><span class="tree-name">${esc(name)}</span>`;
         title.title = `フォルダ：${dir}`;
       }
-      title.dataset.directory = dir;
+      title.dataset.directory = dir; title.draggable = !project;   // a Project's own folder moves with project move
       if (changedDirs.has(dir)) title.classList.add('has-changes');
       title.addEventListener('click', e => {
         activeDirectory = dir;
@@ -91,7 +91,7 @@ function renderTree() {
       folder.append(title); walk(child, folder, dir); parent.append(folder);
     }
     for (const path of [...new Set(node.files)].sort((a, b) => a.localeCompare(b))) {
-      const row = document.createElement('button'); row.type = 'button'; row.dataset.path = path; row.draggable = true;
+      const row = document.createElement('button'); row.type = 'button'; row.dataset.path = path; row.draggable = !isReadme(path);
       const cls = fileClass(path);
       row.className = 'file ' + cls + (WS.activeFile === path ? ' active' : '') + (generated.has(path) ? ' generated' : '');
       row.textContent = (cls === 'untracked' ? '+ ' : cls && cls !== 'staged' ? '• ' : cls === 'staged' ? '✓ ' : '') + path.split('/').pop();
@@ -544,29 +544,85 @@ get('new-folder').addEventListener('click', () => inlineName({create: 'folder', 
 get('reload-files').addEventListener('click', async () => { await WS.refresh(); await WS.reloadFiles(); });
 get('open-folder').addEventListener('click', () => openFile(''));
 
-// Drag a file onto a folder to move it.
-let dragged = '';
-tree.addEventListener('dragstart', e => { const row = e.target.closest('[data-path]'); if (!row || !editable()) { e.preventDefault(); return; } dragged = row.dataset.path; e.dataTransfer.setData('text/plain', dragged); e.dataTransfer.effectAllowed = 'move'; });
-tree.addEventListener('dragover', e => { const target = e.target.closest('summary[data-directory]'); if (target && dragged) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; target.classList.add('drop-target'); } });
-tree.addEventListener('dragleave', e => e.target.closest?.('summary')?.classList.remove('drop-target'));
-tree.addEventListener('drop', async e => {
-  const target = e.target.closest('summary[data-directory]'); if (!target || !dragged) return;
-  e.preventDefault(); target.classList.remove('drop-target');
-  const destination = join(target.dataset.directory, dragged.split('/').pop()), source = dragged; dragged = '';
-  if (destination !== source) { const message = await moveFile(source, destination); if (message) ECO.toast(message, 'bad', 8000); }
+// Drag files and folders onto a folder to move them there (as in Explorer). What is dragged: the chosen ones when the
+// dragged item is one of them, otherwise that item alone. Dropped on a file: into the file's folder; on the empty part
+// (a type without Projects): to the top. A closed folder opens when the drag rests on it. Files move with ecobuild file
+// move (a library source's test follows), folders as in a rename (rename-folder; then the generated files follow).
+let dragged = null;   // {files, dirs} while dragging inside the explorer
+const panel = tree.closest('aside');
+const clearDropTargets = () => panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+tree.addEventListener('dragstart', e => {
+  const item = e.target.closest?.('[data-path], summary[data-directory]');
+  if (!item || !editable() || tree.querySelector('.inline-name')) { e.preventDefault(); return; }
+  cancelSlowRename();
+  const key = keyOfItem(item);
+  if (!chosen.has(key)) choose(key);
+  const {files, dirs} = chosenItems();
+  dragged = {files, dirs: dirs.filter(d => !projectsByDir.has(d))};
+  if (!dragged.files.length && !dragged.dirs.length) { dragged = null; e.preventDefault(); return; }
+  e.dataTransfer.setData('text/plain', [...dragged.dirs.map(d => d + '/'), ...dragged.files].join('\n'));
+  e.dataTransfer.effectAllowed = 'move';
 });
-tree.addEventListener('dragend', () => { dragged = ''; });
+// Where a drop goes: a folder, or null when it cannot go there (into itself, or nowhere a file may be).
+function dropDestination(e) {
+  const folder = e.target.closest('summary[data-directory]'), row = e.target.closest('[data-path]');
+  const dir = folder ? folder.dataset.directory : row ? dirOf(row.dataset.path) : restricted() ? null : '';
+  if (dir === null || (restricted() && !shown(dir))) return null;
+  if (dragged.dirs.some(d => dir === d || dir.startsWith(d + '/'))) return null;
+  const moving = [...dragged.dirs, ...dragged.files].filter(p => dirOf(p) !== dir);
+  return moving.length ? dir : null;
+}
+let openTimer = 0, openFor = null;
+panel.addEventListener('dragover', e => {
+  if (!dragged) return;
+  const dir = dropDestination(e);
+  clearDropTargets();
+  const summary = e.target.closest('summary[data-directory]'), folder = summary?.parentElement;
+  if (folder !== openFor) { clearTimeout(openTimer); openFor = folder; if (folder && !folder.open) openTimer = setTimeout(() => { folder.open = true; }, 700); }
+  if (dir === null) { e.dataTransfer.dropEffect = 'none'; return; }
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  (dir ? tree.querySelector(`summary[data-directory="${CSS.escape(dir)}"]`) : tree)?.classList.add('drop-target');
+});
+panel.addEventListener('drop', async e => {
+  if (!dragged) return;
+  const dir = dropDestination(e), items = dragged;
+  e.preventDefault(); clearDropTargets(); dragged = null;
+  if (dir !== null) await moveItems(items, dir);
+});
+tree.addEventListener('dragend', () => { dragged = null; clearTimeout(openTimer); openFor = null; clearDropTargets(); });
+
+async function moveItems({files, dirs}, dir) {
+  const moved = [], failed = [];
+  for (const source of dirs.filter(d => dirOf(d) !== dir)) {
+    const destination = join(dir, source.split('/').pop());
+    try { await ECO.call('rename-folder', {dir: WS.dir, source, destination}); moved.push([source + '/', destination + '/']); if (activeDirectory === source) activeDirectory = destination; }
+    catch (error) { failed.push(`${source}/：${error.message}`); }
+  }
+  for (const source of files.filter(p => dirOf(p) !== dir)) {
+    const destination = join(dir, source.split('/').pop());
+    const doc = await withoutFileCommand(await WS.cli(['file', 'move', source, destination]), 'move-file', {source, destination});
+    if (doc.ok) moved.push([source, destination]); else failed.push(`${source}：${doc.error.message}${doc.error.hint ? '　' + doc.error.hint : ''}`);
+  }
+  if (moved.some(([s]) => s.endsWith('/')) && (await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
+  // What was moved stays chosen, at its new place.
+  chosen.clear();
+  for (const [, destination] of moved) chosen.add(destination.endsWith('/') ? 'd:' + destination.slice(0, -1) : 'f:' + destination);
+  const lastFile = moved.map(([, d]) => d).filter(d => !d.endsWith('/')).pop();
+  if (lastFile) WS.activeFile = lastFile;
+  folded.delete(dir); activeDirectory = dir;
+  if (moved.length) { await WS.refresh(); await afterFileChange(true, `${dir || '作業空間の一番上'} へ移動しました：${moved.map(([s]) => s).join('、')}`); }
+  if (failed.length) ECO.toast(`移動できませんでした：\n${failed.join('\n')}`, 'bad', 10000);
+}
 
 // Drop files or folders from elsewhere on this PC (Explorer etc.) onto the explorer: they are copied into the folder they
 // are dropped on (anywhere else: the top of the workspace). Read here and written by the GUI (import-files); a file that
 // is there already is not overwritten. In a C++ module the generated files follow (check --no-build updates them).
 const fromOutside = e => !dragged && [...(e.dataTransfer?.types || [])].includes('Files');
 const dropFolder = e => e.target.closest('summary[data-directory]');
-const panel = tree.closest('aside');
 panel.addEventListener('dragover', e => {
   if (!fromOutside(e)) return;
   e.preventDefault(); e.dataTransfer.dropEffect = editable() ? 'copy' : 'none';
-  panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target'));
+  clearDropTargets();
   (dropFolder(e) || tree).classList.add('drop-target');
 });
 panel.addEventListener('dragleave', e => { if (!panel.contains(e.relatedTarget)) panel.querySelectorAll('.drop-target').forEach(x => x.classList.remove('drop-target')); });

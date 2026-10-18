@@ -1,6 +1,8 @@
 'use strict';
 // エージェントの窓の画面：タブ（番号・名前・状態）と、タブごとの端末（xterm.js）。表示するのは選んでいるタブだけ。
-// タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「閉じる」。
+// タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
+// 下のバー：状態・モデル・コンテキスト・使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・場所。
+// ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方。
 // 端末：Ctrl+= / Ctrl+- / Ctrl+0 で文字の大きさ、Ctrl+Shift+C で選んだところをコピー、Ctrl+V で貼り付け。
 const $ = id => document.getElementById(id);
 const terms = new Map();     // id → {term, fit, el}
@@ -73,10 +75,31 @@ function renderTabs() {
     });
     bar.append(b);
   }
-  const current = tabs.find(t => t.id === active);
-  $('status').innerHTML = current ? `<span>${STATE_LABELS[current.state] || ''}</span><span class="where"></span>` : '';
-  if (current) $('status').querySelector('.where').textContent = current.dir;
+  renderStatus(tabs.find(t => t.id === active));
+}
+
+// 下のバー
+function renderStatus(current) {
+  const bar = $('status'); bar.replaceChildren();
   document.title = current ? `${current.num} ${current.name} - エージェント` : 'エージェント - ECOBuild';
+  if (!current) return;
+  const add = (text, cls = '', title = '') => { const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls; if (title) s.title = title; bar.append(s); return s; };
+  const info = current.info || {};
+  add(STATE_LABELS[current.state] || '');
+  if (info.model) add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''));
+  for (const [label, limit] of [['5時間', info.fiveHour], ['週', info.weekly]]) {
+    if (!limit) { add(`${label} —`, '', '使用量の制限は、Claude が最初に返答した後に届きます'); continue; }
+    const cls = limit.remaining <= 5 ? 'bad' : limit.remaining <= 20 ? 'warn' : '';
+    add(`${label} 残り ${limit.remaining}%`, cls, limit.resetsAt ? `リセット：${resetText(limit.resetsAt)}` : '');
+  }
+  add('', 'gap');
+  add(current.dir, 'where', current.dir);
+}
+
+function resetText(seconds) {
+  const at = new Date(seconds * 1000), hours = Math.max(0, (at - Date.now()) / 3600000);
+  const day = at.toDateString() === new Date().toDateString() ? '今日' : `${at.getMonth() + 1}/${at.getDate()}`;
+  return `${day} ${at.getHours()}:${String(at.getMinutes()).padStart(2, '0')}（あと ${hours < 1 ? Math.round(hours * 60) + ' 分' : Math.round(hours) + ' 時間'}）`;
 }
 
 function rename(button, info) {
@@ -100,7 +123,8 @@ function tabMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
   const items = [['名前を変える', () => rename($('tabs').querySelector(`[data-id="${info.id}"]`), info)],
                  ['新しい窓へ', () => agents.newWindow(info.id)],
-                 ['起動し直す', () => agents.restart(info.id)],
+                 ['起動し直す（新しい会話）', () => agents.restart(info.id)],
+                 ['続きから起動し直す（前の会話の続き）', () => agents.restart(info.id, true)],
                  ['閉じる', () => closeTab(info)]];
   for (const [label, action] of items) {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
@@ -132,3 +156,64 @@ $('minimize').addEventListener('click', () => agents.minimize());
 $('close').addEventListener('click', () => agents.closeWindow());
 new ResizeObserver(() => fitActive()).observe($('screens'));
 agents.ready();
+
+// ---- タブの一覧（☰） ----------------------------------------------------------------------------------
+let pickerItems = [], pickerIndex = 0, pickerTimer = null;
+async function openPicker() {
+  closePanels();
+  $('picker-panel').hidden = false;
+  await refreshPicker();
+  pickerIndex = Math.max(0, pickerItems.findIndex(item => item.id === active));
+  renderPicker();
+  pickerTimer = setInterval(async () => { await refreshPicker(); renderPicker(); }, 1000);
+}
+async function refreshPicker() { pickerItems = await agents.picker(); }
+function renderPicker() {
+  const list = $('picker-list'); list.replaceChildren();
+  pickerItems.forEach((item, i) => {
+    const li = document.createElement('li'); li.className = (item.state || '') + (i === pickerIndex ? ' current' : '');
+    li.innerHTML = '<div class="head"><span class="num"></span><span class="name"></span><span class="state"></span></div><pre></pre>';
+    li.querySelector('.num').textContent = item.num; li.querySelector('.name').textContent = item.name + (item.mini ? '（最小化中）' : '');
+    li.querySelector('.state').textContent = STATE_LABELS[item.state] || item.state;
+    li.querySelector('pre').textContent = [item.lines, item.input && '❯ ' + item.input].filter(Boolean).join('\n');
+    li.addEventListener('click', () => pick(i));
+    list.append(li);
+  });
+}
+function pick(i) { const item = pickerItems[i]; closePanels(); if (item) agents.focusTab(item.id); }
+function closePanels() {
+  $('picker-panel').hidden = true; $('settings-panel').hidden = true;
+  clearInterval(pickerTimer); pickerTimer = null;
+}
+document.addEventListener('keydown', event => {
+  if (!$('picker-panel').hidden) {
+    if (event.key === 'Escape') closePanels();
+    else if (event.key === 'ArrowDown') { pickerIndex = Math.min(pickerItems.length - 1, pickerIndex + 1); renderPicker(); }
+    else if (event.key === 'ArrowUp') { pickerIndex = Math.max(0, pickerIndex - 1); renderPicker(); }
+    else if (event.key === 'Enter') pick(pickerIndex);
+    else if (/^[1-9]$/.test(event.key)) pick(pickerItems.findIndex(item => item.num === Number(event.key)));
+    else return;
+    event.preventDefault(); event.stopPropagation(); return;
+  }
+  if (!$('settings-panel').hidden && event.key === 'Escape') { closePanels(); event.preventDefault(); return; }
+  if (event.ctrlKey && event.shiftKey && event.code === 'KeyA') { event.preventDefault(); openPicker(); }
+}, true);
+$('picker').addEventListener('click', () => ($('picker-panel').hidden ? openPicker() : closePanels()));
+
+// ---- 知らせ方（⚙） ---------------------------------------------------------------------------------------
+const HOLD_LABEL = ms => ms === -1 ? '消さない' : ms < 60000 ? `${ms / 1000} 秒` : `${ms / 60000} 分`;
+for (const s of ECOSounds.list) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.label; $('notify-sound').append(o); }
+agents.onNotify((notify, holds) => {
+  for (const r of document.querySelectorAll('#notify-style input')) r.checked = r.value === notify.style;
+  $('notify-sound').value = notify.sound; $('notify-volume').value = notify.volume;
+  const hold = $('notify-hold'); hold.replaceChildren();
+  for (const ms of holds) { const o = document.createElement('option'); o.value = ms; o.textContent = HOLD_LABEL(ms); hold.append(o); }
+  hold.value = notify.hold;
+});
+$('notify-style').addEventListener('change', event => agents.setNotify({style: event.target.value}));
+$('notify-sound').addEventListener('change', () => { agents.setNotify({sound: $('notify-sound').value}); agents.testSound(); });
+$('notify-volume').addEventListener('change', () => { agents.setNotify({volume: Number($('notify-volume').value)}); agents.testSound(); });
+$('notify-hold').addEventListener('change', () => agents.setNotify({hold: Number($('notify-hold').value)}));
+$('notify-test').addEventListener('click', () => agents.testSound());
+$('settings').addEventListener('click', () => { const open = $('settings-panel').hidden; closePanels(); $('settings-panel').hidden = !open; });
+$('settings-close').addEventListener('click', closePanels);

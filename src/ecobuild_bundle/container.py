@@ -48,7 +48,7 @@ WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
-VERSION = "2"                   # コンテナの形の版（2：エージェントのボリューム）
+VERSION = "3"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所）
 HOME = "/home/ubuntu"
 AGENT_HOME = f"{HOME}/.claude"  # 中のエージェントの設定・ログイン（CLAUDE_CONFIG_DIR）
 AGENT_VOLUME = "ecobuild-agent" # AGENT_HOME に付けるボリューム（すべてのコンテナで共有：ログインは1回）
@@ -196,9 +196,13 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         if not image:
             image, built = _image(root, runner, prefix, source or SOURCE, progress)
         progress("コンテナを作ります")
+        from . import agent_status
+        status = agent_status.directory(name(root))      # 中のエージェントが状態を書き出す所（このPCの画面が読む）
+        status.mkdir(parents=True, exist_ok=True)
         _run(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
                       "--label", f"{VERSION_LABEL}={VERSION}",
                       "--volume", f"{mount_path(root, prefix)}:{WORKDIR}", "--volume", f"{AGENT_VOLUME}:{AGENT_HOME}",
+                      "--volume", f"{mount_path(status, prefix)}:{agent_status.INSIDE}",
                       "--workdir", WORKDIR, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")

@@ -11,16 +11,32 @@
   <header class="bar">
     <div class="tabs" id="tabs" role="tablist" aria-label="エージェント"></div>
     <div class="tools">
+      <button type="button" id="picker" class="tool" title="タブの一覧（状況・最後の出力。Ctrl+Shift+A）" aria-label="タブの一覧">☰</button>
+      <button type="button" id="settings" class="tool" title="知らせ方の設定" aria-label="知らせ方の設定">⚙</button>
       <button type="button" id="topmost" class="tool" title="最前面：常に"><span aria-hidden="true">📌</span><span id="topmost-label">常に</span></button>
-      <button type="button" id="minimize" class="tool" title="最小化" aria-label="最小化">–</button>
+      <button type="button" id="minimize" class="tool" title="最小化（右下の小さな表示になります）" aria-label="最小化">–</button>
       <button type="button" id="close" class="tool close" title="閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
     </div>
   </header>
   <main id="screens"><p class="empty" id="empty">エージェントはありません。作業空間の「エージェント」から開きます。</p></main>
   <footer class="status" id="status"></footer>
   <div class="menu" id="menu" role="menu" hidden></div>
+  <section class="panel" id="picker-panel" hidden aria-label="タブの一覧"><ol id="picker-list"></ol><p class="hint">クリック・数字キー・↑↓ と Enter で選ぶ。Esc で閉じる</p></section>
+  <section class="panel" id="settings-panel" hidden aria-label="知らせ方の設定">
+    <h2>返答の知らせ方</h2>
+    <div class="choices" id="notify-style">
+      <label><input type="radio" name="style" value="windows">Windows の通知（音・集中モードは Windows の設定どおり）</label>
+      <label><input type="radio" name="style" value="ecobuild">右下のカードと音（ECOBuild の知らせ。全画面のアプリの上にも出ます）</label>
+      <label><input type="radio" name="style" value="off">知らせない（最小化中は右下に出します）</label>
+    </div>
+    <div class="row"><label>音<select id="notify-sound"></select></label><button type="button" id="notify-test" class="tool">試す</button></div>
+    <div class="row"><label>音量<input type="range" id="notify-volume" min="0" max="1" step="0.05"></label></div>
+    <div class="row"><label>右下に返答を出しておく時間<select id="notify-hold"></select></label></div>
+    <div class="row"><button type="button" id="settings-close" class="tool">閉じる</button></div>
+  </section>
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="sounds.js"></script>
   <script src="window.js"></script>
 </body>
 </html>

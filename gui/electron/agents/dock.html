@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>エージェント（右下）</title>
+  <style>
+    :root { color-scheme: dark; --thinking: #f0d58a; --choice: #8fb8f0; --exited: #6b7480; --accent: #9ee4d3; }
+    html, body { margin: 0; background: transparent; font-family: "Segoe UI", "Yu Gothic UI", sans-serif; color: #edf1f5; overflow: hidden; user-select: none; }
+    #root { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 4px; }
+    .card { width: 340px; max-height: 220px; overflow: hidden; padding: 9px 12px; border: 1px solid #3a424c; border-radius: 10px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; font-size: 13px; line-height: 1.6; cursor: pointer; }
+    .card .head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; color: #a5aeba; font-size: 12px; }
+    .card .text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
+    .peek { width: 380px; padding: 9px 12px; border: 1px solid #3a424c; border-radius: 10px; background: #14181df5; box-shadow: 0 6px 20px #0009; font: 12px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: hidden; }
+    .peek .input { margin-top: 6px; color: var(--accent); }
+    .chip { position: relative; display: inline-flex; align-items: center; gap: 8px; max-width: 280px; height: 40px; padding: 0 12px 0 5px; border: 1px solid #3a424c; border-radius: 20px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; cursor: pointer; }
+    .dot { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #3a424c; background: #3a2a1e; color: #f0b48a; font-size: 13px; font-weight: 700; }
+    .chip.thinking .dot { border-color: var(--thinking); animation: blink 1.6s ease-in-out infinite; }
+    .chip.waiting .dot { border-color: var(--thinking); }
+    .chip.choice .dot { border-color: var(--choice); }
+    .chip.exited .dot { border-color: var(--exited); filter: grayscale(1); }
+    .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+    .badge { position: absolute; top: -4px; left: 24px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #d9534f; color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
+    .restore { margin-left: 2px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: #a5aeba; font-size: 14px; cursor: pointer; }
+    .restore:hover { background: #2a323b; color: #fff; }
+    @keyframes blink { 50% { opacity: .35; } }
+    @media (prefers-reduced-motion: reduce) { .chip.thinking .dot { animation: none; } }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="sounds.js"></script>
+  <script src="dock-view.js"></script>
+</body>
+</html>

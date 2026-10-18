@@ -38,3 +38,21 @@ main { position: relative; min-height: 0; }
 .menu { position: fixed; z-index: 10; min-width: 200px; padding: 4px; border: 1px solid #3a424c; border-radius: 8px; background: #1c2128; box-shadow: 0 8px 24px #0008; }
 .menu button { display: block; width: 100%; padding: 7px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .menu button:hover { background: #263c37; }
+.status .gap { margin-left: auto; }
+.status .warn { color: var(--thinking); }
+.status .bad { color: #e6a3a3; }
+.panel { position: fixed; z-index: 9; top: 40px; right: 8px; width: min(460px, calc(100% - 16px)); max-height: calc(100% - 72px); overflow: auto; padding: 10px 12px; border: 1px solid #3a424c; border-radius: 10px; background: #1c2128; box-shadow: 0 8px 24px #0009; font-size: 13px; }
+.panel h2 { margin: 2px 0 8px; font-size: 13px; }
+.panel ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.panel li { padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
+.panel li:hover, .panel li.current { background: #263c37; border-color: #39584f; }
+.panel li .head { display: flex; gap: 8px; align-items: center; }
+.panel li .state { margin-left: auto; color: var(--muted); font-size: 11px; }
+.panel li.thinking .state, .panel li.waiting .state { color: var(--thinking); }
+.panel li.choice .state { color: var(--choice); }
+.panel li pre { margin: 4px 0 0; color: var(--muted); font: 11px/1.4 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 3em; overflow: hidden; }
+.panel .hint { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.panel .choices { display: grid; gap: 6px; margin-bottom: 10px; }
+.panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.panel .row label { display: flex; align-items: center; gap: 8px; }
+.panel select, .panel input[type=range] { background: #14181d; color: var(--text); border: 1px solid #3a424c; border-radius: 5px; padding: 2px 4px; }

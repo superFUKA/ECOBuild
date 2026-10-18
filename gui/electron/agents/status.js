@@ -1,0 +1,53 @@
+'use strict';
+// エージェントが書き出す状態（ecobuild の agent_status：status.json・replied.json）を読む。
+// 置き場所は、端末の出力の見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で分かる（found）。
+// 使用量の制限（5時間・週）はアカウント共通なので、どのタブから届いたものも1つにまとめて、最新を持つ。
+const fs = require('fs');
+const path = require('path');
+
+const MARK = /\x1b\]1337;ECOBuildAgentStatus=([^\x07\x1b]*)(?:\x07|\x1b\\)/;
+let limits = {};
+
+// 出力の中の印から、置き場所（なければ null）
+function found(data) {
+  const m = MARK.exec(data);
+  return m ? m[1] : null;
+}
+
+function read(file) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; }
+}
+
+// タブの状態を読み直す。変わったものを返す：{info（status.json が新しくなった）, replied（返答が終わった：{message}）}
+function poll(s) {
+  const result = {};
+  if (!s.statusDir) return result;
+  const info = read(path.join(s.statusDir, 'status.json'));
+  if (info && info.at !== s.info?.at) {
+    s.info = info; result.info = true;
+    for (const [name, value] of Object.entries(info.limits || {})) {
+      if (value && (!limits[name] || info.at >= (limits[name].at || 0))) limits[name] = {...value, at: info.at};
+    }
+  }
+  const replied = read(path.join(s.statusDir, 'replied.json'));
+  if (replied && replied.at !== s.repliedAt) {
+    const first = s.repliedAt === undefined && s.startedAt && replied.at * 1000 < s.startedAt;   // 前の起動のもの
+    s.repliedAt = replied.at;
+    if (!first) result.replied = {message: replied.message || ''};
+  }
+  return result;
+}
+
+// 下のバーに出すもの：モデル・コンテキスト・制限の残り（%）とリセットの時刻
+function summary(s) {
+  const now = Date.now() / 1000;
+  const limit = name => {
+    const w = limits[name];
+    return w && w.used_percentage != null && !(w.resets_at && w.resets_at < now)
+      ? {remaining: Math.max(0, Math.round(100 - w.used_percentage)), resetsAt: w.resets_at || null} : null;
+  };
+  return {model: s?.info?.model || null, context: s?.info?.context ?? null, session: s?.info?.session || null,
+          fiveHour: limit('five_hour'), weekly: limit('seven_day')};
+}
+
+module.exports = {found, poll, summary};

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import sys
 from importlib import resources
 from pathlib import Path
 from typing import Iterable
@@ -60,12 +61,20 @@ class Module(ecobuild.Module):
         return AgentStarted(session.pid, session.command, session.directory)
 
     def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None) -> int:
-        """この端末で動かして待つ（start_agent と同じく、コンテナならその中で）。"""
-        from . import container
-        if not container.enabled(self.root):
-            return super().run_agent(command)
+        """この端末で動かして待つ（start_agent と同じく、コンテナならその中で）。Claude Code なら、状態（モデル・
+        使用量・返答の終わり）を書き出させ、その置き場所を端末に知らせる（agent_status。画面を持つアプリが読む）。"""
+        from . import agent_status, container
+        inside = container.enabled(self.root)
         self.require_task_branch("エージェントの起動")
-        return container.start_agent(self.root, tuple(command), deny=self._agent_deny(), command=self.command,
+        command = tuple(command)
+        if command[:1] == ("claude",):
+            folder = agent_status.prepare(container.name(self.root))
+            agent_status.announce(folder)
+            where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), f'"{Path(sys.executable).as_posix()}"')
+            command = (*command, "--settings", agent_status.claude_settings(where, python))
+        if not inside:
+            return super().run_agent(command)
+        return container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
                                      source=source, progress=progress, here=True)
 
     def _agent_deny(self) -> tuple[str, ...]:

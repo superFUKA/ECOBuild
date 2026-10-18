@@ -41,6 +41,7 @@ class ErrorCode(_WorkErrorCode):
     IN_USE = "in_use"                   # 他のプログラム（エディター・端末等）が使っているため、フォルダーを動かせない
     AGENT_ERROR = "agent_error"         # エージェントを起動できない（details に ecoagent の code）
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
+    NOT_UPDATABLE = "not_updatable"     # installer update：入れ方（手元のソース・同梱のインストーラー等）から更新できない
 
 
 class EcoBuildError(WorkError):

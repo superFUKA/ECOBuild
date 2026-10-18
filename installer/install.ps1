@@ -202,5 +202,6 @@ Write-Host "完了しました。新しく開いた端末では、どのディ�
 if (-not $NoGui) {
     Write-Host "GUI：スタートメニューまたはデスクトップの「ECOBuild GUI」（スタートメニューで右クリック →「タスク バーにピン留めする」）。" -ForegroundColor Green
 }
-Write-Host "更新：もう一度このインストーラーを実行（ECOBuild も GUI も入れ替わります）。"
+Write-Host "更新：ecobuild installer update（またはこのインストーラーをもう一度実行。ECOBuild も GUI も入れ替わります）。"
+Write-Host "入っているもの：ecobuild installer show。あとから入れる：ecobuild installer add docker（Docker）・tools（足りないツール）。"
 Write-Host "削除：pipx uninstall ecobuild。GUI は $GuiDir と、デスクトップ・スタートメニューの「ECOBuild GUI」を消す。"

@@ -153,9 +153,50 @@ WS.onRefresh(renderPrDetail);
   const AGENT_KEY = 'ecobuild-gui-agent';
   const agentCommand = () => { try { return localStorage.getItem(AGENT_KEY) || ''; } catch (e) { return ''; } };
   const setAgentCommand = command => { try { localStorage.setItem(AGENT_KEY, command); } catch (e) { /* storage blocked */ } };
-  // The workspace as a container (ecobuild container status/on/off): the agent and the builds then run inside it.
+  // The workspace as a container (ecobuild container …): the agent and the builds then run inside it. The button in the
+  // bar shows it and has the container's operations and its own settings. The images are the hub's (ECOBuild × type).
   let box = null;
-  const loadContainer = async () => { const doc = await WS.cli(['container', 'status'], {quiet: true}); box = doc.ok ? doc.result : null; showAgent(); };
+  const BOX_STATES = {none: 'まだ作っていません', running: '動いています', exited: '止まっています', created: '作っただけです', unknown: '状態が分かりません'};
+  const loadContainer = async () => {
+    const doc = await WS.cli(['container', 'status'], {quiet: true}); box = doc.ok ? doc.result : null;
+    const button = get('container-button');
+    button.classList.toggle('on', !!box?.container);
+    get('container-label').textContent = box?.container ? 'コンテナ' : 'このPC';
+    button.dataset.tip = !box ? 'コンテナの状態を読めませんでした' : box.container
+      ? `この作業空間はコンテナ（${BOX_STATES[box.state] || box.state}）。AI・ビルド・テストは中で動きます`
+      : 'この作業空間はこのPCで動きます（コンテナにすると AI・ビルドを隔離できます）';
+    showAgent();
+  };
+  const boxRun = (args, options) => WS.run(['container', ...args], options).then(doc => { loadContainer(); return doc; });
+  function containerSettings() {
+    return ECO.form({title: 'このコンテナの設定', intro: 'この作業空間のコンテナだけの設定です（このPCだけ。コミットしません）。使わせないものは、このPCの設定（ecobuild config set agent_deny）に足されます。',
+      fields: [
+        {name: 'deny', label: 'AI に使わせないもの（Claude Code の許可の規則を ; で区切る。空欄ならなし）', value: (box?.deny || []).join(';'), placeholder: '例：Bash(git push --force:*);WebFetch', focus: true},
+        {name: 'image', label: '使うイメージ（空欄なら型のイメージ。変えると次に動かすときに作り直します）', value: box?.custom_image || '', placeholder: '例：ecobuild-cpp:9ecd459d4955'}],
+      ok: '保存',
+      submit: v => boxRun(['set', ...(v.deny.trim() ? ['--deny', v.deny.trim()] : ['--no-deny']), ...(v.image.trim() ? ['--image', v.image.trim()] : ['--default-image'])], {success: '設定を保存しました。'})});
+  }
+  get('container-button').addEventListener('click', () => {
+    const r = get('container-button').getBoundingClientRect(), ready = !!box?.docker_ready;
+    const noDocker = ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`;
+    const items = box?.container ? [
+      [`コンテナ：${BOX_STATES[box.state] || box.state}${box.image ? '（' + box.image + '）' : ''}`, null],
+      ...(box.state === 'running' ? [] : [[box.state === 'none' ? '作る（最初の1回はイメージも作るので数分）' : '動かす', () => boxRun(['start'], {busy: 'コンテナを用意しています…', success: 'コンテナを動かしました。'}), ready, noDocker]]),
+      ...(box.state === 'running' ? [['止める', () => boxRun(['stop'], {success: 'コンテナを止めました。'}), ready, noDocker]] : []),
+      ...(box.state === 'none' ? [] : [
+        ['作り直す', async () => { if (await boxRun(['remove'], {confirm: 'コンテナを消してから作り直します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナを作り直す'})) await boxRun(['start'], {busy: 'コンテナを作り直しています…', success: 'コンテナを作り直しました。'}); }, ready, noDocker],
+        ['消す', () => boxRun(['remove'], {confirm: 'コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます。次に使うときにまた作ります）。', title: 'コンテナを消す', success: 'コンテナを消しました。'}), ready, noDocker]]),
+      '-',
+      ['このコンテナの設定…', containerSettings],
+      ['コンテナのイメージ（ハブの設定）', () => ECO.action('open', {page: 'settings'}).catch(e => ECO.toast(e.message, 'bad'))],
+      '-',
+      ['コンテナをやめる（このPCで動かす）', () => boxRun(['off'], {confirm: 'この作業空間をコンテナにするのをやめ、コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナをやめる', success: 'コンテナをやめました。AI・ビルドはこのPCで動きます。'})],
+    ] : [
+      ['この作業空間はこのPCで動きます', null],
+      ['コンテナにする（AI・ビルドを隔離）', () => boxRun(['on'], {success: 'コンテナにしました。AI・ビルド・テストはコンテナの中で動きます（AI は確認なし）。'}), ready, noDocker],
+    ];
+    ECO.menu(items, r.left, r.bottom + 4);
+  });
   const showAgent = () => {
     const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
@@ -178,11 +219,6 @@ WS.onRefresh(renderPrDetail);
         submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
-      '-',
-      box?.container
-        ? ['コンテナをやめる（このPCで動かす）', () => WS.run(['container', 'off'], {confirm: 'この作業空間をコンテナにするのをやめ、コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナをやめる', success: 'コンテナをやめました。AI・ビルドはこのPCで動きます。'}).then(loadContainer)]
-        : ['コンテナで動かす（AI・ビルドを隔離）', () => WS.run(['container', 'on'], {success: 'コンテナにしました。AI・ビルド・テストはコンテナの中で動きます（AI は確認なし）。'}).then(loadContainer), !!box?.docker_ready,
-          box?.docker_ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`],
     ], r.right - 240, r.bottom + 4);
   });
   WS.onRefresh(showAgent);

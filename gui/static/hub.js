@@ -26,10 +26,11 @@ navigation.forEach(button => button.addEventListener('click', () => {
 }));
 ECO.onNavigate(({page, command}) => {
   if (command) { location.hash = 'help/commands/' + encodeURIComponent(command); showHubPage('help'); HELP.show(location.hash.slice(1)); return; }
-  showHubPage(page === 'help' ? 'help' : 'modules');
+  showHubPage(page === 'help' || page === 'settings' ? page : 'modules');   // settings：ハブの設定（コンテナのイメージ等）
 });
 ECO.onChange(() => loadModules());
 if (location.hash.startsWith('#help')) setTimeout(() => showHubPage('help'));
+else if (location.hash === '#settings') setTimeout(() => showHubPage('settings'));
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
@@ -287,8 +288,31 @@ addForm.addEventListener('submit', async event => {
 
 // Settings ----------------------------------------------------------------------------------------
 function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }
+// The containers' images (ecobuild container image …): per ECOBuild version × type, so they are the hub's.
+async function loadImages(doc = null) {
+  doc = doc || await ECO.cli(null, ['container', 'image', 'list'], {quiet: true});
+  const r = doc.ok ? doc.result : null, ready = !!r?.docker_ready;
+  $('images-build').disabled = $('images-prune').disabled = !ready;
+  if (!r) { $('images-status').textContent = doc.error?.message || 'イメージの一覧を読めませんでした。'; $('images-list').innerHTML = ''; return; }
+  if (!ready) { $('images-status').textContent = `Docker が使えません（${r.docker_detail}）。環境の準備で導入できます。`; $('images-list').innerHTML = ''; return; }
+  const old = r.images.filter(i => !i.current && !i.used_by.length).length;
+  $('images-status').textContent = (r.missing.length ? `今の版のイメージがまだない型：${r.missing.join('・')}。` : '今の版のイメージはすべてあります。')
+    + (old ? `古いイメージが ${old} 個あります。` : '');
+  $('images-list').innerHTML = r.images.map(i => `<li><div><span class="item-name">${esc(i.name)}</span><small>${esc(i.size)}・${esc(i.created)}${i.used_by.length ? '<br>使っている作業空間：' + esc(i.used_by.join('、')) : ''}</small></div>
+    <span class="${i.current ? 'ok' : 'missing'}">${i.current ? '今の版' : i.used_by.length ? '古い版（使用中）' : '古い版'}</span></li>`).join('');
+}
+$('images-build').addEventListener('click', async () => {
+  const doc = await ECO.run(null, ['container', 'image', 'build'], {busy: 'イメージを作っています（1つ数分かかります）…', success: r => r.built.length ? `${r.built.length} 個のイメージを作りました。` : '今の版のイメージはすべてあります。'});
+  if (doc) loadImages(doc);
+});
+$('images-prune').addEventListener('click', async () => {
+  const doc = await ECO.run(null, ['container', 'image', 'prune'], {confirm: '今の版でなく、どのコンテナも使っていないイメージを消します。', title: '古いイメージを消す', success: r => r.removed.length ? `${r.removed.length} 個のイメージを消しました。` : '消す古いイメージはありません。'});
+  if (doc) loadImages(doc);
+});
+
 async function loadSettings() {
   if (!$('default-owner')) return;   // after "GUIを終了"
+  loadImages();
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();

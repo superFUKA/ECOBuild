@@ -215,3 +215,8 @@ body.resizing iframe { pointer-events: none; }
 .branch-button svg { flex-shrink: 0; color: #9eaab8; }
 /* ログ tab: the log view, as tall as the window allows. */
 #history-view.log-view { height: max(360px, calc(100vh - 370px)); margin-top: 8px; }
+
+/* The workspace's container: lit when the workspace is a container (the agent and the builds run inside). */
+.build-bar .container-button span { font-size: 12px; }
+.build-bar .container-button.on { border-color: #39584f; background: #1f302c; color: #a8ead9; }
+.build-bar .container-button.on svg { color: #9ee4d3; }

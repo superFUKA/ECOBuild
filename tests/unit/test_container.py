@@ -24,6 +24,13 @@ class FakeDocker:
             return docker.Completed(tuple(args), 0 if state else 1, " ".join(state) if state else "No such object")
         if args[1:3] == ["image", "inspect"]:
             return docker.Completed(tuple(args), 0 if rest[-1] in self.images else 1, "")
+        if args[1:3] == ["image", "ls"]:
+            return docker.Completed(tuple(args), 0, "\n".join(f"{i}\t420MB\t2 hours ago" for i in sorted(self.images)))
+        if args[1:3] == ["image", "rm"]:
+            self.images.discard(rest[-1])
+            return docker.Completed(tuple(args), 0, "")
+        if command == "ps":
+            return docker.Completed(tuple(args), 0, "\n".join(f"{c[1]}\tC:/ECO/{n}" for n, c in self.containers.items()))
         if command == "build":
             self.images.add(rest[rest.index("--tag") + 1])
         elif command == "run":
@@ -161,3 +168,30 @@ def test_the_dockerfile_has_the_agent():
     text = container.dockerfile(REGISTRY.load("generic"))
     assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={container.AGENT_HOME}" in text
     assert "gh auth git-credential" in text and f"{container.INSIDE}=1" in text
+
+
+def test_images_are_per_type_and_old_ones_can_be_pruned(monkeypatch, root, tmp_path):
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    old_source, source = ("https://example.com/ECOBuild", "old"), ("https://example.com/ECOBuild", "new")
+    container.choose(root, True, fake.run)
+    used = container.start(root, fake.run, source=old_source).image          # 古い版のイメージを使うコンテナ
+    fake.images.add("ecobuild-cpp:000000000000")                            # 古い版で、どれも使っていない
+    listed = container.images(source, fake.run)
+    assert {i.name for i in listed.images} == {used, "ecobuild-cpp:000000000000"} and not any(i.current for i in listed.images)
+    assert next(i for i in listed.images if i.name == used).used_by and set(listed.missing) == {"cpp", "generic", "python"}
+    built = container.build_images(("generic",), source, fake.run)
+    assert len(built.built) == 1 and built.missing and "generic" not in built.missing
+    pruned = container.prune_images(source, fake.run)
+    assert pruned.removed == ("ecobuild-cpp:000000000000",) and used in fake.images   # 使っているものは消さない
+    assert not container.images(source, lambda args: docker.Completed(tuple(args), 1, "")).docker_ready
+
+
+def test_settings_of_one_container(monkeypatch, root):
+    fake = FakeDocker(monkeypatch)
+    set_ = container.configure(root, deny=("WebFetch", "Bash(rm:*)"), image="my/image:1", runner=fake.run)
+    assert set_.changed and set_.deny == ("WebFetch", "Bash(rm:*)") and set_.custom_image == "my/image:1"
+    assert not container.configure(root, deny=("WebFetch", "Bash(rm:*)"), runner=fake.run).changed
+    cleared = container.configure(root, deny=(), image="", runner=fake.run)
+    assert cleared.deny == () and cleared.custom_image == ""
+    assert container.split_rules(" a ; ;b") == ("a", "b")

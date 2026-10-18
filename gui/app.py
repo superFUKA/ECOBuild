@@ -74,6 +74,7 @@ READ_ONLY = {
     ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("release", "list"), ("container", "status"),
+    ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
     ("agent", "guide"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
@@ -927,7 +928,8 @@ class App:
         module = p.get("module")
         if not module:
             page = "hub.html" + ("#help" + ("/commands/" + urllib.parse.quote(p["command"]) if p.get("command") else "")
-                                 if p.get("page") == "help" or p.get("command") else "")
+                                 if p.get("page") == "help" or p.get("command")
+                                 else "#settings" if p.get("page") == "settings" else "")
             here = self.windows.get(origin)
             target = here if here and here.get("kind") == "hub" else                 next((w for w in self.live_windows() if w.get("kind") == "hub"), None)
         else:

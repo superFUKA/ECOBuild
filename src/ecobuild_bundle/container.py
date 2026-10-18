@@ -40,6 +40,8 @@ from . import docker
 
 KEY = "container"
 IMAGE_KEY = "container_image"   # ecobuild.local.toml：使うイメージ（なければ型ごとに作る）
+DENY_KEY = "agent_deny"         # ecobuild.local.toml：このコンテナのエージェントに使わせないもの（; 区切り。このPCの設定に足す）
+IMAGE_PREFIX = "ecobuild-"      # ECOBuild が作るイメージの名前の頭
 BASE = "ubuntu:24.04"           # 作るイメージの元
 SOURCE = ("https://github.com/superFUKA/ECOBuild", "feature/mvp")   # 中に入れる ECOBuild（使う側が版を渡さなければ）
 WORKDIR = "/work"
@@ -66,6 +68,29 @@ class WorkspaceContainer:
     state: str = "none"     # コンテナ：none（まだない）・running・exited 等（docker の State.Status）。Docker が使えなければ unknown
     image: str = ""         # コンテナのイメージ（コンテナがなければ空）
     built: bool = False     # 今回イメージを作った
+    custom_image: str = ""  # この作業空間だけの設定：使うイメージ（空なら型のイメージ）
+    deny: tuple[str, ...] = ()   # この作業空間だけの設定：エージェントに使わせないもの（このPCの agent_deny に足す）
+
+
+@dataclass(frozen=True)
+class ContainerImage:
+    """ECOBuild が作ったイメージ。current：今の ECOBuild の型のイメージ。used_by：使っているコンテナの作業空間。"""
+    name: str
+    type: str
+    size: str
+    created: str
+    current: bool
+    used_by: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImageList:
+    images: tuple[ContainerImage, ...]
+    docker_ready: bool
+    docker_detail: str
+    missing: tuple[str, ...] = ()   # 今の版のイメージがまだない型
+    removed: tuple[str, ...] = ()   # 今回消したイメージ（prune）
+    built: tuple[str, ...] = ()     # 今回作ったイメージ（build）
 
 
 def enabled(root: Path) -> bool:
@@ -174,7 +199,11 @@ def _image(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...], so
            progress: Callable[[str], None]) -> tuple[str, bool]:
     """型のイメージ（なければ作る）。作ったら True。作り方は ECOBUILD_HOME/containers/<名前>/Dockerfile に置く。"""
     from . import REGISTRY
-    type_class = REGISTRY.load(_config.load(root / _config.FILE_NAME).type)
+    return _type_image(REGISTRY.load(_config.load(root / _config.FILE_NAME).type), runner, prefix, source, progress)
+
+
+def _type_image(type_class, runner: docker.Runner | None, prefix: tuple[str, ...], source: tuple[str, str],
+                progress: Callable[[str], None]) -> tuple[str, bool]:
     text = dockerfile(type_class, source)
     image = image_name(type_class, text)
     if (runner or docker.run)([*prefix, "image", "inspect", image]).ok:
@@ -251,7 +280,30 @@ def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | 
             built: bool = False) -> WorkspaceContainer:
     found = docker.status(runner or docker.run)
     state, image, _ = _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
-    return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image, built)
+    local = _config.load_local(root)
+    return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image, built,
+                              local.get(IMAGE_KEY) or "", split_rules(local.get(DENY_KEY) or ""))
+
+
+def split_rules(text: str) -> tuple[str, ...]:
+    """「;」で区切った許可の規則。"""
+    return tuple(rule.strip() for rule in text.split(";") if rule.strip())
+
+
+def configure(root: Path, *, image: str | None = None, deny: tuple[str, ...] | None = None,
+              runner: docker.Runner | None = None) -> WorkspaceContainer:
+    """この作業空間のコンテナだけの設定（ecobuild.local.toml）。image：使うイメージ（"" で型のイメージに戻す）。
+    deny：エージェントに使わせないもの（() で消す）。イメージを変えると、次の start でコンテナを作り直す。"""
+    local = _config.load_local(root)
+    before = (local.get(IMAGE_KEY), local.get(DENY_KEY))
+    if image is not None:
+        local[IMAGE_KEY] = image.strip() or None
+    if deny is not None:
+        local[DENY_KEY] = ";".join(deny) or None
+    changed = (local.get(IMAGE_KEY), local.get(DENY_KEY)) != before
+    if changed:
+        _config.save_local(root, local)
+    return _result(root, enabled(root), changed, runner)
 
 
 # 中で動かす -------------------------------------------------------------------------------------
@@ -358,3 +410,69 @@ def _output(args: list[str]) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return done.stdout.strip() if done.returncode == 0 else ""
+
+
+# イメージ（ECOBuild の版 × 型ごと。モジュールごとではない） ---------------------------------------
+
+def images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None, *, command: str = "") -> ImageList:
+    """ECOBuild が作ったイメージの一覧（今の版か・使っているコンテナ）。Docker が使えなければ空。"""
+    found = docker.status(runner or docker.run)
+    if not found.ready:
+        return ImageList((), False, found.detail)
+    run = runner or docker.run
+    current = _current_images(source)
+    listed = run([*found.command, "image", "ls", "--filter", f"reference={IMAGE_PREFIX}*", "--format",
+                  "{{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"])
+    used: dict[str, list[str]] = {}
+    containers = run([*found.command, "ps", "--all", "--filter", f"label={LABEL}", "--format",
+                      "{{.Image}}\t{{.Label \"" + LABEL + "\"}}"])
+    for line in containers.output.splitlines() if containers.ok else ():
+        image, _, place = line.partition("\t")
+        used.setdefault(image.strip(), []).append(place.strip())
+    result = []
+    for line in listed.output.splitlines() if listed.ok else ():
+        parts = line.split("\t")
+        if len(parts) < 3 or not parts[0].startswith(IMAGE_PREFIX):
+            continue
+        image, size, created = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        type_name = image[len(IMAGE_PREFIX):].split(":", 1)[0]
+        result.append(ContainerImage(image, type_name, size, created, image in current.values(),
+                                     tuple(used.get(image, ()))))
+    have = {i.name for i in result}
+    missing = tuple(t for t, image in current.items() if image not in have)
+    return ImageList(tuple(result), True, found.detail, missing)
+
+
+def build_images(types: tuple[str, ...] = (), source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None,
+                 *, command: str = "", progress: Callable[[str], None] = lambda message: None) -> ImageList:
+    """今の ECOBuild の型のイメージを作る（types を省略するとすべての型。あるものは作り直さない）。"""
+    from . import REGISTRY
+    prefix = _docker(runner, command)
+    built = []
+    for type_class in REGISTRY.available():
+        if types and type_class.name not in types:
+            continue
+        image, made = _type_image(type_class, runner, prefix, source, progress)
+        if made:
+            built.append(image)
+    listed = images(source, runner, command=command)
+    return ImageList(listed.images, listed.docker_ready, listed.docker_detail, listed.missing, (), tuple(built))
+
+
+def prune_images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None, *,
+                 command: str = "") -> ImageList:
+    """古いイメージ（今の版でなく、どのコンテナも使っていないもの）を消す。"""
+    prefix = _docker(runner, command)
+    listed = images(source, runner, command=command)
+    removed = []
+    for image in listed.images:
+        if not image.current and not image.used_by:
+            _run(runner, [*prefix, "image", "rm", image.name], f"イメージ {image.name} を消せませんでした")
+            removed.append(image.name)
+    after = images(source, runner, command=command)
+    return ImageList(after.images, after.docker_ready, after.docker_detail, after.missing, tuple(removed))
+
+
+def _current_images(source: tuple[str, str]) -> dict[str, str]:
+    from . import REGISTRY
+    return {t.name: image_name(t, dockerfile(t, source)) for t in REGISTRY.available()}

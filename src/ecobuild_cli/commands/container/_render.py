@@ -16,4 +16,6 @@ def render(r, done: str | None = None):
         None if r.docker_ready or not r.container else
         f"Docker：まだ使えません（{r.docker_detail}）。{PROGRAM} setup --docker で導入できます",
         f"コンテナを動かすには {PROGRAM} container start" if r.container and r.docker_ready and r.state != "running" else None,
+        f"この作業空間だけの設定：イメージ {r.custom_image}" if r.custom_image else None,
+        f"この作業空間だけの設定：エージェントに使わせないもの {';'.join(r.deny)}" if r.deny else None,
     )

@@ -15,6 +15,7 @@ from typing import Iterable
 
 import ecoagent
 import ecobuild
+from ecobuild import config as _config
 from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import WorkError
@@ -54,7 +55,8 @@ class Module(ecobuild.Module):
         if not container.enabled(self.root):
             return super().start_agent(command)
         self.require_task_branch("エージェントの起動")
-        deny = tuple(rule.strip() for rule in _settings.load_config().get("agent_deny", "").split(";") if rule.strip())
+        local = container.split_rules(_config.load_local(self.root).get(container.DENY_KEY) or "")
+        deny = (*container.split_rules(_settings.load_config().get("agent_deny", "")), *local)
         session = container.start_agent(self.root, tuple(command), deny=deny, command=self.command, source=source,
                                         progress=progress)
         return AgentStarted(session.pid, session.command, session.directory)

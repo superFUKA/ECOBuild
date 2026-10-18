@@ -13,14 +13,14 @@ from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ
 EFFECTS = {
     READ: (
         "agent guide", "blame", "branch list", "check", "ci logs", "ci secret list", "ci status", "ci wait",
-        "config get", "config list", "container status", "deps list", "deps tree", "diff", "doctor",
+        "config get", "config list", "container image list", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
         "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
         "task overdue", "task status", "task workload", "template list", "track", "workspace list",
     ),
     CONFIRM: (
-        "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container off",
+        "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
         "container remove", "file remove", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",

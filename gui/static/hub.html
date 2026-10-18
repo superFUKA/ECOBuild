@@ -58,6 +58,12 @@
         </form>
         <div id="setup-status" class="note" role="status"></div>
       </section>
+      <section class="settings-card" aria-labelledby="images-title">
+        <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の版でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="今の ECOBuild の型のイメージを作ります（ecobuild container image build。1つ数分）">今の版を作る</button></div></div>
+        <p class="note">作業空間をコンテナにすると、その元になるイメージです。ECOBuild の版と型（cpp・generic 等）ごとに1つで、同じ型のモジュールは同じイメージを使います。作っておくと、コンテナを初めて動かすときに待たずに済みます。</p>
+        <p class="note" id="images-status" role="status">読み込んでいます…</p>
+        <ul id="images-list" class="diagnostics"></ul>
+      </section>
       <section class="settings-card" aria-labelledby="about-title">
         <h3 id="about-title">ECOBuild（このGUI）</h3>
         <p class="note" id="about"></p>

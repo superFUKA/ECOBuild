@@ -309,6 +309,13 @@ def test_shortcut_has_the_icon(tmp_path):
     place.mkdir()
     made = gui.make_shortcuts([place, tmp_path / "ない"])
     assert made == [str(place / "ECOBuild GUI.lnk")]
+    # タスクバーで Electron の窓とまとまるように、main.js と同じ AppUserModelID が付いている
+    read = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                           "(New-Object -ComObject Shell.Application).NameSpace($env:EG_DIR).ParseName('ECOBuild GUI.lnk')"
+                           ".ExtendedProperty('System.AppUserModel.ID')"],
+                          env=dict(os.environ, EG_DIR=str(place)), capture_output=True, text=True)
+    assert read.stdout.strip() == gui.APP_ID
+    assert f"setAppUserModelId('{gui.APP_ID}')" in (Path(gui.__file__).parent / "electron" / "main.js").read_text(encoding="utf-8")
     assert (Path(gui.__file__).with_name("icon.ico")).is_file()
     assert (gui.STATIC / "icon.svg").is_file()
 

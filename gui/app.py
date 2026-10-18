@@ -1192,6 +1192,41 @@ def _shortcut_places() -> list[Path]:
     return [Path(line) for line in completed.stdout.splitlines() if line.strip()]
 
 
+# タスクバーでの「同じアプリ」の印（electron/main.js の app.setAppUserModelId と同じ）。ショートカットにも付けると、
+# ピン留めしたボタンと開いている窓が1つのボタンにまとまり、開いている窓をピン留めしてもこのショートカットになる。
+APP_ID = "ECOBuild.GUI"
+
+# ショートカット（.lnk）に AppUserModelID（System.AppUserModel.ID）を書く。PowerShell の Add-Type で使う。
+_SET_APP_ID = r"""
+using System;
+using System.Runtime.InteropServices;
+public static class EcoShortcut {
+    [StructLayout(LayoutKind.Sequential)] struct PropertyKey { public Guid fmtid; public uint pid; }
+    [StructLayout(LayoutKind.Sequential)] struct PropVariant { public ushort vt; ushort r1, r2, r3; public IntPtr value; IntPtr extra; }
+    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IPropertyStore {
+        void GetCount(out uint count);
+        void GetAt(uint index, out PropertyKey key);
+        void GetValue(ref PropertyKey key, out PropVariant value);
+        void SetValue(ref PropertyKey key, ref PropVariant value);
+        void Commit();
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHGetPropertyStoreFromParsingName(string path, IntPtr bind, int flags, ref Guid iid,
+        [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
+    public static void SetAppId(string link, string id) {
+        Guid iid = typeof(IPropertyStore).GUID;
+        IPropertyStore store;
+        SHGetPropertyStoreFromParsingName(link, IntPtr.Zero, 2 /* GPS_READWRITE */, ref iid, out store);
+        PropertyKey key = new PropertyKey { fmtid = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), pid = 5 };
+        PropVariant value = new PropVariant { vt = 31 /* VT_LPWSTR */, value = Marshal.StringToCoTaskMemUni(id) };
+        try { store.SetValue(ref key, ref value); store.Commit(); }
+        finally { Marshal.FreeCoTaskMem(value.value); Marshal.ReleaseComObject(store); }
+    }
+}
+"""
+
+
 def make_shortcuts(places: list[Path] | None = None) -> list[str]:
     """デスクトップとスタートメニューに「ECOBuild GUI」のショートカット（アイコン付き）を作る。Windowsだけ。"""
     if os.name != "nt":
@@ -1204,11 +1239,13 @@ def make_shortcuts(places: list[Path] | None = None) -> list[str]:
             continue
         link = place / "ECOBuild GUI.lnk"
         # .lnk は COM（WScript.Shell）で作る。値は環境変数で渡す（引用符の扱いを避ける）。
+        # そのあと AppUserModelID を付ける（WScript.Shell では付けられない）。
         script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
                   "$s.Arguments = '\"' + $env:EG_SCRIPT + '\"'; $s.WorkingDirectory = $env:EG_DIR; "
-                  "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save()")
+                  "$s.IconLocation = $env:EG_ICON + ',0'; $s.Description = 'ECOBuild GUI'; $s.Save(); "
+                  "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
         env = dict(os.environ, EG_LINK=str(link), EG_TARGET=_pythonw(), EG_SCRIPT=str(here / "ECOBuildGUI.pyw"),
-                   EG_DIR=str(here), EG_ICON=str(here / "icon.ico"))
+                   EG_DIR=str(here), EG_ICON=str(here / "icon.ico"), EG_CS=_SET_APP_ID, EG_APPID=APP_ID)
         completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env, stdin=subprocess.DEVNULL,
                                    capture_output=True, encoding="utf-8", errors="replace", **_no_window())
         if completed.returncode != 0 or not link.is_file():

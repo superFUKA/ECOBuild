@@ -311,6 +311,8 @@ function poll() {
     if (got.info) changed = true;
     if (got.replied) replied(s, got.replied.message);
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
+    if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
+    if (s.kind === 'operator' && (s.recording || read.state === 'choice')) changed = true;   // 聞き取った文・選択肢を右下に出し直す
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
@@ -355,13 +357,32 @@ function dropCards(test) {
   return dropped;
 }
 
+// 右下に出すもの。オペレーター（◆）は、オペレーターモードの間・聞き取り中・起動待ち・考え中・返答の直後に出す（最小化中の
+// タブより先に）。聞き取り中は、聞き取った文（オペレーターの入力欄）をカードで出す
+let operatorHoldUntil = 0;
+function operatorShown() {
+  const op = findOperator();
+  return !!op && !op.owner && (ringMode === 'operator' || !!op.recording || !!op.voicePending || op.state === 'thinking'
+    || op.state === 'choice' || Date.now() < operatorHoldUntil);
+}
 function pushDock() {
   const hidden = windows.filter(w => w.mini && !w.win.isDestroyed());
   const target = hidden.at(-1), s = target && findSession(target.active);
   const badge = sessions.filter(x => x.unseen && x.owner?.mini).length;
-  const chip = s ? {num: s.num, name: s.name, state: s.state, badge} : null;
-  const peek = chip && peekOn ? {lines: parser.lastLines(screenText(s), 12), input: s.input} : null;
-  dock.update({chip, peek, cards: cards.map(c => ({...c, num: findSession(c.id)?.num ?? c.num}))});
+  const op = findOperator();
+  let chip = s ? {kind: 'tab', num: s.num, name: s.name, state: s.state, badge} : null;
+  const extra = [];
+  if (operatorShown()) {
+    const state = op.recording ? 'listening' : op.voicePending ? 'starting' : op.state;
+    chip = {kind: 'operator', num: '◆', name: 'オペレーター', state, badge};
+    if (op.recording || op.voicePending) extra.push({key: 'heard', id: op.id, num: '◆', name: 'オペレーター', label: '聞き取り中',
+                                                    text: op.voicePending ? '起動しています。準備ができたら聞き取りを始めます…' : (op.input || '（話してください）')});
+    else if (op.state === 'choice' && op.choice) extra.push({key: 'choice', id: op.id, num: '◆', name: 'オペレーター', label: '選択肢',
+                                                            text: `${op.choice.question || ''}\n❯ ${op.choice.choice || ''}`.trim()});
+  }
+  const peekTarget = chip?.kind === 'operator' ? op : s;
+  const peek = chip && peekOn && peekTarget?.term ? {lines: parser.lastLines(screenText(peekTarget), 12), input: peekTarget.input} : null;
+  dock.update({chip, peek, cards: [...cards.map(c => ({...c, num: findSession(c.id)?.kind === 'operator' ? '◆' : findSession(c.id)?.num ?? c.num})), ...extra]});
 }
 
 // ---- オペレーター（番号 0。裏で動かす） ----------------------------------------------------------------------
@@ -395,6 +416,7 @@ function operatorKey(name) { const s = findOperator(); if (s?.proc && KEYS[name]
 
 function operatorReplied(s, text) {
   operatorLog.push({role: 'agent', text: text || '（返答の文はありませんでした）', at: Date.now()}); saveOperatorLog();
+  operatorHoldUntil = notify.hold === -1 ? Infinity : Date.now() + notify.hold;   // 返答の直後は右下に ◆ を残す
   pushOperator();
   // 会話を見ている画面が前にあれば、右下には出さない
   const watching = [...operatorWatchers].some(contents => {
@@ -440,6 +462,9 @@ function activeSession() {
 // 録音の開始・停止（Space のキーリピートを送る間が録音中）
 function toggleVoice(s = activeSession(), on = !s?.recording) {
   if (!s?.proc || s.exited) return;
+  // 起動中（入力欄がまだない）なら、準備ができてから聞き取りを始める（poll が始める）
+  if (on && !s.recording && s.state === 'starting') { s.voicePending = true; pushDock(); if (s.kind === 'operator') pushOperator(); return; }
+  if (!on) s.voicePending = false;
   if (on && !s.recording) {
     for (const other of sessions) if (other.recording && other !== s) toggleVoice(other, false);   // 同時に録音するのは1つ
     s.recording = setInterval(() => s.proc?.write(' '), KEY_REPEAT_MS);
@@ -514,7 +539,7 @@ function setRing(patch) {
 
 function setRingMode(next) {
   if (next === ringMode || !['work', 'operator'].includes(next)) return;
-  ringMode = next; choosing = null; pushRing();
+  ringMode = next; choosing = null; pushRing(); pushDock();
 }
 
 async function onGesture(gesture, gestureMode) {
@@ -567,7 +592,7 @@ function runAction(action, target = null) {
     case 'minimize': return w?.mini ? restoreWindow(w) : w && minimizeWindow(w);
     case 'picker': return w && send(w, 'agents:picker');
     case 'dismiss': dropCards(() => true); peekOn = false; return pushDock();
-    case 'operator_voice': return toggleVoice(startOperator());
+    case 'operator_voice': { const op = startOperator(); return toggleVoice(op, !(op.recording || op.voicePending)); }
     case 'operator_submit': return submit(findOperator());
     case 'operator_clear': return clear(findOperator());
     case 'operator': return findOperator()?.owner ? hideOperator() : showOperator();
@@ -633,6 +658,8 @@ function setup({ecobuild, python, group}) {
     initialAnchor: saved.dock, onAnchor: anchor => writeState({dock: anchor}),
     actions: {
       peek: () => { peekOn = !peekOn; pushDock(); },
+      // ◆ を押す：オペレーターをタブで開く（開いていれば裏に戻す）
+      operator: () => { if (findOperator()?.owner) hideOperator(); else showOperator(); pushDock(); },
       restore: () => { for (const w of windows.filter(x => x.mini)) restoreWindow(w, true); },
       open: id => { dropCards(c => c.id === id); focusTab(id, true); },
       dismiss: key => { dropCards(c => c.key === key); pushDock(); },

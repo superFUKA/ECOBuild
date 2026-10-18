@@ -10,9 +10,10 @@ function render(view) {
   root.replaceChildren();
   for (const card of view.cards) {
     const c = el('div', 'card');
-    const head = el('div', 'head'); head.append(el('span', '', `${card.num}  ${card.name}`), el('span', '', '返答'));
+    const head = el('div', 'head'); head.append(el('span', '', `${card.num}  ${card.name}`), el('span', '', card.label || '返答'));
+    if (card.key === 'heard') c.classList.add('heard');
     c.append(head, el('div', 'text', card.text || '返答が終わりました'));
-    c.addEventListener('click', () => dock.action('open', card.id));
+    c.addEventListener('click', () => (card.num === '◆' ? dock.action('operator') : dock.action('open', card.id)));
     c.addEventListener('contextmenu', event => { event.preventDefault(); dock.action('dismiss', card.key); });
     root.append(c);
   }
@@ -23,7 +24,9 @@ function render(view) {
   }
   if (view.chip) {
     const chip = el('div', 'chip ' + (view.chip.state || ''));
-    chip.title = 'クリックでのぞき見、⤢ で元に戻す。ドラッグで動かせます';
+    chip.title = view.chip.kind === 'operator' ? 'クリックでオペレーターをタブで開く（もう一度で裏に戻す）。ドラッグで動かせます'
+      : 'クリックでのぞき見、⤢ で元に戻す。ドラッグで動かせます';
+    if (view.chip.kind === 'operator') chip.classList.add('operator');
     chip.append(el('span', 'dot', String(view.chip.num)), el('span', 'name', view.chip.name));
     if (view.chip.badge) chip.append(el('span', 'badge', String(view.chip.badge)));
     const restore = el('button', 'restore', '⤢'); restore.title = '元に戻す';
@@ -37,7 +40,7 @@ function render(view) {
       if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
       if (moved) dock.dragMove(dx, dy);
     });
-    addEventListener('mouseup', () => { if (!down) return; down = null; dock.dragEnd(); if (!moved) dock.action('peek'); });
+    addEventListener('mouseup', () => { if (!down) return; down = null; dock.dragEnd(); if (!moved) dock.action(view.chip.kind === 'operator' ? 'operator' : 'peek'); });
     chip.addEventListener('contextmenu', event => { event.preventDefault(); dock.action('dismiss-all'); });
     root.append(chip);
   }

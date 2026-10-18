@@ -57,10 +57,6 @@ main > aside { padding: 14px 10px; }
 .git-toolbar { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
 .git-toolbar button { padding: 6px 10px; font-size: 12px; }
 .git-section { padding-left: 24px; }
-#pr-list { display: grid; gap: 6px; margin-top: 16px; }
-#pr-list button { text-align: left; }
-#pr-list button[aria-pressed=true] { border-color: #9ee4d3; background: #263c36; }
-#pr-detail { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: 12px; }
 #git-error { color: #ffb4b4; }
 .git-output { white-space: pre-wrap; overflow-wrap: anywhere; }
 body.embedded > header { display: none; }

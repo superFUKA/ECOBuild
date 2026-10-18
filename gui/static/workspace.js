@@ -46,7 +46,7 @@ WS.refresh = async ({fetch = false} = {}) => {
     const number = WS.status.task;
     WS.cli(['task', 'status', String(number)], {quiet: true}).then(t => {
       if (WS.status?.task !== number) return;
-      WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent(); WS.taskLoaded?.();
+      WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent();
     });
   } else if (!WS.status.task) WS.task = null;
   const all = WS.changes();
@@ -359,7 +359,6 @@ async function gitAction(action) {
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
     case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());
     case 'go-tasks': if (window.parent !== window) window.parent.document.getElementById('tasks-menu')?.click(); return;
-    case 'pr-refresh': return WS.refreshPrs?.();
   }
 }
 document.addEventListener('click', e => {

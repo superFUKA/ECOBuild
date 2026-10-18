@@ -754,11 +754,7 @@ def github_account() -> dict:
         completed = None
     account = {"login": "", "name": "", "url": "", "scopes": []}
     if completed is not None and completed.returncode == 0:
-        head, _, body = completed.stdout.replace("
-", "
-").partition("
-
-")
+        head, _, body = completed.stdout.replace("\r\n", "\n").partition("\n\n")
         for line in head.splitlines():
             key, _, value = line.partition(":")
             if key.strip().lower() == "x-oauth-scopes":

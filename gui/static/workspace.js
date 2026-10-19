@@ -149,23 +149,17 @@ function renderChanges() {
   const order = WS.projectOrder?.() || [];
   const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1e9 : order.indexOf(a)) - (b === '' ? 1e9 : order.indexOf(b)));
   const grouped = keys.length > 1 || (keys.length === 1 && keys[0] !== '');
-  // Inside a group, as in the explorer: a folder's heading (a check there takes the files under it), then its folders,
-  // then its files (the name only), each level indented.
   for (const key of keys) {
-    const {project, rows} = groups.get(key), top = grouped && project?.top ? project.top + '/' : '', base = grouped ? 1 : 0;
+    const {project, rows} = groups.get(key), top = grouped && project?.top ? project.top + '/' : '';
     if (grouped) list.append(changeGroup(project, rows.map(([path]) => path)));
-    const shown = rows.map(([path, kinds]) => [path, kinds, path.slice(top.length)]).sort((a, b) => explorerOrder(a[2], b[2]));
-    let open = [];
-    for (const [path, kinds, rel] of shown) {
-      const dirs = rel.split('/').slice(0, -1);
-      let same = 0; while (same < open.length && same < dirs.length && open[same] === dirs[same]) same++;
-      for (let i = same; i < dirs.length; i++) {
-        const folder = dirs.slice(0, i + 1).join('/');
-        list.append(changeFolder(top + folder, dirs[i], shown.filter(([, , r]) => r.startsWith(folder + '/')).map(([p]) => p), base + i));
-      }
-      open = dirs;
-      list.append(changeRow(path, kinds, rel.split('/').pop(), base + dirs.length));
+    const root = {dirs: new Map(), files: []};
+    for (const [path, kinds] of rows) {
+      const parts = path.slice(top.length).split('/');
+      let node = root;
+      for (const part of parts.slice(0, -1)) { if (!node.dirs.has(part)) node.dirs.set(part, {dirs: new Map(), files: []}); node = node.dirs.get(part); }
+      node.files.push([path, kinds, parts.at(-1)]);
     }
+    appendChangeTree(list, root, top, grouped ? 1 : 0);
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
   list.scrollTop = scroll;
@@ -190,15 +184,17 @@ function changeGroup(project, paths) {
   return head;
 }
 
-// The explorer's order: at each level the folders (by name) before the files (by name).
-function explorerOrder(a, b) {
-  const x = a.split('/'), y = b.split('/');
-  for (let i = 0; ; i++) {
-    const xFile = i === x.length - 1, yFile = i === y.length - 1;
-    if (xFile !== yFile) return xFile ? 1 : -1;
-    const c = x[i].localeCompare(y[i]);
-    if (c || xFile) return c;
+// Inside a group, as in the explorer: at each level the folders (by name) before the files (the name only, by name),
+// each level indented. A folder's heading takes a check for the files under it; a folder holding only one folder is
+// shown with it as one heading (src/foo/bar).
+function appendChangeTree(list, node, prefix, depth) {
+  const pathsOf = n => [...n.files.map(([path]) => path), ...[...n.dirs.values()].flatMap(pathsOf)];
+  for (let [name, child] of [...node.dirs].sort(([a], [b]) => a.localeCompare(b))) {
+    while (!child.files.length && child.dirs.size === 1) { const [[sub, next]] = child.dirs; name += '/' + sub; child = next; }
+    list.append(changeFolder(prefix + name, name, pathsOf(child), depth));
+    appendChangeTree(list, child, prefix + name + '/', depth + 1);
   }
+  for (const [path, kinds, name] of node.files.sort((a, b) => a[2].localeCompare(b[2]))) list.append(changeRow(path, kinds, name, depth));
 }
 
 function changeFolder(dir, shown, paths, depth) {

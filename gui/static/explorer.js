@@ -229,9 +229,11 @@ const DANGER = new Set(['remove', 'remove-dir', 'remove-chosen', 'p-remove']);  
 // Why an item is grey (the usual reasons; the menus pass false for these).
 function why(key) {
   if (['rename', 'move', 'remove'].includes(key) && WS.activeFile && isReadme(WS.activeFile)) return 'README はモジュールの一番上に置くファイルです（名前の変更・移動・削除はしません。開いて編集はできます）。';
+  if (['m-open', 'm-open-default'].includes(key)) return '選んだ中にファイルがありません（フォルダだけ）。';
   if (['log', 'blame'].includes(key)) return 'まだ git の管理に入っていないファイルです。';
   if (!editable()) return WS.status?.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
-  if (['restore', 'diff'].includes(key)) return '変更がありません。';
+  if (['restore', 'diff', 'm-restore', 'm-commit'].includes(key)) return '変更がありません。';
+  if (key === 'm-move') return 'Projectのフォルダは「Project」の「移動」で移します。';
   return 'いまは使えません。';
 }
 function showMenu(items, x, y) {
@@ -273,13 +275,62 @@ function folderMenu(dir, x, y) {
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }
+// Several chosen: what can be done to all of them at once. Open, test: the chosen files; restore, commit: the changed files
+// among the chosen ones and in the chosen folders.
+const chosenPaths = () => [...chosen].map(k => k.startsWith('d:') ? k.slice(2) + '/' : k.slice(2));
+function chosenChanges() {
+  const files = [...chosen].filter(k => k.startsWith('f:')).map(k => k.slice(2)), dirs = [...chosen].filter(k => k.startsWith('d:')).map(k => k.slice(2));
+  return [...WS.changes().keys()].filter(p => files.includes(p) || dirs.some(d => !d || p.startsWith(d + '/')));
+}
+function chosenMenu(x, y) {
+  delete menu.dataset.dir;
+  const {files, dirs} = chosenItems(), can = editable();
+  const existing = files.filter(p => !WS.files.missing.includes(p)), tests = existing.filter(testable);
+  const changed = chosenChanges(), restorable = changed.filter(p => !(WS.changes().get(p) || []).includes('untracked'));
+  showMenu([
+    ['m-open', `Visual Studio ${ECO.vsVersion()} で開く（${existing.length} 件）`, existing.length > 0], ['m-open-default', `既定のアプリで開く（${existing.length} 件）`, existing.length > 0], '-',
+    ['m-move', '移動先を指定…', can && (files.length > 0 || dirs.some(d => !projectsByDir.has(d)))], ['remove-chosen', `選んだ ${chosen.size} 件を削除　Delete`, can],
+    ...(tests.length ? [['m-test', `テストを作成（${tests.length} 件）…`, can]] : []),
+    ['m-restore', `変更を元に戻す（${restorable.length} 件）…`, can && restorable.length > 0], '-',
+    ['m-commit', `コミットの対象にする（${changed.length} 件）`, can && changed.length > 0], ['m-copy', 'パスをコピー'],
+  ], x, y);
+}
+// Move the chosen ones into a folder (the same as dropping them there).
+async function moveChosenDialog() {
+  const {files, dirs} = chosenItems(), moving = dirs.filter(d => !projectsByDir.has(d)), gone = WS.files.missing_dirs || [];
+  const folders = WS.files.dirs.filter(d => shown(d) && !gone.includes(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build')
+    && !moving.some(m => d === m || d.startsWith(m + '/')));
+  const options = [...(restricted() ? [] : [['', '（作業空間の一番上）']]), ...folders.map(d => [d, d])];
+  const list = [...moving.map(d => d + '/'), ...files];
+  const v = await ECO.form({title: `${list.length} 件を移動`, intro: esc(list.join('\n')).replaceAll('\n', '<br>') + '<br>を移します' + (moving.length < dirs.length ? '（Projectのフォルダは「Project」の「移動」で移します）' : '') + '。',
+    fields: [{name: 'folder', label: '移動先のフォルダ', type: 'select', value: options.some(([d]) => d === activeDirectory) ? activeDirectory : options[0]?.[0], options}], ok: '移動'});
+  if (v) await moveItems({files, dirs: moving}, v.folder);
+}
+// The tests of the chosen files, each at its default place (a file that has its test already is left as it is).
+async function testChosen() {
+  const files = chosenItems().files.filter(p => !WS.files.missing.includes(p) && testable(p));
+  if (!await ECO.confirm({title: `テストを作成（${files.length} 件）`, message: `${files.join('\n')}\nのテストを、組のテスト用Projectの同じ構成の場所に作ります。`, ok: '作成'})) return;
+  const made = [], skipped = [];
+  for (const path of files) {
+    const doc = await WS.cli(['file', 'test', path], {quiet: true});
+    if (doc.ok) made.push(...doc.result.paths); else skipped.push(`${path}：${doc.error.message}`);
+  }
+  if (made.length) { await WS.refresh(); await afterFileChange(true, 'テストを作りました：' + made.join('、')); }
+  if (skipped.length) ECO.toast(`作らなかったもの：\n${skipped.join('\n')}`, made.length ? 'info' : 'bad', 10000);
+}
+async function restoreChosen() {
+  const paths = chosenChanges().filter(p => !(WS.changes().get(p) || []).includes('untracked'));
+  if (!await ECO.confirm({title: `変更を元に戻す（${paths.length} 件）`, message: `${paths.join('\n')}\nの変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) return;
+  await WS.run(['restore', ...paths], {success: `変更を元に戻しました（${paths.length} 件）`}); await WS.reloadFiles();
+}
+function commitChosen() {
+  WS.selected = new Set(chosenChanges()); WS.renderChanges(); WS.showTab('commit-panel'); get('commit-message').focus();
+}
+
 tree.addEventListener('contextmenu', e => {
   const row = e.target.closest('[data-path]'), folder = e.target.closest('summary[data-directory]');
   const item = row || folder;
-  if (item && chosen.size > 1 && chosen.has(keyOfItem(item))) {
-    e.preventDefault(); e.stopPropagation(); delete menu.dataset.dir;
-    return showMenu([['remove-chosen', `選んだ ${chosen.size} 件を削除　Delete`, editable()]], e.clientX, e.clientY);
-  }
+  if (item && chosen.size > 1 && chosen.has(keyOfItem(item))) { e.preventDefault(); e.stopPropagation(); return chosenMenu(e.clientX, e.clientY); }
   if (item) choose(keyOfItem(item));
   if (row) { e.preventDefault(); delete menu.dataset.dir; fileMenu(row.dataset.path, e.clientX, e.clientY); }
   else if (folder) { e.preventDefault(); folderMenu(folder.dataset.directory, e.clientX, e.clientY); }
@@ -311,7 +362,10 @@ tree.addEventListener('keydown', e => {
   if (e.key === 'F2') { e.preventDefault(); menuAction('rename'); }
   if (e.key === 'Delete') { e.preventDefault(); if (chosen.size > 1 && chosen.has('f:' + row.dataset.path)) removeChosen(); else menuAction('remove'); }
   if (e.key === 'Enter') { e.preventDefault(); openInEditor(row.dataset.path); }
-  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = row.getBoundingClientRect(); fileMenu(row.dataset.path, r.left + 20, r.bottom); }
+  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+    e.preventDefault(); const r = row.getBoundingClientRect();
+    if (chosen.size > 1 && chosen.has('f:' + row.dataset.path)) chosenMenu(r.left + 20, r.bottom); else fileMenu(row.dataset.path, r.left + 20, r.bottom);
+  }
 });
 menu.addEventListener('click', e => { const b = e.target.closest('[data-menu]'); if (b) { closeMenu(); menuAction(b.dataset.menu, menu.dataset.dir); } });
 
@@ -348,6 +402,13 @@ async function menuAction(action, dir) {
     case 'rename-dir': return renameFolder(dir);
     case 'remove-dir': choose('d:' + dir); return removeChosen();
     case 'remove-chosen': return removeChosen();
+    case 'm-open': for (const p of chosenItems().files.filter(p => !WS.files.missing.includes(p))) await openInEditor(p); return;
+    case 'm-open-default': for (const p of chosenItems().files.filter(p => !WS.files.missing.includes(p))) await openFile(p); return;
+    case 'm-move': return moveChosenDialog();
+    case 'm-test': return testChosen();
+    case 'm-restore': return restoreChosen();
+    case 'm-commit': return commitChosen();
+    case 'm-copy': return ECO.copyText(chosenPaths().join('\n'));
     case 'toggle-generated': return get('toggle-generated').click();
     case 'reload': return get('reload-files').click();
     case 'new-file': return newFileDialog(dir ?? activeDirectory);

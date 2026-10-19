@@ -20,7 +20,7 @@ from ecobuild import config as _config
 from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import WorkError
-from ecobuild.results import AgentStarted, DoctorItem
+from ecobuild.results import AgentConversations, AgentStarted, DoctorItem
 
 from . import tooling
 
@@ -81,6 +81,16 @@ class Module(ecobuild.Module):
             return super().run_agent(command)
         return container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
                                      source=source, progress=progress, here=True)
+
+    def agent_conversations(self, limit: int = 20):
+        """コンテナにした作業空間では、中の会話（すべてのコンテナで共有する設定の場所にある。中の場所はどれも同じ
+        なので、今のブランチでの会話だけ）。コンテナが動いていなければ読まない（note にわけ）。"""
+        from . import container
+        if not container.enabled(self.root):
+            return super().agent_conversations(limit)
+        found, note = container.agent_conversations(self.root, self.repository.git.current_branch() or "", limit,
+                                                    command=self.command)
+        return AgentConversations(self.root, found, note)
 
     def agent_briefing(self, task) -> str:
         """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチと、ECOBuild の使い方（agent guide）。

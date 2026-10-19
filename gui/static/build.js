@@ -223,9 +223,30 @@ WS.onRefresh(renderPrDetail);
     say(`エージェントを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
   }
   get('agent-start').addEventListener('click', () => startAgent());
+  // Resuming is Claude Code's (claude --resume <id>): the chosen command's options (model …) are kept. The tab takes the
+  // conversation's name (no name is asked).
+  const claudeCommand = () => { const command = agentCommand(); return !command ? 'claude' : /^claude(\s|$)/.test(command) ? command : null; };
+  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  // The workspace's conversations (ecobuild agent conversations: in the container, the ones on this branch), newest first.
+  async function chooseConversation(x, y) {
+    const base = claudeCommand();
+    const doc = await WS.cli(['agent', 'conversations'], {quiet: true});
+    if (!doc.ok) return ECO.showError(doc);
+    const list = doc.result.conversations;
+    ECO.menu([
+      [list.length ? '再開する会話（新しい順）' : (doc.result.note || 'この作業空間の会話はまだありません'), null],
+      ...list.map(c => [`${c.title}　${when(c.updated)}`, () => startAgent(`${base} --resume ${c.id}`, c.title), true,
+        `発言 ${c.prompts}${c.branch ? `・${c.branch}` : ''}・${c.id}`]),
+      '-',
+      ['最後の会話の続きから', () => startAgent(`${base} --continue`, ''), list.length > 0],
+      ['Claude の一覧で選ぶ', () => startAgent(`${base} --resume`, ''), true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
+    ], x, y);
+  }
   get('agent-more').addEventListener('click', () => {
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
+      ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
+        'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
       ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
         {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true}], ok: ready ? '起動' : '保存',
         submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],

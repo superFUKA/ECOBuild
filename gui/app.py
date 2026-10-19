@@ -75,7 +75,7 @@ READ_ONLY = {
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("release", "list"), ("container", "status"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
-    ("agent", "guide"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
+    ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
 # オペレーターが別の ecobuild で行う。変えたかもしれないので、終わったら覚えた結果は古くする）

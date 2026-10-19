@@ -288,3 +288,32 @@ def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch,
     fake.images.add("ecobuild-cpp:someother")          # 別の型のイメージは消さない
     container.start(root, fake.run, source=("https://example.com/ECOBuild", "v2"))
     assert old not in fake.images and "ecobuild-cpp:someother" in fake.images and len(fake.images) == 2
+
+
+def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root, tmp_path):
+    """中の会話は、ecoagent.history を中の python3 で動かして読む（今のブランチのものだけ）。止まっていれば読まない。"""
+    import json
+    import os
+    import subprocess
+    import sys
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    assert container.agent_conversations(root, "task/1", runner=fake.run)[1].startswith("コンテナが動いていない")
+    container.start(root, fake.run)
+    folder = tmp_path / "agent" / "projects" / "-work"
+    folder.mkdir(parents=True)
+    for id, branch in (("a", "task/1"), ("b", "task/2")):
+        (folder / f"{id}.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}, "gitBranch": branch}) + "\n",
+                                            encoding="utf-8")
+
+    def inside(args):
+        if args[1] == "exec" and "python3" in args and "-c" in args:
+            script = args[args.index("-c") + 1]
+            done = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, encoding="utf-8",
+                                  env={**os.environ, "CLAUDE_CONFIG_DIR": str(tmp_path / "agent")})
+            return docker.Completed(tuple(args), done.returncode, done.stdout + done.stderr)
+        return fake.run(args)
+
+    found, note = container.agent_conversations(root, "task/1", runner=inside)
+    assert [c.id for c in found] == ["a"] and note == ""

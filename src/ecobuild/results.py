@@ -205,6 +205,14 @@ class AgentStarted:
 
 
 @dataclass(frozen=True)
+class AgentConversations:
+    """ecobuild agent conversations：作業空間でのエージェント（Claude Code）の会話。新しい順（続きから再開するものを選ぶ）。"""
+    directory: Path
+    conversations: tuple            # ecoagent.Conversation（id・名前・最後に書かれた日時・ブランチ・発言の数）
+    note: str = ""                  # 一覧を読めなかったわけ（コンテナが止まっている等）
+
+
+@dataclass(frozen=True)
 class CiInitResult:
     path: str
     private_dependencies: tuple[str, ...]   # CIで取得するにはトークンが要る依存先

@@ -693,7 +693,8 @@ function external(op, p) {
   if (op === 'agent-restart') {
     const s = byNum(p.tab); if (!s) return;
     const base = s.kind === 'operator' ? s.agent.replace(' --continue', '') : (s.savedAgent || '');
-    restartSession(s.id, p.continue ? (base || 'claude') + ' --continue' : base);
+    // 選んだ会話から開いたタブ（--resume <id>）を続きから：--resume と --continue は一緒に渡さない
+    restartSession(s.id, p.continue ? (base.replace(/\s+--resume(\s+[\w-]+)?/, '') || 'claude') + ' --continue' : base);
     return;
   }
   if (op === 'agent-model') { const s = byNum(p.tab); if (s && isClaude(s)) s.pendingModel = String(p.model); return; }

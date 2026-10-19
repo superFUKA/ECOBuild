@@ -32,7 +32,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
+from .results import (AgentConversations, AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
@@ -1215,6 +1215,10 @@ class Module:
             return ecoagent.run(self.root, command)
         except ecoagent.AgentError as error:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
+
+    def agent_conversations(self, limit: int = 20) -> AgentConversations:
+        """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。"""
+        return AgentConversations(self.root, tuple(ecoagent.conversations(self.root, limit=limit)))
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。

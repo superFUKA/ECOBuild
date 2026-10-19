@@ -489,6 +489,26 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
     return exec_command(root, prefix, agent, tuple(values), tty=tty), environment(prefix, values)
 
 
+def agent_conversations(root: Path, branch: str, limit: int = 20, runner: docker.Runner | None = None, *,
+                        command: str = "") -> tuple[tuple, str]:
+    """中のエージェントの会話（ecoagent.history を中の Python で動かす。中の ECOBuild の版によらない）と、読めなかった
+    わけ。中の場所（WORKDIR）はどのコンテナも同じなので、branch での会話だけ。"""
+    import ecoagent
+    from ecoagent import history
+    found = docker.status(runner or docker.run)
+    if not found.ready:
+        return (), f"Docker が使えません（{found.detail}）。"
+    if _state(root, runner, found.command) != "running":
+        return (), "コンテナが動いていないので、会話の一覧を読めません（エージェントを起動すると読めます）。"
+    source = base64.b64encode(Path(history.__file__).read_bytes()).decode("ascii")
+    script = f"import base64,sys;sys.argv[1:]={[WORKDIR, branch, str(limit)]!r};exec(base64.b64decode('{source}'))"
+    done = (runner or docker.run)([*found.command, "exec", name(root), "python3", "-c", script])
+    try:
+        return tuple(ecoagent.Conversation(**c) for c in json.loads(done.output)) if done.ok else (), ""
+    except (ValueError, TypeError):
+        return (), "会話の一覧を読めませんでした。"
+
+
 def _output(args: list[str]) -> str:
     if shutil.which(args[0]) is None:
         return ""

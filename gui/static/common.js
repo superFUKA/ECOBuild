@@ -709,7 +709,7 @@ const ECO = (() => {
 
   // The ⋯ menus made of <details> (a card's or a panel's) close like the menus above: a click outside, Escape, choosing
   // one of their items, another one opening, or the window losing the focus (a click in another frame).
-  const POPUPS = 'details.share-more, details.module-menu, details.tk-menu, details[data-popup]';
+  const POPUPS = 'details.share-more, details.tk-menu, details[data-popup]';
   const closePopups = (except = null) => document.querySelectorAll(POPUPS).forEach(d => { if (d !== except && d.open) d.open = false; });
   document.addEventListener('pointerdown', e => closePopups(e.target.closest?.(POPUPS)));
   document.addEventListener('click', e => {

@@ -101,14 +101,8 @@
 .module-list li { position: relative; }
 .module-list a { cursor: pointer; }
 .module-list li.missing a { opacity: .55; }
-.module-menu { position: absolute; top: 14px; right: 14px; }
-.module-menu > summary { list-style: none; cursor: pointer; padding: 2px 9px; border-radius: 6px; color: #a5aeba; font-size: 18px; }
-.module-menu > summary::-webkit-details-marker { display: none; }
-.module-menu > summary:hover { background: #2a323b; color: #edf1f5; }
-.module-menu > div { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; width: 210px; display: grid; gap: 2px; padding: 6px; border: 1px solid #46515e; border-radius: 8px; background: #252b33; box-shadow: 0 12px 32px #0008; }
-.module-menu button { border: 0; background: transparent; color: #edf1f5; text-align: left; padding: 8px 10px; border-radius: 5px; cursor: pointer; font: inherit; font-size: 13px; }
-.module-menu button:hover { background: #36483f; }
-.module-menu button.danger-text { color: #ffb4b4; }
+.module-menu { position: absolute; top: 14px; right: 14px; border: 0; background: transparent; cursor: pointer; padding: 2px 9px; border-radius: 6px; color: #a5aeba; font: inherit; font-size: 18px; line-height: inherit; }
+.module-menu:hover { background: #2a323b; color: #edf1f5; }
 .module-state { display: inline-block; margin-top: 10px; color: #f1c78e; font-size: 12px; }
 .dir-row { display: flex; gap: 8px; }
 .dir-row input { flex: 1; }

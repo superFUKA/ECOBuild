@@ -136,10 +136,7 @@ function renderModules() {
   const card = (m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" data-type="${esc(m.type || '')}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
     <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span>
     ${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
-    <details class="module-menu"><summary aria-label="${esc(m.name)} の操作">⋯</summary><div>
-      ${m.exists ? `<button type="button" data-action="folder" data-index="${i}">フォルダを開く</button>` : ''}
-      <button type="button" data-action="remove" data-index="${i}">一覧から外す</button>
-      <button type="button" class="danger-text" data-action="delete" data-index="${i}">片付ける（アーカイブ・削除）…</button></div></details></li>`;
+    <button type="button" class="module-menu" data-menu="${i}" aria-label="${esc(m.name)} の操作" title="操作">⋯</button></li>`;
   list.innerHTML = types.map(type => {
     const members = modules.map((m, i) => [m, i]).filter(([m]) => (m.type || '') === type);
     return `<li class="module-type-head" role="presentation"><h3>${esc(type ? typeLabel(type) : '型が分からないもの')}</h3><span>${members.length}</span></li>${members.map(([m, i]) => card(m, i)).join('')}`;
@@ -157,15 +154,8 @@ async function forgetModule(m, reason = '') {
   if (choice === 'forget' && await ECO.run(null, ['workspace', 'forget', m.path], {success: `${m.name} を一覧から外しました。`})) loadModules();
 }
 $('module-list').addEventListener('click', async event => {
-  const action = event.target.closest('[data-action]');
-  if (action) {
-    action.closest('details').removeAttribute('open');
-    const m = modules[Number(action.dataset.index)];
-    if (action.dataset.action === 'folder') { try { await ECO.action('folder', {dir: m.path}); } catch (e) { ECO.toast(e.message, 'bad'); } }
-    if (action.dataset.action === 'remove') forgetModule(m);
-    if (action.dataset.action === 'delete') putAwayModule(m);
-    return;
-  }
+  const more = event.target.closest('[data-menu]');
+  if (more) { const r = more.getBoundingClientRect(); moduleMenu(modules[Number(more.dataset.menu)], r.right - 240, r.bottom + 4); return; }
   const open = event.target.closest('[data-open]');
   if (open) { const m = modules[Number(open.dataset.open)]; if (m.notClone) putAwayModule(m); else if (m.exists) openModule(m.path); else forgetModule(m, `フォルダ ${m.path} が見つかりません（移動・削除された等）。移動した場合は、移動先を「＋ モジュール追加」の「手元のフォルダを登録」で登録してください。`); }
 });
@@ -571,11 +561,8 @@ async function deleteArchivedModule(m, repository, dir, question) {
   return done;
 }
 
-// Right-click a module card.
-$('module-list').addEventListener('contextmenu', event => {
-  const item = event.target.closest('li[data-index]'); if (!item) return;
-  event.preventDefault();
-  const m = modules[Number(item.dataset.index)];
+// A module card's menu: the same one from right-clicking the card and from its ⋯ button.
+function moduleMenu(m, x, y) {
   ECO.menu([
     ['開発環境を開く', () => openModule(m.path), m.exists],
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
@@ -584,7 +571,12 @@ $('module-list').addEventListener('contextmenu', event => {
     '-',
     ['一覧から外す…', () => forgetModule(m)],
     ['片付ける（アーカイブ・削除）…', () => putAwayModule(m)],
-  ], event.clientX, event.clientY);
+  ], x, y);
+}
+$('module-list').addEventListener('contextmenu', event => {
+  const item = event.target.closest('li[data-index]'); if (!item) return;
+  event.preventDefault();
+  moduleMenu(modules[Number(item.dataset.index)], event.clientX, event.clientY);
 });
 // Drag cards to reorder the list (the order is the one thing the GUI keeps: gui.json).
 let draggedModule = null;

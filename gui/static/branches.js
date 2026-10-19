@@ -148,7 +148,7 @@
     const n = String(t.number);
     switch (action) {
       case 'refresh': st.status = null; return loadStatus(t.number);
-      case 'diff': { const doc = await cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
+      case 'diff': return ECO.inTortoiseGit(MOD.root, ['task', 'diff', n], async () => { const doc = await cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); });
       case 'comment': return ECO.form({title: `#${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
         submit: async v => { if (!await after(await ECO.run(MOD.root, ['task', 'comment', n, '--message', v.message], {success: 'コメントしました。'}))) return 'コメントできませんでした。'; }});
       case 'task': showModulePage('tasks'); window.TASKS_SELECT?.(t.number); return;

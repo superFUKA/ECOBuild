@@ -323,6 +323,22 @@ class Completion:
         pr = self.submission(number)
         if pr is not None:
             return self.github.pull_request_diff(self.root, pr.number)
+        return self.git.output("diff", "...".join(self._task_ends(number)))
+
+    def task_diff_revisions(self, number: int | None = None) -> tuple[str, str]:
+        """task_diff の両端のコミット（作成元から分かれたところ, タスクブランチの先）。差分を別の画面で比べるのに使う。"""
+        if number is None:
+            number = self.require_task_branch("番号を省略した差分").number
+        pr = self.submission(number)
+        if pr is not None:
+            self.git.fetch()
+            base, head = f"{_git.REMOTE}/{pr.base}", f"{_git.REMOTE}/{pr.head}"
+        else:
+            base, head = self._task_ends(number)
+        return self.git.output("merge-base", base, head), self.git.output("rev-parse", head)
+
+    def _task_ends(self, number: int) -> tuple[str, str]:
+        """提出のないタスクの差分の両端（作成元, タスクブランチ。手元になければ GitHub のもの）。"""
         branch = wm.task_branch_name(number)
         self.git.fetch()
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
@@ -330,7 +346,7 @@ class Completion:
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} のタスクブランチがありません。")
         base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
-        return self.git.output("diff", f"{_git.REMOTE}/{base}...{branch if local else _git.REMOTE + '/' + branch}")
+        return f"{_git.REMOTE}/{base}", branch if local else f"{_git.REMOTE}/{branch}"
 
     def revert_task(self, number: int) -> wm.RevertResult:
         """完了したタスクの取り込み（中間提出も含めてすべて）を取り消すタスクブランチを作る。提出は task submit で出す。"""

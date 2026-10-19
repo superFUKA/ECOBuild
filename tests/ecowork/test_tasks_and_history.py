@@ -92,6 +92,8 @@ def test_log_revert_ignore_release(repository):
     assert entries[0].subject == f"機能A (#{pr.number})" and entries[0].pull_request == pr.number
     assert entries[0].issue == 1
     assert "a.txt" in repository.show()
+    parent, sha = repository.show_revisions()
+    assert sha == repository.git.rev_parse("HEAD") and "a.txt" in repository.git.output("diff", "--stat", parent, sha)
     assert len(repository.blame("a.txt").splitlines()) == 1
 
     reverted = repository.revert(pr.number)

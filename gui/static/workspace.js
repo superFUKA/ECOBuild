@@ -184,19 +184,8 @@ async function showDiff(path, kinds) {
   ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: path + (args.includes('--staged') ? '（ステージ済み）' : '')});
 }
 WS.showDiff = showDiff;
-// Looking at git (history, line history, diffs) is TortoiseGit's job: ecobuild … --gui opens it there, which shows it
-// better than text here. Without TortoiseGit, it is shown here as text (asText).
-let noTortoiseGit = false;
-WS.inTortoiseGit = async (args, asText) => {
-  if (!noTortoiseGit) {
-    const doc = await WS.cli([...args, '--gui'], {quiet: true});
-    if (doc.ok) return;
-    if (doc.error?.code !== 'tool_missing') return ECO.showError(doc);
-    noTortoiseGit = true;
-    say('TortoiseGit が見つからないため、この画面に文字で表示します（TortoiseGit を入れると、そちらで開きます）。');
-  }
-  return asText();
-};
+// Looking at git (history, line history, diffs) is TortoiseGit's job (ECO.inTortoiseGit: as text without it).
+WS.inTortoiseGit = (args, asText) => ECO.inTortoiseGit(WS.dir, args, asText);
 // A changed file's diff (a new file has none: its content is shown here).
 WS.openDiff = (path, kinds) => kinds.includes('untracked') ? showDiff(path, kinds)
   : WS.inTortoiseGit(['diff', path, ...(kinds.includes('unstaged') || kinds.includes('conflicted') ? [] : ['--staged'])], () => showDiff(path, kinds));
@@ -247,10 +236,10 @@ async function renderPushList() {
 // or task reset to it without --keep (the changes go: ecobuild asks first, listing the commits).
 let chosenPushCommit = '';
 const pushCommitOf = el => el?.closest('.push-commit');
-const showPushCommit = async sha => {
+const showPushCommit = sha => WS.inTortoiseGit(['show', sha], async () => {
   const doc = await WS.cli(['show', sha], {quiet: true});
   return doc.ok ? ECO.output('コミットの変更', doc.result, {diff: true, sub: sha}) : ECO.showError(doc);
-};
+});
 function choosePushCommit(row) {
   chosenPushCommit = row.dataset.sha;
   for (const el of get('push-commits-list').children) el.classList.toggle('chosen', el === row);

@@ -33,6 +33,17 @@ class History:
     def show(self, revision: str = "HEAD") -> str:
         return self.git.output("show", "--stat", "--patch", revision)
 
+    def show_revisions(self, revision: str = "HEAD") -> tuple[str, str]:
+        """コミットの変更の両端（親, そのコミット）。差分を別の画面で比べるのに使う。"""
+        sha = self.git.rev_parse(revision)
+        if sha is None:
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"コミット {revision} がありません。")
+        parent = self.git.rev_parse(sha + "~1")
+        if parent is None:
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"{sha[:8]} は最初のコミットなので、比べる前のコミットがありません。",
+                            hint="--gui を付けずに実行してください（文字で表示します）。")
+        return parent, sha
+
     def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
         """未コミットの変更の差分。staged：ステージ済みだけ。base：タスクブランチの作成元との差分（PRの差分）。"""
         args = ["diff"]

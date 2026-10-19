@@ -308,8 +308,11 @@ def test_clean_dry_run_matches_the_real_run(repository):
 def test_revert_task_and_diff(repository):
     task, task_branch = started(repository)
     recorded(task_branch)
+    before, after = repository.task_diff_revisions(task.number)     # 提出の前：作成元との差分の両端
+    assert "+a" in repository.git.output("diff", before, after)
     task_branch.submit()
     assert "+a" in repository.task_diff(task.number)
+    assert repository.task_diff_revisions(task.number) == (before, after)   # 提出の後：PR の両端
     repository.finish()
     reverted = repository.revert_task(task.number)
     assert reverted.reverted_task == task.number and repository.git.current_branch() == reverted.branch

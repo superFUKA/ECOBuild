@@ -254,6 +254,21 @@ const ECO = (() => {
   const copyText = text => navigator.clipboard.writeText(text).then(() => toast('コピーしました。'), () => toast('コピーできませんでした。', 'bad'));
   // Text (a log, blame, a guide) or a diff to read: a search box (text: only the lines that have it; diff: only the files
   // that have it), copy, and for a diff the files folded and opened together.
+  // Looking at changes (a diff, a commit, a task's changes) is TortoiseGit's job: ecobuild … --gui opens it there,
+  // which shows it better than text here. Without TortoiseGit, or when it cannot show it (the first commit has nothing
+  // to compare with), it is shown here as text (asText).
+  let noTortoiseGit = false;
+  async function inTortoiseGit(dir, args, asText) {
+    if (!noTortoiseGit) {
+      const doc = await cli(dir, [...args, '--gui']);
+      if (doc.ok) { if (doc.result?.opened === null) toast('差分はありません。', 'info'); return; }
+      if (doc.error?.code === 'tool_missing') {
+        noTortoiseGit = true;
+        toast('TortoiseGit が見つからないため、この画面に文字で表示します（TortoiseGit を入れると、そちらで開きます）。', 'info');
+      } else if (doc.error?.code !== 'revision_not_found') return showError(doc);
+    }
+    return asText();
+  }
   const output = (title, text, {diff = false, sub = '', focus = ''} = {}) => dialog({title, wide: true,
     body: `${sub ? `<p class="eco-intro">${esc(sub)}</p>` : ''}<div class="eco-out-tools"><input type="search" class="eco-out-search" placeholder="${diff ? 'ファイル・内容で絞り込み' : '絞り込み（この文字を含む行だけ）'}" aria-label="絞り込み"><span class="eco-out-count"></span>
       ${diff ? '<button type="button" data-out="open">すべて開く</button><button type="button" data-out="fold">すべて閉じる</button>' : ''}<button type="button" data-out="copy">コピー</button></div><div class="eco-out-body"></div>`,
@@ -765,7 +780,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+  return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submissionButton, submissionDetail, submissionCommits};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.

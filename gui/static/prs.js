@@ -101,7 +101,7 @@ async function prAction(action) {
   const after = async doc => { if (doc) await WS.refreshPrs(); };
   switch (action) {
     case 'refresh': return loadPr(t.number);
-    case 'diff': { const doc = await WS.cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
+    case 'diff': return WS.inTortoiseGit(['task', 'diff', n], async () => { const doc = await WS.cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); });
     case 'comment': return ECO.form({title: `#${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
       submit: async v => { const doc = await WS.run(['task', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
     case 'approve': return WS.judge(true, t.number);

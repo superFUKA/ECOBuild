@@ -809,7 +809,7 @@
         case 'review': return reviewSubmission(n);
         case 'approve': return judgeDialog(n, true);
         case 'reject': return judgeDialog(n, false);
-        case 'diff': { const doc = await ECO.cli(placeFor(n), ['task', 'diff', String(n)]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); }
+        case 'diff': return ECO.inTortoiseGit(placeFor(n), ['task', 'diff', String(n)], async () => { const doc = await ECO.cli(placeFor(n), ['task', 'diff', String(n)]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); });
         case 'revert': return revertDialog(n);
         case 'github': { const d = st.details.get(n); if (d?.url) window.open(d.url, '_blank', 'noopener'); return; }
         case 'comment': { const text = tkEl('tk-comment-text').value.trim(); if (!text) return; if (await run(['task', 'comment', String(n), '--message', text], {success: 'コメントしました。'})) reloadAfter(n); return; }

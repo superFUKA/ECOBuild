@@ -40,10 +40,10 @@ const LOG = (() => {
       main.scrollTop = 0;
     };
     list.addEventListener('click', e => { const row = e.target.closest('[data-sha]'); if (row) choose(row.dataset.sha); });
-    const showChanges = async sha => {
+    const showChanges = sha => ECO.inTortoiseGit(dir, ['show', sha], async () => {
       const doc = await ECO.cli(dir, ['show', sha], {quiet: true});
       return doc.ok ? ECO.output(commit(sha)?.subject || 'コミットの変更', doc.result, {diff: true, sub: sha.slice(0, 8), focus: path}) : ECO.showError(doc);
-    };
+    });
     if (!detail) {
       list.addEventListener('dblclick', e => { const row = e.target.closest('[data-sha]'); if (row) showChanges(row.dataset.sha); });
       list.addEventListener('keydown', e => { if (e.key === 'Enter' && chosen) { e.preventDefault(); showChanges(chosen); } });

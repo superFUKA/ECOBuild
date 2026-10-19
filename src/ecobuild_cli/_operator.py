@@ -94,6 +94,8 @@ EXAMPLES = (
     ("「次やるのどれ？」", f"{PROGRAM} -C <場所> task next --json"),
     ("「12番始めて」「12番に取りかかって」", f"{PROGRAM} -C <場所> task start 12（新しく作るなら --name に短い名前）"),
     ("「ECOSTL ビルドして」「テスト回して」", f"{PROGRAM} -C <場所> build ／ test（結果は成功か、失敗なら原因を1行）"),
+    ("「差分見せて」「12番の差分」「直前のコミットの中身」",
+     f"{PROGRAM} -C <場所> diff --gui ／ task diff 12 --gui ／ show HEAD --gui（TortoiseGit で開く。tool_missing なら --gui なしで要点を短く）"),
     ("「提出して」「PR 出して」", f"{PROGRAM} -C <場所> task submit（[確認]：コマンドを示して聞いてから）"),
     ("「GitHub にあるモジュールは？」", f"{PROGRAM} module list --json"),
     ("「新しいモジュール作って、名前は Calc」", f"{PROGRAM} module new Calc（型を言われたら --type。言われなければ聞き返す）"),

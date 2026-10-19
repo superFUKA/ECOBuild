@@ -77,6 +77,7 @@
 .share > .heading { margin-bottom: 4px; }
 #file-tree .file.generated { color: #84909e; font-style: italic; }
 .explorer-tools button[aria-pressed=true] { color: #9ee4d3; }
+.explorer-tools .sln-button { font-size: 10px; font-weight: 600; letter-spacing: .03em; } .explorer-tools .sln-button[hidden] { display: none; }
 .generated-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 10px; }
 /* コミット・Push・提出: one panel at a time, the tab shows how many things are there (changes, commits, submissions). */
 .work-tabs { display: flex; gap: 4px; margin: 0 0 -1px; border-bottom: 1px solid #303640; }

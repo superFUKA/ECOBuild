@@ -124,6 +124,22 @@ generatedButton.addEventListener('click', () => {
   showGenerated = !showGenerated; showGeneratedState(); renderTree();
   try { localStorage.setItem('ecobuild-gui-show-generated', showGenerated ? '1' : '0'); } catch (e) { /* storage blocked */ }
 });
+// Update the solution (.sln) and the other generated files by hand (ecobuild check --no-build: they are made from
+// ecobuild.toml and the files; ecobuild does it after its own operations, this is for changes made elsewhere).
+const slnButton = get('refresh-sln');
+ECO.moduleType(WS.dir).then(type => { slnButton.hidden = type !== 'cpp'; }).catch(() => {});
+WS.onRefresh(() => { slnButton.disabled = !editable(); slnButton.title = editable() ? 'ソリューション（.sln）と生成ファイルを今の構成で作り直す' : why('sln'); });
+slnButton.addEventListener('click', async () => {
+  slnButton.disabled = true;
+  try {
+    const doc = await WS.cli(['check', '--no-build'], {quiet: true});
+    if (!doc.ok) return ECO.showError(doc);
+    const item = (doc.result.items || []).find(i => i.name === 'generated');
+    if (item && !item.ok) return ECO.toast('SLN を更新できませんでした：' + item.detail, 'bad', 10000);
+    await WS.refresh(); await WS.reloadFiles();
+    ECO.toast('SLN（生成ファイル）を更新しました。' + (item?.detail ? '\n' + item.detail : ''), 'ok', 6000);
+  } finally { slnButton.disabled = !editable(); }
+});
 WS.selectInTree = path => { WS.activeFile = path; chosen.clear(); chosen.add('f:' + path); anchor = 'f:' + path; renderTree(); tree.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({block: 'nearest'}); };
 
 tree.addEventListener('click', e => {

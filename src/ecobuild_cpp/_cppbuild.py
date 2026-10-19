@@ -537,6 +537,47 @@ def remove_file(root: Path, project: str, path: str) -> str:
     return (Path(target.root) / path).relative_to(root).as_posix()
 
 
+def move_files(root: Path, moves: list[tuple[str, str, str]]) -> tuple[str, ...]:
+    """まとめて移動する（(Project, 元, 先)。構成の作り直しは最後に1回）。移動元・移動先の組を順に返す。"""
+    solution = open_solution(root)
+    done = []
+    try:
+        for project, source, destination in moves:
+            target = solution.get_project(project)
+            target.move_file(source, destination, auto_update=False)
+            base = Path(target.root)
+            done += [(base / source).relative_to(root).as_posix(), (base / destination).relative_to(root).as_posix()]
+    except FileNotFoundError as error:
+        raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{error} がありません。") from None
+    except FileExistsError as error:
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{error} は既に存在します。") from None
+    except Exception as error:
+        raise _cppbuild_error("ファイルを移動できません。", error) from error
+    finally:
+        if done:
+            solution.update()
+    return tuple(done)
+
+
+def remove_files(root: Path, removals: list[tuple[str, str]]) -> tuple[str, ...]:
+    """まとめて削除する（(Project, パス)。構成の作り直しは最後に1回）。"""
+    solution = open_solution(root)
+    done = []
+    try:
+        for project, path in removals:
+            target = solution.get_project(project)
+            target.remove_file(path, auto_update=False)
+            done.append((Path(target.root) / path).relative_to(root).as_posix())
+    except FileNotFoundError as error:
+        raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{error} がありません。") from None
+    except Exception as error:
+        raise _cppbuild_error("ファイルを削除できません。", error) from error
+    finally:
+        if done:
+            solution.update()
+    return tuple(done)
+
+
 def move_file(root: Path, project: str, source: str, destination: str) -> tuple[str, str]:
     solution = open_solution(root)
     target = solution.get_project(project)

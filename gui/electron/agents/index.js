@@ -334,6 +334,9 @@ function poll() {
       if (!s.statusDir && s.state === 'thinking' && read.state === 'idle') replied(s, read.reply);
       // Stop フックの返答が届かなかったとき（置き場所が消された等）のために、画面の返答を少し待って使う
       if (s.statusDir && s.state === 'thinking' && read.state === 'idle') s.screenReply = {at: Date.now(), text: read.reply};
+      // 作業用のエージェントが返事を終えたら、このPCの Visual Studio の構成を今のファイルに合わせる（C++：コンテナの中や
+      // エディターで足した・移したファイルも見えるように。変わっていなければ CMake は動かない。C++ 以外は何もしない）
+      if (s.kind !== 'operator' && s.state === 'thinking' && read.state === 'idle' && s.dir) ecobuildRun(['-C', s.dir, 'project', 'update']);
       s.state = read.state; changed = true;
     }
     const got = status.poll(s);

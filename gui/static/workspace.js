@@ -136,26 +136,62 @@ function renderChanges() {
   seen = new Set(all.keys());
   get('change-count').textContent = all.size;
   setTabCount('commit-panel', all.size);
+  const scroll = list.scrollTop;
   list.replaceChildren();
+  // Per Project (C++: the Project's name and kind above its files, the path from the Project's folder; a check there
+  // takes all its files). One group (or a type without Projects): the list as it is.
+  const groups = new Map();
   for (const [path, kinds] of all) {
-    const label = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), kind = document.createElement('small');
-    const deleted = WS.files && WS.files.missing.includes(path);
-    label.className = 'change' + (WS.activeFile === path ? ' focused' : ''); label.dataset.path = path;
-    box.type = 'checkbox'; box.checked = WS.selected.has(path);
-    box.addEventListener('change', () => { if (box.checked) WS.selected.add(path); else WS.selected.delete(path); updateButtons(); });
-    name.textContent = path; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = 'ダブルクリックで差分';
-    name.addEventListener('click', e => { e.preventDefault(); WS.activeFile = path; renderChanges(); WS.selectInTree?.(path); });
-    name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
-    kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
-    if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
-    if (WS.status?.excluded?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '管理外'; tag.title = '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。'; name.append(tag); }
-    label.append(box, name, kind); list.append(label);
+    const project = WS.projectOf?.(path) || null, key = project ? project.name : '';
+    if (!groups.has(key)) groups.set(key, {project, rows: []});
+    groups.get(key).rows.push([path, kinds]);
+  }
+  const order = WS.projectOrder?.() || [];
+  const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1e9 : order.indexOf(a)) - (b === '' ? 1e9 : order.indexOf(b)));
+  const grouped = keys.length > 1 || (keys.length === 1 && keys[0] !== '');
+  for (const key of keys) {
+    const {project, rows} = groups.get(key);
+    if (grouped) list.append(changeGroup(project, rows.map(([path]) => path)));
+    for (const [path, kinds] of rows) list.append(changeRow(path, kinds, grouped && project?.top ? path.slice(project.top.length + 1) : path));
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
+  list.scrollTop = scroll;
   get('select-all').checked = all.size > 0 && WS.selected.size === all.size;
   updateButtons();
 }
 WS.renderChanges = renderChanges;
+
+const PROJECT_KIND_LABEL = {static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定'};
+function changeGroup(project, paths) {
+  const head = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), count = document.createElement('small');
+  head.className = 'change-group';
+  box.type = 'checkbox';
+  const chosen = paths.filter(p => WS.selected.has(p)).length;
+  box.checked = chosen === paths.length; box.indeterminate = chosen > 0 && chosen < paths.length;
+  box.addEventListener('change', () => { for (const p of paths) { if (box.checked) WS.selected.add(p); else WS.selected.delete(p); } renderChanges(); });
+  name.textContent = project ? project.name : 'Project の外';
+  if (project?.kind) { const kind = document.createElement('span'); kind.className = 'change-group-kind'; kind.textContent = PROJECT_KIND_LABEL[project.kind] || project.kind; name.append(kind); }
+  count.textContent = `${paths.length}件`;
+  head.title = project ? `${project.top || '（モジュールの一番上）'}／チェックでこの Project の変更をすべて選ぶ` : 'どの Project にも入らないファイル（モジュールの設定・CI 等）';
+  head.append(box, name, count);
+  return head;
+}
+
+function changeRow(path, kinds, shown) {
+  const label = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), kind = document.createElement('small');
+  const deleted = WS.files && WS.files.missing.includes(path);
+  label.className = 'change' + (WS.activeFile === path ? ' focused' : ''); label.dataset.path = path;
+  box.type = 'checkbox'; box.checked = WS.selected.has(path);
+  box.addEventListener('change', () => { if (box.checked) WS.selected.add(path); else WS.selected.delete(path); renderChanges(); });
+  name.textContent = shown; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = (shown !== path ? path + '\n' : '') + 'ダブルクリックで差分';
+  name.addEventListener('click', e => { e.preventDefault(); WS.activeFile = path; renderChanges(); WS.selectInTree?.(path); });
+  name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
+  kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
+  if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
+  if (WS.status?.excluded?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '管理外'; tag.title = '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。'; name.append(tag); }
+  label.append(box, name, kind);
+  return label;
+}
 
 function updateButtons() {
   const s = WS.status, editable = !!(s && s.task && !s.reviewing), all = WS.changes();

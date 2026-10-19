@@ -276,6 +276,7 @@ class FilesChanged:
     action: str
     paths: tuple[str, ...]
     project: str | None = None
+    edited: tuple[str, ...] = ()        # 合わせて中身を直したファイル（C++：移したファイルを読み込む #include）
 
 
 @dataclass(frozen=True)

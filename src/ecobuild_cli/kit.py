@@ -65,7 +65,8 @@ def move_file(source: str, destination: str, test: bool, json_output: bool) -> i
 
     def render(r):
         pairs = zip(r.paths[0::2], r.paths[1::2])
-        return "移動しました：\n" + "\n".join(f"  {a} → {b}" for a, b in pairs)
+        return "移動しました：\n" + "\n".join(f"  {a} → {b}" for a, b in pairs) \
+            + ("\n読み込み（#include）を直しました：\n" + "\n".join(f"  {p}" for p in r.edited) if r.edited else "")
 
     return run_command("file move", action, render, json_output=json_output)
 

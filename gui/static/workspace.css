@@ -12,6 +12,11 @@
 #file-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }
 #file-menu button { text-align: left; font-size: 12px; padding: 7px 10px; }
 .change { padding: 4px 0; font-size: 13px; }
+.change-group { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 0 2px; font-size: 12px; font-weight: 600; color: #cdd5df; border-bottom: 1px dashed #303640; }
+.change-group:first-child { margin-top: 2px; }
+.change-group small { margin-left: auto; color: #8b95a3; font-weight: 400; }
+.change-group-kind { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a313b; color: #9fb0c3; font-size: 11px; font-weight: 400; }
+.change-group + .change, .change-group ~ .change { padding-left: 14px; }
 .change .kind { margin-left: auto; color: #efc389; white-space: nowrap; font-size: 11px; }
 .change .kind.staged { color: #8fb7ef; } .change .kind.untracked { color: #9fe0a8; } .change .kind.conflicted { color: #ff8f8f; } .change .kind.deleted { color: #f3a5a5; }
 .select-all { font-size: 12px; color: #a5aeba; display: flex; gap: 6px; align-items: center; }

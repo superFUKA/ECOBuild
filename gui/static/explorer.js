@@ -27,6 +27,17 @@ WS.reloadFiles = async () => {
   renderTree(); WS.renderChanges();
 };
 const restricted = () => !!(projectRoots && projectRoots.length);
+// The Project a path is in (the deepest Project folder that has it: the changes are shown per Project). null: in none,
+// or the type has no Projects.
+WS.projectOf = path => {
+  let best = null;
+  for (const root of projectRoots || []) {
+    const top = root === '.' ? '' : root;
+    if ((top === '' || path === top || path.startsWith(top + '/')) && (best === null || top.length > best.top.length)) best = {top, project: projectsByDir.get(root)};
+  }
+  return best && best.project ? {...best.project, top: best.top} : null;
+};
+WS.projectOrder = () => (projectRoots || []).map(root => projectsByDir.get(root)?.name).filter(Boolean);
 // Inside a Project's source folders (src・include). A Project not telling its folders (an older ecobuild) is not checked.
 const inSources = path => {
   const root = (projectRoots || []).find(r => path === r || path.startsWith(r + '/')), project = projectsByDir.get(root);
@@ -124,20 +135,19 @@ generatedButton.addEventListener('click', () => {
   showGenerated = !showGenerated; showGeneratedState(); renderTree();
   try { localStorage.setItem('ecobuild-gui-show-generated', showGenerated ? '1' : '0'); } catch (e) { /* storage blocked */ }
 });
-// Update the solution (.sln) and the other generated files by hand (ecobuild check --no-build: they are made from
-// ecobuild.toml and the files; ecobuild does it after its own operations, this is for changes made elsewhere).
+// Update the solution (.sln) and the other generated files by hand (ecobuild project update: they are made from
+// ecobuild.toml and the files; ecobuild does it after its own operations, this is for changes made elsewhere — in an
+// editor, or inside the container: project update runs on this PC, for its Visual Studio).
 const slnButton = get('refresh-sln');
 ECO.moduleType(WS.dir).then(type => { slnButton.hidden = type !== 'cpp'; }).catch(() => {});
 WS.onRefresh(() => { slnButton.disabled = !editable(); slnButton.title = editable() ? 'ソリューション（.sln）と生成ファイルを今の構成で作り直す' : why('sln'); });
 slnButton.addEventListener('click', async () => {
   slnButton.disabled = true;
   try {
-    const doc = await WS.cli(['check', '--no-build'], {quiet: true});
-    if (!doc.ok) return ECO.showError(doc);
-    const item = (doc.result.items || []).find(i => i.name === 'generated');
-    if (item && !item.ok) return ECO.toast('SLN を更新できませんでした：' + item.detail, 'bad', 10000);
+    const doc = await WS.cli(['project', 'update'], {quiet: true});
+    if (!doc.ok) return ECO.toast('SLN を更新できませんでした：' + doc.error.message, 'bad', 10000);
     await WS.refresh(); await WS.reloadFiles();
-    ECO.toast('SLN（生成ファイル）を更新しました。' + (item?.detail ? '\n' + item.detail : ''), 'ok', 6000);
+    ECO.toast(doc.result.configured ? 'SLN（生成ファイル）を作り直しました。' : 'SLN は今のファイルのとおりです（作り直すものはありませんでした）。', 'ok', 6000);
   } finally { slnButton.disabled = !editable(); }
 });
 WS.selectInTree = path => { WS.activeFile = path; chosen.clear(); chosen.add('f:' + path); anchor = 'f:' + path; renderTree(); tree.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({block: 'nearest'}); };
@@ -202,7 +212,7 @@ async function removeChosen() {
   if (!dirs.length && !files.length) return;
   const projects = dirs.filter(d => projectsByDir.has(d));
   if (projects.length) return ECO.toast(`Projectのフォルダ（${projects.join('・')}）は、「モジュール」→「Project」の「削除」で削除します。`, 'info', 7000);
-  const tests = files.length && await typeHasFileTests();
+  const tests = (files.length || dirs.length) && await typeHasFileTests();
   const list = [...dirs.map(d => d + '/'), ...files];
   const v = await ECO.form({title: `${list.length} 件を削除`, intro: esc(list.join('\n')).replaceAll('\n', '<br>') + '<br>を削除します（フォルダは中身ごと）。',
     fields: tests ? [{name: 'test', label: `${sourceTests(restricted())}なら、対応するテストも削除する`, type: 'checkbox', value: true}] : [], ok: '削除', danger: true});
@@ -214,9 +224,8 @@ async function removeChosen() {
     }
     if (!doc.ok) return ECO.showError(doc);
   }
-  try { for (const dir of dirs) await ECO.call('remove-folder', {dir: WS.dir, path: dir}); }
+  try { for (const dir of dirs) await removeFolder(dir, !tests || v.test); }
   catch (error) { ECO.toast(error.message, 'bad', 8000); }
-  if (dirs.length && (await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
   chosen.clear();
   await WS.refresh(); await afterFileChange(true, `削除しました：${list.join('、')}`);
 }
@@ -623,13 +632,38 @@ function renameFolder(dir) {
     if (destination === dir) { cancel(); return; }
     box.dataset.busy = '1'; input.disabled = true;
     try {
-      await ECO.call('rename-folder', {dir: WS.dir, source: dir, destination});
-      if ((await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
+      await moveFolder(dir, destination);
       box.remove(); if (activeDirectory === dir) activeDirectory = destination;
       await WS.refresh(); await afterFileChange(true, `名前を変えました：${dir} → ${destination}`);
     } catch (err) { delete box.dataset.busy; input.disabled = false; error.textContent = err.message; input.focus(); }
   });
   input.focus(); input.select();
+}
+
+// A folder of a C++ Project goes through ecobuild (file move・remove: the tests in the same place of the test Project
+// follow, the #include lines that read the moved files are fixed, the solution is made again). Other folders (other
+// types, outside the source folders) the GUI moves itself; for C++ the solution follows (project update).
+const OUTSIDE_FILE_COMMANDS = ['not_supported', 'not_in_project', 'not_in_source_directory'];
+async function moveFolder(source, destination) {
+  const cpp = (await ECO.moduleType(WS.dir)) === 'cpp';
+  if (cpp) {
+    const doc = await WS.cli(['file', 'move', source, destination], {quiet: true});
+    if (doc.ok) return doc.result;
+    if (!OUTSIDE_FILE_COMMANDS.includes(doc.error?.code)) throw new Error(doc.error.message + (doc.error.hint ? '　' + doc.error.hint : ''));
+  }
+  await ECO.call('rename-folder', {dir: WS.dir, source, destination});
+  if (cpp) await WS.cli(['project', 'update'], {quiet: true});
+  return null;
+}
+async function removeFolder(path, withTest = true) {
+  const cpp = (await ECO.moduleType(WS.dir)) === 'cpp';
+  if (cpp) {
+    const doc = await WS.cli(['file', 'remove', path, ...(withTest ? [] : ['--no-test'])], {quiet: true});
+    if (doc.ok) return;
+    if (!OUTSIDE_FILE_COMMANDS.includes(doc.error?.code)) throw new Error(doc.error.message + (doc.error.hint ? '　' + doc.error.hint : ''));
+  }
+  await ECO.call('remove-folder', {dir: WS.dir, path});
+  if (cpp) await WS.cli(['project', 'update'], {quiet: true});
 }
 
 // Module types without file commands (generic): the GUI moves and removes the file itself, as it makes empty files.
@@ -721,7 +755,7 @@ async function moveItems({files, dirs}, dir) {
   const moved = [], failed = [];
   for (const source of dirs.filter(d => dirOf(d) !== dir)) {
     const destination = join(dir, source.split('/').pop());
-    try { await ECO.call('rename-folder', {dir: WS.dir, source, destination}); moved.push([source + '/', destination + '/']); if (activeDirectory === source) activeDirectory = destination; }
+    try { await moveFolder(source, destination); moved.push([source + '/', destination + '/']); if (activeDirectory === source) activeDirectory = destination; }
     catch (error) { failed.push(`${source}/：${error.message}`); }
   }
   for (const source of files.filter(p => dirOf(p) !== dir)) {
@@ -729,7 +763,6 @@ async function moveItems({files, dirs}, dir) {
     const doc = await withoutFileCommand(await WS.cli(['file', 'move', source, destination]), 'move-file', {source, destination});
     if (doc.ok) moved.push([source, destination]); else failed.push(`${source}：${doc.error.message}${doc.error.hint ? '　' + doc.error.hint : ''}`);
   }
-  if (moved.some(([s]) => s.endsWith('/')) && (await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});   // generated files follow
   // What was moved stays chosen, at its new place.
   chosen.clear();
   for (const [, destination] of moved) chosen.add(destination.endsWith('/') ? 'd:' + destination.slice(0, -1) : 'f:' + destination);
@@ -782,7 +815,7 @@ panel.addEventListener('drop', async e => {
     for (const entry of entries) await walk(entry, entry.name);
     if (!files.length) return;
     const {files: written} = await ECO.call('import-files', {dir: WS.dir, target, files});
-    if ((await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['check', '--no-build'], {quiet: true});
+    if ((await ECO.moduleType(WS.dir)) === 'cpp') await WS.cli(['project', 'update'], {quiet: true});
     ECO.toast(`${written.length} 個のファイルを ${target || '作業空間'} に置きました。`);
     await WS.refresh(); await WS.reloadFiles();
   } catch (error) { ECO.toast(error.message, 'bad', 8000); }

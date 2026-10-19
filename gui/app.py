@@ -551,6 +551,17 @@ def visual_studio_versions() -> list[str]:
     return [version for version in VISUAL_STUDIO if _visual_studio(version)]
 
 
+def update_solution(cli, directory: str) -> None:
+    """Visual Studio で開く前に、構成を今のファイルに合わせる（C++：ecobuild project update。コンテナの中やエディターで
+    足したファイルも見えるように。まだビルドしていなくても、ソリューションができる）。できなくても開くのは止めない。"""
+    if module_defaults(directory).get("type") != "cpp":
+        return
+    try:
+        cli.run(directory, ["project", "update"])
+    except GuiError:
+        pass
+
+
 def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     """ソリューションを選んだ版の Visual Studio で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
     ecobuild にこれを行うコマンドはないため、GUIが行う。"""
@@ -907,6 +918,7 @@ class App:
                 return {"done": "asked", "window": target["id"]}
             return open_path(p["dir"], p.get("path", ""), p.get("reveal", False))
         if name == "vs":
+            update_solution(self.cli, p["dir"])
             if p.get("path"):
                 return open_file_in_visual_studio(p["dir"], p["path"], p.get("version", "2026"))
             return open_in_visual_studio(p["dir"], p.get("version", "2026"))
@@ -1063,8 +1075,10 @@ class App:
         if name == "module-defaults":
             return module_defaults(d("dir"))
         if name == "open-vs":
+            update_solution(self.cli, d("dir"))
             return open_in_visual_studio(d("dir"), d("version") or "2026")
         if name == "open-file-vs":
+            update_solution(self.cli, d("dir"))
             return open_file_in_visual_studio(d("dir"), d("path"), d("version") or "2026")
         if name == "vs-versions":
             return visual_studio_versions()

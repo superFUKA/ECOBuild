@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from dataclasses import replace
 from importlib import metadata
 from pathlib import Path
@@ -25,6 +26,8 @@ from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, Dep
                               TestResult)
 
 from . import _cppbuild, _settings
+
+_INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILINE)   # #include "…"（<…> は直さない）
 
 
 # 名前付きビルド設定の、型 cpp の項目（[profiles.<名前>] の configuration・shared・parallel 以外）：
@@ -258,6 +261,13 @@ jobs:
             return False
         self._update()
         return True
+
+    def update_solution(self) -> dict:
+        """構成（Visual Studio のソリューション・プロジェクト等）を今のファイルに合わせる。ビルドはしない。file add 等と
+        同じビルドツリーで、ファイルが変わっていなければ CMake は動かない（約0.1秒）。コンテナの中やエディターで足した・
+        移したファイルを、このPCの Visual Studio に見せるのに使う。configured：作り直したか。"""
+        outcome = _cppbuild.update(self.root)
+        return {"configured": any(not p.output.startswith("CMake was not run") for p in outcome.processes)}
 
     def prepare(self) -> PrepareResult:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
@@ -531,27 +541,175 @@ jobs:
         return (Path.cwd() / path).resolve() if not Path(path).is_absolute() else Path(path).resolve()
 
     def remove_file(self, path: Path, *, test: bool) -> FilesChanged:
+        """ファイルかフォルダー（中身ごと）を削除する。ライブラリのヘッダー・ソースのテストも、ほかに対応する
+        ファイルが残らなければ削除する（ヘッダーとソースの組は、両方を消したときにテストを消す）。"""
         project, relative = self._in_project(path)
-        removed = [_cppbuild.remove_file(self.root, project, relative)]
-        mirror = self._test_mirror(project, relative)
+        if Path(relative) == Path("."):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{path} はProjectのフォルダーそのものです。",
+                                hint=f"Projectの削除は {self.module.op('project remove')} です。")
+        files = self._files_in(project, relative)
+        removals = [(project, f) for f in files]
         test_project = _cppbuild.test_project_of(project)
-        if test and mirror is not None and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
-            removed.append(_cppbuild.remove_file(self.root, test_project, mirror))
-        return FilesChanged("file remove", tuple(removed), project)
+        if test and self._has_test_project(project):
+            gone = set(files)
+            staying = [f for f in self._library_files(project) if f not in gone]
+            kept = {self._test_of(project, f) for f in staying}
+            tests = dict.fromkeys(t for f in files for t in [self._test_of(project, f)] if t and t not in kept)
+            removals += [(test_project, t) for t in tests if (_cppbuild.project_root(self.root, test_project) / t).is_file()]
+        removed = _cppbuild.remove_files(self.root, removals)
+        self._remove_empty_folders(project, relative)
+        return FilesChanged("file remove", removed, project)
 
     def move_file(self, source: Path, destination: Path, *, test: bool) -> FilesChanged:
+        """ファイルかフォルダー（中身ごと）を移動する。ライブラリのヘッダー・ソースのテストも同じ構成の場所へ移し
+        （フォルダーなら、テスト用Projectの同じ構成のフォルダーごと）、移したファイルを読み込む #include を直す。"""
         project, relative = self._in_project(source)
         other, target = self._in_project(destination)
         if other != project:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "別のProjectへは移動できません。",
                                 hint="移動先も同じProjectのディレクトリの中にしてください。")
         self._require_source_directory(destination, project, target)
-        moved = list(_cppbuild.move_file(self.root, project, relative, target))
-        mirror, mirror_target = self._test_mirror(project, relative), self._test_mirror(project, target)
+        root = _cppbuild.project_root(self.root, project)
+        folder = (root / relative).is_dir()
+        if folder and (Path(target) == Path(relative) or Path(relative) in Path(target).parents):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "フォルダーをその中へは移せません。")
+        if folder and (root / target).exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{destination} は既に存在します。")
+        if folder and not self._files_in(project, relative):   # 空のフォルダー：名前を変えるだけ
+            (root / target).parent.mkdir(parents=True, exist_ok=True)
+            (root / relative).rename(root / target)
+            return FilesChanged("file move", (), project)
+        pairs = {f: (Path(target) / Path(f).relative_to(relative)).as_posix() for f in self._files_in(project, relative)} \
+            if folder else {relative: target}
+        moves = [(project, old, new) for old, new in pairs.items()]
+        if test and self._has_test_project(project):
+            moves += self._test_moves(project, relative, target, pairs, folder)
+        moved = _cppbuild.move_files(self.root, moves)
+        if folder:
+            self._remove_empty_folders(project, relative)
+        edited = self._fix_includes({(_cppbuild.project_root(self.root, p) / old).resolve():
+                                     (_cppbuild.project_root(self.root, p) / new).resolve() for p, old, new in moves})
+        return FilesChanged("file move", moved, project, edited=tuple(edited))
+
+    def _test_moves(self, project: str, relative: str, target: str, pairs: dict[str, str],
+                    folder: bool) -> list[tuple[str, str, str]]:
+        """移すライブラリのファイルに合わせて移す、組のテスト用Projectのファイル（Project, 元, 先）。
+        フォルダー：テスト用Projectの同じ構成のフォルダーの中身ごと。ファイル：対応するテスト（移動先にまだないとき）。"""
         test_project = _cppbuild.test_project_of(project)
-        if test and mirror and mirror_target and (_cppbuild.project_root(self.root, test_project) / mirror).is_file():
-            moved += _cppbuild.move_file(self.root, test_project, mirror, mirror_target)
-        return FilesChanged("file move", tuple(moved), project)
+        test_root = _cppbuild.project_root(self.root, test_project)
+        moves = {}
+        if folder:
+            old, new = self._test_folder_of(project, relative), self._test_folder_of(project, target)
+            if old and new and (test_root / old).is_dir():
+                moves = {f: (Path(new) / Path(f).relative_to(old)).as_posix() for f in self._files_in(test_project, old)}
+        for source, destination in pairs.items():
+            for old, new in zip(self._tests_of(project, source), self._tests_of(project, destination)):
+                if old not in moves and (test_root / old).is_file() and not (test_root / new).exists() \
+                        and new not in moves.values():
+                    moves[old] = new
+        return [(test_project, old, new) for old, new in moves.items()]
+
+    def _inner(self, project: str, relative: str) -> Path | None:
+        """ライブラリのファイル・フォルダーの、テスト用Projectでの構成（include/<Project>/… と src/… の … の部分）。"""
+        parts = Path(relative).parts
+        if parts[:2] == ("include", project):
+            return Path(*parts[2:]) if len(parts) > 2 else None
+        if parts[:1] in (("src",), ("include",)):
+            return Path(*parts[1:]) if len(parts) > 1 else None
+        return None
+
+    def _test_of(self, project: str, relative: str) -> str | None:
+        """ライブラリのヘッダー・ソースのテスト（file test の既定の場所：テスト用Projectの src/…/<名前>Test.cpp）。"""
+        inner = self._inner(project, relative)
+        if inner is None or Path(relative).suffix.lower() not in (*_cppbuild.HEADER_SUFFIXES, *_cppbuild.SOURCE_SUFFIXES):
+            return None
+        return Path("src", inner).with_name(f"{inner.stem}Test.cpp").as_posix()
+
+    def _tests_of(self, project: str, relative: str) -> list[str]:
+        """対応するテストの候補（file add が作る場所と、file test の既定の場所。拡張子が違うときだけ2つ）。"""
+        found = [self._test_mirror(project, relative), self._test_of(project, relative)]
+        return list(dict.fromkeys(t for t in found if t))
+
+    def _test_folder_of(self, project: str, relative: str) -> str | None:
+        inner = self._inner(project, relative)
+        return Path("src", inner).as_posix() if inner is not None else None
+
+    def _files_in(self, project: str, relative: str) -> list[str]:
+        """ファイルならそれ、フォルダーなら中のファイルすべて（Projectからの相対）。"""
+        root = _cppbuild.project_root(self.root, project)
+        if not (root / relative).is_dir():
+            return [Path(relative).as_posix()]
+        return sorted(p.relative_to(root).as_posix() for p in (root / relative).rglob("*") if p.is_file())
+
+    def _library_files(self, project: str) -> list[str]:
+        """Projectのソースフォルダーの中のヘッダー・ソース（Projectからの相対）。"""
+        root = _cppbuild.project_root(self.root, project)
+        suffixes = (*_cppbuild.HEADER_SUFFIXES, *_cppbuild.SOURCE_SUFFIXES)
+        return [p.relative_to(root).as_posix() for directory in _cppbuild.source_directories(self.root, project)
+                if (root / directory).is_dir() for p in (root / directory).rglob("*")
+                if p.is_file() and p.suffix.lower() in suffixes]
+
+    def _remove_empty_folders(self, project: str, relative: str) -> None:
+        """移動・削除で空になったフォルダー（と、テスト用Projectの同じ構成のフォルダー）を消す。ソースフォルダーは残す。"""
+        places = [(project, relative)]
+        if self._has_test_project(project) and self._test_folder_of(project, relative):
+            places.append((_cppbuild.test_project_of(project), self._test_folder_of(project, relative)))
+        for name, place in places:
+            root = _cppbuild.project_root(self.root, name)
+            keep = {(root / d).resolve() for d in _cppbuild.source_directories(self.root, name)} | {root.resolve()}
+            folder = (root / place) if (root / place).is_dir() else (root / place).parent
+            while folder.is_dir() and folder.resolve() not in keep and not any(folder.iterdir()):
+                folder.rmdir()
+                folder = folder.parent
+
+    def _fix_includes(self, moved: dict[Path, Path]) -> list[str]:
+        """移したファイルを読み込む・移したファイルが読み込む #include "…" を、新しい場所に直す。直したファイル
+        （モジュールからの相対）を返す。読み込み先は、そのファイルの場所からの相対か、Projectの include/ からの相対。"""
+        if not moved:
+            return []
+        names = [p.name for p in self.projects()]
+        roots = [_cppbuild.project_root(self.root, n) for n in names]
+        include_dirs = [(r / "include").resolve() for r in roots if (r / "include").is_dir()]
+        places = [(r / d) for n, r in zip(names, roots) for d in _cppbuild.source_directories(self.root, n)
+                  if (r / d).is_dir()]
+        suffixes = (*_cppbuild.HEADER_SUFFIXES, *_cppbuild.SOURCE_SUFFIXES)
+        arrived = set(moved.values())
+        before = {new: old for old, new in moved.items()}
+
+        def existed(path: Path) -> bool:   # 移す前にあったか
+            return path in moved or (path.is_file() and path not in arrived)
+
+        def rewritten(file: Path, written: str) -> str | None:
+            """file の #include "written" の新しい書き方（変わらなければ None）。"""
+            old_place = before.get(file, file)
+            for base, local in [(old_place.parent, True)] + [(d, False) for d in include_dirs]:
+                found = Path(os.path.normpath(base / written))
+                if existed(found):
+                    break
+            else:
+                return None   # 読み込み先が分からない（ほかの場所のもの）
+            now = moved.get(found, found)
+            if not local:
+                if found not in moved:
+                    return None
+                home = next((d for d in include_dirs if now.is_relative_to(d)), None)
+                if home is not None:
+                    return now.relative_to(home).as_posix()
+            elif file == old_place and now == found:
+                return None
+            return Path(os.path.relpath(now, file.parent)).as_posix()
+
+        edited = []
+        files = dict.fromkeys(p.resolve() for place in places for p in place.rglob("*")
+                              if p.is_file() and p.suffix.lower() in suffixes)
+        for file in files:
+            text = file.read_bytes().decode("utf-8", errors="surrogateescape")
+            changed = _INCLUDE.sub(lambda m: (f'{m.group(1)}"{new}"' if (new := rewritten(file, m.group(2))) else m.group(0)),
+                                   text)
+            if changed != text:
+                file.write_bytes(changed.encode("utf-8", errors="surrogateescape"))
+                edited.append(file.relative_to(self.root.resolve()).as_posix())
+        return edited
 
     def _in_project(self, path: Path) -> tuple[str, str]:
         """パス（今いるディレクトリからの相対か絶対）から、Projectとその中の相対パスを決める（I-027）。"""

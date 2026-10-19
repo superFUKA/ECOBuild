@@ -60,6 +60,34 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     assert module.test().failed == 0
 
 
+def test_folder_move_takes_the_tests_and_fixes_includes(module):
+    """フォルダーを移すと、テスト用Projectの同じ構成のフォルダーも移り、移したファイルを読み込む #include が直る。
+    ヘッダーだけを移しても、テストがついてくる。消すときは、ほかに対応するファイルが残らないテストだけを消す。"""
+    root = module.root
+    module.add_files([root / "Geo/include/Geo/solid/Ball.h", root / "Geo/src/solid/Ball.cpp"])
+    write(root / "Geo/include/Geo/solid/Ball.h", "#pragma once\nnamespace geo { int ball(); }\n")
+    assert (root / "GeoTest/src/solid/BallTest.cpp").is_file()
+
+    moved = module.move_file(root / "Geo/include/Geo/solid", root / "Geo/include/Geo/body")
+    assert "GeoTest/src/body/BallTest.cpp" in moved.paths and not (root / "Geo/include/Geo/solid").exists()
+    assert '#include "Geo/body/Ball.h"' in (root / "GeoTest/src/body/BallTest.cpp").read_text(encoding="utf-8")
+    assert '#include "../../include/Geo/body/Ball.h"' in (root / "Geo/src/solid/Ball.cpp").read_text(encoding="utf-8")
+    assert "Geo/src/solid/Ball.cpp" in moved.edited   # #include を直したファイル
+    assert module.test().failed == 0
+
+    renamed = module.move_file(root / "Geo/include/Geo/body/Ball.h", root / "Geo/include/Geo/body/Sphere.h")
+    assert "GeoTest/src/body/SphereTest.cpp" in renamed.paths
+    assert '#include "Geo/body/Sphere.h"' in (root / "GeoTest/src/body/SphereTest.cpp").read_text(encoding="utf-8")
+    assert module.test().failed == 0
+
+    removed = module.remove_file(root / "Geo/include/Geo/body")
+    assert removed.paths == ("Geo/include/Geo/body/Sphere.h", "GeoTest/src/body/SphereTest.cpp")
+    assert not (root / "GeoTest/src/body").exists() and not (root / "Geo/include/Geo/body").exists()
+    module.remove_file(root / "Geo/src/solid")
+    assert not (root / "Geo/src/solid").exists()
+    assert module.test().failed == 0
+
+
 def test_file_test_makes_the_test_of_a_file(module):
     """file test：今あるヘッダー・ソースのテストを、組のテスト用Projectの同じ構成の場所に作る（場所は指定もできる）。"""
     root = module.root

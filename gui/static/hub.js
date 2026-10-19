@@ -20,7 +20,7 @@ function showHubPage(name) {
 }
 navigation.forEach(button => button.addEventListener('click', () => {
   const page = button.dataset.page;
-  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定・AI に頼むはハブだけのもの。
+  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定・オペレーターはハブだけのもの。
   if (page === 'settings' || page === 'operator') showHubPage(page);
   else ECO.action('open', page === 'help' ? {page: 'help'} : {}).catch(() => showHubPage(page));
 }));

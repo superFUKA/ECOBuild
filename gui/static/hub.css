@@ -184,7 +184,7 @@ main { padding: 22px 28px; }
 .module-list .module-type-head:first-child { margin-top: 0; }
 .module-type-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: #cdd5df; letter-spacing: .02em; }
 .module-type-head span { color: #84909e; font-size: 12px; }
-    /* AI に頼む（オペレーターとの会話） */
+    /* オペレーター（ECOBuild の操作係との会話） */
     #operator:not([hidden]) { display: flex; flex-direction: column; height: calc(100vh - 88px); }
     .operator-tools { display: flex; align-items: center; gap: 10px; }
     .operator-state { color: #a5aeba; font-size: 12px; }

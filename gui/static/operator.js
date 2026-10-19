@@ -1,5 +1,5 @@
 'use strict';
-// Hub「AI に頼む」: a conversation with the operator (the agent that operates ECOBuild with ecobuild commands; it writes
+// Hub「オペレーター」: a conversation with the operator (the agent that operates ECOBuild with ecobuild commands; it writes
 // no code). Two ways, by where the hub runs:
 // - In the Electron app: the operator stays running in the app (its terminal, hidden; tab 0 of the agents windows).
 //   Messages are typed into it; its replies come from its Stop hook. The conversation shown is the app's (the same in

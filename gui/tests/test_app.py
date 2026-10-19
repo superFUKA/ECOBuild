@@ -384,7 +384,7 @@ def test_commands_that_fetch_wait_for_the_others():
 
 
 def test_asking_the_operator_does_not_hold_the_others():
-    """AI に頼む（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
+    """オペレーター（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
     assert gui._unlocked(["agent", "ask", "--session", "s1"]) and not gui._read_only(["agent", "ask"])
     assert not gui._unlocked(["task", "start", "12"])
 

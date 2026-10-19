@@ -80,7 +80,6 @@ let operatorQueue = [];   // 起動を待っている間に頼まれた発言
 // オペレーターのモデル（簡単な操作が主なので、既定は速いもの。'' は Claude Code の既定）
 const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', ''];
 let operatorModel = 'sonnet';
-let reopenTabs = true;    // GUI を開き直したとき、前回のタブを会話の続きから開き直す
 let pickerWindow = null;  // タブの一覧（☰）を出している窓（リングで選ぶ）
 // アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）と、話し方（ECOBuild の設定。ここは表示と書き換えだけ）
 let icons = {operator: '', agent: ''};
@@ -132,13 +131,17 @@ function spawnSession(s, size) {
   });
 }
 
-function openSession({dir, agent = '', name = '', resume = false} = {}) {
+// title：名前を指定して開いた。会話（Claude Code）の名前もそれにする
+function openSession({dir, agent = '', name = '', title = false} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
-  const same = sessions.find(s => !s.exited && s.kind === 'workspace' && sameDir(s.dir, dir));
-  if (same) { focusTab(same.id); return describe(same); }   // 同じ作業空間のエージェントは1つ（前に出す）
-  const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: name || path.basename(dir), dir, kind: 'workspace',
-             agent: agent || (resume ? 'claude --continue' : ''), savedAgent: agent,
+  // 開くたびに新しいエージェント（同じ作業空間でも）。名前が重なれば「名前 (2)」のように番号を付ける
+  const base = name || path.basename(dir), taken = new Set(sessions.map(x => x.name));
+  let unique = base;
+  for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
+  const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
+             agent, savedAgent: agent,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
+  if (title && isClaude(s)) s.pendingTitle = s.name;   // 起動して待機中になったら /rename（poll）
   sessions.push(s);
   // 作業空間ごとの窓（タスクバーでは、その作業空間のモジュールの窓と一緒にまとまる）。なければ作る
   const w = windows.find(x => x.module && sameDir(x.module, dir) && !x.win.isDestroyed()) || openWindow({module: dir});
@@ -146,15 +149,7 @@ function openSession({dir, agent = '', name = '', resume = false} = {}) {
   spawnSession(s, w.size || {cols: 100, rows: 30});
   adopt(w, s);
   select(s.id, true);
-  saveTabs();
   return describe(s);
-}
-
-// 開いているタブ（作業空間のエージェント）を覚える：GUI を開き直したとき、会話の続きから開き直す（reopen）
-function saveTabs() {
-  if (app.isQuitting) return;   // 終わるときに閉じたものは忘れない
-  writeState({tabs: sessions.filter(s => s.kind === 'workspace' && !s.exited).sort((a, b) => a.num - b.num)
-    .map(s => ({dir: s.dir, name: s.name, agent: s.savedAgent || ''}))});
 }
 
 function closeSession(id) {
@@ -167,7 +162,6 @@ function closeSession(id) {
   if (s.owner) leave(s.owner, s);
   dropCards(c => c.id === id);
   pushTabs();
-  saveTabs();
 }
 
 function restartSession(id, agent) {
@@ -182,7 +176,7 @@ function restartSession(id, agent) {
 
 function renameSession(id, name) {
   const s = findSession(id); if (!s || !name.trim()) return;
-  s.name = name.trim(); pushTabs(); saveTabs();
+  s.name = name.trim(); pushTabs();
   // Claude Code の会話の名前もそろえる（続きから再開の一覧にその名前で出る）。書きかけ・考え中に混ざらないよう、
   // 待機中で入力欄が空になってから /rename を送る（poll）
   if (isClaude(s)) s.pendingTitle = s.name;
@@ -736,10 +730,8 @@ function setup({ecobuild, python, group}) {
   if (OPERATOR_MODELS.includes(saved.operatorModel)) operatorModel = saved.operatorModel;
   if (saved.icons) icons = {operator: String(saved.icons.operator || ''), agent: String(saved.icons.agent || '')};
   loadStyles();
-  reopenTabs = saved.reopen !== false;
-  if (reopenTabs && Array.isArray(saved.tabs) && saved.tabs.length) {
-    setTimeout(() => { for (const t of saved.tabs) if (t?.dir) try { openSession({dir: t.dir, name: t.name, agent: t.agent || '', resume: true}); } catch (e) { /* もうない */ } }, 1500);
-  }
+  // 前回のタブは開き直さない（モジュールの画面も開き直さないので、そろえる）。前の版が覚えたものは消す
+  if ('tabs' in saved || 'reopen' in saved) writeState({tabs: undefined, reopen: undefined});
   ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};
   for (const key of ['actions', 'operator_actions', 'choice_actions']) ringConfig[key] = {...RING_DEFAULTS[key], ...(saved.ring?.[key] || {})};
   ring.setup({python: python || (() => 'python'), onGesture: (g, m) => onGesture(g, m).catch(() => {}), onStatus: pushRing});
@@ -833,7 +825,6 @@ function setup({ecobuild, python, group}) {
   ipcMain.on('agents:picker-open', (event, open) => { const w = windowOf(event); pickerWindow = open ? w : (pickerWindow === w ? null : pickerWindow); });
   ipcMain.on('agents:prefs', (event, patch) => {
     if (patch && OPERATOR_MODELS.includes(patch.operatorModel)) { operatorModel = patch.operatorModel; writeState({operatorModel}); }
-    if (patch && typeof patch.reopen === 'boolean') { reopenTabs = patch.reopen; writeState({reopen: reopenTabs}); }
     pushPrefs();
   });
   ipcMain.handle('agents:icon-pick', async (event, kind) => {
@@ -887,7 +878,7 @@ module.exports = {setup, connect, openSession, input, operatorSend, screenOf, se
 
 // ---- アイコン・話し方 ----------------------------------------------------------------------------------
 function prefsView() {
-  return {operatorModel, operatorModels: OPERATOR_MODELS, reopen: reopenTabs, icons, styles};
+  return {operatorModel, operatorModels: OPERATOR_MODELS, icons, styles};
 }
 function pushPrefs() { for (const w of windows) send(w, 'agents:prefs', prefsView()); }
 

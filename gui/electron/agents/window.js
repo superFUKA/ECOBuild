@@ -360,7 +360,7 @@ function modelMenu(info, x, y) {
   menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.max(8, y - menu.offsetHeight - 8) + 'px';
 }
 
-// ⚙ の「エージェント」：オペレーターのモデル・前回のタブを開き直すか
+// ⚙ の「エージェント」：オペレーターのモデル
 let prefs = null;
 const NO_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><circle cx="28" cy="28" r="27" fill="#2b303a"/><circle cx="28" cy="22" r="9" fill="#7b808c"/><path d="M11 46c3-9 10-13 17-13s14 4 17 13" fill="#7b808c"/></svg>');
 agents.onPrefs(next => {
@@ -373,10 +373,9 @@ agents.onPrefs(next => {
   }
   const select = $('operator-model'); select.replaceChildren();
   for (const m of prefs.operatorModels) { const o = document.createElement('option'); o.value = m; o.textContent = m || 'Claude Code の既定'; select.append(o); }
-  select.value = prefs.operatorModel; $('reopen-tabs').checked = !!prefs.reopen;
+  select.value = prefs.operatorModel;
 });
 $('operator-model').addEventListener('change', () => agents.setPrefs({operatorModel: $('operator-model').value}));
-$('reopen-tabs').addEventListener('change', () => agents.setPrefs({reopen: $('reopen-tabs').checked}));
 
 for (const who of document.querySelectorAll('.persona .who')) {
   const kind = who.dataset.kind, area = who.querySelector('textarea'), saved = who.querySelector('.saved');

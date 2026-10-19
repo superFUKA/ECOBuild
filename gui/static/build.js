@@ -207,13 +207,22 @@ WS.onRefresh(renderPrDetail);
   };
   // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start
   // --here: the container is made ready there, the progress shows in the tab). Elsewhere a new console window.
-  async function startAgent(command = agentCommand()) {
+  // Each press opens a new agent. Its name is asked first (empty: the workspace's name and the task); a name given
+  // also becomes the conversation's name (Claude Code's /rename), so it shows by that name in the list to resume.
+  const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
+  const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
+  const nameField = () => ({name: 'name', label: '名前（空欄なら既定の名前。入れた名前は会話の名前にもなります）', value: '', placeholder: defaultAgentName()});
+  async function startAgent(command = agentCommand(), typed) {
     // The workspace is a frame of the module window: the Electron bridge is on the top window.
-    const shell = (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
+    const shell = agentShell();
     if (shell) {
-      const task = WS.status?.task;
-      const name = (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (task ? ` #${task}` : '');
-      try { await shell.open({dir: WS.dir, agent: command, name}); say(`エージェントの窓で開きました：${name}`); }
+      if (typed === undefined) {
+        const v = await ECO.form({title: 'エージェントを起動', fields: [{...nameField(), focus: true}], ok: '起動'});
+        if (!v) return;   // cancelled
+        typed = v.name.trim();
+      }
+      const name = typed || defaultAgentName();
+      try { const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed}); say(`エージェントの窓で開きました：${tab?.name || name}`); }
       catch (e) { ECO.toast(e.message, 'bad'); }
       return;
     }
@@ -248,8 +257,9 @@ WS.onRefresh(renderPrDetail);
       ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
         'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
       ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
-        {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true}], ok: ready ? '起動' : '保存',
-        submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim()); }})],
+        {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true},
+        ...(ready && agentShell() ? [nameField()] : [])], ok: ready ? '起動' : '保存',
+        submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim(), (v.name || '').trim()); }})],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
     ], r.right - 240, r.bottom + 4);

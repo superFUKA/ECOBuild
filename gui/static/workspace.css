@@ -16,7 +16,11 @@
 .change-group:first-child { margin-top: 2px; }
 .change-group small { margin-left: auto; color: #8b95a3; font-weight: 400; }
 .change-group-kind { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a313b; color: #9fb0c3; font-size: 11px; font-weight: 400; }
-.change-group + .change, .change-group ~ .change { padding-left: 14px; }
+/* Folders inside a group (as in the explorer): the indent is set per row (its depth). */
+.change-folder { display: flex; align-items: center; gap: 8px; padding: 3px 0 1px; font-size: 12px; color: #aab4c1; }
+.change-folder > span { display: inline-flex; align-items: center; gap: 5px; }
+.change-folder-icon { display: inline-flex; color: #c9a86a; }
+.change-folder small { margin-left: auto; color: #6f7986; font-size: 11px; }
 .change .kind { margin-left: auto; color: #efc389; white-space: nowrap; font-size: 11px; }
 .change .kind.staged { color: #8fb7ef; } .change .kind.untracked { color: #9fe0a8; } .change .kind.conflicted { color: #ff8f8f; } .change .kind.deleted { color: #f3a5a5; }
 .select-all { font-size: 12px; color: #a5aeba; display: flex; gap: 6px; align-items: center; }

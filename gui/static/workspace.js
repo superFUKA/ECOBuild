@@ -149,10 +149,23 @@ function renderChanges() {
   const order = WS.projectOrder?.() || [];
   const keys = [...groups.keys()].sort((a, b) => (a === '' ? 1e9 : order.indexOf(a)) - (b === '' ? 1e9 : order.indexOf(b)));
   const grouped = keys.length > 1 || (keys.length === 1 && keys[0] !== '');
+  // Inside a group, as in the explorer: a folder's heading (a check there takes the files under it), then its folders,
+  // then its files (the name only), each level indented.
   for (const key of keys) {
-    const {project, rows} = groups.get(key);
+    const {project, rows} = groups.get(key), top = grouped && project?.top ? project.top + '/' : '', base = grouped ? 1 : 0;
     if (grouped) list.append(changeGroup(project, rows.map(([path]) => path)));
-    for (const [path, kinds] of rows) list.append(changeRow(path, kinds, grouped && project?.top ? path.slice(project.top.length + 1) : path));
+    const shown = rows.map(([path, kinds]) => [path, kinds, path.slice(top.length)]).sort((a, b) => explorerOrder(a[2], b[2]));
+    let open = [];
+    for (const [path, kinds, rel] of shown) {
+      const dirs = rel.split('/').slice(0, -1);
+      let same = 0; while (same < open.length && same < dirs.length && open[same] === dirs[same]) same++;
+      for (let i = same; i < dirs.length; i++) {
+        const folder = dirs.slice(0, i + 1).join('/');
+        list.append(changeFolder(top + folder, dirs[i], shown.filter(([, , r]) => r.startsWith(folder + '/')).map(([p]) => p), base + i));
+      }
+      open = dirs;
+      list.append(changeRow(path, kinds, rel.split('/').pop(), base + dirs.length));
+    }
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
   list.scrollTop = scroll;
@@ -177,10 +190,37 @@ function changeGroup(project, paths) {
   return head;
 }
 
-function changeRow(path, kinds, shown) {
+// The explorer's order: at each level the folders (by name) before the files (by name).
+function explorerOrder(a, b) {
+  const x = a.split('/'), y = b.split('/');
+  for (let i = 0; ; i++) {
+    const xFile = i === x.length - 1, yFile = i === y.length - 1;
+    if (xFile !== yFile) return xFile ? 1 : -1;
+    const c = x[i].localeCompare(y[i]);
+    if (c || xFile) return c;
+  }
+}
+
+function changeFolder(dir, shown, paths, depth) {
+  const head = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), count = document.createElement('small');
+  head.className = 'change-folder'; head.style.paddingLeft = depth * 14 + 'px';
+  box.type = 'checkbox';
+  const chosen = paths.filter(p => WS.selected.has(p)).length;
+  box.checked = chosen === paths.length; box.indeterminate = chosen > 0 && chosen < paths.length;
+  box.addEventListener('change', () => { for (const p of paths) { if (box.checked) WS.selected.add(p); else WS.selected.delete(p); } renderChanges(); });
+  name.innerHTML = `<span class="change-folder-icon" aria-hidden="true">${CHANGE_FOLDER_ICON}</span>`;
+  name.append(shown);
+  count.textContent = `${paths.length}件`;
+  head.title = `${dir}／チェックでこのフォルダ以下の変更をすべて選ぶ`;
+  head.append(box, name, count);
+  return head;
+}
+const CHANGE_FOLDER_ICON = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 3.5h4.2l1.5 1.5h7.3v8.5h-13z" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-linejoin="round"/></svg>';
+
+function changeRow(path, kinds, shown, depth = 0) {
   const label = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), kind = document.createElement('small');
   const deleted = WS.files && WS.files.missing.includes(path);
-  label.className = 'change' + (WS.activeFile === path ? ' focused' : ''); label.dataset.path = path;
+  label.className = 'change' + (WS.activeFile === path ? ' focused' : ''); label.dataset.path = path; label.style.paddingLeft = depth * 14 + 'px';
   box.type = 'checkbox'; box.checked = WS.selected.has(path);
   box.addEventListener('change', () => { if (box.checked) WS.selected.add(path); else WS.selected.delete(path); renderChanges(); });
   name.textContent = shown; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = (shown !== path ? path + '\n' : '') + 'ダブルクリックで差分';

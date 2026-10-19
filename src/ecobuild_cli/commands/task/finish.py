@@ -1,5 +1,7 @@
 from typing import Annotated
 
+from ecobuild.errors import EcoBuildError, ErrorCode
+
 from ..._output import lines, optional_argument, run_command
 from ..workspace.close import leave, render_closed
 
@@ -31,25 +33,29 @@ def command(
     wait: Annotated[bool, "CIの結果を待つ（待たない場合、実行中なら止まります）"] = True,
     ignore_checks: Annotated[bool, "CIが失敗していても完了する（待たない）"] = False,
     subject: Annotated[str, "取り込むコミットの件名（既定はタスクの題名）"] = "",
-    partial: Annotated[bool, "取り込んでもタスクを閉じず、タスクブランチを作り直して続ける（中間の取り込み）"] = False,
+    partial: Annotated[bool, "取り込んでもタスクを閉じず、タスクブランチを作り直して続ける（中間の取り込み。提出を中間提出に切り替える）"] = False,
+    complete: Annotated[bool, "取り込んでタスクを閉じる（中間提出も最後の提出に切り替える）"] = False,
     timeout: Annotated[int, "CIを待つ時間の上限（秒）"] = 1800,
     close_workspace: Annotated[bool, "完了したら、この作業空間を閉じる（場所ごと削除する。GitHubにないものがあれば閉じない）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチを片付けます。
 
-    提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。中間提出として出した提出も、完了ならタスクを
-    閉じます。--partial なら、取り込んだ後にタスクブランチを作り直して続けます（閉じない）。途中で止まったら、もう一度
+    提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。閉じるかどうかは提出のとおり（task submit
+    --partial の中間提出なら、取り込んだ後にタスクブランチを作り直して続ける）で、--complete／--partial で変えられます。
+    中間提出が取り込まれた後、新しい変更がなければ、取り込むものなしでタスクを閉じます。途中で止まったら、もう一度
     実行すると続きから行います。
     """
     task = optional_argument(number, task, "--task", json)
 
     def action(inv):
+        if partial and complete:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--partial と --complete は一緒に使えません。")
         if wait and not ignore_checks:
             inv.info("CIの結果を待ってから完了します（ワークフローがあれば）…")
         if close_workspace:
             leave(inv.module.root)
         return inv.module.finish(task or None, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
-                                 partial=partial, timeout=timeout, close_workspace=close_workspace)
+                                 partial=True if partial else False if complete else None, timeout=timeout, close_workspace=close_workspace)
 
     return run_command("task finish", action, render_finish, json_output=json)

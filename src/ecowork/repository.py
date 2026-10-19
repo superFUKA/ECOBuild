@@ -486,7 +486,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
             self.git.set_upstream(name)
         self.hooks.after_switch(self)
 
-    def _submit_task_branch(self, task_branch: wm.TaskBranch, *, title: str | None, partial: bool,
+    def _submit_task_branch(self, task_branch: wm.TaskBranch, *, title: str | None, partial: bool | None,
                           draft: bool = False, reviewers: tuple[str, ...] = ()) -> wm.PullRequest:
         self.hooks.before_submit(self)
         self.git.fetch()
@@ -500,9 +500,14 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         opened = [p for p in self.github.pull_requests_for_branch(self.root, task_branch.branch) if p.state == "open"]
         if not opened:
             return self._create_submission(task_branch.number, task_branch.branch, task_branch.base, title=title,
-                                           partial=partial, draft=draft, reviewers=reviewers)
-        # 提出済み：pushしたコミットがそのまま加わる（差し戻しの後の出し直し等）。下書き・題名・レビュアーを合わせる
+                                           partial=bool(partial), draft=draft, reviewers=reviewers)
+        # 提出済み：pushしたコミットがそのまま加わる（差し戻しの後の出し直し等）。下書き・題名・レビュアー・
+        # 中間提出か（partial が None ならそのまま）を合わせる
         latest = max(opened, key=lambda p: p.number)
+        if partial is not None and wm.PullRequest._from(self, latest).partial != partial:
+            body = self.github.get_pull_request(self.root, latest.number).body
+            self.github.edit_pull_request(self.root, latest.number,
+                                          body=wm.with_link_kind(body, task_branch.number, partial=partial))
         if latest.draft != draft:
             self.github.set_pull_request_draft(self.root, latest.number, draft)
         if (title and title != latest.title) or reviewers:

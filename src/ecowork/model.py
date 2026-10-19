@@ -247,10 +247,11 @@ class TaskBranch:
             repo.push(self.branch, set_upstream=tree.upstream is None, force=force)
         return PushResult(self.branch, f"origin/{self.branch}", commits, pushed=not dry_run)
 
-    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False,
+    def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
                reviewers: tuple[str, ...] = ()) -> "PullRequest":
         """提出する（push して作成元へのPRを作る）。提出済みなら送り直し、draft に合わせて下書きを付け外しし、
-        title・reviewers を変える。"""
+        title・reviewers を変える。partial：取り込まれてもタスクを閉じない（中間提出。本文の Refs／Closes）。
+        None なら、新しい提出は閉じる、提出済みならそのまま。"""
         return self._repository._submit_task_branch(self, title=title, partial=partial, draft=draft,
                                                   reviewers=reviewers)
 

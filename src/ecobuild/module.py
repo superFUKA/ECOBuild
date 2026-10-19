@@ -518,7 +518,7 @@ class Module:
 
     # 提出と完了（番号はタスクの番号） -------------------------------------------------------
 
-    def submit(self, *, title: str | None = None, partial: bool = False, draft: bool = False,
+    def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
                reviewers: tuple[str, ...] = (), check: bool = True,
                progress: Callable[[str], None] | None = None) -> wm.PullRequest:
         """タスクブランチを提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。

@@ -121,7 +121,7 @@
     const sub = t.pull_request, isOpen = open(sub), own = mine(t), draft = isOpen && sub.draft, reviewing = reviewingPlace(t.number);
     box.innerHTML = ECO.submissionDetail(t, {own});
     // Left: looking at it (small). Right: what can be done with it — someone else's is checked, approved or sent back;
-    // one's own is finished or withdrawn (submitting and making a draft ready are done in its workspace).
+    // one's own is taken in or withdrawn (submitting and making a draft ready are done in its workspace).
     const tools = document.createElement('div'), look = document.createElement('div'), act = document.createElement('div');
     tools.className = 'br-tools'; look.className = 'pr-look'; act.className = 'pr-act';
     const b = ECO.submissionButton;
@@ -129,9 +129,9 @@
     if (reviewing) act.append(b('review-done', '判定せずに戻る'));
     if (isOpen && !own) {
       if (!reviewing) act.append(b('local-review', '手元で確認'));
-      act.append(b('reject', '差し戻す'), b('approve', '承認して完了', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
+      act.append(b('reject', '差し戻す'), b('approve', '承認して取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
     } else if (isOpen) {
-      act.append(b('withdraw', '取り下げ', {kind: 'quiet-danger'}), b('finish', '完了', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は完了できません。タスクブランチの作業空間で下書きを解除します' : ''}));
+      act.append(b('withdraw', '取り下げ', {kind: 'quiet-danger'}), b('finish', '取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : ''}));
     }
     tools.append(look, act); box.append(tools);
   }
@@ -155,19 +155,19 @@
       case 'approve': case 'reject': {
         const approve = action === 'approve';
         const v = await ECO.form(approve
-          ? {title: `承認して完了：#${n}`, intro: '提出を承認し、そのまま完了します（CIを待って取り込み、タスクを閉じます）。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+          ? {title: `承認して取り込む：#${n}`, intro: '提出を承認し、CIを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
           : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
         if (!v) return;
         const place = reviewingPlace(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? `#${n} を承認して完了しました。` : `#${n} を差し戻しました。`});
+        const doc = await ECO.run(place, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
         if (doc) MOD.reloadPlace(place);
         return after(doc);
       }
       case 'finish': {
-        const options = await ECO.finishForm({number: n, submitted: t.pull_request?.state === 'open', base: t.base, partial: !!t.pull_request?.partial});
+        const options = await ECO.finishForm({number: n, base: t.base, partial: !!t.pull_request?.partial});
         if (!options) return;
         const place = MOD.placeOfTask(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
+        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`});
         if (doc) MOD.reloadPlace(place);
         return after(doc);
       }

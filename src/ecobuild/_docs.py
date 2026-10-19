@@ -90,8 +90,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 2. 編集する。{add_file}
 3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
-5. `ecobuild task submit`（確認 → 提出。見る人の承認で取り込んでも続けるなら `--partial`）
-6. `ecobuild task finish`（CIを待って取り込み、タスクを閉じ、タスクブランチを片付けます。閉じずに続けるなら `--partial`）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
+5. `ecobuild task submit`（確認 → 提出。取り込まれたらタスクを閉じます。取り込まれても閉じずに続けるなら `--partial`＝中間提出）
+6. `ecobuild task finish`（CIを待って取り込み、提出のとおりタスクを閉じてタスクブランチを片付けるか、作り直して続けます。提出と違う形にするなら `--complete`／`--partial`。中間提出の後で変更がなければ、そのまま閉じます）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
 
 ## 守ること
 

@@ -102,7 +102,7 @@ function renderBanners(errorDoc) {
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
-    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して完了</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
+    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
     else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチから切り替え、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
@@ -277,7 +277,7 @@ get('commit').addEventListener('click', async () => {
   }
 });
 // After a Push the task is in 提出 (submit or finish it there).
-get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。提出・完了は「提出」で。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
+get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。提出は「提出」で。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
 
 // The commits Push sends (task push --dry-run: local and quick), listed under 「共有」 while there are any.
 // 閉じる folds the list (kept on this PC); 「一覧」 next to the count opens it again.

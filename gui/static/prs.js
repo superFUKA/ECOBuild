@@ -51,12 +51,13 @@ function renderPrDetail() {
   look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
   if (reviewing) {
     act.append(prButton('review-done', '判定せずに戻る'));
-    if (open) act.append(prButton('reject', '差し戻す'), prButton('approve', '承認して完了', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
+    if (open) act.append(prButton('reject', '差し戻す'), prButton('approve', '承認して取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
   } else {
+    // Only submitting here: whether the task is closed when it is taken in is chosen in the dialog. Taking it in is
+    // the reviewer's (or the module's ブランチ・task management), and completing a task is in task management.
     if (open) act.append(prButton('withdraw', '取り下げ', {kind: 'quiet-danger'}));
-    if (!open) act.append(prButton('submit', '提出', {kind: 'primary'}));
     if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
-    act.append(prButton('finish', '完了', {enabled: !draft, kind: open && !draft ? 'primary' : '', note: draft ? '下書きの提出は完了できません。先に下書きを解除します' : ''}));
+    act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
   }
   head.append(title, act); metaRow.append(meta, look); tools.append(head, metaRow);
   const note = !reviewing && s.ahead ? `<p class="pr-note">未Pushのコミット ${s.ahead}件：${open ? 'Pushすると提出に加わります' : '提出するとPushします'}。</p>` : '';
@@ -64,32 +65,37 @@ function renderPrDetail() {
   get('pr-detail').innerHTML = note + entries;
 }
 
-// Approve (and finish) or reject. Also used from the banner while reviewing a submission here.
+// Approve (and take in) or reject. Also used from the banner while reviewing a submission here.
 WS.judge = async (approve, number) => {
   if (!number) return;
   const v = await ECO.form(approve
-    ? {title: `承認して完了：#${number}`, intro: '提出を承認して完了します（CIが終わるのを待って取り込み、タスクを閉じます）。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+    ? {title: `承認して取り込む：#${number}`, intro: '提出を承認して、CIが終わるのを待って取り込みます。タスクは提出のとおり、閉じるか続けます。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
     : {title: `差し戻す：#${number}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
   if (!v) return;
   const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
-    {success: approve ? `#${number} を承認して完了しました。` : `#${number} を差し戻しました。`});
+    {success: approve ? r => `#${number} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${number} を差し戻しました。`});
   if (doc) { WS.reloadFiles?.(); await WS.refreshPrs(); }
 };
 
-// Submitting the task branch here (task submit), or making its draft submission ready.
-function submitDialog(t) {
-  if (t.pull_request?.state === 'open') return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs());
+// Submitting the task branch here (task submit): a new submission, or again (the commits pushed, whether the task is
+// closed when it is taken in, draft or not). 下書きを解除 makes a draft ready without asking.
+function submitDialog(t, ready = false) {
+  const sub = t.pull_request, submitted = sub?.state === 'open';
+  if (ready) return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs());
+  const complete = submitted ? !sub.partial : true;
   return ECO.form({
-    title: `提出：#${t.number}`, intro: ECO.submitOutcome(t.base) + ECO.submissionCommits(t.commits),
+    title: `提出：#${t.number}`, intro: ECO.submitOutcome(t.base, {submitted, complete}) + ECO.submissionCommits(t.commits),
     fields: [
+      {name: 'complete', label: '取り込まれたらタスクを完了する（外すと、取り込まれても閉じずに続ける）', type: 'checkbox', value: complete},
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
-      {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox'},
+      {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox', value: submitted && sub.draft},
       {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
       {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
     ], ok: '提出',
+    onChange: (values, formEl) => ECO.setTaskOutcome(formEl, values.complete),
     submit: async v => {
-      const args = ['task', 'submit', ...(v.title && v.title !== t.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.reviewer ? ['--reviewer', v.reviewer] : []), ...(v.check ? [] : ['--no-check'])];
-      const doc = await WS.run(args, {success: r => `${r.partial ? '中間提出' : '提出'}しました。`});
+      const args = ['task', 'submit', v.complete ? '--complete' : '--partial', ...(v.title && v.title !== t.title ? ['--title', v.title] : []), ...(v.draft ? ['--draft'] : []), ...(v.reviewer ? ['--reviewer', v.reviewer] : []), ...(v.check ? [] : ['--no-check'])];
+      const doc = await WS.run(args, {success: r => `${r.partial ? '中間提出' : '提出'}しました（取り込まれたら${r.partial ? '閉じずに続けます' : 'タスクを完了します'}）。`});
       if (!doc) return '提出できませんでした。';
       await WS.refreshPrs();
     },
@@ -106,13 +112,8 @@ async function prAction(action) {
       submit: async v => { const doc = await WS.run(['task', 'comment', n, '--message', v.message], {success: 'コメントしました。', refresh: false}); if (!doc) return 'コメントできませんでした。'; await after(doc); }});
     case 'approve': return WS.judge(true, t.number);
     case 'reject': return WS.judge(false, t.number);
-    case 'submit': case 'ready': return submitDialog(t);
-    case 'finish': {
-      const options = await ECO.finishForm({number: n, submitted: t.pull_request?.state === 'open', base: t.base});
-      if (!options) return;
-      const doc = await WS.run(['task', 'finish', n, ...options], {success: r => r.partial ? '中間提出を取り込みました。' : `#${n} を完了しました。`});
-      await after(doc); if (doc) WS.reloadFiles?.(); return;
-    }
+    case 'submit': return submitDialog(t);
+    case 'ready': return submitDialog(t, true);
     case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。`, title: '提出を取り下げる', refresh: false}));
     case 'local-review': {   // 判定せずに戻る (the button for review-done)
       const doc = await WS.run(['task', 'review', '--done'], {success: '確認を終えて戻りました。'});

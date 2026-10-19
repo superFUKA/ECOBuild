@@ -341,7 +341,7 @@
     <div class="tk-d-head"><span class="tk-num">#${n}</span>${stageBadge(view)}${close}</div>
     <h3 class="tk-d-title">${esc(d.title)}</h3>
     <div class="tk-d-actions">${primary}${open ? (hasWorkspace || d.remote
-        ? '<button type="button" class="tk-unavailable" disabled title="タスクブランチがあるので、作業空間の「完了する」で完了します（作業をやめるなら ⋯ の「作業を捨てる」）">完了にする</button>'
+        ? '<button type="button" data-tk="complete" title="タスクを完了にします。出している提出・まだ取り込んでいない変更があれば取り込んでから閉じ、タスクブランチを片付けます（作業をやめるなら ⋯ の「作業を捨てる」）">完了にする</button>'
         : '<button type="button" data-tk="complete" title="タスクを完了にします（コードを変えないタスクなど）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
         ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
@@ -388,8 +388,8 @@
   function submissionButtons(n, pr, hasWorkspace) {
     const submitted = pr?.state === 'open', mine = st.details.get(n)?.assignees?.includes(me());
     const buttons = [];
-    if (submitted) buttons.push(['diff', '差分'], ...(pr.draft ? [] : [['finish', '完了する', 'primary']]), ...(mine ? [] : [['review', '手元で確認'], ['approve', '承認して完了'], ['reject', '差し戻す']]));
-    else if (hasWorkspace) buttons.push(['finish', '完了する', 'primary'], ['diff', '差分']);
+    if (submitted) buttons.push(['diff', '差分'], ...(pr.draft ? [] : [['finish', '取り込む', 'primary']]), ...(mine ? [] : [['review', '手元で確認'], ['approve', '承認して取り込む'], ['reject', '差し戻す']]));
+    else if (hasWorkspace) buttons.push(['diff', '差分']);
     return buttons.length ? `<div class="tk-d-actions">${buttons.map(([a, l, c]) => `<button type="button" ${c ? `class="${c}"` : ''} data-tk="${a}">${l}</button>`).join('')}</div>` : '';
   }
   const submissionPill = state => state ? `<span class="tk-pill">${state.draft ? '下書き' : state.partial ? '中間提出' : '提出中'}</span>` : '';
@@ -565,11 +565,20 @@
     const who = v ? [...new Set([...v.who, ...ECO.commaList(v.other)])] : [];
     if (who.length) editList(n, '--add-assignee', who.join(','), '担当者を追加しました。');
   }
-  // 完了にする: a task without a task branch (one with a task branch is completed by 完了する in its workspace, which takes
-  // the work in). 削除: closed as "not planned" (task close --not-planned); its task branch, if any, is thrown away.
+  // 完了にする: a task without a task branch is just closed; one with a task branch is finished (task finish --complete:
+  // what is not taken in yet is taken in, then it is closed and the task branch cleaned up). 削除: closed as
+  // "not planned" (task close --not-planned); its task branch, if any, is thrown away.
   const hasTaskBranch = n => { const d = st.details.get(n), t = byNumber(n); return !!(MOD.placeOfTask(n) || d?.task_branch || d?.remote || t?.task_branch || t?.remote); };
   async function completeDialog(n) {
-    if (hasTaskBranch(n)) return ECO.toast('タスクブランチがあるタスクは、作業空間の「完了する」で作業を取り込んで完了します。', 'info', 6000);
+    if (hasTaskBranch(n)) {
+      const d = st.details.get(n) || {}, options = await ECO.completeForm({number: n, submitted: d.pull_request?.state === 'open', base: d.base});
+      if (!options) return;
+      const place = placeFor(n);
+      const doc = await run(['task', 'finish', String(n), ...options],
+        {dir: place, success: r => `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+      if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
+      return;
+    }
     const t = byNumber(n) || st.details.get(n) || {};
     if (!await ECO.confirm({title: `#${n} を完了にする`, message: `${t.title || ''}\nを完了にします。`, ok: '完了にする'})) return;
     if (await run(['task', 'close', String(n)], {success: `#${n} を完了にしました。`})) reloadAfter(n);
@@ -611,14 +620,14 @@
     }
     reloadAfter();
   }
-  // Submission and finishing (task submit／finish／approve／reject／withdraw). Numbers are task numbers.
+  // Submissions (task finish／approve／reject／withdraw): 取り込む takes an open submission in. Numbers are task numbers.
   async function finishDialog(n) {
     const d = st.details.get(n) || {};
-    const options = await ECO.finishForm({number: n, submitted: d.pull_request?.state === 'open', base: d.base});
+    const options = await ECO.finishForm({number: n, base: d.base, partial: !!d.pull_request?.partial});
     if (!options) return;
     const place = placeFor(n);
     const doc = await run(['task', 'finish', String(n), ...options],
-      {dir: place, success: r => r.partial ? '中間提出を取り込み、タスクブランチを作り直しました。' : `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+      {dir: place, success: r => r.partial ? `#${n} を取り込み、タスクブランチを作り直しました（タスクは続きます）。` : `#${n} を取り込み、完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function withdrawSubmission(n) {
@@ -631,11 +640,11 @@
   }
   async function judgeDialog(n, approve) {
     const v = await ECO.form(approve
-      ? {title: `承認して完了：#${n}`, intro: '提出を承認して完了します（CIが終わるのを待って取り込み、タスクを閉じます）。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して完了'}
+      ? {title: `承認して取り込む：#${n}`, intro: '提出を承認して、CIが終わるのを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
       : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
     if (!v) return;
     const doc = await run(['task', approve ? 'approve' : 'reject', String(n), ...(v.message ? ['--message', v.message] : [])],
-      {success: approve ? `#${n} を承認して完了しました。` : `#${n} を差し戻しました。`});
+      {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
   }
   async function revertDialog(n) {

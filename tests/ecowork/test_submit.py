@@ -141,3 +141,17 @@ def test_clean_after_other_clone_merged_shared_workspace(repository, remote_and_
     mine.submit()
     repository.pull_request().merge()
     assert other.prune_task_branches().removed == ("task/1",)
+
+
+def test_submit_switches_an_open_submission_between_partial_and_final(repository):
+    """提出済みでも、取り込まれたらタスクを閉じるか（Refs／Closes）を変えられる。指定しなければそのまま。"""
+    root, github = repository.root, repository.github
+    task_branch = repository.create_task("切り替え").start()
+    commit_file(task_branch, root, "a.txt", "1\n", "前半")
+    pr = task_branch.submit(partial=True)
+    assert github.pulls[pr.number].body.startswith("Refs #1")
+    assert task_branch.submit().partial                      # 送り直しだけ：中間提出のまま
+    switched = task_branch.submit(partial=False)
+    assert switched.number == pr.number and not switched.partial
+    assert github.pulls[pr.number].body.startswith("Closes #1")
+    assert task_branch.submit(partial=True).partial and github.pulls[pr.number].body.startswith("Refs #1")

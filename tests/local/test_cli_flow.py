@@ -239,6 +239,22 @@ def test_draft_submission_can_be_made_ready(cli, module):
     assert as_json(cli("task", "finish", "--json"))["result"]["closed_issue"] == 1   # 取り下げた後も、完了で出し直す
 
 
+def test_finish_follows_the_submission_unless_told(cli, module):
+    """閉じるかは提出で決める：中間提出を task finish すると続ける。--complete／--partial で変えられる。"""
+    assert cli("task", "new", "続ける", "--start", "--name", "作業").exit_code == 0
+    write(module.root / "a.cpp", "a\n")
+    cli("task", "commit", "--message", "a")
+    assert as_json(cli("task", "submit", "--partial", "--no-check", "--json"))["result"]["partial"]
+    assert as_json(cli("task", "submit", "--partial", "--complete", "--json"))["error"]["code"] == "invalid_argument"
+    first = as_json(cli("task", "finish", "--json"))["result"]
+    assert first["partial"] and first["closed_issue"] is None
+    write(module.root / "b.cpp", "b\n")
+    cli("task", "commit", "--message", "b")
+    assert as_json(cli("task", "submit", "--partial", "--no-check", "--json"))["result"]["partial"]
+    assert not as_json(cli("task", "submit", "--complete", "--no-check", "--json"))["result"]["partial"]
+    assert as_json(cli("task", "finish", "--json"))["result"]["closed_issue"] == 1
+
+
 def test_submit_refuses_uncommitted_changes(cli, module):
     assert cli("task", "new", "未記録", "--start", "--name", "作業").exit_code == 0
     write(module.root / "a.cpp", "a\n")

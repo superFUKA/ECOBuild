@@ -173,14 +173,36 @@ function Get-RunningEcobuild {
     return @(Get-CimInstance Win32_Process -Filter "Name='ecobuild.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $path = $_.ExecutablePath; $path -and ($places | Where-Object { $path.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }) })
 }
+# 動いている ecobuild が何か（人に分かる言葉で。止めてよいかの目安も）
+function Get-EcobuildRole($commandLine) {
+    $line = "$commandLine"
+    if ($line -match '\bagent\s+serve\b') { return "ECOBuild の係（GUI が起動するもの。止めてかまいません。GUI を起動すると、また動きます）" }
+    if ($line -match '\bagent\s+team\b') { return "進行役が頼んだチームの操作（作業役を作る等）を待っているもの。止めると、その操作は失敗になります（作業空間の作業は消えません）" }
+    if ($line -match '\bagent\s+(start|operator)\b') { return "エージェント（Claude Code）を動かしているもの。止めると、そのエージェントが終わります" }
+    if ($line -match '\bagent\s+token\s+login\b') { return "エージェントのログインの窓" }
+    return "ecobuild のコマンド"
+}
 function Wait-EcobuildClosed {
     # @() で受ける：1つだけだと return の配列がほどけ、CimInstance の .Count は空になる（PowerShell 5.1）
     $running = @(Get-RunningEcobuild)
     if ($running.Count -eq 0) { return }
-    Write-Host "    動いている ecobuild があるため、入れ替えられません。閉じてください（閉じると自動で進みます）：" -ForegroundColor Yellow
-    foreach ($process in $running) { Write-Host ("      PID {0}：{1}" -f $process.ProcessId, $process.CommandLine) }
+    Write-Host "    動いている ecobuild があるため、入れ替えられません：" -ForegroundColor Yellow
+    foreach ($process in $running) {
+        Write-Host ("      ・{0}" -f (Get-EcobuildRole $process.CommandLine))
+        Write-Host ("        PID {0}（{1} から）：{2}" -f $process.ProcessId, $process.CreationDate.ToString("HH:mm"), $process.CommandLine) -ForegroundColor DarkGray
+    }
     if ($Yes) { Stop-Install "動いている ecobuild を閉じてから、もう一度実行してください。" }
-    while (@(Get-RunningEcobuild).Count -gt 0) { Start-Sleep -Seconds 1 }
+    Write-Host "    閉じると自動で進みます。S キーを押すと、これらを止めて進みます。" -ForegroundColor Yellow
+    while (@(Get-RunningEcobuild).Count -gt 0) {
+        $pressed = $false
+        try { $pressed = [Console]::KeyAvailable -and ([Console]::ReadKey($true).Key -eq 'S') } catch { }   # 入力のない窓では待つだけ
+        if ($pressed) {
+            foreach ($process in @(Get-RunningEcobuild)) { taskkill /T /F /PID $process.ProcessId 2>&1 | Out-Null }
+            Start-Sleep -Seconds 1
+            continue
+        }
+        Start-Sleep -Milliseconds 300
+    }
     Write-Done "閉じられました"
 }
 

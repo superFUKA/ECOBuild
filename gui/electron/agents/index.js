@@ -406,6 +406,7 @@ const live = new Set();   // 出ている通知（参照がなくなると、ク
 // 型に手元をそろえさせる）は ECOBuild の係がする。ここは係を動かし、係の出来事に応じてタブを開く・閉じるだけ。
 // 言付け・知らせは、係がエージェントの受け箱（状態の置き場所の inbox/）に入れ、ここが待機中に入力欄へ送る（poll）。
 const SERVE_RETRY_MS = 10000;
+const SERVE_STOP_MS = 20000;   // 閉じるとき、係が片付けて終わるのを待つ（係は実行中の頼みを 8 秒待ってから止める）
 let serveProc = null;
 function typeInto(s, text) {
   if (!s?.proc || s.exited) return;
@@ -934,7 +935,13 @@ function setup({ecobuild, python, group}) {
   startServe();
   app.on('before-quit', () => {
     app.isQuitting = true; link.stop(); globalShortcut.unregisterAll(); ring.stop();
-    if (serveProc) { try { serveProc.stdin.end(); serveProc.kill(); } catch (e) { /* 終わっている */ } }
+    // 係は標準入力が閉じると、実行中の頼みを少し待ち、終わらないもの（子の ecobuild）を止めてから終わる。すぐに kill すると
+    // 子が残り、止まったまま ecobuild を使い続ける（入れ替えを止める）。終わらなければ待ったあとに止める
+    if (serveProc) {
+      const proc = serveProc;
+      try { proc.stdin.end(); } catch (e) { /* 終わっている */ }
+      setTimeout(() => { try { if (proc.exitCode === null) proc.kill(); } catch (e) { /* 終わっている */ } }, SERVE_STOP_MS).unref();
+    }
     for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
   });
 }

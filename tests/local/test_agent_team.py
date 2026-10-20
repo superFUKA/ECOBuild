@@ -376,3 +376,28 @@ def test_the_serve_stops_a_command_that_makes_no_progress(tmp_path, monkeypatch)
     doc = serve_command.run(["agent", "team", "list"], tmp_path, progress=lines.append, stall=2)
     assert not doc["ok"] and "止まっていました" in doc["error"]["message"] and lines == ["始めました"]
     assert time.monotonic() - started < 30
+
+
+def test_waiting_stops_when_the_serve_took_the_request_but_never_answers(lead, monkeypatch):
+    """拾ったのに途中経過を書かない係（消えた・古い ECOBuild の係）も待ち続けない。"""
+    monkeypatch.setenv(team.WINDOW_VARIABLE, "1")
+    monkeypatch.setattr(team, "SERVE_SILENT", 0.3)
+    folder = team.requests_folder(lead.root)
+
+    def take(seconds):
+        for request in folder.glob("*.json"):
+            request.rename(request.with_suffix(".taken"))
+        time.sleep(0.1)
+    started = time.monotonic()
+    assert code_of(lambda: team.forward(lead.root, ["agent", "team", "list"], lead.root, wait=take)) \
+        == ErrorCode.AGENT_ERROR
+    assert time.monotonic() - started < 10
+
+
+def test_stopping_the_serve_waits_only_a_little_for_running_requests(lead):
+    release = threading.Event()
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}})
+    serve._later(lead.root, lambda: release.wait(10))
+    assert serve.wait(0.2) is False                                                     # 終わらなければ待ちきらない
+    release.set()
+    assert serve.wait(5) is True

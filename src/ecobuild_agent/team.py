@@ -419,9 +419,16 @@ def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_
     os.replace(temporary, request)
     result = folder / f"{key}.result.json"
     report = folder / f"{key}{PROGRESS}"
-    started, told = time.monotonic(), None
+    started, told, picked = time.monotonic(), None, None
     while time.monotonic() - started < timeout:
         seen = agent_status.read(report)
+        if picked is None and not request.exists():
+            picked = time.monotonic()
+        if seen is None and picked is not None and not result.is_file() \
+                and time.monotonic() - picked > SERVE_SILENT:   # 拾ったのに途中経過を書かない：係が消えた・古い係
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "ECOBuild の係（agent serve）が、頼みを受け取ったまま応えません。",
+                                hint="GUI が閉じたか、係が古い ECOBuild のままです。GUI を起動し直してから、agent team list で"
+                                     "途中までできたものを確かめ、やり直してください。")
         if isinstance(seen, dict) and not result.is_file():
             if seen.get("doing") and seen["doing"] != told:
                 told = seen["doing"]

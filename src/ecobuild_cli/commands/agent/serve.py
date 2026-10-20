@@ -66,13 +66,20 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                 agent_serve.serve_forever(serve, stop)
             except KeyboardInterrupt:
                 pass
-            serve.wait()   # 実行中の頼みは終えてから（頼んだ側が結果を待っている）
+            # 実行中の頼みは少し待って終えさせ、終わらないものは止める（残すと、止まったまま ecobuild を使い続け、
+            # 入れ替え〔インストーラー〕を止める。頼んだ側は、係の途中経過が途切れたことで失敗と分かる）
+            if not serve.wait(STOP_GRACE):
+                for pid in list(_running):
+                    agent_status.stop(pid)
+                serve.wait(10)
         return {"stopped": True}
 
     return execute("agent serve", Invocation(json_output=json), action, lambda r: "ECOBuild の係を止めました。")
 
 
 PROGRAM = (sys.executable, "-m", "ecobuild_cli")   # 係が頼みを実行する ECOBuild（この ECOBuild と同じもの）
+STOP_GRACE = 8          # 係を止めるとき、実行中の頼みが終わるのを待つ秒数（アプリは止めてからこれより長く待つ）
+_running: set[int] = set()   # 実行中の ecobuild（係を止めるときに残さない）
 
 
 def run(args: list[str], cwd: Path, progress=None, stall: float | None = None) -> dict:
@@ -90,6 +97,14 @@ def run(args: list[str], cwd: Path, progress=None, stall: float | None = None) -
                                    start_new_session=os.name != "nt")
     except OSError as error:
         return agent_serve.failed(f"ecobuild を実行できませんでした：{error}")
+    _running.add(process.pid)
+    try:
+        return _wait(process, progress, stall)
+    finally:
+        _running.discard(process.pid)
+
+
+def _wait(process: subprocess.Popen, progress, stall: float | None) -> dict:
     out, err, last = [], [], [time.monotonic()]
 
     def read_err() -> None:

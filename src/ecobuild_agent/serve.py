@@ -79,16 +79,19 @@ class Serve:
             if root is not None:
                 self._watch_reply(folder, root)
 
-    def wait(self) -> None:
-        """裏で行っているものが終わるまで待つ。"""
+    def wait(self, timeout: float | None = None) -> bool:
+        """裏で行っているものが終わるまで待つ（timeout 秒まで）。すべて終わったか。"""
+        until = None if timeout is None else time.monotonic() + timeout
         while True:
             with self._guard:
                 running = [thread for thread in self._threads if thread.is_alive()]
                 self._threads = running
             if not running:
-                return
+                return True
             for thread in running:
-                thread.join()
+                thread.join(None if until is None else max(0.0, until - time.monotonic()))
+            if until is not None and time.monotonic() >= until:
+                return not any(thread.is_alive() for thread in running)
 
     def _later(self, folder: Path, job: Callable[[], None]) -> None:
         """job を裏で行う（置き場所 folder ごとに届いた順に1つずつ。ほかの置き場所とは並べて）。"""

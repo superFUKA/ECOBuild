@@ -324,12 +324,14 @@ function poll() {
   for (const s of sessions) {
     if (s.exited || !s.term) continue;
     const screen = screenText(s), read = parser.parse(screen);
-    // オペレーターの作業フォルダーは ECOBuild が作った一式なので、初めての「このフォルダーを信頼するか」には信頼すると答える
-    if (s.kind === 'operator' && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
+    // オペレーターの作業フォルダー・進行役が作った作業役の作業空間は ECOBuild が作ったものなので、初めての「このフォルダーを
+    // 信頼するか」には信頼すると答える
+    if ((s.kind === 'operator' || s.lead) && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
       s.trusted = true;
       const options = screen.split('\n').filter(l => /^\s*❯?\s*(No, exit|Yes, I trust this folder)/.test(l));
       const down = options.findIndex(l => /Yes, I trust/.test(l)) - options.findIndex(l => /❯/.test(l));
       s.proc.write('\x1b[B'.repeat(Math.max(0, down)) + '\r');
+      if (s.lead) continue;   // 作業役：進行役が作った作業空間（ECOBuild が作ったもの）
       operatorLog.push({role: 'system', text: '（ECOBuild が作ったオペレーターのフォルダーを、初めての確認で「信頼する」にしました）', at: Date.now()});
       saveOperatorLog();
       continue;
@@ -351,7 +353,6 @@ function poll() {
     if (got.replied) { s.screenReply = null; replied(s, got.replied.message); }
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
-    if (s.statusDir && s.kind !== 'operator') takeRequests(s);
     // 届けるもの（作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ
     if (s.inbox?.length && read.state === 'idle' && !read.input && !s.recording && !s.pendingTitle) typeInto(s, s.inbox.shift());
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
@@ -365,6 +366,12 @@ function poll() {
       const doing = ['thinking', 'waiting'].includes(read.state) ? lastTool(screen) : '';
       if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
     }
+  }
+  // 進行役の頼み（requests）：同じ置き場所（同じコンテナ）のタブが複数あれば、新しく開いたほうの窓で受ける
+  const asked = new Set();
+  for (const s of [...sessions].reverse()) {
+    if (!s.statusDir || s.kind === 'operator' || s.exited || asked.has(s.statusDir)) continue;
+    asked.add(s.statusDir); takeRequests(s);
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
@@ -468,6 +475,7 @@ async function handleRequest(s, request) {
     const tab = openSession({dir: m.path, name: m.name, title: true, role: m.role, prompt: m.prompt, lead: s.id});
     const opened = findSession(tab.id); if (opened) opened.teamPath = m.path;
     select(s.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
+    if (s.owner) { if (s.owner.mini) restoreWindow(s.owner); else bringToFront(s.owner); }
   }
   return doc;
 }

@@ -242,7 +242,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', stopServer);
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
-    agents.setup({ecobuild: ecobuildPath, python, group: asModuleApp});   // エージェントの窓はモジュールの窓の仲間
+    agents.setup({ecobuild: ecobuildPath, python, group: asModuleApp, module: openModule});   // エージェントの窓はモジュールの窓の仲間
     startServer();
   });
 }

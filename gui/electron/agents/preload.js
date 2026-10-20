@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('agents', {
   iconPick: kind => ipcRenderer.invoke('agents:icon-pick', kind),
   iconClear: kind => ipcRenderer.send('agents:icon-clear', kind),
   styleSet: (kind, text) => ipcRenderer.invoke('agents:style-set', kind, text),
+  // チーム（進行役の窓：AI が起動した作業役）
+  teamShown: (leadId, on) => ipcRenderer.invoke('team:shown', leadId, on),
+  teamFollow: (member, all = false) => ipcRenderer.send('team:follow', member, all),
+  teamUnfollow: () => ipcRenderer.send('team:unfollow'),
+  teamOp: (leadId, action, member, options = {}) => ipcRenderer.invoke('team:op', leadId, action, member, options),
 
   onAdopt: on('agents:adopt'),
   onRelease: on('agents:release'),
@@ -52,6 +57,10 @@ contextBridge.exposeInMainWorld('agents', {
   onPickerKey: on('agents:picker-key'),
   onPrefs: on('agents:prefs'),
   onOpenSettings: on('agents:open-settings'),
+  onTeamList: on('team:list'),
+  onTeamEvents: on('team:events'),
+  onTeamNotice: on('team:notice'),
+  onTeamFocus: on('team:focus'),
 });
 
 contextBridge.exposeInMainWorld('dock', {

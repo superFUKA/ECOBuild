@@ -2,6 +2,7 @@
 // エージェントの窓の画面：タブ（番号・名前・状態）と、タブごとの端末（xterm.js）。表示するのは選んでいるタブだけ。
 // タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
 // ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線）・＋（作業空間のエージェントを開く）・☰・🎙・📌・⚙・–・×。
+// 進行役の窓には、進行役のタブの隣に「チーム」（AI が起動した作業役を見る。teamui.js）。
 // フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
 // リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
 // ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方とリング。
@@ -59,6 +60,7 @@ function fitActive() {
 }
 
 function show(id) {
+  if (typeof teamClosePane === 'function') teamClosePane();   // 端末のタブを選んだ：チームの表示を閉じる（teamui.js）
   active = id;
   for (const [key, t] of terms) t.el.hidden = key !== id;
   $('empty').hidden = terms.size > 0;
@@ -102,6 +104,7 @@ function renderTabs() {
     });
     bar.append(b);
   }
+  if (typeof teamTab === 'function') teamTab(bar);   // 進行役の窓：進行役のタブの隣に「チーム」（teamui.js）
   const current = tabs.find(t => t.id === active);
   document.body.classList.toggle('listening', current?.state === 'listening');
   $('voice').classList.toggle('on', current?.state === 'listening');
@@ -210,7 +213,10 @@ agents.onExit((id, code) => terms.get(id)?.term.write(`\r\n\x1b[90m（エージ�
 agents.onSelect(id => show(id));
 agents.onTabs(({tabs: list, active: selected}) => {
   tabs = list;
-  if (selected && selected !== active && terms.has(selected)) show(selected); else renderTabs();
+  // 出していたタブが閉じた：チームを出しているなら、チームを出したまま（引き取ったタブを「返す」で閉じたとき等）
+  if (selected && selected !== active && terms.has(selected)) {
+    if (active === null && typeof teamOpen !== 'undefined' && teamOpen) { active = selected; renderTabs(); } else show(selected);
+  } else renderTabs();
   $('empty').hidden = terms.size > 0;
 });
 agents.onTopmost(mode => {

@@ -18,7 +18,21 @@
     <button type="button" id="minimize" class="icon" title="最小化（右下の小さな表示になります）" aria-label="最小化">–</button>
     <button type="button" id="close" class="icon close" title="この窓を閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
   </header>
-  <main id="screens"><p class="empty" id="empty">エージェントはありません。＋ か、作業空間の「エージェント」から開きます。</p></main>
+  <main id="screens"><p class="empty" id="empty">エージェントはありません。＋ か、作業空間の「エージェント」から開きます。</p>
+    <section class="team" id="team" hidden aria-label="チーム（AI が起動した作業役）">
+      <div class="team-bar">
+        <span class="views" id="team-views" role="tablist" aria-label="見方">
+          <button type="button" data-mode="tabs" title="作業役ごとのタブ（詳しい表示）">タブ</button>
+          <button type="button" data-mode="grid" title="作業役ごとの小さな表示を並べる（クリックで大きく）">並べて</button>
+          <button type="button" data-mode="list" title="1人1行（選ぶと詳しい表示）">一覧</button>
+        </span>
+        <span class="sum" id="team-sum"></span>
+        <span class="err" id="team-err"></span>
+      </div>
+      <nav class="team-tabs" id="team-tabs" hidden></nav>
+      <div class="team-body" id="team-body"></div>
+    </section>
+  </main>
   <footer class="status">
     <span class="mode" title="オペレーターモード（リングの LED のモードで切り替わります）">オペレーター</span>
     <span class="info" id="status"></span>
@@ -43,6 +57,8 @@
       <div class="row"><span>音</span><select id="notify-sound"></select><button type="button" id="notify-test" class="tool">試す</button></div>
       <div class="row"><span>音量</span><input type="range" id="notify-volume" min="0" max="1" step="0.05"></div>
       <div class="row"><span>右下に返答を出しておく時間</span><select id="notify-hold"></select></div>
+      <div class="row"><label><input type="checkbox" id="notify-team">AI が起動した作業役（チーム）の返答の終わりも知らせる</label></div>
+      <p class="note">作業役の返答の終わりは進行役に届くので、ふだんは知らせません。</p>
     </div>
     <div class="card">
       <h2>エージェント</h2>
@@ -83,5 +99,7 @@
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="sounds.js"></script>
   <script src="window.js"></script>
+  <script src="teamview.js"></script>
+  <script src="teamui.js"></script>
 </body>
 </html>

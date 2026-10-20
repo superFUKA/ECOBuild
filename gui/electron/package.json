@@ -7,7 +7,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test agents/screen.test.js agents/status.test.js && python -m unittest discover -s agents/ring -q",
+    "test": "node --test agents/screen.test.js agents/status.test.js agents/teamview.test.js && python -m unittest discover -s agents/ring -q",
     "prepare-bundle": "python bundle/prepare.py",
     "dist": "electron-builder --win nsis"
   },

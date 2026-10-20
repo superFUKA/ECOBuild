@@ -16,8 +16,10 @@
 // - リング（Ring II）：ジェスチャーを操作に割り当てる（ring.js が受信係を動かす）。作業モードとオペレーターモード
 //   （リングの LED のモード。信号が変わる操作は調整で「operator:<操作>」として登録）。選択肢が出ているときに押し込むと
 //   選択モード（上下左右で選び、押し込みで決定）。右下に返答のカードが出ているときのタッチは、カードを閉じる。
+// - チーム：進行役の窓には、その進行役のチーム（AI が起動した作業役。係が画面なしで動かす）を見る場所がある（team.js）。
+//   引き取った作業役はこの窓のタブになり、閉じると係に返す。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
-const {app, BrowserWindow, Notification, clipboard, dialog, globalShortcut, ipcMain, nativeImage, screen: display} = require('electron');
+const {app, BrowserWindow, Notification, clipboard, dialog, globalShortcut, ipcMain, nativeImage, screen: display, shell} = require('electron');
 const fs = require('fs');
 const path = require('path');
 const pty = require('node-pty');
@@ -27,6 +29,7 @@ const status = require('./status');
 const dock = require('./dock');
 const link = require('./link');
 const ring = require('./ring');
+const team = require('./team');
 
 const HISTORY_LIMIT = 2 * 1024 * 1024;   // 後から開いた窓に流し直す出力（文字数）
 const POLL_MS = 1500;                     // 状態を読み直す間隔
@@ -37,8 +40,9 @@ const OPERATOR_LOG = () => path.join(app.getPath('userData'), 'operator.json'); 
 const OPERATOR_SIZE = {cols: 110, rows: 32};   // 裏で動かすときの端末の大きさ
 const ICON = path.join(__dirname, '..', '..', 'icon.ico');
 // 返答の知らせ。style：windows（Windows の通知。音も Windows の設定どおり）・ecobuild（右下のカードと音）・off。
-// hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）
-const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 8000};
+// hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）。team：AI が起動した作業役の返答の終わりも知らせる（ふだんは
+// 進行役に届くので知らせない）
+const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 8000, team: false};
 const HOLD_STEPS = [3000, 5000, 8000, 15000, 30000, 60000, -1];
 const KEY_REPEAT_MS = 33;      // 録音中に Space を送る間隔（端末のキーリピートと同じくらい。Claude Code はこれで押し続けと見る）
 const CLEAR_REPEAT = 30;       // 入力欄を消すときの Ctrl+U の数（複数行も消えるように）
@@ -67,7 +71,8 @@ function childEnv() {
 
 let ecobuildPath = () => 'ecobuild';
 let groupWith = () => {};   // 窓をモジュールの窓の仲間にする（main.js の asModuleApp）
-const sessions = [];      // {id, num, name, dir, kind, agent, proc, term, history, exited, state, owner, statusDir, info}
+let openModule = () => {};  // モジュールの窓を開く（main.js）
+const sessions = [];      // {id, num, name, dir, kind, agent, proc, term, history, exited, state, owner, statusDir, info, takenOver}
 const windows = [];       // {win, tabs: [id], active, topmost, ready, mini}
 let nextId = 1;
 let current = null;       // 最後に使った窓（新しいタブはここに）
@@ -169,6 +174,7 @@ function closeSession(id) {
   if (s.owner) leave(s.owner, s);
   dropCards(c => c.id === id);
   pushTabs();
+  if (s.takenOver && !app.isQuitting) handBack(s.takenOver);   // 引き取った作業役：閉じたら係に返す
 }
 
 function restartSession(id, agent) {
@@ -374,6 +380,7 @@ function poll() {
     if (got?.text) typeInto(s, got.text);
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
+  team.tick(sessions.filter(s => s.role === 'lead' && s.kind === 'workspace' && !s.exited && s.owner).map(s => ({id: s.id, dir: s.dir})));
   const now = Date.now();
   if (dropCards(c => c.until !== -1 && c.until < now)) pushDock();
 }
@@ -452,6 +459,85 @@ function onServeEvent(event) {
     for (const tab of sessions.filter(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.path))) closeSession(tab.id);
     try { serveProc?.stdin.write(JSON.stringify({ack: event.key}) + '\n'); } catch (e) { /* 係が終わった */ }
   }
+}
+
+// ---- チーム（AI が起動した作業役。team.js） -------------------------------------------------------------------
+// 進行役の窓の画面に、そのチームの様子（taken：引き取ってこのアプリのタブで開いているもの {作業空間: タブの番号}）を送る
+function pushTeam(leadId) {
+  const s = findSession(leadId), view = team.view(leadId); if (!s?.owner || !view) return;
+  const taken = {};
+  for (const x of sessions) if (x.takenOver && !x.exited) taken[x.takenOver.path] = {id: x.id, num: x.num};
+  send(s.owner, 'team:list', leadId, {...view, taken});
+}
+
+// 作業役の返答の終わり：ふだんは知らせない（進行役に届く）。知らせる設定なら、進行役のタブの知らせとして
+function teamReplied(leadId, member) {
+  const lead = findSession(leadId), w = lead?.owner;
+  if (!notify.team || notify.style === 'off' || !w) return;
+  const text = `${member.name}：${member.last_reply || (member.error ? '止めていないのに終わりました' : '返答が終わりました')}`;
+  if (w.win.isFocused()) return;   // 見ている窓では知らせない
+  if (w.mini || notify.style === 'ecobuild') {
+    addCard({id: lead.id, num: lead.num, name: `${lead.name} のチーム`}, text);
+    if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume});
+    return;
+  }
+  if (!Notification.isSupported()) return;
+  const n = new Notification({title: `${lead.name} のチーム`, body: text.replace(/\s+/g, ' ').slice(0, 200), icon: ICON, silent: true});
+  n.on('click', () => { focusTab(lead.id, true); send(w, 'team:focus', member.path); });
+  live.add(n); n.on('close', () => live.delete(n));
+  n.show();
+}
+
+// 引き取った作業役のタブを閉じた：係に返す（人の画面が終わるまで少し待つ）
+async function handBack(taken) {
+  let got;
+  for (let i = 0; i < 10; i++) {
+    got = await team.operate('handback', taken);
+    if (got.ok || !/まだ対話型/.test(got.error || '')) break;
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  const lead = findSession(taken.leadId);
+  if (lead?.owner) send(lead.owner, 'team:notice', taken.path, got.ok ? `「${taken.name}」を係に戻しました（続きから）` : `係に戻せませんでした：${got.error}`, !got.ok);
+  team.refresh(taken.leadId);
+  return got;
+}
+
+function wireTeam() {
+  ipcMain.handle('team:shown', (event, leadId, on) => {
+    const view = team.shown(leadId, on);
+    if (!on) team.unfollow(event.sender);
+    if (view) pushTeam(leadId);
+    return view;
+  });
+  ipcMain.on('team:follow', (event, member, all) => {
+    const contents = event.sender;
+    team.follow(contents, member, !!all, (path, events, more, reset, ended = false) => {
+      if (!contents.isDestroyed()) contents.send('team:events', path, events, more, reset, ended);
+    });
+  });
+  ipcMain.on('team:unfollow', event => team.unfollow(event.sender));
+  // 操作：stop・restart（resume）・close・takeover・handback・folder・module。返すのは {ok, error, message}
+  ipcMain.handle('team:op', async (event, leadId, action, member, options = {}) => {
+    if (!member?.path || !member.parent || !member.name) return {ok: false, error: '作業役が分かりません'};
+    member = {leadId, parent: String(member.parent), name: String(member.name), path: String(member.path), role: String(member.role || '')};
+    if (action === 'folder') { const error = await shell.openPath(member.path); return error ? {ok: false, error} : {ok: true}; }
+    if (action === 'module') { openModule(member.path); return {ok: true}; }
+    if (action === 'handback') {
+      const tab = sessions.find(x => x.takenOver?.path === member.path);
+      if (tab) { closeSession(tab.id); return {ok: true, message: 'タブを閉じて、係に戻しています…'}; }   // 閉じると返す
+      return handBack(member);
+    }
+    const got = await team.operate(action, member, options);
+    if (got.ok && action === 'takeover') {
+      // 同じ会話を、この進行役の窓のタブ（対話型）で開く。以後は人が起動したものとして扱い、閉じたら返す
+      const opened = openSession({dir: got.result.path || member.path, agent: got.result.agent, name: member.name,
+                                  role: got.result.role || member.role || 'worker', lead: leadId});
+      const tab = findSession(opened.id);
+      if (tab) tab.takenOver = member;
+    }
+    team.refresh(leadId);
+    return got;
+  });
 }
 
 // ---- 右下の表示 ----------------------------------------------------------------------------------------
@@ -793,13 +879,17 @@ function setNotify(patch) {
   if (!['windows', 'ecobuild', 'off'].includes(notify.style)) notify.style = NOTIFY_DEFAULTS.style;
   notify.volume = Math.max(0, Math.min(1, Number(notify.volume) || 0));
   if (!HOLD_STEPS.includes(notify.hold)) notify.hold = NOTIFY_DEFAULTS.hold;
+  notify.team = !!notify.team;
   writeState({notify});
   for (const w of windows) send(w, 'agents:notify', notify, HOLD_STEPS);
 }
 
-function setup({ecobuild, python, group}) {
+function setup({ecobuild, python, group, module}) {
   ecobuildPath = ecobuild;
   if (group) groupWith = group;
+  if (module) openModule = module;
+  team.setup({ecobuild: () => ecobuildPath(), env: childEnv, onList: pushTeam, onReplied: teamReplied});
+  wireTeam();
   loadOperatorLog();
   const saved = readState();
   if (OPERATOR_MODELS.includes(saved.operatorModel)) operatorModel = saved.operatorModel;
@@ -935,7 +1025,7 @@ function setup({ecobuild, python, group}) {
   setInterval(poll, POLL_MS);
   startServe();
   app.on('before-quit', () => {
-    app.isQuitting = true; link.stop(); globalShortcut.unregisterAll(); ring.stop();
+    app.isQuitting = true; link.stop(); globalShortcut.unregisterAll(); ring.stop(); team.stopAll();
     // 係は標準入力が閉じると、実行中の頼みを少し待ち、終わらないもの（子の ecobuild）を止めてから終わる。すぐに kill すると
     // 子が残り、止まったまま ecobuild を使い続ける（入れ替えを止める）。終わらなければ待ったあとに止める
     if (serveProc) {

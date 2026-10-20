@@ -12,9 +12,13 @@ git の除外の中）。子タスクのタスクブランチは親（進行役�
 作業役は ECOBuild の作業役を作らない（分けたくなったら進行役に提案する）。進行役は進行役を作れる（その部分を受け持つ
 進行役。孫タスクがその作業役になる）。
 
-コンテナの中の進行役は、このPC（GUI・ほかのコンテナ）に届かない。作業役を作る等の操作は「頼み」（REQUESTS）として、
-状態の置き場所（このPCのフォルダーをマウントしたもの。agent_status）に書き、画面を持つアプリ（GUI）がこのPCで実行して
-結果を書き戻す（forward）。GUI の端末の中の進行役（このPC）も、タブを開いてもらうため同じ道を使う（WINDOW_VARIABLE）。
+コンテナの中の進行役は、このPC（ほかのコンテナ・エージェントを動かしている側）に届かない。作業役を作る等の操作は
+「頼み」（REQUESTS）として、状態の置き場所（このPCのフォルダーをマウントしたもの。agent_status）に書き、このPCで常駐する
+ECOBuild の係（agent_serve。GUI が起動する）が実行して結果を書き戻す（forward）。GUI の端末の中の進行役（このPC）も、
+作業役のタブを開いてもらうため同じ道を使う（WINDOW_VARIABLE）。
+
+言付け（send）と、作業役の返答が終わった知らせ（lead_notice）は、相手のエージェントの受け箱（agent_status.put）に入れる。
+届けるのはエージェントを動かしている側（GUI の窓等）。
 """
 
 from __future__ import annotations
@@ -40,7 +44,7 @@ PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
 MODEL_KEYS = {LEAD: "agent_lead_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
 LEAD_DENIED_TOOLS = ("Edit", "Write", "NotebookEdit")   # 進行役には使わせない（作業は作業役に任せる）
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
-WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを GUI に渡す）
+WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
 FIRST_PROMPT = {
     WORKER: f"{BRIEF_FILE} に任された仕事があります。読んで作業を始めてください。終わったら {REPORT_FILE} に報告を書き、提出してください。",
@@ -60,7 +64,7 @@ class Member:
     lead: str = ""              # 作った進行役の作業空間（このPCの場所）
     reported: bool = False      # 報告（REPORT_FILE）がある
     prompt: str = ""            # 起動するときの最初の発言（作ったときだけ）
-    opened: bool = False        # 新しい画面で起動した（GUI が開くときは False）
+    opened: bool = False        # 新しい画面で起動した（係・GUI が開くときは False）
 
 
 @dataclass(frozen=True)
@@ -212,10 +216,45 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
     return lines
 
 
-# 頼み（コンテナの中・GUI の端末の進行役から、このPCの GUI へ） -------------------------------------------------
+def inbox_of(root: Path) -> Path:
+    """作業空間 root のエージェントの、状態の置き場所（受け箱がある）。"""
+    from . import agent_status, container
+    return agent_status.directory(container.name(root))
+
+
+def send(root: Path, name: str, text: str) -> Member:
+    """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。"""
+    from . import agent_status
+    if not text.strip():
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "伝えることが空です。")
+    member = find(root, name)
+    sender = member_info(root).get("name") or Path(root).name
+    agent_status.put(inbox_of(member.path), f"[進行役「{sender}」から] {text}", sender=str(Path(root)))
+    return member
+
+
+def lead_notice(root: Path, message: str) -> tuple[Path, str] | None:
+    """作業役（作業空間 root）の返答が終わったときに、作った進行役へ送る知らせ：(進行役の作業空間, 文)。
+    チームの1人でなければ None。"""
+    info = member_info(root)
+    if not info.get("lead"):
+        return None
+    lead = Path(info["lead"])
+    try:
+        place = Path(root).resolve().relative_to(lead.resolve()).as_posix()
+    except ValueError:
+        place = Path(root).as_posix()
+    report = (f"報告：{place}/{REPORT_FILE}。" if (Path(root) / REPORT_FILE).is_file()
+              else f"（報告 {place}/{REPORT_FILE} はまだありません）。")
+    last = " ".join((message or "").split())[:400]
+    return lead, (f"[ECOBuild] {ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or Path(root).name}」の"
+                  f"返答が終わりました。{report}" + (f"\n最後の返答：{last}" if last else ""))
+
+
+# 頼み（コンテナの中・GUI の端末の進行役から、このPCの係へ） -------------------------------------------------
 
 def should_forward() -> bool:
-    """この操作を GUI に頼むか：コンテナの中（このPCに届かない）か、GUI のエージェントの窓の端末の中（タブを開いてもらう）。"""
+    """この操作を係に頼むか：コンテナの中（このPCに届かない）か、GUI のエージェントの窓の端末の中（タブを開いてもらう）。"""
     from . import container
     return bool(os.environ.get(container.INSIDE) or os.environ.get(WINDOW_VARIABLE))
 
@@ -230,8 +269,8 @@ def requests_folder(root: Path) -> Path:
 
 def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_TIMEOUT,
             wait=time.sleep) -> dict:
-    """GUI に ecobuild のコマンド（args。cwd：root の中の場所）をこのPCで実行してもらい、その JSON の結果（{ok, result|error}）を返す。
-    GUI がなければ（拾われなければ）止める。"""
+    """このPCの係（agent_serve）に ecobuild のコマンド（args。cwd：root の中の場所）を実行してもらい、その JSON の結果
+    （{ok, result|error}）を返す。係が動いていなければ（拾われなければ）止める。"""
     folder = requests_folder(root)
     folder.mkdir(parents=True, exist_ok=True)
     key = uuid.uuid4().hex
@@ -257,7 +296,7 @@ def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_
             return doc
         if request.exists() and time.monotonic() - started > 15:   # 15秒たっても拾われない：GUI がない
             request.unlink(missing_ok=True)
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, "画面を持つアプリ（ECOBuild の GUI）が頼みを受け取りませんでした。",
-                                hint="作業役を作る・言付けを送る操作は、GUI のエージェントの窓で動いている進行役から行います。")
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "ECOBuild の係（agent serve）が頼みを受け取りませんでした。",
+                                hint="このPCで ecobuild agent serve が動いているか確かめてください（GUI は自分で起動します）。")
         wait(0.5)
-    raise EcoBuildError(ErrorCode.AGENT_ERROR, "GUI の結果を待ちきれませんでした。", hint="GUI の窓で様子を確かめてください。")
+    raise EcoBuildError(ErrorCode.AGENT_ERROR, "係の結果を待ちきれませんでした。", hint="GUI の窓・係の様子を確かめてください。")

@@ -142,7 +142,7 @@ function openSession({dir, agent = '', name = '', title = false, role = '', prom
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
-             agent, savedAgent: agent, role, prompt, lead, inbox: [],
+             agent, savedAgent: agent, role, prompt, lead,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   if (title && isClaude(s)) s.pendingTitle = s.name;   // 起動して待機中になったら /rename（poll）
   sessions.push(s);
@@ -341,9 +341,6 @@ function poll() {
       if (!s.statusDir && s.state === 'thinking' && read.state === 'idle') replied(s, read.reply);
       // Stop フックの返答が届かなかったとき（置き場所が消された等）のために、画面の返答を少し待って使う
       if (s.statusDir && s.state === 'thinking' && read.state === 'idle') s.screenReply = {at: Date.now(), text: read.reply};
-      // 作業用のエージェントが返事を終えたら、このPCの Visual Studio の構成を今のファイルに合わせる（C++：コンテナの中や
-      // エディターで足した・移したファイルも見えるように。変わっていなければ CMake は動かない。C++ 以外は何もしない）
-      if (s.kind !== 'operator' && s.state === 'thinking' && read.state === 'idle' && s.dir) ecobuildRun(['-C', s.dir, 'project', 'update']);
       s.state = read.state; changed = true;
     }
     const got = status.poll(s);
@@ -351,9 +348,11 @@ function poll() {
     if (got.replied) { s.screenReply = null; replied(s, got.replied.message); }
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
-    if (s.statusDir && s.kind !== 'operator') takeRequests(s);
-    // 届けるもの（作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ
-    if (s.inbox?.length && read.state === 'idle' && !read.input && !s.recording && !s.pendingTitle) typeInto(s, s.inbox.shift());
+    // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ
+    if (s.statusDir && s.kind !== 'operator' && read.state === 'idle' && !read.input && !s.recording && !s.pendingTitle) {
+      const got = status.take(s.statusDir);
+      if (got?.text) typeInto(s, got.text);
+    }
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
     // 名前・モデルの変更は、待機中で入力欄が空のときに送る
     if (read.state === 'idle' && !read.input && !s.recording) {
@@ -378,7 +377,6 @@ function replied(s, message) {
   if (text) s.reply = text;
   if (message?.trim()) s.lastMessage = message.trim();   // 全文（「最後の返答をコピー」）
   if (s.kind === 'operator') { operatorReplied(s, text); return; }
-  tellLead(s, text);
   const w = s.owner; if (!w) return;
   if (w.mini) { s.unseen = true; addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (w.topmost === 'auto') bringToFront(w);
@@ -396,80 +394,49 @@ function replied(s, message) {
 }
 const live = new Set();   // 出ている通知（参照がなくなると、クリックが効かなくなる）
 
-// ---- 進行役と作業役（ecobuild agent team …） -----------------------------------------------------------
-// 進行役（コンテナの中・この窓の端末の中）の ecobuild agent team … は、状態の置き場所の requests/ に頼みを書く。
-// ここで拾い、このPCで実行して結果を書き戻す（作業役を作ったらタブを開く・言付けはその作業役に届ける）
-const TEAM_COMMANDS = ['start', 'close', 'send', 'list'];
+// ---- ECOBuild の係（ecobuild agent serve --json）-------------------------------------------------------------
+// エージェントの間の取り次ぎ（進行役の頼み〔agent team …〕の実行・作業役の返答の終わりを進行役に知らせる・返答の後に
+// 型に手元をそろえさせる）は ECOBuild の係がする。ここは係を動かし、係の出来事に応じてタブを開く・閉じるだけ。
+// 言付け・知らせは、係がエージェントの受け箱（状態の置き場所の inbox/）に入れ、ここが待機中に入力欄へ送る（poll）。
+const SERVE_RETRY_MS = 10000;
+let serveProc = null;
 function typeInto(s, text) {
   if (!s?.proc || s.exited) return;
   s.proc.write('\x1b[200~' + text + '\x1b[201~');
   setTimeout(() => s.proc?.write('\r'), 120);
 }
-function deliver(s, text) { if (s && !s.exited) s.inbox.push(text); }
 
-function tellLead(s, text) {
-  const leader = s.lead ? findSession(s.lead) : null; if (!leader || leader.exited) return;
-  const place = s.teamPath ? path.relative(leader.dir, s.teamPath).split(path.sep).join('/') : s.dir;
-  const report = s.teamPath && fs.existsSync(path.join(s.teamPath, '.ecobuild', 'ai', 'report.md')) ? `${place}/.ecobuild/ai/report.md` : '';
-  deliver(leader, `[ECOBuild] ${s.role === 'lead' ? '進行役' : '作業役'}「${s.name}」の返答が終わりました。`
-    + (report ? `報告：${report}。` : `（報告 ${place}/.ecobuild/ai/report.md はまだありません）。`)
-    + (text ? `\n最後の返答：${text.replace(/\s+/g, ' ').slice(0, 400)}` : ''));
+function startServe() {
+  const env = {...childEnv(), PYTHONIOENCODING: 'utf-8'};
+  delete env.ECOBUILD_AGENT_WINDOW;
+  let proc;
+  try { proc = require('child_process').spawn(ecobuildPath(), ['agent', 'serve', '--json'], {windowsHide: true, env}); }
+  catch (e) { console.warn('agents: 係を起動できません：', e.message); return; }
+  serveProc = proc;
+  let rest = '';
+  proc.stdout.setEncoding('utf8');
+  proc.stdout.on('data', chunk => {
+    const lines = (rest + chunk).split(/\r?\n/); rest = lines.pop();
+    for (const line of lines) { let event; try { event = JSON.parse(line); } catch (e) { continue; } onServeEvent(event); }
+  });
+  proc.stderr.on('data', () => {});   // 係の経過（人向け）。ここでは使わない
+  proc.on('error', e => console.warn('agents: 係：', e.message));
+  proc.on('exit', () => {
+    if (serveProc === proc) serveProc = null;
+    if (!app.isQuitting) setTimeout(() => { if (!serveProc && !app.isQuitting) startServe(); }, SERVE_RETRY_MS);   // ほかの係が動いていても、待って試す
+  });
 }
 
-function takeRequests(s) {
-  const folder = path.join(s.statusDir, 'requests');
-  let names; try { names = fs.readdirSync(folder); } catch (e) { return; }
-  for (const name of names.filter(n => /^[0-9a-f]+\.json$/.test(n))) {
-    const file = path.join(folder, name), taken = file.replace(/\.json$/, '.taken');
-    try { fs.renameSync(file, taken); } catch (e) { continue; }   // ほかが拾った
-    let request; try { request = JSON.parse(fs.readFileSync(taken, 'utf8')); } catch (e) { continue; }
-    handleRequest(s, request).catch(error => ({ok: false, error: {code: 'AGENT_ERROR', message: String(error?.message || error)}}))
-      .then(doc => {
-        try { fs.writeFileSync(path.join(folder, `${request.id}.result.json`), JSON.stringify(doc)); } catch (e) { /* 書けなければ向こうが待ちきれずに止まる */ }
-        try { fs.unlinkSync(taken); } catch (e) { /* もうない */ }
-      });
+function onServeEvent(event) {
+  if (event.event === 'agent-start') {
+    // 進行役が作った作業役：進行役のタブの窓のタブとして開く（下の進行役なら新しい窓）
+    const leader = sessions.find(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.lead));
+    openSession({dir: event.path, name: event.name, title: true, role: event.role, prompt: event.prompt, lead: leader?.id ?? null});
+    if (leader) select(leader.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
+  } else if (event.event === 'agent-stop') {
+    for (const tab of sessions.filter(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.path))) closeSession(tab.id);
+    try { serveProc?.stdin.write(JSON.stringify({ack: event.key}) + '\n'); } catch (e) { /* 係が終わった */ }
   }
-}
-
-const failed = (message, hint) => ({ok: false, result: null, error: {code: 'AGENT_ERROR', message, hint: hint || null}});
-function ecobuildDoc(args, cwd) {
-  return new Promise(resolve => require('child_process').execFile(ecobuildPath(), ['-C', cwd, ...args],
-    {windowsHide: true, timeout: 30 * 60 * 1000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', env: {...childEnv(), PYTHONIOENCODING: 'utf-8'}},
-    (error, stdout, stderr) => {
-      try { resolve(JSON.parse(String(stdout).trim().split(/\r?\n/).pop())); }
-      catch (e) { resolve(failed(String(stderr || error?.message || 'ecobuild の結果を読めませんでした。').trim().slice(-2000))); }
-    }));
-}
-
-async function handleRequest(s, request) {
-  const args = Array.isArray(request.args) ? request.args.map(String) : [];
-  if (args[0] !== 'agent' || args[1] !== 'team' || !TEAM_COMMANDS.includes(args[2]))
-    return failed(`この頼みは受け付けません：ecobuild ${args.join(' ')}`);
-  const cwd = path.resolve(s.dir, String(request.cwd || '.'));
-  if (!cwd.toLowerCase().startsWith(path.resolve(s.dir).toLowerCase())) return failed('作業空間の外では実行しません。');
-  if (args[2] === 'send' || args[2] === 'close') {
-    // 名前から作業役を探す（送る先のタブ・閉じる前に終わらせるタブ）
-    const listed = await ecobuildDoc(['agent', 'team', 'list', '--json'], cwd);
-    if (!listed.ok) return listed;
-    const who = args[3], member = (listed.result?.members || []).find(m => [m.name, String(m.task), path.basename(m.path)].includes(who));
-    if (!member) return failed(`チームに「${who}」はいません。`, 'ecobuild agent team list で一覧を見られます。');
-    const tabs = sessions.filter(x => x.kind !== 'operator' && sameDir(x.dir, member.path));
-    if (args[2] === 'send') {
-      if (!tabs.length) return failed(`作業役「${member.name}」のタブが開いていません。`, '作業役のタブを開き直すか、brief.md を書き足してください。');
-      for (const tab of tabs) deliver(tab, `[進行役「${s.name}」から] ${args.slice(4).join(' ')}`);
-      return {ok: true, result: {name: member.name, path: member.path}, error: null};
-    }
-    for (const tab of tabs) closeSession(tab.id);   // 使っているフォルダーは消せない
-    return ecobuildDoc(args, cwd);
-  }
-  const doc = await ecobuildDoc(args, cwd);
-  if (args[2] === 'start' && doc.ok && doc.result?.path) {
-    const m = doc.result;
-    const tab = openSession({dir: m.path, name: m.name, title: true, role: m.role, prompt: m.prompt, lead: s.id});
-    const opened = findSession(tab.id); if (opened) opened.teamPath = m.path;
-    select(s.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
-  }
-  return doc;
 }
 
 // ---- 右下の表示 ----------------------------------------------------------------------------------------
@@ -951,8 +918,10 @@ function setup({ecobuild, python, group}) {
     if (ringConfig.match) ring.calibrate({match: ringConfig.match, prefix: prefix || ''});
   });
   setInterval(poll, POLL_MS);
+  startServe();
   app.on('before-quit', () => {
     app.isQuitting = true; link.stop(); globalShortcut.unregisterAll(); ring.stop();
+    if (serveProc) { try { serveProc.stdin.end(); serveProc.kill(); } catch (e) { /* 終わっている */ } }
     for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
   });
 }

@@ -50,4 +50,19 @@ function summary(s) {
           fiveHour: limit('five_hour'), weekly: limit('seven_day')};
 }
 
-module.exports = {found, poll, summary};
+// 受け箱（inbox/。ECOBuild の係が入れる：言付け・作業役の知らせ）の一番古いものを取り出す（なければ null）。
+// ecobuild の agent_status.take と同じ形：名前の順が届いた順、.taken に名前を変えて取ったものだけを使う
+function take(folder) {
+  const inbox = path.join(folder, 'inbox');
+  let names; try { names = fs.readdirSync(inbox).filter(n => n.endsWith('.json')).sort(); } catch (e) { return null; }
+  for (const name of names) {
+    const file = path.join(inbox, name), taken = file.replace(/\.json$/, '.taken');
+    try { fs.renameSync(file, taken); } catch (e) { continue; }   // ほかが取った
+    const data = read(taken);
+    try { fs.unlinkSync(taken); } catch (e) { /* もうない */ }
+    if (data && typeof data === 'object') return data;
+  }
+  return null;
+}
+
+module.exports = {found, poll, summary, take};

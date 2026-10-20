@@ -14,7 +14,7 @@ def command(name: Annotated[str, "作業役の名前（子タスクの題名・�
             brief_file: Annotated[str, "任せる仕事を書いたファイル（--brief の代わり）"] = "",
             lead: Annotated[bool, "作業役ではなく、その部分を受け持つ進行役を作る（新しい窓で動く）"] = False,
             model: Annotated[str, "この作業役のモデル（既定はこのPCの設定 agent_worker_model・agent_lead_model）"] = "",
-            no_open: Annotated[bool, "作るだけで起動しない（GUI が自分のタブで起動するとき）"] = False,
+            no_open: Annotated[bool, "作るだけで起動しない（係・GUI が起動するとき）"] = False,
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """作業役を作って起動します（進行役が使います）。
 
@@ -47,5 +47,5 @@ def _render(r) -> str:
         f"{role}「{r.get('name')}」を作りました：子タスク #{r.get('task')}（{r.get('branch')}）、作業空間 {_forward.place(r)}",
         f"モデル：{r.get('model')}" if r.get("model") else None,
         f"新しい画面で起動しました" if r.get("opened") else None,
-        f"報告は {_forward.place(r)}/{_team.REPORT_FILE} に書かれます。返答が終わると知らせが届きます（GUI）。",
+        f"報告は {_forward.place(r)}/{_team.REPORT_FILE} に書かれます。返答が終わると知らせが届きます（係）。",
     )

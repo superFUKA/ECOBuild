@@ -60,7 +60,7 @@ class Module(ecobuild.Module):
         task = self.require_task_branch("エージェントの起動")
         role = team.role_of(self.root, role)
         command = self._for_role(tuple(command), role, prompt)
-        command = self._briefed(command, agent_status.prepare(container.name(self.root)), inside, task, role)
+        command = self._briefed(command, agent_status.prepare(container.name(self.root), self.root), inside, task, role)
         if not inside:
             return super().start_agent(command)
         session = container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
@@ -77,7 +77,7 @@ class Module(ecobuild.Module):
         role = team.role_of(self.root, role)
         command = self._for_role(tuple(command), role, prompt)
         if command[:1] == ("claude",):
-            folder = agent_status.prepare(container.name(self.root))
+            folder = agent_status.prepare(container.name(self.root), self.root)
             agent_status.announce(folder)
             where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), agent_status.host_python())
             command = (*command, "--settings", agent_status.settings_argument(folder, where, python))

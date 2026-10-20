@@ -4,6 +4,7 @@
 小さなスクリプト（REPORT）が、作業空間ごとの置き場所（ECOBUILD_HOME/agents/status/<コンテナの名前>）に書き出す：
 - status.json：モデル・コンテキストの使用率・使用量の制限（5時間・週）・会話の ID（statusLine が受け取るもの）
 - replied.json：返答が終わった時刻と、最後の返答の文（Stop フック）
+ECOBuild が書くもの：workspace.json（どの作業空間か）、inbox/（エージェントに届けるもの。put・take）。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
 ほかの端末には何も見えない）。コンテナの中のエージェントは、この置き場所をマウントした所（INSIDE）に書く。
 """
@@ -11,7 +12,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import time
+import uuid
 from pathlib import Path
 
 from ecobuild import settings as _settings
@@ -58,14 +62,73 @@ def directory(name: str) -> Path:
     return _settings.home() / FOLDER / name
 
 
-def prepare(name: str) -> Path:
-    """置き場所を用意し（前の状態は消す）、スクリプトを置く。"""
+WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 agent_serve が読む）
+INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・作業役の知らせ）
+
+
+def prepare(name: str, root: Path | None = None) -> Path:
+    """置き場所を用意し（前の状態は消す。受け箱は残す：起動の前に届いたもの）、スクリプトを置く。
+    root：作業空間の場所（記録する）。"""
     folder = directory(name)
     folder.mkdir(parents=True, exist_ok=True)
     for old in ("status.json", "replied.json"):
         (folder / old).unlink(missing_ok=True)
     (folder / SCRIPT).write_text(REPORT, encoding="utf-8", newline="\n")
+    if root is not None:
+        _write(folder / WORKSPACE, {"root": str(Path(root))})
     return folder
+
+
+def workspace_of(folder: Path) -> Path | None:
+    """置き場所が、どの作業空間のエージェントのものか（記録がなければ None：オペレーター等）。"""
+    data = read(Path(folder) / WORKSPACE)
+    return Path(data["root"]) if isinstance(data, dict) and data.get("root") else None
+
+
+def folders() -> list[Path]:
+    """このPCの、エージェントの状態の置き場所すべて。"""
+    root = _settings.home() / FOLDER
+    return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+
+
+def read(file: Path):
+    """JSON のファイル（読めなければ None）。"""
+    try:
+        return json.loads(Path(file).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _write(file: Path, value) -> None:
+    temporary = file.with_name(file.name + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, file)
+
+
+def put(folder: Path, text: str, sender: str = "") -> Path:
+    """エージェント（置き場所 folder）の受け箱に入れる。届けるのはエージェントを動かしている側（GUI の窓等）：
+    待機中で入力欄が空のときに、古いものから1つずつ入力欄に送る。"""
+    inbox = Path(folder) / INBOX
+    inbox.mkdir(parents=True, exist_ok=True)
+    file = inbox / f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.json"
+    _write(file, {"at": time.time(), "from": sender, "text": text})
+    return file
+
+
+def take(folder: Path) -> dict | None:
+    """受け箱の一番古いものを取り出す（ほかが先に取ったものは飛ばす）。なければ None。"""
+    inbox = Path(folder) / INBOX
+    for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
+        taken = file.with_suffix(".taken")
+        try:
+            os.replace(file, taken)
+        except OSError:
+            continue
+        data = read(taken)
+        taken.unlink(missing_ok=True)
+        if isinstance(data, dict):
+            return data
+    return None
 
 
 def forget_old(prefix: str, days: float = 1.0) -> None:

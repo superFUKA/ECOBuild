@@ -576,7 +576,7 @@ class Module:
         title = "### 確認（ECOBuild）"
         if items is None:
             return (f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・テスト）を"
-                    "行わずに提出しました（--no-check）。")
+                    f"行わずに提出しました{NO_CHECK_NOTE}。")
         profile = _config.load_local(self.root).get("profile")
         when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
         where = f"版 `{head}`" + (f"、ビルド設定 {profile}" if profile else "") + f"、{when}"
@@ -1489,9 +1489,20 @@ class Module:
 
 SUBMIT_NOTE_SECTION = "note"     # 提出の本文の節（ecowork の with_section）：提出の説明
 SUBMIT_CHECK_SECTION = "check"   # 確認の結果
+NO_CHECK_NOTE = "（--no-check）"   # 確認の節の、check を行わずに提出した印（submitted_check が読む）
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
                "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
+
+
+def submitted_check(body: str) -> tuple[bool | None, str | None]:
+    """提出（PR）の本文の確認の節から：(check を通して提出したか〔--no-check なら False。節がなければ None〕,
+    その版〔コミットの頭。読めなければ None〕)。"""
+    text = wm.section(body, SUBMIT_CHECK_SECTION)
+    if text is None:
+        return None, None
+    version = re.search(r"`([0-9a-f]{7,40})`", text)
+    return NO_CHECK_NOTE not in text, version.group(1) if version else None
 
 
 def mismatch_text(states) -> str:

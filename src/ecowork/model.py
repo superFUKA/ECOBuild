@@ -144,6 +144,14 @@ def with_section(body: str, name: str, text: str) -> str:
     return "\n\n".join(parts) + "\n" if parts else ""
 
 
+def section(body: str, name: str) -> str | None:
+    """本文の節 name の中身（なければ None）。"""
+    found = _section_pattern(name).search(body or "")
+    if found is None:
+        return None
+    return found.group(0).split("\n", 1)[1].rsplit("\n", 1)[0].strip()
+
+
 def with_sections(body: str, sections: dict[str, str]) -> str:
     for name, text in sections.items():
         body = with_section(body, name, text)

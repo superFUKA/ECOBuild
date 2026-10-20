@@ -31,8 +31,11 @@ def code_of(action):
 
 @pytest.fixture
 def lead(tmp_path, monkeypatch):
+    from ecowork import github as ecowork_github
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    github = FakeGitHub(tmp_path / "gh")
+    monkeypatch.setattr(ecowork_github, "default", lambda: github)   # 係が開く作業空間（作業役）も偽の GitHub に
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
     module.repository.create_task("大きな仕事").start(name="大きな仕事")
     return module
 
@@ -65,6 +68,7 @@ def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     briefing = worker.agent_briefing(worker.require_task_branch("x"), team.WORKER)
     assert "作業役" in briefing and team.REPORT_FILE in briefing
     assert "提出しない" in briefing                                                   # レビュー・調べものは報告だけ
+    assert "`状態：完了／質問あり／止まっている／続ける`" in briefing                       # 返答の最後の状態の行
 
     (member.path / team.REPORT_FILE).unlink()
     closed = Module.close_workspace(member.path)                                            # 入れ子でも閉じられる
@@ -99,6 +103,9 @@ def test_a_lead_has_its_own_model_and_writes_only_its_notes(lead, tmp_path):
     assert "進行役" in briefing and "agent team start" in briefing and team.PLAN_FILE in briefing
     assert "進め方の手" in briefing and "2〜3人" not in briefing                          # 人数は大きさ・独立さで
     assert all(word in briefing for word in ("共通の決まり", "レビュー", "アイデア", "--lead", "task close"))
+    assert "`## 持ち場`" in briefing and "「注意なし」" in briefing and "状態：" not in briefing   # 上の進行役はいない
+    sub_briefing = Module.find(sub.path).agent_briefing(Module.find(sub.path).require_task_branch("x"), team.LEAD)
+    assert "上の進行役がいます" in sub_briefing
     assert code_of(lambda: team.create(lead, "空", "  ")) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: team.role_of(lead.root, "boss")) == ErrorCode.INVALID_ARGUMENT
 
@@ -148,6 +155,100 @@ def test_send_and_the_lead_notice_go_to_the_inbox(lead):
     (member.path / team.REPORT_FILE).write_text("できた\n", encoding="utf-8")
     assert f"報告：{team.TEAM_AREA}/{member.path.name}/{team.REPORT_FILE}" in team.lead_notice(member.path, "")[1]
     assert team.lead_notice(lead.root, "x") is None                                     # 進行役自身は知らせない
+
+
+AREA_BRIEF = "目的：画面を作る\n\n## 持ち場\n- `src/ui/`\n- docs/ui.md（画面の説明）\n\n## 触らない\n- src/ui/old.py\n"
+
+
+def worker_of(lead, brief=AREA_BRIEF):
+    member = team.create(lead, "画面", brief)
+    return member, Module.find(member.path, github=lead.repository.github)
+
+
+def commit(worker, path, text="x\n"):
+    file = worker.root / path
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(text, encoding="utf-8")
+    task_branch = worker.require_task_branch("x")
+    task_branch.stage(path)
+    task_branch.commit(f"{path} を変える")
+
+
+def notice_of(member, message):
+    """知らせの文：(注意の行, 事実の行)。"""
+    lines = team.lead_notice(member.path, message)[1].splitlines()
+    return lines[0], lines[1]
+
+
+def test_the_notice_puts_cautions_first(lead):
+    """係が作業空間・GitHub を調べ、作業役の言う状態と食い違うもの・注意を知らせの先頭に書く（注意がなければそう書く）。"""
+    member, worker = worker_of(lead)
+    commit(worker, "src/ui/login.py")
+    (member.path / team.REPORT_FILE).write_text("できた\n", encoding="utf-8")
+    first, facts = notice_of(member, "作りました。\n\n状態：完了")
+    assert first.endswith("「画面」の返答が終わりました。注意：完了と言っていますが、提出がありません／"
+                          "push していないコミットが 1 件あります")
+    assert facts.startswith("状態：完了。報告：") and "提出：なし" in facts and "変えたファイル 1。" in facts
+
+    pr = worker.submit()                                                                 # check を通して提出
+    first, facts = notice_of(member, "提出しました。\n**状態：完了**")
+    assert first.endswith("注意なし")
+    assert f"提出：PR #{pr.number}（開いている・check を通した）" in facts
+
+    commit(worker, "src/ui/more.py")
+    worker.require_task_branch("x").push()                                               # check の後に push だけした
+    assert "check を通した版の後のコミットが提出に入っています" in notice_of(member, "状態：完了")[0]
+    worker.submit(check=False)
+    first, facts = notice_of(member, "状態：完了")
+    assert "--no-check で提出しました" in first and "・--no-check）" in facts
+
+
+def test_the_notice_tells_changes_outside_the_area(lead):
+    member, worker = worker_of(lead)
+    commit(worker, "src/core.py")
+    commit(worker, "src/ui/old.py")
+    commit(worker, "docs/ui.md")
+    (member.path / "src" / "ui" / "draft.py").write_text("まだ\n", encoding="utf-8")   # 未コミットの新しいファイル
+    first, _ = notice_of(member, "状態：続ける")
+    assert "持ち場の外のファイルを変えました（src/core.py）" in first
+    assert "触らないはずのファイルを変えました（src/ui/old.py）" in first
+    assert "未コミットの変更があります（src/ui/draft.py）" in first
+    assert "完了と言って" not in first                                                  # 続ける：提出がなくてよい
+
+
+def test_the_notice_without_a_state_line_or_an_area(lead):
+    member, worker = worker_of(lead, "目的：画面を作る\n範囲：src/ui だけ")               # 持ち場の節がない：照らさない
+    commit(worker, "src/core.py")
+    first, facts = notice_of(member, "途中です")
+    assert first.endswith("注意：返答の最後に状態の行がありません／push していないコミットが 1 件あります")
+    assert facts.startswith("状態：不明。") and "変えたファイル 1（持ち場は照らしていません）" in facts
+    first, _ = notice_of(member, "状態：質問あり")
+    assert "質問があります" in first
+
+
+def test_a_report_only_worker_need_not_submit(lead):
+    """任された仕事に「提出しない」とあれば（レビュー・調べもの）、完了で提出がなくても注意にしない。"""
+    member, _ = worker_of(lead, "目的：PR #3 を読んで指摘を報告に書く。コードは変えない。**提出しない**")
+    (member.path / team.REPORT_FILE).write_text("指摘\n", encoding="utf-8")
+    assert notice_of(member, "状態：完了")[0].endswith("注意なし")
+
+
+def test_the_notice_says_what_could_not_be_checked(lead, monkeypatch):
+    member, _ = worker_of(lead)
+    def broken(repo, head):
+        raise WorkError("gh_error", "HTTP 502")
+    monkeypatch.setattr(lead.repository.github, "pull_requests_for_branch", broken)
+    first, _ = notice_of(member, "状態：完了")
+    assert "調べられませんでした：提出（HTTP 502）" in first and "提出がありません" not in first   # 知らせは出す
+
+
+def test_reading_the_state_line_and_the_area():
+    assert team.reported_state("状態：続ける\n…\n> 状態: 完了") == team.DONE           # 最後の行
+    assert team.reported_state("状態はよいです") == team.UNKNOWN_STATE
+    assert team.brief_area("# 任せる\n## 持ち場\n- `src/a/`（画面）\n* src/b.py：説明\n1. tests/*.py\n"
+                           "## 返してほしいもの\n- 報告\n### 触らない\n- src/c\n") \
+        == (("src/a/", "src/b.py", "tests/*.py"), ("src/c",))
+    assert team.brief_area("範囲：src だけ") == ((), ())
 
 
 def test_closing_the_lead_checks_and_forgets_the_workers(lead):

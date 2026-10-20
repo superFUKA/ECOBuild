@@ -18,7 +18,8 @@ ECOBuild の係（agent_serve。GUI が起動する）が実行して結果を�
 作業役のタブを開いてもらうため同じ道を使う（WINDOW_VARIABLE）。
 
 言付け（send）と、作業役の返答が終わった知らせ（lead_notice）は、相手のエージェントの受け箱（agent_status.put）に入れる。
-届けるのはエージェントを動かしている側（GUI の窓等）。
+届けるのはエージェントを動かしている側（GUI の窓等）。知らせには、係が作業空間・GitHub を調べた事実（reply_facts：
+提出・--no-check・未コミット・持ち場の外の変更 等）と、作業役が返答の最後に書く状態の行を照らした注意を先頭に書く。
 
 進行役はチームの様子（作業中・待機中・止まっている。team）を見て、止まった・迷った作業役を起動し直せる（restart_plan。
 作業空間・ブランチ・作業はそのまま。新しい会話か、続きから）。頼みの途中経過は係が書き（PROGRESS）、頼んだ側は
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import uuid
 from contextlib import contextmanager
@@ -452,6 +454,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "作業役が別のタブで動き始めます）。<名前> はタスクブランチの名前にもなる短い名前です。",
             "   --brief には必ず次を書きます：**目的**（何のためか）、**返してほしいもの**（報告に書くこと・提出の形）、"
             "**使ってよい道具・見る場所**、**範囲**（やらないこと・触らないファイル）。短い指示は取り違え・重複のもとです。",
+            f"   変えてよいファイルは `## {AREA_HEADING}`、触らないファイルは `## {KEEP_OUT_HEADING}` の節に、1行に1つのパス"
+            "（フォルダー・ファイル・`src/ui/*.py` のような glob）の箇条書きで書きます。ECOBuild がこれと作業役の変更を照らして、"
+            "外のファイルを変えたら知らせます（この形でなければ照らしません）。",
             "   何人も作るときは、1人ずつ終わるのを待たずに並べて頼みます（ECOBuild の係が数人ずつ並べて作ります。1人に"
             "数十秒かかるので、ループで順に待つと全員そろうまで長くかかります）：Bash の run_in_background で1人ずつ "
             f"`{program} agent team start <名前> --brief-file <ファイル>` を出し、終わった知らせ（結果）を待ちます。"
@@ -461,7 +466,13 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "3. 作業役の人数は仕事の大きさと独立さで決めます：小さなことは1人（または任せずにユーザーと話すだけ）、"
             "互いに依存しない部分に分けられるだけ並べます（大勢でもよい。下の「進め方の手」）。"
             "**同じファイルを2人に任せません**（持ち場を分ける）。依存し合う仕事は順に任せます。",
-            "4. 任せたら**作業役を待ちます**（自分で作業を始めない）。作業役の返答が終わると、ECOBuild がこの会話に知らせます。",
+            "4. 任せたら**作業役を待ちます**（自分で作業を始めない）。作業役の返答が終わると、ECOBuild がこの会話に知らせます。"
+            "知らせの1行目は ECOBuild が作業空間・GitHub を調べた注意（完了と言うのに提出がない・--no-check で提出・"
+            "持ち場の外の変更・未コミットの変更 等）、次の行が作業役の言う状態（完了・質問あり・止まっている・続ける）と事実です。",
+            "   知らせを読んだら、次のどれかを選びます：**取り込む**（`task diff`→`task finish`）・**直しを頼む**（send）・"
+            "**起動し直す**（restart）・**閉じる**（close）・**ユーザーに聞く**。"
+            "「注意なし」で状態が完了なら、差分を見て取り込んでかまいません。**注意があるものは、取り込む前に必ず報告・差分の中を"
+            "見て**、直しを頼むかユーザーに聞きます（--no-check の提出を取り込むかは、ユーザーに決めてもらいます）。",
             f"5. 結果は作業役の作業空間 `{TEAM_AREA}/<番号>-<名前>/` から読みます（報告は `{REPORT_FILE}`）。"
             f"`{program} agent team list` で一覧・報告の有無と、作業役の様子（作業中・待機中・止まっている、その長さ、"
             "最後の返答）が分かります。",
@@ -495,6 +506,10 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "下の進行役からの知らせは、要約してユーザーに伝えます。",
             "",
         ]
+        if info.get("lead"):   # 下の進行役：上の進行役への知らせにも状態を書く
+            ninth = next(i for i, line in enumerate(lines) if line.startswith("9. "))
+            lines[ninth + 1:ninth + 1] = [f"10. あなたには上の進行役がいます。返答の最後には1行、`状態：{'／'.join(STATES)}` のどれかを書きます"
+                            "（受け持った部分を提出まで終えたら完了）。"]
     else:
         lines = [
             "## あなたの役：作業役",
@@ -510,6 +525,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
                 "任された仕事に「提出しない」とあるとき（レビュー・調べもの・アイデア出し等）は、ファイルを変えず・コミットせず、"
                 "報告を書いて返答を終えます（子タスクは進行役が閉じます）。",
                 "- 迷ったこと・決められないことは、勝手に決めずに報告に書いて返答を終えます（進行役が読みます）。",
+                f"- **返答の最後には必ず1行、`状態：{'／'.join(STATES)}` のどれかを書きます**（完了：提出まで終えた〔提出しない仕事なら報告まで〕。"
+                "質問あり：進行役の答えが要る。止まっている：自分では進められない。続ける：まだ途中）。"
+                "ECOBuild はこの行と、作業空間・提出の様子を照らして進行役に知らせます。",
                 f"- **作業役・進行役を自分では作りません**（`{program} agent team start` は使えません）。分けた方がよいと思ったら、"
                 "分け方の提案を報告に書いて進行役に伝えます。調べもの・確認など、この作業空間の中だけの小さな手伝いには、Claude Code の"
                 "サブエージェントを使って構いません。",
@@ -533,9 +551,179 @@ def send(root: Path, name: str, text: str) -> Member:
     return member
 
 
-def lead_notice(root: Path, message: str) -> tuple[Path, str] | None:
+# 返答の終わり：係が事実をそろえて、進行役に知らせる -------------------------------------------------------
+# 作業役の自己申告（状態の行・報告）だけに頼らず、係が作業空間と GitHub を直接調べ、食い違い・注意を先頭に書く
+# （進行役は注意のないものを差分だけ見て取り込み、注意のあるものは中を見る：レビューの負荷を下げる）。
+# 対話型の作業役（replied.json）でも、アプリ用の起動の結果でも同じものを使う（reply_facts・lead_notice）。
+
+DONE, QUESTION, STUCK, GOING = "完了", "質問あり", "止まっている", "続ける"
+STATES = (DONE, QUESTION, STUCK, GOING)   # 作業役が返答の最後の1行「状態：…」に書くもの
+UNKNOWN_STATE = "不明"                    # 状態の行がない
+_STATE_LINE = re.compile(rf"^[\s>*_`-]*状態[\s*_`]*[：:][\s*_`]*({'|'.join(STATES)})", re.MULTILINE)
+NO_SUBMIT = "提出しない"                   # 任せる内容（brief）にこれがあれば、報告だけの仕事（レビュー・調べもの等）
+AREA_HEADING, KEEP_OUT_HEADING = "持ち場", "触らない"   # 任せる内容（brief）の節：変えてよいパス・触らないパス
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*(.+?)\s*#*\s*$")
+_ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.+)$")
+_LISTED = 3                               # 注意に並べるファイルの数（ほかは「ほか n 件」）
+
+
+@dataclass(frozen=True)
+class ReplyFacts:
+    """作業役の返答が終わったときに、係がその作業空間・GitHub を調べてそろえた事実（lead_notice の文のもと）。"""
+    state: str                          # 作業役の言う状態（STATES。行がなければ UNKNOWN_STATE）
+    reported: bool                      # 報告（REPORT_FILE）がある
+    no_submit: bool = False             # 任された仕事が報告だけ（NO_SUBMIT）：提出がなくてよい
+    pull: int | None = None             # 提出（タスクブランチの PR。いちばん新しいもの）の番号
+    pull_state: str = ""                # open・merged・closed
+    draft: bool = False
+    checked: bool | None = None         # 提出のときに check を通したか（--no-check なら False。分からなければ None）
+    unchecked_since: bool = False       # check を通した版の後に、提出に入ったコミットがある（出し直していない）
+    uncommitted: tuple[str, ...] = ()   # 未コミットの変更（新しいファイルも）
+    unpushed: int = 0                   # push していないコミットの数
+    changed: tuple[str, ...] = ()       # 進行役のタスクブランチから変えたファイル（未コミットのものも）
+    scoped: bool = False                # 任された仕事に持ち場が書いてあり、照らした
+    outside: tuple[str, ...] = ()       # 持ち場の外の変更
+    kept_out: tuple[str, ...] = ()      # 触らないはずのものの変更
+    unknown: tuple[str, ...] = ()       # 調べられなかったこと（何を・なぜ）
+
+
+def reported_state(message: str) -> str:
+    """返答の文の最後の「状態：…」の行（なければ UNKNOWN_STATE）。"""
+    found = _STATE_LINE.findall(message or "")
+    return found[-1] if found else UNKNOWN_STATE
+
+
+def brief_area(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """任された仕事（brief）の「持ち場」「触らない」の節の箇条書きのパス：(持ち場, 触らない)。節がなければ空。
+    項目の頭のパス（`…` で囲んでいればその中）だけを読み、後ろの説明は読まない。"""
+    found = {AREA_HEADING: [], KEEP_OUT_HEADING: []}
+    current = None
+    for line in (text or "").splitlines():
+        heading = _HEADING.match(line)
+        if heading:
+            current = heading.group(1) if heading.group(1) in found else None
+            continue
+        item = _ITEM.match(line) if current else None
+        if item:
+            quoted = re.search(r"`([^`]+)`", item.group(1))
+            path = (quoted.group(1) if quoted else re.split(r"[\s（(：:、,]", item.group(1).strip())[0]).strip()
+            path = path.removeprefix("./").replace("\\", "/")
+            if path:
+                found[current].append(path)
+    return tuple(found[AREA_HEADING]), tuple(found[KEEP_OUT_HEADING])
+
+
+def _covers(pattern: str, path: str) -> bool:
+    """持ち場等のパス（フォルダー・ファイル・glob）に path が入るか。"""
+    import fnmatch
+    pattern = pattern.rstrip("/")
+    if any(mark in pattern for mark in "*?["):
+        return fnmatch.fnmatchcase(path, pattern) or fnmatch.fnmatchcase(path, pattern + "/*")
+    return path == pattern or path.startswith(pattern + "/")
+
+
+def reply_facts(root: Path, message: str, *, github=None) -> ReplyFacts:
+    """作業空間 root のエージェントの返答が終わったときの事実を調べる（時間のかかる check は動かさない）。
+    調べられなかったものは unknown に書き、ほかは調べ続ける（知らせは必ず出す）。github：試験で差し替える。"""
+    from ecobuild.module import submitted_check
+    from ecowork import model as _work
+    from ecowork.git import REMOTE
+    from ecowork.repository import Repository
+    root = Path(root)
+    unknown = []
+    try:
+        brief = (root / BRIEF_FILE).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        brief = ""
+    found = {"state": reported_state(message), "reported": (root / REPORT_FILE).is_file(), "no_submit": NO_SUBMIT in brief}
+    repository = Repository(root, github=github)
+    git = repository.git
+    branch = base = None
+    try:
+        branch = git.current_branch()
+        base = branch and git.get_config(_work.base_key(branch))
+        tree = git.working_tree()
+        found["uncommitted"] = tuple(dict.fromkeys(tree.staged + tree.unstaged + tree.conflicted + tree.untracked))
+        found["unpushed"] = len(git.output("log", "HEAD", "--not", "--remotes", "--format=%h").splitlines())
+    except Exception as error:
+        unknown.append(f"git の状態（{error}）")
+    if base:
+        try:
+            committed = git.output("diff", "--name-only", f"{REMOTE}/{base}...HEAD").splitlines()
+            changed = tuple(dict.fromkeys([*committed, *found.get("uncommitted", ())]))
+            found["changed"] = changed
+            area, kept_out = brief_area(brief)
+            if area:
+                found["scoped"] = True
+                found["outside"] = tuple(p for p in changed if not any(_covers(a, p) for a in area))
+            found["kept_out"] = tuple(p for p in changed if any(_covers(k, p) for k in kept_out))
+        except Exception as error:
+            unknown.append(f"進行役のタスクブランチ {base} からの差分（{error}）")
+    if branch:
+        try:
+            pulls = repository.github.pull_requests_for_branch(root, branch)
+            if pulls:
+                pull = max(pulls, key=lambda p: p.number)
+                checked, version = submitted_check(pull.body)
+                found.update(pull=pull.number, pull_state=pull.state, draft=pull.draft, checked=checked,
+                             unchecked_since=bool(checked and version and pull.head_sha and pull.state == "open"
+                                                  and not pull.head_sha.startswith(version)))
+        except Exception as error:
+            unknown.append(f"提出（{getattr(error, 'message', error)}）")
+    return ReplyFacts(**found, unknown=tuple(unknown))
+
+
+def _files(paths: tuple[str, ...]) -> str:
+    shown = "、".join(paths[:_LISTED])
+    return shown + (f" ほか {len(paths) - _LISTED} 件" if len(paths) > _LISTED else "")
+
+
+def cautions(facts: ReplyFacts, role: str = WORKER) -> list[str]:
+    """知らせの先頭に書く、食い違い・注意（なければ空：差分を見て取り込んでよい）。"""
+    found = []
+    submitted = facts.pull is not None and facts.pull_state != "closed"
+    if facts.state == UNKNOWN_STATE and role == WORKER:
+        found.append("返答の最後に状態の行がありません")
+    elif facts.state == QUESTION:
+        found.append("質問があります（最後の返答を読んで答えてください）")
+    elif facts.state == STUCK:
+        found.append("止まっていると言っています")
+    if facts.state == DONE and not submitted and not facts.no_submit and not any(u.startswith("提出") for u in facts.unknown):
+        found.append("完了と言っていますが、提出がありません")
+    if facts.state == DONE and not facts.reported:
+        found.append("完了と言っていますが、報告がありません")
+    if submitted and facts.checked is False:
+        found.append("--no-check で提出しました（check を通していません）")
+    if facts.unchecked_since:
+        found.append("check を通した版の後のコミットが提出に入っています（task submit で出し直していません）")
+    if facts.uncommitted:
+        found.append(f"未コミットの変更があります（{_files(facts.uncommitted)}）")
+    if facts.unpushed:
+        found.append(f"push していないコミットが {facts.unpushed} 件あります")
+    if facts.outside:
+        found.append(f"持ち場の外のファイルを変えました（{_files(facts.outside)}）")
+    if facts.kept_out:
+        found.append(f"触らないはずのファイルを変えました（{_files(facts.kept_out)}）")
+    found += [f"調べられませんでした：{item}" for item in facts.unknown]
+    return found
+
+
+def _facts_line(facts: ReplyFacts, report: str) -> str:
+    """状態と事実の1行。"""
+    if facts.pull is None:
+        submission = "なし"
+    else:
+        kind = {"open": "下書き" if facts.draft else "開いている", "merged": "取り込み済み", "closed": "閉じた"}
+        checked = {True: "・check を通した", False: "・--no-check", None: ""}[facts.checked]
+        submission = f"PR #{facts.pull}（{kind.get(facts.pull_state, facts.pull_state)}{checked}）"
+    changed = f"変えたファイル {len(facts.changed)}" + ("" if facts.scoped or not facts.changed else "（持ち場は照らしていません）")
+    return f"状態：{facts.state}。{report}提出：{submission}。{changed}。"
+
+
+def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None) -> tuple[Path, str] | None:
     """作業役（作業空間 root）の返答が終わったときに、作った進行役へ送る知らせ：(進行役の作業空間, 文)。
-    チームの1人でなければ None。"""
+    先頭に注意（なければ「注意なし」）、次に状態と事実、最後に最後の返答の頭。チームの1人でなければ None。
+    facts：そろえた事実（省けば reply_facts で調べる）。"""
     info = member_info(root)
     if not info.get("lead"):
         return None
@@ -544,11 +732,13 @@ def lead_notice(root: Path, message: str) -> tuple[Path, str] | None:
         place = Path(root).resolve().relative_to(lead.resolve()).as_posix()
     except ValueError:
         place = Path(root).as_posix()
-    report = (f"報告：{place}/{REPORT_FILE}。" if (Path(root) / REPORT_FILE).is_file()
-              else f"（報告 {place}/{REPORT_FILE} はまだありません）。")
+    facts = facts or reply_facts(root, message)
+    report = f"報告：{place}/{REPORT_FILE}。" if facts.reported else f"報告：まだありません（{place}/{REPORT_FILE}）。"
+    found = cautions(facts, str(info.get("role") or WORKER))
+    caution = "注意：" + "／".join(found) if found else "注意なし"
     last = " ".join((message or "").split())[:400]
     return lead, (f"[ECOBuild] {ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or Path(root).name}」の"
-                  f"返答が終わりました。{report}" + (f"\n最後の返答：{last}" if last else ""))
+                  f"返答が終わりました。{caution}\n{_facts_line(facts, report)}" + (f"\n最後の返答：{last}" if last else ""))
 
 
 # 頼み（コンテナの中・GUI の端末の進行役から、このPCの係へ） -------------------------------------------------

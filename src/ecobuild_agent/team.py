@@ -15,7 +15,7 @@ git の除外の中）。子タスクのタスクブランチは親（進行役�
 コンテナの中の進行役は、このPC（ほかのコンテナ・エージェントを動かしている側）に届かない。作業役を作る等の操作は
 「頼み」（REQUESTS）として、状態の置き場所（このPCのフォルダーをマウントしたもの。agent_status）に書き、このPCで常駐する
 ECOBuild の係（agent_serve。GUI が起動する）が実行して結果を書き戻す（forward）。GUI の端末の中の進行役（このPC）も、
-作業役のタブを開いてもらうため同じ道を使う（WINDOW_VARIABLE）。
+作業役を係に起動してもらうため同じ道を使う（WINDOW_VARIABLE）。
 
 言付け（send）と、作業役の返答が終わった知らせ（lead_notice）は、相手のエージェントの受け箱（agent_status.put）に入れる。
 届けるのはエージェントを動かしている側（係が持つアプリ用のものは係が標準入力へ。人の画面なら GUI の窓等）。知らせには、係が
@@ -760,7 +760,7 @@ def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None) ->
 # 頼み（コンテナの中・GUI の端末の進行役から、このPCの係へ） -------------------------------------------------
 
 def should_forward() -> bool:
-    """この操作を係に頼むか：コンテナの中（このPCに届かない）か、GUI のエージェントの窓の端末の中（タブを開いてもらう）。"""
+    """この操作を係に頼むか：コンテナの中（このPCに届かない）か、GUI のエージェントの窓の端末の中（係に起動してもらう）。"""
     return bool(os.environ.get(container.INSIDE) or os.environ.get(WINDOW_VARIABLE))
 
 

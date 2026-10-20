@@ -343,6 +343,7 @@ class Apps:
         self.launch, self.log = launch, log
         self._agents: dict[str, Agent] = {}
         self._lock = threading.Lock()
+        self._held = threading.Lock()   # HELD を書く（作業役の作成は並べて行うので、起動も重なる）
 
     @staticmethod
     def _key(root: Path) -> str:
@@ -441,8 +442,9 @@ class Apps:
         held = [{"root": str(agent.root), "folder": str(agent.folder), "session": agent.session, "role": agent.role}
                 for agent in self.agents()]
         path = _settings.home() / HELD
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            status._write(path, {"agents": held})
-        except OSError:
-            pass
+        with self._held:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                status._write(path, {"agents": held})
+            except OSError:
+                pass

@@ -350,7 +350,7 @@ def test_waiting_shows_the_serves_progress_and_stops_when_the_serve_is_gone(lead
     def serve(answer):
         def wait(seconds):   # 係のふり：拾って途中経過を書き、answer なら結果も
             for request in folder.glob("*.json"):
-                if request.name.endswith((".result.json", team.PROGRESS)):
+                if request.name.endswith(".result.json"):
                     continue
                 key = request.stem
                 request.rename(request.with_suffix(".taken"))
@@ -401,3 +401,46 @@ def test_stopping_the_serve_waits_only_a_little_for_running_requests(lead):
     assert serve.wait(0.2) is False                                                     # 終わらなければ待ちきらない
     release.set()
     assert serve.wait(5) is True
+
+
+def test_the_serve_does_not_take_its_own_progress_for_requests(lead):
+    """途中経過・結果は頼みとして拾わない（拾うと途中経過が消え、頼んだ側が「応えない」と止まった）。"""
+    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    requests = folder / team.REQUESTS
+    requests.mkdir()
+    release, ran = threading.Event(), []
+
+    def run(args, cwd, **_):
+        ran.append(args)
+        assert release.wait(10)
+        return {"ok": True, "result": {}}
+    serve = agent_serve.Serve(run)
+    (requests / "a.json").write_text(json.dumps({"id": "a", "args": ["agent", "team", "list"], "cwd": "."}),
+                                     encoding="utf-8")
+    for _ in range(3):   # 実行中に何度も見回る
+        serve.step()
+        time.sleep(0.05)
+    assert sorted(p.name for p in requests.iterdir()) == sorted(["a.taken", f"a{team.PROGRESS}"])
+    release.set()
+    serve.wait()
+    assert len(ran) == 1 and sorted(p.name for p in requests.iterdir()) == ["a.result.json"]
+
+
+def test_children_of_the_serve_do_not_inherit_the_apps_pipe(tmp_path):
+    """係がアプリの返事を読んでいる間に起動する git 等も止まらない（標準入力を係だけのものにする）。"""
+    script = ("import subprocess, sys, threading, time\n"
+              "from ecobuild_cli.commands.agent.serve import detach_stdin\n"
+              "replies = detach_stdin()\n"
+              "threading.Thread(target=replies.readline, daemon=True).start()\n"
+              "time.sleep(0.5)\n"
+              "print(subprocess.run(['git', '--version'], capture_output=True, text=True, timeout=20).returncode)\n")
+    process = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               encoding="utf-8")
+    try:
+        process.wait(timeout=40)   # 標準入力は開いたまま
+    except subprocess.TimeoutExpired:
+        process.kill()
+        pytest.fail("係の起動した git が、アプリのパイプを引き継いで止まりました")
+    finally:
+        process.stdin.close()
+    assert process.stdout.read().strip() == "0"

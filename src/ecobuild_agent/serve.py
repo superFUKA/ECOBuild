@@ -153,7 +153,7 @@ class Serve:
     def _requests(self, folder: Path, root: Path | None) -> None:
         inbox = folder / team.REQUESTS
         for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
-            if file.name.endswith(".result.json"):
+            if "." in file.stem:   # 頼みは <id>.json だけ（結果 <id>.result.json 等は拾わない）
                 continue
             taken = file.with_suffix(".taken")
             try:

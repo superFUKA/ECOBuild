@@ -36,8 +36,8 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
     def ack(key: str, timeout: float) -> bool:
         return acks.setdefault(key, threading.Event()).wait(timeout)
 
-    def listen() -> None:   # 起動したアプリからの返事。閉じたら終わる
-        for line in sys.stdin:
+    def listen(replies) -> None:   # 起動したアプリからの返事。閉じたら終わる
+        for line in replies:
             try:
                 key = _json.loads(line).get("ack")
             except (ValueError, AttributeError):
@@ -61,7 +61,7 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                                       open_agent=None if json else open_agent, log=log)
             log("ECOBuild の係を動かしています" + ("（止めるには Ctrl+C）" if not json else ""))
             if json:
-                threading.Thread(target=listen, daemon=True).start()
+                threading.Thread(target=listen, args=(detach_stdin(),), daemon=True).start()
             try:
                 agent_serve.serve_forever(serve, stop)
             except KeyboardInterrupt:
@@ -75,6 +75,18 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
         return {"stopped": True}
 
     return execute("agent serve", Invocation(json_output=json), action, lambda r: "ECOBuild の係を止めました。")
+
+
+def detach_stdin():
+    """標準入力（起動したアプリの返事のパイプ）を係だけのものにして返し、標準入力は空にする。係が起動するものはすべて
+    （ecobuild・git 等）標準入力を引き継ぐが、Windows では読みかけのパイプを引き継いだプロセスが起動の途中で止まる
+    （作業役を探す git が止まり、頼みが進まなかった）。"""
+    replies = os.fdopen(os.dup(sys.stdin.fileno()), encoding="utf-8", errors="replace")   # 複製は子に引き継がれない
+    empty = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(empty, 0)   # Windows でも標準入力のハンドルが差し替わる（子が引き継ぐのはこちら）
+    os.close(empty)
+    sys.stdin = open(os.devnull, encoding="utf-8")
+    return replies
 
 
 PROGRAM = (sys.executable, "-m", "ecobuild_cli")   # 係が頼みを実行する ECOBuild（この ECOBuild と同じもの）

@@ -55,7 +55,8 @@ REQUESTS = "requests"               # 状態の置き場所の中の、頼みの
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
 STALL_SECONDS = 120                 # 頼みを実行する ecobuild が、この秒数なにも経過を出さなければ止まったとみなす（係が止める）
-PROGRESS = ".progress.json"         # 頼みの置き場所の中：<id>.progress.json（係が書く途中経過。係が動いている間は毎秒）
+PROGRESS = ".progress"              # 頼みの置き場所の中：<id>.progress（係が書く途中経過。係が動いている間は毎秒。
+                                    # .json にしない：頼み〔<id>.json〕と取り違える）
 SERVE_SILENT = 30                   # 途中経過がこの秒数書かれなければ、係が止まったとみなす
 FIRST_PROMPT = {
     WORKER: f"{BRIEF_FILE} に任された仕事があります。読んで作業を始めてください。終わったら {REPORT_FILE} に報告を書き、提出してください。",

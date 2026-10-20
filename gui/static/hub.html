@@ -82,8 +82,8 @@
         <div class="settings-actions"><button type="button" class="cancel" id="open-agents-settings">エージェントの窓を開く</button></div>
       </section>
       <section class="settings-card" data-group="container" aria-labelledby="images-title">
-        <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の版でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="今の ECOBuild の型のイメージを作ります（ecobuild container image build。1つ数分）">今の版を作る</button></div></div>
-        <p class="note">作業空間をコンテナにしたときの元。型（cpp・generic 等）ごとに1つで、ECOBuild を更新すると作り直します（前の版は自動で片付けます）。</p>
+        <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の作り方でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="コンテナにした作業空間のイメージを、今の作り方（.ecobuild/container と今の ECOBuild）で作ります（ecobuild container image build。1つ数分）">今の作り方で作る</button></div></div>
+        <p class="note">作業空間をコンテナにしたときの元。モジュールごとに、リポジトリの .ecobuild/container/Dockerfile（環境。コミットしてほかの端末と共有）に ECOBuild を重ねて作ります。環境が変わる・ECOBuild を更新すると作り直します（古いものは自動で片付けます）。</p>
         <p class="note" id="images-status" role="status">読み込んでいます…</p>
         <ul id="images-list" class="image-types"></ul>
       </section>

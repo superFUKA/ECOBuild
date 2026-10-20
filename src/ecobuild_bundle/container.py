@@ -4,10 +4,14 @@
 ファイルは今までどおりこのPC（Windows 等）に置き、コンテナにはその作業空間のフォルダだけを /work として見せる。
 コンテナは作業空間ごとに1つ（名前は作業空間の場所から決まる）。root ではなく一般ユーザー（uid 1000）で動かす。
 
-コンテナの元（イメージ）は ECOBuild が型ごとに作る：Ubuntu に git・gh・uv・ECOBuild（このPCと同じ版）と、
-型が使うツール（ModuleType.container_packages）を入れる。中身（Dockerfile）が同じなら作り直さない（名前に中身の
-ハッシュ）ので、作るのは最初の1回（と ECOBuild・型のツールが変わったとき）だけ。ecobuild.local.toml の
-container_image で、別のイメージを使うこともできる。
+コンテナの元（イメージ）はモジュールごとに2段で作る：
+1. モジュールの環境：作業空間の .ecobuild/container/（Dockerfile。モジュールのリポジトリにコミットし、ほかの端末と共有する。
+   モジュールを作るときに型のひな型 ModuleType.container_dockerfile を置く）。なければ型のひな型。
+2. ECOBuild の層：1 の上に git・gh・uv・Claude Code・ECOBuild（このPCと同じ版）を重ねる（ECOBuild の版で変わるので、
+   リポジトリには書かない）。
+名前に材料のハッシュを入れる（環境：.ecobuild/container/ の中身。ECOBuild の層：環境の名前＋層の作り方）ので、材料が
+同じなら作り直さない。リポジトリの更新で環境が変わる・ECOBuild を更新すると名前が変わり、コンテナは古い（outdated）と分かり、
+次の start で作り直す。ecobuild.local.toml の container_image で、別のイメージを使うこともできる。
 
 中で動かす（run_inside・start_agent）ときは、このPCの GitHub の鍵（gh auth token）と git の名前・メールを環境変数で渡す
 （docker exec のたび。コンテナの設定には残らず、コマンドラインにも値を書かない）。中の git は gh を認証に使う。
@@ -39,10 +43,10 @@ from ecobuild.errors import EcoBuildError, ErrorCode, WorkError, operation
 from . import docker
 
 KEY = "container"
-IMAGE_KEY = "container_image"   # ecobuild.local.toml：使うイメージ（なければ型ごとに作る）
+IMAGE_KEY = "container_image"   # ecobuild.local.toml：使うイメージ（なければモジュールの環境から作る）
 DENY_KEY = "agent_deny"         # ecobuild.local.toml：このコンテナのエージェントに使わせないもの（; 区切り。このPCの設定に足す）
-IMAGE_PREFIX = "ecobuild-"      # ECOBuild が作るイメージの名前の頭
-BASE = "ubuntu:24.04"           # 作るイメージの元
+IMAGE_PREFIX = "ecobuild-"      # ECOBuild が作るイメージの名前の頭（ecobuild-<モジュール>：ECOBuild の層まで）
+ENVIRONMENT_PREFIX = "ecobuild-env-"   # モジュールの環境のイメージ（ecobuild-env-<モジュール>）
 SOURCE = ("https://github.com/superFUKA/ECOBuild", "feature/mvp")   # 中に入れる ECOBuild（使う側が版を渡さなければ）
 WORKDIR = "/work"
 USER = "1000:1000"
@@ -78,19 +82,35 @@ class WorkspaceContainer:
     state: str = "none"     # コンテナ：none（まだない）・running・exited 等（docker の State.Status）。Docker が使えなければ unknown
     image: str = ""         # コンテナのイメージ（コンテナがなければ空）
     built: bool = False     # 今回イメージを作った
-    custom_image: str = ""  # この作業空間だけの設定：使うイメージ（空なら型のイメージ）
+    custom_image: str = ""  # この作業空間だけの設定：使うイメージ（空ならモジュールの環境から作るイメージ）
     deny: tuple[str, ...] = ()   # この作業空間だけの設定：エージェントに使わせないもの（このPCの agent_deny に足す）
+    wanted_image: str = ""  # 今の作り方（.ecobuild/container・ECOBuild の版）のイメージ。分からなければ空
+    outdated: bool = False  # コンテナが今の作り方のイメージでない（次の start で作り直す）
+    recipe: str = ""        # 環境の作り方：.ecobuild/container/Dockerfile。なければ空（型のひな型を使う）
+
+
+@dataclass(frozen=True)
+class Recipe:
+    """作業空間のコンテナのイメージの作り方（モジュールの環境 → ECOBuild の層）。"""
+    module: str              # イメージの名前に使うモジュールの名前（小文字）
+    environment: str         # モジュールの環境のイメージ：ecobuild-env-<モジュール>:<材料のハッシュ>
+    dockerfile: str          # 環境の Dockerfile
+    context: Path | None     # 環境の材料のフォルダ（.ecobuild/container/）。なければ None（型のひな型）
+    image: str               # ECOBuild の層まで重ねたイメージ：ecobuild-<モジュール>:<ハッシュ>
+    layer: str               # ECOBuild の層の Dockerfile
 
 
 @dataclass(frozen=True)
 class ContainerImage:
-    """ECOBuild が作ったイメージ。current：今の ECOBuild の型のイメージ。used_by：使っているコンテナの作業空間。"""
+    """ECOBuild が作ったイメージ。current：今の作業空間が使う作り方のもの。used_by：使っているコンテナの作業空間。
+    environment：モジュールの環境（ECOBuild の層の元）。"""
     name: str
-    type: str
+    module: str
     size: str
     created: str
     current: bool
     used_by: tuple[str, ...] = ()
+    environment: bool = False
 
 
 @dataclass(frozen=True)
@@ -98,7 +118,7 @@ class ImageList:
     images: tuple[ContainerImage, ...]
     docker_ready: bool
     docker_detail: str
-    missing: tuple[str, ...] = ()   # 今の版のイメージがまだない型
+    missing: tuple[str, ...] = ()   # 今の作り方のイメージがまだない作業空間（コンテナにしたもの）
     removed: tuple[str, ...] = ()   # 今回消したイメージ（prune）
     built: tuple[str, ...] = ()     # 今回作ったイメージ（build）
 
@@ -113,18 +133,20 @@ def name(root: Path) -> str:
     return f"ecobuild-{folder[:40]}-{hashlib.sha1(_workspaces.key(root).encode()).hexdigest()[:8]}"
 
 
-def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
-    """作業空間のコンテナのイメージの作り方。source：中に入れる ECOBuild（git のリポジトリ, 版）。"""
+def layer(base: str, source: tuple[str, str] = SOURCE) -> str:
+    """ECOBuild の層の作り方：モジュールの環境のイメージ base の上に ECOBuild 自身を重ねる。
+    source：中に入れる ECOBuild（git のリポジトリ, 版）。"""
     url, ref = source
     packages = " ".join(("ca-certificates", "curl", "git", "gh", "python3", "python3-venv",   # venv：型 python・doctor
-                         "sox", "libsox-fmt-pulse",   # エージェントの音声入力（PulseAudio で録音する。sound() を見る）
-                         *type_class.container_packages()))
+                         "sox", "libsox-fmt-pulse"))   # エージェントの音声入力（PulseAudio で録音する。sound() を見る）
     return "\n".join([
-        f"# ECOBuild が作る、作業空間のコンテナのイメージ（型 {type_class.name}）",
-        f"FROM {BASE}",
+        f"# ECOBuild が作る、作業空間のコンテナのイメージ（モジュールの環境 {base} の上に ECOBuild を重ねる）",
+        f"FROM {base}",
+        "USER root",
         "RUN apt-get update \\",
         f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {packages} \\",
-        " && rm -rf /var/lib/apt/lists/*",
+        " && rm -rf /var/lib/apt/lists/* \\",
+        " && (id -u ubuntu >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /bin/bash ubuntu)",   # Ubuntu 以外の元
         "USER ubuntu",
         f"ENV PATH={HOME}/.local/bin:$PATH CLAUDE_CONFIG_DIR={AGENT_HOME} {INSIDE}=1",
         f"RUN git config --global --add safe.directory {WORKDIR} \\",   # このPCのファイルは別の持ち主に見える
@@ -138,9 +160,32 @@ def dockerfile(type_class, source: tuple[str, str] = SOURCE) -> str:
     ])
 
 
-def image_name(type_class, text: str) -> str:
-    """イメージの名前：ecobuild-<型>:<作り方のハッシュ>（作り方が同じなら同じ名前＝作り直さない）。"""
-    return f"ecobuild-{type_class.name}:{hashlib.sha1(text.encode()).hexdigest()[:12]}"
+def recipe(root: Path, source: tuple[str, str] = SOURCE) -> Recipe:
+    """作業空間 root のコンテナのイメージの作り方と名前。名前は材料のハッシュで決まる（作り方が同じなら同じ名前＝作り直さない）：
+    環境は .ecobuild/container/ の中のファイルすべて（改行は LF にそろえる。端末によらず同じ名前）、なければ型のひな型。"""
+    from . import REGISTRY
+    module_config = _config.load(Path(root) / _config.FILE_NAME)
+    module = re.sub(r"[^a-z0-9_.-]+", "-", module_config.name.lower()).strip("-.") or "module"
+    folder = Path(root) / _config.CONTAINER_DIRECTORY
+    digest = hashlib.sha1()
+    if (folder / "Dockerfile").is_file():
+        text, context = (folder / "Dockerfile").read_text(encoding="utf-8"), folder
+        files = {p.relative_to(folder).as_posix(): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    else:   # ひな型を置いた（module upgrade）だけなら同じ名前（作り直さない）
+        text, context = REGISTRY.load(module_config.type).container_dockerfile(), None
+        files = {"Dockerfile": text.encode()}
+    for relative in sorted(files):
+        digest.update(relative.encode() + b"\0" + files[relative].replace(b"\r\n", b"\n") + b"\0")
+    environment = f"{ENVIRONMENT_PREFIX}{module}:{digest.hexdigest()[:12]}"
+    top = layer(environment, source)
+    return Recipe(module, environment, text, context, f"{IMAGE_PREFIX}{module}:{hashlib.sha1(top.encode()).hexdigest()[:12]}", top)
+
+
+def _recipe_or_none(root: Path, source: tuple[str, str]) -> Recipe | None:
+    try:
+        return recipe(root, source)
+    except (WorkError, OSError):
+        return None
 
 
 def sound(prefix: tuple[str, ...]) -> list[str]:
@@ -166,8 +211,9 @@ def mount_path(root: Path, command: tuple[str, ...]) -> str:
     return f"/mnt/{drive}/" + "/".join(path.parts[1:])
 
 
-def show(root: Path, runner: docker.Runner | None = None) -> WorkspaceContainer:
-    return _result(root, enabled(root), False, runner)
+def show(root: Path, runner: docker.Runner | None = None, *, source: tuple[str, str] | None = None) -> WorkspaceContainer:
+    """状態。source（今の ECOBuild の入れ元）を渡すと、コンテナが今の作り方のイメージか（outdated）も調べる。"""
+    return _result(root, enabled(root), False, runner, source=source)
 
 
 def choose(root: Path, container: bool, runner: docker.Runner | None = None, *,
@@ -190,26 +236,27 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
           progress: Callable[[str], None] = lambda message: None) -> WorkspaceContainer:
     """コンテナを動かす（なければ作る。イメージもなければ作る：最初の1回は数分かかる）。
     source：イメージに入れる ECOBuild（git のリポジトリ, 版）。使う側が今の ECOBuild の入れ元を渡す。渡したときは、
-    コンテナのイメージがそれと違えば（ECOBuild を更新した）作り直す。古い形（VERSION）のコンテナも作り直す。"""
+    コンテナのイメージが今の作り方のものと違えば（ECOBuild を更新した・.ecobuild/container が変わった）作り直す。
+    古い形（VERSION）のコンテナも作り直す。"""
     if not enabled(root):
         raise EcoBuildError(ErrorCode.CONTAINER_ERROR, f"{root} はコンテナにしていません。",
                             hint=f"{operation(command, 'container on')} でコンテナにできます。")
     prefix = _docker(runner, command)
     state, current, version = _inspect(root, runner, prefix)
     image = _config.load_local(root).get(IMAGE_KEY)
-    built = False
+    built, environment = False, ""
     if state != "none":
         if not image and source is not None:
-            image, built = _image(root, runner, prefix, source, progress)
+            image, built, environment = _image(root, runner, prefix, source, progress)
         if version != VERSION or (image and image != current):
-            progress("コンテナを作り直します（ECOBuild の更新に合わせる。作業空間のファイルはそのまま）")
+            progress("コンテナを作り直します（ECOBuild の更新・コンテナの環境の変更に合わせる。作業空間のファイルはそのまま）")
             _run(runner, [*prefix, "rm", "--force", name(root)], "古いコンテナを消せませんでした")
             state = "none"
     if state == "running":
         return _result(root, True, False, runner)
     if state == "none":
         if not image:
-            image, built = _image(root, runner, prefix, source or SOURCE, progress)
+            image, built, environment = _image(root, runner, prefix, source or SOURCE, progress)
         progress("コンテナを作ります")
         from . import agent_status
         status = agent_status.directory(name(root))      # 中のエージェントが状態を書き出す所（このPCの画面が読む）
@@ -224,14 +271,17 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
             _run(runner, [*prefix, "exec", "--user", "0", name(root), "chown", USER, *(place for _, place in caches(root))],
                  "キャッシュの置き場所を用意できませんでした")
         tidy(image, runner, prefix)   # 作り直した：前の版のイメージは、もうどのコンテナも使っていなければ消す
+        if environment:
+            tidy(environment, runner, prefix)   # 前の環境（ほかのイメージの元になっていれば消えない）
     else:
         _run(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
     return _result(root, True, True, runner, built=built)
 
 
 def tidy(keep: str, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tuple[str, ...]:
-    """keep と同じ型の、ECOBuild が作った前の版のイメージのうち、どのコンテナも使っていないものを消す（ECOBuild を
-    更新するとイメージの名前が変わるので、放っておくと更新のたびに増える）。消せなくても止めない。消したものを返す。"""
+    """keep と同じモジュール（同じリポジトリの名前）の、ECOBuild が作った前の版のイメージのうち、どのコンテナも使っていない
+    ものを消す（ECOBuild の更新・環境の変更でイメージの名前が変わるので、放っておくと増える）。消せなくても止めない。
+    消したものを返す。"""
     repository = keep.rsplit(":", 1)[0]
     if not repository.startswith(IMAGE_PREFIX):
         return ()     # 作業空間で指定したイメージ（ECOBuild が作ったものでない）は触らない
@@ -251,24 +301,36 @@ def tidy(keep: str, runner: docker.Runner | None, prefix: tuple[str, ...]) -> tu
 
 
 def _image(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...], source: tuple[str, str],
-           progress: Callable[[str], None]) -> tuple[str, bool]:
-    """型のイメージ（なければ作る）。作ったら True。作り方は ECOBUILD_HOME/containers/<名前>/Dockerfile に置く。"""
-    from . import REGISTRY
-    return _type_image(REGISTRY.load(_config.load(root / _config.FILE_NAME).type), runner, prefix, source, progress)
+           progress: Callable[[str], None]) -> tuple[str, bool, str]:
+    """作業空間のイメージ（なければ作る）。(イメージ, 作ったか, 環境のイメージ)。"""
+    found = recipe(root, source)
+    return found.image, _build(found, runner, prefix, progress), found.environment
 
 
-def _type_image(type_class, runner: docker.Runner | None, prefix: tuple[str, ...], source: tuple[str, str],
-                progress: Callable[[str], None]) -> tuple[str, bool]:
-    text = dockerfile(type_class, source)
-    image = image_name(type_class, text)
-    if (runner or docker.run)([*prefix, "image", "inspect", image]).ok:
-        return image, False
+def _build(found: Recipe, runner: docker.Runner | None, prefix: tuple[str, ...],
+           progress: Callable[[str], None]) -> bool:
+    """イメージを作る（あれば作らない）。作ったら True。環境の材料は .ecobuild/container/（なければ型のひな型を
+    ECOBUILD_HOME/containers/<名前>/ に置く）、ECOBuild の層の作り方も ECOBUILD_HOME/containers/<名前>/ に置く。"""
+    run = runner or docker.run
+    if run([*prefix, "image", "inspect", found.image]).ok:
+        return False
+    if not run([*prefix, "image", "inspect", found.environment]).ok:
+        context = found.context or _write_dockerfile(found.environment, found.dockerfile)
+        progress(f"モジュールの環境のイメージ {found.environment} を作ります（"
+                 f"{_config.CONTAINER_DOCKERFILE if found.context else '型のひな型'}から。数分かかることがあります）")
+        _run(runner, [*prefix, "build", "--tag", found.environment, mount_path(context, prefix)],
+             "モジュールの環境のイメージを作れませんでした")
+    progress(f"コンテナのイメージ {found.image} を作ります（環境に ECOBuild を重ねる。数分かかります）")
+    _run(runner, [*prefix, "build", "--tag", found.image, mount_path(_write_dockerfile(found.image, found.layer), prefix)],
+         "コンテナのイメージを作れませんでした")
+    return True
+
+
+def _write_dockerfile(image: str, text: str) -> Path:
     directory = _settings.home() / "containers" / image.replace(":", "-")
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "Dockerfile").write_text(text, encoding="utf-8", newline="\n")
-    progress(f"コンテナのイメージ {image} を作ります（最初の1回だけ。数分かかります）")
-    _run(runner, [*prefix, "build", "--tag", image, mount_path(directory, prefix)], "コンテナのイメージを作れませんでした")
-    return image, True
+    return directory
 
 
 def stop(root: Path, runner: docker.Runner | None = None, *, command: str = "") -> WorkspaceContainer:
@@ -346,12 +408,17 @@ def _run(runner: docker.Runner | None, args: list[str], message: str) -> None:
 
 
 def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | None, *,
-            built: bool = False) -> WorkspaceContainer:
+            built: bool = False, source: tuple[str, str] | None = None) -> WorkspaceContainer:
     found = docker.status(runner or docker.run)
     state, image, _ = _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
     local = _config.load_local(root)
+    custom = local.get(IMAGE_KEY) or ""
+    wanted = custom or (made.image if source is not None and (made := _recipe_or_none(root, source)) else "")
+    has_recipe = (Path(root) / _config.CONTAINER_DOCKERFILE).is_file()
     return WorkspaceContainer(Path(root), container, changed, found.ready, found.detail, name(root), state, image, built,
-                              local.get(IMAGE_KEY) or "", split_rules(local.get(DENY_KEY) or ""))
+                              custom, split_rules(local.get(DENY_KEY) or ""), wanted,
+                              bool(wanted and image and image != wanted),
+                              _config.CONTAINER_DOCKERFILE if has_recipe else "")
 
 
 def split_rules(text: str) -> tuple[str, ...]:
@@ -519,15 +586,17 @@ def _output(args: list[str]) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
-# イメージ（ECOBuild の版 × 型ごと。モジュールごとではない） ---------------------------------------
+# イメージ（モジュールごと：環境 × ECOBuild の版） --------------------------------------------------
 
 def images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None, *, command: str = "") -> ImageList:
-    """ECOBuild が作ったイメージの一覧（今の版か・使っているコンテナ）。Docker が使えなければ空。"""
+    """ECOBuild が作ったイメージの一覧（今の作業空間が使う作り方のものか・使っているコンテナ）。Docker が使えなければ空。
+    「今の」は、このPCのコンテナにした作業空間（workspaces.json）の今の作り方（.ecobuild/container・ECOBuild の版）。"""
     found = docker.status(runner or docker.run)
     if not found.ready:
         return ImageList((), False, found.detail)
     run = runner or docker.run
-    current = _current_images(source)
+    wanted = _current_recipes(source)
+    current = {name for made in wanted.values() for name in (made.image, made.environment)}
     listed = run([*found.command, "image", "ls", "--filter", f"reference={IMAGE_PREFIX}*", "--format",
                   "{{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"])
     used: dict[str, list[str]] = {}
@@ -542,48 +611,61 @@ def images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None
         if len(parts) < 3 or not parts[0].startswith(IMAGE_PREFIX):
             continue
         image, size, created = parts[0].strip(), parts[1].strip(), parts[2].strip()
-        type_name = image[len(IMAGE_PREFIX):].split(":", 1)[0]
-        result.append(ContainerImage(image, type_name, size, created, image in current.values(),
-                                     tuple(used.get(image, ()))))
+        environment = image.startswith(ENVIRONMENT_PREFIX)
+        module = image[len(ENVIRONMENT_PREFIX if environment else IMAGE_PREFIX):].split(":", 1)[0]
+        result.append(ContainerImage(image, module, size, created, image in current, tuple(used.get(image, ())),
+                                     environment))
     have = {i.name for i in result}
-    missing = tuple(t for t, image in current.items() if image not in have)
+    missing = tuple(str(root) for root, made in wanted.items() if made.image not in have)
     return ImageList(tuple(result), True, found.detail, missing)
 
 
-def build_images(types: tuple[str, ...] = (), source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None,
+def build_images(roots: tuple[Path, ...] = (), source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None,
                  *, command: str = "", progress: Callable[[str], None] = lambda message: None) -> ImageList:
-    """今の ECOBuild の型のイメージを作る（types を省略するとすべての型。あるものは作り直さない）。"""
-    from . import REGISTRY
+    """作業空間のイメージを今の作り方で作る（roots を省略すると、このPCのコンテナにした作業空間すべて。あるものは
+    作り直さない）。作っておくと、コンテナを動かすときに待たずに済む。"""
     prefix = _docker(runner, command)
+    wanted = {Path(root): made for root in roots if (made := recipe(root, source))} if roots else _current_recipes(source)
     built = []
-    for type_class in REGISTRY.available():
-        if types and type_class.name not in types:
-            continue
-        image, made = _type_image(type_class, runner, prefix, source, progress)
-        if made:
-            built.append(image)
-            tidy(image, runner, prefix)
+    for made in {made.image: made for made in wanted.values()}.values():   # 同じ作り方の作業空間は1回
+        if _build(made, runner, prefix, progress):
+            built.append(made.image)
+            tidy(made.image, runner, prefix)
+            tidy(made.environment, runner, prefix)
     listed = images(source, runner, command=command)
     return ImageList(listed.images, listed.docker_ready, listed.docker_detail, listed.missing, (), tuple(built))
 
 
 def prune_images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None, *,
                  command: str = "") -> ImageList:
-    """古いイメージ（今の版でなく、どのコンテナも使っていないもの）を消す。"""
+    """古いイメージ（今の作り方でなく、どのコンテナも使っていないもの）を消す。環境は後で消す（ほかのイメージの元に
+    なっていて消せなければ残す）。"""
     prefix = _docker(runner, command)
     listed = images(source, runner, command=command)
     removed = []
-    for image in listed.images:
+    for image in sorted(listed.images, key=lambda i: i.environment):
         if not image.current and not image.used_by:
+            if image.environment:
+                if (runner or docker.run)([*prefix, "image", "rm", image.name]).ok:
+                    removed.append(image.name)
+                continue
             _run(runner, [*prefix, "image", "rm", image.name], f"イメージ {image.name} を消せませんでした")
             removed.append(image.name)
     after = images(source, runner, command=command)
     return ImageList(after.images, after.docker_ready, after.docker_detail, after.missing, tuple(removed))
 
 
-def _current_images(source: tuple[str, str]) -> dict[str, str]:
-    from . import REGISTRY
-    return {t.name: image_name(t, dockerfile(t, source)) for t in REGISTRY.available()}
+def _current_recipes(source: tuple[str, str]) -> dict[Path, Recipe]:
+    """このPCのコンテナにした作業空間（別のイメージを指定したものを除く）の、今の作り方。"""
+    found = {}
+    for item in _workspaces.recorded():
+        try:
+            mine = enabled(item.path) and not _config.load_local(item.path).get(IMAGE_KEY)
+        except WorkError:
+            continue
+        if mine and (made := _recipe_or_none(item.path, source)):
+            found[item.path] = made
+    return found
 
 
 def first_run_script() -> str:

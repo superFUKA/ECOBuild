@@ -74,9 +74,10 @@ def test_container_lifecycle(monkeypatch, root, tmp_path):
 
     started = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc123"))
     assert started.changed and started.state == "running" and started.name.startswith("ecobuild-my-calc-")
-    assert started.built and started.image.startswith("ecobuild-generic:")                # 型のイメージを作った
+    assert started.built and started.image.startswith("ecobuild-calc:")                   # モジュールのイメージを作った
     built = (tmp_path / "home/containers" / started.image.replace(":", "-") / "Dockerfile").read_text(encoding="utf-8")
     assert '"git+https://example.com/ECOBuild@abc123"' in built and "safe.directory /work" in built
+    assert built.startswith("# ECOBuild") and "FROM ecobuild-env-calc:" in built                # 環境の上に ECOBuild の層
     run = next(args for args in fake.calls if args[1] == "run")
     assert f"{root}:/work" in run and "1000:1000" in run and run[-3:] == [started.image, "sleep", "infinity"]
     assert f"{container.AGENT_VOLUME}:{container.AGENT_HOME}" in run                     # エージェントのログインは共有
@@ -89,7 +90,7 @@ def test_container_lifecycle(monkeypatch, root, tmp_path):
     container.remove(root, fake.run)                                                      # 作り直しても、イメージは作り直さない
     again = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc123"))
     assert not again.built and again.image == started.image
-    assert [args[1] for args in fake.calls].count("build") == 1
+    assert [args[1] for args in fake.calls].count("build") == 2                           # 環境と ECOBuild の層
 
     off = container.choose(root, False, fake.run)                                         # コンテナにしないならコンテナも消す
     assert off.changed and not off.container and off.state == "none" and not fake.containers
@@ -111,11 +112,45 @@ def test_names_and_wsl_paths(tmp_path):
     assert container.mount_path(Path("/home/me/Calc"), ("docker",)) == str(Path("/home/me/Calc"))
 
 
-def test_type_tools_go_into_the_image():
+def test_type_tools_go_into_the_template():
     from ecobuild_bundle import REGISTRY
-    cpp, generic = container.dockerfile(REGISTRY.load("cpp")), container.dockerfile(REGISTRY.load("generic"))
-    assert "cmake ninja-build g++" in cpp and "g++" not in generic
-    assert container.image_name(REGISTRY.load("cpp"), cpp) != container.image_name(REGISTRY.load("cpp"), cpp + "#")
+    cpp, generic = REGISTRY.load("cpp").container_dockerfile(), REGISTRY.load("generic").container_dockerfile()
+    assert "cmake ninja-build g++" in cpp and "g++" not in generic and generic.startswith("#") and "FROM ubuntu:24.04" in generic
+
+
+def test_the_image_follows_the_module_recipe(monkeypatch, tmp_path):
+    """イメージはモジュールごと：.ecobuild/container/ の中身（なければ型のひな型）で名前が決まり、変わると古い（outdated）と分かる。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    root = tmp_path / "Calc"
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), root / config.FILE_NAME)
+    source = ("https://example.com/ECOBuild", "abc")
+    template = container.recipe(root, source)
+    assert template.context is None and "cmake" in template.dockerfile and template.environment.startswith("ecobuild-env-calc:")
+    folder = root / config.CONTAINER_DIRECTORY
+    folder.mkdir(parents=True)
+    (folder / "Dockerfile").write_bytes(template.dockerfile.encode())
+    same = container.recipe(root, source)
+    assert same.context == folder and same.image == template.image                    # 中身が同じなら同じ名前
+    (folder / "Dockerfile").write_bytes(template.dockerfile.replace("\n", "\r\n").encode())
+    assert container.recipe(root, source).image == template.image                     # 改行の違いは同じ（端末によらない）
+    (folder / "tool.cfg").write_text("x", encoding="utf-8")
+    assert container.recipe(root, source).environment != template.environment          # フォルダーの中のファイルも材料
+    newer = ("https://example.com/ECOBuild", "def")
+    assert container.recipe(root, newer).environment == container.recipe(root, source).environment
+    assert container.recipe(root, newer).image != container.recipe(root, source).image
+
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    started = container.start(root, fake.run, source=source)
+    environment_build = next(args for args in fake.calls if args[1] == "build")
+    assert environment_build[-1] == str(folder)                                        # 環境は .ecobuild/container から作る
+    assert not container.show(root, fake.run, source=source).outdated
+    (folder / "Dockerfile").write_text(template.dockerfile + "RUN echo more\n", encoding="utf-8")   # リポジトリの更新で変わった
+    shown = container.show(root, fake.run, source=source)
+    assert shown.outdated and shown.image == started.image and shown.recipe == config.CONTAINER_DOCKERFILE
+    assert not container.show(root, fake.run).outdated                                 # 入れ元を渡さなければ調べない
+    again = container.start(root, fake.run, source=source)
+    assert again.built and again.image == shown.wanted_image and not container.show(root, fake.run, source=source).outdated
 
 
 def test_old_containers_are_made_again(monkeypatch, root, tmp_path):
@@ -177,29 +212,34 @@ def test_the_microphone_reaches_the_container(monkeypatch, tmp_path):
     assert container.sound(("docker",)) == []
     (tmp_path / "pulse").mkdir(); (tmp_path / "pulse" / "native").write_text("")
     assert "PULSE_SERVER=unix:/run/ecobuild-pulse/native" in container.sound(("docker",))
-    from ecobuild_bundle import REGISTRY
-    assert "sox libsox-fmt-pulse" in container.dockerfile(REGISTRY.load("generic"))
+    assert "sox libsox-fmt-pulse" in container.layer("ecobuild-env-calc:1")
 
 
-def test_the_dockerfile_has_the_agent():
-    from ecobuild_bundle import REGISTRY
-    text = container.dockerfile(REGISTRY.load("generic"))
+def test_the_ecobuild_layer_has_the_agent():
+    text = container.layer("ecobuild-env-calc:123")
+    assert text.splitlines()[1] == "FROM ecobuild-env-calc:123" and "USER root" in text and "useradd" in text
     assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={container.AGENT_HOME}" in text
     assert "gh auth git-credential" in text and f"{container.INSIDE}=1" in text
 
 
-def test_images_are_per_type_and_old_ones_can_be_pruned(monkeypatch, root, tmp_path):
+def test_images_are_per_module_and_old_ones_can_be_pruned(monkeypatch, root, tmp_path):
+    from ecobuild import workspaces
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     fake = FakeDocker(monkeypatch)
     old_source, source = ("https://example.com/ECOBuild", "old"), ("https://example.com/ECOBuild", "new")
+    workspaces.record(root)
     container.choose(root, True, fake.run)
     used = container.start(root, fake.run, source=old_source).image          # 古い版のイメージを使うコンテナ
-    fake.images.add("ecobuild-cpp:000000000000")                            # 古い版で、どれも使っていない
+    environment = container.recipe(root, source).environment                  # 環境は ECOBuild の版によらない
+    fake.images.add("ecobuild-cpp:000000000000")                            # 以前の型ごとのイメージ。どれも使っていない
     listed = container.images(source, fake.run)
-    assert {i.name for i in listed.images} == {used, "ecobuild-cpp:000000000000"} and not any(i.current for i in listed.images)
-    assert next(i for i in listed.images if i.name == used).used_by and set(listed.missing) == {"cpp", "generic", "python"}
-    built = container.build_images(("generic",), source, fake.run)
-    assert len(built.built) == 1 and built.missing and "generic" not in built.missing
+    assert {i.name for i in listed.images} == {used, environment, "ecobuild-cpp:000000000000"}
+    assert [i.name for i in listed.images if i.current] == [environment]
+    assert next(i for i in listed.images if i.name == environment).environment and listed.missing == (str(root),)
+    mine = next(i for i in listed.images if i.name == used)
+    assert mine.used_by and mine.module == "calc" and not mine.environment
+    built = container.build_images((), source, fake.run)
+    assert len(built.built) == 1 and not built.missing
     pruned = container.prune_images(source, fake.run)
     assert pruned.removed == ("ecobuild-cpp:000000000000",) and used in fake.images   # 使っているものは消さない
     assert not container.images(source, lambda args: docker.Completed(tuple(args), 1, "")).docker_ready
@@ -284,10 +324,10 @@ def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch,
     fake = FakeDocker(monkeypatch)
     container.choose(root, True, fake.run)
     container.start(root, fake.run, source=("https://example.com/ECOBuild", "v1"))
-    old = next(iter(fake.images))
-    fake.images.add("ecobuild-cpp:someother")          # 別の型のイメージは消さない
+    old = next(i for i in fake.images if not i.startswith(container.ENVIRONMENT_PREFIX))
+    fake.images.add("ecobuild-other:someother")        # 別のモジュールのイメージは消さない
     container.start(root, fake.run, source=("https://example.com/ECOBuild", "v2"))
-    assert old not in fake.images and "ecobuild-cpp:someother" in fake.images and len(fake.images) == 2
+    assert old not in fake.images and "ecobuild-other:someother" in fake.images and len(fake.images) == 3   # 環境は同じものを使う
 
 
 def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root, tmp_path):

@@ -109,8 +109,23 @@ class ModuleType:
 
     @classmethod
     def container_packages(cls) -> tuple[str, ...]:
-        """作業空間のコンテナ（Ubuntu）に入れる、型が使うツールのパッケージ（apt の名前）。"""
+        """作業空間のコンテナ（Ubuntu）に入れる、型が使うツールのパッケージ（apt の名前）。container_dockerfile の材料。"""
         return ()
+
+    @classmethod
+    def container_dockerfile(cls) -> str:
+        """モジュールのコンテナの環境のひな型（.ecobuild/container/Dockerfile。モジュールを作るときに置き、その後は
+        モジュールのもの：解析ツール等を足してよい）。ここにはモジュールで要るものだけを書く。ECOBuild 自身（エージェント・
+        ecobuild 等）は、ECOBuild がイメージを作るときに上に重ねる。既定は Ubuntu に container_packages を入れる。"""
+        lines = ["# このモジュールの作業空間のコンテナの環境（ECOBuild がこれを元にイメージを作る）。",
+                 "# モジュールで要るツールをここに足す。ECOBuild 自身（エージェント・ecobuild 等）は ECOBuild が上に重ねるので書かない。",
+                 "# apt の使える Ubuntu・Debian を元にする（ECOBuild の層が apt と uid 1000 の利用者を使う）。",
+                 "FROM ubuntu:24.04"]
+        if packages := cls.container_packages():
+            lines += ["RUN apt-get update \\",
+                      f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {' '.join(packages)} \\",
+                      " && rm -rf /var/lib/apt/lists/*"]
+        return "\n".join(lines) + "\n"
 
     @classmethod
     def container_caches(cls) -> tuple[str, ...]:

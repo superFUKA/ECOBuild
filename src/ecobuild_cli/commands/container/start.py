@@ -10,8 +10,8 @@ from ._source import source
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """作業空間のコンテナを動かします（なければ作ります）。
 
-    コンテナの元（イメージ）は、型ごとに Ubuntu に git・gh・ECOBuild（このPCと同じ版）と型のツールを入れて作ります。
-    作るのは最初の1回だけで、数分かかります。
+    コンテナの元（イメージ）は、モジュールの .ecobuild/container/Dockerfile（環境）に git・gh・ECOBuild（このPCと同じ版）を
+    重ねて作ります。作るのは最初の1回と、環境・ECOBuild が変わったときだけで、数分かかります。
     """
     return run_command("container start",
                        lambda inv: _container.start(inv.module.root, command=PROGRAM, source=source(),

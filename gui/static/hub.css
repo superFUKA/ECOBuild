@@ -244,7 +244,7 @@ main { padding: 22px 28px; }
 .settings-card details.more { margin-top: 10px; }
 .settings-card details.more summary { color: #a5aeba; font-size: 12.5px; cursor: pointer; }
 .settings-card details.more p { margin-top: 6px; }
-/* イメージ：型ごとに1行（今の版と、残っている前の版） */
+/* イメージ：モジュールごとに1行（今の作り方のものと、残っている古いもの） */
 .image-types { list-style: none; padding: 0; margin: 12px 0 0; }
 .image-types:empty { display: none; }
 .image-types > li { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; padding: 12px 0; border-top: 1px solid #343c46; font-size: 13px; }

@@ -188,6 +188,8 @@ class Module:
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class, description), encoding="utf-8", newline="\n")
+            (root / _config.CONTAINER_DIRECTORY).mkdir(parents=True, exist_ok=True)
+            (root / _config.CONTAINER_DOCKERFILE).write_text(type_class.container_dockerfile(), encoding="utf-8", newline="\n")
             (progress or _quiet)(_POPULATING.get(kind or type_class.default_new_kind or "", "モジュールの中身を用意中…"))
             type_class.populate(root, module_config, kind or None, project or None, test=test)
 
@@ -1128,7 +1130,7 @@ class Module:
         """モジュールを今の ECOBuild の仕様に合わせる（ecobuild.toml の format を今の版にする）。
 
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
-        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、AGENTS.md・CIのワークフロー（あれば作り直す。
+        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、コンテナの環境（なければ型のひな型を置く）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
@@ -1153,6 +1155,8 @@ class Module:
             merged = _with_lines(current, wanted)
             if merged != current:
                 planned[path] = merged
+        if not (self.root / _config.CONTAINER_DOCKERFILE).exists():   # なければ型のひな型を置く（あればモジュールのもの。変えない）
+            planned[_config.CONTAINER_DOCKERFILE] = type_class.container_dockerfile()
         if (self.root / "AGENTS.md").is_file():
             planned["AGENTS.md"] = _docs.agents(self.config, type_class)
         workflow_path = self.root / _docs.CI_WORKFLOW

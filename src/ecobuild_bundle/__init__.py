@@ -58,7 +58,7 @@ class Module(ecobuild.Module):
         from . import agent_status, container
         inside = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
-        role = team.role_of(self.root, role)
+        role = self._role(role, tuple(command), inside, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         command = self._briefed(command, agent_status.prepare(container.name(self.root), self.root), inside, task, role)
         if not inside:
@@ -74,7 +74,7 @@ class Module(ecobuild.Module):
         from . import agent_status, container
         inside = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
-        role = team.role_of(self.root, role)
+        role = self._role(role, tuple(command), inside, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         if command[:1] == ("claude",):
             folder = agent_status.prepare(container.name(self.root), self.root)
@@ -146,10 +146,27 @@ class Module(ecobuild.Module):
                                    + f"# ECOBuild：エージェント用の置き場所（コミットしない）\n{line}\n", encoding="utf-8")
         return area
 
+    def _role(self, chosen: str, command: tuple[str, ...], inside: bool, source, progress) -> str:
+        """起動する役：指定、なければ続きから起動する会話の役（起動のときに覚えたもの。team.ROLES_FILE）、なければ
+        作業空間の記録、なければ作業役。--continue は、いちばん新しい会話（コンテナなら動かしてから読む）。"""
+        if chosen:
+            return team.role_of(self.root, chosen)
+
+        def latest() -> str:
+            if inside:
+                from . import container
+                container.start(self.root, command=self.command, source=source, progress=progress)
+            found = self.agent_conversations(1).conversations
+            return found[0].id if found else ""
+        session = team.resumed_session(command, latest)
+        return team.role_of(self.root, team.remembered_roles(self.root).get(session, "") if session else "")
+
     def _for_role(self, command: tuple[str, ...], role: str, prompt: str) -> tuple[str, ...]:
         """役のモデル・使わせない道具（team.agent_options）と、最初の発言（claude のすぐ後ろ：--disallowedTools 等の
         いくつも値を取る引数の後ろに置くと、その値として読まれる）。"""
-        command = team.agent_options(self.root, role, command)
+        if command[:1] == ("claude",):
+            self.prepare_agent_area()   # 覚えた役（.ecobuild/ai）をコミットの対象に出さない
+        command = team.new_session(self.root, role, team.agent_options(self.root, role, command))
         return (command[0], prompt, *command[1:]) if prompt.strip() and command[:1] == ("claude",) else command
 
     def _briefed(self, command: tuple[str, ...], folder: Path, inside: bool, task,

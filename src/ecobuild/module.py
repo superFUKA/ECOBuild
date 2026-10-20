@@ -12,6 +12,8 @@ Module が持つのは、モジュールそのもの（作成・clone・削除�
 from __future__ import annotations
 
 import contextlib
+import datetime as _dt
+import json
 
 import re
 from collections.abc import Callable
@@ -25,6 +27,7 @@ from ecowork import github as _github
 from ecowork import model as wm
 
 from . import _docs
+from . import ci_review as _ci_review
 from . import config as _config
 from . import module_type as _module_type
 from . import tracking as _tracking
@@ -521,12 +524,13 @@ class Module:
     # 提出と完了（番号はタスクの番号） -------------------------------------------------------
 
     def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
-               reviewers: tuple[str, ...] = (), check: bool = True,
+               reviewers: tuple[str, ...] = (), check: bool = True, note: str | None = None,
                progress: Callable[[str], None] | None = None) -> wm.PullRequest:
         """タスクブランチを提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。
 
         未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。
-        progress：経過（check の各項目等）を知らせる口。
+        提出の本文に、確認の結果（どの版で何が通ったか。出し直しのたびに今の版のものへ）と、note（提出の説明。
+        None なら提出済みの説明のまま）を書く。progress：経過（check の各項目等）を知らせる口。
         """
         task_branch = self.require_task_branch("提出")
         self._refuse_uncommitted("提出")
@@ -539,14 +543,35 @@ class Module:
                                      f"（依存先の依存先なら、直接 {self.op('deps add')}）。このまま出すなら --draft")
         if mismatches:
             (progress or _quiet)("注意：手元の依存先が記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches))
+        saved = self._last_check()
+        items = None if saved is None else tuple(CheckItem(**item) for item in saved.get("items", ()))
         if check:
-            if self.checked():
+            if saved is not None:
                 (progress or _quiet)("この版は確認済みです（ビルド・テストを省きます）")
             else:
                 (progress or _quiet)("確認しています（生成ファイル・衝突の印・依存先・ビルド・テスト）…")
-                for item in self.check(allow_dependency_mismatch=draft).items:
+                items = self.check(allow_dependency_mismatch=draft).items
+                for item in items:
                     (progress or _quiet)(_check_line(item))
-        return task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers)
+        checked_at = (self._last_check() or saved or {}).get("at")   # 今通したなら記録は新しい
+        sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at)}
+        if note is not None:
+            sections = {SUBMIT_NOTE_SECTION: note, **sections}
+        return task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers, sections=sections)
+
+    def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None) -> str:
+        """提出の本文の「確認」の節：今の版（HEAD）で通った check の項目と、いつ確かめたか。確かめていなければ、そう書く。"""
+        head = (self.repository.git.rev_parse("HEAD") or "")[:7]
+        title = "### 確認（ECOBuild）"
+        if items is None:
+            return (f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・テスト）を"
+                    "行わずに提出しました（--no-check）。")
+        profile = _config.load_local(self.root).get("profile")
+        when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+        where = f"版 `{head}`" + (f"、ビルド設定 {profile}" if profile else "") + f"、{when}"
+        lines = [f"- {_check_line(item)}" for item in items]   # 以前の記録（版だけ）なら項目はない
+        return "\n".join([title, "", f"提出した人の手元で `{self.op('check')}` が通りました（{where}）。",
+                          *([""] + lines if lines else [])])
 
     def finish(self, number: int | None = None, *, close_workspace: bool = False, **options) -> wm.FinishResult:
         """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。
@@ -1167,6 +1192,12 @@ class Module:
                 skipped.append(_docs.CI_WORKFLOW)
             elif (workflow := self.type.ci_workflow(self.config)) is not None:
                 planned[_docs.CI_WORKFLOW] = _docs.stamp_ci(workflow)
+        review_path = self.root / _ci_review.REVIEW_WORKFLOW
+        if review_path.is_file() and self.config.ci.review:   # 見直しのワークフローも、あれば今の中身に
+            if _docs.ci_edited(review_path.read_text(encoding="utf-8")):
+                skipped.append(_ci_review.REVIEW_WORKFLOW)
+            else:
+                planned[_ci_review.REVIEW_WORKFLOW] = _docs.stamp_ci(_ci_review.workflow(self.config.ci))
         planned = {p: text for p, text in planned.items() if self._read(p) != text}
         if start != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
@@ -1238,6 +1269,11 @@ class Module:
             raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{_docs.CI_WORKFLOW} は手で編集されています。",
                                 hint="上書きしてよければ --force を付けてください（編集した内容は失われます）。")
         new_config = self.config if settings is None else self.config.with_ci(settings)
+        review_path = self.root / _ci_review.REVIEW_WORKFLOW
+        if (new_config.ci.review and review_path.is_file() and not force
+                and _docs.ci_edited(review_path.read_text(encoding="utf-8"))):
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{_ci_review.REVIEW_WORKFLOW} は手で編集されています。",
+                                hint="上書きしてよければ --force を付けてください（編集した内容は失われます）。")
         workflow = self.type.ci_workflow(new_config)
         if workflow is None:
             raise self.type.not_supported("CI")
@@ -1245,6 +1281,7 @@ class Module:
             self._save_config(new_config)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_docs.stamp_ci(workflow), encoding="utf-8", newline="\n")
+        review = self._write_review(new_config.ci)
         private = []
         for dependency in self._direct_dependencies():
             name = dependency.url.removesuffix(".git").split("github.com/")[-1]
@@ -1253,7 +1290,23 @@ class Module:
                     private.append(dependency.name)
             except Exception:  # GitHub以外・見つからない等は案内しない
                 continue
-        return CiInitResult(_docs.CI_WORKFLOW, tuple(private))
+        return replace(review, path=_docs.CI_WORKFLOW, private_dependencies=tuple(private))
+
+    def _write_review(self, ci: _config.CiSettings) -> CiInitResult:
+        """見直しのワークフローを、設定（[ci] の review）に合わせて作る・消す。作ったら、要るシークレットがあるかも見る。"""
+        path = self.root / _ci_review.REVIEW_WORKFLOW
+        if not ci.review:
+            if path.is_file():
+                path.unlink()
+                return CiInitResult("", (), removed=(_ci_review.REVIEW_WORKFLOW,))
+            return CiInitResult("", ())
+        path.write_text(_docs.stamp_ci(_ci_review.workflow(ci)), encoding="utf-8", newline="\n")
+        secret = _ci_review.AUTH[ci.review_auth][0]
+        try:
+            missing = secret not in self.repository.github.list_secrets(self.root)
+        except Exception:  # 読めない（権限・GitHub に届かない）なら案内だけ
+            missing = False
+        return CiInitResult("", (), _ci_review.REVIEW_WORKFLOW, secret, missing)
 
     def remove_ci(self) -> FilesChanged:
         """CI（ecobuild ci init で作ったワークフロー）をやめる。"""
@@ -1262,7 +1315,12 @@ class Module:
         if not path.is_file():
             raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{_docs.CI_WORKFLOW} はありません。")
         path.unlink()
-        return FilesChanged("ci remove", (_docs.CI_WORKFLOW,))
+        removed = [_docs.CI_WORKFLOW]
+        review = self.root / _ci_review.REVIEW_WORKFLOW
+        if review.is_file():   # 見直しも CI の一部（設定の [ci] の review は残すので、ci init で戻る）
+            review.unlink()
+            removed.append(_ci_review.REVIEW_WORKFLOW)
+        return FilesChanged("ci remove", tuple(removed))
 
     def ci_state(self) -> CiState:
         """CIの設定（[ci]）と、ワークフローのファイルの状態（ある・手で編集した・今の設定のとおり）。"""
@@ -1270,10 +1328,15 @@ class Module:
         text = path.read_text(encoding="utf-8") if path.is_file() else None
         workflow = self.type.ci_workflow(self.config)
         settings = self.config.ci
+        review_path = self.root / _ci_review.REVIEW_WORKFLOW
+        review_text = review_path.read_text(encoding="utf-8") if review_path.is_file() else None
         return CiState(_docs.CI_WORKFLOW, workflow is not None, text is not None,
                        text is not None and _docs.ci_edited(text),
                        text is not None and workflow is not None and text == _docs.stamp_ci(workflow),
-                       settings.os, settings.configurations, settings.shared, settings.branches, self.config.default_base)
+                       settings.os, settings.configurations, settings.shared, settings.branches, self.config.default_base,
+                       settings.review, settings.review_auth, _ci_review.REVIEW_WORKFLOW, review_text is not None,
+                       review_text == _docs.stamp_ci(_ci_review.workflow(settings)) if settings.review
+                       else review_text is None, _ci_review.AUTH[settings.review_auth][0])
 
     def ci_dispatch(self, branch: str | None = None) -> str:
         """今いるブランチ（または branch）で、ECOBuildのCIを手動で実行する。"""
@@ -1319,7 +1382,7 @@ class Module:
                     items.append(CheckItem(name, False, error.message))
                     break
         report = CheckReport(tuple(items))
-        self._record_check(report.ok and build)
+        self._record_check(report, report.ok and build)
         if not report.ok:
             raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
                                 "、".join(i.name for i in items if not i.ok),
@@ -1329,9 +1392,20 @@ class Module:
 
     def checked(self) -> bool:
         """今の版が、ビルド・テストを含む check を通ったままか（task submit --check で繰り返さないため）。"""
+        return self._last_check() is not None
+
+    def _last_check(self) -> dict | None:
+        """今の版で通った check の記録（key・items）。なければ・版が変わっていれば None。"""
         key = self._check_key()
         record = self._check_record()
-        return key is not None and record.is_file() and record.read_text(encoding="utf-8").strip() == key
+        if key is None or not record.is_file():
+            return None
+        text = record.read_text(encoding="utf-8").strip()
+        try:
+            saved = json.loads(text)
+        except ValueError:
+            saved = {"key": text}   # 以前の形（版だけ）
+        return saved if isinstance(saved, dict) and saved.get("key") == key else None
 
     # 内部 -----------------------------------------------------------------
 
@@ -1346,13 +1420,16 @@ class Module:
             return None
         return f"{git.rev_parse('HEAD')} {_config.load_local(self.root).get('profile') or '-'}"
 
-    def _record_check(self, passed: bool) -> None:
+    def _record_check(self, report: CheckReport, passed: bool) -> None:
+        """通った check を版（_check_key）と項目ごとに残す（task submit が省く判断と、提出の本文の確認の節に使う）。"""
         record = self._check_record()
         key = self._check_key() if passed else None
         if key is None:
             record.unlink(missing_ok=True)
         else:
-            record.write_text(key + "\n", encoding="utf-8")
+            items = [{"name": i.name, "ok": i.ok, "detail": i.detail} for i in report.items]
+            at = _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
+            record.write_text(json.dumps({"key": key, "at": at, "items": items}, ensure_ascii=False) + "\n", encoding="utf-8")
 
     def _save_config(self, module_config: _config.ModuleConfig) -> None:
         _config.save(module_config, self.root / _config.FILE_NAME)
@@ -1421,6 +1498,8 @@ class Module:
         return f"Module({self.name!r}, {str(self.root)!r})"
 
 
+SUBMIT_NOTE_SECTION = "note"     # 提出の本文の節（ecowork の with_section）：提出の説明
+SUBMIT_CHECK_SECTION = "check"   # 確認の結果
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
                "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}

@@ -97,6 +97,34 @@ def test_check_is_reused_while_unchanged(tmp_path):
     assert not module.checked()
 
 
+
+def test_submit_writes_check_evidence(tmp_path):
+    """提出の本文に、確認（check）がどの版で通ったかと項目を書く。出し直すと今の版のものに、確かめなければそう書く。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    task_branch = module.repository.create_task("証拠").start()
+    commands = {"build": python("print('built')"), "test": python("print('tested')")}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    task_branch.stage(all=True)
+    task_branch.commit("コマンド")
+    pr = module.submit(note="テストのコマンドを足した。戻すならこのPRを戻す。")
+    head = module.repository.git.rev_parse("HEAD")[:7]
+    body = module.repository.github.pulls[pr.number].body
+    assert "テストのコマンドを足した" in body and "### 確認（ECOBuild）" in body
+    assert f"版 `{head}`" in body and "- OK ビルド" in body and "- OK テスト：成功 1" in body
+
+    (module.root / "a.txt").write_text("a\n", encoding="utf-8")
+    task_branch.stage("a.txt")
+    task_branch.commit("a")
+    module.submit(check=False)
+    body = module.repository.github.pulls[pr.number].body
+    head = module.repository.git.rev_parse("HEAD")[:7]
+    assert f"この版（`{head}`）は" in body and "--no-check" in body and "- OK テスト" not in body
+    assert "テストのコマンドを足した" in body   # 説明は渡さなければそのまま
+    module.check()
+    module.submit(check=False)   # 確かめた版なら、その結果を書く
+    assert "- OK テスト：成功 1" in module.repository.github.pulls[pr.number].body
+
+
 def test_ci_settings_and_hand_edited_workflow(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     module.repository.create_task("CI").start()
@@ -131,6 +159,48 @@ def test_ci_settings_and_hand_edited_workflow(tmp_path):
     assert code_of(lambda: reloaded.write_ci(config.CiSettings(shared=True))) == ErrorCode.NOT_SUPPORTED
     assert code_of(lambda: reloaded.write_ci(config.CiSettings(os=("macos",)))) == ErrorCode.INVALID_ARGUMENT
     assert Module.find(module.root, github=module.repository.github).config.ci == settings  # 失敗したら変えない
+
+
+
+def test_ci_review_workflow(tmp_path):
+    """ci init --review：提出を Claude が見直すワークフローを本体が作る（型によらない）。設定は [ci] に残り、やめると消す。"""
+    from ecobuild import ci_review
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    module.repository.create_task("見直し").start()
+    commands = {"build": "make", "test": "make test"}
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    path = module.root / ci_review.REVIEW_WORKFLOW
+    assert module.write_ci().review_path is None and not path.exists()
+    assert "Claude が見直し" not in module.agent_guide().text
+
+    result = module.write_ci(config.CiSettings(review=True))
+    workflow = path.read_text(encoding="utf-8")
+    assert (result.review_path, result.review_secret, result.review_secret_missing) == (
+        ci_review.REVIEW_WORKFLOW, "CLAUDE_CODE_OAUTH_TOKEN", True)
+    assert "anthropics/claude-code-action@v1" in workflow and "claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" in workflow
+    assert "continue-on-error: true" in workflow and "github.event.pull_request.draft == false" in workflow
+    assert "gh pr diff ${{ github.event.pull_request.number }}" in workflow and "REVIEW.md" in workflow
+    assert "\t" not in workflow
+    state = module.ci_state()
+    assert (state.review, state.review_exists, state.review_current, state.review_secret) == (
+        True, True, True, "CLAUDE_CODE_OAUTH_TOKEN")
+    assert "Claude が見直し" in Module.find(module.root, github=module.repository.github).agent_guide().text
+
+    module.repository.github.secrets["ANTHROPIC_API_KEY"] = "x"
+    reloaded = Module.find(module.root, github=module.repository.github)
+    result = reloaded.write_ci(config.CiSettings(review=True, review_auth="api-key"))
+    assert (result.review_secret, result.review_secret_missing) == ("ANTHROPIC_API_KEY", False)
+    assert "anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}" in path.read_text(encoding="utf-8")
+    assert code_of(lambda: reloaded.write_ci(config.CiSettings(review=True, review_auth="x"))) == ErrorCode.INVALID_ARGUMENT
+
+    path.write_text(path.read_text(encoding="utf-8") + "# 手で足した\n", encoding="utf-8")
+    assert code_of(reloaded.write_ci) == ErrorCode.ALREADY_EXISTS
+    assert not reloaded.ci_state().review_current
+    assert reloaded.remove_ci().paths == (".github/workflows/ecobuild.yml", ci_review.REVIEW_WORKFLOW)
+    reloaded.write_ci(force=True)   # [ci] の review は残っているので戻る
+    assert path.is_file()
+    result = reloaded.write_ci(config.CiSettings(review=False))
+    assert result.removed == (ci_review.REVIEW_WORKFLOW,) and not path.exists()
 
 
 def test_commands_per_os(tmp_path):

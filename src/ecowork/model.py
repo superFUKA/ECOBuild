@@ -125,6 +125,31 @@ def with_link_kind(body: str, task: int, *, partial: bool) -> str:
     return with_task_link(body, task, partial=partial)
 
 
+# 提出の本文の節：呼び出し側（ECOBuild）が書く部分（提出の説明・確認の結果 等）。印で囲み、出し直しのたびに差し替える
+# （人が書き足した、印の外の部分は残す）。
+def _section_pattern(name: str) -> re.Pattern:
+    return re.compile(rf"<!-- ecowork-section: {re.escape(name)} -->\n.*?<!-- /ecowork-section: {re.escape(name)} -->",
+                      re.DOTALL)
+
+
+def with_section(body: str, name: str, text: str) -> str:
+    """本文の節 name を text にする（あればその場所で差し替え、なければ最後に足す。text が空なら節を消す）。"""
+    body = body or ""
+    block = f"<!-- ecowork-section: {name} -->\n{text.strip()}\n<!-- /ecowork-section: {name} -->" if text.strip() else ""
+    found = _section_pattern(name).search(body)
+    if found is None and not block:
+        return body
+    before, after = ((body[:found.start()], body[found.end():]) if found else (body, ""))
+    parts = [part for part in (before.strip("\n"), block, after.strip("\n")) if part]
+    return "\n\n".join(parts) + "\n" if parts else ""
+
+
+def with_sections(body: str, sections: dict[str, str]) -> str:
+    for name, text in sections.items():
+        body = with_section(body, name, text)
+    return body
+
+
 @dataclass(frozen=True)
 class Task:
     """GitHub Issue。"""
@@ -248,12 +273,13 @@ class TaskBranch:
         return PushResult(self.branch, f"origin/{self.branch}", commits, pushed=not dry_run)
 
     def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
-               reviewers: tuple[str, ...] = ()) -> "PullRequest":
+               reviewers: tuple[str, ...] = (), sections: dict[str, str] | None = None) -> "PullRequest":
         """提出する（push して作成元へのPRを作る）。提出済みなら送り直し、draft に合わせて下書きを付け外しし、
         title・reviewers を変える。partial：取り込まれてもタスクを閉じない（中間提出。本文の Refs／Closes）。
-        None なら、新しい提出は閉じる、提出済みならそのまま。"""
+        None なら、新しい提出は閉じる、提出済みならそのまま。sections：本文の節（名前→文。with_section）。
+        提出済みなら渡した節だけを差し替える（空の文はその節を消す）。"""
         return self._repository._submit_task_branch(self, title=title, partial=partial, draft=draft,
-                                                  reviewers=reviewers)
+                                                  reviewers=reviewers, sections=sections or {})
 
 
 @dataclass(frozen=True)

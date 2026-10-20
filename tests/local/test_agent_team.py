@@ -183,3 +183,20 @@ def test_only_one_serve_runs(lead):
         assert code_of(lambda: agent_serve.Lock().__enter__()) == ErrorCode.AGENT_ERROR
     with agent_serve.Lock():
         pass
+
+
+def test_a_resumed_conversation_keeps_its_role(lead, monkeypatch):
+    """起動のときに会話の ID を決めて役を覚え、続きから起動する（--resume <id>・--continue）ときはその役に戻る。"""
+    started = lead._for_role(("claude",), team.LEAD, "")
+    session = started[started.index("--session-id") + 1]
+    assert team.remembered_roles(lead.root) == {session: team.LEAD}
+    assert lead.repository.git.working_tree().untracked == ()                   # 覚えた所はコミットの対象に出ない
+    assert lead._role("", ("claude", "--resume", session), False, None, None) == team.LEAD
+    assert lead._role("", ("claude", "--resume", "other"), False, None, None) == team.WORKER   # 知らない会話
+    assert lead._role("", ("claude", "--resume"), False, None, None) == team.WORKER           # Claude の一覧で選ぶ：分からない
+    assert lead._role(team.WORKER, ("claude", "--resume", session), False, None, None) == team.WORKER   # 指定が先
+    monkeypatch.setattr(type(lead), "agent_conversations",
+                        lambda self, limit=20: type("C", (), {"conversations": [type("X", (), {"id": session})()]})())
+    assert lead._role("", ("claude", "--continue"), False, None, None) == team.LEAD          # いちばん新しい会話の役
+    resumed = lead._for_role(("claude", "--resume", session), team.LEAD, "")
+    assert "--session-id" not in resumed                                         # 続きからは ID を決めない

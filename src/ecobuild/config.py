@@ -48,6 +48,7 @@ _KNOWN_TABLES = ("format", "module", "branches", "projects", "profiles")
 # CI（ecobuild ci init）で選べるOS → GitHub Actions のランナー
 CI_RUNNERS = {"windows": "windows-latest", "linux": "ubuntu-latest"}
 CI_TABLE = "ci"
+CI_REVIEW_AUTH = ("subscription", "api-key")   # 中身（シークレットの名前等）は ecobuild.ci_review.AUTH
 # 以前の設定：タスクの計画を置くボードの接続（今は内部で見つける。url だけ、引き継ぐために読む）
 LEGACY_BOARD_TABLE = "board"
 
@@ -59,6 +60,8 @@ class CiSettings:
     configurations: tuple[str, ...] = ("Debug",)
     shared: bool = False                           # ライブラリを共有ライブラリにした構成でもビルド・テストする
     branches: tuple[str, ...] | None = None        # pushでCIを動かすブランチ。None：default_base（PRでは常に動く）
+    review: bool = False                           # 提出（PR）を Claude が見直す（ecobuild.ci_review）
+    review_auth: str = "subscription"              # 見直しの認証：subscription（契約のトークン）・api-key
 
 
 @dataclass(frozen=True)
@@ -78,14 +81,17 @@ class ModuleConfig:
     @property
     def ci(self) -> CiSettings:
         table = self.extra.get(CI_TABLE, {})
-        if not isinstance(table.get("shared", False), bool):
-            raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です（true／false）。")
+        for key in ("shared", "review"):
+            if not isinstance(table.get(key, False), bool):
+                raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[ci] の {key} は真偽値です（true／false）。")
         configurations = _ci_strings(table, "configurations")
         settings = CiSettings(
             os=_ci_strings(table, "os"),
             configurations=("Debug",) if configurations is None else configurations,
             shared=table.get("shared", False),
             branches=_ci_strings(table, "branches"),
+            review=table.get("review", False),
+            review_auth=table.get("review_auth", "subscription"),
         )
         validate_ci(settings)
         return settings
@@ -103,6 +109,10 @@ class ModuleConfig:
             table = {"os": list(settings.os), **table}
         if settings.branches is not None:
             table["branches"] = list(settings.branches)
+        if settings.review:
+            table["review"] = True
+        if settings.review_auth != "subscription":
+            table["review_auth"] = settings.review_auth
         return replace(self, extra={**self.extra, CI_TABLE: table})
 
     @classmethod
@@ -132,6 +142,9 @@ def validate_ci(settings: CiSettings) -> None:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "CIを動かすブランチを1つ以上指定してください（タスクブランチは除く）。")
     if not isinstance(settings.shared, bool):
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, "[ci] の shared は真偽値です。")
+    if settings.review_auth not in CI_REVIEW_AUTH:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"見直しの認証 {settings.review_auth} は使えません。",
+                            hint=f"{'・'.join(CI_REVIEW_AUTH)} から選んでください。")
 
 
 def load(path: Path) -> ModuleConfig:

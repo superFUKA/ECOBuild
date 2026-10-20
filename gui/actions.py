@@ -93,7 +93,7 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
            (Param("tab", "タブの番号", "integer", True),
             Param("continue", "前の会話の続きから（既定 false：新しい会話）", "boolean"))),
     Action("agent-model", "タブのエージェントのモデルを変えます（待機中になってから /model を送ります）。", "",
-           (Param("tab", "タブの番号", "integer", True), Param("model", "opus・sonnet・haiku など", required=True))),
+           (Param("tab", "タブの番号", "integer", True), Param("model", "opus・fable・sonnet・haiku など", required=True))),
     Action("agents-window", "エージェントの窓を最小化する（右下の小さな表示に）か、元に戻します。", "",
            (Param("state", "minimize・restore", required=True, choices=("minimize", "restore")),)),
     Action("operator", "オペレーター（裏で動いている ECOBuild の操作係）を、タブで開くか裏に戻します。", "",

@@ -35,7 +35,7 @@ EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書
 CONFIG_KEYS = {
     "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
     "agent_style": "作業用のエージェントの話し方（口調・答え方。空なら指定なし）",
-    "agent_lead_model": "進行役のエージェントのモデル（Claude Code の --model。例 opus・sonnet。空なら Claude Code の既定）",
+    "agent_lead_model": "進行役のエージェントのモデル（Claude Code の --model。例 opus・fable・sonnet。空なら Claude Code の既定）",
     "agent_worker_model": "作業役のエージェントのモデル（Claude Code の --model。例 sonnet・haiku。空なら Claude Code の既定。"
                           "作業役ごとに agent team start --model でも指定できる）",
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"

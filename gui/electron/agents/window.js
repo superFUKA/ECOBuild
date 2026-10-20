@@ -356,7 +356,7 @@ agents.onPickerKey(gesture => {
 // フッターのモデル名：クリックで切り替え（待機中で入力欄が空のときに /model を送る）
 function modelMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
-  for (const [label, model] of [['Opus', 'opus'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku'], ['その他…（Claude の選択画面）', '']]) {
+  for (const [label, model] of [['Opus', 'opus'], ['Fable', 'fable'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku'], ['その他…（Claude の選択画面）', '']]) {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
     b.addEventListener('click', () => { menu.hidden = true; agents.model(info.id, model); }); menu.append(b);
   }

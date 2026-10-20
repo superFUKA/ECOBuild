@@ -78,7 +78,7 @@ let operatorLog = [];     // [{role: user|agent, text, at}]
 let operatorWatchers = new Set();   // オペレーターとの会話を表示している画面（その窓が前にあれば右下に出さない）
 let operatorQueue = [];   // 起動を待っている間に頼まれた発言
 // オペレーターのモデル（簡単な操作が主なので、既定は速いもの。'' は Claude Code の既定）
-const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', ''];
+const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', 'fable', ''];
 let operatorModel = 'sonnet';
 let pickerWindow = null;  // タブの一覧（☰）を出している窓（リングで選ぶ）
 // アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）と、話し方（ECOBuild の設定。ここは表示と書き換えだけ）

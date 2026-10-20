@@ -89,8 +89,11 @@ def forget(path: Path) -> bool:
 
 
 def nested(root: Path) -> bool:
-    """他のモジュールの中にある（依存先のclone 等）。"""
-    return any((parent / _config.FILE_NAME).is_file() for parent in Path(root).resolve().parents)
+    """他のモジュールの中にある（依存先のclone 等）。ただし、そのモジュールの .ecobuild/ の中（ECOBuild の置き場所。
+    進行役の作業空間の中に作る作業役の作業空間 等）は作業空間として扱う。"""
+    root = Path(root).resolve()
+    return any((parent / _config.FILE_NAME).is_file() and not root.is_relative_to(parent / _config.DIRECTORY)
+               for parent in root.parents)
 
 
 def same(a: Path | str, b: Path | str) -> bool:

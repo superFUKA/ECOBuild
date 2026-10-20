@@ -6,6 +6,8 @@ from ..container._source import source
 
 def command(agent: Annotated[str, "起動するエージェントのコマンド（引数は空白で区切る。既定は claude）"] = "",
             here: Annotated[bool, "新しい画面を開かず、この端末で動かして終わるまで待つ（終了コードはエージェントのもの）"] = False,
+            role: Annotated[str, "役：lead（進行役。作業役に任せ、自分では編集しない）か worker（作業役。既定は作業空間の記録、なければ worker）"] = "",
+            prompt: Annotated[str, "最初の発言（Claude Code のとき）"] = "",
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """作業空間のルートで、エージェントを新しい画面で起動します。
 
@@ -14,24 +16,24 @@ def command(agent: Annotated[str, "起動するエージェントのコマンド
     コマンドは ecobuild config set agent_deny で）。ログインは最初の1回だけ（すべてのコンテナで共有）。
     """
     if here:
-        return _here(agent)
+        return _here(agent, role, prompt)
 
     def action(inv):
-        options = {"source": source(), "progress": inv.info}
+        options = {"source": source(), "progress": inv.info, "role": role, "prompt": prompt}
         return inv.module.start_agent(agent.split(), **options) if agent.strip() else inv.module.start_agent(**options)
 
     return run_command("agent start", action,
                        lambda r: f"エージェントを起動しました：{' '.join(r.command)}（{r.directory}）", json_output=json)
 
 
-def _here(agent: str) -> int:
+def _here(agent: str, role: str, prompt: str) -> int:
     """この端末で動かす。失敗は文で出す（画面を持つアプリの端末に、そのまま見える）。"""
     import click
     from ecobuild.errors import WorkError
     from ..._module import Module
     try:
         module = Module.find(".")
-        options = {"source": source(), "progress": lambda message: click.echo(message, err=True)}
+        options = {"source": source(), "progress": lambda message: click.echo(message, err=True), "role": role, "prompt": prompt}
         return module.run_agent(agent.split(), **options) if agent.strip() else module.run_agent(**options)
     except WorkError as error:
         click.echo(f"エラー：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""), err=True)

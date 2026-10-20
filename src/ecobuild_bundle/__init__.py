@@ -22,7 +22,7 @@ from ecobuild import workspaces as _workspaces
 from ecobuild.errors import WorkError
 from ecobuild.results import AgentConversations, AgentStarted, DoctorItem
 
-from . import tooling
+from . import team, tooling
 
 AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置き場所（コミットしない。prepare_agent_area）
 REGISTRY_FILE = "module_types.toml"
@@ -50,33 +50,38 @@ class Module(ecobuild.Module):
         return closed
 
     def start_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None,
-                    progress=lambda message: None) -> AgentStarted:
+                    progress=lambda message: None, role: str = "", prompt: str = "") -> AgentStarted:
         """コンテナにした作業空間では、コンテナの中で確認なしに起動する（使わせないものは設定 agent_deny）。
         source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。Claude Code には、ECOBuild の使い方
-        （agent_briefing）を最初から渡す。"""
+        （agent_briefing）を最初から渡す。role：進行役（lead）か作業役（worker。既定は作業空間の記録、なければ作業役）。
+        prompt：最初の発言。"""
         from . import agent_status, container
         inside = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
-        command = self._briefed(tuple(command), agent_status.prepare(container.name(self.root)), inside, task)
+        role = team.role_of(self.root, role)
+        command = self._for_role(tuple(command), role, prompt)
+        command = self._briefed(command, agent_status.prepare(container.name(self.root)), inside, task, role)
         if not inside:
             return super().start_agent(command)
         session = container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
                                         source=source, progress=progress)
         return AgentStarted(session.pid, session.command, session.directory)
 
-    def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None) -> int:
+    def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None,
+                  role: str = "", prompt: str = "") -> int:
         """この端末で動かして待つ（start_agent と同じく、コンテナならその中で）。Claude Code なら、状態（モデル・
         使用量・返答の終わり）を書き出させ、その置き場所を端末に知らせる（agent_status。画面を持つアプリが読む）。"""
         from . import agent_status, container
         inside = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
-        command = tuple(command)
+        role = team.role_of(self.root, role)
+        command = self._for_role(tuple(command), role, prompt)
         if command[:1] == ("claude",):
             folder = agent_status.prepare(container.name(self.root))
             agent_status.announce(folder)
             where, python = (agent_status.INSIDE, "python3") if inside else (folder.as_posix(), agent_status.host_python())
             command = (*command, "--settings", agent_status.settings_argument(folder, where, python))
-            command = self._briefed(command, folder, inside, task)
+            command = self._briefed(command, folder, inside, task, role)
         if not inside:
             return super().run_agent(command)
         return container.start_agent(self.root, command, deny=self._agent_deny(), command=self.command,
@@ -92,9 +97,9 @@ class Module(ecobuild.Module):
                                                     command=self.command)
         return AgentConversations(self.root, found, note)
 
-    def agent_briefing(self, task) -> str:
-        """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチと、ECOBuild の使い方（agent guide）。
-        AGENTS.md がないモジュールでも、最初から ECOBuild のコマンドで作業させるため。"""
+    def agent_briefing(self, task, role: str = team.WORKER) -> str:
+        """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチ、役（進行役・作業役）の決まりと、ECOBuild の
+        使い方（agent guide）。AGENTS.md がないモジュールでも、最初から ECOBuild のコマンドで作業させるため。"""
         program = self.command or "ecobuild"
         return "\n".join([
             "# ECOBuild から：この作業空間での作業のしかた",
@@ -107,6 +112,7 @@ class Module(ecobuild.Module):
             f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
             "コマンドを使わずにここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",
+            *team.briefing(self.root, role, program),
             *self._style(),
             self.agent_guide().text,
         ])
@@ -140,14 +146,21 @@ class Module(ecobuild.Module):
                                    + f"# ECOBuild：エージェント用の置き場所（コミットしない）\n{line}\n", encoding="utf-8")
         return area
 
-    def _briefed(self, command: tuple[str, ...], folder: Path, inside: bool, task) -> tuple[str, ...]:
+    def _for_role(self, command: tuple[str, ...], role: str, prompt: str) -> tuple[str, ...]:
+        """役のモデル・使わせない道具（team.agent_options）と、最初の発言（claude のすぐ後ろ：--disallowedTools 等の
+        いくつも値を取る引数の後ろに置くと、その値として読まれる）。"""
+        command = team.agent_options(self.root, role, command)
+        return (command[0], prompt, *command[1:]) if prompt.strip() and command[:1] == ("claude",) else command
+
+    def _briefed(self, command: tuple[str, ...], folder: Path, inside: bool, task,
+                 role: str = team.WORKER) -> tuple[str, ...]:
         """Claude Code なら、使い方の文をファイル（状態の置き場所の guide.md）にして --append-system-prompt-file で渡す
         （長い文を引数にしない：claude.cmd は cmd.exe を通る）。"""
         from . import agent_status
         if command[:1] != ("claude",) or "--append-system-prompt-file" in command:
             return command
         self.prepare_agent_area()
-        (folder / "guide.md").write_text(self.agent_briefing(task), encoding="utf-8", newline="\n")
+        (folder / "guide.md").write_text(self.agent_briefing(task, role), encoding="utf-8", newline="\n")
         where = agent_status.INSIDE if inside else folder.as_posix()
         return (*command, "--append-system-prompt-file", f"{where}/guide.md")
 

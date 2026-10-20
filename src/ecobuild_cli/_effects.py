@@ -12,7 +12,7 @@ from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # 
 
 EFFECTS = {
     READ: (
-        "account show", "agent conversations", "agent guide", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
+        "account show", "agent conversations", "agent guide", "agent team list", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container image list", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
@@ -21,13 +21,13 @@ EFFECTS = {
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
-        "container remove", "file remove", "module archive", "module delete", "module members add",
+        "agent team close", "container remove", "file remove", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent context", "agent guard", "agent operator", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent ask", "agent context", "agent guard", "agent operator", "agent team send", "agent team start", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

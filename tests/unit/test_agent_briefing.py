@@ -23,7 +23,7 @@ def test_the_agent_area_is_excluded_without_changing_the_repository(tmp_path):
 def test_claude_gets_the_briefing_as_a_file(tmp_path):
     prepared = []
     stub = SimpleNamespace(prepare_agent_area=lambda: prepared.append(True),
-                           agent_briefing=lambda task: f"使い方（#{task.number}）")
+                           agent_briefing=lambda task, role="worker": f"使い方（#{task.number}）")
     task = SimpleNamespace(number=12, branch="task/12-log")
     command = Module._briefed(stub, ("claude",), tmp_path, False, task)
     assert command == ("claude", "--append-system-prompt-file", f"{tmp_path.as_posix()}/guide.md") and prepared

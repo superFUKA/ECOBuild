@@ -7,6 +7,8 @@
 ECOBuild が書くもの：workspace.json（どの作業空間か）、inbox/（エージェントに届けるもの。put・take）。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
 ほかの端末には何も見えない）。コンテナの中のエージェントは、この置き場所をマウントした所（INSIDE）に書く。
+画面を持つアプリがいない（新しい画面で起動した）ときは、受け箱を届けるのもフック（deliver）：返答が終わったとき
+（Stop。届いたものがあれば続けて読ませる）と、人が発言したとき（UserPromptSubmit。発言に添える）。
 """
 
 from __future__ import annotations
@@ -40,9 +42,42 @@ def write(name, value):
         os.replace(path + ".tmp", path)
     except OSError:
         pass
+def take_all():
+    """受け箱のものを古い順にすべて取り出す（ほかが先に取ったものは飛ばす。status.take と同じ形）。"""
+    inbox, found = os.path.join(here, "inbox"), []
+    try:
+        names = sorted(n for n in os.listdir(inbox) if n.endswith(".json"))
+    except OSError:
+        return found
+    for name in names:
+        path = os.path.join(inbox, name)
+        taken = path[:-5] + ".taken"
+        try:
+            os.replace(path, taken)
+            with open(taken, encoding="utf-8") as f:
+                item = json.load(f)
+        except (OSError, ValueError):
+            continue
+        finally:
+            try:
+                os.remove(taken)
+            except OSError:
+                pass
+        if isinstance(item, dict) and isinstance(item.get("text"), str):
+            found.append(item["text"])
+    return found
+def out(value):
+    sys.stdout.buffer.write(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+deliver = "deliver" in sys.argv[2:]
 if kind == "replied":
     message = data.get("last_assistant_message")
     write("replied.json", {"at": time.time(), "message": message if isinstance(message, str) else None})
+    if deliver and (texts := take_all()):   # 届いたものがあれば、返答を終えずに続けて読ませる
+        out({"decision": "block", "reason": "ECOBuild から届きました：\n\n" + "\n\n".join(texts)})
+elif kind == "prompt":
+    if deliver and (texts := take_all()):   # 人の発言に添える
+        out({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                    "additionalContext": "ECOBuild から届いていたもの：\n\n" + "\n\n".join(texts)}})
 else:
     model = data.get("model") or {}
     window = data.get("context_window") or {}
@@ -161,25 +196,31 @@ def _host_language() -> str:
     return found if isinstance(found, str) else ""
 
 
-def claude_settings(folder: str, python: str, base: dict | None = None) -> str:
+def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True) -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
-    base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。"""
+    base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
+    （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
-    settings.update(VOICE)
-    language = _host_language()
-    if language and "language" not in settings:
-        settings["language"] = language     # 音声入力の言語（設定がなければ英語になる）：このPCの Claude の設定に合わせる
+    if app:
+        settings.update(VOICE)
+        language = _host_language()
+        if language and "language" not in settings:
+            settings["language"] = language     # 音声入力の言語（設定がなければ英語になる）：このPCの Claude の設定に合わせる
+    deliver = "" if app else " deliver"
     settings["statusLine"] = {"type": "command", "command": f"{script} statusline", "padding": 0}
     hooks = settings.setdefault("hooks", {})
-    hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied"}]}]
+    hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied{deliver}"}]}]
+    if not app:
+        hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),
+                                     {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
     return json.dumps(settings, ensure_ascii=False)
 
 
-def settings_argument(host: Path, folder: str, python: str, base: dict | None = None) -> str:
+def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True) -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base), encoding="utf-8", newline="\n")
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app), encoding="utf-8", newline="\n")
     return f"{folder}/{SETTINGS}"
 
 

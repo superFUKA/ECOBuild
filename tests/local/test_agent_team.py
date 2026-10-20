@@ -1,6 +1,8 @@
 """進行役と作業役（ecobuild_agent.team）：作業役は子タスク＋進行役の作業空間の中の作業空間。"""
 
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -137,6 +139,19 @@ def test_send_and_the_lead_notice_go_to_the_inbox(lead):
     assert team.lead_notice(lead.root, "x") is None                                     # 進行役自身は知らせない
 
 
+def test_closing_the_lead_checks_and_forgets_the_workers(lead):
+    """進行役の作業空間を閉じると中の作業役の作業空間も消えるので、作業役の GitHub にないものも確かめ、記録からも外す。"""
+    member = team.create(lead, "画面", "目的：画面を作る")
+    (member.path / "new.txt").write_text("まだ\n", encoding="utf-8")                  # 作業役の未コミットの変更
+    with pytest.raises(WorkError) as error:
+        Module.close_workspace(lead.root)
+    assert error.value.code == ErrorCode.UNFINISHED_WORK and lead.root.exists()
+    assert any(item.startswith(f"{team.TEAM_AREA}/{member.path.name}：") for item in error.value.details)
+    (member.path / "new.txt").unlink()
+    assert Module.close_workspace(lead.root).done and not lead.root.exists()
+    assert not any(workspaces.same(item.path, member.path) for item in workspaces.recorded())
+
+
 def test_the_serve_answers_requests_and_tells_the_lead(lead):
     """係：頼みを実行して結果を書き戻し、作業役ができたら起動を頼み、作業役の返答の終わりを進行役に知らせる。"""
     member = team.create(lead, "画面", "目的：画面を作る")
@@ -159,6 +174,7 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
     (requests / "c.json").write_text(json.dumps({"id": "c", "args": ["agent", "team", "close", "画面"], "cwd": "../.."}),
                                      encoding="utf-8")
     serve.step()
+    serve.wait()
     result = lambda key: json.loads((requests / f"{key}.result.json").read_text(encoding="utf-8"))
     assert result("a")["ok"] and events[0] == {"event": "agent-start", "path": str(member.path), "name": "画面",
                                                "role": "worker", "prompt": "読んで", "lead": str(lead.root)}
@@ -169,6 +185,7 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
     (requests / "d.json").write_text(json.dumps({"id": "d", "args": ["agent", "team", "close", "画面"], "cwd": "."}),
                                      encoding="utf-8")
     serve.step()
+    serve.wait()
     assert events[1]["event"] == "agent-stop" and events[1]["path"] == str(member.path)   # 閉じる前に止めてもらう
     assert ran[-1][0] == ["agent", "team", "close", "画面"]
 
@@ -176,11 +193,45 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
     (member_folder / "replied.json").write_text(json.dumps({"at": serve.started + 5, "message": "終わりました"}),
                                                 encoding="utf-8")
     serve.step()
+    serve.wait()
     notice = agent_status.take(folder)
     assert "作業役「画面」" in notice["text"] and notice["text"].endswith("終わりました")
     assert ran[-1] == (["project", "update"], member.path)                               # 型に手元をそろえさせる
     serve.step()
+    serve.wait()
     assert agent_status.take(folder) is None                                             # 同じ返答は1回だけ
+
+
+def test_a_long_request_does_not_keep_others_waiting(lead):
+    """長くかかる頼み（作業役を作る clone 等）を実行している間も、ほかの頼みはすぐに拾う（頼んだ側が「係がいない」と
+    思わない）。同じ置き場所のものは順に、別の置き場所のものは並べて実行する。"""
+    member = team.create(lead, "画面", "目的：画面を作る")
+    folders = [agent_status.prepare(container.name(lead.root), lead.root),
+               agent_status.prepare(container.name(member.path), member.path)]
+    release, ran = threading.Event(), []
+
+    def run(args, cwd):
+        ran.append(args[3])
+        if args[3] == "a":
+            assert release.wait(10)
+        return {"ok": True, "result": {}}
+
+    serve = agent_serve.Serve(run, emit=lambda event: None)
+    for folder, keys in zip(folders, ("ab", "c")):
+        (folder / team.REQUESTS).mkdir(exist_ok=True)
+        for key in keys:
+            (folder / team.REQUESTS / f"{key}.json").write_text(
+                json.dumps({"id": key, "args": ["agent", "team", "list", key], "cwd": "."}), encoding="utf-8")
+    serve.step()
+    assert not [f for folder in folders for f in (folder / team.REQUESTS).glob("?.json")]   # すぐに全部拾った
+    for _ in range(100):
+        if (folders[1] / team.REQUESTS / "c.result.json").exists():
+            break
+        time.sleep(0.05)
+    assert (folders[1] / team.REQUESTS / "c.result.json").exists() and "b" not in ran   # 別の置き場所は待たない
+    release.set()
+    serve.wait()
+    assert ran.index("a") < ran.index("b") and (folders[0] / team.REQUESTS / "b.result.json").exists()
 
 
 def test_without_an_app_the_serve_opens_the_worker_itself(lead):

@@ -62,6 +62,7 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                 agent_serve.serve_forever(serve, stop)
             except KeyboardInterrupt:
                 pass
+            serve.wait()   # 実行中の頼みは終えてから（頼んだ側が結果を待っている）
         return {"stopped": True}
 
     return execute("agent serve", Invocation(json_output=json), action, lambda r: "ECOBuild の係を止めました。")

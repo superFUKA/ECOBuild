@@ -19,6 +19,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -46,15 +47,24 @@ class Serve:
     run(args, cwd)：ECOBuild のコマンドを cwd で実行し、その JSON の結果（{ok, result|error}）を返す。
     emit(event)：起動した側への出来事（None なら起動した側はいない）。ack(key, timeout)：その返事を待つ（届いたか）。
     open_agent(path, role, prompt)：起動した側がいないときに、作業役を新しい画面で起動する。
-    log(message)：したことを人に知らせる。"""
+    log(message)：したことを人に知らせる。
+
+    見回りは待たない：頼みはすぐに受け取り（拾った印 .taken。頼んだ側は拾われたかで係がいるかを見る）、実行は裏で行う。
+    同じ置き場所（作業空間）のものは届いた順に1つずつ、ほかの置き場所のものとは並べて（作業役を作る clone 等で長く
+    かかっても、ほかのエージェントの頼みを待たせない）。background=False なら、その場で実行する。"""
 
     def __init__(self, run: Run, *, emit: Callable[[dict], None] | None = None,
                  ack: Callable[[str, float], bool] = lambda key, timeout: True,
                  open_agent: Callable[[Path, str, str], None] | None = None,
-                 log: Callable[[str], None] = lambda message: None):
+                 log: Callable[[str], None] = lambda message: None, background: bool = True):
         self.run, self.emit, self.ack, self.open_agent, self.log = run, emit, ack, open_agent, log
+        self.background = background
         self.started = time.time()
         self._replied: dict[Path, float] = {}
+        self._queues: dict[Path, deque] = {}
+        self._busy: set[Path] = set()
+        self._guard = threading.Lock()
+        self._threads: list[threading.Thread] = []
 
     def step(self) -> None:
         for folder in agent_status.folders():
@@ -62,6 +72,46 @@ class Serve:
             self._requests(folder, root)
             if root is not None:
                 self._watch_reply(folder, root)
+
+    def wait(self) -> None:
+        """裏で行っているものが終わるまで待つ。"""
+        while True:
+            with self._guard:
+                running = [thread for thread in self._threads if thread.is_alive()]
+                self._threads = running
+            if not running:
+                return
+            for thread in running:
+                thread.join()
+
+    def _later(self, folder: Path, job: Callable[[], None]) -> None:
+        """job を裏で行う（置き場所 folder ごとに届いた順に1つずつ。ほかの置き場所とは並べて）。"""
+        if not self.background:
+            self._do(job)
+            return
+        with self._guard:
+            self._queues.setdefault(folder, deque()).append(job)
+            if folder in self._busy:
+                return
+            self._busy.add(folder)
+            thread = threading.Thread(target=self._drain, args=(folder,), daemon=True)
+            self._threads.append(thread)
+        thread.start()
+
+    def _drain(self, folder: Path) -> None:
+        while True:
+            with self._guard:
+                if not self._queues[folder]:
+                    self._busy.discard(folder)
+                    return
+                job = self._queues[folder].popleft()
+            self._do(job)
+
+    def _do(self, job: Callable[[], None]) -> None:
+        try:
+            job()
+        except Exception as error:   # 1つの失敗で係を止めない
+            self.log(f"係の仕事に失敗しました：{error}")
 
     # ---- 頼み -------------------------------------------------------------------------------------------
     def _requests(self, folder: Path, root: Path | None) -> None:
@@ -71,25 +121,29 @@ class Serve:
                 continue
             taken = file.with_suffix(".taken")
             try:
-                os.replace(file, taken)       # ほかが拾ったものは飛ばす
+                os.replace(file, taken)       # 拾った（頼んだ側に係がいると分かる）。ほかが拾ったものは飛ばす
             except OSError:
                 continue
-            request = agent_status.read(taken)
-            if not isinstance(request, dict) or not request.get("id"):
-                taken.unlink(missing_ok=True)
-                continue
-            try:
-                doc = self.handle(root, request)
-            except Exception as error:   # 頼んだ側を待たせたままにしない
-                doc = failed(f"係が頼みを実行できませんでした：{error}")
-            result = inbox / f"{request['id']}.result.json"
-            temporary = result.with_name(result.name + ".tmp")
-            try:
-                temporary.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
-                os.replace(temporary, result)
-            except OSError:
-                pass   # 書けなければ、頼んだ側が待ちきれずに止まる
+            self._later(folder, lambda taken=taken: self._answer(inbox, taken, root))
+
+    def _answer(self, inbox: Path, taken: Path, root: Path | None) -> None:
+        """拾った頼み1つを実行して、結果を書き戻す。"""
+        request = agent_status.read(taken)
+        if not isinstance(request, dict) or not request.get("id"):
             taken.unlink(missing_ok=True)
+            return
+        try:
+            doc = self.handle(root, request)
+        except Exception as error:   # 頼んだ側を待たせたままにしない
+            doc = failed(f"係が頼みを実行できませんでした：{error}")
+        result = inbox / f"{request['id']}.result.json"
+        temporary = result.with_name(result.name + ".tmp")
+        try:
+            temporary.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            os.replace(temporary, result)
+        except OSError:
+            pass   # 書けなければ、頼んだ側が待ちきれずに止まる
+        taken.unlink(missing_ok=True)
 
     def handle(self, root: Path | None, request: dict) -> dict:
         """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。"""
@@ -145,7 +199,8 @@ class Serve:
         self._replied[folder] = at
         if at == before or (before is None and at < self.started):   # 見た・係が動く前のもの
             return
-        self.replied(root, replied.get("message") or "")
+        message = replied.get("message") or ""
+        self._later(folder, lambda: self.replied(root, message))
 
     def replied(self, root: Path, message: str) -> None:
         """作業空間 root のエージェントの返答が終わった。"""

@@ -8,6 +8,7 @@ NAMES = CHECK_NAMES
 
 def command(
     build: Annotated[bool, "ビルドとテストも行う"] = True,
+    allow_dependency_mismatch: Annotated[bool, "手元の依存先が記録の版と違っても失敗にしない（知らせるだけ）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """提出の前の確認：生成ファイルが最新か、衝突の印がないか、ビルド・テストが通るか（コミット前でも使えます）。
@@ -17,7 +18,7 @@ def command(
 
     def action(inv):
         inv.info("確認しています…")
-        return inv.module.check(build=build)
+        return inv.module.check(build=build, allow_dependency_mismatch=allow_dependency_mismatch)
 
     return run_command("check", action, lambda r: "\n".join(
         f"{'OK' if i.ok else 'NG'} {NAMES.get(i.name, i.name)}" + (f"：{i.detail}" if i.detail else "") for i in r.items),

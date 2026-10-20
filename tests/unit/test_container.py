@@ -236,3 +236,40 @@ def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch,
     assert old not in fake.images and "ecobuild-other:someother" in fake.images and len(fake.images) == 3   # 環境は同じものを使う
 
 
+
+
+def test_the_check_runs_inside_when_the_workspace_is_a_container(monkeypatch, root):
+    """コンテナにした作業空間の確認（task submit の中のものも）は、中の ecobuild で行う（ビルド・テストに中のツールを使う）。"""
+    import json
+
+    class Host:
+        def check(self, *, build=True, allow_dependency_mismatch=False):
+            return "このPC"
+
+    class Workspace(container.ContainerModule, Host):
+        command = "ecobuild"
+
+        def __init__(self, path):
+            self.root = path
+
+    ran = []
+
+    def run_inside(path, args, **options):
+        ran.append((args, options["cwd"], options["capture"]))
+        if "--no-build" in args:
+            return 1, json.dumps({"ok": False, "error": {"code": "check_failed", "message": "確認で問題が見つかりました：generated",
+                                                         "hint": "直す", "details": [{"name": "generated", "ok": False}]}})
+        return 0, "経過\n" + json.dumps({"ok": True, "result": {"items": [{"name": "build", "ok": True, "detail": "/work/x"}]}})
+
+    monkeypatch.setattr(container, "run_inside", run_inside)
+    workspace = Workspace(root)
+    assert workspace.check() == "このPC" and not ran                                   # コンテナにしていなければこのPC
+    container.choose(root, True, FakeDocker(monkeypatch).run)
+    report = workspace.check(allow_dependency_mismatch=True)
+    assert ran[0] == (["ecobuild", "check", "--json", "--allow-dependency-mismatch"], root, True)
+    assert report.ok and report.items[0].detail == f"{root.as_posix()}/x"               # 中の場所はこのPCの場所に
+    with pytest.raises(WorkError) as error:
+        workspace.check(build=False)
+    assert error.value.code == "check_failed" and error.value.details == [{"name": "generated", "ok": False}]
+    monkeypatch.setenv(container.INSIDE, "1")
+    assert workspace.check() == "このPC"                                                # 中ではそのまま

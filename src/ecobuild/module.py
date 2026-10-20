@@ -401,6 +401,7 @@ class Module:
             with contextlib.suppress(OSError):
                 aside[0][1].rmdir()
         _workspaces.forget(root)
+        _workspaces.forget_inside(root)   # 中の作業空間（作業役 等）も一緒に消えた
         return WorkspaceClosed(root)
 
     @classmethod
@@ -448,11 +449,14 @@ class Module:
         return info
 
     def _check_nothing_unpushed(self) -> None:
-        """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも。"""
+        """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも、
+        .ecobuild/ の中の作業空間（進行役の作業空間の中の作業役 等。閉じると一緒に消える）とその依存先も。"""
         from ecowork.git import Git
         found = []
-        nested = (*self.root.glob("*/.git"), *self.root.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
-        roots = [self.root] + sorted(p.parent for p in nested)
+        roots = []
+        for workspace in (self.root, *_workspaces.inside(self.root)):
+            nested = (*workspace.glob("*/.git"), *workspace.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
+            roots += [workspace] + sorted(p.parent for p in nested)
         for root in roots:
             git = Git(root)
             label = "" if root == self.root else f"{root.relative_to(self.root).as_posix()}："

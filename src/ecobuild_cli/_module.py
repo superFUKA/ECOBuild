@@ -7,3 +7,8 @@ PROGRAM = "ecobuild"
 
 class Module(ecobuild_bundle.Module):
     command = PROGRAM
+
+    def container_source(self):
+        """コンテナのイメージに入れる ECOBuild：このPCの ecobuild と同じ版。"""
+        from .commands.container._source import source
+        return source()

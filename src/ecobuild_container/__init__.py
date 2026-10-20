@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -39,6 +40,7 @@ from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.errors import ErrorCode as _ErrorCode
+from ecobuild.results import CheckItem, CheckReport
 from ecowork.repository import ACCOUNT_KEY
 
 from . import docker
@@ -146,7 +148,32 @@ def dockerfile(type_class: "type[ModuleType]") -> str:
 
 class ContainerModule:
     """Module に重ねる（本体＋拡張が class Module(ContainerModule, ecobuild.Module) とする）：モジュールを作る・最新にする
-    ときに環境のひな型を置き、作業空間を閉じたらコンテナも消す。"""
+    ときに環境のひな型を置き、作業空間を閉じたらコンテナも消す。コンテナにした作業空間では、確認（check。task submit の
+    中のものも）を中の ecobuild で行う（ビルド・テストに中のツールを使う）。"""
+
+    def container_source(self) -> tuple[str, str] | None:
+        """コンテナのイメージに入れる ECOBuild（git のリポジトリ, 版。start の source）。使う側が今の ECOBuild の入れ元を
+        返す（CLI）。None なら今のコンテナをそのまま使う。"""
+        return None
+
+    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False) -> CheckReport:
+        if os.environ.get(INSIDE) or not enabled(self.root):
+            return super().check(build=build, allow_dependency_mismatch=allow_dependency_mismatch)
+        args = ["ecobuild", "check", "--json", *([] if build else ["--no-build"]),
+                *(["--allow-dependency-mismatch"] if allow_dependency_mismatch else [])]
+        _, out = run_inside(self.root, args, cwd=self.root, command=self.command, source=self.container_source(),
+                            capture=True)
+        try:
+            doc = outside(json.loads([line for line in out.splitlines() if line.strip()][-1]), self.root)
+        except (IndexError, ValueError):
+            raise EcoBuildError(ErrorCode.CONTAINER_ERROR, "コンテナの中の確認の結果を読めませんでした。",
+                                hint=f"{operation(self.command, 'check')} を実行して、様子を確かめてください。") from None
+        if doc.get("ok"):
+            return CheckReport(tuple(CheckItem(**item) for item in (doc.get("result") or {}).get("items", ())))
+        error = doc.get("error") or {}
+        raise EcoBuildError(error.get("code") or ErrorCode.CONTAINER_ERROR,
+                            error.get("message") or "コンテナの中の確認が失敗しました。",
+                            hint=error.get("hint"), details=error.get("details"))
 
     @classmethod
     def environment_files(cls, type_class) -> dict[str, str]:
@@ -154,14 +181,17 @@ class ContainerModule:
 
     @classmethod
     def close_workspace(cls, path, **options):
-        """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。"""
+        """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。
+        中の作業空間（作業役 等。一緒に消える）のコンテナも。"""
         try:   # 閉じると ecobuild.local.toml も消えるので、先に読む
-            chosen = enabled(_workspaces.module_root(Path(path)))
+            root = _workspaces.module_root(Path(path))
+            chosen = [place for place in (root, *_workspaces.inside(root)) if enabled(place)]
         except WorkError:
-            chosen = False
+            chosen = []
         closed = super().close_workspace(path, **options)
-        if closed.done and chosen:
-            discard(closed.path)
+        if closed.done:
+            for place in chosen:
+                discard(place)
         return closed
 
 

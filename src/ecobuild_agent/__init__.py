@@ -50,7 +50,10 @@ class AgentModule:
         task = self.require_task_branch("エージェントの起動")
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
-        command = self._briefed(command, status.prepare(container.name(self.root), self.root), boxed, task, role)
+        folder = status.prepare(container.name(self.root), self.root)
+        if command[:1] == ("claude",):   # 返答の終わりを書き出させ（係が進行役に知らせる）、受け箱はフックが届ける
+            command = (*command, "--settings", self._status_settings(folder, boxed, app=False))
+        command = self._briefed(command, folder, boxed, task, role)
         if not boxed:
             try:
                 session = ecoagent.start(self.root, command)
@@ -73,8 +76,7 @@ class AgentModule:
         if command[:1] == ("claude",):
             folder = status.prepare(container.name(self.root), self.root)
             status.announce(folder)
-            where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
-            command = (*command, "--settings", status.settings_argument(folder, where, python))
+            command = (*command, "--settings", self._status_settings(folder, boxed, app=True))
             command = self._briefed(command, folder, boxed, task, role)
         if boxed:
             return inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
@@ -83,6 +85,12 @@ class AgentModule:
             return ecoagent.run(self.root, command)
         except ecoagent.AgentError as error:
             raise from_ecoagent(error) from error
+
+    @staticmethod
+    def _status_settings(folder: Path, boxed: bool, *, app: bool) -> str:
+        """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。"""
+        where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
+        return status.settings_argument(folder, where, python, app=app)
 
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。

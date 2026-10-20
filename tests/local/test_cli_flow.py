@@ -798,8 +798,11 @@ def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     cli("task", "new", "AIで作業", "--start", "--name", "作業")
     assert as_json(cli("agent", "start", "--json"))["ok"]
     (directory, command), = started                     # Claude Code には ECOBuild の使い方を渡す
-    assert directory == module.root and command[:2] == ("claude", "--append-system-prompt-file")
-    assert command[2].endswith("/guide.md") and "ecobuild build" in open(command[2], encoding="utf-8").read()
+    assert directory == module.root and command[0] == "claude" and "--session-id" in command   # 役を覚える新しい会話
+    guide = command[command.index("--append-system-prompt-file") + 1]
+    assert guide.endswith("/guide.md") and "ecobuild build" in open(guide, encoding="utf-8").read()
+    settings = json.loads(open(command[command.index("--settings") + 1], encoding="utf-8").read())
+    assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("replied deliver")   # 新しい画面：受け箱はフックが届ける
     started.clear()
     (module.root / "sub").mkdir()
     monkeypatch.chdir(module.root / "sub")

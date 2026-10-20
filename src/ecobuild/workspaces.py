@@ -88,6 +88,30 @@ def forget(path: Path) -> bool:
     return True
 
 
+def forget_inside(root: Path) -> None:
+    """root の中にある作業空間（inside）を記録から外す（root を消した後に。フォルダには触らない）。"""
+    base = key(root)
+    items = recorded()
+    kept = [item for item in items if not key(item.path).startswith(base + os.sep)]
+    if len(kept) != len(items):
+        _save(kept)
+
+
+def inside(root: Path) -> list[Path]:
+    """モジュール root の .ecobuild/ の中にある作業空間（進行役の作業空間の中の作業役 等）。中の作業空間の中にあるものも。
+    root を閉じると一緒に消えるもの。"""
+    found = []
+    for folder, children, _ in os.walk(Path(root) / _config.DIRECTORY):
+        here = Path(folder)
+        if (here / ".git").exists() and (here / _config.FILE_NAME).is_file():
+            found.append(here)
+            found += inside(here)
+            children.clear()   # 中の作業空間の中は、その作業空間として見た（上で）
+        else:
+            children[:] = [c for c in children if c != ".git"]
+    return found
+
+
 def nested(root: Path) -> bool:
     """他のモジュールの中にある（依存先のclone 等）。ただし、そのモジュールの .ecobuild/ の中（ECOBuild の置き場所。
     進行役の作業空間の中に作る作業役の作業空間 等）は作業空間として扱う。"""

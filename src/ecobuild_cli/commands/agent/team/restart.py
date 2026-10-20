@@ -44,5 +44,7 @@ def _render(r) -> str:
     return lines(
         f"{role}「{r.get('name')}」を起動し直しました（{'前の会話の続きから' if r.get('agent') else '新しい会話で'}）。",
         "新しい画面で起動しました" if r.get("opened") else None,
+        "係が画面なしで起動しました" if r.get("app") else None,
+        r.get("note") or None,
         f"作業空間 {_forward.place(r)} の作業はそのままです。返答が終わると知らせが届きます（係）。",
     )

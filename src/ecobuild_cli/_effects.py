@@ -12,7 +12,7 @@ from ecobuild_agent.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # n
 
 EFFECTS = {
     READ: (
-        "account list", "account show", "agent conversations", "agent guide", "agent team list", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
+        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
@@ -27,7 +27,7 @@ EFFECTS = {
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent context", "agent guard", "agent operator", "agent serve", "agent team restart", "agent team send", "agent team start", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent ask", "agent context", "agent guard", "agent operator", "agent serve", "agent team handback", "agent team restart", "agent team send", "agent team start", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

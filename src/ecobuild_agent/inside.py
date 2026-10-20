@@ -135,8 +135,9 @@ def start_agent(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (
 def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = (), command: str = "",
                  source: tuple[str, str] | None = None,
                  progress: Callable[[str], None] = lambda message: None,
-                 tty: bool = True) -> tuple[list[str], dict[str, str]]:
-    """コンテナを用意し（動かす・設定を書く）、中のエージェントを動かすコマンドと環境を返す。tty：端末として動かす。"""
+                 tty: bool = True, stdin: bool = False, tag: str = "") -> tuple[list[str], dict[str, str]]:
+    """コンテナを用意し（動かす・設定を書く）、中のエージェントを動かすコマンドと環境を返す。tty：端末として動かす。
+    stdin・tag：端末なしで標準入力を渡し続ける・中のプロセスの印（アプリ用の起動。container.exec_command）。"""
     container.start(root, command=command, source=source, progress=progress)
     prefix = container.docker_command(None, command)
     container.run_docker(None, [*prefix, "exec", "--user", "0", container.name(root), "sh", "-c", write_settings(deny)],
@@ -148,7 +149,7 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
     values = container.credentials(root)
     if token := tokens.load_token():
         values[tokens.TOKEN_VARIABLE] = token
-    return (container.exec_command(root, prefix, agent, tuple(values), tty=tty),
+    return (container.exec_command(root, prefix, agent, tuple(values), tty=tty, stdin=stdin, tag=tag),
             container.environment(prefix, values))
 
 

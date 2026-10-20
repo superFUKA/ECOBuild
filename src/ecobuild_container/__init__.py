@@ -635,12 +635,14 @@ def credentials(root: Path | None = None) -> dict[str, str]:
 
 
 def exec_command(root: Path, prefix: tuple[str, ...], args: list[str] | tuple[str, ...], names: tuple[str, ...] = (),
-                 *, directory: str = WORKDIR, tty: bool = False) -> list[str]:
+                 *, directory: str = WORKDIR, tty: bool = False, stdin: bool = False, tag: str = "") -> list[str]:
     """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。
-    tty（端末で動かす）なら、終わる・切られると中のプロセスも止める（EXEC_TAG）。"""
-    flags = ["--interactive", "--tty", *(item for k, v in COLORS.items() for item in ("--env", f"{k}={v}"))] if tty else []
+    tty（端末で動かす）なら、終わる・切られると中のプロセスも止める（EXEC_TAG）。stdin：端末なしで標準入力を渡し続ける
+    （閉じると中のプロセスに入力の終わりが届く）。tag：中のプロセスに印を付ける（stop_tagged で止められる）。"""
+    flags = ["--interactive", "--tty", *(item for k, v in COLORS.items() for item in ("--env", f"{k}={v}"))] if tty         else ["--interactive"] if stdin else []
     passed = [item for each in names for item in ("--env", each)]
-    command = [*prefix, "exec", *flags, *passed, "--workdir", directory, name(root), *args]
+    command = [*prefix, "exec", *flags, *(("--env", f"{EXEC_TAG}={tag}") if tag and not tty else ()), *passed,
+               "--workdir", directory, name(root), *args]
     if not tty:
         return command
     tag = uuid.uuid4().hex[:16]
@@ -659,6 +661,13 @@ def _stop_wrapper(prefix: tuple[str, ...]) -> list[str]:
         return []
     encoded = base64.b64encode(STOP_WRAPPER.encode("utf-8")).decode("ascii")
     return [*prefix[:-1], "sh", "-c", f"set -f; IFS=; eval $(echo {encoded} | base64 -d)", "sh"]
+
+
+def stop_tagged(root: Path, tag: str, runner: docker.Runner | None = None, *, command: str = "") -> None:
+    """exec_command の tag の印を持つ中のプロセスを止める（コンテナが動いていなければ何もしない）。"""
+    found = docker.status(runner or docker.run)
+    if found.ready and tag:
+        (runner or docker.run)([*found.command, "exec", name(root), "sh", "-c", STOP_INSIDE, "sh", tag])
 
 
 def environment(prefix: tuple[str, ...], values: dict[str, str]) -> dict[str, str]:

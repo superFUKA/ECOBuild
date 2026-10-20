@@ -48,5 +48,7 @@ def _render(r) -> str:
         f"{role}「{r.get('name')}」を作りました：子タスク #{r.get('task')}（{r.get('branch')}）、作業空間 {_forward.place(r)}",
         f"モデル：{r.get('model')}" if r.get("model") else None,
         f"新しい画面で起動しました" if r.get("opened") else None,
+        "係が画面なしで起動しました（様子は agent team list・agent team log で）" if r.get("app") else None,
+        r.get("note") or None,
         f"報告は {_forward.place(r)}/{_team.REPORT_FILE} に書かれます。返答が終わると知らせが届きます（係）。",
     )

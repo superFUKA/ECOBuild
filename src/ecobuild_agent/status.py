@@ -12,6 +12,8 @@ running.json（エージェントを動かしているこのPCのプロセス。
 画面を持つアプリがいない（新しい画面で起動した）ときは、受け箱を届けるのもフック（deliver）：返答が終わったとき
 （Stop。届いたものがあれば続けて読ませる）、人が発言したとき（UserPromptSubmit。発言に添える）、作業中に道具を使い
 終えたとき（PostToolUse。返答を止めずに添える）。
+アプリ用の起動（係が持つ。ecobuild_agent.app）では、statusLine・フックは使わない：係が出来事（events.jsonl）を読んで
+様子（state.json）・返答の終わり（replied.json）を書き、受け箱を標準入力へ届ける。running.json の mode が app。
 """
 
 from __future__ import annotations
@@ -122,6 +124,15 @@ WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエ�
 INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・作業役の知らせ）
 
 
+def register(name: str, root: Path) -> Path:
+    """置き場所に、どの作業空間かだけを書く（前の状態は消さない。まだ起動していない作業空間の頼みを係に拾わせる）。"""
+    folder = directory(name)
+    folder.mkdir(parents=True, exist_ok=True)
+    if workspace_of(folder) != Path(root):
+        _write(folder / WORKSPACE, {"root": str(Path(root))})
+    return folder
+
+
 def prepare(name: str, root: Path | None = None) -> Path:
     """置き場所を用意し（前の状態は消す。受け箱は残す：起動の前に届いたもの）、スクリプトを置く。
     root：作業空間の場所（記録する）。"""
@@ -222,13 +233,18 @@ def _host_language() -> str:
     return found if isinstance(found, str) else ""
 
 
-def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "") -> str:
+def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "",
+                    streamed: bool = False) -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
     （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。lead_area：進行役が
-    書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。"""
+    書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。
+    streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
+    hooks = settings.setdefault("hooks", {})
+    if streamed:
+        return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
     if app:
         settings.update(VOICE)
         language = _host_language()
@@ -236,26 +252,32 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
             settings["language"] = language     # 音声入力の言語（設定がなければ英語になる）：このPCの Claude の設定に合わせる
     deliver = "" if app else " deliver"
     settings["statusLine"] = {"type": "command", "command": f"{script} statusline", "padding": 0}
-    hooks = settings.setdefault("hooks", {})
     hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied{deliver}"}]}]
     hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),   # 作業中か（と、アプリがいなければ受け箱を届ける）
                                  {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
     if not app:   # アプリがいなければ、作業中に届いたものも道具を使い終えるたびに届ける
         hooks["PostToolUse"] = [*hooks.get("PostToolUse", []),
                                 {"hooks": [{"type": "command", "command": f"{script} midturn{deliver}"}]}]
+    return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
+
+
+def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str) -> dict:
+    """進行役なら、編集の道具を lead_area の中だけにするフックを足す。"""
     if lead_area:
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
                                {"matcher": "Edit|Write|MultiEdit|NotebookEdit",
                                 "hooks": [{"type": "command", "command": f'{script} lead-edit "{lead_area}"'}]}]
-    return json.dumps(settings, ensure_ascii=False)
+    if not hooks:
+        settings.pop("hooks", None)
+    return settings
 
 
 def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True,
-                      lead_area: str = "") -> str:
+                      lead_area: str = "", streamed: bool = False) -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area), encoding="utf-8",
-                                 newline="\n")
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed),
+                                 encoding="utf-8", newline="\n")
     return f"{folder}/{SETTINGS}"
 
 
@@ -272,14 +294,16 @@ def announce(folder: Path) -> None:
 
 
 # ---- 動いているか・様子 ----------------------------------------------------------------------------------------
-RUNNING = "running.json"   # 置き場所の中：エージェントを動かしているこのPCのプロセス（pid）と起動した時刻
+RUNNING = "running.json"   # 置き場所の中：エージェントを動かしているこのPCのプロセス（pid）と起動した時刻・起動のしかた
+STATE = "state.json"       # 置き場所の中：アプリ用の起動のエージェントの様子（係が出来事から書く。ecobuild_agent.app）
+APP = "app"                # running.json の mode：アプリ用の起動（係が持つ）。なければ対話型
 WORKING, IDLE, STOPPED, UNKNOWN = "working", "idle", "stopped", "unknown"
 STATE_NAMES = {WORKING: "作業中", IDLE: "待機中", STOPPED: "止まっている", UNKNOWN: "不明"}
 
 
-def started(folder: Path, pid: int) -> None:
-    """エージェントを動かすプロセス pid を覚える（起動したとき）。"""
-    _write(Path(folder) / RUNNING, {"pid": pid, "at": time.time()})
+def started(folder: Path, pid: int, mode: str = "") -> None:
+    """エージェントを動かすプロセス pid を覚える（起動したとき）。mode：起動のしかた（APP。対話型なら空）。"""
+    _write(Path(folder) / RUNNING, {"pid": pid, "at": time.time(), **({"mode": mode} if mode else {})})
 
 
 def ended(folder: Path, pid: int) -> None:
@@ -337,10 +361,29 @@ def running_pid(folder: Path) -> int | None:
     return pid if isinstance(pid, int) and alive(pid) else None
 
 
+def running_mode(folder: Path) -> str | None:
+    """置き場所のエージェントが動いていれば、その起動のしかた（APP か ""＝対話型）。動いていなければ None。"""
+    if running_pid(folder) is None:
+        return None
+    data = read(Path(folder) / RUNNING)
+    return str(data.get("mode") or "") if isinstance(data, dict) else ""
+
+
+def session_of(folder: Path) -> str:
+    """置き場所のエージェントの、最後の会話の ID（対話型は statusLine の status.json、アプリ用は state.json。新しい方）。"""
+    found = []
+    for data in (read(Path(folder) / "status.json"), read(Path(folder) / STATE)):
+        if isinstance(data, dict) and isinstance(data.get("session"), str) and data["session"]:
+            found.append((data.get("at") if isinstance(data.get("at"), (int, float)) else 0, data["session"]))
+    return max(found, key=lambda pair: pair[0])[1] if found else ""
+
+
 def activity(folder: Path) -> dict:
     """置き場所のエージェントの様子：state（作業中・待機中・止まっている・不明）、since（その様子になった時刻）、
     last_reply（最後の返答の頭）、replied_at、context（コンテキストの使用率）、waiting（受け箱に届いていないもの）。"""
     folder = Path(folder)
+    if isinstance(running := read(folder / RUNNING), dict) and running.get("mode") == APP:
+        return _app_activity(folder)
     running, replied, prompted, info = (read(folder / name) for name in (RUNNING, "replied.json", "prompted.json",
                                                                           "status.json"))
     running, replied, prompted, info = (x if isinstance(x, dict) else {} for x in (running, replied, prompted, info))
@@ -359,3 +402,21 @@ def activity(folder: Path) -> dict:
     return {"state": state, "since": since, "replied_at": replied_at, "last_reply": " ".join(message.split())[:300],
             "context": info.get("context") if isinstance(info.get("context"), (int, float)) else None,
             "waiting": len(list(inbox.glob("*.json"))) if inbox.is_dir() else 0}
+
+
+def _app_activity(folder: Path) -> dict:
+    """アプリ用の起動のエージェントの様子（state.json。係が書く）。activity の項目に、mode・doing（今していること）・
+    doing_at・usage（最後の返答の使用量）・limits（5時間・週の使用率）・denials（断られた権限）・error を足す。"""
+    state = read(folder / STATE)
+    state = state if isinstance(state, dict) else {}
+    now = state.get("state") if running_pid(folder) is not None and state.get("state") in (WORKING, IDLE) else STOPPED
+    number = lambda key: state.get(key) if isinstance(state.get(key), (int, float)) else None
+    inbox = folder / INBOX
+    return {"state": now, "since": number("since") if now != STOPPED else None, "replied_at": number("replied_at"),
+            "last_reply": " ".join(str(state.get("last_reply") or "").split())[:300], "context": number("context"),
+            "waiting": len(list(inbox.glob("*.json"))) if inbox.is_dir() else 0, "mode": APP,
+            "doing": str(state.get("doing") or "") if now == WORKING else "", "doing_at": number("doing_at"),
+            "usage": state.get("usage") if isinstance(state.get("usage"), dict) else None,
+            "limits": state.get("limits") if isinstance(state.get("limits"), dict) else None,
+            "denials": state.get("denials") if isinstance(state.get("denials"), list) else [],
+            "error": str(state.get("error") or "")}

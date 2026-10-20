@@ -2,7 +2,8 @@
 
 - AgentModule：Module に重ねる（本体＋拡張が class Module(AgentModule, ContainerModule, ecobuild.Module) とする）。
   作業空間のエージェントの起動・会話・起動のときに渡す使い方（agent_briefing）。
-- team：進行役と作業役。serve：このPCの係（エージェントの間の取り次ぎ）。status：画面を持つアプリへ知らせる状態。
+- team：進行役と作業役。serve：このPCの係（エージェントの間の取り次ぎ）。app：係が持つアプリ用の起動のエージェント
+  （AI が起動したもの。claude -p の stream-json）。status：画面を持つアプリへ知らせる状態。
   operator：オペレーター（ECOBuild の操作係）。inside：コンテナの中のエージェント（コンテナに足すもの FEATURE）。
   tokens：中のエージェントのログイン。
 - 作業空間のコンテナ（ecobuild_container）は公開の口だけを使う（向きはエージェント → コンテナ。コンテナはエージェントを知らない）。
@@ -12,15 +13,17 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 from pathlib import Path
 
 import ecoagent
 import ecobuild_container as container
 from ecobuild import settings as _settings
-from ecobuild.errors import WorkError
+from ecobuild.errors import EcoBuildError, WorkError
+from ecobuild.errors import operation
 from ecobuild.fsutil import locked
 
-from . import inside, status, team
+from . import app, inside, status, team
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
 from .results import AgentConversations, AgentStarted
@@ -52,6 +55,7 @@ class AgentModule:
         prompt：最初の発言。"""
         boxed = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
+        self._not_held_by_serve()
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         folder = status.prepare(container.name(self.root), self.root)
@@ -76,6 +80,7 @@ class AgentModule:
         返答の終わり）を書き出させ、その置き場所を端末に知らせる（status。画面を持つアプリが読む）。"""
         boxed = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
+        self._not_held_by_serve()
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         folder = None
@@ -96,14 +101,45 @@ class AgentModule:
             if folder is not None:
                 status.ended(folder, os.getpid())
 
-    def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER) -> str:
+    def app_launch(self, *, role: str = "", resume: str = "", source=None,
+                   progress=lambda message: None) -> app.Launch:
+        """アプリ用の起動（係が持つ。claude -p の stream-json）のしかた。AI が起動するエージェントはコンテナで動かす
+        （コンテナにしていなければ止める）。タスクブランチでだけ。resume：その会話の続きから（なければ新しい会話）。
+        会話の ID・役・モデル・使い方の文・設定は対話型と同じ作り方（statusLine・返答の終わりのフックは付けない：係が
+        出来事を読む）。最初の発言は標準入力から入れる（係）。"""
+        if not container.enabled(self.root):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "AI が起動するエージェントはコンテナで動かします。この作業空間はコンテナにしていません。",
+                                hint=f"{operation(self.command, 'container on')} でコンテナにしてから、起動し直してください。")
+        task = self.require_task_branch("エージェントの起動")
+        role = team.role_of(self.root, role or (team.remembered_roles(self.root).get(resume, "") if resume else ""))
+        command = self._for_role(("claude", *app.FLAGS, *(("--resume", resume) if resume else ())), role, "")
+        session = resume or command[command.index("--session-id") + 1]
+        folder = status.prepare(container.name(self.root), self.root)
+        command = (*command, "--settings", self._status_settings(folder, True, app=False, role=role, streamed=True))
+        command = self._briefed(command, folder, True, task, role)
+        tag = uuid.uuid4().hex[:16]
+        argv, env = inside.agent_launch(self.root, command, deny=inside.deny(self.root), command=self.command,
+                                        source=source, progress=progress, tty=False, stdin=True, tag=tag)
+        root, program = self.root, self.command
+        return app.Launch(root, folder, tuple(argv), env, session, role,
+                          kill=lambda: container.stop_tagged(root, tag, command=program))
+
+    def _not_held_by_serve(self) -> None:
+        """係がアプリ用で動かしているなら、対話型では起動しない（同じ会話を2つが書き換えないように）。"""
+        if status.running_mode(status.directory(container.name(self.root))) == status.APP:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントは、係がアプリ用で動かしています。",
+                                hint="人が引き取るには、進行役の作業空間で agent team takeover <名前>"
+                                     "（人がアプリ用で起動したものは agent stop）。")
+
+    def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER,
+                         streamed: bool = False) -> str:
         """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。進行役は、書けるのを
-        エージェント用の置き場所（AGENT_AREA：計画・任せる内容）の中だけにする。"""
+        エージェント用の置き場所（AGENT_AREA：計画・任せる内容）の中だけにする。streamed：アプリ用の起動。"""
         where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
         area = ""
         if role == team.LEAD:
             area = f"{container.WORKDIR}/{AGENT_AREA}" if boxed else (self.root / AGENT_AREA).as_posix()
-        return status.settings_argument(folder, where, python, app=app, lead_area=area)
+        return status.settings_argument(folder, where, python, app=app, lead_area=area, streamed=streamed)
 
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。

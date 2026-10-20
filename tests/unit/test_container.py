@@ -174,6 +174,18 @@ def test_a_terminal_inside_stops_what_it_started_when_it_ends(tmp_path):
     assert other[8] != tag   # 起動ごとに別の印（閉じたタブの分だけを止める）
 
 
+def test_without_a_terminal_the_input_stays_open_and_the_process_is_tagged(tmp_path, monkeypatch):
+    """アプリ用の起動：端末なしで標準入力を渡し続け（閉じると中に入力の終わりが届く）、印で中のプロセスを止められる。"""
+    root = tmp_path / "Calc"
+    command = container.exec_command(root, ("docker",), ["claude", "-p"], ("GH_TOKEN",), stdin=True, tag="t1")
+    assert command == ["docker", "exec", "--interactive", "--env", f"{container.EXEC_TAG}=t1", "--env", "GH_TOKEN",
+                       "--workdir", "/work", container.name(root), "claude", "-p"]
+    assert "--tty" not in command
+    fake = FakeDocker(monkeypatch)
+    container.stop_tagged(root, "t1", fake.run)
+    assert fake.calls[-1][:3] == ["docker", "exec", container.name(root)] and fake.calls[-1][-2:] == ["sh", "t1"]
+
+
 def test_the_ecobuild_layer_and_what_other_extensions_add(monkeypatch, root, tmp_path):
     """コンテナはほかの拡張を知らない：足すもの（Feature）を受け取って、イメージ・コンテナに重ねる。"""
     monkeypatch.setattr(container, "_features", {})

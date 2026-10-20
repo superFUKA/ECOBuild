@@ -265,7 +265,8 @@ def test_closing_the_lead_checks_and_forgets_the_workers(lead):
 
 
 def test_the_serve_answers_requests_and_tells_the_lead(lead):
-    """係：頼みを実行して結果を書き戻し、作業役ができたら起動を頼み、作業役の返答の終わりを進行役に知らせる。"""
+    """係：頼みを実行して結果を書き戻し、作業役の返答の終わりを進行役に知らせる。AI が起動する作業役はタブにしない
+    （GUI に agent-start を出さない。起動は係がアプリ用で：tests/local/test_agent_app.py）。"""
     member = team.create(lead, "画面", "目的：画面を作る")
     folder = agent_status.prepare(container.name(lead.root), lead.root)
     agent_status.prepare(container.name(member.path), member.path)
@@ -288,8 +289,8 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
     serve.step()
     serve.wait()
     result = lambda key: json.loads((requests / f"{key}.result.json").read_text(encoding="utf-8"))
-    assert result("a")["ok"] and events[0] == {"event": "agent-start", "path": str(member.path), "name": "画面",
-                                               "role": "worker", "prompt": "読んで", "lead": str(lead.root)}
+    assert result("a")["ok"] and not events                                             # タブを開いてもらわない
+    assert "起動していません" in result("a")["result"]["note"]                           # この係は起動できない（launch なし）
     assert not result("b")["ok"] and not result("c")["ok"]                             # チームの操作だけ・作業空間の中だけ
     assert [a for a, _ in ran] == [["agent", "team", "start", "画面", "--json"]]
     assert not list(requests.glob("*.taken"))
@@ -298,7 +299,7 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
                                      encoding="utf-8")
     serve.step()
     serve.wait()
-    assert events[1]["event"] == "agent-stop" and events[1]["path"] == str(member.path)   # 閉じる前に止めてもらう
+    assert events[0]["event"] == "agent-stop" and events[0]["path"] == str(member.path)   # 人の画面のものは止めてもらう
     assert ran[-1][0] == ["agent", "team", "close", "画面"]
 
     member_folder = team.inbox_of(member.path)
@@ -346,13 +347,18 @@ def test_a_long_request_does_not_keep_others_waiting(lead):
     assert ran.index("a") < ran.index("b") and (folders[0] / team.REQUESTS / "b.result.json").exists()
 
 
-def test_without_an_app_the_serve_opens_the_worker_itself(lead):
-    opened = []
-    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {"path": "/w", "name": "x", "role": "worker",
-                                                                            "prompt": "p"}},
-                              open_agent=lambda path, role, prompt, agent: opened.append((path, role, prompt, agent)))
+def test_a_worker_outside_a_container_is_made_but_not_started(lead):
+    """AI が起動するエージェントはコンテナで動かす：コンテナでない作業空間なら、作業役は作るが起動せず、わけを返す。"""
+    from ecobuild.errors import EcoBuildError
+
+    def launch(root, role, resume, progress):
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, "AI が起動するエージェントはコンテナで動かします。", hint="container on")
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {"path": str(lead.root), "name": "x",
+                                                                            "role": "worker", "prompt": "p"}},
+                              launch=launch)
     doc = serve.handle(lead.root, {"id": "a", "args": ["agent", "team", "start", "x"], "cwd": "."})
-    assert doc["result"]["opened"] and opened == [(Path("/w"), "worker", "p", "")]
+    assert doc["ok"] and not doc["result"].get("app") and "コンテナで動かします" in doc["result"]["note"]
+    assert code_of(lambda: lead.app_launch()) == ErrorCode.AGENT_ERROR                  # 本物の起動のしかたも止める
 
 
 def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):
@@ -446,8 +452,8 @@ def test_the_serve_restarts_a_member_and_reports_progress(lead):
     serve.step()
     serve.wait()
     result = json.loads((requests / "r.result.json").read_text(encoding="utf-8"))
-    assert result["ok"] and result["result"]["args"][-1] == "--no-open"                # 起動は係が頼む
-    assert [e["event"] for e in events] == ["agent-stop", "agent-start"] and events[1]["agent"] == "claude --resume s-1"
+    assert result["ok"] and result["result"]["args"][-1] == "--no-open"                # 起動は係が（アプリ用で）
+    assert [e["event"] for e in events] == ["agent-stop"]                              # タブを開いてもらわない
     assert seen[0]["doing"] == "起動のしかたを調べています…" and seen[0]["at"] >= seen[0]["since"]
     assert not (requests / f"r{team.PROGRESS}").exists()                               # 終わったら消す
 

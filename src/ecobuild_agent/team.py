@@ -18,8 +18,11 @@ ECOBuild の係（agent_serve。GUI が起動する）が実行して結果を�
 作業役のタブを開いてもらうため同じ道を使う（WINDOW_VARIABLE）。
 
 言付け（send）と、作業役の返答が終わった知らせ（lead_notice）は、相手のエージェントの受け箱（agent_status.put）に入れる。
-届けるのはエージェントを動かしている側（GUI の窓等）。知らせには、係が作業空間・GitHub を調べた事実（reply_facts：
-提出・--no-check・未コミット・持ち場の外の変更 等）と、作業役が返答の最後に書く状態の行を照らした注意を先頭に書く。
+届けるのはエージェントを動かしている側（係が持つアプリ用のものは係が標準入力へ。人の画面なら GUI の窓等）。知らせには、係が
+作業空間・GitHub を調べた事実（reply_facts：提出・--no-check・未コミット・持ち場の外の変更 等）と、作業役が返答の最後に書く
+状態の行を照らした注意を先頭に書く。
+進行役の頼みで起動する作業役は、係がアプリ用の起動（画面なし。ecobuild_agent.app）で持つ。人は引き取って（takeover）
+対話型で続け、返せる（handback）。
 
 進行役はチームの様子（作業中・待機中・止まっている。team）を見て、止まった・迷った作業役を起動し直せる（restart_plan。
 作業空間・ブランチ・作業はそのまま。新しい会話か、続きから）。頼みの途中経過は係が書き（PROGRESS）、頼んだ側は
@@ -93,6 +96,13 @@ class Member:
     last_reply: str = ""        # 最後の返答の頭
     context: float | None = None   # コンテキストの使用率
     waiting: int = 0            # 受け箱にあって、まだ届いていないもの（言付け等）
+    mode: str = ""              # 起動のしかた（app：係が持つアプリ用の起動。空なら対話型か、動いたことがない）
+    doing: str = ""             # 今していること（アプリ用：最後に使った道具。「Bash：ecobuild test」）
+    doing_at: float | None = None  # その時刻
+    usage: dict | None = None   # 最後の返答の使用量（アプリ用。トークン・費用・時間）
+    limits: dict | None = None  # 使用量の制限（アプリ用。five_hour・seven_day の used_percentage・resets_at）
+    app: bool = False           # 係がアプリ用で起動した（team start・restart の結果）
+    note: str = ""              # 起動できなかったわけ等
 
 
 @dataclass(frozen=True)
@@ -379,7 +389,9 @@ def team(root: Path) -> Team:
         found.append(Member(str(info.get("name", folder.name)), str(info.get("role", WORKER)), folder,
                             int(info.get("task") or 0), branch, str(info.get("model") or ""), str(info.get("lead") or ""),
                             (folder / REPORT_FILE).is_file(), state=seen["state"], since=seen["since"],
-                            last_reply=seen["last_reply"], context=seen["context"], waiting=seen["waiting"]))
+                            last_reply=seen["last_reply"], context=seen["context"], waiting=seen["waiting"],
+                            mode=seen.get("mode", ""), doing=seen.get("doing", ""), doing_at=seen.get("doing_at"),
+                            usage=seen.get("usage"), limits=seen.get("limits")))
     return Team(Path(root), tuple(found))
 
 
@@ -390,8 +402,7 @@ def restart_plan(root: Path, name: str, *, resume: bool = False) -> Member:
     member = find(root, name)
     if not resume:
         return Member(**{**member.__dict__, "prompt": RESTART_PROMPT.get(member.role, RESTART_PROMPT[WORKER])})
-    info = agent_status.read(inbox_of(member.path) / "status.json")
-    session = info.get("session") if isinstance(info, dict) else None
+    session = agent_status.session_of(inbox_of(member.path))
     if not session:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"「{member.name}」の前の会話が分かりません。",
                             hint="--resume なしで、新しい会話で起動し直してください（作業空間の作業はそのままです）。")
@@ -408,6 +419,8 @@ def describe_activity(member: dict, now: float | None = None) -> str:
     since = member.get("since")
     if isinstance(since, (int, float)) and state in (agent_status.WORKING, agent_status.IDLE):
         text += f"（{_duration(now - since)}）"
+    if member.get("doing") and state == agent_status.WORKING:
+        text += f"  今：{member['doing']}"
     if member.get("waiting"):
         text += f"  届いていない言付け {member['waiting']}"
     if isinstance(member.get("context"), (int, float)):
@@ -451,7 +464,7 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "### 進め方",
             f"1. まず {PLAN_FILE} に計画を書きます（目的・分け方・順番・誰に何を任せたか）。話が長くなっても、ここを見れば続けられるように更新し続けます。",
             f"2. 任せるときは `{program} agent team start <名前> --brief <任せる内容>` で作業役を作ります（子タスクと、その作業空間ができ、"
-            "作業役が別のタブで動き始めます）。<名前> はタスクブランチの名前にもなる短い名前です。",
+            "作業役は ECOBuild の係が画面なしで動かし始めます。タブ・画面は開きません）。<名前> はタスクブランチの名前にもなる短い名前です。",
             "   --brief には必ず次を書きます：**目的**（何のためか）、**返してほしいもの**（報告に書くこと・提出の形）、"
             "**使ってよい道具・見る場所**、**範囲**（やらないこと・触らないファイル）。短い指示は取り違え・重複のもとです。",
             f"   変えてよいファイルは `## {AREA_HEADING}`、触らないファイルは `## {KEEP_OUT_HEADING}` の節に、1行に1つのパス"
@@ -475,7 +488,7 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "見て**、直しを頼むかユーザーに聞きます（--no-check の提出を取り込むかは、ユーザーに決めてもらいます）。",
             f"5. 結果は作業役の作業空間 `{TEAM_AREA}/<番号>-<名前>/` から読みます（報告は `{REPORT_FILE}`）。"
             f"`{program} agent team list` で一覧・報告の有無と、作業役の様子（作業中・待機中・止まっている、その長さ、"
-            "最後の返答）が分かります。",
+            f"今していること、最後の返答）が分かります。何をしてきたかの詳しい流れは `{program} agent team log <名前>` で読めます。",
             "   知らせが長く来ないときは様子を見ます。止まっている・同じ作業中が長すぎる・最後の返答で迷っている作業役は、"
             f"send で伝えるか、`{program} agent team restart <名前>` で起動し直します（作業空間・作業はそのまま。既定は新しい会話で、"
             "どこまで進んだかを確かめてから続けます。`--resume` で前の会話の続きから）。",
@@ -484,10 +497,13 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             f"6. 取り込むときは、作業役の提出（このタスクブランチへの PR）を `{program} task diff <番号>` 等で確かめ、"
             f"`{program} task finish <番号>` で取り込みます（直してほしければ send で伝え、作業役がもう一度提出します）。"
             f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます。",
-            f"7. 作業役に追加で伝えたいことは `{program} agent team send <名前> <文>` で送れます。",
+            f"7. 作業役に追加で伝えたいことは `{program} agent team send <名前> <文>` で送れます（作業中でも、作業役の返答を"
+            "止めずに次の区切りで届きます）。",
             "8. 作業役から「分けたい」と提案されたら、作業役を足すか、その部分を受け持つ進行役を "
-            f"`{program} agent team start <名前> --lead --brief …` で作ります（新しい窓で動きます）。",
+            f"`{program} agent team start <名前> --lead --brief …` で作ります（これも係が画面なしで動かします）。",
             "9. 作業役のモデルは既定でこのPCの設定（agent_worker_model）です。難しい仕事だけ `--model opus` 等で変えられます。",
+            "10. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>` で同じ会話を人の"
+            "画面で開き、終わったら `agent team handback <名前>` で係に戻す）。引き取り・返しはユーザーがする操作です。",
             "",
             "### 進め方の手（場面に合わせて選ぶ）",
             "- **大勢に並べて任せる**（独立した部分が多い大きな仕事）：任せる前に、全員に共通の決まり（部分どうしの接点・"

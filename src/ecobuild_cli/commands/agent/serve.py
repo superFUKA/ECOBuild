@@ -22,8 +22,10 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
 
     コンテナの中・GUI の窓の中の進行役が頼んだチームの操作（agent team start/close/send）をこのPCで実行し、作業役の
     返答が終わったら進行役の受け箱に知らせを入れます。このPCに1つだけ動かします（GUI は自分で起動します）。
-    --json：作業役を起動してほしい（agent-start）・止めてほしい（agent-stop）を出来事として1行ずつ出します。止めたら
-    {"ack": <key>} を標準入力に1行で返します。標準入力が閉じると終わります。--json なしでは、作業役は新しい画面で起動します。
+    進行役が作った作業役は、係が画面なし（アプリ用の起動。コンテナの中の claude -p）で動かします。係を止めると、
+    作業役は返答を終えてから止まり、次に係を動かすと前の会話の続きから起きます。
+    --json：人の画面（対話型）の作業役を止めてほしい（agent-stop）を出来事として1行ずつ出します。止めたら
+    {"ack": <key>} を標準入力に1行で返します。標準入力が閉じると終わります。
     """
     stop = threading.Event()
     acks: dict[str, threading.Event] = {}
@@ -46,26 +48,25 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                 acks.setdefault(str(key), threading.Event()).set()
         stop.set()
 
-    def open_agent(path: Path, role: str, prompt: str, agent: str = "") -> None:
+    def launch(path: Path, role: str, resume: str, progress):
         from ..._module import Module
-        options = {"source": source(), "progress": log, "role": role, "prompt": prompt}
-        module = Module.find(path)
-        module.start_agent(agent.split(), **options) if agent.strip() else module.start_agent(**options)
+        return Module.find(path).app_launch(role=role, resume=resume, source=source(), progress=progress)
 
     def log(message: str) -> None:
         click.echo(message, err=True)
 
     def action(inv):
         with agent_serve.Lock():
-            serve = agent_serve.Serve(run, emit=emit if json else None, ack=ack,
-                                      open_agent=None if json else open_agent, log=log)
+            serve = agent_serve.Serve(run, emit=emit if json else None, ack=ack, launch=launch, log=log)
             log("ECOBuild の係を動かしています" + ("（止めるには Ctrl+C）" if not json else ""))
             if json:
                 threading.Thread(target=listen, args=(detach_stdin(),), daemon=True).start()
+            serve.wake()   # 前の係が動かしていたエージェントを引き継ぐ（終わったものから続きから起こす）
             try:
                 agent_serve.serve_forever(serve, stop)
             except KeyboardInterrupt:
                 pass
+            serve.close()   # 動かしているエージェントの入力を閉じる（返答を終えて止まる。次の係が続きから起こす）
             # 実行中の頼みは少し待って終えさせ、終わらないものは止める（残すと、止まったまま ecobuild を使い続け、
             # 入れ替え〔インストーラー〕を止める。頼んだ側は、係の途中経過が途切れたことで失敗と分かる）
             if not serve.wait(STOP_GRACE):

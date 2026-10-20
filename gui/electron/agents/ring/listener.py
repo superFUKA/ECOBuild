@@ -641,6 +641,24 @@ def app_running(running_file):
         close_handle(handle)
 
 
+def installing():
+    """ECOBuild を入れ替えている最中か（インストーラーが置く印。番号のプロセスが生きている間だけ）。入れ替え中に GUI を
+    起動すると、GUI が動かす ecobuild が ecobuild.exe をふさいで入れ替えが失敗する。"""
+    try:
+        with open(os.path.join(os.environ.get('LOCALAPPDATA', ''), 'ecobuild', 'installing'), encoding='utf-8') as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return False
+    handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        code = W.DWORD()
+        return bool(exit_code(handle, C.byref(code))) and code.value == STILL_ACTIVE
+    finally:
+        close_handle(handle)
+
+
 def launch_app(command):
     """ECOBuild を起動する（このプロセスとは切り離して）。"""
     try:
@@ -743,6 +761,9 @@ class App:
             name = classify(sig, self.table, self.invert_drag)
             log('resident gesture', name)
             if name and name.split(':')[-1] == 'click' and time.monotonic() >= self.launch_cooldown:
+                if installing():
+                    log('launch skipped', 'ECOBuild を入れ替え中')
+                    return
                 self.launch_cooldown = time.monotonic() + 15.0  # 起動を待つ間に何度押しても、二重に起動しない
                 log('launch', launch_app(json.loads(self.args.launch or '[]')))
         elif mode == 'monitor':

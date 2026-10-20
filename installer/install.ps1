@@ -214,15 +214,30 @@ function Remove-PartialUninstall {
     if (Test-Path $sitePackages) { Get-ChildItem $sitePackages -Filter "~*" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
+# 入れ替え中の印（このプロセスの番号）：GUI のリングの常駐は、この間 GUI を起動しない（起動すると、GUI が動かす ecobuild が
+# ecobuild.exe をふさいで入れ替えが失敗する）。終われば消す。消し損ねても、このプロセスが終われば印は効かない
+$Installing = Join-Path $env:LOCALAPPDATA "ecobuild\installing"
+New-Item -ItemType Directory -Force (Split-Path $Installing) | Out-Null
+Set-Content -Path $Installing -Value $PID -Encoding ascii
+
+function Install-Ecobuild {
+    Wait-EcobuildClosed
+    Remove-PartialUninstall
+    if ($Source) {
+        Invoke-Python -m pipx install --force --editable $Source
+    } elseif (Update-InPlace) {
+        $global:LASTEXITCODE = 0
+    } else {
+        Invoke-Python -m pipx install --force "git+$Repository@$Ref"
+    }
+}
+
 Write-Step "ECOBuild を導入します（少し時間がかかります）"
-Wait-EcobuildClosed
-Remove-PartialUninstall
-if ($Source) {
-    Invoke-Python -m pipx install --force --editable $Source
-} elseif (Update-InPlace) {
-    $global:LASTEXITCODE = 0
-} else {
-    Invoke-Python -m pipx install --force "git+$Repository@$Ref"
+Install-Ecobuild
+if ($LASTEXITCODE -ne 0 -and @(Get-RunningEcobuild).Count -gt 0) {
+    # 入れ替えの途中で ecobuild が起動され、ecobuild.exe がふさがれた：閉じられるのを待って、もう一度
+    Write-Host "    入れ替えの途中で ecobuild が起動されました。閉じてから、もう一度入れ替えます。" -ForegroundColor Yellow
+    Install-Ecobuild
 }
 if ($LASTEXITCODE -ne 0) { Stop-Install "ECOBuild の導入に失敗しました。" }
 $bin = (Invoke-Python -m pipx environment --value PIPX_BIN_DIR).Trim()
@@ -303,4 +318,5 @@ if (-not $NoGui) {
 Write-Host "更新：ecobuild installer update（またはこのインストーラーをもう一度実行。ECOBuild も GUI も入れ替わります）。"
 Write-Host "入っているもの：ecobuild installer show。あとから入れる：ecobuild installer add docker（Docker）・tools（足りないツール）。"
 Write-Host "削除：pipx uninstall ecobuild。GUI は $GuiDir と、デスクトップ・スタートメニューの「ECOBuild GUI」を消す。"
+Remove-Item $Installing -ErrorAction SilentlyContinue
 exit 0   # うまくいった（ecobuild installer update は終了コードで、窓を閉じるか待つかを決める）

@@ -50,8 +50,8 @@ document.getElementById('manage-tabs').addEventListener('click', e => {
 });
 // The tabs of 設定 (the others of a tab are モジュール's).
 const SETTINGS_TABS = ['profiles', 'general', 'templates', 'container'];
-// The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
-for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
+// The left menu moves at once (only the page's contents wait for their reads). ecobuild gui open comes in onNavigate below.
+for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
 ECO.onNavigate(({page, tab, task, command}) => {
   // The tabs 「メンバー」 and 「CI」 are 管理's (--tab members・ci); --tab branches (once a tab) leads to the page ブランチ.
   const target = page || (tab ? (tab === 'branches' ? 'branches' : MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');

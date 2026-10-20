@@ -20,9 +20,8 @@ function showHubPage(name) {
 }
 navigation.forEach(button => button.addEventListener('click', () => {
   const page = button.dataset.page;
-  // モジュール一覧・ヘルプは「open」で（ecobuild gui open と同じ）。設定・オペレーターはハブだけのもの。
-  if (page === 'settings' || page === 'operator') showHubPage(page);
-  else ECO.action('open', page === 'help' ? {page: 'help'} : {}).catch(() => showHubPage(page));
+  // すぐ切り替える（サーバーの返事を待たない。読み直しで接続が埋まっていると、切り替えが待たされる）
+  showHubPage(page);
 }));
 ECO.onNavigate(({page, command}) => {
   if (command) { location.hash = 'help/commands/' + encodeURIComponent(command); showHubPage('help'); HELP.show(location.hash.slice(1)); return; }

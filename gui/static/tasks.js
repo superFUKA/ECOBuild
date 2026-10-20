@@ -69,7 +69,7 @@
     try {
       const likely = st.tasks.filter(t => t.state === 'open' && (t.assignees.includes(me()) || ['in_progress', 'in_review'].includes(stageOf(t))))
         .slice(0, 12);
-      for (const t of likely) if (!st.details.has(t.number)) await ECO.query(root(), ['task', 'status', String(t.number)]);
+      for (const t of likely) if (!st.details.has(t.number)) await ECO.query(root(), ['task', 'status', String(t.number)], undefined, {warm: true});
     } finally { warming = false; }
   }
   async function reloadAfter(n) { if (n) st.details.delete(n); await load(); if (n && st.selected === n) loadDetail(n); }

@@ -1,5 +1,6 @@
 """作業空間のコンテナ（ecobuild_bundle.container）。docker は偽物（コンテナの状態を持つ）。"""
 
+import base64
 from pathlib import Path
 
 import pytest
@@ -178,6 +179,20 @@ def test_running_inside_passes_the_keys_by_name(monkeypatch, tmp_path):
     assert env["GH_TOKEN"] == "secret" and env["WSLENV"] == "USERPROFILE/p:GH_TOKEN"
     assert container.inside_path(root, root / "src" / "a") == "/work/src/a"
     assert container.inside_path(root, tmp_path) == "/work"
+
+
+def test_a_terminal_inside_stops_what_it_started_when_it_ends(tmp_path):
+    # docker exec は、こちらが終わっても中のプロセスを止めない：端末で動かすものは印を付け、包む sh が終わりに止める
+    root = tmp_path / "Calc"
+    command = container.exec_command(root, ("wsl", "-d", "ECOBuild", "--", "docker"), ["claude"], tty=True)
+    assert command[:6] == ["wsl", "-d", "ECOBuild", "--", "sh", "-c"] and '"' not in command[6]
+    tag, box = command[8], command[9]
+    assert command[7] == "sh" and box == container.name(root)
+    assert command[10:14] == ["docker", "exec", "--env", f"{container.EXEC_TAG}={tag}"] and command[-1] == "claude"
+    encoded = command[6].split("echo ")[1].split(" |")[0]
+    assert base64.b64decode(encoded).decode("utf-8") == container.STOP_WRAPPER
+    other = container.exec_command(root, ("wsl", "-d", "ECOBuild", "--", "docker"), ["claude"], tty=True)
+    assert other[8] != tag   # 起動ごとに別の印（閉じたタブの分だけを止める）
 
 
 def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):

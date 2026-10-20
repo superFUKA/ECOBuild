@@ -53,7 +53,14 @@ const ECO = (() => {
   // - the same read at the same time runs once (here and in the server)
   // - when the window comes back (focus), the reads shown in the last minutes are read again if stale
   // - the reads behind show as one small mark in the corner (更新中), not as loading screens
+  // - at most BEHIND_AT_ONCE reads behind at a time, the last asked first (the page just shown). The window has only a few
+  //   connections to the GUI server (Chromium: 6 to one host); reads behind that wait for GitHub would fill them, and
+  //   what the person does (a click, a command) would wait behind them
   const STALE_MS = 15000, RECENT_MS = 10 * 60000, queries = new Map(), inflight = new Map();
+  const BEHIND_AT_ONCE = 2, behindWaiting = [];
+  let behindRunning = 0;
+  const behindSlot = () => behindRunning < BEHIND_AT_ONCE ? (behindRunning++, Promise.resolve()) : new Promise(go => behindWaiting.push(go));
+  const behindDone = () => { const next = behindWaiting.pop(); if (next) next(); else behindRunning--; };
   const refreshing = document.createElement('div'); refreshing.className = 'eco-refreshing'; refreshing.hidden = true;
   refreshing.setAttribute('role', 'status'); refreshing.innerHTML = '<span class="eco-spinner"></span><span>更新中</span>';
   const behind = new Set();
@@ -72,17 +79,19 @@ const ECO = (() => {
     return job;
   }
   async function revalidate(key, shown) {
-    if (inflight.has(key) && behind.has(key)) return;
+    if (behind.has(key)) return;   // already reading (or waiting to) behind
     behind.add(key); showRefreshing();
+    await behindSlot();
     try {
       const {doc, time} = await fetchQuery(key), entry = queries.get(key);
       entry.fetched = time * 1000;
       if (doc.ok && JSON.stringify(doc.result) !== shown) { entry.shown = JSON.stringify(doc.result); entry.onFresh?.(doc); }
-    } finally { behind.delete(key); showRefreshing(); }
+    } finally { behindDone(); behind.delete(key); showRefreshing(); }
   }
-  async function query(dir, args, onFresh) {
+  // warm: read ahead only (what is likely opened next): kept is enough, not read again now (it is when opened).
+  async function query(dir, args, onFresh, {warm = false} = {}) {
     const key = queryKey(dir, args), entry = queries.get(key) || {};
-    Object.assign(entry, {dir, args, onFresh, used: Date.now()}); queries.set(key, entry);
+    Object.assign(entry, {dir, args, used: Date.now()}, warm ? {} : {onFresh}); queries.set(key, entry);
     const kept = await call('query', {dir, args, mode: 'cache'}).catch(() => null);
     if (!kept) {
       const {doc, time} = await fetchQuery(key);
@@ -90,6 +99,7 @@ const ECO = (() => {
       return doc;
     }
     entry.fetched = kept.time * 1000; entry.shown = JSON.stringify(kept.doc.result);
+    if (warm) return kept.doc;
     if (kept.stale || Date.now() - entry.fetched > STALE_MS) revalidate(key, entry.shown);
     return kept.doc;
   }

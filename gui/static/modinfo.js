@@ -650,7 +650,7 @@
     }
     if (e.target.closest('[data-mi-retry], [data-mi-reload]')) { loaded.clear(); render(); return; }
     const tab = e.target.closest('[data-mi-view]');
-    if (tab) { ECO.action('open', {module: MOD.root, tab: tab.dataset.miView}).catch(() => window.MODINFO_SHOW(tab.dataset.miView)); return; }
+    if (tab) { window.MODINFO_SHOW(tab.dataset.miView); return; }   // at once (not waiting for the server)
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const action = e.target.closest('[data-mi]');

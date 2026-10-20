@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass
 from typing import Callable
 from pathlib import Path, PureWindowsPath
@@ -70,6 +71,28 @@ FIRST_RUN = {
 }
 # 端末の色：docker exec -t は TERM=xterm（16色）にするので、Claude Code のオレンジが赤に寄ってしまう
 COLORS = {"TERM": "xterm-256color", "COLORTERM": "truecolor"}
+# 端末で動かすもの（エージェント等）の印。docker exec は、こちらの docker（端末のタブ）が終わっても中のプロセスを止めない
+# （閉じたタブ・起動し直した会話の Claude Code が中に残り、同じ会話を2つが書き換えることもある）。そこで docker を
+# sh で包み、終わる・切られる（HUP・TERM・INT）と、この印を持つ中のプロセスを止める（STOP_INSIDE）
+EXEC_TAG = "ECOBUILD_EXEC"
+STOP_INSIDE = ("found() { for f in /proc/[0-9]*/environ; do tr \"\\0\" \"\\n\" <\"$f\" 2>/dev/null | grep -qx \"%s=$1\" "
+               "&& { p=${f#/proc/}; echo ${p%%/environ}; }; done; }; "
+               "pids=$(found \"$1\"); [ -n \"$pids\" ] || exit 0; kill $pids 2>/dev/null; sleep 1; "
+               "pids=$(found \"$1\"); [ -z \"$pids\" ] || kill -9 $pids 2>/dev/null; exit 0") % EXEC_TAG
+# 包む sh（引数：印・コンテナ・docker exec …）。docker は裏で動かして待つ（前で待つと、切られても docker が終わるまで
+# trap が動かない）。裏で動かすと入力は /dev/null になるので、端末の入力を 3 に取っておいて渡す
+STOP_WRAPPER = f"""unset IFS; set +f
+tag=$1; box=$2; shift 2
+stop() {{ docker exec "$box" sh -c '{STOP_INSIDE}' sh "$tag" >/dev/null 2>&1; }}
+quit() {{ kill $child 2>/dev/null; stop; exit $1; }}
+trap 'quit 129' HUP; trap 'quit 130' INT; trap 'quit 143' TERM
+exec 3<&0
+"$@" 0<&3 3<&- &
+child=$!
+wait $child; code=$?
+stop
+exit $code
+"""
 
 
 @dataclass(frozen=True)
@@ -465,10 +488,29 @@ def credentials(root: Path | None = None) -> dict[str, str]:
 
 def exec_command(root: Path, prefix: tuple[str, ...], args: list[str] | tuple[str, ...], names: tuple[str, ...] = (),
                  *, directory: str = WORKDIR, tty: bool = False) -> list[str]:
-    """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。"""
+    """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。
+    tty（端末で動かす）なら、終わる・切られると中のプロセスも止める（EXEC_TAG）。"""
     flags = ["--interactive", "--tty", *(item for k, v in COLORS.items() for item in ("--env", f"{k}={v}"))] if tty else []
     passed = [item for each in names for item in ("--env", each)]
-    return [*prefix, "exec", *flags, *passed, "--workdir", directory, name(root), *args]
+    command = [*prefix, "exec", *flags, *passed, "--workdir", directory, name(root), *args]
+    if not tty:
+        return command
+    tag = uuid.uuid4().hex[:16]
+    command[len(prefix) + 1:len(prefix) + 1] = ["--env", f"{EXEC_TAG}={tag}"]
+    wrapper = _stop_wrapper(prefix)
+    return [*wrapper, tag, name(root), *command[len(prefix) - 1:]] if wrapper else command
+
+
+def _stop_wrapper(prefix: tuple[str, ...]) -> list[str]:
+    """docker を包む sh（STOP_WRAPPER）。WSL の中の docker なら WSL の sh、Linux・macOS ならこの PC の sh。
+    Windows で docker を直に使う（Docker Desktop 等）なら sh がないので包まない（空）。
+    中身は base64 で渡す（WSL を通すと引数の " が崩れる）。IFS を空にして、展開した文を分けずに eval する。"""
+    if prefix[-1:] != ("docker",):
+        return []
+    if prefix[:1] != ("wsl",) and os.name == "nt":
+        return []
+    encoded = base64.b64encode(STOP_WRAPPER.encode("utf-8")).decode("ascii")
+    return [*prefix[:-1], "sh", "-c", f"set -f; IFS=; eval $(echo {encoded} | base64 -d)", "sh"]
 
 
 def environment(prefix: tuple[str, ...], values: dict[str, str]) -> dict[str, str]:

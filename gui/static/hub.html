@@ -115,9 +115,8 @@
         <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのフォルダを登録</small></span></label>
       </fieldset>
       <fieldset id="new-fields" style="border:0;padding:0;margin:0">
-        <label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label>
+        <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label><label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
         <div class="form-grid" id="kind-fields"><label class="field" id="app-field">最初に作るもの<select name="kind" id="kind-select"></select></label><label class="field" id="project-field">名前（任意）<input name="project" placeholder="省略時はモジュール名" pattern="[A-Za-z][A-Za-z0-9_]*" title="英字で始まる英数字・アンダースコア"></label></div>
-        <div class="form-grid"><label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
         <label class="check" id="test-field"><input type="checkbox" name="test" checked> <span id="test-label">テスト用のProjectも作る</span></label>
       </fieldset>
       <fieldset id="clone-fields" hidden disabled style="border:0;padding:0;margin:0">

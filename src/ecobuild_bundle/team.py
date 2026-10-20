@@ -91,6 +91,53 @@ def role_of(root: Path, chosen: str = "") -> str:
     return role
 
 
+ROLES_FILE = ".ecobuild/ai/roles.json"   # 作業空間の中：会話（Claude Code のセッションの ID）→ 役（再開しても同じ役に）
+RESUME_FLAGS = ("--resume", "-r")
+CONTINUE_FLAGS = ("--continue", "-c")
+
+
+def remembered_roles(root: Path) -> dict:
+    try:
+        data = json.loads((Path(root) / ROLES_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def remember(root: Path, session: str, role: str) -> None:
+    """会話 session の役を覚える（.ecobuild/ai の中：コミットしない）。"""
+    roles = {**remembered_roles(root), session: role}
+    path = Path(root) / ROLES_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(dict(list(roles.items())[-500:]), ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+
+def resumed_session(command: tuple[str, ...], latest) -> str | None:
+    """command が続きからの起動なら、その会話の ID（--resume <id>。--continue なら latest() ＝ いちばん新しい会話）。
+    続きからでなければ None、続きからだが分からなければ ""。"""
+    if command[:1] != ("claude",):
+        return None
+    for index, word in enumerate(command):
+        if word in RESUME_FLAGS:
+            following = command[index + 1] if index + 1 < len(command) else ""
+            return "" if not following or following.startswith("-") else following   # 値なし：Claude の一覧で選ぶ
+        if word.startswith("--resume="):
+            return word.split("=", 1)[1]
+        if word in CONTINUE_FLAGS:
+            return latest() or ""
+    return None
+
+
+def new_session(root: Path, role: str, command: tuple[str, ...]) -> tuple[str, ...]:
+    """新しい会話なら、ID を決めて渡し（--session-id）、その役を覚える。続きから・ID 指定済み・Claude Code でなければそのまま。"""
+    if command[:1] != ("claude",) or any(w in command or any(x.startswith(w + "=") for x in command)
+                                         for w in (*RESUME_FLAGS, *CONTINUE_FLAGS, "--session-id")):
+        return command
+    session = str(uuid.uuid4())
+    remember(root, session, role)
+    return (*command, "--session-id", session)
+
+
 def agent_options(root: Path, role: str, command: tuple[str, ...]) -> tuple[str, ...]:
     """Claude Code に足す引数：モデル（記録、なければこのPCの役の設定。指定済みなら足さない）と、進行役の使わせない道具。"""
     if command[:1] != ("claude",):

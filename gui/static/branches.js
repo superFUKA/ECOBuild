@@ -75,8 +75,8 @@
     const takes = ECO.canTakeIn(st.access, b.submitted_to);
     const branchActions = (open(b.submission)
       ? button('merge-own', '取り込む', {kind: 'primary', enabled: takes && !b.submission.draft, why: b.submission.draft ? '下書きの提出は取り込めません' : ECO.takeInNote(st.access, b.submitted_to), help: ECO.submissionHelp.merge})
-      : b.base ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`, help: 'このブランチを、ほかのブランチへ取り込んでもらうように出します。'}) : '')
-      + (b.base ? button('branch-delete', '削除', {kind: 'quiet-danger', enabled: admin(), why: ECO.adminNote, help: 'このブランチを、手元と GitHub から削除します（取り込んでいない変更があれば止まります）。'}) : '');
+      : !isDefault ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`, help: 'このブランチを、ほかのブランチへ取り込んでもらうように出します。'}) : '')
+      + (!isDefault ? button('branch-delete', '削除', {kind: 'quiet-danger', enabled: admin(), why: ECO.adminNote, help: 'このブランチを、手元と GitHub から削除します（タスクブランチの作成元・今いるブランチは消せません）。'}) : '');
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
       <div class="br-head"><div><h3>${esc(b.name)}</h3>
         <p class="mi-note">${pill('ブランチ')} ${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>

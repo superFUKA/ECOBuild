@@ -12,12 +12,14 @@ def command(
     check: Annotated[bool, "提出の前に ecobuild check（生成ファイル・衝突の印・ビルド・テスト）を行う"] = True,
     draft: Annotated[bool, "下書きとして提出する（完了できない。もう一度 task submit で解除）"] = False,
     reviewer: Annotated[str, "見てもらう人（カンマ区切りのGitHubのユーザー名）"] = "",
+    note: Annotated[str, "提出の説明（変えたこと・確かめたこと・影響する所・戻し方。提出済みなら書き換える）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクブランチを提出します（確認 → push → 作成元への提出。タスクブランチでのみ）。
 
     提出済みなら、新しいコミットを送り直します。下書きは --draft なしでもう一度実行すると解除します。
     取り込まれたらタスクを完了するか（--complete／--partial）は、提出済みなら指定したときだけ変えます。
+    提出の本文には、確認（ecobuild check）の結果（どの版で何が通ったか）を書きます（出し直すと今の版のものに）。
     未コミットの変更があれば止まります（ecobuild task commit で記録してから）。
     """
 
@@ -25,7 +27,8 @@ def command(
         if partial and complete:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--partial と --complete は一緒に使えません。")
         return inv.module.submit(title=title or None, partial=True if partial else False if complete else None,
-                                 draft=draft, reviewers=split_list(reviewer), check=check, progress=inv.info)
+                                 draft=draft, reviewers=split_list(reviewer), check=check, note=note or None,
+                                 progress=inv.info)
 
     def render(r):
         kind = "中間提出" if r.partial else "提出"

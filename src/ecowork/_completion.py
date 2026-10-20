@@ -221,11 +221,12 @@ class Completion:
         return self._create_submission(number, branch, base, title=None, partial=partial, draft=False)
 
     def _create_submission(self, number: int, branch: str, base: str, *, title: str | None, partial: bool,
-                           draft: bool, reviewers: tuple[str, ...] = ()) -> wm.PullRequest:
+                           draft: bool, reviewers: tuple[str, ...] = (),
+                           sections: dict[str, str] | None = None) -> wm.PullRequest:
         issue = self.github.get_issue(self.root, number)
         info = self.github.create_pull_request(
             self.root, head=branch, base=base, title=title or issue.title,
-            body=wm.with_task_link("", number, partial=partial), draft=draft,
+            body=wm.with_sections(wm.with_task_link("", number, partial=partial), sections or {}), draft=draft,
         )
         if reviewers:
             self.github.edit_pull_request(self.root, info.number, add_reviewers=reviewers)

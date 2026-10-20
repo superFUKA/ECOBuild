@@ -155,3 +155,21 @@ def test_submit_switches_an_open_submission_between_partial_and_final(repository
     assert switched.number == pr.number and not switched.partial
     assert github.pulls[pr.number].body.startswith("Closes #1")
     assert task_branch.submit(partial=True).partial and github.pulls[pr.number].body.startswith("Refs #1")
+
+
+def test_submit_sections_are_replaced_on_resubmit(repository):
+    """呼び出し側の節（提出の説明・確認の結果）は、出し直しのたびに差し替わる。人が書き足した部分は残る。"""
+    root, github = repository.root, repository.github
+    task_branch = repository.create_task("節").start()
+    commit_file(task_branch, root, "a.txt", "1\n", "a")
+    pr = task_branch.submit(sections={"note": "説明1", "check": "確認 v1"})
+    body = github.pulls[pr.number].body
+    assert body.startswith("Closes #1") and body.index("説明1") < body.index("確認 v1")
+    github.edit_pull_request(root, pr.number, body=body + "\n人のメモ\n")
+    commit_file(task_branch, root, "a.txt", "2\n", "b")
+    task_branch.submit(sections={"check": "確認 v2"})
+    body = github.pulls[pr.number].body
+    assert "確認 v1" not in body and "確認 v2" in body and "説明1" in body and "人のメモ" in body
+    task_branch.submit(partial=True, sections={"note": ""})
+    body = github.pulls[pr.number].body
+    assert body.startswith("Refs #1") and "説明1" not in body and "ecowork-section: note" not in body

@@ -509,7 +509,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
         self.hooks.after_switch(self)
 
     def _submit_task_branch(self, task_branch: wm.TaskBranch, *, title: str | None, partial: bool | None,
-                          draft: bool = False, reviewers: tuple[str, ...] = ()) -> wm.PullRequest:
+                          draft: bool = False, reviewers: tuple[str, ...] = (),
+                          sections: dict[str, str] | None = None) -> wm.PullRequest:
         self.hooks.before_submit(self)
         self.git.fetch()
         base_ref = f"{_git.REMOTE}/{task_branch.base}"
@@ -522,14 +523,18 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
         opened = [p for p in self.github.pull_requests_for_branch(self.root, task_branch.branch) if p.state == "open"]
         if not opened:
             return self._create_submission(task_branch.number, task_branch.branch, task_branch.base, title=title,
-                                           partial=bool(partial), draft=draft, reviewers=reviewers)
+                                           partial=bool(partial), draft=draft, reviewers=reviewers,
+                                           sections=sections or {})
         # 提出済み：pushしたコミットがそのまま加わる（差し戻しの後の出し直し等）。下書き・題名・レビュアー・
-        # 中間提出か（partial が None ならそのまま）を合わせる
+        # 中間提出か（partial が None ならそのまま）・本文の節（渡したものだけ）を合わせる
         latest = max(opened, key=lambda p: p.number)
-        if partial is not None and wm.PullRequest._from(self, latest).partial != partial:
+        if sections or (partial is not None and wm.PullRequest._from(self, latest).partial != partial):
             body = self.github.get_pull_request(self.root, latest.number).body
-            self.github.edit_pull_request(self.root, latest.number,
-                                          body=wm.with_link_kind(body, task_branch.number, partial=partial))
+            new_body = wm.with_sections(body, sections or {})
+            if partial is not None:
+                new_body = wm.with_link_kind(new_body, task_branch.number, partial=partial)
+            if new_body != body:
+                self.github.edit_pull_request(self.root, latest.number, body=new_body)
         if latest.draft != draft:
             self.github.set_pull_request_draft(self.root, latest.number, draft)
         if (title and title != latest.title) or reviewers:

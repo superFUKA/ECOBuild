@@ -18,6 +18,16 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             f"構成：{', '.join(r.configurations)}",
             f"共有ライブラリの構成：{'あり' if r.shared else 'なし'}",
             f"pushで動かすブランチ：{', '.join(r.branches) if r.branches else f'{r.default_base}（default_base）'}",
+            f"見直し（Claude）：{_review(r)}",
         )
 
     return run_command("ci show", lambda inv: inv.module.ci_state(), render, json_output=json)
+
+
+def _review(r) -> str:
+    if not r.review:
+        return ("なし（ecobuild ci init --review on で作ります）" if not r.review_exists
+                else f"なし（{r.review_path} が残っています。ecobuild ci init で消します）")
+    state = ("" if r.review_current else "（ワークフローが今の設定と違います。ecobuild ci init で作り直します）"
+             if r.review_exists else "（ワークフローがありません。ecobuild ci init で作ります）")
+    return f"あり（シークレット {r.review_secret}）{state}"

@@ -216,6 +216,10 @@ class AgentConversations:
 class CiInitResult:
     path: str
     private_dependencies: tuple[str, ...]   # CIで取得するにはトークンが要る依存先
+    review_path: str | None = None          # 見直しのワークフロー（作ったとき）
+    review_secret: str | None = None        # 見直しに要るシークレットの名前（作ったとき）
+    review_secret_missing: bool = False     # そのシークレットがまだ登録されていない（分かったときだけ）
+    removed: tuple[str, ...] = ()           # 消したワークフロー（見直しをやめた）
 
 
 @dataclass(frozen=True)
@@ -231,6 +235,12 @@ class CiState:
     shared: bool
     branches: tuple[str, ...] | None        # None：default_base
     default_base: str
+    review: bool = False                    # 提出（PR）を Claude が見直す
+    review_auth: str = "subscription"
+    review_path: str = ""
+    review_exists: bool = False             # 見直しのワークフローがある
+    review_current: bool = False            # 今の設定から作るものと同じ
+    review_secret: str = ""                 # 見直しに要るシークレットの名前
 
 
 @dataclass(frozen=True)

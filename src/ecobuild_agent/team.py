@@ -101,6 +101,7 @@ class Member:
     doing_at: float | None = None  # その時刻
     usage: dict | None = None   # 最後の返答の使用量（アプリ用。トークン・費用・時間）
     limits: dict | None = None  # 使用量の制限（アプリ用。five_hour・seven_day の used_percentage・resets_at）
+    error: str = ""             # 止めていないのに終わった（アプリ用。終了コード・標準エラーの末尾）
     app: bool = False           # 係がアプリ用で起動した（team start・restart の結果）
     note: str = ""              # 起動できなかったわけ等
 
@@ -391,7 +392,7 @@ def team(root: Path) -> Team:
                             (folder / REPORT_FILE).is_file(), state=seen["state"], since=seen["since"],
                             last_reply=seen["last_reply"], context=seen["context"], waiting=seen["waiting"],
                             mode=seen.get("mode", ""), doing=seen.get("doing", ""), doing_at=seen.get("doing_at"),
-                            usage=seen.get("usage"), limits=seen.get("limits")))
+                            usage=seen.get("usage"), limits=seen.get("limits"), error=seen.get("error", "")))
     return Team(Path(root), tuple(found))
 
 

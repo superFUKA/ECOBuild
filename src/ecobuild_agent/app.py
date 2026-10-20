@@ -96,6 +96,30 @@ def read_events(folder: Path, *, after: int | None = None, tail: int = 50) -> tu
     return events, max(0, after or 0) + len(complete)
 
 
+def recent_events(folder: Path, size: int = 65536) -> list[dict]:
+    """events.jsonl の終わりの出来事（終わりの size バイトの中の、全部そろった行。一覧に最新の数行を出すため：
+    長く伸びたファイルも全部は読まない）。"""
+    try:
+        with open(Path(folder) / EVENTS, "rb") as file:
+            file.seek(0, os.SEEK_END)
+            end = file.tell()
+            file.seek(max(0, end - size))
+            data = file.read()
+    except OSError:
+        return []
+    if end > size:
+        data = data[data.find(b"\n") + 1:]   # 途中から読んだ最初の行は欠けている
+    events = []
+    for line in data[:data.rfind(b"\n") + 1].splitlines():
+        try:
+            event = json.loads(line.decode("utf-8", "replace"))
+        except ValueError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
 def record(folder: Path, event: str, **values) -> None:
     """events.jsonl に係の印を1行足す（Claude Code が書いていない間だけ：起動の前・終わった後）。"""
     line = json.dumps({"type": "ecobuild", "event": event, "at": time.time(), **values}, ensure_ascii=False) + "\n"

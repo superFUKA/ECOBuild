@@ -329,6 +329,38 @@ def test_the_cli_reads_the_log_and_asks_the_serve(lead, tmp_path, monkeypatch):
         serve.apps.stop(member.path, 5)
 
 
+def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monkeypatch):
+    """team list --nested：下の進行役のチームを members に入れ子で。--recent N：1人ごとに最新の出来事の人向けの行（GUI の
+    一覧・格子）。出来事のファイルは終わりだけを読む（途中から読んだ欠けた行は捨てる）。"""
+    def member(root: Path, name: str, role: str) -> Path:
+        folder = root / team.TEAM_AREA / f"1-{name}"
+        (folder / ".ecobuild" / "ai").mkdir(parents=True)
+        (folder / team.MEMBER_FILE).write_text(json.dumps({"name": name, "role": role, "task": 1}), encoding="utf-8")
+        return folder
+
+    sub = member(lead.root, "下の進行役", team.LEAD)
+    worker = member(sub, "画面", team.WORKER)
+    folder = agent_status.prepare(container.name(worker), worker)
+    lines = [{"type": "user", "message": {"content": "はじめて"}},
+             {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ecobuild test"}}]}},
+             {"type": "rate_limit_event"},
+             {"type": "assistant", "message": {"content": [{"type": "text", "text": "できました"}]}}]
+    (folder / app.EVENTS).write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in lines) + '{"type": "us',
+                                     encoding="utf-8")
+    assert [e["type"] for e in app.recent_events(folder)] == ["user", "assistant", "rate_limit_event", "assistant"]
+    assert [e["type"] for e in app.recent_events(folder, size=150)] == ["rate_limit_event", "assistant"]
+
+    monkeypatch.chdir(lead.root)
+    invoke = lambda *args: json.loads(CliRunner().invoke(build_cli(), [*args, "--json"], catch_exceptions=False).stdout)
+    plain = invoke("agent", "team", "list")["result"]["members"]
+    assert [m["name"] for m in plain] == ["下の進行役"] and "members" not in plain[0] and "recent" not in plain[0]
+    nested = invoke("agent", "team", "list", "--nested", "--recent", "2")["result"]["members"]
+    assert nested[0]["recent"] == [] and [m["name"] for m in nested[0]["members"]] == ["画面"]
+    assert nested[0]["members"][0]["recent"] == ["  ・Bash：ecobuild test", "◀ できました"]
+    human = CliRunner().invoke(build_cli(), ["agent", "team", "list", "--nested"], catch_exceptions=False).stdout
+    assert "進行役「下の進行役」" in human and "\n    作業役「画面」" in human
+
+
 def test_the_launch_is_made_like_the_interactive_one(lead, monkeypatch):
     """起動のしかた（AgentModule.app_launch）：コンテナの中の claude -p の stream-json。会話の ID・役・モデル・使い方の文は
     対話型と同じ作り方。statusLine・返答の終わりのフックは付けない（進行役の書ける場所のフックは付ける）。"""

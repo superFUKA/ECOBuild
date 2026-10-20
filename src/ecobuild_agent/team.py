@@ -31,12 +31,14 @@ import json
 import os
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import ecobuild_container as container
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
+from ecobuild.fsutil import locked, remove_tree
 
 from . import status as agent_status
 from .errors import ErrorCode
@@ -181,8 +183,11 @@ def agent_options(root: Path, role: str, command: tuple[str, ...]) -> tuple[str,
 def create(module, name: str, brief: str, *, role: str = WORKER, model: str = "",
            progress=lambda message: None) -> Member:
     """進行役の作業空間 module に、チームの1人を作る：子タスク（題名 name・本文 brief）と、そのタスクブランチを置いた
-    作業空間（TEAM_AREA/<番号>-<名前>）。任された仕事・記録を作業空間の .ecobuild/ai に置く。起動はしない。"""
-    from ecobuild import workspaces as _workspaces
+    作業空間（TEAM_AREA/<番号>-<名前>）。任された仕事・記録を作業空間の .ecobuild/ai に置く。起動はしない。
+
+    何人も並べて作れる（係が並べて実行する）。同じ名前を同時には作らない（後のものは止める）。前に作りかけて止まった
+    もの（開いた子タスク・作業空間のフォルダー）が残っていれば、それを片付けて続きから作る（二重に作らない）。途中で
+    失敗したら、作りかけを片付けて（作業空間を消し、この回に作った子タスクを閉じて）、何が残ったかを失敗に書く。"""
     from ecowork import model as _work
     if role not in ROLES:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint="lead（進行役）か worker（作業役）です。")
@@ -195,21 +200,152 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
                             hint="目的・返してほしいもの・使ってよい道具・範囲（やらないこと）を書いてください。")
     lead_task = module.require_task_branch(f"{ROLE_NAMES[role]}の作成")
     module.prepare_agent_area()   # 進行役の側の git に、作業空間の置き場所を見せない（除外）
-    progress(f"子タスク「{name}」を作っています…")
-    task = module.repository.create_task(name, body=brief, parent=lead_task.number)
-    directory = module.root / TEAM_AREA / f"{task.number}-{label}"
-    progress(f"子タスク #{task.number} の作業空間を用意しています（clone・依存先）…")
-    member_module = module.start_task_in(task.number, directory, name=label)
+    with _creating(module, name):
+        task = _leftover(module, lead_task.number, name, progress)
+        created = task is None
+        if created:
+            progress(f"子タスク「{name}」を作っています…")
+            try:
+                task = module.repository.create_task(name, body=brief, parent=lead_task.number)
+            except Exception as error:   # 作った後の読み直し等で失敗したもの：子タスクはできている
+                made = _open_child(module, lead_task.number, name)
+                raise _failed(error, name, role, made and _close_child(module, made.number, name, error), made) from error
+        directory = module.root / TEAM_AREA / f"{task.number}-{label}"
+        try:
+            return _prepare(module, task.number, directory, name, label, brief, role, model, progress)
+        except Exception as error:
+            left = _clean_up(module, task.number, directory, name, error, close=created)
+            raise _failed(error, name, role, left, task, resumed=not created) from error
+
+
+def _prepare(module, number: int, directory: Path, name: str, label: str, brief: str, role: str, model: str,
+             progress) -> Member:
+    """子タスク number の作業空間 directory を作り、任された仕事・記録を置く。"""
+    from ecobuild import workspaces as _workspaces
+    progress(f"子タスク #{number} の作業空間を用意しています（clone・依存先）…")
+    member_module = module.start_task_in(number, directory, name=label)
     progress("作業空間ができました。任せる仕事を置いています…")
     _workspaces.record_quietly(member_module.root)
     _inherit_container(module.root, member_module.root)
     member_module.prepare_agent_area()
     (member_module.root / BRIEF_FILE).write_text(brief.rstrip() + "\n", encoding="utf-8", newline="\n")
-    info = {"role": role, "name": name, "task": task.number, "lead": str(module.root), "model": model.strip()}
+    info = {"role": role, "name": name, "task": number, "lead": str(module.root), "model": model.strip()}
+    # 記録（MEMBER_FILE）は最後に置く：あれば作り終えた作業空間（なければ作りかけ。_leftover）
     (member_module.root / MEMBER_FILE).write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     branch = member_module.repository.git.current_branch() or ""
-    return Member(name, role, member_module.root, task.number, branch, model.strip(), str(module.root),
+    return Member(name, role, member_module.root, number, branch, model.strip(), str(module.root),
                   prompt=FIRST_PROMPT[role])
+
+
+CREATING = "ecobuild-team"   # 進行役の clone の git の場所の中：作っている名前ごとのロック（<名前>.lock）
+
+
+@contextmanager
+def _creating(module, name: str):
+    """同じ名前を同時に作らない（作っている間ロックを持つ。係が止めたプロセスのロックは OS が外す）。"""
+    folder = module.root / module.repository.git.output("rev-parse", "--git-path", CREATING)
+    try:
+        with locked(folder / f"{name}.lock", wait=False):
+            yield
+    except BlockingIOError:
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"「{name}」は今、別の頼みで作っている途中です。",
+                            hint="同じ名前を2回頼んでいます。終わるのを待って agent team list で確かめてください。") from None
+
+
+def _leftover(module, parent: int, name: str, progress):
+    """同じ名前の前の作りかけ：開いた子タスク（作業空間の記録 MEMBER_FILE がないもの）があれば、その Issue（続きから作る）。
+    同じ名前の記録のない作業空間のフォルダーは消す（中に変更があれば止める）。もうチームにいれば止める。"""
+    from ecowork.git import Git
+    if any(member.name == name for member in team(module.root).members):
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"チームにはもう「{name}」がいます。",
+                            hint="続けさせるなら agent team send・restart、作り直すなら agent team close で閉じてから。"
+                                 "別の仕事なら別の名前にしてください。")
+    area = module.root / TEAM_AREA
+    for folder in sorted(area.glob(f"*-{name}")) if area.is_dir() else ():
+        number, _, label = folder.name.partition("-")
+        if not folder.is_dir() or member_info(folder) or not number.isdigit() or label != name:   # 「ログイン-画面」は別の名前
+            continue
+        if (folder / ".git").exists():
+            try:
+                tree = Git(folder).working_tree()
+            except Exception:   # 壊れた clone（clone の途中で止まった）
+                tree = None
+            if tree is not None and not (tree.clean and tree.ahead == 0):
+                raise EcoBuildError(ErrorCode.ALREADY_EXISTS,
+                                    f"「{name}」の作りかけの作業空間 {TEAM_AREA}/{folder.name} に、変更があります。",
+                                    hint="消してよいか分からないので止めました。ユーザーに伝えて決めてもらってください。")
+        progress(f"前の作りかけの作業空間 {TEAM_AREA}/{folder.name} を片付けています…")
+        remove_tree(folder)
+    found = _open_child(module, parent, name)
+    if found is not None:
+        progress(f"前の作りかけの子タスク #{found.number} の続きから作ります…")
+    return found
+
+
+def _open_child(module, parent: int, name: str):
+    """親タスク parent の、題名 name の開いた子タスク（いちばん新しいもの。なければ None）。"""
+    children = [issue for issue in module.repository.github.sub_issues(module.root, parent)
+                if issue.title == name and issue.state == "open"]
+    return max(children, key=lambda issue: issue.number) if children else None
+
+
+def _clean_up(module, number: int, directory: Path, name: str, error: Exception, *, close: bool) -> list[str]:
+    """作りかけを片付ける：作業空間 directory を消し、close なら子タスク number（とこの回に置いたタスクブランチ）を
+    閉じる。片付けられなかったもの（文）を返す。"""
+    from ecowork import model as _work
+    from ecowork.git import Git
+    left = []
+    if close and (directory / ".git").exists():
+        branch = _work.task_branch_name(number, directory.name.split("-", 1)[1])
+        try:
+            git = Git(directory)
+            if git.has_remote_branch(branch):   # この回に作って push したもの（まだ何もコミットしていない）
+                git.push_delete(branch)
+        except Exception as problem:
+            left.append(f"GitHub のタスクブランチ {branch}（消せませんでした：{_message(problem)}）")
+    if directory.exists():
+        try:
+            remove_tree(directory)
+        except OSError as problem:
+            left.append(f"作業空間 {TEAM_AREA}/{directory.name}（消せませんでした：{problem}）")
+    if close:
+        left += _close_child(module, number, name, error)
+    return left
+
+
+def _close_child(module, number: int, name: str, error: Exception) -> list[str]:
+    """作りかけの子タスクを「対応しない」として閉じる（理由をコメントに。消さない）。閉じられなければ、その文。"""
+    tracker = module.repository.tracker
+    try:
+        tracker.comment(number, f"ECOBuild：「{name}」の作成が途中で失敗したため閉じます（{_message(error)}）。")
+    except Exception:
+        pass   # 閉じるのを優先する
+    try:
+        tracker.close(number, not_planned=True)
+    except Exception as problem:
+        return [f"子タスク #{number}（開いたまま：{_message(problem)}）"]
+    return []
+
+
+def _failed(error: Exception, name: str, role: str, left, task, *, resumed: bool = False) -> EcoBuildError:
+    """作成の失敗を、何が残ったか・どうすればよいかを添えて伝える。left：片付けられなかったもの（task がなければ None）。"""
+    hint = getattr(error, "hint", None)
+    if task is None:
+        after = "子タスクはできていません（できていれば、task list で確かめて閉じてください）。"
+    elif left:
+        after = ("片付けられなかったもの：" + "、".join(left) + "。もう一度 start すると、残った作りかけを片付けて"
+                 "続きから作ります（子タスクが閉じていれば新しく作ります）。")
+    elif resumed:
+        after = f"作りかけの作業空間を消しました。子タスク #{task.number}（前の作りかけ）は開いたままです。もう一度 start してください。"
+    else:
+        after = f"子タスク #{task.number} は閉じ、作りかけの作業空間も消しました。もう一度 start してください。"
+    return EcoBuildError(getattr(error, "code", None) or ErrorCode.AGENT_ERROR,
+                         f"{ROLE_NAMES[role]}「{name}」を作れませんでした：{_message(error)}",
+                         hint=after + (f"\n{hint}" if hint else ""), details=getattr(error, "details", None))
+
+
+def _message(error: Exception) -> str:
+    return getattr(error, "message", None) or str(error) or type(error).__name__
 
 
 def _inherit_container(lead: Path, member: Path) -> None:
@@ -316,6 +452,12 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "作業役が別のタブで動き始めます）。<名前> はタスクブランチの名前にもなる短い名前です。",
             "   --brief には必ず次を書きます：**目的**（何のためか）、**返してほしいもの**（報告に書くこと・提出の形）、"
             "**使ってよい道具・見る場所**、**範囲**（やらないこと・触らないファイル）。短い指示は取り違え・重複のもとです。",
+            "   何人も作るときは、1人ずつ終わるのを待たずに並べて頼みます（ECOBuild の係が数人ずつ並べて作ります。1人に"
+            "数十秒かかるので、ループで順に待つと全員そろうまで長くかかります）：Bash の run_in_background で1人ずつ "
+            f"`{program} agent team start <名前> --brief-file <ファイル>` を出し、終わった知らせ（結果）を待ちます。"
+            "同じ名前は2回頼みません。",
+            "   作成が途中で失敗したときは、ECOBuild が作りかけ（作業空間・子タスク）を片付け、何が残ったかを失敗の文に書きます。"
+            "その文に従ってもう一度 start します（残った作りかけがあれば、それを片付けて続きから作ります。二重にはなりません）。",
             "3. 作業役の人数は仕事の大きさと独立さで決めます：小さなことは1人（または任せずにユーザーと話すだけ）、"
             "互いに依存しない部分に分けられるだけ並べます（大勢でもよい。下の「進め方の手」）。"
             "**同じファイルを2人に任せません**（持ち場を分ける）。依存し合う仕事は順に任せます。",

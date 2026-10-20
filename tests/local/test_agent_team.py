@@ -462,3 +462,188 @@ def test_the_serve_runs_a_type_command_only_for_that_type(lead):
     assert serve_command.type_has(["agent", "team", "list"], lead.root)                 # 型のコマンドでないもの
     doc = serve_command.run(["project", "update"], lead.root)
     assert not doc["ok"] and "型のコマンドではありません" in doc["error"]["message"]
+
+
+# ---- 並べて作る・作りかけの片付け ------------------------------------------------------------------------------
+
+def slow_clone(monkeypatch, seconds):
+    """clone を遅くする（本物の clone は数十秒かかる。並べて実行されているかを時間で確かめる）。"""
+    import ecowork.git
+    real = ecowork.git.clone
+
+    def clone(url, destination):
+        time.sleep(seconds)
+        return real(url, destination)
+    monkeypatch.setattr(ecowork.git, "clone", clone)
+
+
+def create_side_by_side(lead, names):
+    """names の作業役を、別々のコマンドのように（それぞれの Module で）同時に作る。(作った人, 失敗) を返す。"""
+    made, errors = [], []
+
+    def one(name):
+        try:
+            made.append(team.create(Module.find(lead.root, github=lead.repository.github), name, f"目的：{name}を作る"))
+        except Exception as error:
+            errors.append(error)
+    threads = [threading.Thread(target=one, args=(name,)) for name in names]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(120)
+    return made, errors
+
+
+def test_workers_can_be_created_side_by_side(lead, monkeypatch):
+    """5人を同時に作っても、git の除外・作業空間の記録を壊さず、全員そろう時間は1人分の数倍以内。"""
+    slow_clone(monkeypatch, 2.0)
+    started = time.monotonic()
+    team.create(lead, "最初", "目的：1人分の時間を測る")
+    one = time.monotonic() - started
+    exclude = lead.root / ".git" / "info" / "exclude"
+    before = exclude.read_text(encoding="utf-8")
+
+    started = time.monotonic()
+    made, errors = create_side_by_side(lead, ["画面", "保存", "検索", "印刷", "設定"])
+    took = time.monotonic() - started
+    assert errors == [] and len(made) == 5
+    assert took < one * 3, (took, one)                                                       # 1人ずつなら 5 倍
+    assert len({member.task for member in made}) == 5
+    assert sorted(m.name for m in team.team(lead.root).members) == sorted(["最初", "画面", "保存", "検索", "印刷", "設定"])
+    for member in made:                                                                       # 記録が消えていない
+        assert any(workspaces.same(item.path, member.path) for item in workspaces.recorded())
+    assert exclude.read_text(encoding="utf-8") == before and lead.repository.git.working_tree().untracked == ()
+
+
+def test_the_exclude_is_written_once_when_many_add_to_it_at_once(lead):
+    """git の除外（info/exclude）に同時に書き足しても、元の行を消さず、1回だけ足す。"""
+    exclude = lead.root / ".git" / "info" / "exclude"
+    exclude.write_text("# 人が書いた行\n*.log\n", encoding="utf-8")
+    modules = [Module.find(lead.root, github=lead.repository.github) for _ in range(8)]
+    threads = [threading.Thread(target=module.prepare_agent_area) for module in modules]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    lines = exclude.read_text(encoding="utf-8").splitlines()
+    assert lines[:2] == ["# 人が書いた行", "*.log"] and lines.count("/.ecobuild/ai/") == 1
+
+
+def test_the_same_name_is_not_created_twice(lead):
+    member = team.create(lead, "画面", "目的：作る")
+    assert code_of(lambda: team.create(lead, "画面", "目的：もう一度")) == ErrorCode.ALREADY_EXISTS   # もういる
+    with team._creating(lead, "保存"):                                                        # 別の頼みが作っている途中
+        assert code_of(lambda: team.create(Module.find(lead.root, github=lead.repository.github), "保存", "目的：作る")) \
+            == ErrorCode.ALREADY_EXISTS
+    assert [m.task for m in team.team(lead.root).members] == [member.task]
+    assert team.create(lead, "保存", "目的：作る").name == "保存"                               # 終われば作れる
+
+
+def remote_branches(lead):
+    bare = lead.repository.github.bare
+    return subprocess.run(["git", "-C", str(bare), "branch", "--list", "task/*"], capture_output=True, text=True,
+                          encoding="utf-8").stdout.split()
+
+
+def test_a_failed_creation_cleans_up_what_it_made(lead, monkeypatch):
+    """作成の途中（clone とタスクブランチの push の後）で失敗したら、作業空間を消し、ブランチを消し、子タスクを閉じて、
+    失敗の文にそう書く。"""
+    from ecowork.git import Git
+    from ecowork import WorkError as Failure
+    real = Git.set_config
+
+    def broken(self, key, value):
+        if self.root != lead.root:
+            raise Failure("github_error", "GitHub に断られました：HTTP 502 Bad Gateway")
+        return real(self, key, value)
+    monkeypatch.setattr(Git, "set_config", broken)
+    before = set(remote_branches(lead))
+    with pytest.raises(WorkError) as caught:
+        team.create(lead, "グラフ", "目的：グラフを作る")
+    github = lead.repository.github
+    child = max(github.issues)
+    assert github.issues[child].title == "グラフ" and github.issues[child].state == "closed" and child in github.not_planned
+    assert "作成が途中で失敗" in github.comments[child][-1].body                               # 理由を書いて閉じる
+    assert not list((lead.root / team.TEAM_AREA).glob("*"))                                    # 作業空間は残らない
+    assert set(remote_branches(lead)) == before                                                # この回に置いたブランチも
+    error = caught.value
+    assert "「グラフ」を作れませんでした" in error.message and "HTTP 502" in error.message
+    assert f"子タスク #{child} は閉じ" in error.hint and error.code == "github_error"
+
+    monkeypatch.setattr(Git, "set_config", real)
+    member = team.create(lead, "グラフ", "目的：グラフを作る")                                 # 作り直せる（新しい子タスク）
+    assert member.task != child
+
+
+def test_a_failure_after_making_the_child_task_closes_it(lead, monkeypatch):
+    """子タスクを作った後の読み直しで失敗しても（作ったものの番号が返らない）、親の子から見つけて閉じる。"""
+    from ecotask.tracker import Tracker
+    from ecowork import WorkError as Failure
+
+    def broken(self, number):
+        raise Failure("github_error", "HTTP 502")
+    monkeypatch.setattr(Tracker, "issue", broken)
+    with pytest.raises(WorkError) as caught:
+        team.create(lead, "グラフ", "目的：作る")
+    child = max(lead.repository.github.issues)
+    assert lead.repository.github.issues[child].state == "closed" and f"#{child} は閉じ" in caught.value.hint
+
+
+def test_a_creation_that_stopped_halfway_is_continued(lead):
+    """前に作りかけて止まったもの（係が止めた等：開いた子タスクと、記録のないフォルダー）があれば、片付けて続きから作る。"""
+    github = lead.repository.github
+    parent = lead.require_task_branch("x").number
+    left = lead.repository.create_task("グラフ", body="目的：作る", parent=parent)
+    folder = lead.root / team.TEAM_AREA / f"{left.number}-グラフ"
+    folder.mkdir(parents=True)
+    (folder / "途中.txt").write_text("clone の途中\n", encoding="utf-8")
+    issues = len(github.issues)
+    member = team.create(lead, "グラフ", "目的：作る")
+    assert member.task == left.number and member.path == folder and len(github.issues) == issues   # 二重にしない
+    assert not (folder / "途中.txt").exists()
+
+
+def test_a_leftover_with_changes_is_not_removed(lead):
+    """記録のない作りかけのフォルダーでも、中に変更があれば消さずに止める。"""
+    member = team.create(lead, "グラフ", "目的：作る")
+    (member.path / team.MEMBER_FILE).unlink()                                                 # できあがる前に止まった形
+    (member.path / "変更.txt").write_text("人の変更\n", encoding="utf-8")
+    assert code_of(lambda: team.create(lead, "グラフ", "目的：作る")) == ErrorCode.ALREADY_EXISTS
+    assert (member.path / "変更.txt").exists()
+
+
+def test_the_serve_creates_workers_side_by_side_but_keeps_other_requests_in_order(lead):
+    """同じ置き場所の作業役の作成どうしは START_LIMIT まで並べる。ほかの頼み（close 等）は前の作成が終わってから、
+    後の作成はその頼みが終わってから。"""
+    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    requests = folder / team.REQUESTS
+    requests.mkdir()
+    guard, running, most, order = threading.Lock(), [0], [0], []
+
+    def run(args, cwd, **_):
+        with guard:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+            order.append(("始", args[2], args[3]))
+        time.sleep(0.3)
+        with guard:
+            running[0] -= 1
+            order.append(("終", args[2], args[3]))
+        return {"ok": True, "result": {}}
+
+    serve = agent_serve.Serve(run, emit=lambda event: None)
+    plan = [("a", "start", "1"), ("b", "start", "2"), ("c", "start", "3"), ("d", "start", "4"), ("e", "start", "5"),
+            ("f", "list", "x"), ("g", "start", "6")]
+    for key, command, name in plan:
+        (requests / f"{key}.json").write_text(json.dumps({"id": key, "args": ["agent", "team", command, name], "cwd": "."}),
+                                              encoding="utf-8")
+    started = time.monotonic()
+    serve.step()
+    assert serve.wait(30)
+    assert most[0] == agent_serve.START_LIMIT                                                  # 4人ずつ並べる
+    assert time.monotonic() - started < 0.3 * 7 * 0.8                                         # 1つずつより早い
+    position = {entry: index for index, entry in enumerate(order)}
+    ended_starts = [position[("終", "start", n)] for n in "12345"]
+    assert position[("始", "list", "x")] > max(ended_starts)                                  # 前の作成が終わってから
+    assert position[("始", "start", "6")] > position[("終", "list", "x")]                     # 後の作成はその後
+    assert all((requests / f"{key}.result.json").exists() for key, _, _ in plan)

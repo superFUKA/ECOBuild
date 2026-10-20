@@ -35,6 +35,7 @@ from .errors import ErrorCode
 TEAM_COMMANDS = ("start", "close", "send", "list", "restart")
 LOCK = Path("agents") / "serve.lock"   # ECOBUILD_HOME の下：係はこのPCに1つ
 STOP_TIMEOUT = 30                       # 作業役を止めてもらう返事を待つ秒数
+START_LIMIT = 4                         # 同じ置き場所の作業役の作成（agent team start）を、並べて実行する数
 
 Run = Callable[..., dict]   # run(args, cwd, progress=None, stall=None)
 
@@ -55,7 +56,10 @@ class Serve:
 
     見回りは待たない：頼みはすぐに受け取り（拾った印 .taken。頼んだ側は拾われたかで係がいるかを見る）、実行は裏で行う。
     同じ置き場所（作業空間）のものは届いた順に1つずつ、ほかの置き場所のものとは並べて（作業役を作る clone 等で長く
-    かかっても、ほかのエージェントの頼みを待たせない）。background=False なら、その場で実行する。"""
+    かかっても、ほかのエージェントの頼みを待たせない）。ただし作業役の作成（agent team start）どうしは、同じ置き場所でも
+    START_LIMIT まで並べる（進行役が何人も作るとき、1人ずつ待たせない）。作成とほかの頼みの順は変えない：ほかの頼み
+    （close・restart 等）は前に届いた作成が終わってから、後に届いた作成はその頼みが終わってから（作っている途中の
+    作業役を閉じない）。background=False なら、その場で実行する。"""
 
     def __init__(self, run: Run, *, emit: Callable[[dict], None] | None = None,
                  ack: Callable[[str, float], bool] = lambda key, timeout: True,
@@ -65,8 +69,8 @@ class Serve:
         self.background = background
         self.started = time.time()
         self._replied: dict[Path, float] = {}
-        self._queues: dict[Path, deque] = {}
-        self._busy: set[Path] = set()
+        self._queues: dict[Path, deque] = {}            # 置き場所 → まだ始めていない (並べてよいか, 仕事)
+        self._running: dict[Path, list[bool]] = {}      # 置き場所 → 実行中の仕事の「並べてよいか」
         self._guard = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._progress: dict[Path, dict] = {}   # 拾って結果をまだ書いていない頼みの途中経過（ファイル → 中身）
@@ -93,28 +97,34 @@ class Serve:
             if until is not None and time.monotonic() >= until:
                 return not any(thread.is_alive() for thread in running)
 
-    def _later(self, folder: Path, job: Callable[[], None]) -> None:
-        """job を裏で行う（置き場所 folder ごとに届いた順に1つずつ。ほかの置き場所とは並べて）。"""
+    def _later(self, folder: Path, job: Callable[[], None], *, parallel: bool = False) -> None:
+        """job を裏で行う（置き場所 folder ごとに届いた順に1つずつ。ほかの置き場所とは並べて）。parallel：同じ置き場所の
+        parallel の仕事どうしは、続けて届いたものを START_LIMIT まで並べる。"""
         if not self.background:
             self._do(job)
             return
         with self._guard:
-            self._queues.setdefault(folder, deque()).append(job)
-            if folder in self._busy:
-                return
-            self._busy.add(folder)
-            thread = threading.Thread(target=self._drain, args=(folder,), daemon=True)
-            self._threads.append(thread)
-        thread.start()
+            self._queues.setdefault(folder, deque()).append((parallel, job))
+            self._next(folder)
 
-    def _drain(self, folder: Path) -> None:
-        while True:
-            with self._guard:
-                if not self._queues[folder]:
-                    self._busy.discard(folder)
-                    return
-                job = self._queues[folder].popleft()
-            self._do(job)
+    def _next(self, folder: Path) -> None:
+        """置き場所 folder の、今始めてよい仕事を始める（_guard の中で。始めてから一覧に入れる：wait が取りこぼさない）。"""
+        queue, running = self._queues[folder], self._running.setdefault(folder, [])
+        while queue:
+            parallel, job = queue[0]
+            if running and not (parallel and all(running) and len(running) < START_LIMIT):
+                return
+            queue.popleft()
+            running.append(parallel)
+            thread = threading.Thread(target=self._finish, args=(folder, parallel, job), daemon=True)
+            thread.start()
+            self._threads.append(thread)
+
+    def _finish(self, folder: Path, parallel: bool, job: Callable[[], None]) -> None:
+        self._do(job)
+        with self._guard:
+            self._running[folder].remove(parallel)
+            self._next(folder)
 
     def _do(self, job: Callable[[], None]) -> None:
         try:
@@ -161,7 +171,10 @@ class Serve:
             except OSError:
                 continue
             self._report(inbox / f"{file.stem}{team.PROGRESS}", "順番を待っています（同じ作業空間の前の頼みを実行中）")
-            self._later(folder, lambda taken=taken: self._answer(inbox, taken, root))
+            request = agent_status.read(taken)
+            starting = isinstance(request, dict) and [str(a) for a in request.get("args") or []][:3] == \
+                ["agent", "team", "start"]
+            self._later(folder, lambda taken=taken: self._answer(inbox, taken, root), parallel=starting)
 
     def _answer(self, inbox: Path, taken: Path, root: Path | None) -> None:
         """拾った頼み1つを実行して、結果を書き戻す。"""

@@ -5,6 +5,9 @@ from __future__ import annotations
 import os
 import shutil
 import stat
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -14,3 +17,36 @@ def remove_tree(path: Path) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
     shutil.rmtree(path, onerror=retry)
+
+
+@contextmanager
+def locked(path: Path, *, timeout: float = 30.0, wait: bool = True) -> Iterator[None]:
+    """ファイル path の排他ロックを持つ間だけ、中を実行する（このPCのほかのプロセス・スレッドと1つずつにする。
+    プロセスが終われば OS が外す）。wait=False なら待たず、持てなければすぐ BlockingIOError。timeout 秒待っても
+    持てなければ TimeoutError（どちらも OSError：失敗しても止めない処理は OSError で受ける）。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    until = time.monotonic() + timeout
+    with open(path, "a+") as file:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    file.seek(0)
+                    msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if not wait:
+                    raise BlockingIOError(f"{path} は使用中です。") from None
+                if time.monotonic() >= until:
+                    raise TimeoutError(f"{path} のロックを待ちきれませんでした。") from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                import msvcrt
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)

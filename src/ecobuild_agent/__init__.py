@@ -11,12 +11,14 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 import ecoagent
 import ecobuild_container as container
 from ecobuild import settings as _settings
 from ecobuild.errors import WorkError
+from ecobuild.fsutil import locked
 
 from . import inside, status, team
 from .errors import ErrorCode, from_ecoagent
@@ -24,6 +26,7 @@ from .inside import FEATURE as CONTAINER_FEATURE
 from .results import AgentConversations, AgentStarted
 
 AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置き場所（コミットしない。prepare_agent_area）
+EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書き足す間のロック（git の <名前>.lock とは別の名前）
 
 # config で扱う項目 → 説明（本体＋拡張が、本体と型の項目に足す）
 CONFIG_KEYS = {
@@ -152,11 +155,16 @@ class AgentModule:
             exclude = Path(found.stdout.strip())
             exclude = exclude if exclude.is_absolute() else self.root / exclude
             line = f"/{AGENT_AREA}/"
-            text = exclude.read_text(encoding="utf-8") if exclude.is_file() else ""
-            if line not in text.splitlines():
-                exclude.parent.mkdir(parents=True, exist_ok=True)
-                exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n")
-                                   + f"# ECOBuild：エージェント用の置き場所（コミットしない）\n{line}\n", encoding="utf-8")
+            if line in _read(exclude).splitlines():
+                return area
+            # 作業役を並べて作ると同時に書き足しに来る：1つずつ、読んだものに足して置き換える（書きかけを読ませない）
+            with locked(exclude.with_name(EXCLUDE_LOCK)):
+                text = _read(exclude)
+                if line not in text.splitlines():
+                    temporary = exclude.with_name(f"{exclude.name}.{os.getpid()}.tmp")
+                    temporary.write_text(text + ("" if not text or text.endswith("\n") else "\n")
+                                         + f"# ECOBuild：エージェント用の置き場所（コミットしない）\n{line}\n", encoding="utf-8")
+                    _replace(temporary, exclude)
         return area
 
     def _role(self, chosen: str, command: tuple[str, ...], boxed: bool, source, progress) -> str:
@@ -191,6 +199,22 @@ class AgentModule:
         (folder / "guide.md").write_text(self.agent_briefing(task, role), encoding="utf-8", newline="\n")
         where = status.INSIDE if boxed else folder.as_posix()
         return (*command, "--append-system-prompt-file", f"{where}/guide.md")
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def _replace(temporary: Path, path: Path) -> None:
+    for attempt in range(5):   # Windows：ほかのコマンドが読んでいる間は置き換えられない
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt == 4:
+                temporary.unlink(missing_ok=True)
+                raise
+            time.sleep(0.05)
 
 
 __all__ = ["AGENT_AREA", "AgentConversations", "AgentModule", "AgentStarted", "CONFIG_KEYS", "CONTAINER_FEATURE",

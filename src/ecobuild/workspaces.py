@@ -25,12 +25,14 @@ from typing import TYPE_CHECKING
 
 from . import config as _config
 from .errors import EcoBuildError, ErrorCode
+from .fsutil import locked
 
 if TYPE_CHECKING:
     from .results import WorkspaceEntry
 
 FILE_NAME = "workspaces.json"
 OLD_FILE_NAME = "clones.json"   # 以前の記録（種類つき）。新しい記録がなければ読み、次に書くときに移す
+LOCK_NAME = "workspaces.lock"   # 記録を読んで書き直す間のロック（作業役を並べて作る等、同時に書くと記録が消える）
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,11 @@ class Recorded:
 def file() -> Path:
     from . import settings
     return settings.home() / FILE_NAME
+
+
+def _changing():
+    """記録を読んで書き直す間は、ほかのコマンドと1つずつ（読んだ後に書かれたものを消さない）。"""
+    return locked(file().with_name(LOCK_NAME), timeout=10)
 
 
 def recorded() -> list[Recorded]:
@@ -63,10 +70,13 @@ def record(root: Path) -> bool:
     root = Path(root).resolve()
     if nested(root):
         return False
-    items = recorded()
-    if any(same(item.path, root) for item in items):
+    if any(same(item.path, root) for item in recorded()):
         return False
-    _save(items + [Recorded(root)])
+    with _changing():
+        items = recorded()
+        if any(same(item.path, root) for item in items):
+            return False
+        _save(items + [Recorded(root)])
     return True
 
 
@@ -80,21 +90,23 @@ def record_quietly(root: Path) -> None:
 
 def forget(path: Path) -> bool:
     """記録から外す（フォルダには触らない）。記録になければ False。"""
-    items = recorded()
-    kept = [item for item in items if not same(item.path, path)]
-    if len(kept) == len(items):
-        return False
-    _save(kept)
+    with _changing():
+        items = recorded()
+        kept = [item for item in items if not same(item.path, path)]
+        if len(kept) == len(items):
+            return False
+        _save(kept)
     return True
 
 
 def forget_inside(root: Path) -> None:
     """root の中にある作業空間（inside）を記録から外す（root を消した後に。フォルダには触らない）。"""
     base = key(root)
-    items = recorded()
-    kept = [item for item in items if not key(item.path).startswith(base + os.sep)]
-    if len(kept) != len(items):
-        _save(kept)
+    with _changing():
+        items = recorded()
+        kept = [item for item in items if not key(item.path).startswith(base + os.sep)]
+        if len(kept) != len(items):
+            _save(kept)
 
 
 def inside(root: Path) -> list[Path]:

@@ -153,7 +153,8 @@ def _wait(process: subprocess.Popen, progress, stall: float | None) -> dict:
             agent_status.stop(process.pid)
             process.wait()
             return agent_serve.failed(stopped, hint="agent team list で、途中までできたもの（子タスク・作業空間）がないか"
-                                                    "確かめてから、やり直してください。")
+                                                    "確かめてから、やり直してください（agent team start は、もう一度頼むと"
+                                                    "作りかけを片付けて続きから作ります）。")
         time.sleep(0.2)
     for reader in readers:
         reader.join(5)

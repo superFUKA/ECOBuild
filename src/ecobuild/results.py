@@ -219,6 +219,21 @@ class CiInitResult:
 
 
 @dataclass(frozen=True)
+class CiState:
+    """ecobuild ci show：CIの設定（[ci]）と、ワークフローのファイルの状態。"""
+    path: str
+    supported: bool                         # 型が CI のワークフローを用意できる
+    exists: bool                            # ワークフローがある
+    edited: bool                            # 手で編集されている（ci init は --force がないと上書きしない）
+    current: bool                           # 今の設定から作るものと同じ（違えば ci init で作り直す）
+    os: tuple[str, ...] | None              # None：型の既定
+    configurations: tuple[str, ...]
+    shared: bool
+    branches: tuple[str, ...] | None        # None：default_base
+    default_base: str
+
+
+@dataclass(frozen=True)
 class DoctorItem:
     """このPCの診断の1項目（型は doctor_items で、自分が使うツールの分を返す）。"""
     name: str

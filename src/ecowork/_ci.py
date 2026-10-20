@@ -17,10 +17,15 @@ from .errors import ErrorCode, WorkError
 class Ci:
     # CI（GitHub Actions） ----------------------------------------------------------
 
-    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5, task: int | None = None) -> list:
-        """今いるブランチ（またはPR・タスクのタスクブランチのブランチ）のCIの実行（新しい順）。"""
-        branch = self._ci_branch(pull_request, task)
-        return self.github.list_runs(self.root, branch=branch, limit=limit)
+    def ci_runs(self, *, pull_request: int | None = None, limit: int = 5, task: int | None = None,
+                branch: str | None = None, all_branches: bool = False) -> list:
+        """今いるブランチ（またはPR・タスクのタスクブランチ・branch のブランチ）のCIの実行（新しい順）。
+
+        all_branches なら、すべてのブランチの実行。
+        """
+        if not all_branches:
+            branch = branch or self._ci_branch(pull_request, task)
+        return self.github.list_runs(self.root, branch=None if all_branches else branch, limit=limit)
 
     def ci_failed_log(self, run_id: int | None = None, *, task: int | None = None) -> tuple[int, str]:
         """失敗した手順のログ。run_idを省略すると、今いるブランチ（task：そのタスクブランチ）の最新の失敗した実行。"""
@@ -44,9 +49,9 @@ class Ci:
         self.github.rerun(self.root, run_id, failed_only=failed_only)
         return run_id
 
-    def ci_dispatch(self, workflow: str) -> str:
-        """今いるブランチで、CIを手動で実行する（GitHubにあるブランチの内容で動く）。"""
-        branch = self._ci_branch(None)
+    def ci_dispatch(self, workflow: str, branch: str | None = None) -> str:
+        """今いるブランチ（または branch）で、CIを手動で実行する（GitHubにあるブランチの内容で動く）。"""
+        branch = branch or self._ci_branch(None)
         self.git.fetch()
         if not self.git.has_remote_branch(branch):
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。",

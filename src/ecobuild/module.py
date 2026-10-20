@@ -32,7 +32,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentConversations, AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, DependencyChange, DependencyState,
+from .results import (AgentConversations, AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
@@ -1258,9 +1258,20 @@ class Module:
         path.unlink()
         return FilesChanged("ci remove", (_docs.CI_WORKFLOW,))
 
-    def ci_dispatch(self) -> str:
-        """今いるブランチで、ECOBuildのCIを手動で実行する。"""
-        return self.repository.ci_dispatch(Path(_docs.CI_WORKFLOW).name)
+    def ci_state(self) -> CiState:
+        """CIの設定（[ci]）と、ワークフローのファイルの状態（ある・手で編集した・今の設定のとおり）。"""
+        path = self.root / _docs.CI_WORKFLOW
+        text = path.read_text(encoding="utf-8") if path.is_file() else None
+        workflow = self.type.ci_workflow(self.config)
+        settings = self.config.ci
+        return CiState(_docs.CI_WORKFLOW, workflow is not None, text is not None,
+                       text is not None and _docs.ci_edited(text),
+                       text is not None and workflow is not None and text == _docs.stamp_ci(workflow),
+                       settings.os, settings.configurations, settings.shared, settings.branches, self.config.default_base)
+
+    def ci_dispatch(self, branch: str | None = None) -> str:
+        """今いるブランチ（または branch）で、ECOBuildのCIを手動で実行する。"""
+        return self.repository.ci_dispatch(Path(_docs.CI_WORKFLOW).name, branch)
 
     def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False) -> CheckReport:
         """PRを出す前の確認：生成ファイル・衝突の印・依存先・ビルド・テスト。失敗があれば check_failed。

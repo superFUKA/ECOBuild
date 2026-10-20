@@ -204,9 +204,12 @@ def test_ci_operations(repository):
                    RunInfo(1, "build", "main", "push", "completed", "success", "u1", "2026-10-06T11:00:00Z"),
                    RunInfo(3, "build", "task/9", "pull_request", "completed", "failure", "u3", "")]
     assert [r.id for r in repository.ci_runs()] == [2, 1]  # 今いるブランチ（main）だけ
+    assert [r.id for r in repository.ci_runs(branch="task/9")] == [3]
+    assert [r.id for r in repository.ci_runs(all_branches=True)] == [2, 1, 3]
     assert repository.ci_failed_log() == (2, "run 2: error")
     assert repository.ci_rerun(failed_only=True) == 2 and github.reruns == [(2, True)]
     assert repository.ci_dispatch("ecobuild.yml") == "main" and github.dispatched == [("ecobuild.yml", "main")]
+    assert code_of(lambda: repository.ci_dispatch("ecobuild.yml", "task/9")) == ErrorCode.BRANCH_NOT_FOUND
     repository.create_task("GitHubにない").start()
     git(repository.root, "push", "--quiet", "origin", "--delete", "task/1")
     assert code_of(lambda: repository.ci_dispatch("ecobuild.yml")) == ErrorCode.BRANCH_NOT_FOUND

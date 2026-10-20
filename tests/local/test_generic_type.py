@@ -103,8 +103,12 @@ def test_ci_settings_and_hand_edited_workflow(tmp_path):
     commands = {"build": "make {configuration}", "test": "make test"}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
     path = module.root / ".github/workflows/ecobuild.yml"
+    state = module.ci_state()
+    assert (state.supported, state.exists, state.os, state.branches, state.default_base) == (True, False, None, None, "main")
 
     module.write_ci()
+    state = module.ci_state()
+    assert (state.exists, state.edited, state.current) == (True, False, True)
     workflow = path.read_text(encoding="utf-8")
     assert "os: [ubuntu-latest]" in workflow and "configuration: [Debug]" in workflow
     assert "make ${{ matrix.configuration }}" in workflow
@@ -119,6 +123,8 @@ def test_ci_settings_and_hand_edited_workflow(tmp_path):
 
     path.write_text(path.read_text(encoding="utf-8") + "# 手で足した\n", encoding="utf-8")
     assert code_of(reloaded.write_ci) == ErrorCode.ALREADY_EXISTS
+    state = reloaded.ci_state()
+    assert (state.edited, state.current, state.configurations) == (True, False, ("Debug", "Release"))
     reloaded.write_ci(force=True)
     assert "# 手で足した" not in path.read_text(encoding="utf-8")
 

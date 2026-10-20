@@ -6,6 +6,8 @@ from ..._output import local_time, optional_argument, run_command
 def command(
     *number: Annotated[int, "タスクの番号（--task と同じ）"],
     task: Annotated[int, "このタスクのタスクブランチのCI（既定：今いるブランチ）"] = 0,
+    branch: Annotated[str, "このブランチのCI（既定：今いるブランチ）"] = "",
+    all: Annotated[bool, "すべてのブランチのCI"] = False,
     count: Annotated[int, "表示する件数"] = 5,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -14,11 +16,11 @@ def command(
     task = optional_argument(number, task, "--task", json)
 
     def render(r):
-        return "\n".join(f"#{x.id} {_local(x.created)} {x.workflow}（{x.event}）："
+        return "\n".join(f"#{x.id} {_local(x.created)} {x.workflow}（{x.event}{f'・{x.branch}' if all else ''}）："
                          f"{x.conclusion or x.status}  {x.url}" for x in r) or "CIの実行はありません"
 
-    return run_command("ci status", lambda inv: inv.module.repository.ci_runs(limit=count, task=task or None), render,
-                       json_output=json)
+    return run_command("ci status", lambda inv: inv.module.repository.ci_runs(
+        limit=count, task=task or None, branch=branch or None, all_branches=all), render, json_output=json)
 
 
 def _local(timestamp: str) -> str:

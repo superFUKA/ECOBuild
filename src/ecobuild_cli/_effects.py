@@ -12,7 +12,7 @@ from ecobuild_bundle.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # 
 
 EFFECTS = {
     READ: (
-        "agent conversations", "agent guide", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci status", "ci wait",
+        "agent conversations", "agent guide", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container image list", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",

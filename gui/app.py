@@ -73,7 +73,7 @@ READ_ONLY = {
     ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
     ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
-    ("ci", "status"), ("release", "list"), ("container", "status"),
+    ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
     ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
@@ -90,6 +90,7 @@ CACHEABLE = {
     ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
     ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"), ("log",),
+    ("ci", "show"), ("ci", "status"),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
 CACHE_DAYS = 14                     # これより古いものは読み込まない

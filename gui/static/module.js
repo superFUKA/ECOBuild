@@ -26,22 +26,28 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
-// The tabs of 管理 (ブランチ, …): the chosen one's panel and its buttons (data-manage-for) show.
-document.getElementById('manage-tabs').addEventListener('click', e => {
-  const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (!view) return;
+// The tabs of 管理 (ブランチ, CI): the chosen one's panel and its buttons (data-manage-for) show.
+const MANAGE_TABS = ['branches', 'ci'];
+const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'branches';
+function showManageTab(view) {
   for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
   for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
   for (const p of document.querySelectorAll('#manage-content [data-manage-for]')) p.hidden = p.dataset.manageFor !== view;
+  if (view === 'ci') window.MANAGE_CI?.show();
+}
+document.getElementById('manage-tabs').addEventListener('click', e => {
+  const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
 });
 // The tabs of 設定 (the others of a tab are モジュール's).
 const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  // The tab 「ブランチ」 (once モジュール's) is 管理's: --tab branches leads there.
-  const target = page || (tab ? (tab === 'branches' ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
+  // The tab 「ブランチ」 (once モジュール's) and 「CI」 are 管理's: --tab branches・ci leads there.
+  const target = page || (tab ? (MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
-  if (tab && tab !== 'branches') window.MODINFO_SHOW?.(tab);
+  if (MANAGE_TABS.includes(tab)) showManageTab(tab);
+  else if (tab) window.MODINFO_SHOW?.(tab);
   if (task) window.TASKS_SELECT?.(Number(task));
   if (command && typeof HELP !== 'undefined') HELP.show('help/commands/' + encodeURIComponent(command));
 });

@@ -216,6 +216,8 @@ def test_task_labels_assignees_and_comments(cli, module):
     assert "ラベル：bug, urgent" in status.stdout and "tester：計算は済み" in status.stdout
     assert as_json(cli("task", "comment", "--json"))["error"]["code"] == "usage_error"
     assert as_json(cli("ci", "init", "--shared", "yes", "--json"))["error"]["code"] == "usage_error"
+    shown = as_json(cli("ci", "show", "--json"))["result"]
+    assert (shown["exists"], shown["configurations"]) == (False, ["Debug"]) and "ワークフロー" in cli("ci", "show").stdout
 
 
 def test_draft_submission_can_be_made_ready(cli, module):

@@ -230,7 +230,8 @@
       if (buttons.length) ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), x, y);
     }, st.item?.startsWith('task:') && !st.status ? 800 : 0);
   });
-  el('br-reload').addEventListener('click', () => { st.status = null; load(); });
+  // 更新 is 管理's: it reads again what the chosen tab shows (the CI tab's own reads are ci.js's).
+  el('br-reload').addEventListener('click', () => { if (manageView() === 'ci') { window.MANAGE_CI?.reload(); return; } st.status = null; load(); });
   el('br-log').addEventListener('click', async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); });
   el('br-create').addEventListener('click', () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
     {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},
@@ -240,6 +241,6 @@
       st.selected = v.name; render();
     }}));
 
-  pageHooks.manage = () => { if (!st.loaded) { render(); load(); } else render(); };
+  pageHooks.manage = () => { if (manageView() === 'ci') window.MANAGE_CI?.show(); else if (!st.loaded) { render(); load(); } else render(); };
   ECO.onChange(() => { if (st.loaded) { st.status = null; if (!section.hidden) load(); else st.loaded = false; } });
 })();

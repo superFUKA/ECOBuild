@@ -70,6 +70,26 @@ def test_names_and_wsl_paths(tmp_path):
     assert container.mount_path(Path(r"C:\ECO\Calc 1"), ("wsl", "-d", "ECOBuild", "-u", "root", "--", "docker")) \
         == "/mnt/c/ECO/Calc 1"
     assert container.mount_path(Path("/home/me/Calc"), ("docker",)) == str(Path("/home/me/Calc"))
+    assert container.mount_path(Path(r"D:\Work\Calc"), ("wsl",), owned=True) == "/mnt/ecobuild/d/Work/Calc"
+
+
+def test_the_workspace_is_mounted_as_the_inner_user_on_wsl():
+    """WSL の /mnt/c は root の持ち物で中の一般ユーザーは chmod できない：ドライブを一般ユーザーの持ち物として付け直して使う。
+    付けられなければ、いつもの場所。"""
+    from ecobuild_container import docker
+    prefix = ("wsl", "-d", "ECOBuild", "-u", "root", "--exec", "docker")
+    ran = []
+
+    def runner(ok):
+        def run(args):
+            ran.append(args)
+            return docker.Completed(tuple(args), 0 if ok else 1, "")
+        return run
+    assert container.prepare_owned_mount(Path(r"C:\ECO\Calc"), runner(True), prefix) == "/mnt/ecobuild/c/ECO/Calc"
+    assert ran[0][:6] == ["wsl", "-d", "ECOBuild", "-u", "root", "--exec"] and ran[0][6:8] == ["sh", "-c"]
+    assert "mount -t drvfs C: /mnt/ecobuild/c -o uid=1000,gid=1000" in ran[0][8]
+    assert container.prepare_owned_mount(Path(r"C:\ECO\Calc"), runner(False), prefix) == "/mnt/c/ECO/Calc"
+    assert container.prepare_owned_mount(Path("/home/me/Calc"), runner(True), ("docker",)) == str(Path("/home/me/Calc"))
 
 
 def test_type_tools_go_into_the_template():
@@ -273,3 +293,21 @@ def test_the_check_runs_inside_when_the_workspace_is_a_container(monkeypatch, ro
     assert error.value.code == "check_failed" and error.value.details == [{"name": "generated", "ok": False}]
     monkeypatch.setenv(container.INSIDE, "1")
     assert workspace.check() == "このPC"                                                # 中ではそのまま
+
+
+def test_line_endings_seen_from_this_pc_are_copied_into_the_clone(tmp_path, monkeypatch):
+    """中の git は clone の設定しか読まない：このPCで効いている改行コードの設定（system・global）を clone に写す。
+    clone にあれば変えない。"""
+    import subprocess
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+    globals_ = tmp_path / "gitconfig"
+    globals_.write_text("[core]\n\tautocrlf = true\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(globals_))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    assert container.align_line_endings(repo) == ["core.autocrlf"]
+    local = lambda: subprocess.run(["git", "-C", str(repo), "config", "--local", "--get", "core.autocrlf"],
+                                   capture_output=True, text=True).stdout.strip()
+    assert local() == "true"
+    globals_.write_text("[core]\n\tautocrlf = input\n", encoding="utf-8")
+    assert container.align_line_endings(repo) == [] and local() == "true"              # clone にあれば変えない

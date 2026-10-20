@@ -65,7 +65,7 @@ USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
 VERSION = "6"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ。
-                                # 6：エージェントの設定をコンテナごとに）
+                                # 6：エージェントの設定をコンテナごとに・作業空間を一般ユーザーの持ち物として付ける）
 HOME = "/home/ubuntu"
 INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
 # 端末の色：docker exec -t は TERM=xterm（16色）にするので、色が寄ってしまう
@@ -315,13 +315,60 @@ def _recipe_or_none(root: Path, source: tuple[str, str]) -> Recipe | None:
         return None
 
 
-def mount_path(root: Path, command: tuple[str, ...]) -> str:
-    """docker に渡すこのPCの場所。WSL の中の docker には /mnt/<ドライブ>/... で渡す。"""
+def mount_path(root: Path, command: tuple[str, ...], *, owned: bool = False) -> str:
+    """docker に渡すこのPCの場所。WSL の中の docker には /mnt/<ドライブ>/... で渡す。owned：中の一般ユーザーの持ち物として
+    付けたドライブ（OWNED_MOUNTS。prepare_owned_mount が付ける）の場所。"""
     if command[:1] != ("wsl",):
         return str(root)
     path = PureWindowsPath(root)
     drive = path.drive.rstrip(":").lower()
-    return f"/mnt/{drive}/" + "/".join(path.parts[1:])
+    return f"{OWNED_MOUNTS if owned else '/mnt'}/{drive}/" + "/".join(path.parts[1:])
+
+
+# WSL が付ける Windows のドライブ（/mnt/c 等）は root の持ち物で、中の一般ユーザー（USER）は chmod できない（pip install
+# --editable が egg-info で Operation not permitted になり、build・test・check が通らなかった）。作業空間は、ドライブを
+# USER の持ち物として付け直した所（OWNED_MOUNTS）から付ける。WSL の設定（wsl.conf）は変えない（変えると WSL を起動し直す
+# 必要があり、動いているコンテナが止まる）。WSL を起動し直すと消えるので、コンテナを作るたびに確かめる。
+OWNED_MOUNTS = "/mnt/ecobuild"
+USER_ID = "1000"   # USER（ubuntu）の uid・gid（ubuntu のイメージの一般ユーザー）
+
+
+LINE_ENDING_KEYS = ("core.autocrlf", "core.eol")
+
+
+def align_line_endings(root: Path) -> list[str]:
+    """このPCの git で効いている改行コードの設定（Git for Windows の既定の core.autocrlf=true 等。system・global の設定）を、
+    作業空間の clone の設定（--local）に写す。中の git は clone の設定しか読まないので、写さないと同じファイルを違って見る
+    （このPCが CRLF で書き出したファイルが、中では触っていないのに変更ありになり、提出が止まった）。clone に設定があれば
+    変えない。写した設定の名前を返す。"""
+    copied = []
+    for key in LINE_ENDING_KEYS:
+        def get(*scope: str) -> str:
+            try:
+                done = subprocess.run(["git", "-C", str(root), "config", *scope, "--get", key], capture_output=True,
+                                      text=True, stdin=subprocess.DEVNULL)
+            except OSError:
+                return ""
+            return done.stdout.strip() if done.returncode == 0 else ""
+        value = get()
+        if value and not get("--local"):
+            subprocess.run(["git", "-C", str(root), "config", "--local", key, value], capture_output=True,
+                           stdin=subprocess.DEVNULL)
+            copied.append(key)
+    return copied
+
+
+def prepare_owned_mount(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> str:
+    """作業空間 root のドライブを USER の持ち物として付け（付いていなければ）、docker に渡す場所を返す。付けられなければ
+    WSL のいつもの場所（chmod はできない）。WSL でなければそのまま。"""
+    if prefix[:1] != ("wsl",):
+        return mount_path(root, prefix)
+    drive = PureWindowsPath(root).drive.rstrip(":")
+    place = f"{OWNED_MOUNTS}/{drive.lower()}"
+    script = (f"mountpoint -q {place} || {{ mkdir -p {place} && "
+              f"mount -t drvfs {drive.upper()}: {place} -o uid={USER_ID},gid={USER_ID}; }}")
+    done = (runner or docker.run)([*prefix[:-1], "sh", "-c", script])
+    return mount_path(root, prefix, owned=done.ok)
 
 
 def show(root: Path, runner: docker.Runner | None = None, *, source: tuple[str, str] | None = None) -> WorkspaceContainer:
@@ -373,8 +420,10 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         progress("コンテナを作ります")
         added = features()
         volumes = [(source_, place) for feature in added for source_, place in feature.volumes(Path(root))]
+        work = prepare_owned_mount(root, runner, prefix)
+        align_line_endings(root)
         run_docker(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
-                            "--label", f"{VERSION_LABEL}={VERSION}", "--volume", f"{mount_path(root, prefix)}:{WORKDIR}",
+                            "--label", f"{VERSION_LABEL}={VERSION}", "--volume", f"{work}:{WORKDIR}",
                             *(item for source_, place in volumes for item in ("--volume", f"{_volume(source_, prefix)}:{place}")),
                             *(item for feature in added for item in feature.arguments(prefix)),
                             *(item for volume, place in caches(root) for item in ("--volume", f"{volume}:{place}")),

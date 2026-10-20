@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +65,31 @@ def secret_output(args: list[str] | tuple[str, ...]) -> str | None:
     return process.stdout.strip() if process.returncode == 0 and process.stdout.strip() else None
 
 
+# GitHub・ネットワークの一時的な失敗（502 等）は、少し待ってやり直す。やり直すのは、繰り返しても結果が同じ操作だけ
+# （読むだけの gh・git の fetch / ls-remote / clone / push）。作る操作（gh issue create 等）は、失敗に見えて実は
+# できていることがあり、やり直すと二重になるのでやり直さない。
+RETRY_WAITS = (2.0, 5.0)   # やり直す前に待つ秒数（回数はこの数）
+TRANSIENT = re.compile(r"HTTP 5\d\d|Bad Gateway|Service Unavailable|Gateway Time-?out|secondary rate limit|"
+                       r"returned error: 5\d\d|Could not resolve host|Connection (?:timed out|reset|refused)|"
+                       r"Operation timed out|RPC failed|early EOF|TLS handshake|unexpected disconnect", re.IGNORECASE)
+_GH_READS = frozenset({"view", "list", "status", "diff", "checks"})
+_GIT_REPEATABLE = frozenset({"fetch", "ls-remote", "clone", "push"})
+
+
+def repeatable(args: list[str] | tuple[str, ...]) -> bool:
+    """失敗したときにやり直してよい操作か（繰り返しても結果が同じ）。"""
+    words = [str(a) for a in args]
+    if words[:1] == ["gh"]:
+        if words[1:2] == ["api"]:
+            method = next((words[i + 1] for i, w in enumerate(words) if w in ("--method", "-X") and i + 1 < len(words)), "GET")
+            return method.upper() == "GET" and not any(w in ("-f", "-F", "--field", "--raw-field", "--input") for w in words)
+        return len(words) > 2 and words[2] in _GH_READS
+    if words[:1] == ["git"]:
+        rest = [w for i, w in enumerate(words[1:], 1) if not (w == "-c" or words[i - 1] == "-c")]
+        return bool(rest) and rest[0] in _GIT_REPEATABLE
+    return False
+
+
 def run(
     args: list[str] | tuple[str, ...],
     *,
@@ -70,7 +97,22 @@ def run(
     check: bool = True,
     input: str | None = None,
     env: dict[str, str] | None = None,
+    wait: Callable[[float], None] = time.sleep,
 ) -> Completed:
+    """args を実行する。一時的な失敗は、やり直してよい操作だけ RETRY_WAITS のとおり待ってやり直す。"""
+    waits = list(RETRY_WAITS) if repeatable(args) else []
+    while True:
+        completed = _run_once(args, cwd=cwd, input=input, env=env)
+        if completed.ok or not waits or not TRANSIENT.search(completed.stderr or ""):
+            break
+        logger.info("一時的な失敗のため、やり直します：%s", " ".join(args[:3]), extra={"event": "process.retry"})
+        wait(waits.pop(0))
+    if check and not completed.ok:
+        raise ProcessFailed(completed)
+    return completed
+
+
+def _run_once(args, *, cwd, input, env) -> Completed:
     tool = find_tool(args[0])
     merged_env = None if env is None else {**os.environ, **env}
     started = time.monotonic()
@@ -92,6 +134,4 @@ def run(
             "env": sorted(env or ()), "input_chars": None if input is None else len(input),
             "returncode": process.returncode, "seconds": round(time.monotonic() - started, 3),
             "stdout": process.stdout, "stderr": process.stderr}})
-    if check and not completed.ok:
-        raise ProcessFailed(completed)
     return completed

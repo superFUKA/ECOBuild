@@ -6,6 +6,7 @@ from ..._output import lines, run_command
 
 def command(
     dir: Annotated[str, "新しい作業空間の場所（まだないフォルダ。例：../Calc-2）"],
+    account: Annotated[str, "新しい作業空間で使う GitHub のアカウント（AI 用のアカウント等。ecobuild account use と同じ）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """今いるモジュールの新しい作業空間（clone）を作り、依存先と生成ファイルを用意します（並行作業用）。
@@ -14,7 +15,7 @@ def command(
     """
 
     def action(inv):
-        module, dependencies = inv.module.create_workspace(inv.cwd / dir)
+        module, dependencies = inv.module.create_workspace(inv.cwd / dir, account=account or None)
         _workspaces.record_quietly(module.root)   # workspace list・GUI のタブに出るように
         inv.use_module(module)
         return module.cloned(dependencies)

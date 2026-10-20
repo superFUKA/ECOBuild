@@ -8,6 +8,7 @@ gh に専用のコマンドがないもの・gh の版で壊れやすいもの�
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -129,16 +130,38 @@ class GhCli:
     """gh コマンドによる実装。repoは手元のcloneのパス（originからリポジトリを決める）。
 
     repository（所有者/名前）を渡すと、手元のcloneがなくてもそのリポジトリを使う（gh の GH_REPO）。
+    account（GitHub のログイン名）を渡すと、gh のログイン中のアカウントではなく、そのアカウントとして呼ぶ（このPCの gh で
+    そのアカウントにもログインしておく。gh の使用中のアカウントは変えない）。
     """
 
-    def __init__(self, repository: str | None = None):
+    def __init__(self, repository: str | None = None, account: str | None = None):
         self.repository = repository
+        self.account = account
+
+    def with_account(self, account: str | None) -> "GhCli":
+        """account として呼ぶ接続（None ならログイン中のアカウント）。"""
+        return type(self)(self.repository, account)
 
     def _env(self) -> dict[str, str]:
         env = {"GH_PROMPT_DISABLED": "1"}
         if self.repository:
             env["GH_REPO"] = self.repository
+        if self.account:
+            env["GH_TOKEN"] = self._account_token()
         return env
+
+    def _account_token(self) -> str:
+        """account のトークン（gh auth token --user。1回聞いたら覚える）。このPCでログインしていなくても、環境変数
+        GH_TOKEN が渡されていればそれを使う（コンテナの中：そのアカウントのトークンだけが渡される）。"""
+        if not getattr(self, "_token", None):
+            self._token = _process.secret_output(["gh", "auth", "token", "--user", self.account]) \
+                or os.environ.get("GH_TOKEN") or ""
+            if not self._token:
+                raise TaskError(ErrorCode.ACCOUNT_NOT_LOGGED_IN,
+                                f"このPCで GitHub のアカウント {self.account} にログインしていません。",
+                                hint="gh auth login でそのアカウントにもログインしてください（使用中のアカウントは "
+                                     "gh auth switch で元に戻せます）。")
+        return self._token
 
     def current_user(self, repo):
         """ログイン中のアカウント（gh の今のアカウント）のログイン名。1回聞いたら覚える。"""

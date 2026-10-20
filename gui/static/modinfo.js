@@ -1,12 +1,12 @@
 'use strict';
 // Module-wide screens. モジュール（what the module is and holds）: home (as a repository's page on GitHub: the files and the
 // README, and module show beside them), Projects, dependencies and links (deps tree). 設定（how it is built）:
-// build settings, the module's settings (module settings), file templates. Both pages share the reads and the dialogs.
+// build settings, the module's settings (module settings), file templates, the container (its image's recipe). Both pages share the reads and the dialogs.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps'], settings: ['profiles', 'general', 'templates']};
+  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps'], settings: ['profiles', 'general', 'templates', 'container']};
   const [hashPage, hashView] = location.hash.slice(1).split('/');
   let page = PAGE_VIEWS[hashPage] ? hashPage : 'modinfo';
   const lastView = {modinfo: 'home', settings: 'profiles'};
@@ -232,6 +232,34 @@
       `<table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th></th></tr></thead><tbody>
       ${Object.entries(templates).map(([name, t]) => `<tr><td><strong>${esc(name)}</strong>${t.builtin ? ' ' + pill('既定') : ''}</td><td class="mi-mono">${esc(t.path)}</td><td class="mi-row-actions">${btn('差し替え', 'template-add', name)}${t.builtin ? '' : btn('削除', 'template-remove', name, 'danger-text')}</td></tr>`).join('')}</tbody></table>`;
   }
+  // The container of the module's workspaces: the recipe of its image (container recipe: the module's environment
+  // .ecobuild/container/Dockerfile, shared with the other PCs through the repository, and ECOBuild put on it), the
+  // container of the place shown (container status) and this module's images on this PC (container image list).
+  function renderContainer() {
+    const r = data.recipe, st = data.containerStatus, images = data.images;
+    if (r?.error) return head('コンテナ', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
+    const inRepo = !!r.context, file = '.ecobuild/container/Dockerfile';
+    const tag = name => `<span class="mi-mono" title="${esc(name)}">${esc(name)}</span>`;
+    const row = (label, value, note = '') => `<tr><th scope="row">${label}</th><td>${value}${note ? `<div class="mi-sub">${note}</div>` : ''}</td></tr>`;
+    const mine = (images?.images || []).filter(i => i.module === r.module);
+    const state = !st || st.error ? '' : !st.container ? 'この作業空間はコンテナにしていません（このPCで動かします）'
+      : st.custom_image ? `この作業空間だけの設定のイメージ ${st.custom_image} を使います`
+      : st.state === 'none' ? 'コンテナはまだありません（エージェント・ビルド等で使うときに作ります）'
+      : st.outdated ? `<span class="mi-pill warn">古い</span> コンテナのイメージ ${esc(st.image)} は今の作り方のものではありません。次に動かすときに作り直します。`
+      : `<span class="mi-pill ok">今の作り方</span> コンテナは ${esc(st.image)} で動いています`;
+    return head('コンテナ', `作業空間をコンテナにしたときのイメージは、モジュールの環境（${file}）に ECOBuild（エージェント・ecobuild 等）を重ねて作ります。環境はリポジトリにコミットするので、ほかのPCでも同じ環境になります。名前は作り方のハッシュで、環境か ECOBuild が変わると新しく作ります。`,
+        (inRepo ? btn('場所を開く', 'container-open') : btn('リポジトリに置く', 'container-place', '', 'primary')) + btn('今の作り方で作る', 'container-build')) +
+      `<table class="mi-table mi-settings"><tbody>
+      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', inRepo ? '解析ツール等はここに足し、タスクブランチでコミットして PR で反映します' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）')}
+      ${row('環境のイメージ', tag(r.environment))}
+      ${row('コンテナのイメージ', tag(r.image), '環境に ECOBuild を重ねたもの（ECOBuild の版で変わります）')}
+      ${state ? row('この作業空間のコンテナ', state) : ''}
+      ${row('このPCのイメージ', mine.length ? mine.map(i => `<div>${tag(i.name)} ${i.current ? pill('今', 'ok') : pill('古い')} ${i.environment ? pill('環境') : ''}<span class="mi-sub"> ${esc(i.size)}・${esc(i.created)}${i.used_by.length ? `・使用中 ${i.used_by.length}` : ''}</span></div>`).join('')
+        : '<span class="mi-sub">まだありません</span>', '古いものはハブの設定の「コンテナのイメージ」で片付けられます')}
+      </tbody></table>
+      <details class="mi-recipe" open><summary>環境（${inRepo ? esc(file) : '型のひな型'}）</summary><pre class="mi-code">${esc(r.dockerfile)}</pre></details>
+      <details class="mi-recipe"><summary>ECOBuild が重ねる層（リポジトリには書きません）</summary><pre class="mi-code">${esc(r.layer)}</pre></details>`;
+  }
   // The C++ options of a build setting and its overrides for Projects, in words.
   const OPTION_LABEL = {architecture: 'アーキテクチャ', cpp_standard: 'C++', generator: '生成器', toolset: 'ツールセット', c_compiler: 'Cコンパイラ', cxx_compiler: 'C++コンパイラ',
     toolchain_file: 'ツールチェーン', windows_sdk: 'Windows SDK', test_parallel: 'テストの並列数', googletest_archive: 'GoogleTestのZIP', type: '形式', artifact_directory: '成果物の置き場所'};
@@ -252,7 +280,8 @@
         <td class="mi-row-actions">${btn('編集', 'profile-add', n)}${cpp ? btn('Projectごとの上書き', 'profile-project', n + '\n') : ''}${btn('削除', 'profile-remove', n, 'danger-text')}</td></tr>`; }).join('')}
       <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="${columns.length - 1}" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
   }
-  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates};
+  const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates,
+    container: renderContainer};
   // The reads are cached (ECO.query): the kept answer shows at once and a newer one is drawn when it comes (not while
   // something is typed here, and not for another place than the one shown).
   const typing = () => !!document.activeElement?.closest?.('#' + page + '-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
@@ -282,6 +311,9 @@
     profiles: () => read(['profile', 'list'], d => { data.profiles = result(d); }),
     general: () => Promise.all([read(['project', 'list'], d => { data.projects = result(d); }), read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; })]),
     templates: () => read(['module', 'settings'], d => { data.settings = d.ok ? d.result : null; }),
+    container: () => Promise.all([read(['container', 'recipe'], d => { data.recipe = result(d); }),
+      read(['container', 'status'], d => { data.containerStatus = result(d); }),
+      read(['container', 'image', 'list'], d => { data.images = d.ok ? d.result : null; })]),
   };
   let rendering = 0;
   // A tab read once is shown again as it was when switching back (the 更新 button, a change made here or another place
@@ -545,6 +577,9 @@
       {name: 'name', label: '名前（英字で始まる英数字と _）', required: true, value: name || ''},
       {name: 'source', label: '元にするファイル（絶対パス、またはモジュールからの相対パス）', required: true}], '登録',
       v => ['template', 'add', v.name.trim(), v.source.trim()], {intro: 'ファイルの中の {{header}}・{{name}}・{{suite}}・{{project}} は、作るときに置き換わります。', success: 'テンプレートを登録しました。'}),
+    'container-open': () => ECO.action('folder', {dir: here(), path: '.ecobuild/container/Dockerfile', reveal: true}).catch(e => ECO.toast(e.message, 'bad')),
+    'container-place': () => ECO.run(here(), ['module', 'upgrade'], {title: 'コンテナの環境をリポジトリに置く', confirm: '型のひな型を .ecobuild/container/Dockerfile に置き、モジュールを今の ECOBuild の仕様にそろえます（module upgrade。「ECOBuild の更新」としてコミットします。タスクブランチでなければ GitHub へ push もします）。古い ECOBuild のPCでは、このモジュールを開けなくなります。', success: 'コンテナの環境を置きました。'}).then(doc => doc && render()),
+    'container-build': () => ECO.run(here(), ['container', 'image', 'build', '--workspace', here()], {busy: 'イメージを作っています（数分かかります）…', success: r => r.built.length ? `${r.built.length} 個のイメージを作りました。` : '今の作り方のイメージはあります。'}).then(doc => doc && render()),
     'template-remove': name => inWorkspace(`テンプレートを削除：${name}`, [], '削除', () => ['template', 'remove', name], {danger: true, success: `${name} を削除しました。`}),
     'profile-add': name => {
       const x = name && data.profiles?.profiles?.[name], o = x?.options || {};

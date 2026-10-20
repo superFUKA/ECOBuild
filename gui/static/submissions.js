@@ -1,6 +1,6 @@
 'use strict';
-// 提出: the submissions coming into the module's shared branches (main, develop, …), by the branch they go into (the
-// tabs on the left, with their counts), the chosen one's on the right — looked at (status, CI, reviews, diff) and
+// The submissions coming into a shared branch, under it on the page ブランチ (branches.js reads the branches, the
+// submissions and the account and hands them here): listed, the chosen one looked at (status, CI, reviews, diff) and
 // handled (checked here, approved, sent back, taken in, withdrawn; a branch's submission is merged). Handling one is
 // for whoever made the branch it goes into, and admins (the default branch: admins) — the others' buttons are grey
 // (ECO.canTakeIn). Every command runs in the module's folder (a submission is the module's, not one workspace's);
@@ -8,10 +8,10 @@
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const st = {branches: null, submissions: [], access: null, selected: '', item: null, status: null, loaded: false, error: ''};
+  const st = {branches: [], submissions: [], access: null, selected: '', item: null, status: null};
   const cli = args => ECO.cli(MOD.root, args, {quiet: true});
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
-  const shared = () => (Array.isArray(st.branches) ? st.branches : []).filter(b => !b.is_task_branch);
+  const shared = () => st.branches;
   const open = s => s?.state === 'open';
   // What comes into a branch: the open submissions of tasks (their base) and of other branches (submitted_to).
   const incoming = name => [
@@ -20,56 +20,14 @@
   ];
   const mine = t => MOD.me && t.assignees.includes(MOD.me);
 
-  // Reads: the branches, the submissions and the account (cached: the kept answer shows at once, a newer one redraws).
-  // A submission read from an older ecobuild has no base: its task's status (which has it) fills it in.
-  async function load() {
-    const [branches, tasks, access] = await Promise.all([
-      ECO.query(MOD.root, ['branch', 'list'], fresh => { st.branches = fresh.ok ? fresh.result : st.branches; render(); }),
-      ECO.query(MOD.root, ['task', 'list', '--submitted'], fresh => { if (fresh.ok) { st.submissions = fresh.result; fillBases().then(render); } }),
-      ECO.access(MOD.root),
-    ]);
-    st.error = !branches.ok ? branches.error.message : !tasks.ok ? tasks.error.message : '';
-    st.branches = branches.ok ? branches.result : [];
-    st.submissions = tasks.ok ? tasks.result : [];
-    st.access = access;
-    await fillBases();
-    st.loaded = true;
-    if (!shared().some(b => b.name === st.selected)) {
-      const busy = shared().find(b => incoming(b.name).length);
-      st.selected = (busy || shared().find(b => b.name === 'main') || shared()[0] || {}).name || '';
-    }
-    render();
-  }
-  async function fillBases() {
-    await Promise.all(st.submissions.filter(t => t.submission && !t.submission.base).map(async t => {
-      const doc = await ECO.query(MOD.root, ['task', 'status', String(t.number)]);
-      if (doc.ok && doc.result.base) t.submission = {...t.submission, base: doc.result.base};
-    }));
-  }
-
-  // Left: the shared branches, by where they come from (a branch made from another under it), with the count coming in.
-  function renderSide() {
-    const branches = shared(), names = new Set(branches.map(b => b.name)), side = el('sub-side');
-    const rows = [], walk = (b, depth) => { rows.push([b, depth]); for (const c of branches.filter(c => c.base === b.name && c !== b)) walk(c, depth + 1); };
-    for (const b of branches.filter(b => !b.base || !names.has(b.base))) walk(b, 0);
-    side.innerHTML = rows.map(([b, depth]) => {
-      const n = incoming(b.name).length;
-      return `<button type="button" role="tab" data-sub-branch="${esc(b.name)}" aria-selected="${b.name === st.selected}" tabindex="${b.name === st.selected ? 0 : -1}" style="--depth:${depth}"
-        title="${esc(b.name)} への提出${n ? ` ${n} 件` : 'はありません'}">
-        <span class="br-side-name">${esc(b.name)}</span><span class="br-count ${n ? '' : 'zero'}">${n}</span></button>`;
-    }).join('') || '<p class="mi-note">共有ブランチはありません。</p>';
-  }
-
-  // Right: what comes into the chosen branch (and who handles it), then the one chosen.
+  // What comes into the chosen branch (and who handles it), then the one chosen.
   function renderMain() {
-    const main = el('sub-main'), name = st.selected;
-    if (!shared().some(b => b.name === name)) { main.innerHTML = st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : '<p class="mi-note">ブランチを選んでください。</p>'; return; }
+    const main = el('sub-main'), name = st.selected; if (!main) return;
     const items = incoming(name), handles = ECO.canTakeIn(st.access, name);
     if (st.item && !items.some(i => i.key === st.item)) { st.item = null; st.status = null; }
     if (!st.item && items.length) st.item = items[0].key;
-    main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
-      <h3 class="br-section sub-title">${esc(name)} への提出 <span class="br-count ${items.length ? '' : 'zero'}">${items.length}</span></h3>
-      ${st.access && !handles ? `<p class="mi-note">${esc(ECO.takeInNote(st.access, name))}（見る・手元で確認・コメントはできます）。</p>` : ''}
+    main.innerHTML = `<h3 class="br-section">届いている提出 <span class="br-count ${items.length ? '' : 'zero'}">${items.length}</span></h3>
+      ${items.length && st.access && !handles ? `<p class="mi-note">${esc(ECO.takeInNote(st.access, name))}（見る・手元で確認・コメントはできます）。</p>` : ''}
       <div class="br-list" role="listbox" aria-label="${esc(name)} への提出">${items.map(i => itemRow(i)).join('') ||
         '<p class="mi-note">届いている提出はありません。</p>'}</div>
       <div id="sub-detail" class="br-detail"></div>`;
@@ -131,14 +89,8 @@
     }
     tools.append(look, act); box.append(tools);
   }
-  function render() {
-    if (el('submissions-content').hidden) return;
-    if (!st.loaded) { el('sub-main').innerHTML = ECO.loading(); return; }
-    renderSide(); renderMain();
-  }
-
   // Doing things. After a change, the reads are read again (the server marks them stale) and the screen redrawn.
-  const after = async doc => { if (doc) { st.status = null; await load(); } return doc; };
+  const after = async doc => { if (doc) { st.status = null; await window.BRANCHES_RELOAD?.(); } return doc; };
   async function taskAction(action) {
     const t = st.status; if (!t) return;
     const n = String(t.number);
@@ -185,23 +137,21 @@
     return after(await ECO.run(MOD.root, ['branch', 'merge', name, ...(v.ignore ? ['--ignore-checks'] : [])], {success: `${name} の提出を取り込みました。`}));
   }
 
-  const section = el('submissions-content');
+  const section = el('branches-content');
   section.addEventListener('click', e => {
-    const tab = e.target.closest('[data-sub-branch]');
-    if (tab) { st.selected = tab.dataset.subBranch; st.item = null; st.status = null; render(); return; }
     const item = e.target.closest('[data-sub-item]');
     if (item) { st.item = item.dataset.subItem; st.status = null; renderMain(); return; }
-    const pr = e.target.closest('[data-pr-action]');
+    const pr = e.target.closest('#sub-detail [data-pr-action]');
     if (pr && !pr.disabled) {
       if (st.item?.startsWith('branch:')) mergeBranch(st.item.slice(7)); else taskAction(pr.dataset.prAction);
     }
   });
-  // ↑↓ between the branches (the tabs are vertical).
-  el('sub-side').addEventListener('keydown', e => {
-    if (!['ArrowUp', 'ArrowDown'].includes(e.key)) return;
-    const tabs = [...el('sub-side').querySelectorAll('[data-sub-branch]')], i = tabs.findIndex(t => t.dataset.subBranch === st.selected);
-    const next = tabs[(i + (e.key === 'ArrowDown' ? 1 : tabs.length - 1)) % tabs.length]; if (!next) return;
-    e.preventDefault(); st.selected = next.dataset.subBranch; st.item = null; st.status = null; render(); el('sub-side').querySelector(`[data-sub-branch="${CSS.escape(st.selected)}"]`)?.focus();
+  // ↑↓ between the submissions.
+  section.addEventListener('keydown', e => {
+    if (!['ArrowUp', 'ArrowDown'].includes(e.key) || !e.target.closest('[data-sub-item]')) return;
+    const items = [...section.querySelectorAll('[data-sub-item]')], i = items.findIndex(x => x.dataset.subItem === st.item);
+    const next = items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]; if (!next) return;
+    e.preventDefault(); st.item = next.dataset.subItem; st.status = null; renderMain(); section.querySelector(`[data-sub-item="${CSS.escape(st.item)}"]`)?.focus();
   });
   // Right-click a submission: the same actions as its buttons.
   section.addEventListener('contextmenu', e => {
@@ -214,10 +164,10 @@
       if (buttons.length) ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), x, y);
     }, st.item?.startsWith('task:') && !st.status ? 800 : 0);
   });
-  el('sub-reload').addEventListener('click', () => { st.status = null; load(); });
-
-  // Another page (管理 › ブランチ) leads here to a branch's submissions.
-  window.SUBMISSIONS_SHOW = name => { if (name) { st.selected = name; st.item = null; st.status = null; } showModulePage('submissions'); };
-  pageHooks.submissions = () => { if (!st.loaded) { render(); load(); } else render(); };
-  ECO.onChange(() => { if (st.loaded) { st.status = null; if (!section.hidden) load(); else st.loaded = false; } });
+  // branches.js draws the branch and calls this with what it read (a newly chosen branch starts from its first one).
+  window.BRANCH_SUBMISSIONS = {render(name, data) {
+    if (name !== st.selected) { st.item = null; st.status = null; }
+    Object.assign(st, data, {selected: name});
+    renderMain();
+  }};
 })();

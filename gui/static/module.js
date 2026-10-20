@@ -20,9 +20,9 @@ ECO.access(MOD.root).then(a => {
 });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'submissions', 'manage', 'modinfo', 'settings', 'help'];
-// 管理 was the page ブランチ (now its tab): the old name still leads there.
-const pageOf = page => page === 'branches' ? 'manage' : page;
+const PAGES = ['workspace', 'tasks', 'branches', 'manage', 'modinfo', 'settings', 'help'];
+// ブランチ has the submissions coming in (the page 提出 once): the old name still leads there.
+const pageOf = page => page === 'submissions' ? 'branches' : page;
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
   page = pageOf(page);
@@ -33,30 +33,31 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
-// The tabs of 管理 (ブランチ, メンバー, CI): the chosen one's panel and its buttons (data-manage-for) show.
-const MANAGE_TABS = ['branches', 'members', 'ci'];
-const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'branches';
+// The tabs of 管理 (メンバー, CI): the chosen one's panel and its buttons (data-manage-for) show.
+const MANAGE_TABS = ['members', 'ci'];
+const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'members';
 function showManageTab(view) {
   for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
   for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
   for (const p of document.querySelectorAll('#manage-content [data-manage-for]')) p.hidden = p.dataset.manageFor !== view;
-  if (view === 'ci') window.MANAGE_CI?.show();
-  else if (view === 'members') window.MANAGE_MEMBERS?.show();
-  else pageHooks.manage?.();
+  if (view === 'ci') window.MANAGE_CI?.show(); else window.MANAGE_MEMBERS?.show();
 }
+pageHooks.manage = () => showManageTab(manageView());
+// 更新 is 管理's: it reads again what the chosen tab shows.
+document.getElementById('manage-reload').addEventListener('click', () => (manageView() === 'ci' ? window.MANAGE_CI : window.MANAGE_MEMBERS)?.reload());
 document.getElementById('manage-tabs').addEventListener('click', e => {
   const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
 });
 // The tabs of 設定 (the others of a tab are モジュール's).
-const SETTINGS_TABS = ['profiles', 'general', 'templates'];
+const SETTINGS_TABS = ['profiles', 'general', 'templates', 'container'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  // The tabs 「ブランチ」 (once モジュール's), 「メンバー」 and 「CI」 are 管理's: --tab branches・members・ci leads there.
-  const target = page || (tab ? (MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
+  // The tabs 「メンバー」 and 「CI」 are 管理's (--tab members・ci); --tab branches (once a tab) leads to the page ブランチ.
+  const target = page || (tab ? (tab === 'branches' ? 'branches' : MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
   if (MANAGE_TABS.includes(tab)) showManageTab(tab);
-  else if (tab) window.MODINFO_SHOW?.(tab);
+  else if (tab && tab !== 'branches') window.MODINFO_SHOW?.(tab);
   if (task) window.TASKS_SELECT?.(Number(task));
   if (command && typeof HELP !== 'undefined') HELP.show('help/commands/' + encodeURIComponent(command));
 });
@@ -267,10 +268,14 @@ MOD.createWorkspace = async () => {
   const taken = new Set(MOD.places.map(keyOf)), base = MOD.root.replace(/[\\/]+$/, '');
   let n = 2; while (taken.has(keyOf(`${base}-${n}`))) n++;
   let created = null;
+  // The account the new workspace works as (an AI's account etc.): chosen when more than one is logged in on this PC.
+  const listed = await ECO.cli(null, ['account', 'list'], {quiet: true}), accounts = listed.ok ? listed.result : [];
+  const accountField = accounts.length > 1 ? [{name: 'account', label: '使う GitHub のアカウント（AI 用のアカウント等。push・提出・コミットの作者がそのアカウントになります）', type: 'select',
+    value: '', options: [['', `gh の使用中のアカウント（${accounts.find(a => a.active)?.login || '?'}）`], ...accounts.filter(a => !a.active).map(a => [a.login, a.login])]}] : [];
   await ECO.form({title: '新しい作業空間', intro: `${ECO.esc(MOD.name)} をもう1つcloneして、並行作業の場所にします（ブランチは既定のまま）。タスクはそこで「作業を開始」します。`,
-    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}], ok: '作成',
+    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}, ...accountField], ok: '作成',
     submit: async v => {
-      const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir], {success: r => `作業空間を作りました：${r.root}`});
+      const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir, ...(v.account ? ['--account', v.account] : [])], {success: r => `作業空間を作りました：${r.root}`});
       if (!doc) return '作成できませんでした。';
       created = await addPlace(doc.result.root);
     }});

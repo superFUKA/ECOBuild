@@ -21,6 +21,7 @@ class ErrorCode:
     INVALID_ARGUMENT = "invalid_argument"
     TOOL_MISSING = "tool_missing"
     GITHUB_ERROR = "github_error"
+    ACCOUNT_NOT_LOGGED_IN = "account_not_logged_in"   # 使うアカウントに、このPCの gh でログインしていない
 
 
 class TaskError(Exception):

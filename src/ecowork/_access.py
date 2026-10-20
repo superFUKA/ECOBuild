@@ -12,9 +12,54 @@ from . import github as _github
 from .errors import ErrorCode, WorkError
 
 ADMIN = "admin"
+# 作業空間（clone）に結び付けたアカウント（git の設定。コミットされず、その clone だけ）。この clone の gh・git は
+# そのアカウントとして動く：gh は GH_TOKEN を渡し、git の push は clone の credential.helper がそのアカウントの鍵を渡す。
+ACCOUNT_KEY = "ecowork.account"
+_HELPER_KEY = "credential.https://github.com.helper"
+# その clone の git が GitHub に出す鍵：このPCの gh のそのアカウントの鍵（なければ、渡された GH_TOKEN：コンテナの中）
+_HELPER = ('!f() {{ test "$1" = get || exit 0; echo username=x-access-token; '
+           'echo "password=$(gh auth token --user {account} 2>/dev/null || printf %s "$GH_TOKEN")"; }}; f')
 
 
 class Permissions:
+    # 作業空間のアカウント ---------------------------------------------------------------------
+
+    @property
+    def account(self) -> str | None:
+        """この作業空間に結び付けたアカウント（なければ None：gh のログイン中のアカウントで動く）。"""
+        return self.git.get_config(ACCOUNT_KEY) or None
+
+    def _use_bound_account(self) -> None:
+        """結び付けたアカウントがあれば、gh をそのアカウントとして呼ぶ（Repository を作るときに呼ぶ）。"""
+        account = self.account
+        if account and hasattr(self.github, "with_account"):
+            self.github = self.github.with_account(account)
+
+    def use_account(self, account: str | None) -> str | None:
+        """この作業空間を account として動かす（None なら外して、gh のログイン中のアカウントに戻す）。
+        コミットの作者（user.name・user.email〔GitHub の noreply〕）も、この clone だけそのアカウントにする。
+        account にこのPCの gh でログインしていなければ止める。結び付けたアカウント（ログイン名）を返す。"""
+        if account is not None:
+            account = account.strip().removeprefix("@")
+            if not account or any(c.isspace() or c in "'\"$`;&|<>" for c in account):
+                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"アカウントの名前が正しくありません：{account}")
+        github = self.github.with_account(account) if hasattr(self.github, "with_account") else self.github
+        if account is not None:
+            login, number, name = github.identity(self.root)   # ログインしていなければ account_not_logged_in
+            self.git.set_config(ACCOUNT_KEY, login)
+            self.git.set_config("user.name", name or login)
+            self.git.set_config("user.email", f"{number}+{login}@users.noreply.github.com")
+            self.git.run("config", "--local", "--unset-all", _HELPER_KEY, check=False)
+            self.git.run("config", "--local", "--add", _HELPER_KEY, "")   # 全体の設定の helper を使わない
+            self.git.run("config", "--local", "--add", _HELPER_KEY, _HELPER.format(account=login))
+        else:
+            for key in (ACCOUNT_KEY, "user.name", "user.email"):
+                self.git.unset_config(key)
+            self.git.run("config", "--local", "--unset-all", _HELPER_KEY, check=False)
+        self.github = github
+        self._access = self._creators = None
+        return self.account
+
     # アカウントの役割 -----------------------------------------------------------------------
 
     def access(self) -> _github.Access:

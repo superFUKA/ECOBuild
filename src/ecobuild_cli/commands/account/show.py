@@ -15,6 +15,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
         access = repository.access()
         creators = repository.github.branch_creators(repository.root)
         return {"login": access.login, "role": access.role, "owner": access.owner, "owner_type": access.owner_type,
+                "workspace_account": repository.account,
                 "admin": repository.is_admin(), "default_base": repository.default_base,
                 "creators": {name: who for name, who in creators.items() if not name.startswith("task/")}}
 
@@ -22,7 +23,8 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
         own = sorted(name for name, who in r["creators"].items()
                      if who.casefold() == r["login"].casefold() and name != r["default_base"])
         return lines(
-            f"アカウント：{r['login']}（{ROLES.get(r['role'], r['role'])}）",
+            f"アカウント：{r['login']}（{ROLES.get(r['role'], r['role'])}）"
+            + ("　この作業空間に結び付けたアカウント" if r.get("workspace_account") else "　gh の使用中のアカウント"),
             f"持ち主：{r['owner']}（{'組織' if r['owner_type'] == 'Organization' else '個人のアカウント'}）" if r["owner"] else None,
             "管理（ブランチ・メンバー・保護）：" + ("できます" if r["admin"] else "できません（管理者だけ）"),
             "提出の取り込み：" + ("すべてのブランチ" if r["admin"] else

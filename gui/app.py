@@ -71,9 +71,9 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
     ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
-    ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"), ("account", "show"),
+    ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"), ("account", "show"), ("account", "list"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
-    ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"),
+    ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"), ("container", "recipe"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
     ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
 }
@@ -1138,12 +1138,12 @@ class App:
                                                     "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
 
 
-MANAGE_TABS = ("branches", "members", "ci")   # 「管理」の画面のタブ（ほかのタブは「モジュール」・「設定」）
+MANAGE_TABS = ("members", "ci")   # 「管理」の画面のタブ（branches は「ブランチ」の画面。ほかのタブは「モジュール」・「設定」）
 
 
 def _hash(where: dict) -> str:
     """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
-    page = where.get("page") or ("manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
+    page = where.get("page") or ("branches" if where.get("tab") == "branches" else "manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
                                  "tasks" if where.get("task") else "help" if where.get("command") else "")
     if not page:
         return ""

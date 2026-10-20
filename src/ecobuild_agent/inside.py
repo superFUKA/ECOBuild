@@ -60,7 +60,8 @@ def sound(prefix: tuple[str, ...]) -> tuple[str, ...]:
 
 FEATURE = container.Feature(
     "agent",
-    packages=("sox", "libsox-fmt-pulse"),   # 音声入力（PulseAudio で録音する。sound を見る）
+    packages=("sox", "libsox-fmt-pulse",    # 音声入力（PulseAudio で録音する。sound を見る）
+              "file"),                       # エージェントがファイルの種類・改行コードを調べる（20人の試しで、ないと失敗した）
     environment=(("CLAUDE_CONFIG_DIR", AGENT_HOME),),
     install=(f"mkdir -p {AGENT_HOME} {SHARED_HOME}",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
              "curl -fsSL https://claude.ai/install.sh | bash"),

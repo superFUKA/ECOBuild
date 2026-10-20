@@ -53,7 +53,7 @@ class AgentModule:
         command = self._for_role(tuple(command), role, prompt)
         folder = status.prepare(container.name(self.root), self.root)
         if command[:1] == ("claude",):   # 返答の終わりを書き出させ（係が進行役に知らせる）、受け箱はフックが届ける
-            command = (*command, "--settings", self._status_settings(folder, boxed, app=False))
+            command = (*command, "--settings", self._status_settings(folder, boxed, app=False, role=role))
         command = self._briefed(command, folder, boxed, task, role)
         if not boxed:
             try:
@@ -79,7 +79,7 @@ class AgentModule:
         if command[:1] == ("claude",):
             folder = status.prepare(container.name(self.root), self.root)
             status.announce(folder)
-            command = (*command, "--settings", self._status_settings(folder, boxed, app=True))
+            command = (*command, "--settings", self._status_settings(folder, boxed, app=True, role=role))
             command = self._briefed(command, folder, boxed, task, role)
             status.started(folder, os.getpid())   # このプロセスが終わるまでエージェントが動いている
         try:
@@ -93,11 +93,14 @@ class AgentModule:
             if folder is not None:
                 status.ended(folder, os.getpid())
 
-    @staticmethod
-    def _status_settings(folder: Path, boxed: bool, *, app: bool) -> str:
-        """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。"""
+    def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER) -> str:
+        """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。進行役は、書けるのを
+        エージェント用の置き場所（AGENT_AREA：計画・任せる内容）の中だけにする。"""
         where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
-        return status.settings_argument(folder, where, python, app=app)
+        area = ""
+        if role == team.LEAD:
+            area = f"{container.WORKDIR}/{AGENT_AREA}" if boxed else (self.root / AGENT_AREA).as_posix()
+        return status.settings_argument(folder, where, python, app=app, lead_area=area)
 
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。

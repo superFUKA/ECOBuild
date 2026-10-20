@@ -76,3 +76,21 @@ def test_stop_stops_the_process_and_its_children(tmp_path):
     status.stop(process.pid)
     process.wait(10)
     assert not status.alive(process.pid)
+
+
+def test_a_lead_may_write_only_in_its_area(tmp_path, monkeypatch):
+    """進行役の編集の道具は、エージェント用の置き場所（計画・任せる内容）の中だけ（PreToolUse フック）。"""
+    import os
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    folder = status.prepare("box", tmp_path)
+    area = (tmp_path / "work" / ".ecobuild" / "ai").as_posix()
+    cwd = str(tmp_path / "work")
+
+    def decide(path):
+        out = hook(folder, "lead-edit", area, data={"cwd": cwd, "tool_input": {"file_path": path}})
+        return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out else "allow"
+    assert decide(".ecobuild/ai/plan.md") == "allow"
+    assert decide(os.path.join(area, "briefs", "a.md")) == "allow"
+    assert decide("src/app.py") == "deny"
+    assert decide(".ecobuild/ai/../../src/app.py") == "deny"
+    assert decide(str(tmp_path / "work" / ".ecobuild" / "aiX" / "x")) == "deny"

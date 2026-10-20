@@ -50,7 +50,6 @@ BRIEF_FILE = ".ecobuild/ai/brief.md"       # 任された仕事（進行役の�
 REPORT_FILE = ".ecobuild/ai/report.md"     # 作業役の報告
 PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
 MODEL_KEYS = {LEAD: "agent_lead_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
-LEAD_DENIED_TOOLS = ("Edit", "Write", "NotebookEdit")   # 進行役には使わせない（作業は作業役に任せる）
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
@@ -168,15 +167,14 @@ def new_session(root: Path, role: str, command: tuple[str, ...]) -> tuple[str, .
 
 
 def agent_options(root: Path, role: str, command: tuple[str, ...]) -> tuple[str, ...]:
-    """Claude Code に足す引数：モデル（記録、なければこのPCの役の設定。指定済みなら足さない）と、進行役の使わせない道具。"""
+    """Claude Code に足す引数：モデル（記録、なければこのPCの役の設定。指定済みなら足さない）。進行役が書ける場所は
+    フック（status の lead-edit）で決める（道具ごと禁じると、計画・任せる内容を Bash で書く抜け道を使った）。"""
     if command[:1] != ("claude",):
         return command
     model = member_info(root).get("model") or model_for(role)
     extra = []
     if model and "--model" not in command:
         extra += ["--model", model]
-    if role == LEAD and "--disallowedTools" not in command:
-        extra += ["--disallowedTools", ",".join(LEAD_DENIED_TOOLS)]
     return (*command, *extra)
 
 
@@ -305,7 +303,12 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "## あなたの役：進行役",
             "",
             "あなたは進行役です。ユーザーと話して何をするかを決め、仕事を分けて作業役に任せ、結果を読んで取り込みます。"
-            "**自分ではファイルを編集しません**（編集・書き込みの道具は使えません。コードを書く・直すのは作業役です）。",
+            f"**書けるのは `{PLAN_FILE.rsplit('/', 1)[0]}/` の中（計画・任せる内容の下書き）だけです**（編集・書き込みの道具は"
+            "そこだけ使えます）。コード・文書を書く・直すのは作業役です。Bash（python・sed・リダイレクト等）でファイルを書く"
+            "抜け道は使いません。",
+            "**ECOBuild の手順を外れることは、ユーザーの了承なしに決めない・指示しない**：確認を省く（`--no-check`）、"
+            "ビルド・テストを ECOBuild のコマンドの代わりに直接動かす、等。環境の問題で手順どおりに進められないときは、"
+            "作業役を止めて待たせ、ユーザーに伝えて決めてもらいます（答えを待たずに進めると決めない）。",
             "",
             "### 進め方",
             f"1. まず {PLAN_FILE} に計画を書きます（目的・分け方・順番・誰に何を任せたか）。話が長くなっても、ここを見れば続けられるように更新し続けます。",

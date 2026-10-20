@@ -71,7 +71,19 @@ def take_all():
 def out(value):
     sys.stdout.buffer.write(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 deliver = "deliver" in sys.argv[2:]
-if kind == "replied":
+def inside(path, area):
+    norm = lambda p: os.path.normcase(os.path.abspath(p)).replace("\\", "/").rstrip("/")
+    return (norm(path) + "/").startswith(norm(area) + "/")
+if kind == "lead-edit":   # 進行役が書けるのは area（.ecobuild/ai）の中だけ（PreToolUse フック）
+    area = sys.argv[2]
+    given = data.get("tool_input") or {}
+    target = given.get("file_path") or given.get("notebook_path") or ""
+    target = os.path.join(data.get("cwd") or "", target) if target else ""
+    if not target or not inside(target, area):
+        out({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+             "permissionDecisionReason": "進行役が書けるのは " + area + " の中（計画・任せる内容）だけです。"
+                                         "コード・文書の変更は作業役に任せてください（agent team start・send）。"}})
+elif kind == "replied":
     message = data.get("last_assistant_message")
     write("replied.json", {"at": time.time(), "message": message if isinstance(message, str) else None})
     if deliver and (texts := take_all()):   # 届いたものがあれば、返答を終えずに続けて読ませる
@@ -205,10 +217,11 @@ def _host_language() -> str:
     return found if isinstance(found, str) else ""
 
 
-def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True) -> str:
+def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "") -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
-    （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。"""
+    （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。lead_area：進行役が
+    書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
     if app:
@@ -222,13 +235,19 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied{deliver}"}]}]
     hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),   # 作業中か（と、アプリがいなければ受け箱を届ける）
                                  {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
+    if lead_area:
+        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
+                               {"matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                                "hooks": [{"type": "command", "command": f'{script} lead-edit "{lead_area}"'}]}]
     return json.dumps(settings, ensure_ascii=False)
 
 
-def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True) -> str:
+def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True,
+                      lead_area: str = "") -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app), encoding="utf-8", newline="\n")
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area), encoding="utf-8",
+                                 newline="\n")
     return f"{folder}/{SETTINGS}"
 
 

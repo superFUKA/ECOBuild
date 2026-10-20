@@ -79,10 +79,16 @@ def test_a_worker_takes_over_the_leads_container(lead):
     assert local["container"] is True and local["agent_deny"] == "WebFetch" and "profile" not in local   # コンテナのものだけ
 
 
-def test_a_lead_has_its_own_model_and_cannot_edit(lead):
+def test_a_lead_has_its_own_model_and_writes_only_its_notes(lead, tmp_path):
     ecobuild_bundle.set_config("agent_lead_model", "opus")
-    assert team.agent_options(lead.root, team.LEAD, ("claude",)) == \
-        ("claude", "--model", "opus", "--disallowedTools", "Edit,Write,NotebookEdit")
+    assert team.agent_options(lead.root, team.LEAD, ("claude",)) == ("claude", "--model", "opus")
+    lead._status_settings(tmp_path, False, app=True, role=team.LEAD)
+    settings = json.loads((tmp_path / agent_status.SETTINGS).read_text(encoding="utf-8"))
+    guard = settings["hooks"]["PreToolUse"][0]
+    assert "Write" in guard["matcher"] and guard["hooks"][0]["command"].endswith(
+        f'lead-edit "{(lead.root / ".ecobuild/ai").as_posix()}"')                      # 書けるのは .ecobuild/ai だけ
+    lead._status_settings(tmp_path, True, app=True, role=team.WORKER)
+    assert "PreToolUse" not in json.loads((tmp_path / agent_status.SETTINGS).read_text(encoding="utf-8"))["hooks"]
     assert team.agent_options(lead.root, team.LEAD, ("claude", "--model", "sonnet"))[:3] == ("claude", "--model", "sonnet")
     assert team.agent_options(lead.root, team.LEAD, ("codex",)) == ("codex",)               # Claude Code だけ
     sub = team.create(lead, "下の進行役", "この部分を受け持つ", role=team.LEAD, model="sonnet")
@@ -96,7 +102,7 @@ def test_a_lead_has_its_own_model_and_cannot_edit(lead):
 
 def test_the_first_prompt_goes_right_after_claude(lead):
     command = lead._for_role(("claude",), team.LEAD, "始めて")
-    assert command[:2] == ("claude", "始めて") and "--disallowedTools" in command   # 値を何個も取る引数に読まれない
+    assert command[:2] == ("claude", "始めて")   # 値を何個も取る引数（--disallowedTools 等）の値に読まれない
 
 
 def test_requests_are_answered_by_the_serve(lead, monkeypatch, tmp_path):

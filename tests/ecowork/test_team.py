@@ -100,3 +100,49 @@ def test_finish_explains_a_branch_policy(repository, monkeypatch):
     with pytest.raises(WorkError) as error:
         repository.finish()
     assert error.value.code == ErrorCode.APPROVAL_REQUIRED and f"task approve {task_branch.number}" in error.value.hint
+
+
+# 役割（GitHub の権限）：管理は管理者だけ、提出の取り込みは取り込み先を作った人と管理者だけ ---------------------
+
+def as_role(repository, role, **creators):
+    """ログイン中のアカウントの役割と、ブランチを作った人（活動の記録）を変える。"""
+    repository.github.role = role
+    repository.github.branch_creators_.update(creators)
+    repository._access = repository._creators = None
+
+
+def test_managing_is_for_admins(repository):
+    as_role(repository, "admin")
+    assert repository.access().role == "admin" and repository.is_admin()
+    repository.create_branch("develop")
+    as_role(repository, "maintain")
+    error = pytest.raises(WorkError, repository.create_branch, "release").value
+    assert error.code == ErrorCode.PERMISSION_DENIED and "管理者" in error.message and error.details["role"] == "maintain"
+    assert code_of(lambda: repository.branch("develop").delete()) == ErrorCode.PERMISSION_DENIED
+    assert code_of(lambda: repository.add_member("alice")) == ErrorCode.PERMISSION_DENIED
+    assert code_of(lambda: repository.remove_member("alice")) == ErrorCode.PERMISSION_DENIED
+    assert code_of(lambda: repository.protect()) == ErrorCode.PERMISSION_DENIED
+    assert not repository.git.has_remote_branch("release")
+
+
+def test_taking_in_is_for_the_base_creator_and_admins(repository):
+    repository.create_branch("develop")
+    as_role(repository, "write", develop="tester")
+    assert repository.can_take_in("develop") and not repository.can_take_in("main")
+    task = repository.create_task("develop へ")
+    recorded = task.start(base="develop")
+    write(repository.root / "a.txt", "a\n")
+    recorded.record("a")
+    assert repository.finish().closed_issue == task.number      # develop を作ったのは自分
+    other = repository.create_task("main へ")
+    task_branch = other.start()
+    write(repository.root / "b.txt", "b\n")
+    task_branch.record("b")
+    error = pytest.raises(WorkError, repository.finish).value
+    assert error.code == ErrorCode.PERMISSION_DENIED and "管理者" in error.message
+    assert repository.submission(other.number) is not None      # 提出はできる（取り込みは管理者が）
+    as_role(repository, "write", develop="alice")
+    assert repository.take_in_owners("develop") == "develop を作った alice と管理者"
+    assert not repository.can_take_in("develop")
+    as_role(repository, "admin")
+    assert repository.finish(other.number).closed_issue == other.number

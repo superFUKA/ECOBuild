@@ -137,6 +137,15 @@ class Protection:
     allow_force_pushes: bool = False
 
 
+@dataclass(frozen=True)
+class Access:
+    """ログイン中のアカウントと、このリポジトリでの役割（GitHub の権限）。owner_type：持ち主の種類（User・Organization）。"""
+    login: str
+    role: str             # read / triage / write / maintain / admin
+    owner: str = ""
+    owner_type: str = ""
+
+
 # ECOBuild の役割の名前 → GitHub の API の permission
 ROLE_PERMISSIONS = {"read": "pull", "triage": "triage", "write": "push", "maintain": "maintain", "admin": "admin"}
 
@@ -181,6 +190,8 @@ class GitHub(TaskGitHub, Protocol):
     def merge_pull_request(self, repo: Path, number: int, *, squash: bool, subject: str | None) -> None: ...
     def close_pull_request(self, repo: Path, number: int) -> None: ...
     def default_branch(self, repo: Path) -> str: ...
+    def access(self, repo: Path) -> Access: ...
+    def branch_creators(self, repo: Path) -> dict[str, str]: ...
     def members(self, repo: Path) -> list[Member]: ...
     def add_member(self, repo: Path, login: str, role: str) -> bool: ...
     def remove_member(self, repo: Path, login: str) -> bool: ...
@@ -436,7 +447,26 @@ class GhCli(_TaskGhCli):
     def default_branch(self, repo):
         return self._json(["repo", "view", "--json", "defaultBranchRef"], cwd=repo)["defaultBranchRef"]["name"]
 
-    # 共同作業者・ブランチの保護（複数人での開発） ------------------------------------------------
+    # 役割・共同作業者・ブランチの保護（複数人での開発） ------------------------------------------
+
+    def access(self, repo):
+        """ログイン中のアカウントの、このリポジトリでの役割（REST の permissions の一番強いもの）。"""
+        data = self._json(["api", "repos/{owner}/{repo}"], cwd=repo)
+        granted = data.get("permissions") or {}
+        role = next((name for name, key in (("admin", "admin"), ("maintain", "maintain"), ("write", "push"),
+                                            ("triage", "triage"), ("read", "pull")) if granted.get(key)), "read")
+        owner = data.get("owner") or {}
+        return Access(self.current_user(repo), role, owner.get("login", ""), owner.get("type", ""))
+
+    def branch_creators(self, repo):
+        """ブランチ → 作った人（リポジトリの活動の記録の branch_creation。新しいものが先なので、作り直したら最後の人）。
+        記録が残っていないブランチ（既定のブランチ等）は含まない。"""
+        creators: dict[str, str] = {}
+        for event in self._paged(repo, "activity?activity_type=branch_creation"):
+            name = (event.get("ref") or "").removeprefix("refs/heads/")
+            if name and name not in creators and event.get("actor"):
+                creators[name] = event["actor"]["login"]
+        return creators
 
     def members(self, repo):
         """共同作業者（招待を受けた人）と、招待中の人。見る権限（管理者）がなければ github_error。"""

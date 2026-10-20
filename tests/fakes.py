@@ -52,6 +52,8 @@ class FakeGitHub:
         self.collaborator_roles: dict[str, str] = {}        # 共同作業者 → 役割（members）
         self.invited: dict[str, str] = {}                   # 招待中の人 → 役割
         self.protections: dict = {}                         # ブランチ → Protection
+        self.role = "admin"                                 # ログイン中のアカウントの役割（access）
+        self.branch_creators_: dict[str, str] = {}          # ブランチ → 作った人（活動の記録）
         self.free_private = False                           # 無料プランの非公開リポジトリ（ブランチの保護を使えない）
         self._numbers = itertools.count(1)   # GitHubと同じくIssueとPRで番号を共有する
         self._scratch = itertools.count(1)
@@ -116,7 +118,14 @@ class FakeGitHub:
     def current_user(self, repo):
         return self.owner
 
-    # 共同作業者・ブランチの保護
+    # 役割・共同作業者・ブランチの保護
+    def access(self, repo):
+        from ecowork.github import Access
+        return Access(self.current_user(repo), self.role, self.owner, "User")
+
+    def branch_creators(self, repo):
+        return dict(self.branch_creators_)
+
     def members(self, repo):
         from ecowork.github import Member
         return [Member(login, role) for login, role in self.collaborator_roles.items()] + \

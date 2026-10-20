@@ -50,6 +50,7 @@ class Completion:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "差し戻す理由が必要です。",
                             hint="--message で、直してほしいことを書いてください。")
         pr = self.require_submission(number)
+        self.require_take_in(pr.base, "差し戻し")
         self._judge(pr, "request_changes", message)
         self.tracker.set_stage(number, _board.IN_PROGRESS)  # 直すのは作業者。出し直し（task submit）でレビュー待ちに戻る
         return wm.JudgeResult(number, pr.number, pr.url, self._leave_review(pr.number))
@@ -60,6 +61,7 @@ class Completion:
         if pr.draft:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint="作業者が準備できたら task submit で下書きを解除します。")
+        self.require_take_in(pr.base, "承認")
         self._judge(pr, "approve", message)
         returned = self._leave_review(pr.number)
         result = self.finish(number, **finish_options)
@@ -110,6 +112,7 @@ class Completion:
         if pr.draft:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
+        self.require_take_in(pr.base, "取り込み")
         checks: tuple = ()
         if wait and not ignore_checks and self._has_workflows():
             try:
@@ -367,4 +370,5 @@ class Completion:
         if not opened:
             raise WorkError(ErrorCode.NO_PULL_REQUEST, f"{name} の開いている提出（ブランチ同士のPR）がありません。",
                             hint=f"{self._op('branch submit')} {name} --into <取り込み先> で作ります。")
+        self.require_take_in(max(opened, key=lambda p: p.number).base, "取り込み")
         return self._merge_pull_request(max(opened, key=lambda p: p.number).number, ignore_checks=ignore_checks)

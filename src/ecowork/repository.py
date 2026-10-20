@@ -26,6 +26,7 @@ from ._history import History
 from ._ci import Ci
 from ._completion import Completion
 from ._members import Members
+from ._access import Permissions
 from ._sync import Syncing
 from ._shared import _REVIEW_KEY, _github_name
 
@@ -50,7 +51,7 @@ class Hooks:
         """タスクブランチの反映（submit）で、pushする前。止めるときは WorkError を投げる。"""
 
 
-class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Syncing):
+class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
     def __init__(
         self,
         root: Path | str,
@@ -281,6 +282,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
                 f"{wm.TASK_BRANCH_PREFIX} で始まる名前はタスクブランチ専用です。",
                 hint=f"タスクブランチは {self._op('task start')} <Issue番号> で作ります。",
             )
+        self.require_admin("ブランチの作成")
         start = self._base_start_point(base)
         if self.git.has_local_branch(name) or self.git.has_remote_branch(name):
             raise WorkError(ErrorCode.ALREADY_EXISTS, f"ブランチ {name} は既にあります。")
@@ -520,6 +522,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         if branch.is_task_branch:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch.name} はタスクブランチです。",
                             hint=f"タスクブランチの反映は {self._op('task submit')} で行います。")
+        if not self.is_admin() and (self.branch_creator(branch.name) or "").casefold() != self.access().login.casefold():
+            self.require_admin(f"{branch.name} の提出（{branch.name} を作った人でないので）")
         self.git.fetch()
         for name in (branch.name, into):
             if not self.git.has_remote_branch(name):
@@ -739,6 +743,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Sy
         protected = {self.default_base, self.github.default_branch(self.root)}
         if branch.name in protected:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch.name} は既定のブランチなので消せません。")
+        self.require_admin("ブランチの削除")
         users = [name for name in self.git.local_branches()
                  if wm.is_task_branch(name) and self.git.get_config(wm.base_key(name)) == branch.name]
         if users:

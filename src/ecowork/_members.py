@@ -25,6 +25,7 @@ class Members:
 
     def add_member(self, login: str, role: str = "write") -> bool:
         """共同作業者に招待する（既に共同作業者なら権限を変える）。招待を送ったら True。"""
+        self.require_admin("共同作業者の招待・役割の変更")
         if role not in _github.ROLE_PERMISSIONS:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, f"役割 {role} はありません。",
                             hint=f"{'・'.join(_github.ROLE_PERMISSIONS)} から選んでください。")
@@ -40,6 +41,7 @@ class Members:
 
     def remove_member(self, login: str) -> bool:
         """共同作業者から外す（招待中なら招待を取り消す）。担当しているタスクはそのまま（task edit で外す）。"""
+        self.require_admin("共同作業者を外すこと")
         removed = self.github.remove_member(self.root, login.strip().removeprefix("@"))
         if not removed:
             raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{login} は共同作業者でも、招待中でもありません。")
@@ -53,6 +55,7 @@ class Members:
         """タスクブランチでないブランチ（既定は作成元）に、GitHub のブランチの保護を設定する：取り込みは PR だけ、
         承認の数、（require_ci なら）最新のコミットの CI の項目が通っていること、強制 push・削除の禁止。
         管理者は保護を越えられる（1人で使うモジュールの task finish が止まらないように）。"""
+        self.require_admin("ブランチの保護")
         branch = branch or self.default_base
         if wm.is_task_branch(branch):
             raise WorkError(ErrorCode.INVALID_BASE, f"タスクブランチ {branch} は保護しません（タスクブランチでないブランチを守ります）。")
@@ -69,4 +72,5 @@ class Members:
         return protection
 
     def unprotect(self, branch: str | None = None) -> bool:
+        self.require_admin("ブランチの保護を外すこと")
         return self.github.remove_branch_protection(self.root, branch or self.default_base)

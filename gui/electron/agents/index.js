@@ -100,19 +100,21 @@ function writeState(patch) {
 function findSession(id) { return sessions.find(s => s.id === id); }
 function describe(s) {
   return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.recording ? 'listening' : s.state,
-          unread: !!s.unread,
+          unread: !!s.unread, role: s.role || '', pinned: !!s.owner && s.owner.leadId === s.id,
           window: windows.indexOf(s.owner), info: status.summary(s)};
 }
 const findOperator = () => sessions.find(s => s.kind === 'operator');
 
 function spawnSession(s, size) {
   const args = s.kind === 'operator' ? ['agent', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
-    : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : [])];
+    : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
+       ...(s.role ? ['--role', s.role] : []), ...(s.prompt ? ['--prompt', s.prompt] : [])];
+  s.prompt = '';   // 最初の発言は最初の1回だけ（起動し直すときは新しい会話）
   s.term = new Terminal({cols: size.cols, rows: size.rows, scrollback: 3000, allowProposedApi: true});
   s.startedAt = Date.now(); s.statusDir = null; s.info = null; s.repliedAt = undefined;
   const proc = s.proc = pty.spawn(ecobuildPath(), args, {
     name: 'xterm-256color', cols: size.cols, rows: size.rows, cwd: s.dir,
-    env: childEnv(),
+    env: {...childEnv(), ECOBUILD_AGENT_WINDOW: '1'},   // 中の ecobuild agent team … は GUI に頼む（requests）
   });
   // 起動し直したあとに届く前のプロセスの出力・終わりは捨てる（新しいほうを「終わった」にしない）
   proc.onData(data => {
@@ -131,20 +133,25 @@ function spawnSession(s, size) {
   });
 }
 
-// title：名前を指定して開いた。会話（Claude Code）の名前もそれにする
-function openSession({dir, agent = '', name = '', title = false} = {}) {
+// title：名前を指定して開いた。会話（Claude Code）の名前もそれにする。role：lead（進行役。自分の窓を持ち、左端に固定）・
+// worker（作業役）。lead：作った進行役のタブの id（作業役はその窓のタブになる）。prompt：最初の発言
+function openSession({dir, agent = '', name = '', title = false, role = '', prompt = '', lead = null} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
   // 開くたびに新しいエージェント（同じ作業空間でも）。名前が重なれば「名前 (2)」のように番号を付ける
   const base = name || path.basename(dir), taken = new Set(sessions.map(x => x.name));
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
-             agent, savedAgent: agent,
+             agent, savedAgent: agent, role, prompt, lead, inbox: [],
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   if (title && isClaude(s)) s.pendingTitle = s.name;   // 起動して待機中になったら /rename（poll）
   sessions.push(s);
-  // 作業空間ごとの窓（タスクバーでは、その作業空間のモジュールの窓と一緒にまとまる）。なければ作る
-  const w = windows.find(x => x.module && sameDir(x.module, dir) && !x.win.isDestroyed()) || openWindow({module: dir});
+  // 進行役は自分の窓（左端に固定）。作業役は作った進行役の窓。ほかは作業空間ごとの窓（タスクバーでは、その作業空間の
+  // モジュールの窓と一緒にまとまる）。なければ作る
+  const leader = lead ? findSession(lead) : null;
+  let w = role === 'lead' ? null : leader?.owner && !leader.owner.win.isDestroyed() ? leader.owner
+    : windows.find(x => x.module && sameDir(x.module, dir) && !x.win.isDestroyed() && !x.leadId);
+  if (!w) { w = openWindow({module: dir}); if (role === 'lead') w.leadId = s.id; }
   if (w.mini) restoreWindow(w);
   spawnSession(s, w.size || {cols: 100, rows: 30});
   adopt(w, s);
@@ -224,9 +231,15 @@ function adopt(w, s) {
   if (s.owner && s.owner !== w) leave(s.owner, s);
   s.owner = w;
   if (!w.tabs.includes(s.id)) w.tabs.push(s.id);
+  pinLead(w);
   w.active = s.id;
   send(w, 'agents:adopt', describe(s), s.history.join(''));
   pushTabs();
+}
+
+// 進行役の窓では、進行役のタブはいつも左端（動かせない）
+function pinLead(w) {
+  if (w.leadId && w.tabs.includes(w.leadId)) w.tabs = [w.leadId, ...w.tabs.filter(id => id !== w.leadId)];
 }
 
 function leave(w, s) {
@@ -338,6 +351,9 @@ function poll() {
     if (got.replied) { s.screenReply = null; replied(s, got.replied.message); }
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
+    if (s.statusDir && s.kind !== 'operator') takeRequests(s);
+    // 届けるもの（作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ
+    if (s.inbox?.length && read.state === 'idle' && !read.input && !s.recording && !s.pendingTitle) typeInto(s, s.inbox.shift());
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
     // 名前・モデルの変更は、待機中で入力欄が空のときに送る
     if (read.state === 'idle' && !read.input && !s.recording) {
@@ -362,6 +378,7 @@ function replied(s, message) {
   if (text) s.reply = text;
   if (message?.trim()) s.lastMessage = message.trim();   // 全文（「最後の返答をコピー」）
   if (s.kind === 'operator') { operatorReplied(s, text); return; }
+  tellLead(s, text);
   const w = s.owner; if (!w) return;
   if (w.mini) { s.unseen = true; addCard(s, text); if (notify.style === 'ecobuild') dock.play({id: notify.sound, volume: notify.volume}); return; }
   if (w.topmost === 'auto') bringToFront(w);
@@ -378,6 +395,82 @@ function replied(s, message) {
   }
 }
 const live = new Set();   // 出ている通知（参照がなくなると、クリックが効かなくなる）
+
+// ---- 進行役と作業役（ecobuild agent team …） -----------------------------------------------------------
+// 進行役（コンテナの中・この窓の端末の中）の ecobuild agent team … は、状態の置き場所の requests/ に頼みを書く。
+// ここで拾い、このPCで実行して結果を書き戻す（作業役を作ったらタブを開く・言付けはその作業役に届ける）
+const TEAM_COMMANDS = ['start', 'close', 'send', 'list'];
+function typeInto(s, text) {
+  if (!s?.proc || s.exited) return;
+  s.proc.write('\x1b[200~' + text + '\x1b[201~');
+  setTimeout(() => s.proc?.write('\r'), 120);
+}
+function deliver(s, text) { if (s && !s.exited) s.inbox.push(text); }
+
+function tellLead(s, text) {
+  const leader = s.lead ? findSession(s.lead) : null; if (!leader || leader.exited) return;
+  const place = s.teamPath ? path.relative(leader.dir, s.teamPath).split(path.sep).join('/') : s.dir;
+  const report = s.teamPath && fs.existsSync(path.join(s.teamPath, '.ecobuild', 'ai', 'report.md')) ? `${place}/.ecobuild/ai/report.md` : '';
+  deliver(leader, `[ECOBuild] ${s.role === 'lead' ? '進行役' : '作業役'}「${s.name}」の返答が終わりました。`
+    + (report ? `報告：${report}。` : `（報告 ${place}/.ecobuild/ai/report.md はまだありません）。`)
+    + (text ? `\n最後の返答：${text.replace(/\s+/g, ' ').slice(0, 400)}` : ''));
+}
+
+function takeRequests(s) {
+  const folder = path.join(s.statusDir, 'requests');
+  let names; try { names = fs.readdirSync(folder); } catch (e) { return; }
+  for (const name of names.filter(n => /^[0-9a-f]+\.json$/.test(n))) {
+    const file = path.join(folder, name), taken = file.replace(/\.json$/, '.taken');
+    try { fs.renameSync(file, taken); } catch (e) { continue; }   // ほかが拾った
+    let request; try { request = JSON.parse(fs.readFileSync(taken, 'utf8')); } catch (e) { continue; }
+    handleRequest(s, request).catch(error => ({ok: false, error: {code: 'AGENT_ERROR', message: String(error?.message || error)}}))
+      .then(doc => {
+        try { fs.writeFileSync(path.join(folder, `${request.id}.result.json`), JSON.stringify(doc)); } catch (e) { /* 書けなければ向こうが待ちきれずに止まる */ }
+        try { fs.unlinkSync(taken); } catch (e) { /* もうない */ }
+      });
+  }
+}
+
+const failed = (message, hint) => ({ok: false, result: null, error: {code: 'AGENT_ERROR', message, hint: hint || null}});
+function ecobuildDoc(args, cwd) {
+  return new Promise(resolve => require('child_process').execFile(ecobuildPath(), ['-C', cwd, ...args],
+    {windowsHide: true, timeout: 30 * 60 * 1000, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8', env: {...childEnv(), PYTHONIOENCODING: 'utf-8'}},
+    (error, stdout, stderr) => {
+      try { resolve(JSON.parse(String(stdout).trim().split(/\r?\n/).pop())); }
+      catch (e) { resolve(failed(String(stderr || error?.message || 'ecobuild の結果を読めませんでした。').trim().slice(-2000))); }
+    }));
+}
+
+async function handleRequest(s, request) {
+  const args = Array.isArray(request.args) ? request.args.map(String) : [];
+  if (args[0] !== 'agent' || args[1] !== 'team' || !TEAM_COMMANDS.includes(args[2]))
+    return failed(`この頼みは受け付けません：ecobuild ${args.join(' ')}`);
+  const cwd = path.resolve(s.dir, String(request.cwd || '.'));
+  if (!cwd.toLowerCase().startsWith(path.resolve(s.dir).toLowerCase())) return failed('作業空間の外では実行しません。');
+  if (args[2] === 'send' || args[2] === 'close') {
+    // 名前から作業役を探す（送る先のタブ・閉じる前に終わらせるタブ）
+    const listed = await ecobuildDoc(['agent', 'team', 'list', '--json'], cwd);
+    if (!listed.ok) return listed;
+    const who = args[3], member = (listed.result?.members || []).find(m => [m.name, String(m.task), path.basename(m.path)].includes(who));
+    if (!member) return failed(`チームに「${who}」はいません。`, 'ecobuild agent team list で一覧を見られます。');
+    const tabs = sessions.filter(x => x.kind !== 'operator' && sameDir(x.dir, member.path));
+    if (args[2] === 'send') {
+      if (!tabs.length) return failed(`作業役「${member.name}」のタブが開いていません。`, '作業役のタブを開き直すか、brief.md を書き足してください。');
+      for (const tab of tabs) deliver(tab, `[進行役「${s.name}」から] ${args.slice(4).join(' ')}`);
+      return {ok: true, result: {name: member.name, path: member.path}, error: null};
+    }
+    for (const tab of tabs) closeSession(tab.id);   // 使っているフォルダーは消せない
+    return ecobuildDoc(args, cwd);
+  }
+  const doc = await ecobuildDoc(args, cwd);
+  if (args[2] === 'start' && doc.ok && doc.result?.path) {
+    const m = doc.result;
+    const tab = openSession({dir: m.path, name: m.name, title: true, role: m.role, prompt: m.prompt, lead: s.id});
+    const opened = findSession(tab.id); if (opened) opened.teamPath = m.path;
+    select(s.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
+  }
+  return doc;
+}
 
 // ---- 右下の表示 ----------------------------------------------------------------------------------------
 let cardKey = 1;
@@ -788,7 +881,7 @@ function setup({ecobuild, python, group}) {
   ipcMain.on('agents:rename', (event, id, name) => renameSession(id, String(name || '')));
   ipcMain.on('agents:reorder', (event, ids) => {
     const w = windowOf(event); if (!w) return;
-    w.tabs = ids.filter(id => w.tabs.includes(id)); pushTabs();
+    w.tabs = ids.filter(id => w.tabs.includes(id)); pinLead(w); pushTabs();
   });
   ipcMain.on('agents:new-window', (event, id) => moveToNewWindow(id));
   ipcMain.on('agents:topmost', event => { const w = windowOf(event); if (w) cycleTopmost(w); });

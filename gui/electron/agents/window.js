@@ -70,12 +70,16 @@ function renderTabs() {
   const bar = $('tabs'); bar.replaceChildren();
   for (const info of tabs) {
     const b = document.createElement('button'); b.type = 'button';
-    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : '') + (info.unread && info.id !== active ? ' unread' : '');
+    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : '') + (info.unread && info.id !== active ? ' unread' : '')
+      + (info.pinned ? ' pinned' : '');
     b.dataset.state = info.state || '';
-    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = true; b.dataset.id = info.id;
-    b.title = `${info.num}  ${info.name}（${STATE_LABELS[info.state] || info.state}）\n${info.dir}`;
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = !info.pinned; b.dataset.id = info.id;
+    const role = info.role === 'lead' ? '進行役' : info.role === 'worker' ? '作業役' : '';
+    b.title = `${info.num}  ${info.name}（${role ? role + '・' : ''}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
+      + (info.pinned ? '\nこの窓の進行役（左端に固定）' : '');
     b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.num; b.querySelector('b').dataset.kind = info.kind;
+    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.role === 'lead' ? '進' : info.num;
+    b.querySelector('b').dataset.kind = info.role === 'lead' ? 'lead' : info.kind;
     const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
     if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
     b.querySelector('.name').textContent = info.name;
@@ -185,7 +189,7 @@ function closeTab(info) {
 function tabMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
   const items = [['名前を変える', () => rename($('tabs').querySelector(`[data-id="${info.id}"]`), info)],
-                 ['新しい窓へ', () => agents.newWindow(info.id)],
+                 ...(info.pinned ? [] : [['新しい窓へ', () => agents.newWindow(info.id)]]),
                  ['起動し直す（新しい会話）', () => agents.restart(info.id)],
                  ['続きから起動し直す（前の会話の続き）', () => agents.restart(info.id, true)],
                  ['閉じる', () => closeTab(info)]];

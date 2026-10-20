@@ -212,22 +212,26 @@ WS.onRefresh(renderPrDetail);
   const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
   const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
   const nameField = () => ({name: 'name', label: '名前（空欄なら既定の名前。入れた名前は会話の名前にもなります）', value: '', placeholder: defaultAgentName()});
-  async function startAgent(command = agentCommand(), typed) {
+  // role 'lead': the 進行役 (talks with the user, hands the work to 作業役 = child tasks in their own workspaces, does not
+  // edit). It gets a window of its own with its tab fixed at the left; the 作業役 it makes open as tabs of that window.
+  async function startAgent(command = agentCommand(), typed, role = '') {
     // The workspace is a frame of the module window: the Electron bridge is on the top window.
     const shell = agentShell();
+    const title = role === 'lead' ? '進行役を起動' : 'エージェントを起動';
     if (shell) {
       if (typed === undefined) {
-        const v = await ECO.form({title: 'エージェントを起動', fields: [{...nameField(), focus: true}], ok: '起動'});
+        const v = await ECO.form({title, intro: role === 'lead' ? '進行役は、話を聞いて仕事を分け、作業役（子タスクと、その作業空間）に任せて進めます。自分ではファイルを編集しません。新しい窓で開き、作業役はその窓のタブになります。' : undefined,
+          fields: [{...nameField(), focus: true}], ok: '起動'});
         if (!v) return;   // cancelled
         typed = v.name.trim();
       }
       const name = typed || defaultAgentName();
-      try { const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed}); say(`エージェントの窓で開きました：${tab?.name || name}`); }
+      try { const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed, role}); say(`エージェントの窓で開きました：${tab?.name || name}`); }
       catch (e) { ECO.toast(e.message, 'bad'); }
       return;
     }
     if (box?.container) say('コンテナを用意しています（最初の1回はイメージを作るので数分かかります）…');
-    const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : [])]);
+    const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : []), ...(role ? ['--role', role] : [])]);
     if (!doc.ok) return ECO.showError(doc);
     say(`エージェントを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
   }
@@ -254,7 +258,9 @@ WS.onRefresh(renderPrDetail);
   get('agent-more').addEventListener('click', () => {
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
-      ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
+      ...(claudeCommand() ? [['進行役を起動…', () => startAgent(agentCommand(), undefined, 'lead'), ready,
+        '話を聞いて仕事を分け、作業役（子タスクと、その作業空間）に任せて進めるエージェント。新しい窓で開きます'],
+        ['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
         'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
       ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
         {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true},

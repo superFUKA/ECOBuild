@@ -324,12 +324,14 @@ function poll() {
   for (const s of sessions) {
     if (s.exited || !s.term) continue;
     const screen = screenText(s), read = parser.parse(screen);
-    // オペレーターの作業フォルダーは ECOBuild が作った一式なので、初めての「このフォルダーを信頼するか」には信頼すると答える
-    if (s.kind === 'operator' && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
+    // オペレーターの作業フォルダー・進行役が作った作業役の作業空間は ECOBuild が作ったものなので、初めての「このフォルダーを
+    // 信頼するか」には信頼すると答える
+    if ((s.kind === 'operator' || s.lead) && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
       s.trusted = true;
       const options = screen.split('\n').filter(l => /^\s*❯?\s*(No, exit|Yes, I trust this folder)/.test(l));
       const down = options.findIndex(l => /Yes, I trust/.test(l)) - options.findIndex(l => /❯/.test(l));
       s.proc.write('\x1b[B'.repeat(Math.max(0, down)) + '\r');
+      if (s.lead) continue;   // 作業役：進行役が作った作業空間（ECOBuild が作ったもの）
       operatorLog.push({role: 'system', text: '（ECOBuild が作ったオペレーターのフォルダーを、初めての確認で「信頼する」にしました）', at: Date.now()});
       saveOperatorLog();
       continue;
@@ -348,11 +350,6 @@ function poll() {
     if (got.replied) { s.screenReply = null; replied(s, got.replied.message); }
     else if (s.screenReply && Date.now() - s.screenReply.at > 4000) { const text = s.screenReply.text; s.screenReply = null; replied(s, text); }
     if (s.kind === 'operator' && read.state === 'idle' && operatorQueue.length) operatorType(operatorQueue.shift());
-    // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ
-    if (s.statusDir && s.kind !== 'operator' && read.state === 'idle' && !read.input && !s.recording && !s.pendingTitle) {
-      const got = status.take(s.statusDir);
-      if (got?.text) typeInto(s, got.text);
-    }
     if (s.voicePending && read.state === 'idle') { s.voicePending = false; toggleVoice(s, true); }
     // 名前・モデルの変更は、待機中で入力欄が空のときに送る
     if (read.state === 'idle' && !read.input && !s.recording) {
@@ -364,6 +361,16 @@ function poll() {
       const doing = ['thinking', 'waiting'].includes(read.state) ? lastTool(screen) : '';
       if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
     }
+  }
+  // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ。同じ置き場所
+  // （同じコンテナ）のタブが複数あれば、新しく開いたほうに
+  const asked = new Set();
+  for (const s of [...sessions].reverse()) {
+    if (!s.statusDir || s.kind === 'operator' || s.exited || asked.has(s.statusDir)) continue;
+    asked.add(s.statusDir);
+    if (s.state !== 'idle' || s.input || s.recording || s.pendingTitle) continue;
+    const got = status.take(s.statusDir);
+    if (got?.text) typeInto(s, got.text);
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
   const now = Date.now();
@@ -429,10 +436,14 @@ function startServe() {
 
 function onServeEvent(event) {
   if (event.event === 'agent-start') {
-    // 進行役が作った作業役：進行役のタブの窓のタブとして開く（下の進行役なら新しい窓）
-    const leader = sessions.find(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.lead));
+    // 進行役が作った作業役：進行役のタブの窓のタブとして開く（下の進行役なら新しい窓）。同じ作業空間の進行役のタブが
+    // 複数あれば（再開して2つある等）、新しく開いたほうの窓に
+    const leader = [...sessions].reverse().find(x => x.kind !== 'operator' && !x.exited && x.dir && sameDir(x.dir, event.lead));
     openSession({dir: event.path, name: event.name, title: true, role: event.role, prompt: event.prompt, lead: leader?.id ?? null});
-    if (leader) select(leader.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
+    if (leader) {
+      select(leader.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
+      if (leader.owner) { if (leader.owner.mini) restoreWindow(leader.owner); else bringToFront(leader.owner); }
+    }
   } else if (event.event === 'agent-stop') {
     for (const tab of sessions.filter(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.path))) closeSession(tab.id);
     try { serveProc?.stdin.write(JSON.stringify({ack: event.key}) + '\n'); } catch (e) { /* 係が終わった */ }

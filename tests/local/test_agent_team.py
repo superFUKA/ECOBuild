@@ -61,6 +61,15 @@ def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     assert closed.done and not member.path.exists() and team.team(lead.root).members == ()
 
 
+def test_a_worker_takes_over_the_leads_container(lead):
+    """進行役の作業空間がコンテナなら、作業役の作業空間もコンテナ（同じイメージの指定・使わせないもの）。"""
+    from ecobuild import config
+    config.save_local(lead.root, {"container": True, "agent_deny": "WebFetch", "profile": "Release"})
+    member = team.create(lead, "画面", "目的：作る")
+    local = config.load_local(member.path)
+    assert local["container"] is True and local["agent_deny"] == "WebFetch" and "profile" not in local   # コンテナのものだけ
+
+
 def test_a_lead_has_its_own_model_and_cannot_edit(lead):
     settings.set_config("agent_lead_model", "opus")
     assert team.agent_options(lead.root, team.LEAD, ("claude",)) == \

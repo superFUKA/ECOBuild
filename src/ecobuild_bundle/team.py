@@ -175,6 +175,7 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
     directory = module.root / TEAM_AREA / f"{task.number}-{label}"
     member_module = module.start_task_in(task.number, directory, name=label)
     _workspaces.record_quietly(member_module.root)
+    _inherit_container(module.root, member_module.root)
     member_module.prepare_agent_area()
     (member_module.root / BRIEF_FILE).write_text(brief.rstrip() + "\n", encoding="utf-8", newline="\n")
     info = {"role": role, "name": name, "task": task.number, "lead": str(module.root), "model": model.strip()}
@@ -182,6 +183,18 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
     branch = member_module.repository.git.current_branch() or ""
     return Member(name, role, member_module.root, task.number, branch, model.strip(), str(module.root),
                   prompt=FIRST_PROMPT[role])
+
+
+def _inherit_container(lead: Path, member: Path) -> None:
+    """進行役の作業空間のコンテナの選択（コンテナにするか・使うイメージ・使わせないもの）を、作業役の作業空間にも。
+    作業役も同じように隔離して確認なしで動かす（新しい clone はコンテナにしていないので、そのままではこのPCで動き、
+    初めてのフォルダーの確認で止まる）。"""
+    from ecobuild import config as _config
+    from . import container
+    chosen = {key: value for key, value in _config.load_local(lead).items()
+              if key in (container.KEY, container.IMAGE_KEY, container.DENY_KEY)}
+    if chosen:
+        _config.save_local(member, {**_config.load_local(member), **chosen})
 
 
 def team(root: Path) -> Team:

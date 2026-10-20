@@ -130,7 +130,8 @@ def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root,
 
 
 def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):
-    """エージェントがコンテナに足すもの：イメージに Claude Code、ログインは共有のボリューム、状態の置き場所。"""
+    """エージェントがコンテナに足すもの：イメージに Claude Code、設定・会話の記録はコンテナごと、中でログインしたものは
+    共有のボリューム、状態の置き場所。コンテナを消すと、そのコンテナだけのボリュームも消える（共有のものは残す）。"""
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     text = container.layer("ecobuild-env-calc:123")
     assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={inside.AGENT_HOME}" in text
@@ -138,8 +139,13 @@ def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):
     container.choose(root, True, fake.run)
     container.start(root, fake.run)
     run = next(args for args in fake.calls if args[1] == "run")
-    assert f"{inside.AGENT_VOLUME}:{inside.AGENT_HOME}" in run                          # エージェントのログインは共有
+    assert f"{inside.agent_volume(root)}:{inside.AGENT_HOME}" in run                    # 設定・会話の記録はコンテナごと
+    assert f"{inside.AGENT_VOLUME}:{inside.SHARED_HOME}" in run                         # 中でログインしたものは共有
+    assert inside.agent_volume(root).startswith(container.name(root) + "-")
     assert any(item.endswith(":" + inside.status.INSIDE) for item in run)               # 状態の置き場所
+    container.remove(root, fake.run)
+    removed = [args[-1] for args in fake.calls if args[1:3] == ["volume", "rm"]]
+    assert inside.agent_volume(root) in removed and inside.AGENT_VOLUME not in removed
 
 
 def test_what_the_agent_may_not_use(monkeypatch, root, tmp_path):
@@ -151,3 +157,32 @@ def test_what_the_agent_may_not_use(monkeypatch, root, tmp_path):
     ecobuild_bundle.set_config("agent_deny", "Bash(git push --force:*)")
     assert inside.deny(root) == ("Bash(git push --force:*)", "WebFetch", "Bash(rm:*)")
     assert inside.set_deny(root, ()) and inside.workspace_deny(root) == ()
+
+
+def test_each_container_keeps_its_own_conversations(tmp_path, monkeypatch):
+    """設定はコンテナごと：中でログインしたものは共有の場所を指し、前に共有していた会話のうち、この作業空間のもの
+    （覚えた会話）だけを写す。"""
+    import json
+    import os
+    import subprocess
+    import sys
+    home, shared, work = tmp_path / "home", tmp_path / "shared", tmp_path / "work"
+    home.mkdir()
+    old = shared / "projects" / "-work"
+    old.mkdir(parents=True)
+    for session in ("mine", "other"):
+        (old / f"{session}.jsonl").write_text("{}\n", encoding="utf-8")
+    (old / "mine").mkdir()
+    (work / ".ecobuild" / "ai").mkdir(parents=True)
+    (work / ".ecobuild" / "ai" / "roles.json").write_text(json.dumps({"mine": "worker"}), encoding="utf-8")
+    script = (inside.first_run_script().replace(repr(inside.SHARED_HOME), repr(str(shared)))
+              .replace(repr("/work/.ecobuild/ai/roles.json"), repr(str(work / ".ecobuild" / "ai" / "roles.json"))))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    if done.returncode and "symlink" in done.stderr.lower() and os.name == "nt":
+        pytest.skip("このPCではシンボリックリンクを作れない（Windows の権限）")
+    assert done.returncode == 0, done.stderr
+    copied = home / "projects" / "-work"
+    assert (copied / "mine.jsonl").is_file() and (copied / "mine").is_dir() and not (copied / "other.jsonl").exists()
+    link = home / ".credentials.json"
+    assert os.path.islink(link) and os.readlink(link).endswith(os.path.join(str(shared), ".credentials.json"))

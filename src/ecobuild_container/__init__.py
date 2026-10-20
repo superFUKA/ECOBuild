@@ -64,7 +64,8 @@ WORKDIR = "/work"
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
-VERSION = "5"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ）
+VERSION = "6"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ。
+                                # 6：エージェントの設定をコンテナごとに）
 HOME = "/home/ubuntu"
 INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
 # 端末の色：docker exec -t は TERM=xterm（16色）にするので、色が寄ってしまう
@@ -467,9 +468,19 @@ def remove(root: Path, runner: docker.Runner | None = None, *, command: str = ""
     changed = container_state(root, runner, prefix) != "none"
     if changed:
         run_docker(runner, [*prefix, "rm", "--force", name(root)], "コンテナを消せませんでした")
-        for volume, _ in caches(root):   # 型のキャッシュ（ビルドの出力など）も消す。なければそのまま
+        for volume in own_volumes(root):   # 型のキャッシュ（ビルドの出力など）・ほかの拡張のこのコンテナだけのものも消す
             (runner or docker.run)([*prefix, "volume", "rm", "--force", volume])
     return _result(root, enabled(root), changed, runner)
+
+
+def own_volumes(root: Path) -> list[str]:
+    """このコンテナだけのボリューム：型のキャッシュと、ほかの拡張が足したもののうち名前がコンテナの名前で始まるもの
+    （共有のものは残す）。"""
+    owned = [volume for volume, _ in caches(root)]
+    for feature in features():
+        owned += [source for source, _ in feature.volumes(Path(root))
+                  if isinstance(source, str) and source.startswith(name(root) + "-") and source not in owned]
+    return owned
 
 
 def caches(root: Path) -> list[tuple[str, str]]:

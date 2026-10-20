@@ -20,11 +20,19 @@ from ecobuild import config as _config
 from ecobuild import settings as _settings
 from ecobuild_container import docker
 
-from . import status, tokens
+from . import status, team, tokens
 from .errors import from_ecoagent
 
-AGENT_HOME = f"{container.HOME}/.claude"  # 中のエージェントの設定・ログイン（CLAUDE_CONFIG_DIR）
-AGENT_VOLUME = "ecobuild-agent"           # AGENT_HOME に付けるボリューム（すべてのコンテナで共有：ログインは1回）
+AGENT_HOME = f"{container.HOME}/.claude"  # 中のエージェントの設定・会話の記録・記憶（CLAUDE_CONFIG_DIR。コンテナごと）
+AGENT_VOLUME = "ecobuild-agent"           # すべてのコンテナで共有するボリューム：中でログインしたもの（SHARED_HOME に付ける）
+SHARED_HOME = f"{container.HOME}/.ecobuild-agent-shared"
+CREDENTIALS = ".credentials.json"         # 中でログインしたもの（AGENT_HOME から SHARED_HOME のものを指す：ログインは1回）
+
+
+def agent_volume(root: Path) -> str:
+    """作業空間のコンテナのエージェントの設定・会話の記録・記憶のボリューム（コンテナごと。作業役どうし・進行役と
+    混ざらない。名前がコンテナの名前で始まるので、コンテナを消すと一緒に消える）。"""
+    return f"{container.name(root)}-agent"
 MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
 AGENT_FLAGS = {"claude": ("--dangerously-skip-permissions",)}   # 中で確認なしに動かすときに足すもの
 DENY_KEY = "agent_deny"   # このPCの設定（config）と ecobuild.local.toml（この作業空間だけ。このPCの設定に足す）：使わせないもの
@@ -54,10 +62,11 @@ FEATURE = container.Feature(
     "agent",
     packages=("sox", "libsox-fmt-pulse"),   # 音声入力（PulseAudio で録音する。sound を見る）
     environment=(("CLAUDE_CONFIG_DIR", AGENT_HOME),),
-    install=(f"mkdir -p {AGENT_HOME}",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
+    install=(f"mkdir -p {AGENT_HOME} {SHARED_HOME}",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
              "curl -fsSL https://claude.ai/install.sh | bash"),
-    # ログイン（共有）と、中のエージェントが状態を書き出す所（このPCの画面が読む）
-    volumes=lambda root: ((AGENT_VOLUME, AGENT_HOME), (status.directory(container.name(root)), status.INSIDE)),
+    # 設定・会話の記録・記憶（コンテナごと）、中でログインしたもの（共有）、中のエージェントが状態を書き出す所（このPCの画面が読む）
+    volumes=lambda root: ((agent_volume(root), AGENT_HOME), (AGENT_VOLUME, SHARED_HOME),
+                          (status.directory(container.name(root)), status.INSIDE)),
     arguments=sound,
 )
 
@@ -164,9 +173,14 @@ def agent_conversations(root: Path, branch: str, limit: int = 20, runner: docker
 
 def first_run_script() -> str:
     """中のエージェントの設定（AGENT_HOME）に FIRST_RUN を足す python3 のスクリプト（ある値は変えない）。
-    中身は base64 で渡す（WSL を通しても崩れないように）。"""
+    中身は base64 で渡す（WSL を通しても崩れないように）。あわせて：
+    - 中でログインしたもの（CREDENTIALS）は共有の場所（SHARED_HOME）を指す（ログインは1回。トークンを覚えていれば使わない）。
+    - 前は設定を全コンテナで共有していた：この作業空間の会話（ROLES_FILE に覚えた会話）を共有の場所から写す（続きから
+      再開できるように。写すのは初めの1回）。"""
     encoded = base64.b64encode(json.dumps(FIRST_RUN).encode()).decode("ascii")
-    return ("import base64,json,os\n"
+    roles = f"{container.WORKDIR}/{team.ROLES_FILE}"
+    project = "-" + container.WORKDIR.strip("/").replace("/", "-")   # Claude Code の会話の置き場所の名前（/work → -work）
+    return ("import base64,json,os,shutil\n"
             f"want=json.loads(base64.b64decode('{encoded}'))\n"
             "def merge(have,add):\n"
             " for k,v in add.items():\n"
@@ -180,4 +194,17 @@ def first_run_script() -> str:
             " merge(have,add)\n"
             " tmp=path+'.ecobuild'\n"
             " json.dump(have,open(tmp,'w'),indent=2)\n"
-            " os.chmod(tmp,0o600); os.replace(tmp,path)\n")
+            " os.chmod(tmp,0o600); os.replace(tmp,path)\n"
+            f"shared={SHARED_HOME!r}\n"
+            f"link=os.path.join(home,{CREDENTIALS!r})\n"
+            "if os.path.isdir(shared) and not os.path.lexists(link):\n"
+            f" os.symlink(os.path.join(shared,{CREDENTIALS!r}),link)\n"
+            f"old=os.path.join(shared,'projects',{project!r}); new=os.path.join(home,'projects',{project!r})\n"
+            "try: sessions=list(json.load(open(" + repr(roles) + ")))\n"
+            "except Exception: sessions=[]\n"
+            "for s in sessions:\n"
+            " for name in (s+'.jsonl', s):\n"
+            "  src,dst=os.path.join(old,name),os.path.join(new,name)\n"
+            "  if os.path.exists(src) and not os.path.exists(dst):\n"
+            "   os.makedirs(new,exist_ok=True)\n"
+            "   (shutil.copytree if os.path.isdir(src) else shutil.copy2)(src,dst)\n")

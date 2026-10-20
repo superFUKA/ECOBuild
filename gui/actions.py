@@ -98,7 +98,8 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("operator", "オペレーター（裏で動いている ECOBuild の操作係）を、タブで開くか裏に戻します。", "",
            (Param("state", "show（タブで開く）・hide（裏に戻す）", required=True, choices=("show", "hide")),)),
     # 状況を見る（画面のボタンにはないが、エージェントが今の様子を知るために使う）
-    Action("windows", "開いているGUIの窓と、それぞれが今表示しているもの（モジュール・画面・タブ・選んだタスク・作業空間）。",
+    Action("windows", "開いているGUIの窓と、それぞれが今表示しているもの（モジュール・画面・タブ・選んだタスク・作業空間）。"
+                      "前に出た順で、人が今見ている窓（最後に前に出た窓）に looking: true。",
            effect="read"),
     Action("activity", "GUIで最近行われたこと（実行したコマンドと結果・知らせ・画面の移動。誰が行ったか付き）。", "",
            (Param("count", "いくつ（既定 30）", "integer"),), effect="read"),
@@ -140,6 +141,8 @@ def check(name: str, params: dict) -> dict:
 EXAMPLES = (
     ("「ECOSTL を開いて」「ECOSTL の開発環境出して」「エコ STL 見せて」", "ecobuild gui open --module C:/ECO/ECOSTL（場所は ecobuild workspace list で探す）"),
     ("「ハブ出して」「ハブに戻って」", "ecobuild gui open"),
+    ("「これ提出して」「今のタスク」「この画面の」（モジュールの名前を言わない）",
+     "ecobuild gui windows --json の looking: true の窓（module・タスク・作業空間）を対象に。ハブなら直前の会話から"),
     ("「ECOSTL でエージェント起動して」「ECOSTL の AI 開いて」「エコ STL で作業始めて」", "ecobuild gui agent-open --dir C:/ECO/ECOSTL（タスクブランチの作業空間でだけ）"),
     ("「みんな今どうなってる？」「エージェントの様子は？」", "ecobuild gui agents を読み、各タブの状態・最後の返答を1〜2行ずつ"),
     ("「1番に、テストを実行してって送って」", "ecobuild gui agent-send --tab 1 --text \"テストを実行して\"（「送って」「伝えて」と言われたときだけ。文はユーザーの言葉のまま）"),

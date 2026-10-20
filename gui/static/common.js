@@ -610,7 +610,8 @@ const ECO = (() => {
     return Math.random().toString(36).slice(2, 10); })();
   const top = window.top === window;
   // kind: the hub, a module's window, or a tool window (log.html・panel.html: never the place to open the hub or a module).
-  const windowState = {id: windowId, kind: /module\.html$/.test(location.pathname) ? 'module' : /log\.html$/.test(location.pathname) || /panel\.html$/.test(location.pathname) ? 'tool' : 'hub', module: params.get('path') || undefined, title: document.title};
+  const windowState = {id: windowId, kind: /module\.html$/.test(location.pathname) ? 'module' : /log\.html$/.test(location.pathname) || /panel\.html$/.test(location.pathname) ? 'tool' : 'hub', module: params.get('path') || params.get('module') || undefined, title: document.title,
+                       focused_at: top && document.hasFocus() ? Date.now() / 1000 : undefined};
   let stateTimer = null;
   const topState = () => { try { if (!top) return window.top.ECO?.windowState; } catch (e) { /* other origin */ } return windowState; };
   function setState(partial) {
@@ -619,6 +620,8 @@ const ECO = (() => {
     clearTimeout(stateTimer);
     stateTimer = setTimeout(() => call('window-state', {window: windowState}).catch(() => {}), 150);
   }
+  // When the window came to the front (a frame inside it too): the one the person looks at is the latest (ecobuild gui windows)
+  window.addEventListener('focus', () => setState({focused_at: Date.now() / 1000}));
   const changeHandlers = [], navigateHandlers = [];
   const onChange = fn => changeHandlers.push(fn);       // fn(event): something ran elsewhere (refresh what is shown)
   const onNavigate = fn => navigateHandlers.push(fn);   // fn({page, tab, task, command}): go there in this window

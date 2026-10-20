@@ -926,9 +926,13 @@ class App:
             self.events.publish({"type": "notify", "by": by, "message": p["message"], "kind": p.get("kind", "info")})
             return {"windows": len(self.live_windows())}
         if name == "windows":
+            # 前に出た順（最後に前に出た窓が、人が今見ている窓：looking。エージェントの窓は除く）
             now = time.time()
-            return [{k: v for k, v in {**w, "seen_seconds_ago": round(now - w["seen"])}.items() if k != "seen"}
-                    for w in self.live_windows()]
+            shown = sorted(self.live_windows(), key=lambda w: -(w.get("focused_at") or 0))
+            looking = next((w["id"] for w in shown if w.get("kind") != "agents" and w.get("focused_at")), None)
+            return [{k: v for k, v in {**w, "seen_seconds_ago": round(now - w["seen"]),
+                                       **({"looking": True} if w["id"] == looking else {})}.items() if k != "seen"}
+                    for w in shown]
         if name == "agents" or name.startswith("agent-") or name in ("agents-window", "operator"):
             return self._agents(name, p)
         if name == "activity":

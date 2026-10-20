@@ -94,6 +94,19 @@ def test_notify_windows_and_activity(tmp_path):
         app.action("nosuch", {})
 
 
+def test_windows_tell_which_one_is_looked_at(tmp_path):
+    app = make_app(tmp_path)
+    app.see_window({"id": "h1", "kind": "hub", "focused_at": 100})
+    app.see_window({"id": "m1", "kind": "module", "module": "C:/ECO/A", "focused_at": 300})
+    app.see_window({"id": "m2", "kind": "module", "module": "C:/ECO/B", "focused_at": 200})
+    app.see_window({"id": "a1", "kind": "agents", "focused_at": 400})   # the agents' window is never "looked at"
+    listed = app.action("windows", {})
+    assert [w["id"] for w in listed] == ["a1", "m1", "m2", "h1"]
+    assert [w["id"] for w in listed if w.get("looking")] == ["m1"]
+    app.see_window({"id": "m2", "focused_at": 500})   # B came to the front
+    assert [w["id"] for w in app.action("windows", {}) if w.get("looking")] == ["m2"]
+
+
 def test_command_line_words():
     assert ecobuild_gui._parse("open", ["ECOSTL", "--page", "tasks", "--task", "3"]) == {"module": "ECOSTL", "page": "tasks", "task": "3"}
     assert ecobuild_gui._parse("folder", ["C:/x", "--reveal"]) == {"dir": "C:/x", "reveal": True}

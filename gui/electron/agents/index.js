@@ -362,13 +362,14 @@ function poll() {
       if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
     }
   }
-  // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、待機中で入力欄が空のときに1つずつ。同じ置き場所
-  // （同じコンテナ）のタブが複数あれば、新しく開いたほうに
+  // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、入力欄が空のときに1つずつ。作業中でも送る（Claude Code は
+  // 作業中に届いた発言を、返答を止めずに次の区切りで読む：作業中の作業役の仕事を直したいとき、中断させずに伝わる）。
+  // 選択肢・起動中には送らない。同じ置き場所（同じコンテナ）のタブが複数あれば、新しく開いたほうに
   const asked = new Set();
   for (const s of [...sessions].reverse()) {
     if (!s.statusDir || s.kind === 'operator' || s.exited || asked.has(s.statusDir)) continue;
     asked.add(s.statusDir);
-    if (s.state !== 'idle' || s.input || s.recording || s.pendingTitle) continue;
+    if (!['idle', 'thinking', 'waiting'].includes(s.state) || s.input || s.recording || s.pendingTitle) continue;
     const got = status.take(s.statusDir);
     if (got?.text) typeInto(s, got.text);
   }

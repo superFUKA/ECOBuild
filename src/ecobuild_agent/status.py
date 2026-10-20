@@ -10,7 +10,8 @@ running.json（エージェントを動かしているこのPCのプロセス。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
 ほかの端末には何も見えない）。コンテナの中のエージェントは、この置き場所をマウントした所（INSIDE）に書く。
 画面を持つアプリがいない（新しい画面で起動した）ときは、受け箱を届けるのもフック（deliver）：返答が終わったとき
-（Stop。届いたものがあれば続けて読ませる）と、人が発言したとき（UserPromptSubmit。発言に添える）。
+（Stop。届いたものがあれば続けて読ませる）、人が発言したとき（UserPromptSubmit。発言に添える）、作業中に道具を使い
+終えたとき（PostToolUse。返答を止めずに添える）。
 """
 
 from __future__ import annotations
@@ -89,6 +90,10 @@ elif kind == "replied":
     if deliver and (texts := take_all()):   # 届いたものがあれば、返答を終えずに続けて読ませる
         write("prompted.json", {"at": time.time()})
         out({"decision": "block", "reason": "ECOBuild から届きました：\n\n" + "\n\n".join(texts)})
+elif kind == "midturn":   # 道具を使い終えるたび（PostToolUse）：作業中でも、届いたものを返答を止めずに添える
+    if deliver and (texts := take_all()):
+        out({"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                    "additionalContext": "ECOBuild から届きました（作業中に届いたもの）：\n\n" + "\n\n".join(texts)}})
 elif kind == "prompt":
     write("prompted.json", {"at": time.time()})
     if deliver and (texts := take_all()):   # 人の発言に添える
@@ -235,6 +240,9 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied{deliver}"}]}]
     hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),   # 作業中か（と、アプリがいなければ受け箱を届ける）
                                  {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
+    if not app:   # アプリがいなければ、作業中に届いたものも道具を使い終えるたびに届ける
+        hooks["PostToolUse"] = [*hooks.get("PostToolUse", []),
+                                {"hooks": [{"type": "command", "command": f"{script} midturn{deliver}"}]}]
     if lead_area:
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
                                {"matcher": "Edit|Write|MultiEdit|NotebookEdit",

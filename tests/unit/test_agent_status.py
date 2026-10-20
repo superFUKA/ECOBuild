@@ -33,12 +33,20 @@ def test_without_an_app_the_hooks_deliver_the_inbox(tmp_path, monkeypatch):
     added = json.loads(hook(folder, "prompt", "deliver"))["hookSpecificOutput"]
     assert added["hookEventName"] == "UserPromptSubmit" and added["additionalContext"].endswith("言付け")
 
+    assert settings["hooks"]["PostToolUse"][0]["hooks"][0]["command"].endswith("midturn deliver")
+    assert hook(folder, "midturn", "deliver") == ""                                      # 届いていなければ何もしない
+    status.put(folder, "ボタンは左に変更")
+    added = json.loads(hook(folder, "midturn", "deliver"))["hookSpecificOutput"]         # 作業中でも届く
+    assert added["hookEventName"] == "PostToolUse" and added["additionalContext"].endswith("ボタンは左に変更")
+    assert status.take(folder) is None
+
 
 def test_with_an_app_the_app_delivers(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     folder = status.prepare("box", tmp_path)
     settings = json.loads(status.claude_settings(folder.as_posix(), "python"))
     assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].endswith(" prompt")   # 作業中かを見るだけ
+    assert "PostToolUse" not in settings["hooks"]                                       # 届けるのはアプリ
     assert settings["voice"]["mode"] == "hold"
     status.put(folder, "言付け")
     assert hook(folder, "replied") == "" and hook(folder, "prompt") == ""

@@ -1,5 +1,5 @@
 'use strict';
-// ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, each with the
+// 管理 › ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, each with the
 // submissions coming into it; the chosen one on the right: the branch (where it comes from, its own submission, the
 // task branches made from it) and its submissions — looked at (status, CI, reviews, diff) and handled (checked here,
 // approved, sent back, finished, withdrawn; a branch's submission is merged). Every command runs in the module's folder
@@ -136,7 +136,7 @@
     tools.append(look, act); box.append(tools);
   }
   function render() {
-    if (el('branches-content').hidden) return;
+    if (el('manage-content').hidden) return;
     if (!st.loaded) { el('br-main').innerHTML = ECO.loading(); return; }
     renderSide(); renderMain();
   }
@@ -197,7 +197,7 @@
     }
   }
 
-  const section = el('branches-content');
+  const section = el('manage-content');
   section.addEventListener('click', e => {
     const tab = e.target.closest('[data-br]');
     if (tab) { st.selected = tab.dataset.br; st.item = null; st.status = null; render(); return; }
@@ -240,6 +240,6 @@
       st.selected = v.name; render();
     }}));
 
-  pageHooks.branches = () => { if (!st.loaded) { render(); load(); } else render(); };
+  pageHooks.manage = () => { if (!st.loaded) { render(); load(); } else render(); };
   ECO.onChange(() => { if (st.loaded) { st.status = null; if (!section.hidden) load(); else st.loaded = false; } });
 })();

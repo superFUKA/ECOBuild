@@ -544,7 +544,7 @@ const ECO = (() => {
   const taskOutcome = complete => complete ? CLOSE_TEXT : KEEP_TEXT;
   const setTaskOutcome = (formEl, complete) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = taskOutcome(complete); };
   const submitOutcome = (base, {submitted = false, complete = true} = {}) => outcome([['PR', submitted ? '出している提出に、Push したコミットが加わります' : `${into(base)}へ出します（Push してから）`],
-    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「ブランチ」かタスク管理の「取り込む」）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
+    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「管理」の「ブランチ」かタスク管理の「取り込む」）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
   // The take-in dialog (task finish on an open submission), the same wherever it is: resolves to the CLI's arguments
   // after the number, or null. partial: the submission's (the default of 閉じずに続ける).
   async function finishForm({number, base, partial = false}) {

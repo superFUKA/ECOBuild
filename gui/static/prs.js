@@ -32,7 +32,7 @@ function renderPrDetail() {
   tools.replaceChildren();
   // The commits going into the submission (not in the base yet), like the counts of the other tabs.
   WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr ? t.commits?.length || 0 : 0);
-  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「ブランチ」で見られます。</p>'; return; }
+  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「管理」の「ブランチ」で見られます。</p>'; return; }
   if (!t || t.number !== selectedPr) return;
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;
   const s = WS.status || {}, reviewing = !!s.reviewing && s.reviewing_task === t.number, own = me ? t.assignees.includes(me) : !reviewing;

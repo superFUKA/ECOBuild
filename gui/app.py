@@ -1133,8 +1133,8 @@ class App:
 
 def _hash(where: dict) -> str:
     """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
-    page = where.get("page") or ("modinfo" if where.get("tab") else "tasks" if where.get("task") else
-                                 "help" if where.get("command") else "")
+    page = where.get("page") or ("manage" if where.get("tab") == "branches" else "modinfo" if where.get("tab") else
+                                 "tasks" if where.get("task") else "help" if where.get("command") else "")
     if not page:
         return ""
     extra = where.get("tab") if page == "modinfo" else str(where.get("task")) if page == "tasks" and where.get("task") else \

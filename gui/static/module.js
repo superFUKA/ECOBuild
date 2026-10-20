@@ -13,9 +13,12 @@ document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'branches', 'modinfo', 'settings', 'help'];
+const PAGES = ['workspace', 'tasks', 'manage', 'modinfo', 'settings', 'help'];
+// 管理 was the page ブランチ (now its tab): the old name still leads there.
+const pageOf = page => page === 'branches' ? 'manage' : page;
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
 function showModulePage(page) {
+  page = pageOf(page);
   ECO.setState({page});
   for (const key of PAGES) {
     mEl(key + '-content').hidden = key !== page;
@@ -23,13 +26,20 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
+// The tabs of 管理 (ブランチ, …): the chosen one's panel and its buttons (data-manage-for) show.
+document.getElementById('manage-tabs').addEventListener('click', e => {
+  const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (!view) return;
+  for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
+  for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
+  for (const p of document.querySelectorAll('#manage-content [data-manage-for]')) p.hidden = p.dataset.manageFor !== view;
+});
 // The tabs of 設定 (the others of a tab are モジュール's).
 const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  // The tab 「ブランチ」 of モジュール is a page of its own now (ブランチ): --tab branches still leads there.
-  const target = page || (tab ? (tab === 'branches' ? 'branches' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
+  // The tab 「ブランチ」 (once モジュール's) is 管理's: --tab branches leads there.
+  const target = page || (tab ? (tab === 'branches' ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
   if (tab && tab !== 'branches') window.MODINFO_SHOW?.(tab);
   if (task) window.TASKS_SELECT?.(Number(task));
@@ -42,7 +52,7 @@ ECO.onChange(e => {
   pageHooks.changed?.();
 });
 // module.html?…#modinfo・#tasks opens that page (after the pages' scripts are loaded); #modinfo/projects etc. that tab too.
-const hashPage = location.hash.slice(1).split('/')[0];
+const hashPage = pageOf(location.hash.slice(1).split('/')[0]);
 if (PAGES.includes(hashPage)) window.addEventListener('load', () => {
   showModulePage(hashPage);
   const task = hashPage === 'tasks' && Number(location.hash.split('/')[1]);
@@ -57,7 +67,7 @@ const ORDERED = PAGES.filter(key => key !== 'settings' && key !== 'help'), navBo
 for (const key of ORDERED) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
 try {
   const saved = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || '[]');
-  for (const key of saved) if (ORDERED.includes(key)) nav.insertBefore(mEl(key + '-menu'), navBottom);
+  for (const key of saved.map(pageOf)) if (ORDERED.includes(key)) nav.insertBefore(mEl(key + '-menu'), navBottom);
 } catch (e) { /* storage blocked or broken */ }
 let draggedNav = null;
 nav.addEventListener('dragstart', e => { draggedNav = e.target.closest('[data-nav]'); if (!draggedNav) return; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', draggedNav.dataset.nav); draggedNav.classList.add('dragging'); });

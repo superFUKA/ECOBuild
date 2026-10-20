@@ -450,3 +450,12 @@ def test_children_of_the_serve_do_not_inherit_the_apps_pipe(tmp_path):
     finally:
         process.stdin.close()
     assert process.stdout.read().strip() == "0"
+
+
+def test_the_serve_runs_a_type_command_only_for_that_type(lead):
+    """返答のたびの project update（C++ の型のコマンド）を、ほかの型のモジュールでは実行しない（ログにエラーを残さない）。"""
+    from ecobuild_cli.commands.agent import serve as serve_command
+    assert not serve_command.type_has(["project", "update"], lead.root)                 # generic の型
+    assert serve_command.type_has(["agent", "team", "list"], lead.root)                 # 型のコマンドでないもの
+    doc = serve_command.run(["project", "update"], lead.root)
+    assert not doc["ok"] and "型のコマンドではありません" in doc["error"]["message"]

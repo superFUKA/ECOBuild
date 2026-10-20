@@ -89,6 +89,17 @@ def detach_stdin():
     return replies
 
 
+def type_has(args: list[str], cwd: Path) -> bool:
+    """args が型のコマンドなら、cwd のモジュールの型が持っているか（型のコマンドでなければ True）。"""
+    from ... import _types
+    route = tuple(a for a in args[:2] if not a.startswith("-"))
+    owners = [name for name, routes in _types.all_routes().items() if route in routes]
+    if not owners:
+        return True
+    found = _types.package(_types.current(cwd))
+    return found is not None and route in _types.routes(found)
+
+
 PROGRAM = (sys.executable, "-m", "ecobuild_cli")   # 係が頼みを実行する ECOBuild（この ECOBuild と同じもの）
 STOP_GRACE = 8          # 係を止めるとき、実行中の頼みが終わるのを待つ秒数（アプリは止めてからこれより長く待つ）
 _running: set[int] = set()   # 実行中の ecobuild（係を止めるときに残さない）
@@ -99,6 +110,8 @@ def run(args: list[str], cwd: Path, progress=None, stall: float | None = None) -
     （窓の中・コンテナの中の印は渡さない）。標準入力は渡さない：係は起動したアプリの返事を読み続けており、Windows では
     読みかけのパイプを引き継いだ Python が起動の途中で止まる（作業役が作られず、頼んだ側が待ち続けた）。
     progress(line)：コマンドの経過（標準エラーの1行ずつ）。stall：経過がこの秒数出なければ、止まったとみなして止める。"""
+    if not type_has(args, cwd):   # 型のコマンドを、その型でないモジュールで実行しない（返答のたびの project update 等）
+        return agent_serve.failed(f"{' '.join(args[:2])} はこのモジュールの型のコマンドではありません。")
     env = {key: value for key, value in os.environ.items() if key not in (team.WINDOW_VARIABLE, container.INSIDE)}
     env["PYTHONIOENCODING"] = "utf-8"
     args = [*args, *([] if "--json" in args else ["--json"])]

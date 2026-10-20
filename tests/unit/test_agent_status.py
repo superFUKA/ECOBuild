@@ -38,6 +38,41 @@ def test_with_an_app_the_app_delivers(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     folder = status.prepare("box", tmp_path)
     settings = json.loads(status.claude_settings(folder.as_posix(), "python"))
-    assert "UserPromptSubmit" not in settings["hooks"] and settings["voice"]["mode"] == "hold"
+    assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].endswith(" prompt")   # 作業中かを見るだけ
+    assert settings["voice"]["mode"] == "hold"
     status.put(folder, "言付け")
-    assert hook(folder, "replied") == "" and status.take(folder)["text"] == "言付け"     # フックは取らない
+    assert hook(folder, "replied") == "" and hook(folder, "prompt") == ""
+    assert status.take(folder)["text"] == "言付け"                                     # フックは取らない
+
+
+def test_the_activity_tells_working_idle_and_stopped(tmp_path, monkeypatch):
+    """様子：動かしているプロセスが生きていて、発言を受け取ったのが返答の終わりより新しければ作業中。"""
+    import os
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    folder = status.prepare("box", tmp_path)
+    assert status.activity(folder)["state"] == status.STOPPED                          # 起動していない
+    status.started(folder, os.getpid())
+    assert status.activity(folder)["state"] == status.WORKING                          # 起動して最初の仕事
+    hook(folder, "replied", data={"last_assistant_message": "できました。\n  確かめました"})
+    seen = status.activity(folder)
+    assert seen["state"] == status.IDLE and seen["last_reply"] == "できました。 確かめました"
+    hook(folder, "prompt")
+    status.put(folder, "言付け")
+    seen = status.activity(folder)
+    assert seen["state"] == status.WORKING and seen["waiting"] == 1
+
+    status.ended(folder, os.getpid() + 1)                                              # ほかのプロセスの終わりでは消さない
+    assert status.activity(folder)["state"] == status.WORKING
+    status.ended(folder, os.getpid())
+    assert status.activity(folder)["state"] == status.UNKNOWN                          # 記録はないが動いた跡がある
+    status.started(folder, 2 ** 22 + 12345)                                            # 動いていないプロセス
+    assert status.activity(folder)["state"] == status.STOPPED and not status.alive(2 ** 22 + 12345)
+
+
+def test_stop_stops_the_process_and_its_children(tmp_path):
+    child = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
+    process = subprocess.Popen([sys.executable, "-c", child], start_new_session=True)
+    assert status.alive(process.pid)
+    status.stop(process.pid)
+    process.wait(10)
+    assert not status.alive(process.pid)

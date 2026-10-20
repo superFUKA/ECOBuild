@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import ecoagent
@@ -62,6 +63,7 @@ class AgentModule:
         else:
             session = inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
                                          source=source, progress=progress)
+        status.started(folder, session.pid)   # 動いているか・止める（team の様子・起動し直す）
         return AgentStarted(session.pid, session.command, session.directory)
 
     def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None,
@@ -73,18 +75,23 @@ class AgentModule:
         task = self.require_task_branch("エージェントの起動")
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
+        folder = None
         if command[:1] == ("claude",):
             folder = status.prepare(container.name(self.root), self.root)
             status.announce(folder)
             command = (*command, "--settings", self._status_settings(folder, boxed, app=True))
             command = self._briefed(command, folder, boxed, task, role)
-        if boxed:
-            return inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
-                                      source=source, progress=progress, here=True)
+            status.started(folder, os.getpid())   # このプロセスが終わるまでエージェントが動いている
         try:
+            if boxed:
+                return inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
+                                          source=source, progress=progress, here=True)
             return ecoagent.run(self.root, command)
         except ecoagent.AgentError as error:
             raise from_ecoagent(error) from error
+        finally:
+            if folder is not None:
+                status.ended(folder, os.getpid())
 
     @staticmethod
     def _status_settings(folder: Path, boxed: bool, *, app: bool) -> str:

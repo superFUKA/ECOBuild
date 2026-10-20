@@ -13,7 +13,7 @@ def run(inv, args: list[str], direct):
     結果はどちらも JSON にできる形（dict）。"""
     if not _team.should_forward():
         return to_data(direct(inv))
-    doc = _team.forward(inv.module.root, [*args, "--json"], inv.cwd)
+    doc = _team.forward(inv.module.root, [*args, "--json"], inv.cwd, progress=inv.info)
     if not doc.get("ok"):
         error = doc.get("error") or {}
         raise EcoBuildError(error.get("code") or ErrorCode.AGENT_ERROR, error.get("message") or "係での実行に失敗しました。",

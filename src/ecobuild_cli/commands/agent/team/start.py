@@ -31,7 +31,8 @@ def command(name: Annotated[str, "作業役の名前（子タスクの題名・�
         return _forward.run(inv, args, lambda inv: _create(inv, text))
 
     def _create(inv, text):
-        member = _team.create(inv.module, name, text, role=_team.LEAD if lead else _team.WORKER, model=model)
+        member = _team.create(inv.module, name, text, role=_team.LEAD if lead else _team.WORKER, model=model,
+                              progress=inv.info)
         if no_open:
             return member
         from ...._module import Module

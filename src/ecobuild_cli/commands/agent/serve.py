@@ -3,12 +3,14 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Annotated
 
 import click
 import ecobuild_container as container
 from ecobuild_agent import serve as agent_serve
+from ecobuild_agent import status as agent_status
 from ecobuild_agent import team
 
 from ..._output import Invocation, execute
@@ -44,9 +46,11 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                 acks.setdefault(str(key), threading.Event()).set()
         stop.set()
 
-    def open_agent(path: Path, role: str, prompt: str) -> None:
+    def open_agent(path: Path, role: str, prompt: str, agent: str = "") -> None:
         from ..._module import Module
-        Module.find(path).start_agent(source=source(), progress=log, role=role, prompt=prompt)
+        options = {"source": source(), "progress": log, "role": role, "prompt": prompt}
+        module = Module.find(path)
+        module.start_agent(agent.split(), **options) if agent.strip() else module.start_agent(**options)
 
     def log(message: str) -> None:
         click.echo(message, err=True)
@@ -68,21 +72,53 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
     return execute("agent serve", Invocation(json_output=json), action, lambda r: "ECOBuild の係を止めました。")
 
 
-def run(args: list[str], cwd: Path) -> dict:
+PROGRAM = (sys.executable, "-m", "ecobuild_cli")   # 係が頼みを実行する ECOBuild（この ECOBuild と同じもの）
+
+
+def run(args: list[str], cwd: Path, progress=None, stall: float | None = None) -> dict:
     """この ECOBuild のコマンドを cwd で実行し、その JSON の結果を返す。頼みとしてではなく、このPCで直接実行する
     （窓の中・コンテナの中の印は渡さない）。標準入力は渡さない：係は起動したアプリの返事を読み続けており、Windows では
-    読みかけのパイプを引き継いだ Python が起動の途中で止まる（作業役が作られず、頼んだ側が待ち続けた）。"""
+    読みかけのパイプを引き継いだ Python が起動の途中で止まる（作業役が作られず、頼んだ側が待ち続けた）。
+    progress(line)：コマンドの経過（標準エラーの1行ずつ）。stall：経過がこの秒数出なければ、止まったとみなして止める。"""
     env = {key: value for key, value in os.environ.items() if key not in (team.WINDOW_VARIABLE, container.INSIDE)}
     env["PYTHONIOENCODING"] = "utf-8"
     args = [*args, *([] if "--json" in args else ["--json"])]
     try:
-        done = subprocess.run([sys.executable, "-m", "ecobuild_cli", "-C", str(cwd), *args], capture_output=True,
-                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace", env=env, timeout=team.REQUEST_TIMEOUT,
-                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except (OSError, subprocess.TimeoutExpired) as error:
+        process = subprocess.Popen([*PROGRAM, "-C", str(cwd), *args], stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+                                   env=env, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                                   start_new_session=os.name != "nt")
+    except OSError as error:
         return agent_serve.failed(f"ecobuild を実行できませんでした：{error}")
-    lines = [line for line in (done.stdout or "").splitlines() if line.strip()]
+    out, err, last = [], [], [time.monotonic()]
+
+    def read_err() -> None:
+        for line in process.stderr:
+            err.append(line)
+            last[0] = time.monotonic()
+            if progress is not None and line.strip():
+                progress(line.strip())
+    readers = [threading.Thread(target=lambda: out.extend(process.stdout), daemon=True),
+               threading.Thread(target=read_err, daemon=True)]
+    for reader in readers:
+        reader.start()
+    started, stopped = time.monotonic(), ""
+    while process.poll() is None:
+        now = time.monotonic()
+        if stall is not None and now - last[0] > stall:
+            stopped = f"ecobuild が {int(stall)} 秒、何も進めませんでした（止まっていました）。止めました。"
+        elif now - started > team.REQUEST_TIMEOUT:
+            stopped = f"ecobuild が {team.REQUEST_TIMEOUT} 秒で終わりませんでした。止めました。"
+        if stopped:
+            agent_status.stop(process.pid)
+            process.wait()
+            return agent_serve.failed(stopped, hint="agent team list で、途中までできたもの（子タスク・作業空間）がないか"
+                                                    "確かめてから、やり直してください。")
+        time.sleep(0.2)
+    for reader in readers:
+        reader.join(5)
+    lines = [line for line in "".join(out).splitlines() if line.strip()]
     try:
         return _json.loads(lines[-1])
     except (IndexError, ValueError):
-        return agent_serve.failed((done.stderr or "ecobuild の結果を読めませんでした。").strip()[-2000:])
+        return agent_serve.failed(("".join(err) or "ecobuild の結果を読めませんでした。").strip()[-2000:])

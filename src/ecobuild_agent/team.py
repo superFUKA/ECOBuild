@@ -19,6 +19,10 @@ ECOBuild の係（agent_serve。GUI が起動する）が実行して結果を�
 
 言付け（send）と、作業役の返答が終わった知らせ（lead_notice）は、相手のエージェントの受け箱（agent_status.put）に入れる。
 届けるのはエージェントを動かしている側（GUI の窓等）。
+
+進行役はチームの様子（作業中・待機中・止まっている。team）を見て、止まった・迷った作業役を起動し直せる（restart_plan。
+作業空間・ブランチ・作業はそのまま。新しい会話か、続きから）。頼みの途中経過は係が書き（PROGRESS）、頼んだ側は
+それを見ながら待つ（係が止まれば、すぐに分かる）。
 """
 
 from __future__ import annotations
@@ -50,10 +54,20 @@ LEAD_DENIED_TOOLS = ("Edit", "Write", "NotebookEdit")   # 進行役には使わ�
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
+STALL_SECONDS = 120                 # 頼みを実行する ecobuild が、この秒数なにも経過を出さなければ止まったとみなす（係が止める）
+PROGRESS = ".progress.json"         # 頼みの置き場所の中：<id>.progress.json（係が書く途中経過。係が動いている間は毎秒）
+SERVE_SILENT = 30                   # 途中経過がこの秒数書かれなければ、係が止まったとみなす
 FIRST_PROMPT = {
     WORKER: f"{BRIEF_FILE} に任された仕事があります。読んで作業を始めてください。終わったら {REPORT_FILE} に報告を書き、提出してください。",
     LEAD: f"{BRIEF_FILE} に任された部分があります。読んで計画を立て、作業役に任せて進めてください。",
 }
+RESTART_PROMPT = {   # 起動し直した（新しい会話）ときの最初の発言
+    WORKER: f"進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE} の任された仕事を読み、{REPORT_FILE}・"
+            "git の状態・コミットの履歴から、どこまで進んでいるかを確かめてから続けてください。",
+    LEAD: f"上の進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE}・{PLAN_FILE}・チームの様子"
+          "（agent team list）から、どこまで進んでいるかを確かめてから続けてください。",
+}
+RESUME_PROMPT = "進行役があなたを起動し直しました（この会話の続きです）。止まっていたところから続けてください。"
 
 
 @dataclass(frozen=True)
@@ -67,8 +81,14 @@ class Member:
     model: str = ""
     lead: str = ""              # 作った進行役の作業空間（このPCの場所）
     reported: bool = False      # 報告（REPORT_FILE）がある
-    prompt: str = ""            # 起動するときの最初の発言（作ったときだけ）
+    prompt: str = ""            # 起動するときの最初の発言（作ったとき・起動し直すときだけ）
     opened: bool = False        # 新しい画面で起動した（係・GUI が開くときは False）
+    agent: str = ""             # 起動するコマンド（起動し直すときだけ。続きからなら claude --resume <会話>）
+    state: str = ""             # 様子（agent_status.activity：working・idle・stopped・unknown）
+    since: float | None = None  # その様子になった時刻
+    last_reply: str = ""        # 最後の返答の頭
+    context: float | None = None   # コンテキストの使用率
+    waiting: int = 0            # 受け箱にあって、まだ届いていないもの（言付け等）
 
 
 @dataclass(frozen=True)
@@ -159,7 +179,8 @@ def agent_options(root: Path, role: str, command: tuple[str, ...]) -> tuple[str,
     return (*command, *extra)
 
 
-def create(module, name: str, brief: str, *, role: str = WORKER, model: str = "") -> Member:
+def create(module, name: str, brief: str, *, role: str = WORKER, model: str = "",
+           progress=lambda message: None) -> Member:
     """進行役の作業空間 module に、チームの1人を作る：子タスク（題名 name・本文 brief）と、そのタスクブランチを置いた
     作業空間（TEAM_AREA/<番号>-<名前>）。任された仕事・記録を作業空間の .ecobuild/ai に置く。起動はしない。"""
     from ecobuild import workspaces as _workspaces
@@ -175,9 +196,12 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
                             hint="目的・返してほしいもの・使ってよい道具・範囲（やらないこと）を書いてください。")
     lead_task = module.require_task_branch(f"{ROLE_NAMES[role]}の作成")
     module.prepare_agent_area()   # 進行役の側の git に、作業空間の置き場所を見せない（除外）
-    task =module.repository.create_task(name, body=brief, parent=lead_task.number)
+    progress(f"子タスク「{name}」を作っています…")
+    task = module.repository.create_task(name, body=brief, parent=lead_task.number)
     directory = module.root / TEAM_AREA / f"{task.number}-{label}"
+    progress(f"子タスク #{task.number} の作業空間を用意しています（clone・依存先）…")
     member_module = module.start_task_in(task.number, directory, name=label)
+    progress("作業空間ができました。任せる仕事を置いています…")
     _workspaces.record_quietly(member_module.root)
     _inherit_container(module.root, member_module.root)
     member_module.prepare_agent_area()
@@ -214,10 +238,53 @@ def team(root: Path) -> Team:
             branch = Git(folder).current_branch() or ""
         except Exception:   # 壊れた clone 等。場所だけ出す
             branch = ""
+        seen = agent_status.activity(inbox_of(folder))
         found.append(Member(str(info.get("name", folder.name)), str(info.get("role", WORKER)), folder,
                             int(info.get("task") or 0), branch, str(info.get("model") or ""), str(info.get("lead") or ""),
-                            (folder / REPORT_FILE).is_file()))
+                            (folder / REPORT_FILE).is_file(), state=seen["state"], since=seen["since"],
+                            last_reply=seen["last_reply"], context=seen["context"], waiting=seen["waiting"]))
     return Team(Path(root), tuple(found))
+
+
+def restart_plan(root: Path, name: str, *, resume: bool = False) -> Member:
+    """チームの1人（name）を起動し直すときの起動のしかた（作業空間・ブランチ・作業はそのまま。止めるのは呼ぶ側）。
+    resume：前の会話の続きから（Claude Code の --resume。会話が分からなければ止める）。そうでなければ新しい会話で、
+    どこまで進んだかを確かめてから続けさせる。"""
+    member = find(root, name)
+    if not resume:
+        return Member(**{**member.__dict__, "prompt": RESTART_PROMPT.get(member.role, RESTART_PROMPT[WORKER])})
+    info = agent_status.read(inbox_of(member.path) / "status.json")
+    session = info.get("session") if isinstance(info, dict) else None
+    if not session:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"「{member.name}」の前の会話が分かりません。",
+                            hint="--resume なしで、新しい会話で起動し直してください（作業空間の作業はそのままです）。")
+    return Member(**{**member.__dict__, "prompt": RESUME_PROMPT, "agent": f"claude --resume {session}"})
+
+
+def describe_activity(member: dict, now: float | None = None) -> str:
+    """様子の1行（team list の表示）：作業中（12分）・待機中・止まっている、と届いていない言付け・コンテキスト。"""
+    now = time.time() if now is None else now
+    state = member.get("state") or ""
+    text = agent_status.STATE_NAMES.get(state, "")
+    if not text:
+        return ""
+    since = member.get("since")
+    if isinstance(since, (int, float)) and state in (agent_status.WORKING, agent_status.IDLE):
+        text += f"（{_duration(now - since)}）"
+    if member.get("waiting"):
+        text += f"  届いていない言付け {member['waiting']}"
+    if isinstance(member.get("context"), (int, float)):
+        text += f"  コンテキスト {round(member['context'])}%"
+    return text
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds}秒"
+    if seconds < 3600:
+        return f"{seconds // 60}分"
+    return f"{seconds // 3600}時間{seconds % 3600 // 60}分"
 
 
 def find(root: Path, name: str) -> Member:
@@ -249,7 +316,13 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "**同じファイルを2人に任せません**（持ち場を分ける）。依存し合う仕事は順に任せます。",
             "4. 任せたら**作業役を待ちます**（自分で作業を始めない）。作業役の返答が終わると、ECOBuild がこの会話に知らせます。",
             f"5. 結果は作業役の作業空間 `{TEAM_AREA}/<番号>-<名前>/` から読みます（報告は `{REPORT_FILE}`）。"
-            f"`{program} agent team list` で一覧・報告の有無が分かります。",
+            f"`{program} agent team list` で一覧・報告の有無と、作業役の様子（作業中・待機中・止まっている、その長さ、"
+            "最後の返答）が分かります。",
+            "   知らせが長く来ないときは様子を見ます。止まっている・同じ作業中が長すぎる・最後の返答で迷っている作業役は、"
+            f"send で伝えるか、`{program} agent team restart <名前>` で起動し直します（作業空間・作業はそのまま。既定は新しい会話で、"
+            "どこまで進んだかを確かめてから続けます。`--resume` で前の会話の続きから）。",
+            "   チームの操作（start・close・restart 等）が「止まっていました」「係が止まりました」で失敗したら、"
+            f"`{program} agent team list` で途中までできたものを確かめ、同じことを繰り返さずにユーザーに伝えます。",
             f"6. 取り込むときは、作業役の提出（このタスクブランチへの PR）を `{program} task diff <番号>` 等で確かめ、"
             f"`{program} task finish <番号>` で取り込みます（直してほしければ send で伝え、作業役がもう一度提出します）。"
             f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます。",
@@ -328,9 +401,10 @@ def requests_folder(root: Path) -> Path:
 
 
 def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_TIMEOUT,
-            wait=time.sleep) -> dict:
+            wait=time.sleep, progress=lambda message: None) -> dict:
     """このPCの係（agent_serve）に ecobuild のコマンド（args。cwd：root の中の場所）を実行してもらい、その JSON の結果
-    （{ok, result|error}）を返す。係が動いていなければ（拾われなければ）止める。"""
+    （{ok, result|error}）を返す。係が動いていなければ（拾われなければ）止める。待つ間、係の途中経過を progress に渡し、
+    途中経過が途切れたら（係が止まった）止める。"""
     folder = requests_folder(root)
     folder.mkdir(parents=True, exist_ok=True)
     key = uuid.uuid4().hex
@@ -344,8 +418,18 @@ def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_
                          encoding="utf-8")
     os.replace(temporary, request)
     result = folder / f"{key}.result.json"
-    started = time.monotonic()
+    report = folder / f"{key}{PROGRESS}"
+    started, told = time.monotonic(), None
     while time.monotonic() - started < timeout:
+        seen = agent_status.read(report)
+        if isinstance(seen, dict) and not result.is_file():
+            if seen.get("doing") and seen["doing"] != told:
+                told = seen["doing"]
+                progress(f"係：{told}")
+            if isinstance(seen.get("at"), (int, float)) and time.time() - seen["at"] > SERVE_SILENT:
+                raise EcoBuildError(ErrorCode.AGENT_ERROR, "ECOBuild の係（agent serve）が、頼みの途中で止まりました。",
+                                    hint="GUI が閉じたか、係が終わったようです。GUI を起動し直してから、agent team list で"
+                                         "途中までできたものを確かめ、やり直してください。")
         if result.is_file():
             try:
                 doc = json.loads(result.read_text(encoding="utf-8"))

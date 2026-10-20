@@ -161,7 +161,7 @@ def test_the_serve_answers_requests_and_tells_the_lead(lead):
     agent_status.prepare(container.name(member.path), member.path)
     events, ran = [], []
 
-    def run(args, cwd):
+    def run(args, cwd, **_):
         ran.append((args, cwd))
         if args[:3] == ["agent", "team", "start"]:
             return {"ok": True, "result": {"path": str(member.path), "name": "画面", "role": "worker", "prompt": "読んで"}}
@@ -212,7 +212,7 @@ def test_a_long_request_does_not_keep_others_waiting(lead):
                agent_status.prepare(container.name(member.path), member.path)]
     release, ran = threading.Event(), []
 
-    def run(args, cwd):
+    def run(args, cwd, **_):
         ran.append(args[3])
         if args[3] == "a":
             assert release.wait(10)
@@ -238,11 +238,11 @@ def test_a_long_request_does_not_keep_others_waiting(lead):
 
 def test_without_an_app_the_serve_opens_the_worker_itself(lead):
     opened = []
-    serve = agent_serve.Serve(lambda args, cwd: {"ok": True, "result": {"path": "/w", "name": "x", "role": "worker",
-                                                                       "prompt": "p"}},
-                              open_agent=lambda path, role, prompt: opened.append((path, role, prompt)))
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {"path": "/w", "name": "x", "role": "worker",
+                                                                            "prompt": "p"}},
+                              open_agent=lambda path, role, prompt, agent: opened.append((path, role, prompt, agent)))
     doc = serve.handle(lead.root, {"id": "a", "args": ["agent", "team", "start", "x"], "cwd": "."})
-    assert doc["result"]["opened"] and opened == [(Path("/w"), "worker", "p")]
+    assert doc["result"]["opened"] and opened == [(Path("/w"), "worker", "p", "")]
 
 
 def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):
@@ -288,3 +288,91 @@ def test_a_resumed_conversation_keeps_its_role(lead, monkeypatch):
     assert lead._role("", ("claude", "--continue"), False, None, None) == team.LEAD          # いちばん新しい会話の役
     resumed = lead._for_role(("claude", "--resume", session), team.LEAD, "")
     assert "--session-id" not in resumed                                         # 続きからは ID を決めない
+
+
+def test_the_team_shows_how_each_member_is_doing(lead):
+    """team list：作業役の様子（作業中・待機中・止まっている）と最後の返答。"""
+    import os
+    member = team.create(lead, "画面", "目的：画面を作る")
+    assert team.find(lead.root, "画面").state == agent_status.STOPPED
+    folder = agent_status.prepare(container.name(member.path), member.path)
+    (folder / agent_status.RUNNING).write_text(json.dumps({"pid": os.getpid(), "at": time.time() - 600}), encoding="utf-8")
+    (folder / "replied.json").write_text(json.dumps({"at": time.time() - 125, "message": "ボタンの位置で迷っています"}),
+                                         encoding="utf-8")
+    found = team.find(lead.root, "画面")
+    assert found.state == agent_status.IDLE and found.last_reply == "ボタンの位置で迷っています"
+    assert team.describe_activity(found.__dict__).startswith("待機中（2分）")
+
+
+def test_restarting_keeps_the_work_and_starts_a_new_or_the_same_conversation(lead):
+    member = team.create(lead, "画面", "目的：画面を作る")
+    plan = team.restart_plan(lead.root, "画面")
+    assert plan.path == member.path and plan.prompt == team.RESTART_PROMPT[team.WORKER] and not plan.agent
+    assert code_of(lambda: team.restart_plan(lead.root, "画面", resume=True)) == ErrorCode.INVALID_ARGUMENT  # 会話が分からない
+    folder = agent_status.prepare(container.name(member.path), member.path)
+    (folder / "status.json").write_text(json.dumps({"session": "s-1"}), encoding="utf-8")
+    plan = team.restart_plan(lead.root, "画面", resume=True)
+    assert plan.agent == "claude --resume s-1" and plan.prompt == team.RESUME_PROMPT
+
+
+def test_the_serve_restarts_a_member_and_reports_progress(lead):
+    """係：起動し直す頼みは、止めてもらってから起動のしかたを聞き、起動を頼む。実行中は途中経過を書き、終われば消す。"""
+    member = team.create(lead, "画面", "目的：画面を作る")
+    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    events, seen = [], []
+    requests = folder / team.REQUESTS
+    requests.mkdir()
+
+    def run(args, cwd, progress=None, stall=None):
+        assert stall == team.STALL_SECONDS
+        progress("起動のしかたを調べています…")
+        seen.append(json.loads((requests / f"r{team.PROGRESS}").read_text(encoding="utf-8")))
+        return {"ok": True, "result": {"path": str(member.path), "name": "画面", "role": "worker", "prompt": "続けて",
+                                       "agent": "claude --resume s-1", "args": args}}
+
+    serve = agent_serve.Serve(run, emit=events.append, ack=lambda key, timeout: True)
+    (requests / "r.json").write_text(json.dumps({"id": "r", "args": ["agent", "team", "restart", "画面", "--resume",
+                                                                     "--json"], "cwd": "."}), encoding="utf-8")
+    serve.step()
+    serve.wait()
+    result = json.loads((requests / "r.result.json").read_text(encoding="utf-8"))
+    assert result["ok"] and result["result"]["args"][-1] == "--no-open"                # 起動は係が頼む
+    assert [e["event"] for e in events] == ["agent-stop", "agent-start"] and events[1]["agent"] == "claude --resume s-1"
+    assert seen[0]["doing"] == "起動のしかたを調べています…" and seen[0]["at"] >= seen[0]["since"]
+    assert not (requests / f"r{team.PROGRESS}").exists()                               # 終わったら消す
+
+
+def test_waiting_shows_the_serves_progress_and_stops_when_the_serve_is_gone(lead, monkeypatch):
+    monkeypatch.setenv(team.WINDOW_VARIABLE, "1")
+    folder = team.requests_folder(lead.root)
+    told = []
+
+    def serve(answer):
+        def wait(seconds):   # 係のふり：拾って途中経過を書き、answer なら結果も
+            for request in folder.glob("*.json"):
+                if request.name.endswith((".result.json", team.PROGRESS)):
+                    continue
+                key = request.stem
+                request.rename(request.with_suffix(".taken"))
+                at = time.time() if answer else time.time() - team.SERVE_SILENT - 5
+                (folder / f"{key}{team.PROGRESS}").write_text(json.dumps({"doing": "clone しています", "at": at}),
+                                                             encoding="utf-8")
+                if answer:
+                    (folder / f"{key}.result.json").write_text(json.dumps({"ok": True, "result": {}}), encoding="utf-8")
+        return wait
+    assert team.forward(lead.root, ["agent", "team", "list"], lead.root, wait=serve(True), progress=told.append)["ok"]
+    assert code_of(lambda: team.forward(lead.root, ["agent", "team", "list"], lead.root, wait=serve(False),
+                                        progress=told.append)) == ErrorCode.AGENT_ERROR   # 係の印が途切れた
+    assert told and told[-1] == "係：clone しています"
+
+
+def test_the_serve_stops_a_command_that_makes_no_progress(tmp_path, monkeypatch):
+    """係の実行した ecobuild が経過を出さなくなったら、止めて失敗を返す（頼んだ側を待たせ続けない）。"""
+    from ecobuild_cli.commands.agent import serve as serve_command
+    quiet = "import sys, time; print('始めました', file=sys.stderr, flush=True); time.sleep(60)"
+    monkeypatch.setattr(serve_command, "PROGRAM", (sys.executable, "-c", quiet))
+    lines = []
+    started = time.monotonic()
+    doc = serve_command.run(["agent", "team", "list"], tmp_path, progress=lines.append, stall=2)
+    assert not doc["ok"] and "止まっていました" in doc["error"]["message"] and lines == ["始めました"]
+    assert time.monotonic() - started < 30

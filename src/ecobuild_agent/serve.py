@@ -1,13 +1,15 @@
 """ECOBuild の係（このPCで常駐する）：エージェントの間の取り次ぎを、画面を持つアプリから切り離して本体で行う。
 
 - 頼み（team.REQUESTS）：コンテナの中・GUI の窓の中の進行役が書いたチームの操作（agent team …）を、このPCで実行して
-  結果を書き戻す（team.forward が待っている）。
+  結果を書き戻す（team.forward が待っている）。拾ってから結果を書くまで、途中経過（team.PROGRESS）を毎秒書く
+  （頼んだ側は、係が動いているか・何をしているかを見ながら待つ）。
 - 進行役への知らせ：作業役の返答が終わったら（Stop フックの replied.json）、進行役の受け箱に入れる（team.lead_notice）。
 - 返答が終わったら、作業空間の型に手元をそろえさせる（project update。C++ では Visual Studio の構成。ほかの型は何もしない）。
 
 エージェントを動かしているのは係ではなく、係を起動した側（GUI の窓等）。作業役を起動する・閉じる前に止める、は出来事
 （emit）としてその側に頼む（止めるときは返事 ack を待つ）。起動した側がいなければ（端末から起動した）、作業役は
-新しい画面で起動する（open_agent）。受け箱のものを届けるのも、エージェントを動かしている側。
+新しい画面で起動し（open_agent）、止めるときはそのプロセスを止める（agent_status.running_pid）。受け箱のものを
+届けるのも、エージェントを動かしている側。
 
 ECOBuild のコマンドは run で実行する（使う側が渡す：プログラム名を本体に書かない）。
 """
@@ -30,11 +32,11 @@ from . import status as agent_status
 from . import team
 from .errors import ErrorCode
 
-TEAM_COMMANDS = ("start", "close", "send", "list")
+TEAM_COMMANDS = ("start", "close", "send", "list", "restart")
 LOCK = Path("agents") / "serve.lock"   # ECOBUILD_HOME の下：係はこのPCに1つ
 STOP_TIMEOUT = 30                       # 作業役を止めてもらう返事を待つ秒数
 
-Run = Callable[[list[str], Path], dict]
+Run = Callable[..., dict]   # run(args, cwd, progress=None, stall=None)
 
 
 def failed(message: str, hint: str | None = None) -> dict:
@@ -44,9 +46,11 @@ def failed(message: str, hint: str | None = None) -> dict:
 class Serve:
     """係の1回分の見回り（step）と、その状態（返答の終わりを見た時刻）。
 
-    run(args, cwd)：ECOBuild のコマンドを cwd で実行し、その JSON の結果（{ok, result|error}）を返す。
+    run(args, cwd, progress=None, stall=None)：ECOBuild のコマンドを cwd で実行し、その JSON の結果（{ok, result|error}）を
+    返す。progress(line)：コマンドの経過（人向けの1行）。stall：経過がこの秒数出なければ止まったとみなして止める。
     emit(event)：起動した側への出来事（None なら起動した側はいない）。ack(key, timeout)：その返事を待つ（届いたか）。
-    open_agent(path, role, prompt)：起動した側がいないときに、作業役を新しい画面で起動する。
+    open_agent(path, role, prompt, agent)：起動した側がいないときに、作業役を新しい画面で起動する（agent：起動する
+    コマンド。空なら既定）。
     log(message)：したことを人に知らせる。
 
     見回りは待たない：頼みはすぐに受け取り（拾った印 .taken。頼んだ側は拾われたかで係がいるかを見る）、実行は裏で行う。
@@ -55,7 +59,7 @@ class Serve:
 
     def __init__(self, run: Run, *, emit: Callable[[dict], None] | None = None,
                  ack: Callable[[str, float], bool] = lambda key, timeout: True,
-                 open_agent: Callable[[Path, str, str], None] | None = None,
+                 open_agent: Callable[[Path, str, str, str], None] | None = None,
                  log: Callable[[str], None] = lambda message: None, background: bool = True):
         self.run, self.emit, self.ack, self.open_agent, self.log = run, emit, ack, open_agent, log
         self.background = background
@@ -65,8 +69,10 @@ class Serve:
         self._busy: set[Path] = set()
         self._guard = threading.Lock()
         self._threads: list[threading.Thread] = []
+        self._progress: dict[Path, dict] = {}   # 拾って結果をまだ書いていない頼みの途中経過（ファイル → 中身）
 
     def step(self) -> None:
+        self._beat()
         for folder in agent_status.folders():
             root = agent_status.workspace_of(folder)
             self._requests(folder, root)
@@ -113,6 +119,33 @@ class Serve:
         except Exception as error:   # 1つの失敗で係を止めない
             self.log(f"係の仕事に失敗しました：{error}")
 
+    # ---- 途中経過 ----------------------------------------------------------------------------------------
+    def _report(self, file: Path, doing: str | None = None, *, done: bool = False) -> None:
+        """頼みの途中経過（file）を書く（doing：していること）。done：結果を書いたので消す。"""
+        with self._guard:
+            if done:
+                self._progress.pop(file, None)
+            else:
+                entry = self._progress.setdefault(file, {"doing": "", "since": time.time()})
+                if doing:
+                    entry["doing"] = doing
+                entry["at"] = time.time()
+                data = dict(entry)
+        if done:
+            file.unlink(missing_ok=True)
+            return
+        try:
+            agent_status._write(file, data)
+        except OSError:
+            pass
+
+    def _beat(self) -> None:
+        """実行中の頼みの途中経過に、係が動いている印（時刻）を書く。"""
+        with self._guard:
+            files = list(self._progress)
+        for file in files:
+            self._report(file)
+
     # ---- 頼み -------------------------------------------------------------------------------------------
     def _requests(self, folder: Path, root: Path | None) -> None:
         inbox = folder / team.REQUESTS
@@ -124,16 +157,19 @@ class Serve:
                 os.replace(file, taken)       # 拾った（頼んだ側に係がいると分かる）。ほかが拾ったものは飛ばす
             except OSError:
                 continue
+            self._report(inbox / f"{file.stem}{team.PROGRESS}", "順番を待っています（同じ作業空間の前の頼みを実行中）")
             self._later(folder, lambda taken=taken: self._answer(inbox, taken, root))
 
     def _answer(self, inbox: Path, taken: Path, root: Path | None) -> None:
         """拾った頼み1つを実行して、結果を書き戻す。"""
         request = agent_status.read(taken)
+        report = inbox / f"{taken.stem}{team.PROGRESS}"
         if not isinstance(request, dict) or not request.get("id"):
             taken.unlink(missing_ok=True)
+            self._report(report, done=True)
             return
         try:
-            doc = self.handle(root, request)
+            doc = self.handle(root, request, progress=lambda line: self._report(report, line))
         except Exception as error:   # 頼んだ側を待たせたままにしない
             doc = failed(f"係が頼みを実行できませんでした：{error}")
         result = inbox / f"{request['id']}.result.json"
@@ -144,9 +180,10 @@ class Serve:
         except OSError:
             pass   # 書けなければ、頼んだ側が待ちきれずに止まる
         taken.unlink(missing_ok=True)
+        self._report(report, done=True)
 
-    def handle(self, root: Path | None, request: dict) -> dict:
-        """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。"""
+    def handle(self, root: Path | None, request: dict, progress: Callable[[str], None] = lambda line: None) -> dict:
+        """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。"""
         args = [str(a) for a in request.get("args") or []]
         if args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS:
             return failed(f"この頼みは受け付けません：ecobuild {' '.join(args)}")
@@ -155,16 +192,22 @@ class Serve:
         cwd = (root / str(request.get("cwd") or ".")).resolve()
         if not cwd.is_relative_to(root.resolve()):
             return failed("作業空間の外では実行しません。")
-        self.log(f"頼み：ecobuild {' '.join(a for a in args if a != '--json')}（{root}）")
-        if args[2] == "close" and len(args) > 3:
+        shown = " ".join(a if len(a) <= 40 else a[:40] + "…" for a in args if a != "--json")
+        self.log(f"頼み：ecobuild {shown}（{root}）")
+        progress(f"実行しています：ecobuild {shown}")
+        if args[2] in ("close", "restart") and len(args) > 3:
             try:
                 member = team.find(root, args[3])
             except EcoBuildError as error:
                 return {"ok": False, "result": None,
                         "error": {"code": error.code, "message": error.message, "hint": error.hint}}
-            self._stop(member.path)   # 使っているフォルダーは消せない
-        doc = self.run(args, cwd)
-        if args[2] == "start" and doc.get("ok") and (doc.get("result") or {}).get("path"):
+            progress(f"「{member.name}」のエージェントを止めています…")
+            self._stop(member.path)   # 使っているフォルダーは消せない・起動し直す前に止める
+            if args[2] == "restart" and "--no-open" not in args:
+                args = [*args, "--no-open"]   # 起動は係が（タブで開いてもらう）
+        doc = self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
+        if args[2] in ("start", "restart") and doc.get("ok") and (doc.get("result") or {}).get("path"):
+            progress("エージェントを起動しています…")
             doc = {**doc, "result": self._start(doc["result"], root)}
         return doc
 
@@ -172,17 +215,21 @@ class Serve:
         """作った作業役を起動する：起動した側に頼む（タブで開く）か、いなければ新しい画面で。"""
         path = Path(member["path"])
         if self.emit is not None:
-            self.emit({"event": "agent-start", "path": str(path), "name": member.get("name", ""),
-                       "role": member.get("role", team.WORKER), "prompt": member.get("prompt", ""), "lead": str(lead)})
+            event = {"event": "agent-start", "path": str(path), "name": member.get("name", ""),
+                     "role": member.get("role", team.WORKER), "prompt": member.get("prompt", ""), "lead": str(lead)}
+            self.emit({**event, "agent": member["agent"]} if member.get("agent") else event)
             return member
         if self.open_agent is not None:
-            self.open_agent(path, member.get("role", team.WORKER), member.get("prompt", ""))
+            self.open_agent(path, member.get("role", team.WORKER), member.get("prompt", ""), member.get("agent", ""))
             return {**member, "opened": True}
         return member
 
     def _stop(self, path: Path) -> None:
-        """作業空間 path のエージェントを止めてもらう（起動した側がいなければ何もしない）。"""
+        """作業空間 path のエージェントを止めてもらう（起動した側がいなければ、動かしているプロセスを止める）。"""
         if self.emit is None:
+            pid = agent_status.running_pid(team.inbox_of(path))
+            if pid is not None:
+                agent_status.stop(pid)
             return
         key = uuid.uuid4().hex
         self.emit({"event": "agent-stop", "key": key, "path": str(path)})

@@ -4,7 +4,9 @@
 小さなスクリプト（REPORT）が、作業空間ごとの置き場所（ECOBUILD_HOME/agents/status/<コンテナの名前>）に書き出す：
 - status.json：モデル・コンテキストの使用率・使用量の制限（5時間・週）・会話の ID（statusLine が受け取るもの）
 - replied.json：返答が終わった時刻と、最後の返答の文（Stop フック）
-ECOBuild が書くもの：workspace.json（どの作業空間か）、inbox/（エージェントに届けるもの。put・take）。
+- prompted.json：発言を受け取った時刻（UserPromptSubmit フック。返答の終わりより新しければ作業中）
+ECOBuild が書くもの：workspace.json（どの作業空間か）、inbox/（エージェントに届けるもの。put・take）、
+running.json（エージェントを動かしているこのPCのプロセス。止まっているかを見る・止める）。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
 ほかの端末には何も見えない）。コンテナの中のエージェントは、この置き場所をマウントした所（INSIDE）に書く。
 画面を持つアプリがいない（新しい画面で起動した）ときは、受け箱を届けるのもフック（deliver）：返答が終わったとき
@@ -73,8 +75,10 @@ if kind == "replied":
     message = data.get("last_assistant_message")
     write("replied.json", {"at": time.time(), "message": message if isinstance(message, str) else None})
     if deliver and (texts := take_all()):   # 届いたものがあれば、返答を終えずに続けて読ませる
+        write("prompted.json", {"at": time.time()})
         out({"decision": "block", "reason": "ECOBuild から届きました：\n\n" + "\n\n".join(texts)})
 elif kind == "prompt":
+    write("prompted.json", {"at": time.time()})
     if deliver and (texts := take_all()):   # 人の発言に添える
         out({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                     "additionalContext": "ECOBuild から届いていたもの：\n\n" + "\n\n".join(texts)}})
@@ -106,7 +110,7 @@ def prepare(name: str, root: Path | None = None) -> Path:
     root：作業空間の場所（記録する）。"""
     folder = directory(name)
     folder.mkdir(parents=True, exist_ok=True)
-    for old in ("status.json", "replied.json"):
+    for old in ("status.json", "replied.json", "prompted.json"):
         (folder / old).unlink(missing_ok=True)
     (folder / SCRIPT).write_text(REPORT, encoding="utf-8", newline="\n")
     if root is not None:
@@ -140,12 +144,17 @@ def _write(file: Path, value) -> None:
     os.replace(temporary, file)
 
 
+_last_put = 0
+
+
 def put(folder: Path, text: str, sender: str = "") -> Path:
     """エージェント（置き場所 folder）の受け箱に入れる。届けるのはエージェントを動かしている側（GUI の窓等）：
     待機中で入力欄が空のときに、古いものから1つずつ入力欄に送る。"""
+    global _last_put
     inbox = Path(folder) / INBOX
     inbox.mkdir(parents=True, exist_ok=True)
-    file = inbox / f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.json"
+    _last_put = max(time.time_ns(), _last_put + 1)   # 続けて入れたものの順を保つ（Windows の時計は刻みが粗い）
+    file = inbox / f"{_last_put:020d}-{uuid.uuid4().hex[:8]}.json"
     _write(file, {"at": time.time(), "from": sender, "text": text})
     return file
 
@@ -211,9 +220,8 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     settings["statusLine"] = {"type": "command", "command": f"{script} statusline", "padding": 0}
     hooks = settings.setdefault("hooks", {})
     hooks["Stop"] = [*hooks.get("Stop", []), {"hooks": [{"type": "command", "command": f"{script} replied{deliver}"}]}]
-    if not app:
-        hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),
-                                     {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
+    hooks["UserPromptSubmit"] = [*hooks.get("UserPromptSubmit", []),   # 作業中か（と、アプリがいなければ受け箱を届ける）
+                                 {"hooks": [{"type": "command", "command": f"{script} prompt{deliver}"}]}]
     return json.dumps(settings, ensure_ascii=False)
 
 
@@ -234,3 +242,93 @@ def announce(folder: Path) -> None:
     if sys.stdout.isatty():
         sys.stdout.write(MARK.format(folder.as_posix()))
         sys.stdout.flush()
+
+
+# ---- 動いているか・様子 ----------------------------------------------------------------------------------------
+RUNNING = "running.json"   # 置き場所の中：エージェントを動かしているこのPCのプロセス（pid）と起動した時刻
+WORKING, IDLE, STOPPED, UNKNOWN = "working", "idle", "stopped", "unknown"
+STATE_NAMES = {WORKING: "作業中", IDLE: "待機中", STOPPED: "止まっている", UNKNOWN: "不明"}
+
+
+def started(folder: Path, pid: int) -> None:
+    """エージェントを動かすプロセス pid を覚える（起動したとき）。"""
+    _write(Path(folder) / RUNNING, {"pid": pid, "at": time.time()})
+
+
+def ended(folder: Path, pid: int) -> None:
+    """プロセス pid が終わった（同じ置き場所を新しく起動したものが覚えていれば消さない）。"""
+    data = read(Path(folder) / RUNNING)
+    if isinstance(data, dict) and data.get("pid") == pid:
+        (Path(folder) / RUNNING).unlink(missing_ok=True)
+
+
+def alive(pid: int) -> bool:
+    """このPCのプロセス pid が動いているか。"""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stop(pid: int) -> None:
+    """プロセス pid を、その子（エージェント・コンテナの中への exec）ごと止める。"""
+    import signal
+    import subprocess
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+
+def running_pid(folder: Path) -> int | None:
+    """置き場所のエージェントを動かしているプロセス（動いていなければ None）。"""
+    data = read(Path(folder) / RUNNING)
+    pid = data.get("pid") if isinstance(data, dict) else None
+    return pid if isinstance(pid, int) and alive(pid) else None
+
+
+def activity(folder: Path) -> dict:
+    """置き場所のエージェントの様子：state（作業中・待機中・止まっている・不明）、since（その様子になった時刻）、
+    last_reply（最後の返答の頭）、replied_at、context（コンテキストの使用率）、waiting（受け箱に届いていないもの）。"""
+    folder = Path(folder)
+    running, replied, prompted, info = (read(folder / name) for name in (RUNNING, "replied.json", "prompted.json",
+                                                                          "status.json"))
+    running, replied, prompted, info = (x if isinstance(x, dict) else {} for x in (running, replied, prompted, info))
+    started_at, replied_at, prompted_at = (x.get("at") if isinstance(x.get("at"), (int, float)) else None
+                                           for x in (running, replied, prompted))
+    if not running:
+        state, since = (UNKNOWN, None) if info or replied else (STOPPED, None)   # 記録のない起動（前の ECOBuild）
+    elif running_pid(folder) is None:
+        state, since = STOPPED, None
+    else:
+        began = max(x for x in (started_at, prompted_at) if x is not None) if (started_at or prompted_at) else None
+        working = replied_at is None or (began is not None and began > replied_at)
+        state, since = (WORKING, began) if working else (IDLE, replied_at)
+    message = replied.get("message") if isinstance(replied.get("message"), str) else ""
+    inbox = folder / INBOX
+    return {"state": state, "since": since, "replied_at": replied_at, "last_reply": " ".join(message.split())[:300],
+            "context": info.get("context") if isinstance(info.get("context"), (int, float)) else None,
+            "waiting": len(list(inbox.glob("*.json"))) if inbox.is_dir() else 0}

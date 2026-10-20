@@ -439,7 +439,9 @@ function onServeEvent(event) {
     // 進行役が作った作業役：進行役のタブの窓のタブとして開く（下の進行役なら新しい窓）。同じ作業空間の進行役のタブが
     // 複数あれば（再開して2つある等）、新しく開いたほうの窓に
     const leader = [...sessions].reverse().find(x => x.kind !== 'operator' && !x.exited && x.dir && sameDir(x.dir, event.lead));
-    openSession({dir: event.path, name: event.name, title: true, role: event.role, prompt: event.prompt, lead: leader?.id ?? null});
+    // agent：起動し直す（team restart --resume）ときの起動のコマンド（claude --resume <会話>）
+    openSession({dir: event.path, name: event.name, title: true, role: event.role, prompt: event.prompt, agent: event.agent || '',
+                 lead: leader?.id ?? null});
     if (leader) {
       select(leader.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
       if (leader.owner) { if (leader.owner.mini) restoreWindow(leader.owner); else bringToFront(leader.owner); }

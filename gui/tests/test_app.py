@@ -388,6 +388,7 @@ def test_reading_the_account_and_the_protection_changes_nothing():
     assert gui._read_only(["module", "protect", "--show"])
     assert not gui._read_only(["module", "protect", "--approvals", "1"]) and not gui._read_only(["module", "protect", "--off"])
     assert gui._hash({"tab": "members"}) == "#manage/members" and gui._hash({"tab": "projects"}) == "#modinfo/projects"
+    assert gui._hash({"tab": "branches"}) == "#branches" and gui._hash({"page": "branches"}) == "#branches"
 
 
 def test_asking_the_operator_does_not_hold_the_others():

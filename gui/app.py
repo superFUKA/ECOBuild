@@ -1138,12 +1138,12 @@ class App:
                                                     "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
 
 
-MANAGE_TABS = ("branches", "members", "ci")   # 「管理」の画面のタブ（ほかのタブは「モジュール」・「設定」）
+MANAGE_TABS = ("members", "ci")   # 「管理」の画面のタブ（branches は「ブランチ」の画面。ほかのタブは「モジュール」・「設定」）
 
 
 def _hash(where: dict) -> str:
     """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
-    page = where.get("page") or ("manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
+    page = where.get("page") or ("branches" if where.get("tab") == "branches" else "manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
                                  "tasks" if where.get("task") else "help" if where.get("command") else "")
     if not page:
         return ""

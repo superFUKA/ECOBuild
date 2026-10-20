@@ -1,6 +1,7 @@
 """入口（-C・--json の用法エラー）と、このPCの設定（本体の settings）・準備（ecobuild_bundle.tooling）。"""
 
 import json
+import os
 
 import pytest
 
@@ -92,6 +93,10 @@ def test_bundle_adds_cpp_tools():
     assert {"owner", "cmake", "ctest"} <= set(ecobuild_bundle.config_keys())
 
 
+# このOSで setup が使う導入コマンド（Windows は winget、Linux は apt-get）
+INSTALL = tooling.INSTALL["nt" if os.name == "nt" else "posix"]
+
+
 class Answers(tooling.Questions):
     """決めておいた答え（質問の文の一部 → 答え）。聞かれた質問を覚える。"""
 
@@ -132,9 +137,9 @@ def machine(tmp_path, monkeypatch):
 
     def run_interactive(args):
         calls["interactive"].append(args)
-        if "Git.Git" in args:
+        if args == INSTALL["git"]:
             state["git"] = True
-        elif "GitHub.cli" in args:
+        elif args == INSTALL["gh"]:
             state["gh"] = True
         elif args[:3] == ["gh", "auth", "login"]:
             state["login"] = state["scope"] = True
@@ -178,7 +183,7 @@ def test_initialize_asks_and_fixes_everything(machine):
     assert report.home == (tmp_path / "new").resolve() and report.remaining == ()
     assert (tmp_path / "new" / "config.toml").is_file()                     # 前の設定を写した
     assert calls["environment"] == [("ECOBUILD_HOME", str((tmp_path / "new").resolve()))]
-    assert [c[3] for c in calls["interactive"][:2]] == ["Git.Git", "GitHub.cli"]
+    assert calls["interactive"][:2] == [INSTALL["git"], INSTALL["gh"]]
     assert calls["interactive"][2][:3] == ["gh", "auth", "login"] and "project" in calls["interactive"][2]
     assert state["setup-git"] and calls["identity"] == [("fuka", "7+fuka@users.noreply.github.com")]
     assert settings.load_config() == {}                                      # 所有者は空にした
@@ -187,7 +192,7 @@ def test_initialize_asks_and_fixes_everything(machine):
 
 def test_initialize_keeps_what_is_declined(machine):
     state, calls, tmp_path = machine
-    answers = Answers({"GitHub.cli": False, "既定の所有者": "my-org"})
+    answers = Answers({" ".join(INSTALL["gh"]): False, "既定の所有者": "my-org"})
     report = tooling.initialize(answers)
     assert report.home == tmp_path / "old" and calls["environment"] == []   # 置き場所は今のまま
     assert "gh の導入" in report.skipped and not any(a.startswith("GitHub にログイン") for a in answers.asked)

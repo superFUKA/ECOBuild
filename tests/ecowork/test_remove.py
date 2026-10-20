@@ -100,7 +100,9 @@ def test_another_clone_resumes_with_recorded_base(repository, remote_and_clone, 
 def test_start_leaves_nothing_when_push_fails(repository, remote_and_clone):
     remote, _ = remote_and_clone
     task = repository.create_task("GitHubに置けない")
-    (remote / "hooks" / "pre-receive").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+    hook = remote / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8", newline="\n")
+    hook.chmod(0o755)                               # Linux の git は実行権限のないフックを無視する
     with pytest.raises(WorkError):
         task.start()
     assert not repository.git.has_local_branch("task/1") and repository.git.current_branch() == "main"

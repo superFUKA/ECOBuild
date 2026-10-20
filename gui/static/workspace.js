@@ -56,6 +56,40 @@ WS.refresh = async ({fetch = false} = {}) => {
   WS.notifyParent();
 };
 
+// The GitHub account this workspace works as (account show / account use): bound to the workspace (an AI's account
+// etc.: its ecobuild, git push and the agent in its container work as it, the commits' author too) or gh's active one.
+let wsAccess = null;
+async function loadAccount() {
+  wsAccess = await ECO.access(WS.dir);
+  const button = get('account-button'); if (!button) return;
+  const bound = wsAccess?.workspace_account;
+  button.classList.toggle('on', !!bound);
+  get('account-label').textContent = wsAccess ? wsAccess.login : '?';
+  button.dataset.tip = !wsAccess ? 'アカウントを読めませんでした' : bound
+    ? `この作業空間は ${bound} として動きます（push・提出・コミットの作者・コンテナの中のエージェント。役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}）`
+    : `この作業空間は gh の使用中のアカウント ${wsAccess.login} で動きます（役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}）`;
+}
+async function useAccount(account) {
+  const doc = await WS.run(['account', 'use', ...(account ? [account] : ['--clear'])],
+    {success: account ? `この作業空間を ${account} として動かします。` : '結び付けを外しました（gh の使用中のアカウントで動きます）。'});
+  if (doc) await loadAccount();
+}
+get('account-button')?.addEventListener('click', async () => {
+  const r = get('account-button').getBoundingClientRect();
+  const doc = await ECO.cli(null, ['account', 'list'], {quiet: true}), accounts = doc.ok ? doc.result : [];
+  const bound = wsAccess?.workspace_account || '';
+  ECO.menu([
+    [bound ? `この作業空間のアカウント：${bound}` : `gh の使用中のアカウント：${wsAccess?.login || '?'}`, null],
+    '-',
+    ...accounts.filter(a => a.login !== bound).map(a => [`${a.login} として動かす${a.active ? '（gh の使用中）' : ''}`, () => useAccount(a.login)]),
+    ['ほかのアカウント…', () => ECO.form({title: 'この作業空間のアカウント', intro: 'この作業空間の ecobuild・push・提出・コンテナの中のエージェントを、そのアカウントとして動かします（コミットの作者も）。この作業空間だけの設定で、コミットしません。先にそのアカウントで gh auth login しておきます（使用中のアカウントは gh auth switch で戻せます）。',
+      fields: [{name: 'account', label: 'GitHub のアカウント', required: true, placeholder: '例：my-ai-account'}], ok: '結び付ける',
+      submit: v => useAccount(v.account.trim())})],
+    ...(bound ? ['-', ['結び付けを外す（gh の使用中のアカウントに戻す）', () => useAccount(null)]] : []),
+  ], r.left, r.bottom + 4);
+});
+loadAccount();
+
 function renderHeader() {
   const s = WS.status;
   const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;

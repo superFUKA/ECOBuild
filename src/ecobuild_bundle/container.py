@@ -39,6 +39,7 @@ from ecobuild import config as _config
 from ecobuild import settings as _settings
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode, WorkError, operation
+from ecowork.repository import ACCOUNT_KEY
 
 from . import docker
 
@@ -444,15 +445,19 @@ def configure(root: Path, *, image: str | None = None, deny: tuple[str, ...] | N
 
 # 中で動かす -------------------------------------------------------------------------------------
 
-def credentials() -> dict[str, str]:
-    """中へ渡す環境変数：このPCの GitHub の鍵（gh auth token）と git の名前・メール（なければ渡さない）。"""
+def credentials(root: Path | None = None) -> dict[str, str]:
+    """中へ渡す環境変数：このPCの GitHub の鍵（gh auth token）と git の名前・メール（なければ渡さない）。
+    作業空間 root にアカウントを結び付けていれば（ecowork.account。AI 用のアカウント等）、そのアカウントの鍵と、
+    その clone の名前・メール。"""
     values = {}
-    token = os.environ.get("GH_TOKEN") or _output(["gh", "auth", "token"])
+    account = _output(["git", "-C", str(root), "config", "--local", "--get", ACCOUNT_KEY]) if root is not None else ""
+    token = _output(["gh", "auth", "token", "--user", account]) if account else \
+        os.environ.get("GH_TOKEN") or _output(["gh", "auth", "token"])
     if token:
         values["GH_TOKEN"] = token
     for key, names in (("user.name", ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME")),
                        ("user.email", ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"))):
-        value = _output(["git", "config", "--global", "--get", key])
+        value = _output(["git", "-C", str(root), "config", "--get", key] if account else ["git", "config", "--global", "--get", key])
         if value:
             values.update(dict.fromkeys(names, value))
     return values
@@ -489,7 +494,7 @@ def run_inside(root: Path, args: list[str], *, cwd: Path, command: str = "", sou
     ほかは流す（標準エラーはいつも流す）。コンテナは動かしてから。"""
     start(root, command=command, source=source, progress=progress)
     prefix = _docker(None, command)
-    values = credentials()
+    values = credentials(root)
     tty = not capture and sys.stdin.isatty() and sys.stdout.isatty()
     argv = exec_command(root, prefix, args, tuple(values), directory=inside_path(root, cwd), tty=tty)
     done = subprocess.run(argv, env=environment(prefix, values), stdout=subprocess.PIPE if capture else None,
@@ -550,7 +555,7 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
     _run(None, [*prefix, "exec", name(root), "python3", "-c", first_run_script()], "エージェントの初めての設定を書けませんでした")
     if agent:
         agent = (*agent, *(flag for flag in AGENT_FLAGS.get(agent[0], ()) if flag not in agent))
-    values = credentials()
+    values = credentials(root)
     if token := load_token():
         values[TOKEN_VARIABLE] = token
     return exec_command(root, prefix, agent, tuple(values), tty=tty), environment(prefix, values)

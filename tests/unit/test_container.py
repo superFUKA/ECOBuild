@@ -186,7 +186,7 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     fake = FakeDocker(monkeypatch)
     monkeypatch.setattr(container, "_docker", lambda runner, command: ("docker",))
     monkeypatch.setattr(container.docker, "run", fake.run)
-    monkeypatch.setattr(container, "credentials", lambda: {"GH_TOKEN": "secret"})
+    monkeypatch.setattr(container, "credentials", lambda root=None: {"GH_TOKEN": "secret"})
     container.save_token("sk-ant-oat01-abc")
     started = []
     monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))

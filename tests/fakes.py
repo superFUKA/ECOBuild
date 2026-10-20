@@ -116,7 +116,7 @@ class FakeGitHub:
         return result
 
     def current_user(self, repo):
-        return self.owner
+        return getattr(self, "account_used", None) or self.owner   # 作業空間に結び付けたアカウント（with_account）
 
     # 役割・共同作業者・ブランチの保護
     def access(self, repo):
@@ -125,6 +125,14 @@ class FakeGitHub:
 
     def branch_creators(self, repo):
         return dict(self.branch_creators_)
+
+    def with_account(self, account):
+        """作業空間に結び付けたアカウント（試験では同じ偽物のまま、使ったアカウントだけを覚える）。"""
+        self.account_used = account
+        return self
+
+    def identity(self, repo):
+        return (getattr(self, "account_used", None) or self.owner), 1000, ""
 
     def members(self, repo):
         from ecowork.github import Member

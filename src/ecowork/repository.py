@@ -26,7 +26,7 @@ from ._history import History
 from ._ci import Ci
 from ._completion import Completion
 from ._members import Members
-from ._access import Permissions
+from ._access import ACCOUNT_KEY, Permissions
 from ._sync import Syncing
 from ._shared import _REVIEW_KEY, _github_name
 
@@ -82,6 +82,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
                                         command=command, legacy_board=legacy_board)
         self.tracker.work_states = self._current_work_states
         self.git = _git.Git(self.root, command=command)
+        self._use_bound_account()
 
     @property
     def github(self) -> _github.GitHub:
@@ -292,24 +293,43 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
 
     # タスクとタスクブランチ ---------------------------------------------------------
 
-    def clone_to(self, directory: Path | str, *, open: Callable[[Path], "Repository"] | None = None) -> "Repository":
+    def clone_to(self, directory: Path | str, *, open: Callable[[Path], "Repository"] | None = None,
+                 account: str | None = None) -> "Repository":
         """このリポジトリ（origin）を directory へもう1つcloneする（新しい作業空間。ブランチは既定のまま）。
 
         open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
         省略するとフックなし。この Repository のフックは元のcloneに結び付いているため、clone先には渡さない。
+        account：新しい作業空間を、そのアカウントとして動かす（use_account）。
         """
         target, url = self._new_clone(directory)
-        return self._clone_into(target, url, open)
+        if account and hasattr(self.github, "with_account"):
+            self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
+        other = self._clone_into(target, url, open)
+        if account:
+            other.use_account(account)
+        return other
 
     def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
                           open: Callable[[Path], "Repository"] | None = None,
-                          ignore_blocked: bool = False, take_over: bool = False) -> "Repository":
-        """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。open は clone_to と同じ。"""
+                          ignore_blocked: bool = False, take_over: bool = False,
+                          account: str | None = None) -> "Repository":
+        """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。open・account は
+        clone_to と同じ（account なら、そのアカウントとしてタスクを始める：担当者もそのアカウント）。"""
         target, url = self._new_clone(directory)
-        self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
-        self.tracker.check_assignee(number, take_over=take_over)
+        task = self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
+        if account is None:
+            self.tracker.check_assignee(number, take_over=take_over)
+        elif task.assignees and account not in task.assignees and not take_over:
+            raise WorkError(ErrorCode.ASSIGNED_TO_OTHER, f"#{number} は {', '.join(task.assignees)} が担当しています。",
+                            hint="重ねて作業しないよう、担当者と相談してください。引き継ぐなら --take-over。",
+                            details=list(task.assignees))
+        if account and hasattr(self.github, "with_account"):
+            self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
         other = self._clone_into(target, url, open)
-        other.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked)
+        if account:
+            other.use_account(account)
+        other.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked,
+                                 **({"take_over": True} if account and take_over else {}))
         return other
 
     def _new_clone(self, directory: Path | str) -> tuple[Path, str]:

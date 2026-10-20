@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ecobuild import workspaces as _workspaces
-from ..._output import run_command
+from ..._output import run_command, usage_error
 
 
 def command(
@@ -9,6 +9,7 @@ def command(
     name: Annotated[str, "タスクブランチの名前（task/<番号>-<名前>。新しく作るときは必須。日本語も使えます。例：ログイン画面）"] = "",
     base: Annotated[str, "作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親のタスクブランチに決まる）"] = "",
     dir: Annotated[str, "このディレクトリに新しい作業空間（clone）を作り、そこにタスクブランチを置く（並行作業用。例：../Calc-7）"] = "",
+    account: Annotated[str, "--dir の新しい作業空間で使う GitHub のアカウント（AI 用のアカウント等。担当者もそのアカウント）"] = "",
     ignore_blocked: Annotated[bool, "先に終わるべきタスクが開いていても始める"] = False,
     no_branch: Annotated[bool, "タスクブランチを作らずに作業中にする（調査・設計等、コードを変えないタスク）"] = False,
     take_over: Annotated[bool, "他の人が担当していても引き継いで始める（担当者を自分にし、タスクに残す）"] = False,
@@ -23,6 +24,9 @@ def command(
     他の人が担当しているタスクでも止まります（引き継ぐなら --take-over）。
     """
 
+    if account and not dir:
+        return usage_error("--account は --dir（新しい作業空間）と一緒に指定します（今の作業空間は ecobuild account use）。", json)
+
     def action(inv):
         if no_branch:
             return inv.module.repository.start_task_without_branch(issue, ignore_blocked=ignore_blocked, take_over=take_over)
@@ -30,7 +34,7 @@ def command(
             return inv.module.repository.task(issue).start(base=base or None, name=name, ignore_blocked=ignore_blocked,
                                                            take_over=take_over)
         module = inv.module.start_task_in(issue, inv.cwd / dir, base=base or None, name=name,
-                                          ignore_blocked=ignore_blocked, take_over=take_over)
+                                          ignore_blocked=ignore_blocked, take_over=take_over, account=account or None)
         _workspaces.record_quietly(module.root)   # workspace list・task list で場所が分かるように
         inv.use_module(module)
         return module.repository.current_task_branch()

@@ -146,3 +146,28 @@ def test_taking_in_is_for_the_base_creator_and_admins(repository):
     assert not repository.can_take_in("develop")
     as_role(repository, "admin")
     assert repository.finish(other.number).closed_issue == other.number
+
+
+def test_a_workspace_works_as_its_account(repository):
+    assert repository.account is None
+    repository.use_account("helper-ai")
+    assert repository.account == "helper-ai"
+    assert repository.git.get_config("user.email") == "1000+helper-ai@users.noreply.github.com"
+    helpers = repository.git.run("config", "--local", "--get-all", "credential.https://github.com.helper").stdout.splitlines()
+    assert helpers[0] == "" and "gh auth token --user helper-ai" in helpers[1]
+    repository.github.account_used = None
+    type(repository)(repository.root, github=repository.github)      # 開き直すと、そのアカウントで gh を呼ぶ
+    assert repository.github.account_used == "helper-ai"
+    assert code_of(lambda: repository.use_account("bad name")) == ErrorCode.INVALID_ARGUMENT
+    repository.use_account(None)
+    assert repository.account is None and repository.git.get_config("user.email") is None
+    assert repository.git.run("config", "--local", "--get-all", "credential.https://github.com.helper", check=False).stdout == ""
+
+
+def test_a_new_workspace_for_an_account(repository, tmp_path):
+    task = repository.create_task("AI に", assignees=("helper-ai",))
+    assert code_of(lambda: repository.clone_task_branch(task.number, tmp_path / "ws", name="ai")) == ErrorCode.ASSIGNED_TO_OTHER
+    other = repository.clone_task_branch(task.number, tmp_path / "ws", name="ai", account="helper-ai")
+    assert other.account == "helper-ai" and other.current_task_branch().number == task.number
+    plain = repository.clone_to(tmp_path / "ws2", account="helper-ai")
+    assert plain.account == "helper-ai" and repository.account is None

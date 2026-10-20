@@ -761,10 +761,12 @@ class Module:
 
     # タスクブランチ・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
-    def create_workspace(self, directory: Path | str) -> tuple["Module", tuple[DependencyChange, ...]]:
+    def create_workspace(self, directory: Path | str, *,
+                         account: str | None = None) -> tuple["Module", tuple[DependencyChange, ...]]:
         """新しい作業空間（このモジュールのclone）を directory に作り、依存先と生成ファイルを用意する。
 
         ブランチは既定のまま。タスクはそこで開始する（タスクブランチを置く）。準備はclone先でだけ行う。
+        account：新しい作業空間を、そのGitHubのアカウントとして動かす（AI 用のアカウント等）。
         """
         opened: list[Module] = []
 
@@ -772,12 +774,12 @@ class Module:
             opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
             return opened[0].repository
 
-        self.repository.clone_to(directory, open=open_clone)
+        self.repository.clone_to(directory, open=open_clone, account=account)
         dependencies, _ = opened[0]._after_sync()
         return opened[0], dependencies
 
     def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
-                      ignore_blocked: bool = False, take_over: bool = False) -> "Module":
+                      ignore_blocked: bool = False, take_over: bool = False, account: str | None = None) -> "Module":
         """新しい作業空間（clone）にタスクブランチを作り（I-007）、依存先と生成ファイルを用意する。
 
         準備（型の prepare）はclone先のモジュールでだけ行う（元のcloneの依存先・生成ファイルは変えない）。
@@ -789,7 +791,7 @@ class Module:
             return opened[0].repository
 
         self.repository.clone_task_branch(number, directory, base=base, name=name, open=open_clone,
-                                          ignore_blocked=ignore_blocked, take_over=take_over)
+                                          ignore_blocked=ignore_blocked, take_over=take_over, account=account)
         return opened[0]
 
     def require_task_branch(self, action: str) -> wm.TaskBranch:

@@ -48,7 +48,7 @@ document.getElementById('manage-tabs').addEventListener('click', e => {
   const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
 });
 // The tabs of 設定 (the others of a tab are モジュール's).
-const SETTINGS_TABS = ['profiles', 'general', 'templates', 'container'];
+const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
@@ -267,10 +267,14 @@ MOD.createWorkspace = async () => {
   const taken = new Set(MOD.places.map(keyOf)), base = MOD.root.replace(/[\\/]+$/, '');
   let n = 2; while (taken.has(keyOf(`${base}-${n}`))) n++;
   let created = null;
+  // The account the new workspace works as (an AI's account etc.): chosen when more than one is logged in on this PC.
+  const listed = await ECO.cli(null, ['account', 'list'], {quiet: true}), accounts = listed.ok ? listed.result : [];
+  const accountField = accounts.length > 1 ? [{name: 'account', label: '使う GitHub のアカウント（AI 用のアカウント等。push・提出・コミットの作者がそのアカウントになります）', type: 'select',
+    value: '', options: [['', `gh の使用中のアカウント（${accounts.find(a => a.active)?.login || '?'}）`], ...accounts.filter(a => !a.active).map(a => [a.login, a.login])]}] : [];
   await ECO.form({title: '新しい作業空間', intro: `${ECO.esc(MOD.name)} をもう1つcloneして、並行作業の場所にします（ブランチは既定のまま）。タスクはそこで「作業を開始」します。`,
-    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}], ok: '作成',
+    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}, ...accountField], ok: '作成',
     submit: async v => {
-      const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir], {success: r => `作業空間を作りました：${r.root}`});
+      const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir, ...(v.account ? ['--account', v.account] : [])], {success: r => `作業空間を作りました：${r.root}`});
       if (!doc) return '作成できませんでした。';
       created = await addPlace(doc.result.root);
     }});

@@ -224,6 +224,17 @@ def run_interactive(args: list[str]) -> bool:
         return False
 
 
+def gh_accounts() -> list[dict]:
+    """このPCの gh でログインしているアカウント（github.com）：[{login, active}]。使用中は gh auth switch で変わる。"""
+    accounts: list[dict] = []
+    for line in _run(["gh", "auth", "status", "--hostname", "github.com"]).output.splitlines():
+        if "Logged in to github.com account" in line:
+            accounts.append({"login": line.split("account", 1)[1].split()[0], "active": False})
+        elif "Active account: true" in line and accounts:
+            accounts[-1]["active"] = True
+    return accounts
+
+
 def gh_has_scope(scope: str) -> bool:
     """ghのログインのトークンに、権限 scope があるか。"""
     status = _run(["gh", "auth", "status"])

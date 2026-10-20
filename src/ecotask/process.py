@@ -53,6 +53,16 @@ def find_tool(name: str) -> str:
     return path
 
 
+def secret_output(args: list[str] | tuple[str, ...]) -> str | None:
+    """出力が秘密（gh auth token のトークン）のコマンドを実行し、標準出力を返す（失敗なら None）。
+    ログには、実行したことと終了コードだけを書く（出力は書かない）。"""
+    process = subprocess.run([find_tool(args[0]), *args[1:]], capture_output=True, text=True, encoding="utf-8",
+                             errors="replace")
+    logger.debug("%s", " ".join(args), extra={"event": "process", "data": {
+        "args": list(args), "returncode": process.returncode, "stdout": "（秘密のため書かない）"}})
+    return process.stdout.strip() if process.returncode == 0 and process.stdout.strip() else None
+
+
 def run(
     args: list[str] | tuple[str, ...],
     *,

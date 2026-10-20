@@ -79,6 +79,8 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 
 作業空間の上のバーの「エージェント」で `ecobuild agent start`（作業空間のルートで、エージェントを新しい画面で起動する。待たずに戻る）。▾ で、起動するコマンド（`--agent`。このPCで覚える）・AGENTS.md を作る（`agent init`）・AI向けの作業の手順（`agent guide`）。
 
+作業空間の上のバーのアカウント（人の印。作業空間に結び付けていれば緑）：この作業空間で使う GitHub のアカウント（`account show` の `workspace_account`）。押すと、このPCの gh でログインしているアカウント（`account list`）から選んで結び付ける（`account use`）・ほかのアカウント…・結び付けを外す（`account use --clear`）。結び付けると、その作業空間の ecobuild・push・提出・コミットの作者・コンテナの中のエージェントがそのアカウントになる（AI 用のアカウント等）。新しい作業空間の画面でも、ログインしているアカウントが2つ以上なら選べる（`workspace create --account`）。
+
 作業空間の上のバーの「コンテナ」（コンテナにしていれば緑、していなければ「このPC」）：コンテナにする・やめる（`container on/off`）、前もって作る・作り直す・消す（`container start/remove`。当てはまらない操作は出さず、Docker が使えなければ灰色）。動かす・止めるはない（ECOBuild が使うときに動かし、WSL が使わなくなると止める。止まっていても「準備済み」）、このコンテナの設定（`container set`：AI に使わせないもの・使うイメージ）。コンテナの中の AI のログインは、ハブの設定の「AI のログイン（コンテナ用）」（`agent token login/set/status/remove`。トークンは表示しない）。イメージはモジュールごと（`.ecobuild/container/Dockerfile` の環境＋ECOBuild の層）で、ハブの設定の「コンテナのイメージ」（`container image list/build/prune`）で扱う。コンテナにした作業空間では、エージェントはコンテナの中で確認なしに起動し、ビルド・テスト等も中で動く（CLI が渡す。GUI は変わらない）。
 
 ## エージェントの窓（Electron だけ。`electron/agents/`）

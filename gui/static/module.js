@@ -48,7 +48,7 @@ document.getElementById('manage-tabs').addEventListener('click', e => {
   const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
 });
 // The tabs of 設定 (the others of a tab are モジュール's).
-const SETTINGS_TABS = ['profiles', 'general', 'templates'];
+const SETTINGS_TABS = ['profiles', 'general', 'templates', 'container'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {

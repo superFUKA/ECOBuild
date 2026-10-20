@@ -79,3 +79,6 @@ header { padding: 10px 16px; }
 .module-nav { padding: 10px 6px; }
 .module-nav button { padding: 6px 10px; margin-bottom: 2px; }
 .module-nav .nav-toggle { margin-bottom: 6px; }
+/* The account's role in this module (account show), after the name. */
+.nav-account-role { flex: none; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #cdd5df; font-size: 11px; line-height: 18px; }
+.module-shell.nav-collapsed .nav-account-role { display: none; }

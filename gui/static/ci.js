@@ -2,11 +2,12 @@
 // 管理 › CI: the module's CI (GitHub Actions) — its settings and workflow (ci show; changed with ci init / ci remove, which
 // write the workflow file: on a task branch, so in a workspace with one, then committed and submitted), its runs on every
 // branch or one (ci status --all / --branch; the log of the failed steps, run again, run by hand on a branch) and the
-// secrets the CI uses (ci secret). The reads run in the module's folder.
+// secrets the CI uses (ci secret). The reads run in the module's folder. Changing any of it is managing: admins only
+// (account show; the others see it with the buttons grey).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const st = {state: null, runs: [], secrets: null, branches: [], url: '', branch: '', run: 0, loaded: false, error: ''};
+  const st = {state: null, runs: [], secrets: null, branches: [], url: '', branch: '', run: 0, access: null, loaded: false, error: ''};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const RUNS = 30;
   const runArgs = () => ['ci', 'status', ...(st.branch ? ['--branch', st.branch] : ['--all']), '--count', String(RUNS)];
@@ -19,13 +20,15 @@
   // Reads (cached: the kept answer shows at once, a newer one redraws).
   async function load() {
     const redraw = (key, fresh) => { if (fresh.ok) { st[key] = fresh.result; render(); } };
-    const [state, runs, secrets, branches, module] = await Promise.all([
+    const [state, runs, secrets, branches, module, access] = await Promise.all([
       ECO.query(MOD.root, ['ci', 'show'], fresh => redraw('state', fresh)),
       ECO.query(MOD.root, runArgs(), fresh => redraw('runs', fresh)),
       ECO.cli(MOD.root, ['ci', 'secret', 'list'], {quiet: true}),
       ECO.query(MOD.root, ['branch', 'list']),
       ECO.query(MOD.root, ['module', 'show']),
+      ECO.access(MOD.root),
     ]);
+    st.access = access;
     st.error = !state.ok ? state.error.message : !runs.ok ? runs.error.message : '';
     st.state = state.ok ? state.result : null;
     st.runs = runs.ok ? runs.result : [];
@@ -89,6 +92,14 @@
         <select id="ci-branch" aria-label="ブランチ">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === st.branch ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
       <div id="ci-runs">${runsHtml()}</div>
       <div class="ci-section-row"><h4 class="br-section">シークレット</h4><button type="button" data-ci-action="secret-set">＋ 登録</button></div>${secretsHtml()}`;
+    gate();
+  }
+  // Greys what changes the CI for those who are not admins (looking at the runs and their logs stays).
+  function gate() {
+    if (ECO.isAdmin(st.access)) return;
+    for (const b of [el('ci-run'), ...el('ci-main').querySelectorAll('[data-ci-action=init], [data-ci-action=remove], [data-ci-action=rerun], [data-ci-action=secret-set], [data-ci-secret]')]) {
+      b.disabled = true; b.title = ECO.adminNote;
+    }
   }
 
   // Changing the workflow writes a file: on a task branch, in a workspace that has one (chosen here).

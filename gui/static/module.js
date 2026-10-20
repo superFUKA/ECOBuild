@@ -11,9 +11,16 @@ const mEl = id => document.getElementById(id);
 document.getElementById('module-title').textContent = MOD.name;
 document.title = MOD.name + ' — ECOBuild';
 ECO.info().then(info => { MOD.me = info.me || ''; });
+// The account's role in this module (GitHub's permission, account show) after its name at the bottom of the left menu.
+ECO.access(MOD.root).then(a => {
+  const box = document.getElementById('nav-account'); if (!a || !box) return;
+  const tag = box.querySelector('.nav-account-role') || box.appendChild(Object.assign(document.createElement('span'), {className: 'nav-account-role'}));
+  tag.textContent = ECO.roleNames[a.role] || a.role;
+  tag.title = `このモジュールでの役割：${tag.textContent}（GitHub の権限）。` + (a.admin ? '管理（ブランチ・メンバー・CI）ができます。' : '管理は管理者だけです。');
+});
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'manage', 'modinfo', 'settings', 'help'];
+const PAGES = ['workspace', 'tasks', 'submissions', 'manage', 'modinfo', 'settings', 'help'];
 // 管理 was the page ブランチ (now its tab): the old name still leads there.
 const pageOf = page => page === 'branches' ? 'manage' : page;
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};
@@ -26,14 +33,16 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
-// The tabs of 管理 (ブランチ, CI): the chosen one's panel and its buttons (data-manage-for) show.
-const MANAGE_TABS = ['branches', 'ci'];
+// The tabs of 管理 (ブランチ, メンバー, CI): the chosen one's panel and its buttons (data-manage-for) show.
+const MANAGE_TABS = ['branches', 'members', 'ci'];
 const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'branches';
 function showManageTab(view) {
   for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
   for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
   for (const p of document.querySelectorAll('#manage-content [data-manage-for]')) p.hidden = p.dataset.manageFor !== view;
   if (view === 'ci') window.MANAGE_CI?.show();
+  else if (view === 'members') window.MANAGE_MEMBERS?.show();
+  else pageHooks.manage?.();
 }
 document.getElementById('manage-tabs').addEventListener('click', e => {
   const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
@@ -43,7 +52,7 @@ const SETTINGS_TABS = ['profiles', 'general', 'templates'];
 // The left menu goes through the action "open" (as ecobuild gui open does); the window moves in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => ECO.action('open', {module: MOD.root, page: key}).catch(() => showModulePage(key)));
 ECO.onNavigate(({page, tab, task, command}) => {
-  // The tab 「ブランチ」 (once モジュール's) and 「CI」 are 管理's: --tab branches・ci leads there.
+  // The tabs 「ブランチ」 (once モジュール's), 「メンバー」 and 「CI」 are 管理's: --tab branches・members・ci leads there.
   const target = page || (tab ? (MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
   if (MANAGE_TABS.includes(tab)) showManageTab(tab);
@@ -61,7 +70,8 @@ ECO.onChange(e => {
 const hashPage = pageOf(location.hash.slice(1).split('/')[0]);
 if (PAGES.includes(hashPage)) window.addEventListener('load', () => {
   showModulePage(hashPage);
-  const task = hashPage === 'tasks' && Number(location.hash.split('/')[1]);
+  const task = hashPage === 'tasks' && Number(location.hash.split('/')[1]), tab = location.hash.split('/')[1];
+  if (hashPage === 'manage' && MANAGE_TABS.includes(tab)) showManageTab(tab);
   if (task) window.TASKS_SELECT?.(task);
 });
 // Reorder the left menu by drag and drop (Alt+↑／↓ with the keyboard). The order is kept per PC (localStorage).

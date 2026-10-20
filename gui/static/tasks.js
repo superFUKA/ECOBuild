@@ -52,6 +52,7 @@
     const jobs = [query(args, d => { if (same()) st.tasks = d.result; })];
     if (full || !st.loaded) jobs.push(query(['milestone', 'list'], d => { st.milestones = d.result; }), query(['sprint', 'list'], d => { st.sprints = d.result; }));
     const [list, milestones, sprints] = await Promise.all(jobs);
+    if (full || !st.loaded) st.access = await ECO.access(root());
     st.loading = false; st.lastClosed = st.extra.closed?.ok ? st.extra.closed : st.lastClosed; st.extra = {};
     if (milestones?.ok) st.milestones = milestones.result;
     if (sprints?.ok) st.sprints = sprints.result;
@@ -385,12 +386,14 @@
     if (pr.state === 'closed') return `<span class="tk-muted">${kind}は取り下げ済み</span>`;
     return `${pr.draft ? '下書きの' : ''}${kind}中`;
   }
+  // Taking in, approving and sending back are for whoever made the branch it goes into, and admins: grey for the others.
   function submissionButtons(n, pr, hasWorkspace) {
-    const submitted = pr?.state === 'open', mine = st.details.get(n)?.assignees?.includes(me());
+    const submitted = pr?.state === 'open', d = st.details.get(n), mine = d?.assignees?.includes(me());
+    const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
     const buttons = [];
-    if (submitted) buttons.push(['diff', '差分'], ...(pr.draft ? [] : [['finish', '取り込む', 'primary']]), ...(mine ? [] : [['review', '手元で確認'], ['approve', '承認して取り込む'], ['reject', '差し戻す']]));
+    if (submitted) buttons.push(['diff', '差分'], ...(pr.draft ? [] : [['finish', '取り込む', 'primary', why]]), ...(mine ? [] : [['review', '手元で確認'], ['approve', '承認して取り込む', '', why], ['reject', '差し戻す', '', why]]));
     else if (hasWorkspace) buttons.push(['diff', '差分']);
-    return buttons.length ? `<div class="tk-d-actions">${buttons.map(([a, l, c]) => `<button type="button" ${c ? `class="${c}"` : ''} data-tk="${a}">${l}</button>`).join('')}</div>` : '';
+    return buttons.length ? `<div class="tk-d-actions">${buttons.map(([a, l, c, off]) => `<button type="button" ${c ? `class="${c}"` : ''} data-tk="${a}"${off ? ` disabled title="${esc(off)}"` : ''}>${l}</button>`).join('')}</div>` : '';
   }
   const submissionPill = state => state ? `<span class="tk-pill">${state.draft ? '下書き' : state.partial ? '中間提出' : '提出中'}</span>` : '';
 

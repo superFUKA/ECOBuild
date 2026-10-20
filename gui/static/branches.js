@@ -1,13 +1,13 @@
 'use strict';
-// 管理 › ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, each with the
-// submissions coming into it; the chosen one on the right: the branch (where it comes from, its own submission, the
-// task branches made from it) and its submissions — looked at (status, CI, reviews, diff) and handled (checked here,
-// approved, sent back, finished, withdrawn; a branch's submission is merged). Every command runs in the module's folder
-// (a submission is the module's, not one workspace's); checking one here (task review) uses a workspace of it.
+// 管理 › ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, by where
+// they come from; the chosen one on the right: where it is, who made it, its own submission, the task branches made
+// from it, the protection of the default branch, and what can be done with it (made, submitted, taken in, deleted,
+// protected). Managing is for admins (GitHub's permission, account show): the others see it with the buttons grey.
+// The submissions coming into a branch are on the page 提出 (submissions.js); the count here leads there.
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const st = {branches: null, submissions: [], selected: '', item: null, status: null, loaded: false, error: ''};
+  const st = {branches: null, submissions: [], access: null, protection: undefined, selected: '', loaded: false, error: ''};
   const cli = args => ECO.cli(MOD.root, args, {quiet: true});
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const shared = () => (Array.isArray(st.branches) ? st.branches : []).filter(b => !b.is_task_branch);
@@ -17,23 +17,26 @@
     ...st.submissions.filter(t => open(t.submission) && t.submission.base === name).map(t => ({kind: 'task', key: 'task:' + t.number, task: t})),
     ...shared().filter(b => open(b.submission) && b.submitted_to === name).map(b => ({kind: 'branch', key: 'branch:' + b.name, branch: b})),
   ];
-  const mine = t => MOD.me && t.assignees.includes(MOD.me);
+  const admin = () => ECO.isAdmin(st.access);
+  // A branch is submitted by an admin or by whoever made it (the same as the CLI).
+  const canSubmit = name => admin() || (st.access?.creators?.[name] || '').toLowerCase() === (st.access?.login || '').toLowerCase();
 
-  // Reads: the branches and the submissions (cached: the kept answer shows at once, a newer one redraws). A submission
-  // read from an older ecobuild has no base: its task's status (which has it) fills it in.
+  // Reads: the branches, the submissions (for the counts) and the account (cached: the kept answer shows at once, a newer
+  // one redraws). A submission read from an older ecobuild has no base: its task's status (which has it) fills it in.
   async function load() {
-    const [branches, tasks] = await Promise.all([
+    const [branches, tasks, access] = await Promise.all([
       ECO.query(MOD.root, ['branch', 'list'], fresh => { st.branches = fresh.ok ? fresh.result : st.branches; render(); }),
       ECO.query(MOD.root, ['task', 'list', '--submitted'], fresh => { if (fresh.ok) { st.submissions = fresh.result; fillBases().then(render); } }),
+      ECO.access(MOD.root),
     ]);
     st.error = !branches.ok ? branches.error.message : !tasks.ok ? tasks.error.message : '';
     st.branches = branches.ok ? branches.result : [];
     st.submissions = tasks.ok ? tasks.result : [];
+    st.access = access;
     await fillBases();
     st.loaded = true;
     if (!shared().some(b => b.name === st.selected)) {
-      const busy = shared().find(b => incoming(b.name).length);
-      st.selected = (busy || shared().find(b => b.name === 'main') || shared()[0] || {}).name || '';
+      st.selected = (shared().find(b => b.name === (st.access?.default_base || 'main')) || shared()[0] || {}).name || '';
     }
     render();
   }
@@ -58,133 +61,63 @@
     }).join('') || '<p class="mi-note">共有ブランチはありません。</p>';
   }
 
-  // Right: the branch, then what comes into it, then the one chosen.
+  // Right: the branch and what can be done with it. Managing it is for admins (the others' buttons are grey with the
+  // reason); a branch's own submission is taken in by those who handle the branch it goes into.
   function renderMain() {
     const main = el('br-main'), b = shared().find(x => x.name === st.selected);
     if (!b) { main.innerHTML = st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : '<p class="mi-note">ブランチを選んでください。</p>'; return; }
     const where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・');
     const taskBranches = (st.branches || []).filter(t => t.is_task_branch && t.base === b.name);
-    const items = incoming(b.name);
-    if (st.item && !items.some(i => i.key === st.item)) { st.item = null; st.status = null; }
-    if (!st.item && items.length) st.item = items[0].key;
-    const branchActions = (open(b.submission) ? `<button type="button" class="primary" data-br-action="merge-own" title="${esc(ECO.submissionHelp.merge)}">取り込む</button>`
-      : b.base ? '<button type="button" data-br-action="branch-submit" title="このブランチを、ほかのブランチへ取り込んでもらうように出します。">提出する</button>' : '')
-      + (b.base ? '<button type="button" class="quiet-danger" data-br-action="branch-delete" title="このブランチを、手元と GitHub から削除します（取り込んでいない変更があれば止まります）。">削除</button>' : '');
+    const n = incoming(b.name).length, creator = st.access?.creators?.[b.name] || '';
+    const isDefault = b.name === (st.access?.default_base || 'main');
+    const button = (action, label, {enabled = true, why = '', kind = '', help = ''} = {}) =>
+      `<button type="button" ${kind ? `class="${kind}"` : ''} data-br-action="${action}" ${enabled ? '' : 'disabled'} title="${esc(help + (enabled || !why ? '' : `\n（${why}）`))}">${label}</button>`;
+    const takes = ECO.canTakeIn(st.access, b.submitted_to);
+    const branchActions = (open(b.submission)
+      ? button('merge-own', '取り込む', {kind: 'primary', enabled: takes && !b.submission.draft, why: b.submission.draft ? '下書きの提出は取り込めません' : ECO.takeInNote(st.access, b.submitted_to), help: ECO.submissionHelp.merge})
+      : b.base ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`, help: 'このブランチを、ほかのブランチへ取り込んでもらうように出します。'}) : '')
+      + (b.base ? button('branch-delete', '削除', {kind: 'quiet-danger', enabled: admin(), why: ECO.adminNote, help: 'このブランチを、手元と GitHub から削除します（取り込んでいない変更があれば止まります）。'}) : '');
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
       <div class="br-head"><div><h3>${esc(b.name)}</h3>
-        <p class="mi-note">${pill('ブランチ')} ${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
+        <p class="mi-note">${pill('ブランチ')} ${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
         <div class="mi-actions">${branchActions}</div></div>
-      <h4 class="br-section">このブランチへの提出 <span class="br-count ${items.length ? '' : 'zero'}">${items.length}</span></h4>
-      <div class="br-list" role="listbox" aria-label="このブランチへの提出">${items.map(i => itemRow(i)).join('') ||
-        '<p class="mi-note">届いている提出はありません。</p>'}</div>
-      <div id="br-detail" class="br-detail"></div>
+      <dl class="br-facts">
+        <dt>届いている提出</dt><dd>${n ? `${n} 件 <button type="button" class="mi-link" data-br-submissions>提出で見る</button>` : 'なし'}</dd>
+        <dt>提出を処理できる人</dt><dd>${esc(isDefault ? '管理者' : creator ? `${creator}（作った人）と管理者` : '管理者')}</dd>
+        ${isDefault ? `<dt>保護</dt><dd id="br-protection">${protectionText()}</dd>` : ''}
+      </dl>
       ${taskBranches.length ? `<details class="br-task-branches"><summary>このブランチから作ったタスクブランチ（${taskBranches.length}）</summary>
-        <ul>${taskBranches.map(t => { const n = /^task\/(\d+)$/.exec(t.name)?.[1];
+        <ul>${taskBranches.map(t => { const n = /^task\/(\d+)/.exec(t.name)?.[1];
           return `<li><span class="mi-branch-name">${esc(t.name)}</span> ${pill('タスクブランチ', 'ok')} <span class="mi-where">${esc([t.local && '手元', t.remote && 'GitHub'].filter(Boolean).join('・'))}</span>${open(t.submission) ? ' ' + pill('提出中', 'pr') : ''}${n ? ` <button type="button" data-open-ws="${n}">タスクブランチを開く</button>` : ''}</li>`; }).join('')}</ul></details>` : ''}`;
-    renderDetail();
-    if (st.item?.startsWith('task:') && (!st.status || 'task:' + st.status.number !== st.item)) loadStatus(Number(st.item.slice(5)));
+    if (isDefault && st.protection === undefined) loadProtection();
   }
-  function itemRow(i) {
-    const selected = i.key === st.item;
-    if (i.kind === 'branch') {
-      const s = i.branch.submission;
-      return `<button type="button" role="option" data-br-item="${esc(i.key)}" aria-selected="${selected}"><span>${pill('ブランチ')} ${esc(i.branch.name)}</span><span class="br-item-state">${esc(ECO.submissionText(s))}</span></button>`;
-    }
-    const t = i.task;
-    return `<button type="button" role="option" data-br-item="${esc(i.key)}" aria-selected="${selected}"><span>#${t.number} ${esc(t.title)}</span>
-      <span class="br-item-state">${esc(ECO.submissionText(t.submission))}${t.assignees.length ? ' · ' + esc(t.assignees.join(', ')) : ''}${mine(t) ? '（自分）' : ''}</span></button>`;
+  // The protection of the default branch (module protect): GitHub shows it to admins only.
+  function protectionText() {
+    if (!admin()) return '<span class="mi-sub">管理者だけが見られます</span>';
+    const p = st.protection, set = ' <button type="button" class="mi-link" data-br-action="protect">設定…</button>';
+    if (!p && p !== false) return p === null && st.protectionRead ? `なし（提出以外でも変更できます）${set}` : '…';
+    if (p.error) return `<span class="mi-sub">${esc(p.error)}</span>`;
+    return `${esc(`取り込みは提出だけ・承認 ${p.approvals ? `${p.approvals} 人` : 'は不要'}${p.checks?.length ? `・CI（${p.checks.join(', ')}）` : ''}`)}${set} <button type="button" class="mi-link" data-br-action="unprotect">外す</button>`;
   }
-  async function loadStatus(number) {
-    const key = 'task:' + number;
-    el('br-detail').innerHTML = ECO.loading();
-    const doc = await ECO.query(MOD.root, ['task', 'status', String(number)], fresh => { if (st.item === key && fresh.ok) { st.status = fresh.result; renderDetail(); } });
-    if (st.item !== key) return;
-    st.status = doc.ok ? doc.result : null;
-    if (!doc.ok) { el('br-detail').innerHTML = `<p class="mi-note">${esc(doc.error.message)}</p>`; return; }
-    renderDetail();
-  }
-  // Where a submission is being checked (task review): the workspace of the module that shows it.
-  const reviewingPlace = n => MOD.places.find(p => MOD.states.get(MOD.keyOf(p))?.reviewing_task === n) || null;
-  function renderDetail() {
-    const box = el('br-detail'); if (!box) return;
-    if (st.item?.startsWith('branch:')) {
-      const b = shared().find(x => 'branch:' + x.name === st.item); if (!b) { box.innerHTML = ''; return; }
-      box.innerHTML = `<dl><dt>ブランチ</dt><dd><strong>${esc(b.name)}</strong> → ${esc(b.submitted_to)}</dd><dt>提出</dt><dd>${esc(ECO.submissionText(b.submission))}</dd><dt>URL</dt><dd>${esc(b.submission.url)}</dd></dl>`;
-      const tools = document.createElement('div'); tools.className = 'br-tools';
-      const act = document.createElement('div'); act.className = 'pr-act';
-      act.append(ECO.submissionButton('merge', '取り込む', {kind: 'primary', enabled: !b.submission.draft, note: b.submission.draft ? '下書きの提出は取り込めません' : ''}));
-      tools.append(document.createElement('div'), act); box.append(tools);
-      return;
-    }
-    const t = st.status;
-    if (!t || 'task:' + t.number !== st.item) { box.innerHTML = st.item ? ECO.loading() : ''; return; }
-    const sub = t.pull_request, isOpen = open(sub), own = mine(t), draft = isOpen && sub.draft, reviewing = reviewingPlace(t.number);
-    box.innerHTML = ECO.submissionDetail(t, {own});
-    // Left: looking at it (small). Right: what can be done with it — someone else's is checked, approved or sent back;
-    // one's own is taken in or withdrawn (submitting and making a draft ready are done in its workspace).
-    const tools = document.createElement('div'), look = document.createElement('div'), act = document.createElement('div');
-    tools.className = 'br-tools'; look.className = 'pr-look'; act.className = 'pr-act';
-    const b = ECO.submissionButton;
-    look.append(b('diff', '差分'), b('comment', 'コメント'), b('task', 'タスク'), b('refresh', '更新'));
-    if (reviewing) act.append(b('review-done', '判定せずに戻る'));
-    if (isOpen && !own) {
-      if (!reviewing) act.append(b('local-review', '手元で確認'));
-      act.append(b('reject', '差し戻す'), b('approve', '承認して取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
-    } else if (isOpen) {
-      act.append(b('withdraw', '取り下げ', {kind: 'quiet-danger'}), b('finish', '取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : ''}));
-    }
-    tools.append(look, act); box.append(tools);
+  async function loadProtection() {
+    if (!admin()) return;
+    st.protection = null; st.protectionRead = false;
+    const doc = await cli(['module', 'protect', '--show']);
+    st.protection = doc.ok ? doc.result : {error: doc.error.message}; st.protectionRead = true;
+    const box = el('br-protection'); if (box) box.innerHTML = protectionText();
   }
   function render() {
     if (el('manage-content').hidden) return;
     if (!st.loaded) { el('br-main').innerHTML = ECO.loading(); return; }
+    el('br-create').disabled = !admin(); el('br-create').title = admin() ? 'タスクブランチ以外のブランチを作成します' : ECO.adminNote;
     renderSide(); renderMain();
   }
 
   // Doing things. After a change, the reads are read again (the server marks them stale) and the screen redrawn.
-  const after = async doc => { if (doc) { st.status = null; await load(); } return doc; };
-  async function taskAction(action) {
-    const t = st.status; if (!t) return;
-    const n = String(t.number);
-    switch (action) {
-      case 'refresh': st.status = null; return loadStatus(t.number);
-      case 'diff': return ECO.inTortoiseGit(MOD.root, ['task', 'diff', n], async () => { const doc = await cli(['task', 'diff', n]); return doc.ok ? ECO.output(`#${n} の差分`, doc.result || '差分はありません。', {diff: true}) : ECO.showError(doc); });
-      case 'comment': return ECO.form({title: `#${n} にコメント`, fields: [{name: 'message', label: '内容', type: 'textarea', required: true}], ok: 'コメントする',
-        submit: async v => { if (!await after(await ECO.run(MOD.root, ['task', 'comment', n, '--message', v.message], {success: 'コメントしました。'}))) return 'コメントできませんでした。'; }});
-      case 'task': showModulePage('tasks'); window.TASKS_SELECT?.(t.number); return;
-      case 'approve': case 'reject': {
-        const approve = action === 'approve';
-        const v = await ECO.form(approve
-          ? {title: `承認して取り込む：#${n}`, intro: '提出を承認し、CIを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
-          : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
-        if (!v) return;
-        const place = reviewingPlace(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
-        if (doc) MOD.reloadPlace(place);
-        return after(doc);
-      }
-      case 'finish': {
-        const options = await ECO.finishForm({number: n, base: t.base, partial: !!t.pull_request?.partial});
-        if (!options) return;
-        const place = MOD.placeOfTask(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`});
-        if (doc) MOD.reloadPlace(place);
-        return after(doc);
-      }
-      case 'withdraw': return after(await ECO.run(MOD.root, ['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。`, title: '提出を取り下げる'}));
-      case 'local-review': {
-        // Checking it here takes the submission into a workspace (the module's folder, or where it is checked already).
-        const place = reviewingPlace(t.number);
-        if (place) { const doc = await ECO.run(place, ['task', 'review', '--done'], {success: '確認を終えて戻りました。'}); if (doc) MOD.reloadPlace(place); return after(doc); }
-        const doc = await ECO.run(MOD.root, ['task', 'review', n], {success: `#${n} の提出を手元に取り出しました。作業空間でビルド・テスト・実行して確かめ、ここで承認か差し戻しをします。`});
-        if (doc) { await MOD.reloadPlace(MOD.root); MOD.activate(MOD.root); showModulePage('workspace'); }
-        return after(doc);
-      }
-    }
-  }
+  const after = async doc => { if (doc) { st.protection = undefined; await load(); } return doc; };
   async function branchAction(action, name) {
     switch (action) {
-      case 'merge': case 'merge-own': {
+      case 'merge-own': {
         const v = await ECO.form({title: `${name} の提出を取り込む`, intro: 'ブランチ同士の提出を、マージコミットで取り込みます。', fields: [{name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'}], ok: '取り込む'});
         if (!v) return;
         return after(await ECO.run(MOD.root, ['branch', 'merge', name, ...(v.ignore ? ['--ignore-checks'] : [])], {success: `${name} の提出を取り込みました。`}));
@@ -194,44 +127,41 @@
         {name: 'title', label: '提出の題名'}], ok: '提出',
         submit: async v => { if (!v.into) return '取り込み先を選んでください。'; if (!await after(await ECO.run(MOD.root, ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : [])], {success: `${name} を ${v.into} へ提出しました。`}))) return '提出できませんでした。'; }});
       case 'branch-delete': return after(await ECO.run(MOD.root, ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`, confirm: `ブランチ ${name} を、手元と GitHub から削除します。`, title: 'ブランチを削除', danger: true}));
+      case 'protect': {
+        const p = st.protection && !st.protection.error ? st.protection : null;
+        const v = await ECO.form({title: `${name} を保護する`, intro: 'GitHub のブランチの保護で、提出（PR）以外での変更・強制 push・削除を止めます。管理者は保護を越えられます。GitHub の無料プランの非公開リポジトリでは使えません。', fields: [
+          {name: 'approvals', label: '取り込みに要る承認の数（0〜6）', value: String(p?.approvals ?? 0)},
+          {name: 'ci', label: '最新のコミットの CI が通っていることも必須にする', type: 'checkbox', value: !!p?.checks?.length}], ok: '保護する'});
+        if (!v) return;
+        return after(await ECO.run(MOD.root, ['module', 'protect', '--approvals', String(Number(v.approvals) || 0), ...(v.ci ? ['--require-ci'] : [])], {success: `${name} を保護しました。`}));
+      }
+      case 'unprotect': return after(await ECO.run(MOD.root, ['module', 'protect', '--off'], {success: `${name} の保護を外しました。`, confirm: `${name} のブランチの保護を外します（提出以外でも変更できるようになります）。`, title: '保護を外す', danger: true}));
     }
   }
 
   const section = el('manage-content');
   section.addEventListener('click', e => {
     const tab = e.target.closest('[data-br]');
-    if (tab) { st.selected = tab.dataset.br; st.item = null; st.status = null; render(); return; }
-    const item = e.target.closest('[data-br-item]');
-    if (item) { st.item = item.dataset.brItem; st.status = null; renderMain(); return; }
+    if (tab) { st.selected = tab.dataset.br; render(); return; }
+    if (e.target.closest('[data-br-submissions]')) { window.SUBMISSIONS_SHOW?.(st.selected); return; }
     const ws = e.target.closest('[data-open-ws]');
     if (ws) { MOD.openWorkspace(Number(ws.dataset.openWs)); return; }
     const own = e.target.closest('[data-br-action]');
-    if (own) { branchAction(own.dataset.brAction, st.selected); return; }
-    const pr = e.target.closest('[data-pr-action]');
-    if (pr && !pr.disabled) {
-      if (st.item?.startsWith('branch:')) branchAction(pr.dataset.prAction, st.item.slice(7)); else taskAction(pr.dataset.prAction);
-    }
+    if (own && !own.disabled) branchAction(own.dataset.brAction, st.selected);
   });
   // ↑↓ between the branches (the tabs are vertical).
   el('br-side').addEventListener('keydown', e => {
     if (!['ArrowUp', 'ArrowDown'].includes(e.key)) return;
     const tabs = [...el('br-side').querySelectorAll('[data-br]')], i = tabs.findIndex(t => t.dataset.br === st.selected);
     const next = tabs[(i + (e.key === 'ArrowDown' ? 1 : tabs.length - 1)) % tabs.length]; if (!next) return;
-    e.preventDefault(); st.selected = next.dataset.br; st.item = null; st.status = null; render(); el('br-side').querySelector(`[data-br="${CSS.escape(st.selected)}"]`)?.focus();
-  });
-  // Right-click a submission: the same actions as its buttons.
-  section.addEventListener('contextmenu', e => {
-    const item = e.target.closest('[data-br-item]'); if (!item) return;
-    e.preventDefault();
-    const x = e.clientX, y = e.clientY;
-    if (st.item !== item.dataset.brItem) { st.item = item.dataset.brItem; st.status = null; renderMain(); }
-    setTimeout(() => {
-      const buttons = [...el('br-detail').querySelectorAll('[data-pr-action]')];
-      if (buttons.length) ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), x, y);
-    }, st.item?.startsWith('task:') && !st.status ? 800 : 0);
+    e.preventDefault(); st.selected = next.dataset.br; render(); el('br-side').querySelector(`[data-br="${CSS.escape(st.selected)}"]`)?.focus();
   });
   // 更新 is 管理's: it reads again what the chosen tab shows (the CI tab's own reads are ci.js's).
-  el('br-reload').addEventListener('click', () => { if (manageView() === 'ci') { window.MANAGE_CI?.reload(); return; } st.status = null; load(); });
+  el('br-reload').addEventListener('click', () => {
+    if (manageView() === 'ci') { window.MANAGE_CI?.reload(); return; }
+    if (manageView() === 'members') { window.MANAGE_MEMBERS?.reload(); return; }
+    st.protection = undefined; load();
+  });
   el('br-log').addEventListener('click', async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); });
   el('br-create').addEventListener('click', () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
     {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},
@@ -241,6 +171,9 @@
       st.selected = v.name; render();
     }}));
 
-  pageHooks.manage = () => { if (manageView() === 'ci') window.MANAGE_CI?.show(); else if (!st.loaded) { render(); load(); } else render(); };
-  ECO.onChange(() => { if (st.loaded) { st.status = null; if (!section.hidden) load(); else st.loaded = false; } });
+  pageHooks.manage = () => {
+    if (manageView() === 'ci') window.MANAGE_CI?.show(); else if (manageView() === 'members') window.MANAGE_MEMBERS?.show();
+    else if (!st.loaded) { render(); load(); } else render();
+  };
+  ECO.onChange(() => { if (st.loaded) { st.protection = undefined; if (!section.hidden) load(); else st.loaded = false; } });
 })();

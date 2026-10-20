@@ -46,3 +46,18 @@
 .manage-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .manage-tabs-row .br-top-actions { padding-bottom: 4px; }
 .mi .br-top-actions button { padding: 4px 12px; }
+/* What only some can do (account show: 管理 is for admins, a submission for its base's maker and admins): grey, the reason on hover. */
+.mi button:disabled, .mi button:disabled:hover { opacity: .45; cursor: not-allowed; border-color: #46515e; }
+.mi button.primary:disabled { background: #2f4d46; border-color: #2f4d46; color: #9fb7b0; }
+/* 管理 › ブランチ: the facts about the chosen branch. */
+.br-facts { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 13px; }
+.br-facts dt { color: #a5aeba; }
+.br-facts dd { margin: 0; }
+/* 提出: the branch the submissions go into. */
+.sub-title { margin-top: 0; font-size: 15px; }
+/* 管理 › メンバー. */
+.members-main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
+.members-bar { display: flex; justify-content: flex-end; margin: 4px 0 8px; max-width: 880px; }
+.members-table { max-width: 880px; }
+.members-table .mi-row-actions { text-align: right; white-space: nowrap; }
+.members-table .mi-row-actions button + button { margin-left: 6px; }

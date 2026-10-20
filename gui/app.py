@@ -71,7 +71,7 @@ CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; c
 READ_ONLY = {
     ("status",), ("log",), ("show",), ("diff",), ("blame",), ("doctor",), ("module", "types"), ("module", "list"),
     ("module", "show"), ("module", "clones"), ("config", "list"), ("config", "get"), ("task", "list"), ("task", "status"),
-    ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
+    ("task", "diff"), ("branch", "list"), ("deps", "list"), ("deps", "tree"), ("account", "show"),
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
@@ -90,7 +90,7 @@ CACHEABLE = {
     ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
     ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"), ("log",),
-    ("ci", "show"), ("ci", "status"),
+    ("ci", "show"), ("ci", "status"), ("account", "show"),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
 CACHE_DAYS = 14                     # これより古いものは読み込まない
@@ -186,6 +186,8 @@ def _read_only(args: list[str]) -> bool:
     command = tuple(a for a in args[:2] if not a.startswith("-"))
     if "--fetch" in args and (command[:1] in FETCHING or command in FETCHING):
         return False
+    if command == ("module", "protect"):   # --show は見るだけ（ほかは保護を変える）
+        return "--show" in args
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 
@@ -1136,13 +1138,16 @@ class App:
                                                     "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
 
 
+MANAGE_TABS = ("branches", "members", "ci")   # 「管理」の画面のタブ（ほかのタブは「モジュール」・「設定」）
+
+
 def _hash(where: dict) -> str:
     """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
-    page = where.get("page") or ("manage" if where.get("tab") == "branches" else "modinfo" if where.get("tab") else
+    page = where.get("page") or ("manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
                                  "tasks" if where.get("task") else "help" if where.get("command") else "")
     if not page:
         return ""
-    extra = where.get("tab") if page == "modinfo" else str(where.get("task")) if page == "tasks" and where.get("task") else \
+    extra = where.get("tab") if page in ("modinfo", "manage") else str(where.get("task")) if page == "tasks" and where.get("task") else \
         "commands/" + urllib.parse.quote(where["command"]) if page == "help" and where.get("command") else ""
     return "#" + page + ("/" + extra if extra else "")
 

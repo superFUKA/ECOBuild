@@ -544,7 +544,7 @@ const ECO = (() => {
   const taskOutcome = complete => complete ? CLOSE_TEXT : KEEP_TEXT;
   const setTaskOutcome = (formEl, complete) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = taskOutcome(complete); };
   const submitOutcome = (base, {submitted = false, complete = true} = {}) => outcome([['PR', submitted ? '出している提出に、Push したコミットが加わります' : `${into(base)}へ出します（Push してから）`],
-    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「管理」の「ブランチ」かタスク管理の「取り込む」）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
+    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「提出」かタスク管理の「取り込む」。取り込めるのは取り込み先のブランチを作った人と管理者）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
   // The take-in dialog (task finish on an open submission), the same wherever it is: resolves to the CLI's arguments
   // after the number, or null. partial: the submission's (the default of 閉じずに続ける).
   async function finishForm({number, base, partial = false}) {
@@ -564,6 +564,16 @@ const ECO = (() => {
       fields: [{name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox'}], ok: '完了にする'});
     return v ? ['--complete', ...(v.ignore ? ['--ignore-checks'] : [])] : null;
   }
+  // The account's role in a module (account show: GitHub's permission): 管理 is for admins; a submission is handled
+  // (approved, sent back, taken in) by whoever made the branch it goes into, and admins (the default branch: admins).
+  // Not known (an older ecobuild, offline): nothing is greyed — the CLI checks anyway.
+  const access = dir => query(dir, ['account', 'show']).then(d => d.ok ? d.result : null, () => null);
+  const isAdmin = a => !a || !!a.admin;
+  const creatorOf = (a, base) => base && base !== a?.default_base ? a?.creators?.[base] || '' : '';
+  const canTakeIn = (a, base) => !a || a.admin || (!!creatorOf(a, base) && creatorOf(a, base).toLowerCase() === a.login.toLowerCase());
+  const takeInNote = (a, base) => `${base} への提出を処理できるのは、${creatorOf(a, base) ? `${base} を作った ${creatorOf(a, base)} と` : ''}管理者だけです`;
+  const ADMIN_NOTE = '管理者だけが行えます';
+  const ROLE_NAMES = {read: '読む', triage: 'タスクの整理', write: '書き込み', maintain: '管理の一部', admin: '管理者'};
   // A button for an action on a submission (data-pr-action): its help as the title, a note after it (why it is off etc.).
   function submissionButton(action, label, {enabled = true, kind = '', note = ''} = {}) {
     const b = document.createElement('button');
@@ -824,6 +834,7 @@ const ECO = (() => {
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
   return {call, cli, run, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+    access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.

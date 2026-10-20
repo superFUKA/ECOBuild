@@ -4,7 +4,9 @@
 // diff, submit, finish, withdraw; approve/reject while reviewing. The submissions of the whole module are in the
 // module's ブランチ page. Every number is a task number; the pull request behind a submission is the CLI's business.
 let selectedPr = 0, prStatus = null, me = '';
+let access = null;   // the account's role here (account show): approving and sending back are greyed for those who do not handle the base
 ECO.info().then(info => { me = info.me || ''; });
+ECO.access(WS.dir).then(a => { access = a; });
 const prButton = ECO.submissionButton;
 
 // The task branch here, while it is worked on (not finished, not reviewing someone's submission).
@@ -32,7 +34,7 @@ function renderPrDetail() {
   tools.replaceChildren();
   // The commits going into the submission (not in the base yet), like the counts of the other tabs.
   WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr ? t.commits?.length || 0 : 0);
-  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「管理」の「ブランチ」で見られます。</p>'; return; }
+  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「提出」で見られます。</p>'; return; }
   if (!t || t.number !== selectedPr) return;
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;
   const s = WS.status || {}, reviewing = !!s.reviewing && s.reviewing_task === t.number, own = me ? t.assignees.includes(me) : !reviewing;
@@ -51,7 +53,8 @@ function renderPrDetail() {
   look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
   if (reviewing) {
     act.append(prButton('review-done', '判定せずに戻る'));
-    if (open) act.append(prButton('reject', '差し戻す'), prButton('approve', '承認して取り込む', {enabled: !draft, kind: 'primary', note: draft ? '下書きの提出は承認できません' : ''}));
+    const why = ECO.canTakeIn(access, t.base) ? '' : ECO.takeInNote(access, t.base);
+    if (open) act.append(prButton('reject', '差し戻す', {enabled: !why, note: why}), prButton('approve', '承認して取り込む', {enabled: !draft && !why, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why}));
   } else {
     // Only submitting here: whether the task is closed when it is taken in is chosen in the dialog. Taking it in is
     // the reviewer's (or the module's ブランチ・task management), and completing a task is in task management.

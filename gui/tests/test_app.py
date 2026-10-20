@@ -383,6 +383,13 @@ def test_commands_that_fetch_wait_for_the_others():
         assert not gui._read_only(args), args
 
 
+def test_reading_the_account_and_the_protection_changes_nothing():
+    assert gui._read_only(["account", "show"]) and gui._cacheable(["account", "show"])
+    assert gui._read_only(["module", "protect", "--show"])
+    assert not gui._read_only(["module", "protect", "--approvals", "1"]) and not gui._read_only(["module", "protect", "--off"])
+    assert gui._hash({"tab": "members"}) == "#manage/members" and gui._hash({"tab": "projects"}) == "#modinfo/projects"
+
+
 def test_asking_the_operator_does_not_hold_the_others():
     """オペレーター（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
     assert gui._unlocked(["agent", "ask", "--session", "s1"]) and not gui._read_only(["agent", "ask"])

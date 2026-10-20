@@ -40,9 +40,9 @@ class Action:
                             **({"choices": list(p.choices)} if p.choices else {})} for p in self.params]}
 
 
-PAGES = ("workspace", "tasks", "manage", "modinfo", "settings", "help")
-# 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）。branches・ci は「管理」の画面の「ブランチ」・「CI」のタブへ移る
-TABS = ("home", "projects", "deps", "branches", "ci", "profiles", "general", "templates")
+PAGES = ("workspace", "tasks", "submissions", "manage", "modinfo", "settings", "help")
+# 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）。branches・members・ci は「管理」の画面の「ブランチ」・「メンバー」・「CI」のタブへ移る
+TABS = ("home", "projects", "deps", "branches", "members", "ci", "profiles", "general", "templates")
 
 ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("run", "ECOBuild のコマンドを、GUIを通して実行します（開いている画面に反映されます）。",

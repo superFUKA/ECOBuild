@@ -70,13 +70,14 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
 
 def run(args: list[str], cwd: Path) -> dict:
     """この ECOBuild のコマンドを cwd で実行し、その JSON の結果を返す。頼みとしてではなく、このPCで直接実行する
-    （窓の中・コンテナの中の印は渡さない）。"""
+    （窓の中・コンテナの中の印は渡さない）。標準入力は渡さない：係は起動したアプリの返事を読み続けており、Windows では
+    読みかけのパイプを引き継いだ Python が起動の途中で止まる（作業役が作られず、頼んだ側が待ち続けた）。"""
     env = {key: value for key, value in os.environ.items() if key not in (team.WINDOW_VARIABLE, container.INSIDE)}
     env["PYTHONIOENCODING"] = "utf-8"
     args = [*args, *([] if "--json" in args else ["--json"])]
     try:
         done = subprocess.run([sys.executable, "-m", "ecobuild_cli", "-C", str(cwd), *args], capture_output=True,
-                              encoding="utf-8", errors="replace", env=env, timeout=team.REQUEST_TIMEOUT,
+                              stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace", env=env, timeout=team.REQUEST_TIMEOUT,
                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.TimeoutExpired) as error:
         return agent_serve.failed(f"ecobuild を実行できませんでした：{error}")

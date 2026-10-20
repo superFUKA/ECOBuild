@@ -1,6 +1,8 @@
 """進行役と作業役（ecobuild_agent.team）：作業役は子タスク＋進行役の作業空間の中の作業空間。"""
 
 import json
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -241,6 +243,27 @@ def test_without_an_app_the_serve_opens_the_worker_itself(lead):
                               open_agent=lambda path, role, prompt: opened.append((path, role, prompt)))
     doc = serve.handle(lead.root, {"id": "a", "args": ["agent", "team", "start", "x"], "cwd": "."})
     assert doc["result"]["opened"] and opened == [(Path("/w"), "worker", "p")]
+
+
+def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):
+    # 係は起動したアプリの返事（標準入力）を読み続けている。その間に実行するコマンドが止まらない
+    # （Windows では、読みかけのパイプを引き継いだ Python が起動の途中で止まり、作業役が作られなかった）。
+    script = ("import sys, threading, time, json\n"
+              "from pathlib import Path\n"
+              "from ecobuild_cli.commands.agent.serve import run\n"
+              "threading.Thread(target=sys.stdin.readline, daemon=True).start()\n"
+              "time.sleep(0.5)\n"
+              "print(json.dumps(run(['status'], Path(sys.argv[1]))))\n")
+    process = subprocess.Popen([sys.executable, "-c", script, str(tmp_path)], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, encoding="utf-8")
+    try:
+        process.wait(timeout=60)   # 標準入力は開いたまま（アプリが係を動かしている間と同じ）
+    except subprocess.TimeoutExpired:
+        process.kill()
+        pytest.fail("係の実行したコマンドが、標準入力を引き継いで止まりました")
+    finally:
+        process.stdin.close()
+    assert json.loads(process.stdout.read())
 
 
 def test_only_one_serve_runs(lead):

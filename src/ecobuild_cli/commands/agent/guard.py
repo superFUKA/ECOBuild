@@ -1,7 +1,7 @@
 import sys
 
 import click
-from ecobuild_bundle import operator
+from ecobuild_agent import operator
 
 from ... import _effects
 from ..._module import PROGRAM

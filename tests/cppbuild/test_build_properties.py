@@ -10,7 +10,8 @@ import pytest
 from helpers import remove_tree, short_temporary_directory, write
 from fakes import FakeGitHub
 from ecobuild.config import Profile
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cpp.errors import ErrorCode
 from ecobuild_bundle import Module
 from ecobuild_cpp import _cppbuild, cpp
 

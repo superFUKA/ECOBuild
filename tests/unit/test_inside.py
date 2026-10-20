@@ -5,7 +5,8 @@ import json
 import pytest
 
 from ecobuild import config
-from ecobuild_bundle import container
+import ecobuild_bundle  # noqa: F401（コンテナの拡張に型をつなぐ）
+import ecobuild_container as container
 from ecobuild_cli import _inside
 
 

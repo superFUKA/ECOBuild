@@ -15,11 +15,9 @@ from .errors import EcoBuildError, ErrorCode, operation
 DIRECTORY = ".ecobuild"
 FILE_NAME = f"{DIRECTORY}/ecobuild.toml"
 LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild/.gitignore で除外）
-CONTAINER_DIRECTORY = f"{DIRECTORY}/container"   # 作業空間のコンテナの環境の作り方（Dockerfile。コミット。中のファイルすべてが材料）
-CONTAINER_DOCKERFILE = f"{CONTAINER_DIRECTORY}/Dockerfile"
 # モジュールの仕様の版（ecobuild.toml の format）。ECOBuild がモジュールに作るファイル（.gitignore・AGENTS.md 等）
 # の中身や置き場所を変えたら1つ上げる。古い版のモジュールは読めて、module upgrade で今の版にする（Module.upgrade）。
-# 1：最初の版。2：module upgrade ができた版（中身の変更なし）。3：コンテナの環境（.ecobuild/container/Dockerfile）。
+# 1：最初の版。2：module upgrade ができた版（中身の変更なし）。3：拡張が置くファイル（Module.environment_files。コンテナの環境 .ecobuild/container/Dockerfile）。
 FORMAT = 3
 
 

@@ -2,7 +2,7 @@ from typing import Annotated
 
 import click
 from ecobuild.errors import WorkError
-from ecobuild_bundle import operator
+from ecobuild_agent import operator
 
 from ... import build_cli
 from ..._operator import prepare as prepare_kit

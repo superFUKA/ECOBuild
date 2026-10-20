@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from ecobuild.errors import EcoBuildError
-from ecobuild_bundle import container
+import ecobuild_container as container
 from ... import _self_update
 
 

@@ -14,7 +14,7 @@ from pathlib import Path
 import click
 from ecobuild import workspaces
 from ecobuild.errors import WorkError
-from ecobuild_bundle import container
+import ecobuild_container as container
 
 from ._module import PROGRAM
 from ._output import Invocation, execute

@@ -1,6 +1,7 @@
 """project の設定のコマンドの共通部分（対象のProjectの決め方・表示）。"""
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cpp.errors import ErrorCode
 from ecobuild_cli.kit import split_list
 
 

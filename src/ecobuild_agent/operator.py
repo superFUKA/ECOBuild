@@ -15,7 +15,9 @@ from typing import Callable
 
 import ecoagent
 from ecobuild import settings as _settings
-from ecobuild.errors import EcoBuildError, ErrorCode
+
+from . import status as agent_status
+from .errors import from_ecoagent
 
 FOLDER = Path("agents") / "operator"
 READ, CHANGE, CONFIRM, HUMAN = ecoagent.guard.READ, ecoagent.guard.CHANGE, ecoagent.guard.CONFIRM, ecoagent.guard.HUMAN
@@ -102,7 +104,6 @@ def run(command: tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
     許可・フックと、状態の書き出し（agent_status：返答の終わり・モデル）を1つの --settings で渡す（フォルダーの
     信頼を待たずに効く）。"""
     import json
-    from . import agent_status
     command = quick(command)
     if command[:1] == ("claude",):
         # 起動ごとに別の置き場所（同じPCでオペレーターが2つ動いても、互いの状態を消さない）。古いものは片付ける
@@ -143,4 +144,4 @@ def _agent_error():
     try:
         yield
     except ecoagent.AgentError as error:
-        raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
+        raise from_ecoagent(error) from error

@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import team as _team
+from ecobuild_agent import team as _team
 
 from ...._output import run_command
 from ...workspace.close import render_closed

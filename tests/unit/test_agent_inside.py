@@ -1,0 +1,153 @@
+"""コンテナの中のエージェント（ecobuild_agent.inside・tokens）。docker は偽物（コンテナの状態を持つ）。"""
+
+from pathlib import Path
+
+import pytest
+
+import ecobuild_bundle  # noqa: F401（コンテナの拡張に型と、エージェントが足すものをつなぐ）
+import ecobuild_container as container
+from ecobuild import config
+from ecobuild.errors import WorkError
+from ecobuild_agent import inside, tokens
+from ecobuild_container import docker
+from fake_docker import FakeDocker
+
+
+@pytest.fixture
+def root(tmp_path):
+    path = tmp_path / "My Calc"
+    config.save(config.ModuleConfig.for_new_module("Calc", "generic"), path / config.FILE_NAME)
+    return path
+
+
+def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
+    import ecoagent
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    monkeypatch.setattr(container, "docker_command", lambda runner, command: ("docker",))
+    monkeypatch.setattr(container.docker, "run", fake.run)
+    monkeypatch.setattr(container, "credentials", lambda root=None: {"GH_TOKEN": "secret"})
+    tokens.save_token("sk-ant-oat01-abc")
+    started = []
+    monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))
+                        or ecoagent.Session(1, tuple(command), Path(directory)))
+    container.choose(root, True, fake.run)
+    inside.start_agent(root, ("claude",), deny=("WebFetch",))
+    written = next(args for args in fake.calls if args[1] == "exec")
+    assert written[2:4] == ["--user", "0"] and inside.MANAGED_SETTINGS in written[-1]
+    assert inside.write_settings(("WebFetch",)) == written[-1] and '"' not in written[-1]
+    command, env = started[0]
+    assert command[-2:] == ["claude", "--dangerously-skip-permissions"] and "--tty" in command
+    assert env["GH_TOKEN"] == "secret" and "secret" not in command
+    assert env[tokens.TOKEN_VARIABLE] == "sk-ant-oat01-abc" and "sk-ant-oat01-abc" not in command
+    assert "TERM=xterm-256color" in command and "COLORTERM=truecolor" in command          # Claude のオレンジが赤にならない
+    assert any(args[-3:-1] == ["python3", "-c"] for args in fake.calls)                  # 初めての質問に先に答える
+
+
+def test_the_microphone_reaches_the_container(monkeypatch, tmp_path):
+    """Windows（WSL の docker）は WSLg の PulseAudio を、Linux はそのユーザーの PulseAudio を見せる。なければ何もしない。"""
+    assert inside.sound(("wsl", "-d", "ECOBuild", "--exec", "docker"))[:2] == ("--volume", "/mnt/wslg:/mnt/wslg")
+    assert "PULSE_SERVER=unix:/mnt/wslg/PulseServer" in inside.sound(("wsl",))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    assert inside.sound(("docker",)) == ()
+    (tmp_path / "pulse").mkdir(); (tmp_path / "pulse" / "native").write_text("")
+    assert "PULSE_SERVER=unix:/run/ecobuild-pulse/native" in inside.sound(("docker",))
+    assert "sox libsox-fmt-pulse" in container.layer("ecobuild-env-calc:1")
+
+
+def test_the_token_is_kept_without_spaces(monkeypatch, tmp_path):
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    assert tokens.load_token() == "" and not tokens.forget_token()
+    tokens.save_token("  sk-ant-oat01-xyz\n")
+    assert tokens.load_token() == "sk-ant-oat01-xyz"
+    with pytest.raises(WorkError):
+        tokens.save_token("sk-ant oat")
+    assert tokens.forget_token() and tokens.load_token() == ""
+    (tmp_path / "repo" / ".git").mkdir(parents=True)                       # リポジトリの中には置かない
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "repo" / "home"))
+    with pytest.raises(WorkError) as raised:
+        tokens.save_token("sk-ant-oat01-xyz")
+    assert "リポジトリ" in raised.value.message and not tokens.token_path().exists()
+
+
+def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    import sys
+    (tmp_path / ".claude.json").write_text(json.dumps({"numStartups": 3, "projects": {"/work": {"allowedTools": ["x"]}}}))
+    (tmp_path / "settings.json").write_text(json.dumps({"theme": "light"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
+    subprocess.run([sys.executable, "-c", inside.first_run_script()], check=True)
+    state = json.loads((tmp_path / ".claude.json").read_text())
+    assert state["numStartups"] == 3 and state["hasCompletedOnboarding"] is True
+    assert state["projects"]["/work"] == {"allowedTools": ["x"], "hasTrustDialogAccepted": True}
+    assert json.loads((tmp_path / "settings.json").read_text()) == {"theme": "light", "skipDangerousModePermissionPrompt": True}
+
+
+def test_the_token_is_caught_from_the_screen(monkeypatch, tmp_path):
+    import ecoagent
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = "sk-ant-oat01-" + "Ab3_-" * 20
+    ran = []
+    monkeypatch.setattr(tokens.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(tokens.subprocess, "run", lambda args, **kw: ran.append(args))
+    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: f"Your OAuth token:\n\n{fake}\n\nStore this token securely.\n")
+    assert tokens.capture_token() == fake and tokens.load_token() == fake
+    assert ran == [["/bin/claude", "setup-token"]]
+    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: "Login failed\n")
+    tokens.forget_token()
+    assert tokens.capture_token() == "" and tokens.load_token() == ""
+    assert tokens.find_token("old sk-ant-oat01-" + "a" * 30 + " new sk-ant-oat01-" + "b" * 30).endswith("b" * 30)
+
+
+def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root, tmp_path):
+    """中の会話は、ecoagent.history を中の python3 で動かして読む（今のブランチのものだけ）。止まっていれば読まない。"""
+    import json
+    import os
+    import subprocess
+    import sys
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    assert inside.agent_conversations(root, "task/1", runner=fake.run)[1].startswith("コンテナが動いていない")
+    container.start(root, fake.run)
+    folder = tmp_path / "agent" / "projects" / "-work"
+    folder.mkdir(parents=True)
+    for id, branch in (("a", "task/1"), ("b", "task/2")):
+        (folder / f"{id}.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}, "gitBranch": branch}) + "\n",
+                                            encoding="utf-8")
+
+    def run_inside(args):
+        if args[1] == "exec" and "python3" in args and "-c" in args:
+            script = args[args.index("-c") + 1]
+            done = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, encoding="utf-8",
+                                  env={**os.environ, "CLAUDE_CONFIG_DIR": str(tmp_path / "agent")})
+            return docker.Completed(tuple(args), done.returncode, done.stdout + done.stderr)
+        return fake.run(args)
+
+    found, note = inside.agent_conversations(root, "task/1", runner=run_inside)
+    assert [c.id for c in found] == ["a"] and note == ""
+
+
+def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):
+    """エージェントがコンテナに足すもの：イメージに Claude Code、ログインは共有のボリューム、状態の置き場所。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    text = container.layer("ecobuild-env-calc:123")
+    assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={inside.AGENT_HOME}" in text
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    container.start(root, fake.run)
+    run = next(args for args in fake.calls if args[1] == "run")
+    assert f"{inside.AGENT_VOLUME}:{inside.AGENT_HOME}" in run                          # エージェントのログインは共有
+    assert any(item.endswith(":" + inside.status.INSIDE) for item in run)               # 状態の置き場所
+
+
+def test_what_the_agent_may_not_use(monkeypatch, root, tmp_path):
+    """使わせないもの：このPCの設定 agent_deny に、この作業空間だけのもの（ecobuild.local.toml）を足す。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    assert inside.split_rules(" a ; ;b") == ("a", "b")
+    assert inside.set_deny(root, ("WebFetch", "Bash(rm:*)")) and not inside.set_deny(root, ("WebFetch", "Bash(rm:*)"))
+    assert inside.workspace_deny(root) == ("WebFetch", "Bash(rm:*)")
+    ecobuild_bundle.set_config("agent_deny", "Bash(git push --force:*)")
+    assert inside.deny(root) == ("Bash(git push --force:*)", "WebFetch", "Bash(rm:*)")
+    assert inside.set_deny(root, ()) and inside.workspace_deny(root) == ()

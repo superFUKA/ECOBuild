@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cpp.errors import ErrorCode
 from ecobuild_cli.kit import optional_argument, run_command, split_list, split_semicolons
 from ._common import render_details, target_project
 

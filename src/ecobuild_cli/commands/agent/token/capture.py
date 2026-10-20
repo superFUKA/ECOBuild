@@ -1,6 +1,6 @@
 import click
 from ecobuild.errors import WorkError
-from ecobuild_bundle import container as _container
+from ecobuild_agent import tokens as _tokens
 
 
 def command() -> int:
@@ -10,14 +10,14 @@ def command() -> int:
     終わっても窓はすぐ閉じません（Enter で閉じます）。
     """
     try:
-        token = _container.capture_token()
+        token = _tokens.capture_token()
         if token:
             click.echo("\nトークンを覚えました。コンテナの中の AI はログインせずに使えます。")
         else:
             click.echo("\nトークンを画面から拾えませんでした。表示されたトークン（sk-ant-oat…）を貼ってください（入力は隠します。空なら何もしません）。")
             value = click.prompt("トークン", default="", show_default=False, hide_input=True)
             if value.strip():
-                _container.save_token(value)
+                _tokens.save_token(value)
                 click.echo("トークンを覚えました。")
         code = 0
     except WorkError as error:

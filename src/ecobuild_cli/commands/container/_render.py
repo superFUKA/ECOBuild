@@ -1,8 +1,26 @@
+import dataclasses
+
+from ecobuild_agent import inside as _agent
+from ecobuild_container import WorkspaceContainer
+
 from ..._module import PROGRAM
 from ..._output import lines
 
 STATES = {"none": "まだありません", "running": "動いています", "exited": "止まっています", "created": "作っただけです",
           "unknown": "わかりません（Docker が使えません）"}
+
+
+@dataclasses.dataclass(frozen=True)
+class ContainerView(WorkspaceContainer):
+    """コンテナの状態と、この作業空間だけのエージェントの設定（使わせないもの。エージェントの拡張が持つ）。"""
+    deny: tuple[str, ...] = ()
+
+
+def view(result: WorkspaceContainer, *, changed: bool | None = None) -> ContainerView:
+    values = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
+    if changed is not None:
+        values["changed"] = changed
+    return ContainerView(**values, deny=_agent.workspace_deny(result.path))
 
 
 def render(r, done: str | None = None):

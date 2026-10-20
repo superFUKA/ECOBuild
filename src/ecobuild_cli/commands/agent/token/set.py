@@ -2,7 +2,7 @@ import sys
 from typing import Annotated
 
 import click
-from ecobuild_bundle import container as _container
+from ecobuild_agent import tokens as _tokens
 
 from ...._output import Invocation, execute
 
@@ -15,7 +15,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
     """
     def action(inv):
         value = click.prompt("トークン", hide_input=True, err=True) if sys.stdin.isatty() else sys.stdin.read()
-        return {"saved": True, "path": str(_container.save_token(value))}
+        return {"saved": True, "path": str(_tokens.save_token(value))}
 
     return execute("agent token set", Invocation(json_output=json), action,
                    lambda r: "トークンを覚えました。コンテナの中のエージェントはログインせずに使えます")

@@ -6,7 +6,8 @@ from helpers import git, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
 from ecowork import WorkError
 from ecobuild import config
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cpp.errors import ErrorCode
 from ecobuild_bundle import Module
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
@@ -135,7 +136,8 @@ def test_create_module_names_its_first_project(short_tmp):
 def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     """既定は実行ファイルのProjectを1つ。--kind none なら何も作らず、後から project add で足す。
     他のモジュールからリンクされるのは最初に作ったProject（main）で、ライブラリでなければリンクできない。"""
-    from ecobuild.errors import EcoBuildError, ErrorCode
+    from ecobuild.errors import EcoBuildError
+    from ecobuild_cpp.errors import ErrorCode
 
     tool = Module.create("Tool", directory=short_tmp, github=FakeGitHub(short_tmp / "gh1"))
     assert [(p.name, p.kind, p.links) for p in tool.projects()] == [("Tool", "executable", ())]

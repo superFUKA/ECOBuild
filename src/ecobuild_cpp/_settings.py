@@ -14,7 +14,9 @@ from cppbuild import MSVC_RUNTIMES, AlreadyRegisteredError, BuildEvents, BuildOp
 from cppbuild.core import STANDARD_ENTRY_POINTS
 from cppbuild.models import CMakePackage, CMakeSource, Dependency, ImportedLibrary
 
-from ecobuild.errors import EcoBuildError, ErrorCode, operation
+from ecobuild.errors import EcoBuildError, operation
+
+from .errors import ErrorCode
 
 from . import _cppbuild
 

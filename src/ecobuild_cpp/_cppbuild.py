@@ -15,7 +15,9 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
 from cppbuild import workspace as _workspace
 
 from ecobuild.config import DIRECTORY
-from ecobuild.errors import EcoBuildError, ErrorCode, operation
+from ecobuild.errors import EcoBuildError, operation
+
+from .errors import ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 

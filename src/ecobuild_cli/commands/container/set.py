@@ -1,8 +1,9 @@
 from typing import Annotated
 
-from ecobuild_bundle import container as _container
+import ecobuild_container as _container
+from ecobuild_agent import inside as _agent
 from ..._output import run_command, split_semicolons
-from ._render import render
+from ._render import render, view
 
 
 def command(image: Annotated[str, "使うイメージ（既定は型のイメージ）"] = "",
@@ -16,8 +17,10 @@ def command(image: Annotated[str, "使うイメージ（既定は型のイメー
     コンテナを作り直します（作業空間のファイルはそのまま）。
     """
     def action(inv):
-        return _container.configure(inv.module.root, image="" if default_image else (image or None),
-                                    deny=() if no_deny else (split_semicolons(deny) or None))
+        rules = () if no_deny else (split_semicolons(deny) or None)
+        denied = rules is not None and _agent.set_deny(inv.module.root, rules)   # 使わせないものはエージェントの拡張が持つ
+        result = _container.configure(inv.module.root, image="" if default_image else (image or None))
+        return view(result, changed=result.changed or denied)
 
     return run_command("container set", action, lambda r: render(r, "設定を変えました" if r.changed else "設定は同じです"),
                        json_output=json)

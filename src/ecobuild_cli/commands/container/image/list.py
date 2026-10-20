@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecobuild_bundle import container as _container
+import ecobuild_container as _container
 from ...._module import PROGRAM
 from ...._output import Invocation, execute
 from .._source import source

@@ -18,7 +18,7 @@ def _tool_home(monkeypatch, tmp_path_factory):
 @pytest.fixture(autouse=True)
 def _no_docker(monkeypatch):
     """Docker の診断（doctor）は、このPCの本物の wsl・docker を呼ばない（使えないものとして答える）。"""
-    from ecobuild_bundle import docker
+    from ecobuild_container import docker
     monkeypatch.setattr(docker, "run", lambda args: docker.Completed(tuple(args), 1, ""))
 
 

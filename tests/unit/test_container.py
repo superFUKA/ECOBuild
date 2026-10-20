@@ -1,56 +1,16 @@
-"""作業空間のコンテナ（ecobuild_bundle.container）。docker は偽物（コンテナの状態を持つ）。"""
+"""作業空間のコンテナ（ecobuild_container）。docker は偽物（コンテナの状態を持つ）。"""
 
 import base64
 from pathlib import Path
 
 import pytest
 
+import ecobuild_bundle  # noqa: F401（コンテナの拡張に型をつなぐ）
+import ecobuild_container as container
 from ecobuild import config
-from ecobuild.errors import ErrorCode, WorkError
-from ecobuild_bundle import container, docker
-
-
-class FakeDocker:
-    def __init__(self, monkeypatch, *, ready=True):
-        self.ready, self.containers, self.images, self.calls = ready, {}, set(), []
-        monkeypatch.setattr(docker.shutil, "which", lambda name: name if name == "docker" else None)
-
-    def run(self, args):
-        self.calls.append(args)
-        command, rest = args[1], args[2:]
-        if command == "version":
-            return docker.Completed(tuple(args), 0 if self.ready else 1, "29.1.3" if self.ready else "")
-        if command == "inspect":
-            state = self.containers.get(rest[-1])
-            return docker.Completed(tuple(args), 0 if state else 1, " ".join(state) if state else "No such object")
-        if args[1:3] == ["image", "inspect"]:
-            return docker.Completed(tuple(args), 0 if rest[-1] in self.images else 1, "")
-        if args[1:3] == ["image", "ls"]:
-            wanted = rest[1] if len(rest) > 1 and not rest[1].startswith("-") else ""   # 名前（リポジトリ）で絞る
-            return docker.Completed(tuple(args), 0, "\n".join(f"{i}\t420MB\t2 hours ago" for i in sorted(self.images)
-                                                               if not wanted or i.rsplit(":", 1)[0] == wanted))
-        if args[1:3] == ["image", "rm"]:
-            self.images.discard(rest[-1])
-            return docker.Completed(tuple(args), 0, "")
-        if command == "ps":
-            return docker.Completed(tuple(args), 0, "\n".join(f"{c[1]}\tC:/ECO/{n}" for n, c in self.containers.items()))
-        if command == "build":
-            self.images.add(rest[rest.index("--tag") + 1])
-        elif command == "run":
-            labels = [rest[i + 1] for i, a in enumerate(rest) if a == "--label"]
-            version = next((l.split("=", 1)[1] for l in labels if l.startswith(container.VERSION_LABEL + "=")), "")
-            self.containers[rest[rest.index("--name") + 1]] = ["running", rest[-3], version]
-        elif command in ("exec", "volume"):
-            pass
-        elif command == "start":
-            self.containers[rest[-1]][0] = "running"
-        elif command == "stop":
-            self.containers[rest[-1]][0] = "exited"
-        elif command == "rm":
-            self.containers.pop(rest[-1])
-        else:
-            raise AssertionError(f"想定していないコマンド：{args}")
-        return docker.Completed(tuple(args), 0, "")
+from ecobuild.errors import WorkError
+from ecobuild_container import ErrorCode, docker
+from fake_docker import FakeDocker
 
 
 @pytest.fixture
@@ -81,7 +41,6 @@ def test_container_lifecycle(monkeypatch, root, tmp_path):
     assert built.startswith("# ECOBuild") and "FROM ecobuild-env-calc:" in built                # 環境の上に ECOBuild の層
     run = next(args for args in fake.calls if args[1] == "run")
     assert f"{root}:/work" in run and "1000:1000" in run and run[-3:] == [started.image, "sleep", "infinity"]
-    assert f"{container.AGENT_VOLUME}:{container.AGENT_HOME}" in run                     # エージェントのログインは共有
     assert not container.start(root, fake.run).changed                                    # 動いていれば何もしない
 
     assert container.stop(root, fake.run).state == "exited"
@@ -115,7 +74,7 @@ def test_names_and_wsl_paths(tmp_path):
 
 def test_type_tools_go_into_the_template():
     from ecobuild_bundle import REGISTRY
-    cpp, generic = REGISTRY.load("cpp").container_dockerfile(), REGISTRY.load("generic").container_dockerfile()
+    cpp, generic = container.dockerfile(REGISTRY.load("cpp")), container.dockerfile(REGISTRY.load("generic"))
     assert "cmake ninja-build g++" in cpp and "g++" not in generic and generic.startswith("#") and "FROM ubuntu:24.04" in generic
 
 
@@ -127,7 +86,7 @@ def test_the_image_follows_the_module_recipe(monkeypatch, tmp_path):
     source = ("https://example.com/ECOBuild", "abc")
     template = container.recipe(root, source)
     assert template.context is None and "cmake" in template.dockerfile and template.environment.startswith("ecobuild-env-calc:")
-    folder = root / config.CONTAINER_DIRECTORY
+    folder = root / container.DIRECTORY
     folder.mkdir(parents=True)
     (folder / "Dockerfile").write_bytes(template.dockerfile.encode())
     same = container.recipe(root, source)
@@ -148,7 +107,7 @@ def test_the_image_follows_the_module_recipe(monkeypatch, tmp_path):
     assert not container.show(root, fake.run, source=source).outdated
     (folder / "Dockerfile").write_text(template.dockerfile + "RUN echo more\n", encoding="utf-8")   # リポジトリの更新で変わった
     shown = container.show(root, fake.run, source=source)
-    assert shown.outdated and shown.image == started.image and shown.recipe == config.CONTAINER_DOCKERFILE
+    assert shown.outdated and shown.image == started.image and shown.recipe == container.DOCKERFILE
     assert not container.show(root, fake.run).outdated                                 # 入れ元を渡さなければ調べない
     again = container.start(root, fake.run, source=source)
     assert again.built and again.image == shown.wanted_image and not container.show(root, fake.run, source=source).outdated
@@ -195,46 +154,25 @@ def test_a_terminal_inside_stops_what_it_started_when_it_ends(tmp_path):
     assert other[8] != tag   # 起動ごとに別の印（閉じたタブの分だけを止める）
 
 
-def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
-    import ecoagent
-    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    fake = FakeDocker(monkeypatch)
-    monkeypatch.setattr(container, "_docker", lambda runner, command: ("docker",))
-    monkeypatch.setattr(container.docker, "run", fake.run)
-    monkeypatch.setattr(container, "credentials", lambda root=None: {"GH_TOKEN": "secret"})
-    container.save_token("sk-ant-oat01-abc")
-    started = []
-    monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))
-                        or ecoagent.Session(1, tuple(command), Path(directory)))
-    container.choose(root, True, fake.run)
-    container.start_agent(root, ("claude",), deny=("WebFetch",))
-    written = next(args for args in fake.calls if args[1] == "exec")
-    assert written[2:4] == ["--user", "0"] and container.MANAGED_SETTINGS in written[-1]
-    assert container.write_settings(("WebFetch",)) == written[-1] and '"' not in written[-1]
-    command, env = started[0]
-    assert command[-2:] == ["claude", "--dangerously-skip-permissions"] and "--tty" in command
-    assert env["GH_TOKEN"] == "secret" and "secret" not in command
-    assert env[container.TOKEN_VARIABLE] == "sk-ant-oat01-abc" and "sk-ant-oat01-abc" not in command
-    assert "TERM=xterm-256color" in command and "COLORTERM=truecolor" in command          # Claude のオレンジが赤にならない
-    assert any(args[-3:-1] == ["python3", "-c"] for args in fake.calls)                  # 初めての質問に先に答える
-
-
-def test_the_microphone_reaches_the_container(monkeypatch, tmp_path):
-    """Windows（WSL の docker）は WSLg の PulseAudio を、Linux はそのユーザーの PulseAudio を見せる。なければ何もしない。"""
-    assert container.sound(("wsl", "-d", "ECOBuild", "--exec", "docker"))[:2] == ["--volume", "/mnt/wslg:/mnt/wslg"]
-    assert "PULSE_SERVER=unix:/mnt/wslg/PulseServer" in container.sound(("wsl",))
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
-    assert container.sound(("docker",)) == []
-    (tmp_path / "pulse").mkdir(); (tmp_path / "pulse" / "native").write_text("")
-    assert "PULSE_SERVER=unix:/run/ecobuild-pulse/native" in container.sound(("docker",))
-    assert "sox libsox-fmt-pulse" in container.layer("ecobuild-env-calc:1")
-
-
-def test_the_ecobuild_layer_has_the_agent():
+def test_the_ecobuild_layer_and_what_other_extensions_add(monkeypatch, root, tmp_path):
+    """コンテナはほかの拡張を知らない：足すもの（Feature）を受け取って、イメージ・コンテナに重ねる。"""
+    monkeypatch.setattr(container, "_features", {})
     text = container.layer("ecobuild-env-calc:123")
     assert text.splitlines()[1] == "FROM ecobuild-env-calc:123" and "USER root" in text and "useradd" in text
-    assert "claude.ai/install.sh" in text and f"CLAUDE_CONFIG_DIR={container.AGENT_HOME}" in text
-    assert "gh auth git-credential" in text and f"{container.INSIDE}=1" in text
+    assert "gh auth git-credential" in text and f"{container.INSIDE}=1" in text and "claude" not in text
+    container.use(ecobuild_bundle.REGISTRY, (container.Feature(
+        "tool", packages=("jq",), environment=(("TOOL_HOME", "/opt/tool"),), install=("mkdir -p /opt/tool", "echo ok"),
+        volumes=lambda root: (("tool-cache", "/opt/tool"), (tmp_path / "shared", "/opt/shared")),
+        arguments=lambda prefix: ("--env", "TOOL=1")),))
+    text = container.layer("ecobuild-env-calc:123")
+    assert "python3-venv jq \\" in text and "ENV PATH=/home/ubuntu/.local/bin:$PATH TOOL_HOME=/opt/tool ECOBUILD_IN_CONTAINER=1" in text
+    assert "RUN mkdir -p /opt/tool \\\n && echo ok\nRUN curl -LsSf https://astral.sh/uv" in text
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    container.start(root, fake.run)
+    run = next(args for args in fake.calls if args[1] == "run")
+    assert "tool-cache:/opt/tool" in run and f"{tmp_path / 'shared'}:/opt/shared" in run and "TOOL=1" in run
+    assert (tmp_path / "shared").is_dir()                                                  # このPCの場所は作って付ける
 
 
 def test_images_are_per_module_and_old_ones_can_be_pruned(monkeypatch, root, tmp_path):
@@ -262,57 +200,10 @@ def test_images_are_per_module_and_old_ones_can_be_pruned(monkeypatch, root, tmp
 
 def test_settings_of_one_container(monkeypatch, root):
     fake = FakeDocker(monkeypatch)
-    set_ = container.configure(root, deny=("WebFetch", "Bash(rm:*)"), image="my/image:1", runner=fake.run)
-    assert set_.changed and set_.deny == ("WebFetch", "Bash(rm:*)") and set_.custom_image == "my/image:1"
-    assert not container.configure(root, deny=("WebFetch", "Bash(rm:*)"), runner=fake.run).changed
-    cleared = container.configure(root, deny=(), image="", runner=fake.run)
-    assert cleared.deny == () and cleared.custom_image == ""
-    assert container.split_rules(" a ; ;b") == ("a", "b")
-
-
-def test_the_token_is_kept_without_spaces(monkeypatch, tmp_path):
-    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    assert container.load_token() == "" and not container.forget_token()
-    container.save_token("  sk-ant-oat01-xyz\n")
-    assert container.load_token() == "sk-ant-oat01-xyz"
-    with pytest.raises(WorkError):
-        container.save_token("sk-ant oat")
-    assert container.forget_token() and container.load_token() == ""
-    (tmp_path / "repo" / ".git").mkdir(parents=True)                       # リポジトリの中には置かない
-    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "repo" / "home"))
-    with pytest.raises(WorkError) as raised:
-        container.save_token("sk-ant-oat01-xyz")
-    assert "リポジトリ" in raised.value.message and not container.token_path().exists()
-
-
-def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeypatch):
-    import json
-    import subprocess
-    import sys
-    (tmp_path / ".claude.json").write_text(json.dumps({"numStartups": 3, "projects": {"/work": {"allowedTools": ["x"]}}}))
-    (tmp_path / "settings.json").write_text(json.dumps({"theme": "light"}))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    subprocess.run([sys.executable, "-c", container.first_run_script()], check=True)
-    state = json.loads((tmp_path / ".claude.json").read_text())
-    assert state["numStartups"] == 3 and state["hasCompletedOnboarding"] is True
-    assert state["projects"]["/work"] == {"allowedTools": ["x"], "hasTrustDialogAccepted": True}
-    assert json.loads((tmp_path / "settings.json").read_text()) == {"theme": "light", "skipDangerousModePermissionPrompt": True}
-
-
-def test_the_token_is_caught_from_the_screen(monkeypatch, tmp_path):
-    import ecoagent
-    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    fake = "sk-ant-oat01-" + "Ab3_-" * 20
-    ran = []
-    monkeypatch.setattr(container.shutil, "which", lambda name: f"/bin/{name}")
-    monkeypatch.setattr(container.subprocess, "run", lambda args, **kw: ran.append(args))
-    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: f"Your OAuth token:\n\n{fake}\n\nStore this token securely.\n")
-    assert container.capture_token() == fake and container.load_token() == fake
-    assert ran == [["/bin/claude", "setup-token"]]
-    monkeypatch.setattr(ecoagent.console, "screen_text", lambda: "Login failed\n")
-    container.forget_token()
-    assert container.capture_token() == "" and container.load_token() == ""
-    assert container.find_token("old sk-ant-oat01-" + "a" * 30 + " new sk-ant-oat01-" + "b" * 30).endswith("b" * 30)
+    set_ = container.configure(root, image="my/image:1", runner=fake.run)
+    assert set_.changed and set_.custom_image == "my/image:1"
+    assert not container.configure(root, image="my/image:1", runner=fake.run).changed
+    assert container.configure(root, image="", runner=fake.run).custom_image == ""
 
 
 def test_type_caches_live_in_the_container(monkeypatch, tmp_path):
@@ -345,30 +236,3 @@ def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch,
     assert old not in fake.images and "ecobuild-other:someother" in fake.images and len(fake.images) == 3   # 環境は同じものを使う
 
 
-def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root, tmp_path):
-    """中の会話は、ecoagent.history を中の python3 で動かして読む（今のブランチのものだけ）。止まっていれば読まない。"""
-    import json
-    import os
-    import subprocess
-    import sys
-    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    fake = FakeDocker(monkeypatch)
-    container.choose(root, True, fake.run)
-    assert container.agent_conversations(root, "task/1", runner=fake.run)[1].startswith("コンテナが動いていない")
-    container.start(root, fake.run)
-    folder = tmp_path / "agent" / "projects" / "-work"
-    folder.mkdir(parents=True)
-    for id, branch in (("a", "task/1"), ("b", "task/2")):
-        (folder / f"{id}.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hi"}, "gitBranch": branch}) + "\n",
-                                            encoding="utf-8")
-
-    def inside(args):
-        if args[1] == "exec" and "python3" in args and "-c" in args:
-            script = args[args.index("-c") + 1]
-            done = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, encoding="utf-8",
-                                  env={**os.environ, "CLAUDE_CONFIG_DIR": str(tmp_path / "agent")})
-            return docker.Completed(tuple(args), done.returncode, done.stdout + done.stderr)
-        return fake.run(args)
-
-    found, note = container.agent_conversations(root, "task/1", runner=inside)
-    assert [c.id for c in found] == ["a"] and note == ""

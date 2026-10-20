@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild_bundle import team as _team
+from ecobuild_agent import team as _team
 
 from ...._output import run_command, to_data
 from . import _forward

@@ -5,7 +5,7 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from ecobuild_bundle import operator
+from ecobuild_agent import operator
 from ecobuild_cli import _catalog, _effects, build_cli
 
 

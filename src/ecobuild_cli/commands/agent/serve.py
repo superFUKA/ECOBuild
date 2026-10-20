@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Annotated
 
 import click
-from ecobuild_bundle import agent_serve, container, team
+import ecobuild_container as container
+from ecobuild_agent import serve as agent_serve
+from ecobuild_agent import team
 
 from ..._output import Invocation, execute
 from ..container._source import source

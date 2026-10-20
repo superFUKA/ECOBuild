@@ -30,8 +30,12 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import ecobuild_container as container
 from ecobuild import settings as _settings
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+
+from . import status as agent_status
+from .errors import ErrorCode
 
 LEAD, WORKER = "lead", "worker"
 ROLES = (LEAD, WORKER)
@@ -190,9 +194,9 @@ def _inherit_container(lead: Path, member: Path) -> None:
     作業役も同じように隔離して確認なしで動かす（新しい clone はコンテナにしていないので、そのままではこのPCで動き、
     初めてのフォルダーの確認で止まる）。"""
     from ecobuild import config as _config
-    from . import container
+    from .inside import DENY_KEY
     chosen = {key: value for key, value in _config.load_local(lead).items()
-              if key in (container.KEY, container.IMAGE_KEY, container.DENY_KEY)}
+              if key in (container.KEY, container.IMAGE_KEY, DENY_KEY)}
     if chosen:
         _config.save_local(member, {**_config.load_local(member), **chosen})
 
@@ -278,13 +282,11 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
 
 def inbox_of(root: Path) -> Path:
     """作業空間 root のエージェントの、状態の置き場所（受け箱がある）。"""
-    from . import agent_status, container
     return agent_status.directory(container.name(root))
 
 
 def send(root: Path, name: str, text: str) -> Member:
     """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。"""
-    from . import agent_status
     if not text.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "伝えることが空です。")
     member = find(root, name)
@@ -315,13 +317,11 @@ def lead_notice(root: Path, message: str) -> tuple[Path, str] | None:
 
 def should_forward() -> bool:
     """この操作を係に頼むか：コンテナの中（このPCに届かない）か、GUI のエージェントの窓の端末の中（タブを開いてもらう）。"""
-    from . import container
     return bool(os.environ.get(container.INSIDE) or os.environ.get(WINDOW_VARIABLE))
 
 
 def requests_folder(root: Path) -> Path:
     """頼みの置き場所：状態の置き場所の中（コンテナの中ではマウントした所）。"""
-    from . import agent_status, container
     if os.environ.get(container.INSIDE):
         return Path(agent_status.INSIDE) / REQUESTS
     return agent_status.directory(container.name(root)) / REQUESTS

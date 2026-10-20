@@ -2,7 +2,8 @@
 
 import pytest
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cli._self_update import ErrorCode
 from ecobuild_cli import _self_update
 
 OLD, NEW = "a" * 40, "b" * 40

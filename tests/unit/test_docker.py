@@ -1,6 +1,7 @@
-"""このPCの準備：Docker の診断と導入（ecobuild_bundle.docker）。wsl・docker・sudo は偽物（決めた状態に答える）。"""
+"""このPCの準備：Docker の診断と導入（ecobuild_container.docker）。wsl・docker・sudo は偽物（決めた状態に答える）。"""
 
-from ecobuild_bundle import docker, tooling
+from ecobuild_bundle import tooling
+from ecobuild_container import docker
 
 
 class Machine:

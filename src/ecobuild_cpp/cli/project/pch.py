@@ -24,7 +24,8 @@ def command(
         module = inv.module
         target = project or module.project_at(inv.cwd)
         if target is None:
-            from ecobuild.errors import EcoBuildError, ErrorCode
+            from ecobuild.errors import EcoBuildError
+            from ecobuild_cpp.errors import ErrorCode
             raise EcoBuildError(ErrorCode.NOT_IN_PROJECT, "対象のProjectが決まりません。",
                                 hint="Projectのディレクトリの中で実行するか、Project名を指定してください。")
         if (header or system) and not off:

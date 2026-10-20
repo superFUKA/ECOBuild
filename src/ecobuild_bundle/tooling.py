@@ -18,9 +18,8 @@ from typing import Iterable
 from ecobuild.errors import operation
 from ecobuild.results import DoctorItem
 from ecobuild.settings import HOME_VARIABLE, Types, default_home, home, load_config, set_config
+from ecobuild_container import docker as _docker
 from ecowork import process as _process
-
-from . import docker as _docker
 
 # 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは DoctorItem.install）
 INSTALL = {

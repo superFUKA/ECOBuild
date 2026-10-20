@@ -21,7 +21,6 @@ import tomllib
 from dataclasses import fields, replace
 from pathlib import Path
 
-import ecoagent
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
@@ -35,7 +34,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentConversations, AgentGuide, AgentStarted, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
+from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
@@ -191,8 +190,9 @@ class Module:
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class, description), encoding="utf-8", newline="\n")
-            (root / _config.CONTAINER_DIRECTORY).mkdir(parents=True, exist_ok=True)
-            (root / _config.CONTAINER_DOCKERFILE).write_text(type_class.container_dockerfile(), encoding="utf-8", newline="\n")
+            for path, text in cls.environment_files(type_class).items():
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_text(text, encoding="utf-8", newline="\n")
             (progress or _quiet)(_POPULATING.get(kind or type_class.default_new_kind or "", "モジュールの中身を用意中…"))
             type_class.populate(root, module_config, kind or None, project or None, test=test)
 
@@ -209,6 +209,13 @@ class Module:
             module.repository.notices.append(f"タスク管理の準備ができませんでした（{error.message}）。"
                                              "タスクを初めて記録するときに、もう一度行います。")
         return module
+
+    @classmethod
+    def environment_files(cls, type_class: type[_module_type.ModuleType]) -> dict[str, str]:
+        """拡張がモジュールに置くファイル（モジュールのルートからの場所 → ひな型。例：コンテナの環境の Dockerfile）。
+        module new で置き、module upgrade ではなければ置く（あればモジュールのもの。変えない）。本体は置かない：
+        Module に重ねる拡張が、super() に足して返す。"""
+        return {}
 
     @classmethod
     def clone(
@@ -1157,7 +1164,7 @@ class Module:
         """モジュールを今の ECOBuild の仕様に合わせる（ecobuild.toml の format を今の版にする）。
 
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
-        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、コンテナの環境（なければ型のひな型を置く）、AGENTS.md・CIのワークフロー（あれば作り直す。
+        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
@@ -1182,8 +1189,9 @@ class Module:
             merged = _with_lines(current, wanted)
             if merged != current:
                 planned[path] = merged
-        if not (self.root / _config.CONTAINER_DOCKERFILE).exists():   # なければ型のひな型を置く（あればモジュールのもの。変えない）
-            planned[_config.CONTAINER_DOCKERFILE] = type_class.container_dockerfile()
+        for path, text in self.environment_files(type_class).items():   # なければ置く（あればモジュールのもの。変えない）
+            if not (self.root / path).exists():
+                planned[path] = text
         if (self.root / "AGENTS.md").is_file():
             planned["AGENTS.md"] = _docs.agents(self.config, type_class)
         workflow_path = self.root / _docs.CI_WORKFLOW
@@ -1233,29 +1241,6 @@ class Module:
     def agent_guide(self) -> AgentGuide:
         """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（タスクブランチでなくても読める）。"""
         return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
-
-    def start_agent(self, command: list[str] | tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> AgentStarted:
-        """作業空間のルート（モジュールのルート）で、エージェントを新しい画面で起動する。タスクブランチでだけ
-        （エージェントはタスクの作業をするもの。作業空間がタスクブランチでなければ起動しない）。"""
-        self.require_task_branch("エージェントの起動")
-        try:
-            session = ecoagent.start(self.root, command)
-        except ecoagent.AgentError as error:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
-        return AgentStarted(session.pid, session.command, session.directory)
-
-    def run_agent(self, command: list[str] | tuple[str, ...] = ecoagent.DEFAULT_COMMAND) -> int:
-        """作業空間のルートで、エージェントをこの端末で動かし、終わるまで待つ（終了コード）。タスクブランチでだけ。
-        画面を持つ別のアプリ（GUI のエージェントの窓）が、自分の端末の中で動かすときに使う。"""
-        self.require_task_branch("エージェントの起動")
-        try:
-            return ecoagent.run(self.root, command)
-        except ecoagent.AgentError as error:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, error.message, hint=error.hint, details=error.code) from error
-
-    def agent_conversations(self, limit: int = 20) -> AgentConversations:
-        """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。"""
-        return AgentConversations(self.root, tuple(ecoagent.conversations(self.root, limit=limit)))
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。

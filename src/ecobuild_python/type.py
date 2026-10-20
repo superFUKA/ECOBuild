@@ -112,7 +112,7 @@ python -m venv .venv
     # このPCの準備 -------------------------------------------------------------------
 
     @classmethod
-    def container_caches(cls) -> tuple[str, ...]:
+    def build_outputs(cls) -> tuple[str, ...]:
         return (".venv", "build", "dist")   # 仮想環境（中の Python のもの）・配布の出力
 
     @classmethod

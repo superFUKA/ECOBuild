@@ -1,9 +1,11 @@
 """層の境目（memo/設計.md の「層」）。下の層は上の層を import しない。
 
-    ecotask（タスク管理）→ ecowork（作業の流れ）→ ecobuild（本体）→ ecobuild_cpp・ecobuild_generic・ecobuild_python
-    （拡張）→ ecobuild_bundle（本体＋拡張）→ ecobuild_cli（CLI）
+    ecotask（タスク管理）→ ecowork（作業の流れ）→ ecobuild（本体）→ 拡張 → ecobuild_bundle（本体＋拡張）→ ecobuild_cli（CLI）
 
-ecoagent（AI）は ecotask・ecowork と並ぶ下の層で、本体が使う（CLI は本体を通して使う）。
+拡張は2種類：型（ecobuild_cpp・ecobuild_generic・ecobuild_python。モジュールごとに1つ）と、作業空間に付ける環境
+（ecobuild_container・ecobuild_agent。このPC・作業空間ごと）。拡張どうしは知らない。例外は1つだけで、エージェントは
+コンテナの公開の口を使う（向きは agent → container。コンテナはエージェントを知らない）。
+ecoagent（AI）は ecotask・ecowork と並ぶ下の層で、エージェントの拡張だけが使う（本体・CLI は使わない）。
 
 あわせて、ecobuild 系は作業の流れを ecowork からだけ使う（ecotask を直接使わない）、他のパッケージの
 非公開のもの（_ で始まるモジュール・名前）は使わない、を確かめる。
@@ -19,7 +21,9 @@ from pathlib import Path
 import pytest
 
 TYPES = ("ecobuild_cpp", "ecobuild_generic", "ecobuild_python")
-UPPER_THAN_CORE = {"ecobuild_bundle", "ecobuild_cli"} | set(TYPES)
+ENVIRONMENTS = ("ecobuild_container", "ecobuild_agent")
+EXTENSIONS = set(TYPES) | set(ENVIRONMENTS)
+UPPER_THAN_CORE = {"ecobuild_bundle", "ecobuild_cli"} | EXTENSIONS
 CLI_LIBRARIES = {"click", "cli_framework"}
 ECOBUILD = {"ecobuild"} | UPPER_THAN_CORE
 
@@ -28,14 +32,18 @@ FORBIDDEN = {
     "ecoagent": {"ecotask", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecotask": {"ecoagent", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecowork": {"ecoagent", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
-    "ecobuild": {"ecotask", "cppbuild"} | UPPER_THAN_CORE | CLI_LIBRARIES,
-    "ecobuild_cpp": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "ecobuild_generic", "ecobuild_python"} | CLI_LIBRARIES,
-    "ecobuild_generic": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_python",
-                         "cppbuild"} | CLI_LIBRARIES,
-    "ecobuild_python": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "ecobuild_cpp", "ecobuild_generic",
-                        "cppbuild"} | CLI_LIBRARIES,
+    "ecobuild": {"ecoagent", "ecotask", "cppbuild"} | UPPER_THAN_CORE | CLI_LIBRARIES,
+    "ecobuild_cpp": {"ecoagent", "ecotask", "ecobuild_bundle", "ecobuild_cli"} | (EXTENSIONS - {"ecobuild_cpp"}) | CLI_LIBRARIES,
+    "ecobuild_generic": {"ecoagent", "ecotask", "ecobuild_bundle", "ecobuild_cli", "cppbuild"}
+                        | (EXTENSIONS - {"ecobuild_generic"}) | CLI_LIBRARIES,
+    "ecobuild_python": {"ecoagent", "ecotask", "ecobuild_bundle", "ecobuild_cli", "cppbuild"}
+                       | (EXTENSIONS - {"ecobuild_python"}) | CLI_LIBRARIES,
+    # コンテナはエージェントを知らない（エージェントが足すものは Feature として受け取る）
+    "ecobuild_container": {"ecoagent", "ecotask", "ecobuild_bundle", "ecobuild_cli", "cppbuild"}
+                          | (EXTENSIONS - {"ecobuild_container"}) | CLI_LIBRARIES,
+    "ecobuild_agent": {"ecotask", "ecobuild_bundle", "ecobuild_cli", "cppbuild"} | set(TYPES) | CLI_LIBRARIES,
     "ecobuild_bundle": {"ecotask", "ecobuild_cli"} | CLI_LIBRARIES,
-    # CLI は型を知らない（型のコマンドは登録した型の cli パッケージを名前で読み込む）
+    # CLI は型を知らない（型のコマンドは登録した型の cli パッケージを名前で読み込む）。AI はエージェントの拡張を通して使う
     "ecobuild_cli": {"ecoagent", "ecotask", "cppbuild"} | set(TYPES),
 }
 

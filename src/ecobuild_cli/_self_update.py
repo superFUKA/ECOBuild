@@ -19,10 +19,15 @@ from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild.errors import ErrorCode as _ErrorCode
 
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 GUI_DIRECTORY = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "ECOBuild GUI"   # install.ps1 の置き場所
+
+
+class ErrorCode(_ErrorCode):
+    NOT_UPDATABLE = "not_updatable"     # installer update：入れ方（手元のソース・同梱のインストーラー等）から更新できない
 
 
 @dataclass(frozen=True)

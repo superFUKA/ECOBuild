@@ -5,7 +5,8 @@ from helpers import remove_tree, short_temporary_directory
 
 from ecobuild_cpp import _cppbuild
 
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+from ecobuild_cpp.errors import ErrorCode
 
 pytestmark = pytest.mark.cppbuild
 

@@ -1,8 +1,9 @@
-"""コンテナの中・GUI のエージェントの窓の中では、チームの操作をこのPCの係に頼む（ecobuild_bundle.team.forward）。"""
+"""コンテナの中・GUI のエージェントの窓の中では、チームの操作をこのPCの係に頼む（ecobuild_agent.team.forward）。"""
 from pathlib import Path
 
-from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild_bundle import team as _team
+from ecobuild.errors import EcoBuildError
+from ecobuild_agent.errors import ErrorCode
+from ecobuild_agent import team as _team
 
 from ...._output import to_data
 

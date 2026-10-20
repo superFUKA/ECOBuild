@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from ecobuild_bundle import operator
+from ecobuild_agent import operator
 
 from . import _catalog, _effects
 from ._module import PROGRAM

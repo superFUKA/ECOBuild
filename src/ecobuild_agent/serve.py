@@ -23,9 +23,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ecobuild import settings as _settings
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
 
-from . import agent_status, team
+from . import status as agent_status
+from . import team
+from .errors import ErrorCode
 
 TEAM_COMMANDS = ("start", "close", "send", "list")
 LOCK = Path("agents") / "serve.lock"   # ECOBUILD_HOME の下：係はこのPCに1つ

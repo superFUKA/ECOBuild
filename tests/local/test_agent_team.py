@@ -1,4 +1,4 @@
-"""進行役と作業役（ecobuild_bundle.team）：作業役は子タスク＋進行役の作業空間の中の作業空間。"""
+"""進行役と作業役（ecobuild_agent.team）：作業役は子タスク＋進行役の作業空間の中の作業空間。"""
 
 import json
 from pathlib import Path
@@ -6,10 +6,15 @@ from pathlib import Path
 import pytest
 
 from fakes import FakeGitHub
-from ecobuild import settings, workspaces
-from ecobuild.errors import ErrorCode
+import ecobuild_bundle
+import ecobuild_container as container
+from ecobuild import workspaces
+from ecobuild_agent import serve as agent_serve
+from ecobuild_agent import status as agent_status
+from ecobuild_agent import team
+from ecobuild_agent.errors import ErrorCode
+from ecobuild_bundle import Module
 from ecowork import WorkError
-from ecobuild_bundle import Module, agent_serve, agent_status, container, team
 
 pytestmark = pytest.mark.local
 
@@ -29,7 +34,7 @@ def lead(tmp_path, monkeypatch):
 
 
 def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
-    settings.set_config("agent_worker_model", "haiku")
+    ecobuild_bundle.set_config("agent_worker_model", "haiku")
     member = team.create(lead, "画面", "目的：ログイン画面を作る\n範囲：src/ui だけ", model="")
     assert member.role == team.WORKER and member.path.parent == lead.root / team.TEAM_AREA
     assert member.path.name == f"{member.task}-画面" and member.branch.startswith(f"task/{member.task}-")
@@ -71,7 +76,7 @@ def test_a_worker_takes_over_the_leads_container(lead):
 
 
 def test_a_lead_has_its_own_model_and_cannot_edit(lead):
-    settings.set_config("agent_lead_model", "opus")
+    ecobuild_bundle.set_config("agent_lead_model", "opus")
     assert team.agent_options(lead.root, team.LEAD, ("claude",)) == \
         ("claude", "--model", "opus", "--disallowedTools", "Edit,Write,NotebookEdit")
     assert team.agent_options(lead.root, team.LEAD, ("claude", "--model", "sonnet"))[:3] == ("claude", "--model", "sonnet")

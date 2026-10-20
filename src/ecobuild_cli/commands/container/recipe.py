@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ecobuild import config as _config
-from ecobuild_bundle import container as _container
+import ecobuild_container as _container
 from ..._module import PROGRAM
 from ..._output import lines, run_command
 from ._source import source

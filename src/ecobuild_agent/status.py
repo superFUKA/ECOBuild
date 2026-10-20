@@ -62,7 +62,7 @@ def directory(name: str) -> Path:
     return _settings.home() / FOLDER / name
 
 
-WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 agent_serve が読む）
+WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 serve が読む）
 INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・作業役の知らせ）
 
 

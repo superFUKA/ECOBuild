@@ -18,7 +18,9 @@ from ecowork.git import Git
 
 from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
-from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.errors import EcoBuildError
+
+from .errors import ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
 from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, DependencyState, DependencyTree,
@@ -223,11 +225,11 @@ jobs:
                 "ctest": "C++のテストに使う ctest のパス（このPCだけ。既定は PATH の ctest）"}
 
     @classmethod
-    def container_packages(cls) -> tuple[str, ...]:
+    def apt_packages(cls) -> tuple[str, ...]:
         return ("cmake", "ninja-build", "g++")
 
     @classmethod
-    def container_caches(cls) -> tuple[str, ...]:
+    def build_outputs(cls) -> tuple[str, ...]:
         return ("build",)   # CMake の構成・出力・取ってきた依存（FetchContent）
 
     @classmethod

@@ -1,5 +1,5 @@
 'use strict';
-// エージェントが書き出す状態（ecobuild の agent_status：status.json・replied.json）を読む。
+// エージェントが書き出す状態（ecobuild_agent.status：status.json・replied.json）を読む。
 // 置き場所は、端末の出力の見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で分かる（found）。
 // 使用量の制限（5時間・週）はアカウント共通なので、どのタブから届いたものも1つにまとめて、最新を持つ。
 const fs = require('fs');
@@ -51,7 +51,7 @@ function summary(s) {
 }
 
 // 受け箱（inbox/。ECOBuild の係が入れる：言付け・作業役の知らせ）の一番古いものを取り出す（なければ null）。
-// ecobuild の agent_status.take と同じ形：名前の順が届いた順、.taken に名前を変えて取ったものだけを使う
+// ecobuild_agent.status.take と同じ形：名前の順が届いた順、.taken に名前を変えて取ったものだけを使う
 function take(folder) {
   const inbox = path.join(folder, 'inbox');
   let names; try { names = fs.readdirSync(inbox).filter(n => n.endsWith('.json')).sort(); } catch (e) { return null; }

@@ -1,7 +1,8 @@
 """このPCの設定（どのモジュールにも属さないもの）：置き場所（ECOBUILD_HOME）と config.toml。I-030。
 
-本体と型が読む（cloneの記録の場所・既定の所有者・型が使うツールのパス）。項目は本体の CONFIG_KEYS と、
-型の tool_settings。このPCの準備（ツールの導入・ログイン等）は本体の外（ecobuild_bundle.tooling）。
+本体・型・拡張が読む（cloneの記録の場所・既定の所有者・型が使うツールのパス・拡張の設定）。項目は本体の CONFIG_KEYS と、
+型の tool_settings と、拡張が名乗る項目（使う側が extra で渡す）。このPCの準備（ツールの導入・ログイン等）は本体の外
+（ecobuild_bundle.tooling）。
 """
 
 from __future__ import annotations
@@ -21,18 +22,11 @@ Types = Iterable[type["ModuleType"]]
 
 HOME_VARIABLE = "ECOBUILD_HOME"
 
-# config で扱う本体の項目 → 説明（型の項目は ModuleType.tool_settings）
+# config で扱う本体の項目 → 説明（型の項目は ModuleType.tool_settings、拡張の項目は使う側が extra で渡す）
 CONFIG_KEYS = {
     "owner": "module new・clone・list・deps add 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
     "log_level": "ログに残す量：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）",
     "log_max_mb": "ログの大きさの上限（MB、置き場所ごと。既定 200。超えたら古い日から消す）",
-    "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
-    "agent_style": "作業用のエージェントの話し方（口調・答え方。空なら指定なし）",
-    "agent_lead_model": "進行役のエージェントのモデル（Claude Code の --model。例 opus・sonnet。空なら Claude Code の既定）",
-    "agent_worker_model": "作業役のエージェントのモデル（Claude Code の --model。例 sonnet・haiku。空なら Claude Code の既定。"
-                          "作業役ごとに agent team start --model でも指定できる）",
-    "agent_deny": "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
-                  "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
 }
 
 # 値が決まっている項目 → 確かめ方（合わなければ説明）
@@ -56,9 +50,9 @@ def default_home() -> Path:
     return Path(platformdirs.user_config_dir("ecobuild", appauthor=False))
 
 
-def config_keys(types: Types = ()) -> dict[str, str]:
-    """config で扱う項目 → 説明（本体の項目と、型が使うツールの項目）。"""
-    keys = dict(CONFIG_KEYS)
+def config_keys(types: Types = (), extra: dict[str, str] | None = None) -> dict[str, str]:
+    """config で扱う項目 → 説明（本体の項目と、拡張の項目 extra と、型が使うツールの項目）。"""
+    keys = {**CONFIG_KEYS, **(extra or {})}
     for module_type in types:
         keys.update(module_type.tool_settings())
     return keys
@@ -75,8 +69,8 @@ def load_config() -> dict[str, str]:
     return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
-def set_config(key: str, value: str | None, types: Types = ()) -> dict[str, str]:
-    keys = config_keys(types)
+def set_config(key: str, value: str | None, types: Types = (), extra: dict[str, str] | None = None) -> dict[str, str]:
+    keys = config_keys(types, extra)
     if key not in keys:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} はありません。",
                             hint="設定できる項目：" + "、".join(keys))

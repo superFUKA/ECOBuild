@@ -108,30 +108,14 @@ class ModuleType:
         return {}
 
     @classmethod
-    def container_packages(cls) -> tuple[str, ...]:
-        """作業空間のコンテナ（Ubuntu）に入れる、型が使うツールのパッケージ（apt の名前）。container_dockerfile の材料。"""
+    def apt_packages(cls) -> tuple[str, ...]:
+        """型が使うツールの、Debian・Ubuntu のパッケージ（apt の名前）。Linux の環境を作るとき（作業空間のコンテナ等）に使う。"""
         return ()
 
     @classmethod
-    def container_dockerfile(cls) -> str:
-        """モジュールのコンテナの環境のひな型（.ecobuild/container/Dockerfile。モジュールを作るときに置き、その後は
-        モジュールのもの：解析ツール等を足してよい）。ここにはモジュールで要るものだけを書く。ECOBuild 自身（エージェント・
-        ecobuild 等）は、ECOBuild がイメージを作るときに上に重ねる。既定は Ubuntu に container_packages を入れる。"""
-        lines = ["# このモジュールの作業空間のコンテナの環境（ECOBuild がこれを元にイメージを作る）。",
-                 "# モジュールで要るツールをここに足す。ECOBuild 自身（エージェント・ecobuild 等）は ECOBuild が上に重ねるので書かない。",
-                 "# apt の使える Ubuntu・Debian を元にする（ECOBuild の層が apt と uid 1000 の利用者を使う）。",
-                 "FROM ubuntu:24.04"]
-        if packages := cls.container_packages():
-            lines += ["RUN apt-get update \\",
-                      f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {' '.join(packages)} \\",
-                      " && rm -rf /var/lib/apt/lists/*"]
-        return "\n".join(lines) + "\n"
-
-    @classmethod
-    def container_caches(cls) -> tuple[str, ...]:
-        """作業空間のコンテナで、作業空間（このPCのフォルダ）ではなくコンテナの側に置くフォルダ（ルートからの場所）。
-        ビルドの出力・仮想環境など：このPCのフォルダは中から権限（chmod）を変えられず、ツールが止まることがある
-        （CMake の configure_file 等）。速くもなり、このPCのビルドの出力とも混ざらない。"""
+    def build_outputs(cls) -> tuple[str, ...]:
+        """ビルドの出力・仮想環境など、型が作り直せるフォルダ（ルートからの場所）。作業空間のコンテナは、これを作業空間
+        （このPCのフォルダ）ではなくコンテナの側に置く（中から権限を変えられ、速く、このPCのビルドの出力と混ざらない）。"""
         return ()
 
     # 生成ファイルと、手元をそろえる処理 -----------------------------------------------

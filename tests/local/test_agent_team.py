@@ -64,6 +64,7 @@ def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     assert code_of(lambda: team.create(worker, "もっと", "分ける")) == ErrorCode.INVALID_ARGUMENT        # 作業役は作らない
     briefing = worker.agent_briefing(worker.require_task_branch("x"), team.WORKER)
     assert "作業役" in briefing and team.REPORT_FILE in briefing
+    assert "提出しない" in briefing                                                   # レビュー・調べものは報告だけ
 
     (member.path / team.REPORT_FILE).unlink()
     closed = Module.close_workspace(member.path)                                            # 入れ子でも閉じられる
@@ -96,6 +97,8 @@ def test_a_lead_has_its_own_model_and_writes_only_its_notes(lead, tmp_path):
     assert team.agent_options(sub.path, team.LEAD, ("claude",))[:3] == ("claude", "--model", "sonnet")   # 作ったときの指定
     briefing = lead.agent_briefing(lead.require_task_branch("x"), team.LEAD)
     assert "進行役" in briefing and "agent team start" in briefing and team.PLAN_FILE in briefing
+    assert "進め方の手" in briefing and "2〜3人" not in briefing                          # 人数は大きさ・独立さで
+    assert all(word in briefing for word in ("共通の決まり", "レビュー", "アイデア", "--lead", "task close"))
     assert code_of(lambda: team.create(lead, "空", "  ")) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: team.role_of(lead.root, "boss")) == ErrorCode.INVALID_ARGUMENT
 

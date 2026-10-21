@@ -77,6 +77,7 @@ class AgentModule:
         boxed = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
         self._not_held_by_serve()
+        self._no_other_agent()
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         folder = status.prepare(container.name(self.root), self.root)
@@ -102,6 +103,7 @@ class AgentModule:
         boxed = container.enabled(self.root)
         task = self.require_task_branch("エージェントの起動")
         self._not_held_by_serve()
+        self._no_other_agent()
         role = self._role(role, tuple(command), boxed, source, progress)
         command = self._for_role(tuple(command), role, prompt)
         folder = None
@@ -132,6 +134,7 @@ class AgentModule:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "AI が起動するエージェントはコンテナで動かします。この作業空間はコンテナにしていません。",
                                 hint=f"{operation(self.command, 'container on')} でコンテナにしてから、起動し直してください。")
         task = self.require_task_branch("エージェントの起動")
+        self._no_other_agent()
         role = team.role_of(self.root, role or (team.remembered_roles(self.root).get(resume, "") if resume else ""))
         command = self._for_role(("claude", *app.FLAGS, *(("--resume", resume) if resume else ())), role, "")
         session = resume or command[command.index("--session-id") + 1]
@@ -151,6 +154,25 @@ class AgentModule:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントは、係がアプリ用で動かしています。",
                                 hint="人が引き取るには、進行役の作業空間で agent team takeover <名前>"
                                      "（人がアプリ用で起動したものは agent stop）。")
+
+    def _no_other_agent(self, wait: float = 3.0) -> None:
+        """この作業空間でエージェントがもう動いているなら、2つ目は起動しない（チーム・受け箱・状態を共有してしまう）。
+        起動し直し（前のプロセスを止めた直後）で誤って止めないよう、終わるのを wait 秒まで待つ。"""
+        folder = status.directory(container.name(self.root))
+        end = time.monotonic() + wait
+        pid = status.running_pid(folder)
+        while pid is not None and pid != os.getpid() and time.monotonic() < end:
+            time.sleep(0.1)
+            pid = status.running_pid(folder)
+        if pid is None or pid == os.getpid():
+            return
+        data = status.read(folder / status.RUNNING)
+        at = data.get("at") if isinstance(data, dict) else None
+        since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)) if isinstance(at, (int, float)) else "不明"
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, f"この作業空間では、もうエージェントが動いています（pid {pid}・起動 {since}）。",
+                            hint="同じ作業空間に2つ目のエージェントは起動しません（チーム・受け箱・状態を共有してしまいます）。"
+                                 f"別の作業空間で {operation(self.command, 'task start <番号> --dir ../<フォルダ>')} するか、"
+                                 "その会話を続けてください。")
 
     def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER,
                          streamed: bool = False) -> str:

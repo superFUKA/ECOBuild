@@ -30,6 +30,7 @@ const dock = require('./dock');
 const link = require('./link');
 const ring = require('./ring');
 const team = require('./team');
+const {sameDir, liveTabIn, BUSY_MESSAGE} = require('./guard');
 
 const HISTORY_LIMIT = 2 * 1024 * 1024;   // 後から開いた窓に流し直す出力（文字数）
 const POLL_MS = 1500;                     // 状態を読み直す間隔
@@ -142,7 +143,16 @@ function spawnSession(s, size) {
 // worker（作業役）。lead：作った進行役のタブの id（作業役はその窓のタブになる）。prompt：最初の発言
 function openSession({dir, agent = '', name = '', title = false, role = '', prompt = '', lead = null} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
-  // 開くたびに新しいエージェント（同じ作業空間でも）。名前が重なれば「名前 (2)」のように番号を付ける
+  // 同じ作業空間で生きたエージェントのタブがあれば、2つ目は開かずそのタブを出して案内する（チーム・受け箱・状態は作業空間ごと。
+  // 起動し直しは同じタブの中なのでここを通らない）。ただし違う作業空間なら開くたびに新しいエージェント。
+  // 名前が重なれば「名前 (2)」のように番号を付ける
+  const dup = liveTabIn(sessions, dir);
+  if (dup) {
+    if (dup.owner) focusTab(dup.id);
+    const w = dup.owner || current;
+    if (w && !w.win.isDestroyed()) dialog.showMessageBox(w.win, {type: 'info', title: 'ECOBuild', message: BUSY_MESSAGE, buttons: ['OK']}).catch(() => {});
+    return {...describe(dup), existing: true};
+  }
   const base = name || path.basename(dir), taken = new Set(sessions.map(x => x.name));
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
@@ -196,7 +206,6 @@ function renameSession(id, name) {
 }
 const isClaude = s => !s.agent || /^claude(\s|$)/.test(s.agent);
 
-const sameDir = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
 // ---- 窓 --------------------------------------------------------------------------------------------
 function send(w, channel, ...args) { if (w && !w.win.isDestroyed() && w.ready) w.win.webContents.send(channel, ...args); }
@@ -532,7 +541,7 @@ function wireTeam() {
       // 同じ会話を、この進行役の窓のタブ（対話型）で開く。以後は人が起動したものとして扱い、閉じたら返す
       const opened = openSession({dir: got.result.path || member.path, agent: got.result.agent, name: member.name,
                                   role: got.result.role || member.role || 'worker', lead: leadId});
-      const tab = findSession(opened.id);
+      const tab = opened.existing ? null : findSession(opened.id);   // 既に生きたタブがあれば引き取りの印は付けない
       if (tab) tab.takenOver = member;
     }
     team.refresh(leadId);

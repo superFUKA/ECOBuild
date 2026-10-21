@@ -393,3 +393,22 @@ def code_of(action):
     with pytest.raises(WorkError) as error:
         action()
     return error.value.code
+
+
+def test_a_second_agent_is_not_started_while_one_is_alive(lead):
+    """生きている running.json があると、2つ目（対話型・アプリ用）は起動しない。死んだ pid なら起動を止めない。"""
+    import subprocess
+    folder = agent_status.directory(container.name(lead.root))
+    folder.mkdir(parents=True, exist_ok=True)
+    live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        agent_status.started(folder, live.pid)
+        with pytest.raises(EcoBuildError) as stopped:
+            lead._no_other_agent(wait=0)
+        assert stopped.value.code == ErrorCode.AGENT_ERROR and str(live.pid) in str(stopped.value)
+        assert code_of(lambda: lead.start_agent(("claude",))) == ErrorCode.AGENT_ERROR
+        assert code_of(lambda: lead.app_launch()) == ErrorCode.AGENT_ERROR
+    finally:
+        live.kill()
+        live.wait()
+    lead._no_other_agent(wait=0)   # 終わった pid では止めない（起動し直しの後）

@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text
+from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
 
 
 def command(
@@ -24,14 +24,16 @@ def command(
     * は今いるタスクブランチ、+ は手元にタスクブランチがあるもの、- はGitHubにだけあるものです。
 
     このPCの別のclone（task start --dir で作ったもの等）にいるタスクブランチは、その場所も出します。
+    作業役（エージェントのチーム）が作業中のタスクは、その作業役と場所を出します（JSON の worker）。
     """
     here = []
 
     def tasks(inv):
         here.append(inv.module.root)
-        return inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
+        found = workers(inv.module.root)
+        return [with_worker(t, found) for t in inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
                                 search=search or None, milestone=milestone or None, ready=ready,
-                                sort=sort or None, sprint=sprint or None, submitted=submitted, to_review=to_review)
+                                sort=sort or None, sprint=sprint or None, submitted=submitted, to_review=to_review)]
 
     def render(r):
         return "\n".join(("* " if t.current else "+ " if t.task_branch or t.workspace else "- " if t.remote else "  ")
@@ -46,7 +48,8 @@ def command(
                          + (f"（{t.blocked_by} 件を待っています）" if t.blocked_by and t.state == "open" else "")
                          + (f"〔{t.milestone}〕" if t.milestone else "")
                          + ("" if t.state == "open" else "（閉じています）")
-                         + elsewhere(t.workspace, here[0]) for t in r) or (
+                         + (f"（{worker_text(t.worker)}）" if t.worker else elsewhere(t.workspace, here[0]))
+                         for t in r) or (
             "着手できるタスクはありません" if ready else "提出中のタスクはありません" if submitted
             else "見るように頼まれている提出はありません" if to_review else "タスクはありません")
 

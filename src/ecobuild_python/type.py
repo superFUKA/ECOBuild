@@ -191,10 +191,13 @@ python3 -m venv .venv
         artifacts = _python.build_distribution(self.root, python) if options.configuration == "Release" else ()
         return BuildResult(None, options.configuration, artifacts, None, action)
 
-    def test(self, project: str | None, options: PythonOptions, tests: tuple[str, ...] = ()) -> TestResult:
-        """tests：pytest に渡すファイル・フォルダ・テスト（tests/x.py::test_a）。空なら全部。"""
+    def test(self, project: str | None, options: PythonOptions, tests: tuple[str, ...] = (), *,
+             filter: str | None = None, last_failed: bool = False) -> TestResult:
+        """tests：pytest に渡すファイル・フォルダ・テスト（tests/x.py::test_a）。空なら全部。
+        filter：pytest の -k の式。last_failed：前回失敗したものだけ（check は使わず、いつも全部）。
+        cases はテストごとの nodeid・状態・理由・時間（_python.PythonTestCase）。"""
         _no_project(project)
-        cases = _python.run_tests(self.root, self._environment(), tests)
+        cases = _python.run_tests(self.root, self._environment(), tests, filter=filter, last_failed=last_failed)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         return TestResult(None, options.configuration, count("passed"), count("failed"), count("skipped"),
                           tuple(cases))

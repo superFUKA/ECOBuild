@@ -28,7 +28,7 @@ def test_build_test_run(tmp_path):
     (root / "tests" / "test_bad.py").write_text("def test_bad():\n    assert False\n", encoding="utf-8")
     with pytest.raises(EcoBuildError) as error:
         module.test()
-    assert error.value.code == ErrorCode.TEST_FAILED and "tests.test_bad::test_bad" in error.value.details["failed"][0]
+    assert error.value.code == ErrorCode.TEST_FAILED and error.value.details["failed"] == ["tests/test_bad.py::test_bad"]
     selected = module.test(tests=("tests/test_calc.py",))                      # 変えたところのテストだけ（落ちるものは流さない）
     assert selected.passed == 1 and selected.failed == 0
     assert [i.name for i in module.check(build=False).items][:2] == ["generated", "conflict_markers"]

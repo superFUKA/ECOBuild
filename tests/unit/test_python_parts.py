@@ -1,8 +1,10 @@
 """型 python：雛形・ファイル・CIのワークフロー・構成の確認（venv・pip を使わない部分）。"""
 
 import errno
+import json
 import os
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -180,13 +182,63 @@ def test_environment_is_rebuilt_only_when_changed(tmp_path, monkeypatch):
     assert len(calls) == 4
 
 
-def test_read_junit(tmp_path):
-    report = tmp_path / "r.xml"
-    report.write_text('<testsuites><testsuite>'
-                      '<testcase classname="t.a" name="ok"/><testcase classname="t.a" name="bad"><failure/></testcase>'
-                      '<testcase name="skip"><skipped/></testcase></testsuite></testsuites>', encoding="utf-8")
-    assert [(c.name, c.status) for c in _python.read_junit(report)] == [
-        ("t.a::ok", "passed"), ("t.a::bad", "failed"), ("skip", "skipped")]
+def test_read_report(tmp_path):
+    """段階（準備・本体・後片付け）ごとの記録を、テストごとにまとめる：一番悪い状態と、足した時間。"""
+    records = [("t.py::ok", "setup", "passed", "", 0.1), ("t.py::ok", "call", "passed", "", 0.2),
+               ("t.py::ok", "teardown", "failed", "RuntimeError: x", 0.1), ("t.py::skip", "setup", "skipped", "まだ", 0),
+               ("t.py::bad", "call", "failed", "assert 1 == 2", 0.5), ("t.py::bad", "teardown", "passed", "", 0)]
+    report = tmp_path / "r.jsonl"
+    report.write_text("".join(json.dumps(dict(zip(("nodeid", "when", "status", "message", "duration"), r))) + "\n"
+                              for r in records) + "壊れた行\n", encoding="utf-8")
+    assert [(c.name, c.status, c.message, c.duration) for c in _python.read_report(report)] == [
+        ("t.py::ok", "failed", "RuntimeError: x", 0.4), ("t.py::skip", "skipped", "まだ", 0.0),
+        ("t.py::bad", "failed", "assert 1 == 2", 0.5)]
+
+
+def test_run_tests_with_real_pytest(tmp_path):
+    """ECOBuild の pytest で、プラグインの結果（nodeid・理由）・-k・--last-failed・キャッシュの置き場所を確かめる（pip は使わない）。"""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/test_a.py").write_text(
+        "import pytest\n\n\ndef test_ok():\n    pass\n\n\ndef test_bad():\n    assert 1 == 2\n\n\n"
+        "@pytest.mark.skip(reason='まだ')\ndef test_skip():\n    pass\n\n\nclass TestK:\n"
+        "    @pytest.mark.parametrize('x', [1])\n    def test_p(self, x):\n        pass\n", encoding="utf-8")
+    (tmp_path / "tests/test_broken.py").write_text("import nosuchmodule\n", encoding="utf-8")
+    python = Path(sys.executable)
+    with pytest.raises(EcoBuildError) as error:                                 # 集める途中の誤り（pytest は流さない）
+        _python.run_tests(tmp_path, python)
+    [broken] = error.value.details["cases"]
+    assert (broken.name, broken.status) == ("tests/test_broken.py", "failed") and "nosuchmodule" in broken.message
+    assert "tests/test_broken.py" in error.value.message
+
+    (tmp_path / "tests/test_broken.py").unlink()
+    with pytest.raises(EcoBuildError) as error:
+        _python.run_tests(tmp_path, python)
+    details = error.value.details
+    cases = {c.name: c for c in details["cases"]}
+    assert set(cases) == {"tests/test_a.py::test_ok", "tests/test_a.py::test_bad", "tests/test_a.py::test_skip",
+                          "tests/test_a.py::TestK::test_p[1]"}
+    assert "assert 1 == 2" in cases["tests/test_a.py::test_bad"].message and cases["tests/test_a.py::test_skip"].message == "まだ"
+    assert details["counts"] == {"passed": 2, "failed": 1, "skipped": 1} and details["failed"] == ["tests/test_a.py::test_bad"]
+    assert (tmp_path / ".venv/.pytest_cache").is_dir() and not (tmp_path / ".pytest_cache").exists()
+
+    with pytest.raises(EcoBuildError) as error:
+        _python.run_tests(tmp_path, python, last_failed=True)                   # 前回失敗したものだけ
+    assert [c.name for c in error.value.details["cases"]] == ["tests/test_a.py::test_bad"]
+    picked = _python.run_tests(tmp_path, python, ("tests/test_a.py",), filter="ok or test_p")
+    assert sorted((c.name, c.status) for c in picked) == [("tests/test_a.py::TestK::test_p[1]", "passed"),
+                                                          ("tests/test_a.py::test_ok", "passed")]
+    assert _python.run_tests(tmp_path, python, filter="nothing_matches") == []
+
+
+def test_run_tests_in_parallel_reports_once(tmp_path, monkeypatch):
+    """pytest-xdist で並べても、結果は1件ずつ（ワーカーは書かず、親だけが書く）。"""
+    monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "2")   # -n auto の数（CPU の数だけ起こすと遅い）
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests/test_a.py").write_text("def test_1():\n    pass\n\n\ndef test_2():\n    pass\n", encoding="utf-8")
+    site = tmp_path / ".venv" / ("Lib/site-packages" if os.name == "nt" else "lib/python3.12/site-packages")
+    (site / "xdist").mkdir(parents=True)                        # 並べる（ECOBuild の pytest には xdist がある）
+    cases = _python.run_tests(tmp_path, Path(sys.executable))
+    assert sorted(c.name for c in cases) == ["tests/test_a.py::test_1", "tests/test_a.py::test_2"]
 
 
 def test_clean_keeps_the_venv(tmp_path):
@@ -272,7 +324,7 @@ def test_build_tool_is_installed_once(tmp_path, monkeypatch):
 def test_all_tests_run_in_parallel_with_xdist(tmp_path, monkeypatch):
     """テスト全部を流すときは、.venv に pytest-xdist があれば並べる（-n auto）。絞ったとき・ないときは並べない。"""
     ran = []
-    monkeypatch.setattr(_python, "execute", lambda args, root: ran.append(args) or type("C", (), {"returncode": 5})())
+    monkeypatch.setattr(_python, "execute", lambda args, root, env: ran.append(args) or type("C", (), {"returncode": 5})())
     _python.run_tests(tmp_path, Path("python"))
     site = tmp_path / ".venv" / ("Lib/site-packages" if _python.os.name == "nt" else "lib/python3.12/site-packages")
     (site / "xdist").mkdir(parents=True)

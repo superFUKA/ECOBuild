@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -17,7 +18,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-import xml.etree.ElementTree as ElementTree
+from dataclasses import dataclass
 from pathlib import Path
 
 from ecobuild.errors import EcoBuildError
@@ -47,10 +48,11 @@ def run(args: list[str], root: Path, code: str, message: str) -> subprocess.Comp
     return completed
 
 
-def execute(args: list[str], root: Path) -> subprocess.CompletedProcess:
+def execute(args: list[str], root: Path, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    """env：足す環境変数。"""
     try:
         return subprocess.run(args, cwd=root, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                              env=_environment(), stdin=subprocess.DEVNULL)
+                              env={**_environment(), **(env or {})}, stdin=subprocess.DEVNULL)
     except OSError as error:
         raise EcoBuildError(ErrorCode.BUILD_FAILED, f"{args[0]} を実行できません：{error}",
                             hint="ecobuild doctor で Python の状態を確認できます。") from error
@@ -220,37 +222,65 @@ def _remove(path: Path) -> None:
 
 # テスト・実行 -------------------------------------------------------------------
 
-def run_tests(root: Path, python: Path, tests: tuple[str, ...] = ()) -> list[TestCaseResult]:
-    """pytest を実行して、テストごとの結果を返す（tests：流すものを絞る。空なら全部）。失敗があれば TEST_FAILED。0件なら空。"""
+@dataclass(frozen=True)
+class PythonTestCase(TestCaseResult):
+    """テスト1件（name は pytest の nodeid：tests/test_x.py::TestA::test_b[1]。そのまま ecobuild test に渡せる）。"""
+    message: str = ""        # 失敗：何が起きたか（assert の行・例外）。スキップ：理由
+    duration: float = 0.0    # 秒（準備・後片付けを含む）
+
+
+REPORT_PLUGIN = "ecobuild_pytest_report"   # .venv の pytest に -p で読み込ませる名前（_pytest_report.py の写し）
+
+
+def run_tests(root: Path, python: Path, tests: tuple[str, ...] = (), *, filter: str | None = None,
+              last_failed: bool = False) -> list[PythonTestCase]:
+    """pytest を実行して、テストごとの結果を返す。失敗があれば TEST_FAILED。0件なら空。
+
+    tests：流すものを絞る（空なら全部）。filter：pytest の -k の式。last_failed：前回失敗したものだけ（--lf）。
+    pytest のキャッシュ（--lf の記録）は .venv の中に置く（コンテナの 9p の /work には .pytest_cache を作れない）。
+    """
     with tempfile.TemporaryDirectory(prefix="eb") as directory:
-        report = Path(directory) / "junit.xml"
+        report = Path(directory) / "report.jsonl"
+        shutil.copyfile(Path(__file__).with_name("_pytest_report.py"), Path(directory) / f"{REPORT_PLUGIN}.py")
         # 全部を流すときは、pytest-xdist があれば並べる（順に流すと数十分かかる。絞ったときは起動の手間のほうが大きい）
-        spread = ["-n", "auto"] if not tests and parallel_tests(root) else []
-        args = [str(python), "-m", "pytest", f"--junitxml={report}", *spread, *tests]
-        completed = execute(args, root)
-        cases = read_junit(report) if report.is_file() else []
+        selected = bool(tests or filter or last_failed)
+        spread = ["-n", "auto"] if not selected and parallel_tests(root) else []
+        args = [str(python), "-m", "pytest", "-p", REPORT_PLUGIN, "-o", f"cache_dir={(root / VENV / '.pytest_cache')}",
+                *spread, *(["-k", filter] if filter else []), *(["--last-failed"] if last_failed else []), *tests]
+        paths = os.pathsep.join(p for p in (directory, os.environ.get("PYTHONPATH", "")) if p)
+        completed = execute(args, root, env={"PYTHONPATH": paths, "ECOBUILD_PYTEST_REPORT": str(report)})
+        cases = read_report(report) if report.is_file() else []
     if completed.returncode not in (0, NO_TESTS):
         failed = [c.name for c in cases if c.status == "failed"]
         # どのテストかを1行目に出す（check の一覧には message だけが出る）。集める前の誤りなら件数は出ない
         summary = (f"：失敗 {len(failed)}・成功 {sum(c.status == 'passed' for c in cases)}（{'、'.join(failed[:3])}"
                    + ("…" if len(failed) > 3 else "") + "）") if failed else "（テストを集められませんでした）"
         error = failure(ErrorCode.TEST_FAILED, f"テストに失敗しました{summary}", args, completed)
-        error.details["failed"] = failed
+        # 成功のときの result と同じ件数・テストごとの結果（失敗のときは result がないので details に）
+        error.details.update(failed=failed, counts={s: sum(c.status == s for c in cases)
+                                                    for s in ("passed", "failed", "skipped")}, cases=cases)
         raise error
     return cases
 
 
-def read_junit(path: Path) -> list[TestCaseResult]:
-    cases = []
-    for case in ElementTree.parse(path).getroot().iter("testcase"):
-        status = "passed"
-        if case.find("failure") is not None or case.find("error") is not None:
-            status = "failed"
-        elif case.find("skipped") is not None:
-            status = "skipped"
-        name = "::".join(part for part in (case.get("classname"), case.get("name")) if part)
-        cases.append(TestCaseResult(name, status))
-    return cases
+_RANK = {"passed": 0, "skipped": 1, "failed": 2}
+
+
+def read_report(path: Path) -> list[PythonTestCase]:
+    """プラグインが書いた結果（1行1件・段階〔準備・本体・後片付け〕ごと）を、テストごとにまとめる。
+    状態は一番悪い段階のもの（本体が通っても後片付けで失敗したら失敗）、時間は足したもの。"""
+    found: dict[str, dict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        case = found.setdefault(record.get("nodeid") or ".", {"status": "passed", "message": "", "duration": 0.0})
+        case["duration"] += float(record.get("duration") or 0.0)
+        status = record.get("status", "passed")
+        if _RANK.get(status, 0) > _RANK[case["status"]] or (status == case["status"] and not case["message"]):
+            case.update(status=status, message=record.get("message") or case["message"])
+    return [PythonTestCase(name, c["status"], c["message"], round(c["duration"], 3)) for name, c in found.items()]
 
 
 def _pyproject(root: Path) -> dict:

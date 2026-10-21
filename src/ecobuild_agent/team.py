@@ -70,6 +70,9 @@ STALL_SECONDS = 120                 # 頼みを実行する ecobuild が、こ�
 PROGRESS = ".progress"              # 頼みの置き場所の中：<id>.progress（係が書く途中経過。係が動いている間は毎秒。
                                     # .json にしない：頼み〔<id>.json〕と取り違える）
 SERVE_SILENT = 30                   # 途中経過がこの秒数書かれなければ、係が止まったとみなす
+SERVE_BEAT = "serve.alive"          # 頼みの置き場所の中：係が動いている印（BEAT_EVERY 秒ごと。.json にしない）
+BEAT_EVERY = 5
+BEAT_STALE = 20                     # 印がこの秒数より古ければ、頼まずに（待たずに）止める
 FIRST_PROMPT = {
     WORKER: f"{BRIEF_FILE} に任された仕事があります。読んで作業を始めてください。終わったら {REPORT_FILE} に報告を書き、提出してください。"
             "時間のかかる実行（test・build・check・submit）は前面で動かし、結果を待つために返答を終えないでください。"
@@ -78,9 +81,14 @@ FIRST_PROMPT = {
              "報告を読んで計画を進めてください。",
     LEAD: f"{BRIEF_FILE} に任された部分があります。読んで、ユーザーとの話を進めてください。",
 }
+PROGRESS_FILE = ".ecobuild/ai/progress.md"   # 作業役の途中経過（区切りごとに書く。起動し直したときに読む）
+REPORT_ONLY_PROMPT = (f"{BRIEF_FILE} に任された仕事があります（報告だけの仕事です：ファイルを変えず・コミットせず・提出しません）。"
+                      f"読んで調べ、結果を {REPORT_FILE} に書き、`ecobuild agent report` で管理役に知らせてください。"
+                      "返答の最後は「状態：…」の行です。")
 RESTART_PROMPT = {   # 起動し直した（新しい会話）ときの最初の発言
     WORKER: "管理役があなたを起動し直しました（前の会話は引き継いでいません）。次の順で確かめてから続けてください："
-            f"①{BRIEF_FILE} ②`ecobuild task status` と `ecobuild log --count 10` ③{REPORT_FILE}・git の状態（未コミットの変更） "
+            f"①{BRIEF_FILE}・{PROGRESS_FILE}（前の会話の途中経過） ②`ecobuild task status` と `ecobuild log --count 10` "
+            f"③{REPORT_FILE}・git の状態（未コミットの変更） "
             "④前の会話で待っていたもの（テスト・ビルド等）があれば、その結果を自分で確かめる ⑤残りを進める。"
             "最初の返答に、どこまで進んでいたかを1〜2行で書き、返答の最後は「状態：…」の行にしてください。",
     MANAGER: f"進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE}・{PLAN_FILE}・チームの様子"
@@ -224,14 +232,29 @@ def agent_options(root: Path, role: str, command: tuple[str, ...]) -> tuple[str,
     return (*command, *extra)
 
 
-def create(module, name: str, brief: str, *, role: str = WORKER, model: str = "",
-           progress=lambda message: None) -> Member:
+RETRY_WAIT = (2, 4, 8)   # GitHub の一時的な失敗（5xx・接続）のとき、作り直す前に待つ秒数（回数＝長さ）
+_TRANSIENT = re.compile(r"HTTP 5\d\d|Bad Gateway|Service Unavailable|Gateway Time-?out|timed? ?out|"
+                        r"connection (?:reset|refused|aborted|closed)|could not resolve host|unexpected EOF|"
+                        r"TLS handshake|network is unreachable", re.IGNORECASE)
+
+
+def transient(error: Exception) -> bool:
+    """GitHub・ネットワークの一時的な失敗か（待ってやり直せば通るもの）。"""
+    return bool(_TRANSIENT.search(_message(error)))
+
+
+def create(module, name: str, brief: str, *, role: str = WORKER, model: str = "", existing: int = 0,
+           report_only: bool = False, progress=lambda message: None, wait=None) -> Member:
     """進行役の作業空間 module に、チームの1人を作る：子タスク（題名 name・本文 brief）と、そのタスクブランチを置いた
     作業空間（TEAM_AREA/<番号>-<名前>）。任された仕事・記録を作業空間の .ecobuild/ai に置く。起動はしない。
+    existing：子タスクを新しく作らず、この番号の開いた子タスクから作る（作業空間だけがない子タスク 等）。
+    report_only：報告だけの作業役（調べもの・レビュー。提出しない：任せる仕事に NO_SUBMIT を書き、最初の発言・決まりを替える）。
 
     何人も並べて作れる（係が並べて実行する）。同じ名前を同時には作らない（後のものは止める）。前に作りかけて止まった
-    もの（開いた子タスク・作業空間のフォルダー）が残っていれば、それを片付けて続きから作る（二重に作らない）。途中で
+    もの（開いた子タスク・作業空間のフォルダー）が残っていれば、それを片付けて続きから作る（二重に作らない）。
+    GitHub の一時的な失敗（transient）は、待って（RETRY_WAIT）やり直す（作った子タスクはそのまま使う）。途中で
     失敗したら、作りかけを片付けて（作業空間を消し、この回に作った子タスクを閉じて）、何が残ったかを失敗に書く。"""
+    wait = wait or time.sleep
     from ecowork import model as _work
     if role not in ROLES:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint=ROLE_HINT)
@@ -257,29 +280,80 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
     if not brief.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "任せる仕事（--brief）が空です。",
                             hint="目的・返してほしいもの・使ってよい道具・範囲（やらないこと）を書いてください。")
+    if report_only and role != WORKER:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "報告だけ（--report-only）にできるのは作業役だけです。")
+    if report_only and NO_SUBMIT not in brief:
+        brief = brief.rstrip() + f"\n\n（ECOBuild より：この仕事は報告だけです。**{NO_SUBMIT}**）\n"
     lead_task = module.require_task_branch(f"{ROLE_NAMES[role]}の作成")
     module.prepare_agent_area()   # 進行役の側の git に、作業空間の置き場所を見せない（除外）
     with _creating(module, name):
-        task = _leftover(module, lead_task.number, name, progress)
+        task = _given_child(module, lead_task.number, existing) if existing else None
+        task = task or _leftover(module, lead_task.number, name, progress)
         created = task is None
         if created:
-            progress(f"子タスク「{name}」を作っています…")
-            try:
-                task = module.repository.create_task(name, body=brief, parent=lead_task.number)
-            except Exception as error:   # 作った後の読み直し等で失敗したもの：子タスクはできている
-                made = _open_child(module, lead_task.number, name)
-                raise _failed(error, name, role, made and _close_child(module, made.number, name, error), made) from error
+            task = _new_child(module, lead_task.number, name, brief, role, progress, wait)
         directory = module.root / TEAM_AREA / f"{task.number}-{label}"
+        for attempt in range(len(RETRY_WAIT) + 1):
+            try:
+                return _prepare(module, task.number, directory, name, label, brief, role, model, progress,
+                                lead_task=lead_task, report_only=report_only)
+            except Exception as error:
+                if transient(error) and attempt < len(RETRY_WAIT):   # 作りかけ（作業空間・ブランチ）を片付けて、やり直す
+                    _clean_up(module, task.number, directory, name, error, close=False, branch=created)
+                    progress(f"GitHub の一時的な失敗です（{_message(error)}）。{RETRY_WAIT[attempt]}秒待ってやり直します…")
+                    wait(RETRY_WAIT[attempt])
+                    continue
+                left = _clean_up(module, task.number, directory, name, error, close=created)
+                raise _failed(error, name, role, left, task, resumed=not created, directory=directory) from error
+
+
+def _new_child(module, parent: int, name: str, brief: str, role: str, progress, wait):
+    """子タスクを作る。一時的な失敗は、できていればそれを使い、できていなければ待ってやり直す。"""
+    for attempt in range(len(RETRY_WAIT) + 1):
+        progress(f"子タスク「{name}」を作っています…")
         try:
-            return _prepare(module, task.number, directory, name, label, brief, role, model, progress)
-        except Exception as error:
-            left = _clean_up(module, task.number, directory, name, error, close=created)
-            raise _failed(error, name, role, left, task, resumed=not created) from error
+            return module.repository.create_task(name, body=brief, parent=parent)
+        except Exception as error:   # 作った後の読み直し等で失敗したもの：子タスクはできていることがある
+            try:
+                made = _open_child(module, parent, name)
+            except Exception:
+                made = None
+            if made is not None and transient(error):
+                progress(f"子タスク #{made.number} はできています（{_message(error)}）。続けます…")
+                return made
+            if made is None and transient(error) and attempt < len(RETRY_WAIT):
+                progress(f"GitHub の一時的な失敗です（{_message(error)}）。{RETRY_WAIT[attempt]}秒待ってやり直します…")
+                wait(RETRY_WAIT[attempt])
+                continue
+            raise _failed(error, name, role, made and _close_child(module, made.number, name, error), made) from error
+
+
+def _given_child(module, parent: int, number: int):
+    """--task の子タスク：親 parent の開いた子タスクで、まだ作業空間がないもの。"""
+    if any(member.task == number for member in team(module.root).members):
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"子タスク #{number} には、もう作業空間があります。",
+                            hint="agent team list で確かめてください。")
+    for issue in module.repository.github.sub_issues(module.root, parent):
+        if issue.number == number and issue.state == "open":
+            return issue
+    raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"#{number} は、このタスク（#{parent}）の開いた子タスクではありません。",
+                        hint="作業空間のない子タスクは agent team list --orphans で分かります。")
+
+
+def orphans(module, owner: str | None = None) -> list[dict]:
+    """進行役のタスクの開いた子タスクのうち、作業空間（チームの1人）がないもの（作りかけで止まった等。GitHub に聞く）：
+    [{task, title}]。agent team start <名前> --task <番号> で作業空間を作れる。"""
+    lead_task = module.require_task_branch("子タスクの一覧")
+    numbers = {member.task for member in team(module.root).members}
+    return [{"task": issue.number, "title": issue.title}
+            for issue in module.repository.github.sub_issues(module.root, lead_task.number)
+            if issue.state == "open" and issue.number not in numbers]
 
 
 def _prepare(module, number: int, directory: Path, name: str, label: str, brief: str, role: str, model: str,
-             progress) -> Member:
-    """子タスク number の作業空間 directory を作り、任された仕事・記録を置く。"""
+             progress, *, lead_task=None, report_only: bool = False) -> Member:
+    """子タスク number の作業空間 directory を作り、任された仕事・記録を置く。記録には、作った役（lead：このPCの場所。
+    作業役はコンテナの中で動くので、中からは読めない）の子タスク・ブランチ・名前も書く（作業役が自分の上を知る）。"""
     from ecobuild import workspaces as _workspaces
     progress(f"子タスク #{number} の作業空間を用意しています（clone・依存先）…")
     member_module = module.start_task_in(number, directory, name=label)
@@ -288,13 +362,16 @@ def _prepare(module, number: int, directory: Path, name: str, label: str, brief:
     _inherit_container(module.root, member_module.root)
     member_module.prepare_agent_area()
     (member_module.root / BRIEF_FILE).write_text(brief.rstrip() + "\n", encoding="utf-8", newline="\n")
+    up = member_info(module.root)
     info = {"role": role, "name": name, "task": number, "lead": str(module.root), "model": model.strip(),
-            "owner": owner_session()}
+            "owner": owner_session(), "lead_role": up.get("role") or LEAD, "lead_name": up.get("name") or module.root.name,
+            "lead_task": getattr(lead_task, "number", 0), "lead_branch": getattr(lead_task, "branch", ""),
+            "lead_readable": False, **({"report_only": True} if report_only else {})}
     # 記録（MEMBER_FILE）は最後に置く：あれば作り終えた作業空間（なければ作りかけ。_leftover）
     (member_module.root / MEMBER_FILE).write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     branch = member_module.repository.git.current_branch() or ""
     return Member(name, role, member_module.root, number, branch, model.strip(), str(module.root),
-                  prompt=FIRST_PROMPT[role])
+                  prompt=REPORT_ONLY_PROMPT if report_only else FIRST_PROMPT[role])
 
 
 CREATING = "ecobuild-team"   # 進行役の clone の git の場所の中：作っている名前ごとのロック（<名前>.lock）
@@ -349,13 +426,14 @@ def _open_child(module, parent: int, name: str):
     return max(children, key=lambda issue: issue.number) if children else None
 
 
-def _clean_up(module, number: int, directory: Path, name: str, error: Exception, *, close: bool) -> list[str]:
-    """作りかけを片付ける：作業空間 directory を消し、close なら子タスク number（とこの回に置いたタスクブランチ）を
-    閉じる。片付けられなかったもの（文）を返す。"""
+def _clean_up(module, number: int, directory: Path, name: str, error: Exception, *, close: bool,
+              branch: bool | None = None) -> list[str]:
+    """作りかけを片付ける：作業空間 directory を消し、close なら子タスク number を閉じる。branch（省けば close と同じ）なら
+    この回に置いたタスクブランチも消す。片付けられなかったもの（文）を返す。"""
     from ecowork import model as _work
     from ecowork.git import Git
     left = []
-    if close and (directory / ".git").exists():
+    if (close if branch is None else branch) and (directory / ".git").exists():
         branch = _work.task_branch_name(number, directory.name.split("-", 1)[1])
         try:
             git = Git(directory)
@@ -387,9 +465,15 @@ def _close_child(module, number: int, name: str, error: Exception) -> list[str]:
     return []
 
 
-def _failed(error: Exception, name: str, role: str, left, task, *, resumed: bool = False) -> EcoBuildError:
-    """作成の失敗を、何が残ったか・どうすればよいかを添えて伝える。left：片付けられなかったもの（task がなければ None）。"""
+def _failed(error: Exception, name: str, role: str, left, task, *, resumed: bool = False,
+            directory: Path | None = None) -> EcoBuildError:
+    """作成の失敗を、何が残ったか・どうすればよいかを添えて伝える。left：片付けられなかったもの（task がなければ None）。
+    details の頭に、子タスクの番号と作業空間が残っているかを書く（頼んだ側・ログで分かるように）。"""
     hint = getattr(error, "hint", None)
+    still = resumed or any(item.startswith(f"子タスク #{task.number}") for item in left or ()) if task is not None else False
+    made = ["子タスク：なし" if task is None else f"子タスク：#{task.number}（{'開いたまま' if still else '閉じた'}）",
+            f"作業空間：残っている（{directory.as_posix()}）" if directory is not None and directory.exists() else "作業空間：なし"]
+    details = getattr(error, "details", None)
     if task is None:
         after = "子タスクはできていません（できていれば、task list で確かめて閉じてください）。"
     elif left:
@@ -401,7 +485,8 @@ def _failed(error: Exception, name: str, role: str, left, task, *, resumed: bool
         after = f"子タスク #{task.number} は閉じ、作りかけの作業空間も消しました。もう一度 start してください。"
     return EcoBuildError(getattr(error, "code", None) or ErrorCode.AGENT_ERROR,
                          f"{ROLE_NAMES[role]}「{name}」を作れませんでした：{_message(error)}",
-                         hint=after + (f"\n{hint}" if hint else ""), details=getattr(error, "details", None))
+                         hint=after + (f"\n{hint}" if hint else ""),
+                         details=[*made, *(details if isinstance(details, (list, tuple)) else [details] if details else [])])
 
 
 def _message(error: Exception) -> str:
@@ -532,7 +617,8 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "読みたくなったら、それを調べものとして任せます。理由：あなたの会話は長く続きます。調べでコンテキストを使うと、"
             "進行役とのやりとりと全員のまとめが後で苦しくなります。",
             "- 調べものは観点を変えて（対象の別・見る角度・資料の別）、観点の数だけ並べて任せます（1人にまとめません）。"
-            "--brief に「結果は報告に書く。提出しない」「要点を先頭に、短く」と書きます。報告が揃うまで、同じ所を自分で読みません。",
+            "`--report-only` を付けて（報告だけ・提出しない作業役になります）、--brief に「要点を先頭に、短く」と書きます。"
+            "報告が揃うまで、同じ所を自分で読みません。",
             "- 関係のある仕事も分けます。部分どうしの接点（名前・形式・触ってよい場所・渡すもの）を先に計画に書き、全員の --brief に"
             "同じ文で写せば、並べて任せられます。接点が決まらないときは、それを決める調べものだけを先に任せ、報告を読んでから残りを並べます。",
             "- 作業役から見えるのは、自分の作業空間と GitHub だけです。渡すものは --brief・send の本文か、Issue のコメント"
@@ -549,12 +635,14 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             f"   変えてよいファイルは `## {AREA_HEADING}`、触らないファイルは `## {KEEP_OUT_HEADING}` の節に、1行に1つのパス"
             "（フォルダー・ファイル・`src/ui/*.py` のような glob）の箇条書きで書きます。ECOBuild がこれと作業役の変更を照らして、"
             "外のファイルを変えたら知らせます（この形でなければ照らしません）。",
-            "   何人も作るときは、1人ずつ終わるのを待たずに並べて頼みます（ECOBuild の係が数人ずつ並べて作ります。1人に"
-            "数十秒かかるので、ループで順に待つと全員そろうまで長くかかります）：Bash の run_in_background で1人ずつ "
-            f"`{program} agent team start <名前> --brief-file <ファイル>` を出し、終わった知らせ（結果）を待ちます。"
+            "   何人も作るときは、1人ずつ終わるのを待たずに並べて頼みます（1人に数十秒かかるので、順に待つと全員そろうまで"
+            f"長くかかります）：任せる内容を1人1ファイル（ファイル名＝名前。`{PLAN_FILE.rsplit('/', 1)[0]}/briefs/画面.md` 等）に"
+            f"書き、`{program} agent team start --brief-dir <フォルダー>` で一度に作ります（数人ずつ並べて作ります）。"
             "同じ名前は2回頼みません。",
             "   作成が途中で失敗したときは、ECOBuild が作りかけ（作業空間・子タスク）を片付け、何が残ったかを失敗の文に書きます。"
-            "その文に従ってもう一度 start します（残った作りかけがあれば、それを片付けて続きから作ります。二重にはなりません）。",
+            "その文に従ってもう一度 start します（残った作りかけがあれば、それを片付けて続きから作ります。二重にはなりません）。"
+            f"子タスクだけができて作業空間がないものは `{program} agent team list --orphans` で分かり、"
+            f"`{program} agent team start <名前> --task <番号>` で作業空間を作れます。",
             "3. 作業役の人数は、独立に進められる部分の数で決めます。分けられるか迷ったら、まず分ける側で考えます"
             "（小さなことだけ、任せずにユーザーと話すのでも構いません）。計画を書いたら、最初の1人を待たずに、分ける部分を全部一度に "
             "start します（run_in_background で並べる）。同じファイルを2人に任せません（持ち場を分ける）。ある結果がないと始められない"
@@ -579,10 +667,13 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             f"`{program} agent team list` で途中までできたものを確かめ、同じことを繰り返さずに進行役に伝えます。",
             f"6. 取り込むときは、作業役の提出（このタスクブランチへの PR）を `{program} task diff <番号>` 等で確かめ、"
             f"`{program} task finish <番号>` で取り込みます（直してほしければ send で伝え、作業役がもう一度提出します）。"
-            f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます。",
+            f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます"
+            f"（取り込み済みを全員なら `close --merged`。作業中・届いていない言付けがあれば止まります。報告・任された仕事は "
+            f"`{ARCHIVE}/` に写ります）。",
             "   手順は必ず守ります：`team start`→知らせを待つ→`task diff`→`task finish`→`sync`→`team close`。飛ばしません。",
             f"7. 作業役に追加で伝えたいことは `{program} agent team send <名前> <文>` で送れます（作業中でも、作業役の返答を"
-            "止めずに次の区切りで届きます）。",
+            "止めずに次の区切りで届きます）。結果の番号で、届いたか（`agent team list --json` の messages）が分かり、まだ届いて"
+            "いなければ `--cancel <番号>`・`--replace <番号>` で取り消し・置き換えができます。",
             "8. 作業役から「分けたい」と提案されたら、作業役を足します（管理役は管理役を作りません）。",
             "9. 作業役のモデルは既定でこのPCの設定（agent_worker_model）です。難しい仕事だけ `--model opus` 等で変えられます。",
             "10. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>` で同じ会話を人の"
@@ -594,9 +685,10 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "指摘を読んで、取り込むか、元の作業役に send で直しを頼むかを決めます。評価と直しの往復は多くても2回です。",
             "- **調べもの・アイデア出しを任せる**：調べることや、大量の案がほしいことを、何人かに分けて（観点を変えて）任せ、"
             "--brief に「結果は報告に書く。**提出しない**」と書きます。全員の報告を読んで選りすぐり、選んだものを実装の作業役に任せます。",
-            f"- **提出しない作業役の片付け**（調べもの・レビュー）：--brief に「報告を閉じる前に、残すものを Issue のコメント"
-            f"（`{program} task comment`）にも書く」と書かせます（閉じると報告は消えるため）。報告を読んだら "
-            f"`{program} task close <番号>` で子タスクを閉じ、`{program} agent team close <名前>` で作業空間を閉じます。",
+            f"- **提出しない作業役の片付け**（調べもの・レビュー。`--report-only` で作る）：作業役は報告を書くと "
+            f"`{program} agent report` で知らせます。報告を読んだら `{program} task close <番号>` で子タスクを閉じ、"
+            f"`{program} agent team close <名前>` で作業空間を閉じます（報告は `{ARCHIVE}/<番号>-<名前>/` に残ります。"
+            f"ほかの人にも残すものは `{program} task comment` で Issue に書きます）。",
             "",
         ]
         ninth = next(i for i, line in enumerate(lines) if line.startswith("10. "))
@@ -613,35 +705,54 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "",
         ]
         if info:
+            up = ROLE_NAMES.get(info.get("lead_role"), ROLE_NAMES[MANAGER])   # 作った上の役（いまは管理役）
+            only = bool(info.get("report_only")) or NO_SUBMIT in _brief_text(root)
+            finish = (
+                [f"- **この仕事は報告だけです（{NO_SUBMIT}）。** ファイルを変えず・コミットせず・提出しません。終わったら "
+                 f"`{REPORT_FILE}` に報告を書き、`{program} agent report` で{up}に知らせて返答を終えます（子タスクは{up}が閉じます）。"]
+                if only else
+                [f"- 終わったら `{REPORT_FILE}` に報告（したこと・確かめたこと・残ったこと・気になったこと）を書き、"
+                 f"`{program} task submit` で提出します（{up}のタスクブランチへの PR になります）。"
+                 "任された仕事に「提出しない」とあるとき（レビュー・調べもの・アイデア出し等）は、ファイルを変えず・コミットせず、"
+                 f"報告を書いて `{program} agent report` で知らせ、返答を終えます（子タスクは{up}が閉じます）。"])
             lines += [
                 f"- 任された仕事は `{BRIEF_FILE}` にあります（子タスク #{info.get('task')} の本文と同じ）。範囲の外のことはしません。",
-                f"- 終わったら `{REPORT_FILE}` に報告（したこと・確かめたこと・残ったこと・気になったこと）を書き、"
-                f"`{program} task submit` で提出します（進行役のタスクブランチへの PR になります）。"
-                "任された仕事に「提出しない」とあるとき（レビュー・調べもの・アイデア出し等）は、ファイルを変えず・コミットせず、"
-                "報告を書いて返答を終えます（子タスクは進行役が閉じます）。",
-                "- 迷ったこと・決められないことは、勝手に決めずに報告に書いて返答を終えます（進行役が読みます）。",
+                *finish,
+                f"- 区切りごと（調べ終えた・直し終えた・テストを通した 等）に、`{PROGRESS_FILE}` へ途中経過（したこと・分かったこと・"
+                "次にすること）を数行ずつ書き足します。止まって起動し直されたとき、新しい会話はここから続けます。",
+                f"- タスクと作業空間は{up}が用意しました。下の「ECOBuild の使い方」の作業の流れのうち、`{program} task new`・"
+                f"`task start`・`task finish`・`workspace close` は使いません（取り込み・片付けは{up}がします）。",
+                f"- 迷ったこと・決められないことは、勝手に決めずに報告に書いて返答を終えます（{up}が読みます）。",
                 f"- ファイルの内容は Edit・Write の道具で直します（python の heredoc・`cat >>`・`sed -i` では書き換えません）。"
                 f"追加・移動・削除は `{program} file add／move／remove` です。",
                 f"- **ビルド・テスト・提出の結果を待つために、返答を終えません。** `{program} test`・`build`・`check`・`task submit` は"
                 "前面で動かし、終わるまでその返答の中で待って、結果を読んでから続けます。裏で動かしたときは、終わるまで自分で出力を"
                 "確かめ続けます。「結果を待っています」と書いて返答を終えると、あなたは自分では起きられず、止まったままになります。",
-                "- 返答を終えてよいのは、(a) 提出まで終えた〔提出しない仕事なら報告まで〕、(b) 進行役の答えが要る、(c) 自分では進められない、"
+                f"- 返答を終えてよいのは、(a) 提出まで終えた〔提出しない仕事なら報告まで〕、(b) {up}の答えが要る、(c) 自分では進められない、"
                 "のときだけです。",
                 "- 動かせなかった確認（道具がない〔node がなく JS のテストが動かない 等〕・環境の問題）は、報告に書き、状態を「質問あり」に"
                 "します。黙って提出へ進みません。",
-                "- 見えるのは、この作業空間と GitHub だけです。進行役から渡されたパスが見えないときは、勝手に探さず、報告に書いて質問します。",
+                f"- 見えるのは、この作業空間と GitHub だけです（{up}の作業空間は見えません）。{up}から渡されたパスが見えないときは、"
+                "勝手に探さず、報告に書いて質問します。",
                 "- 報告は結論を先頭に（完了／質問／止まった理由を2〜3行）、確かめたことはコマンドと結果で、推測は「推測」と書きます。"
                 "長いログは貼らず、場所を書きます。",
-                f"- **作業役・進行役を自分では作りません**（`{program} agent team start` は使えません）。分けた方がよいと思ったら、"
-                "分け方の提案を報告に書いて進行役に伝えます。調べもの・確認など、この作業空間の中だけの小さな手伝いには、Claude Code の"
-                "サブエージェントを使って構いません。",
+                f"- **作業役・管理役を自分では作りません**（`{program} agent team start`・`agent team list` は使えません）。"
+                f"分けた方がよいと思ったら、分け方の提案を報告に書いて{up}に伝えます。調べもの・確認など、この作業空間の中だけの"
+                "小さな手伝いには、Claude Code のサブエージェントを使って構いません。",
                 f"- **（最後の規則）返答を終えるたびに、途中の区切りでも、最後の1行は `状態：{'／'.join(STATES)}` のどれかです。"
-                "書かないと進行役に「不明」と知らされ、様子を調べに来られます。**（完了：提出まで終えた〔提出しない仕事なら報告まで〕。"
-                "質問あり：進行役の答えが要る。止まっている：自分では進められない。続ける：まだ途中。ECOBuild はこの行と、"
-                "作業空間・提出の様子を照らして進行役に知らせます。）",
+                f"書かないと{up}に「不明」と知らされ、様子を調べに来られます。**（完了：提出まで終えた〔提出しない仕事なら報告まで〕。"
+                f"質問あり：{up}の答えが要る。止まっている：自分では進められない。続ける：まだ途中。ECOBuild はこの行と、"
+                f"作業空間・提出の様子を照らして{up}に知らせます。）",
                 "",
             ]
     return lines
+
+
+def _brief_text(root: Path) -> str:
+    try:
+        return (Path(root) / BRIEF_FILE).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return ""
 
 
 def _lead_briefing(program: str) -> list[str]:
@@ -702,6 +813,41 @@ def send(root: Path, name: str, text: str) -> Member:
     key = agent_status.item_id(file)
     _log_sent(folder, {"id": key, "at": time.time(), "text": " ".join(text.split())[:80]})
     return Member(**{**member.__dict__, "message_id": key})
+
+
+REPORT_KIND = "report"   # 受け箱のものの種類：作業役が agent report で出した報告の知らせ
+
+
+def report(root: Path) -> dict:
+    """作業役（作業空間 root）の報告（REPORT_FILE）を、作った上の役に知らせて「報告済み」にする（agent report）。
+    このPCで動かす（コンテナの中からは係に頼む）。"""
+    info = member_info(root)
+    if not info.get("lead"):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "この作業空間はチームの1人ではありません（知らせる上の役がいません）。")
+    file = Path(root) / REPORT_FILE
+    try:
+        text = file.read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        text = ""
+    if not text:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"報告（{REPORT_FILE}）がありません。",
+                            hint="結論を先頭に報告を書いてから、もう一度 agent report してください。")
+    lead = Path(info["lead"])
+    try:
+        place = Path(root).resolve().relative_to(lead.resolve()).as_posix()
+    except ValueError:
+        place = Path(root).as_posix()
+    who = f"{ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or Path(root).name}」"
+    head = " ".join(text.split())[:400]
+    put = agent_status.put(inbox_of(lead), f"[ECOBuild] {who}（子タスク #{info.get('task')}）が報告しました："
+                                            f"{place}/{REPORT_FILE}（更新 {_clock(file.stat().st_mtime)}）。\n報告の頭：{head}",
+                           sender=str(Path(root)), owner=notice_owner(root), kind=REPORT_KIND)
+    folder = inbox_of(root)
+    folder.mkdir(parents=True, exist_ok=True)
+    told = {"at": time.time(), "id": agent_status.item_id(put), "mtime": file.stat().st_mtime}
+    agent_status._write(folder / REPORTED, told)
+    return {"name": info.get("name") or Path(root).name, "path": str(Path(root)), "lead": str(lead),
+            "report": f"{place}/{REPORT_FILE}", **told}
 
 
 SENT = "sent.jsonl"   # 作業役の状態の置き場所の中：送った言付け（番号・時刻・頭。取り消したもの）。届いたかは受け箱で見る
@@ -918,7 +1064,11 @@ def member_details(root: Path) -> dict:
     except OSError:
         report_at = None
     told = agent_status.read(folder / REPORTED)
-    return {"submission": {"pull": pull, "state": facts.get("pull_state"), "checked": facts.get("checked"),
+    lead = member_info(root).get("lead")
+    told_read = (isinstance(told, dict) and bool(lead)
+                 and str(told.get("id") or "") not in agent_status.waiting_ids(inbox_of(Path(lead))))
+    return {"report_read": told_read if isinstance(told, dict) else None,
+"submission": {"pull": pull, "state": facts.get("pull_state"), "checked": facts.get("checked"),
                            "head": facts.get("pull_head") or "", "at": facts.get("pulled_at")} if pull else None,
             "dirty": list(facts.get("uncommitted") or ()), "ahead": facts.get("unpushed") or 0, "facts_at": facts.get("at"),
             "messages": messages(folder), "replies": agent_status.replies(folder), "report_at": report_at,
@@ -926,7 +1076,7 @@ def member_details(root: Path) -> dict:
 
 
 ARCHIVE = ".ecobuild/ai/team-archive"   # 進行役の作業空間の中：閉じた作業役の報告・任された仕事（<番号>-<名前>/）
-KEPT = (REPORT_FILE, BRIEF_FILE, ".ecobuild/ai/progress.md")   # 閉じる前に ARCHIVE へ写すもの
+KEPT = (REPORT_FILE, BRIEF_FILE, PROGRESS_FILE)   # 閉じる前に ARCHIVE へ写すもの
 
 
 def close_problems(member: Member) -> list[str]:
@@ -1134,6 +1284,12 @@ def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_
     途中経過が途切れたら（係が止まった）止める。"""
     folder = requests_folder(root)
     folder.mkdir(parents=True, exist_ok=True)
+    beat = agent_status.read(folder / SERVE_BEAT)   # 係が動いているか、先に見る（止まっていれば待たない）
+    if isinstance(beat, dict) and isinstance(beat.get("at"), (int, float)) and time.time() - beat["at"] > BEAT_STALE:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR,
+                            f"ECOBuild の係（agent serve）が止まっています（最後に動いていたのは {int(time.time() - beat['at'])} 秒前）。",
+                            hint="このPCで GUI を起動し直すか、ecobuild agent serve を起動してから、やり直してください"
+                                 "（agent team list は係なしでも読めます。様子は分かりません）。")
     key = uuid.uuid4().hex
     try:
         relative = Path(cwd).resolve().relative_to(Path(root).resolve()).as_posix()

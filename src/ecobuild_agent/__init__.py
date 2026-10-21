@@ -205,7 +205,7 @@ class AgentModule:
             f"（タスク #{task.number}）にいます。タスクの内容は `{program} task status` で確かめてください。",
             f"- 作業は下の手順のとおり、`{program}` のコマンドで行います。とくに、ビルド・テスト・実行は必ず "
             f"`{program} build`・`{program} test`・`{program} run`（提出の前は `{program} check`）。"
-            "cmake・ninja・msbuild・pytest などを直接使いません。",
+            "型のツール（テスト・ビルドの道具）を直接使いません。",
             f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
             "コマンドを使わずにここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",

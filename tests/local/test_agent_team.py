@@ -35,6 +35,7 @@ def lead(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     github = FakeGitHub(tmp_path / "gh")
     monkeypatch.setattr(ecowork_github, "default", lambda: github)   # 係が開く作業空間（作業役）も偽の GitHub に
+    monkeypatch.setattr(team, "RETRY_WAIT", (0, 0, 0))               # 一時的な失敗のやり直しを待たない
     module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
     module.repository.create_task("大きな仕事").start(name="大きな仕事")
     (module.root / team.MEMBER_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -584,10 +585,10 @@ def test_the_serve_does_not_take_its_own_progress_for_requests(lead):
     for _ in range(3):   # 実行中に何度も見回る
         serve.step()
         time.sleep(0.05)
-    assert sorted(p.name for p in requests.iterdir()) == sorted(["a.taken", f"a{team.PROGRESS}"])
+    assert sorted(p.name for p in requests.iterdir() if p.name != team.SERVE_BEAT) == sorted(["a.taken", f"a{team.PROGRESS}"])
     release.set()
     serve.wait()
-    assert len(ran) == 1 and sorted(p.name for p in requests.iterdir()) == ["a.result.json"]
+    assert len(ran) == 1 and sorted(p.name for p in requests.iterdir() if p.name != team.SERVE_BEAT) == ["a.result.json"]
 
 
 def test_children_of_the_serve_do_not_inherit_the_apps_pipe(tmp_path):

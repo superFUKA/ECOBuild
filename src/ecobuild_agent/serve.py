@@ -95,6 +95,8 @@ class Serve:
         wake = self.apps.step() if self.apps is not None else []   # 前の係から引き継ぎ、終わったもの
         for folder in agent_status.folders():
             root = agent_status.workspace_of(folder)
+            if root is not None:
+                self._alive(folder)
             self._requests(folder, root)
             if root is not None:
                 self._watch_reply(folder, root)
@@ -170,6 +172,18 @@ class Serve:
         except OSError:
             pass
 
+    def _alive(self, folder: Path) -> None:
+        """頼みの置き場所に、係が動いている印（team.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の生死を見る）。"""
+        file = folder / team.REQUESTS / team.SERVE_BEAT
+        seen = agent_status.read(file)
+        if isinstance(seen, dict) and isinstance(seen.get("at"), (int, float)) and time.time() - seen["at"] < team.BEAT_EVERY:
+            return
+        try:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            agent_status._write(file, {"at": time.time(), "pid": os.getpid()})
+        except OSError:
+            pass
+
     def _beat(self) -> None:
         """実行中の頼みの途中経過に、係が動いている印（時刻）を書く。"""
         with self._guard:
@@ -220,7 +234,8 @@ class Serve:
         """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。"""
         args = [str(a) for a in request.get("args") or []]
         own = args[:2] in (["agent", "start"], ["agent", "stop"]) and (args[1] == "stop" or "--app" in args)
-        if not own and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
+        reporting = args[:2] == ["agent", "report"]   # 作業役が報告を上の役に知らせる（コンテナの中から）
+        if not own and not reporting and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
             return failed(f"この頼みは受け付けません：ecobuild {' '.join(args)}")
         if root is None:
             return failed("頼んだエージェントの作業空間が分かりません。", hint="エージェントを起動し直してください。")
@@ -230,6 +245,8 @@ class Serve:
         shown = " ".join(a if len(a) <= 40 else a[:40] + "…" for a in args if a != "--json")
         self.log(f"頼み：ecobuild {shown}（{root}）")
         progress(f"実行しています：ecobuild {shown}")
+        if reporting:
+            return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
         try:
             if own:
                 return {"ok": True, "result": self._own(root, args, progress), "error": None}

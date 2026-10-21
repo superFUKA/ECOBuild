@@ -33,6 +33,7 @@ def lead(tmp_path, monkeypatch):
     monkeypatch.delenv(team.OWNER_VARIABLE, raising=False)
     github = FakeGitHub(tmp_path / "gh")
     monkeypatch.setattr(ecowork_github, "default", lambda: github)
+    monkeypatch.setattr(team, "RETRY_WAIT", (0, 0, 0))   # 一時的な失敗のやり直しを待たない
     module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
     module.repository.create_task("大きな仕事").start(name="大きな仕事")
     (module.root / team.MEMBER_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -202,3 +203,153 @@ def test_the_list_shows_what_the_serve_saw_and_the_messages(lead, cli):
     listed = cli("agent", "team", "list")["result"]["members"][0]
     assert listed["dirty"] == ["x.txt"] and listed["ahead"] == 0 and listed["submission"] is None
     assert listed["messages"] == [] and listed["replies"] == 0 and listed["report_at"] is None
+
+
+# ---- 13：作成の一時的な失敗・作業空間のない子タスク ------------------------------------------------------------
+
+def test_a_temporary_github_failure_is_tried_again(lead, monkeypatch):
+    """5xx・接続の誤りは待ってやり直す（できた子タスクはそのまま使う：二重に作らない・閉じない）。"""
+    from ecotask.tracker import Tracker
+    from ecowork import WorkError as Failure
+    real, calls, waits = Tracker.issue, [], []
+
+    def flaky(self, number):
+        calls.append(number)
+        if len(calls) <= 1:
+            raise Failure("github_error", "HTTP 502 Bad Gateway")
+        return real(self, number)
+    monkeypatch.setattr(Tracker, "issue", flaky)
+    issues = len(lead.repository.github.issues)
+    member = team.create(lead, "グラフ", "目的：作る", wait=waits.append)
+    assert len(lead.repository.github.issues) == issues + 1 and member.path.is_dir()
+    assert lead.repository.github.issues[member.task].state == "open"
+
+
+def test_a_failure_tells_what_was_made_and_a_child_without_a_workspace_can_be_used(lead, monkeypatch):
+    from ecowork.git import Git
+    from ecowork import WorkError as Failure
+    real = Git.set_config
+    waits = []
+
+    def broken(self, key, value):
+        if self.root != lead.root:
+            raise Failure("github_error", "HTTP 503 Service Unavailable")
+        return real(self, key, value)
+    monkeypatch.setattr(Git, "set_config", broken)
+    error = failure(lambda: team.create(lead, "グラフ", "目的：作る", wait=waits.append))
+    assert waits == list(team.RETRY_WAIT)                                                 # 3回まで待ってやり直した
+    child = max(lead.repository.github.issues)
+    assert error.details[:2] == [f"子タスク：#{child}（閉じた）", "作業空間：なし"]
+    monkeypatch.setattr(Git, "set_config", real)
+
+    parent = lead.require_task_branch("x").number
+    left = lead.repository.create_task("検索", body="目的：探す", parent=parent)          # 作業空間のない子タスク
+    assert {"task": left.number, "title": "検索"} in team.orphans(lead)
+    member = team.create(lead, "検索の続き", "目的：探す", existing=left.number)
+    assert member.task == left.number and team.orphans(lead) == []
+    assert failure(lambda: team.create(lead, "別", "x", existing=left.number)).code == ErrorCode.ALREADY_EXISTS
+    assert failure(lambda: team.create(lead, "別", "x", existing=9999)).code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_transient_errors_are_told_apart():
+    from ecowork import WorkError as Failure
+    assert team.transient(Failure("github_error", "HTTP 502 Bad Gateway"))
+    assert team.transient(Failure("github_error", "connection reset by peer"))
+    assert not team.transient(Failure("github_error", "HTTP 404 Not Found"))
+    assert not team.transient(Failure("x", "子タスク #503 はありません"))
+
+
+# ---- 21：まとめて作る ------------------------------------------------------------------------------------------
+
+def test_many_workers_are_made_from_a_folder_of_briefs(lead, cli, tmp_path):
+    briefs = tmp_path / "briefs"
+    briefs.mkdir()
+    for name in ("画面", "保存", "検索"):
+        (briefs / f"{name}.md").write_text(f"目的：{name}を作る\n", encoding="utf-8")
+    (briefs / "メモ.png").write_bytes(b"x")                                              # .md・.txt だけ
+    doc = cli("agent", "team", "start", "--brief-dir", str(briefs), "--no-open")
+    assert doc["ok"] and [m["name"] for m in doc["result"]["members"]] == sorted(["画面", "保存", "検索"])
+    assert doc["result"]["failed"] == [] and len(team.team(lead.root).members) == 3
+    again = cli("agent", "team", "start", "--brief-dir", str(briefs), "--no-open")       # もういる：失敗に並べる
+    assert again["ok"] and again["result"]["members"] == [] and len(again["result"]["failed"]) == 3
+
+
+# ---- 16・27・28・29：作業役の手順・記録・報告 ----------------------------------------------------------------
+
+def test_a_report_only_worker_gets_its_own_words(lead):
+    member = team.create(lead, "調べ", "目的：調べる", report_only=True)
+    assert team.NO_SUBMIT in (member.path / team.BRIEF_FILE).read_text(encoding="utf-8")
+    assert member.prompt == team.REPORT_ONLY_PROMPT and "agent report" in member.prompt
+    worker = Module.find(member.path)
+    briefing = worker.agent_briefing(worker.require_task_branch("x"), team.WORKER)
+    role_part = briefing.split("## あなたの役：作業役")[1].split("# ECOBuild の使い方")[0]
+    assert "この仕事は報告だけです" in role_part and "task submit` で提出します" not in role_part
+    assert team.PROGRESS_FILE in role_part and "task finish`・`workspace close` は使いません" in role_part
+    assert "管理役" in role_part and "進行役" not in role_part
+    assert "cmake" not in briefing.split("# ECOBuild の使い方")[0]
+    assert team.PROGRESS_FILE in team.RESTART_PROMPT[team.WORKER]
+    normal = Module.find(team.create(lead, "画面", "目的：作る").path)
+    assert "task submit` で提出します" in normal.agent_briefing(normal.require_task_branch("x"), team.WORKER)
+    assert failure(lambda: team.create(lead, "管理", "x", role=team.MANAGER, report_only=True)).code \
+        == ErrorCode.INVALID_ARGUMENT
+
+
+def test_the_worker_knows_its_lead_and_is_told_so_by_team_list(lead, monkeypatch):
+    member = team.create(lead, "画面", "目的：作る")
+    info = team.member_info(member.path)
+    lead_task = lead.require_task_branch("x")
+    assert info["lead_task"] == lead_task.number and info["lead_branch"] == lead_task.branch
+    assert info["lead_role"] == team.MANAGER and info["lead_readable"] is False
+    monkeypatch.chdir(member.path)
+    doc = json.loads(CliRunner().invoke(build_cli(), ["agent", "team", "list", "--json"], catch_exceptions=False).stdout)
+    assert not doc["ok"] and doc["error"]["message"].startswith(f"あなたは作業役です（管理役：「{lead.root.name}」・子タスク #")
+
+
+def test_the_worker_reports_to_its_lead(lead, cli, monkeypatch):
+    member = team.create(lead, "調べ", "目的：調べる", report_only=True)
+    monkeypatch.chdir(member.path)
+    runner = CliRunner()
+    report = lambda: json.loads(runner.invoke(build_cli(), ["agent", "report", "--json"], catch_exceptions=False).stdout)
+    assert not report()["ok"]                                                            # 報告がない
+    (member.path / team.REPORT_FILE).write_text("結論：A がよい\n", encoding="utf-8")
+    done = report()
+    assert done["ok"] and done["result"]["report"].endswith(team.REPORT_FILE)
+    monkeypatch.chdir(lead.root)
+    listed = cli("agent", "team", "list")["result"]["members"][0]
+    assert listed["report_told"] and listed["report_read"] is False                     # まだ届いていない
+    got = agent_status.take(team.inbox_of(lead.root))
+    assert "「調べ」" in got["text"] and "結論：A がよい" in got["text"] and got["kind"] == team.REPORT_KIND
+    assert cli("agent", "team", "list")["result"]["members"][0]["report_read"] is True
+
+
+def test_the_serve_runs_the_report_request(lead):
+    member = team.create(lead, "調べ", "目的：調べる")
+    ran = []
+    serve = agent_serve.Serve(lambda args, cwd, **_: ran.append((args, cwd)) or {"ok": True, "result": {}})
+    assert serve.handle(member.path, {"id": "r", "args": ["agent", "report", "--json"], "cwd": "."})["ok"]
+    assert ran == [(["agent", "report", "--json"], member.path.resolve())]
+
+
+# ---- 22：係が止まっているとき --------------------------------------------------------------------------------
+
+def test_a_stopped_serve_is_found_at_once(lead, cli, monkeypatch):
+    monkeypatch.setenv(team.WINDOW_VARIABLE, "1")
+    team.create(lead, "画面", "目的：作る")
+    folder = team.requests_folder(lead.root)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / team.SERVE_BEAT).write_text(json.dumps({"at": time.time() - 600}), encoding="utf-8")
+    started = time.monotonic()
+    error = failure(lambda: team.forward(lead.root, ["agent", "team", "send", "画面", "x"], lead.root))
+    assert time.monotonic() - started < 2 and "止まっています" in error.message
+    assert not list(folder.glob("*.json"))                                               # 頼みを置かない
+    listed = cli("agent", "team", "list")                                                # 一覧は手元の記録から
+    assert listed["ok"] and [m["name"] for m in listed["result"]["members"]] == ["画面"]
+    assert "分かりません" in listed["result"]["note"]
+
+
+def test_the_serve_leaves_a_sign_that_it_is_alive(lead):
+    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}})
+    serve.step()
+    beat = agent_status.read(folder / team.REQUESTS / team.SERVE_BEAT)
+    assert beat and time.time() - beat["at"] < 5

@@ -50,9 +50,9 @@ def test_agents_md_points_to_the_guide(name):
 
 
 def test_guide_follows_the_type():
-    """ファイルの追加を受け持たない型には、file add を案内しない。"""
+    """ファイルの追加を受け持つ型には、file add を案内する（generic も空のファイルを作る）。"""
     assert "ecobuild file add" in _documents("cpp")["agent guide"]
-    assert "ecobuild file add" not in _documents("generic")["agent guide"]
+    assert "ecobuild file add" in _documents("generic")["agent guide"]
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
@@ -61,7 +61,7 @@ def test_guide_asks_for_ecobuild_first(name):
     guide = _documents(name)["agent guide"]
     assert "## まず ECOBuild でできるかを考える" in guide and "直接して構いません" in guide
     assert "`ecobuild build`・`ecobuild test`・`ecobuild run`" in guide and "直接使いません" in guide
-    assert ("ecobuild file add／move／remove" in guide) == (name != "generic")
+    assert "ecobuild file add／move／remove" in guide
 
 
 @pytest.mark.parametrize("name", sorted(REGISTRY.entries()))

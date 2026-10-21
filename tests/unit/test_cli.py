@@ -62,8 +62,8 @@ def test_each_type_has_its_own_commands():
     assert {"add", "remove", "list", "sync", "tree", "update"} <= _names(cpp, "deps")
     assert {"build", "test", "run", "clean", "rebuild", "file"} <= _names(python)
     assert not {"project", "template", "deps", "link"} & _names(python)
-    assert {"build", "test", "run", "clean", "rebuild"} <= _names(generic)
-    assert not {"file", "project", "deps"} & _names(generic)
+    assert {"build", "test", "run", "clean", "rebuild", "file"} <= _names(generic)
+    assert not {"project", "deps"} & _names(generic)
     # 共通のグループに、型がコマンドを足す
     assert _names(outside, "profile") == {"list", "use", "remove"}
     assert _names(cpp, "profile") == {"add", "list", "use", "remove", "project"}
@@ -110,8 +110,8 @@ def test_other_type_command_is_not_supported(tmp_path, monkeypatch):
     document = json.loads(result.stdout)
     assert document["error"]["code"] == "not_supported"
     assert "型 cpp" in document["error"]["message"] and "generic" in document["error"]["message"]
-    result = CliRunner().invoke(build_cli(), ["file", "add", "a.txt"])
-    assert result.exit_code == 1 and "cpp・python" in result.output
+    result = CliRunner().invoke(build_cli(), ["deps", "add", "Foo"])
+    assert result.exit_code == 1 and "型 cpp" in result.output
     assert CliRunner().invoke(build_cli(), ["nosuch"]).exit_code == 2
 
 
@@ -156,7 +156,8 @@ def test_help_json_lists_every_command(tmp_path, monkeypatch, capsys):
     cpp = {c["name"]: c for c in types["cpp"]["commands"]}
     assert {"build", "project", "deps"} <= set(cpp) and "task" not in cpp
     assert cpp["module"]["extends"] and [c["name"] for c in cpp["module"]["commands"]] == ["settings"]
-    assert "file" not in {c["name"] for c in types["generic"]["commands"]}
+    assert "file" in {c["name"] for c in types["generic"]["commands"]}
+    assert "deps" not in {c["name"] for c in types["generic"]["commands"]}
 
 
 def test_help_json_for_one_command(tmp_path, monkeypatch, capsys):

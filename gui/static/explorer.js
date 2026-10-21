@@ -463,7 +463,7 @@ async function menuAction(action, dir) {
 async function addFile(relatives, withTest = true, template = '') {
   let doc = await WS.cli(['file', 'add', ...relatives, ...(template ? ['--template', template] : withTest ? [] : ['--no-test'])]);
   if (!doc.ok && doc.error?.code === 'not_supported') {
-    // Module types without a file template (generic): make empty files.
+    // Module types without file commands: make empty files.
     try { for (const path of relatives) await ECO.call('touch', {dir: WS.dir, path}); doc = {ok: true, result: {paths: relatives}}; }
     catch (e) { return e.message; }
   }
@@ -666,7 +666,7 @@ async function removeFolder(path, withTest = true) {
   if (cpp) await WS.cli(['project', 'update'], {quiet: true});
 }
 
-// Module types without file commands (generic): the GUI moves and removes the file itself, as it makes empty files.
+// Module types without file commands: the GUI moves and removes the file itself, as it makes empty files.
 async function withoutFileCommand(doc, api, body) {
   if (doc.ok || doc.error?.code !== 'not_supported') return doc;
   try { return {ok: true, result: await ECO.call(api, {dir: WS.dir, ...body})}; }

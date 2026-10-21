@@ -3,7 +3,7 @@
 {configuration}（構成）・{arguments}（run の引数）を、コマンドの中に書ける。
 コマンドはすべてのOSで同じ文字列か、OSごとの表（{ windows = "...", linux = "..." }）で書く。
 Windows では cmd.exe、それ以外では sh で実行する（CIでも同じシェルを使う）。
-書いていない操作は not_supported。Project・ファイル・依存先の管理は持たない。
+書いていない操作は not_supported。ファイルは空で作る・移す・消すだけ（file add・move・remove）。Project・依存先の管理は持たない。
 """
 
 from __future__ import annotations
@@ -12,12 +12,13 @@ import os
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
-from ecobuild.module_type import Builds, ModuleType
-from ecobuild.results import BuildResult, RunResult, TestCaseResult, TestResult
+from ecobuild.module_type import Builds, HasFiles, ModuleType
+from ecobuild.results import BuildResult, FilesChanged, RunResult, TestCaseResult, TestResult
 
 TABLE = "commands"
 OPERATIONS = ("build", "test", "run", "clean")
@@ -49,7 +50,7 @@ class GenericOptions:
     configuration: str = "Debug"
 
 
-class GenericType(ModuleType, Builds):
+class GenericType(ModuleType, Builds, HasFiles):
     name = "generic"
     description = "ビルド・テスト・実行のコマンドを .ecobuild/ecobuild.toml の [commands] に書く（言語を問わない）"
 
@@ -144,7 +145,50 @@ test = { windows = "test.cmd", linux = "./test.sh" }
         completed = self._execute("run", options, ErrorCode.RUN_FAILED, "実行に失敗しました。", arguments=arguments)
         return RunResult(None, options.configuration, completed.returncode, completed.stdout)
 
+    # ファイル -------------------------------------------------------------------------
+
+    def add_file(self, path: Path, *, test: bool, template: str | None = None) -> FilesChanged:
+        """書いた名前（拡張子込み）の空のファイルを作る。テストは作らない。"""
+        if template is not None:
+            raise self.not_supported("ファイルテンプレート")
+        relative = self._relative(path)
+        if (self.root / relative).exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{relative.as_posix()} は既にあります。")
+        (self.root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / relative).write_bytes(b"")
+        return FilesChanged("file add", (relative.as_posix(),))
+
+    def remove_file(self, path: Path, *, test: bool) -> FilesChanged:
+        relative = self._existing(path)
+        (self.root / relative).unlink()
+        return FilesChanged("file remove", (relative.as_posix(),))
+
+    def move_file(self, source: Path, destination: Path, *, test: bool) -> FilesChanged:
+        origin, target = self._existing(source), self._relative(destination)
+        if (self.root / target).exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{target.as_posix()} は既にあります。")
+        (self.root / target).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / origin).rename(self.root / target)
+        return FilesChanged("file move", (origin.as_posix(), target.as_posix()))
+
     # 内部 ---------------------------------------------------------------------------
+
+    def _relative(self, path: Path) -> Path:
+        """今いるディレクトリからの相対か絶対のパスを、モジュールからの相対にする（.git・.ecobuild の中は不可）。"""
+        absolute = (Path.cwd() / path).resolve()
+        try:
+            relative = absolute.relative_to(self.root.resolve())
+        except ValueError:
+            raise EcoBuildError(ErrorCode.NOT_IN_MODULE, f"{path} はモジュールの外です。") from None
+        if not relative.parts or relative.parts[0] in (".git", ".ecobuild"):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{relative.as_posix()} のファイルは操作できません。")
+        return relative
+
+    def _existing(self, path: Path) -> Path:
+        relative = self._relative(path)
+        if not (self.root / relative).is_file():
+            raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{relative.as_posix()} はありません。")
+        return relative
 
     def _command(self, operation: str, *, required: bool = True) -> str:
         commands = self.module.config.extra.get(TABLE, {})

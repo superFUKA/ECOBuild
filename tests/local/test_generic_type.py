@@ -64,7 +64,19 @@ def test_generic_module(tmp_path):
     ci = reloaded.write_ci()
     workflow = (root / ci.path).read_text(encoding="utf-8")
     assert "ubuntu-latest" in workflow and "Build" in workflow and "workflow_dispatch" in workflow
-    assert code_of(lambda: reloaded.add_file("a.txt")) == ErrorCode.NOT_SUPPORTED
+    # file add：書いた名前（拡張子込み）の空のファイルを作るだけ
+    added = reloaded.add_files([root / "a.txt", root / "docs" / "memo.md"])
+    assert [c.paths for c in added] == [("a.txt",), ("docs/memo.md",)]
+    assert (root / "docs" / "memo.md").read_bytes() == b""
+    assert code_of(lambda: reloaded.add_file(root / "a.txt")) == ErrorCode.ALREADY_EXISTS
+    assert code_of(lambda: reloaded.add_file(root / ".ecobuild" / "x.txt")) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: reloaded.add_file(tmp_path / "outside.txt")) == ErrorCode.NOT_IN_MODULE
+    assert code_of(lambda: reloaded.add_file(root / "b.txt", template="t")) == ErrorCode.NOT_SUPPORTED
+    assert reloaded.move_file(root / "a.txt", root / "docs" / "b.txt").paths == ("a.txt", "docs/b.txt")
+    assert code_of(lambda: reloaded.move_file(root / "docs" / "b.txt", root / "docs" / "memo.md")) == ErrorCode.ALREADY_EXISTS
+    assert reloaded.remove_file(root / "docs" / "b.txt").paths == ("docs/b.txt",)
+    assert not (root / "docs" / "b.txt").exists()
+    assert code_of(lambda: reloaded.remove_file(root / "docs" / "b.txt")) == ErrorCode.FILE_NOT_FOUND
     task_branch.stage(all=True)
     task_branch.commit("コマンドとCI")
     assert task_branch.submit().number

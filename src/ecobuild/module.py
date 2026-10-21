@@ -141,6 +141,17 @@ class Module:
         root = _config.find_root(Path(path), command=cls.command)
         return cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
 
+    def _open_clone(self, root: Path) -> "Module":
+        """今 clone した場所 root そのものを、このモジュールとして開く。上へはたどらない：作業空間は別のモジュールの
+        作業空間の中（進行役の .ecobuild/ai/team 等）に作ることがあり、たどると外のモジュールを開いて、そのブランチを変える。"""
+        if not (Path(root) / _config.FILE_NAME).is_file():
+            raise EcoBuildError(ErrorCode.NOT_IN_MODULE,
+                                f"clone した {root} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
+                                hint=f"取り出した作成元のブランチにモジュールがありません。作成元には、モジュールのブランチ"
+                                     f"（{self.op('branch list')}）を指定してください。")
+        return type(self)(Path(root), _config.load(Path(root) / _config.FILE_NAME),
+                          github=self.repository.github, registry=self.registry)
+
     @classmethod
     def create(
         cls,
@@ -901,7 +912,7 @@ class Module:
         opened: list[Module] = []
 
         def open_clone(root: Path) -> Repository:
-            opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
+            opened.append(self._open_clone(root))
             return opened[0].repository
 
         self.repository.clone_to(directory, open=open_clone, account=account)
@@ -917,7 +928,7 @@ class Module:
         opened: list[Module] = []
 
         def open_clone(root: Path) -> Repository:
-            opened.append(type(self).find(root, github=self.repository.github, registry=self.registry))
+            opened.append(self._open_clone(root))
             return opened[0].repository
 
         self.repository.clone_task_branch(number, directory, base=base, name=name, open=open_clone,

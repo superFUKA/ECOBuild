@@ -339,6 +339,47 @@ def test_merge_branch_by_name(repository):
     assert code_of(lambda: repository.merge_branch("develop")) == ErrorCode.NO_PULL_REQUEST
 
 
+def remote_file(repository, branch, name):
+    completed = repository.git.run("show", f"origin/{branch}:{name}", check=False)
+    return completed.stdout if completed.ok else None
+
+
+def test_merge_a_branch_into_another_directly(repository):
+    """管理用のブランチ同士は、提出（PR）なしで直接取り込める（branch merge --into）。手元の作業ツリーには触れない。"""
+    repository.create_branch("develop")
+    repository.create_branch("release")
+    for base, name in (("develop", "d.txt"), ("release", "r.txt")):
+        task, task_branch = started(repository, title=name, base=base)
+        recorded(task_branch, name=name, text=f"{name}\n")
+        repository.finish()
+    before = repository.git.current_branch()
+    pulls = len(repository.github.pulls)
+    done = repository.merge_branch_into("develop", "main")   # main は develop の祖先：早送り
+    assert (done.method, done.commit) == ("fast-forward", repository.git.output("rev-parse", "origin/develop"))
+    merged = repository.merge_branch_into("develop", "release")   # 分かれている：マージコミット
+    assert merged.method == "merge" and remote_file(repository, "release", "d.txt") == "d.txt\n"
+    assert remote_file(repository, "release", "r.txt") == "r.txt\n"
+    assert repository.git.output("rev-list", "--parents", "-1", "origin/release").count(" ") == 2
+    assert len(repository.github.pulls) == pulls and repository.git.current_branch() == before   # PR も切り替えもなし
+    assert code_of(lambda: repository.merge_branch_into("develop", "release")) == ErrorCode.NOTHING_TO_SUBMIT
+    task, task_branch = started(repository, title="t")
+    assert code_of(lambda: repository.merge_branch_into(task_branch.branch, "main")) == ErrorCode.PROTECTED_BRANCH
+    assert code_of(lambda: repository.merge_branch_into("develop", "none")) == ErrorCode.BRANCH_NOT_FOUND
+
+
+def test_a_conflicting_direct_merge_changes_nothing(repository):
+    repository.create_branch("develop")
+    for base, text in (("develop", "d\n"), ("main", "m\n")):
+        task, task_branch = started(repository, title=base, base=base)
+        recorded(task_branch, name="same.txt", text=text)
+        repository.finish()
+    main = repository.git.output("rev-parse", "origin/main")
+    with pytest.raises(WorkError) as error:
+        repository.merge_branch_into("develop", "main")
+    assert error.value.code == ErrorCode.MERGE_CONFLICT and error.value.details == ["same.txt"]
+    assert repository.git.output("rev-parse", "origin/main") == main
+
+
 def test_new_files_outside_the_work_do_not_block(repository):
     """include_new に当たらない新しいファイル（メモ等）は、タスクブランチの切り替え・やめる等を止めない。"""
     repository.include_new = lambda p: p.endswith(".cpp")

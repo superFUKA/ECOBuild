@@ -380,6 +380,15 @@ class MergeResult:
 
 
 @dataclass(frozen=True)
+class BranchMerged:
+    """管理用のブランチ同士の直接の取り込み（branch merge --into。PR なし）。"""
+    name: str                        # 取り込んだブランチ
+    into: str                        # 取り込み先
+    method: str                      # fast-forward / merge
+    commit: str                      # 取り込み先の新しい先頭
+
+
+@dataclass(frozen=True)
 class SkippedBranch:
     branch: str
     reason: str

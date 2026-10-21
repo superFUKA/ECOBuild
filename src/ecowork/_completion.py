@@ -373,3 +373,50 @@ class Completion:
                             hint=f"{self._op('branch submit')} {name} --into <取り込み先> で作ります。")
         self.require_take_in(max(opened, key=lambda p: p.number).base, "取り込み")
         return self._merge_pull_request(max(opened, key=lambda p: p.number).number, ignore_checks=ignore_checks)
+
+    def merge_branch_into(self, name: str, into: str) -> wm.BranchMerged:
+        """管理用のブランチ name を、管理用のブランチ into へ直接取り込む（PR を作らない）。
+
+        作業（コミット）を直接入れられるのはタスクブランチだけで、管理用のブランチ同士のマージは管理用のブランチの操作
+        （作業ではない）なので、提出（PR）を通さなくてよい。GitHub の最新どうしを、手元の作業ツリーに触れずに
+        （merge-tree）合わせて into へ push する：早送りできれば早送り、できなければマージコミット。衝突したら何も
+        変えずに止める。できるのは into への提出を取り込める人だけ。GitHub のブランチの保護が PR を求めれば、push が
+        断られる（branch submit で提出する）。"""
+        for branch in (name, into):
+            if wm.is_task_branch(branch):
+                raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch} はタスクブランチです。",
+                                hint=f"ブランチ同士のマージは、タスクブランチでないブランチ（main・develop 等）どうしです。"
+                                     f"タスクブランチの完了は {self._op('task finish')} です。")
+        if name == into:
+            raise WorkError(ErrorCode.INVALID_BASE, f"{name} を {name} 自身へは取り込めません。")
+        self.require_take_in(into, "取り込み")
+        self.git.fetch()
+        for branch in (name, into):
+            if not self.git.has_remote_branch(branch):
+                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。")
+        head = self.git.output("rev-parse", f"{_git.REMOTE}/{name}")
+        base = self.git.output("rev-parse", f"{_git.REMOTE}/{into}")
+        if self.git.is_ancestor(head, base):
+            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{name} は {into} に取り込み済みです。")
+        if self.git.is_ancestor(base, head):
+            commit, method = head, "fast-forward"
+        else:
+            merged = self.git.run("merge-tree", "--write-tree", "--name-only", "--no-messages", base, head, check=False)
+            lines = merged.stdout.splitlines()
+            if merged.returncode == 1:
+                raise WorkError(ErrorCode.MERGE_CONFLICT, f"{name} と {into} が衝突するので、取り込みませんでした（何も変えていません）。",
+                                hint=f"{self._op('branch submit')} {name} --into {into} で提出し、衝突を直してから "
+                                     f"{self._op('branch merge')} {name} で取り込んでください。",
+                                details=[line for line in lines[1:] if line])
+            if not merged.ok or not lines:
+                raise _git._git_error(merged)
+            commit = self.git.output("commit-tree", lines[0], "-p", base, "-p", head, "-m", f"{name} を {into} へ取り込む")
+            method = "merge"
+        pushed = self.git.run("push", "--quiet", _git.REMOTE, f"{commit}:refs/heads/{into}", check=False)
+        if not pushed.ok:
+            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {into} への push を断りました（何も変えていません）。",
+                            hint=f"{into} のブランチの保護が PR を求めているなら、{self._op('branch submit')} {name} --into {into} "
+                                 f"で提出して {self._op('branch merge')} {name} で取り込みます。",
+                            details=pushed.output)
+        self.git.fetch()
+        return wm.BranchMerged(name, into, method, commit)

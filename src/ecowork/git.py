@@ -5,7 +5,10 @@ git のメッセージで状況を判定する箇所があるため、メッセ�
 
 from __future__ import annotations
 
+import os
+import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +22,11 @@ REMOTE = "origin"
 # 続けて読むとき、コマンドごとに GitHub へ問い合わせない）。取得した時刻は .git の FETCHED_MARK に残す
 RECENT_FETCH = 10
 FETCHED_MARK = "ecowork-fetched"
+# 同じ clone の fetch は1つずつ（GUI が読むだけのコマンドを並べて回すと、refs/remotes の更新が取り合いになり
+# 「cannot lock ref」で失敗する）。.git の FETCH_LOCK を持つ間だけ fetch する。待ちきれなければロックなしで行う
+FETCH_LOCK = "ecowork-fetch.lock"
+FETCH_LOCK_TIMEOUT = 120
+_DUBIOUS = re.compile(r"detected dubious ownership in repository at '([^']*)'")
 
 
 @dataclass(frozen=True)
@@ -121,12 +129,34 @@ class Git:
         （別のコマンドが）取得したばかりなら、取得し直さない。GitHubの側を変えた後は reuse なしで取得し直す。"""
         if reuse and (self._fetched or self._fetched_recently()):
             return
-        self.run("fetch", "--quiet", "--prune", REMOTE)
+        with self._fetch_lock():
+            if reuse and self._fetched_recently():   # 待つ間に、別のコマンドが取得した
+                self._fetched = True
+                return
+            self.run("fetch", "--quiet", "--prune", REMOTE)
         self._fetched = True
         try:
             self._mark().touch()
         except (OSError, WorkError):
             pass
+
+    @contextmanager
+    def _fetch_lock(self):
+        """この clone の fetch を、ほかのコマンド（プロセス）と1つずつにする。ロックを持てなければ（読み取り専用の
+        場所・待ちきれない等）そのまま行う（cannot lock ref はやり直しで受ける）。"""
+        try:
+            path = self.root / self.output("rev-parse", "--git-path", FETCH_LOCK)
+            file = open(path, "a+")
+        except (OSError, WorkError):
+            yield
+            return
+        with file:
+            held = _lock_file(file, FETCH_LOCK_TIMEOUT)
+            try:
+                yield
+            finally:
+                if held:
+                    _unlock_file(file)
 
     def _mark(self) -> Path:
         return self.root / self.output("rev-parse", "--git-path", FETCHED_MARK)
@@ -359,7 +389,49 @@ def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | 
         raise _git_error(failure.completed) from None
 
 
+def _lock_file(file, timeout: float) -> bool:
+    """開いたファイルの排他ロックを、timeout 秒まで待って持つ（プロセスが終われば OS が外す）。持てたか。"""
+    until = time.monotonic() + timeout
+    while True:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() >= until:
+                return False
+            time.sleep(0.05)
+
+
+def _unlock_file(file) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            file.seek(0)
+            msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 def _git_error(completed: _process.Completed) -> WorkError:
+    dubious = _DUBIOUS.search(completed.output)
+    if dubious:
+        # 持ち主が違う場所（別のアカウント・コンテナで作った clone 等）：git が読むのを断る。生の git の文だけでは分からない
+        return WorkError(
+            ErrorCode.UNSAFE_REPOSITORY,
+            f"git が {dubious.group(1)} を、持ち主が今のユーザーと違うため扱いません（dubious ownership）。",
+            hint=f"自分の作業空間なら git config --global --add safe.directory \"{dubious.group(1)}\" で"
+                 "信頼する場所に足してから、もう一度実行してください。",
+            details=completed.output,
+        )
     return WorkError(
         ErrorCode.GIT_ERROR,
         f"git {' '.join(completed.args[1:])} に失敗しました。",

@@ -34,7 +34,7 @@ class TaskManagement:
             self.tracker.sort([], sort)  # 一覧を取る前に、並べられるか確かめる
         # GitHub への問い合わせ（fetch・PRの一覧・タスクの一覧）は互いに関係ないので、並べて待つ
         with ThreadPoolExecutor(max_workers=3) as pool:
-            fetching = pool.submit(self.git.fetch, reuse=True)
+            fetching = pool.submit(self._fetch_for_reading)
             opened = pool.submit(self.github.list_pull_requests, self.root, closed=False)
             reviewing = pool.submit(self.github.list_pull_requests, self.root, closed=False,
                                     review_requested="@me") if to_review else None
@@ -74,6 +74,16 @@ class TaskManagement:
         if sort is not None:
             pairs = self.tracker.sort(pairs, sort, task_of=lambda pair: pair[1])
         return [summary for summary, _ in pairs]
+
+    def _fetch_for_reading(self) -> None:
+        """読むだけのコマンドの fetch（取得したばかりなら省く）。取得できなくても止めず、手元の写しで答えて知らせる。"""
+        try:
+            self.git.fetch(reuse=True)
+        except WorkError as error:
+            if error.code != ErrorCode.GIT_ERROR:
+                raise
+            first = next((line for line in str(error.details or "").splitlines() if line.strip()), "")
+            self.notices.append("GitHubの最新を取得できませんでした（手元の写しで表示しています）" + (f"：{first}" if first else "。"))
 
     def _current_work_states(self) -> dict[int, _tracker.WorkState]:
         """GitHubの最新を取得して、各タスクの作業の事実を調べる（判断の前に段階のずれを直すため）。"""
@@ -136,7 +146,7 @@ class TaskManagement:
         # Issue（GitHub）を読む間に、fetch と、タスクブランチが分かれば提出（PR）も読む
         with ThreadPoolExecutor(max_workers=2) as pool:
             reading = pool.submit(self.tracker.details, number)
-            self.git.fetch(reuse=True)
+            self._fetch_for_reading()
             branch = self._existing_task_branch(number)
             submission = None if branch is None else pool.submit(self._latest_submission, branch)
             details = reading.result()

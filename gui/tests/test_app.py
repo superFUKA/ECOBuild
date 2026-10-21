@@ -420,6 +420,14 @@ def test_reading_the_account_and_the_protection_changes_nothing():
     assert gui._hash({"tab": "branches"}) == "#branches" and gui._hash({"page": "branches"}) == "#branches"
 
 
+def test_the_image_editor_reads_freely_but_writing_waits():
+    """イメージのエディター：環境の Dockerfile を読むのは待たない。--write はファイルを変えるので、ほかの操作と並べない。"""
+    assert gui._read_only(["container", "dockerfile"]) and gui._read_only(["container", "dockerfile", "--json"])
+    assert not gui._read_only(["container", "dockerfile", "--write", "-"])
+    assert not gui._read_only(["container", "dockerfile", "--write=Dockerfile.new"])
+    assert not gui._cacheable(["container", "dockerfile"])   # 編集の元は毎回読む（覚えた古い中身で上書きしない）
+
+
 def test_asking_the_operator_does_not_hold_the_others():
     """オペレーター（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
     assert gui._unlocked(["agent", "ask", "--session", "s1"]) and not gui._read_only(["agent", "ask"])

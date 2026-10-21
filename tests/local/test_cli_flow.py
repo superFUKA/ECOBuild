@@ -31,7 +31,7 @@ def test_every_command_has_help():
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
                  ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"], ["workspace", "path"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
-                 ["container", "stop"], ["container", "remove"],
+                 ["container", "stop"], ["container", "remove"], ["container", "dockerfile"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
                  ["deps", "remove"],
                  ["build"], ["test"], ["run"], ["status"], ["task", "add"], ["task", "commit"], ["task", "push"], ["restore"],
@@ -850,3 +850,30 @@ def test_container(cli, module):
     assert failed["code"] == "container_error" and "setup --docker" in failed["hint"]
     assert as_json(cli("container", "off", "--json"))["result"]["changed"]
     assert "container" not in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")
+
+
+def test_container_dockerfile(cli, module, tmp_path):
+    """イメージのエディター：環境の Dockerfile を読む（どのブランチでも）・書く（タスクブランチでだけ。--write <ファイル|->）。"""
+    path = module.root / ".ecobuild/container/Dockerfile"
+    shown = as_json(cli("container", "dockerfile", "--json"))["result"]
+    assert not shown["exists"] and shown["text"].startswith("# ") and "FROM " in shown["text"]   # まだなければ型のひな型
+    assert shown["environment"].endswith(":" + shown["hash"]) and shown["image"].startswith("ecobuild-calc:")
+    assert not shown["editable"] and "タスクブランチ" in shown["reason"] and not shown["docker_ready"]
+    assert "型のひな型" in cli("container", "dockerfile").output
+    edited = tmp_path / "Dockerfile.new"
+    edited.write_text("FROM ubuntu:24.04\nRUN echo lint\n", encoding="utf-8")
+    refused = as_json(cli("container", "dockerfile", "--write", str(edited), "--json"))["error"]
+    assert refused["code"] == "not_on_task_branch" and "task start" in refused["hint"] and not path.exists()
+
+    assert cli("task", "new", "解析ツール", "--start", "--name", "lint", "--json").exit_code == 0
+    assert as_json(cli("container", "dockerfile", "--json"))["result"]["editable"]
+    wrote = as_json(cli("container", "dockerfile", "--write", str(edited), "--json"))["result"]
+    assert wrote["changed"] and wrote["exists"] and wrote["hash"] != shown["hash"] and wrote["editable"]
+    assert path.read_text(encoding="utf-8") == "FROM ubuntu:24.04\nRUN echo lint\n"
+    piped = CliRunner().invoke(build_cli(), ["container", "dockerfile", "--write", "-"], input="FROM debian:12\n")
+    assert piped.exit_code == 0 and "書きました" in piped.output and "task commit" in piped.output
+    assert path.read_text(encoding="utf-8") == "FROM debian:12\n"
+    assert "同じ中身" in CliRunner().invoke(build_cli(), ["container", "dockerfile", "--write", "-"], input="FROM debian:12").output
+    missing = as_json(cli("container", "dockerfile", "--write", str(tmp_path / "none"), "--json"))["error"]
+    assert missing["code"] == "file_not_found"
+    assert as_json(cli("container", "recipe", "--json"))["result"]["dockerfile"] == "FROM debian:12\n"   # 試しに作る元

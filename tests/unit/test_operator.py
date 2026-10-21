@@ -35,6 +35,8 @@ def test_every_listed_effect_names_a_command(tmp_path, monkeypatch):
     (["workspace", "close", "C:/x"], ("confirm", "workspace close")),
     (["task", "push", "--force"], ("confirm", "task push")),
     (["track", "add", "*.md"], ("change", "track add")),
+    (["container", "dockerfile", "--json"], ("read", "container dockerfile")),
+    (["container", "dockerfile", "--write", "-"], ("change", "container dockerfile")),   # 環境の Dockerfile を書く
     (["module", "delete", "--help"], ("read", "help")),
     (["setup"], ("human", "setup")),
     (["agent", "ask", "こんにちは"], ("human", "agent ask")),

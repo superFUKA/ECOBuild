@@ -182,6 +182,13 @@ class ContainerModule:
     def environment_files(cls, type_class) -> dict[str, str]:
         return {**super().environment_files(type_class), DOCKERFILE: dockerfile(type_class)}
 
+    def save_container_dockerfile(self, text: str, source: tuple[str, str] | None = None,
+                                  runner: docker.Runner | None = None) -> "EnvironmentDockerfile":
+        """モジュールの環境（DOCKERFILE）を書く（イメージのエディター）。リポジトリのファイルを変えるのでタスクブランチでだけ。
+        書くだけで、コミットは今までどおり（task commit）。"""
+        self.require_task_branch("コンテナの環境（Dockerfile）の変更")
+        return save_environment_dockerfile(self.root, text, source or self.container_source() or SOURCE, runner)
+
     @classmethod
     def close_workspace(cls, path, **options):
         """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。
@@ -224,6 +231,24 @@ class Recipe:
     context: Path | None     # 環境の材料のフォルダ（.ecobuild/container/）。なければ None（型のひな型）
     image: str               # ECOBuild の層まで重ねたイメージ：ecobuild-<モジュール>:<ハッシュ>
     layer: str               # ECOBuild の層の Dockerfile
+
+
+@dataclass(frozen=True)
+class EnvironmentDockerfile:
+    """作業空間のモジュールの環境（DOCKERFILE）の今の中身と、それから作るイメージ（イメージのエディターが読む）。"""
+    path: Path               # 作業空間の .ecobuild/container/Dockerfile
+    exists: bool             # 作業空間にある（なければ text は型のひな型）
+    text: str                # 中身
+    hash: str                # 環境の材料（.ecobuild/container/ の中身）のハッシュ（環境のイメージの名前のタグ）
+    environment: str         # 環境のイメージの名前
+    image: str               # 環境に ECOBuild を重ねたイメージの名前
+    image_ready: bool        # このPCにそのイメージがある（作ってある）
+    outdated: bool           # この作業空間のコンテナが、今の作り方のイメージでない（次に動かすときに作り直す）
+    container: bool          # この作業空間をコンテナにしている
+    container_image: str     # この作業空間のコンテナのイメージ（コンテナがなければ空）
+    docker_ready: bool
+    docker_detail: str
+    changed: bool = False    # 今回書いて中身が変わった
 
 
 @dataclass(frozen=True)
@@ -315,6 +340,35 @@ def _recipe_or_none(root: Path, source: tuple[str, str]) -> Recipe | None:
         return recipe(root, source)
     except (WorkError, OSError):
         return None
+
+
+def environment_dockerfile(root: Path, source: tuple[str, str] = SOURCE, runner: docker.Runner | None = None, *,
+                           changed: bool = False) -> EnvironmentDockerfile:
+    """作業空間 root のモジュールの環境（DOCKERFILE。なければ型のひな型）と、それから作るイメージの名前・このPCにあるか・
+    この作業空間のコンテナが古いか。Docker が使えなくても中身と名前は返す。"""
+    made = recipe(root, source)
+    found = docker.status(runner or docker.run)   # 調べるのは1回（Windows では WSL を何度も呼ぶ）
+    shown = _result(root, enabled(root), False, runner, source=source, found=found)
+    ready = found.ready and (runner or docker.run)([*found.command, "image", "inspect", made.image]).ok
+    return EnvironmentDockerfile(Path(root) / DOCKERFILE, made.context is not None, made.dockerfile,
+                                 made.environment.rpartition(":")[2], made.environment, made.image, ready, shown.outdated,
+                                 shown.container, shown.image, shown.docker_ready, shown.docker_detail, changed)
+
+
+def save_environment_dockerfile(root: Path, text: str, source: tuple[str, str] = SOURCE,
+                                runner: docker.Runner | None = None) -> EnvironmentDockerfile:
+    """モジュールの環境（DOCKERFILE）を text にする（改行は LF。最後に改行を付ける）。タスクブランチかは使う側が確かめる
+    （ContainerModule.save_container_dockerfile）。書いても、イメージは次に作る・動かすときに作る。"""
+    body = text.replace("\r\n", "\n").replace("\r", "\n").rstrip() + "\n"
+    if not body.strip():
+        raise EcoBuildError(_ErrorCode.INVALID_ARGUMENT, "Dockerfile が空です。",
+                            hint="FROM から始まる中身を渡してください（空にはできません）。")
+    path = Path(root) / DOCKERFILE
+    before = path.read_text(encoding="utf-8") if path.is_file() else None
+    if before != body:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8", newline="\n")
+    return environment_dockerfile(root, source, runner, changed=before != body)
 
 
 def mount_path(root: Path, command: tuple[str, ...], *, owned: bool = False) -> str:
@@ -614,8 +668,9 @@ def run_docker(runner: docker.Runner | None, args: list[str], message: str) -> N
 
 
 def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | None, *,
-            built: bool = False, source: tuple[str, str] | None = None) -> WorkspaceContainer:
-    found = docker.status(runner or docker.run)
+            built: bool = False, source: tuple[str, str] | None = None,
+            found: docker.DockerStatus | None = None) -> WorkspaceContainer:
+    found = found or docker.status(runner or docker.run)
     state, image, _ = _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
     local = _config.load_local(root)
     custom = local.get(IMAGE_KEY) or ""

@@ -248,9 +248,9 @@
       : st.outdated ? `<span class="mi-pill warn">古い</span> コンテナのイメージ ${esc(st.image)} は今の作り方のものではありません。次に動かすときに作り直します。`
       : `<span class="mi-pill ok">今の作り方</span> コンテナは ${esc(st.image)} で動いています`;
     return head('コンテナ', `作業空間をコンテナにしたときのイメージは、モジュールの環境（${file}）に ECOBuild（エージェント・ecobuild 等）を重ねて作ります。環境はリポジトリにコミットするので、ほかのPCでも同じ環境になります。名前は作り方のハッシュで、環境か ECOBuild が変わると新しく作ります。`,
-        (inRepo ? btn('場所を開く', 'container-open') : btn('リポジトリに置く', 'container-place', '', 'primary')) + btn('今の作り方で作る', 'container-build')) +
+        btn('作業空間で編集', 'container-edit', '', inRepo ? 'primary' : '') + (inRepo ? btn('場所を開く', 'container-open') : btn('リポジトリに置く', 'container-place', '', 'primary')) + btn('今の作り方で作る', 'container-build')) +
       `<table class="mi-table mi-settings"><tbody>
-      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', inRepo ? '解析ツール等はここに足し、タスクブランチでコミットして PR で反映します' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）')}
+      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', (inRepo ? '解析ツール等はここに足し、タスクブランチでコミットして PR で反映します' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）') + '。ここでは読むだけです。編集・試しに作るのは「作業空間で編集」（作業空間のコンテナの「イメージ（Dockerfile）」。保存はタスクブランチで）')}
       ${row('環境のイメージ', tag(r.environment))}
       ${row('コンテナのイメージ', tag(r.image), '環境に ECOBuild を重ねたもの（ECOBuild の版で変わります）')}
       ${state ? row('この作業空間のコンテナ', state) : ''}
@@ -577,6 +577,7 @@
       {name: 'name', label: '名前（英字で始まる英数字と _）', required: true, value: name || ''},
       {name: 'source', label: '元にするファイル（絶対パス、またはモジュールからの相対パス）', required: true}], '登録',
       v => ['template', 'add', v.name.trim(), v.source.trim()], {intro: 'ファイルの中の {{header}}・{{name}}・{{suite}}・{{project}} は、作るときに置き換わります。', success: 'テンプレートを登録しました。'}),
+    'container-edit': () => MOD.openImageEditor(here()),
     'container-open': () => ECO.action('folder', {dir: here(), path: '.ecobuild/container/Dockerfile', reveal: true}).catch(e => ECO.toast(e.message, 'bad')),
     'container-place': () => ECO.run(here(), ['module', 'upgrade'], {title: 'コンテナの環境をリポジトリに置く', confirm: '型のひな型を .ecobuild/container/Dockerfile に置き、モジュールを今の ECOBuild の仕様にそろえます（module upgrade。「ECOBuild の更新」としてコミットします。タスクブランチでなければ GitHub へ push もします）。古い ECOBuild のPCでは、このモジュールを開けなくなります。', success: 'コンテナの環境を置きました。'}).then(doc => doc && render()),
     'container-build': () => ECO.run(here(), ['container', 'image', 'build', '--workspace', here()], {busy: 'イメージを作っています（数分かかります）…', success: r => r.built.length ? `${r.built.length} 個のイメージを作りました。` : '今の作り方のイメージはあります。'}).then(doc => doc && render()),

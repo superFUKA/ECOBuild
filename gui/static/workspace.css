@@ -233,3 +233,12 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .container-button.on svg { color: #9ee4d3; }
 .build-bar #lock-button.on { border-color: #6b5a2c; background: #302a1a; color: #f0d98c; }
 .build-bar #lock-button.on svg { color: #f0d98c; }
+/* The image editor (コンテナの「イメージ（Dockerfile）」): the environment's Dockerfile, its image and ECOBuild's layer. */
+.eco-dialog.image-editor .ie-notes { margin: 8px 0; padding-left: 18px; font-size: 13px; color: #b4bec9; }
+.eco-dialog.image-editor .ie-notes li.ok { color: #9ee4d3; }
+.eco-dialog.image-editor .ie-notes li.warn { color: #efc389; }
+.eco-dialog.image-editor .ie-text { min-height: 300px; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; white-space: pre; tab-size: 4; resize: vertical; }
+.eco-dialog.image-editor .ie-text[readonly] { color: #a5aeba; background: #181b20; }
+.eco-dialog.image-editor .ie-reason:empty { display: none; }
+.eco-dialog.image-editor .ie-layer { margin-top: 12px; }
+.eco-dialog.image-editor .ie-layer summary { cursor: pointer; color: #b4bec9; font-size: 13px; }

@@ -66,9 +66,25 @@ def test_guide_asks_for_ecobuild_first(name):
 
 @pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
 def test_readme_is_modest(name):
-    """README は題名・説明・型ごとの最低限の使い方だけで、ECOBuild のことは最後の1行だけ。"""
+    """README は題名・説明・型ごとの最低限の使い方だけで、ECOBuild のこと（名前・設定・コマンド）は書かない。"""
     readme = _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name), "サンプルの説明")
     assert readme.startswith("# Sample\n\nサンプルの説明\n")
-    lines = readme.rstrip().splitlines()
-    assert "ECOBuild" not in "\n".join(lines[:-1]) and lines[-1].endswith("で管理しています。")
-    assert _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name)).startswith("# Sample\n\n")
+    assert "ECOBuild" not in readme and "ecobuild.toml" not in readme and "`ecobuild " not in readme
+    assert _docs.readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name)).startswith("# Sample\n")
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
+def test_ecobuild_readme_mentions_existing_commands(name):
+    """.ecobuild/README.md（ECOBuild から見たこのモジュール）が案内するコマンドは実在する。"""
+    text = _docs.ecobuild_readme(ModuleConfig(name="Sample", type=name), REGISTRY.load(name))
+    assert text.startswith("# ECOBuild（Sample）\n") and f"型：{name}" in text
+    missing = [m for m in _MENTION.findall(text) if not _exists(build_cli(name), m.split())]
+    assert missing == []
+
+
+def test_generic_commands_are_not_in_the_readme():
+    """generic の [commands] の書き方は、ルートの README ではなく .ecobuild/README.md と agent guide に出る。"""
+    config, generic = ModuleConfig(name="Sample", type="generic"), REGISTRY.load("generic")
+    assert "[commands]" not in _docs.readme(config, generic)
+    assert "[commands]" in _docs.ecobuild_readme(config, generic) and "[commands]" in _documents("generic")["agent guide"]
+    assert "[commands]" not in _docs.ecobuild_readme(ModuleConfig(name="Sample", type="cpp"), REGISTRY.load("cpp"))

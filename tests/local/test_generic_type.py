@@ -27,7 +27,10 @@ def test_generic_module(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     root = module.root
     assert sorted(p.name for p in root.iterdir() if p.name != ".git") == [".ecobuild", "README.md"]
-    assert sorted(p.name for p in (root / ".ecobuild").iterdir()) == [".gitattributes", ".gitignore", "container", "ecobuild.toml"]
+    assert sorted(p.name for p in (root / ".ecobuild").iterdir()) == [".gitattributes", ".gitignore", "README.md", "container",
+                                                                    "ecobuild.toml"]
+    assert "[commands]" in (root / ".ecobuild" / "README.md").read_text(encoding="utf-8")
+    assert "ECOBuild" not in (root / "README.md").read_text(encoding="utf-8")
     assert module.config.projects is None and module.project_names == ()
     assert code_of(lambda: Module.create("X", directory=tmp_path, type="generic", kind="app",
                                          github=FakeGitHub(tmp_path / "gh2"))) == ErrorCode.INVALID_ARGUMENT

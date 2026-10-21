@@ -60,7 +60,7 @@ class GenericType(ModuleType, Builds):
                             extra={TABLE: {operation: "" for operation in OPERATIONS}})
 
     @classmethod
-    def readme_usage(cls, config: ModuleConfig) -> str:
+    def ecobuild_usage(cls, config: ModuleConfig) -> str:
         return """## コマンド
 
 ビルド・テスト・実行は `.ecobuild/ecobuild.toml` の `[commands]` に書いたコマンドで行います（`{configuration}` に構成、

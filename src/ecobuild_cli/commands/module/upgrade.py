@@ -9,8 +9,9 @@ def command(
 ) -> int:
     """モジュールを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットします。
 
-    ecobuild.toml の format（仕様の版）を今の版にし、ECOBuild が作ったファイルを今の中身にします：.gitignore・.gitattributes（足りない行を足す）、AGENTS.md・
-    CIのワークフロー（あれば作り直す。手で編集したワークフローはそのまま）、型の生成ファイル。README は変えません。
+    ecobuild.toml の format（仕様の版）を今の版にし、ECOBuild が作ったファイルを今の中身にします：.gitignore・.gitattributes（足りない行を足す）、.ecobuild/README.md
+    （なければ置く）・AGENTS.md・CIのワークフロー（あれば作り直す。手で編集したワークフローはそのまま）、型の生成ファイル。
+    ルートの README は変えません。
     どのブランチでもできます。タスクブランチでなければ GitHub へ push もします（タスクブランチなら、いつもの Push・提出で）。
     未コミットの変更があるときは止まります（変更が混ざらないように）。
     """

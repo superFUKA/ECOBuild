@@ -87,7 +87,14 @@ class ModuleType:
 
     @classmethod
     def readme_usage(cls, config: "ModuleConfig") -> str:
-        """READMEの「ビルド」等、型ごとの最低限の使い方（Markdown、## の見出しから）。"""
+        """READMEの「ビルド」等、型ごとの最低限の使い方（Markdown、## の見出しから）。README はモジュールの中身が
+        主役なので、ECOBuild を使わない手順（型のツールの標準の使い方）だけを書く。"""
+        return ""
+
+    @classmethod
+    def ecobuild_usage(cls, config: "ModuleConfig") -> str:
+        """ECOBuild で使うときの型ごとの説明（Markdown、## の見出しから。例：generic の [commands]）。
+        .ecobuild/README.md と agent guide に入る。"""
         return ""
 
     @classmethod

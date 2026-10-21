@@ -190,6 +190,8 @@ class Module:
             if type_class.gitattributes():
                 (root / ".gitattributes").write_text(type_class.gitattributes(), encoding="utf-8", newline="\n")
             (root / "README.md").write_text(_docs.readme(module_config, type_class, description), encoding="utf-8", newline="\n")
+            (root / _docs.ECOBUILD_README).write_text(_docs.ecobuild_readme(module_config, type_class), encoding="utf-8",
+                                                      newline="\n")
             for path, text in cls.environment_files(type_class).items():
                 (root / path).parent.mkdir(parents=True, exist_ok=True)
                 (root / path).write_text(text, encoding="utf-8", newline="\n")
@@ -1168,7 +1170,8 @@ class Module:
         """モジュールを今の ECOBuild の仕様に合わせる（ecobuild.toml の format を今の版にする）。
 
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
-        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、AGENTS.md・CIのワークフロー（あれば作り直す。
+        .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
+        .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
@@ -1196,6 +1199,7 @@ class Module:
         for path, text in self.environment_files(type_class).items():   # なければ置く（あればモジュールのもの。変えない）
             if not (self.root / path).exists():
                 planned[path] = text
+        planned[_docs.ECOBUILD_README] = _docs.ecobuild_readme(self.config, type_class)   # ECOBuild の持ち物（なければ置く）
         if (self.root / "AGENTS.md").is_file():
             planned["AGENTS.md"] = _docs.agents(self.config, type_class)
         workflow_path = self.root / _docs.CI_WORKFLOW

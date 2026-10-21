@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .module_type import ModuleType
 
 CI_WORKFLOW = ".github/workflows/ecobuild.yml"
+ECOBUILD_README = ".ecobuild/README.md"
 _CI_STAMP = "# ecobuild-ci-init: "   # 作ったときの内容の印（手で編集したかを見分ける）
 
 
@@ -30,15 +31,40 @@ def _digest(text: str) -> str:
 
 def readme(config: ModuleConfig, module_type: "type[ModuleType]", description: str = "") -> str:
     """README：題名・説明（リポジトリの説明と同じ）・型ごとの最低限の使い方だけ。主役はモジュールの中身なので、
-    ECOBuild のことは最後に1行だけ書く。"""
+    ECOBuild のことは書かない（エージェント向けは AGENTS.md・agent guide に書く）。"""
     parts = [f"# {config.name}\n"]
     if description.strip():
         parts.append(description.strip() + "\n")
     usage = module_type.readme_usage(config)
     if usage:
         parts.append(usage)
-    parts.append("---\n\n[ECOBuild](https://github.com/superFUKA/ECOBuild) で管理しています。\n")
     return "\n".join(parts)
+
+
+def ecobuild_readme(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
+    """.ecobuild/README.md：ECOBuild から見たこのモジュール（型・設定の場所・使うコマンド・型ごとの注意）。
+    ルートの README に書かない ECOBuild のことはここに書く。ECOBuild の持ち物なので module upgrade で作り直す。"""
+    usage = module_type.ecobuild_usage(config)
+    usage = f"\n{usage.rstrip()}\n" if usage else ""
+    return f"""# ECOBuild（{config.name}）
+
+このフォルダは [ECOBuild](https://github.com/superFUKA/ECOBuild) の設定と、ECOBuild が使うファイルの置き場所です。
+モジュールの説明はルートの `README.md` にあります。
+
+- 型：{module_type.name}（{module_type.description}）
+- `ecobuild.toml`：モジュールの設定（型・ビルド設定・管理するファイル 等）。`ecobuild.local.toml` はこのPC用で、コミットしません。
+
+## ECOBuild で作業する
+
+- ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`、提出の前の確認は `ecobuild check`。
+- ファイルを変えるのはタスクブランチで（`ecobuild task start <番号>`）。コミット・提出は `ecobuild task commit`・`ecobuild task submit`。
+- コーディングエージェントは `ecobuild agent guide` の手順に従います（ルートの `AGENTS.md` がそこへ案内します）。
+- ECOBuild を更新したら `ecobuild module upgrade` で、このフォルダ・`AGENTS.md`・CI のワークフローを今の形にします。
+{usage}
+---
+
+このファイルは ECOBuild が作り、`ecobuild module upgrade` で作り直します（手で編集しても戻ります）。
+"""
 
 
 def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
@@ -75,6 +101,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
                  "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`（モジュール全体）・"
                  "`ecobuild template`（ファイルテンプレート）・`ecobuild profile`（ビルドのたびに選ぶもの）で見て変えます。\n"
                  if generated else "")
+    usage = module_type.ecobuild_usage(config)
+    usage = f"\n{usage.rstrip()}\n" if usage else ""
     return f"""# ECOBuild の使い方（{config.name}、型：{module_type.name}）
 
 このリポジトリは ECOBuild で管理しています。コーディングエージェントは、gitを直接使わず `ecobuild` コマンドを使ってください。機械で読む場合は各コマンドに `--json` を付けます（標準出力にJSONが1つ、終了コード 0＝成功、1＝失敗、2＝引数の誤り）。
@@ -87,7 +115,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`（提出の前の確認は `ecobuild check`）。型のツール
   （cmake・ninja・msbuild・pytest など）を直接使いません。ECOBuild がビルド設定・依存先・コンテナに合わせて動かします。
 {files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
-
+{usage}
 ## 作業の流れ
 
 1. `ecobuild task new "<題名>" --body "<内容>" --start --name "<タスクブランチの名前>"`（内容には目的と、**完了の条件**を確かめ方つきの箇条書き（`- [ ] …`）で書きます。提出の見直しの基準になります。既存のIssueなら `ecobuild task start <番号> --name "<名前>"`。名前は task/<番号>-<名前> のブランチになり、日本語も使えます。空白や ~ ^ : ? * [ ] \\ / " < > | は使えません。既にあるタスクブランチへ戻るときは --name は要りません）

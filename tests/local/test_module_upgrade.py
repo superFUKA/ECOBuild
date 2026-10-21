@@ -23,8 +23,9 @@ def test_old_module_is_upgraded(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     root, github = module.root, module.repository.github
     assert "FROM ubuntu" in (root / container.DOCKERFILE).read_text(encoding="utf-8")   # 作るときに環境のひな型を置く
-    # 以前の版のモジュール：版が1、.ecobuild/.gitignore の行が足りず（自分で足した行はある）、AGENTS.md が古い、コンテナの環境がない
+    # 以前の版のモジュール：版が1、.ecobuild/.gitignore の行が足りず（自分で足した行はある）、AGENTS.md が古い、コンテナの環境・.ecobuild/README.md がない
     (root / container.DOCKERFILE).unlink()
+    (root / ".ecobuild/README.md").unlink()
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "format": 1}))
     (root / ".ecobuild/.gitignore").write_text("logs/\nmine/\n", encoding="utf-8")
     (root / "AGENTS.md").write_text("古い\n", encoding="utf-8")
@@ -38,7 +39,8 @@ def test_old_module_is_upgraded(tmp_path):
     assert old.info().format == 1
 
     planned = old.upgrade(dry_run=True)
-    assert planned.dry_run and planned.paths == (".ecobuild/.gitignore", container.DOCKERFILE, ".ecobuild/ecobuild.toml", "AGENTS.md")
+    assert planned.dry_run and planned.paths == (".ecobuild/.gitignore", ".ecobuild/README.md", container.DOCKERFILE,
+                                         ".ecobuild/ecobuild.toml", "AGENTS.md")
     assert (root / "AGENTS.md").read_text(encoding="utf-8") == "古い\n"   # 何も変えない
     (root / "README.md").write_text("書きかけ\n", encoding="utf-8")
     assert code_of(old.upgrade) == ErrorCode.DIRTY_WORKING_TREE   # 人の変更と混ざらないように
@@ -54,7 +56,7 @@ def test_old_module_is_upgraded(tmp_path):
     assert set(planned.paths) <= set(done.paths)
     assert (root / ".ecobuild/.gitignore").read_text(encoding="utf-8") == "logs/\nmine/\necobuild.local.toml\n"
     assert "古い" not in (root / "AGENTS.md").read_text(encoding="utf-8")
-    assert (root / container.DOCKERFILE).is_file()
+    assert (root / container.DOCKERFILE).is_file() and (root / ".ecobuild/README.md").is_file()
     assert Module.find(root, github=github).config.format == config.FORMAT
     assert old.status().format == config.FORMAT
     again = old.upgrade()

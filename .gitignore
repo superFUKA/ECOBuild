@@ -9,3 +9,8 @@ __pycache__/
 
 # git worktree（並行作業用。各ブランチの作業場所）
 /.worktrees/
+.venv/
+*.py[cod]
+/build/
+/dist/
+.pytest_cache/

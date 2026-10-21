@@ -1,0 +1,10 @@
+# ECOBuildのモジュール設定。
+format = 3
+
+[module]
+name = "ECOBuild"
+type = "python"
+
+[branches]
+# task start の --base を省略したときの作成元
+default_base = "feature/mvp"

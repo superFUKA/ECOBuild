@@ -578,9 +578,9 @@ def slow_clone(monkeypatch, seconds):
     import ecowork.git
     real = ecowork.git.clone
 
-    def clone(url, destination):
+    def clone(url, destination, **options):
         time.sleep(seconds)
-        return real(url, destination)
+        return real(url, destination, **options)
     monkeypatch.setattr(ecowork.git, "clone", clone)
 
 

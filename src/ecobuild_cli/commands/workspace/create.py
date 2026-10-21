@@ -11,7 +11,7 @@ def command(
 ) -> int:
     """今いるモジュールの新しい作業空間（clone）を作り、依存先と生成ファイルを用意します（並行作業用）。
 
-    ブランチは既定のままです。タスクはそこで ecobuild task start で開始します。
+    ブランチは作成元（ecobuild.toml の default_base）です。タスクはそこで ecobuild task start で開始します。
     """
 
     def action(inv):

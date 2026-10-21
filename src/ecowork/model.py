@@ -302,6 +302,7 @@ class Branch:
     _repository: "Repository" = field(repr=False, compare=False)
     submission: "PullRequestState | None" = None   # 開いている提出（branch list で分かるとき）
     submitted_to: str | None = None               # その提出の取り込み先
+    unusable: str | None = None                   # 手元をこのブランチにできない理由（利用側が決める。Hooks.unusable）
 
     def submit(self, *, into: str, title: str | None = None, draft: bool = False) -> "PullRequest":
         return self._repository._submit_branch(self, into=into, title=title, draft=draft)

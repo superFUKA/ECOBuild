@@ -437,9 +437,10 @@
     const parentBranch = parent ? parentTask?.branch || `task/${parent}` + (parentTask && ECO.branchLabel(parentTask.title) ? '-' + ECO.branchLabel(parentTask.title) : '') : '';
     const base = parent ? parentBranch : d.remote && d.base ? d.base : defaults.default_base || '';
     // The base is chosen from the branches (ecobuild branch list, read from GitHub: added when it arrives): the plain
-    // ones first, then the other workspaces. Read afresh (not the cached list): a branch just made must be there. A
+    // ones first, then the other workspaces; not those that are no module (unusable). Read afresh (not the cached
+    // list): a branch just made must be there. A
     // child task's base is its parent's task branch, and a task branch on GitHub resumes from its recorded base: no choice.
-    const branchOptions = parent || d.remote ? null : ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch), ...branches.result.filter(b => b.is_task_branch && ECO.taskOfBranch(b.name) !== n)].map(b => {
+    const branchOptions = parent || d.remote ? null : ECO.cli(root(), ['branch', 'list'], {quiet: true}).then(branches => branches.ok ? [...branches.result.filter(b => !b.is_task_branch && !b.unusable), ...branches.result.filter(b => b.is_task_branch && !b.unusable && ECO.taskOfBranch(b.name) !== n)].map(b => {
       const task = b.is_task_branch ? byNumber(ECO.taskOfBranch(b.name)) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);

@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import os
+import shutil
+import stat
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -49,6 +52,11 @@ class Hooks:
 
     def before_submit(self, repository: "Repository") -> None:
         """タスクブランチの反映（submit）で、pushする前。止めるときは WorkError を投げる。"""
+
+    def unusable(self, repository: "Repository", refs: list[str]) -> dict[str, str]:
+        """手元をその内容にできないもの（ref → 理由）。refs はブランチ・コミット。タスクブランチを作る起点・切り替え先を
+        確かめ、ブランチの一覧に添える（例：ECOBuild ではモジュールでないブランチ）。既定はすべてできる。"""
+        return {}
 
 
 class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
@@ -260,10 +268,15 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
         remote = set(self.git.remote_branches())
         opened = {i.head: i for i in sorted(self.github.list_pull_requests(self.root, closed=False),
                                             key=lambda i: i.number)}
+        names = sorted(local | remote)
+        unusable = self.hooks.unusable(self, [f"{_git.REMOTE}/{n}" if n in remote else n for n in names])
         result = []
-        for name in sorted(local | remote):
+        for name in names:
             branch = self._branch(name, name in local, name in remote)
+            reason = unusable.get(f"{_git.REMOTE}/{name}" if name in remote else name)
             info = opened.get(name)
+            if reason is not None:
+                branch = replace(branch, unusable=reason)
             result.append(branch if info is None else replace(branch, submission=self._submission_state(info),
                                                               submitted_to=info.base))
         return result
@@ -295,7 +308,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
 
     def clone_to(self, directory: Path | str, *, open: Callable[[Path], "Repository"] | None = None,
                  account: str | None = None) -> "Repository":
-        """このリポジトリ（origin）を directory へもう1つcloneする（新しい作業空間。ブランチは既定のまま）。
+        """このリポジトリ（origin）を directory へもう1つcloneする（新しい作業空間。ブランチは作成元〔default_base〕）。
 
         open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
         省略するとフックなし。この Repository のフックは元のcloneに結び付いているため、clone先には渡さない。
@@ -342,11 +355,18 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
         return target, url
 
     def _clone_into(self, target: Path, url: str, open: Callable[[Path], "Repository"] | None) -> "Repository":
-        _hooks.install(_git.clone(url, target).hooks_directory())
-        if open is not None:
-            other = open(target)
-        else:
-            other = type(self)(target, github=self.github, default_base=self.default_base, command=self.command)
+        # 作成元（default_base）を取り出す：GitHub の既定のブランチ（main 等）が作成元とは限らない（module adopt は
+        # 今のブランチをモジュールにする）。この clone が作成元を知らなければ、GitHub の既定のまま。
+        branch = self.default_base if self.git.has_remote_branch(self.default_base) else None
+        _hooks.install(_git.clone(url, target, branch=branch).hooks_directory())
+        try:
+            if open is not None:
+                other = open(target)
+            else:
+                other = type(self)(target, github=self.github, default_base=self.default_base, command=self.command)
+        except Exception:
+            _remove_tree(target)   # 今cloneしたもの（開けなければ作りかけ。残すと同じ場所でやり直せない）
+            raise
         other.notices[:0] = self.notices
         return other
 
@@ -679,6 +699,13 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
             self.git.switch(previous)  # rebaseで移ったタスクブランチから、元のブランチへ戻る
         return True
 
+    def _check_usable(self, ref: str, name: str) -> None:
+        """手元を ref（ブランチ name）の内容にできなければ止める（Hooks.unusable）。"""
+        reason = self.hooks.unusable(self, [ref]).get(ref)
+        if reason is not None:
+            raise WorkError(ErrorCode.INVALID_BASE, f"{name} には切り替えられません（{reason}）。",
+                            hint="作成元には、使えるブランチ（branch list）を指定してください。")
+
     def _branch(self, name: str, local: bool, remote: bool) -> wm.Branch:
         is_task_branch = wm.is_task_branch(name)
         base = self.git.get_config(wm.base_key(name)) if is_task_branch else None
@@ -804,6 +831,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
             name = wm.check_branch_label(name)   # 作業を始める前に確かめる（既にあるタスクブランチなら使わない）
         branch = self._existing_task_branch(task.number)
         if branch is not None and self.git.has_local_branch(branch):
+            self._check_usable(branch, branch)
             # 既にあるタスクブランチへ戻る。別の場所でpushされた続きがあれば早送りで取り込む
             # （手元にだけのコミットもあって早送りできないときは、sync で取り込む）。
             self.git.switch(branch)
@@ -842,6 +870,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
             if remote:
                 start = f"{_git.REMOTE}/{branch}"
             base = base or self.default_base
+            self._check_usable(start, branch if remote else base)
             self.git.create_branch(branch, start, switch=False)
             if remote:
                 self.git.set_upstream(branch)
@@ -868,3 +897,11 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
 
 def _quiet(message: str) -> None:
     pass
+
+
+def _remove_tree(path: Path) -> None:
+    """gitの読み取り専用ファイル（Windows）も含めて削除する。"""
+    def retry(function, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        function(target)
+    shutil.rmtree(path, onerror=retry)

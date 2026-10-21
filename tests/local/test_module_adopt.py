@@ -80,6 +80,25 @@ def test_the_current_branch_becomes_the_base(plain):
     assert git(work, "ls-tree", "--name-only", "origin/main", ".ecobuild/") == ""   # main には置かない
 
 
+def test_new_workspaces_take_out_the_base(plain, tmp_path):
+    """GitHub の既定のブランチ（main）にモジュールがなくても、新しい作業空間は作成元（develop）を取り出す。"""
+    work, github = plain
+    git(work, "switch", "--quiet", "-c", "develop")
+    git(work, "push", "--quiet", "origin", "develop")
+    module, _ = Module.adopt(work, type="generic", github=github)
+    other, _ = module.create_workspace(tmp_path / "ws")
+    assert other.repository.git.current_branch() == "develop" and other.config.default_base == "develop"
+    task = module.repository.create_task("並行作業")
+    started = module.start_task_in(task.number, tmp_path / "ws-1")
+    assert started.repository.current_task_branch().base == "develop"
+    # モジュールでないブランチ（main）は一覧に印が付き、タスクブランチの作成元にはできない（移るとモジュールでなくなる）
+    branches = {b.name: b for b in module.repository.branches()}
+    assert branches["main"].unusable and branches["develop"].unusable is None
+    other_task = module.repository.create_task("main から")
+    assert code_of(lambda: module.repository.task(other_task.number).start(base="main", name="x")) == "invalid_base"
+    assert git(work, "branch", "--show-current").strip() == "develop" and module.repository.current_task_branch() is None
+
+
 def test_refused_when_it_would_mix_with_other_work(plain):
     work, github = plain
     (work / "README.md").write_text("書きかけ\n", encoding="utf-8")

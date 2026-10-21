@@ -94,6 +94,15 @@ class _TypeHooks(Hooks):
     def before_submit(self, repository: Repository) -> None:
         self._module._check_generated_files()
 
+    def unusable(self, repository: Repository, refs: list[str]) -> dict[str, str]:
+        # モジュールでないブランチ（ecobuild.toml がない。adopt する前・GitHub の既定のブランチ等）には移らない：
+        # 移るとこの clone がモジュールでなくなる。1回の git で全部を調べる。
+        if not refs:
+            return {}
+        lines = repository.git.run("cat-file", "--batch-check", input="".join(
+            f"{ref}:{_config.FILE_NAME}\n" for ref in refs)).stdout.splitlines()
+        return {ref: "ECOBuild のモジュールではありません" for ref, line in zip(refs, lines) if line.endswith(" missing")}
+
 
 class Module:
     """1つのモジュール（GitHubのリポジトリ）。
@@ -886,7 +895,7 @@ class Module:
                          account: str | None = None) -> tuple["Module", tuple[DependencyChange, ...]]:
         """新しい作業空間（このモジュールのclone）を directory に作り、依存先と生成ファイルを用意する。
 
-        ブランチは既定のまま。タスクはそこで開始する（タスクブランチを置く）。準備はclone先でだけ行う。
+        ブランチは作成元（default_base）。タスクはそこで開始する（タスクブランチを置く）。準備はclone先でだけ行う。
         account：新しい作業空間を、そのGitHubのアカウントとして動かす（AI 用のアカウント等）。
         """
         opened: list[Module] = []

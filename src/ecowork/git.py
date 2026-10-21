@@ -51,8 +51,9 @@ class StashEntry:
     message: str
 
 
-def clone(url: str, destination: Path) -> "Git":
-    _run(["git", "clone", "--quiet", url, str(destination)], cwd=None)
+def clone(url: str, destination: Path, *, branch: str | None = None) -> "Git":
+    """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。"""
+    _run(["git", "clone", "--quiet", *(["--branch", branch] if branch else []), url, str(destination)], cwd=None)
     return Git(destination)
 
 
@@ -64,8 +65,8 @@ class Git:
 
     # 基本 ----------------------------------------------------------------
 
-    def run(self, *args: str, check: bool = True) -> _process.Completed:
-        return _run(["git", "-c", "core.quotepath=false", *args], cwd=self.root, check=check)
+    def run(self, *args: str, check: bool = True, input: str | None = None) -> _process.Completed:
+        return _run(["git", "-c", "core.quotepath=false", *args], cwd=self.root, check=check, input=input)
 
     def hooks_directory(self) -> Path:
         return self.root / self.output("rev-parse", "--git-path", "hooks")
@@ -351,9 +352,9 @@ class Git:
         return [StashEntry(index, message) for index, message in enumerate(lines)]
 
 
-def _run(args: list[str], *, cwd: Path | None, check: bool = True) -> _process.Completed:
+def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | None = None) -> _process.Completed:
     try:
-        return _process.run(args, cwd=cwd, check=check, env=_ENV)
+        return _process.run(args, cwd=cwd, check=check, env=_ENV, input=input)
     except _process.ProcessFailed as failure:
         raise _git_error(failure.completed) from None
 

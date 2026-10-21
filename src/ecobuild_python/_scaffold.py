@@ -22,6 +22,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
+    "pytest-xdist>=3,<4",   # テストを並べて流す（ecobuild test・CI）
 ]
 
 [tool.hatch.build.targets.wheel]

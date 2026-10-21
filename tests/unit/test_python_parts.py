@@ -58,6 +58,7 @@ def test_populate(tmp_path, kind, files):
     assert data["project"]["name"] == "Calc" and ("scripts" in data["project"]) == (kind == "app")
     assert _python.script_name(tmp_path) == ("Calc" if kind == "app" else None)
     assert data["build-system"]["build-backend"] == "hatchling.build" and not _python.needs_init(tmp_path)
+    assert any(d.startswith("pytest-xdist") for d in data["project"]["optional-dependencies"]["dev"])   # テストを並べて流す
     assert (tmp_path / ".gitattributes").read_text(encoding="utf-8").startswith("* text=auto eol=lf\n")
 
 
@@ -152,7 +153,7 @@ def test_run_needs_a_script(tmp_path):
 def test_ci_workflow():
     base = ModuleConfig.for_new_module("Calc", "python")
     default = PythonType.ci_workflow(base)
-    assert "os: [ubuntu-latest]" in default and 'python: ["3.12"]' in default and "python -m pytest" in default
+    assert "os: [ubuntu-latest]" in default and 'python: ["3.12"]' in default and "python -m pytest -n auto" in default
     assert "name: Package" not in default and "run: ecobuild" not in default
     custom = PythonType.ci_workflow(
         ModuleConfig("Calc", None, "python", extra={"python": {"versions": ["3.11", "3.13"]}})

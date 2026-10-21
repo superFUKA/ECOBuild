@@ -24,7 +24,7 @@ from pathlib import Path
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
-from ecowork.git import Git as _Git
+from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git
 
 from . import _docs
 from . import ci_review as _ci_review
@@ -1335,6 +1335,8 @@ class Module:
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
         .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        この作業空間の git の設定も、clone するときと同じにする（改行コードの扱い〔ecowork の CLONE_CONFIG〕。コミットしない。
+        以前に clone した作業空間で、改行コードだけの差が出ないように）。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
         GitHub へ push もする。タスクブランチなら、いつもの Push・提出に乗る）。未コミットの変更があれば止める（混ざらないように）。
@@ -1351,8 +1353,12 @@ class Module:
         planned, skipped = self._ecobuild_files()
         if start != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
+        git_config = self._missing_git_config()
         if dry_run:
-            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True)
+            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True,
+                                  git_config=git_config)
+        for setting in git_config:
+            self.repository.git.set_config(*setting.split("=", 1))
         for path, text in planned.items():
             if path != _config.FILE_NAME:
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
@@ -1361,9 +1367,15 @@ class Module:
         self.type.refresh()
         changed = tuple(sorted((set(self._changed_paths()) - before) | set(planned)))
         if not changed:
-            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped))
+            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), git_config=git_config)
         commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
-        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed)
+        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed,
+                              git_config=git_config)
+
+    def _missing_git_config(self) -> tuple[str, ...]:
+        """clone するときの git の設定（CLONE_CONFIG）のうち、この作業空間の設定（--local）と違うもの。"""
+        git = self.repository.git
+        return tuple(s for s in _CLONE_CONFIG if git.get_config(s.split("=", 1)[0]) != s.split("=", 1)[1])
 
     def _ecobuild_files(self, *, rewrite: bool = True) -> tuple[dict[str, str], list[str]]:
         """ECOBuild が作るファイルのうち、今の中身と違うもの（場所 → 新しい中身）と、手で編集してあるため作り直さないもの。
@@ -1532,6 +1544,12 @@ class Module:
             if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
                 items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
                                                          + ", ".join(excluded)))
+            eol = git.eol_only("HEAD") if git.rev_parse("HEAD") else ()
+            if eol:   # 知らせるだけ（task commit は自動で含めない。中身は変わっていない）
+                items.append(CheckItem("eol_only", True, f"{len(eol)} 個は改行コード（CRLF と LF）だけが違います"
+                                                         f"（task commit は含めません。git の改行の設定は "
+                                                         f"{self.op('module upgrade')} で clone と同じにできます）："
+                                                         + ", ".join(eol)))
             mismatches = self.dependency_mismatches()
             if mismatches:
                 items.append(CheckItem("dependencies", allow_dependency_mismatch,
@@ -1686,7 +1704,7 @@ SUBMIT_CHECK_SECTION = "check"   # 確認の結果
 NO_CHECK_NOTE = "（--no-check）"   # 確認の節の、check を行わずに提出した印（submitted_check が読む）
 NO_CHECKS_SET_NOTE = "（確認の設定なし）"   # 提出の確認（[check] submit）が空なので確かめなかった印
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
-               "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
+               "eol_only": "改行コードだけの差", "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
 
 

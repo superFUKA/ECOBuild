@@ -63,6 +63,22 @@ def test_old_module_is_upgraded(tmp_path):
     assert again.paths == () and again.commit is None   # 今の版なら変えるものはない（コミットもしない）
 
 
+def test_upgrade_sets_line_endings_like_clone(tmp_path):
+    """以前に clone した作業空間の git の改行の設定を、clone するときと同じ（core.autocrlf=input）にする。コミットしない。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    root = module.root
+    git(root, "config", "--local", "core.autocrlf", "true")
+    planned = module.upgrade(dry_run=True)
+    assert planned.git_config == ("core.autocrlf=input",)
+    assert git(root, "config", "--local", "--get", "core.autocrlf").strip() == "true"   # dry_run は変えない
+    head = git(root, "rev-parse", "HEAD").strip()
+    done = module.upgrade()
+    assert done.git_config == ("core.autocrlf=input",) and done.commit is None
+    assert git(root, "config", "--local", "--get", "core.autocrlf").strip() == "input"
+    assert git(root, "rev-parse", "HEAD").strip() == head
+    assert module.upgrade().git_config == ()
+
+
 def test_hand_edited_workflow_is_kept(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     module.repository.create_task("CI").start()

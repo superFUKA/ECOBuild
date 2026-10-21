@@ -84,6 +84,8 @@ class ModuleUpgraded:
     commit: str | None = None        # 変えたファイルをコミットしたもの（「ECOBuild の更新」。変えたものがなければ None）
     branch: str | None = None        # コミットしたブランチ
     pushed: bool = False             # GitHub へ push したか（タスクブランチでないとき）
+    git_config: tuple[str, ...] = ()   # この作業空間の git に書いた設定（「core.autocrlf=input」の形。dry_run なら書くもの。
+                                       # コミットしない）
 
 
 @dataclass(frozen=True)

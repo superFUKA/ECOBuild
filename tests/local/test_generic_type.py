@@ -114,6 +114,20 @@ def test_check_is_reused_while_unchanged(tmp_path):
 
 
 
+def test_check_warns_eol_only_changes(tmp_path):
+    """改行コードだけが違うファイルは、check の項目として知らせる（失敗にはしない）。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    module.repository.git.set_config("core.autocrlf", "false")
+    readme = module.root / "README.md"
+    data = readme.read_bytes()
+    readme.write_bytes(data.replace(b"\n", b"\r\n") if b"\r\n" not in data else data.replace(b"\r\n", b"\n"))
+    report = module.check(build=False)
+    item = next(i for i in report.items if i.name == "eol_only")
+    assert report.ok and item.ok and "README.md" in item.detail and "改行コード" in item.detail
+    readme.write_bytes(data)
+    assert not any(i.name == "eol_only" for i in module.check(build=False).items)
+
+
 def test_submit_writes_check_evidence(tmp_path):
     """提出の本文に、確認（check）がどの版で通ったかと項目を書く。出し直すと今の版のものに、確かめなければそう書く。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))

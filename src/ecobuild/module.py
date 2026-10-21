@@ -668,13 +668,15 @@ class Module:
 
     def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
                reviewers: tuple[str, ...] = (), check: bool = True, note: str | None = None,
-               progress: Callable[[str], None] | None = None) -> wm.PullRequest:
+               verified_by: tuple[str, ...] = (), progress: Callable[[str], None] | None = None) -> wm.PullRequest:
         """タスクブランチを提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。
 
         未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。
         提出の本文に、確認の結果（どの版で何が通ったか。出し直しのたびに今の版のものへ）と、note（提出の説明。
-        None なら提出済みの説明のまま）を書く。progress：経過（check の各項目等）を知らせる口。
+        None なら提出済みの説明のまま）を書く。verified_by：提出した人が自分で確かめたこと（「<コマンド>=<結果>」。
+        check を行わずに出すときの証拠。確認の節に並べる）。progress：経過（check の各項目等）を知らせる口。
         """
+        verified = _verified_items(verified_by)
         task_branch = self.require_task_branch("提出")
         self._refuse_uncommitted("提出")
         mismatches = self.dependency_mismatches()
@@ -702,26 +704,33 @@ class Module:
                 for item in items:
                     (progress or _quiet)(_check_line(item))
         checked_at = (self._last_check() or saved or {}).get("at")   # 今通したなら記録は新しい
-        sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at)}
+        sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at, verified)}
         if note is not None:
             sections = {SUBMIT_NOTE_SECTION: note, **sections}
         return task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers, sections=sections)
 
-    def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None) -> str:
-        """提出の本文の「確認」の節：今の版（HEAD）で通った check の項目と、いつ確かめたか。確かめていなければ、そう書く。"""
+    def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None,
+                       verified: tuple[tuple[str, str], ...] = ()) -> str:
+        """提出の本文の「確認」の節：今の版（HEAD）で通った check の項目と、いつ確かめたか。確かめていなければ、そう書く。
+
+        verified（提出した人が自分で確かめたこと。(コマンド, 結果)）があれば、その後に並べる（ECOBuild は確かめていない）。
+        """
         head = (self.repository.git.rev_parse("HEAD") or "")[:7]
         title = "### 確認（ECOBuild）"
+        own = (["", "提出した人が確かめたこと（ECOBuild は確かめていません）：", "",
+                *(f"- `{command}`：{result}" for command, result in verified)] if verified else [])
         if items is None:
-            return (f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・テスト）を"
-                    f"行わずに提出しました{NO_CHECK_NOTE}。")
+            return "\n".join([f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・"
+                              f"テスト）を行わずに提出しました{NO_CHECK_NOTE}。", *own])
         if not items:
-            return f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました{NO_CHECKS_SET_NOTE}。"
+            return "\n".join([f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました"
+                              f"{NO_CHECKS_SET_NOTE}。", *own])
         profile = _config.load_local(self.root).get("profile")
         when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
         where = f"版 `{head}`" + (f"、ビルド設定 {profile}" if profile else "") + f"、{when}"
         lines = [f"- {_check_line(item)}" for item in items]   # 以前の記録（版だけ）なら項目はない
         return "\n".join([title, "", f"提出した人の手元で `{self.op('check')}` が通りました（{where}）。",
-                          *([""] + lines if lines else [])])
+                          *([""] + lines if lines else []), *own])
 
     def finish(self, number: int | None = None, *, close_workspace: bool = False, **options) -> wm.FinishResult:
         """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。
@@ -1689,6 +1698,19 @@ def submitted_check(body: str) -> tuple[bool | None, str | None]:
         return None, None
     version = re.search(r"`([0-9a-f]{7,40})`", text)
     return NO_CHECK_NOTE not in text, version.group(1) if version else None
+
+
+def _verified_items(values: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """提出の --verified-by（「<コマンド>=<結果>」）を (コマンド, 結果) に分ける。= がない・どちらかが空なら誤り。"""
+    items = []
+    for value in values:
+        command, sep, result = value.partition("=")
+        if not sep or not command.strip() or not result.strip():
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"確かめたことは「<コマンド>=<結果>」の形で書きます：{value}",
+                                hint='例：--verified-by "pytest tests/unit=成功 12"')
+        items.append((command.strip(), result.strip()))
+    return tuple(items)
 
 
 def mismatch_text(states) -> str:

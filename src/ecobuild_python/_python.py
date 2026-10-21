@@ -66,6 +66,12 @@ def scripts_directory(root: Path) -> Path:
     return root / VENV / ("Scripts" if os.name == "nt" else "bin")
 
 
+def parallel_tests(root: Path) -> bool:
+    """.venv に pytest-xdist が入っているか（入っていれば、テストを CPU の数だけ並べて流す）。"""
+    patterns = ("Lib/site-packages/xdist",) if os.name == "nt" else ("lib/python*/site-packages/xdist",)
+    return any(path.is_dir() for pattern in patterns for path in (root / VENV).glob(pattern))
+
+
 def base_python(configured: str | None) -> str:
     """.venv を作る Python（ecobuild config set python で設定したものか、ECOBuild と同じ Python）。"""
     return configured or sys.executable
@@ -117,7 +123,9 @@ def run_tests(root: Path, python: Path, tests: tuple[str, ...] = ()) -> list[Tes
     """pytest を実行して、テストごとの結果を返す（tests：流すものを絞る。空なら全部）。失敗があれば TEST_FAILED。0件なら空。"""
     with tempfile.TemporaryDirectory(prefix="eb") as directory:
         report = Path(directory) / "junit.xml"
-        args = [str(python), "-m", "pytest", f"--junitxml={report}", *tests]
+        # 全部を流すときは、pytest-xdist があれば並べる（順に流すと数十分かかる。絞ったときは起動の手間のほうが大きい）
+        spread = ["-n", "auto"] if not tests and parallel_tests(root) else []
+        args = [str(python), "-m", "pytest", f"--junitxml={report}", *spread, *tests]
         completed = execute(args, root)
         cases = read_junit(report) if report.is_file() else []
     if completed.returncode not in (0, NO_TESTS):

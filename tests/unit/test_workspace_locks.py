@@ -116,3 +116,16 @@ def test_plain_unlock_does_not_release_automatic_locks(root):
         locks.lock(root)
         locks.unlock(root)
         assert [r.kind for r in locks.status(root).reasons] == ["command"]
+
+
+def test_a_git_worktree_excludes_the_lock_files(tmp_path):
+    """git worktree の作業空間（.git がファイル）でも、ロックのファイルは除外に入り、新しいファイルとして出ない。"""
+    from helpers import git
+    main = tmp_path / "main"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(main))
+    (main / "README.md").write_text("x\n", encoding="utf-8")
+    git(main, "add", "README.md")
+    git(main, "commit", "--quiet", "-m", "init")
+    git(main, "worktree", "add", "--quiet", str(tmp_path / "other"))
+    locks.lock(tmp_path / "other", "作業中")
+    assert git(tmp_path / "other", "status", "--porcelain", "--untracked-files=all").strip() == ""

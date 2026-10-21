@@ -167,3 +167,15 @@ def test_clean_keeps_the_venv(tmp_path):
         (tmp_path / name).mkdir(parents=True)
     _python.clean(tmp_path)
     assert [n for n in ("dist", "build", "src/calc.egg-info", ".venv") if (tmp_path / n).exists()] == [".venv"]
+
+
+def test_all_tests_run_in_parallel_with_xdist(tmp_path, monkeypatch):
+    """テスト全部を流すときは、.venv に pytest-xdist があれば並べる（-n auto）。絞ったとき・ないときは並べない。"""
+    ran = []
+    monkeypatch.setattr(_python, "execute", lambda args, root: ran.append(args) or type("C", (), {"returncode": 5})())
+    _python.run_tests(tmp_path, Path("python"))
+    site = tmp_path / ".venv" / ("Lib/site-packages" if _python.os.name == "nt" else "lib/python3.12/site-packages")
+    (site / "xdist").mkdir(parents=True)
+    _python.run_tests(tmp_path, Path("python"))
+    _python.run_tests(tmp_path, Path("python"), ("tests/test_a.py",))
+    assert ["-n" in args for args in ran] == [False, True, False]

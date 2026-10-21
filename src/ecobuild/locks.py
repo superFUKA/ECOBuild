@@ -110,7 +110,7 @@ def _write(root: Path, data: dict) -> None:
 
 def _exclude(root: Path) -> None:
     """lock.json・lock.lock を git の除外（.git/info/exclude）に足す（まだなければ）。"""
-    exclude = Path(root) / ".git" / "info" / "exclude"
+    exclude = _git_common_directory(Path(root)) / "info" / "exclude"
     if not exclude.parent.is_dir():
         return
     wanted = [f"/{FILE_NAME}", f"/{LOCK_NAME}"]
@@ -122,6 +122,25 @@ def _exclude(root: Path) -> None:
                                encoding="utf-8", newline="\n")
     except OSError:
         pass
+
+
+def _git_common_directory(root: Path) -> Path:
+    """root の git の置き場所（info/exclude がある所）。git worktree・サブモジュールでは .git がファイル（gitdir: …）で、
+    除外は本体の置き場所（commondir）にある。git を呼ばずにファイルから読む（ロックは頻繁に読むので軽く）。"""
+    dot = root / ".git"
+    if not dot.is_file():
+        return dot
+    try:
+        text = dot.read_text(encoding="utf-8").strip()
+        directory = Path(text.removeprefix("gitdir:").strip())
+        directory = directory if directory.is_absolute() else root / directory
+        common = directory / "commondir"
+        if common.is_file():
+            shared = Path(common.read_text(encoding="utf-8").strip())
+            return shared if shared.is_absolute() else directory / shared
+        return directory
+    except OSError:
+        return dot
 
 
 def _live_commands(data: dict) -> list[dict]:

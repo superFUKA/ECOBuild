@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
+    "pytest-xdist>=3,<4",   # ecobuild test・check は、これがあればテストを並べて流す
 ]
 
 [project.scripts]

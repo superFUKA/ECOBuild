@@ -90,6 +90,14 @@ def test_refused_when_it_would_mix_with_other_work(plain):
     assert not (work / ".ecobuild").exists()
 
 
+def test_only_the_owner_can_adopt(plain):
+    work, github = plain
+    github.role = "write"   # ほかの人のリポジトリ（共同作業者）
+    assert code_of(lambda: Module.adopt(work, type="generic", github=github)) == ErrorCode.PERMISSION_DENIED
+    assert code_of(lambda: Module.adopt(work, type="generic", dry_run=True, github=github)) == ErrorCode.PERMISSION_DENIED
+    assert not (work / ".ecobuild").exists()
+
+
 def test_outside_a_git_repository(tmp_path):
     assert code_of(lambda: Module.adopt(tmp_path, github=FakeGitHub(tmp_path / "gh"))) == ErrorCode.REPOSITORY_NOT_FOUND
 

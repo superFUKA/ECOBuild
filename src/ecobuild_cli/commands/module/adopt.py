@@ -14,6 +14,7 @@ def command(
     今のブランチに .ecobuild/（ecobuild.toml 等）と型が要るものを置き、.gitignore・.gitattributes には足りない行を足して、
     「ECOBuild のモジュールにする」としてコミットし、GitHub へ push します。今のブランチがタスクブランチの作成元になります。
     名前は GitHub のリポジトリ名です。README・AGENTS.md 等、元からあるファイルは変えません。
+    できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主だけ）。
     未コミットの変更があるとき・GitHub に遅れているときは止まります。新しく作るなら ecobuild module new。
     """
 

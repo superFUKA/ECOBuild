@@ -254,7 +254,9 @@ class Module:
         今のブランチに .ecobuild/（ecobuild.toml 等）・拡張が置くファイル・型が要るもの（adopt）を置き、.gitignore・
         .gitattributes には足りない行を足して、「ECOBuild のモジュールにする」として1回コミットし、GitHub へ push する。
         今のブランチがタスクブランチの作成元（default_base）になる。名前は GitHub のリポジトリ名。README・AGENTS.md 等、
-        元からあるファイルは変えない。未コミットの変更・GitHub に遅れている・GitHub にないブランチのときは止める。
+        元からあるファイルは変えない。できるのはリポジトリの管理者（admin）だけ（個人のリポジトリなら持ち主だけ。GitHub には
+        リポジトリを作った人の記録がないので、組織のリポジトリでは管理者を作った人とみなす）。
+        未コミットの変更・GitHub に遅れている・GitHub にないブランチのときは止める。
         type：モジュールの型（省略時は registry の既定の型）。dry_run：置くファイルを返すだけ（型が置くものは含まない）。
         """
         start = Path(path)
@@ -276,6 +278,7 @@ class Module:
         registry = registry or cls.registry
         type_class = registry.load(type, command=cls.command)
         repository = Repository(root, github=github, command=cls.command)
+        repository.require_admin("ECOBuild のモジュールにすること")   # 個人のリポジトリなら持ち主だけ（ほかの人のものはできない）
         repository.check_own_commit("モジュールにすること")
         branch = repository.git.current_branch() or ""
         if not repository.git.has_remote_branch(branch):

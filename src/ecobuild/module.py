@@ -1437,7 +1437,12 @@ class Module:
 
     def agent_guide(self) -> AgentGuide:
         """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（タスクブランチでなくても読める）。"""
-        return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
+        return AgentGuide(_docs.agent_guide(self.config, type(self.type), member=self.assigned_by_lead()))
+
+    def assigned_by_lead(self) -> bool:
+        """この作業空間が、上の役に任されたものか（タスク・作業空間は上の役が作り、取り込み・完了・閉じるのも上の役。
+        agent guide がその手順を出さない）。本体は知らない：エージェントの拡張等が決める。"""
+        return False
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。

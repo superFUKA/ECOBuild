@@ -97,8 +97,16 @@ if kind == "lead-edit":   # 進行役が書けるのは area（.ecobuild/ai）�
                                          "コード・文書の変更は作業役に任せてください（agent team start・send）。"}})
 elif kind == "replied":
     message = data.get("last_assistant_message")
-    write("replied.json", {"at": time.time(), "message": message if isinstance(message, str) else None})
-    if deliver and (texts := take_all(session)):   # 届いたものがあれば、返答を終えずに続けて読ませる
+    texts = take_all(session) if deliver else []   # 届いたものがあれば、返答を終えずに続けて読ませる
+    now = time.time()
+    entry = {"at": now, "message": message if isinstance(message, str) else None, **({"continued": len(texts)} if texts else {})}
+    try:   # 返答の終わりの記録（追記：続けて2回終わっても数え落とさない）
+        with open(os.path.join(here, "replied.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": now, **({"continued": len(texts)} if texts else {})}) + "\n")
+    except OSError:
+        pass
+    write("replied.json", entry)
+    if texts:
         write("prompted.json", {"at": time.time()})
         out({"decision": "block", "reason": "ECOBuild から届きました：\n\n" + "\n\n".join(texts)})
 elif kind == "midturn":   # 道具を使い終えるたび（PostToolUse）：作業中でも、届いたものを返答を止めずに添える
@@ -181,20 +189,87 @@ def _write(file: Path, value) -> None:
     os.replace(temporary, file)
 
 
+REPLIES = "replied.jsonl"   # 置き場所の中：返答の終わりの記録（1回1行の追記。replied.json は最後の1回だけ）
+NOTICE = "notice"           # 受け箱のものの種類：作業役の返答の終わりの知らせ（同じ作業役の古いものは新しいものにまとめる）
 _last_put = 0
 
 
-def put(folder: Path, text: str, sender: str = "", owner: str = "") -> Path:
+def put(folder: Path, text: str, sender: str = "", owner: str = "", kind: str = "") -> Path:
     """エージェント（置き場所 folder）の受け箱に入れる。届けるのはエージェントを動かしている側（GUI の窓等）：
     待機中で入力欄が空のときに、古いものから1つずつ入力欄に送る。
-    owner：宛先の会話の ID（同じ作業空間に会話が複数あるとき、その会話にだけ届ける。空なら誰にでも）。"""
+    owner：宛先の会話の ID（同じ作業空間に会話が複数あるとき、その会話にだけ届ける。空なら誰にでも）。
+    kind：種類（NOTICE 等。forget_from で選んで出す）。"""
     global _last_put
     inbox = Path(folder) / INBOX
     inbox.mkdir(parents=True, exist_ok=True)
     _last_put = max(time.time_ns(), _last_put + 1)   # 続けて入れたものの順を保つ（Windows の時計は刻みが粗い）
     file = inbox / f"{_last_put:020d}-{uuid.uuid4().hex[:8]}.json"
-    _write(file, {"at": time.time(), "from": sender, "text": text, **({"owner": owner} if owner else {})})
+    _write(file, {"at": time.time(), "from": sender, "text": text, **({"owner": owner} if owner else {}),
+                  **({"kind": kind} if kind else {})})
     return file
+
+
+def forget_from(folder: Path, sender: str, kind: str = "", *, remove: bool = True) -> int:
+    """受け箱の、sender から入れたまだ届いていないもの（kind を渡せばその種類だけ）を出す。出した数（remove=False なら
+    出さずに数えるだけ）。"""
+    inbox = Path(folder) / INBOX
+    count = 0
+    for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
+        data = read(file)
+        if not isinstance(data, dict) or data.get("from") != sender or (kind and data.get("kind") != kind):
+            continue
+        if not remove:
+            count += 1
+            continue
+        try:
+            file.unlink()
+            count += 1
+        except OSError:
+            pass
+    return count
+
+
+def replies(folder: Path) -> int:
+    """置き場所のエージェントが返答を終えた回数（REPLIES の行の数。言付けを受け取って続けたものも数える）。"""
+    try:
+        return len((Path(folder) / REPLIES).read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return 0
+
+
+def write_reply(folder: Path, message: str, continued: int = 0) -> None:
+    """返答の終わりを書く（replied.json と、追記の REPLIES）。continued：受け取って続けた言付けの数（返答を終えていない）。"""
+    now = time.time()
+    extra = {"continued": continued} if continued else {}
+    try:
+        with open(Path(folder) / REPLIES, "a", encoding="utf-8") as file:
+            file.write(json.dumps({"at": now, **extra}) + "\n")
+    except OSError:
+        pass
+    _write(Path(folder) / "replied.json", {"at": now, "message": message, **extra})
+
+
+def item_id(file: Path) -> str:
+    """受け箱に入れたもの（put の結果）の番号：ファイル名の後ろの印（8文字）。"""
+    return Path(file).stem.rsplit("-", 1)[-1]
+
+
+def waiting_ids(folder: Path) -> set[str]:
+    """受け箱にあって、まだ届いていないものの番号。"""
+    inbox = Path(folder) / INBOX
+    return {item_id(file) for file in inbox.glob("*.json")} if inbox.is_dir() else set()
+
+
+def withdraw(folder: Path, key: str) -> bool:
+    """受け箱の、まだ届いていない番号 key のものを出す（取り消し）。出せたか（届いた後・ほかが取った後なら False）。"""
+    inbox = Path(folder) / INBOX
+    for file in inbox.glob(f"*-{key}.json") if inbox.is_dir() and key else ():
+        try:
+            file.unlink()
+            return True
+        except OSError:
+            return False
+    return False
 
 
 def take(folder: Path, session: str = "") -> dict | None:

@@ -296,7 +296,8 @@ class Agent:
             message += f"\n（エラーで返答を終えました：{error}）"
         if denials:
             message += f"\n（断られた権限が {len(denials)} 件あります）"
-        status._write(self.folder / "replied.json", {"at": now, "message": message})
+        queued = event.get("queued_turn_count") if isinstance(event.get("queued_turn_count"), int) else 0
+        status.write_reply(self.folder, message, continued=queued)   # 入れた言付けが残っていれば、続けている
 
     def _end(self) -> None:
         """プロセスが終わった。止めたのでなければ、進行役に知らせる（返答の終わりとして）。"""
@@ -311,7 +312,7 @@ class Agent:
                        f"{f'：終了コード {code}' if code is not None else ''}。"
                        "agent team restart で起動し直せます）" + (f"\n{detail}" if detail else ""))
             self.state["error"] = message
-            status._write(self.folder / "replied.json", {"at": time.time(), "message": message})
+            status.write_reply(self.folder, message)
         self._save()   # running.json は残す（mode app のまま、プロセスが終わっているので「止まっている」）
 
     def _save(self) -> None:

@@ -24,12 +24,12 @@ def command(name: Annotated[str, "作業役の名前（か子タスクの番号�
 
     def _restart(inv):
         plan = _team.restart_plan(inv.module.root, name, resume=resume)
-        if no_open:
-            return plan
         pid = _status.running_pid(_team.inbox_of(plan.path))
-        if pid is not None:
+        if pid is not None:   # --no-open でも止める（help のとおり。係は頼みの前に止めているので、ここでは何もしない）
             inv.info(f"「{plan.name}」のエージェントを止めています…")
             _status.stop(pid)
+        if no_open:
+            return plan
         from ...._module import Module
         options = {"source": source(), "progress": inv.info, "role": plan.role, "prompt": plan.prompt}
         module = Module.find(plan.path)

@@ -200,7 +200,7 @@ def test_the_notice_puts_cautions_first(lead):
     commit(worker, "src/ui/login.py")
     (member.path / team.REPORT_FILE).write_text("できた\n", encoding="utf-8")
     first, facts = notice_of(member, "作りました。\n\n状態：完了")
-    assert first.endswith("「画面」の返答が終わりました。注意：完了と言っていますが、提出がありません／"
+    assert first.startswith("[ECOBuild] 作業役「画面」（子タスク #") and first.endswith("の返答が終わりました。注意：完了と言っていますが、提出がありません／"
                           "push していないコミットが 1 件あります")
     assert facts.startswith("状態：完了。報告：") and "提出：なし" in facts and "変えたファイル 1。" in facts
 
@@ -406,7 +406,7 @@ def test_the_manager_is_the_only_one_under_the_lead_and_makes_the_workers(lead):
     assert up["text"].startswith("[管理役「管理」から]") and up["text"].endswith("取り込みました")
     assert agent_status.take(team.inbox_of(top)) is None                                  # 作業役の知らせは進行役の受け箱に入らない
     where, text = team.lead_notice(manager.path, "終わりました\n状態：完了")               # 管理役の返答の終わり → 進行役
-    assert where == top and text.startswith("[ECOBUILD]".replace("ECOBUILD", "ECOBuild") + " 管理役「管理」の返答が終わりました")
+    assert where == top and text.startswith("[ECOBUILD]".replace("ECOBUILD", "ECOBuild") + " 管理役「管理」（子タスク #") and "の返答が終わりました" in text
 
 
 def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):

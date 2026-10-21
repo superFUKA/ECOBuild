@@ -25,7 +25,7 @@ def command(name: Annotated[str, "名前（子タスクの題名・タスクブ�
     def action(inv):
         if brief_file and brief:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--brief と --brief-file は一緒に使えません。")
-        text = Path(brief_file).read_text(encoding="utf-8") if brief_file else brief
+        text = Path(brief_file).read_text(encoding="utf-8-sig") if brief_file else brief   # メモ帳等の BOM を brief・Issue に入れない
         args = ["agent", "team", "start", name, "--brief", text, *(["--manager"] if manager else []),
                 *(["--model", model] if model else []), "--no-open"]
         return _forward.run(inv, args, lambda inv: _create(inv, text))

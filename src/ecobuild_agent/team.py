@@ -120,6 +120,7 @@ class Member:
     error: str = ""             # 止めていないのに終わった（アプリ用。終了コード・標準エラーの末尾）
     app: bool = False           # 係がアプリ用で起動した（team start・restart の結果）
     note: str = ""              # 起動できなかったわけ等
+    message_id: str = ""        # 送った言付けの番号（send の結果だけ）
 
 
 @dataclass(frozen=True)
@@ -250,6 +251,9 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "管理役はもういます（進行役の下に1人だけです）。",
                             hint="仕事の追加は、その管理役へ agent team send で命令してください（agent team list で名前が分かります）。")
     label = _work.check_branch_label(name)
+    if name.isdigit():   # 番号だけの名前は、別の人の子タスクの番号と取り違える（send・close 等は番号でも探す）
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"名前「{name}」は番号だけです。",
+                            hint="子タスクの番号と取り違えないよう、文字を入れた名前にしてください。")
     if not brief.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "任せる仕事（--brief）が空です。",
                             hint="目的・返してほしいもの・使ってよい道具・範囲（やらないこと）を書いてください。")
@@ -483,10 +487,16 @@ def _duration(seconds: float) -> str:
 
 
 def find(root: Path, name: str, owner: str | None = None) -> Member:
-    """チームの1人を名前（か番号・フォルダー名）で探す。owner：会話の ID（その会話が作った分だけから）。"""
-    for member in team(root, owner).members:
-        if name in (member.name, str(member.task), member.path.name):
-            return member
+    """チームの1人を名前（か番号・フォルダー名）で探す。owner：会話の ID（その会話が作った分だけから）。
+    2人以上に合えば（ある人の名前が別の人の番号 等）、取り違えないよう候補を出して止める。"""
+    found = [member for member in team(root, owner).members if name in (member.name, str(member.task), member.path.name)]
+    if len(found) == 1:
+        return found[0]
+    if found:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"「{name}」に合う人が {len(found)} 人います。",
+                            hint="フォルダー名（<番号>-<名前>）で指してください。",
+                            details=[f"{ROLE_NAMES.get(m.role, '作業役')}「{m.name}」 #{m.task}  {TEAM_AREA}/{m.path.name}"
+                                     for m in found])
     raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"チームに「{name}」はいません。",
                         hint="ecobuild agent team list で一覧を見られます。")
 
@@ -673,7 +683,8 @@ def inbox_of(root: Path) -> Path:
 
 
 def send(root: Path, name: str, text: str) -> Member:
-    """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。"""
+    """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。結果の message_id は
+    言付けの番号（取り消し・置き換え。team list の messages）。"""
     if not text.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "伝えることが空です。")
     info = member_info(root)
@@ -681,13 +692,66 @@ def send(root: Path, name: str, text: str) -> Member:
     mine_team = team(root, owner_session()).members
     if name in UP_NAMES and info.get("lead") and not any(name in (m.name, m.path.name) for m in mine_team):
         up = Path(info["lead"])   # 上の役（作った進行役）へ：管理役の要約・質問。作った会話にだけ届ける
-        agent_status.put(inbox_of(up), f"[{ROLE_NAMES.get(info.get('role'), '管理役')}「{sender}」から] {text}",
-                         sender=str(Path(root)), owner=notice_owner(root))
-        return Member(up.name, LEAD, up, 0)
+        file = agent_status.put(inbox_of(up), f"[{ROLE_NAMES.get(info.get('role'), '管理役')}「{sender}」から] {text}",
+                                sender=str(Path(root)), owner=notice_owner(root))
+        return Member(up.name, LEAD, up, 0, message_id=agent_status.item_id(file))
     member = find(root, name, owner_session())
     mine = ROLE_NAMES.get(info.get("role") or LEAD, "進行役")
-    agent_status.put(inbox_of(member.path), f"[{mine}「{sender}」から] {text}", sender=str(Path(root)))
-    return member
+    folder = inbox_of(member.path)
+    file = agent_status.put(folder, f"[{mine}「{sender}」から] {text}", sender=str(Path(root)))
+    key = agent_status.item_id(file)
+    _log_sent(folder, {"id": key, "at": time.time(), "text": " ".join(text.split())[:80]})
+    return Member(**{**member.__dict__, "message_id": key})
+
+
+SENT = "sent.jsonl"   # 作業役の状態の置き場所の中：送った言付け（番号・時刻・頭。取り消したもの）。届いたかは受け箱で見る
+SENT_SHOWN = 20       # team list の messages に出す、新しいほうからの数
+
+
+def _log_sent(folder: Path, entry: dict) -> None:
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / SENT, "a", encoding="utf-8") as file:
+        file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def messages(folder: Path, limit: int = SENT_SHOWN) -> list[dict]:
+    """作業役（状態の置き場所 folder）へ送った言付け：[{id, sent（時刻）, delivered（届いた）, cancelled, text}]。古い順。"""
+    found: dict[str, dict] = {}
+    try:
+        lines = (Path(folder) / SENT).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict) or not entry.get("id"):
+            continue
+        if entry.get("cancelled"):
+            if entry["id"] in found:
+                found[entry["id"]]["cancelled"] = True
+            continue
+        found[entry["id"]] = {"id": entry["id"], "sent": entry.get("at"), "text": entry.get("text", ""), "cancelled": False}
+    waiting = agent_status.waiting_ids(folder)
+    shown = list(found.values())[-limit:]
+    for entry in shown:
+        entry["delivered"] = not entry["cancelled"] and entry["id"] not in waiting
+    return shown
+
+
+def cancel(root: Path, name: str, key: str) -> Member:
+    """まだ届いていない言付け key を取り消す（受け箱から出す）。届いた後なら止める。"""
+    member = find(root, name, owner_session())
+    folder = inbox_of(member.path)
+    if not any(entry["id"] == key for entry in messages(folder, limit=10 ** 6)):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"「{member.name}」へ送った言付けに {key} はありません。",
+                            hint="番号は send の結果・agent team list --json の messages で分かります。")
+    if not agent_status.withdraw(folder, key):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"言付け {key} は、もう届いています（取り消せません）。",
+                            hint="直したいことは、もう一度 send で伝えてください。")
+    _log_sent(folder, {"id": key, "cancelled": time.time()})
+    return Member(**{**member.__dict__, "message_id": key})
 
 
 # 返答の終わり：係が事実をそろえて、進行役に知らせる -------------------------------------------------------
@@ -715,6 +779,8 @@ class ReplyFacts:
     pull: int | None = None             # 提出（タスクブランチの PR。いちばん新しいもの）の番号
     pull_state: str = ""                # open・merged・closed
     draft: bool = False
+    pull_head: str = ""                 # 提出の版（PR の先頭のコミット）
+    pulled_at: float | None = None      # その時刻（手元の git で分かれば）
     checked: bool | None = None         # 提出のときに check を通したか（--no-check なら False。分からなければ None）
     unchecked_since: bool = False       # check を通した版の後に、提出に入ったコミットがある（出し直していない）
     uncommitted: tuple[str, ...] = ()   # 未コミットの変更（新しいファイルも）
@@ -807,9 +873,128 @@ def reply_facts(root: Path, message: str, *, github=None) -> ReplyFacts:
                 found.update(pull=pull.number, pull_state=pull.state, draft=pull.draft, checked=checked,
                              unchecked_since=bool(checked and version and pull.head_sha and pull.state == "open"
                                                   and not pull.head_sha.startswith(version)))
+                if pull.head_sha:
+                    found["pull_head"] = pull.head_sha
+                    try:
+                        found["pulled_at"] = float(git.output("show", "-s", "--format=%ct", pull.head_sha).strip())
+                    except Exception:   # 手元にない版（fetch していない）：時刻は分からない
+                        pass
         except Exception as error:
             unknown.append(f"提出（{getattr(error, 'message', error)}）")
     return ReplyFacts(**found, unknown=tuple(unknown))
+
+
+REPORTED = "reported.json"   # 作業役の状態の置き場所の中：agent report で報告を知らせた時刻
+FACTS = "facts.json"   # 作業役の状態の置き場所の中：最後の返答の終わりに係がそろえた事実（team list が GitHub に聞かずに読む）
+
+
+def save_facts(root: Path, facts: ReplyFacts) -> None:
+    """そろえた事実を作業役の状態の置き場所に残す（team list・close が読む）。"""
+    from dataclasses import asdict
+    folder = inbox_of(root)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        agent_status._write(folder / FACTS, {**asdict(facts), "at": time.time()})
+    except OSError:
+        pass
+
+
+def saved_facts(root: Path) -> dict:
+    """最後に残した事実（なければ空）。"""
+    found = agent_status.read(inbox_of(root) / FACTS)
+    return found if isinstance(found, dict) else {}
+
+
+def member_details(root: Path) -> dict:
+    """team list --json に足す、作業役（作業空間 root）の手元の記録（GitHub に聞かない・係を通さない）：
+    submission（最後の返答の終わりに係が見た提出）・dirty（未コミットのファイル）・ahead（push していないコミット）・
+    facts_at（それを調べた時刻）・messages（送った言付けと届いたか）・replies（返答を終えた回数）・
+    report_at（報告を更新した時刻）・report_told（agent report で知らせた時刻）。"""
+    folder = inbox_of(root)
+    facts = saved_facts(root)
+    pull = facts.get("pull")
+    try:
+        report_at = (Path(root) / REPORT_FILE).stat().st_mtime
+    except OSError:
+        report_at = None
+    told = agent_status.read(folder / REPORTED)
+    return {"submission": {"pull": pull, "state": facts.get("pull_state"), "checked": facts.get("checked"),
+                           "head": facts.get("pull_head") or "", "at": facts.get("pulled_at")} if pull else None,
+            "dirty": list(facts.get("uncommitted") or ()), "ahead": facts.get("unpushed") or 0, "facts_at": facts.get("at"),
+            "messages": messages(folder), "replies": agent_status.replies(folder), "report_at": report_at,
+            "report_told": told.get("at") if isinstance(told, dict) else None}
+
+
+ARCHIVE = ".ecobuild/ai/team-archive"   # 進行役の作業空間の中：閉じた作業役の報告・任された仕事（<番号>-<名前>/）
+KEPT = (REPORT_FILE, BRIEF_FILE, ".ecobuild/ai/progress.md")   # 閉じる前に ARCHIVE へ写すもの
+
+
+def close_problems(member: Member) -> list[str]:
+    """作業役を閉じる前に止めるわけ（--force で閉じる）：作業中・届いていない言付け・提出の後のコミット。
+    GitHub にないもの（未コミット・push していないコミット）は、閉じるときに作業空間の側で確かめる。"""
+    from ecowork.git import Git
+    found = []
+    seen = agent_status.activity(inbox_of(member.path))
+    if seen["state"] == agent_status.WORKING:
+        found.append(f"「{member.name}」は作業中です")
+    if seen.get("waiting"):
+        found.append(f"「{member.name}」にまだ届いていない言付けが {seen['waiting']} 件あります")
+    facts = saved_facts(member.path)
+    if facts.get("pull") and facts.get("pull_head") and facts.get("pull_state") in ("open", "merged"):
+        try:
+            head = Git(member.path).output("rev-parse", "HEAD").strip()
+        except Exception:
+            head = ""
+        if head and not head.startswith(facts["pull_head"]) and not facts["pull_head"].startswith(head):
+            found.append(f"「{member.name}」には、提出（PR #{facts['pull']}）の後のコミットがあります")
+    return found
+
+
+def unpushed_files(member: Member) -> list[str]:
+    """作業役の作業空間の、GitHub にないファイル（未コミットの変更・新しいファイル。close が断るときの details）。"""
+    from ecowork.git import Git
+    try:
+        tree = Git(member.path).working_tree()
+    except Exception:
+        return []
+    return list(dict.fromkeys(tree.staged + tree.unstaged + tree.conflicted + tree.untracked))
+
+
+def archive(root: Path, member: Member) -> list[str]:
+    """閉じる前に、作業役の報告・任された仕事・途中経過（KEPT）を進行役の ARCHIVE/<番号>-<名前>/ へ写す。写したもの。"""
+    import shutil
+    target = Path(root) / ARCHIVE / member.path.name
+    kept = []
+    for name in KEPT:
+        source = member.path / name
+        if source.is_file():
+            target.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target / Path(name).name)
+            kept.append(f"{ARCHIVE}/{member.path.name}/{Path(name).name}")
+    return kept
+
+
+def forget_member(root: Path, member: Member) -> None:
+    """閉じた作業役の受け箱と、進行役の受け箱のその作業役からのまだ届いていない知らせを消す。係が見回らないように、
+    状態の置き場所の作業空間の記録も外す（出来事の記録は残す）。"""
+    folder = inbox_of(member.path)
+    if (folder / agent_status.INBOX).is_dir():
+        remove_tree(folder / agent_status.INBOX)
+    (folder / agent_status.WORKSPACE).unlink(missing_ok=True)
+    agent_status.forget_from(inbox_of(Path(root)), str(member.path))
+
+
+def merged_members(root: Path, owner: str | None = None) -> list[Member]:
+    """提出（タスクブランチの PR）が取り込み済みの作業役（GitHub に聞く。close --merged）。"""
+    from ecowork.repository import Repository
+    found = []
+    for member in team(root, owner).members:
+        if not member.branch:
+            continue
+        pulls = Repository(member.path).github.pull_requests_for_branch(member.path, member.branch)
+        if pulls and max(pulls, key=lambda p: p.number).state == "merged":
+            found.append(member)
+    return found
 
 
 def _files(paths: tuple[str, ...]) -> str:
@@ -865,10 +1050,39 @@ def notice_owner(root: Path) -> str:
     return str(member_info(root).get("owner") or "")
 
 
-def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None) -> tuple[Path, str] | None:
+def _clock(at: float) -> str:
+    return time.strftime("%m/%d %H:%M", time.localtime(at))
+
+
+def _report_line(root: Path, place: str, reported: bool, last_sent: float | None) -> str:
+    """報告の1行：場所と、更新した時刻・最後の言付けより前か後か（前なら古い報告かもしれない）。"""
+    if not reported:
+        return f"報告：まだありません（{place}/{REPORT_FILE}）。"
+    try:
+        changed = (Path(root) / REPORT_FILE).stat().st_mtime
+    except OSError:
+        return f"報告：{place}/{REPORT_FILE}。"
+    when = f"更新 {_clock(changed)}"
+    if last_sent is not None:
+        when += "、最後の言付けより後" if changed >= last_sent else "、最後の言付けより前（言付けの後は書き直していません）"
+    return f"報告：{place}/{REPORT_FILE}（{when}）。"
+
+
+def _submission_line(facts: ReplyFacts, last_sent: float | None) -> str:
+    """提出が最後の言付けより前か後か（前なら、言付けの後に出し直していない）。"""
+    if facts.pull is None or facts.pulled_at is None or last_sent is None or facts.pull_state == "closed":
+        return ""
+    return "提出は最後の言付けより後の版です。" if facts.pulled_at >= last_sent else "提出は最後の言付けより前の版です（出し直していません）。"
+
+
+def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None, continued: int = 0,
+                merged: int = 0) -> tuple[Path, str] | None:
     """作業役（作業空間 root）の返答が終わったときに、作った進行役へ送る知らせ：(進行役の作業空間, 文)。
-    先頭に注意（なければ「注意なし」）、次に状態と事実、最後に最後の返答の頭。チームの1人でなければ None。
-    facts：そろえた事実（省けば reply_facts で調べる）。"""
+    先頭に注意（なければ「注意なし」）、次に状態と事実（子タスク・何回目の返答・報告と提出が最後の言付けより前か後か・
+    届いていない言付け）、最後に最後の返答の頭。チームの1人でなければ None。
+    facts：そろえた事実（省けば reply_facts で調べる。調べたものは save_facts で残す）。continued：受け箱の言付けを
+    受け取って続けている（返答を終えていない：事実は調べず、短く知らせる）。merged：この知らせにまとめた、まだ届いて
+    いなかった前の知らせの数。"""
     info = member_info(root)
     if not info.get("lead"):
         return None
@@ -877,13 +1091,26 @@ def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None) ->
         place = Path(root).resolve().relative_to(lead.resolve()).as_posix()
     except ValueError:
         place = Path(root).as_posix()
-    facts = facts or reply_facts(root, message)
-    report = f"報告：{place}/{REPORT_FILE}。" if facts.reported else f"報告：まだありません（{place}/{REPORT_FILE}）。"
+    who = f"{ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or Path(root).name}」"
+    folder = inbox_of(root)
+    count = agent_status.replies(folder)
+    head = f"子タスク #{info.get('task')}" + (f"・返答 {count} 回目" if count else "")
+    if continued:
+        return lead, f"[ECOBuild] {who}（{head}）は、言付け {continued} 件を受け取って続けています（返答はまだ終わっていません）。"
+    if facts is None:
+        facts = reply_facts(root, message)
+        save_facts(root, facts)
+    sent = [entry["sent"] for entry in messages(folder) if not entry["cancelled"] and isinstance(entry.get("sent"), (int, float))]
+    last_sent = max(sent) if sent else None
     found = cautions(facts, str(info.get("role") or WORKER))
     caution = "注意：" + "／".join(found) if found else "注意なし"
+    waiting = agent_status.activity(folder).get("waiting") or 0
+    extra = _submission_line(facts, last_sent) + (f"届いていない言付け {waiting} 件。" if waiting else "") \
+        + (f"（まだ読まれていない前の知らせ {merged} 件を、これにまとめました）" if merged else "")
     last = " ".join((message or "").split())[:400]
-    return lead, (f"[ECOBuild] {ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or Path(root).name}」の"
-                  f"返答が終わりました。{caution}\n{_facts_line(facts, report)}" + (f"\n最後の返答：{last}" if last else ""))
+    return lead, (f"[ECOBuild] {who}（{head}）の返答が終わりました。{caution}\n"
+                  f"{_facts_line(facts, _report_line(root, place, facts.reported, last_sent))}{extra}"
+                  + (f"\n最後の返答：{last}" if last else ""))
 
 
 # 頼み（コンテナの中・GUI の端末の進行役から、このPCの係へ） -------------------------------------------------

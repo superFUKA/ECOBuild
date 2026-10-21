@@ -67,14 +67,21 @@ _MIGRATIONS: dict[int, Callable[["Module"], None]] = {}
 
 
 def _with_lines(current: str, wanted: str) -> str:
-    """current に、wanted の行（空行・# の行を除く）のうち足りないものを末尾に足す（.gitignore 等。足した行は残す）。"""
+    """current に、wanted の行（空行・# の行を除く）のうち足りないものを足す（.gitignore 等。足した行は残す）。
+
+    全体の決まり（パターンが * だけの行。.gitattributes の「* text=auto eol=lf」等）は先頭に、ほかは末尾に足す：
+    .gitattributes は後の行が勝つので、末尾に足すと既にある個別の決まり（*.ps1 eol=crlf 等）を上書きしてしまう。
+    """
     have = {line.strip() for line in current.splitlines()}
     missing = [line for line in wanted.splitlines() if line.strip() and not line.startswith("#") and line.strip() not in have]
     if not current:
         return wanted
     if not missing:
         return current
-    return current + ("" if current.endswith("\n") else "\n") + "\n".join(missing) + "\n"
+    first = [line for line in missing if line.split()[0] == "*"]
+    last = [line for line in missing if line.split()[0] != "*"]
+    text = "".join(line + "\n" for line in first) + current
+    return text + ("" if text.endswith("\n") else "\n") + "".join(line + "\n" for line in last) if last else text
 
 
 def _locked_hint(command: str) -> str:

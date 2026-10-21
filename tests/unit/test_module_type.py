@@ -132,3 +132,17 @@ def test_cpp_project_names_must_not_be_cmake_names(tmp_path):
             ecobuild_bundle.Module.create(name, directory=tmp_path, type="cpp", kind=kind, github=github)
         assert error.value.code == ErrorCode.INVALID_ARGUMENT
     assert not hasattr(github, "bare") and not (tmp_path / "Test").exists()   # リポジトリを作っていない
+
+
+def test_type_lines_keep_existing_specific_rules():
+    """型の .gitattributes の行を足すとき、全体の決まり（* の行）は先頭に足す（既にある *.ps1 等の決まりを上書きしない）。"""
+    from ecobuild.module import _with_lines
+    from ecobuild_python.type import PythonType
+    current = "*.ps1 text eol=crlf\n*.sh text eol=lf\n"
+    merged = _with_lines(current, PythonType.gitattributes())
+    lines = merged.splitlines()
+    assert lines[0] == "* text=auto eol=lf" and lines.index("*.ps1 text eol=crlf") > 0
+    assert lines[-1] == "*.bat text eol=crlf" and lines.count("*.ps1 text eol=crlf") == 1
+    assert _with_lines(merged, PythonType.gitattributes()) == merged          # 2回目は変えない
+    assert _with_lines("a/", "b/\n") == "a/\nb/\n"                            # ほかの行は末尾に
+    assert _with_lines("", PythonType.gitattributes()) == PythonType.gitattributes()

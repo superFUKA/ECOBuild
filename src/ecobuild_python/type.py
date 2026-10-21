@@ -85,6 +85,10 @@ class PythonType(ModuleType, Builds, HasFiles):
         return GITIGNORE
 
     @classmethod
+    def gitattributes(cls) -> str:
+        return _scaffold.GITATTRIBUTES
+
+    @classmethod
     def tracked_patterns(cls) -> tuple[str, ...]:
         return TRACKED_PATTERNS
 

@@ -11,6 +11,8 @@ from typing import NamedTuple, Protocol
 
 from ecowork import model as wm
 
+from .locks import Lock
+
 
 @dataclass(frozen=True)
 class ModuleCreated:
@@ -55,6 +57,7 @@ class ModuleStatus(wm.Status):
     """状態（status）に、モジュールの仕様の版を足したもの（ModuleInfo と同じ意味）。"""
     format: int = 0
     latest_format: int = 0
+    lock: Lock | None = None         # この作業空間のロック（使用中）の状態
 
 
 @dataclass(frozen=True)
@@ -95,6 +98,15 @@ class WorkspaceEntry:
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
     type: str = ""                   # モジュールの型（ecobuild.toml の [module] type。読めなければ空）
+    lock: Lock | None = None         # ロック（使用中）の状態。場所がなければ None
+
+
+@dataclass(frozen=True)
+class WorkspaceLocked:
+    """workspace lock・unlock の結果。"""
+    path: Path
+    lock: Lock
+    forced: bool = False             # unlock --force で、自動のロックを無視させた
 
 
 @dataclass(frozen=True)

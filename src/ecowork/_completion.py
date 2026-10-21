@@ -84,6 +84,7 @@ class Completion:
             number = self.require_task_branch("番号を省略したタスクの完了").number
         branch = self._task_branch_of(number)
         here = self.git.current_branch() == branch
+        self._guard_removal(branch, "完了（GitHubのタスクブランチを消す）", switching=False)   # ここで切り替えられないときは、取り込みの後に残す
         if here:
             tree = self.git.working_tree()
             if tree.staged or tree.unstaged or tree.conflicted or self.git.is_merging():
@@ -113,6 +114,8 @@ class Completion:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
         self.require_take_in(pr.base, "取り込み")
+        if pr.partial and self.git.current_branch() != branch:
+            self._guard_switch("中間提出の取り込み後のタスクブランチの作り直し（一時的に切り替わる）")
         checks: tuple = ()
         if wait and not ignore_checks and self._has_workflows():
             try:
@@ -250,6 +253,11 @@ class Completion:
             return False, None
         switched_to = None
         if self.git.current_branch() == branch:
+            locks = self.hooks.switch_locks(self)
+            if locks:
+                self.notices.append(f"手元のタスクブランチ {branch} は、作業空間が使用中（ロック中）のため残しました"
+                                    f"（{'、'.join(locks)}）。")
+                return False, None
             tree = self.git.working_tree()
             if tree.staged or tree.unstaged:
                 self.notices.append(f"手元のタスクブランチ {branch} は、未コミットの変更があるため残しました。")
@@ -291,7 +299,14 @@ class Completion:
         """その提出を確認中（task review）なら、確認を終えて前の場所へ戻る。戻った先（確認中でなければNone）。"""
         if self._reviewing() != pull_request:
             return None
-        returned = self.end_review().returned_to
+        try:
+            returned = self.end_review().returned_to
+        except WorkError as error:
+            if error.code != ErrorCode.WORKSPACE_LOCKED:
+                raise
+            self.notices.append("作業空間が使用中（ロック中）のため、確認中の場所から戻っていません"
+                                f"（{self._op('task review')} --done で戻れます）。")
+            return None
         self.hooks.after_switch(self)
         return returned
 
@@ -302,7 +317,7 @@ class Completion:
         """
         current = self.git.current_branch()
         remote = set(self.git.remote_branches())
-        removed = []
+        removed, kept = [], []
         for branch in self.git.local_branches():
             number = wm.task_number(branch)
             if number is None or branch == current or branch in remote \
@@ -313,11 +328,17 @@ class Completion:
                     continue
             except WorkError:
                 continue
+            if self.hooks.branch_locks(self, branch):   # ロック中のほかの作業空間が使っている：残す（次の機会に片付く）
+                kept.append(branch)
+                continue
             self.git.delete_branch(branch, force=True)
             self.git.unset_config(wm.base_key(branch))
             removed.append(branch)
         if removed:
             self.notices.append(f"完了したタスクの手元のタスクブランチを片付けました：{', '.join(removed)}")
+        if kept:
+            self.notices.append(f"完了したタスクの手元のタスクブランチ {', '.join(kept)} は、ほかの作業空間が使用中"
+                                "（ロック中）のため残しました。")
         return tuple(removed)
 
     def task_diff(self, number: int | None = None) -> str:

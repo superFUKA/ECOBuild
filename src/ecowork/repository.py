@@ -23,6 +23,7 @@ from . import github as _github
 from . import hooks as _hooks
 from . import model as wm
 from .errors import ErrorCode, WorkError, operation
+from ._lock import Locking
 from ._tasks import TaskManagement
 from ._review import Reviewing
 from ._history import History
@@ -58,8 +59,17 @@ class Hooks:
         確かめ、ブランチの一覧に添える（例：ECOBuild ではモジュールでないブランチ）。既定はすべてできる。"""
         return {}
 
+    def switch_locks(self, repository: "Repository") -> list[str]:
+        """この作業空間でブランチを切り替えるのを止める理由（日本語の文。なければ空）。使用中の作業空間を守る口。"""
+        return []
 
-class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
+    def branch_locks(self, repository: "Repository", branch: str) -> list[str]:
+        """タスクブランチ branch を消すのを止める理由：それを使っている（今のブランチにしている）、ロック中の
+        ほかの作業空間（場所を添えた文。この作業空間は含めない。なければ空）。"""
+        return []
+
+
+class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
     def __init__(
         self,
         root: Path | str,
@@ -697,6 +707,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
             return False
         base = self.git.get_config(wm.base_key(branch)) or self.default_base
         previous = self.git.current_branch()
+        if previous != branch:
+            self._guard_switch("タスクブランチの作り直し（一時的に切り替わる）")
         outcome = self.git.rebase_onto(f"{_git.REMOTE}/{base}", merged_head, branch)
         if not outcome.merged:
             raise WorkError(
@@ -835,6 +847,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
                 "未コミットの変更があるため、タスクブランチを作れません（別のIssueの作業に混ざるのを防ぐため）。",
                 hint=f"変更をコミットするか、{self._op('stash')} で退避してから実行してください。",
             )
+        if self.git.current_branch() != self._existing_task_branch(task.number):   # 同じタスクブランチなら切り替わらない
+            self._guard_switch("タスクブランチを切り替え")
         self.tracker.check_assignee(task.number, take_over=take_over)   # 他の人の作業に重ねない
         self.install_hooks()  # 前からあるcloneにも、作業を始めるときに入れる
         self.git.fetch()

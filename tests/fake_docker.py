@@ -26,6 +26,9 @@ class FakeDocker:
         if args[1:3] == ["image", "rm"]:
             self.images.discard(rest[-1])
             return docker.Completed(tuple(args), 0, "")
+        if command == "ps" and "{{.Names}} {{.ID}}" in rest:   # 動いているコンテナの名前と id（ロックの調べ）
+            return docker.Completed(tuple(args), 0, "\n".join(f"{n} id-{n}" for n, c in self.containers.items()
+                                                              if c[0] == "running"))
         if command == "ps":
             return docker.Completed(tuple(args), 0, "\n".join(f"{c[1]}\tC:/ECO/{n}" for n, c in self.containers.items()))
         if command == "build":

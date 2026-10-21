@@ -19,11 +19,12 @@ import json
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import config as _config
+from . import locks as _locks
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import locked
 
@@ -157,6 +158,9 @@ def github_name(url: str) -> str | None:
 def entries() -> list["WorkspaceEntry"]:
     """記録した作業空間の今の様子。リポジトリ順（同じリポジトリでは場所の順）。"""
     found = [entry(item) for item in recorded()]
+    existing = [e.path for e in found if e.exists]
+    locks = dict(zip(map(key, existing), _locks.status_of(existing)))   # 拡張の調べ（docker 等）は、まとめて1回
+    found = [replace(e, lock=locks[key(e.path)]) if e.exists else e for e in found]
     return sorted(found, key=lambda e: ((e.repository or e.url or "~").casefold(), key(e.path)))
 
 

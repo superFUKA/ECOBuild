@@ -29,7 +29,7 @@ def as_json(result):
 def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
-                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"],
+                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
                  ["container", "stop"], ["container", "remove"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],

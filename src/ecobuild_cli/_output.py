@@ -12,6 +12,7 @@ import json
 import re
 import sys
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ import click
 
 from ecowork import WorkError
 
+from ecobuild import locks as _locks
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
@@ -37,6 +39,8 @@ class Invocation:
         self.yes = yes
         self.cwd = Path.cwd() if cwd is None else cwd
         self._module: Module | None = None
+        self.command = ""                 # 実行中のコマンドの名前（execute が決める）
+        self.holds = ExitStack()          # コマンドの間だけ持つもの（作業空間のロック）
 
     @property
     def module(self) -> Module:
@@ -49,6 +53,12 @@ class Invocation:
         self._module = module
         _log.use_module(module.root)
         _workspaces.record_quietly(module.root)
+        self._hold_workspace()
+
+    def _hold_workspace(self) -> None:
+        """ビルド・テスト等の実行中は、その作業空間をロックする（ブランチが変わらないように。locks.COMMANDS）。"""
+        if self._module is not None and self.command in _locks.COMMANDS:
+            self.holds.enter_context(_locks.running(self._module.root, self.command))
 
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""
@@ -75,8 +85,11 @@ def execute(
     action: Callable[[Invocation], Any],
     render: Callable[[Any], str | None] | None = None,
 ) -> int:
+    invocation.command = command
     try:
-        result = action(invocation)
+        with invocation.holds:
+            invocation._hold_workspace()   # use_module がこの前に呼ばれていた場合
+            result = action(invocation)
     except WorkError as error:
         error = _repository_state(error)
         _log.logger.error("%s", error.message, exc_info=True, extra={"event": "command.error", "data": {

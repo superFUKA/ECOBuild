@@ -24,10 +24,12 @@ from pathlib import Path
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
+from ecowork.git import Git as _Git
 
 from . import _docs
 from . import ci_review as _ci_review
 from . import config as _config
+from . import locks as _locks
 from . import module_type as _module_type
 from . import tracking as _tracking
 from . import workspaces as _workspaces
@@ -75,6 +77,12 @@ def _with_lines(current: str, wanted: str) -> str:
     return current + ("" if current.endswith("\n") else "\n") + "\n".join(missing) + "\n"
 
 
+def _locked_hint(command: str) -> str:
+    """ロック中で止めたときのヒント（外し方。--force は案内しない）。"""
+    return ("ロックの原因を終わらせてから、もう一度実行してください（エージェントを止める・コンテナを止める・"
+            f"実行中のコマンドが終わるのを待つ。手動のロックなら {operation(command, 'workspace unlock')} で外せます）。")
+
+
 class _TypeHooks(Hooks):
     """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。
 
@@ -102,6 +110,22 @@ class _TypeHooks(Hooks):
         lines = repository.git.run("cat-file", "--batch-check", input="".join(
             f"{ref}:{_config.FILE_NAME}\n" for ref in refs)).stdout.splitlines()
         return {ref: "ECOBuild のモジュールではありません" for ref, line in zip(refs, lines) if line.endswith(" missing")}
+
+    def switch_locks(self, repository: Repository) -> list[str]:
+        return [r.text for r in _locks.status(self._module.root).reasons]
+
+    def branch_locks(self, repository: Repository, branch: str) -> list[str]:
+        # 記録した、ほかの作業空間のうち、そのタスクブランチにいてロック中のもの（場所を添える）
+        others = [w.path for w in _workspaces.recorded()
+                  if not _workspaces.same(w.path, self._module.root) and (w.path / _config.FILE_NAME).is_file()]
+        here = []
+        for path in others:
+            try:
+                if _Git(path).current_branch() == branch:
+                    here.append(path)
+            except Exception:   # gitで読めない（壊れたclone 等）
+                continue
+        return [f"{path}：{reason.text}" for path, lock in zip(here, _locks.status_of(here)) for reason in lock.reasons]
 
 
 class Module:
@@ -484,6 +508,9 @@ class Module:
         残ったものを返す（GitHubにないものがないことは確かめてあるので、作業は失われない）。
         """
         root = _workspaces.module_root(Path(path))
+        if (lock := _locks.status(root)).locked:   # --discard-local でも閉じない（使っている最中の作業空間）
+            raise EcoBuildError(ErrorCode.WORKSPACE_LOCKED, "作業空間が使用中（ロック中）のため、閉じられません。",
+                                hint=_locked_hint(cls.command), details=[r.text for r in lock.reasons])
         module = cls(root, _config.load(root / _config.FILE_NAME), github=github)
         if not discard_local:
             module._check_nothing_unpushed()
@@ -603,7 +630,7 @@ class Module:
         status = self.repository.status(fetch=fetch)
         return ModuleStatus(**{f.name: getattr(status, f.name) for f in fields(status)} | {
             "excluded": tuple(p for p in status.untracked if not self.is_tracked(p)),
-            "dependencies": self.dependency_mismatches(),
+            "dependencies": self.dependency_mismatches(), "lock": _locks.status(self.root),
             "format": self.config.format, "latest_format": _config.FORMAT})
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,

@@ -44,4 +44,5 @@ class ErrorCode(_TaskErrorCode):
     APPROVAL_REQUIRED = "approval_required"     # 承認が必須の設定で、提出がまだ承認されていない
     REVISION_NOT_FOUND = "revision_not_found"   # 指定したコミット（版）がない・このタスクブランチの履歴にない
     PERMISSION_DENIED = "permission_denied"     # このアカウントの役割（GitHub の権限）では行えない操作
+    WORKSPACE_LOCKED = "workspace_locked"       # 作業空間がロック中（使用中）で、ブランチの切り替え・タスクブランチの削除ができない
     GIT_ERROR = "git_error"

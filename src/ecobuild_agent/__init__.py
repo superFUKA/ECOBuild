@@ -14,10 +14,12 @@ from __future__ import annotations
 import os
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import ecoagent
 import ecobuild_container as container
+from ecobuild import locks
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError, WorkError
 from ecobuild.errors import operation
@@ -41,6 +43,25 @@ CONFIG_KEYS = {
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
                      "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
 }
+
+
+def lock_source(roots) -> list[list]:
+    """作業空間のロックの理由（ecobuild.locks.add_source）：その作業空間でエージェントが動いている間
+    （agent start の3つの形・team の作業役＝係が持つもの。running.json の pid が生きている間）。"""
+    found: list[list] = [[] for _ in roots]
+    for index, root in enumerate(roots):
+        folder = status.directory(container.name(root))
+        pid = status.running_pid(folder)
+        if pid is None:
+            continue
+        data = status.read(folder / status.RUNNING)
+        at = data.get("at") if isinstance(data, dict) and isinstance(data.get("at"), (int, float)) else None
+        held = status.running_mode(folder) == status.APP
+        since = datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds") if at else None
+        text = ("この作業空間のエージェントを係（agent team）が持っています" if held
+                else "この作業空間でエージェントが動いています") + f"（pid {pid}）"
+        found[index].append((locks.Reason(locks.AGENT, text, since, pid), f"agent:{pid}:{at}"))
+    return found
 
 
 class AgentModule:

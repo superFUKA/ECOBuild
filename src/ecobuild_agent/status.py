@@ -25,6 +25,7 @@ import time
 import uuid
 from pathlib import Path
 
+from ecobuild import fsutil as _fsutil
 from ecobuild import settings as _settings
 
 FOLDER = Path("agents") / "status"
@@ -315,26 +316,7 @@ def ended(folder: Path, pid: int) -> None:
 
 def alive(pid: int) -> bool:
     """このPCのプロセス pid が動いているか。"""
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
-        kernel = ctypes.windll.kernel32
-        handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return False
-        try:
-            code = ctypes.c_ulong()
-            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
-        finally:
-            kernel.CloseHandle(handle)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return _fsutil.process_alive(pid)
 
 
 def stop(pid: int) -> None:

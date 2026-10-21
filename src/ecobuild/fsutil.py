@@ -50,3 +50,27 @@ def locked(path: Path, *, timeout: float = 30.0, wait: bool = True) -> Iterator[
                 import msvcrt
                 file.seek(0)
                 msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def process_alive(pid: int) -> bool:
+    """このPCのプロセス pid が動いているか。"""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+        finally:
+            kernel.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

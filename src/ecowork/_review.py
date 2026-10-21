@@ -20,6 +20,7 @@ class Reviewing:
         if self._dirty():
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、PRを取り出せません。",
                             hint=f"{self._op('task commit')} か {self._op('stash')} で片付けてから実行してください。")
+        self._guard_switch("PRの確認（切り離された状態に切り替わる）")
         pr = self.github.get_pull_request(self.root, number)
         self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{number}/head")
         sha = self.git.output("rev-parse", "FETCH_HEAD")
@@ -37,6 +38,7 @@ class Reviewing:
         if self._dirty():
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "確認中に変更したファイルがあります。",
                             hint=f"{self._op('restore')} で戻してから実行してください。")
+        self._guard_switch("確認を終えて前のブランチへ戻ること")
         back = self.git.get_config(_REVIEW_RETURN_KEY) or self.default_base
         sha = self.git.output("rev-parse", "HEAD")
         self.git.switch(back)
@@ -170,6 +172,7 @@ class Reviewing:
         if not self.git.has_local_branch(branch):
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスク #{number} のタスクブランチはありません。")
         current = self.git.current_branch() == branch
+        self._guard_removal(branch, "手元のタスクブランチを消すこと")
         if current and self._dirty():
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、手元のタスクブランチを消せません。",
                             hint=f"{self._op('task commit')} と {self._op('task push')} でGitHubへ送るか、"
@@ -246,6 +249,13 @@ class Reviewing:
             if issue.state != "closed":
                 continue
             reason = self._unsafe_to_remove(branch)
+            if reason is None:
+                locks = list(self.hooks.switch_locks(self)) if branch == current else []
+                locks += self.hooks.branch_locks(self, branch)
+                if locks and only is not None:
+                    raise self._locked_error("タスクブランチを片付けること", locks)
+                if locks:
+                    reason = f"作業空間が使用中（ロック中）です（{locks[0]}）"
             if reason is None and branch == current:
                 tree = self.git.working_tree()
                 if tree.staged or tree.unstaged or tree.conflicted:
@@ -280,10 +290,12 @@ class Reviewing:
             task_branch = self.require_task_branch("作業の中断")
             number, branch = task_branch.number, task_branch.branch
         else:
+            self.git.fetch()   # 別の作業空間で作ったタスクブランチ（task/<番号>-<名前>）の名前も分かるように
             branch = self._existing_task_branch(number) or wm.task_branch_name(number)
         # 子タスクのタスクブランチは親のタスクブランチから派生する：親のタスクブランチを消す・閉じるのは子が終わってから
         self.tracker.check_finishable(number, action="作業をやめることは")
         current = self.git.current_branch()
+        self._guard_removal(branch, "作業をやめること（タスクブランチを消す）")
         if current == branch and self._dirty():
             raise WorkError(
                 ErrorCode.DIRTY_WORKING_TREE,

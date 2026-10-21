@@ -240,20 +240,29 @@ class TaskBranch:
                             hint=f"ファイルを直して {self._repository._op('sync continue')} で取り込みを完了してください。",
                             details=list(tree.conflicted))
         skipped: tuple[str, ...] = ()
+        eol_only: tuple[str, ...] = ()
         if paths:
             repo.run("add", "--all", "--", *paths)
         else:
             repo.run("add", "--update")
+            if not merging and repo.rev_parse("HEAD"):
+                # 改行コードだけの差（改行を変換する git と、しない git で同じ場所を見た等）は、変更として含めない
+                eol_only = repo.eol_only("HEAD", cached=True)
+                if eol_only:
+                    repo.run("reset", "--quiet", "--", *eol_only)
             new = tuple(p for p in tree.untracked if include is None or include(p))
             skipped = tuple(p for p in tree.untracked if p not in new)
             repo.add(new)
         staged = repo.working_tree().staged
         if not (staged or amend or merging):
+            op = self._repository._op('task commit')
             raise WorkError(ErrorCode.NOTHING_TO_COMMIT, "コミットする変更がありません。",
-                            hint=("新しいファイルは管理するファイルの対象外のため含めませんでした"
-                                  f"（{', '.join(skipped)}）。含めるなら {self._repository._op('task commit')} "
-                                  "--message \"…\" <パス>。" if skipped else None),
-                            details=list(skipped) or None)
+                            hint=" ".join(filter(None, (
+                                "新しいファイルは管理するファイルの対象外のため含めませんでした"
+                                f"（{', '.join(skipped)}）。含めるなら {op} --message \"…\" <パス>。" if skipped else None,
+                                f"改行コードだけが変わったファイルは含めませんでした（{', '.join(eol_only)}）。"
+                                f"含めるなら {op} --message \"…\" <パス>。" if eol_only else None))) or None,
+                            details=list(skipped + eol_only) or None)
         if merging:
             self._repository._refuse_conflict_markers(repo.conflict_markers(cached=True))
         # --amend でメッセージを省けば、直前のコミットのメッセージのまま
@@ -266,7 +275,8 @@ class TaskBranch:
         listed = (("diff", "--name-only", f"{sha}^1", sha) if repo.rev_parse(f"{sha}^1")    # 取り込みは1つ目の親から
                   else ("diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha))
         files = tuple(repo.output(*listed).splitlines())
-        return RecordResult(self.branch, sha, message or repo.output("log", "-1", "--format=%s"), files, skipped)
+        return RecordResult(self.branch, sha, message or repo.output("log", "-1", "--format=%s"), files, skipped,
+                            eol_only=eol_only)
 
     def push(self, *, force: bool = False, dry_run: bool = False) -> "PushResult":
         """GitHubへ送る。commits：送るコミット（新しい順、「短いID 件名」）。dry_run なら送らずに返すだけ。"""
@@ -360,6 +370,7 @@ class RecordResult:
     files: tuple[str, ...] = ()       # コミットに入ったファイル
     skipped: tuple[str, ...] = ()     # 含めなかった新しいファイル（管理するファイルの対象外）
     outside: tuple[str, ...] = ()     # パスで指定した、管理するファイルの対象外の新しいファイル（指定どおり含めた）
+    eol_only: tuple[str, ...] = ()    # 改行コードだけが変わったため含めなかったファイル（含めるならパスを指定）
 
 
 @dataclass(frozen=True)
@@ -430,6 +441,7 @@ class DropResult:
     switched_to: str | None          # 今いるタスクブランチを捨てた場合、移った先
     issue_closed: bool               # 「対応しない」として閉じたか
     dry_run: bool
+    issue_open: bool = True          # 終わった後、Issueが開いているか（閉じたIssueの残りのブランチを消したなら False）
 
 
 @dataclass(frozen=True)
@@ -519,6 +531,7 @@ class Status:
     finished: bool = False           # タスクブランチのタスクが完了している（GitHubのブランチが消え、Issueが閉じた）
     excluded: tuple[str, ...] = ()   # 新しいファイルのうち、task commit が自動で含めないもの（利用側が決める）
     dependencies: tuple = ()         # 手元の版が記録と違う依存先（利用側が決める）
+    eol_only: tuple[str, ...] = ()   # 変更のうち、改行コード（CRLF と LF）だけが違うファイル（task commit が自動で含めない）
 
 
 @dataclass(frozen=True)
@@ -552,6 +565,7 @@ class TaskSummary:
     workspace: Path | None = None            # タスクブランチのある手元の場所（このclone。利用側が他のcloneも足す）
     submission: PullRequestState | None = None    # 開いている提出（task list で分かるとき）
     branch: str | None = None                     # タスクブランチの名前（手元かGitHubにあるとき）
+    worker: object = None                         # このタスクを作業している役（利用側が決める。エージェントの作業役 等）
 
     @classmethod
     def _from(cls, task: _model.Task, *, task_branch: bool, current: bool, remote: bool,
@@ -590,6 +604,8 @@ class TaskStatus:
     workspace: Path | None = None           # タスクブランチのある手元の場所（TaskSummary と同じ）
     commits: tuple[str, ...] = ()           # 提出に入るコミット（作成元にない、タスクブランチのもの。新しい順、「短いID 件名」）
     branch: str | None = None               # タスクブランチの名前（手元かGitHubにあるとき）
+    children: tuple[TaskSummary, ...] = ()  # 子タスクの様子（段階・提出・タスクブランチ。subtasks と同じタスク）
+    worker: object = None                   # このタスクを作業している役（利用側が決める。エージェントの作業役 等）
 
 
 @dataclass(frozen=True)
@@ -628,6 +644,17 @@ class FinishResult:
     approved: bool = False           # task approve：承認してから完了した
     returned_to: str | None = None   # task approve：確認中（task review）から戻ったブランチ
     closed_workspace: object = None  # 完了の後に閉じた作業空間（利用側が決める）
+    already_done: bool = False       # 完了済み（取り込み・後処理・片付けが済んでいた）で、何もしなかった
+
+
+@dataclass(frozen=True)
+class DiffFile:
+    """差分の1ファイル（task diff --stat・--name-only）。"""
+    path: str
+    status: str                      # A（足した）・M（変えた）・D（消した）等（git diff --name-status の1文字）
+    added: int | None                # 足した行（バイナリなら None）
+    deleted: int | None              # 消した行（バイナリなら None）
+    eol_only: bool = False           # 改行コード（CRLF と LF）だけの差
 
 
 @dataclass(frozen=True)

@@ -179,7 +179,10 @@ def test_the_serve_runs_a_worker_without_a_screen_from_start_to_close(lead, tmp_
     until(lambda: len(fake.got()) == 3, serve, seconds=1.2)                             # 作業中でもすぐ入る
     assert state(member.path)["state"] == agent_status.WORKING
 
-    doc = request(serve, folder, "c", ["agent", "team", "close", "画面"])
+    refused = request(serve, folder, "w", ["agent", "team", "close", "画面"])
+    assert not refused["ok"] and serve.apps.holds(member.path)                          # 作業中は閉じない（止めない）
+    assert refused["error"]["details"] == ["「画面」は作業中です"]
+    doc = request(serve, folder, "c", ["agent", "team", "close", "画面", "--force"])
     assert doc["ok"] and not serve.apps.holds(member.path)                              # 返答を終えてから止めた
     assert state(member.path)["state"] == agent_status.STOPPED
     assert state(member.path)["last_reply"] .endswith("から] ボタンは右に")   # 途中で切っていない

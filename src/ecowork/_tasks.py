@@ -34,7 +34,7 @@ class TaskManagement:
             self.tracker.sort([], sort)  # 一覧を取る前に、並べられるか確かめる
         # GitHub への問い合わせ（fetch・PRの一覧・タスクの一覧）は互いに関係ないので、並べて待つ
         with ThreadPoolExecutor(max_workers=3) as pool:
-            fetching = pool.submit(self.git.fetch, reuse=True)
+            fetching = pool.submit(self._fetch_for_reading)
             opened = pool.submit(self.github.list_pull_requests, self.root, closed=False)
             reviewing = pool.submit(self.github.list_pull_requests, self.root, closed=False,
                                     review_requested="@me") if to_review else None
@@ -74,6 +74,16 @@ class TaskManagement:
         if sort is not None:
             pairs = self.tracker.sort(pairs, sort, task_of=lambda pair: pair[1])
         return [summary for summary, _ in pairs]
+
+    def _fetch_for_reading(self) -> None:
+        """読むだけのコマンドの fetch（取得したばかりなら省く）。取得できなくても止めず、手元の写しで答えて知らせる。"""
+        try:
+            self.git.fetch(reuse=True)
+        except WorkError as error:
+            if error.code != ErrorCode.GIT_ERROR:
+                raise
+            first = next((line for line in str(error.details or "").splitlines() if line.strip()), "")
+            self.notices.append("GitHubの最新を取得できませんでした（手元の写しで表示しています）" + (f"：{first}" if first else "。"))
 
     def _current_work_states(self) -> dict[int, _tracker.WorkState]:
         """GitHubの最新を取得して、各タスクの作業の事実を調べる（判断の前に段階のずれを直すため）。"""
@@ -136,28 +146,51 @@ class TaskManagement:
         # Issue（GitHub）を読む間に、fetch と、タスクブランチが分かれば提出（PR）も読む
         with ThreadPoolExecutor(max_workers=2) as pool:
             reading = pool.submit(self.tracker.details, number)
-            self.git.fetch(reuse=True)
+            self._fetch_for_reading()
             branch = self._existing_task_branch(number)
             submission = None if branch is None else pool.submit(self._latest_submission, branch)
             details = reading.result()
+            children = pool.submit(self._children, {t.number for t in details.subtasks}) if details.subtasks else None
             if branch is None:   # 手元にも GitHub にもない：Issueに記録した名前（なければ決まりの名前）
                 branch = wm.issue_branch(details.body) or wm.task_branch_name(number)
                 latest, activity = self._latest_submission(branch)
             else:
                 latest, activity = submission.result()
+            children = () if children is None else children.result()
         task = details.task
         local = self.git.has_local_branch(branch)
         base = self.git.get_config(wm.base_key(branch)) or wm.issue_base(details.body)
+        state = None if latest is None else self._submission_state(latest)
         return wm.TaskStatus(
             number, task.title, task.state, task.url, wm.without_base(details.body), self.git.has_local_branch(branch),
             base,
-            None if latest is None else self._submission_state(latest), activity,
+            state, activity,
             self.git.has_remote_branch(branch), task.labels, task.assignees, details.comments, task.milestone,
             details.parent, details.subtasks, details.blocked_by, details.blocking,
+            # 提出（submission）は task list と同じ：開いている提出だけ
             wm.TaskSummary._from(task, task_branch=local, current=self.git.current_branch() == branch,
-                                 remote=self.git.has_remote_branch(branch), path=self.root, branch=branch),
+                                 remote=self.git.has_remote_branch(branch), path=self.root, branch=branch,
+                                 submission=state if state is not None and state.state == "open" else None),
             self.root if local else None, self._task_commits(branch, base or self.default_base, local),
-            branch if local or self.git.has_remote_branch(branch) else None)
+            branch if local or self.git.has_remote_branch(branch) else None, children)
+
+    def _children(self, numbers: set[int]) -> tuple[wm.TaskSummary, ...]:
+        """子タスク（番号 numbers）の一覧（task list の1行と同じ：段階・開いている提出・タスクブランチ）。一覧を1回ずつ読んで作る。"""
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            opened = pool.submit(self.github.list_pull_requests, self.root, closed=False)
+            tasks = [t for t in self.tracker.tasks(closed=True) if t.number in numbers]
+            pulls = opened.result()
+        submissions = {wm.task_number(p.head): self._submission_state(p) for p in sorted(pulls, key=lambda p: p.number)}
+        local, remote = set(self.git.local_branches()), set(self.git.remote_branches())
+        current = self.git.current_branch()
+        branches = {wm.task_number(name): name for name in sorted(remote) + sorted(local) if wm.task_number(name)}
+        found = []
+        for task in tasks:
+            branch = branches.get(task.number, wm.task_branch_name(task.number))
+            found.append(wm.TaskSummary._from(task, task_branch=branch in local, current=branch == current,
+                                              remote=branch in remote, path=self.root,
+                                              submission=submissions.get(task.number), branch=branch))
+        return tuple(found)
 
     def _latest_submission(self, branch: str) -> tuple[_github.PullRequestInfo | None, _github.PullRequestActivity | None]:
         """branch の最新のPRと、そのレビュー・コメント・CIの結果（なければ None, None）。"""

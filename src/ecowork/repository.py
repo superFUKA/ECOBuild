@@ -224,6 +224,7 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
             base_behind=self._base_behind(task_branch) if fetch and task_branch is not None else None,
             archived=archived, reviewing_task=None if reviewing is None else self._task_of_pull_request(reviewing),
             finished=finished,
+            eol_only=self.git.eol_only("HEAD") if (tree.staged or tree.unstaged) and self.git.rev_parse("HEAD") else (),
         )
 
     def _submission_state(self, info: _github.PullRequestInfo) -> wm.PullRequestState:

@@ -1,5 +1,8 @@
 """タスクの表示の共通部分（task next・overdue・sprint 等）。"""
 
+from dataclasses import replace
+from pathlib import Path
+
 STAGE_NAMES = {"todo": "未着手", "in_progress": "作業中", "in_review": "レビュー待ち", "done": "完了",
                "planned": "計画中"}
 
@@ -45,3 +48,32 @@ def elsewhere(path, root) -> str:
     """タスクブランチが、今いるのと別のclone（このPCの）にあれば、その場所。"""
     from ecobuild import workspaces
     return "" if path is None or workspaces.same(path, root) else f"（場所：{path}）"
+
+
+def workers(root) -> dict[int, dict]:
+    """この作業空間の中にいるチーム（作業役・管理役。管理役の下の作業役も）：タスクの番号 → 名前・役・場所。
+    作業役の作業空間は記録（workspace list）にないことがあるので、チームの置き場所の member.json から読む。"""
+    from ecobuild_agent import team
+    found = {}
+    area = Path(root) / team.TEAM_AREA
+    for path in sorted(area.iterdir()) if area.is_dir() else ():
+        info = team.member_info(path)
+        number = info.get("task")
+        if isinstance(number, int) and number > 0:
+            found[number] = {"name": str(info.get("name") or path.name), "role": str(info.get("role") or team.WORKER),
+                             "path": path}
+            found.update({n: w for n, w in workers(path).items() if n not in found})
+    return found
+
+
+def with_worker(task, found: dict[int, dict]):
+    """task（TaskSummary・TaskStatus）に作業役を足す（開いているタスクだけ）。場所が分からなければ作業役の場所にする。"""
+    worker = found.get(task.number) if task.state == "open" else None
+    if worker is None:
+        return task
+    return replace(task, worker=worker, workspace=task.workspace or worker["path"])
+
+
+def worker_text(worker) -> str:
+    from ecobuild_agent import team
+    return f"{team.ROLE_NAMES.get(worker['role'], '作業役')} {worker['name']} が作業中（{worker['path']}）"

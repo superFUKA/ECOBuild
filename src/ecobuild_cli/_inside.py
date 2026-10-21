@@ -3,6 +3,8 @@
 渡すのは、型のツール（コンパイラー等）を動かすコマンドだけ（COMMANDS）。git・GitHub の操作はこのPCで行う（ファイルは同じ）。
 中の ecobuild は環境変数（container.INSIDE）で中にいると分かるので、もう一度は渡さない。
 --json の結果の中の場所（/work…）は、このPCの場所に読み替えて出す。
+中の ecobuild のログには、このPCの run を forwarded_from に書いてもらう（_log.forward_environment）。中で失敗したら、
+このPCのログにもその誤り（command.error。--json なら中の error）を書く。
 """
 
 from __future__ import annotations
@@ -16,8 +18,9 @@ from ecobuild import workspaces
 from ecobuild.errors import WorkError
 import ecobuild_container as container
 
+from . import _log
 from ._module import PROGRAM
-from ._output import Invocation, execute
+from ._output import Invocation, execute, log_error
 
 COMMANDS = ("build", "test", "run", "clean", "rebuild", "check")
 
@@ -34,17 +37,32 @@ def route(args: list[str], json_output: bool) -> int | None:
     except WorkError:
         return None
     from .commands.container._source import source
+    passed = [f"{key}={value}" for key, value in _log.forward_environment().items()]
+    command = ["env", *passed, PROGRAM, *args] if passed else [PROGRAM, *args]
     try:
-        code, out = container.run_inside(root, [PROGRAM, *args], cwd=Path.cwd(), command=PROGRAM, source=source(),
+        code, out = container.run_inside(root, command, cwd=Path.cwd(), command=PROGRAM, source=source(),
                                          progress=lambda message: click.echo(message, err=True), capture=json_output)
     except WorkError as error:
         def fail(inv):
             raise error
         return execute(words[0], Invocation(json_output=json_output), fail)
+    error = None
     for line in out.splitlines():
         try:
-            line = json.dumps(container.outside(json.loads(line), root), ensure_ascii=False)
+            document = container.outside(json.loads(line), root)
+            line = json.dumps(document, ensure_ascii=False)
+            if isinstance(document, dict) and isinstance(document.get("error"), dict):
+                error = document["error"]
         except ValueError:
             pass
         click.echo(line)
+    _log.logger.info("コンテナの中の ecobuild：終了コード %s", code, extra={"event": "command.forwarded", "data": {
+        "command": " ".join(words[:2]), "exit_code": code, "container": container.name(root)}})
+    if code:
+        log_error(" ".join(words[:2]), WorkError(
+            str((error or {}).get("code") or "failed"),
+            str((error or {}).get("message") or f"コンテナの中の ecobuild が終了コード {code} で終わりました。"),
+            hint=(error or {}).get("hint") or "詳しくはコンテナの中のログ（モジュールの .ecobuild/logs/ の、forwarded_from が"
+                                              "この run のもの）を見てください。",
+            details=(error or {}).get("details")))
     return code

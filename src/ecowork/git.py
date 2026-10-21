@@ -5,7 +5,10 @@ git のメッセージで状況を判定する箇所があるため、メッセ�
 
 from __future__ import annotations
 
+import os
+import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -19,6 +22,11 @@ REMOTE = "origin"
 # 続けて読むとき、コマンドごとに GitHub へ問い合わせない）。取得した時刻は .git の FETCHED_MARK に残す
 RECENT_FETCH = 10
 FETCHED_MARK = "ecowork-fetched"
+# 同じ clone の fetch は1つずつ（GUI が読むだけのコマンドを並べて回すと、refs/remotes の更新が取り合いになり
+# 「cannot lock ref」で失敗する）。.git の FETCH_LOCK を持つ間だけ fetch する。待ちきれなければロックなしで行う
+FETCH_LOCK = "ecowork-fetch.lock"
+FETCH_LOCK_TIMEOUT = 120
+_DUBIOUS = re.compile(r"detected dubious ownership in repository at '([^']*)'")
 
 
 @dataclass(frozen=True)
@@ -51,9 +59,16 @@ class StashEntry:
     message: str
 
 
+# clone した作業空間の改行コードの扱い：取り出すときは記録のまま（LF）、記録するときは CRLF を LF にする。
+# このPCの git が core.autocrlf=true だと CRLF で取り出され、同じ場所を改行の変換をしない git（コンテナの中等）で見ると、
+# 追跡中のファイルのほぼすべてが改行だけの「変更」になる
+CLONE_CONFIG = ("core.autocrlf=input",)
+
+
 def clone(url: str, destination: Path, *, branch: str | None = None) -> "Git":
-    """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。"""
-    _run(["git", "clone", "--quiet", *(["--branch", branch] if branch else []), url, str(destination)], cwd=None)
+    """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。改行コードの扱いを CLONE_CONFIG に決めて取り出す。"""
+    _run(["git", "clone", "--quiet", *(a for c in CLONE_CONFIG for a in ("--config", c)),
+          *(["--branch", branch] if branch else []), url, str(destination)], cwd=None)
     return Git(destination)
 
 
@@ -121,12 +136,34 @@ class Git:
         （別のコマンドが）取得したばかりなら、取得し直さない。GitHubの側を変えた後は reuse なしで取得し直す。"""
         if reuse and (self._fetched or self._fetched_recently()):
             return
-        self.run("fetch", "--quiet", "--prune", REMOTE)
+        with self._fetch_lock():
+            if reuse and self._fetched_recently():   # 待つ間に、別のコマンドが取得した
+                self._fetched = True
+                return
+            self.run("fetch", "--quiet", "--prune", REMOTE)
         self._fetched = True
         try:
             self._mark().touch()
         except (OSError, WorkError):
             pass
+
+    @contextmanager
+    def _fetch_lock(self):
+        """この clone の fetch を、ほかのコマンド（プロセス）と1つずつにする。ロックを持てなければ（読み取り専用の
+        場所・待ちきれない等）そのまま行う（cannot lock ref はやり直しで受ける）。"""
+        try:
+            path = self.root / self.output("rev-parse", "--git-path", FETCH_LOCK)
+            file = open(path, "a+")
+        except (OSError, WorkError):
+            yield
+            return
+        with file:
+            held = _lock_file(file, FETCH_LOCK_TIMEOUT)
+            try:
+                yield
+            finally:
+                if held:
+                    _unlock_file(file)
 
     def _mark(self) -> Path:
         return self.root / self.output("rev-parse", "--git-path", FETCHED_MARK)
@@ -285,6 +322,30 @@ class Git:
         text = self.run(*args, check=False).stdout
         return tuple(line[:-len(suffix)] for line in text.splitlines() if line.endswith(suffix))
 
+    def eol_only(self, *revisions: str, cached: bool = False) -> tuple[str, ...]:
+        """改行コード（CRLF と LF）だけが違うファイル。比べ方は git diff と同じ（revisions・cached）。"""
+        args = ("--numstat", "--no-renames", *(["--cached"] if cached else []), *revisions, "--")
+        changed = _numstat_paths(self.run("diff", *args, check=False).stdout)
+        if not changed:
+            return ()
+        kept = set(_numstat_paths(self.run("diff", "--ignore-cr-at-eol", *args, check=False).stdout))
+        return tuple(p for p in changed if p not in kept)
+
+    def changed_files(self, base: str, head: str) -> list[tuple[str, str, int | None, int | None, bool]]:
+        """base から head への変更（ファイルごとに パス・種類〔A・M・D 等〕・足した行・消した行〔バイナリは None〕・
+        改行コードだけの差か）。名前の変更は、消したものと足したものに分けて数える。"""
+        kinds = {}
+        for line in self.output("diff", "--name-status", "--no-renames", base, head, "--").splitlines():
+            kind, _, path = line.partition("\t")
+            kinds[path] = kind[:1]
+        eol = set(self.eol_only(base, head))
+        found = []
+        for line in self.output("diff", "--numstat", "--no-renames", base, head, "--").splitlines():
+            added, deleted, path = line.split("\t", 2)
+            found.append((path, kinds.get(path, "M"), None if added == "-" else int(added),
+                          None if deleted == "-" else int(deleted), path in eol))
+        return found
+
     def has_changes(self, base: str, head: str) -> bool:
         """headに、baseとの分岐点からのファイルの変更があるか（PRの差分と同じ見方）。"""
         return not self.run("diff", "--quiet", f"{base}...{head}", check=False).ok
@@ -359,7 +420,59 @@ def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | 
         raise _git_error(failure.completed) from None
 
 
+def _numstat_paths(text: str) -> list[str]:
+    """git diff --numstat の、中身（文字）の変わったファイル（バイナリは除く）。"""
+    paths = []
+    for line in text.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and parts[0] != "-" and (parts[0], parts[1]) != ("0", "0"):
+            paths.append(parts[2])
+    return paths
+
+
+def _lock_file(file, timeout: float) -> bool:
+    """開いたファイルの排他ロックを、timeout 秒まで待って持つ（プロセスが終われば OS が外す）。持てたか。"""
+    until = time.monotonic() + timeout
+    while True:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            if time.monotonic() >= until:
+                return False
+            time.sleep(0.05)
+
+
+def _unlock_file(file) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+            file.seek(0)
+            msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+
+
 def _git_error(completed: _process.Completed) -> WorkError:
+    dubious = _DUBIOUS.search(completed.output)
+    if dubious:
+        # 持ち主が違う場所（別のアカウント・コンテナで作った clone 等）：git が読むのを断る。生の git の文だけでは分からない
+        return WorkError(
+            ErrorCode.UNSAFE_REPOSITORY,
+            f"git が {dubious.group(1)} を、持ち主が今のユーザーと違うため扱いません（dubious ownership）。",
+            hint=f"自分の作業空間なら git config --global --add safe.directory \"{dubious.group(1)}\" で"
+                 "信頼する場所に足してから、もう一度実行してください。",
+            details=completed.output,
+        )
     return WorkError(
         ErrorCode.GIT_ERROR,
         f"git {' '.join(completed.args[1:])} に失敗しました。",

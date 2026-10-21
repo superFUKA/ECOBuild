@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import enum
+import errno
 import json
 import re
 import sys
@@ -25,10 +26,14 @@ from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
 
-from . import _log
+from . import _errors, _log
 
 SUCCESS = 0
 FAILURE = 1
+
+# 今のコマンド（入口が引数から決める）：引数の誤り・予期しない誤りの JSON の command と、--json の有無
+attempted: str | None = None
+json_requested = False
 
 
 class Invocation:
@@ -91,20 +96,13 @@ def execute(
             invocation._hold_workspace()   # use_module がこの前に呼ばれていた場合
             result = action(invocation)
     except WorkError as error:
-        error = _repository_state(error)
-        _log.logger.error("%s", error.message, exc_info=True, extra={"event": "command.error", "data": {
-            "command": command, "code": error.code, "message": error.message, "hint": error.hint,
-            "details": to_data(error.details)}})
-        if invocation.json_output:
-            _emit_json(command, invocation, None, error)
-        else:
-            click.echo(f"エラー：{error.message}", err=True)
-            detail = _detail_text(error.details)
-            if detail:
-                click.echo(detail, err=True)
-            if error.hint:
-                click.echo(f"ヒント：{error.hint}", err=True)
-        return FAILURE
+        return fail(command, invocation, _repository_state(error))
+    except (click.exceptions.Exit, click.ClickException, click.exceptions.Abort):
+        raise
+    except Exception as crash:   # 予期しない誤り（不具合）も、--json なら同じ形の JSON で返す
+        if output_closed(crash):
+            raise
+        return fail(command, invocation, _errors.unexpected(crash))
     _log.logger.debug("%s", command, extra={"event": "command.result", "data": {
         "command": command, "result": to_data(result), "notices": _notices(invocation)}})
     if invocation.json_output:
@@ -123,6 +121,46 @@ def execute(
 _ARCHIVED = re.compile(r"archived so (?:it )?is read-only|repository was archived", re.IGNORECASE)
 _GONE = re.compile(r"repository not found|repository '[^']*' not found|could not resolve to a repository",
                    re.IGNORECASE)
+
+
+def fail(command: str | None, invocation: Invocation | None, error: WorkError) -> int:
+    """失敗の出口：ログに command.error を残し、--json なら JSON、でなければ人向けに標準エラーへ。終了コードは1。"""
+    log_error(command, error)
+    if invocation.json_output if invocation is not None else json_requested:
+        _emit_json(command, invocation, None, error)
+    else:
+        click.echo(f"エラー：{error.message}", err=True)
+        detail = _detail_text(error.details)
+        if detail:
+            click.echo(detail, err=True)
+        hint = _errors.hint(error.code, error.hint)
+        if hint:
+            click.echo(f"ヒント：{hint}", err=True)
+    return FAILURE
+
+
+def log_error(command: str | None, error: WorkError) -> None:
+    """失敗をログに（command.error）。例外の中で呼べば traceback も。"""
+    _log.logger.error("%s", error.message, exc_info=sys.exc_info()[0] is not None, extra={
+        "event": "command.error", "data": {"command": command, **error_data(error)}})
+
+
+def error_data(error: WorkError) -> dict:
+    """JSON の error（どのコマンドでも同じ形）。"""
+    return {"code": error.code, "message": error.message, "hint": _errors.hint(error.code, error.hint),
+            "details": to_data(error.details), "retryable": _errors.retryable(error.code)}
+
+
+def output_closed(error: BaseException) -> bool:
+    """出力の先（パイプ）が閉じたための失敗か（| head・読む側が先に終わった。Windows では EINVAL になる）。"""
+    if not isinstance(error, OSError) or error.errno not in (errno.EPIPE, errno.EINVAL):
+        return False
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except (OSError, ValueError):
+            return True
+    return isinstance(error, BrokenPipeError)
 
 
 def _repository_state(error: WorkError) -> WorkError:
@@ -187,16 +225,28 @@ def missing(option: str, json_output: bool = False) -> int:
     return usage_error(f"{option} を指定してください。", json_output)
 
 
-def usage_error(message: str, json_output: bool) -> int:
-    """引数の誤り。--json ならJSONで返す。終了コードは2。"""
+USAGE_HINT = "ecobuild <コマンド> --help で使い方を確認してください。"
+
+
+def usage_error(message: str, json_output: bool, *, hint: str = USAGE_HINT) -> int:
+    """引数の誤り。--json ならJSONで返す（ほかの誤りと同じ形）。ログに command.error を残す。終了コードは2。"""
+    error = EcoBuildError(_errors.ErrorCode.USAGE_ERROR, message, hint=hint)
+    log_error(attempted, error)
     if json_output:
-        click.echo(json.dumps({"ok": False, "command": None, "module": None, "result": None,
-                               "error": {"code": "usage_error", "message": message,
-                                         "hint": "ecobuild <コマンド> --help で使い方を確認してください。",
-                                         "details": None}}, ensure_ascii=False))
+        print_document({"ok": False, "command": attempted, "module": None, "result": None, "notices": [],
+                        "error": error_data(error)})
     else:
         click.echo(f"エラー：{message}", err=True)
     return USAGE_ERROR
+
+
+def page(items: list, limit: int, offset: int = 0) -> dict:
+    """件数の多い一覧の切り方（--limit・--offset）。{items, total, offset, limit, truncated}。limit が0以下なら全部。"""
+    items = list(items)
+    offset = max(offset, 0)
+    shown = items[offset:] if limit <= 0 else items[offset:offset + limit]
+    return {"items": shown, "total": len(items), "offset": offset, "limit": limit,
+            "truncated": offset + len(shown) < len(items)}
 
 
 def optional_argument(values: tuple, option_value: Any, option: str, json_output: bool) -> Any:
@@ -313,21 +363,25 @@ def to_data(value: Any) -> Any:
     return value
 
 
-def _emit_json(command: str, invocation: Invocation, result: Any, error: WorkError | None) -> None:
-    module = invocation._module
-    document = {
+def _emit_json(command: str | None, invocation: Invocation | None, result: Any, error: WorkError | None) -> None:
+    module = None if invocation is None else invocation._module
+    print_document({
         "ok": error is None,
         "command": command,
         "module": None if module is None else module.root.as_posix(),
         "result": None if error is not None else to_data(result),
-        "notices": _notices(invocation),
-        "error": None if error is None else {
-            "code": error.code,
-            "message": error.message,
-            "hint": error.hint,
-            "details": to_data(error.details),
-        },
-    }
+        "notices": [] if invocation is None else _notices(invocation),
+        "error": None if error is None else error_data(error),
+    })
+
+
+emitted = False      # --json の JSON をもう出したか（予期しない誤りで、2つ目を出さないように）
+
+
+def print_document(document: dict) -> None:
+    """--json の JSON を1つ、標準出力へ。"""
+    global emitted
+    emitted = True
     click.echo(json.dumps(document, ensure_ascii=False))
 
 

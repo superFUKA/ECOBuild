@@ -14,6 +14,7 @@ from pathlib import Path
 from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasFiles, ModuleType
 from ecobuild.results import BuildResult, FilesChanged, RunResult, TestResult
 
@@ -33,8 +34,9 @@ __pycache__/
 .pytest_cache/
 """
 
-# 管理するファイルの既定（ソース・設定・文書）
-TRACKED_PATTERNS = ("*.py", "*.pyi", "*.toml", "*.cfg", "*.ini", "*.txt", "*.md", "py.typed")
+# 管理するファイルの既定（ソース・設定・文書・コンテナ・Web の素材。.gitignore・.gitattributes は本体が常に含める）
+TRACKED_PATTERNS = ("*.py", "*.pyi", "*.toml", "*.cfg", "*.ini", "*.txt", "*.md", "py.typed", "Dockerfile",
+                    "*.html", "*.js", "*.css", "*.json")
 
 # 足りないツールの導入コマンド（ecobuild setup --install）
 INSTALL = {
@@ -46,6 +48,15 @@ INSTALL = {
 @dataclass(frozen=True)
 class PythonOptions:
     configuration: str = "Debug"
+
+
+@dataclass(frozen=True)
+class PythonRunResult(RunResult):
+    """run の結果（output は今までどおり標準出力。stream で流したときは、ためないので空）。"""
+    stdout: str = ""
+    stderr: str = ""
+    command: str = ""                    # 実行したコマンド（そのまま貼って使える形）
+    arguments: tuple[str, ...] = ()      # プログラムに渡した引数（分けたもの）
 
 
 class PythonType(ModuleType, Builds, HasFiles):
@@ -83,11 +94,33 @@ class PythonType(ModuleType, Builds, HasFiles):
 
 Python 3.11以上で、次のようにインストール・テストできます。
 
+Windows：
+
+```bat
+py -m venv .venv
+.venv\\Scripts\\python -m pip install --editable ".[dev]"
+.venv\\Scripts\\python -m pytest
+```
+
+Linux・macOS（`python` がなければ `python3`）：
+
 ```sh
-python -m venv .venv
-.venv/bin/python -m pip install --editable ".[dev]"   # Windows：.venv\\Scripts\\python
+python3 -m venv .venv
+.venv/bin/python -m pip install --editable ".[dev]"
 .venv/bin/python -m pytest
 ```
+"""
+
+    @classmethod
+    def ecobuild_usage(cls, config: ModuleConfig) -> str:
+        return """## 型 python
+
+- `ecobuild build` が `.venv` を作り、`pip install --editable ".[dev]"` で入れます（`pyproject.toml` が変わったときだけ）。
+  `--configuration Release` なら配布用のパッケージ（wheel・sdist）も `dist/` に作ります。
+- `ecobuild test` は pytest で全部を流します。絞るときは `ecobuild test tests/test_x.py tests/y.py::test_a`、
+  `--filter "式"`（pytest の -k）、`--last-failed`（前回失敗したものだけ）。
+- `ecobuild run -- <引数…>` は `pyproject.toml` の `[project.scripts]` の最初のコマンドを `.venv` で実行します。
+- venv・pip・pytest を直接使う手順はルートの `README.md` にあります（ECOBuild なしで使うとき）。
 """
 
     @classmethod
@@ -167,24 +200,35 @@ python -m venv .venv
         artifacts = _python.build_distribution(self.root, python) if options.configuration == "Release" else ()
         return BuildResult(None, options.configuration, artifacts, None, action)
 
-    def test(self, project: str | None, options: PythonOptions, tests: tuple[str, ...] = ()) -> TestResult:
-        """tests：pytest に渡すファイル・フォルダ・テスト（tests/x.py::test_a）。空なら全部。"""
+    def test(self, project: str | None, options: PythonOptions, tests: tuple[str, ...] = (), *,
+             filter: str | None = None, last_failed: bool = False) -> TestResult:
+        """tests：pytest に渡すファイル・フォルダ・テスト（tests/x.py::test_a）。空なら全部。
+        filter：pytest の -k の式。last_failed：前回失敗したものだけ（check は使わず、いつも全部）。
+        cases はテストごとの nodeid・状態・理由・時間（_python.PythonTestCase）。"""
         _no_project(project)
-        cases = _python.run_tests(self.root, self._environment(), tests)
+        cases = _python.run_tests(self.root, self._environment(), tests, filter=filter, last_failed=last_failed)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         return TestResult(None, options.configuration, count("passed"), count("failed"), count("skipped"),
                           tuple(cases))
 
     def run(self, project: str | None, options: PythonOptions, arguments: str) -> RunResult:
+        """arguments：1つの文字列（_python.split_arguments で分ける）。出力はためて返す（stdin は渡さない）。"""
         _no_project(project)
-        script =_python.script_name(self.root)
+        return self.run_program(options, _python.split_arguments(arguments))
+
+    def run_program(self, options: PythonOptions, arguments: list[str], *, stream: bool = False,
+                    stdin: str | None = None, echo: bool = False, on_start=None) -> "PythonRunResult":
+        """分けた引数で実行する（ecobuild run が使う。stream・stdin・echo・on_start は _python.run_script のとおり）。"""
+        script = _python.script_name(self.root)
         if script is None:
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED, "実行できるものがありません（pyproject.toml の [project.scripts]）。",
                                 hint="module new の --kind app で作るか、[project.scripts] にコマンドを書いてください"
                                      "（タスクブランチでコミットします）。")
         self._environment()
-        completed = _python.run_script(self.root, script, arguments)
-        return RunResult(None, options.configuration, completed.returncode, completed.stdout)
+        completed = _python.run_script(self.root, script, list(arguments), stream=stream, stdin=stdin, echo=echo,
+                                       on_start=on_start)
+        return PythonRunResult(None, options.configuration, completed.returncode, completed.stdout, completed.stdout,
+                               completed.stderr, _python.command_text(completed.args), tuple(arguments))
 
     def _environment(self, *, force: bool = False) -> Path:
         from ecobuild import settings
@@ -225,7 +269,28 @@ python -m venv .venv
             removed.append(mirror)
         for item in removed:
             (self.root / item).unlink()
+        for item in list(removed):
+            removed += self._tidy(item.parent)
         return FilesChanged("file remove", tuple(p.as_posix() for p in removed))
+
+    def _tidy(self, folder: Path) -> list[Path]:
+        """消して空になったフォルダーを片付ける（file add が作る空の __init__.py だけが残ったものも）。
+        src/<パッケージ>/・tests/ そのものは残す。消した __init__.py を返す。"""
+        removed = []
+        while len(folder.parts) > 2 or (folder.parts[0] == "tests" and len(folder.parts) > 1):
+            path = self.root / folder
+            if not path.is_dir():
+                break
+            rest = [p for p in path.iterdir() if p.name != "__pycache__"]
+            init = path / "__init__.py"
+            if rest == [init] and init.stat().st_size == 0:
+                init.unlink()
+                removed.append(folder / "__init__.py")
+            elif rest:
+                break
+            remove_tree(path)   # 中身は __pycache__ だけ
+            folder = folder.parent
+        return removed
 
     def move_file(self, source: Path, destination: Path, *, test: bool) -> FilesChanged:
         origin, target = self._relative(source), self._relative(destination)
@@ -280,7 +345,10 @@ python -m venv .venv
         path.write_text("".join(lines), encoding="utf-8", newline="\n")
 
     def _packages(self, relative: Path) -> list[Path]:
-        """src/ の中の、まだ __init__.py がないパッケージのフォルダーに作る（setuptools が見つけるのに要る）。"""
+        """src/ の中の、まだ __init__.py がないパッケージのフォルダーに作る（setuptools の packages.find が見つけるのに
+        要る）。hatchling 等（ひな形）は __init__.py のないフォルダーも入れるので作らない。"""
+        if not _python.needs_init(self.root):
+            return []
         created = []
         for depth in range(2, len(relative.parts)):
             init = Path(*relative.parts[:depth]) / "__init__.py"
@@ -297,7 +365,7 @@ def _no_project(project: str | None) -> None:
     """Project を持たないので、指定されたら黙って全体にせず止める（run の引数の書き間違いにも気づける）。"""
     if project:
         raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"型 python には Project がありません（{project} を指定しました）。",
-                            hint="build・test・run はモジュール全体が対象です。run の引数は --arguments \"…\" で渡します。")
+                            hint="build・test・run はモジュール全体が対象です。run の引数は ecobuild run -- <引数…> で渡します。")
 
 
 def _mirror(relative: Path) -> Path | None:

@@ -49,7 +49,8 @@ def failed(message: str, hint: str | None = None) -> dict:
 
 
 def _error(error: EcoBuildError) -> dict:
-    return {"ok": False, "result": None, "error": {"code": error.code, "message": error.message, "hint": error.hint}}
+    return {"ok": False, "result": None, "error": {"code": error.code, "message": error.message, "hint": error.hint,
+                                                   "details": error.details}}
 
 
 def _option(args: list[str], name: str) -> str:
@@ -94,6 +95,8 @@ class Serve:
         wake = self.apps.step() if self.apps is not None else []   # 前の係から引き継ぎ、終わったもの
         for folder in agent_status.folders():
             root = agent_status.workspace_of(folder)
+            if root is not None:
+                self._alive(folder)
             self._requests(folder, root)
             if root is not None:
                 self._watch_reply(folder, root)
@@ -169,6 +172,18 @@ class Serve:
         except OSError:
             pass
 
+    def _alive(self, folder: Path) -> None:
+        """頼みの置き場所に、係が動いている印（team.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の生死を見る）。"""
+        file = folder / team.REQUESTS / team.SERVE_BEAT
+        seen = agent_status.read(file)
+        if isinstance(seen, dict) and isinstance(seen.get("at"), (int, float)) and time.time() - seen["at"] < team.BEAT_EVERY:
+            return
+        try:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            agent_status._write(file, {"at": time.time(), "pid": os.getpid()})
+        except OSError:
+            pass
+
     def _beat(self) -> None:
         """実行中の頼みの途中経過に、係が動いている印（時刻）を書く。"""
         with self._guard:
@@ -219,7 +234,8 @@ class Serve:
         """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。"""
         args = [str(a) for a in request.get("args") or []]
         own = args[:2] in (["agent", "start"], ["agent", "stop"]) and (args[1] == "stop" or "--app" in args)
-        if not own and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
+        reporting = args[:2] == ["agent", "report"]   # 作業役が報告を上の役に知らせる（コンテナの中から）
+        if not own and not reporting and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
             return failed(f"この頼みは受け付けません：ecobuild {' '.join(args)}")
         if root is None:
             return failed("頼んだエージェントの作業空間が分かりません。", hint="エージェントを起動し直してください。")
@@ -229,6 +245,8 @@ class Serve:
         shown = " ".join(a if len(a) <= 40 else a[:40] + "…" for a in args if a != "--json")
         self.log(f"頼み：ecobuild {shown}（{root}）")
         progress(f"実行しています：ecobuild {shown}")
+        if reporting:
+            return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
         try:
             if own:
                 return {"ok": True, "result": self._own(root, args, progress), "error": None}
@@ -243,6 +261,13 @@ class Serve:
                 member = team.find(root, args[3])
             except EcoBuildError as error:
                 return _error(error)
+            if args[2] == "close" and "--dry-run" in args:   # 確かめるだけ：止めない
+                return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
+            problems = team.close_problems(member) if args[2] == "close" and "--force" not in args else []
+            if problems:   # 止める前に確かめる（止めると作業中でなくなる）
+                return {"ok": False, "result": None, "error": {
+                    "code": ErrorCode.UNFINISHED_WORK, "message": f"「{member.name}」はまだ閉じられません。",
+                    "hint": "様子を確かめて（agent team list）、それでも閉じるなら --force。", "details": problems}}
             progress(f"「{member.name}」のエージェントを止めています…")
             self._stop(member.path)   # 使っているフォルダーは消せない・起動し直す前に止める
             if args[2] == "restart" and "--no-open" not in args:
@@ -363,16 +388,25 @@ class Serve:
         if at == before or (before is None and at < self.started):   # 見た・係が動く前のもの
             return
         message = replied.get("message") or ""
-        self._later(folder, lambda: self.replied(root, message))
+        continued = replied.get("continued") if isinstance(replied.get("continued"), int) else 0
+        self._later(folder, lambda: self.replied(root, message, continued=continued))
 
-    def replied(self, root: Path, message: str) -> None:
-        """作業空間 root のエージェントの返答が終わった。"""
-        notice = team.lead_notice(root, message)
-        if notice is not None:
-            lead, text = notice
-            agent_status.put(team.inbox_of(lead), text, sender=str(root), owner=team.notice_owner(root))
-            self.log(f"進行役に知らせました：{text.splitlines()[0]}")
-        self.run(["project", "update"], root)   # 型に手元をそろえさせる（持たない型は not_supported。気にしない）
+    def replied(self, root: Path, message: str, *, continued: int = 0) -> None:
+        """作業空間 root のエージェントの返答が終わった（continued：受け箱の言付けを受け取って、返答を終えずに続けている）。
+        進行役の受け箱にまだ届いていない、この作業役の前の知らせは出して、新しい知らせにまとめる（最新の1件だけ渡す）。"""
+        info = team.member_info(root)
+        if info.get("lead"):
+            inbox = team.inbox_of(Path(info["lead"]))
+            pending = agent_status.forget_from(inbox, str(root), agent_status.NOTICE, remove=False)
+            notice = team.lead_notice(root, message, continued=continued, merged=pending)
+            if notice is not None:
+                lead, text = notice
+                agent_status.forget_from(inbox, str(root), agent_status.NOTICE)   # 知らせを作れてから出す
+                agent_status.put(team.inbox_of(lead), text, sender=str(root), owner=team.notice_owner(root),
+                                 kind=agent_status.NOTICE)
+                self.log(f"進行役に知らせました：{text.splitlines()[0]}")
+        if not continued:
+            self.run(["project", "update"], root)   # 型に手元をそろえさせる（持たない型は not_supported。気にしない）
 
 
 def _member(member: team.Member) -> dict:

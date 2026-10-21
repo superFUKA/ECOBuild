@@ -56,7 +56,7 @@ def test_old_commands_are_gone():
                  ["unlink"]):
         assert runner.invoke(build_cli(), [*args, "--help"]).exit_code == 2, args
     shown = runner.invoke(build_cli(), ["task", "--help"]).output
-    assert shown.index("計画:") < shown.index("作業:") < shown.index("提出と完了:")
+    assert shown.index("コマンド（計画）:") < shown.index("コマンド（作業）:") < shown.index("コマンド（提出と完了）:")
 
 
 def test_cli_full_cycle(cli, module):

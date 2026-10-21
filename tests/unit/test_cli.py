@@ -147,7 +147,8 @@ def test_help_json_lists_every_command(tmp_path, monkeypatch, capsys):
     assert {"task", "status", "sync", "module"} <= set(common) and "build" not in common
     close = next(c for c in common["task"]["commands"] if c["name"] == "close")
     assert close["path"] == "task close" and close["section"] == "計画" and close["runnable"]
-    assert close["arguments"] == [{"name": "ISSUE", "help": "タスクの番号", "required": True, "multiple": False}]
+    assert close["arguments"] == [{"name": "ISSUE", "help": "タスクの番号", "required": True, "multiple": False,
+                                   "type": "int"}]
     names = [o["names"] for o in close["options"]]
     assert ["--not-planned"] in names and ["--json"] not in names       # どのコマンドにもあるものは出さない
     assert not common["task"]["runnable"] and common["sync"]["runnable"]   # sync はグループでも実行できる

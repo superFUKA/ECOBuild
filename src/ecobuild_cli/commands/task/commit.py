@@ -13,7 +13,8 @@ def command(
     """タスクブランチの変更をコミットします（タスクブランチでのみ）。
 
     パスを省くと、変更・削除したファイルすべてと、管理するファイル（ecobuild track）に当たる新しいファイルを含めます。
-    当たらない新しいファイルは含めず、一覧で知らせます。パスを書くと、そのファイルだけをコミットします。
+    当たらない新しいファイルと、改行コード（CRLF／LF）だけが変わったファイルは含めず、一覧で知らせます。
+    パスを書くと、そのファイルだけをコミットします（改行コードだけの変更も含めます）。
     """
     if not message and not amend:
         return missing("--message", json)
@@ -30,6 +31,8 @@ def command(
             f"含めなかった新しいファイル：{', '.join(r.skipped)}（管理するファイルの対象外。"
             "含めるなら ecobuild track add \"<パターン>\"、今回だけなら ecobuild task commit <パス> --message …）"
             if r.skipped else None,
+            f"注意：改行コード（CRLF／LF）だけが変わったファイルは含めませんでした：{', '.join(r.eol_only)}"
+            "（含めるなら ecobuild task commit <パス> --message …）" if r.eol_only else None,
             f"コミットしました：{r.sha[:8]} {r.message}（{len(r.files)} ファイル）",
         )
 

@@ -35,6 +35,7 @@ def lead(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
     github = FakeGitHub(tmp_path / "gh")
     monkeypatch.setattr(ecowork_github, "default", lambda: github)   # 係が開く作業空間（作業役）も偽の GitHub に
+    monkeypatch.setattr(team, "RETRY_WAIT", (0, 0, 0))               # 一時的な失敗のやり直しを待たない
     module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
     module.repository.create_task("大きな仕事").start(name="大きな仕事")
     (module.root / team.MEMBER_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +201,7 @@ def test_the_notice_puts_cautions_first(lead):
     commit(worker, "src/ui/login.py")
     (member.path / team.REPORT_FILE).write_text("できた\n", encoding="utf-8")
     first, facts = notice_of(member, "作りました。\n\n状態：完了")
-    assert first.endswith("「画面」の返答が終わりました。注意：完了と言っていますが、提出がありません／"
+    assert first.startswith("[ECOBuild] 作業役「画面」（子タスク #") and first.endswith("の返答が終わりました。注意：完了と言っていますが、提出がありません／"
                           "push していないコミットが 1 件あります")
     assert facts.startswith("状態：完了。報告：") and "提出：なし" in facts and "変えたファイル 1。" in facts
 
@@ -406,7 +407,7 @@ def test_the_manager_is_the_only_one_under_the_lead_and_makes_the_workers(lead):
     assert up["text"].startswith("[管理役「管理」から]") and up["text"].endswith("取り込みました")
     assert agent_status.take(team.inbox_of(top)) is None                                  # 作業役の知らせは進行役の受け箱に入らない
     where, text = team.lead_notice(manager.path, "終わりました\n状態：完了")               # 管理役の返答の終わり → 進行役
-    assert where == top and text.startswith("[ECOBUILD]".replace("ECOBUILD", "ECOBuild") + " 管理役「管理」の返答が終わりました")
+    assert where == top and text.startswith("[ECOBUILD]".replace("ECOBUILD", "ECOBuild") + " 管理役「管理」（子タスク #") and "の返答が終わりました" in text
 
 
 def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):
@@ -584,10 +585,10 @@ def test_the_serve_does_not_take_its_own_progress_for_requests(lead):
     for _ in range(3):   # 実行中に何度も見回る
         serve.step()
         time.sleep(0.05)
-    assert sorted(p.name for p in requests.iterdir()) == sorted(["a.taken", f"a{team.PROGRESS}"])
+    assert sorted(p.name for p in requests.iterdir() if p.name != team.SERVE_BEAT) == sorted(["a.taken", f"a{team.PROGRESS}"])
     release.set()
     serve.wait()
-    assert len(ran) == 1 and sorted(p.name for p in requests.iterdir()) == ["a.result.json"]
+    assert len(ran) == 1 and sorted(p.name for p in requests.iterdir() if p.name != team.SERVE_BEAT) == ["a.result.json"]
 
 
 def test_children_of_the_serve_do_not_inherit_the_apps_pipe(tmp_path):

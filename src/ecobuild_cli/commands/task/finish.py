@@ -13,7 +13,8 @@ def render_finish(r) -> str:
         done = f"中間提出を取り込みました：{r.subject}（#{r.task}。タスクブランチを作成元の最新から作り直しました）"
         follow = f"次：作業を続けて、終わったら ecobuild task submit → ecobuild task finish {r.task}"
     else:
-        done = (f"完了しました：#{r.task} {r.subject}" if not r.resumed
+        done = (f"#{r.task} は完了しています（取り込み・後処理は済んでいます。何もしていません）：{r.subject}"
+                if r.already_done else f"完了しました：#{r.task} {r.subject}" if not r.resumed
                 else f"#{r.task} の止まっていた後処理を行いました：{r.subject}")
         follow = (f"次：ecobuild task start {r.next.number}（{r.next.title}。task next の1番目）" if r.next
                   else "次のタスクの候補はありません（ecobuild task list）")
@@ -44,7 +45,7 @@ def command(
     提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。閉じるかどうかは提出のとおり（task submit
     --partial の中間提出なら、取り込んだ後にタスクブランチを作り直して続ける）で、--complete／--partial で変えられます。
     中間提出が取り込まれた後、新しい変更がなければ、取り込むものなしでタスクを閉じます。途中で止まったら、もう一度
-    実行すると続きから行います。
+    実行すると続きから行います。完了済みのタスクでは何もせずに終わります（JSON の already_done が true）。
     """
     task = optional_argument(number, task, "--task", json)
 

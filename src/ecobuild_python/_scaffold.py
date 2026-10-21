@@ -1,4 +1,4 @@
-"""新しいモジュールの中身（pyproject.toml・パッケージ・テスト）。"""
+"""新しいモジュールの中身（pyproject.toml・パッケージ・テスト・.gitattributes）。"""
 
 from __future__ import annotations
 
@@ -6,10 +6,12 @@ from pathlib import Path
 
 NEW_KINDS = ("app", "library", "none")
 
+# ビルドは hatchling：setuptools のように egg-info・build/ をモジュールの中に作らない（コンテナの 9p のマウントの上では
+# egg-info の chmod で失敗する）。src/ の中のパッケージはすべて入れる（__init__.py のないフォルダーも）
 PYPROJECT = """\
 [build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
 
 [project]
 name = "{name}"
@@ -22,8 +24,11 @@ dev = [
     "pytest>=8,<9",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+# src/ の中をすべて入れる（src/ は外す。src/calc/ → calc/）
+only-include = ["src"]
+sources = ["src"]
+exclude = [".gitkeep"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,6 +57,17 @@ def test_import():
 '''
 
 
+# 改行はLFにそろえる（Windows の core.autocrlf=true で CRLF にされると、コンテナ〔Linux〕のシェル・Python が困る）。
+# 新しいモジュールにだけ置く（module upgrade・adopt は足さない：元のリポジトリの .gitattributes の後ろに * の行を
+# 足すと、前に書いた *.ps1 等の決まりを上書きしてしまう）
+GITATTRIBUTES = """\
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+"""
+
+
 def package_name(module_name: str, project: str | None) -> str:
     return (project or module_name).lower()
 
@@ -61,6 +77,7 @@ def populate(root: Path, module_name: str, kind: str, project: str | None, *, te
     package = package_name(module_name, project)
     scripts = f'\n[project.scripts]\n{module_name} = "{package}.__main__:main"\n' if kind == "app" else ""
     write(root / "pyproject.toml", PYPROJECT.format(name=module_name, scripts=scripts))
+    write(root / ".gitattributes", GITATTRIBUTES)
     (root / "tests").mkdir(exist_ok=True)
     (root / "src").mkdir(exist_ok=True)
     if kind == "none":

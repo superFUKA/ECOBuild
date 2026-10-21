@@ -204,7 +204,9 @@ def test_finish_resumes_after_a_failure(repository, monkeypatch):
     monkeypatch.setattr(github, "close_issue", original)
     result = repository.finish(task.number)
     assert result.resumed and result.closed_issue == task.number and result.removed
-    assert code_of(lambda: repository.finish(task.number)) == ErrorCode.TASK_CLOSED
+    again = repository.finish(task.number)   # 済んでいれば誤りにしない（もう一度打っても同じ結果）
+    assert again.already_done and not again.resumed and again.pull_request == result.pull_request
+    assert not (again.closed_issue or again.removed)
 
 
 def test_finish_requires_approval_when_configured(repository):

@@ -31,7 +31,8 @@ def command(
             "開いていた提出を閉じました" if r.closed_pull_requests else None,
             f"{r.switched_to} に移りました" if r.switched_to else None,
             f"Issue #{r.number} を「対応しない」として閉じました" if r.issue_closed
-            else f"Issue #{r.number} は開いたままです（ecobuild task start {r.number} でやり直せます）",
+            else f"Issue #{r.number} は開いたままです（ecobuild task start {r.number} でやり直せます）" if r.issue_open
+            else f"Issue #{r.number} は閉じています（段階はそのままです）",
         )
 
     return run_command("task drop", action, render, json_output=json, yes=yes)

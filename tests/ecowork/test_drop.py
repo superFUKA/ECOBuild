@@ -87,3 +87,17 @@ def test_drop_close_unstarted_issue(repository):
     result = repository.drop_task(task.number, close=True)
     assert result.issue_closed and result.lost_commits == ()
     assert repository.github.issues[task.number].state == "closed" and task.number in repository.github.not_planned
+
+
+def test_drop_leftover_branch_of_closed_issue_keeps_it_closed(repository):
+    """閉じたIssueの残りのタスクブランチを消しても、Issueは閉じたまま・段階も変えない（「開いたまま」と出さない）。"""
+    task = repository.create_task("閉じた後の残り")
+    task.start()
+    repository.github.close_issue(repository.root, task.number)
+    repository.tracker.closed(task.number)
+    stage = repository.tracker.task(task.number).stage
+    result = repository.drop_task(task.number)
+    assert not result.issue_open and not result.issue_closed
+    assert repository.github.issues[task.number].state == "closed"
+    assert stage is not None and repository.tracker.task(task.number).stage == stage
+    assert not repository.git.has_local_branch(result.branch)

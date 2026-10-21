@@ -14,6 +14,7 @@ from pathlib import Path
 from ecobuild import ci_workflow
 from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
+from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasFiles, ModuleType
 from ecobuild.results import BuildResult, FilesChanged, RunResult, TestResult
 
@@ -33,8 +34,9 @@ __pycache__/
 .pytest_cache/
 """
 
-# 管理するファイルの既定（ソース・設定・文書）
-TRACKED_PATTERNS = ("*.py", "*.pyi", "*.toml", "*.cfg", "*.ini", "*.txt", "*.md", "py.typed")
+# 管理するファイルの既定（ソース・設定・文書・コンテナ・Web の素材。.gitignore・.gitattributes は本体が常に含める）
+TRACKED_PATTERNS = ("*.py", "*.pyi", "*.toml", "*.cfg", "*.ini", "*.txt", "*.md", "py.typed", "Dockerfile",
+                    "*.html", "*.js", "*.css", "*.json")
 
 # 足りないツールの導入コマンド（ecobuild setup --install）
 INSTALL = {
@@ -83,11 +85,33 @@ class PythonType(ModuleType, Builds, HasFiles):
 
 Python 3.11以上で、次のようにインストール・テストできます。
 
+Windows：
+
+```bat
+py -m venv .venv
+.venv\\Scripts\\python -m pip install --editable ".[dev]"
+.venv\\Scripts\\python -m pytest
+```
+
+Linux・macOS（`python` がなければ `python3`）：
+
 ```sh
-python -m venv .venv
-.venv/bin/python -m pip install --editable ".[dev]"   # Windows：.venv\\Scripts\\python
+python3 -m venv .venv
+.venv/bin/python -m pip install --editable ".[dev]"
 .venv/bin/python -m pytest
 ```
+"""
+
+    @classmethod
+    def ecobuild_usage(cls, config: ModuleConfig) -> str:
+        return """## 型 python
+
+- `ecobuild build` が `.venv` を作り、`pip install --editable ".[dev]"` で入れます（`pyproject.toml` が変わったときだけ）。
+  `--configuration Release` なら配布用のパッケージ（wheel・sdist）も `dist/` に作ります。
+- `ecobuild test` は pytest で全部を流します。絞るときは `ecobuild test tests/test_x.py tests/y.py::test_a`、
+  `--filter "式"`（pytest の -k）、`--last-failed`（前回失敗したものだけ）。
+- `ecobuild run -- <引数…>` は `pyproject.toml` の `[project.scripts]` の最初のコマンドを `.venv` で実行します。
+- venv・pip・pytest を直接使う手順はルートの `README.md` にあります（ECOBuild なしで使うとき）。
 """
 
     @classmethod
@@ -225,7 +249,28 @@ python -m venv .venv
             removed.append(mirror)
         for item in removed:
             (self.root / item).unlink()
+        for item in list(removed):
+            removed += self._tidy(item.parent)
         return FilesChanged("file remove", tuple(p.as_posix() for p in removed))
+
+    def _tidy(self, folder: Path) -> list[Path]:
+        """消して空になったフォルダーを片付ける（file add が作る空の __init__.py だけが残ったものも）。
+        src/<パッケージ>/・tests/ そのものは残す。消した __init__.py を返す。"""
+        removed = []
+        while len(folder.parts) > 2 or (folder.parts[0] == "tests" and len(folder.parts) > 1):
+            path = self.root / folder
+            if not path.is_dir():
+                break
+            rest = [p for p in path.iterdir() if p.name != "__pycache__"]
+            init = path / "__init__.py"
+            if rest == [init] and init.stat().st_size == 0:
+                init.unlink()
+                removed.append(folder / "__init__.py")
+            elif rest:
+                break
+            remove_tree(path)   # 中身は __pycache__ だけ
+            folder = folder.parent
+        return removed
 
     def move_file(self, source: Path, destination: Path, *, test: bool) -> FilesChanged:
         origin, target = self._relative(source), self._relative(destination)
@@ -280,7 +325,10 @@ python -m venv .venv
         path.write_text("".join(lines), encoding="utf-8", newline="\n")
 
     def _packages(self, relative: Path) -> list[Path]:
-        """src/ の中の、まだ __init__.py がないパッケージのフォルダーに作る（setuptools が見つけるのに要る）。"""
+        """src/ の中の、まだ __init__.py がないパッケージのフォルダーに作る（setuptools の packages.find が見つけるのに
+        要る）。hatchling 等（ひな形）は __init__.py のないフォルダーも入れるので作らない。"""
+        if not _python.needs_init(self.root):
+            return []
         created = []
         for depth in range(2, len(relative.parts)):
             init = Path(*relative.parts[:depth]) / "__init__.py"

@@ -152,14 +152,27 @@ def read_junit(path: Path) -> list[TestCaseResult]:
     return cases
 
 
-def script_name(root: Path) -> str | None:
-    """[project.scripts] の最初の名前（なければNone）。"""
+def _pyproject(root: Path) -> dict:
     try:
-        data = tomllib.loads((root / PYPROJECT).read_text(encoding="utf-8"))
+        return tomllib.loads((root / PYPROJECT).read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as error:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{PYPROJECT} を読み込めません：{error}") from error
-    scripts = data.get("project", {}).get("scripts", {})
+
+
+def script_name(root: Path) -> str | None:
+    """[project.scripts] の最初の名前（なければNone）。"""
+    scripts = _pyproject(root).get("project", {}).get("scripts", {})
     return next(iter(scripts), None)
+
+
+def needs_init(root: Path) -> bool:
+    """パッケージのフォルダーに __init__.py が要るか：setuptools（[build-system] を書かない既定も setuptools）は
+    packages.find で __init__.py のあるフォルダーだけを入れる。hatchling 等（ひな形）はフォルダーごと入れるので要らない。"""
+    try:
+        backend = _pyproject(root).get("build-system", {}).get("build-backend", "setuptools.build_meta")
+    except EcoBuildError:
+        return True
+    return str(backend).startswith("setuptools")
 
 
 def run_script(root: Path, name: str, arguments: str) -> subprocess.CompletedProcess:

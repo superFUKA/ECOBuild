@@ -39,9 +39,9 @@ def test_capabilities():
 
 
 @pytest.mark.parametrize("kind,files", [
-    ("app", {"pyproject.toml", "src/calc/__init__.py", "src/calc/__main__.py", "tests/test_calc.py"}),
-    ("library", {"pyproject.toml", "src/calc/__init__.py", "tests/test_calc.py"}),
-    ("none", {"pyproject.toml", "src/.gitkeep", "tests/.gitkeep"}),
+    ("app", {"pyproject.toml", ".gitattributes", "src/calc/__init__.py", "src/calc/__main__.py", "tests/test_calc.py"}),
+    ("library", {"pyproject.toml", ".gitattributes", "src/calc/__init__.py", "tests/test_calc.py"}),
+    ("none", {"pyproject.toml", ".gitattributes", "src/.gitkeep", "tests/.gitkeep"}),
 ])
 def test_populate(tmp_path, kind, files):
     make(tmp_path, kind)
@@ -49,12 +49,14 @@ def test_populate(tmp_path, kind, files):
     data = tomllib.loads((tmp_path / "pyproject.toml").read_text(encoding="utf-8"))
     assert data["project"]["name"] == "Calc" and ("scripts" in data["project"]) == (kind == "app")
     assert _python.script_name(tmp_path) == ("Calc" if kind == "app" else None)
+    assert data["build-system"]["build-backend"] == "hatchling.build" and not _python.needs_init(tmp_path)
+    assert (tmp_path / ".gitattributes").read_text(encoding="utf-8").startswith("* text=auto eol=lf\n")
 
 
 def test_library_without_tests(tmp_path):
     PythonType.populate(tmp_path, ModuleConfig.for_new_module("Calc", "python"), "library", None, test=False)
     assert {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()} == {
-        "pyproject.toml", "src/calc/__init__.py", "tests/.gitkeep"}
+        "pyproject.toml", ".gitattributes", "src/calc/__init__.py", "tests/.gitkeep"}
 
 
 def test_project_names_the_package(tmp_path):
@@ -65,13 +67,15 @@ def test_project_names_the_package(tmp_path):
 def test_module_defaults():
     assert PythonType.new_kinds == ("app", "library", "none") and PythonType.default_new_kind == "app"
     assert ".venv/" in PythonType.gitignore() and "*.py" in PythonType.tracked_patterns()
+    assert {"Dockerfile", "*.html", "*.js", "*.css", "*.json"} <= set(PythonType.tracked_patterns())
+    assert PythonType.gitattributes() == ""      # .gitattributes は新しいモジュールにだけ置く（upgrade で足さない）
     assert PythonType.generated_note == "" and "python" in PythonType.tool_settings()
 
 
 def test_add_move_remove_file(tmp_path):
     python = make(tmp_path, "library")
     added = python.add_file(tmp_path / "src/calc/core/ops.py", test=True)
-    assert set(added.paths) == {"src/calc/core/__init__.py", "src/calc/core/ops.py", "tests/core/test_ops.py"}
+    assert set(added.paths) == {"src/calc/core/ops.py", "tests/core/test_ops.py"}     # hatchling：__init__.py は要らない
     assert "from calc.core import ops" in (tmp_path / "tests/core/test_ops.py").read_text(encoding="utf-8")
     assert code_of(lambda: python.add_file(tmp_path / "src/calc/core/ops.py", test=True)) == ErrorCode.ALREADY_EXISTS
     assert code_of(lambda: python.add_file(tmp_path / "docs/x.py", test=True)) == ErrorCode.NOT_IN_SOURCE_DIRECTORY
@@ -83,14 +87,35 @@ def test_add_move_remove_file(tmp_path):
     moved = python.move_file(tmp_path / "src/calc/core/ops.py", tmp_path / "src/calc/math/ops.py", test=True)
     assert moved.paths == ("src/calc/core/ops.py", "src/calc/math/ops.py", "tests/core/test_ops.py",
                            "tests/math/test_ops.py")                         # 移動元・移動先の組
-    assert (tmp_path / "src/calc/math/__init__.py").is_file() and not (tmp_path / "tests/core/test_ops.py").exists()
+    assert not (tmp_path / "tests/core/test_ops.py").exists()
     assert "from calc.math import ops\n" in (tmp_path / "tests/math/test_ops.py").read_text(encoding="utf-8")
     python.move_file(tmp_path / "src/calc/math/ops.py", tmp_path / "src/calc/math/calc.py", test=True)
     assert "from calc.math import calc as ops\n" in (tmp_path / "tests/math/test_calc.py").read_text(encoding="utf-8")
     python.move_file(tmp_path / "src/calc/math/calc.py", tmp_path / "src/calc/math/ops.py", test=True)
     removed = python.remove_file(tmp_path / "src/calc/math/ops.py", test=True)
     assert set(removed.paths) == {"src/calc/math/ops.py", "tests/math/test_ops.py"}
+    assert not (tmp_path / "src/calc/math").exists() and not (tmp_path / "tests/math").exists()   # 空のフォルダーも片付ける
     assert code_of(lambda: python.remove_file(tmp_path / "src/calc/math/ops.py", test=True)) == ErrorCode.FILE_NOT_FOUND
+
+
+def test_setuptools_needs_init(tmp_path):
+    """setuptools（packages.find）のモジュールでは、新しいフォルダーに空の __init__.py を作り、消すときに片付ける。"""
+    python = make(tmp_path, "library")
+    (tmp_path / "pyproject.toml").write_text('[build-system]\nbuild-backend = "setuptools.build_meta"\n', encoding="utf-8")
+    assert _python.needs_init(tmp_path)
+    added = python.add_file(tmp_path / "src/calc/core/deep/ops.py", test=True)
+    assert set(added.paths) == {"src/calc/core/__init__.py", "src/calc/core/deep/__init__.py", "src/calc/core/deep/ops.py",
+                                "tests/core/deep/test_ops.py"}
+    (tmp_path / "src/calc/core/deep/__pycache__").mkdir()
+    python.add_file(tmp_path / "src/calc/core/keep.py", test=False)
+    removed = python.remove_file(tmp_path / "src/calc/core/deep/ops.py", test=True)
+    assert set(removed.paths) == {"src/calc/core/deep/ops.py", "tests/core/deep/test_ops.py", "src/calc/core/deep/__init__.py"}
+    assert not (tmp_path / "src/calc/core/deep").exists() and not (tmp_path / "tests/core").exists()
+    assert (tmp_path / "src/calc/core/__init__.py").is_file()           # ほかのファイルがあるフォルダーは残す
+    python.remove_file(tmp_path / "src/calc/core/keep.py", test=True)
+    assert not (tmp_path / "src/calc/core").exists() and (tmp_path / "src/calc/__init__.py").is_file()
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")    # [build-system] なし＝setuptools
+    assert _python.needs_init(tmp_path)
 
 
 def test_profile_and_options(tmp_path):

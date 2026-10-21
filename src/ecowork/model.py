@@ -389,6 +389,25 @@ class BranchMerged:
 
 
 @dataclass(frozen=True)
+class BranchMergePlan:
+    """管理用のブランチ同士の直接の取り込みを、前もって確かめた結果（branch merge --into --dry-run。何も変えない）。"""
+    name: str                        # 取り込むブランチ
+    into: str                        # 取り込み先
+    method: str                      # fast-forward / merge / conflict / up-to-date（取り込み済み）
+    commits: tuple["LogEntry", ...]  # 入るコミット（新しい順。多ければ先頭の MERGE_PLAN_COMMITS 件）
+    commit_count: int                # 入るコミットの数
+    files: tuple[str, ...]           # 変わるファイル（into から見て。多ければ先頭の MERGE_PLAN_FILES 件）
+    file_count: int                  # 変わるファイルの数
+    conflicts: tuple[str, ...]       # 衝突するファイル（method が conflict のとき）
+    allowed: bool                    # 今のアカウントで取り込めるか（into への提出を取り込める人か）
+    owners: str                      # 取り込める人（説明）
+
+
+MERGE_PLAN_COMMITS = 50
+MERGE_PLAN_FILES = 200
+
+
+@dataclass(frozen=True)
 class SkippedBranch:
     branch: str
     reason: str

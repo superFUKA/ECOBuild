@@ -6,6 +6,7 @@ import pytest
 
 from fakes import FakeGitHub
 from ecobuild import config
+from ecobuild import module as module_mod
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecowork import WorkError
 from ecobuild_bundle import Module
@@ -119,6 +120,7 @@ def test_submit_writes_check_evidence(tmp_path):
     task_branch = module.repository.create_task("証拠").start()
     commands = {"build": python("print('built')"), "test": python("print('tested')")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    module.set_submit_checks(config.SubmitChecks(items=("build", "test")))
     task_branch.stage(all=True)
     task_branch.commit("コマンド")
     pr = module.submit(note="テストのコマンドを足した。戻すならこのPRを戻す。")
@@ -138,6 +140,40 @@ def test_submit_writes_check_evidence(tmp_path):
     module.check()
     module.submit(check=False)   # 確かめた版なら、その結果を書く
     assert "- OK テスト：成功 1" in module.repository.github.pulls[pr.number].body
+
+
+def test_submit_checks_only_what_the_module_chose(tmp_path):
+    """提出の前の確認は [check] で決める（ecobuild task checks）。既定は何もせずに出し、そう書く。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    task_branch = module.repository.create_task("提出の確認").start()
+    commands = {"build": python("import sys; sys.exit(5)"), "test": python("print('tested')")}   # ビルドは失敗する
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
+    assert module.config.submit_checks == config.SubmitChecks()
+    task_branch.stage(all=True)
+    task_branch.commit("コマンド")
+    pr = module.submit()   # 何も確かめない（失敗するビルドも動かさない）
+    body = module.repository.github.pulls[pr.number].body
+    assert module_mod.NO_CHECKS_SET_NOTE in body and module_mod.submitted_check(body) == (None, None)
+
+    settings = module.set_submit_checks(config.SubmitChecks(items=("conflict_markers", "test")))
+    assert settings.items == ("conflict_markers", "test") and settings.tests == ()
+    assert config.load(module.root / config.FILE_NAME).submit_checks == settings
+    task_branch.stage(all=True)
+    task_branch.commit("提出の確認")
+    module.submit()        # 選んだ項目だけ（ビルドは動かさないので通る）
+    body = module.repository.github.pulls[pr.number].body
+    assert "- OK 衝突の印" in body and "- OK テスト" in body and "ビルド" not in body
+    assert not module.checked()   # 一部だけの確認は、全部を通った版として残さない
+    with pytest.raises(EcoBuildError) as error:   # 試験を絞れない型に絞る試験を書いたら、飛ばさずに失敗
+        module.check(only=("test",), tests=("t",))
+    assert error.value.code == ErrorCode.CHECK_FAILED
+    with pytest.raises(EcoBuildError) as error:
+        module.set_submit_checks(config.SubmitChecks(items=("lint",)))
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT
+    with pytest.raises(EcoBuildError):
+        module.set_submit_checks(config.SubmitChecks(items=("build",), tests=("t",)))   # test なしで試験を指定
+    assert module.set_submit_checks(config.SubmitChecks()) == config.SubmitChecks()
+    assert "[check]" not in (module.root / config.FILE_NAME).read_text(encoding="utf-8")
 
 
 def test_ci_settings_and_hand_edited_workflow(tmp_path):

@@ -275,7 +275,7 @@ def test_the_check_runs_inside_when_the_workspace_is_a_container(monkeypatch, ro
     import json
 
     class Host:
-        def check(self, *, build=True, allow_dependency_mismatch=False):
+        def check(self, *, build=True, allow_dependency_mismatch=False, only=None, tests=()):
             return "このPC"
 
     class Workspace(container.ContainerModule, Host):
@@ -303,6 +303,8 @@ def test_the_check_runs_inside_when_the_workspace_is_a_container(monkeypatch, ro
     with pytest.raises(WorkError) as error:
         workspace.check(build=False)
     assert error.value.code == "check_failed" and error.value.details == [{"name": "generated", "ok": False}]
+    workspace.check(only=("build", "test"), tests=("tests/unit",))                     # 提出の確認の項目も中へ
+    assert ran[-1][0] == ["ecobuild", "check", "--json", "--only", "build,test", "--tests", "tests/unit"]
     monkeypatch.setenv(container.INSIDE, "1")
     assert workspace.check() == "このPC"                                                # 中ではそのまま
 

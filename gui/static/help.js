@@ -252,7 +252,7 @@ const HELP = (() => {
     if (!node.options?.length) return '';
     return `<h4>オプション</h4><dl class="help-params">${node.options.map(o => {
       const tags = [o.required && '<span class="tag need">必須</span>', o.multiple && '<span class="tag">何度でも</span>',
-        o.default !== undefined && `<span class="tag">既定：${esc(String(o.default))}</span>`].filter(Boolean).join('');
+        o.default != null && o.default !== '' && `<span class="tag">既定：${esc(String(o.default))}</span>`].filter(Boolean).join('');
       const choices = o.choices ? `<div class="help-choices">${o.choices.map(c => `<code>${esc(c)}</code>`).join('')}</div>` : '';
       return `<div><dt><code>${esc(o.names.join(', '))}${o.flag ? '' : ` <i>${esc(o.value || '値')}</i>`}</code>${tags}</dt><dd>${linked(o.help)}${choices}</dd></div>`;
     }).join('')}</dl>`;

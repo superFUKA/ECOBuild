@@ -79,9 +79,10 @@
       + (!isDefault ? button('branch-delete', '削除', {kind: 'quiet-danger', enabled: admin(), why: ECO.adminNote, help: 'このブランチを、手元と GitHub から削除します（タスクブランチの作成元・今いるブランチは消せません）。'}) : '');
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
       <div class="br-head"><div><h3>${esc(b.name)}</h3>
-        <p class="mi-note">${pill('ブランチ')} ${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
+        <p class="mi-note">${pill('ブランチ')} ${b.unusable ? pill('モジュールではない') + ' ' : ''}${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
         <div class="mi-actions">${branchActions}</div></div>
       <dl class="br-facts">
+        ${b.unusable ? `<dt>作業</dt><dd>${esc(b.unusable)}。タスクブランチの作成元にはできません</dd>` : ''}
         <dt>提出を処理できる人</dt><dd>${esc(isDefault ? '管理者' : creator ? `${creator}（作った人）と管理者` : '管理者')}</dd>
         ${isDefault ? `<dt>保護</dt><dd id="br-protection">${protectionText()}</dd>` : ''}
       </dl>

@@ -173,6 +173,14 @@ def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path
     assert dedicated.status(fetch=True).base_behind == 1
 
 
+def test_a_clone_that_cannot_be_opened_is_removed(repository, tmp_path):
+    """clone した後に開けなければ、作りかけを残さない（同じ場所でやり直せるように）。"""
+    def refuse(root):
+        raise WorkError(ErrorCode.GIT_ERROR, "開けません")
+    assert code_of(lambda: repository.clone_to(tmp_path / "ws", open=refuse)) == ErrorCode.GIT_ERROR
+    assert not (tmp_path / "ws").exists()
+
+
 def test_merge_stops_when_checks_failed(repository):
     """CIが失敗したPRはマージしない（--ignore-checks で続ける）。仮運用3回目で追加。"""
     task_branch = repository.create_task("t").start()

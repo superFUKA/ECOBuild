@@ -171,7 +171,7 @@ class AgentModule:
         since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)) if isinstance(at, (int, float)) else "不明"
         raise EcoBuildError(ErrorCode.AGENT_ERROR, f"この作業空間では、もうエージェントが動いています（pid {pid}・起動 {since}）。",
                             hint="同じ作業空間に2つ目のエージェントは起動しません（チーム・受け箱・状態を共有してしまいます）。"
-                                 f"別の作業空間で {operation(self.command, 'task start <番号> --dir ../<フォルダ>')} するか、"
+                                 f"別の作業空間で {operation(self.command, 'task start <番号> --new-workspace')} するか、"
                                  "その会話を続けてください。")
 
     def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER,

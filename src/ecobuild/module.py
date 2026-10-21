@@ -929,6 +929,21 @@ class Module:
 
     # タスクブランチ・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
+    def new_workspace_path(self, task: int | None = None) -> Path:
+        """新しい作業空間の既定の場所：<置き場所>/<モジュール名>/<番号>。置き場所はこのPCの設定 workspace_directory
+        （なければモジュールの親の workspace）。番号は task（タスクの作業空間）、なければ空いている最小の番号。
+        モジュールの隣に「<モジュール名>-<番号>」を並べると、モジュールと作業空間の見分けがつかないため。"""
+        from . import settings as _settings
+        configured = _settings.load_config().get("workspace_directory")
+        base = Path(configured).expanduser() if configured else self.root.parent / "workspace"
+        folder = (base if base.is_absolute() else self.root / base) / self.name
+        if task is not None:
+            return folder / str(task)
+        number = 1
+        while (folder / str(number)).exists():
+            number += 1
+        return folder / str(number)
+
     def create_workspace(self, directory: Path | str, *,
                          account: str | None = None) -> tuple["Module", tuple[DependencyChange, ...]]:
         """新しい作業空間（このモジュールのclone）を directory に作り、依存先と生成ファイルを用意する。

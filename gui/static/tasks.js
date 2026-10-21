@@ -444,7 +444,9 @@
       const task = b.is_task_branch ? byNumber(ECO.taskOfBranch(b.name)) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
-    const suggested = root().replace(/[\\/]+$/, '') + '-' + n;
+    // The new workspace's default place comes from the CLI (<workspace_directory>/<module>/<number>), not next to the module.
+    const placed = await ECO.cli(root(), ['workspace', 'path', '--task', String(n)], {quiet: true});
+    const suggested = placed.ok ? placed.result.path : '';
     // Where to place the task branch: a workspace of this PC (one being reviewed cannot switch), by default the tab
     // shown now when nothing is placed there; or a new workspace; or none.
     const places = MOD.places.filter(p => { const s = MOD.states.get(MOD.keyOf(p)); return s && !s.reviewing; });

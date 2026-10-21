@@ -1,11 +1,11 @@
 from typing import Annotated
 
 from ecobuild import workspaces as _workspaces
-from ..._output import lines, run_command
+from ..._output import lines, run_command, usage_error
 
 
 def command(
-    dir: Annotated[str, "新しい作業空間の場所（まだないフォルダ。例：../Calc-2）"],
+    *dir: Annotated[str, "新しい作業空間の場所（まだないフォルダ。省くと既定の場所：ecobuild workspace path）"],
     account: Annotated[str, "新しい作業空間で使う GitHub のアカウント（AI 用のアカウント等。ecobuild account use と同じ）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -14,8 +14,12 @@ def command(
     ブランチは作成元（ecobuild.toml の default_base）です。タスクはそこで ecobuild task start で開始します。
     """
 
+    if len(dir) > 1:
+        return usage_error("場所は1つだけ指定します。", json)
+
     def action(inv):
-        module, dependencies = inv.module.create_workspace(inv.cwd / dir, account=account or None)
+        target = inv.cwd / dir[0] if dir else inv.module.new_workspace_path()
+        module, dependencies = inv.module.create_workspace(target, account=account or None)
         _workspaces.record_quietly(module.root)   # workspace list・GUI のタブに出るように
         inv.use_module(module)
         return module.cloned(dependencies)

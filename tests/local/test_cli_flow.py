@@ -29,7 +29,7 @@ def as_json(result):
 def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
-                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"],
+                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"], ["workspace", "path"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
                  ["container", "stop"], ["container", "remove"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
@@ -513,6 +513,23 @@ def test_workspace_create(cli, module, monkeypatch):
     monkeypatch.chdir(other)
     assert cli("task", "start", "1", "--name", "作業").exit_code == 0
     assert as_json(cli("status", "--json"))["result"]["branch"] == "task/1-作業"
+
+
+def test_workspace_default_place(cli, module, monkeypatch, tmp_path):
+    """場所を省いた作業空間は <置き場所>/<モジュール名>/<番号>（モジュールの隣に Calc-2 等を並べない）。置き場所はこのPCの設定。"""
+    from ecobuild.results import PrepareResult
+    from ecobuild_cpp.type import CppType
+    monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
+    shared = module.root.parent / "workspace" / "Calc"
+    assert as_json(cli("workspace", "path", "--json"))["result"]["path"] == (shared / "1").as_posix()
+    assert as_json(cli("workspace", "create", "--json"))["result"]["root"] == (shared / "1").as_posix()
+    assert as_json(cli("workspace", "path", "--json"))["result"]["path"] == (shared / "2").as_posix()   # 空いている番号
+    assert cli("task", "new", "並行作業").exit_code == 0
+    assert as_json(cli("workspace", "path", "--task", "1", "--json"))["result"]["path"] == (shared / "1").as_posix()
+    assert as_json(cli("task", "start", "1", "--dir", "x", "--new-workspace", "--json"))["error"]["code"] == "usage_error"
+    cli("config", "set", "workspace_directory", str(tmp_path / "places"))
+    assert cli("task", "start", "1", "--new-workspace", "--name", "作業", "--json").exit_code == 0
+    assert (tmp_path / "places" / "Calc" / "1" / ".git").is_dir()
 
 
 def test_workspaces(cli, module, parallel, monkeypatch):

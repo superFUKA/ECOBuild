@@ -264,17 +264,17 @@ MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.tas
 MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
 // The tab shown now (the place started tasks go to by default), or null.
 MOD.activePlace = () => MOD.places.find(p => keyOf(p) === activePlace) || null;
-// A new workspace (workspace create: another clone of the module, on the default branch) next to the module's clone.
+// A new workspace (workspace create: another clone of the module, on the default branch).
 MOD.createWorkspace = async () => {
-  const taken = new Set(MOD.places.map(keyOf)), base = MOD.root.replace(/[\\/]+$/, '');
-  let n = 2; while (taken.has(keyOf(`${base}-${n}`))) n++;
+  // The default place comes from the CLI (<workspace_directory>/<module>/<number>), not next to the module's clone.
+  const placed = await ECO.cli(MOD.root, ['workspace', 'path'], {quiet: true});
   let created = null;
   // The account the new workspace works as (an AI's account etc.): chosen when more than one is logged in on this PC.
   const listed = await ECO.cli(null, ['account', 'list'], {quiet: true}), accounts = listed.ok ? listed.result : [];
   const accountField = accounts.length > 1 ? [{name: 'account', label: '使う GitHub のアカウント（AI 用のアカウント等。push・提出・コミットの作者がそのアカウントになります）', type: 'select',
     value: '', options: [['', `gh の使用中のアカウント（${accounts.find(a => a.active)?.login || '?'}）`], ...accounts.filter(a => !a.active).map(a => [a.login, a.login])]}] : [];
   await ECO.form({title: '新しい作業空間', intro: `${ECO.esc(MOD.name)} をもう1つcloneして、並行作業の場所にします（ブランチは既定のまま）。タスクはそこで「作業を開始」します。`,
-    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: `${base}-${n}`, required: true}, ...accountField], ok: '作成',
+    busy: '作業空間を作っています…', fields: [{name: 'dir', label: '場所（まだないフォルダ）', value: placed.ok ? placed.result.path : '', required: true}, ...accountField], ok: '作成',
     submit: async v => {
       const doc = await ECO.run(MOD.root, ['workspace', 'create', v.dir, ...(v.account ? ['--account', v.account] : [])], {success: r => `作業空間を作りました：${r.root}`});
       if (!doc) return '作成できませんでした。';

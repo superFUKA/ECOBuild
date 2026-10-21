@@ -256,6 +256,38 @@ def test_stopping_the_serve_lets_the_reply_finish_and_the_next_serve_resumes(lea
     second.apps.stop(member.path)
 
 
+def test_the_next_serve_does_not_wake_a_member_whose_task_is_closed(lead, tmp_path):
+    """タスクが閉じた作業役（作業空間を閉じ忘れたもの）は、次の係が起こさない：持つのをやめ、進行役に知らせる。"""
+    member = team.create(lead, "画面", "目的：画面を作る")
+    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    fake = Fake(tmp_path)
+    first = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
+    agent = first.apps.start(member.path, role="worker", prompt="はじめて")
+    until(lambda: state(member.path).get("replied_at"), first)
+    first.apps.close(wait=0.1)
+    threading.Thread(target=agent.process.wait, daemon=True).start()
+
+    asked = []
+
+    def run(args, cwd, **_):
+        asked.append((args, Path(cwd)))
+        return {"ok": True, "result": {"state": "closed"}} if args[:2] == ["task", "status"] else {"ok": True, "result": {}}
+    second = agent_serve.Serve(run, launch=fake)
+    second.wake()
+    until(lambda: not second.apps.holds(member.path), second)
+    second.wait()
+    assert len(fake.launched) == 1 and (["task", "status", "--json"], member.path) in asked   # 起こさない
+    assert json.loads((Path(os.environ["ECOBUILD_HOME"]) / app.HELD).read_text(encoding="utf-8")) == {"agents": []}
+    texts = []
+
+    def collect():
+        while (item := agent_status.take(folder)) is not None:
+            texts.append(item["text"])
+        return any("起こしませんでした" in t for t in texts)
+    until(collect, second)
+    assert any("タスクが閉じています" in t for t in texts)
+
+
 def test_people_can_take_over_and_hand_back(lead, tmp_path):
     """引き取る：係が止めて会話を返す（人は対話型で claude --resume）。返す：対話型を閉じた後、係が続きから起こす。"""
     member = team.create(lead, "画面", "目的：画面を作る")

@@ -62,6 +62,30 @@ class CiSettings:
     review_auth: str = "subscription"              # 見直しの認証：subscription（契約のトークン）・api-key
 
 
+CHECK_TABLE = "check"
+# 提出の前に行える確認の項目（ecobuild check の項目のうち、選べるもの）
+SUBMIT_CHECK_ITEMS = ("generated", "conflict_markers", "build", "test")
+
+
+@dataclass(frozen=True)
+class SubmitChecks:
+    """task submit の前に行う確認（ecobuild.toml の [check]）。既定は何もしない（items が空）。
+
+    提出の確認を全部の試験にすると、提出のたびに長く待つ（ECOBuild 自身で1回20分以上）。何を行うかはモジュールが
+    決める（ユーザーの決定「提出時に行う確認をユーザーが設定できるように。既定は何もせずに通過」）。"""
+    items: tuple[str, ...] = ()                    # SUBMIT_CHECK_ITEMS のうち行うもの
+    tests: tuple[str, ...] = ()                    # test で流す試験（型が絞れるとき。空なら全部）
+
+
+def validate_submit_checks(settings: SubmitChecks) -> None:
+    unknown = [name for name in settings.items if name not in SUBMIT_CHECK_ITEMS]
+    if unknown:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"提出の確認の項目 {', '.join(unknown)} はありません。",
+                            hint=f"{'・'.join(SUBMIT_CHECK_ITEMS)} から選んでください（カンマ区切り。なしは none）。")
+    if settings.tests and "test" not in settings.items:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "流す試験は、提出の確認に test があるときだけ指定できます。")
+
+
 @dataclass(frozen=True)
 class ModuleConfig:
     name: str
@@ -95,6 +119,21 @@ class ModuleConfig:
         return settings
 
     @property
+    def submit_checks(self) -> SubmitChecks:
+        table = self.extra.get(CHECK_TABLE, {})
+        settings = SubmitChecks(items=_strings(table, "submit", CHECK_TABLE) or (),
+                                tests=_strings(table, "tests", CHECK_TABLE) or ())
+        validate_submit_checks(settings)
+        return settings
+
+    def with_submit_checks(self, settings: SubmitChecks) -> "ModuleConfig":
+        validate_submit_checks(settings)
+        extra = {key: value for key, value in self.extra.items() if key != CHECK_TABLE}
+        if settings.items or settings.tests:
+            extra[CHECK_TABLE] = {"submit": list(settings.items), **({"tests": list(settings.tests)} if settings.tests else {})}
+        return replace(self, extra=extra)
+
+    @property
     def legacy_board(self) -> str | None:
         """以前の設定（[board] の url）。なければNone。"""
         url = self.extra.get(LEGACY_BOARD_TABLE, {}).get("url")
@@ -120,11 +159,16 @@ class ModuleConfig:
 
 def _ci_strings(table: dict, key: str) -> tuple[str, ...] | None:
     """[ci] の文字列の配列（なければNone）。配列でない・文字列でない要素は設定の誤り。"""
+    return _strings(table, key, CI_TABLE)
+
+
+def _strings(table: dict, key: str, name: str) -> tuple[str, ...] | None:
+    """[name] の文字列の配列（なければNone）。配列でない・文字列でない要素は設定の誤り。"""
     if key not in table:
         return None
     value = table[key]
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[ci] の {key} は文字列の配列です（例：{key} = [\"...\"]）。")
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[{name}] の {key} は文字列の配列です（例：{key} = [\"...\"]）。")
     return tuple(value)
 
 

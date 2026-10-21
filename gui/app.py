@@ -209,6 +209,8 @@ def _read_only(args: list[str]) -> bool:
         return "--show" in args
     if command == ("branch", "merge"):     # --dry-run は前もって確かめるだけ（ほかは取り込む）
         return "--dry-run" in args
+    if command == ("task", "checks"):      # --set・--tests がなければ見るだけ
+        return "--set" not in args and "--tests" not in args
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 

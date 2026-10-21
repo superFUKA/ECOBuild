@@ -688,12 +688,17 @@ class Module:
             (progress or _quiet)("注意：手元の依存先が記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches))
         saved = self._last_check()
         items = None if saved is None else tuple(CheckItem(**item) for item in saved.get("items", ()))
-        if check:
+        settings = self.config.submit_checks
+        if check and saved is None and not settings.items:
+            (progress or _quiet)(f"提出の確認は設定していません（確認せずに出します。設定は {self.op('task checks')}）")
+            items = ()
+        elif check:
             if saved is not None:
                 (progress or _quiet)("この版は確認済みです（ビルド・テストを省きます）")
             else:
-                (progress or _quiet)("確認しています（生成ファイル・衝突の印・依存先・ビルド・テスト）…")
-                items = self.check(allow_dependency_mismatch=draft).items
+                names = "・".join(CHECK_NAMES[name] for name in settings.items)
+                (progress or _quiet)(f"確認しています（{names}）…")
+                items = self.check(allow_dependency_mismatch=draft, only=settings.items, tests=settings.tests).items
                 for item in items:
                     (progress or _quiet)(_check_line(item))
         checked_at = (self._last_check() or saved or {}).get("at")   # 今通したなら記録は新しい
@@ -709,6 +714,8 @@ class Module:
         if items is None:
             return (f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・テスト）を"
                     f"行わずに提出しました{NO_CHECK_NOTE}。")
+        if not items:
+            return f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました{NO_CHECKS_SET_NOTE}。"
         profile = _config.load_local(self.root).get("profile")
         when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
         where = f"版 `{head}`" + (f"、ビルド設定 {profile}" if profile else "") + f"、{when}"
@@ -1489,53 +1496,73 @@ class Module:
         """今いるブランチ（または branch）で、ECOBuildのCIを手動で実行する。"""
         return self.repository.ci_dispatch(Path(_docs.CI_WORKFLOW).name, branch)
 
-    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False) -> CheckReport:
+    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False,
+              only: tuple[str, ...] | None = None, tests: tuple[str, ...] = ()) -> CheckReport:
         """PRを出す前の確認：生成ファイル・衝突の印・依存先・ビルド・テスト。失敗があれば check_failed。
 
         コミットの前に使ってよい：生成ファイルは最新にし、未コミットなら知らせるだけ（コミットは task submit が確かめる）。
         依存先：手元の版が記録と違えば失敗（手元では通っても CI は記録の版を使う）。allow_dependency_mismatch なら知らせるだけ。
+        only：行う項目だけ（提出の確認の設定 [check] submit。config.SUBMIT_CHECK_ITEMS）。None なら全部。tests：test で
+        流す試験（空なら全部）。全部を行って通ったときだけ、通った版として残す（task submit が繰り返さないため）。
         """
+        if only is not None:
+            _config.validate_submit_checks(_config.SubmitChecks(items=only))
+        wanted = (lambda name: True) if only is None else (lambda name: name in only)
         items = []
-        try:
-            self.type.refresh()
-            pending = self._uncommitted_managed_files()
-            items.append(CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
-                                                      f"{self.op('task commit')} でコミットに含めてください）" if pending else ""))
-        except EcoBuildError as error:
-            items.append(CheckItem("generated", False, error.message))
+        if wanted("generated"):
+            items += self._check_generated()
         git = self.repository.git
-        task_branch = self.repository.current_task_branch()
-        markers = git.conflict_markers("HEAD")
-        if task_branch is not None and git.rev_parse(f"origin/{task_branch.base}"):
-            markers += git.conflict_markers(f"origin/{task_branch.base}...HEAD")
-        items.append(CheckItem("conflict_markers", not markers, ", ".join(dict.fromkeys(markers))))
-        excluded = self.untracked_outside()
-        if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
-            items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
-                                                     + ", ".join(excluded)))
-        mismatches = self.dependency_mismatches()
-        if mismatches:
-            items.append(CheckItem("dependencies", allow_dependency_mismatch,
-                                   "記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches)))
+        if wanted("conflict_markers"):
+            task_branch = self.repository.current_task_branch()
+            markers = git.conflict_markers("HEAD")
+            if task_branch is not None and git.rev_parse(f"origin/{task_branch.base}"):
+                markers += git.conflict_markers(f"origin/{task_branch.base}...HEAD")
+            items.append(CheckItem("conflict_markers", not markers, ", ".join(dict.fromkeys(markers))))
+        if only is None:
+            excluded = self.untracked_outside()
+            if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
+                items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
+                                                         + ", ".join(excluded)))
+            mismatches = self.dependency_mismatches()
+            if mismatches:
+                items.append(CheckItem("dependencies", allow_dependency_mismatch,
+                                       "記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches)))
         if build:
-            for name, action in (("build", lambda: self.build()), ("test", lambda: self.test())):
+            steps = (("build", lambda: self.build()), ("test", lambda: self.test(tests=tests)))
+            for name, action in (step for step in steps if wanted(step[0])):
                 try:
                     result = action()
                     detail = f"成功 {result.passed}" if name == "test" else ""
                     items.append(CheckItem(name, True, detail))
                 except EcoBuildError as error:
-                    if error.code == ErrorCode.NOT_SUPPORTED:
-                        continue  # ビルド・テストのない型
+                    if error.code == ErrorCode.NOT_SUPPORTED and not (name == "test" and tests):
+                        continue  # ビルド・テストのない型（流す試験を指定したのに絞れない型は失敗にする）
                     items.append(CheckItem(name, False, error.message))
                     break
         report = CheckReport(tuple(items))
-        self._record_check(report, report.ok and build)
+        if only is None and not tests:   # 一部だけの確認は、全部を通った記録を消しも残しもしない
+            self._record_check(report, report.ok and build)
         if not report.ok:
             raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
                                 "、".join(i.name for i in items if not i.ok),
                                 hint=f"内容を直して、もう一度 {self.op('check')} を実行してください。",
                                 details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
         return report
+
+    def set_submit_checks(self, settings: _config.SubmitChecks) -> _config.SubmitChecks:
+        """提出の前に行う確認（[check]）を変える。ecobuild.toml を変えるので、タスクブランチでだけ（コミットして提出）。"""
+        self.require_task_branch("提出の確認の設定")
+        self._save_config(self.config.with_submit_checks(settings))
+        return self.config.submit_checks
+
+    def _check_generated(self) -> list[CheckItem]:
+        try:
+            self.type.refresh()
+            pending = self._uncommitted_managed_files()
+            return [CheckItem("generated", True, f"最新です（未コミット {len(pending)} ファイル。"
+                                                 f"{self.op('task commit')} でコミットに含めてください）" if pending else "")]
+        except EcoBuildError as error:
+            return [CheckItem("generated", False, error.message)]
 
     def checked(self) -> bool:
         """今の版が、ビルド・テストを含む check を通ったままか（task submit --check で繰り返さないため）。"""
@@ -1648,16 +1675,17 @@ class Module:
 SUBMIT_NOTE_SECTION = "note"     # 提出の本文の節（ecowork の with_section）：提出の説明
 SUBMIT_CHECK_SECTION = "check"   # 確認の結果
 NO_CHECK_NOTE = "（--no-check）"   # 確認の節の、check を行わずに提出した印（submitted_check が読む）
+NO_CHECKS_SET_NOTE = "（確認の設定なし）"   # 提出の確認（[check] submit）が空なので確かめなかった印
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
                "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
 
 
 def submitted_check(body: str) -> tuple[bool | None, str | None]:
-    """提出（PR）の本文の確認の節から：(check を通して提出したか〔--no-check なら False。節がなければ None〕,
-    その版〔コミットの頭。読めなければ None〕)。"""
+    """提出（PR）の本文の確認の節から：(check を通して提出したか〔--no-check なら False。節がない・確認を設定して
+    いないなら None〕, その版〔コミットの頭。読めなければ None〕)。"""
     text = wm.section(body, SUBMIT_CHECK_SECTION)
-    if text is None:
+    if text is None or NO_CHECKS_SET_NOTE in text:
         return None, None
     version = re.search(r"`([0-9a-f]{7,40})`", text)
     return NO_CHECK_NOTE not in text, version.group(1) if version else None

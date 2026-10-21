@@ -1,5 +1,6 @@
 'use strict';
-// 管理 › CI: the module's CI (GitHub Actions) — its settings and workflow (ci show; changed with ci init / ci remove, which
+// 管理 › CI: what task submit checks before submitting (task checks: [check] in ecobuild.toml, none by default; changed
+// on a task branch like the workflow), the module's CI (GitHub Actions) — its settings and workflow (ci show; changed with ci init / ci remove, which
 // write the workflow file: on a task branch, so in a workspace with one, then committed and submitted), its runs on every
 // branch or one (ci status --all / --branch; the log of the failed steps, run again, run by hand on a branch) and the
 // secrets the CI uses (ci secret). The reads run in the module's folder. Changing any of it is managing: admins only
@@ -7,7 +8,7 @@
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const st = {state: null, runs: [], secrets: null, branches: [], url: '', branch: '', run: 0, access: null, loaded: false, error: ''};
+  const st = {state: null, checks: null, runs: [], secrets: null, branches: [], url: '', branch: '', run: 0, access: null, loaded: false, error: ''};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const RUNS = 30;
   const runArgs = () => ['ci', 'status', ...(st.branch ? ['--branch', st.branch] : ['--all']), '--count', String(RUNS)];
@@ -20,8 +21,9 @@
   // Reads (cached: the kept answer shows at once, a newer one redraws).
   async function load() {
     const redraw = (key, fresh) => { if (fresh.ok) { st[key] = fresh.result; render(); } };
-    const [state, runs, secrets, branches, module, access] = await Promise.all([
+    const [state, checks, runs, secrets, branches, module, access] = await Promise.all([
       ECO.query(MOD.root, ['ci', 'show'], fresh => redraw('state', fresh)),
+      ECO.cli(MOD.root, ['task', 'checks'], {quiet: true}),
       ECO.query(MOD.root, runArgs(), fresh => redraw('runs', fresh)),
       ECO.cli(MOD.root, ['ci', 'secret', 'list'], {quiet: true}),
       ECO.query(MOD.root, ['branch', 'list']),
@@ -31,6 +33,7 @@
     st.access = access;
     st.error = !state.ok ? state.error.message : !runs.ok ? runs.error.message : '';
     st.state = state.ok ? state.result : null;
+    st.checks = checks.ok ? checks.result : {error: checks.error.message};
     st.runs = runs.ok ? runs.result : [];
     st.secrets = secrets.ok ? secrets.result : null;
     st.branches = branches.ok ? branches.result.filter(b => b.remote).map(b => b.name) : [];
@@ -60,6 +63,35 @@
         ${row('push で動かすブランチ', s.branches ? esc(s.branches.join('、')) : `${esc(s.default_base)}（既定）`)}${row('提出（PR）・手動', '常に動く')}</dl>
       <p class="mi-note">モジュールのフォルダ（今のブランチ）の内容です。変えるときは、タスクブランチの作業空間でワークフローを作り直し、提出して取り込むと反映されます。</p></div>`;
   }
+  // What task submit checks first: nothing unless the module chose (the full tests run where CI or by hand).
+  const CHECK_ITEMS = [['generated', '生成ファイルが最新か'], ['conflict_markers', '衝突の印（<<<<<<< 等）がないか'], ['build', 'ビルド'], ['test', 'テスト']];
+  function checksHtml() {
+    const c = st.checks;
+    if (!c) return '<p class="mi-note">提出の確認の設定を読めませんでした。</p>';
+    if (c.error) return `<p class="mi-note">${esc(c.error)}</p>`;
+    const names = c.items.map(n => (CHECK_ITEMS.find(([k]) => k === n) || [n, n])[1]);
+    return `<div class="ci-card"><div class="ci-card-head"><div><strong>${c.items.length ? esc(names.join('・')) : 'なし'}</strong> ${c.items.length ? '' : pill('確かめずに提出します')}</div>
+        <div class="mi-actions"><button type="button" data-ci-action="checks">設定を変える…</button></div></div>
+      ${c.tests.length ? `<dl class="ci-settings"><dt>流す試験</dt><dd>${esc(c.tests.join('、'))}</dd></dl>` : ''}
+      <p class="mi-note">提出（task submit）の前に手元で行う確認です。長い試験を入れると、提出のたびにその分待ちます。全部を確かめるのは CI か、手で ecobuild check です。設定は ecobuild.toml の [check] にあり、変えるときはタスクブランチでコミットして提出します。</p></div>`;
+  }
+  async function setChecks() {
+    const places = await choosePlace('提出の確認'); if (!places) return;
+    const c = st.checks && !st.checks.error ? st.checks : {items: [], tests: []};
+    await ECO.form({title: '提出の確認を変える', wide: true,
+      intro: '提出（task submit）の前に行う確認を選びます。何も選ばなければ、確かめずに提出します。設定は ecobuild.toml の [check] に残ります。選んだタスクブランチでコミットし、提出して取り込むと、ほかの人にも効きます。',
+      fields: [
+        {name: 'place', label: '変えるタスクブランチ（作業空間）', type: 'select', value: placeDefault(places), options: placeOptions(places)},
+        {name: 'items', label: '行う確認', type: 'checks', value: c.items, options: CHECK_ITEMS},
+        {name: 'tests', label: 'テストで流す試験（カンマ区切り。空なら全部。型が絞れるとき）', value: c.tests.join(','), placeholder: '例：tests/unit,gui/tests'},
+      ], ok: '変える',
+      submit: async v => {
+        if (v.tests && !v.items.includes('test')) return '流す試験を書くときは「テスト」も選んでください。';
+        const args = ['task', 'checks', '--set', v.items.length ? v.items.join(',') : 'none', '--tests', v.tests || 'none'];
+        if (!await ECO.run(v.place, args, {success: '提出の確認を変えました。コミットして提出すると共有されます。'})) return '変えられませんでした。';
+        MOD.reloadPlace(v.place);
+      }});
+  }
   function runsHtml() {
     if (!st.runs.length) return `<p class="mi-note">${st.branch ? `${esc(st.branch)} の` : ''}CIの実行はありません。</p>`;
     if (!st.runs.some(r => r.id === st.run)) st.run = 0;
@@ -87,6 +119,7 @@
     const options = [['', 'すべてのブランチ'], ...st.branches.map(b => [b, b])];
     if (st.branch && !st.branches.includes(st.branch)) options.push([st.branch, st.branch]);
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
+      <h4 class="br-section">提出の確認</h4>${checksHtml()}
       <h4 class="br-section">設定</h4>${settingsHtml()}
       <div class="ci-section-row"><h4 class="br-section">実行</h4>
         <select id="ci-branch" aria-label="ブランチ">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === st.branch ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
@@ -97,7 +130,7 @@
   // Greys what changes the CI for those who are not admins (looking at the runs and their logs stays).
   function gate() {
     if (ECO.isAdmin(st.access)) return;
-    for (const b of [el('ci-run'), ...el('ci-main').querySelectorAll('[data-ci-action=init], [data-ci-action=remove], [data-ci-action=rerun], [data-ci-action=secret-set], [data-ci-secret]')]) {
+    for (const b of [el('ci-run'), ...el('ci-main').querySelectorAll('[data-ci-action=init], [data-ci-action=checks], [data-ci-action=remove], [data-ci-action=rerun], [data-ci-action=secret-set], [data-ci-secret]')]) {
       b.disabled = true; b.title = ECO.adminNote;
     }
   }
@@ -200,6 +233,7 @@
     if (b) {
       switch (b.dataset.ciAction) {
         case 'init': return initCi();
+        case 'checks': return setChecks();
         case 'remove': return removeCi();
         case 'secret-set': return setSecret();
       }

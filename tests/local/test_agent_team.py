@@ -204,7 +204,8 @@ def test_the_notice_puts_cautions_first(lead):
                           "push していないコミットが 1 件あります")
     assert facts.startswith("状態：完了。報告：") and "提出：なし" in facts and "変えたファイル 1。" in facts
 
-    pr = worker.submit()                                                                 # check を通して提出
+    worker.check()                                                                       # check を通して提出
+    pr = worker.submit()
     first, facts = notice_of(member, "提出しました。\n**状態：完了**")
     assert first.endswith("注意なし")
     assert f"提出：PR #{pr.number}（開いている・check を通した）" in facts

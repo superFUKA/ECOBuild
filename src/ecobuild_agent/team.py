@@ -1055,7 +1055,8 @@ def member_details(root: Path) -> dict:
     """team list --json に足す、作業役（作業空間 root）の手元の記録（GitHub に聞かない・係を通さない）：
     submission（最後の返答の終わりに係が見た提出）・dirty（未コミットのファイル）・ahead（push していないコミット）・
     facts_at（それを調べた時刻）・messages（送った言付けと届いたか）・replies（返答を終えた回数）・
-    report_at（報告を更新した時刻）・report_told（agent report で知らせた時刻）。"""
+    report_at（報告を更新した時刻）・report_told（agent report で知らせた時刻）・report_read（その知らせが上の役に
+    届いたか。知らせていなければ None）。"""
     folder = inbox_of(root)
     facts = saved_facts(root)
     pull = facts.get("pull")
@@ -1064,15 +1065,15 @@ def member_details(root: Path) -> dict:
     except OSError:
         report_at = None
     told = agent_status.read(folder / REPORTED)
+    told = told if isinstance(told, dict) else None
     lead = member_info(root).get("lead")
-    told_read = (isinstance(told, dict) and bool(lead)
-                 and str(told.get("id") or "") not in agent_status.waiting_ids(inbox_of(Path(lead))))
-    return {"report_read": told_read if isinstance(told, dict) else None,
-"submission": {"pull": pull, "state": facts.get("pull_state"), "checked": facts.get("checked"),
+    return {"submission": {"pull": pull, "state": facts.get("pull_state"), "checked": facts.get("checked"),
                            "head": facts.get("pull_head") or "", "at": facts.get("pulled_at")} if pull else None,
             "dirty": list(facts.get("uncommitted") or ()), "ahead": facts.get("unpushed") or 0, "facts_at": facts.get("at"),
             "messages": messages(folder), "replies": agent_status.replies(folder), "report_at": report_at,
-            "report_told": told.get("at") if isinstance(told, dict) else None}
+            "report_told": told.get("at") if told else None,
+            "report_read": None if told is None else bool(lead) and str(told.get("id") or "")
+            not in agent_status.waiting_ids(inbox_of(Path(lead)))}
 
 
 ARCHIVE = ".ecobuild/ai/team-archive"   # 進行役の作業空間の中：閉じた作業役の報告・任された仕事（<番号>-<名前>/）

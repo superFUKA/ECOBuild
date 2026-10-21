@@ -284,6 +284,18 @@ MOD.createWorkspace = async () => {
   return created;
 };
 MOD.keyOf = keyOf; MOD.activate = activate; MOD.reloadPlace = reloadPlace; MOD.addPlace = addPlace; MOD.refreshState = refreshState;
+// The image editor of a workspace (the settings' コンテナ leads there): shows its tab and opens the editor in its frame
+// (once the frame is loaded).
+MOD.openImageEditor = dir => {
+  const place = MOD.places.find(p => keyOf(p) === keyOf(dir || MOD.root)) || MOD.root;
+  showModulePage('workspace'); activate(place, true);
+  const frame = frames.get(keyOf(place));
+  if (!frame) return false;
+  const open = () => frame.contentWindow?.openImageEditor?.();
+  if (frame.contentWindow?.openImageEditor && frame.contentDocument?.readyState === 'complete') open();
+  else frame.addEventListener('load', open, {once: true});
+  return true;
+};
 MOD.openWorkspace = async n => {
   // Show the tab where task <n>'s task branch is checked out; otherwise switch the module's clone to it (task start).
   let place = MOD.placeOfTask(n);

@@ -207,6 +207,8 @@ def _read_only(args: list[str]) -> bool:
         return False
     if command == ("module", "protect"):   # --show は見るだけ（ほかは保護を変える）
         return "--show" in args
+    if command == ("container", "dockerfile"):   # --write は環境の Dockerfile を書く（ほかは見るだけ）
+        return not any(a.split("=")[0] == "--write" for a in args)
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 

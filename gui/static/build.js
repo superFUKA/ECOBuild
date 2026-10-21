@@ -178,6 +178,12 @@ WS.onRefresh(renderPrDetail);
       ok: '保存',
       submit: v => boxRun(['set', ...(v.deny.trim() ? ['--deny', v.deny.trim()] : ['--no-deny']), ...(v.image.trim() ? ['--image', v.image.trim()] : ['--default-image'])], {success: '設定を保存しました。'})});
   }
+  // The image editor: the module's environment (.ecobuild/container/Dockerfile) of this workspace. Reading works on any
+  // branch and without Docker; saving is on a task branch only and 試しに作る needs Docker (the editor greys them with
+  // the reason). After a save the file shows in the commit panel. The module's settings (コンテナ) open it here too.
+  const openImageEditor = () => IMAGE_EDITOR.open(WS.dir, {changed: () => { WS.refresh(); loadContainer(); }});
+  window.openImageEditor = openImageEditor;
+  const imageItem = ['イメージ（Dockerfile）…', openImageEditor, true, 'モジュールの環境（.ecobuild/container/Dockerfile）を見る・編集する（保存はタスクブランチで）・試しに作る'];
   get('container-button').addEventListener('click', () => {
     const r = get('container-button').getBoundingClientRect(), ready = !!box?.docker_ready;
     const noDocker = ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`;
@@ -188,6 +194,7 @@ WS.onRefresh(renderPrDetail);
         ['作り直す', async () => { if (await boxRun(['remove'], {confirm: 'コンテナを消してから作り直します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナを作り直す'})) await boxRun(['start'], {busy: 'コンテナを作り直しています…', success: 'コンテナを作り直しました。'}); }, ready, noDocker],
         ['消す', () => boxRun(['remove'], {confirm: 'コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます。次に使うときにまた作ります）。', title: 'コンテナを消す', success: 'コンテナを消しました。'}), ready, noDocker]]),
       '-',
+      imageItem,
       ['このコンテナの設定…', containerSettings],
       ['コンテナのイメージ（ハブの設定）', () => ECO.action('open', {page: 'settings'}).catch(e => ECO.toast(e.message, 'bad'))],
       '-',
@@ -195,6 +202,8 @@ WS.onRefresh(renderPrDetail);
     ] : [
       ['この作業空間はこのPCで動きます', null],
       ['コンテナにする（AI・ビルドを隔離）', () => boxRun(['on'], {success: 'コンテナにしました。AI・ビルド・テストはコンテナの中で動きます（AI は確認なし）。'}), ready, noDocker],
+      '-',
+      imageItem,
     ];
     ECO.menu(items, r.left, r.bottom + 4);
   });

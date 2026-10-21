@@ -13,7 +13,7 @@ from ecobuild_agent.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # n
 EFFECTS = {
     READ: (
         "account list", "account show", "agent conversations", "agent guide", "agent log", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
-        "config get", "config list", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
+        "config get", "config list", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
         "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
@@ -50,6 +50,8 @@ def effect(path: str, options: tuple[str, ...] = ()) -> str:
             break
     if path == "module settings" and any(o.startswith("-") and o != "--json" for o in options):
         found = CHANGE      # 値を渡すと設定を変える
+    if path == "container dockerfile" and any(o.split("=")[0] == "--write" for o in options):
+        found = CHANGE      # --write は環境の Dockerfile を書く
     if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options):
         found = CONFIRM
     return found

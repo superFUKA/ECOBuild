@@ -71,6 +71,7 @@ def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     assert "作業役" in briefing and team.REPORT_FILE in briefing
     assert "提出しない" in briefing                                                   # レビュー・調べものは報告だけ
     assert "`状態：完了／質問あり／止まっている／続ける`" in briefing                       # 返答の最後の状態の行
+    assert all(word in briefing for word in ("結果を待っています", "Edit・Write", "cat >>", "task submit", "「質問あり」", "（最後の規則）"))
 
     (member.path / team.REPORT_FILE).unlink()
     closed = Module.close_workspace(member.path)                                            # 入れ子でも閉じられる
@@ -111,9 +112,14 @@ def test_a_lead_has_its_own_model_and_writes_only_its_notes(lead, tmp_path):
     assert "ユーザーとのやりとりに特化" in program and "作業役は直接作りません" in program and "--brief-file" not in program
     manager = Module.find(sub.path).agent_briefing(Module.find(sub.path).require_task_branch("x"), team.MANAGER)
     assert "管理役" in manager and "agent team start" in manager and "状態：" in manager and "send lead" in manager
-    assert "進め方の手" in manager and "2〜3人" not in manager                              # 人数は大きさ・独立さで
-    assert all(word in manager for word in ("共通の決まり", "レビュー", "アイデア", "task close", "あなたに届きます"))
-    assert "`## 持ち場`" in manager and "「注意なし」" in manager and "--lead" not in manager
+    assert "### 手" in manager and "2〜3人" not in manager                                   # 人数は大きさ・独立さで
+    assert all(word in manager for word in ("レビュー", "アイデア", "task close", "あなたに届きます"))
+    assert "`## 持ち場`" in manager and "「注意なし」" in manager and "--lead" not in manager and "下の進行役" not in manager
+    assert all(word in manager for word in ("自分では調べも作業もしません", "最初の動き", "観点を変えて", "接点", "workspace create",
+                                            "task new", "進行役に聞くこと", "「不明」（状態の行がない）", "task diff",
+                                            "task finish", "team close", "見えるのは", "task comment", "最初の1人を待たずに"))   # 管理役の決まり
+    assert "状態：" in team.FIRST_PROMPT[team.WORKER] and "自分では調べずに" in team.FIRST_PROMPT[team.MANAGER]
+    assert "前面" in team.FIRST_PROMPT[team.WORKER] and "task status" in team.RESTART_PROMPT[team.WORKER]
     assert code_of(lambda: team.create(lead, "空", "  ")) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: team.role_of(lead.root, "boss")) == ErrorCode.INVALID_ARGUMENT
 
@@ -228,7 +234,7 @@ def test_the_notice_without_a_state_line_or_an_area(lead):
     member, worker = worker_of(lead, "目的：画面を作る\n範囲：src/ui だけ")               # 持ち場の節がない：照らさない
     commit(worker, "src/core.py")
     first, facts = notice_of(member, "途中です")
-    assert first.endswith("注意：返答の最後に状態の行がありません／push していないコミットが 1 件あります")
+    assert first.endswith("注意：返答の最後に状態の行がありません（作業中なら途中の区切り：待つ。待機中で変化がなければ send で状態の行を頼む。テスト待ちで返答を終えて止まった可能性もあります）／push していないコミットが 1 件あります")
     assert facts.startswith("状態：不明。") and "変えたファイル 1（持ち場は照らしていません）" in facts
     first, _ = notice_of(member, "状態：質問あり")
     assert "質問があります" in first

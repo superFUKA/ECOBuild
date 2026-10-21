@@ -76,6 +76,7 @@ READ_ONLY = {
     ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"), ("container", "recipe"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
     ("workspace", "path"), ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
+    ("agent", "module"),   # 進行役の作業空間（ECOBuild が持つ別の clone）だけを扱う。この作業空間のファイルは変えない
 }
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
 # オペレーターが別の ecobuild で行う。変えたかもしれないので、終わったら覚えた結果は古くする）
@@ -207,6 +208,8 @@ def _read_only(args: list[str]) -> bool:
         return False
     if command == ("module", "protect"):   # --show は見るだけ（ほかは保護を変える）
         return "--show" in args
+    if command == ("container", "dockerfile"):   # --write は環境の Dockerfile を書く（ほかは見るだけ）
+        return not any(a.split("=")[0] == "--write" for a in args)
     if command == ("branch", "merge"):     # --dry-run は前もって確かめるだけ（ほかは取り込む）
         return "--dry-run" in args
     if command == ("task", "checks"):      # --set・--tests がなければ見るだけ

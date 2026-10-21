@@ -34,6 +34,8 @@ ecobuild_cpp = ["templates/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# いつも並べて流す（pytest-xdist。CPU の数だけ。1件だけ見るときなど、並べないなら -n 0）
+addopts = "-n auto"
 markers = [
     "local: 本物のgitと手元のbareリポジトリを使う",
     "cppbuild: 本物のCppBuild・CMake・コンパイラを使う（時間がかかる）",

@@ -86,15 +86,15 @@ session = data.get("session_id") if isinstance(data.get("session_id"), str) else
 def inside(path, area):
     norm = lambda p: os.path.normcase(os.path.abspath(p)).replace("\\", "/").rstrip("/")
     return (norm(path) + "/").startswith(norm(area) + "/")
-if kind == "lead-edit":   # 進行役が書けるのは area（.ecobuild/ai）の中だけ（PreToolUse フック）
+if kind == "lead-edit":   # 管理役・進行役が書けるのは area（.ecobuild/ai）の中だけ（PreToolUse フック）
     area = sys.argv[2]
     given = data.get("tool_input") or {}
     target = given.get("file_path") or given.get("notebook_path") or ""
     target = os.path.join(data.get("cwd") or "", target) if target else ""
     if not target or not inside(target, area):
         out({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-             "permissionDecisionReason": "進行役が書けるのは " + area + " の中（計画・任せる内容）だけです。"
-                                         "コード・文書の変更は作業役に任せてください（agent team start・send）。"}})
+             "permissionDecisionReason": "ここで書けるのは " + area + " の中（計画・覚え書き・任せる内容）だけです。"
+                                         "コード・文書の変更は任せてください（管理役は作業役に、進行役は管理役に。agent team start・send）。"}})
 elif kind == "replied":
     message = data.get("last_assistant_message")
     texts = take_all(session) if deliver else []   # 届いたものがあれば、返答を終えずに続けて読ませる
@@ -322,17 +322,18 @@ def _host_language() -> str:
 
 
 def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "",
-                    streamed: bool = False) -> str:
+                    streamed: bool = False, guard: str = "") -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
     （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。lead_area：進行役が
     書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。
-    streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。"""
+    streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。
+    guard：シェルのコマンドを調べるフックのコマンド（進行役：ecobuild agent guard --role module）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
     hooks = settings.setdefault("hooks", {})
     if streamed:
-        return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
+        return json.dumps(_lead_guard(settings, hooks, script, lead_area, guard), ensure_ascii=False)
     if app:
         settings.update(VOICE)
         language = _host_language()
@@ -346,11 +347,14 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     if not app:   # アプリがいなければ、作業中に届いたものも道具を使い終えるたびに届ける
         hooks["PostToolUse"] = [*hooks.get("PostToolUse", []),
                                 {"hooks": [{"type": "command", "command": f"{script} midturn{deliver}"}]}]
-    return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
+    return json.dumps(_lead_guard(settings, hooks, script, lead_area, guard), ensure_ascii=False)
 
 
-def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str) -> dict:
-    """進行役なら、編集の道具を lead_area の中だけにするフックを足す。"""
+def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str, guard: str = "") -> dict:
+    """管理役・進行役なら、編集の道具を lead_area の中だけにするフックを足す。guard：シェルのコマンドの関所（進行役）。"""
+    if guard:
+        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
+                               {"matcher": "Bash", "hooks": [{"type": "command", "command": guard}]}]
     if lead_area:
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
                                {"matcher": "Edit|Write|MultiEdit|NotebookEdit",
@@ -361,10 +365,11 @@ def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str) -> dic
 
 
 def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True,
-                      lead_area: str = "", streamed: bool = False) -> str:
+                      lead_area: str = "", streamed: bool = False, guard: str = "") -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed),
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed,
+                                                 guard=guard),
                                  encoding="utf-8", newline="\n")
     return f"{folder}/{SETTINGS}"
 

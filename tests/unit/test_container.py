@@ -133,6 +133,38 @@ def test_the_image_follows_the_module_recipe(monkeypatch, tmp_path):
     assert again.built and again.image == shown.wanted_image and not container.show(root, fake.run, source=source).outdated
 
 
+def test_the_environment_dockerfile_for_the_image_editor(monkeypatch, tmp_path):
+    """イメージのエディター：環境の Dockerfile の中身・材料のハッシュ・イメージの名前・このPCにあるか・コンテナが古いか。
+    書くと名前が変わり、コンテナは古いと分かる（作り直すのは次に動かすとき）。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    root = tmp_path / "Calc"
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), root / config.FILE_NAME)
+    source = ("https://example.com/ECOBuild", "abc")
+    shown = container.environment_dockerfile(root, source)                 # Docker がなくても中身と名前は分かる
+    assert not shown.exists and "cmake" in shown.text and shown.text == container.recipe(root, source).dockerfile
+    assert shown.environment == f"ecobuild-env-calc:{shown.hash}" and shown.image == container.recipe(root, source).image
+    assert not shown.docker_ready and not shown.image_ready and not shown.outdated and not shown.changed
+    assert shown.path == root / container.DOCKERFILE
+
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    started = container.start(root, fake.run, source=source)
+    ready = container.environment_dockerfile(root, source, fake.run)
+    assert ready.docker_ready and ready.image_ready and ready.container and ready.container_image == started.image
+    assert not ready.outdated
+
+    wrote = container.save_environment_dockerfile(root, "FROM ubuntu:24.04\r\nRUN echo tool\r\n\r\n", source, fake.run)
+    assert wrote.changed and wrote.exists and wrote.text == "FROM ubuntu:24.04\nRUN echo tool\n"   # LF・最後の改行1つ
+    assert (root / container.DOCKERFILE).read_bytes() == b"FROM ubuntu:24.04\nRUN echo tool\n"
+    assert wrote.hash != shown.hash and wrote.image != started.image
+    assert wrote.outdated and not wrote.image_ready and wrote.container_image == started.image      # 作り直すのは次に
+    assert not container.save_environment_dockerfile(root, "FROM ubuntu:24.04\nRUN echo tool", source, fake.run).changed
+    assert code_of(lambda: container.save_environment_dockerfile(root, " \n", source)) == "invalid_argument"
+    assert (root / container.DOCKERFILE).read_text(encoding="utf-8") == "FROM ubuntu:24.04\nRUN echo tool\n"
+    built = container.build_images((root,), source, fake.run)                # 試しに作る（container image build）
+    assert wrote.image in built.built and container.environment_dockerfile(root, source, fake.run).image_ready
+
+
 def test_old_containers_are_made_again(monkeypatch, root, tmp_path):
     """古い形（VERSION）のコンテナや、ECOBuild を更新して違うイメージになったコンテナは作り直す。"""
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))

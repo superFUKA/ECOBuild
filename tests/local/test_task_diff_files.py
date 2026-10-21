@@ -41,3 +41,32 @@ def test_diff_lists_files_with_counts(cli, module):
     assert cli("task", "diff", "--outside", "src/*,README.md").output.split() == ["docs/b.md"]
     assert "diff --git" in cli("task", "diff").output    # 既定は今までどおり全文
     assert cli("task", "diff", "--gui", "--stat").exit_code == 2
+
+
+def test_top_level_diff_and_show_list_files(cli, module):
+    """#9-34：ecobuild diff・show にも --stat・--name-only（task diff と同じ形）。"""
+    root = module.root
+    write(root / "README.md", "変えた\n")
+    write(root / "c.txt", "c\n")
+    git(root, "add", "c.txt")
+    unstaged = json.loads(cli("diff", "--stat", "--json").stdout)["result"]["files"]
+    assert [(f["path"], f["status"]) for f in unstaged] == [("README.md", "M")]
+    assert cli("diff", "--staged", "--name-only").output.split() == ["c.txt"]
+    assert cli("diff", "--name-only", "c.txt").output.strip() == "差分はありません"
+    assert "1 ファイル" in cli("diff", "--stat").output
+    git(root, "commit", "--quiet", "-am", "変える")
+    shown = json.loads(cli("show", "--stat", "--json").stdout)["result"]["files"]
+    assert sorted(f["path"] for f in shown) == ["README.md", "c.txt"] and all("eol_only" in f for f in shown)
+    assert cli("show", "HEAD", "--name-only").output.split() == ["README.md", "c.txt"]
+    assert cli("show", "--gui", "--stat").exit_code == 2
+
+
+def test_status_warns_about_eol_only_changes(cli, module):
+    """#9-1：文字の status にも、改行コードだけの差（JSON の eol_only）を出す。"""
+    import subprocess
+    root = module.root
+    git(root, "config", "core.autocrlf", "false")
+    recorded = subprocess.run(["git", "show", "HEAD:README.md"], cwd=root, capture_output=True, check=True).stdout
+    (root / "README.md").write_bytes(recorded.replace(b"\r\n", b"\n") if b"\r\n" in recorded else recorded.replace(b"\n", b"\r\n"))
+    assert json.loads(cli("status", "--json").stdout)["result"]["eol_only"] == ["README.md"]
+    assert "改行コード（CRLF／LF）だけが変わったファイルがあります" in cli("status").output

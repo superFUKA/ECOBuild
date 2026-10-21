@@ -40,14 +40,16 @@ def command(
         found = inv.module.repository.task_diff_files(task or None)
         return {"files": [f for f in found if not any(fnmatch(f.path, p) for p in patterns)]}
 
-    def render(r):
-        if not r["files"]:
-            return "当たらないファイルの変更はありません" if patterns else "差分はありません"
-        if stat:
-            counted = [f for f in r["files"] if f.added is not None]
-            return "\n".join([*map(file_line, r["files"]),
-                              f"{len(r['files'])} ファイル（+{sum(f.added for f in counted)} "
-                              f"-{sum(f.deleted for f in counted)}）"])
-        return "\n".join(f.path for f in r["files"])
+    return run_command("task diff", files, lambda r: render_files(
+        r["files"], stat, "当たらないファイルの変更はありません" if patterns else "差分はありません"), json_output=json)
 
-    return run_command("task diff", files, render, json_output=json)
+
+def render_files(files, stat: bool, empty: str) -> str:
+    """ファイルの一覧（--stat は行数と合計、--name-only は名前だけ）。diff・show も使う。"""
+    if not files:
+        return empty
+    if stat:
+        counted = [f for f in files if f.added is not None]
+        return "\n".join([*map(file_line, files),
+                          f"{len(files)} ファイル（+{sum(f.added for f in counted)} -{sum(f.deleted for f in counted)}）"])
+    return "\n".join(f.path for f in files)

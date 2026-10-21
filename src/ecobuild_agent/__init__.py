@@ -82,7 +82,7 @@ class AgentModule:
         source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。Claude Code には、ECOBuild の使い方
         （agent_briefing）を最初から渡す。role：進行役（lead。ユーザーと話す）・管理役（manager）・作業役（worker。既定は作業空間の記録、なければ作業役）。
         prompt：最初の発言。"""
-        task = self.require_task_branch("エージェントの起動")
+        task = self._task_for_agent()
         self._ensure_container(progress)
         boxed = True
         self._not_held_by_serve()
@@ -103,7 +103,7 @@ class AgentModule:
         """この端末で動かして、終わるまで待つ（終了コード。start_agent と同じく、コンテナならその中で）。画面を持つ別の
         アプリ（GUI のエージェントの窓）が、自分の端末の中で動かすときに使う。Claude Code なら、状態（モデル・使用量・
         返答の終わり）を書き出させ、その置き場所を端末に知らせる（status。画面を持つアプリが読む）。"""
-        task = self.require_task_branch("エージェントの起動")
+        task = self._task_for_agent()
         self._ensure_container(progress)
         boxed = True
         self._not_held_by_serve()
@@ -132,7 +132,7 @@ class AgentModule:
         （コンテナにしていなければ、自動でコンテナにする）。タスクブランチでだけ。resume：その会話の続きから（なければ新しい会話）。
         会話の ID・役・モデル・使い方の文・設定は対話型と同じ作り方（statusLine・返答の終わりのフックは付けない：係が
         出来事を読む）。最初の発言は標準入力から入れる（係）。"""
-        task = self.require_task_branch("エージェントの起動")
+        task = self._task_for_agent()
         self._ensure_container(progress)
         self._no_other_agent()
         role = team.role_of(self.root, role or (team.remembered_roles(self.root).get(resume, "") if resume else ""))
@@ -147,6 +147,13 @@ class AgentModule:
         root, program = self.root, self.command
         return app.Launch(root, folder, tuple(argv), env, session, role,
                           kill=lambda: container.stop_tagged(root, tag, command=program))
+
+    def _task_for_agent(self):
+        """エージェントを起動する作業空間の今のタスク（タスクブランチでだけ起動する）。モジュールの進行役の作業空間は
+        タスクを持たない（None）。"""
+        if team.is_module_place(self.root):
+            return None
+        return self.require_task_branch("エージェントの起動")
 
     def _not_held_by_serve(self) -> None:
         """係がアプリ用で動かしているなら、対話型では起動しない（同じ会話を2つが書き換えないように）。"""
@@ -179,10 +186,12 @@ class AgentModule:
         """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。進行役・管理役は、書けるのを
         エージェント用の置き場所（AGENT_AREA：計画・任せる内容）の中だけにする。streamed：アプリ用の起動。"""
         where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
-        area = ""
+        area = guard = ""
         if role in team.LEADING:
             area = f"{container.WORKDIR}/{AGENT_AREA}" if boxed else (self.root / AGENT_AREA).as_posix()
-        return status.settings_argument(folder, where, python, app=app, lead_area=area, streamed=streamed)
+        if team.is_module_place(self.root):   # モジュールの進行役：シェルは関所を通す（重い操作は人の「はい」・ファイルを変えない）
+            guard = f"{self.command or 'ecobuild'} agent guard --role module"
+        return status.settings_argument(folder, where, python, app=app, lead_area=area, streamed=streamed, guard=guard)
 
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。
@@ -198,6 +207,18 @@ class AgentModule:
         """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチ、役（進行役・管理役・作業役）の決まりと、ECOBuild の
         使い方（agent guide）。AGENTS.md がないモジュールでも、最初から ECOBuild のコマンドで作業させるため。"""
         program = self.command or "ecobuild"
+        if task is None:   # モジュールの進行役：タスクを持たない
+            return "\n".join([
+                "# ECOBuild から：このモジュールでのあなたの仕事",
+                "",
+                f"- ここは ECOBuild のモジュール「{self.config.name}」の進行役の作業空間（作成元のブランチ "
+                f"`{self.config.default_base}` の clone）です。タスクブランチではありません。",
+                f"- モジュールの操作は `{program}` のコマンドで行います。",
+                "",
+                *team.briefing(self.root, role, program),
+                *self._style(),
+                self.agent_guide().text,
+            ])
         return "\n".join([
             "# ECOBuild から：この作業空間での作業のしかた",
             "",

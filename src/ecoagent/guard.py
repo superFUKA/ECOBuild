@@ -45,6 +45,7 @@ class Policy:
     read_only: frozenset[str] = READ_ONLY
     role: str = "このエージェント"
     refusals: dict[str, str] = field(default_factory=dict)      # 重さ → 止めたときに足す文（HUMAN 等）
+    classifiers: dict[str, Callable[[list[str]], tuple[str, str]]] = field(default_factory=dict)   # プログラムごとの classify
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ def check(command: str, policy: Policy, exchange: Exchange | None = None) -> str
             continue
         name = re.sub(r"\.(exe|cmd|bat|ps1)$", "", Path(words[0].replace("\\", "/")).name, flags=re.IGNORECASE).lower()
         if name in policy.programs:
-            problem = _program(words[1:], policy, exchange)
+            problem = _program(words[1:], policy, exchange, policy.classifiers.get(name, policy.classify))
             if problem:
                 return problem
         elif name not in policy.read_only:
@@ -88,8 +89,8 @@ def check(command: str, policy: Policy, exchange: Exchange | None = None) -> str
     return None
 
 
-def _program(args: list[str], policy: Policy, exchange: Exchange) -> str | None:
-    weight, words = policy.classify(args)
+def _program(args: list[str], policy: Policy, exchange: Exchange, classify=None) -> str | None:
+    weight, words = (classify or policy.classify)(args)
     if weight == HUMAN:
         return policy.refusals.get(HUMAN, "これは人が行う操作です。ユーザーに実行してもらうよう伝えてください。")
     if weight == REQUESTED and not _ASKED.search(exchange.prompt or ""):

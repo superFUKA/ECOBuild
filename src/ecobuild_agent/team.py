@@ -61,6 +61,7 @@ TEAM_AREA = ".ecobuild/ai/team"     # 進行役の作業空間の中の、作業
 MEMBER_FILE = ".ecobuild/ai/member.json"   # 作業役の作業空間の中：役・名前・タスク・進行役の場所・モデル
 BRIEF_FILE = ".ecobuild/ai/brief.md"       # 任された仕事（進行役の指示）
 REPORT_FILE = ".ecobuild/ai/report.md"     # 作業役の報告
+MODULE_PLACE_FILE = ".ecobuild/ai/module-lead.json"   # モジュールの進行役の作業空間の印（ecobuild_agent.facilitator が置く）
 PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
 MODEL_KEYS = {LEAD: "agent_lead_model", MANAGER: "agent_manager_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
@@ -155,9 +156,19 @@ def member_info(root: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def is_module_place(root: Path) -> bool:
+    """root がモジュールの進行役の作業空間か（タスクを持たない。印 MODULE_PLACE_FILE）。"""
+    return (Path(root) / MODULE_PLACE_FILE).is_file()
+
+
 def role_of(root: Path, chosen: str = "") -> str:
     """作業空間 root のエージェントの役：指定（chosen）、なければ記録（member.json）、なければ進行役（記録のない作業空間＝
     人が起動するトップ）。"""
+    if is_module_place(root):   # モジュールの進行役の作業空間：進行役だけ
+        if chosen and chosen != LEAD:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "ここはモジュールの進行役の作業空間です。ほかの役は起動しません。",
+                                hint="管理役は、進行役が agent team start --manager で作ります。")
+        return LEAD
     role = chosen or member_info(root).get("role") or LEAD
     if role not in ROLES:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint=ROLE_HINT)
@@ -253,17 +264,19 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
     if not brief.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "任せる仕事（--brief）が空です。",
                             hint="目的・返してほしいもの・使ってよい道具・範囲（やらないこと）を書いてください。")
-    lead_task = module.require_task_branch(f"{ROLE_NAMES[role]}の作成")
+    # モジュールの進行役はタスクを持たない：管理役には親のないタスク（作成元から）を作る
+    parent = None if is_module_place(module.root) else module.require_task_branch(f"{ROLE_NAMES[role]}の作成").number
     module.prepare_agent_area()   # 進行役の側の git に、作業空間の置き場所を見せない（除外）
     with _creating(module, name):
-        task = _leftover(module, lead_task.number, name, progress)
+        task = _leftover(module, parent, name, progress)
         created = task is None
         if created:
             progress(f"子タスク「{name}」を作っています…")
             try:
-                task = module.repository.create_task(name, body=brief, parent=lead_task.number)
+                task = (module.repository.create_task(name, body=brief) if parent is None
+                        else module.repository.create_task(name, body=brief, parent=parent))
             except Exception as error:   # 作った後の読み直し等で失敗したもの：子タスクはできている
-                made = _open_child(module, lead_task.number, name)
+                made = _open_child(module, parent, name)
                 raise _failed(error, name, role, made and _close_child(module, made.number, name, error), made) from error
         directory = module.root / TEAM_AREA / f"{task.number}-{label}"
         try:
@@ -338,8 +351,11 @@ def _leftover(module, parent: int, name: str, progress):
     return found
 
 
-def _open_child(module, parent: int, name: str):
-    """親タスク parent の、題名 name の開いた子タスク（いちばん新しいもの。なければ None）。"""
+def _open_child(module, parent: int | None, name: str):
+    """親タスク parent の、題名 name の開いた子タスク（いちばん新しいもの。なければ None）。親がなければ（モジュールの
+    進行役が作る管理役のタスク）探さない：同じ題名の、人が作ったタスクを取り違えない。"""
+    if parent is None:
+        return None
     children = [issue for issue in module.repository.github.sub_issues(module.root, parent)
                 if issue.title == name and issue.state == "open"]
     return max(children, key=lambda issue: issue.number) if children else None
@@ -495,7 +511,7 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
     """起動のときにエージェントへ渡す、役ごとの決まり（Anthropic のマルチエージェントの教訓に沿う）。"""
     info = member_info(root)
     if role == LEAD:
-        return _lead_briefing(program)
+        return _lead_briefing(program) + (module_lead_briefing(program) if is_module_place(root) else [])
     if role == MANAGER:
         lines = [
             "## あなたの役：管理役",
@@ -663,6 +679,26 @@ def _lead_briefing(program: str) -> list[str]:
         "6. 管理役のモデルは既定でこのPCの設定（agent_manager_model）です。",
         "7. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>`・`handback`）。"
         "引き取り・返しはユーザーがする操作です。",
+        "",
+    ]
+
+
+def module_lead_briefing(program: str) -> list[str]:
+    """モジュールの進行役（タスクを持たない専用の作業空間）に足す決まり：モジュールの管理（GitHub 側）もする。"""
+    return [
+        "### モジュールの進行役として",
+        "- ここはモジュールの進行役の作業空間（ECOBuild が用意した、作成元のブランチの clone）で、タスクブランチではありません。"
+        "**リポジトリのファイルは変えません**（コミット・push もしません）。管理役を作ると、親のない新しいタスクと、"
+        "そのタスクブランチの作業空間ができます。",
+        f"- 見る：`{program} status`・`task list`・`task status <番号>`・`branch list`・`ci status`・`module show` 等は自由に使えます。"
+        "コードは読むだけ（ls・cat・grep・git log・git diff）。",
+        f"- GitHub 側の管理はあなたが直接できます：共有ブランチ（`{program} branch create/delete/merge/protect`）・タスク"
+        "（`task new`・`task close`）・届いた提出の処理（`task approve`・`task reject`・`task finish <番号>`）・メンバー"
+        "（`module members`）・CI の実行（`ci run`）。",
+        "- **取り返しのつかない操作・ほかの人に届く操作**（消す・取り込む・承認・閉じる 等）は、実行する前に、実行するコマンドを"
+        "そのまま示してユーザーに聞き、「はい」と答えてもらってから実行します（ECOBuild が確かめ、答えがなければ止めます）。",
+        "- リポジトリのファイルを変える設定（`module settings` の値・`ci init`・Dockerfile 等）は、タスクブランチの仕事なので管理役に命令します。",
+        "- 人がする操作（秘密の値・このPCの準備・更新）は、ユーザーに頼みます。",
         "",
     ]
 

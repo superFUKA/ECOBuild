@@ -112,7 +112,10 @@ function describe(s) {
 const findOperator = () => sessions.find(s => s.kind === 'operator');
 
 function spawnSession(s, size) {
+  // モジュールの進行役（module）：dir は進行役の作業空間（agent module prepare が用意したもの）。タスクを持たない
   const args = s.kind === 'operator' ? ['agent', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
+    : s.module ? ['-C', s.dir, 'agent', 'module', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
+                                  ...(s.prompt ? ['--prompt', s.prompt] : [])]
     : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
        ...(s.role ? ['--role', s.role] : []), ...(s.prompt ? ['--prompt', s.prompt] : [])];
   s.prompt = '';   // 最初の発言は最初の1回だけ（起動し直すときは新しい会話）
@@ -141,7 +144,8 @@ function spawnSession(s, size) {
 
 // title：名前を指定して開いた。会話（Claude Code）の名前もそれにする。role：lead（進行役。自分の窓を持ち、左端に固定）・
 // worker（作業役）。lead：作った進行役のタブの id（作業役はその窓のタブになる）。prompt：最初の発言
-function openSession({dir, agent = '', name = '', title = false, role = '', prompt = '', lead = null} = {}) {
+// module：モジュールの進行役（dir はその専用の作業空間。agent module start で起動する）
+function openSession({dir, agent = '', name = '', title = false, role = '', prompt = '', lead = null, module = false} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
   // 同じ作業空間で生きたエージェントのタブがあれば、2つ目は開かずそのタブを出して案内する（チーム・受け箱・状態は作業空間ごと。
   // 起動し直しは同じタブの中なのでここを通らない）。ただし違う作業空間なら開くたびに新しいエージェント。
@@ -157,7 +161,7 @@ function openSession({dir, agent = '', name = '', title = false, role = '', prom
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
-             agent, savedAgent: agent, role, prompt, lead,
+             agent, savedAgent: agent, role, prompt, lead, module: !!module,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   if (title && isClaude(s)) s.pendingTitle = s.name;   // 起動して待機中になったら /rename（poll）
   sessions.push(s);

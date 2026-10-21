@@ -7,7 +7,7 @@ NAMES = CHECK_NAMES
 
 
 def command(
-    build: Annotated[bool, "ビルドとテストも行う"] = True,
+    build: Annotated[bool, "ビルド・テストも行う（既定。--no-build で省く）"] = True,
     allow_dependency_mismatch: Annotated[bool, "手元の依存先が記録の版と違っても失敗にしない（知らせるだけ）"] = False,
     only: Annotated[str, "行う項目だけ（カンマ区切り：generated・conflict_markers・build・test。既定は全部）"] = "",
     tests: Annotated[str, "test で流す試験（カンマ区切り。型が絞れるとき。既定は全部）"] = "",

@@ -1,6 +1,20 @@
+import shutil
+import sys
+
 import pytest
 
 from helpers import GIT_ENV, git
+
+
+def pytest_collection_modifyitems(config, items):
+    """本物の CppBuild の試験（cppbuild）は、C++ のビルドの道具がない環境（エージェントのコンテナ等）では飛ばす。
+    Windows では CppBuild が Visual Studio の Ninja・コンパイラを探すので、ほかの OS だけ PATH で確かめる。"""
+    missing = [] if sys.platform == "win32" else [tool for tool in ("cmake", "ninja", "c++") if shutil.which(tool) is None]
+    if missing:
+        skip = pytest.mark.skip(reason="C++ のビルドの道具がありません：" + "、".join(missing))
+        for item in items:
+            if "cppbuild" in item.keywords:
+                item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)

@@ -31,7 +31,7 @@ pytestmark = pytest.mark.local
 # 偽の claude：受け取った発言を記録し（作業中でもすぐ）、1つずつ「道具を使う → 答える → 返答の終わり」の出来事を出す。
 # 「ゆっくり」なら答える前に待ち、「落ちて」なら返答の途中で終わる。標準入力が閉じたら、残りを終えてから終わる。
 FAKE = r'''
-import io, json, queue, sys, threading, time
+import io, json, os, queue, sys, threading, time
 sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 record, args = sys.argv[1], sys.argv[2:]
@@ -58,7 +58,7 @@ while (text := lines.get()) is not None:
     if "ゆっくり" in text:
         time.sleep(1.5)
     if "落ちて" in text:
-        sys.exit(3)
+        os._exit(3)   # sys.exit だと、stdin を読むスレッドが残って Linux では終わりに Python ごと落ちる（終了コードが変わる）
     out({"type": "rate_limit_event", "rate_limit_info": {"unifiedWindows": {"five_hour": {"utilization": 0.25, "resetsAt": 1},
                                                                            "seven_day": {"utilization": 0.5, "resetsAt": 2}}}})
     out({"type": "assistant", "message": {"content": [{"type": "text", "text": "了解：" + text}]}})

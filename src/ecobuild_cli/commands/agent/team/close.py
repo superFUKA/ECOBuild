@@ -44,42 +44,49 @@ def command(*name: Annotated[str, "作業役の名前（か子タスクの番号
         return {"closed": closed, "failed": failed, "dry_run": dry_run}
 
     def _one(inv, one):
-        flags = [*(["--force"] if force else []), *(["--discard-local"] if discard_local else []),
-                 *(["--dry-run"] if dry_run else [])]
-        return _forward.run(inv, ["agent", "team", "close", one, *flags], lambda inv: close(inv, one))
-
-    def close(inv, one):
-        root = inv.module.root
-        member = _team.find(root, one, _team.owner_session())
-        problems = [] if force else _team.close_problems(member)
-        if problems and not dry_run:
-            raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{member.name}」はまだ閉じられません。",
-                                hint="様子を確かめて（agent team list）、それでも閉じるなら --force。", details=problems)
-        pid = _status.running_pid(_team.inbox_of(member.path))
-        if pid is not None and not dry_run:   # 動いている作業空間は閉じられない（係を通すときは、係が先に止めている）
-            inv.info(f"「{member.name}」のエージェントを止めています…")
-            _status.stop(pid)
-        module = type(inv.module)
-        try:
-            preview = module.close_workspace(member.path, discard_local=discard_local, dry_run=True)
-        except EcoBuildError as error:
-            if dry_run and error.code == ErrorCode.WORKSPACE_LOCKED and pid is not None:   # 閉じるときに止めるもの
-                preview, problems = None, [*problems, f"「{member.name}」のエージェントが動いています（閉じるときに止めます）"]
-            else:   # GitHub にないもの：どのファイルかも見せる
-                files = _team.unpushed_files(member)
-                raise EcoBuildError(error.code, f"「{member.name}」を閉じられません：{error.message}", hint=error.hint,
-                                    details=[*(error.details or ()), *(f"ファイル：{path}" for path in files)]) from error
-        if dry_run:
-            kept = [f"{_team.ARCHIVE}/{member.path.name}/{p.rsplit('/', 1)[-1]}" for p in _team.KEPT
-                    if (member.path / p).is_file()]
-            return {"path": str(member.path), "done": False, "removed": False, "left": [], "name": member.name,
-                    "problems": problems, "archive": kept}
-        kept = _team.archive(root, member)
-        result = to_data(module.close_workspace(member.path, discard_local=discard_local))
-        _team.forget_member(root, member)
-        return {**result, "name": member.name, "archive": kept, "problems": []}
+        return close_one(inv, one, force=force, discard_local=discard_local, dry_run=dry_run)
 
     return run_command("agent team close", action, _render, json_output=json)
+
+
+def close_one(inv, one: str, *, force: bool = False, discard_local: bool = False, dry_run: bool = False) -> dict:
+    """作業役を1人閉じる（係に頼むときは係が閉じる）。結果は JSON にできる形。agent team accept も使う。"""
+    flags = [*(["--force"] if force else []), *(["--discard-local"] if discard_local else []),
+             *(["--dry-run"] if dry_run else [])]
+    return _forward.run(inv, ["agent", "team", "close", one, *flags],
+                        lambda inv: _close(inv, one, force=force, discard_local=discard_local, dry_run=dry_run))
+
+
+def _close(inv, one, *, force: bool, discard_local: bool, dry_run: bool):
+    root = inv.module.root
+    member = _team.find(root, one, _team.owner_session())
+    problems = [] if force else _team.close_problems(member)
+    if problems and not dry_run:
+        raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{member.name}」はまだ閉じられません。",
+                            hint="様子を確かめて（agent team list）、それでも閉じるなら --force。", details=problems)
+    pid = _status.running_pid(_team.inbox_of(member.path))
+    if pid is not None and not dry_run:   # 動いている作業空間は閉じられない（係を通すときは、係が先に止めている）
+        inv.info(f"「{member.name}」のエージェントを止めています…")
+        _status.stop(pid)
+    module = type(inv.module)
+    try:
+        preview = module.close_workspace(member.path, discard_local=discard_local, dry_run=True)
+    except EcoBuildError as error:
+        if dry_run and error.code == ErrorCode.WORKSPACE_LOCKED and pid is not None:   # 閉じるときに止めるもの
+            preview, problems = None, [*problems, f"「{member.name}」のエージェントが動いています（閉じるときに止めます）"]
+        else:   # GitHub にないもの：どのファイルかも見せる
+            files = _team.unpushed_files(member)
+            raise EcoBuildError(error.code, f"「{member.name}」を閉じられません：{error.message}", hint=error.hint,
+                                details=[*(error.details or ()), *(f"ファイル：{path}" for path in files)]) from error
+    if dry_run:
+        kept = [f"{_team.ARCHIVE}/{member.path.name}/{p.rsplit('/', 1)[-1]}" for p in _team.KEPT
+                if (member.path / p).is_file()]
+        return {"path": str(member.path), "done": False, "removed": False, "left": [], "name": member.name,
+                "problems": problems, "archive": kept}
+    kept = _team.archive(root, member)
+    result = to_data(module.close_workspace(member.path, discard_local=discard_local))
+    _team.forget_member(root, member)
+    return {**result, "name": member.name, "archive": kept, "problems": []}
 
 
 def _render(r) -> str:

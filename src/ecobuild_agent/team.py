@@ -670,7 +670,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます"
             f"（取り込み済みを全員なら `close --merged`。作業中・届いていない言付けがあれば止まります。報告・任された仕事は "
             f"`{ARCHIVE}/` に写ります）。",
-            "   手順は必ず守ります：`team start`→知らせを待つ→`task diff`→`task finish`→`sync`→`team close`。飛ばしません。",
+            "   手順は必ず守ります：`team start`→知らせを待つ→`task diff`→`task finish`→`sync`→`team close`。飛ばしません。"
+            f"差分を確かめた後の finish・sync・close は `{program} agent team accept <名前>` で一度にできます"
+            "（閉じられないときは何もしません）。",
             f"7. 作業役に追加で伝えたいことは `{program} agent team send <名前> <文>` で送れます（作業中でも、作業役の返答を"
             "止めずに次の区切りで届きます）。結果の番号で、届いたか（`agent team list --json` の messages）が分かり、まだ届いて"
             "いなければ `--cancel <番号>`・`--replace <番号>` で取り消し・置き換えができます。",

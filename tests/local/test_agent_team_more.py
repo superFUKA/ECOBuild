@@ -196,6 +196,27 @@ def test_closing_several_and_the_merged_ones(lead, cli):
     assert [c["name"] for c in closed["result"]["closed"]] == ["検索"] and not made[2].path.exists()
 
 
+def test_accept_finishes_syncs_and_closes_or_does_nothing(lead, cli):
+    """#10-41：agent team accept は close と同じことを確かめ、task finish → sync → close を一度にする。"""
+    member = team.create(lead, "画面", "目的：画面")
+    worker = Module.find(member.path, github=lead.repository.github)
+    (worker.root / "a.txt").write_text("a\n", encoding="utf-8")
+    worker.require_task_branch("x").stage("a.txt")
+    worker.require_task_branch("x").commit("a")
+    worker.submit(check=False)
+    team.send(lead.root, "画面", "まだ届かない")
+    refused = cli("agent", "team", "accept", "画面")
+    assert not refused["ok"] and refused["error"]["code"] == ErrorCode.UNFINISHED_WORK and member.path.exists()
+    assert lead.repository.task(member.task).state == "open"                            # 取り込んでいない
+    agent_status.take(team.inbox_of(member.path))                                        # 届いた
+    accepted = cli("agent", "team", "accept", "画面")
+    assert accepted["ok"], accepted
+    result = accepted["result"]
+    assert result["task"] == member.task and result["finish"]["task"] == member.task and "branch" in result["sync"]
+    assert result["closed"]["name"] == "画面" and not member.path.exists()
+    assert (lead.root / "a.txt").is_file()                                               # sync で手元に
+
+
 def test_the_list_shows_what_the_serve_saw_and_the_messages(lead, cli):
     member = team.create(lead, "画面", "目的：画面")
     (member.path / "x.txt").write_text("x\n", encoding="utf-8")

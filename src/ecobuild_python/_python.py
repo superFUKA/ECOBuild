@@ -318,11 +318,16 @@ def script_path(root: Path, name: str) -> Path:
 
 def split_arguments(text: str) -> list[str]:
     """--arguments の1つの文字列を引数に分ける（shlex）。空白で区切り、"…"・'…' でまとめる。Windows では \\ を
-    そのまま残す（パスに使えるように）。まとめた引用符は外す。"""
-    if os.name != "nt":
-        return shlex.split(text)
-    return [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'" else part
-            for part in shlex.split(text, posix=False)]
+    そのまま残す（パスに使えるように）。まとめた引用符は外す。引用符が閉じていなければ INVALID_ARGUMENT。"""
+    try:
+        if os.name != "nt":
+            return shlex.split(text)
+        parts = shlex.split(text, posix=False)
+    except ValueError as error:     # No closing quotation 等
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"--arguments の引数を分けられません（{error}）：{text}",
+                            hint="引用符（\"…\"・'…'）を閉じてください。引用符そのものを渡すなら、"
+                                 "ecobuild run -- <引数…> のように -- の後ろに並べます。") from error
+    return [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'" else part for part in parts]
 
 
 STOP_WAIT = 10.0    # 止めたあと、プログラムが終わるのを待つ秒数（過ぎたら強制終了する）

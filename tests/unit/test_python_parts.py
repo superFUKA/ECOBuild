@@ -464,6 +464,13 @@ def test_split_arguments(text, expected):
     assert _python.split_arguments(text) == expected
 
 
+def test_split_arguments_tells_an_unclosed_quote():
+    """#11-38：引用符が閉じていなければ ValueError のままではなく、引数の誤り（ヒント付き）。"""
+    with pytest.raises(EcoBuildError) as error:
+        _python.split_arguments("a 'b")
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT and "--" in error.value.hint
+
+
 def test_split_arguments_keeps_windows_paths(monkeypatch):
     if os.name != "nt":
         pytest.skip("Windows の分け方")

@@ -20,7 +20,7 @@ from ._output import USAGE_ERROR, use_utf8_when_redirected
 TASK_SECTIONS = (
     ("計画", ("new", "edit", "list", "next", "overdue", "workload", "comment", "close", "reopen")),
     ("作業", ("start", "commit", "add", "push", "status", "diff", "reset", "drop", "prune")),
-    ("提出と完了", ("submit", "withdraw", "review", "approve", "reject", "finish", "revert")),
+    ("提出と完了", ("submit", "checks", "withdraw", "review", "approve", "reject", "finish", "revert")),
 )
 
 

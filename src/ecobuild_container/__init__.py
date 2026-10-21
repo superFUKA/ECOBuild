@@ -159,11 +159,14 @@ class ContainerModule:
         返す（CLI）。None なら今のコンテナをそのまま使う。"""
         return None
 
-    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False) -> CheckReport:
+    def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False,
+              only: tuple[str, ...] | None = None, tests: tuple[str, ...] = ()) -> CheckReport:
         if os.environ.get(INSIDE) or not enabled(self.root):
-            return super().check(build=build, allow_dependency_mismatch=allow_dependency_mismatch)
+            return super().check(build=build, allow_dependency_mismatch=allow_dependency_mismatch, only=only, tests=tests)
         args = ["ecobuild", "check", "--json", *([] if build else ["--no-build"]),
-                *(["--allow-dependency-mismatch"] if allow_dependency_mismatch else [])]
+                *(["--allow-dependency-mismatch"] if allow_dependency_mismatch else []),
+                *(["--only", ",".join(only) if only else "none"] if only is not None else []),
+                *(["--tests", ",".join(tests)] if tests else [])]
         _, out = run_inside(self.root, args, cwd=self.root, command=self.command, source=self.container_source(),
                             capture=True)
         try:

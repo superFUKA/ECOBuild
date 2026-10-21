@@ -877,3 +877,16 @@ def test_container_dockerfile(cli, module, tmp_path):
     missing = as_json(cli("container", "dockerfile", "--write", str(tmp_path / "none"), "--json"))["error"]
     assert missing["code"] == "file_not_found"
     assert as_json(cli("container", "recipe", "--json"))["result"]["dockerfile"] == "FROM debian:12\n"   # 試しに作る元
+
+
+def test_submit_checks_are_set_with_task_checks(cli, module):
+    """提出の前の確認（[check]）は既定でなし。task checks で見て、タスクブランチで変える。"""
+    assert as_json(cli("task", "checks", "--json"))["result"] == {"items": [], "tests": []}
+    refused = as_json(cli("task", "checks", "--set", "build", "--json"))
+    assert refused["error"]["code"] == "not_on_task_branch"
+    assert cli("task", "new", "確認の設定", "--start", "--name", "作業").exit_code == 0
+    assert as_json(cli("task", "checks", "--set", "generated,test", "--tests", "tests/unit", "--json"))["result"] == {
+        "items": ["generated", "test"], "tests": ["tests/unit"]}
+    assert "提出の確認：生成ファイル・テスト" in cli("task", "checks").stdout
+    assert as_json(cli("task", "checks", "--set", "lint", "--json"))["error"]["code"] == "invalid_argument"
+    assert as_json(cli("task", "checks", "--set", "none", "--json"))["result"] == {"items": [], "tests": []}

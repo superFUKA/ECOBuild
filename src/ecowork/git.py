@@ -5,6 +5,7 @@ git のメッセージで状況を判定する箇所があるため、メッセ�
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from .errors import ErrorCode, WorkError, operation
 # ECOWORK_ALLOW：ecowork 自身の呼び出しは、タスクブランチを守るフック（hooks）を通す。
 _ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "ECOWORK_ALLOW": "1"}
 REMOTE = "origin"
+# fetch(reuse=True) は、この秒数より前に（別のコマンドが）取得したばかりなら取得し直さない（GUI が一覧・状態等を
+# 続けて読むとき、コマンドごとに GitHub へ問い合わせない）。取得した時刻は .git の FETCHED_MARK に残す
+RECENT_FETCH = 10
+FETCHED_MARK = "ecowork-fetched"
 
 
 @dataclass(frozen=True)
@@ -55,6 +60,7 @@ class Git:
     def __init__(self, root: Path, *, command: str = ""):
         self.root = Path(root)
         self.command = command          # ヒントに書くCLIのコマンド名（errors.operation）
+        self._fetched = False           # このオブジェクトで fetch したか（reuse のため）
 
     # 基本 ----------------------------------------------------------------
 
@@ -109,8 +115,26 @@ class Git:
 
     # ブランチ -------------------------------------------------------------
 
-    def fetch(self) -> None:
+    def fetch(self, *, reuse: bool = False) -> None:
+        """GitHubの最新を取得する。reuse：読むだけの処理用。このオブジェクトで既に取得したか、RECENT_FETCH 秒以内に
+        （別のコマンドが）取得したばかりなら、取得し直さない。GitHubの側を変えた後は reuse なしで取得し直す。"""
+        if reuse and (self._fetched or self._fetched_recently()):
+            return
         self.run("fetch", "--quiet", "--prune", REMOTE)
+        self._fetched = True
+        try:
+            self._mark().touch()
+        except (OSError, WorkError):
+            pass
+
+    def _mark(self) -> Path:
+        return self.root / self.output("rev-parse", "--git-path", FETCHED_MARK)
+
+    def _fetched_recently(self) -> bool:
+        try:
+            return abs(time.time() - self._mark().stat().st_mtime) < RECENT_FETCH   # 時計の細かさの差で少し先のこともある
+        except (OSError, WorkError):
+            return False
 
     def local_branches(self) -> list[str]:
         return self.output("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()

@@ -174,12 +174,30 @@ class GhCli:
         return f"{owner}/{name}"
 
     def repository_boards(self, repo):
-        """このリポジトリにリンクしているボード（見える範囲。説明はECOBuildのボードの印を見るため）。"""
-        data = self._graphql(repo, """
-            query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
-              projectsV2(first: 50) { nodes { url shortDescription closed } } } }""", **self._repo_vars(repo))
-        return tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed")))
+        """このリポジトリにリンクしているボード（見える範囲。説明はECOBuildのボードの印を見るため）。
+
+        前に見つけたECOBuildのボード（clone の git の設定に覚えたもの）があれば、その定義も同じ問い合わせで読んでおき、
+        続く get_board で使う（ボードを使うコマンドのたびに、問い合わせを1回減らす）。"""
+        remembered = _remembered_board(repo)
+        if remembered is None:
+            data = self._graphql(repo, """
+                query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
+                  projectsV2(first: 50) { nodes { url shortDescription closed } } } }""", **self._repo_vars(repo))
+        else:
+            data = self._graphql(repo, """
+                query($owner: String!, $name: String!, $login: String!, $number: Int!) {
+                  repository(owner: $owner, name: $name) { projectsV2(first: 50) { nodes { url shortDescription closed } } }
+                  repositoryOwner(login: $login) { ... on ProjectV2Owner { projectV2(number: $number) { """ + _BOARD + """ } } } }""",
+                                 login=remembered[0], number=remembered[1], **self._repo_vars(repo))
+        refs = tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed")))
                      for n in data["repository"]["projectsV2"]["nodes"])
+        ours = next((r for r in refs if r.ours), None)
+        found = None if ours is None else _board.parse_url(ours.url)
+        if found != remembered:
+            _remember_board(repo, None if ours is None else ours.url)
+        elif found is not None and (data.get("repositoryOwner") or {}).get("projectV2") is not None:
+            self.__dict__.setdefault("_boards", {})[found] = _board_info(data["repositoryOwner"]["projectV2"])
+        return refs
 
     def create_issue(self, repo, title, body, *, labels=(), assignees=()):
         self._ensure_labels(repo, labels)
@@ -327,35 +345,18 @@ class GhCli:
         self._api("PATCH", f"issues/{number}", {"milestone": milestone}, cwd=repo)
 
     def get_board(self, repo, owner, number):
+        prefetched = self.__dict__.get("_boards", {}).pop((owner, number), None)   # repository_boards が読んだもの（1回だけ使う）
+        if prefetched is not None:
+            return prefetched
         data = self._graphql(repo, """
             query($login: String!, $number: Int!) { repositoryOwner(login: $login) { ... on ProjectV2Owner {
-              projectV2(number: $number) { id number title url closed public
-                repositories(first: 20) { nodes { nameWithOwner } } fields(first: 100) { nodes {
-                ... on ProjectV2Field { id name dataType }
-                ... on ProjectV2SingleSelectField { id name dataType options { id name color description } }
-                ... on ProjectV2IterationField { id name dataType
-                    configuration { iterations { id title startDate duration }
-                                    completedIterations { id title startDate duration } } } } } } } } }""",
-                             login=owner, number=number)
+              projectV2(number: $number) { """ + _BOARD + """ } } } }""", login=owner, number=number)
         project = (data.get("repositoryOwner") or {}).get("projectV2")
         if project is None:
             raise TaskError(ErrorCode.NO_BOARD, "GitHubのタスク管理の情報を読めません。",
                             hint="リポジトリの所有者に、タスク管理の情報の共有を頼んでください"
                                  "（所有者が ECOBuild のコマンドを使うと、共同作業者に共有されます）。")
-        fields = []
-        for node in project["fields"]["nodes"]:
-            if not node:
-                continue
-            options = [_board.BoardOption(o["id"], o["name"], color=o.get("color"), description=o.get("description"))
-                       for o in node.get("options") or []]
-            configuration = node.get("configuration") or {}
-            iterations = (configuration.get("iterations") or []) + (configuration.get("completedIterations") or [])
-            options += [_board.BoardOption(i["id"], i["title"], i.get("startDate"), i.get("duration"))
-                        for i in sorted(iterations, key=lambda i: i.get("startDate") or "")]
-            fields.append(_board.BoardField(node["id"], node["name"], node["dataType"], tuple(options)))
-        return _board.BoardInfo(project["id"], project["number"], project["title"], project["url"], tuple(fields),
-                                project["closed"], project.get("public", False),
-                                tuple(r["nameWithOwner"] for r in (project.get("repositories") or {}).get("nodes") or []))
+        return _board_info(project)
 
     def create_board(self, repo, owner, title, description):
         owner = owner or self._repo_name(repo)[0]
@@ -541,9 +542,15 @@ class GhCli:
             return owner, name
         names = self.__dict__.setdefault("_names", {})
         if repo not in names:
-            data = self._json(["repo", "view", "--json", "owner,name"], cwd=repo)
-            names[repo] = (data["owner"]["login"], data["name"])
+            names[repo] = _remembered_name(repo) or self._look_up_name(repo)
         return names[repo]
+
+    def _look_up_name(self, repo):
+        """GitHub に聞いて、手元の clone に覚える（コマンドのたびに gh repo view で 0.5 秒かかるので）。"""
+        data = self._json(["repo", "view", "--json", "owner,name"], cwd=repo)
+        found = (data["owner"]["login"], data["name"])
+        _remember_name(repo, found)
+        return found
 
     def _repo_vars(self, repo):
         owner, name = self._repo_name(repo)
@@ -555,6 +562,16 @@ class GhCli:
         completed = _process.run(["gh", *args], cwd=repo, check=False,
                                  input=json.dumps({"query": query, "variables": variables}),
                                  env=self._env())
+        names = self.__dict__.get("_names", {})
+        if not completed.ok and "Could not resolve to a Repository" in completed.output and repo in names \
+                and (variables.get("owner"), variables.get("name")) == names[repo]:
+            # 覚えていた名前が古い（GitHub で名前・所有者を変えた）：聞き直してやり直す
+            _remember_name(repo, None)
+            names[repo] = self._look_up_name(repo)
+            variables = {**variables, **self._repo_vars(repo)}
+            completed = _process.run(["gh", *args], cwd=repo, check=False,
+                                     input=json.dumps({"query": query, "variables": variables}),
+                                     env=self._env())
         if "INSUFFICIENT_SCOPES" in completed.output or "required scopes" in completed.output:
             raise TaskError(ErrorCode.BOARD_PERMISSION,
                             "GitHubへのログインに、タスク管理の情報を置く権限（project）がありません。",
@@ -591,6 +608,84 @@ class GhCli:
             return _process.run(["gh", *args], cwd=cwd, check=check, env=self._env())
         except _process.ProcessFailed as failure:
             raise gh_error(args, failure.completed) from None
+
+
+# ボードの定義（get_board）として読むもの
+_BOARD = """id number title url closed public
+    repositories(first: 20) { nodes { nameWithOwner } } fields(first: 100) { nodes {
+    ... on ProjectV2Field { id name dataType }
+    ... on ProjectV2SingleSelectField { id name dataType options { id name color description } }
+    ... on ProjectV2IterationField { id name dataType
+        configuration { iterations { id title startDate duration }
+                        completedIterations { id title startDate duration } } } } }"""
+
+
+def _board_info(project: dict) -> _board.BoardInfo:
+    fields = []
+    for node in project["fields"]["nodes"]:
+        if not node:
+            continue
+        options = [_board.BoardOption(o["id"], o["name"], color=o.get("color"), description=o.get("description"))
+                   for o in node.get("options") or []]
+        configuration = node.get("configuration") or {}
+        iterations = (configuration.get("iterations") or []) + (configuration.get("completedIterations") or [])
+        options += [_board.BoardOption(i["id"], i["title"], i.get("startDate"), i.get("duration"))
+                    for i in sorted(iterations, key=lambda i: i.get("startDate") or "")]
+        fields.append(_board.BoardField(node["id"], node["name"], node["dataType"], tuple(options)))
+    return _board.BoardInfo(project["id"], project["number"], project["title"], project["url"], tuple(fields),
+                            project["closed"], project.get("public", False),
+                            tuple(r["nameWithOwner"] for r in (project.get("repositories") or {}).get("nodes") or []))
+
+
+_BOARD_KEY = "ecotask.board"   # 前に見つけたECOBuildのボードの URL（repository_boards が定義も一緒に読むため）
+
+
+def _remembered_board(repo) -> tuple[str, int] | None:
+    if repo is None:
+        return None
+    completed = _process.run(["git", "config", "--local", "--get", _BOARD_KEY], cwd=repo, check=False)
+    try:
+        return _board.parse_url(completed.stdout) if completed.ok and completed.stdout.strip() else None
+    except TaskError:
+        return None
+
+
+def _remember_board(repo, url: str | None) -> None:
+    if repo is None:
+        return
+    args = [_BOARD_KEY, url] if url else ["--unset", _BOARD_KEY]
+    _process.run(["git", "config", "--local", *args], cwd=repo, check=False)
+
+
+# GitHub のリポジトリの名前（所有者/名前）を手元の clone の git の設定に覚える。覚えたときの origin の URL も覚え、
+# URL が変わっていれば使わない（聞き直す）。
+_NAME_KEY, _URL_KEY = "ecotask.repository", "ecotask.repository-url"
+
+
+def _remembered_name(repo) -> tuple[str, str] | None:
+    if repo is None:
+        return None
+    completed = _process.run(["git", "config", "--local", "--get-regexp",
+                              r"^(remote\.origin\.url|ecotask\.repository|ecotask\.repository-url)$"],
+                             cwd=repo, check=False)
+    values = dict(line.split(" ", 1) for line in completed.stdout.splitlines() if " " in line)
+    owner, _, name = values.get(_NAME_KEY, "").partition("/")
+    if owner and name and values.get(_URL_KEY) and values.get(_URL_KEY) == values.get("remote.origin.url"):
+        return owner, name
+    return None
+
+
+def _remember_name(repo, found: tuple[str, str] | None) -> None:
+    """found を覚える（None なら忘れる）。覚えられなくても（clone でない等）止めない。"""
+    if repo is None:
+        return
+    if found is None:
+        _process.run(["git", "config", "--local", "--unset", _NAME_KEY], cwd=repo, check=False)
+        return
+    url = _process.run(["git", "config", "--local", "--get", "remote.origin.url"], cwd=repo, check=False)
+    if url.ok and url.stdout.strip():
+        _process.run(["git", "config", "--local", _NAME_KEY, "/".join(found)], cwd=repo, check=False)
+        _process.run(["git", "config", "--local", _URL_KEY, url.stdout.strip()], cwd=repo, check=False)
 
 
 def not_found(completed: _process.Completed) -> bool:

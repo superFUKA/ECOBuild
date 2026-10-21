@@ -93,6 +93,8 @@ CACHEABLE = {
     ("ci", "show"), ("ci", "status"), ("account", "show"),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
+FRESH_SECONDS = 5                   # これより新しい結果は、読み直しを頼まれても実行せずに返す（別の窓・iframe が続けて
+                                    # 同じものを読み直すとき、GitHub に何度も問い合わせない）
 CACHE_DAYS = 14                     # これより古いものは読み込まない
 
 
@@ -110,7 +112,8 @@ class QueryCache:
         self.path = path
         self.lock = threading.Lock()
         self.entries: dict[str, dict] = {}
-        self.running: dict[str, threading.Event] = {}
+        self.running: dict[str, tuple[threading.Event, list]] = {}   # 実行中のもの → (終わりの合図, [結果])
+        self.generation = 0     # invalidate のたびに増やす（実行中に変える操作があれば、その結果は「古い」で覚える）
         if path is not None and path.is_file():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
@@ -131,34 +134,48 @@ class QueryCache:
             return dict(entry) if entry is not None else None
 
     def fetch(self, cli: "Cli", directory: str | None, args: list[str]) -> dict:
-        """実行して覚える（失敗した結果は覚えない）。同じものを実行中なら、その結果を待つ。"""
+        """実行して覚える（失敗した結果は覚えない）。同じものを実行中なら、その結果を待って使う。
+        FRESH_SECONDS より新しく、古くなっていない結果があれば、実行せずにそれを返す。"""
         key = self.key(directory, args)
         with self.lock:
+            entry = self.entries.get(key)
+            if entry is not None and not entry.get("stale") and time.time() - entry.get("time", 0) < FRESH_SECONDS:
+                entry["used"] = time.time()
+                return dict(entry)
             waiting = self.running.get(key)
             if waiting is None:
-                self.running[key] = threading.Event()
+                self.running[key] = (threading.Event(), [])
+            generation = self.generation
         if waiting is not None:
-            waiting.wait(600)
-            entry = self.get(directory, args)
-            if entry is not None and not entry.get("stale"):
-                return entry
+            done, result = waiting
+            done.wait(600)
+            if result:
+                return dict(result[0])
             return {"doc": cli.run(directory, args), "time": time.time()}
+        entry = None
         try:
             document = cli.run(directory, args)
             entry = {"doc": document, "time": time.time(), "used": time.time()}
-            if document.get("ok"):
-                with self.lock:
+            with self.lock:
+                if self.generation != generation:
+                    entry["stale"] = True   # 実行中に変える操作があった：前の状態かもしれない
+                if document.get("ok"):
                     self.entries[key] = entry
                     self._trim()
+            if document.get("ok"):
                 self._save()
-            return entry
+            return dict(entry)
         finally:
             with self.lock:
-                self.running.pop(key).set()
+                done, result = self.running.pop(key)
+                if entry is not None:
+                    result.append(entry)
+                done.set()
 
     def invalidate(self) -> None:
         """変える操作の後：覚えた結果をすべて「古い」にする（画面は出してから読み直す）。"""
         with self.lock:
+            self.generation += 1
             for entry in self.entries.values():
                 entry["stale"] = True
         self._save()

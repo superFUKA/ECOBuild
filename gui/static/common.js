@@ -91,7 +91,9 @@ const ECO = (() => {
   // warm: read ahead only (what is likely opened next): kept is enough, not read again now (it is when opened).
   async function query(dir, args, onFresh, {warm = false} = {}) {
     const key = queryKey(dir, args), entry = queries.get(key) || {};
-    Object.assign(entry, {dir, args, used: Date.now()}, warm ? {} : {onFresh}); queries.set(key, entry);
+    // used: what the focus handler reads again. Not for warm reads (likely opened next, not shown now: reading a dozen
+    // task statuses again on every focus would only ask GitHub for what nobody looks at)
+    Object.assign(entry, {dir, args}, warm ? {} : {onFresh, used: Date.now()}); queries.set(key, entry);
     const kept = await call('query', {dir, args, mode: 'cache'}).catch(() => null);
     if (!kept) {
       const {doc, time} = await fetchQuery(key);
@@ -103,8 +105,11 @@ const ECO = (() => {
     if (kept.stale || Date.now() - entry.fetched > STALE_MS) revalidate(key, entry.shown);
     return kept.doc;
   }
+  // Only when the window itself was left (another app), not when the focus moves between this page and its frames
+  // (the module page and the workspace iframes): every such move would read all the recent queries again.
   let hiddenSince = 0;
-  window.addEventListener('blur', () => { hiddenSince = Date.now(); });
+  const appHasFocus = () => { try { return window.top.document.hasFocus(); } catch { return false; } };
+  window.addEventListener('blur', () => { const at = Date.now(); setTimeout(() => { if (!appHasFocus()) hiddenSince = at; }, 0); });
   window.addEventListener('focus', () => {
     if (!hiddenSince || Date.now() - hiddenSince < 1000) return;
     hiddenSince = 0;

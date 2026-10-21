@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as _datetime
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -377,16 +378,20 @@ class Tracker:
         return sorted(tasks, key=lambda item: _missing_last(pick(task_of(item)), task_of(item).number))
 
     def details(self, number: int) -> TaskDetails:
-        task = self.store.task(number)
-
         def refs(infos):
             return tuple(TaskRef._from(i) for i in sorted(infos, key=lambda i: i.number))
 
-        parent = None if task.parent is None else TaskRef._from(self.issue(task.parent))
-        return TaskDetails(task, self.issue(number).body, tuple(self.github.issue_comments(self.root, number)), parent,
-                           refs(self.github.sub_issues(self.root, number)),
-                           refs(self.github.blocked_by(self.root, number)),
-                           refs(self.github.blocking(self.root, number)))
+        # 1つずつ聞くと数秒かかるので、互いに関係ない問い合わせは並べて待つ
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            issue = pool.submit(self.issue, number)
+            comments = pool.submit(self.github.issue_comments, self.root, number)
+            subtasks = pool.submit(self.github.sub_issues, self.root, number)
+            blocked_by = pool.submit(self.github.blocked_by, self.root, number)
+            blocking = pool.submit(self.github.blocking, self.root, number)
+            task = self.store.task(number)
+            parent = None if task.parent is None else TaskRef._from(self.issue(task.parent))
+            return TaskDetails(task, issue.result().body, tuple(comments.result()), parent, refs(subtasks.result()),
+                               refs(blocked_by.result()), refs(blocking.result()))
 
     def next_tasks(self, *, assignee: str | None = None, exclude: set[int] = frozenset(),
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:

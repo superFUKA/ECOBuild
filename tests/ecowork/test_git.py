@@ -183,3 +183,21 @@ def test_conflict_markers(remote_and_clone):
     repo.commit("印が残った")
     assert repo.conflict_markers("HEAD~1...HEAD") == ("a.cpp:2", "a.cpp:4", "a.cpp:6")
     assert repo.conflict_markers(cached=True) == ()
+
+
+def test_fetch_reuse_skips_a_fetch_just_made(remote_and_clone, monkeypatch):
+    """読むだけの処理の fetch(reuse=True) は、このオブジェクトか別のコマンドが取得したばかりなら取得し直さない。"""
+    _, work = remote_and_clone
+    repo = Git(work)
+    fetches = []
+    run = repo.run
+    monkeypatch.setattr(repo, "run", lambda *args, **kw: (fetches.append(args) if args[0] == "fetch" else None) or run(*args, **kw))
+    repo.fetch(reuse=True)
+    repo.fetch(reuse=True)
+    assert len(fetches) == 1
+    other = Git(work)   # 別のコマンド（取得した時刻は .git に残る）
+    monkeypatch.setattr(other, "run", lambda *args, **kw: (fetches.append(args) if args[0] == "fetch" else None) or run(*args, **kw))
+    other.fetch(reuse=True)
+    assert len(fetches) == 1
+    other.fetch()           # reuse なしは必ず取得する
+    assert len(fetches) == 2

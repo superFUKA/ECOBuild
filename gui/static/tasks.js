@@ -258,7 +258,7 @@
         currentSprint() ? extra('summary', 0, ['sprint', 'status']) : null,
         extra('summary', 1, ['task', 'workload']), extra('summary', 2, ['milestone', 'status']),
         extra('summary', 3, ['task', 'next', '--count', '5', '--mine']), extra('summary', 4, ['task', 'overdue', '--days', '7']),
-        extra('summary', 5, ['task', 'list', '--submitted']), extra('summary', 6, ['task', 'list', '--to-review']),
+        null, extra('summary', 6, ['task', 'list', '--to-review']),   // the submitted ones are in task list --all (index 7)
         extra('summary', 7, ['task', 'list', '--all'])]));
       return ECO.loading('集計しています…');
     }
@@ -287,7 +287,8 @@
     const wl = people.map(w => `<button type="button" class="tk-dash-row" ${w.assignee ? `data-person="${esc(w.assignee)}"` : 'data-dash-unassigned'}>${avatarMark(w.assignee)}<span class="tk-dash-name">${esc(w.assignee || '担当なし')}${w.assignee === me() ? '（自分）' : ''}</span>
       <span class="tk-minibar"><span style="width:${pct(w.open, most)}%"></span><span class="doing" style="width:${pct(w.in_progress, most)}%"></span></span><span class="tk-muted">${w.open} 件・作業中 ${w.in_progress}${w.estimate_remaining ? `・残り ${w.estimate_remaining}` : ''}</span>${w.overdue ? `<span class="tk-reason">期限切れ ${w.overdue}</span>` : ''}</button>`).join('');
     const prRow = t => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${submissionPill(t.submission)}${avatars(t)}</div>`;
-    const mineNext = ok(next) || [], openPrs = ok(prs) || [], asked = ok(reviews) || [];
+    const mineNext = ok(next) || [], asked = ok(reviews) || [];
+    const openPrs = prs ? ok(prs) || [] : (ok(all) || []).filter(t => t.state === 'open' && t.submission);   // = task list --submitted
     return `<div class="tk-dash">
       <div class="tk-dash-stats wide">${big('開いているタスク', open.length, {go: 'list'})}${big('作業中', count('in_progress'), {go: 'stages'})}${big('レビュー待ち', count('in_review'), {go: 'stages'})}${big('期限切れ', late.length, {cls: late.length ? 'bad' : '', go: 'next'})}${big('この1週間に完了', finished.filter(t => t.finished >= weekAgo).length)}${big('レビューの依頼', asked.length, {cls: asked.length ? 'warn' : ''})}</div>
       ${card('段階', stageBar, {go: 'stages', sub: `開いている ${open.length} 件`})}

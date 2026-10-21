@@ -255,7 +255,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
 
     def branches(self) -> list[wm.Branch]:
         """ブランチの一覧。開いている提出があれば、その状態と取り込み先も添える。"""
-        self.git.fetch()
+        self.git.fetch(reuse=True)
         local = set(self.git.local_branches())
         remote = set(self.git.remote_branches())
         opened = {i.head: i for i in sorted(self.github.list_pull_requests(self.root, closed=False),

@@ -158,6 +158,35 @@ def test_the_same_read_at_the_same_time_runs_once(tmp_path):
     assert counter.read_text() == "x"
 
 
+def test_a_read_just_made_is_not_run_again(tmp_path):
+    """FRESH_SECONDS より新しい結果は、読み直しを頼まれても実行しない（別の窓・iframe が続けて読み直すとき）。"""
+    counter = tmp_path / "count.txt"
+    script = ("import json, sys, pathlib; p = pathlib.Path(sys.argv[1]); n = int(p.read_text()) + 1 if p.exists() else 1; "
+              "p.write_text(str(n)); print(json.dumps({'ok': True, 'result': n}))")
+    app = gui.App(gui.Cli([sys.executable, "-c", script, str(counter)]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    assert app.api("query", {"args": ["task", "list"], "mode": "fresh"})["doc"]["result"] == 1
+    assert app.api("query", {"args": ["task", "list"], "mode": "fresh"})["doc"]["result"] == 1
+    app.api("cli", {"args": ["task", "new", "x"]})                       # 変える操作の後は読み直す
+    assert app.api("query", {"args": ["task", "list"], "mode": "fresh"})["doc"]["result"] == 3
+
+
+def test_a_failed_read_at_the_same_time_is_shared(tmp_path):
+    """同時に読んだものが失敗しても、待っていた側がそれぞれ実行し直さない（失敗した結果を分ける）。"""
+    counter = tmp_path / "count.txt"
+    script = ("import json, sys, time, pathlib; p = pathlib.Path(sys.argv[1]); "
+              "p.write_text(p.read_text() + 'x' if p.exists() else 'x'); time.sleep(1); "
+              "print(json.dumps({'ok': False, 'result': None, 'error': {'code': 'github_error', 'message': 'x'}}))")
+    app = gui.App(gui.Cli([sys.executable, "-c", script, str(counter)]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    answers = []
+    threads = [threading.Thread(target=lambda: answers.append(
+        app.api("query", {"args": ["task", "list"], "mode": "fresh"}))) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert counter.read_text() == "x" and len(answers) == 3 and not any(a["doc"]["ok"] for a in answers)
+
+
 def test_dropped_files_are_copied_into_the_folder_without_overwriting(tmp_path):
     """エクスプローラーに落としたファイル・フォルダ（中身は base64）を、落とした先のフォルダに置く。"""
     import base64

@@ -147,3 +147,65 @@ def test_edit_pull_request_uses_rest_api(monkeypatch, tmp_path):
     assert calls[0] == (("gh", "api", "--method", "PATCH", "repos/{owner}/{repo}/pulls/9", "--input", "-"),
                         {"body": "", "base": "develop"})
     assert calls[-1][1] == {"labels": ["keep", "new"]}
+
+
+def test_get_repository_also_reads_whether_it_is_private(monkeypatch):
+    """get_repository の後の is_private は、GitHub に聞き直さない（module show で2回聞いていた）。"""
+    recorder = Recorder({"repo view": (0, json.dumps({"nameWithOwner": "o/r", "url": "https://github.com/o/r",
+                                                      "isArchived": False, "isPrivate": True}))})
+    monkeypatch.setattr(_process, "run", recorder)
+    gh = _github.GhCli()
+    assert gh.get_repository("o/r").full_name == "o/r"
+    assert gh.is_private("o/r") is True
+    assert len(recorder.calls) == 1
+
+
+def test_repository_name_is_remembered_in_the_clone(remote_and_clone, monkeypatch):
+    """所有者/名前（gh repo view）は clone の git の設定に覚え、次のコマンドでは聞かない。origin が変われば聞き直す。"""
+    _, work = remote_and_clone
+    asked = []
+    real = _process.run
+
+    def run(args, **kw):
+        if args[:3] == ["gh", "repo", "view"]:
+            asked.append(args)
+            return _process.Completed(tuple(args), 0, json.dumps({"owner": {"login": "o"}, "name": "r"}), "")
+        return real(args, **kw)
+    monkeypatch.setattr(_process, "run", run)
+    assert _github.GhCli().repository_name(work) == "o/r"
+    assert _github.GhCli().repository_name(work) == "o/r"
+    assert len(asked) == 1
+    real(["git", "remote", "set-url", "origin", "https://github.com/o/renamed.git"], cwd=work)
+    _github.GhCli().repository_name(work)
+    assert len(asked) == 2
+
+
+def test_remembered_board_is_read_with_the_board_list(remote_and_clone, monkeypatch):
+    """前に見つけたボードは、ボードの一覧と同じ問い合わせで定義も読み、get_board で聞き直さない。"""
+    _, work = remote_and_clone
+    project = {"id": "P", "number": 3, "title": "t", "url": "https://github.com/users/o/projects/3", "closed": False,
+               "public": False, "repositories": {"nodes": [{"nameWithOwner": "o/r"}]},
+               "fields": {"nodes": [{"id": "F", "name": "Status", "dataType": "SINGLE_SELECT", "options": []}]}}
+    queries = []
+    real = _process.run
+
+    def run(args, **kw):
+        if args[:3] == ["gh", "api", "graphql"]:
+            queries.append(json.loads(kw["input"]))
+            data = {"repository": {"projectsV2": {"nodes": [
+                {"url": project["url"], "shortDescription": "ECOBuild", "closed": False}]}}}
+            if "repositoryOwner" in queries[-1]["query"]:
+                data["repositoryOwner"] = {"projectV2": project}
+            return _process.Completed(tuple(args), 0, json.dumps({"data": data}), "")
+        return real(args, **kw)
+    monkeypatch.setattr(_process, "run", run)
+    first = _github.GhCli("o/r")
+    first.repository_boards(work)                 # まだ覚えていない：一覧だけ
+    first.get_board(work, "o", 3)
+    assert len(queries) == 2
+    second = _github.GhCli("o/r")
+    second.repository_boards(work)                # 覚えたボードの定義も一緒に読む
+    assert second.get_board(work, "o", 3).id == "P"
+    assert len(queries) == 3
+    assert second.get_board(work, "o", 3).id == "P"   # 2回目（書いた後の読み直し）は聞き直す
+    assert len(queries) == 4

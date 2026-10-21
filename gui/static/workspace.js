@@ -43,11 +43,13 @@ WS.refresh = async ({fetch = false} = {}) => {
   WS.status = doc.result;
   // The task (its title for the header) is read from GitHub, which takes seconds: the changes are shown first.
   if (WS.status.task && WS.status.task !== before) {
+    // ECO.query: the same read as the submission tab's (prs.js), so the two share one run and what was kept shows at once
     const number = WS.status.task;
-    WS.cli(['task', 'status', String(number)], {quiet: true}).then(t => {
+    const show = t => {
       if (WS.status?.task !== number) return;
       WS.task = t.ok ? t.result : null; renderHeader(); WS.notifyParent();
-    });
+    };
+    ECO.query(WS.dir, ['task', 'status', String(number)], fresh => { if (fresh.ok) show(fresh); }).then(show);
   } else if (!WS.status.task) WS.task = null;
   const all = WS.changes();
   for (const p of [...WS.selected]) if (!all.has(p)) WS.selected.delete(p);

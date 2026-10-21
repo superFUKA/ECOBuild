@@ -221,17 +221,23 @@ class GhCli(_TaskGhCli):
 
     def get_repository(self, name):
         """name は「名前」（ログイン中のユーザーのもの）か「所有者/名前」。"""
-        completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url,isArchived"], cwd=None, check=False)
+        completed = self._gh(["repo", "view", name, "--json", "nameWithOwner,url,isArchived,isPrivate"], cwd=None,
+                             check=False)
         if not completed.ok:
             if not not_found(completed):
                 raise gh_error(["repo", "view"], completed)
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。",
                             details=completed.output)
         data = json.loads(completed.stdout)
+        # is_private が続けて聞くことが多いので、一緒に読んで覚えておく
+        self.__dict__.setdefault("_private", {})[name] = bool(data.get("isPrivate"))
         return RepositoryInfo(data["nameWithOwner"], data["url"] + ".git", data["url"], bool(data.get("isArchived")))
 
     def is_private(self, name):
-        return bool(self._json(["repo", "view", name, "--json", "isPrivate"], cwd=None)["isPrivate"])
+        private = self.__dict__.get("_private", {})
+        if name not in private:
+            private[name] = bool(self._json(["repo", "view", name, "--json", "isPrivate"], cwd=None)["isPrivate"])
+        return private[name]
 
     def repository_has_file(self, name, path):
         """既定のブランチに path があるか。name は「所有者/名前」。"""

@@ -452,9 +452,11 @@
     const placeOptions = places.map((p, i) => {
       const s = MOD.states.get(MOD.keyOf(p));
       const now = s.task ? `今は ${s.branch || `#${s.task} のタスクブランチ`} を置いています。` : '';
+      const locked = ECO.whyLocked(s);
+      if (locked) return ['ws' + i, `${placeName(p)}に置く`, `${locked}。ロックが外れるまで選べません（${p}）`, true];
       return ['ws' + i, `${placeName(p)}に置く`, now + (existing ? `${existing} に切り替えます` : 'タスクブランチを作って切り替えます') + `（${p}）`];
     });
-    const free = places.filter(p => !MOD.states.get(MOD.keyOf(p)).task), active = MOD.activePlace?.();
+    const free = places.filter(p => !MOD.states.get(MOD.keyOf(p)).task && !ECO.lockOf(MOD.states.get(MOD.keyOf(p))).locked), active = MOD.activePlace?.();
     const preferred = active && free.some(p => MOD.keyOf(p) === MOD.keyOf(active)) ? active : free[0];
     const placeValue = preferred ? 'ws' + places.indexOf(preferred) : 'dir';
     const assignees = d.assignees || t.assignees || [], others = me() && !assignees.includes(me()) ? assignees : [];
@@ -478,6 +480,8 @@
         else if (!existing) { const error = ECO.branchNameError(v.branchName || ''); if (error) return error; args.push('--name', v.branchName.trim()); }
         if (v.place === 'dir') { if (!v.dir) return '新しい作業空間の場所を入力してください。'; args.push('--dir', v.dir); }
         const place = v.place.startsWith('ws') ? places[Number(v.place.slice(2))] : null;
+        const lockedWhy = place && ECO.whyLocked(MOD.states.get(MOD.keyOf(place)));
+        if (lockedWhy) return lockedWhy + '。ほかの作業空間を選ぶか、ロックを外してください。';
         const doc = await run(args, {dir: place || root(), success: v.place === 'none' ? `#${n} を作業中にしました。` : r => `タスクブランチ ${r.branch} を用意しました。`, quietErrors: true});
         if (!doc) return '開始できませんでした。';
         if (place) { await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }

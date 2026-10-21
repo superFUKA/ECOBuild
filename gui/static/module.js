@@ -146,8 +146,9 @@ function renderTab(dir) {
   const button = tabs.querySelector(`[data-dir="${CSS.escape(keyOf(dir))}"]`); if (!button) return;
   const {branch, title, where} = placeLabel(dir);
   // A task's tab shows the task's title (its branch, task/<n>-<name>, on hover); another workspace shows its branch.
-  button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
-  button.title = `${branch}　${dir}`;
+  const lock = ECO.lockOf(MOD.states.get(keyOf(dir)));
+  button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}${lock.locked ? '<span class="lock-mark" aria-label="ロック中">🔒</span>' : ''}`;
+  button.title = `${branch}　${dir}` + (lock.locked ? `\nロック中：${ECO.lockSummary(lock)}` : '');
   syncTabs();
 }
 async function refreshState(dir) {
@@ -287,6 +288,8 @@ MOD.openWorkspace = async n => {
   // Show the tab where task <n>'s task branch is checked out; otherwise switch the module's clone to it (task start).
   let place = MOD.placeOfTask(n);
   if (!place) {
+    const why = ECO.whyLocked(MOD.states.get(keyOf(MOD.root)));
+    if (why) { await ECO.lockDialog(MOD.root, MOD.states.get(keyOf(MOD.root))).then(changed => changed && refreshState(MOD.root)); return false; }
     const doc = await ECO.run(MOD.root, ['task', 'start', String(n)], {success: r => `タスクブランチ ${r.branch} に切り替えました。`});
     if (!doc) return false;
     place = MOD.root; await reloadPlace(place);
@@ -323,6 +326,7 @@ tabs.addEventListener('contextmenu', e => {
     '-',
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
+    [ECO.lockOf(state).locked ? 'ロックの詳細…' : '手動でロックする…', () => ECO.lockDialog(dir, state).then(changed => changed && refreshState(dir))],
     ['状態を更新', () => reloadPlace(dir)],
     ...(state.task ? ['-', [`タスク #${state.task} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.task); }]] : []),
   ], e.clientX, e.clientY);
@@ -342,7 +346,7 @@ addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), main = keyOf(p) === keyOf(MOD.root), ws = isWorkspace(p);
     const place = main ? 'この作業空間' : '作業空間 ' + where;
-    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
+    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}${ECO.lockOf(MOD.states.get(keyOf(p))).locked ? '　🔒ロック中：' + ECO.esc(ECO.lockSummary(ECO.lockOf(MOD.states.get(keyOf(p))))) : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
     return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${ECO.esc(place)}：${ECO.esc(p)}</small></button>${main ? '' : `<button type="button" data-forget="${i}" title="一覧から外す（フォルダは削除しません）">外す</button><button type="button" data-close-place="${i}" title="作業空間を閉じる（フォルダごと削除します）">閉じる</button>`}</div>`;
   }).join('');
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
@@ -377,7 +381,7 @@ addTabButton.addEventListener('click', async () => {
 });
 
 // What the other pages care about in a place's state (the task list shows which tasks have a task branch or a PR).
-const stateSignature = s => s ? [s.branch, s.task, s.reviewing, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
+const stateSignature = s => s ? [s.branch, s.task, s.reviewing, ECO.lockOf(s).locked, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
 // Messages from workspace frames: their state changed (commit, switch...), so update the tab label.
 window.addEventListener('message', event => {
   if (event.origin !== location.origin) return;
@@ -392,4 +396,6 @@ window.addEventListener('message', event => {
   if (data.type === 'show-task' && data.n) { showModulePage('tasks'); window.TASKS_SELECT?.(Number(data.n)); }
 });
 
+// Automatic locks (agent・container・command) come and go without the GUI: read the places again now and then.
+setInterval(() => { if (!document.hidden) MOD.places.forEach(refreshState); }, 20000);
 MOD.ready = loadPlaces().then(syncTabs);

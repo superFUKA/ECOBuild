@@ -82,3 +82,4 @@ header { padding: 10px 16px; }
 /* The account's role in this module (account show), after the name. */
 .nav-account-role { flex: none; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #cdd5df; font-size: 11px; line-height: 18px; }
 .module-shell.nav-collapsed .nav-account-role { display: none; }
+.tabs [role=tab] .lock-mark { margin-left: 5px; font-size: 11px; color: #f0d98c; }

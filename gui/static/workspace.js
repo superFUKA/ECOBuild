@@ -92,6 +92,15 @@ get('account-button')?.addEventListener('click', async () => {
 });
 loadAccount();
 
+// The lock (workspace lock): shown on the button; a click shows the reasons, 手動ロック, and (deep inside) the emergency unlock.
+function renderLock() {
+  const lock = ECO.lockOf(WS.status), button = get('lock-button'); if (!button) return;
+  button.classList.toggle('on', lock.locked);
+  get('lock-label').textContent = lock.locked ? 'ロック中' : 'ロック';
+  button.dataset.tip = lock.locked ? `作業空間がロックされています：${ECO.lockSummary(lock)}` : 'この作業空間はロックされていません（押すと手動でロックできます）';
+}
+get('lock-button')?.addEventListener('click', async () => { await WS.refresh(); if (await ECO.lockDialog(WS.dir, WS.status)) await WS.refresh(); });
+
 function renderHeader() {
   const s = WS.status;
   const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
@@ -99,6 +108,7 @@ function renderHeader() {
   get('branch-name').textContent = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.branch || '（ブランチなし）';
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
+  renderLock();
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
 }
 
@@ -137,6 +147,7 @@ function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
+    if (ECO.lockOf(s).locked) out.push(banner(`この作業空間はロックされています（${esc(ECO.lockSummary(ECO.lockOf(s)))}）。ロック中は、タスクブランチの切り替え・削除ができません。<button data-git="lock">ロックの詳細…</button>`));
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
     else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチから切り替え、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
@@ -422,6 +433,8 @@ const keyOf = dir => dir.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
 ECO.info().then(info => { WS.me = info.me || ''; }).catch(() => {});
 function whyNotSwitch(s) {
   if (!s) return 'この場所の状態を読めません。';
+  const locked = ECO.whyLocked(s);
+  if (locked) return locked + '（外し方：ヘッダーの「ロック」から。自動のロックは、動いているものが終われば外れます）';
   if (s.merging) return '取り込みの途中です（完了するか中止してから切り替えます）。';
   if (s.reviewing) return '提出を確認中です（「判定せずに戻る」で戻ってから切り替えます）。';
   const excluded = new Set(s.excluded || []);
@@ -460,7 +473,9 @@ async function gitAction(action) {
   switch (action) {
     case 'stage': return WS.run(['task', 'add', ...sel], {success: sel.length + '件をステージしました。'});
     case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
-    case 'clean-finished': return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
+    case 'lock': return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
+    case 'clean-finished': if (ECO.whyLocked(WS.status)) return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
+      return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));

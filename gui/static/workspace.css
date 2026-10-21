@@ -231,3 +231,5 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .container-button span { font-size: 12px; }
 .build-bar .container-button.on { border-color: #39584f; background: #1f302c; color: #a8ead9; }
 .build-bar .container-button.on svg { color: #9ee4d3; }
+.build-bar #lock-button.on { border-color: #6b5a2c; background: #302a1a; color: #f0d98c; }
+.build-bar #lock-button.on svg { color: #f0d98c; }

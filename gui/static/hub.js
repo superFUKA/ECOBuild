@@ -171,11 +171,12 @@ function defaultParent() {
 }
 function updateFields() {
   const method = addForm.querySelector('[name=method]:checked').value;
-  addForm.querySelector('[type=submit]').textContent = {new: '作成する', clone: '取得する', register: '登録する'}[method];
+  addForm.querySelector('[type=submit]').textContent = {new: '作成する', clone: '取得する', register: '登録する', adopt: 'モジュールにする…'}[method];
   if (method === 'clone') { if (!githubModules && !githubModulesLoading) loadGithubModules(); renderCloneCandidates(); }
-  for (const [id, on] of [['new-fields', method === 'new'], ['new-more', method === 'new'], ['clone-fields', method === 'clone'], ['register-fields', method === 'register']]) { $(id).hidden = !on; $(id).disabled = !on; }
-  $('parent-fields').hidden = method === 'register';
-  field('directory').required = method !== 'register';
+  for (const [id, on] of [['new-fields', method === 'new'], ['new-more', method === 'new'], ['clone-fields', method === 'clone'], ['register-fields', method === 'register'], ['adopt-fields', method === 'adopt']]) { $(id).hidden = !on; $(id).disabled = !on; }
+  const local = method === 'register' || method === 'adopt';   // the folder is already on this PC
+  $('parent-fields').hidden = local;
+  field('directory').required = !local;
   // What to make first: the type's kinds (module types: new_kinds); a type without them takes no --kind.
   const type = field('type').value, info = types.find(t => t.name === type);
   const kinds = info ? info.new_kinds || [] : (FALLBACK_KINDS[type] || []), select = $('kind-select');
@@ -208,7 +209,11 @@ $('add-module').addEventListener('click', async () => {
   $('add-error').textContent = ''; updateFields(); addDialog.showModal();
   if (!types.length) {
     const doc = await ECO.cli(null, ['module', 'types'], {quiet: true});
-    if (doc.ok) { types = doc.result; delete $('kind-select').dataset.type; $('type-select').innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join(''); updateFields(); }
+    if (doc.ok) {
+      types = doc.result; delete $('kind-select').dataset.type;
+      for (const id of ['type-select', 'adopt-type-select']) $(id).innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+      updateFields();
+    }
   }
   ECO.info().then(info => { if (!field('directory').value && info.home) field('directory').value = info.home.replaceAll('\\', '/'); });
 });
@@ -238,8 +243,16 @@ addForm.addEventListener('submit', async event => {
   event.preventDefault();
   const data = new FormData(addForm), method = data.get('method'), error = $('add-error'), submit = addForm.querySelector('[type=submit]');
   error.textContent = '';
+  if (method === 'adopt') { await adoptRepository(data.get('adopt-folder').trim(), data.get('adopt-type')); return; }
   if (method === 'register') {
     const doc = await ECO.cli(null, ['workspace', 'add', data.get('folder').trim()], {quiet: true});
+    if (!doc.ok && doc.error?.code === 'not_in_module') {
+      // Not a module yet: offer to make it one (module adopt) with the same folder.
+      field('adopt-folder').value = data.get('folder').trim();
+      addForm.querySelector('[name=method][value=adopt]').checked = true; updateFields();
+      error.textContent = 'このフォルダは ECOBuild のモジュールではありません。GitHub のリポジトリの clone なら、型を選んでモジュールにできます。';
+      return;
+    }
     if (!doc.ok) { error.textContent = errorText(doc); return; }
     addDialog.close(); ECO.toast(baseName(doc.result.path) + ' を一覧に登録しました。'); loadModules();
     ECO.prefetch(doc.result.path).catch(() => null);   // behind: what its screens show first
@@ -283,6 +296,38 @@ addForm.addEventListener('submit', async event => {
   ECO.toast(`${made} を${creating ? '作成' : '取得'}しました。`);
   await loadModules();
 });
+
+// module adopt: show what it places (--dry-run) and where it pushes, then make the clone a module.
+async function adoptRepository(folder, type) {
+  const error = $('add-error'), submit = addForm.querySelector('[type=submit]');
+  if (!folder) { error.textContent = 'リポジトリのフォルダを入力してください。'; return; }
+  submit.disabled = true;
+  const plan = await ECO.cli(folder, ['module', 'adopt', '--type', type, '--dry-run'], {quiet: true});
+  submit.disabled = false;
+  if (!plan.ok) { error.textContent = errorText(plan); return; }
+  const r = plan.result;
+  addDialog.close();
+  const choice = await ECO.dialog({title: `${r.name} をモジュールにする`,
+    body: `<p>${esc(r.root)} の <strong>${esc(r.branch)}</strong> を、型 ${esc(r.type)} のモジュールにします。次のファイルを置いて「ECOBuild のモジュールにする」としてコミットし、GitHub の ${esc(r.branch)} へ push します（ほかの人にも届きます）。</p>
+      <ul>${r.paths.map(p => `<li><code>${esc(p)}</code></li>`).join('')}</ul>
+      <p class="note">型が置くもの（C++ の Solution 等）も一緒にコミットします。README などのファイルは変えません。タスクブランチは ${esc(r.branch)} から作ります。</p>`,
+    buttons: [['戻る', '', false], ['モジュールにする', 'primary', true]]});
+  if (!choice) { addDialog.showModal(); return; }
+  const overlay = ECO.busy({title: `${r.name} をモジュールにしています…`, sub: r.root});
+  let reported = [];
+  const doc = await ECO.cli(folder, ['module', 'adopt', '--type', type], {quiet: true, onProgress: lines => { reported = lines; overlay.progress(lines); }});
+  if (!doc.ok) {
+    overlay.end(); addDialog.showModal();
+    error.textContent = errorText(doc);
+    if (ECO.detailText(doc.error?.details)) ECO.showError(doc, 'モジュールにできませんでした');
+    return;
+  }
+  overlay.progress([...reported, 'モジュールの情報を読み込み中…']);
+  await ECO.prefetch(doc.result.root).catch(() => null);
+  await overlay.done(`${r.name} をモジュールにしました`);
+  ECO.toast(`${r.name} をモジュールにしました（${doc.result.branch} に push 済み）。`);
+  await loadModules();
+}
 
 // Settings ----------------------------------------------------------------------------------------
 function ownerHint(owner) { field('owner').placeholder = owner ? '未指定なら ' + owner : '未指定ならログイン中のユーザー'; }

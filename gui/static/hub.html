@@ -109,10 +109,11 @@
   <dialog id="add-dialog" aria-labelledby="add-title">
     <form id="add-form">
       <div class="dialog-heading"><h2 id="add-title">モジュールを追加</h2></div>
-      <fieldset class="method-options three"><legend class="sr-only">追加方法</legend>
+      <fieldset class="method-options"><legend class="sr-only">追加方法</legend>
         <label class="method-option"><input type="radio" name="method" value="new" checked><span><strong>新規作成</strong><small>新しいモジュールを作成</small></span></label>
         <label class="method-option"><input type="radio" name="method" value="clone"><span><strong>GitHubから取得</strong><small>既存のモジュールをclone</small></span></label>
         <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのフォルダを登録</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="adopt"><span><strong>リポジトリをモジュールに</strong><small>ECOBuild を使っていない clone を取り込む</small></span></label>
       </fieldset>
       <fieldset id="new-fields" style="border:0;padding:0;margin:0">
         <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label><label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
@@ -137,6 +138,10 @@
       </fieldset>
       <fieldset id="register-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">モジュールのフォルダ<span class="dir-row"><input name="folder" required placeholder=".ecobuild のあるフォルダ"><button type="button" data-pick="folder">参照…</button></span></label>
+      </fieldset>
+      <fieldset id="adopt-fields" hidden disabled style="border:0;padding:0;margin:0">
+        <div class="form-grid"><label class="field">リポジトリのフォルダ<span class="dir-row"><input name="adopt-folder" required placeholder="GitHub のリポジトリを clone したフォルダ"><button type="button" data-pick="adopt-folder">参照…</button></span></label><label class="field">型<select name="adopt-type" id="adopt-type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
+        <p class="note">今のブランチに .ecobuild/ を置いて「ECOBuild のモジュールにする」としてコミットし、GitHub へ push します（そのブランチがタスクブランチの作成元になります）。README などのファイルは変えません。できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。</p>
       </fieldset>
       <p id="add-error" role="alert"></p>
       <div class="dialog-actions"><button type="button" class="cancel" id="cancel-add">キャンセル</button><button class="add-button" type="submit">追加</button></div>

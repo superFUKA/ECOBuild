@@ -11,7 +11,7 @@ const HELP = (() => {
   <div id="help-guide">
     <p class="note">ECOBuildの作業は、タスク（GitHubのIssue）ごとに進めます。GUIのボタンは、ecobuild のコマンドを実行しています。コマンドの名前を押すと、コマンド一覧の説明に移ります。</p>
     <ol class="help-steps">
-      <li><span class="help-step-number">1</span><div><h4>モジュールを用意する</h4><p class="help-where">ハブ › ＋ モジュール追加</p><p class="note">新しく作るか、GitHubから取得するか、手元のフォルダを登録します。</p>
+      <li><span class="help-step-number">1</span><div><h4>モジュールを用意する</h4><p class="help-where">ハブ › ＋ モジュール追加</p><p class="note">新しく作るか、GitHubから取得するか、手元のフォルダを登録します。ECOBuild を使っていないリポジトリは「リポジトリをモジュールに」で取り込めます（自分のリポジトリだけ）。</p>
         <p class="help-chips"><button type="button" data-goto="module new">module new</button><button type="button" data-goto="module clone">module clone</button><button type="button" data-goto="workspace add">workspace add</button></p></div></li>
       <li><span class="help-step-number">2</span><div><h4>タスクを作る</h4><p class="help-where">モジュール › タスク管理 › ＋ 新しいタスク</p><p class="note">やることをタスク（Issue）にします。担当者・期限・見積もり・スプリントも付けられます。</p>
         <p class="help-chips"><button type="button" data-goto="task new">task new</button><button type="button" data-goto="task list">task list</button><button type="button" data-goto="task next">task next</button></p></div></li>

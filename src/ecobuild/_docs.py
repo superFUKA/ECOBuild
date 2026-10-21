@@ -115,6 +115,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`（提出の前の確認は `ecobuild check`）。型のツール
   （cmake・ninja・msbuild・pytest など）を直接使いません。ECOBuild がビルド設定・依存先・コンテナに合わせて動かします。
 {files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
+- コードの中身は Edit／Write で書きます。Bash のリダイレクト・heredoc・`cat >>` でファイルを書きません。
+- ビルド・テストは終わるまで待ちます。裏で動かしたまま返答を終えません。
 {usage}
 ## 作業の流れ
 
@@ -139,6 +141,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - ファイルを変える操作とコミットは、タスクブランチ（`task/<Issue番号>-<名前>` のブランチ）でだけ行えます。`main` 等へはPRのマージでだけ入ります。
 - 作業をやめるときは `ecobuild task drop`（Issueも閉じるなら `--close`）。提出だけ取り下げるなら `ecobuild task withdraw`。
 - 番号はすべてタスク（Issue）の番号です。
+- メモ・申し送りは、`.ecobuild/ai/`（コミットされません）か `ecobuild task comment` に残します。Claude Code の記憶（`~/.claude/…/memory`）はこの仕組みでは使えません。
+- 作業空間・子タスクの作成は ECOBuild のコマンドに任せます（`workspace create` 等を自分で重ねません）。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。だれの作業かはアカウントで分かります（コミットの署名は自動で消えます）。
 - 途中経過・申し送りは `ecobuild task comment --message "<内容>"` でIssueに残します（`ecobuild task status` で読めます）。`task start` すると担当者になります。ほかの人が担当しているタスクは `task start` が止まります（重ねて作業しないでください。引き継ぐと決めたときだけ `--take-over`）。
 - タスクブランチの本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task prune <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別の作業空間でも同じ）。

@@ -88,3 +88,11 @@ def test_generic_commands_are_not_in_the_readme():
     assert "[commands]" not in _docs.readme(config, generic)
     assert "[commands]" in _docs.ecobuild_readme(config, generic) and "[commands]" in _documents("generic")["agent guide"]
     assert "[commands]" not in _docs.ecobuild_readme(ModuleConfig(name="Sample", type="cpp"), REGISTRY.load("cpp"))
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
+def test_agent_guide_warns_against_known_failures(name):
+    """agent guide は、実際に起きた失敗（リダイレクトで書く・記憶に頼る・裏で動かして終える）を防ぐ。"""
+    text = _documents(name)["agent guide"]
+    for phrase in ("Edit／Write", "heredoc", "~/.claude/…/memory", "裏で動かしたまま", "`workspace create`"):
+        assert phrase in text, f"{name}: {phrase}"

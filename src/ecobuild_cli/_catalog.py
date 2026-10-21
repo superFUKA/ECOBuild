@@ -4,19 +4,22 @@
 - ecobuild <コマンド>... --help --json：そのコマンド（今いるモジュールの型のコマンドも含む）だけ。
 実行できるコマンドには重さ（effect：read・change・confirm・human。_effects）を付ける。
 --json と --help（どのコマンドにもある）は、一覧に入れない。
+オプションは names・help・flag・required・multiple・type（bool・str・int・float）・negative（真偽のオプションの否定形。
+なければ null）・choices（選べる値。なければ null）、既定値があれば default（真偽のオプションはいつも）。
+説明に「例：」の段落があれば、その中の ecobuild で始まる行を examples に。
+全体（ecobuild --help --json）には、誤りの種類の一覧（errors：code・retryable。_errors）も入れる。
 """
 
 from __future__ import annotations
 
 import inspect
-import json
 from typing import Any, Callable
 
 import click
 
 from ecobuild_bundle import REGISTRY
 
-from . import _effects, _types
+from . import _effects, _errors, _output, _types
 
 COMMON_OPTIONS = ("--json", "--help")
 
@@ -27,9 +30,8 @@ def emit(build_cli: Callable[..., click.Command], path: list[str], sections: dic
         cli = build_cli()
         command, ctx = _find(cli, path)
         if command is None:
-            _print(None, {"code": "usage_error", "message": f"不明なコマンドです: '{' '.join(path)}'",
-                          "hint": "ecobuild --help で使い方を確認してください。", "details": None}, path)
-            return 2
+            return _output.usage_error(f"不明なコマンドです: '{' '.join(path)}'", True,
+                                       hint="ecobuild --help で使い方を確認してください。")
         result = _node(command, ctx, tuple(path), sections)
     else:
         result = catalog(build_cli, sections)
@@ -55,7 +57,8 @@ def catalog(build_cli: Callable[..., click.Command], sections: dict[tuple[str, .
     names = {c["name"] for c in _children(common, ctx, (), {})}
     extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json"}
                   for n, path in sorted(_extensions.available().items()) if n not in names]
-    return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions}
+    return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions,
+            "errors": _errors.codes()}
 
 
 def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None]:
@@ -105,6 +108,8 @@ def _has(cli: click.Group | None, route: tuple[str, ...]) -> bool:
 def _node(command: click.Command, ctx: click.Context, path: tuple[str, ...], sections, routes=None) -> dict:
     node: dict[str, Any] = {"name": path[-1] if path else "ecobuild", "path": " ".join(path),
                             "summary": command.get_short_help_str(limit=200), "help": _help_text(command.help)}
+    if examples(node["help"]):
+        node["examples"] = examples(node["help"])
     runnable = command
     if isinstance(command, click.Group):
         node["commands"] = _children(command, ctx, path, sections, routes)
@@ -128,29 +133,57 @@ def _help_text(text: str | None) -> str:
     return "\n".join(lines).strip()
 
 
+def examples(help_text: str) -> list[str]:
+    """説明の「例：」の段落（次の空行まで）の、ecobuild で始まる行。"""
+    found, inside = [], False
+    for line in help_text.splitlines():
+        text = line.strip()
+        if text.startswith(("例：", "例:")):
+            inside = True
+            text = text[2:].strip()
+        elif not text:
+            inside = False
+        if inside and text.startswith("ecobuild "):
+            found.append(text)
+    return found
+
+
+def _type_name(parameter: click.Parameter) -> str:
+    """値の型：bool・int・float・str（CLIFrameWork の引数の型と同じ）。"""
+    if getattr(parameter, "is_flag", False) or isinstance(parameter.type, click.types.BoolParamType):
+        return "bool"
+    if isinstance(parameter.type, click.types.IntParamType):
+        return "int"
+    if isinstance(parameter.type, click.types.FloatParamType):
+        return "float"
+    return "str"
+
+
 def _argument(parameter: click.Argument) -> dict:
     return {"name": parameter.human_readable_name, "help": getattr(parameter, "help_text", None) or "",
-            "required": parameter.required, "multiple": parameter.nargs == -1}
+            "required": parameter.required, "multiple": parameter.nargs == -1, "type": _type_name(parameter)}
 
 
 def _option(parameter: click.Option, ctx: click.Context) -> dict:
     result: dict[str, Any] = {"names": list(parameter.opts), "help": parameter.help or "",
                               "flag": bool(parameter.is_flag), "required": parameter.required,
-                              "multiple": bool(parameter.multiple)}
-    if not parameter.is_flag:
+                              "multiple": bool(parameter.multiple), "type": _type_name(parameter),
+                              "negative": parameter.secondary_opts[0] if parameter.secondary_opts else None,
+                              "choices": list(parameter.type.choices) if isinstance(parameter.type, click.Choice)
+                              else None}
+    default = parameter.default
+    if parameter.is_flag:
+        result["default"] = bool(default)
+    else:
         try:
             result["value"] = parameter.make_metavar(ctx)
         except TypeError:                     # click 8.1 以前
             result["value"] = parameter.make_metavar()
-        if isinstance(parameter.type, click.Choice):
-            result["choices"] = list(parameter.type.choices)
-        default = parameter.default
         if default not in (None, "", (), []) and not callable(default):
             result["default"] = default if isinstance(default, (str, int, float, bool)) else str(default)
     return result
 
 
 def _print(result: Any, error: dict | None, path: list[str]) -> None:
-    document = {"ok": error is None, "command": " ".join(["help", *path]), "module": None, "result": result,
-                "notices": [], "error": error}
-    click.echo(json.dumps(document, ensure_ascii=False))
+    _output.print_document({"ok": error is None, "command": " ".join(["help", *path]), "module": None,
+                            "result": result, "notices": [], "error": error})

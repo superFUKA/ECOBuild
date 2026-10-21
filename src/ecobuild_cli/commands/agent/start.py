@@ -7,7 +7,7 @@ from ..container._source import source
 def command(agent: Annotated[str, "起動するエージェントのコマンド（引数は空白で区切る。既定は claude）"] = "",
             here: Annotated[bool, "新しい画面を開かず、この端末で動かして終わるまで待つ（終了コードはエージェントのもの）"] = False,
             app: Annotated[bool, "画面なし（アプリ用の起動）で、ECOBuild の係に動かしてもらう（コンテナの作業空間で。様子は agent status・agent log、止めるのは agent stop）"] = False,
-            role: Annotated[str, "役：lead（進行役。作業役に任せ、自分では編集しない）か worker（作業役。既定は作業空間の記録、なければ worker）"] = "",
+            role: Annotated[str, "役：lead（進行役。ユーザーと話し、下の管理役に命令する。自分では編集しない）・manager（管理役）か worker（作業役。既定は作業空間の記録、なければ worker）"] = "",
             prompt: Annotated[str, "最初の発言（Claude Code のとき）"] = "",
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """作業空間のルートで、エージェントを新しい画面で起動します。

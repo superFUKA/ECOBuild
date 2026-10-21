@@ -338,7 +338,7 @@ def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monk
         (folder / team.MEMBER_FILE).write_text(json.dumps({"name": name, "role": role, "task": 1}), encoding="utf-8")
         return folder
 
-    sub = member(lead.root, "下の進行役", team.LEAD)
+    sub = member(lead.root, "下の管理役", team.MANAGER)
     worker = member(sub, "画面", team.WORKER)
     folder = agent_status.prepare(container.name(worker), worker)
     lines = [{"type": "user", "message": {"content": "はじめて"}},
@@ -353,12 +353,12 @@ def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monk
     monkeypatch.chdir(lead.root)
     invoke = lambda *args: json.loads(CliRunner().invoke(build_cli(), [*args, "--json"], catch_exceptions=False).stdout)
     plain = invoke("agent", "team", "list")["result"]["members"]
-    assert [m["name"] for m in plain] == ["下の進行役"] and "members" not in plain[0] and "recent" not in plain[0]
+    assert [m["name"] for m in plain] == ["下の管理役"] and "members" not in plain[0] and "recent" not in plain[0]
     nested = invoke("agent", "team", "list", "--nested", "--recent", "2")["result"]["members"]
     assert nested[0]["recent"] == [] and [m["name"] for m in nested[0]["members"]] == ["画面"]
     assert nested[0]["members"][0]["recent"] == ["  ・Bash：ecobuild test", "◀ できました"]
     human = CliRunner().invoke(build_cli(), ["agent", "team", "list", "--nested"], catch_exceptions=False).stdout
-    assert "進行役「下の進行役」" in human and "\n    作業役「画面」" in human
+    assert "管理役「下の管理役」" in human and "\n    作業役「画面」" in human
 
 
 def test_the_launch_is_made_like_the_interactive_one(lead, monkeypatch):

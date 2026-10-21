@@ -76,12 +76,12 @@ function renderTabs() {
       + (info.pinned ? ' pinned' : '');
     b.dataset.state = info.state || '';
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = !info.pinned; b.dataset.id = info.id;
-    const role = info.role === 'lead' ? '進行役' : info.role === 'worker' ? '作業役' : '';
+    const role = info.role === 'lead' ? '進行役' : info.role === 'manager' ? '管理役' : info.role === 'worker' ? '作業役' : '';
     b.title = `${info.num}  ${info.name}（${role ? role + '・' : ''}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
       + (info.pinned ? '\nこの窓の進行役（左端に固定）' : '');
     b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.role === 'lead' ? '進' : info.num;
-    b.querySelector('b').dataset.kind = info.role === 'lead' ? 'lead' : info.kind;
+    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.role === 'lead' ? '進' : info.role === 'manager' ? '管' : info.num;
+    b.querySelector('b').dataset.kind = info.role === 'lead' || info.role === 'manager' ? info.role : info.kind;
     const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
     if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
     b.querySelector('.name').textContent = info.name;

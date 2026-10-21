@@ -47,9 +47,9 @@ def test_capabilities():
 
 
 @pytest.mark.parametrize("kind,files", [
-    ("app", {"pyproject.toml", ".gitattributes", "src/calc/__init__.py", "src/calc/__main__.py", "tests/test_calc.py"}),
-    ("library", {"pyproject.toml", ".gitattributes", "src/calc/__init__.py", "tests/test_calc.py"}),
-    ("none", {"pyproject.toml", ".gitattributes", "src/.gitkeep", "tests/.gitkeep"}),
+    ("app", {"pyproject.toml", "src/calc/__init__.py", "src/calc/__main__.py", "tests/test_calc.py"}),
+    ("library", {"pyproject.toml", "src/calc/__init__.py", "tests/test_calc.py"}),
+    ("none", {"pyproject.toml", "src/.gitkeep", "tests/.gitkeep"}),
 ])
 def test_populate(tmp_path, kind, files):
     make(tmp_path, kind)
@@ -58,13 +58,13 @@ def test_populate(tmp_path, kind, files):
     assert data["project"]["name"] == "Calc" and ("scripts" in data["project"]) == (kind == "app")
     assert _python.script_name(tmp_path) == ("Calc" if kind == "app" else None)
     assert data["build-system"]["build-backend"] == "hatchling.build" and not _python.needs_init(tmp_path)
-    assert (tmp_path / ".gitattributes").read_text(encoding="utf-8").startswith("* text=auto eol=lf\n")
+    assert any(d.startswith("pytest-xdist") for d in data["project"]["optional-dependencies"]["dev"])   # テストを並べて流す
 
 
 def test_library_without_tests(tmp_path):
     PythonType.populate(tmp_path, ModuleConfig.for_new_module("Calc", "python"), "library", None, test=False)
     assert {p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*") if p.is_file()} == {
-        "pyproject.toml", ".gitattributes", "src/calc/__init__.py", "tests/.gitkeep"}
+        "pyproject.toml", "src/calc/__init__.py", "tests/.gitkeep"}
 
 
 def test_project_names_the_package(tmp_path):
@@ -76,7 +76,7 @@ def test_module_defaults():
     assert PythonType.new_kinds == ("app", "library", "none") and PythonType.default_new_kind == "app"
     assert ".venv/" in PythonType.gitignore() and "*.py" in PythonType.tracked_patterns()
     assert {"Dockerfile", "*.html", "*.js", "*.css", "*.json"} <= set(PythonType.tracked_patterns())
-    assert PythonType.gitattributes() == ""      # .gitattributes は新しいモジュールにだけ置く（upgrade で足さない）
+    assert PythonType.gitattributes().startswith("* text=auto eol=lf")   # 本体が置く（upgrade・adopt でも足す）
     assert PythonType.generated_note == "" and "python" in PythonType.tool_settings()
 
 
@@ -152,7 +152,7 @@ def test_run_needs_a_script(tmp_path):
 def test_ci_workflow():
     base = ModuleConfig.for_new_module("Calc", "python")
     default = PythonType.ci_workflow(base)
-    assert "os: [ubuntu-latest]" in default and 'python: ["3.12"]' in default and "python -m pytest" in default
+    assert "os: [ubuntu-latest]" in default and 'python: ["3.12"]' in default and "python -m pytest -n auto" in default
     assert "name: Package" not in default and "run: ecobuild" not in default
     custom = PythonType.ci_workflow(
         ModuleConfig("Calc", None, "python", extra={"python": {"versions": ["3.11", "3.13"]}})
@@ -462,6 +462,13 @@ def test_run_command_line(monkeypatch, tmp_path):
 ])
 def test_split_arguments(text, expected):
     assert _python.split_arguments(text) == expected
+
+
+def test_split_arguments_tells_an_unclosed_quote():
+    """#11-38：引用符が閉じていなければ ValueError のままではなく、引数の誤り（ヒント付き）。"""
+    with pytest.raises(EcoBuildError) as error:
+        _python.split_arguments("a 'b")
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT and "--" in error.value.hint
 
 
 def test_split_arguments_keeps_windows_paths(monkeypatch):

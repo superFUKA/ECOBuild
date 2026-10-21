@@ -85,6 +85,10 @@ class PythonType(ModuleType, Builds, HasFiles):
         return GITIGNORE
 
     @classmethod
+    def gitattributes(cls) -> str:
+        return _scaffold.GITATTRIBUTES
+
+    @classmethod
     def tracked_patterns(cls) -> tuple[str, ...]:
         return TRACKED_PATTERNS
 
@@ -142,7 +146,9 @@ python3 -m venv .venv
             "    runs-on: ${{ matrix.os }}", "    steps:", "      - uses: actions/checkout@v4",
             "      - uses: actions/setup-python@v5", "        with:", "          python-version: ${{ matrix.python }}",
             "      - name: Install", '        run: python -m pip install --editable ".[dev]"',
-            "      - name: Test", "        run: python -m pytest",
+            # pytest-xdist が入っていれば並べて流す（ひな形の dev に入る。前に作ったモジュールにはないこともある）
+            "      - name: Test", "        shell: bash",
+            '        run: if python -c "import xdist" 2>/dev/null; then python -m pytest -n auto; else python -m pytest; fi',
         ]
         if release:
             lines += ["      - name: Package", "        if: matrix.configuration == 'Release'",

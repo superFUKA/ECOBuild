@@ -5,10 +5,14 @@
   付けるのが既定の真偽のオプションだけ、外す書き方と一緒に書く（[既定値: --check。外すには --no-check]）。
 - 付けないのが既定の真偽のオプションは、否定形（--no-…）を一覧に出さない（--no-deny / --no-no-deny 等が読みにくい）。
   否定形は今までどおり使え、--help --json の negative にある。
+- 1つだけ受ける位置引数（可変長で受けて _output.optional_argument で 0〜1 個に限るもの）は、使い方の行に ... を付けない
+  （[NUMBER]... と書くと、いくつも受けるように読める）。--help --json の multiple も false。
 - コマンドの中の予期しない誤り（WorkError でない例外）：--json なら、ほかの誤りと同じ形の JSON で返し、ログに残す。
 """
 
 from __future__ import annotations
+
+import re
 
 import click
 from cli_framework import click_command, click_group
@@ -23,9 +27,26 @@ def install() -> None:
     if _installed:
         return
     _installed = True
+    global _original_metavar
+    _original_metavar = click_command._DocumentedArgument.make_metavar
+    click_command._DocumentedArgument.make_metavar = _argument_metavar
     JapaneseOption.get_help_record = _help_record
     click_command._report_application_error = _application_error
     click_group._report_application_error = _application_error
+
+
+_SAME_AS_OPTION = re.compile(r"（--[\w-]+ と同じ")
+
+
+def single_argument(argument: click.Argument) -> bool:
+    """可変長の位置引数のうち、1つだけ受けるもの（_output.optional_argument で 0〜1 個に限る。説明に「（--〇〇 と同じ」）。"""
+    return argument.nargs == -1 and bool(_SAME_AS_OPTION.search(getattr(argument, "help_text", None) or ""))
+
+
+def _argument_metavar(self: click.Argument, *args, **kwargs) -> str:
+    """位置引数の書き方（使い方の行）。1つだけ受けるものは [NUMBER]...ではなく [NUMBER]。"""
+    metavar = _original_metavar(self, *args, **kwargs)
+    return metavar.removesuffix("...") if single_argument(self) else metavar
 
 
 def _help_record(self: click.Option, ctx: click.Context) -> tuple[str, str] | None:

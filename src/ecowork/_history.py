@@ -55,6 +55,24 @@ class History:
             args.append("--cached")
         return self.git.output(*args, "--", *paths)
 
+    def diff_files(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> tuple[wm.DiffFile, ...]:
+        """diff の変わったファイル（パス・種類・足した行・消した行・改行コードだけの差か。パスの順）。"""
+        if base:
+            task_branch = self.require_task_branch("作成元との差分")
+            self.git.fetch()
+            rows = self.git.changed_files(f"{_git.REMOTE}/{task_branch.base}...HEAD", paths=paths)
+        else:
+            rows = self.git.changed_files(cached=staged, paths=paths)
+        return tuple(wm.DiffFile(*row) for row in sorted(rows))
+
+    def show_files(self, revision: str = "HEAD") -> tuple[wm.DiffFile, ...]:
+        """コミットで変わったファイル（diff_files と同じ形。最初のコミットは空と比べる）。"""
+        sha = self.git.rev_parse(revision)
+        if sha is None:
+            raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"コミット {revision} がありません。")
+        parent = self.git.rev_parse(sha + "~1") or self.git.run("hash-object", "-t", "tree", "--stdin", input="").stdout.strip()
+        return tuple(wm.DiffFile(*row) for row in sorted(self.git.changed_files(parent, sha)))
+
     def blame(self, path: str) -> str:
         return self.git.output("blame", "--date=short", "--", path)
 

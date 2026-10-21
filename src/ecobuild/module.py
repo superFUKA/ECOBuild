@@ -24,7 +24,7 @@ from pathlib import Path
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
-from ecowork.git import Git as _Git
+from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git
 
 from . import _docs
 from . import ci_review as _ci_review
@@ -67,14 +67,21 @@ _MIGRATIONS: dict[int, Callable[["Module"], None]] = {}
 
 
 def _with_lines(current: str, wanted: str) -> str:
-    """current に、wanted の行（空行・# の行を除く）のうち足りないものを末尾に足す（.gitignore 等。足した行は残す）。"""
+    """current に、wanted の行（空行・# の行を除く）のうち足りないものを足す（.gitignore 等。足した行は残す）。
+
+    全体の決まり（パターンが * だけの行。.gitattributes の「* text=auto eol=lf」等）は先頭に、ほかは末尾に足す：
+    .gitattributes は後の行が勝つので、末尾に足すと既にある個別の決まり（*.ps1 eol=crlf 等）を上書きしてしまう。
+    """
     have = {line.strip() for line in current.splitlines()}
     missing = [line for line in wanted.splitlines() if line.strip() and not line.startswith("#") and line.strip() not in have]
     if not current:
         return wanted
     if not missing:
         return current
-    return current + ("" if current.endswith("\n") else "\n") + "\n".join(missing) + "\n"
+    first = [line for line in missing if line.split()[0] == "*"]
+    last = [line for line in missing if line.split()[0] != "*"]
+    text = "".join(line + "\n" for line in first) + current
+    return text + ("" if text.endswith("\n") else "\n") + "".join(line + "\n" for line in last) if last else text
 
 
 def _locked_hint(command: str) -> str:
@@ -668,13 +675,15 @@ class Module:
 
     def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
                reviewers: tuple[str, ...] = (), check: bool = True, note: str | None = None,
-               progress: Callable[[str], None] | None = None) -> wm.PullRequest:
+               verified_by: tuple[str, ...] = (), progress: Callable[[str], None] | None = None) -> wm.PullRequest:
         """タスクブランチを提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。
 
         未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。
         提出の本文に、確認の結果（どの版で何が通ったか。出し直しのたびに今の版のものへ）と、note（提出の説明。
-        None なら提出済みの説明のまま）を書く。progress：経過（check の各項目等）を知らせる口。
+        None なら提出済みの説明のまま）を書く。verified_by：提出した人が自分で確かめたこと（「<コマンド>=<結果>」。
+        check を行わずに出すときの証拠。確認の節に並べる）。progress：経過（check の各項目等）を知らせる口。
         """
+        verified = _verified_items(verified_by)
         task_branch = self.require_task_branch("提出")
         self._refuse_uncommitted("提出")
         mismatches = self.dependency_mismatches()
@@ -702,26 +711,33 @@ class Module:
                 for item in items:
                     (progress or _quiet)(_check_line(item))
         checked_at = (self._last_check() or saved or {}).get("at")   # 今通したなら記録は新しい
-        sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at)}
+        sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at, verified)}
         if note is not None:
             sections = {SUBMIT_NOTE_SECTION: note, **sections}
         return task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers, sections=sections)
 
-    def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None) -> str:
-        """提出の本文の「確認」の節：今の版（HEAD）で通った check の項目と、いつ確かめたか。確かめていなければ、そう書く。"""
+    def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None,
+                       verified: tuple[tuple[str, str], ...] = ()) -> str:
+        """提出の本文の「確認」の節：今の版（HEAD）で通った check の項目と、いつ確かめたか。確かめていなければ、そう書く。
+
+        verified（提出した人が自分で確かめたこと。(コマンド, 結果)）があれば、その後に並べる（ECOBuild は確かめていない）。
+        """
         head = (self.repository.git.rev_parse("HEAD") or "")[:7]
         title = "### 確認（ECOBuild）"
+        own = (["", "提出した人が確かめたこと（ECOBuild は確かめていません）：", "",
+                *(f"- `{command}`：{result}" for command, result in verified)] if verified else [])
         if items is None:
-            return (f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・テスト）を"
-                    f"行わずに提出しました{NO_CHECK_NOTE}。")
+            return "\n".join([f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・"
+                              f"テスト）を行わずに提出しました{NO_CHECK_NOTE}。", *own])
         if not items:
-            return f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました{NO_CHECKS_SET_NOTE}。"
+            return "\n".join([f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました"
+                              f"{NO_CHECKS_SET_NOTE}。", *own])
         profile = _config.load_local(self.root).get("profile")
         when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
         where = f"版 `{head}`" + (f"、ビルド設定 {profile}" if profile else "") + f"、{when}"
         lines = [f"- {_check_line(item)}" for item in items]   # 以前の記録（版だけ）なら項目はない
         return "\n".join([title, "", f"提出した人の手元で `{self.op('check')}` が通りました（{where}）。",
-                          *([""] + lines if lines else [])])
+                          *([""] + lines if lines else []), *own])
 
     def finish(self, number: int | None = None, *, close_workspace: bool = False, **options) -> wm.FinishResult:
         """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。
@@ -1326,6 +1342,8 @@ class Module:
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
         .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md・CIのワークフロー（あれば作り直す。
         手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        この作業空間の git の設定も、clone するときと同じにする（改行コードの扱い〔ecowork の CLONE_CONFIG〕。コミットしない。
+        以前に clone した作業空間で、改行コードだけの差が出ないように）。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
         GitHub へ push もする。タスクブランチなら、いつもの Push・提出に乗る）。未コミットの変更があれば止める（混ざらないように）。
@@ -1342,8 +1360,12 @@ class Module:
         planned, skipped = self._ecobuild_files()
         if start != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
+        git_config = self._missing_git_config()
         if dry_run:
-            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True)
+            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True,
+                                  git_config=git_config)
+        for setting in git_config:
+            self.repository.git.set_config(*setting.split("=", 1))
         for path, text in planned.items():
             if path != _config.FILE_NAME:
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
@@ -1352,9 +1374,15 @@ class Module:
         self.type.refresh()
         changed = tuple(sorted((set(self._changed_paths()) - before) | set(planned)))
         if not changed:
-            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped))
+            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), git_config=git_config)
         commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
-        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed)
+        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed,
+                              git_config=git_config)
+
+    def _missing_git_config(self) -> tuple[str, ...]:
+        """clone するときの git の設定（CLONE_CONFIG）のうち、この作業空間の設定（--local）と違うもの。"""
+        git = self.repository.git
+        return tuple(s for s in _CLONE_CONFIG if git.get_config(s.split("=", 1)[0]) != s.split("=", 1)[1])
 
     def _ecobuild_files(self, *, rewrite: bool = True) -> tuple[dict[str, str], list[str]]:
         """ECOBuild が作るファイルのうち、今の中身と違うもの（場所 → 新しい中身）と、手で編集してあるため作り直さないもの。
@@ -1409,7 +1437,12 @@ class Module:
 
     def agent_guide(self) -> AgentGuide:
         """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（タスクブランチでなくても読める）。"""
-        return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
+        return AgentGuide(_docs.agent_guide(self.config, type(self.type), member=self.assigned_by_lead()))
+
+    def assigned_by_lead(self) -> bool:
+        """この作業空間が、上の役に任されたものか（タスク・作業空間は上の役が作り、取り込み・完了・閉じるのも上の役。
+        agent guide がその手順を出さない）。本体は知らない：エージェントの拡張等が決める。"""
+        return False
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。
@@ -1523,6 +1556,12 @@ class Module:
             if excluded:   # 知らせるだけ（わざと置いているものもあるので、失敗にしない）
                 items.append(CheckItem("excluded", True, f"{len(excluded)} 個はコミットに含めません："
                                                          + ", ".join(excluded)))
+            eol = git.eol_only("HEAD") if git.rev_parse("HEAD") else ()
+            if eol:   # 知らせるだけ（task commit は自動で含めない。中身は変わっていない）
+                items.append(CheckItem("eol_only", True, f"{len(eol)} 個は改行コード（CRLF と LF）だけが違います"
+                                                         f"（task commit は含めません。git の改行の設定は "
+                                                         f"{self.op('module upgrade')} で clone と同じにできます）："
+                                                         + ", ".join(eol)))
             mismatches = self.dependency_mismatches()
             if mismatches:
                 items.append(CheckItem("dependencies", allow_dependency_mismatch,
@@ -1677,7 +1716,7 @@ SUBMIT_CHECK_SECTION = "check"   # 確認の結果
 NO_CHECK_NOTE = "（--no-check）"   # 確認の節の、check を行わずに提出した印（submitted_check が読む）
 NO_CHECKS_SET_NOTE = "（確認の設定なし）"   # 提出の確認（[check] submit）が空なので確かめなかった印
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
-               "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
+               "eol_only": "改行コードだけの差", "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
 
 
@@ -1689,6 +1728,19 @@ def submitted_check(body: str) -> tuple[bool | None, str | None]:
         return None, None
     version = re.search(r"`([0-9a-f]{7,40})`", text)
     return NO_CHECK_NOTE not in text, version.group(1) if version else None
+
+
+def _verified_items(values: tuple[str, ...]) -> tuple[tuple[str, str], ...]:
+    """提出の --verified-by（「<コマンド>=<結果>」）を (コマンド, 結果) に分ける。= がない・どちらかが空なら誤り。"""
+    items = []
+    for value in values:
+        command, sep, result = value.partition("=")
+        if not sep or not command.strip() or not result.strip():
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"確かめたことは「<コマンド>=<結果>」の形で書きます：{value}",
+                                hint='例：--verified-by "pytest tests/unit=成功 12"')
+        items.append((command.strip(), result.strip()))
+    return tuple(items)
 
 
 def mismatch_text(states) -> str:

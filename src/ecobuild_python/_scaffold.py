@@ -1,4 +1,4 @@
-"""新しいモジュールの中身（pyproject.toml・パッケージ・テスト・.gitattributes）。"""
+"""新しいモジュールの中身（pyproject.toml・パッケージ・テスト）と .gitattributes。"""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = [
     "pytest>=8,<9",
+    "pytest-xdist>=3,<4",   # テストを並べて流す（ecobuild test・CI）
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -58,8 +59,8 @@ def test_import():
 
 
 # 改行はLFにそろえる（Windows の core.autocrlf=true で CRLF にされると、コンテナ〔Linux〕のシェル・Python が困る）。
-# 新しいモジュールにだけ置く（module upgrade・adopt は足さない：元のリポジトリの .gitattributes の後ろに * の行を
-# 足すと、前に書いた *.ps1 等の決まりを上書きしてしまう）
+# 型の .gitattributes（type の gitattributes）。本体が新しいモジュールに置き、module upgrade・adopt では足りない行を
+# 足す（* の行は先頭に足すので、元のリポジトリの *.ps1 等の決まりを上書きしない）
 GITATTRIBUTES = """\
 * text=auto eol=lf
 *.ps1 text eol=crlf
@@ -77,7 +78,6 @@ def populate(root: Path, module_name: str, kind: str, project: str | None, *, te
     package = package_name(module_name, project)
     scripts = f'\n[project.scripts]\n{module_name} = "{package}.__main__:main"\n' if kind == "app" else ""
     write(root / "pyproject.toml", PYPROJECT.format(name=module_name, scripts=scripts))
-    write(root / ".gitattributes", GITATTRIBUTES)
     (root / "tests").mkdir(exist_ok=True)
     (root / "src").mkdir(exist_ok=True)
     if kind == "none":

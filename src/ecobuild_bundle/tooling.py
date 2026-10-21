@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -90,48 +91,78 @@ class DoctorReport:
         return all(item.ok or not item.required for item in self.items)
 
 
-def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str = "") -> DoctorReport:
+def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str = "",
+           module_type: str | None = None) -> DoctorReport:
     """前提ツール・認証・gitの設定と、型が使うツール（types）を、読み取りだけで調べる。
     extra：使う側が足す項目（CLI：TortoiseGit 等。直す方法がなく、知らせるだけのもの）。
-    command：ヒントに書くプログラム名（errors.operation）。"""
+    command：ヒントに書くプログラム名（errors.operation）。module_type：モジュールの中で調べるときの、そのモジュールの型。
+    型のツールのうち、その型の分だけを必須にする（ほかの型の分は知らせるだけ。None なら全部の型の分が必須）。
+    各項目に機械が読む名前（id）を付ける（型が付けていなければ「<型>.<名前>」）。"""
     items = [DoctorItem("python", sys.version_info >= (3, 11), True, sys.version.split()[0],
-                        "Python 3.11 以上が必要です。")]
+                        "Python 3.11 以上が必要です。", id="python")]
     git = _version("git", "--version")
     items.append(DoctorItem("git", git is not None, True, git or "見つかりません", "git をインストールしてください。",
-                            "install"))
+                            "install", id="git"))
     gh = _version("gh", "--version")
     items.append(DoctorItem("gh", gh is not None, True, (gh or "見つかりません").splitlines()[0],
-                            "GitHub CLI（gh）をインストールしてください。", "install"))
+                            "GitHub CLI（gh）をインストールしてください。", "install", id="gh"))
     if gh is not None:
         status = _run(["gh", "auth", "status"])
         account = next((line.split("account", 1)[1].split()[0] for line in status.output.splitlines()
                         if "Logged in to github.com account" in line), "")
         items.append(DoctorItem("gh の認証", status.ok, True, f"ログイン中：{account}" if status.ok else "ログインしていません",
-                                "gh auth login を実行してください（ブラウザでログインします）。", "login"))
+                                "gh auth login を実行してください（ブラウザでログインします）。", "login", id="gh_auth"))
         if status.ok:
             scopes = next((line.split(":", 1)[1] for line in status.output.splitlines() if "Token scopes" in line), "")
             tasks = "'project'" in scopes
             items.append(DoctorItem("タスク管理の権限（project）", tasks, True,
                                     "あります" if tasks else "ありません（タスクの段階・計画をGitHubに置くのに必要）",
-                                    "gh auth refresh -s project を実行してください（ブラウザで承認します）。", "scope"))
+                                    "gh auth refresh -s project を実行してください（ブラウザで承認します）。", "scope",
+                                    id="gh_scope_project"))
         if git is not None:
             helpers = _run(["git", "config", "--get-urlmatch", "credential.helper", "https://github.com"]).stdout
             uses_gh = "auth git-credential" in helpers  # gh auth setup-git が設定するヘルパー
             items.append(DoctorItem(
                 "git の認証（gh）", uses_gh, False,
                 "gh の認証を使います" if uses_gh else "gh の認証を使っていません（push・fetch でアカウントの選択画面が出ることがあります）",
-                f"{operation(command, 'setup')}（または gh auth setup-git）で、gitが gh の認証を使うようにできます。", "setup-git"))
+                f"{operation(command, 'setup')}（または gh auth setup-git）で、gitが gh の認証を使うようにできます。", "setup-git",
+                id="git_credential"))
     if git is not None:
         name = _run(["git", "config", "--global", "user.name"]).stdout.strip()
         email = _run(["git", "config", "--global", "user.email"]).stdout.strip()
         items.append(DoctorItem("git の名前・メール", bool(name and email), True,
                                 f"{name} <{email}>" if name and email else "設定されていません",
-                                f"{operation(command, 'setup')} --name <名前> --email <メール> で設定できます。", "identity"))
-    items.append(_docker.doctor_item(command=command))   # なくても使える（作業空間をコンテナで隔離するとき）
-    for module_type in types:  # 型が使うツール（cpp：CMake・コンパイラ）
-        items += module_type.doctor_items()
-    items += extra
-    return DoctorReport(tuple(items))
+                                f"{operation(command, 'setup')} --name <名前> --email <メール> で設定できます。", "identity",
+                                id="git_identity"))
+    docker = _docker.doctor_item(command=command)   # なくても使える（作業空間をコンテナで隔離するとき）
+    items.append(docker if docker.id else replace(docker, id="docker"))
+    for type_class in types:  # 型が使うツール（cpp：CMake・コンパイラ）
+        own = module_type is None or type_class.name == module_type
+        for item in type_class.doctor_items():
+            if not own and item.required:   # ほかの型のモジュールで使うもの（このモジュールでは要らない）
+                item = replace(item, required=False,
+                               detail=item.detail if item.ok else f"{item.detail}（型 {type_class.name} のモジュールで使います）")
+            items.append(item if item.id else replace(item, id=f"{type_class.name}.{_id_part(item.name)}"))
+    items += (item if item.id else replace(item, id=_id_part(item.name)) for item in extra)
+    return DoctorReport(tuple(_unique_ids(items)))
+
+
+def _id_part(name: str) -> str:
+    """表示の名前から id の部分（英数字・_・- だけの名前はそのまま小文字に。ほかは venv 等の英字の語、なければ item）。"""
+    if re.fullmatch(r"[A-Za-z0-9_.+-]+", name):
+        return name.lower()
+    words = re.findall(r"[A-Za-z][A-Za-z0-9_+-]*", name)
+    return "_".join(word.lower() for word in words) or "item"
+
+
+def _unique_ids(items: list[DoctorItem]) -> list[DoctorItem]:
+    """id が重なれば、2つ目から「-2」等を付ける。"""
+    seen: dict[str, int] = {}
+    result = []
+    for item in items:
+        count = seen[item.id] = seen.get(item.id, 0) + 1
+        result.append(item if count == 1 else replace(item, id=f"{item.id}-{count}"))
+    return result
 
 
 # 設定 -------------------------------------------------------------------------

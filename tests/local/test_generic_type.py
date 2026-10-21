@@ -114,6 +114,20 @@ def test_check_is_reused_while_unchanged(tmp_path):
 
 
 
+def test_check_warns_eol_only_changes(tmp_path):
+    """改行コードだけが違うファイルは、check の項目として知らせる（失敗にはしない）。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    module.repository.git.set_config("core.autocrlf", "false")
+    readme = module.root / "README.md"
+    data = readme.read_bytes()
+    readme.write_bytes(data.replace(b"\n", b"\r\n") if b"\r\n" not in data else data.replace(b"\r\n", b"\n"))
+    report = module.check(build=False)
+    item = next(i for i in report.items if i.name == "eol_only")
+    assert report.ok and item.ok and "README.md" in item.detail and "改行コード" in item.detail
+    readme.write_bytes(data)
+    assert not any(i.name == "eol_only" for i in module.check(build=False).items)
+
+
 def test_submit_writes_check_evidence(tmp_path):
     """提出の本文に、確認（check）がどの版で通ったかと項目を書く。出し直すと今の版のものに、確かめなければそう書く。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
@@ -137,6 +151,14 @@ def test_submit_writes_check_evidence(tmp_path):
     head = module.repository.git.rev_parse("HEAD")[:7]
     assert f"この版（`{head}`）は" in body and "--no-check" in body and "- OK テスト" not in body
     assert "テストのコマンドを足した" in body   # 説明は渡さなければそのまま
+    module.submit(check=False, verified_by=("pytest tests/unit=成功 12", "ruff check src = 指摘なし"))
+    body = module.repository.github.pulls[pr.number].body
+    assert "--no-check" in body and "提出した人が確かめたこと" in body
+    assert "- `pytest tests/unit`：成功 12" in body and "- `ruff check src`：指摘なし" in body
+    assert module_mod.submitted_check(body)[0] is False   # 確かめたことを書いても、check を通した印にはしない
+    with pytest.raises(EcoBuildError) as error:
+        module.submit(check=False, verified_by=("pytest だけ",))
+    assert error.value.code == ErrorCode.INVALID_ARGUMENT
     module.check()
     module.submit(check=False)   # 確かめた版なら、その結果を書く
     assert "- OK テスト：成功 1" in module.repository.github.pulls[pr.number].body

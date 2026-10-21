@@ -60,13 +60,17 @@ def test_a_plain_repository_becomes_a_module(plain):
 def test_the_type_adds_its_ignored_files(plain):
     work, github = plain
     (work / "pyproject.toml").write_text('[project]\nname = "remote"\nversion = "0.1.0"\n', encoding="utf-8")
-    git(work, "add", "pyproject.toml")
+    (work / ".gitattributes").write_text("*.sh text eol=crlf\n", encoding="utf-8")
+    git(work, "add", "pyproject.toml", ".gitattributes")
     git(work, "commit", "--quiet", "-m", "Python")
     git(work, "push", "--quiet", "origin", "main")
     module, done = Module.adopt(work, type="python", github=github)
     assert ".gitignore" in done.paths and module.config.type == "python"
     text = (work / ".gitignore").read_text(encoding="utf-8")
     assert text.startswith("/notes/\n") and ".venv/" in text   # 自分の行は残して、型の行を足す
+    attributes = (work / ".gitattributes").read_text(encoding="utf-8").splitlines()
+    assert attributes[:2] == ["* text=auto eol=lf", "*.sh text eol=crlf"]   # 全体の決まりは前に（元の決まりが勝つ）
+    assert "*.ps1 text eol=crlf" in attributes
     assert (work / "pyproject.toml").read_text(encoding="utf-8").startswith("[project]")
 
 

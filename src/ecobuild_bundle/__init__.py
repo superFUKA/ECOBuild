@@ -11,13 +11,16 @@ ecobuild_container・エージェント ecobuild_agent）を本体に重ねる�
 from __future__ import annotations
 
 from importlib import resources
+from pathlib import Path
 from typing import Iterable
 
 import ecobuild
 import ecobuild_agent
 import ecobuild_container
+from ecobuild import config as _config
 from ecobuild import locks as _locks
 from ecobuild import settings as _settings
+from ecobuild.errors import EcoBuildError
 from ecobuild.results import DoctorItem
 
 from . import tooling
@@ -43,8 +46,17 @@ class Module(ecobuild_agent.AgentModule, ecobuild_container.ContainerModule, eco
     registry = REGISTRY
 
 
-def doctor(extra: Iterable[DoctorItem] = (), *, command: str = "") -> tooling.DoctorReport:
-    return tooling.doctor(REGISTRY.available(), extra, command=command)
+def doctor(extra: Iterable[DoctorItem] = (), *, command: str = "", path: Path | str = ".") -> tooling.DoctorReport:
+    """このPCの診断。path がモジュールの中なら、型のツールはそのモジュールの型の分だけを必須にする。"""
+    return tooling.doctor(REGISTRY.available(), extra, command=command, module_type=_module_type_at(Path(path)))
+
+
+def _module_type_at(path: Path) -> str | None:
+    """path を含むモジュールの型（モジュールの外・設定が読めなければ None）。"""
+    try:
+        return _config.load(_config.find_root(path) / _config.FILE_NAME).type or None
+    except (EcoBuildError, OSError):
+        return None
 
 
 def setup(**options) -> tooling.SetupReport:

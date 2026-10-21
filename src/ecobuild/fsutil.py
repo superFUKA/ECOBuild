@@ -12,8 +12,14 @@ from pathlib import Path
 
 
 def remove_tree(path: Path) -> None:
-    """gitの読み取り専用ファイル（Windows）も含めて削除する。"""
-    def retry(function, target, _):
+    """gitの読み取り専用ファイル（Windows）も含めて削除する。
+
+    読み取り専用を外して消し直すのは Windows だけ：POSIX では消せない理由が権限でない（マウント点・使用中等）ことが多く、
+    chmod(S_IWRITE) すると権限が 0200 に変わったまま残る。消せなければ、そのときの誤り（OSError）を出す。
+    """
+    def retry(function, target, excinfo):
+        if os.name != "nt":
+            raise excinfo[1]
         os.chmod(target, stat.S_IWRITE)
         function(target)
     shutil.rmtree(path, onerror=retry)

@@ -46,6 +46,8 @@ def command(
             gone,
             f"提出：{submission_text(pr)} {pr.url}" if pr and not r.finished else None,
             "\n".join(files) if files else "変更はありません",
+            "注意：改行コード（CRLF／LF）だけが変わったファイルがあります（中身は同じ。パスなしの task commit は含めません）："
+            + ", ".join(r.eol_only) if r.eol_only else None,
             f"管理しない新しいファイル（コミットに含めません。ecobuild track）：{', '.join(r.excluded)}"
             if r.excluded else None,
             "手元の依存先が記録の版と違います（手元のビルドはこの版、CIは記録の版を使います）："

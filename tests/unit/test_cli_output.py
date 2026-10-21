@@ -44,7 +44,19 @@ def test_help_json_options_have_type_negative_default_and_choices(outside, capsy
                                   "choices": None, "flag": True}
     assert options["--draft"]["default"] is False and options["--draft"]["negative"] == "--no-draft"
     assert options["--note"]["type"] == "str" and options["--note"]["negative"] is None
-    assert "default" not in options["--note"]                   # 既定がない（空の文字列）ものは書かない
+    assert options["--note"]["default"] is None                 # 既定がない（空の文字列）ものも書く（null）
+
+
+def test_an_argument_taken_once_is_not_written_as_many(outside, capsys):
+    """#9-21・#11：task status 等は位置引数を1つだけ受ける（optional_argument）。使い方に ... を書かない。"""
+    code, found = document(capsys, "task", "status", "--help", "--json")
+    assert found["result"]["arguments"][0]["multiple"] is False
+    code, found = document(capsys, "agent", "team", "close", "--help", "--json")
+    assert found["result"]["arguments"][0]["multiple"] is True                 # いくつも受けるもの
+    code, out, _ = run(capsys, "task", "status", "--help")
+    assert "[NUMBER]" in out and "[NUMBER]..." not in out
+    code, out, _ = run(capsys, "agent", "team", "close", "--help")
+    assert "[NAME]..." in out
 
 
 def test_examples_are_taken_from_the_help():

@@ -19,7 +19,7 @@ import click
 
 from ecobuild_bundle import REGISTRY
 
-from . import _effects, _errors, _output, _types
+from . import _effects, _errors, _help, _output, _types
 
 COMMON_OPTIONS = ("--json", "--help")
 
@@ -161,7 +161,8 @@ def _type_name(parameter: click.Parameter) -> str:
 
 def _argument(parameter: click.Argument) -> dict:
     return {"name": parameter.human_readable_name, "help": getattr(parameter, "help_text", None) or "",
-            "required": parameter.required, "multiple": parameter.nargs == -1, "type": _type_name(parameter)}
+            "required": parameter.required, "multiple": parameter.nargs == -1 and not _help.single_argument(parameter),
+            "type": _type_name(parameter)}
 
 
 def _option(parameter: click.Option, ctx: click.Context) -> dict:
@@ -179,8 +180,9 @@ def _option(parameter: click.Option, ctx: click.Context) -> dict:
             result["value"] = parameter.make_metavar(ctx)
         except TypeError:                     # click 8.1 以前
             result["value"] = parameter.make_metavar()
-        if default not in (None, "", (), []) and not callable(default):
-            result["default"] = default if isinstance(default, (str, int, float, bool)) else str(default)
+        # 既定はいつも書く（ない・空の文字列なら null）
+        result["default"] = None if default in (None, "", (), []) or callable(default) else \
+            default if isinstance(default, (str, int, float, bool)) else str(default)
     return result
 
 

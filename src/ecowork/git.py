@@ -331,16 +331,19 @@ class Git:
         kept = set(_numstat_paths(self.run("diff", "--ignore-cr-at-eol", *args, check=False).stdout))
         return tuple(p for p in changed if p not in kept)
 
-    def changed_files(self, base: str, head: str) -> list[tuple[str, str, int | None, int | None, bool]]:
-        """base から head への変更（ファイルごとに パス・種類〔A・M・D 等〕・足した行・消した行〔バイナリは None〕・
-        改行コードだけの差か）。名前の変更は、消したものと足したものに分けて数える。"""
+    def changed_files(self, *revisions: str, cached: bool = False,
+                      paths: tuple[str, ...] = ()) -> list[tuple[str, str, int | None, int | None, bool]]:
+        """revisions（base, head 等。比べ方は git diff と同じ：なしは未ステージの変更、cached はステージ済み）の変更
+        （ファイルごとに パス・種類〔A・M・D 等〕・足した行・消した行〔バイナリは None〕・改行コードだけの差か）。
+        名前の変更は、消したものと足したものに分けて数える。paths：このファイル・ディレクトリだけ。"""
+        args = ("--no-renames", *(["--cached"] if cached else []), *revisions, "--", *paths)
         kinds = {}
-        for line in self.output("diff", "--name-status", "--no-renames", base, head, "--").splitlines():
+        for line in self.output("diff", "--name-status", *args).splitlines():
             kind, _, path = line.partition("\t")
             kinds[path] = kind[:1]
-        eol = set(self.eol_only(base, head))
+        eol = set(self.eol_only(*revisions, cached=cached)) if kinds else set()
         found = []
-        for line in self.output("diff", "--numstat", "--no-renames", base, head, "--").splitlines():
+        for line in self.output("diff", "--numstat", *args).splitlines():
             added, deleted, path = line.split("\t", 2)
             found.append((path, kinds.get(path, "M"), None if added == "-" else int(added),
                           None if deleted == "-" else int(deleted), path in eol))

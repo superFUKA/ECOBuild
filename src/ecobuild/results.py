@@ -84,6 +84,8 @@ class ModuleUpgraded:
     commit: str | None = None        # 変えたファイルをコミットしたもの（「ECOBuild の更新」。変えたものがなければ None）
     branch: str | None = None        # コミットしたブランチ
     pushed: bool = False             # GitHub へ push したか（タスクブランチでないとき）
+    git_config: tuple[str, ...] = ()   # この作業空間の git に書いた設定（「core.autocrlf=input」の形。dry_run なら書くもの。
+                                       # コミットしない）
 
 
 @dataclass(frozen=True)
@@ -262,6 +264,7 @@ class DoctorItem:
     hint: str = ""
     fix: str = ""          # 直し方：install／setup-git／identity（setup が直す）、login／scope（init が聞いて直す）
     install: tuple[str, ...] = ()  # fix が install のときの、このOSでの導入コマンド（なければ準備の側の既定）
+    id: str = ""           # 機械が読む名前（git・gh_auth・cpp.cmake 等。name は表示の名前。型が付けなければ doctor が付ける）
 
 
 @dataclass(frozen=True)

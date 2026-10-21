@@ -235,6 +235,10 @@ class AgentModule:
             self.agent_guide().text,
         ])
 
+    def assigned_by_lead(self) -> bool:
+        """作業役の作業空間（記録 member.json の役が作業役）なら、タスク・作業空間は上の役のもの（agent guide が合わせる）。"""
+        return team.member_info(self.root).get("role") == team.WORKER
+
     @staticmethod
     def _style() -> list[str]:
         """ユーザーが決めた話し方（設定 agent_style）。"""

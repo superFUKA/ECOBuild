@@ -59,19 +59,10 @@
     if (!list.ok) { tkEl('tk-main').innerHTML = `<div class="eco-banner bad">${esc(list.error.message)}${list.error.hint ? '<br>' + esc(list.error.hint) : ''}</div>`; return; }
     st.tasks = list.result; st.loaded = true;
     renderAssigneeOptions(); renderFilterOptions(); render();
-    warmDetails();
   }
-  // Read behind (one at a time) the details likely to be opened: the open tasks that are mine or in progress / in review.
-  // Kept by ECO.query, so that opening one shows at once (it is read again then).
-  let warming = false;
-  async function warmDetails() {
-    if (warming) return; warming = true;
-    try {
-      const likely = st.tasks.filter(t => t.state === 'open' && (t.assignees.includes(me()) || ['in_progress', 'in_review'].includes(stageOf(t))))
-        .slice(0, 12);
-      for (const t of likely) if (!st.details.has(t.number)) await ECO.query(root(), ['task', 'status', String(t.number)], undefined, {warm: true});
-    } finally { warming = false; }
-  }
+  // The views are drawn from task list alone (it has the stage, submission, branch, workspace and worker of each task):
+  // task status (several seconds each, it asks GitHub a lot) is read only for the task opened in the detail pane.
+  // It used to be read ahead for a dozen likely tasks, one after another, on every load.
   async function reloadAfter(n) { if (n) st.details.delete(n); await load(); if (n && st.selected === n) loadDetail(n); }
 
   function renderAssigneeOptions() {

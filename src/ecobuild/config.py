@@ -227,7 +227,8 @@ def find_root(start: Path, *, command: str = "") -> Path:
     raise EcoBuildError(
         ErrorCode.NOT_IN_MODULE,
         f"{start} はECOBuildのモジュールの中ではありません（{FILE_NAME} が見つかりません）。",
-        hint=f"モジュールのディレクトリへ移動するか、{operation(command, 'module new')} <名前> で作成してください。",
+        hint=f"モジュールのディレクトリへ移動するか、{operation(command, 'module new')} <名前> で作成してください"
+             f"（既にある GitHub のリポジトリの clone なら {operation(command, 'module adopt')}）。",
     )
 
 

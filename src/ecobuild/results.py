@@ -58,6 +58,19 @@ class ModuleStatus(wm.Status):
 
 
 @dataclass(frozen=True)
+class ModuleAdopted:
+    """module adopt：既にある GitHub のリポジトリを ECOBuild のモジュールにした結果。"""
+    name: str
+    root: Path
+    type: str
+    branch: str                      # 印を置いたブランチ（タスクブランチの作成元になる）
+    paths: tuple[str, ...]           # 置いた・変えたファイル（dry_run なら置くファイル。モジュールからの相対パス）
+    dry_run: bool = False
+    commit: str | None = None        # 「ECOBuild のモジュールにする」のコミット
+    pushed: bool = False             # GitHub へ push したか
+
+
+@dataclass(frozen=True)
 class ModuleUpgraded:
     """module upgrade：モジュールを今の ECOBuild の仕様に合わせた結果。"""
     format: int                      # 前の版

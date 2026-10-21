@@ -63,6 +63,13 @@ class PythonType(ModuleType, Builds, HasFiles):
         _scaffold.populate(root, config.name, kind or cls.default_new_kind, project, test=test)
 
     @classmethod
+    def adopt(cls, root: Path, config: ModuleConfig) -> None:
+        """ビルド・テストには pyproject.toml が要る（中身はリポジトリのものを使う。何も置かない）。"""
+        if not (root / _python.PYPROJECT).is_file():
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{_python.PYPROJECT} がないので、型 python のモジュールにできません。",
+                                hint="ルートに pyproject.toml を置いてコミットするか、ほかの型（--type generic 等）を選んでください。")
+
+    @classmethod
     def gitignore(cls) -> str:
         return GITIGNORE
 

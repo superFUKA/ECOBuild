@@ -166,3 +166,21 @@ def test_create_module_starts_with_an_app_or_nothing(short_tmp):
     with pytest.raises(EcoBuildError) as error:
         Module.create("Bad", directory=short_tmp, kind="plugin", github=FakeGitHub(short_tmp / "gh3"))
     assert error.value.code == ErrorCode.INVALID_ARGUMENT and not (short_tmp / "Bad").exists()
+
+
+def test_adopt_makes_a_solution_without_projects(short_tmp):
+    remote, work = short_tmp / "remote.git", short_tmp / "work"
+    git(short_tmp, "init", "--quiet", "--bare", "--initial-branch=main", str(remote))
+    git(short_tmp, "clone", "--quiet", str(remote), str(work))
+    (work / "main.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
+    git(work, "add", "main.cpp")
+    git(work, "commit", "--quiet", "-m", "init")
+    git(work, "push", "--quiet", "origin", "main")
+    github = FakeGitHub(short_tmp / "gh")
+    github.use_bare(remote)
+    module, done = Module.adopt(work, type="cpp", github=github)
+    assert module.project_names == ()   # 今あるソースは Project に入れない（project add で足す）
+    files = git(remote, "ls-tree", "-r", "--name-only", "main").splitlines()
+    assert ".ecobuild/.cppbuild/CMakeLists.txt" in files and "main.cpp" in files
+    assert "/deps/" in (work / ".gitignore").read_text(encoding="utf-8")
+    assert git(work, "status", "--porcelain").strip() == ""

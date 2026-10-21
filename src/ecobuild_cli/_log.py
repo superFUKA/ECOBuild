@@ -4,7 +4,7 @@
 
 置き場所は2つ：
 - モジュールのログ（<モジュール>/.ecobuild/logs/）：そのモジュールで実行したコマンドのすべて。
-  中に .gitignore（*）を置くので、gitには見えない。
+  .ecobuild/.gitignore（なければモジュールを作るときと同じ中身で置く）で、gitには見えない。
 - ECOBuildのログ（<ECOBUILD_HOME>/logs/）：モジュールの外で実行したコマンドのすべてと、
   モジュールで実行したコマンドの要約（どのモジュールのログに詳しく書いたか）。
 
@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ecobuild import config as _module_config
+from ecobuild import module as _module
 
 LEVELS = {"off": logging.CRITICAL + 10, "error": logging.ERROR, "info": logging.INFO, "debug": logging.DEBUG}
 DEFAULT_LEVEL = "debug"
@@ -163,7 +164,8 @@ def _append(directory: Path, lines: list[str], *, module: bool = False) -> bool:
         if module:
             ignore = directory.parent / ".gitignore"
             if not ignore.exists():
-                ignore.write_text("# ECOBuildのログ等（gitに見せない）\n*\n", encoding="utf-8", newline="\n")
+                # すべて（*）にすると、あとで ECOBuild が .ecobuild/ に置くファイル（module adopt・upgrade）まで見えなくなる
+                ignore.write_text(_module.GITIGNORE, encoding="utf-8", newline="\n")
         with open(directory / f"{datetime.date.today().isoformat()}.jsonl", "a", encoding="utf-8",
                   newline="\n") as file:
             file.write("".join(line + "\n" for line in lines))

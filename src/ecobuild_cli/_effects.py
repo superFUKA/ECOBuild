@@ -21,7 +21,7 @@ EFFECTS = {
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
-        "agent team close", "container remove", "file remove", "module archive", "module delete", "module members add",
+        "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",

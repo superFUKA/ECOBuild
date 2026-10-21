@@ -160,6 +160,13 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
         _cppbuild.update(root)
 
     @classmethod
+    def adopt(cls, root: Path, config: ModuleConfig) -> None:
+        """Project のない Solution だけを作る（今あるソースは Project に入れない。project add で足す）。"""
+        if not (root / _cppbuild.CONFIG_DIRECTORY).exists():
+            _cppbuild.create_module_solution(root, config.name, "none")
+            _cppbuild.update(root)
+
+    @classmethod
     def gitignore(cls) -> str:
         return GITIGNORE
 

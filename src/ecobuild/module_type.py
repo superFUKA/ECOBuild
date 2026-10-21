@@ -72,6 +72,11 @@ class ModuleType:
         test：ライブラリのテスト（C++ ならテスト用のProject）も作る。"""
 
     @classmethod
+    def adopt(cls, root: Path, config: "ModuleConfig") -> None:
+        """既にあるリポジトリを、この型のモジュールにするときに型が要るものを置く（module adopt。ecobuild.toml 等は本体が置く）。
+        リポジトリにある今のファイルは書き換えない。この型のモジュールにできなければ EcoBuildError（本体が置いたものは片付ける）。"""
+
+    @classmethod
     def gitignore(cls) -> str:
         return ""
 

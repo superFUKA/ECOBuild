@@ -35,7 +35,7 @@ from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registr
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
-                      DependencyTree, FilesChanged, LinkResult, ModuleArchived, ModuleCloned, ModuleCreated,
+                      DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
 
@@ -57,6 +57,7 @@ GITATTRIBUTES = """\
 
 
 UPGRADE_MESSAGE = "ECOBuild の更新"   # module upgrade のコミット（ECOBuild 自身が作る）
+ADOPT_MESSAGE = "ECOBuild のモジュールにする"   # module adopt のコミット
 
 # モジュールの仕様の版ごとの移行（版 → その版のモジュールを次の版にする処理）。ECOBuild が作るファイルの中身を
 # 変えただけなら要らない（Module.upgrade が毎回作り直す）。置き場所を変えた・設定の書き方を変えた等のときに足す。
@@ -234,12 +235,91 @@ class Module:
             raise EcoBuildError(
                 ErrorCode.NOT_IN_MODULE,
                 f"{name} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
-                hint=f"ECOBuildで作ったリポジトリ（{operation(cls.command, 'module new')}）を指定してください。",
+                hint=f"ECOBuildで作ったリポジトリ（{operation(cls.command, 'module new')}）を指定してください。ほかのリポジトリは、"
+                     f"clone してから {operation(cls.command, 'module adopt')} でモジュールにできます。",
             )
         module = cls.find(repository.root, github=repository.github, registry=registry)
         (progress or _quiet)("依存先と生成ファイルを用意中…")
         dependencies, _ = module._after_sync()
         return module, dependencies
+
+    @classmethod
+    def adopt(
+        cls, path: Path | str = ".", *, type: str | None = None, dry_run: bool = False,
+        github: _github.GitHub | None = None, registry: Registry | None = None,
+        progress: Callable[[str], None] | None = None,
+    ) -> tuple["Module", ModuleAdopted]:
+        """既にある GitHub のリポジトリ（path を含む clone）を、ECOBuild のモジュールにする。
+
+        今のブランチに .ecobuild/（ecobuild.toml 等）・拡張が置くファイル・型が要るもの（adopt）を置き、.gitignore・
+        .gitattributes には足りない行を足して、「ECOBuild のモジュールにする」として1回コミットし、GitHub へ push する。
+        今のブランチがタスクブランチの作成元（default_base）になる。名前は GitHub のリポジトリ名。README・AGENTS.md 等、
+        元からあるファイルは変えない。未コミットの変更・GitHub に遅れている・GitHub にないブランチのときは止める。
+        type：モジュールの型（省略時は registry の既定の型）。dry_run：置くファイルを返すだけ（型が置くものは含まない）。
+        """
+        start = Path(path)
+        try:
+            root = Path(Repository(start).git.output("rev-parse", "--show-toplevel").strip())
+        except WorkError:
+            raise EcoBuildError(ErrorCode.REPOSITORY_NOT_FOUND, f"{start} は git のリポジトリ（clone）の中ではありません。",
+                                hint=f"GitHub のリポジトリを clone して、その中で実行してください（新しく作るなら "
+                                     f"{operation(cls.command, 'module new')}）。") from None
+        try:
+            found = _config.find_root(start, command=cls.command)
+        except EcoBuildError:
+            found = None
+        if found is not None:
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS,
+                                f"{found} は既に ECOBuild のモジュールです。" if _workspaces.same(found, root)
+                                else f"{root} は ECOBuild のモジュール {found} の中にあります（依存先の clone 等）。",
+                                hint=f"今の仕様に合わせるなら {operation(cls.command, 'module upgrade')}。")
+        registry = registry or cls.registry
+        type_class = registry.load(type, command=cls.command)
+        repository = Repository(root, github=github, command=cls.command)
+        repository.check_own_commit("モジュールにすること")
+        branch = repository.git.current_branch() or ""
+        if not repository.git.has_remote_branch(branch):
+            raise EcoBuildError(ErrorCode.BRANCH_NOT_FOUND, f"GitHub に {branch} がありません。",
+                                hint="GitHub にあるブランチ（main 等）に切り替えてから実行してください（印はそのブランチに置きます）。")
+        name = repository.github.repository_name(root).partition("/")[2]
+        if not _NAME.fullmatch(name):
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"リポジトリ名 {name!r} はモジュール名に使えません。",
+                                hint="GitHub でリポジトリ名を、英字で始まり英数字と _ だけからなる名前に変えてから実行してください。")
+        module_config = replace(type_class.new_config(name), default_base=branch)
+        module = cls(root, module_config, github=repository.github, registry=registry)
+        planned, _ = module._ecobuild_files(rewrite=False)
+        paths = tuple(sorted({_config.FILE_NAME, *planned}))
+        if dry_run:
+            return module, ModuleAdopted(name, root, type_class.name, branch, paths, dry_run=True)
+        before = set(module._changed_paths())
+        originals = {p: (root / p).read_bytes() if (root / p).is_file() else None for p in paths}
+        created = not (root / _config.DIRECTORY).exists()
+        try:
+            _config.save(module_config, root / _config.FILE_NAME)
+            for item, text in planned.items():
+                (root / item).parent.mkdir(parents=True, exist_ok=True)
+                (root / item).write_text(text, encoding="utf-8", newline="\n")
+            (progress or _quiet)(f"型 {type_class.name} の用意中…")
+            type_class.adopt(root, module_config)
+            module.type.refresh()
+        except BaseException:   # 置いたものを片付けて、元のリポジトリに戻す
+            for item, data in originals.items():
+                if data is None:
+                    (root / item).unlink(missing_ok=True)
+                else:
+                    (root / item).write_bytes(data)
+            if created:
+                remove_tree(root / _config.DIRECTORY)
+            raise
+        changed = tuple(sorted((set(module._changed_paths()) - before) | set(paths)))
+        commit, branch, pushed = module.repository.commit_own(changed, ADOPT_MESSAGE)
+        try:
+            (progress or _quiet)("タスク管理を準備中…")
+            module.repository.prepare_tasks()
+        except WorkError as error:
+            module.repository.notices.append(f"タスク管理の準備ができませんでした（{error.message}）。"
+                                             "タスクを初めて記録するときに、もう一度行います。")
+        return module, ModuleAdopted(name, root, type_class.name, branch, changed, commit=commit, pushed=pushed)
 
     @staticmethod
     def modules(owner: str | None = None, *, archived: bool | None = False,
@@ -1186,35 +1266,7 @@ class Module:
             for version in range(start, _config.FORMAT):
                 if version in _MIGRATIONS:
                     _MIGRATIONS[version](self)
-        planned: dict[str, str] = {}   # ECOBuild が書くファイル → 新しい中身
-        skipped = []
-        type_class = type(self.type)
-        for path, wanted in ((f"{_config.DIRECTORY}/.gitignore", GITIGNORE),
-                             (f"{_config.DIRECTORY}/.gitattributes", GITATTRIBUTES),
-                             (".gitignore", type_class.gitignore()), (".gitattributes", type_class.gitattributes())):
-            current = self._read(path)
-            merged = _with_lines(current, wanted)
-            if merged != current:
-                planned[path] = merged
-        for path, text in self.environment_files(type_class).items():   # なければ置く（あればモジュールのもの。変えない）
-            if not (self.root / path).exists():
-                planned[path] = text
-        planned[_docs.ECOBUILD_README] = _docs.ecobuild_readme(self.config, type_class)   # ECOBuild の持ち物（なければ置く）
-        if (self.root / "AGENTS.md").is_file():
-            planned["AGENTS.md"] = _docs.agents(self.config, type_class)
-        workflow_path = self.root / _docs.CI_WORKFLOW
-        if workflow_path.is_file():
-            if _docs.ci_edited(workflow_path.read_text(encoding="utf-8")):
-                skipped.append(_docs.CI_WORKFLOW)
-            elif (workflow := self.type.ci_workflow(self.config)) is not None:
-                planned[_docs.CI_WORKFLOW] = _docs.stamp_ci(workflow)
-        review_path = self.root / _ci_review.REVIEW_WORKFLOW
-        if review_path.is_file() and self.config.ci.review:   # 見直しのワークフローも、あれば今の中身に
-            if _docs.ci_edited(review_path.read_text(encoding="utf-8")):
-                skipped.append(_ci_review.REVIEW_WORKFLOW)
-            else:
-                planned[_ci_review.REVIEW_WORKFLOW] = _docs.stamp_ci(_ci_review.workflow(self.config.ci))
-        planned = {p: text for p, text in planned.items() if self._read(p) != text}
+        planned, skipped = self._ecobuild_files()
         if start != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
         if dry_run:
@@ -1230,6 +1282,42 @@ class Module:
             return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped))
         commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
         return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed)
+
+    def _ecobuild_files(self, *, rewrite: bool = True) -> tuple[dict[str, str], list[str]]:
+        """ECOBuild が作るファイルのうち、今の中身と違うもの（場所 → 新しい中身）と、手で編集してあるため作り直さないもの。
+
+        .gitignore・.gitattributes は足りない行を足し、拡張が置くファイルはなければ置く。rewrite：ECOBuild が作った
+        AGENTS.md・CI のワークフローを作り直す（module adopt では、元からあるファイルなので作り直さない）。
+        """
+        planned: dict[str, str] = {}
+        skipped = []
+        type_class = type(self.type)
+        for path, wanted in ((f"{_config.DIRECTORY}/.gitignore", GITIGNORE),
+                             (f"{_config.DIRECTORY}/.gitattributes", GITATTRIBUTES),
+                             (".gitignore", type_class.gitignore()), (".gitattributes", type_class.gitattributes())):
+            current = self._read(path)
+            merged = _with_lines(current, wanted)
+            if merged != current:
+                planned[path] = merged
+        for path, text in self.environment_files(type_class).items():   # なければ置く（あればモジュールのもの。変えない）
+            if not (self.root / path).exists():
+                planned[path] = text
+        planned[_docs.ECOBUILD_README] = _docs.ecobuild_readme(self.config, type_class)   # ECOBuild の持ち物（なければ置く）
+        if rewrite and (self.root / "AGENTS.md").is_file():
+            planned["AGENTS.md"] = _docs.agents(self.config, type_class)
+        workflow_path = self.root / _docs.CI_WORKFLOW
+        if rewrite and workflow_path.is_file():
+            if _docs.ci_edited(workflow_path.read_text(encoding="utf-8")):
+                skipped.append(_docs.CI_WORKFLOW)
+            elif (workflow := self.type.ci_workflow(self.config)) is not None:
+                planned[_docs.CI_WORKFLOW] = _docs.stamp_ci(workflow)
+        review_path = self.root / _ci_review.REVIEW_WORKFLOW
+        if rewrite and review_path.is_file() and self.config.ci.review:   # 見直しのワークフローも、あれば今の中身に
+            if _docs.ci_edited(review_path.read_text(encoding="utf-8")):
+                skipped.append(_ci_review.REVIEW_WORKFLOW)
+            else:
+                planned[_ci_review.REVIEW_WORKFLOW] = _docs.stamp_ci(_ci_review.workflow(self.config.ci))
+        return {p: text for p, text in planned.items() if self._read(p) != text}, skipped
 
     def _read(self, path: str) -> str:
         file = self.root / path

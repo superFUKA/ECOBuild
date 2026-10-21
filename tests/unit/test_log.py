@@ -6,6 +6,7 @@ import pytest
 
 import ecobuild_bundle
 from ecobuild import config, settings
+from ecobuild import module as ecobuild_module
 from ecobuild.errors import EcoBuildError
 from ecobuild_cli import _log, main
 from ecobuild_cli._output import Invocation, execute
@@ -61,8 +62,9 @@ def test_module_command_is_logged_in_the_module(module_root, capsys):
     assert [e["event"] for e in summary] == ["command.summary"]
     assert summary[0]["data"]["module"] == module_root.as_posix()
     assert summary[0]["data"]["log"] == log.as_posix()
-    # ログはgitに見えない
-    assert git(module_root, "status", "--porcelain").strip() == ""
+    # ログはgitに見えない。.ecobuild/.gitignore はモジュールと同じ中身（ほかに .ecobuild/ に置くものは見える）
+    assert git(module_root, "status", "--porcelain").strip() == "?? .ecobuild/.gitignore"
+    assert (module_root / ".ecobuild/.gitignore").read_text(encoding="utf-8") == ecobuild_module.GITIGNORE
 
 
 def test_error_is_logged_with_details(module_root, capsys):
@@ -77,7 +79,8 @@ def test_error_is_logged_with_details(module_root, capsys):
     assert "Traceback" in error["traceback"]
 
 
-def test_outside_a_module_everything_goes_to_the_ecobuild_log(capsys):
+def test_outside_a_module_everything_goes_to_the_ecobuild_log(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)   # 試験を動かす場所（ECOBuild のリポジトリ等）がモジュールでも、その外で
     with pytest.raises(SystemExit):
         main(["config", "list", "--json"])
     assert events(_log.global_directory()) == ["command.start", "command.type", "command.result", "command.end"]

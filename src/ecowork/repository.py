@@ -317,7 +317,7 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
         target, url = self._new_clone(directory)
         if account and hasattr(self.github, "with_account"):
             self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
-        other = self._clone_into(target, url, open)
+        other = self._clone_into(target, url, open, self._clone_base(None))
         if account:
             other.use_account(account)
         return other
@@ -338,7 +338,8 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
                             details=list(task.assignees))
         if account and hasattr(self.github, "with_account"):
             self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
-        other = self._clone_into(target, url, open)
+        # 取り出すのは作成元。タスクブランチ（子タスクの親のもの等）は start が決めるので、clone は default_base で
+        other = self._clone_into(target, url, open, self._clone_base(None if base and wm.is_task_branch(base) else base))
         if account:
             other.use_account(account)
         other.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked,
@@ -354,10 +355,21 @@ class Repository(TaskManagement, Reviewing, History, Ci, Completion, Members, Pe
             raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
         return target, url
 
-    def _clone_into(self, target: Path, url: str, open: Callable[[Path], "Repository"] | None) -> "Repository":
-        # 作成元（default_base）を取り出す：GitHub の既定のブランチ（main 等）が作成元とは限らない（module adopt は
-        # 今のブランチをモジュールにする）。この clone が作成元を知らなければ、GitHub の既定のまま。
-        branch = self.default_base if self.git.has_remote_branch(self.default_base) else None
+    def _clone_base(self, base: str | None) -> str:
+        """新しい作業空間の clone で取り出すブランチ：作成元（base、なければ default_base）。必ず指定して取り出す：
+        GitHub の既定のブランチ（main 等）が作成元とは限らない（module adopt は今のブランチをモジュールにする）。
+        GitHub になければ、既定のブランチで代えずに止める。"""
+        base = base or self.default_base
+        if not self.git.has_remote_branch(base):
+            self.git.fetch()
+            if not self.git.has_remote_branch(base):
+                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"作成元のブランチ {base} が GitHub にありません。",
+                                hint="作業空間は作成元のブランチから作ります。作成元を push するか、ある作成元を指定してください"
+                                     "（branch list）。")
+        return base
+
+    def _clone_into(self, target: Path, url: str, open: Callable[[Path], "Repository"] | None,
+                    branch: str) -> "Repository":
         _hooks.install(_git.clone(url, target, branch=branch).hooks_directory())
         try:
             if open is not None:

@@ -214,3 +214,12 @@ def test_builtin_commands_win_over_external_ones(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
     assert _external("status") is None and _external("build") is None     # 共通・型のコマンドが先
     assert _external("nosuch") is None
+
+
+def test_test_selection_is_read_from_the_current_directory(tmp_path):
+    """ecobuild test に並べたテストは、今いるディレクトリからの相対。モジュールの root からの相対にして型へ渡す。"""
+    from ecobuild_cli.kit import _from_root
+    root = tmp_path / "Calc"
+    assert _from_root(root / "tests", root, "unit/test_a.py::test_b[1]") == "tests/unit/test_a.py::test_b[1]"
+    assert _from_root(root, root, "tests") == "tests"
+    assert _from_root(root, root, "../Other/test_x.py") == (tmp_path / "Other/test_x.py").as_posix()

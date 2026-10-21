@@ -320,7 +320,9 @@ jobs:
         return BuildResult(project, options.configuration, tuple(Path(a).as_posix() for a in outcome.artifacts),
                            None, action)
 
-    def test(self, project: str | None, options: _cppbuild.BuildOptions) -> TestResult:
+    def test(self, project: str | None, options: _cppbuild.BuildOptions, tests: tuple[str, ...] = ()) -> TestResult:
+        if tests:
+            raise self.not_supported("テストの絞り込み")
         outcome = _cppbuild.test(self.root, project=project, options=options)
         cases = tuple(TestCaseResult(c.name, c.status) for c in outcome.cases)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731

@@ -167,9 +167,10 @@ python -m venv .venv
         artifacts = _python.build_distribution(self.root, python) if options.configuration == "Release" else ()
         return BuildResult(None, options.configuration, artifacts, None, action)
 
-    def test(self, project: str | None, options: PythonOptions) -> TestResult:
+    def test(self, project: str | None, options: PythonOptions, tests: tuple[str, ...] = ()) -> TestResult:
+        """tests：pytest に渡すファイル・フォルダ・テスト（tests/x.py::test_a）。空なら全部。"""
         _no_project(project)
-        cases =_python.run_tests(self.root, self._environment())
+        cases = _python.run_tests(self.root, self._environment(), tests)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         return TestResult(None, options.configuration, count("passed"), count("failed"), count("skipped"),
                           tuple(cases))

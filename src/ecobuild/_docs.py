@@ -120,7 +120,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 1. `ecobuild task new "<題名>" --body "<内容>" --start --name "<タスクブランチの名前>"`（内容には目的と、**完了の条件**を確かめ方つきの箇条書き（`- [ ] …`）で書きます。提出の見直しの基準になります。既存のIssueなら `ecobuild task start <番号> --name "<名前>"`。名前は task/<番号>-<名前> のブランチになり、日本語も使えます。空白や ~ ^ : ? * [ ] \\ / " < > | は使えません。既にあるタスクブランチへ戻るときは --name は要りません）
 2. 編集する。{add_file}
-3. `ecobuild build`・`ecobuild test`（提出前の確認は `ecobuild check`）
+3. `ecobuild build`・`ecobuild test`（型が対応していれば変えたところのテストに絞ります：`ecobuild test --help`。テスト全部は提出前の `ecobuild check` の1回だけ）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
 5. `ecobuild task submit --note "<説明>"`（確認 → 提出。取り込まれたらタスクを閉じます。取り込まれても閉じずに続けるなら `--partial`＝中間提出）。説明には、変えたこと・完了の条件ごとに何で確かめたか（コマンドと結果）・影響する所・戻し方を書きます。確認（`ecobuild check`）がどの版で通ったかは ECOBuild が本文に書きます
 {review}6. `ecobuild task finish`（CIを待って取り込み、提出のとおりタスクを閉じてタスクブランチを片付けるか、作り直して続けます。提出と違う形にするなら `--complete`／`--partial`。中間提出の後で変更がなければ、そのまま閉じます）。見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`（承認して完了）か `ecobuild task reject <番号> --message "<内容>"`
@@ -128,7 +128,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 ## 始めるとき・区切るとき
 
 - 続きの作業を始めるとき（新しい会話・引き継ぎ）は、まず `ecobuild task status`（Issue の目的・完了の条件・申し送りのコメント・提出の状態）と
-  `ecobuild log --count 10` を読み、自分のメモがあれば読みます。変える前に `ecobuild build`・`ecobuild test` で今の状態が通るか確かめます
+  `ecobuild log --count 10` を読み、自分のメモがあれば読みます。変える前に `ecobuild build`・`ecobuild test`（変えるところのテストに絞って）で今の状態が通るか確かめます
   （通らなければ、まずそれを直すか、申し送りに書きます）。
 - 一度に1つのこと（完了の条件の1項目など）を進め、ビルド・テストが通ったら区切りとして `ecobuild task commit` します。
 - 提出の前に、完了の条件を1つずつ確かめます（「できたように見える」で終えません）。確かめた結果は提出の説明（`--note`）に書きます。

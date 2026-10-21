@@ -177,8 +177,8 @@ class Builds(ABC):
         """action：build・clean・rebuild。"""
 
     @abstractmethod
-    def test(self, project: str | None, options: Any) -> "TestResult":
-        ...
+    def test(self, project: str | None, options: Any, tests: tuple[str, ...] = ()) -> "TestResult":
+        """tests：流すテストを絞る（型が分かる書き方。空なら全部）。絞れない型は、指定されたら not_supported。"""
 
     @abstractmethod
     def run(self, project: str | None, options: Any, arguments: str) -> "RunResult":

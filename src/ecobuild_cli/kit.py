@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from ._output import (
     Invocation, build_like, lines, missing, optional_argument, run_command, split_list, split_numbers,
     split_semicolons, usage_error,
@@ -19,20 +22,35 @@ __all__ = [
 ]
 
 
-def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str) -> int:
-    """test の共通の入口。empty：テストが1件もないときの表示（型ごとに次の一手が違う）。"""
+def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str,
+              tests: tuple[str, ...] = ()) -> int:
+    """test の共通の入口。empty：テストが1件もないときの表示（型ごとに次の一手が違う）。
+    tests：流すテスト（今いるディレクトリからの相対。:: の後ろはそのまま）。モジュールの root からの相対にして渡す。"""
 
     def action(inv):
         module = inv.module
         target = project or module.project_at(inv.cwd)
         options, name = module.build_options(configuration, profile or None)
-        inv.info(f"テスト中：{target or '全体'}（{options.configuration}" + (f"、{name}" if name else "") + "）")
-        return module.test(project=target, configuration=configuration, profile=profile or None)
+        selected = tuple(_from_root(inv.cwd, module.root, t) for t in tests)
+        inv.info(f"テスト中：{target or ('、'.join(selected) if selected else '全体')}（{options.configuration}"
+                 + (f"、{name}" if name else "") + "）")
+        return module.test(project=target, configuration=configuration, profile=profile or None, tests=selected)
 
     return run_command("test", action,
                        lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}"
                        if r.passed + r.failed + r.skipped or project else empty,
                        json_output=json_output)
+
+
+def _from_root(cwd: Path, root: Path, test: str) -> str:
+    """今いるディレクトリからの相対で書いたテスト（path[::name]）を、モジュールの root からの相対に（外なら絶対のまま）。"""
+    path, sep, rest = test.partition("::")
+    absolute = Path(os.path.abspath(cwd / path))
+    try:
+        path = absolute.relative_to(Path(os.path.abspath(root))).as_posix()
+    except ValueError:
+        path = absolute.as_posix()
+    return path + sep + rest
 
 
 def run_like(project: str, configuration: str, profile: str, arguments: str, json_output: bool) -> int:

@@ -113,11 +113,11 @@ def clean(root: Path) -> None:
 
 # テスト・実行 -------------------------------------------------------------------
 
-def run_tests(root: Path, python: Path) -> list[TestCaseResult]:
-    """pytest を実行して、テストごとの結果を返す。失敗があれば TEST_FAILED。0件なら空。"""
+def run_tests(root: Path, python: Path, tests: tuple[str, ...] = ()) -> list[TestCaseResult]:
+    """pytest を実行して、テストごとの結果を返す（tests：流すものを絞る。空なら全部）。失敗があれば TEST_FAILED。0件なら空。"""
     with tempfile.TemporaryDirectory(prefix="eb") as directory:
         report = Path(directory) / "junit.xml"
-        args = [str(python), "-m", "pytest", f"--junitxml={report}"]
+        args = [str(python), "-m", "pytest", f"--junitxml={report}", *tests]
         completed = execute(args, root)
         cases = read_junit(report) if report.is_file() else []
     if completed.returncode not in (0, NO_TESTS):

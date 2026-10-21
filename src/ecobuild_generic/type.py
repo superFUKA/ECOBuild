@@ -136,7 +136,9 @@ test = { windows = "test.cmd", linux = "./test.sh" }
         self._execute(action_to_run, options, ErrorCode.BUILD_FAILED, message)
         return BuildResult(None, options.configuration, (), None, action)
 
-    def test(self, project: str | None, options: GenericOptions) -> TestResult:
+    def test(self, project: str | None, options: GenericOptions, tests: tuple[str, ...] = ()) -> TestResult:
+        if tests:
+            raise self.not_supported("テストの絞り込み")
         self._execute("test", options, ErrorCode.TEST_FAILED, "テストに失敗しました。")
         # 個々のテストの結果はコマンドの出力にある。ここではコマンド全体を1件として数える
         return TestResult(None, options.configuration, 1, 0, 0, (TestCaseResult("test", "passed"),))

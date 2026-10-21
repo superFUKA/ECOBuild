@@ -1039,9 +1039,10 @@ class Module:
         result = self._builds(action).build(project, options, action)
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
-    def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestResult:
+    def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
+             tests: tuple[str, ...] = ()) -> TestResult:
         options, _ = self.build_options(configuration, profile)
-        return self._builds("テスト").test(project, options)
+        return self._builds("テスト").test(project, options, tuple(tests))
 
     def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
             arguments: str = "") -> RunResult:

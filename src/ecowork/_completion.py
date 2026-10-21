@@ -365,6 +365,11 @@ class Completion:
             base, head = self._task_ends(number)
         return self.git.output("merge-base", base, head), self.git.output("rev-parse", head)
 
+    def task_diff_files(self, number: int | None = None) -> tuple[wm.DiffFile, ...]:
+        """task_diff の変わったファイル（パス・種類・足した行・消した行・改行コードだけの差か。パスの順）。"""
+        base, head = self.task_diff_revisions(number)
+        return tuple(wm.DiffFile(*row) for row in sorted(self.git.changed_files(base, head)))
+
     def _task_ends(self, number: int) -> tuple[str, str]:
         """提出のないタスクの差分の両端（作成元, タスクブランチ。手元になければ GitHub のもの）。"""
         branch = self._task_branch_of(number)

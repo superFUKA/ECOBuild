@@ -59,9 +59,16 @@ class StashEntry:
     message: str
 
 
+# clone した作業空間の改行コードの扱い：取り出すときは記録のまま（LF）、記録するときは CRLF を LF にする。
+# このPCの git が core.autocrlf=true だと CRLF で取り出され、同じ場所を改行の変換をしない git（コンテナの中等）で見ると、
+# 追跡中のファイルのほぼすべてが改行だけの「変更」になる
+CLONE_CONFIG = ("core.autocrlf=input",)
+
+
 def clone(url: str, destination: Path, *, branch: str | None = None) -> "Git":
-    """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。"""
-    _run(["git", "clone", "--quiet", *(["--branch", branch] if branch else []), url, str(destination)], cwd=None)
+    """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。改行コードの扱いを CLONE_CONFIG に決めて取り出す。"""
+    _run(["git", "clone", "--quiet", *(a for c in CLONE_CONFIG for a in ("--config", c)),
+          *(["--branch", branch] if branch else []), url, str(destination)], cwd=None)
     return Git(destination)
 
 
@@ -315,6 +322,30 @@ class Git:
         text = self.run(*args, check=False).stdout
         return tuple(line[:-len(suffix)] for line in text.splitlines() if line.endswith(suffix))
 
+    def eol_only(self, *revisions: str, cached: bool = False) -> tuple[str, ...]:
+        """改行コード（CRLF と LF）だけが違うファイル。比べ方は git diff と同じ（revisions・cached）。"""
+        args = ("--numstat", "--no-renames", *(["--cached"] if cached else []), *revisions, "--")
+        changed = _numstat_paths(self.run("diff", *args, check=False).stdout)
+        if not changed:
+            return ()
+        kept = set(_numstat_paths(self.run("diff", "--ignore-cr-at-eol", *args, check=False).stdout))
+        return tuple(p for p in changed if p not in kept)
+
+    def changed_files(self, base: str, head: str) -> list[tuple[str, str, int | None, int | None, bool]]:
+        """base から head への変更（ファイルごとに パス・種類〔A・M・D 等〕・足した行・消した行〔バイナリは None〕・
+        改行コードだけの差か）。名前の変更は、消したものと足したものに分けて数える。"""
+        kinds = {}
+        for line in self.output("diff", "--name-status", "--no-renames", base, head, "--").splitlines():
+            kind, _, path = line.partition("\t")
+            kinds[path] = kind[:1]
+        eol = set(self.eol_only(base, head))
+        found = []
+        for line in self.output("diff", "--numstat", "--no-renames", base, head, "--").splitlines():
+            added, deleted, path = line.split("\t", 2)
+            found.append((path, kinds.get(path, "M"), None if added == "-" else int(added),
+                          None if deleted == "-" else int(deleted), path in eol))
+        return found
+
     def has_changes(self, base: str, head: str) -> bool:
         """headに、baseとの分岐点からのファイルの変更があるか（PRの差分と同じ見方）。"""
         return not self.run("diff", "--quiet", f"{base}...{head}", check=False).ok
@@ -387,6 +418,16 @@ def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | 
         return _process.run(args, cwd=cwd, check=check, env=_ENV, input=input)
     except _process.ProcessFailed as failure:
         raise _git_error(failure.completed) from None
+
+
+def _numstat_paths(text: str) -> list[str]:
+    """git diff --numstat の、中身（文字）の変わったファイル（バイナリは除く）。"""
+    paths = []
+    for line in text.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) == 3 and parts[0] != "-" and (parts[0], parts[1]) != ("0", "0"):
+            paths.append(parts[2])
+    return paths
 
 
 def _lock_file(file, timeout: float) -> bool:

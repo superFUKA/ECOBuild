@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import codecs
+import contextlib
 import errno
 import hashlib
 import json
@@ -13,10 +15,13 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -306,10 +311,156 @@ def needs_init(root: Path) -> bool:
     return str(backend).startswith("setuptools")
 
 
-def run_script(root: Path, name: str, arguments: str) -> subprocess.CompletedProcess:
-    executable = scripts_directory(root) / (name + (".exe" if os.name == "nt" else ""))
-    args = [str(executable), *shlex.split(arguments, posix=os.name != "nt")]
-    completed = execute(args, root)
-    if completed.returncode != 0:
-        raise failure(ErrorCode.RUN_FAILED, "実行に失敗しました。", args, completed)
+def script_path(root: Path, name: str) -> Path:
+    """[project.scripts] のコマンドの、.venv の中の実行ファイル。"""
+    return scripts_directory(root) / (name + (".exe" if os.name == "nt" else ""))
+
+
+def split_arguments(text: str) -> list[str]:
+    """--arguments の1つの文字列を引数に分ける（shlex）。空白で区切り、"…"・'…' でまとめる。Windows では \\ を
+    そのまま残す（パスに使えるように）。まとめた引用符は外す。"""
+    if os.name != "nt":
+        return shlex.split(text)
+    return [part[1:-1] if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'" else part
+            for part in shlex.split(text, posix=False)]
+
+
+STOP_WAIT = 10.0    # 止めたあと、プログラムが終わるのを待つ秒数（過ぎたら強制終了する）
+
+
+def run_script(root: Path, name: str, arguments: list[str], *, stream: bool = False, stdin: str | None = None,
+               echo: bool = False, on_start=None) -> subprocess.CompletedProcess:
+    """[project.scripts] のコマンドを .venv で実行する。終了コードが 0 でなければ RUN_FAILED（details に returncode・
+    stdout・stderr）。止められたら（SIGINT・SIGTERM）プログラムも止めて RUN_INTERRUPTED（途中までの出力つき）。
+
+    stream：出力を受け継いでそのまま流す（人向け。ためない。結果の stdout・stderr は空）。偽なら stdout・stderr を
+    分けてためる（echo なら、ためながら標準エラーにも流す：--json で標準出力は JSON だけにする）。
+    stdin：None は渡さない（空）・"inherit" は受け継ぐ（対話型のプログラム）・ほかはそのファイルを渡す。
+    on_start：起こした直後に (コマンドの表示, PID) で呼ぶ。
+    """
+    args = [str(script_path(root, name)), *arguments]
+    # 端末で対話するときだけ同じプロセスグループ（端末の Ctrl+C がプログラムに届き、端末を読める）。ほかは別にして、
+    # 止めるときはグループごと（プログラムが起こした子も）止める
+    own_group = not (stdin == "inherit" and sys.stdin is not None and sys.stdin.isatty())
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"process_group": 0}) \
+        if own_group else {}
+    pipe = None if stream else subprocess.PIPE
+    with _input(stdin) as source:
+        try:
+            process = subprocess.Popen(args, cwd=root, env=_environment(), stdin=source, stdout=pipe, stderr=pipe,
+                                       **group)
+        except OSError as error:
+            raise EcoBuildError(ErrorCode.RUN_FAILED, f"{name} を実行できません：{error}",
+                                hint="ecobuild build で .venv を作り直してください。") from error
+        if on_start is not None:
+            on_start(command_text(args), process.pid)
+        readers = [] if stream else [_Reader(process.stdout, echo), _Reader(process.stderr, echo)]
+        stopped = _wait(process, own_group)
+        for reader in readers:
+            reader.join()
+    out, err = (readers[0].text, readers[1].text) if readers else ("", "")
+    completed = subprocess.CompletedProcess(args, process.returncode, out, err)
+    error = None
+    if stopped is not None:
+        error = failure(ErrorCode.RUN_INTERRUPTED, f"止めました（{signal.Signals(stopped).name}）。プログラムも止めました",
+                        args, completed)
+        error.details["signal"] = signal.Signals(stopped).name
+    elif completed.returncode != 0:
+        error = failure(ErrorCode.RUN_FAILED, "実行に失敗しました。", args, completed)
+    if error is not None:
+        if stream:   # 出力は流したので、人向けの詳細にはコマンドだけ出す
+            error.details["output"] = f"コマンド：{error.details['command']}（出力は上に流しました）"
+        raise error
     return completed
+
+
+@contextlib.contextmanager
+def _input(stdin: str | None):
+    if stdin is None:
+        yield subprocess.DEVNULL
+    elif stdin == "inherit":
+        yield None
+    else:
+        try:
+            file = open(stdin, "rb")
+        except OSError as error:
+            raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"入力のファイル {stdin} を開けません：{error}") from error
+        with file:
+            yield file
+
+
+def _wait(process: subprocess.Popen, own_group: bool) -> int | None:
+    """プログラムが終わるのを待つ。その間に ecobuild が SIGINT・SIGTERM を受けたら、プログラム（別のグループなら
+    グループごと）に渡し、終わるのを待つ（STOP_WAIT 秒で強制終了）。受けたシグナルを返す（なければ None）。"""
+    received: list[int] = []
+
+    def forward(number, _frame):
+        received.append(number)
+        _signal_program(process, own_group, number)
+
+    numbers = [signal.SIGINT, signal.SIGTERM]
+    previous = {}
+    if threading.current_thread() is threading.main_thread():
+        for number in numbers:
+            previous[number] = signal.signal(number, forward)
+    try:
+        # 少しずつ待つ（Windows では待っている間はシグナルの処理が動かない）
+        until = None
+        while process.poll() is None:
+            if received and until is None:
+                until = time.monotonic() + STOP_WAIT
+            if until is not None and time.monotonic() > until:
+                _signal_program(process, own_group, None)   # 止まらない：強制終了
+                until = time.monotonic() + STOP_WAIT
+            try:
+                process.wait(timeout=0.2)
+            except subprocess.TimeoutExpired:
+                pass
+    finally:
+        for number, handler in previous.items():
+            signal.signal(number, handler)
+    return received[0] if received else None
+
+
+def _signal_program(process: subprocess.Popen, own_group: bool, number: int | None) -> None:
+    """プログラムにシグナルを渡す（number が None なら強制終了）。端末と同じグループの Ctrl+C は端末が渡している。"""
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            if number is None or number == signal.SIGTERM:   # プログラムが起こした子も一緒に（/T）
+                done = subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+                if done.returncode != 0:
+                    process.kill()
+            elif own_group:
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+        elif own_group:
+            os.killpg(process.pid, signal.SIGKILL if number is None else number)
+        elif number is None or number == signal.SIGTERM:
+            process.send_signal(signal.SIGKILL if number is None else number)
+    except OSError:
+        pass   # もう終わっていた
+
+
+class _Reader(threading.Thread):
+    """プログラムの出力を読みながらためる（echo なら標準エラーにも流す）。部分的な行（入力の催促）もすぐ流す。"""
+
+    def __init__(self, stream, echo: bool):
+        super().__init__(daemon=True)
+        self.stream, self.echo, self.parts = stream, echo, []
+        self.start()
+
+    def run(self) -> None:
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        while chunk := self.stream.read1(65536) if hasattr(self.stream, "read1") else self.stream.read(65536):
+            text = decoder.decode(chunk)
+            self.parts.append(text)
+            if self.echo and text:
+                sys.stderr.write(text)
+                sys.stderr.flush()
+        self.parts.append(decoder.decode(b"", final=True))
+        self.stream.close()
+
+    @property
+    def text(self) -> str:
+        return "".join(self.parts).replace("\r\n", "\n")

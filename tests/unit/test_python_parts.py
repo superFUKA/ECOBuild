@@ -3,8 +3,11 @@
 import errno
 import json
 import os
+import signal
 import subprocess
 import sys
+import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -331,3 +334,137 @@ def test_all_tests_run_in_parallel_with_xdist(tmp_path, monkeypatch):
     _python.run_tests(tmp_path, Path("python"))
     _python.run_tests(tmp_path, Path("python"), ("tests/test_a.py",))
     assert ["-n" in args for args in ran] == [False, True, False]
+
+
+# run：[project.scripts] のコマンドの代わりに、ECOBuild の Python に -c で書いたプログラムを動かす
+
+@pytest.fixture
+def program(tmp_path, monkeypatch):
+    monkeypatch.setattr(_python, "script_path", lambda root, name: Path(sys.executable))
+    return lambda code, **options: _python.run_script(tmp_path, "calc", ["-c", code], **options)
+
+
+def test_run_separates_stdout_and_stderr(program, capsys):
+    """出力は stdout・stderr を分けてためる。echo なら、ためながら標準エラーにも流す（--json の標準出力を汚さない）。"""
+    started = []
+    done = program("import sys; print('out'); print('err', file=sys.stderr)", echo=True,
+                   on_start=lambda shown, pid: started.append(pid))
+    assert (done.stdout, done.stderr, done.returncode) == ("out\n", "err\n", 0) and started[0] > 0
+    shown = capsys.readouterr()
+    assert shown.out == "" and "out" in shown.err and "err" in shown.err
+
+
+def test_run_failure_keeps_the_return_code(program):
+    with pytest.raises(EcoBuildError) as error:
+        program("import sys; print('so far'); sys.exit(3)")
+    details = error.value.details
+    assert error.value.code == ErrorCode.RUN_FAILED and details["returncode"] == 3 and details["stdout"] == "so far\n"
+    assert details["arguments"][1:] == ["-c", "import sys; print('so far'); sys.exit(3)"]
+
+
+def test_run_stdin(program, tmp_path):
+    """stdin：既定は渡さない（すぐ EOF）。ファイルを渡せる。"""
+    code = "import sys; print(repr(sys.stdin.read()))"
+    assert program(code).stdout == "''\n"
+    (tmp_path / "input.txt").write_text("1 2\n", encoding="utf-8")
+    assert program(code, stdin=str(tmp_path / "input.txt")).stdout == "'1 2\\n'\n"
+    with pytest.raises(EcoBuildError):
+        program(code, stdin=str(tmp_path / "nothing.txt"))
+
+
+def test_run_stops_the_program_on_a_signal(program):
+    """ecobuild が SIGTERM を受けたら、プログラムも止めて RUN_INTERRUPTED（途中までの出力つき）。子を残さない。"""
+    timer = threading.Timer(1.0, lambda: signal.raise_signal(signal.SIGTERM))
+    timer.start()
+    started = time.monotonic()
+    with pytest.raises(EcoBuildError) as error:
+        program("import time; print('ready', flush=True); time.sleep(60)")
+    timer.join()
+    assert error.value.code == "run_interrupted" and error.value.details["signal"] == "SIGTERM"
+    assert error.value.details["stdout"] == "ready\n" and time.monotonic() - started < 30
+
+
+@pytest.mark.skipif(os.name == "nt", reason="プロセスグループ（killpg）は POSIX")
+def test_run_stops_the_whole_group(program, tmp_path):
+    """プログラムが起こした子（孫）も、グループごと止める。"""
+    pid_file = tmp_path / "child.pid"
+    timer = threading.Timer(1.5, lambda: signal.raise_signal(signal.SIGTERM))
+    timer.start()
+    with pytest.raises(EcoBuildError):
+        program("import subprocess, sys, time; p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']);"
+                f"open({str(pid_file)!r}, 'w').write(str(p.pid)); time.sleep(60)")
+    timer.join()
+    child = int(pid_file.read_text())
+
+    def alive(pid):
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        try:   # 終わって片付けを待つもの（ゾンビ。コンテナで init が片付けないとき）は止まっている
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+        except OSError:
+            return True
+    until = time.monotonic() + 5
+    while alive(child) and time.monotonic() < until:
+        time.sleep(0.1)
+    assert not alive(child)
+
+
+def test_run_command_line(monkeypatch, tmp_path):
+    """ecobuild run：引数は -- の後ろに並べる。--propagate-exit なら終了コードはプログラムのもの。--json なしでは
+    出力を流し（ためない）、標準入力を渡す。"""
+    from click.testing import CliRunner
+    from ecobuild_cli import build_cli
+    from ecobuild_python.cli import run as run_cli
+
+    shown = CliRunner().invoke(build_cli("python"), ["run", "--arguments", "a", "--", "b"])
+    assert shown.exit_code == 2 and "どちらか1つ" in shown.output
+    assert CliRunner().invoke(build_cli("python"), ["run", "--stdin", "--input-file", "x", "--", "b"]).exit_code == 2
+
+    calls = []
+
+    class Type:
+        def run_program(self, options, arguments, **kw):
+            calls.append((arguments, kw["stream"], kw["stdin"], kw["echo"]))
+            if arguments == ["fail"]:
+                raise EcoBuildError(ErrorCode.RUN_FAILED, "失敗", details={"returncode": 3})
+            return type("R", (), {"returncode": 0, "output": ""})()
+
+    class Inv:
+        cwd = tmp_path
+        module = type("M", (), {"type": Type(), "build_options": lambda self, c, p: (None, None)})()
+
+        def info(self, text):
+            pass
+
+    def fake_run_command(name, action, render, json_output):
+        try:
+            render(action(Inv()))
+            return 0
+        except EcoBuildError:
+            return 1
+    monkeypatch.setattr(run_cli, "run_command", fake_run_command)
+    assert run_cli.command("--port", "80") == 0 and calls[-1] == (["--port", "80"], True, "inherit", False)
+    assert run_cli.command(arguments='x "y z"', json=True) == 0 and calls[-1] == (["x", "y z"], False, None, True)
+    run_cli.command("a", json=True, stdin=True)
+    assert calls[-1][2] == "inherit"
+    run_cli.command("a", input_file="in.txt")
+    assert calls[-1][2] == str(tmp_path / "in.txt")
+    assert run_cli.command("fail") == 1 and run_cli.command("fail", propagate_exit=True) == 3
+    assert run_cli._exit_code(-15) == 143
+
+
+@pytest.mark.parametrize("text,expected", [
+    ('a "b c" d', ["a", "b c", "d"]),
+    ("--name 'x y'", ["--name", "x y"]),
+    ("", []),
+])
+def test_split_arguments(text, expected):
+    assert _python.split_arguments(text) == expected
+
+
+def test_split_arguments_keeps_windows_paths(monkeypatch):
+    if os.name != "nt":
+        pytest.skip("Windows の分け方")
+    assert _python.split_arguments(r'C:\work\a.txt "C:\Program Files\x"') == [r"C:\work\a.txt", r"C:\Program Files\x"]

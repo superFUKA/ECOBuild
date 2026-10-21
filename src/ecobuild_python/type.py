@@ -50,6 +50,15 @@ class PythonOptions:
     configuration: str = "Debug"
 
 
+@dataclass(frozen=True)
+class PythonRunResult(RunResult):
+    """run の結果（output は今までどおり標準出力。stream で流したときは、ためないので空）。"""
+    stdout: str = ""
+    stderr: str = ""
+    command: str = ""                    # 実行したコマンド（そのまま貼って使える形）
+    arguments: tuple[str, ...] = ()      # プログラムに渡した引数（分けたもの）
+
+
 class PythonType(ModuleType, Builds, HasFiles):
     name = "python"
     description = "Python。venv・pip・pytest でビルド・テスト・実行する"
@@ -203,15 +212,23 @@ python3 -m venv .venv
                           tuple(cases))
 
     def run(self, project: str | None, options: PythonOptions, arguments: str) -> RunResult:
+        """arguments：1つの文字列（_python.split_arguments で分ける）。出力はためて返す（stdin は渡さない）。"""
         _no_project(project)
-        script =_python.script_name(self.root)
+        return self.run_program(options, _python.split_arguments(arguments))
+
+    def run_program(self, options: PythonOptions, arguments: list[str], *, stream: bool = False,
+                    stdin: str | None = None, echo: bool = False, on_start=None) -> "PythonRunResult":
+        """分けた引数で実行する（ecobuild run が使う。stream・stdin・echo・on_start は _python.run_script のとおり）。"""
+        script = _python.script_name(self.root)
         if script is None:
             raise EcoBuildError(ErrorCode.NOT_SUPPORTED, "実行できるものがありません（pyproject.toml の [project.scripts]）。",
                                 hint="module new の --kind app で作るか、[project.scripts] にコマンドを書いてください"
                                      "（タスクブランチでコミットします）。")
         self._environment()
-        completed = _python.run_script(self.root, script, arguments)
-        return RunResult(None, options.configuration, completed.returncode, completed.stdout)
+        completed = _python.run_script(self.root, script, list(arguments), stream=stream, stdin=stdin, echo=echo,
+                                       on_start=on_start)
+        return PythonRunResult(None, options.configuration, completed.returncode, completed.stdout, completed.stdout,
+                               completed.stderr, _python.command_text(completed.args), tuple(arguments))
 
     def _environment(self, *, force: bool = False) -> Path:
         from ecobuild import settings
@@ -348,7 +365,7 @@ def _no_project(project: str | None) -> None:
     """Project を持たないので、指定されたら黙って全体にせず止める（run の引数の書き間違いにも気づける）。"""
     if project:
         raise EcoBuildError(ErrorCode.NOT_SUPPORTED, f"型 python には Project がありません（{project} を指定しました）。",
-                            hint="build・test・run はモジュール全体が対象です。run の引数は --arguments \"…\" で渡します。")
+                            hint="build・test・run はモジュール全体が対象です。run の引数は ecobuild run -- <引数…> で渡します。")
 
 
 def _mirror(relative: Path) -> Path | None:

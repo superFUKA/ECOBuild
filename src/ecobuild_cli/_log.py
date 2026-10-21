@@ -13,11 +13,18 @@ ecobuild config set log_level <量>、1回だけなら環境変数 ECOBUILD_LOG_
 大きさの上限（log_max_mb、既定 200）：置き場所ごとに、超えたら古い日のファイルから消す。
 
 ログを書けなくても、コマンドは止めない（ログの失敗は黙って捨てる）。トークン等の秘密は伏せて書く。
+
+時刻（time）とファイルの日付は UTC（コンテナの中とこのPCで同じモジュールのログに書くので、そろえる。表示で地方時に）。
+長い引数（--brief <全文> 等）は、長さ・ハッシュ・先頭だけを書く（LONG_ARGUMENT）。
+ほかの ecobuild から頼まれて動いたとき（コンテナの中・係）は、頼んだ側の run を forwarded_from に書く
+（頼む側が環境変数 ECOBUILD_FORWARDED_FROM に入れて渡す。forward_environment）。
+終了コードが0でないのに誤り（command.error）を書いていなければ、終わりに code failed で書く。
 """
 
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -35,6 +42,8 @@ LEVELS = {"off": logging.CRITICAL + 10, "error": logging.ERROR, "info": logging.
 DEFAULT_LEVEL = "debug"
 DEFAULT_MAX_MB = 200
 LEVEL_VARIABLE = "ECOBUILD_LOG_LEVEL"
+FORWARDED_VARIABLE = "ECOBUILD_FORWARDED_FROM"
+LONG_ARGUMENT = 1000     # これより長い引数は、長さ・ハッシュ・先頭だけ
 MODULE_LOG_DIRECTORY = Path(_module_config.DIRECTORY) / "logs"
 
 logger = logging.getLogger("ecobuild_cli")
@@ -97,8 +106,11 @@ class _Handler(logging.Handler):
         self.run_id = run_id
         self.module_root: Path | None = None
         self.pending: list[str] = []
+        self.errors = 0          # 書いた command.error の数
 
     def emit(self, record: logging.LogRecord) -> None:
+        if getattr(record, "event", None) == "command.error":
+            self.errors += 1
         try:
             self.write(self.line(record))
         except Exception:
@@ -109,7 +121,8 @@ class _Handler(logging.Handler):
 
     def line(self, record: logging.LogRecord) -> str:
         entry: dict[str, Any] = {
-            "time": datetime.datetime.fromtimestamp(record.created).astimezone().isoformat(timespec="milliseconds"),
+            "time": datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).isoformat(
+                timespec="milliseconds"),
             "run": self.run_id,
             "level": record.levelname.lower(),
             "event": getattr(record, "event", "message"),
@@ -166,7 +179,7 @@ def _append(directory: Path, lines: list[str], *, module: bool = False) -> bool:
             if not ignore.exists():
                 # すべて（*）にすると、あとで ECOBuild が .ecobuild/ に置くファイル（module adopt・upgrade）まで見えなくなる
                 ignore.write_text(_module.GITIGNORE, encoding="utf-8", newline="\n")
-        with open(directory / f"{datetime.date.today().isoformat()}.jsonl", "a", encoding="utf-8",
+        with open(directory / f"{_today()}.jsonl", "a", encoding="utf-8",
                   newline="\n") as file:
             file.write("".join(line + "\n" for line in lines))
         return True
@@ -174,12 +187,25 @@ def _append(directory: Path, lines: list[str], *, module: bool = False) -> bool:
         return not module
 
 
+def _today() -> str:
+    """今日のファイルの名前の日付（UTC）。"""
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+
+def shorten(argument: str) -> str:
+    """長い引数は、長さ・ハッシュ（同じ文か見分けられる）・先頭（何の文か分かる）だけにする。"""
+    if len(argument) <= LONG_ARGUMENT:
+        return argument
+    digest = hashlib.sha256(argument.encode("utf-8", "replace")).hexdigest()[:16]
+    return f"{argument[:200]}…（{len(argument)}字・sha256 {digest}）"
+
+
 def prune(directory: Path, limit: int) -> None:
     """合計が上限を超えたら、古い日のファイルから消す（今日のファイルは残す）。"""
     try:
         files = sorted(directory.glob("*.jsonl"))
         total = sum(path.stat().st_size for path in files)
-        today = f"{datetime.date.today().isoformat()}.jsonl"
+        today = f"{_today()}.jsonl"
         for path in files:
             if total <= limit or path.name == today:
                 break
@@ -213,10 +239,24 @@ def start(args: list[str]) -> None:
         version = metadata.version("ecobuild")
     except metadata.PackageNotFoundError:
         version = None
-    _command = {"args": list(args), "cwd": os.getcwd()}
-    logger.info("ecobuild %s", " ".join(args), extra={"event": "command.start", "data": {
+    _command = {"args": [shorten(str(arg)) for arg in args], "cwd": os.getcwd()}
+    forwarded = os.environ.get(FORWARDED_VARIABLE, "").strip()
+    if forwarded:
+        _command["forwarded_from"] = forwarded
+    logger.info("ecobuild %s", " ".join(_command["args"]), extra={"event": "command.start", "data": {
         **_command, "version": version, "python": sys.version.split()[0], "platform": sys.platform,
         "pid": os.getpid(), "level": name}})
+
+
+def run_id() -> str | None:
+    """今のコマンドのログの run（ログを書いていなければ None）。"""
+    return None if _current is None else _current.run_id
+
+
+def forward_environment() -> dict[str, str]:
+    """ほかの ecobuild に頼むときに渡す環境変数（頼まれた側のログの forwarded_from に、この run が入る）。"""
+    found = run_id()
+    return {} if found is None else {FORWARDED_VARIABLE: found}
 
 
 def use_module(root: Path) -> None:
@@ -233,6 +273,11 @@ def finish(exit_code: int | None) -> None:
         return
     data = {"exit_code": exit_code, "seconds": round(time.monotonic() - _started, 3)}
     level = logging.INFO if exit_code in (0, None) else logging.ERROR
+    if level == logging.ERROR and not handler.errors:
+        # 理由を書かずに失敗した出口（中の ecobuild・外部のコマンド・直に終了コードを返したもの）
+        logger.error("終了コード %s（理由の記録なし）", exit_code, extra={"event": "command.error", "data": {
+            "command": None, "code": "failed", "message": f"終了コード {exit_code} で終わりました（理由の記録なし）。",
+            "hint": None, "details": None, "retryable": False}})
     logger.log(level, "終了コード %s", exit_code, extra={"event": "command.end", "data": data})
     _current = None
     logging.getLogger().removeHandler(handler)

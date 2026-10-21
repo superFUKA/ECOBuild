@@ -71,7 +71,8 @@ def secret_output(args: list[str] | tuple[str, ...]) -> str | None:
 RETRY_WAITS = (2.0, 5.0)   # やり直す前に待つ秒数（回数はこの数）
 TRANSIENT = re.compile(r"HTTP 5\d\d|Bad Gateway|Service Unavailable|Gateway Time-?out|secondary rate limit|"
                        r"returned error: 5\d\d|Could not resolve host|Connection (?:timed out|reset|refused)|"
-                       r"Operation timed out|RPC failed|early EOF|TLS handshake|unexpected disconnect", re.IGNORECASE)
+                       r"Operation timed out|RPC failed|early EOF|TLS handshake|unexpected disconnect|"
+                       r"cannot lock ref|Unable to create '[^']*\.lock'", re.IGNORECASE)   # 同じ clone の fetch が同時に走った
 _GH_READS = frozenset({"view", "list", "status", "diff", "checks"})
 _GIT_REPEATABLE = frozenset({"fetch", "ls-remote", "clone", "push"})
 

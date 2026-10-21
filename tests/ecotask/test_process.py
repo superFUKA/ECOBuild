@@ -43,3 +43,10 @@ def test_a_transient_failure_is_retried_then_reported(monkeypatch):
                                                                    Completed(tuple(args), 1, "", "not found"))[1])
     assert not process.run(["gh", "issue", "view", "99"], check=False, wait=waited.append).ok
     assert len(ran) == 1                                                                     # 一時的でない失敗はそのまま
+
+    ran.clear(), waited.clear()                                                              # 同じ clone の fetch が同時に走った
+    results = iter([Completed(("git",), 1, "", "error: cannot lock ref 'refs/remotes/origin/main': is at 1 but expected 2"),
+                    Completed(("git",), 0, "", "")])
+    monkeypatch.setattr(process, "_run_once", lambda args, **kw: (ran.append(args), next(results))[1])
+    assert process.run(["git", "fetch", "--quiet", "--prune", "origin"], wait=waited.append).ok
+    assert len(ran) == 2

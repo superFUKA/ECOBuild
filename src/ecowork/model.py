@@ -430,6 +430,7 @@ class DropResult:
     switched_to: str | None          # 今いるタスクブランチを捨てた場合、移った先
     issue_closed: bool               # 「対応しない」として閉じたか
     dry_run: bool
+    issue_open: bool = True          # 終わった後、Issueが開いているか（閉じたIssueの残りのブランチを消したなら False）
 
 
 @dataclass(frozen=True)

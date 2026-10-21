@@ -308,10 +308,11 @@ class Reviewing:
         if not (local or remote):
             if close:
                 # 開始していない（タスクブランチのない）Issueを「対応しない」として閉じる。
-                if not dry_run and self.github.get_issue(self.root, number).state == "open":
+                opened = self.github.get_issue(self.root, number).state == "open"
+                if not dry_run and opened:
                     self.github.close_issue(self.root, number, not_planned=True)
                     self.tracker.closed(number)
-                return wm.DropResult(number, branch, (), (), None, close, dry_run)
+                return wm.DropResult(number, branch, (), (), None, opened, dry_run, opened and dry_run)
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスクブランチ {branch} がありません。",
                             hint="開始していないIssueをやめる場合は --close を付けてください（「対応しない」として閉じます）。")
         base = self.git.get_config(wm.base_key(branch)) or self.default_base
@@ -336,9 +337,11 @@ class Reviewing:
         if remote:
             self.git.push_delete(branch)
         self.git.unset_config(wm.base_key(branch))
-        if close and self.github.get_issue(self.root, number).state == "open":
+        opened = self.github.get_issue(self.root, number).state == "open"
+        if close and opened:
             self.github.close_issue(self.root, number, not_planned=True)
             self.tracker.closed(number)
-        elif not close:
+        elif opened:
             self.tracker.set_stage(number, _board.TODO)  # Issueは開いたまま：最初からやり直せる
-        return wm.DropResult(number, branch, lost, pulls, switched_to, close, False)
+        # 閉じたIssue（完了の後の残りのブランチを消した等）は、段階も閉じたときのまま
+        return wm.DropResult(number, branch, lost, pulls, switched_to, close and opened, False, opened and not close)

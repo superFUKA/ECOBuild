@@ -207,6 +207,8 @@ def _read_only(args: list[str]) -> bool:
         return False
     if command == ("module", "protect"):   # --show は見るだけ（ほかは保護を変える）
         return "--show" in args
+    if command == ("branch", "merge"):     # --dry-run は前もって確かめるだけ（ほかは取り込む）
+        return "--dry-run" in args
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 

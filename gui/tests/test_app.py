@@ -416,6 +416,8 @@ def test_reading_the_account_and_the_protection_changes_nothing():
     assert gui._read_only(["account", "show"]) and gui._cacheable(["account", "show"])
     assert gui._read_only(["module", "protect", "--show"])
     assert not gui._read_only(["module", "protect", "--approvals", "1"]) and not gui._read_only(["module", "protect", "--off"])
+    assert gui._read_only(["branch", "merge", "develop", "--into", "main", "--dry-run"])   # 前もって確かめるだけ
+    assert not gui._read_only(["branch", "merge", "develop", "--into", "main"]) and not gui._read_only(["branch", "merge", "develop"])
     assert gui._hash({"tab": "members"}) == "#manage/members" and gui._hash({"tab": "projects"}) == "#modinfo/projects"
     assert gui._hash({"tab": "branches"}) == "#branches" and gui._hash({"page": "branches"}) == "#branches"
 

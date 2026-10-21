@@ -13,6 +13,7 @@ from ecotask import board as _board
 from . import git as _git
 from . import model as wm
 from .errors import ErrorCode, WorkError
+from ._shared import _PR_IN_SUBJECT
 
 
 class Completion:
@@ -402,37 +403,21 @@ class Completion:
         （作業ではない）なので、提出（PR）を通さなくてよい。GitHub の最新どうしを、手元の作業ツリーに触れずに
         （merge-tree）合わせて into へ push する：早送りできれば早送り、できなければマージコミット。衝突したら何も
         変えずに止める。できるのは into への提出を取り込める人だけ。GitHub のブランチの保護が PR を求めれば、push が
-        断られる（branch submit で提出する）。"""
-        for branch in (name, into):
-            if wm.is_task_branch(branch):
-                raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch} はタスクブランチです。",
-                                hint=f"ブランチ同士のマージは、タスクブランチでないブランチ（main・develop 等）どうしです。"
-                                     f"タスクブランチの完了は {self._op('task finish')} です。")
-        if name == into:
-            raise WorkError(ErrorCode.INVALID_BASE, f"{name} を {name} 自身へは取り込めません。")
+        断られる（branch submit で提出する）。前もって確かめるのは plan_branch_merge。"""
+        self._check_branch_merge(name, into)
         self.require_take_in(into, "取り込み")
-        self.git.fetch()
-        for branch in (name, into):
-            if not self.git.has_remote_branch(branch):
-                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。")
-        head = self.git.output("rev-parse", f"{_git.REMOTE}/{name}")
-        base = self.git.output("rev-parse", f"{_git.REMOTE}/{into}")
-        if self.git.is_ancestor(head, base):
+        head, base = self._branch_merge_ends(name, into)
+        method, tree, conflicts = self._branch_merge_tree(head, base)
+        if method == "up-to-date":
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{name} は {into} に取り込み済みです。")
-        if self.git.is_ancestor(base, head):
-            commit, method = head, "fast-forward"
+        if method == "conflict":
+            raise WorkError(ErrorCode.MERGE_CONFLICT, f"{name} と {into} が衝突するので、取り込みませんでした（何も変えていません）。",
+                            hint=f"{self._op('branch submit')} {name} --into {into} で提出し、衝突を直してから "
+                                 f"{self._op('branch merge')} {name} で取り込んでください。", details=list(conflicts))
+        if method == "fast-forward":
+            commit = head
         else:
-            merged = self.git.run("merge-tree", "--write-tree", "--name-only", "--no-messages", base, head, check=False)
-            lines = merged.stdout.splitlines()
-            if merged.returncode == 1:
-                raise WorkError(ErrorCode.MERGE_CONFLICT, f"{name} と {into} が衝突するので、取り込みませんでした（何も変えていません）。",
-                                hint=f"{self._op('branch submit')} {name} --into {into} で提出し、衝突を直してから "
-                                     f"{self._op('branch merge')} {name} で取り込んでください。",
-                                details=[line for line in lines[1:] if line])
-            if not merged.ok or not lines:
-                raise _git._git_error(merged)
-            commit = self.git.output("commit-tree", lines[0], "-p", base, "-p", head, "-m", f"{name} を {into} へ取り込む")
-            method = "merge"
+            commit = self.git.output("commit-tree", tree, "-p", base, "-p", head, "-m", f"{name} を {into} へ取り込む")
         pushed = self.git.run("push", "--quiet", _git.REMOTE, f"{commit}:refs/heads/{into}", check=False)
         if not pushed.ok:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {into} への push を断りました（何も変えていません）。",
@@ -441,3 +426,51 @@ class Completion:
                             details=pushed.output)
         self.git.fetch()
         return wm.BranchMerged(name, into, method, commit)
+
+    def plan_branch_merge(self, name: str, into: str) -> wm.BranchMergePlan:
+        """merge_branch_into を前もって確かめる（何も変えない）：入るコミット・変わるファイル・方法（早送り・マージ
+        コミット・衝突・取り込み済み）・衝突するファイル・今のアカウントで取り込めるか。取り込めない人も見られる。"""
+        self._check_branch_merge(name, into)
+        head, base = self._branch_merge_ends(name, into, reuse=True)
+        method, _, conflicts = self._branch_merge_tree(head, base)
+        rows = [line.split("\x1f") for line in self.git.output(
+            "log", f"--max-count={wm.MERGE_PLAN_COMMITS}", "--format=%H%x1f%s%x1f%an%x1f%ad", "--date=iso-strict",
+            f"{base}..{head}").splitlines()]
+        commits = tuple(wm.LogEntry(sha, subject, author, date, int(m.group(1)) if (m := _PR_IN_SUBJECT.search(subject)) else None, None)
+                        for sha, subject, author, date in rows)
+        count = int(self.git.output("rev-list", "--count", f"{base}..{head}"))
+        files = tuple(f for f in self.git.output("diff", "--name-only", f"{base}...{head}").splitlines() if f)
+        return wm.BranchMergePlan(name, into, method, commits, count, files[:wm.MERGE_PLAN_FILES], len(files), conflicts,
+                                  self.can_take_in(into), self.take_in_owners(into))
+
+    def _check_branch_merge(self, name: str, into: str) -> None:
+        for branch in (name, into):
+            if wm.is_task_branch(branch):
+                raise WorkError(ErrorCode.PROTECTED_BRANCH, f"{branch} はタスクブランチです。",
+                                hint=f"ブランチ同士のマージは、タスクブランチでないブランチ（main・develop 等）どうしです。"
+                                     f"タスクブランチの完了は {self._op('task finish')} です。")
+        if name == into:
+            raise WorkError(ErrorCode.INVALID_BASE, f"{name} を {name} 自身へは取り込めません。")
+
+    def _branch_merge_ends(self, name: str, into: str, *, reuse: bool = False) -> tuple[str, str]:
+        """GitHub の最新の name と into の先頭（取り込むもの, 取り込み先）。"""
+        self.git.fetch(reuse=reuse)
+        for branch in (name, into):
+            if not self.git.has_remote_branch(branch):
+                raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {branch} がありません。")
+        return (self.git.output("rev-parse", f"{_git.REMOTE}/{name}"),
+                self.git.output("rev-parse", f"{_git.REMOTE}/{into}"))
+
+    def _branch_merge_tree(self, head: str, base: str) -> tuple[str, str, tuple[str, ...]]:
+        """head を base へ合わせた結果（方法, マージコミットの tree, 衝突するファイル）。作業ツリーには触れない（merge-tree）。"""
+        if self.git.is_ancestor(head, base):
+            return "up-to-date", "", ()
+        if self.git.is_ancestor(base, head):
+            return "fast-forward", "", ()
+        merged = self.git.run("merge-tree", "--write-tree", "--name-only", "--no-messages", base, head, check=False)
+        lines = merged.stdout.splitlines()
+        if merged.returncode == 1:
+            return "conflict", "", tuple(line for line in lines[1:] if line)
+        if not merged.ok or not lines:
+            raise _git._git_error(merged)
+        return "merge", lines[0], ()

@@ -367,12 +367,32 @@ def test_merge_a_branch_into_another_directly(repository):
     assert code_of(lambda: repository.merge_branch_into("develop", "none")) == ErrorCode.BRANCH_NOT_FOUND
 
 
+def test_plan_a_direct_merge_without_changing_anything(repository):
+    """branch merge --into --dry-run：入るコミット・変わるファイル・方法を前もって見る。GitHub も手元も変えない。"""
+    repository.create_branch("develop")
+    repository.create_branch("release")
+    for base, name in (("develop", "d.txt"), ("release", "r.txt")):
+        task, task_branch = started(repository, title=name, base=base)
+        recorded(task_branch, name=name, text=f"{name}\n")
+        repository.finish()
+    before = {b: repository.git.output("rev-parse", f"origin/{b}") for b in ("main", "develop", "release")}
+    plan = repository.plan_branch_merge("develop", "main")
+    assert (plan.method, plan.commit_count, plan.files, plan.conflicts) == ("fast-forward", 1, ("d.txt",), ())
+    assert plan.commits[0].subject.startswith("d.txt") and plan.allowed
+    assert repository.plan_branch_merge("develop", "release").method == "merge"
+    assert repository.plan_branch_merge("main", "develop").method == "up-to-date"
+    assert {b: repository.git.output("rev-parse", f"origin/{b}") for b in before} == before
+    assert code_of(lambda: repository.plan_branch_merge("develop", "develop")) == ErrorCode.INVALID_BASE
+
+
 def test_a_conflicting_direct_merge_changes_nothing(repository):
     repository.create_branch("develop")
     for base, text in (("develop", "d\n"), ("main", "m\n")):
         task, task_branch = started(repository, title=base, base=base)
         recorded(task_branch, name="same.txt", text=text)
         repository.finish()
+    plan = repository.plan_branch_merge("develop", "main")
+    assert (plan.method, plan.conflicts) == ("conflict", ("same.txt",))
     main = repository.git.output("rev-parse", "origin/main")
     with pytest.raises(WorkError) as error:
         repository.merge_branch_into("develop", "main")

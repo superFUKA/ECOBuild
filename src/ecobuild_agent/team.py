@@ -87,6 +87,7 @@ class Member:
     branch: str = ""
     model: str = ""
     lead: str = ""              # 作った進行役の作業空間（このPCの場所）
+    owner: str = ""             # 作った会話（Claude Code のセッションの ID。役に依らない。空なら前の記録：どの会話にも見える）
     reported: bool = False      # 報告（REPORT_FILE）がある
     prompt: str = ""            # 起動するときの最初の発言（作ったとき・起動し直すときだけ）
     opened: bool = False        # 新しい画面で起動した（係・GUI が開くときは False）
@@ -115,6 +116,19 @@ class Team:
 def model_for(role: str) -> str:
     """このPCの設定の、役のモデル（空なら Claude Code の既定）。"""
     return _settings.load_config().get(MODEL_KEYS[role], "").strip()
+
+
+OWNER_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID
+
+
+def owner_session() -> str:
+    """いまの会話（この ecobuild を呼んだ Claude Code のセッション）の ID。分からなければ空。"""
+    return os.environ.get(OWNER_VARIABLE, "").strip()
+
+
+def mine(recorded: str, owner: str | None) -> bool:
+    """記録の持ち主 recorded の分が、会話 owner から見えるか（owner が空＝区別しない、記録が空＝前の記録）。"""
+    return not owner or not recorded or recorded == owner
 
 
 def member_info(root: Path) -> dict:
@@ -242,7 +256,8 @@ def _prepare(module, number: int, directory: Path, name: str, label: str, brief:
     _inherit_container(module.root, member_module.root)
     member_module.prepare_agent_area()
     (member_module.root / BRIEF_FILE).write_text(brief.rstrip() + "\n", encoding="utf-8", newline="\n")
-    info = {"role": role, "name": name, "task": number, "lead": str(module.root), "model": model.strip()}
+    info = {"role": role, "name": name, "task": number, "lead": str(module.root), "model": model.strip(),
+            "owner": owner_session()}
     # 記録（MEMBER_FILE）は最後に置く：あれば作り終えた作業空間（なければ作りかけ。_leftover）
     (member_module.root / MEMBER_FILE).write_text(json.dumps(info, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     branch = member_module.repository.git.current_branch() or ""
@@ -373,14 +388,15 @@ def _inherit_container(lead: Path, member: Path) -> None:
         _config.save_local(member, {**_config.load_local(member), **chosen})
 
 
-def team(root: Path) -> Team:
-    """進行役の作業空間 root のチーム（TEAM_AREA の下の作業空間）。"""
+def team(root: Path, owner: str | None = None) -> Team:
+    """進行役の作業空間 root のチーム（TEAM_AREA の下の作業空間）。
+    owner：会話の ID を渡すと、その会話が作った分だけ（同じ作業空間の別の会話の分を混ぜない）。省けば全員。"""
     from ecowork.git import Git
     found = []
     area = Path(root) / TEAM_AREA
     for folder in sorted(area.iterdir()) if area.is_dir() else ():
         info = member_info(folder)
-        if not info:
+        if not info or not mine(str(info.get("owner") or ""), owner):
             continue
         try:
             branch = Git(folder).current_branch() or ""
@@ -389,7 +405,7 @@ def team(root: Path) -> Team:
         seen = agent_status.activity(inbox_of(folder))
         found.append(Member(str(info.get("name", folder.name)), str(info.get("role", WORKER)), folder,
                             int(info.get("task") or 0), branch, str(info.get("model") or ""), str(info.get("lead") or ""),
-                            (folder / REPORT_FILE).is_file(), state=seen["state"], since=seen["since"],
+                            str(info.get("owner") or ""), (folder / REPORT_FILE).is_file(), state=seen["state"], since=seen["since"],
                             last_reply=seen["last_reply"], context=seen["context"], waiting=seen["waiting"],
                             mode=seen.get("mode", ""), doing=seen.get("doing", ""), doing_at=seen.get("doing_at"),
                             usage=seen.get("usage"), limits=seen.get("limits"), error=seen.get("error", "")))
@@ -438,9 +454,9 @@ def _duration(seconds: float) -> str:
     return f"{seconds // 3600}時間{seconds % 3600 // 60}分"
 
 
-def find(root: Path, name: str) -> Member:
-    """チームの1人を名前（か番号・フォルダー名）で探す。"""
-    for member in team(root).members:
+def find(root: Path, name: str, owner: str | None = None) -> Member:
+    """チームの1人を名前（か番号・フォルダー名）で探す。owner：会話の ID（その会話が作った分だけから）。"""
+    for member in team(root, owner).members:
         if name in (member.name, str(member.task), member.path.name):
             return member
     raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"チームに「{name}」はいません。",
@@ -562,7 +578,7 @@ def send(root: Path, name: str, text: str) -> Member:
     """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。"""
     if not text.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "伝えることが空です。")
-    member = find(root, name)
+    member = find(root, name, owner_session())
     sender = member_info(root).get("name") or Path(root).name
     agent_status.put(inbox_of(member.path), f"[進行役「{sender}」から] {text}", sender=str(Path(root)))
     return member
@@ -735,6 +751,11 @@ def _facts_line(facts: ReplyFacts, report: str) -> str:
         submission = f"PR #{facts.pull}（{kind.get(facts.pull_state, facts.pull_state)}{checked}）"
     changed = f"変えたファイル {len(facts.changed)}" + ("" if facts.scoped or not facts.changed else "（持ち場は照らしていません）")
     return f"状態：{facts.state}。{report}提出：{submission}。{changed}。"
+
+
+def notice_owner(root: Path) -> str:
+    """作業役（作業空間 root）の知らせを受け取る会話（作った会話の ID。分からなければ空＝どの会話にも）。"""
+    return str(member_info(root).get("owner") or "")
 
 
 def lead_notice(root: Path, message: str, *, facts: ReplyFacts | None = None) -> tuple[Path, str] | None:

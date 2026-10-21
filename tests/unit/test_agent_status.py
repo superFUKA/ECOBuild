@@ -102,3 +102,22 @@ def test_a_lead_may_write_only_in_its_area(tmp_path, monkeypatch):
     assert decide("src/app.py") == "deny"
     assert decide(".ecobuild/ai/../../src/app.py") == "deny"
     assert decide(str(tmp_path / "work" / ".ecobuild" / "aiX" / "x")) == "deny"
+
+
+def test_the_hook_leaves_notices_for_other_conversations(tmp_path):
+    """受け箱のうち、ほかの会話宛て（owner）のものは、フックが取らずに残す。"""
+    folder = status.prepare("n", tmp_path)
+    status.put(folder, "甲宛て", owner="a")
+    status.put(folder, "乙宛て", owner="b")
+    status.put(folder, "だれでも")
+    ns = {"__name__": "x"}
+    import json as _json, io, sys as _sys
+    old = _sys.stdin, _sys.argv
+    _sys.argv = [str(folder / status.SCRIPT), "prompt", "deliver"]
+    _sys.stdin = type("S", (), {"buffer": io.BytesIO(_json.dumps({"session_id": "b"}).encode())})()
+    try:
+        exec(compile(status.REPORT, "report", "exec"), {"__file__": str(folder / status.SCRIPT), "__name__": "x"})
+    finally:
+        _sys.stdin, _sys.argv = old
+    assert status.take(folder, "a")["text"] == "甲宛て"
+    assert status.take(folder) is None

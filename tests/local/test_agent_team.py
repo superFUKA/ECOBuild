@@ -754,3 +754,25 @@ def test_the_serve_creates_workers_side_by_side_but_keeps_other_requests_in_orde
     assert position[("始", "list", "x")] > max(ended_starts)                                  # 前の作成が終わってから
     assert position[("始", "start", "6")] > position[("終", "list", "x")]                     # 後の作成はその後
     assert all((requests / f"{key}.result.json").exists() for key, _, _ in plan)
+
+
+def test_two_conversations_in_one_workspace_do_not_mix(lead, monkeypatch):
+    """同じ作業空間の会話が2つ：作業役の一覧・言付け・返答の知らせは、作った会話の分だけ。"""
+    monkeypatch.setenv(team.OWNER_VARIABLE, "session-a")
+    first = team.create(lead, "甲", "目的：甲")
+    monkeypatch.setenv(team.OWNER_VARIABLE, "session-b")
+    second = team.create(lead, "乙", "目的：乙")
+    assert [m.name for m in team.team(lead.root, "session-a").members] == ["甲"]
+    assert [m.name for m in team.team(lead.root, "session-b").members] == ["乙"]
+    assert len(team.team(lead.root).members) == 2                                       # 区別しなければ全員（係）
+    assert code_of(lambda: team.send(lead.root, "甲", "x")) == ErrorCode.INVALID_ARGUMENT   # 会話 b からは甲が見えない
+    team.send(lead.root, "乙", "y")
+    monkeypatch.setenv(team.OWNER_VARIABLE, "")                                         # 会話が分からなければ区別しない
+    assert len(team.team(lead.root, team.owner_session()).members) == 2
+
+    folder = team.inbox_of(lead.root)
+    agent_status.put(folder, "甲の知らせ", owner=team.notice_owner(first.path))
+    agent_status.put(folder, "乙の知らせ", owner=team.notice_owner(second.path))
+    assert agent_status.take(folder, "session-b")["text"] == "乙の知らせ"
+    assert agent_status.take(folder, "session-b") is None                               # 甲の知らせは取らない
+    assert agent_status.take(folder, "session-a")["text"] == "甲の知らせ"

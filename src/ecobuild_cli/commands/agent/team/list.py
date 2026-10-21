@@ -24,9 +24,9 @@ def command(nested: Annotated[bool, "下の進行役のチームも入れる（�
                        _render, json_output=json)
 
 
-def listed(root: Path, *, nested: bool = False, recent: int = 0, depth: int = 0) -> dict:
+def listed(root: Path, *, nested: bool = False, recent: int = 0, depth: int = 0, owner: str | None = None) -> dict:
     """進行役の作業空間 root のチーム（JSON にできる形）。nested：下の進行役の members も。recent：最新の行の数。"""
-    data = to_data(_team.team(root))
+    data = to_data(_team.team(root, _team.owner_session() if owner is None else owner))
     for member in data["members"]:
         if recent > 0:
             folder = _team.inbox_of(Path(member["path"]))

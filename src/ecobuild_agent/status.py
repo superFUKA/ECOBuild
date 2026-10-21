@@ -48,7 +48,7 @@ def write(name, value):
         os.replace(path + ".tmp", path)
     except OSError:
         pass
-def take_all():
+def take_all(session=""):
     """受け箱のものを古い順にすべて取り出す（ほかが先に取ったものは飛ばす。status.take と同じ形）。"""
     inbox, found = os.path.join(here, "inbox"), []
     try:
@@ -70,11 +70,19 @@ def take_all():
             except OSError:
                 pass
         if isinstance(item, dict) and isinstance(item.get("text"), str):
+            if session and item.get("owner") not in (None, "", session):   # ほかの会話宛て：戻す
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(item, f, ensure_ascii=False)
+                except OSError:
+                    pass
+                continue
             found.append(item["text"])
     return found
 def out(value):
     sys.stdout.buffer.write(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 deliver = "deliver" in sys.argv[2:]
+session = data.get("session_id") if isinstance(data.get("session_id"), str) else ""
 def inside(path, area):
     norm = lambda p: os.path.normcase(os.path.abspath(p)).replace("\\", "/").rstrip("/")
     return (norm(path) + "/").startswith(norm(area) + "/")
@@ -90,16 +98,16 @@ if kind == "lead-edit":   # 進行役が書けるのは area（.ecobuild/ai）�
 elif kind == "replied":
     message = data.get("last_assistant_message")
     write("replied.json", {"at": time.time(), "message": message if isinstance(message, str) else None})
-    if deliver and (texts := take_all()):   # 届いたものがあれば、返答を終えずに続けて読ませる
+    if deliver and (texts := take_all(session)):   # 届いたものがあれば、返答を終えずに続けて読ませる
         write("prompted.json", {"at": time.time()})
         out({"decision": "block", "reason": "ECOBuild から届きました：\n\n" + "\n\n".join(texts)})
 elif kind == "midturn":   # 道具を使い終えるたび（PostToolUse）：作業中でも、届いたものを返答を止めずに添える
-    if deliver and (texts := take_all()):
+    if deliver and (texts := take_all(session)):
         out({"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                     "additionalContext": "ECOBuild から届きました（作業中に届いたもの）：\n\n" + "\n\n".join(texts)}})
 elif kind == "prompt":
     write("prompted.json", {"at": time.time()})
-    if deliver and (texts := take_all()):   # 人の発言に添える
+    if deliver and (texts := take_all(session)):   # 人の発言に添える
         out({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                     "additionalContext": "ECOBuild から届いていたもの：\n\n" + "\n\n".join(texts)}})
 else:
@@ -176,22 +184,26 @@ def _write(file: Path, value) -> None:
 _last_put = 0
 
 
-def put(folder: Path, text: str, sender: str = "") -> Path:
+def put(folder: Path, text: str, sender: str = "", owner: str = "") -> Path:
     """エージェント（置き場所 folder）の受け箱に入れる。届けるのはエージェントを動かしている側（GUI の窓等）：
-    待機中で入力欄が空のときに、古いものから1つずつ入力欄に送る。"""
+    待機中で入力欄が空のときに、古いものから1つずつ入力欄に送る。
+    owner：宛先の会話の ID（同じ作業空間に会話が複数あるとき、その会話にだけ届ける。空なら誰にでも）。"""
     global _last_put
     inbox = Path(folder) / INBOX
     inbox.mkdir(parents=True, exist_ok=True)
     _last_put = max(time.time_ns(), _last_put + 1)   # 続けて入れたものの順を保つ（Windows の時計は刻みが粗い）
     file = inbox / f"{_last_put:020d}-{uuid.uuid4().hex[:8]}.json"
-    _write(file, {"at": time.time(), "from": sender, "text": text})
+    _write(file, {"at": time.time(), "from": sender, "text": text, **({"owner": owner} if owner else {})})
     return file
 
 
-def take(folder: Path) -> dict | None:
-    """受け箱の一番古いものを取り出す（ほかが先に取ったものは飛ばす）。なければ None。"""
+def take(folder: Path, session: str = "") -> dict | None:
+    """受け箱の一番古いものを取り出す（ほかが先に取ったものは飛ばす）。なければ None。
+    session：会話の ID（ほかの会話宛て〔owner〕のものは取らない。空なら全部）。"""
     inbox = Path(folder) / INBOX
     for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
+        if session and (head := read(file)) and isinstance(head, dict) and head.get("owner") not in (None, "", session):
+            continue
         taken = file.with_suffix(".taken")
         try:
             os.replace(file, taken)

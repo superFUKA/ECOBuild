@@ -323,7 +323,7 @@ class Serve:
         if info.get("lead"):
             name = f"{team.ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or agent.root.name}」"
             agent_status.put(team.inbox_of(Path(info["lead"])), f"[ECOBuild] 係が起動し直したので、{name}を{done}。",
-                             sender=str(agent.root))
+                             sender=str(agent.root), owner=team.notice_owner(agent.root))
 
     def wake(self) -> None:
         """係が動き始めたとき：前の係が持っていたアプリ用のエージェントを引き継ぐ（終わったものから続きから起こす）。"""
@@ -370,7 +370,7 @@ class Serve:
         notice = team.lead_notice(root, message)
         if notice is not None:
             lead, text = notice
-            agent_status.put(team.inbox_of(lead), text, sender=str(root))
+            agent_status.put(team.inbox_of(lead), text, sender=str(root), owner=team.notice_owner(root))
             self.log(f"進行役に知らせました：{text.splitlines()[0]}")
         self.run(["project", "update"], root)   # 型に手元をそろえさせる（持たない型は not_supported。気にしない）
 

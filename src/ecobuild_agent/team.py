@@ -1,7 +1,10 @@
-"""進行役と作業役（エージェントのチーム）。
+"""進行役・管理役・作業役（エージェントのチーム）。
 
 Anthropic の orchestrator-workers（lead が仕事を分けて任せ、結果をまとめる）に沿わせる：
-- 進行役（lead）：ユーザーと話し、計画し、作業役に任せ、結果を読んで取り込む。自分ではファイルを編集しない。
+- 進行役（lead）：ユーザーとのやりとりに特化する。話して決めた内容を、自分の下の管理役（1人）へ send で命令し、
+  管理役からの要約を受け取ってユーザーに伝える。作業役は直接作らない。自分ではファイルを編集しない。
+- 管理役（manager）：進行役の下に1人。計画し、作業役に任せ、返答の終わり・報告の知らせを受け取り、結果を読んで取り込む
+  （作業役の知らせは管理役に届き、進行役には届かない）。進行役へは要約を send で返す。自分ではファイルを編集しない。
 - 作業役（worker）：任された1つの仕事を、自分の子タスク＋作業空間で行い、報告を書いて提出する（今の作業空間の
   エージェントと同じ）。
 
@@ -9,8 +12,8 @@ Anthropic の orchestrator-workers（lead が仕事を分けて任せ、結果�
 git の除外の中）。子タスクのタスクブランチは親（進行役）のタスクブランチから作り、提出は親のタスクブランチへの PR に
 なる。進行役は自分の場所（コンテナなら /work）から作業役のファイル・報告をそのまま読める。
 
-作業役は ECOBuild の作業役を作らない（分けたくなったら進行役に提案する）。進行役は進行役を作れる（その部分を受け持つ
-進行役。孫タスクがその作業役になる）。
+作業役は ECOBuild の作業役・管理役を作らない（分けたくなったら管理役に提案する）。進行役は管理役を1人だけ作り、
+管理役が作業役を作る（作業役は管理役のタスクの子タスクで、作業空間は管理役の作業空間の中）。
 
 コンテナの中の進行役は、このPC（ほかのコンテナ・エージェントを動かしている側）に届かない。作業役を作る等の操作は
 「頼み」（REQUESTS）として、状態の置き場所（このPCのフォルダーをマウントしたもの。agent_status）に書き、このPCで常駐する
@@ -48,15 +51,18 @@ from ecobuild.fsutil import locked, remove_tree
 from . import status as agent_status
 from .errors import ErrorCode
 
-LEAD, WORKER = "lead", "worker"
-ROLES = (LEAD, WORKER)
-ROLE_NAMES = {LEAD: "進行役", WORKER: "作業役"}
+LEAD, MANAGER, WORKER = "lead", "manager", "worker"
+ROLES = (LEAD, MANAGER, WORKER)
+ROLE_NAMES = {LEAD: "進行役", MANAGER: "管理役", WORKER: "作業役"}
+ROLE_HINT = "lead（進行役）・manager（管理役）・worker（作業役）です。"
+LEADING = (LEAD, MANAGER)   # 自分ではファイルを編集せず、下に任せる役（書けるのは .ecobuild/ai の中だけ）
+UP_NAMES = ("lead", "進行役", "上")   # agent team send の宛先：自分を作った（上の）役
 TEAM_AREA = ".ecobuild/ai/team"     # 進行役の作業空間の中の、作業役（と下の進行役）の作業空間の置き場所
 MEMBER_FILE = ".ecobuild/ai/member.json"   # 作業役の作業空間の中：役・名前・タスク・進行役の場所・モデル
 BRIEF_FILE = ".ecobuild/ai/brief.md"       # 任された仕事（進行役の指示）
 REPORT_FILE = ".ecobuild/ai/report.md"     # 作業役の報告
 PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
-MODEL_KEYS = {LEAD: "agent_lead_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
+MODEL_KEYS = {LEAD: "agent_lead_model", MANAGER: "agent_manager_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
@@ -66,15 +72,18 @@ PROGRESS = ".progress"              # 頼みの置き場所の中：<id>.progres
 SERVE_SILENT = 30                   # 途中経過がこの秒数書かれなければ、係が止まったとみなす
 FIRST_PROMPT = {
     WORKER: f"{BRIEF_FILE} に任された仕事があります。読んで作業を始めてください。終わったら {REPORT_FILE} に報告を書き、提出してください。",
-    LEAD: f"{BRIEF_FILE} に任された部分があります。読んで計画を立て、作業役に任せて進めてください。",
+    MANAGER: f"{BRIEF_FILE} に進行役からの任された部分があります。読んで計画を立て、作業役に任せて進めてください。",
+    LEAD: f"{BRIEF_FILE} に任された部分があります。読んで、ユーザーとの話を進めてください。",
 }
 RESTART_PROMPT = {   # 起動し直した（新しい会話）ときの最初の発言
-    WORKER: f"進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE} の任された仕事を読み、{REPORT_FILE}・"
+    WORKER: f"管理役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE} の任された仕事を読み、{REPORT_FILE}・"
             "git の状態・コミットの履歴から、どこまで進んでいるかを確かめてから続けてください。",
-    LEAD: f"上の進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE}・{PLAN_FILE}・チームの様子"
+    MANAGER: f"進行役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE}・{PLAN_FILE}・チームの様子"
+             "（agent team list）から、どこまで進んでいるかを確かめてから続けてください。",
+    LEAD: f"上の役があなたを起動し直しました（前の会話は引き継いでいません）。{BRIEF_FILE}・{PLAN_FILE}・チームの様子"
           "（agent team list）から、どこまで進んでいるかを確かめてから続けてください。",
 }
-RESUME_PROMPT = "進行役があなたを起動し直しました（この会話の続きです）。止まっていたところから続けてください。"
+RESUME_PROMPT = "上の役があなたを起動し直しました（この会話の続きです）。止まっていたところから続けてください。"
 
 
 @dataclass(frozen=True)
@@ -141,10 +150,11 @@ def member_info(root: Path) -> dict:
 
 
 def role_of(root: Path, chosen: str = "") -> str:
-    """作業空間 root のエージェントの役：指定（chosen）、なければ記録、なければ作業役（今までの作業空間のエージェント）。"""
-    role = chosen or member_info(root).get("role") or WORKER
+    """作業空間 root のエージェントの役：指定（chosen）、なければ記録（member.json）、なければ進行役（記録のない作業空間＝
+    人が起動するトップ）。"""
+    role = chosen or member_info(root).get("role") or LEAD
     if role not in ROLES:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint="lead（進行役）か worker（作業役）です。")
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint=ROLE_HINT)
     return role
 
 
@@ -217,10 +227,22 @@ def create(module, name: str, brief: str, *, role: str = WORKER, model: str = ""
     失敗したら、作りかけを片付けて（作業空間を消し、この回に作った子タスクを閉じて）、何が残ったかを失敗に書く。"""
     from ecowork import model as _work
     if role not in ROLES:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint="lead（進行役）か worker（作業役）です。")
-    if role_of(module.root) == WORKER and member_info(module.root):
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "作業役は、作業役・進行役を作りません。",
-                            hint=f"分けたいときは、{REPORT_FILE} に分け方の提案を書いて進行役に伝えてください（進行役が作ります）。")
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"役 {role!r} はありません。", hint=ROLE_HINT)
+    if role == LEAD:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "進行役は、ユーザーが起動するものです（作れません）。",
+                            hint="進行役の下には管理役（--manager）を1人作り、作業役は管理役が作ります。")
+    mine = role_of(module.root)
+    if mine == LEAD and role == WORKER:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "進行役は、作業役を直接作りません（管理役を1人作り、管理役に命令します）。",
+                            hint="agent team start <名前> --manager --brief … で管理役を作ってください。")
+    if mine == WORKER:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "作業役は、作業役・管理役を作りません。",
+                            hint=f"分けたいときは、{REPORT_FILE} に分け方の提案を書いて管理役に伝えてください（管理役が作ります）。")
+    if mine == MANAGER and role == MANAGER:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "管理役は、管理役を作りません（作業役を作ります）。")
+    if role == MANAGER and any(m.role == MANAGER and m.name != name for m in team(module.root).members):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "管理役はもういます（進行役の下に1人だけです）。",
+                            hint="仕事の追加は、その管理役へ agent team send で命令してください（agent team list で名前が分かります）。")
     label = _work.check_branch_label(name)
     if not brief.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "任せる仕事（--brief）が空です。",
@@ -467,16 +489,20 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
     """起動のときにエージェントへ渡す、役ごとの決まり（Anthropic のマルチエージェントの教訓に沿う）。"""
     info = member_info(root)
     if role == LEAD:
+        return _lead_briefing(program)
+    if role == MANAGER:
         lines = [
-            "## あなたの役：進行役",
+            "## あなたの役：管理役",
             "",
-            "あなたは進行役です。ユーザーと話して何をするかを決め、仕事を分けて作業役に任せ、結果を読んで取り込みます。"
+            "あなたは管理役です。進行役（ユーザーと話す役）から命令を受け、仕事を分けて作業役に任せ、結果を読んで取り込みます。"
+            "ユーザーとは直接話しません（ユーザーへの質問・報告は進行役へ send で渡し、進行役が取り次ぎます）。"
+            "作業役の返答の終わり・報告の知らせは、進行役ではなくあなたに届きます。"
             f"**書けるのは `{PLAN_FILE.rsplit('/', 1)[0]}/` の中（計画・任せる内容の下書き）だけです**（編集・書き込みの道具は"
             "そこだけ使えます）。コード・文書を書く・直すのは作業役です。Bash（python・sed・リダイレクト等）でファイルを書く"
             "抜け道は使いません。",
             "**ECOBuild の手順を外れることは、ユーザーの了承なしに決めない・指示しない**：確認を省く（`--no-check`）、"
             "ビルド・テストを ECOBuild のコマンドの代わりに直接動かす、等。環境の問題で手順どおりに進められないときは、"
-            "作業役を止めて待たせ、ユーザーに伝えて決めてもらいます（答えを待たずに進めると決めない）。",
+            "作業役を止めて待たせ、進行役経由でユーザーに伝えて決めてもらいます（答えを待たずに進めると決めない）。",
             "",
             "### 進め方",
             f"1. まず {PLAN_FILE} に計画を書きます（目的・分け方・順番・誰に何を任せたか）。話が長くなっても、ここを見れば続けられるように更新し続けます。",
@@ -500,9 +526,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "知らせの1行目は ECOBuild が作業空間・GitHub を調べた注意（完了と言うのに提出がない・--no-check で提出・"
             "持ち場の外の変更・未コミットの変更 等）、次の行が作業役の言う状態（完了・質問あり・止まっている・続ける）と事実です。",
             "   知らせを読んだら、次のどれかを選びます：**取り込む**（`task diff`→`task finish`）・**直しを頼む**（send）・"
-            "**起動し直す**（restart）・**閉じる**（close）・**ユーザーに聞く**。"
+            "**起動し直す**（restart）・**閉じる**（close）・**進行役に聞く**（send lead）。"
             "「注意なし」で状態が完了なら、差分を見て取り込んでかまいません。**注意があるものは、取り込む前に必ず報告・差分の中を"
-            "見て**、直しを頼むかユーザーに聞きます（--no-check の提出を取り込むかは、ユーザーに決めてもらいます）。",
+            "見て**、直しを頼むか進行役に聞きます（--no-check の提出を取り込むかは、進行役経由でユーザーに決めてもらいます）。",
             f"5. 結果は作業役の作業空間 `{TEAM_AREA}/<番号>-<名前>/` から読みます（報告は `{REPORT_FILE}`）。"
             f"`{program} agent team list` で一覧・報告の有無と、作業役の様子（作業中・待機中・止まっている、その長さ、"
             f"今していること、最後の返答）が分かります。何をしてきたかの詳しい流れは `{program} agent team log <名前>` で読めます。",
@@ -510,14 +536,13 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             f"send で伝えるか、`{program} agent team restart <名前>` で起動し直します（作業空間・作業はそのまま。既定は新しい会話で、"
             "どこまで進んだかを確かめてから続けます。`--resume` で前の会話の続きから）。",
             "   チームの操作（start・close・restart 等）が「止まっていました」「係が止まりました」で失敗したら、"
-            f"`{program} agent team list` で途中までできたものを確かめ、同じことを繰り返さずにユーザーに伝えます。",
+            f"`{program} agent team list` で途中までできたものを確かめ、同じことを繰り返さずに進行役に伝えます。",
             f"6. 取り込むときは、作業役の提出（このタスクブランチへの PR）を `{program} task diff <番号>` 等で確かめ、"
             f"`{program} task finish <番号>` で取り込みます（直してほしければ send で伝え、作業役がもう一度提出します）。"
             f"取り込んだら `{program} sync` で手元を最新にし、`{program} agent team close <名前>` で作業役の作業空間を閉じます。",
             f"7. 作業役に追加で伝えたいことは `{program} agent team send <名前> <文>` で送れます（作業中でも、作業役の返答を"
             "止めずに次の区切りで届きます）。",
-            "8. 作業役から「分けたい」と提案されたら、作業役を足すか、その部分を受け持つ進行役を "
-            f"`{program} agent team start <名前> --lead --brief …` で作ります（これも係が画面なしで動かします）。",
+            "8. 作業役から「分けたい」と提案されたら、作業役を足します（管理役は管理役を作りません）。",
             "9. 作業役のモデルは既定でこのPCの設定（agent_worker_model）です。難しい仕事だけ `--model opus` 等で変えられます。",
             "10. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>` で同じ会話を人の"
             "画面で開き、終わったら `agent team handback <名前>` で係に戻す）。引き取り・返しはユーザーがする操作です。",
@@ -533,16 +558,14 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "--brief に「結果は報告に書く。**提出しない**」と書きます。全員の報告を読んで選りすぐり、選んだものを実装の作業役に任せます。",
             f"  提出しない作業役は、報告を読んだら `{program} task close <番号>` で子タスクを閉じ、"
             f"`{program} agent team close <名前>` で作業空間を閉じます（報告は閉じると消えるので、要るものは計画に写します）。",
-            f"- **話す役と割り振る役を分ける**（作業役が多い・ユーザーとの話が長い・ユーザーが次々に頼むとき）：自分の下に進行役を"
-            f"1人作り（`{program} agent team start <名前> --lead --brief …`）、作業役を作って割り振り・取り込むのはその進行役に"
-            "任せます。自分はユーザーとの話に集中し、決まったことをまとめて send で送り続けます（作業中でも届きます）。"
-            "下の進行役からの知らせは、要約してユーザーに伝えます。",
             "",
         ]
-        if info.get("lead"):   # 下の進行役：上の進行役への知らせにも状態を書く
-            ninth = next(i for i, line in enumerate(lines) if line.startswith("9. "))
-            lines[ninth + 1:ninth + 1] = [f"10. あなたには上の進行役がいます。返答の最後には1行、`状態：{'／'.join(STATES)}` のどれかを書きます"
-                            "（受け持った部分を提出まで終えたら完了）。"]
+        ninth = next(i for i, line in enumerate(lines) if line.startswith("10. "))
+        lines[ninth + 1:ninth + 1] = [
+            f"11. 進行役へは `{program} agent team send lead <文>` で送ります：ユーザーに聞きたいこと（質問あり）、区切りの要約"
+            "（何を取り込んだか・残り・気になること）。ECOBuild の手順を外れる判断は、進行役経由でユーザーに決めてもらいます。",
+            f"12. 返答の最後には1行、`状態：{'／'.join(STATES)}` のどれかを書きます（ECOBuild が進行役へ知らせます。"
+            "受け持った部分を取り込みまで終えたら完了、進行役の答えが要るなら質問あり）。"]
     else:
         lines = [
             "## あなたの役：作業役",
@@ -569,6 +592,39 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
     return lines
 
 
+def _lead_briefing(program: str) -> list[str]:
+    """進行役の決まり：ユーザーとのやりとりに特化し、作業は下の管理役（1人）への命令（send）で進める。"""
+    return [
+        "## あなたの役：進行役",
+        "",
+        "あなたは進行役です。**ユーザーとのやりとりに特化**します：話を聞いて何をするかを決め、決めた内容を自分の下の管理役へ"
+        "命令し、管理役からの要約をユーザーに伝えます。**作業役は直接作りません**（作るのは管理役です）。"
+        f"**書けるのは `{PLAN_FILE.rsplit('/', 1)[0]}/` の中（計画・命令の下書き）だけです**（編集・書き込みの道具はそこだけ使えます）。"
+        "Bash（python・sed・リダイレクト等）でファイルを書く抜け道は使いません。",
+        "**ECOBuild の手順を外れることは、ユーザーの了承なしに決めない・指示しない**：確認を省く（`--no-check`）、"
+        "ビルド・テストを ECOBuild のコマンドの代わりに直接動かす、等。手順どおりに進められないときは、管理役を止めて待たせ、"
+        "ユーザーに伝えて決めてもらいます。",
+        "",
+        "### 進め方",
+        f"1. まず {PLAN_FILE} に、ユーザーと決めたこと（目的・範囲・順番・守ること）を書き、話が進むたびに更新します。",
+        f"2. 最初に管理役を1人作ります：`{program} agent team start <名前> --manager --brief <最初の命令>`"
+        "（子タスクと作業空間ができ、係が画面なしで動かし始めます）。--brief には**目的**・**返してほしいもの**（要約に書くこと）・"
+        "**範囲**（やらないこと）を書きます。管理役は1人だけです（`agent team list` で名前が分かります）。",
+        f"3. 以後の命令は `{program} agent team send <管理役の名前> <文>` で送ります（作業中でも、返答を止めずに次の区切りで届きます）。"
+        "ユーザーと決まったことを、そのたびにまとめて送ります。作業役を作る・待つ・差分を確かめる・取り込む（task finish）・"
+        "閉じる、はすべて管理役の仕事です。自分では作業役に触れません。",
+        "4. 管理役の返答が終わると、ECOBuild がこの会話に知らせます（1行目は ECOBuild が調べた注意、次が管理役の言う状態"
+        "〔完了・質問あり・止まっている・続ける〕と事実）。管理役が `send` で返す要約とあわせて、**ユーザーに分かる言葉で要約して伝えます**。"
+        "管理役の質問は、ユーザーに聞いて、答えを管理役へ send します。作業役の返答の知らせは、あなたには届きません。",
+        f"5. 様子は `{program} agent team list --nested`（管理役とその作業役）で見られます。管理役が止まったときは"
+        f"`{program} agent team restart <名前>` で起動し直します（`--resume` で前の会話の続きから）。",
+        "6. 管理役のモデルは既定でこのPCの設定（agent_manager_model）です。",
+        "7. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>`・`handback`）。"
+        "引き取り・返しはユーザーがする操作です。",
+        "",
+    ]
+
+
 def inbox_of(root: Path) -> Path:
     """作業空間 root のエージェントの、状態の置き場所（受け箱がある）。"""
     return agent_status.directory(container.name(root))
@@ -578,9 +634,17 @@ def send(root: Path, name: str, text: str) -> Member:
     """進行役（作業空間 root）から、チームの1人（name）へ言付けを送る（相手の受け箱に入れる）。"""
     if not text.strip():
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "伝えることが空です。")
+    info = member_info(root)
+    sender = info.get("name") or Path(root).name
+    mine_team = team(root, owner_session()).members
+    if name in UP_NAMES and info.get("lead") and not any(name in (m.name, m.path.name) for m in mine_team):
+        up = Path(info["lead"])   # 上の役（作った進行役）へ：管理役の要約・質問。作った会話にだけ届ける
+        agent_status.put(inbox_of(up), f"[{ROLE_NAMES.get(info.get('role'), '管理役')}「{sender}」から] {text}",
+                         sender=str(Path(root)), owner=notice_owner(root))
+        return Member(up.name, LEAD, up, 0)
     member = find(root, name, owner_session())
-    sender = member_info(root).get("name") or Path(root).name
-    agent_status.put(inbox_of(member.path), f"[進行役「{sender}」から] {text}", sender=str(Path(root)))
+    mine = ROLE_NAMES.get(info.get("role") or LEAD, "進行役")
+    agent_status.put(inbox_of(member.path), f"[{mine}「{sender}」から] {text}", sender=str(Path(root)))
     return member
 
 
@@ -715,7 +779,7 @@ def cautions(facts: ReplyFacts, role: str = WORKER) -> list[str]:
     """知らせの先頭に書く、食い違い・注意（なければ空：差分を見て取り込んでよい）。"""
     found = []
     submitted = facts.pull is not None and facts.pull_state != "closed"
-    if facts.state == UNKNOWN_STATE and role == WORKER:
+    if facts.state == UNKNOWN_STATE and role in (WORKER, MANAGER):
         found.append("返答の最後に状態の行がありません")
     elif facts.state == QUESTION:
         found.append("質問があります（最後の返答を読んで答えてください）")

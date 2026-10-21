@@ -37,6 +37,8 @@ def lead(tmp_path, monkeypatch):
     monkeypatch.setattr(ecowork_github, "default", lambda: github)   # 係が開く作業空間（作業役）も偽の GitHub に
     module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
     module.repository.create_task("大きな仕事").start(name="大きな仕事")
+    (module.root / team.MEMBER_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (module.root / team.MEMBER_FILE).write_text(json.dumps({"role": team.MANAGER}), encoding="utf-8")   # 作業役を作れる役
     return module
 
 
@@ -62,7 +64,7 @@ def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     assert code_of(lambda: team.find(lead.root, "ない")) == ErrorCode.INVALID_ARGUMENT
 
     worker = Module.find(member.path)
-    assert team.role_of(worker.root) == team.WORKER and team.role_of(lead.root) == team.WORKER
+    assert team.role_of(worker.root) == team.WORKER and team.role_of(lead.root) == team.MANAGER
     assert team.agent_options(worker.root, team.WORKER, ("claude",)) == ("claude", "--model", "haiku")   # このPCの設定
     assert code_of(lambda: team.create(worker, "もっと", "分ける")) == ErrorCode.INVALID_ARGUMENT        # 作業役は作らない
     briefing = worker.agent_briefing(worker.require_task_branch("x"), team.WORKER)
@@ -96,16 +98,22 @@ def test_a_lead_has_its_own_model_and_writes_only_its_notes(lead, tmp_path):
     assert "PreToolUse" not in json.loads((tmp_path / agent_status.SETTINGS).read_text(encoding="utf-8"))["hooks"]
     assert team.agent_options(lead.root, team.LEAD, ("claude", "--model", "sonnet"))[:3] == ("claude", "--model", "sonnet")
     assert team.agent_options(lead.root, team.LEAD, ("codex",)) == ("codex",)               # Claude Code だけ
-    sub = team.create(lead, "下の進行役", "この部分を受け持つ", role=team.LEAD, model="sonnet")
-    assert team.role_of(sub.path) == team.LEAD and sub.prompt == team.FIRST_PROMPT[team.LEAD]
-    assert team.agent_options(sub.path, team.LEAD, ("claude",))[:3] == ("claude", "--model", "sonnet")   # 作ったときの指定
-    briefing = lead.agent_briefing(lead.require_task_branch("x"), team.LEAD)
-    assert "進行役" in briefing and "agent team start" in briefing and team.PLAN_FILE in briefing
-    assert "進め方の手" in briefing and "2〜3人" not in briefing                          # 人数は大きさ・独立さで
-    assert all(word in briefing for word in ("共通の決まり", "レビュー", "アイデア", "--lead", "task close"))
-    assert "`## 持ち場`" in briefing and "「注意なし」" in briefing and "状態：" not in briefing   # 上の進行役はいない
-    sub_briefing = Module.find(sub.path).agent_briefing(Module.find(sub.path).require_task_branch("x"), team.LEAD)
-    assert "上の進行役がいます" in sub_briefing
+    (lead.root / team.MEMBER_FILE).unlink()                                               # 記録のないトップ＝進行役
+    sub = team.create(lead, "管理", "この部分を受け持つ", role=team.MANAGER, model="sonnet")
+    assert team.role_of(sub.path) == team.MANAGER and sub.prompt == team.FIRST_PROMPT[team.MANAGER]
+    assert team.agent_options(sub.path, team.MANAGER, ("claude",))[:3] == ("claude", "--model", "sonnet")   # 作ったときの指定
+    ecobuild_bundle.set_config("agent_manager_model", "haiku")
+    assert team.agent_options(lead.root, team.MANAGER, ("claude",)) == ("claude", "--model", "haiku")
+    lead._status_settings(tmp_path, False, app=True, role=team.MANAGER)                       # 管理役も編集は .ecobuild/ai だけ
+    assert "PreToolUse" in json.loads((tmp_path / agent_status.SETTINGS).read_text(encoding="utf-8"))["hooks"]
+    program = lead.agent_briefing(lead.require_task_branch("x"), team.LEAD)
+    assert "進行役" in program and "--manager" in program and team.PLAN_FILE in program
+    assert "ユーザーとのやりとりに特化" in program and "作業役は直接作りません" in program and "--brief-file" not in program
+    manager = Module.find(sub.path).agent_briefing(Module.find(sub.path).require_task_branch("x"), team.MANAGER)
+    assert "管理役" in manager and "agent team start" in manager and "状態：" in manager and "send lead" in manager
+    assert "進め方の手" in manager and "2〜3人" not in manager                              # 人数は大きさ・独立さで
+    assert all(word in manager for word in ("共通の決まり", "レビュー", "アイデア", "task close", "あなたに届きます"))
+    assert "`## 持ち場`" in manager and "「注意なし」" in manager and "--lead" not in manager
     assert code_of(lambda: team.create(lead, "空", "  ")) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: team.role_of(lead.root, "boss")) == ErrorCode.INVALID_ARGUMENT
 
@@ -145,7 +153,7 @@ def test_send_and_the_lead_notice_go_to_the_inbox(lead):
     member = team.create(lead, "画面", "目的：画面を作る")
     team.send(lead.root, "画面", "ボタンは右に")
     got = agent_status.take(team.inbox_of(member.path))
-    assert got["text"].endswith("ボタンは右に") and got["text"].startswith("[進行役「")
+    assert got["text"].endswith("ボタンは右に") and got["text"].startswith("[管理役「")
     assert agent_status.take(team.inbox_of(member.path)) is None                       # 取り出したら空
     assert code_of(lambda: team.send(lead.root, "画面", " ")) == ErrorCode.INVALID_ARGUMENT
 
@@ -347,18 +355,51 @@ def test_a_long_request_does_not_keep_others_waiting(lead):
     assert ran.index("a") < ran.index("b") and (folders[0] / team.REQUESTS / "b.result.json").exists()
 
 
-def test_a_worker_outside_a_container_is_made_but_not_started(lead):
-    """AI が起動するエージェントはコンテナで動かす：コンテナでない作業空間なら、作業役は作るが起動せず、わけを返す。"""
-    from ecobuild.errors import EcoBuildError
+def test_the_agent_always_starts_in_a_container(lead, monkeypatch):
+    """エージェントはコンテナで動かす：コンテナでない作業空間は、起動の前に自動で container on にする（AI の起動も人の起動も）。"""
+    from ecobuild_agent import inside
+    seen = []
+    monkeypatch.setattr(inside, "agent_launch", lambda root, agent, **options: (seen.append(agent) or ["x"], {}))
+    monkeypatch.setattr(inside, "start_agent", lambda root, agent, **options: seen.append(agent) or type(
+        "S", (), {"pid": 1, "command": agent, "directory": root})())
+    assert not container.enabled(lead.root)
+    lead.app_launch()
+    assert container.enabled(lead.root) and seen                                          # AI が起動するもの
+    from ecobuild import config
+    config.save_local(lead.root, {})
+    assert not container.enabled(lead.root)
+    lead.start_agent(("claude",))
+    assert container.enabled(lead.root) and len(seen) == 2                                # 人が起動するもの
 
-    def launch(root, role, resume, progress):
-        raise EcoBuildError(ErrorCode.AGENT_ERROR, "AI が起動するエージェントはコンテナで動かします。", hint="container on")
-    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {"path": str(lead.root), "name": "x",
-                                                                            "role": "worker", "prompt": "p"}},
-                              launch=launch)
-    doc = serve.handle(lead.root, {"id": "a", "args": ["agent", "team", "start", "x"], "cwd": "."})
-    assert doc["ok"] and not doc["result"].get("app") and "コンテナで動かします" in doc["result"]["note"]
-    assert code_of(lambda: lead.app_launch()) == ErrorCode.AGENT_ERROR                  # 本物の起動のしかたも止める
+
+def test_the_manager_is_the_only_one_under_the_lead_and_makes_the_workers(lead):
+    """記録のない作業空間は進行役：管理役を1人だけ作り（作業役は直接作れない）、作業役の知らせは作った管理役に届く
+    （進行役には届かない）。管理役は上の役へ send できる。"""
+    top = Path(lead.root)
+    (top / team.MEMBER_FILE).unlink()                                                      # 記録のないトップ
+    assert team.role_of(top) == team.LEAD
+    assert code_of(lambda: team.create(lead, "画面", "直接", role=team.WORKER)) == ErrorCode.INVALID_ARGUMENT
+    manager = team.create(lead, "管理", "ユーザーの依頼：画面を作る", role=team.MANAGER)
+    assert manager.role == team.MANAGER and team.team(lead.root).members[0].role == team.MANAGER
+    assert code_of(lambda: team.create(lead, "管理2", "もう1人", role=team.MANAGER)) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: team.create(lead, "進行", "x", role=team.LEAD)) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: team.create(lead, "x", "y", role="boss")) == ErrorCode.INVALID_ARGUMENT
+    manager_module = Module.find(manager.path)
+    assert team.role_of(manager.path) == team.MANAGER
+    assert code_of(lambda: team.create(manager_module, "孫", "x", role=team.MANAGER)) == ErrorCode.INVALID_ARGUMENT
+    worker = team.create(manager_module, "画面", "目的：画面を作る", role=team.WORKER)    # 作業役は管理役の下に
+    assert [m.name for m in team.team(manager.path).members] == ["画面"] and [m.name for m in team.team(top).members] == ["管理"]
+    where, notice = team.lead_notice(worker.path, "できました\n状態：完了")
+    assert where == manager.path and where != top and "作業役「画面」" in notice             # 知らせの宛先は管理役
+    team.send(top, "管理", "ボタンは右に")                                                  # 進行役 → 管理役
+    got = agent_status.take(team.inbox_of(manager.path))
+    assert got["text"].startswith("[進行役「") and got["text"].endswith("ボタンは右に")
+    team.send(manager.path, "lead", "画面を取り込みました")                                 # 管理役 → 進行役
+    up = agent_status.take(team.inbox_of(top))
+    assert up["text"].startswith("[管理役「管理」から]") and up["text"].endswith("取り込みました")
+    assert agent_status.take(team.inbox_of(top)) is None                                  # 作業役の知らせは進行役の受け箱に入らない
+    where, text = team.lead_notice(manager.path, "終わりました\n状態：完了")               # 管理役の返答の終わり → 進行役
+    assert where == top and text.startswith("[ECOBUILD]".replace("ECOBUILD", "ECOBuild") + " 管理役「管理」の返答が終わりました")
 
 
 def test_the_serve_runs_commands_while_reading_the_apps_replies(tmp_path):
@@ -396,8 +437,8 @@ def test_a_resumed_conversation_keeps_its_role(lead, monkeypatch):
     assert team.remembered_roles(lead.root) == {session: team.LEAD}
     assert lead.repository.git.working_tree().untracked == ()                   # 覚えた所はコミットの対象に出ない
     assert lead._role("", ("claude", "--resume", session), False, None, None) == team.LEAD
-    assert lead._role("", ("claude", "--resume", "other"), False, None, None) == team.WORKER   # 知らない会話
-    assert lead._role("", ("claude", "--resume"), False, None, None) == team.WORKER           # Claude の一覧で選ぶ：分からない
+    assert lead._role("", ("claude", "--resume", "other"), False, None, None) == team.MANAGER   # 知らない会話：作業空間の記録
+    assert lead._role("", ("claude", "--resume"), False, None, None) == team.MANAGER          # Claude の一覧で選ぶ：分からない
     assert lead._role(team.WORKER, ("claude", "--resume", session), False, None, None) == team.WORKER   # 指定が先
     monkeypatch.setattr(type(lead), "agent_conversations",
                         lambda self, limit=20: type("C", (), {"conversations": [type("X", (), {"id": session})()]})())

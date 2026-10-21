@@ -789,19 +789,26 @@ def test_team_commands(cli, module):
 
 def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     import ecoagent
+    from ecobuild_agent import inside
     started = []
-    monkeypatch.setattr(ecoagent, "start", lambda directory, command: started.append((directory, command))
+    monkeypatch.setattr(ecoagent, "start", lambda directory, command, **_: started.append((directory, command))
                         or ecoagent.Session(1, tuple(command), directory))
+    monkeypatch.setattr(inside, "agent_launch", lambda root, agent, **_: (tuple(agent), None))   # コンテナの中の起動の代わり
     assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ起動する
     assert started == []
 
     cli("task", "new", "AIで作業", "--start", "--name", "作業")
     assert as_json(cli("agent", "start", "--json"))["ok"]
+    assert "container = true" in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")   # 自動でコンテナに
     (directory, command), = started                     # Claude Code には ECOBuild の使い方を渡す
     assert directory == module.root and command[0] == "claude" and "--session-id" in command   # 役を覚える新しい会話
+    from ecobuild_agent import status as agent_status
+    import ecobuild_container as container
+    folder = agent_status.directory(container.name(module.root))   # コンテナの中の場所（同じ名前のファイルがこの PC の置き場所に）
     guide = command[command.index("--append-system-prompt-file") + 1]
-    assert guide.endswith("/guide.md") and "ecobuild build" in open(guide, encoding="utf-8").read()
-    settings = json.loads(open(command[command.index("--settings") + 1], encoding="utf-8").read())
+    assert guide.endswith("/guide.md") and "ecobuild build" in (folder / "guide.md").read_text(encoding="utf-8")
+    settings_file = command[command.index("--settings") + 1].rsplit("/", 1)[-1]
+    settings = json.loads((folder / settings_file).read_text(encoding="utf-8"))
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("replied deliver")   # 新しい画面：受け箱はフックが届ける
     started.clear()
     (module.root / "sub").mkdir()

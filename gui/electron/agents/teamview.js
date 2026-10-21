@@ -4,7 +4,7 @@
 // 窓の画面（window.html の <script>）と試験（node）の両方で読む。
 (function (root) {
   const STATE_NAMES = {working: '作業中', idle: '待機中', stopped: '止まっている', unknown: '不明'};
-  const ROLE_NAMES = {lead: '進行役', worker: '作業役'};
+  const ROLE_NAMES = {lead: '進行役', manager: '管理役', worker: '作業役'};
   const QUIET_SECONDS = 10 * 60;   // 作業中なのに、これだけ道具を使っていない：止まっているかもしれない
   const LONG_SECONDS = 60 * 60;    // 作業中がこれより長い
   const TOOL_KEYS = ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query', 'description', 'skill', 'prompt'];

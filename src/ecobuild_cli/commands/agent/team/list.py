@@ -25,13 +25,13 @@ def command(nested: Annotated[bool, "下の進行役のチームも入れる（�
 
 
 def listed(root: Path, *, nested: bool = False, recent: int = 0, depth: int = 0, owner: str | None = None) -> dict:
-    """進行役の作業空間 root のチーム（JSON にできる形）。nested：下の進行役の members も。recent：最新の行の数。"""
+    """進行役の作業空間 root のチーム（JSON にできる形）。nested：下の管理役の members も。recent：最新の行の数。"""
     data = to_data(_team.team(root, _team.owner_session() if owner is None else owner))
     for member in data["members"]:
         if recent > 0:
             folder = _team.inbox_of(Path(member["path"]))
             member["recent"] = [text for text in map(_events.describe, _app.recent_events(folder)) if text][-recent:]
-        if nested and member["role"] == _team.LEAD and depth < 8:   # 8段より深いものは、その進行役で list する
+        if nested and member["role"] in _team.LEADING and depth < 8:   # 8段より深いものは、その進行役で list する
             member["members"] = listed(Path(member["path"]), nested=True, recent=recent, depth=depth + 1)["members"]
     return data
 

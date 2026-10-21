@@ -21,7 +21,7 @@ class TaskManagement:
         """タスクの一覧。label・assignee（@me は自分）・search（GitHubの検索の書き方）・milestone・sprint
         （スプリントの名前か current）で絞り込む。
 
-        ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・開いている子タスクがない・
+        ready：着手できるタスクだけ（開いている・先に終わるべきタスクがない・親が待っていない・開いている子タスクがない・
         タスクブランチがまだない・未着手か段階が未設定のもの。計画中のものは除く）。
         sort：計画・記録の値で並べる（ecotask の Tracker.sort。priority・due 等）。
         submitted：提出中のものだけ。to_review：自分がレビューを頼まれている提出のものだけ。
@@ -36,6 +36,10 @@ class TaskManagement:
         pairs = []
         tasks = self.tracker.tasks(closed=closed, label=label, assignee=assignee, search=search,
                                    milestone=milestone, sprint=sprint)
+        waiting = set()   # 親が待っているタスク（絞り込んでいれば親が一覧にないことがあるので、取り直す）
+        if ready:
+            narrowed = label or assignee or search or milestone is not None or sprint is not None
+            waiting = self.tracker.waiting_on_parent(None if narrowed else tasks)
         tasks = self.tracker.sync_stages(tasks, self._work_states(remote)) if self.tracker.board else tasks
         submissions = {}
         for info in sorted(self.github.list_pull_requests(self.root, closed=False), key=lambda i: i.number):
@@ -56,7 +60,7 @@ class TaskManagement:
             summary = wm.TaskSummary._from(task, task_branch=branch in local, current=branch == current,
                                            remote=branch in remote, path=self.root,
                                            submission=submissions.get(task.number), branch=branch)
-            if ready and not (self.tracker.startable(task) and not (summary.task_branch or summary.remote)):
+            if ready and not (self.tracker.startable(task, waiting) and not (summary.task_branch or summary.remote)):
                 continue
             if (submitted and summary.submission is None) or (wanted is not None and task.number not in wanted):
                 continue

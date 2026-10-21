@@ -42,6 +42,24 @@ def test_next_tasks_order_and_reasons():
     assert "期限 2026-10-10" in ranked[2].reasons
 
 
+
+def test_tasks_wait_while_their_parent_waits():
+    """親（親の親も）が先行タスクを待っていれば、子も着手できない。閉じた親・待っていない親は止めない。"""
+    tasks = [
+        task(1),
+        task(2, blocked_by=1, subtasks=1),                       # 待っている親
+        task(3, parent=2, subtasks=1),                           # その子（親が待っている）
+        task(4, parent=3),                                       # 孫（親の親が待っている）
+        task(5, subtasks=1),
+        task(6, parent=5),                                       # 親は待っていない
+        task(7, state="closed", stage=m.DONE, blocked_by=1),
+        task(8, parent=7),                                       # 閉じた親は見ない
+    ]
+    waiting = planning.waiting_on_parent(tasks)
+    assert waiting == {3, 4}
+    ranked = planning.next_tasks(tasks, TODAY, waiting=waiting)
+    assert sorted(n.task.number for n in ranked) == [1, 6, 8]
+
 def test_deadlines():
     tasks = [task(1, due=day(-3)), task(2, due=day(-1)), task(3, due=day(0)), task(4, due=day(3)), task(5, due=day(4)),
              task(6, due=day(-5), state="closed", stage=m.DONE), task(7)]

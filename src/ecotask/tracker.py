@@ -258,16 +258,36 @@ class Tracker:
         self.set_stage(number, _model.TODO)
 
     def check_startable(self, number: int, *, ignore_blocked: bool = False) -> None:
-        """新しく作業を始めてよいか：先に終わるべきタスクを待つ（親タスクも作業できる。子のタスクブランチは親の
-        タスクブランチから派生し、子が終わるまで親は終了できない）。"""
+        """新しく作業を始めてよいか：先に終わるべきタスクを待つ。親（親の親も）が待っていれば子も待つ（子を始めると
+        親も始まるため。子のタスクブランチは親のタスクブランチから派生し、子が終わるまで親は終了できない）。"""
         if ignore_blocked:
             return
-        blockers = sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"),
-                          key=lambda b: b.number)
-        if blockers:
-            raise TaskError(ErrorCode.TASK_BLOCKED, f"#{number} は、先に終わるべきタスクを待っています。",
+        waits = self._blockers(number)
+        parents = []   # 待っている、開いている親（近い順）
+        seen = {number}
+        parent = self.github.issue_relation(self.root, number).parent
+        while parent is not None and parent not in seen and self.github.get_issue(self.root, parent).state == "open":
+            seen.add(parent)
+            blockers = self._blockers(parent)
+            if blockers:
+                parents.append(parent)
+                waits += [(parent, b) for _, b in blockers]
+            parent = self.github.issue_relation(self.root, parent).parent
+        if waits:
+            if parents:
+                message = (f"#{number} の親タスク {'・'.join(f'#{p}' for p in parents)} が、"
+                           "先に終わるべきタスクを待っています（親が待っている間は子も始められません）。")
+            else:
+                message = f"#{number} は、先に終わるべきタスクを待っています。"
+            raise TaskError(ErrorCode.TASK_BLOCKED, message,
                             hint="先にそちらを終えてください。待たずに始めるなら --ignore-blocked。",
-                            details=[f"#{b.number} {b.title}" for b in blockers])
+                            details=[f"#{b.number} {b.title}" + ("" if waiter == number else f"（#{waiter} が待っている）")
+                                     for waiter, b in waits])
+
+    def _blockers(self, number: int) -> list[tuple[int, _github.IssueInfo]]:
+        """number が待っている、開いている先行タスク（番号の順）。(number, 先行タスク) の組。"""
+        return [(number, b) for b in sorted((b for b in self.github.blocked_by(self.root, number) if b.state == "open"),
+                                            key=lambda b: b.number)]
 
     def share(self) -> tuple[str, ...]:
         """タスク管理の情報（ボード）を、リポジトリの共同作業者に共有し直す（招待を受けた人が増えたとき）。
@@ -320,8 +340,14 @@ class Tracker:
 
         label・assignee（@me は自分）・search（GitHubの検索の書き方）はGitHubで絞り込む。
         """
+        return self._narrow(self.store.tasks(closed=closed), closed=closed, label=label, assignee=assignee,
+                            search=search, milestone=milestone, sprint=sprint)
+
+    def _narrow(self, tasks: list[_model.Task], *, closed: bool = False, label: str | None = None,
+                assignee: str | None = None, search: str | None = None, milestone: str | None = None,
+                sprint: str | None = None) -> list[_model.Task]:
+        """tasks（store.tasks の一覧）を tasks() と同じ条件で絞り込む。"""
         chosen = None if sprint is None else self.sprint(sprint)
-        tasks = self.store.tasks(closed=closed)
         if label or assignee or search:
             numbers = {i.number for i in self.github.list_issues(self.root, closed=closed, label=label,
                                                                  assignee=assignee, search=search)}
@@ -332,8 +358,12 @@ class Tracker:
             tasks = [t for t in tasks if t.sprint == chosen]
         return tasks
 
-    def startable(self, task: _model.Task) -> bool:
-        return _planning.startable(task)
+    def startable(self, task: _model.Task, waiting: set[int] = frozenset()) -> bool:
+        return _planning.startable(task, waiting)
+
+    def waiting_on_parent(self, tasks: list[_model.Task] | None = None) -> set[int]:
+        """親（親の親も）が先に終わるべきタスクを待っているタスクの番号。tasks：親も含む一覧（なければ開いているものを取る）。"""
+        return _planning.waiting_on_parent(self.store.tasks() if tasks is None else tasks)
 
     def sort(self, tasks: list, name: str, *, task_of=lambda item: item) -> list:
         """計画・記録の値（SORT_KEYS：priority・due・…）で並べる。優先度・スプリントは順位・始まりの順、日付・
@@ -362,8 +392,10 @@ class Tracker:
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:
         """次にやるもの（順位と理由。ecotask.planning.next_tasks）。exclude：除くタスク（タスクブランチがあるもの等）。"""
         today = today or _datetime.date.today()
-        tasks = self._in_step(self.tasks(assignee=assignee) if assignee else self.store.tasks())
-        return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude)
+        everything = self.store.tasks()
+        tasks = self._in_step(self._narrow(everything, assignee=assignee) if assignee else everything)
+        return _planning.next_tasks(tasks, today, sprints=self.sprints(), exclude=exclude,
+                                    waiting=_planning.waiting_on_parent(everything))
 
     def deadlines(self, *, days: int = 3, today: _datetime.date | None = None) -> _planning.Deadlines:
         return _planning.deadlines(self._in_step(self.store.tasks()), today or _datetime.date.today(), days=days)

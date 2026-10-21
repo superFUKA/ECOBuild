@@ -13,11 +13,27 @@ from . import model as _model
 
 # 着手できるか ------------------------------------------------------------------------
 
-def startable(task: _model.Task) -> bool:
-    """着手できる：開いている・先に終わるべきタスクがない・開いている子がない・段階が未着手か未設定
-    （計画の段階・作業中・完了は除く）。タスクブランチの有無は作業の流れの側が見る。"""
-    return (task.open and not task.blocked_by and not task.open_subtasks
+def startable(task: _model.Task, waiting: set[int] = frozenset()) -> bool:
+    """着手できる：開いている・先に終わるべきタスクがない・親が待っていない（waiting。waiting_on_parent）・
+    開いている子がない・段階が未着手か未設定（計画の段階・作業中・完了は除く）。タスクブランチの有無は作業の流れの側が見る。"""
+    return (task.open and not task.blocked_by and task.number not in waiting and not task.open_subtasks
             and task.stage in (None, _model.TODO))
+
+
+def waiting_on_parent(tasks: list[_model.Task]) -> set[int]:
+    """親（親の親も）が先に終わるべきタスクを待っているタスクの番号。tasks には親も含める（開いている親だけ見る）。"""
+    by_number = {t.number: t for t in tasks}
+    result = set()
+    for task in tasks:
+        seen = {task.number}
+        parent = by_number.get(task.parent) if task.parent is not None else None
+        while parent is not None and parent.open and parent.number not in seen:
+            if parent.blocked_by:
+                result.add(task.number)
+                break
+            seen.add(parent.number)
+            parent = by_number.get(parent.parent) if parent.parent is not None else None
+    return result
 
 
 # 次にやるもの ------------------------------------------------------------------------
@@ -29,11 +45,12 @@ class NextTask:
 
 
 def next_tasks(tasks: list[_model.Task], today: _datetime.date, *, sprints: list[_model.Sprint] = (),
-               exclude: set[int] = frozenset()) -> list[NextTask]:
+               exclude: set[int] = frozenset(), waiting: set[int] = frozenset()) -> list[NextTask]:
     """次にやるもの（着手できるもの）を順位の順に。①期限切れ ②今のスプリント ③優先度 ④期限の近さ
-    ⑤マイルストーンの期日の近さ ⑥番号。exclude：除くタスク（タスクブランチがあるもの等）。"""
+    ⑤マイルストーンの期日の近さ ⑥番号。exclude：除くタスク（タスクブランチがあるもの等）。
+    waiting：親が待っているタスク（waiting_on_parent。tasks を絞り込んでいると親が入っていないため、別に渡す）。"""
     current = next((s for s in sprints if s.contains(today)), None)
-    candidates = [t for t in tasks if startable(t) and t.number not in exclude]
+    candidates = [t for t in tasks if startable(t, waiting) and t.number not in exclude]
 
     def key(task: _model.Task):
         in_sprint = current is not None and task.sprint == current

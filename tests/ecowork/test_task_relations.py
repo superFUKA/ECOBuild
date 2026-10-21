@@ -115,6 +115,24 @@ def test_blocked_task_can_be_started_explicitly(repository):
     assert repository.task(second.number).start().number == second.number
 
 
+
+def test_subtask_waits_while_its_parent_waits(repository):
+    """親（親の親も）が先行タスクを待っている間は、子も始められない（子を始めると親も始まるため）。"""
+    first = repository.create_task("先")
+    parent = repository.create_task("親", blocked_by=(first.number,))
+    child = repository.create_task("子", parent=parent.number)
+    grandchild = repository.create_task("孫", parent=child.number)
+    with pytest.raises(WorkError) as error:
+        repository.task(grandchild.number).start()
+    assert error.value.code == ErrorCode.TASK_BLOCKED and f"#{parent.number}" in error.value.message
+    assert any(f"#{first.number}" in d and f"#{parent.number} が待っている" in d for d in error.value.details)
+    assert code_of(lambda: repository.task(child.number).start()) == ErrorCode.TASK_BLOCKED
+    assert code_of(lambda: repository.start_task_without_branch(child.number)) == ErrorCode.TASK_BLOCKED
+    assert [t.number for t in repository.tasks(ready=True)] == [first.number]
+
+    repository.close_task(first.number)
+    assert repository.task(grandchild.number).start().number == grandchild.number   # 待ちが解ければ親も一緒に始まる
+
 def test_editing_relations(repository):
     one, two, three = (repository.create_task(t) for t in ("一", "二", "三"))
     repository.edit_task(three.number, parent=one.number, add_blocked_by=(two.number,))

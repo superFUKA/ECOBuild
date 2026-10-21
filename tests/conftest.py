@@ -16,6 +16,15 @@ def _tool_home(monkeypatch, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
+def _outside_agents(monkeypatch):
+    """ECOBuild の作業空間（エージェントの窓・コンテナの中）で試験を動かしても、その印で動きを変えない。"""
+    from ecobuild_agent import team
+    from ecobuild_container import INSIDE
+    monkeypatch.delenv(team.WINDOW_VARIABLE, raising=False)
+    monkeypatch.delenv(INSIDE, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_docker(monkeypatch):
     """Docker の診断（doctor）は、このPCの本物の wsl・docker を呼ばない（使えないものとして答える）。"""
     from ecobuild_container import docker

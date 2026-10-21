@@ -171,7 +171,8 @@ class Completion:
                                (), self._upcoming())
 
     def _resume_finish(self, number: int, branch: str) -> wm.FinishResult:
-        """Issueが閉じ、開いている提出がないタスク：取り込みの後処理と手元の片付けの残りだけを行う。"""
+        """Issueが閉じ、開いている提出がないタスク：取り込みの後処理と手元の片付けの残りだけを行う。
+        残りがなければ（完了済み）、何もせずに already_done の結果を返す。"""
         merged = [p for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "merged"]
         if not merged:
             raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は閉じています（取り込んだ提出はありません）。",
@@ -186,7 +187,8 @@ class Completion:
             result = wm.MergeResult(pr.number, "squash", None, False, True)
         finished = self._after_finish(number, branch, pr, result, (), pr.title)
         if not (result.closed_issue or finished.removed):
-            raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は完了しています（後処理も済んでいます）。")
+            # 前の完了で済んでいる：もう一度打っても誤りにしない（何もしなかったことを already_done で返す）
+            return replace(finished, resumed=False, already_done=True)
         return finished
 
     def _after_finish(self, number: int, branch: str, pr: wm.PullRequest, merged: wm.MergeResult,

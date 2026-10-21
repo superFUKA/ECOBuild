@@ -628,6 +628,7 @@ class FinishResult:
     approved: bool = False           # task approve：承認してから完了した
     returned_to: str | None = None   # task approve：確認中（task review）から戻ったブランチ
     closed_workspace: object = None  # 完了の後に閉じた作業空間（利用側が決める）
+    already_done: bool = False       # 完了済み（取り込み・後処理・片付けが済んでいた）で、何もしなかった
 
 
 @dataclass(frozen=True)

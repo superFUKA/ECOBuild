@@ -1,5 +1,8 @@
 """型 python：雛形・ファイル・CIのワークフロー・構成の確認（venv・pip を使わない部分）。"""
 
+import errno
+import os
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -192,6 +195,78 @@ def test_clean_keeps_the_venv(tmp_path):
         (tmp_path / name).mkdir(parents=True)
     _python.clean(tmp_path)
     assert [n for n in ("dist", "build", "src/calc.egg-info", ".venv") if (tmp_path / n).exists()] == [".venv"]
+
+
+def test_clean_empties_mount_points(tmp_path, monkeypatch):
+    """マウント点（コンテナで別に置いた dist・build）は中身だけ消し、フォルダーと権限は残す。消せなければ clean_failed。"""
+    make(tmp_path)
+    for name in ("dist/sub", "build"):
+        (tmp_path / name).mkdir(parents=True)
+    (tmp_path / "dist/a.whl").write_text("x", encoding="utf-8")
+    mode = (tmp_path / "dist").stat().st_mode
+    monkeypatch.setattr(_python.os.path, "ismount", lambda path: Path(path).name == "dist")
+    _python.clean(tmp_path)
+    assert (tmp_path / "dist").is_dir() and not any((tmp_path / "dist").iterdir())
+    assert (tmp_path / "dist").stat().st_mode == mode and not (tmp_path / "build").exists()
+
+    (tmp_path / "build").mkdir()                          # ismount で見分けられないマウント点（rmdir が EBUSY）
+    monkeypatch.setattr(_python.os.path, "ismount", lambda path: False)
+
+    def busy(self):
+        raise OSError(errno.EBUSY, "Device or resource busy")
+    monkeypatch.setattr(Path, "rmdir", busy)
+    _python.clean(tmp_path)
+    assert (tmp_path / "build").is_dir()
+
+    (tmp_path / "build/x.txt").write_text("x", encoding="utf-8")
+
+    def denied(path):
+        raise PermissionError(errno.EACCES, "Permission denied", str(path))
+    monkeypatch.setattr(_python, "_remove", denied)
+    with pytest.raises(EcoBuildError) as error:
+        _python.clean(tmp_path)
+    assert error.value.code == "clean_failed" and "build" in error.value.message and error.value.hint
+
+
+@pytest.mark.parametrize("output,word", [
+    ("PermissionError: [Errno 1] Operation not permitted: 'src/calc.egg-info'", "chmod"),
+    ("ERROR: Could not find a version that satisfies the requirement hatchling", "ネットワーク"),
+    ("OSError: [Errno 13] Permission denied: '.venv/bin'", "chown"),
+    ("SyntaxError: invalid syntax", None),
+])
+def test_cause_hint(tmp_path, output, word):
+    hint = _python.cause_hint(tmp_path, output)
+    assert (hint is None) if word is None else word in hint
+
+
+def test_cause_hint_names_the_owner(tmp_path, monkeypatch):
+    """.venv 等に書き込めなければ、出力によらず所有者を示す（コンテナで root が持つマウント点）。"""
+    (tmp_path / ".venv").mkdir()
+    monkeypatch.setattr(_python.os, "access", lambda path, mode: Path(path).name != ".venv")
+    monkeypatch.setattr(Path, "owner", lambda self: "root")
+    hint = _python.cause_hint(tmp_path, "Error: [Errno 2] something")
+    assert ".venv：所有者 root" in hint and "chown" in hint
+
+
+def test_failure_details(tmp_path):
+    """失敗の details：そのまま貼って使えるコマンド・分けた引数・stdout と stderr を分けた欄（output は両方）。"""
+    completed = subprocess.CompletedProcess(["calc", "a b"], 3, "out\n", "err\n")
+    details = _python.failure("run_failed", "失敗", ["calc", "a b"], completed).details
+    assert details["arguments"] == ["calc", "a b"] and details["returncode"] == 3
+    assert details["command"] == ('calc "a b"' if os.name == "nt" else "calc 'a b'")
+    assert (details["stdout"], details["stderr"], details["output"]) == ("out\n", "err\n", "out\nerr")
+
+
+def test_build_tool_is_installed_once(tmp_path, monkeypatch):
+    """Release のパッケージを作る build は、.venv に入っていれば pip で入れ直さない（毎回ネットワークに出ない）。"""
+    calls = []
+    monkeypatch.setattr(_python, "run", lambda args, root, code, message: calls.append(args[1:4]))
+    (tmp_path / "dist").mkdir()
+    _python.build_distribution(tmp_path, Path("python"))
+    site = tmp_path / ".venv" / ("Lib/site-packages" if os.name == "nt" else "lib/python3.12/site-packages")
+    (site / "build-1.2.2.dist-info").mkdir(parents=True)
+    _python.build_distribution(tmp_path, Path("python"))
+    assert calls == [["-m", "pip", "install"], ["-m", "build", "--outdir"], ["-m", "build", "--outdir"]]
 
 
 def test_all_tests_run_in_parallel_with_xdist(tmp_path, monkeypatch):

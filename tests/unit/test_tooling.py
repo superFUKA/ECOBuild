@@ -88,6 +88,43 @@ def test_types_add_tools(monkeypatch):
     assert settings.load_config()["thing"] == "C:/thing"
 
 
+class OtherType(ModuleType):
+    """別の型（試験用）：必須のツールが足りない。"""
+    name = "other"
+
+    @classmethod
+    def doctor_items(cls):
+        return [DoctorItem("CMake・コンパイラ", False, True, "見つかりません", "入れてください。", "install", ("get", "cmake"))]
+
+
+def test_inside_a_module_only_its_type_is_required(monkeypatch):
+    """モジュールの中では、そのモジュールの型のツールだけを必須にする（ほかの型の分は知らせるだけ）。項目には id。"""
+    monkeypatch.setattr(tooling.shutil, "which", lambda name: "found")
+    monkeypatch.setattr(tooling, "_run", lambda args: tooling._process.Completed(tuple(args), 0, "", ""))
+    monkeypatch.setattr(tooling, "_version", lambda tool, *args: f"{tool} 1.0")
+    everywhere = tooling.doctor([ToolType, OtherType])
+    assert {i.id: i.required for i in everywhere.items}["other.cmake"] is True
+    inside = tooling.doctor([ToolType, OtherType], module_type="tool")
+    items = {i.id: i for i in inside.items}
+    assert items["tool.thing"].required and not items["other.cmake"].required
+    assert "型 other のモジュールで使います" in items["other.cmake"].detail
+    assert {"python", "git", "gh", "gh_auth", "git_identity", "docker"} <= set(items)
+    assert all(i.id for i in inside.items) and len(items) == len(inside.items)   # どの項目にも、重ならない id
+
+
+def test_bundle_doctor_reads_the_module_type(tmp_path, monkeypatch):
+    import ecobuild_bundle
+    seen = []
+    monkeypatch.setattr(tooling, "doctor", lambda types, extra, *, command, module_type: seen.append(module_type))
+    (tmp_path / ".ecobuild").mkdir()
+    (tmp_path / ".ecobuild" / "ecobuild.toml").write_text('format = 1\n[module]\nname = "Calc"\ntype = "python"\n',
+                                                         encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    ecobuild_bundle.doctor(path=tmp_path / "src")
+    ecobuild_bundle.doctor(path=tmp_path.parent)
+    assert seen == ["python", None]
+
+
 def test_bundle_adds_cpp_tools():
     import ecobuild_bundle
     assert {"owner", "cmake", "ctest"} <= set(ecobuild_bundle.config_keys())

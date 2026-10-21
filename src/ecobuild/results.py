@@ -264,6 +264,7 @@ class DoctorItem:
     hint: str = ""
     fix: str = ""          # 直し方：install／setup-git／identity（setup が直す）、login／scope（init が聞いて直す）
     install: tuple[str, ...] = ()  # fix が install のときの、このOSでの導入コマンド（なければ準備の側の既定）
+    id: str = ""           # 機械が読む名前（git・gh_auth・cpp.cmake 等。name は表示の名前。型が付けなければ doctor が付ける）
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import lines, run_command
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """CIの設定（ecobuild.toml の [ci]）と、ワークフローの状態を表示します。"""

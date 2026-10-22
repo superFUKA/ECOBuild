@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "read"
+
 STATES = {"aligned": "記録の版", "differs": "記録と別の版", "modified": "未コミットの変更あり",
           "working": "作業版", "missing": "cloneなし（ecobuild deps sync で取得）"}
 

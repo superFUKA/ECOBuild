@@ -3,6 +3,8 @@ from typing import Annotated
 from ecobuild.workspaces import same
 from ..._output import lines, run_command, upgrade_note
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """今いるモジュールの情報（型・場所・GitHubのリポジトリ・Project・依存先・このPCにある作業空間）を表示します。"""

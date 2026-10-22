@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "read"
+
 
 def render(templates: dict) -> str:
     return "\n".join(f"{name}：{t['path']}" + ("（ECOBuildの既定）" if t["builtin"] else "")

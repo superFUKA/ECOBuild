@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "change"
+
 
 def command(
     path: Annotated[str, "テストを作るファイル（ライブラリのヘッダー・ソース。今いるディレクトリからの相対）"],

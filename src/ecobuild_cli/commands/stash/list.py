@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import run_command
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """退避した変更の一覧を表示します。"""

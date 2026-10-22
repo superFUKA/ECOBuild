@@ -3,6 +3,8 @@ from typing import Annotated
 from ..._output import run_command
 from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
 
+AGENT = "read"
+
 
 def command(
     all: Annotated[bool, "閉じたIssueも表示する"] = False,

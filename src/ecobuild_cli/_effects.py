@@ -35,11 +35,14 @@ EFFECTS = {
 }
 # 上の表より細かい指定（短い名前が read でも、その下のコマンドは変える）
 OVERRIDES = {"track add": CHANGE, "track remove": CHANGE}
+# 一覧（--help）に出さないコマンド（エージェントを起動する ECOBuild が使う。人は使わない）
+HIDDEN = {"agent mcp": HUMAN}
 CONFIRM_OPTIONS = ("--yes", "-y", "--discard-local", "--force", "--remove-workspaces")
 GLOBAL_OPTIONS = ("-C", "--directory")
 
 _TABLE = {path: effect for effect, paths in EFFECTS.items() for path in paths}
 _TABLE.update(OVERRIDES)
+_TABLE.update(HIDDEN)
 
 
 def effect(path: str, options: tuple[str, ...] = ()) -> str:

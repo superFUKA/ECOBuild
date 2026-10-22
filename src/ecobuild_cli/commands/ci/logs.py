@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import optional_argument, run_command
 
+AGENT = "read"
+
 
 def command(
     *number: Annotated[int, "実行の番号（--run と同じ）"],

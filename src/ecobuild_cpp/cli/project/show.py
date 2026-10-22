@@ -3,6 +3,8 @@ from typing import Annotated
 from ecobuild_cli.kit import optional_argument, run_command
 from ._common import render_details, target_project
 
+AGENT = "read"
+
 
 def command(
     *projects: Annotated[str, "対象のProject（--project と同じ）"],

@@ -3,6 +3,8 @@ from typing import Annotated
 from .._gui_command import open_window
 from .._output import local_time, run_command
 
+AGENT = "read"
+
 
 def command(
     *paths: Annotated[str, "このファイル・ディレクトリのログだけにする"],

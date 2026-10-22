@@ -2,17 +2,24 @@
 
 - ecobuild --help --json：共通のコマンドと、型ごとのコマンド（型のcliパッケージにあるもの）のすべて。
 - ecobuild <コマンド>... --help --json：そのコマンド（今いるモジュールの型のコマンドも含む）だけ。
-実行できるコマンドには重さ（effect：read・change・confirm・human。_effects）を付ける。
+実行できるコマンドには重さ（effect：read・change・confirm・human。_effects）と、エージェントに許すか（agent）を付ける。
+- agent：コマンドのファイルの先頭の定数 AGENT（read・change・owner）。書いていなければ null（エージェントのツールにしない）。
+  owner はタスクの持ち主にだけ渡すもの（ブランチを変える commit・push・submit・sync 等）。import せずに AST で読む。
+- 引数・オプションには、Python の引数の名前（param。--brief-dir → brief_dir）も付ける（エージェントのツールの入力の名前）。
 --json と --help（どのコマンドにもある）は、一覧に入れない。
 オプションは names・help・flag・required・multiple・type（bool・str・int・float）・negative（真偽のオプションの否定形。
 なければ null）・choices（選べる値。なければ null）、既定値があれば default（真偽のオプションはいつも）。
 説明に「例：」の段落があれば、その中の ecobuild で始まる行を examples に。
-全体（ecobuild --help --json）には、誤りの種類の一覧（errors：code・retryable。_errors）も入れる。
+全体（ecobuild --help --json）には、誤りの種類の一覧（errors：code・retryable。_errors）と、今いるモジュールの型
+（type。モジュールの外なら null）も入れる。
 """
 
 from __future__ import annotations
 
+import ast
+import functools
 import inspect
+from pathlib import Path
 from typing import Any, Callable
 
 import click
@@ -22,6 +29,7 @@ from ecobuild_bundle import REGISTRY
 from . import _effects, _errors, _help, _output, _types
 
 COMMON_OPTIONS = ("--json", "--help")
+AGENT_MARKS = ("read", "change", "owner")     # コマンドのファイルの AGENT に書ける値
 
 
 def emit(build_cli: Callable[..., click.Command], path: list[str], sections: dict[tuple[str, ...], tuple]) -> int:
@@ -58,7 +66,7 @@ def catalog(build_cli: Callable[..., click.Command], sections: dict[tuple[str, .
     extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json"}
                   for n, path in sorted(_extensions.available().items()) if n not in names]
     return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions,
-            "errors": _errors.codes()}
+            "errors": _errors.codes(), "type": _types.current(Path.cwd())}
 
 
 def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None]:
@@ -110,21 +118,40 @@ def _node(command: click.Command, ctx: click.Context, path: tuple[str, ...], sec
                             "summary": command.get_short_help_str(limit=200), "help": _help_text(command.help)}
     if examples(node["help"]):
         node["examples"] = examples(node["help"])
-    runnable = command
+    runnable, lazy = command, command
     if isinstance(command, click.Group):
         node["commands"] = _children(command, ctx, path, sections, routes)
-        default = getattr(command, "default_command", None)    # グループそのものも実行できる（sync 等）
-        runnable = default._load() if default is not None else None
+        lazy = getattr(command, "default_command", None)    # グループそのものも実行できる（sync 等）
+        runnable = lazy._load() if lazy is not None else None
         if runnable is not None and runnable.help and runnable.help != command.help:
             node["default_help"] = _help_text(runnable.help)
     node["runnable"] = runnable is not None
     if runnable is not None:
         node["effect"] = _effects.effect(" ".join(path))    # 見る・変える・確認が要る・人がする（_effects）
+        node["agent"] = agent_mark(lazy)
         params = runnable.get_params(ctx)
         node["arguments"] = [_argument(p) for p in params if isinstance(p, click.Argument)]
         node["options"] = [_option(p, ctx) for p in params
                            if isinstance(p, click.Option) and not set(p.opts) & set(COMMON_OPTIONS)]
     return node
+
+
+def agent_mark(command: click.Command) -> str | None:
+    """コマンドのファイル（グループなら __init__.py）の先頭の AGENT。書いていない・場所が分からなければ None。"""
+    source = getattr(getattr(command, "descriptor", None), "source", None)
+    return _agent_constant(Path(source.path)) if source is not None else None
+
+
+@functools.lru_cache(maxsize=None)
+def _agent_constant(path: Path) -> str | None:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "AGENT" for t in node.targets)                 and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            return node.value.value
+    return None
 
 
 def _help_text(text: str | None) -> str:
@@ -160,13 +187,14 @@ def _type_name(parameter: click.Parameter) -> str:
 
 
 def _argument(parameter: click.Argument) -> dict:
-    return {"name": parameter.human_readable_name, "help": getattr(parameter, "help_text", None) or "",
+    return {"name": parameter.human_readable_name, "param": parameter.name,
+            "help": getattr(parameter, "help_text", None) or "",
             "required": parameter.required, "multiple": parameter.nargs == -1 and not _help.single_argument(parameter),
             "type": _type_name(parameter)}
 
 
 def _option(parameter: click.Option, ctx: click.Context) -> dict:
-    result: dict[str, Any] = {"names": list(parameter.opts), "help": parameter.help or "",
+    result: dict[str, Any] = {"names": list(parameter.opts), "param": parameter.name, "help": parameter.help or "",
                               "flag": bool(parameter.is_flag), "required": parameter.required,
                               "multiple": bool(parameter.multiple), "type": _type_name(parameter),
                               "negative": parameter.secondary_opts[0] if parameter.secondary_opts else None,

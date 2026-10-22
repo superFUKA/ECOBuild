@@ -12,7 +12,7 @@ import click
 from cli_framework import create_cli
 from ecobuild.errors import EcoBuildError
 
-from . import _catalog, _errors, _extensions, _help, _inside, _log, _output, _types, commands
+from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _types, commands
 from ._output import use_utf8_when_redirected
 
 
@@ -35,10 +35,21 @@ def build_cli(module_type: str | None | object = _CURRENT):
     cli = create_cli(commands, name="ecobuild", extensions=_types.extensions(module_type))
     if isinstance(cli, click.Group):
         _types.attach(cli, module_type)
+        _hide(cli)
     task = cli.commands.get("task") if isinstance(cli, click.Group) else None
     if isinstance(task, click.Group):
         task.format_commands = types.MethodType(_format_sections(TASK_SECTIONS), task)
     return cli
+
+
+def _hide(cli: click.Group) -> None:
+    """一覧に出さないコマンド（_effects.HIDDEN）を隠す。打てば動く。"""
+    for path in _effects.HIDDEN:
+        command = cli
+        for name in path.split():
+            command = command.commands.get(name) if isinstance(command, click.Group) else None
+        if command is not None:
+            command.hidden = True
 
 
 def version() -> str | None:

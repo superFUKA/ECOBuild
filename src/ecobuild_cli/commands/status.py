@@ -6,6 +6,8 @@ from .._output import lines, run_command, upgrade_note
 from .task._show import submission_text
 from .workspace.lock import lock_text
 
+AGENT = "read"
+
 
 def command(
     fetch: Annotated[bool, "GitHubの最新を取得してから表示する（作成元の遅れも表示）"] = False,

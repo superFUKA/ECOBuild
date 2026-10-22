@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import move_file
 
+AGENT = "change"
+
 
 def command(
     source: Annotated[str, "移動するファイル"],

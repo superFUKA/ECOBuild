@@ -1,7 +1,7 @@
 'use strict';
 // Task management: task list / status / new / edit / comment / close / reopen / start / finish / approve / reject / withdraw / drop / clean,
 // task next / overdue / workload, sprint list / status, milestone list / status.
-// The dashboard is the tasks by stage (drag a card to change its stage); 集計 is made from these commands' own totals (ecobuild has no board commands for the user). Every change runs ecobuild. Where ecobuild keeps the stages and plans on
+// The board (view stages) is the tasks by stage (drag a card to change its stage); the summary (view summary) is made from these commands' own totals (ecobuild has no board commands for the user). Every change runs ecobuild. Where ecobuild keeps the stages and plans on
 // GitHub is ecobuild's business: the screen only deals with tasks.
 (() => {
   const tkEl = id => document.getElementById(id);
@@ -20,7 +20,7 @@
   const showDeleted = () => tkEl('tk-deleted').checked;
   // A task's stage on screen: closed = done (or deleted); not recorded yet = in progress when it has a task branch, else todo.
   const stageOf = t => deleted(t) ? 'deleted' : t.state !== 'open' ? 'done' : t.stage || (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo');
-  // Also the recently closed tasks the dashboard's 完了 column shows (read with task list --all).
+  // Also the recently closed tasks the board's 完了 column shows (read with task list --all).
   const byNumber = n => st.tasks.find(t => t.number === n) || ((st.extra.closed?.ok ? st.extra.closed : st.lastClosed)?.result || []).find(t => t.number === n);
   const md = d => d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8)) : '';
   const stageBadge = t => t.state !== 'open' ? `<span class="tk-stage ${deleted(t) ? 'not_planned' : 'done'}">${deleted(t) ? '削除済み' : '完了'}</span>` : `<span class="tk-stage ${STAGE[stageOf(t)][2]}">${STAGE[stageOf(t)][1]}</span>`;
@@ -32,6 +32,7 @@
   const avatars = t => t.assignees.length ? t.assignees.map(avatar).join('') : avatar('');
   const flags = t => (t.blocked_by && t.state === 'open' ? `<span class="tk-flag blocked">待ち ${t.blocked_by}</span>` : '') + (t.subtasks ? `<span class="tk-flag">子 ${t.subtasks_done}/${t.subtasks}</span>` : '') + (t.current || t.task_branch ? '<span class="tk-flag">タスクブランチ</span>' : t.remote ? '<span class="tk-flag">GitHubにタスクブランチ</span>' : '');
   const sel = t => `aria-selected="${t.number === st.selected}" data-task="${t.number}"`;
+  const focusable = 'tabindex="0"';   // rows and cards: Enter / Space opens the detail (see the keydown handler)
   // Sprints: task list gives the name, sprint status the whole sprint. A sprint runs from start to the day before end.
   const sprintName = t => typeof t.sprint === 'string' ? t.sprint : t.sprint?.name || '';
   const currentSprint = () => st.sprints.find(s => s.start <= today() && today() < s.end)?.name || '';
@@ -95,16 +96,21 @@
   const sorted = ts => [...ts].sort((a, b) => { const f = SORT_KEYS[st.sort.key], x = f(a), y = f(b); return (x < y ? -1 : x > y ? 1 : a.number - b.number) * st.sort.dir; });
   const sortHead = (key, label) => `<th><button type="button" class="tk-sort ${st.sort.key === key ? 'on' : ''}" data-sort="${key}">${label}<span aria-hidden="true">${st.sort.key === key ? (st.sort.dir > 0 ? '▲' : '▼') : ''}</span></button></th>`;
   const taskTable = (ts, withAssignee = true) => `<table class="tk-table"><thead><tr>${sortHead('number', '#')}${sortHead('title', '題名')}${sortHead('stage', '状態')}${sortHead('priority', '優先度')}${sortHead('due', '期限')}${sortHead('estimate', '見積')}${sortHead('sprint', 'スプリント')}${withAssignee ? sortHead('assignee', '担当') : ''}</tr></thead><tbody>
-    ${sorted(ts).map(t => `<tr ${sel(t)} class="${t.state === 'open' ? '' : 'closed'}"><td class="tk-num-cell"><span class="tk-num">#${t.number}</span></td><td class="tk-title-cell">${esc(t.title)} ${flags(t)}</td><td>${stageBadge(t)}</td><td>${prio(t)}</td><td>${due(t)}</td><td>${est(t)}</td><td>${sprintTag(t)}</td>${withAssignee ? `<td>${avatars(t)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
+    ${sorted(ts).map(t => `<tr ${sel(t)} ${focusable} class="${t.state === 'open' ? '' : 'closed'}"><td class="tk-num-cell"><span class="tk-num">#${t.number}</span></td><td class="tk-title-cell">${esc(t.title)} ${flags(t)}</td><td>${stageBadge(t)}</td><td>${prio(t)}</td><td>${due(t)}</td><td>${est(t)}</td><td>${sprintTag(t)}</td>${withAssignee ? `<td>${avatars(t)}</td>` : ''}</tr>`).join('')}</tbody></table>`;
   function renderList() {
     const ts = visible();
-    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" data-tk="clean">完了したタスクブランチを片付ける</button></div>';
+    // Cleaning up is seldom done: a quiet link under the list, not a main button.
+    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" class="tk-link" data-tk="clean" title="閉じたタスクのタスクブランチと、その作業空間を消します（確認してから）">完了したタスクブランチを片付ける…</button></div>';
   }
-  // The dashboard: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
+  // The board: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
   // 完了 shows the recently completed tasks (task list --all) even when 「完了したタスクも表示」 is off. Deleted tasks are
   // not done: they have their own column, shown with 「削除したタスクも表示」.
   const RECENT_DONE = 15;
   const DELETED_COLUMN = ['deleted', '削除済み', 'not_planned'];
+  const newestDone = (a, b) => (b.finished || '').localeCompare(a.finished || '') || b.number - a.number;   // 完了: the newest first
+  // A card: the title on top, the rest under it (the assignee on the right, kept on the line).
+  const kanbanCard = t => `<article class="tk-kcard" draggable="true" ${focusable} ${sel(t)}><div class="tk-kcard-title">${esc(t.title)}</div>
+    <div class="tk-kcard-foot"><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}${est(t)}${sprintTag(t)}${due(t)}${flags(t)}</div>${avatar(t.assignees[0])}</div></article>`;
   function renderStages() {
     let closed = null;
     if (!tkEl('tk-closed').checked) {
@@ -114,13 +120,14 @@
       const all = source?.ok ? source.result : [];
       closed = all.filter(t => t.state !== 'open' && !deleted(t))
         .filter(t => assignedTo(t, st.assignee) && inSprint(t, st.sprint) && inMilestone(t, st.milestone) && (!search() || t.title.toLowerCase().includes(search()) || ('#' + t.number) === search()))
-        .sort((a, b) => (b.finished || '').localeCompare(a.finished || '') || b.number - a.number).slice(0, RECENT_DONE);
+        .sort(newestDone).slice(0, RECENT_DONE);
     }
     return `<div class="tk-kanban ${showDeleted() ? 'with-deleted' : ''}">${[...STAGES, ...(showDeleted() ? [DELETED_COLUMN] : [])].map(([key, ja, cls]) => {
       const cards = key === 'done' && closed ? closed : visible().filter(t => stageOf(t) === key);
-      const note = key === 'done' && closed ? `<small title="「閉じたタスクも表示」ですべて表示">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
+      if (key === 'done') cards.sort(newestDone);
+      const note = key === 'done' && closed ? `<small title="「完了したタスクも表示」ですべて表示">最近 ${cards.length}</small>` : `<small>${cards.length}</small>`;
       return `<section class="tk-column" data-stage="${key}"><div class="tk-column-head"><span><span class="tk-stage ${cls}">${ja}</span></span>${note}</div><div class="tk-column-cards">
-      ${cards.map(t => `<article class="tk-kcard" draggable="true" ${sel(t)}><div class="tk-kcard-meta"><span class="tk-num">#${t.number}</span>${prio(t)}${est(t)}${sprintTag(t)}</div><div class="tk-kcard-title">${esc(t.title)}</div><div class="tk-kcard-meta">${due(t)}${flags(t)}${avatar(t.assignees[0])}</div></article>`).join('')}
+      ${cards.map(kanbanCard).join('')}
       </div></section>`;
     }).join('')}</div>`;
   }
@@ -131,6 +138,8 @@
   try { timelineMode = localStorage.getItem('ecobuild-gui-timeline-mode') === 'calendar' ? 'calendar' : 'bars'; } catch (e) { /* storage blocked */ }
   const modeSwitch = () => `<div class="tl-modes" role="group" aria-label="日程の表示">${[['bars', '横の帯'], ['calendar', 'カレンダー']].map(([key, ja]) =>
     `<button type="button" data-tl-mode="${key}" aria-pressed="${timelineMode === key}">${ja}</button>`).join('')}</div>`;
+  // One toolbar over both: the month moves (カレンダー) on the left, the mode switch on the right (as Google Calendar).
+  const timelineTools = (left = '') => `<div class="tl-tools">${left}<span class="tl-tools-end">${modeSwitch()}</span></div>`;
   const renderTimeline = () => timelineMode === 'calendar' ? renderCalendar() : renderBars();
   // 日程（横の帯）: every task is a row. Tasks with planned start and end have a bar (drag to move, right edge to change the end);
   // the others are rows without a bar, below them: drag across their days to give them a plan (task edit).
@@ -138,23 +147,27 @@
     const dated = visible().filter(t => t.planned_start && t.planned_end).sort((a, b) => a.planned_start.localeCompare(b.planned_start) || a.number - b.number);
     const undated = visible().filter(t => !t.planned_start || !t.planned_end).sort((a, b) => (a.state === 'open') === (b.state === 'open') ? a.number - b.number : a.state === 'open' ? -1 : 1);
     const now = dayOf(today()), tasks = [...dated, ...undated];
+    // The rows without a plan come under a heading row of their own (it says how to give them one).
+    const gap = undated.length ? 1 : 0, rowCount = tasks.length + gap;
     const all = tasks.flatMap(t => [t.planned_start, t.planned_end, t.due].filter(Boolean)).map(dayOf).concat(now);
     let first = Math.min(...all), last = Math.max(...all, now + 20);
     first -= (weekday(first) + 6) % 7; last += 6 - (weekday(last) + 6) % 7;
     const days = Array.from({length: last - first + 1}, (_, i) => first + i), col = n => n - first + 2, off = n => weekday(n) === 0 || weekday(n) === 6;
     const head = days.map(n => { const d = new Date(n * DAY); return `<div class="tl-day ${off(n) ? 'off' : ''} ${n === now ? 'today' : ''}" style="grid-column:${col(n)}">${d.getUTCDate() === 1 || n === first ? `<b>${d.getUTCMonth() + 1}月</b>` : ''}<span>${d.getUTCDate()}</span><small>${WEEK[weekday(n)]}</small></div>`; }).join('');
-    const shade = tasks.length ? days.filter(off).map(n => `<div class="tl-off" style="grid-column:${col(n)};grid-row:2 / span ${tasks.length}"></div>`).join('') : '';
+    const shade = tasks.length ? days.filter(off).map(n => `<div class="tl-off" style="grid-column:${col(n)};grid-row:2 / span ${rowCount}"></div>`).join('') : '';
     const dueMark = (t, r) => t.due ? `<div class="tl-due ${t.state === 'open' && t.due < today() ? 'overdue' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.due))}" title="期限 ${md(t.due)}">◆</div>` : '';
     const label = (t, r, extra = '') => `<div class="tl-label ${extra}" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>`;
     const rows = dated.map((t, i) => { const r = i + 2, late = t.state === 'open' && dayOf(t.planned_end) < now, s = STAGE[stageOf(t)];
       return label(t, r) + `<div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端のドラッグで終了予定を変更）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>` + dueMark(t, r); }).join('')
-      + undated.map((t, i) => { const r = dated.length + i + 2, open = t.state === 'open', one = t.planned_start || t.planned_end;
-        return label(t, r, `undated ${i === 0 ? 'first' : ''}`)
-          + `<div class="tl-empty ${open ? 'plannable' : ''} ${i === 0 ? 'first' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を設定' : '閉じたタスク'}"></div>`
+      + (gap ? `<div class="tl-group" style="grid-row:${dated.length + 2}">日程なし<span>行の上をドラッグして予定を設定</span></div><div class="tl-group-line" style="grid-row:${dated.length + 2};grid-column:2 / ${days.length + 2}"></div>` : '')
+      + undated.map((t, i) => { const r = dated.length + gap + i + 2, open = t.state === 'open', one = t.planned_start || t.planned_end;
+        return label(t, r, 'undated')
+          + `<div class="tl-empty ${open ? 'plannable' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を設定' : '閉じたタスク'}"></div>`
           + (one ? `<div class="tl-point" style="grid-row:${r};grid-column:${col(dayOf(one))}" title="${t.planned_start ? '開始予定' : '終了予定'}だけ ${md(one)}"></div>` : '') + dueMark(t, r); }).join('');
-    return modeSwitch() + `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px repeat(${tasks.length}, 34px)">
-      <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${tasks.length + 1}"></div>${rows}</div></div>
-      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated.length ? `<span><i class="tl-key empty"></i>日程のないタスク（行の上をドラッグして予定を設定）</span>` : ''}</div>`;
+    const rowSizes = [dated.length && `repeat(${dated.length}, 34px)`, gap && `28px repeat(${undated.length}, 34px)`].filter(Boolean).join(' ');
+    return timelineTools() + `<div class="tl-wrap"><div class="tl-grid" data-first="${first}" data-days="${days.length}" style="grid-template-columns:220px repeat(${days.length}, 28px);grid-template-rows:54px ${rowSizes}">
+      <div class="tl-corner">タスク</div>${head}${shade}<div class="tl-now" style="grid-column:${col(now)};grid-row:1 / span ${rowCount + 1}"></div>${rows}</div></div>
+      <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key now"></i>今日</span><span><i class="tl-key late"></i>終了予定を過ぎている</span></div>`;
   }
   // 日程（カレンダー）: a month, a week per row (Monday first, as 横の帯). A task with a plan is a bar over its days, cut at
   // the week's edges; its due date is a ◆ under the bars. Click one to see the task. Plans are changed in 横の帯 or the detail.
@@ -188,7 +201,7 @@
         ${bars.join('')}</div>`);
     }
     const undated = tasks.filter(t => !t.planned_start || !t.planned_end).length;
-    return modeSwitch() + `<div class="cal-tools"><button type="button" data-cal-move="-1" aria-label="前の月">‹</button><strong>${y}年${m + 1}月</strong><button type="button" data-cal-move="1" aria-label="次の月">›</button><button type="button" data-cal-move="0">今月</button></div>
+    return timelineTools(`<button type="button" data-cal-move="0">今月</button><button type="button" class="tl-step" data-cal-move="-1" aria-label="前の月" title="前の月">‹</button><button type="button" class="tl-step" data-cal-move="1" aria-label="次の月" title="次の月">›</button><strong class="tl-month">${y}年${m + 1}月</strong>`) + `
       <div class="cal"><div class="cal-head">${['月', '火', '水', '木', '金', '土', '日'].map((w, i) => `<div class="${i >= 5 ? 'off' : ''}">${w}</div>`).join('')}</div>${weeks.join('')}</div>
       <div class="tl-legend"><span><i class="tl-key bar"></i>開始予定〜終了予定</span><span><i class="tl-key due">◆</i>期限</span><span><i class="tl-key late"></i>終了予定を過ぎている</span>${undated ? `<span>予定（開始・終了）のないタスク ${undated} 件は、「横の帯」でドラッグして予定を付けられます</span>` : ''}</div>`;
   }
@@ -204,16 +217,20 @@
     const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${sprintTag(t)}${avatars(t)}</div>`;
     const items = next.result.map((x, i) => row(x.task, `<span class="tk-rank">${i + 1}</span>${x.reasons.map(r => `<span class="tk-reason">${esc(r)}</span>`).join('')}`));
     const late = overdue.ok ? overdue.result.overdue : [], soon = overdue.ok ? overdue.result.soon : [];
-    return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク<span class="tk-muted">着手できるタスクを、期限切れ・今のスプリント・優先度・期限の順に表示${mine ? '（自分の担当）' : '（担当者で「自分」を選ぶと自分の分だけ表示）'}</span></h3></div>
+    // The due-date lists only when they have something: otherwise one line says so.
+    const dueCard = (title, sub, ts) => ts.length ? `<section class="tk-card"><div class="tk-section-head"><h3>${title}<span class="tk-muted">${sub}</span></h3></div>${ts.map(t => row(t)).join('')}</section>` : '';
+    return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク${mine ? '<span class="tk-muted">自分の担当</span>' : ''}</h3></div>
+      <p class="tk-note tk-note-top">着手できるタスクを、期限切れ・今のスプリント・優先度・期限の順に並べています。${mine ? '' : '担当者で「自分」を選ぶと、自分の分だけになります。'}</p>
       ${items.length ? items.join('') : '<p class="tk-muted">着手できるタスクはありません。</p>'}</section>
-      <section class="tk-card"><div class="tk-section-head"><h3>期限切れ<span class="tk-muted">${late.length} 件</span></h3></div>${late.length ? late.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>
-      <section class="tk-card"><div class="tk-section-head"><h3>期限が近い<span class="tk-muted">7日以内</span></h3></div>${soon.length ? soon.map(t => row(t)).join('') : '<p class="tk-muted">ありません。</p>'}</section>`;
+      ${dueCard('期限切れ', `${late.length} 件`, late)}${dueCard('期限が近い', '7日以内', soon)}
+      ${overdue.ok && !late.length && !soon.length ? '<p class="tk-muted tk-next-none">期限切れ・期限が近い（7日以内）タスクはありません。</p>' : ''}`;
   }
   // スプリント: sprint status (counts, estimates, days left, carried over) for the chosen sprint (the current one first).
   function renderSprint() {
     if (!st.sprints.length) return '<p class="tk-empty">スプリントはまだありません。</p>';
     const name = st.sprintShown || currentSprint() || st.sprints[0].name, key = 'sprint:' + name;
-    const picker = `<div class="tk-sprint-pick"><label>スプリント <select id="tk-sprint-shown">${st.sprints.map(s => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.name)}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}</option>`).join('')}</select></label></div>`;
+    const select = `<label class="tk-sprint-pick">スプリント <select id="tk-sprint-shown">${st.sprints.map(s => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.name)}（${md(s.start)}〜${md(s.end)}）${s.name === currentSprint() ? ' ・今' : ''}</option>`).join('')}</select></label>`;
+    const picker = `<div class="tk-sprint-bar">${select}</div>`;   // while it is read; then it sits in the sprint's heading
     const data = st.extra[key];
     if (!data) { fetchExtra(key, () => extra(key, null, ['sprint', 'status', name])); return picker + ECO.loading('スプリントを確認しています…'); }
     if (!data.ok) return picker + `<div class="eco-banner bad">${esc(data.error.message)}</div>`;
@@ -222,11 +239,14 @@
     const stat = (label, value, cls = '') => `<div class="tk-pf-stat ${cls}"><b>${value}</b><span>${label}</span></div>`;
     const counts = STAGES.filter(([k]) => s.stages[k]).map(([k, ja, cls]) => `<span class="tk-stage ${cls}">${ja} ${s.stages[k]}</span>`).join('');
     const list = (title, xs) => xs.length ? `<p class="tk-note">${title}：${xs.map(numberOf).map(n => `<span class="tk-label" data-task="${n}" style="cursor:pointer">#${n} ${esc(byNumber(n)?.title || '')}</span>`).join('')}</p>` : '';
-    return picker + `<section class="tk-card"><div class="tk-section-head"><h3>${esc(s.sprint.name)}<span class="tk-muted">${md(s.sprint.start)}〜${md(s.sprint.end)}${s.current ? `・残り ${s.days_left} 日` : ''}</span></h3><div>${counts}</div></div>
-      <div class="tk-pf-stats">${stat('完了 / 全体', `${s.done} / ${s.total}`)}${stat('見積もりの残り', s.estimate_remaining)}${stat('見積もりの合計', s.estimate_total)}${stat('見積もりなし', s.unestimated.length, s.unestimated.length ? 'warn' : '')}</div>
+    // An empty sprint: no counts (all 0), only how to add tasks to it.
+    const numbers = s.total ? `<div class="tk-pf-stats">${stat('完了 / 全体', `${s.done} / ${s.total}`)}${stat('見積もりの残り', s.estimate_remaining)}${stat('見積もりの合計', s.estimate_total)}${stat('見積もりなし', s.unestimated.length, s.unestimated.length ? 'warn' : '')}</div>
       <div class="tk-progress" title="完了した見積もり ${s.estimate_done} / ${s.estimate_total}"><span style="width:${pct(s.estimate_done, s.estimate_total) || pct(s.done, s.total)}%"></span></div>
-      ${list('見積もりのないタスク', s.unestimated)}${list('前のスプリントからの持ち越し', s.carried_over)}</section>
-      ${tasks.length ? taskTable(tasks) : '<p class="tk-empty">このスプリントのタスクはありません。タスクの詳細または右クリックメニューからスプリントに追加できます（親タスクは数えません）。</p>'}`;
+      ${list('見積もりのないタスク', s.unestimated)}${list('前のスプリントからの持ち越し', s.carried_over)}`
+      : `<p class="tk-note">${tasks.length ? 'このスプリントに、数えるタスクはありません。親タスクは数えません。' : 'このスプリントのタスクはありません。タスクの詳細か右クリックメニューで、スプリントに入れられます。'}</p>`;
+    return `<section class="tk-card"><div class="tk-section-head"><h3>${esc(s.sprint.name)}<span class="tk-muted">${md(s.sprint.start)}〜${md(s.sprint.end)}${s.current ? `・残り ${s.days_left} 日` : ''}</span></h3>${select}</div>
+      ${counts ? `<div class="tk-stagekeys tk-sprint-stages">${counts}</div>` : ''}${numbers}</section>
+      ${tasks.length ? taskTable(tasks) : ''}`;
   }
   // One read of a view (index: its place among the reads of that view, or null when it is the only one).
   const extra = (key, index, args) => ECO.query(root(), args, doc => {
@@ -240,7 +260,7 @@
     job().then(result => { st.extra[key] = result; if (st.loaded) render(); }).catch(() => { delete st.extra[key]; });
   }
 
-  // 集計: the module's tasks at a glance. Every number is what an ecobuild command returns
+  // The summary: the module's tasks at a glance. Every number is what an ecobuild command returns
   // (sprint status, task workload, milestone status, task next, task overdue, task list --submitted／--to-review, task list --all); click to go deeper.
   function renderSummary() {
     const data = st.extra.summary;
@@ -261,7 +281,8 @@
     const finished = (ok(all) || []).filter(t => t.state !== 'open' && !deleted(t) && t.finished).sort((a, b) => b.finished.localeCompare(a.finished));
     const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
     const card = (title, body, {wide = false, go = '', sub = ''} = {}) => `<section class="tk-card tk-dash-card ${wide ? 'wide' : ''}"><div class="tk-section-head"><h3>${title}${sub ? `<span class="tk-muted">${sub}</span>` : ''}</h3>${go ? `<button type="button" class="tk-link" data-dash-go="${go}">開く ›</button>` : ''}</div>${body}</section>`;
-    const big = (label, value, {cls = '', go = ''} = {}) => `<button type="button" class="tk-dash-stat ${cls}" ${go ? `data-dash-go="${go}"` : 'disabled'}><b>${value}</b><span>${label}</span></button>`;
+    // A tile that opens a view looks pressable (›); the others are flat.
+    const big = (label, value, {cls = '', go = ''} = {}) => go ? `<button type="button" class="tk-dash-stat go ${cls}" data-dash-go="${go}"><b>${value}</b><span>${label}</span></button>` : `<div class="tk-dash-stat ${cls}"><b>${value}</b><span>${label}</span></div>`;
     const row = (t, extra = '') => `<div class="tk-next-row" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${extra}${prio(t)}${due(t)}${est(t)}${avatars(t)}</div>`;
     const none = text => `<p class="tk-muted">${text}</p>`;
     // The open tasks by stage, as one bar.
@@ -288,14 +309,18 @@
       ${card('期限', late.length || soon.length ? late.map(t => row(t, '<span class="tk-reason bad">期限切れ</span>')).join('') + soon.map(t => row(t, '<span class="tk-reason">7日以内</span>')).join('') : none('期限切れ・期限が近いタスクはありません。'), {go: 'next'})}
       ${card('マイルストーン', ms || none('開いているマイルストーンはありません。'))}
       ${card('担当者ごとの量', wl || none('開いているタスクはありません。'), {sub: '親タスクは数えません'})}
-      ${card('提出', (asked.length ? `<h4 class="tk-dash-h">見るように頼まれた提出</h4>${asked.map(prRow).join('')}` : '') + `<h4 class="tk-dash-h">提出中 ${openPrs.length}</h4>${openPrs.length ? openPrs.slice(0, 6).map(prRow).join('') : none('ありません。')}`)}
+      ${card('提出', (asked.length ? `<h4 class="tk-dash-h">見るように頼まれた提出</h4>${asked.map(prRow).join('')}` : '') + (openPrs.length ? `<h4 class="tk-dash-h">提出中 ${openPrs.length}</h4>${openPrs.slice(0, 6).map(prRow).join('')}` : none('提出中のタスクはありません。')))}
       ${card('最近完了したタスク', finished.length ? finished.slice(0, 6).map(t => row(t, `<span class="tk-muted">${md(t.finished)}</span>`)).join('') : none('まだありません。'))}
     </div>`;
   }
 
   const VIEWS = {summary: renderSummary, next: renderNext, list: renderList, stages: renderStages, timeline: renderTimeline, sprint: renderSprint};
+  // The filters that apply to each view: スプリント and the summary read their own totals (none apply); 次にやる is
+  // ecobuild's order, narrowed only by 担当者「自分」. What does not apply is not shown.
+  const NO_FILTER = ['summary', 'sprint'];
   function render() {
     for (const b of document.querySelectorAll('.tk-views [data-view]')) b.setAttribute('aria-selected', String(b.dataset.view === st.view));
+    tkEl('tk-filter').hidden = NO_FILTER.includes(st.view); tkEl('tk-filter').dataset.view = st.view;
     if (st.loaded) tkEl('tk-main').innerHTML = VIEWS[st.view]();
     if (st.view === 'timeline' && timelineMode === 'bars') scrollToToday();
     tkEl('tk-detail').hidden = !st.selected; document.querySelector('.tk-body').classList.toggle('no-detail', !st.selected);
@@ -336,16 +361,9 @@
     <div class="tk-d-actions">${primary}${open ? (hasWorkspace || d.remote
         ? '<button type="button" data-tk="complete" title="タスクを完了にします。出している提出・まだ取り込んでいない変更があれば取り込んでから閉じ、タスクブランチを片付けます（作業をやめるなら ⋯ の「作業を捨てる」）">完了にする</button>'
         : '<button type="button" data-tk="complete" title="タスクを完了にします（コードを変えないタスクなど）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
-      <details class="tk-menu"><summary aria-label="その他の操作">⋯</summary><div>
-        ${open && !hasWorkspace && !d.remote ? '<button type="button" data-tk="start">作業を開始…</button>' : ''}
-        ${hasWorkspace ? '<button type="button" data-tk="remove" title="このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。">このPCから片付ける</button>' : ''}
-        ${open && pr?.state === 'open' ? '<button type="button" data-tk="withdraw">提出を取り下げる</button>' : ''}
-        ${!open && pr?.state === 'merged' ? '<button type="button" data-tk="revert">取り込みを取り消す…</button>' : ''}
-        ${hasWorkspace || d.remote ? '<button type="button" class="danger-text" data-tk="drop" title="作業を取り込まずに捨てます。タスクブランチと提出はこのPCとGitHubから消え、タスクは未着手に戻ります。">作業を捨てる</button>' : ''}
-        <button type="button" data-tk="github">GitHubで開く</button>
-        ${open ? '<button type="button" class="danger-text" data-tk="delete" title="タスクを削除します（あとで元に戻せます）">削除…</button>' : ''}</div></details></div>
-    <section class="tk-d-section"><p class="tk-d-body">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</p></section>
-    <section class="tk-d-section"><h4>担当</h4><dl class="tk-kv">
+      <details class="tk-menu"><summary aria-label="その他の操作" title="その他の操作">⋯</summary><div>${detailMenu(n, {open, hasWorkspace, remote: d.remote, pr})}</div></details></div>
+    <section class="tk-d-section"><div class="tk-d-body ${st.bodyOpen === n ? 'open' : ''}">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</div><button type="button" class="tk-link tk-d-more" data-body-more hidden>${st.bodyOpen === n ? '折りたたむ' : 'すべて表示'}</button></section>
+    <section class="tk-d-section"><h4>担当・ラベル</h4><dl class="tk-kv">
       <dt>担当者</dt><dd class="tk-chips">${d.assignees.map(a => `<span class="tk-chip"><button type="button" class="tk-person-name" data-person="${esc(a)}" title="${esc(a)} の画面">${esc(a)}${a === me() ? '（自分）' : ''}</button><button type="button" class="x" data-remove-assignee="${esc(a)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-assignee" title="担当者を追加">＋</button></dd>
       <dt>ラベル</dt><dd class="tk-chips">${d.labels.map(l => `<span class="tk-chip">${esc(l)}<button type="button" class="x" data-remove-label="${esc(l)}" title="外す">×</button></span>`).join('')}<button type="button" class="tk-add" data-tk="add-label" title="ラベルを付ける">＋</button></dd>
     </dl></section>
@@ -353,12 +371,12 @@
       <dt>優先度</dt><dd><select data-plan="priority" ${dis}><option value="">なし</option>${PRIORITIES.map(p => `<option ${p === t.priority ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></dd>
       <dt>見積もり</dt><dd><input type="number" min="0" step="0.5" data-plan="estimate" value="${t.estimate ?? ''}" placeholder="なし" ${dis}></dd>
       <dt>スプリント</dt><dd><select data-plan="sprint" ${dis}>${sprintOptions(sprintName(t)).map(([v, l]) => `<option value="${esc(v)}" ${v === sprintName(t) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></dd>
-      <dt>マイルストーン</dt><dd><select data-milestone><option value="">なし</option>${st.milestones.map(m => `<option ${m.title === d.milestone ? 'selected' : ''}>${esc(m.title)}</option>`).join('')}${d.milestone && !st.milestones.some(m => m.title === d.milestone) ? `<option selected>${esc(d.milestone)}</option>` : ''}</select></dd>
+      <dt>マイルストーン</dt><dd><select data-milestone ${dis}><option value="">なし</option>${st.milestones.map(m => `<option ${m.title === d.milestone ? 'selected' : ''}>${esc(m.title)}</option>`).join('')}${d.milestone && !st.milestones.some(m => m.title === d.milestone) ? `<option selected>${esc(d.milestone)}</option>` : ''}</select></dd>
     </dl></section>
     <section class="tk-d-section"><h4>日程</h4><dl class="tk-kv tk-controls">
-      <dt>開始予定</dt><dd><input type="date" data-plan="planned_start" value="${esc(t.planned_start || '')}" ${dis}></dd>
-      <dt>終了予定</dt><dd><input type="date" data-plan="planned_end" value="${esc(t.planned_end || '')}" ${dis}></dd>
-      <dt>期限</dt><dd><input type="date" data-plan="due" value="${esc(t.due || '')}" ${dis}></dd>
+      <dt>開始予定</dt><dd>${dateInput('planned_start', t.planned_start, dis)}</dd>
+      <dt>終了予定</dt><dd>${dateInput('planned_end', t.planned_end, dis)}</dd>
+      <dt>期限</dt><dd>${dateInput('due', t.due, dis)}</dd>
       <dt>日付</dt><dd class="tk-muted">追加 ${esc(t.created || '-')}${t.started ? ' · 開始 ' + esc(t.started) : ''}${t.finished ? ' · 終了 ' + esc(t.finished) : ''}</dd>
     </dl></section>
     ${relations.length ? `<section class="tk-d-section"><h4>つながり</h4><dl class="tk-kv">${relations.map(([label, xs]) => `<dt>${label}</dt><dd>${xs.map(rel).join('')}</dd>`).join('')}</dl></section>` : ''}
@@ -368,6 +386,27 @@
     </dl>${open ? submissionButtons(n, pr, hasWorkspace) : ''}</section>
     <section class="tk-d-section"><h4>コメント ${d.comments.length}</h4>${d.comments.map(c => `<article class="tk-comment"><header>${esc(c.author)}</header><p>${esc(c.body)}</p></article>`).join('')}
       <div class="tk-comment-box"><textarea id="tk-comment-text" placeholder="コメントを書く（作業の記録・申し送り）" aria-label="コメント"></textarea><div><button type="button" data-tk="comment">コメント</button></div></div></section>`;
+    // A long body is folded (BODY_FOLD px, as in tasks.css) so the plan and dates stay in sight.
+    const body = tkEl('tk-detail').querySelector('.tk-d-body'), more = tkEl('tk-detail').querySelector('[data-body-more]');
+    if (body && more) more.hidden = body.scrollHeight <= BODY_FOLD + 4;
+  }
+  const BODY_FOLD = 220;
+  const dateInput = (key, value, dis) => `<input type="date" data-plan="${key}" value="${esc(value || '')}" class="${value ? '' : 'empty'}" ${dis}>`;
+  // The ⋯ menu of the detail: plain things first, then the separated ones that throw something away (red, at the bottom).
+  // Every item that opens a dialog ends with 「…」.
+  function detailMenu(n, {open, hasWorkspace, remote, pr}) {
+    const item = (action, label, {danger = false, title = '', off = ''} = {}) => `<button type="button" ${danger ? 'class="danger-text"' : ''} data-tk="${action}"${title || off ? ` title="${esc(off || title)}"` : ''}${off ? ' disabled' : ''}>${label}</button>`;
+    // Someone else's submission: approving is the button; taking it in without approving and withdrawing it are here.
+    const d = st.details.get(n), others = open && pr?.state === 'open' && !ownSubmission(d);
+    const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
+    const groups = [
+      [item('github', 'GitHubで開く'), !open && pr?.state === 'merged' ? item('revert', '取り込みを取り消す…') : '',
+        others && !pr.draft ? item('finish', '承認せずに取り込む…', {title: ECO.submissionHelp.finish, off: why}) : '', others ? item('withdraw', '提出を取り下げる…', {title: ECO.submissionHelp.withdraw}) : ''],
+      [hasWorkspace ? item('remove', 'このPCから片付ける…', {title: 'このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。'}) : ''],
+      [hasWorkspace || remote ? item('drop', '作業を捨てる…', {danger: true, title: '作業を取り込まずに捨てます。タスクブランチと提出はこのPCとGitHubから消え、タスクは未着手に戻ります。'}) : '',
+        open ? item('delete', '削除…', {danger: true, title: 'タスクを削除します（あとで元に戻せます）'}) : ''],
+    ].map(g => g.join('')).filter(Boolean);
+    return groups.join('<hr>');
   }
 
   // How a submission reads (PullRequestState). After a partial submission was taken in, the task has none open.
@@ -378,15 +417,20 @@
     if (pr.state === 'closed') return `<span class="tk-muted">${kind}は取り下げ済み</span>`;
     return `${pr.draft ? '下書きの' : ''}${kind}中`;
   }
-  // Taking in, approving and sending back are for whoever made the branch it goes into, and admins: grey for the others.
+  // The same buttons as a submission on the page ブランチ: looking (差分) on the left, what to do on the right, the main one
+  // last. One's own is withdrawn or taken in; someone else's is checked here, sent back or approved. Taking in, approving
+  // and sending back are for whoever made the branch it goes into, and admins: grey for the others, with the reason.
   function submissionButtons(n, pr, hasWorkspace) {
-    const submitted = pr?.state === 'open', d = st.details.get(n), mine = d?.assignees?.includes(me());
+    const submitted = pr?.state === 'open', d = st.details.get(n), draft = submitted && pr.draft;
     const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
-    const buttons = [];
-    if (submitted) buttons.push(['diff', '差分'], ...(pr.draft ? [] : [['finish', '取り込む', 'primary', why]]), ...(mine ? [] : [['review', '手元で確認'], ['approve', '承認して取り込む', '', why], ['reject', '差し戻す', '', why]]));
-    else if (hasWorkspace) buttons.push(['diff', '差分']);
-    return buttons.length ? `<div class="tk-d-actions">${buttons.map(([a, l, c, off]) => `<button type="button" ${c ? `class="${c}"` : ''} data-tk="${a}"${off ? ` disabled title="${esc(off)}"` : ''}>${l}</button>`).join('')}</div>` : '';
+    const button = (action, label, {cls = '', off = '', help = action} = {}) => `<button type="button" ${cls ? `class="${cls}"` : ''} data-tk="${action}" title="${esc((ECO.submissionHelp[help] || '') + (off ? `\n（${off}）` : ''))}"${off ? ' disabled' : ''}>${label}</button>`;
+    const act = !submitted ? []
+      : ownSubmission(d) ? [button('withdraw', '提出を取り下げる', {cls: 'tk-quiet-danger'}), button('finish', '取り込む', {cls: 'primary', off: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why})]
+      : [button('review', '手元で確認', {help: 'local-review'}), button('reject', '差し戻す', {off: why}), button('approve', '承認して取り込む', {cls: 'primary', off: draft ? '下書きの提出は承認できません' : why})];
+    if (!submitted && !hasWorkspace) return '';
+    return `<div class="tk-sub-actions"><div>${button('diff', '差分')}</div><div>${act.join('')}</div></div>`;
   }
+  const ownSubmission = d => !!me() && !!d?.assignees?.includes(me());
   const submissionPill = state => state ? `<span class="tk-pill">${state.draft ? '下書き' : state.partial ? '中間提出' : '提出中'}</span>` : '';
 
   // Operations ------------------------------------------------------------------------------------
@@ -476,8 +520,11 @@
       {name: 'title', label: '題名', required: true, placeholder: '何をするか'},
       {name: 'body', label: '本文', type: 'textarea', rows: 3, placeholder: '背景・完了の条件など（任意）'},
       {name: 'stage', label: '段階', type: 'radio', inline: true, value: preset.stage || 'todo', showIf: v => !v.start, options: [['todo', '未着手', 'すぐに着手できる'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
-      {name: 'assignees', label: '担当者', type: 'checks', value: preset.assignees || [], options: memberOptions(people), more: moreMembers(), empty: 'まだ候補がありません（下の欄に入力できます）'},
-      {name: 'otherAssignees', label: '候補にいない担当者', placeholder: 'GitHubのアカウント（カンマ区切り。任意）'},
+      {name: 'assignees', label: '担当者', type: 'checks', value: preset.assignees || [], options: memberOptions(people), more: moreMembers(), empty: 'まだ候補がありません（下の「候補にいない担当者」で入力できます）'},
+      // Seldom needed: folded under the choices.
+      {type: 'section', label: '＋ 候補にいない担当者', collapsed: true},
+      {name: 'otherAssignees', label: 'GitHubのアカウント', placeholder: 'カンマ区切り（任意）'},
+      {type: 'section', end: true},
       {type: 'section', label: '計画', note: '任意。あとから詳細で変えられます'},
       {name: 'priority', label: '優先度', type: 'select', row: 'plan', value: preset.priority || '', options: [['', 'なし'], ...PRIORITIES.map(p => [p, p])]},
       {name: 'estimate', label: '見積もり', type: 'number', row: 'plan', placeholder: '数値'},
@@ -492,6 +539,7 @@
       {name: 'start', label: '作成したら、作業空間を作って作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'},
       {name: 'branchName', label: 'タスクブランチの名前', required: true, showIf: v => v.start,
         help: 'task/〈番号〉-〈名前〉のブランチになります（既定は題名）。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。'}], ok: '作成',
+      extra: '<span class="tk-new-task-form" hidden></span>',   // marks this dialog for tasks.css (its buttons stay in sight)
       // The branch name follows the title until it is changed by hand.
       onChange: (v, formEl) => {
         const field = formEl.elements.branchName; if (!field) return;
@@ -520,10 +568,11 @@
     const current = d.parent?.number || 0;
     await ECO.form({title: `タスク #${n} を編集`, busy: `#${n} を保存しています…`, fields: [
       {name: 'title', label: '題名', value: d.title, required: true}, {name: 'body', label: '本文', type: 'textarea', value: d.body, rows: 6},
-      {type: 'section', label: 'つながり'},
+      {type: 'section', label: 'つながり', note: '任意'},
       {name: 'parent', label: '親タスク', type: 'select', value: current ? String(current) : '', options: parentOptions(n, current)},
       {name: 'addBlocked', label: '先に終わるべきタスクを追加', row: 'blocked', placeholder: '番号（カンマ区切り）'},
-      {name: 'removeBlocked', label: '先に終わるべきタスクから外す', row: 'blocked', placeholder: d.blocked_by.map(b => b.number).join(',') || '番号（カンマ区切り）'}], ok: '保存',
+      {name: 'removeBlocked', label: '先に終わるべきタスクから外す', row: 'blocked', placeholder: '番号（カンマ区切り）',
+        help: d.blocked_by.length ? '今：' + d.blocked_by.map(b => '#' + b.number).join('、') : '今はありません。'}], ok: '保存',
       submit: async v => {
         const args = ['task', 'edit', String(n)], parent = Number(v.parent) || 0;
         if (v.title !== d.title) args.push('--title', v.title);
@@ -571,8 +620,10 @@
   }
   async function deleteDialog(n) {
     const t = byNumber(n) || st.details.get(n) || {}, branch = hasTaskBranch(n);
-    if (!await ECO.confirm({title: `#${n} を削除`, message: `「${t.title || ''}」を削除します。あとで「元に戻す」で戻せます。`
-      + (branch ? '\n\nこのタスクの作業（タスクブランチと提出）は、このPCとGitHubから消えます。作業は戻せません。' : ''), ok: '削除', danger: true})) return;
+    // What cannot be undone stands out as a warning (as GitHub's danger zone).
+    if (!await ECO.dialog({title: `#${n} を削除`, body: `<p class="eco-message">「${esc(t.title || '')}」を削除します。タスクは、あとで「元に戻す」で戻せます。</p>`
+      + (branch ? '<div class="eco-banner bad">このタスクの作業（タスクブランチと提出）は、このPCとGitHubから消えます。作業は戻せません。</div>' : ''),
+      buttons: [['キャンセル', '', false], ['削除', 'danger', true]]})) return;
     const place = placeFor(n);
     if (await run(['task', 'close', String(n), '--not-planned', '--yes'], {dir: place, success: `#${n} を削除しました。`})) { if (branch) await MOD.reloadPlace(place); reloadAfter(n); }
   }
@@ -652,7 +703,8 @@
     const [workload, prs, reviews] = await Promise.all([ECO.query(root(), ['task', 'workload']), ECO.query(root(), ['task', 'list', '--submitted']), who === me() ? ECO.query(root(), ['task', 'list', '--to-review']) : null]);
     if (st.person !== who) return;
     const w = workload.ok ? workload.result.find(x => x.assignee === who) : null;
-    const ts = st.tasks.filter(t => t.state === 'open' && t.assignees.includes(who)), doing = ts.filter(t => ['in_progress', 'in_review'].includes(stageOf(t)));
+    // 作業中 counts and lists the same tasks as task workload: not the parents (their children are counted).
+    const ts = st.tasks.filter(t => t.state === 'open' && t.assignees.includes(who)), doing = ts.filter(t => !t.subtasks && ['in_progress', 'in_review'].includes(stageOf(t)));
     const own = prs.ok ? prs.result.filter(t => t.assignees.includes(who)) : [], asked = reviews?.ok ? reviews.result : [];
     const stat = (label, value, cls = '') => `<div class="tk-pf-stat ${cls}"><b>${value}</b><span>${label}</span></div>`;
     const taskRow = t => `<div class="tk-row" data-task="${t.number}"><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${stageBadge(t)}${due(t)}</div>`;
@@ -660,33 +712,42 @@
     const section = (title, html, extra = '') => `<section class="tk-pf-section ${extra}"><h4>${title}</h4>${html || '<p class="tk-muted">ありません</p>'}</section>`;
     body.innerHTML = `<div class="tk-pf"><header class="tk-pf-head">${avatarMark(who)}<div><div class="tk-pf-name">${esc(who)}${who === me() ? '<span class="tk-pill ok">自分</span>' : ''}</div><div class="tk-muted">GitHub アカウント</div></div>
       <button type="button" class="tk-d-close" data-close-person title="閉じる" aria-label="閉じる">×</button></header>
-      <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中', w ? w.in_progress : doing.length)}${stat('残りの見積もり', w ? w.estimate_remaining : '-')}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('提出中', own.length)}</div>
+      <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中（親を除く）', w ? w.in_progress : doing.length)}${stat('残りの見積もり', w ? w.estimate_remaining : '-')}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('提出中', own.length)}</div>
       <div class="tk-pf-grid">${section('作業中', doing.map(taskRow).join(''))}${section('提出', own.map(prRow).join(''))}${who === me() ? section('見るように頼まれた提出', asked.map(prRow).join('')) : ''}
       ${section('担当タスク', ts.length ? taskTable(ts, false) : '', 'wide')}</div></div>`;
   }
 
   // Right-click menu on a task (list rows, stage cards, timeline, relations, the account popup) --------------
   async function detailOf(n) { if (!st.details.has(n) || st.details.get(n).error) await loadDetail(n); return st.details.get(n); }
+  // No separator twice in a row or at the end (groups that came out empty).
+  const tidyMenu = items => items.filter((x, i, all) => x !== '-' || (i > 0 && all[i - 1] !== '-' && i < all.length - 1));
   function taskMenu(n, x, y) {
     const t = byNumber(n); if (!t) return;
     const open = t.state === 'open', hasWorkspace = !!MOD.placeOfTask(n) || t.task_branch || t.current, mine = me() && t.assignees.includes(me());
-    ECO.menu([
+    ECO.menu(tidyMenu([
       ['詳細を見る', () => select(n)],
       ...(open ? [hasWorkspace ? ['タスクブランチを開く', () => MOD.openWorkspace(n)] : [t.remote ? '作業を再開…' : '作業を開始…', async () => { await detailOf(n); startDialog(n); }]] : []),
       '-',
       ['担当者を追加…', async () => { await detailOf(n); addAssigneeDialog(n); }],
       ...(me() ? [mine ? ['自分を担当から外す', () => editList(n, '--remove-assignee', '@me', '担当から外れました。')] : ['自分を担当にする', () => editList(n, '--add-assignee', '@me', '担当にしました。')]] : []),
-      ...(open ? PRIORITIES.map(p => [`優先度：${p}${t.priority === p ? '（今）' : ''}`, () => plan(n, 'priority', p), t.priority !== p]).concat(t.priority ? [['優先度を消す', () => plan(n, 'priority', '')]] : []) : []),
+      // The priority as a group under a heading, the current one marked (as VS Code and Linear).
+      ...(open ? ['-', ['優先度', null], ...PRIORITIES.map(p => [`${t.priority === p ? '✓ ' : '　 '}${p}`, () => plan(n, 'priority', p), t.priority !== p]),
+        ...(t.priority ? [['　 優先度を消す', () => plan(n, 'priority', '')]] : [])] : []),
       ...(open ? ['-', ...(currentSprint() ? [[`今のスプリント（${currentSprint()}）に入れる`, () => plan(n, 'sprint', currentSprint()), sprintName(t) !== currentSprint()]] : []), ...(sprintName(t) ? [['スプリントから外す', () => plan(n, 'sprint', '')]] : [])] : []),
       ...(open && !hasWorkspace && !t.remote && ['planned', 'todo'].includes(stageOf(t)) ? [stageOf(t) === 'planned' ? ['未着手にする', () => setStage(n, 'todo')] : ['計画中に戻す', () => setStage(n, 'planned')]] : []),
       '-',
       ['子タスクを作る…', () => newTaskDialog({parent: n}), open],
       ['編集…', async () => { await detailOf(n); select(n); editDialog(n); }],
-      open ? ['閉じる…', () => closeDialog(n)] : ['開き直す', async () => { if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); }],
-      ...(hasWorkspace || t.remote ? ['-', ...(hasWorkspace ? [['このPCから片付ける（GitHubには残す）…', () => removeWorkspace(n)]] : []), ['作業を捨てる（GitHubからも消す）…', () => dropDialog(n)]] : []),
-      '-',
+      // The same words and dialogs as the detail's buttons.
+      open ? ['完了にする…', async () => { await detailOf(n); completeDialog(n); }]
+        : [deleted(t) ? '元に戻す' : '開き直す', async () => { if (await run(['task', 'reopen', String(n)], {success: `#${n} を開き直しました。`})) reloadAfter(n); }],
       ['GitHubで開く', () => window.open(t.url, '_blank', 'noopener')],
-    ], x, y);
+      // What throws something away, apart at the bottom.
+      ...(hasWorkspace ? ['-', ['このPCから片付ける（GitHubには残す）…', () => removeWorkspace(n)]] : []),
+      ...(hasWorkspace || t.remote || open ? ['-'] : []),
+      ...(hasWorkspace || t.remote ? [['作業を捨てる（GitHubからも消す）…', () => dropDialog(n), true, '', {danger: true}]] : []),
+      ...(open ? [['削除…', () => deleteDialog(n), true, '', {danger: true}]] : []),
+    ]), x, y);
   }
   document.addEventListener('contextmenu', e => {
     const target = e.target.closest('#tasks-content [data-task], #tk-person-dialog [data-task]');
@@ -850,8 +911,16 @@
     const picked = e.target.closest('#tk-person-dialog [data-task]');
     if (picked && !e.target.closest('button')) { if (picked.dataset.task) { tkEl('tk-person-dialog').close(); select(Number(picked.dataset.task)); } return; }
     if (e.target.closest('[data-close-detail]')) { st.selected = 0; render(); return; }
+    if (e.target.closest('[data-body-more]')) { st.bodyOpen = st.bodyOpen === st.selected ? 0 : st.selected; renderDetail(); return; }
     const task = e.target.closest('#tasks-content [data-task]');
     if (task && !e.target.closest('button, select, input, textarea')) select(Number(task.dataset.task));
+  });
+  // Enter / Space on a focused row or card opens it (the focus stays on it after the screen is drawn again).
+  document.addEventListener('keydown', e => {
+    if (!['Enter', ' '].includes(e.key)) return;
+    const task = e.target.closest?.('#tasks-content [data-task][tabindex]'); if (!task || task !== e.target) return;
+    e.preventDefault(); const n = Number(task.dataset.task); select(n);
+    tkEl('tk-main').querySelector(`[data-task="${n}"][tabindex]`)?.focus();
   });
   document.addEventListener('change', e => {
     if (e.target.id === 'tk-sprint-shown') { st.sprintShown = e.target.value; render(); return; }

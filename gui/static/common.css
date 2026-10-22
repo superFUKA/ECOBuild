@@ -182,3 +182,5 @@ body:has(.eco-running > div) .eco-refreshing { bottom: 56px; }
 .eco-dialog details.eco-section > summary::before { content: '▸'; color: #9ee4d3; }
 .eco-dialog details.eco-section[open] > summary::before { content: '▾'; }
 .eco-dialog details.eco-section[open] > summary { margin-bottom: 6px; }
+/* A long form: its buttons stay at the bottom of the dialog (they do not scroll away). */
+.eco-dialog .eco-actions { position: sticky; bottom: -24px; z-index: 2; margin-bottom: -24px; padding-bottom: 24px; background: #1c2128; }

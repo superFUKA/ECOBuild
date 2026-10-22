@@ -34,7 +34,7 @@ function renderPrDetail() {
   tools.replaceChildren();
   // The commits going into the submission (not in the base yet), like the counts of the other tabs.
   WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr ? t.commits?.length || 0 : 0);
-  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は「提出」で見られます。</p>'; return; }
+  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は、モジュールの「ブランチ」で見られます。</p>'; return; }
   if (!t || t.number !== selectedPr) return;
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;
   const s = WS.status || {}, reviewing = !!s.reviewing && s.reviewing_task === t.number, own = me ? t.assignees.includes(me) : !reviewing;
@@ -48,7 +48,7 @@ function renderPrDetail() {
   title.innerHTML = `<strong title="${esc(t.title)}">#${t.number} ${esc(t.title)}</strong><span class="pr-state ${state}">${esc(ECO.submissionText(sub))}</span>`;
   const a = t.activity || {checks: [], mergeable: ''};
   const mergeable = open ? {MERGEABLE: '取り込めます', CONFLICTING: '衝突があります（タスクブランチで最新を取り込んで解決してください）', UNKNOWN: '取り込めるか確認中'}[a.mergeable] || a.mergeable : '';
-  meta.innerHTML = [`task/${t.number}${t.base ? ` → ${esc(t.base)}` : ''}`, `担当 ${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}`,
+  meta.innerHTML = [`${esc(t.branch || 'task/' + t.number)}${t.base ? ` → ${esc(t.base)}` : ''}`, `担当 ${esc(t.assignees.join(', ') || 'なし')}${own ? '（自分）' : ''}`,
     `CI ${a.checks.length ? a.checks.map(c => `${esc(c.name)} ${ECO.checkMark(c)}`).join('、') : 'なし'}`, ...(mergeable ? [esc(mergeable)] : [])].join('<span class="sep">·</span>');
   look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
   if (reviewing) {
@@ -58,7 +58,7 @@ function renderPrDetail() {
   } else {
     // Only submitting here: whether the task is closed when it is taken in is chosen in the dialog. Taking it in is
     // the reviewer's (or the module's ブランチ・task management), and completing a task is in task management.
-    if (open) act.append(prButton('withdraw', '取り下げ', {kind: 'quiet-danger'}));
+    if (open) act.append(prButton('withdraw', '提出を取り下げる', {kind: 'danger-text'}));
     if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
     act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
   }

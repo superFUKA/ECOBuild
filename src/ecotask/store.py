@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import datetime as _datetime
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -208,13 +209,29 @@ class TaskStore:
 
     def tasks(self, *, closed: bool = False) -> list[_model.Task]:
         """タスクの一覧（番号の順）。closed なら閉じたものも。"""
-        board_id = None if self.board is None else self.info().id
-        records = self.github.task_records(self.root, closed=closed, board_id=board_id)
+        if self._found:
+            board_id = None if self.board is None else self.info().id
+            records = self.github.task_records(self.root, closed=closed, board_id=board_id)
+        else:
+            # ボードを探すのと並べて、すべてのボードの値ごと読む（探してから読むと、待つのが2段になる）
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                finding = pool.submit(lambda: self.board)
+                records = self.github.task_records(self.root, closed=closed, board_id=None, every_board=True)
+                finding.result()
+            board_id = None if self.board is None else self.info().id
+            records = [replace(r, item=next((item for board, item in r.items if board == board_id), None))
+                       for r in records]
         return sorted((self._task(r) for r in records), key=lambda t: t.number)
 
     def task(self, number: int) -> _model.Task:
         board_id = None if self.board is None else self.info().id
         return self._task(self.github.task_records(self.root, closed=True, board_id=board_id, number=number)[0])
+
+    def task_of(self, details: _github.IssueDetails) -> _model.Task:
+        """1回で読んだ詳細（issue_details）のタスク。ボードの値は使うボードのもの。"""
+        board_id = None if self.board is None else self.info().id
+        item = next((item for board, item in details.items if board == board_id), None)
+        return self._task(replace(details.record, item=item))
 
     def _task(self, record: _github.TaskRecord) -> _model.Task:
         issue, r = record.issue, record.relations

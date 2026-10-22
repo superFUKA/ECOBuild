@@ -14,7 +14,7 @@ from typing import Protocol
 from ecotask import process as _process
 from ecotask.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, TaskGitHub, gh_error, not_found,
                             number_from_url)
-from ecotask.github import GhCli as _TaskGhCli
+from ecotask.github import GhCli as _TaskGhCli, reusable
 from ecotask.board import description as board_description  # ボードの説明（どのリポジトリのものか。削除の前に書く）
 
 from .errors import ErrorCode, WorkError
@@ -419,6 +419,7 @@ class GhCli(_TaskGhCli):
     def set_pull_request_draft(self, repo, number, draft):
         self._gh(["pr", "ready", str(number)] + (["--undo"] if draft else []), cwd=repo)
 
+    @reusable
     def get_pull_request(self, repo, number):
         completed = self._gh(["pr", "view", str(number), "--json", _PR_FIELDS], cwd=repo, check=False)
         if not completed.ok:
@@ -428,6 +429,7 @@ class GhCli(_TaskGhCli):
                                 details=completed.output)
         return _pull_request(json.loads(completed.stdout))
 
+    @reusable
     def pull_requests_for_branch(self, repo, head):
         data = self._json(["pr", "list", "--head", head, "--state", "all", "--json", _PR_FIELDS], cwd=repo)
         return [_pull_request(item) for item in data]

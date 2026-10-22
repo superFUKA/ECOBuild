@@ -13,7 +13,7 @@ from ecotask import board as _board
 from . import git as _git
 from . import model as wm
 from .errors import ErrorCode, WorkError
-from ._shared import _PR_IN_SUBJECT
+from ._shared import _PR_IN_SUBJECT, reusing_reads
 
 
 class Completion:
@@ -68,6 +68,7 @@ class Completion:
         result = self.finish(number, **finish_options)
         return replace(result, approved=True, returned_to=returned)
 
+    @reusing_reads
     def finish(self, number: int | None = None, *, wait: bool = True, ignore_checks: bool = False,
                subject: str | None = None, partial: bool | None = None, timeout: float = 1800,
                sleep: Callable[[float], None] = time.sleep,

@@ -381,17 +381,14 @@ class Tracker:
         def refs(infos):
             return tuple(TaskRef._from(i) for i in sorted(infos, key=lambda i: i.number))
 
-        # 1つずつ聞くと数秒かかるので、互いに関係ない問い合わせは並べて待つ
-        with ThreadPoolExecutor(max_workers=5) as pool:
-            issue = pool.submit(self.issue, number)
-            comments = pool.submit(self.github.issue_comments, self.root, number)
-            subtasks = pool.submit(self.github.sub_issues, self.root, number)
-            blocked_by = pool.submit(self.github.blocked_by, self.root, number)
-            blocking = pool.submit(self.github.blocking, self.root, number)
-            task = self.store.task(number)
-            parent = None if task.parent is None else TaskRef._from(self.issue(task.parent))
-            return TaskDetails(task, issue.result().body, tuple(comments.result()), parent, refs(subtasks.result()),
-                               refs(blocked_by.result()), refs(blocking.result()))
+        # 詳細は1回で読み、その間にボード（計画の値の置き場所）を探す
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            finding = pool.submit(lambda: self.store.board)
+            details = self.github.issue_details(self.root, number)
+            finding.result()
+        return TaskDetails(self.store.task_of(details), details.record.issue.body, details.comments,
+                           None if details.parent is None else TaskRef._from(details.parent),
+                           refs(details.sub_issues), refs(details.blocked_by), refs(details.blocking))
 
     def next_tasks(self, *, assignee: str | None = None, exclude: set[int] = frozenset(),
                    today: _datetime.date | None = None) -> list[_planning.NextTask]:

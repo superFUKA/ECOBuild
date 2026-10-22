@@ -401,16 +401,17 @@ class Module:
         return tuple(replace(e, remote=states[e.repository.casefold()][0], moved_to=states[e.repository.casefold()][1])
                      if e.repository else e for e in entries)
 
-    def own_workspaces(self) -> tuple[WorkspaceEntry, ...]:
-        """このPCにある、このモジュール（同じリポジトリ）の作業空間（記録したもの。ここも含む）。"""
+    def own_workspaces(self, *, locks: bool = True) -> tuple[WorkspaceEntry, ...]:
+        """このPCにある、このモジュール（同じリポジトリ）の作業空間（記録したもの。ここも含む）。
+        locks=False：ロックの様子を読まない（workspaces.entries）。"""
         mine = _workspaces.identity(self.remote_url)
         if mine is None:
-            return tuple(e for e in _workspaces.entries() if _workspaces.same(e.path, self.root))
-        return tuple(e for e in _workspaces.entries() if e.exists and _workspaces.identity(e.url) == mine)
+            return tuple(e for e in _workspaces.entries(locks=locks) if _workspaces.same(e.path, self.root))
+        return tuple(e for e in _workspaces.entries(locks=locks) if e.exists and _workspaces.identity(e.url) == mine)
 
     def _task_workspaces(self) -> dict[int, Path]:
         """タスクブランチ（task/<番号>）がある、このモジュールの作業空間（このPCの、記録したもの）。"""
-        return {e.task: e.path for e in self.own_workspaces() if e.task is not None}
+        return {e.task: e.path for e in self.own_workspaces(locks=False) if e.task is not None}
 
     def info(self) -> ModuleInfo:
         """このモジュールの情報。GitHubに問い合わせられなければ、公開・アーカイブは分からない（None）。"""

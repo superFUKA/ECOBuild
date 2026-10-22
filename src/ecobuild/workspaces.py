@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from . import config as _config
 from . import locks as _locks
+from . import settings as _settings
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import locked
 
@@ -66,10 +67,10 @@ def recorded() -> list[Recorded]:
 
 
 def record(root: Path) -> bool:
-    """root（モジュールのclone）を作業空間として記録する。他のモジュールの中にあるもの（依存先のclone 等）は
-    記録しない。記録を変えたら True。"""
+    """root（モジュールのclone）を作業空間として記録する。他のモジュールの中にあるもの（依存先のclone 等）と、
+    ECOBuild が自分で持つもの（ECOBUILD_HOME の中：モジュールの進行役の作業空間 等）は記録しない。記録を変えたら True。"""
     root = Path(root).resolve()
-    if nested(root):
+    if nested(root) or own(root):
         return False
     if any(same(item.path, root) for item in recorded()):
         return False
@@ -125,6 +126,14 @@ def inside(root: Path) -> list[Path]:
     return found
 
 
+def own(root: Path) -> bool:
+    """ECOBuild が自分で持つ作業空間か（ECOBUILD_HOME の中。人の作業空間の一覧・GUI に出さない）。"""
+    try:
+        return Path(root).resolve().is_relative_to(_settings.home().resolve())
+    except OSError:
+        return False
+
+
 def nested(root: Path) -> bool:
     """他のモジュールの中にある（依存先のclone 等）。ただし、そのモジュールの .ecobuild/ の中（ECOBuild の置き場所。
     進行役の作業空間の中に作る作業役の作業空間 等）は作業空間として扱う。"""
@@ -156,8 +165,9 @@ def github_name(url: str) -> str | None:
 
 
 def entries() -> list["WorkspaceEntry"]:
-    """記録した作業空間の今の様子。リポジトリ順（同じリポジトリでは場所の順）。"""
-    found = [entry(item) for item in recorded()]
+    """記録した作業空間の今の様子。リポジトリ順（同じリポジトリでは場所の順）。ECOBuild が自分で持つもの（own。前の版が
+    記録したもの）は出さない。"""
+    found = [entry(item) for item in recorded() if not own(item.path)]
     existing = [e.path for e in found if e.exists]
     locks = dict(zip(map(key, existing), _locks.status_of(existing)))   # 拡張の調べ（docker 等）は、まとめて1回
     found = [replace(e, lock=locks[key(e.path)]) if e.exists else e for e in found]

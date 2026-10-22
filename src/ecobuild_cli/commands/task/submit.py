@@ -4,6 +4,8 @@ from ecobuild.errors import EcoBuildError, ErrorCode
 
 from ..._output import lines, run_command, split_list, split_semicolons
 
+AGENT = "owner"
+
 
 def command(
     title: Annotated[str, "提出の題名（既定はタスクの題名。提出済みなら変える）"] = "",

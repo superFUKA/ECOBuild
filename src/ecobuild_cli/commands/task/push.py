@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import run_command
 
+AGENT = "owner"
+
 
 def command(
     force: Annotated[bool, "強制的にpushする（--amend等の後。安全な方式で行う）"] = False,

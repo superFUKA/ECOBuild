@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import optional_argument, test_like
 
+AGENT = "change"
+
 
 def command(
     *projects: Annotated[str, "対象のProject（--project と同じ）"],

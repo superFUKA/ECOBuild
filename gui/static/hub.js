@@ -1,5 +1,5 @@
 'use strict';
-// Hub: the list of modules (the workspaces on this PC: ecobuild workspace list) and the settings shared by every module.
+// Hub: the list of modules (each module's own clone on this PC: ecobuild workspace list) and the settings shared by every module.
 const $ = id => document.getElementById(id);
 const {esc} = ECO;
 
@@ -23,13 +23,14 @@ navigation.forEach(button => button.addEventListener('click', () => {
   // すぐ切り替える（サーバーの返事を待たない。読み直しで接続が埋まっていると、切り替えが待たされる）
   showHubPage(page);
 }));
-ECO.onNavigate(({page, command}) => {
+ECO.onNavigate(({page, tab, command}) => {
   if (command) { location.hash = 'help/commands/' + encodeURIComponent(command); showHubPage('help'); HELP.show(location.hash.slice(1)); return; }
   showHubPage(page === 'help' || page === 'settings' ? page : 'modules');   // settings：ハブの設定（コンテナのイメージ等）
+  if (page === 'settings' && tab === 'agents') showSettingsGroup('agents');   // エージェントの登録
 });
 ECO.onChange(() => loadModules());
 if (location.hash.startsWith('#help')) setTimeout(() => showHubPage('help'));
-else if (location.hash === '#settings') setTimeout(() => showHubPage('settings'));
+else if (location.hash.startsWith('#settings')) setTimeout(() => { showHubPage('settings'); if (location.hash === '#settings/agents') showSettingsGroup('agents'); });
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
@@ -72,7 +73,7 @@ const githubEntry = m => knownModules().find(g => sameRepository(g.repository, m
 let archived = [];
 function renderArchived() {
   archived = knownModules().filter(g => g.archived).map(g => {
-    const local = clones.filter(c => c.exists && sameRepository(g.repository, cloneRepository(c)));
+    const local = [...clones, ...legacy].filter(c => c.exists && sameRepository(g.repository, cloneRepository(c)));
     return {name: g.repository.split('/').pop(), repository: g.repository, description: g.description, clones: local,
             path: local[0]?.path || '', exists: local.length > 0};
   });
@@ -96,7 +97,9 @@ $('archived-list').addEventListener('click', async event => {
 // (ECO.action open: an open window of the module comes forward instead of a second one.)
 const openModule = path => ECO.action('open', {module: path}).catch(e => ECO.toast(e.message, 'bad'));
 
-let clones = [], order = [];
+// clones: the modules on this PC (workspace list: modules, each a module's own clone with its workspaces inside);
+// legacy: the workspaces the previous version made (clones of their own), to be closed.
+let clones = [], legacy = [], order = [];
 const pathKey = p => p.replaceAll('\\', '/').toLowerCase();
 const baseName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
 // 所有者/名前 when the origin is on GitHub, otherwise the name in the URL (matched by name: sameRepository).
@@ -106,26 +109,20 @@ const cloneRepository = c => c.repository || (c.url ? baseName(c.url).replace(/\
 const repositoryName = c => baseName(c.repository || '');
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
-  const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { clones = fresh.result; renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
-  if (!doc.ok) ECO.showError(doc, 'このPCの作業空間の一覧を読めませんでした');
-  clones = doc.ok ? doc.result : []; clonesLoaded = true;
+  const take = result => { clones = result?.modules || []; legacy = result?.legacy || []; };
+  const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { take(fresh.result); renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
+  if (!doc.ok) ECO.showError(doc, 'このPCのモジュールの一覧を読めませんでした');
+  take(doc.ok ? doc.result : null); clonesLoaded = true;
   order = saved.map(pathKey);
   renderModules();
 }
 function renderModules() {
   if (!$('module-list') || !clonesLoaded) return;
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
-  // One row per module. Of its workspaces on this PC: the one already in the list (order), else the original clone (not
-  // inside another's .ecobuild/ — an agent's —, then the folder named as the repository, not ECOBuild-2), then one not on
-  // a task branch; the first in the list when still even. The card shows the module's name, not the folder's.
-  const original = c => !pathKey(c.path).includes('/.ecobuild/') ? 0 : 4;
-  const named = c => c.repository && baseName(c.path).toLowerCase() === repositoryName(c).toLowerCase() ? 0 : 2;
-  const score = c => (order.includes(pathKey(c.path)) ? 0 : 8) + original(c) + named(c) + (c.task == null ? 0 : 1), chosen = new Map();
-  for (const c of clones) {
-    const id = (cloneRepository(c) || pathKey(c.path)).toLowerCase(), held = chosen.get(id);
-    if (!held || score(c) < score(held)) chosen.set(id, c);
-  }
-  modules = [...chosen.values()]
+  // One card per module: its own clone (the CLI lists each module once; its workspaces are inside it). The card shows the
+  // module's name, not the folder's.
+  renderLegacy();
+  modules = clones
     .map(c => ({path: c.path, name: repositoryName(c) || baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url,
       type: c.type || (cloneRepository(c) && githubEntry({repository: cloneRepository(c)})?.type) || ''}))
     .filter(m => !githubEntry(m)?.archived)
@@ -148,6 +145,24 @@ function renderModules() {
     return `<li class="module-type-head" role="presentation"><h3>${esc(type ? typeLabel(type) : '型が分からないもの')}</h3><span>${members.length}</span></li>${members.map(([m, i]) => card(m, i)).join('')}`;
   }).join('');
 }
+// The workspaces the previous version made (clones of their own): shown apart, to be closed (workspace close; it stops
+// when something there is not on GitHub). Work is now done in workspaces inside the module (.ecobuild/w/).
+function renderLegacy() {
+  const box = $('legacy-workspaces'); if (!box) return;
+  box.hidden = !legacy.length;
+  $('legacy-count').textContent = `（${legacy.length}）`;
+  $('legacy-list').innerHTML = legacy.map((c, i) => `<li><div><strong>${esc(c.path)}</strong><small>${esc(cloneRepository(c) || '（GitHubのリポジトリなし）')}${!c.exists ? '・フォルダが見つかりません' : c.task != null ? `・タスク #${c.task}（${esc(c.branch || '')}）` : c.branch ? '・' + esc(c.branch) : ''}</small></div>
+      <span class="archived-actions">${c.exists ? `<button type="button" data-legacy="folder" data-i="${i}">フォルダを開く</button><button type="button" class="danger-text" data-legacy="close" data-i="${i}">閉じる…</button>` : `<button type="button" data-legacy="forget" data-i="${i}">一覧から外す</button>`}</span></li>`).join('');
+}
+$('legacy-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-legacy]'); if (!button) return;
+  const c = legacy[Number(button.dataset.i)];
+  if (button.dataset.legacy === 'folder') { ECO.action('folder', {dir: c.path}).catch(e => ECO.toast(e.message, 'bad')); return; }
+  if (button.dataset.legacy === 'forget') { if (await ECO.run(null, ['workspace', 'forget', c.path], {success: `${c.path} を一覧から外しました。`})) loadModules(); return; }
+  const doc = await ECO.run(null, ['workspace', 'close', c.path], {title: '前の作業空間を閉じる', busy: `${c.path} を閉じています…`, success: r => r.removed ? `${c.path} を閉じました。` : `${c.path} を閉じましたが、一部が残りました（${(r.left || []).join('、')}）。使っているプログラムを閉じてから消してください。`,
+    confirm: `前の版の作業空間 ${c.path} をフォルダごと消します。ビルドの出力なども消えます。\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるときは消しません。続きの作業は、モジュールの窓のタスク管理で「作業を再開」すると、モジュールの中の作業空間でできます。`});
+  if (doc) loadModules();
+});
 const TYPE_LABELS = {cpp: 'C++', python: 'Python', generic: 'その他（generic）'};
 const typeLabel = type => TYPE_LABELS[type] ? `${TYPE_LABELS[type]}` : type;
 // 一覧から外す: ecobuild workspace forget (the folder and the GitHub repository stay). With a reason: the module cannot be
@@ -365,7 +380,7 @@ async function loadImages(doc = null) {
   }).join('');
 }
 
-// 設定の種類（全般・AI・コンテナ・ECOBuild）
+// 設定の種類（全般・AI・エージェント・コンテナ・ECOBuild）
 function showSettingsGroup(group) {
   const tabs = [...document.querySelectorAll('[data-settings-group]')];
   if (!tabs.some(t => t.dataset.settingsGroup === group)) group = 'general';
@@ -411,9 +426,128 @@ $('token-remove').addEventListener('click', async () => {
   if (await ECO.run(null, ['agent', 'token', 'remove'], {confirm: '覚えたトークンを消します（コンテナの中で一度ログインしていれば、そのログインで使えます）。', title: 'トークンを消す', success: 'トークンを消しました。'})) loadToken();
 });
 
+// Agent registrations (ecobuild agent registry …): the agents that can be started — the document handed to the agent, the
+// tools it gets, whether a person may start it, the registrations it may start as children and how many at once. ECOBuild's
+// samples and the user's own (the same name: the user's). All the data comes from the CLI; nothing is kept by the GUI.
+const REGISTRY_SOURCES = {sample: '見本', user: '自分の登録'};
+// The tools that handle the children (the MCP tools ECOBuild adds; the names of ecobuild_agent.children.TOOLS). The
+// ecobuild commands an agent may use come from ecobuild --help --json (the commands marked for agents).
+const CHILD_TOOLS = [
+  ['children_start', '子を起動する（手伝い・子タスク）'], ['children_list', '子の一覧と様子'], ['children_send', '子に言付けを送る'],
+  ['children_cancel', '届いていない言付けを取り消す'], ['children_stop', '子を止める'], ['children_restart', '子を起動し直す'],
+  ['children_log', '子の出来事を読む'], ['children_accept', '子タスクの提出を取り込む'], ['children_close', '子を閉じる'],
+  ['report_to_parent', '親に知らせる'],
+];
+const AGENT_MARKS = {read: '見る', change: '変える', owner: 'タスクの持ち主'};
+let registryTools = null;   // [[name, label]]（読んだら覚える：ECOBuild を更新するまで変わらない）
+
+async function loadRegistry() {
+  const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+  const list = $('registry-list'); if (!list) return;
+  if (!doc.ok) { $('registry-status').textContent = doc.error?.message || '登録を読めませんでした。'; list.innerHTML = ''; return; }
+  const found = doc.result;
+  $('registry-status').textContent = found.some(r => r.human_start) ? ''
+    : '人が起動できる登録がありません。作業空間の「エージェント」で起動するには、どれかの「人が起動できる」を選んでください。';
+  list.innerHTML = found.map(r => `<li data-registration="${esc(r.name)}"><div><span class="item-name">${esc(r.title || r.name)}</span>
+      <span class="registry-name">${esc(r.name)}</span><span class="registry-source" data-source="${esc(r.source)}">${esc(REGISTRY_SOURCES[r.source] || r.source)}</span>
+      <small>${[r.human_start ? '人が起動できる' : '人は起動しない',
+               r.children.length ? `起動してよい子：${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '子は起動しない',
+               `渡すツール：${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}`, `モデル：${esc(r.model || '既定')}`].join('<br>')}</small></div>
+    <span class="registry-actions"><button type="button" data-registry-edit>編集…</button>${r.source === 'user'
+      ? '<button type="button" class="danger-text" data-registry-remove title="自分の登録を文書ごと消します（同じ名前の見本があれば、見本に戻ります）">消す</button>' : ''}</span></li>`).join('');
+}
+
+// The tools to choose from: the ecobuild commands marked for agents (common and every type's), then the children's tools.
+async function toolChoices() {
+  if (registryTools) return registryTools;
+  const doc = await ECO.cli(null, ['--help'], {quiet: true});
+  const found = new Map();
+  const walk = nodes => { for (const n of nodes || []) {
+    if (n.runnable && AGENT_MARKS[n.agent]) {
+      const name = n.path.split(/\s+/).join('_');
+      if (!found.has(name)) found.set(name, `${name}（${AGENT_MARKS[n.agent]}）${n.summary ? '：' + n.summary.replace(/。.*$/s, '') : ''}`);
+    }
+    walk(n.commands);
+  } };
+  if (doc.ok) { walk(doc.result.commands); for (const t of Object.values(doc.result.types || {})) walk(t.commands); }
+  const commands = [...found].sort((a, b) => a[0].localeCompare(b[0]));
+  registryTools = [...commands, ...CHILD_TOOLS.map(([name, label]) => [name, `${name}：${label}`])];
+  if (!doc.ok) registryTools.unshift(['', '（ecobuild のコマンドの一覧を読めませんでした）']);
+  return registryTools;
+}
+
+const listArg = values => values.filter(Boolean).join(',');
+
+async function editRegistration(name) {
+  const [shown, all, tools] = await Promise.all([ECO.cli(null, ['agent', 'registry', 'show', name], {quiet: true}),
+    ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true}), toolChoices()]);
+  if (!shown.ok) return ECO.showError(shown);
+  const r = shown.result;
+  // Patterns (* …) and names that are not in the list stay choosable, so saving does not drop them.
+  const toolOptions = [['*', '*（すべて）'], ...r.tools.filter(t => t !== '*' && !tools.some(([v]) => v === t)).map(t => [t, `${t}（今の登録の値）`]),
+                       ...tools.filter(([v]) => v)];
+  const others = (all.ok ? all.result : []).map(x => x.name).filter(x => x !== r.name);
+  const childOptions = [...new Set([...others, ...r.children])].map(x => [x, x]);
+  await ECO.form({title: `エージェントの登録：${r.name}`, wide: true,
+    intro: r.source === 'sample' ? '見本です。変えると、自分の登録として写してから変えます（見本はそのまま。自分の登録を消すと見本に戻ります）。' : '',
+    fields: [
+      {name: 'title', label: '表示名', value: r.title, row: 'a'},
+      {name: 'model', label: 'モデル（空欄なら Claude Code の既定）', value: r.model, placeholder: '例：opus・sonnet', row: 'a'},
+      {name: 'human_start', label: '人が起動できる（作業空間の「エージェント」・エージェントの窓の「＋」に出す）', type: 'checkbox', value: r.human_start},
+      {name: 'children', label: '起動してよい子（自分より強い登録〔渡すツールが多いもの〕は選べません）', type: 'checks', value: r.children, options: childOptions, empty: 'ほかの登録がありません'},
+      {name: 'max_children', label: '同時に持てる子の数', type: 'number', value: r.max_children, min: 0},
+      {name: 'tools', label: '渡すツール（エージェントはツールを通してしか ECOBuild を使えません）', type: 'checks', value: r.tools, options: toolOptions},
+      {name: 'first_prompt', label: '起動のときの最初の発言', type: 'textarea', rows: 2, value: r.first_prompt || ''},
+      {name: 'document', label: '文書（エージェントに渡す agent.md）', type: 'textarea', rows: 14, value: r.document},
+    ], ok: '保存',
+    submit: async v => {
+      const args = ['agent', 'registry', 'set', r.name];
+      // the checks come back in the order of the options, so compare them as sets (not as lists)
+      const sameSet = (a, b) => { const x = new Set(a.filter(Boolean)), y = new Set(b.filter(Boolean)); return x.size === y.size && [...x].every(n => y.has(n)); };
+      if (v.title !== r.title) args.push('--title', v.title);
+      if (v.model !== r.model) args.push('--model', v.model);
+      if (v.human_start !== r.human_start) args.push(v.human_start ? '--human-start' : '--no-human-start');
+      if (!sameSet(v.children, r.children)) args.push('--children', listArg(v.children));
+      if (Number(v.max_children) !== r.max_children) args.push('--max-children', String(Number(v.max_children) || 0));
+      if (!sameSet(v.tools, r.tools)) args.push('--tools', listArg(v.tools));
+      if (v.first_prompt !== (r.first_prompt || '').trim()) args.push('--first-prompt', v.first_prompt);
+      const document = v.document.trim() !== r.document.trim();
+      if (document) args.push('--document', '-');
+      if (args.length === 4) return '';   // nothing changed
+      const doc = await ECO.run(null, args, {stdin: document ? v.document.trim() + '\n' : undefined, success: `登録「${r.name}」を変えました。`});
+      return doc ? '' : '変えられませんでした';
+    }});
+  loadRegistry();
+}
+
+$('registry-list')?.addEventListener('click', async event => {
+  const name = event.target.closest('[data-registration]')?.dataset.registration; if (!name) return;
+  if (event.target.closest('[data-registry-edit]')) return editRegistration(name);
+  if (event.target.closest('[data-registry-remove]')) {
+    if (await ECO.run(null, ['agent', 'registry', 'remove', name], {success: `登録「${name}」を消しました。`})) loadRegistry();
+  }
+});
+// Adding: a sample copied as one's own (the samples ECOBuild ships), or an empty registration.
+$('registry-add')?.addEventListener('click', async () => {
+  const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+  if (!doc.ok) return ECO.showError(doc);
+  const samples = doc.result.filter(r => r.source === 'sample');
+  await ECO.form({title: 'エージェントの登録を足す', intro: '見本を写して自分用に変えるか、空の登録から作ります。中身は足した後に「編集…」で変えます。',
+    fields: [{name: 'name', label: '名前（英小文字・数字・-・_）', required: true, focus: true, placeholder: '例：reviewer'},
+             {name: 'sample', label: '元にする見本', type: 'select', value: '', options: [['', '（空の登録）'], ...samples.map(r => [r.name, `${r.title}（${r.name}）`])]}],
+    ok: '足す',
+    submit: async v => {
+      const added = await ECO.run(null, ['agent', 'registry', 'add', v.name, ...(v.sample ? ['--from-sample', v.sample] : [])],
+                                  {success: `登録「${v.name}」を足しました。`});
+      return added ? '' : '足せませんでした';
+    }});
+  loadRegistry();
+});
+$('registry-reload')?.addEventListener('click', () => { registryTools = null; loadRegistry(); });
+
 async function loadSettings() {
   if (!$('default-owner')) return;   // after "GUIを終了"
-  loadImages(); loadToken();
+  loadImages(); loadToken(); loadRegistry();
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();
@@ -580,7 +714,7 @@ function archiveModule(m, repository, dir) {
 
 // Step 2: an archived module: delete it, or undo the archive.
 async function deleteArchivedModule(m, repository, dir, question) {
-  const local = clones.filter(c => c.exists && sameRepository(repository, cloneRepository(c))).map(c => c.path);
+  const local = [...clones, ...legacy].filter(c => c.exists && sameRepository(repository, cloneRepository(c))).map(c => c.path);
   let permission = false;
   const done = await ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
     intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、90日以内なら GitHub のアカウント設定から復元できます。タスク管理の情報は削除せずに閉じ、復元したときに引き継ぎます。`,

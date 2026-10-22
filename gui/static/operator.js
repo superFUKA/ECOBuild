@@ -1,10 +1,10 @@
 'use strict';
-// Hub「オペレーター」: a conversation with the operator (the agent that operates ECOBuild with ecobuild commands; it writes
+// Hub「オペレーター」: a conversation with the operator (the agent that guides and operates the GUI; it changes nothing and writes
 // no code). Two ways, by where the hub runs:
 // - In the Electron app: the operator stays running in the app (its terminal, hidden; tab 0 of the agents windows).
 //   Messages are typed into it; its replies come from its Stop hook. The conversation shown is the app's (the same in
 //   every window). A choice it shows (a question, a permission) is answered here with ↑↓ / 決定, or in its tab.
-// - Elsewhere (the Edge window): each message is one `ecobuild agent ask` (the text on stdin, --session to go on).
+// - Elsewhere (the Edge window): each message is one `ecobuild gui ask` (the text on stdin, --session to go on).
 //   The conversation is kept in this window's localStorage (a convenience only; the conversation itself is the agent's).
 const OPERATOR = (() => {
   const $ = id => document.getElementById(id);
@@ -102,7 +102,7 @@ const OPERATOR = (() => {
     if (resident) { resident.send(message); return; }
     if (busy) return;
     state.messages.push({role: 'user', text: message}); save(); setBusy(true); render();
-    const args = ['agent', 'ask', ...(state.session ? ['--session', state.session] : [])];
+    const args = ['gui', 'ask', ...(state.session ? ['--session', state.session] : [])];
     const doc = await ECO.cli(null, args, {stdin: message, quiet: true});
     setBusy(false);
     if (doc.ok) {

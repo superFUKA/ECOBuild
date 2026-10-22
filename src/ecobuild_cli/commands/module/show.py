@@ -3,6 +3,8 @@ from typing import Annotated
 from ecobuild.workspaces import same
 from ..._output import lines, run_command, upgrade_note
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """今いるモジュールの情報（型・場所・GitHubのリポジトリ・Project・依存先・このPCにある作業空間）を表示します。"""
@@ -27,8 +29,8 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
 
 
 def _workspaces(r) -> str | None:
-    """このPCにある、このモジュールの作業空間（ここだけなら出さない）。"""
-    if not any(not same(c.path, r.root) for c in r.workspaces):
+    """このPCにある、このモジュールの作業空間（元の clone の .ecobuild/w/。なければ出さない）。"""
+    if not r.workspaces:
         return None
     return "このPCの作業空間：\n" + "\n".join(
         f"  {c.path}（{c.branch or 'ブランチなし'}" + (f"＝タスク #{c.task}" if c.task is not None else "")

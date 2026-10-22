@@ -6,15 +6,31 @@ import pytest
 from helpers import GIT_ENV, git
 
 
+def pytest_configure(config):
+    config.addinivalue_line("markers", "needs_git_2_48: 作業空間（git worktree を相対パスで）を作る。git 2.48 未満なら飛ばす")
+
+
 def pytest_collection_modifyitems(config, items):
     """本物の CppBuild の試験（cppbuild）は、C++ のビルドの道具がない環境（エージェントのコンテナ等）では飛ばす。
-    Windows では CppBuild が Visual Studio の Ninja・コンパイラを探すので、ほかの OS だけ PATH で確かめる。"""
+    Windows では CppBuild が Visual Studio の Ninja・コンパイラを探すので、ほかの OS だけ PATH で確かめる。
+    作業空間を作る試験（needs_git_2_48）は、git が 2.48 より古ければ飛ばす。"""
     missing = [] if sys.platform == "win32" else [tool for tool in ("cmake", "ninja", "c++") if shutil.which(tool) is None]
     if missing:
         skip = pytest.mark.skip(reason="C++ のビルドの道具がありません：" + "、".join(missing))
         for item in items:
             if "cppbuild" in item.keywords:
                 item.add_marker(skip)
+    if any("needs_git_2_48" in item.keywords for item in items):
+        from ecowork import git as _git
+        try:
+            version = _git.git_version()
+        except Exception:
+            version = (0, 0, 0)
+        if version < _git.MINIMUM_VERSION:
+            skip = pytest.mark.skip(reason=f"git 2.48 以上が要ります（今は {'.'.join(map(str, version))}）")
+            for item in items:
+                if "needs_git_2_48" in item.keywords:
+                    item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)
@@ -31,11 +47,10 @@ def _tool_home(monkeypatch, tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _outside_agents(monkeypatch):
-    """ECOBuild の作業空間（エージェントの窓・コンテナの中）で試験を動かしても、その印で動きを変えない。"""
-    from ecobuild_agent import team
+    """ECOBuild の作業空間（コンテナの中）で試験を動かしても、その印で動きを変えない。"""
     from ecobuild_container import INSIDE
-    monkeypatch.delenv(team.WINDOW_VARIABLE, raising=False)
     monkeypatch.delenv(INSIDE, raising=False)
+    monkeypatch.delenv("ECOBUILD_AGENT_ID", raising=False)
 
 
 @pytest.fixture(autouse=True)

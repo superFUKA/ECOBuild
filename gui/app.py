@@ -75,14 +75,16 @@ READ_ONLY = {
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"), ("container", "recipe"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
-    ("workspace", "path"), ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
-    ("agent", "module"),   # 進行役の作業空間（ECOBuild が持つ別の clone）だけを扱う。この作業空間のファイルは変えない
+    ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
+    ("agent", "list"),     # このPCのエージェントの記録と様子
 }
-# 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
-# オペレーターが別の ecobuild で行う。変えたかもしれないので、終わったら覚えた結果は古くする）
+# agent registry は 3語目で分かれる：list・show は見るだけ（set・add・remove は登録を変える）
+REGISTRY_READ = {"list", "show"}
+# 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言 gui ask：自分ではファイルを変えず、見るだけのコマンドと
+# GUI の操作を、このサーバーを通して行う。待たせると止まる。終わったら覚えた結果は古くする）
 # workspace lock／unlock：ビルド等が動いていても付ける・外せる（待たせない。ロックの理由に「コマンド実行中」があるので）。
 # 変える操作なので、終わったら覚えた結果（workspace list の lock 等）は古くする。
-UNLOCKED = {("agent", "ask"), ("workspace", "lock"), ("workspace", "unlock")}
+UNLOCKED = {("gui", "ask"), ("workspace", "lock"), ("workspace", "unlock")}
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
 
@@ -93,7 +95,7 @@ CACHEABLE = {
     ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
     ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"), ("log",),
-    ("ci", "show"), ("ci", "status"), ("account", "show"),
+    ("ci", "show"), ("ci", "status"), ("account", "show"), ("agent", "list"),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
 FRESH_SECONDS = 5                   # これより新しい結果は、読み直しを頼まれても実行せずに返す（別の窓・iframe が続けて
@@ -103,7 +105,15 @@ CACHE_DAYS = 14                     # これより古いものは読み込まな
 
 def _cacheable(args: list[str]) -> bool:
     command = tuple(a for a in args[:2] if not a.startswith("-"))
+    if command == ("agent", "registry"):
+        return _registry_read(args)
     return command in CACHEABLE and "--gui" not in args
+
+
+def _registry_read(args: list[str]) -> bool:
+    """agent registry list・show（見るだけ）か。"""
+    words = [a for a in args if not a.startswith("-")]
+    return words[:2] == ["agent", "registry"] and len(words) > 2 and words[2] in REGISTRY_READ
 
 
 class QueryCache:
@@ -214,6 +224,8 @@ def _read_only(args: list[str]) -> bool:
         return "--dry-run" in args
     if command == ("task", "checks"):      # --set・--tests がなければ見るだけ
         return "--set" not in args and "--tests" not in args
+    if command == ("agent", "registry"):   # list・show は見るだけ
+        return _registry_read(args)
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 
@@ -289,16 +301,32 @@ def _module_root(path: Path) -> Path:
     raise GuiError(f"ECOBuildのモジュールではありません（ecobuild.toml がありません）：{path}")
 
 
+def _original_clone(path: Path) -> Path | None:
+    """path がモジュールの作業空間（<元の clone>/.ecobuild/w/<名前> の git worktree）の中なら、その元の clone。"""
+    path = Path(path)
+    for place in (path, *path.parents):
+        if place.parent.name == "w" and place.parent.parent.name == ".ecobuild" \
+                and (place.parent.parent.parent / MODULE_FILE).is_file():
+            return place.parent.parent.parent
+    return None
+
+
+def _module_of(path: Path) -> Path:
+    """モジュールの窓で開く場所：元の clone（作業空間の中なら、その元の clone）。"""
+    root = _module_root(path)
+    return _original_clone(root) or root
+
+
 class GuiError(Exception):
     pass
 
 
 def find_module(cli: "Cli", module: str) -> str:
-    """モジュールのフォルダか名前から、このPCの作業空間のフォルダ。"""
+    """モジュールのフォルダか名前から、このPCのモジュールの元の clone（作業空間の中のフォルダなら、その元の clone）。"""
     if Path(module).expanduser().is_dir():
-        return str(_module_root(Path(module)))
+        return str(_module_of(Path(module)))
     listed = cli.run(None, ["workspace", "list"])
-    for entry in listed.get("result") or []:
+    for entry in (listed.get("result") or {}).get("modules") or []:
         path = entry.get("path", "")
         if entry.get("exists") and (Path(path).name.casefold() == module.casefold()
                                     or (entry.get("repository") or "").casefold() in (module.casefold(),)
@@ -393,12 +421,13 @@ def _last_json(text: str) -> dict | None:
 
 def _working_directory(directory: str | None, args: list[str]) -> str:
     """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。module delete --remove-workspaces・workspace close はその場所を消すので、親から
-    起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。"""
+    起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。
+    作業空間（.ecobuild/w/<名前>）はタスクの操作（finish・drop・prune・review --done 等）でも消えるので、いつも元の clone から起動する。"""
     if not directory:
         return str(Path.home())
-    removes = args[:2] in (["module", "delete"], ["workspace", "close"]) or (args[:2] == ["task", "finish"]
-                                                                            and "--close-workspace" in args)
-    return str(Path(directory).parent) if removes else directory
+    if args[:2] in (["module", "delete"], ["workspace", "close"]):
+        return str(Path(directory).parent)
+    return str(_original_clone(Path(directory)) or directory)
 
 
 def default_cli(explicit: str = "") -> list[str]:
@@ -976,7 +1005,8 @@ class App:
         if not module:
             page = "hub.html" + ("#help" + ("/commands/" + urllib.parse.quote(p["command"]) if p.get("command") else "")
                                  if p.get("page") == "help" or p.get("command")
-                                 else "#settings" if p.get("page") == "settings" else "")
+                                 else "#settings" + ("/" + p["tab"] if p.get("tab") == "agents" else "")
+                                 if p.get("page") == "settings" else "")
             here = self.windows.get(origin)
             target = here if here and here.get("kind") == "hub" else                 next((w for w in self.live_windows() if w.get("kind") == "hub"), None)
         else:

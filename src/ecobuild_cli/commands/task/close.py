@@ -3,6 +3,7 @@ from typing import Annotated
 from ecobuild.errors import ErrorCode
 from ecowork import WorkError
 from ..._output import lines, run_command
+from ..workspace.close import leave, render_removed
 
 
 def command(
@@ -27,6 +28,7 @@ def command(
         preview = module.repository.drop_task(issue, close=True, dry_run=True)
         lost = f"（取り込んでいないコミット {len(preview.lost_commits)} 件を捨てます）" if preview.lost_commits else ""
         inv.confirm(f"#{issue} のタスクブランチ {preview.branch} の作業を捨てて、「対応しない」として閉じますか？{lost}")
+        leave(module.root, inv)   # この作業空間を消すことがある
         return module.repository.drop_task(issue, close=True, discard=True)
 
     def render(r):
@@ -34,6 +36,7 @@ def command(
             return lines(
                 "開いていた提出を閉じました" if r.closed_pull_requests else None,
                 f"{r.switched_to} に移りました" if r.switched_to else None,
+                render_removed(r),
                 f"タスクブランチ {r.branch} を捨てて、#{r.number} を「対応しない」として閉じました",
             )
         return f"#{r.number} を閉じました"

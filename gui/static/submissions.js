@@ -53,7 +53,7 @@
     if (!doc.ok) { el('sub-detail').innerHTML = `<p class="mi-note">${esc(doc.error.message)}</p>`; return; }
     renderDetail();
   }
-  // Where a submission is being checked (task review): the workspace of the module that shows it.
+  // Where a submission is being checked (task review): its workspace in the module (.ecobuild/w/r<PR number>).
   const reviewingPlace = n => MOD.places.find(p => MOD.states.get(MOD.keyOf(p))?.reviewing_task === n) || null;
   function renderDetail() {
     const box = el('sub-detail'); if (!box) return;
@@ -78,7 +78,7 @@
     tools.className = 'br-tools'; look.className = 'pr-look'; act.className = 'pr-act';
     const b = ECO.submissionButton;
     look.append(b('diff', '差分'), b('comment', 'コメント'), b('task', 'タスク'), b('refresh', '更新'));
-    if (reviewing) act.append(b('review-done', '判定せずに戻る'));
+    if (reviewing) act.append(b('review-done', '判定せずに終える'));
     if (isOpen && !own) {
       if (!reviewing) act.append(b('local-review', '手元で確認'));
       act.append(b('reject', '差し戻す', {enabled: handles, note: why}),
@@ -106,9 +106,9 @@
           ? {title: `承認して取り込む：#${n}`, intro: '提出を承認し、CIを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
           : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
         if (!v) return;
-        const place = reviewingPlace(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
-        if (doc) MOD.reloadPlace(place);
+        // Run in the module's own clone: the workspace it was checked in (if any) is removed by approve・reject.
+        const doc = await ECO.run(MOD.root, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
+        if (doc) await MOD.syncPlaces();
         return after(doc);
       }
       case 'finish': {
@@ -116,16 +116,17 @@
         if (!options) return;
         const place = MOD.placeOfTask(t.number) || MOD.root;
         const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`});
-        if (doc) MOD.reloadPlace(place);
+        if (doc) await MOD.reloadPlace(place);
         return after(doc);
       }
       case 'withdraw': return after(await ECO.run(MOD.root, ['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。`, title: '提出を取り下げる'}));
       case 'local-review': {
-        // Checking it here takes the submission into a workspace (the module's folder, or where it is checked already).
+        // Checking it here takes the submission into a workspace of its own (task review: .ecobuild/w/r<PR number>; the
+        // module's own clone stays as it is). Ending it (task review --done) removes that workspace.
         const place = reviewingPlace(t.number);
-        if (place) { const doc = await ECO.run(place, ['task', 'review', '--done'], {success: '確認を終えて戻りました。'}); if (doc) MOD.reloadPlace(place); return after(doc); }
-        const doc = await ECO.run(MOD.root, ['task', 'review', n], {success: `#${n} の提出を手元に取り出しました。作業空間でビルド・テスト・実行して確かめ、ここで承認か差し戻しをします。`});
-        if (doc) { await MOD.reloadPlace(MOD.root); MOD.activate(MOD.root); showModulePage('workspace'); }
+        if (place) { const doc = await ECO.run(place, ['task', 'review', '--done'], {success: '確認を終え、確認用の作業空間を消しました。'}); if (doc) await MOD.syncPlaces(); return after(doc); }
+        const doc = await ECO.run(MOD.root, ['task', 'review', n], {success: r => `#${n} の提出を確認用の作業空間に取り出しました（${r.workspace}）。そこでビルド・テスト・実行して確かめ、ここで承認か差し戻しをします。`});
+        if (doc) await MOD.showPlace(doc.result.workspace);
         return after(doc);
       }
     }

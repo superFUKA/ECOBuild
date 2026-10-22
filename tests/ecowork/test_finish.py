@@ -8,7 +8,9 @@ from dataclasses import replace
 import pytest
 
 from helpers import git, write
+from ecowork import Repository
 from ecowork.errors import ErrorCode, WorkError
+from ecowork.git import same_path
 from ecowork.github import Check, PullRequestActivity, RunInfo
 
 pytestmark = pytest.mark.local
@@ -222,17 +224,20 @@ def test_finish_requires_approval_when_configured(repository):
 
 # 承認・差し戻し・取り下げ ------------------------------------------------------------
 
-def test_review_then_approve_returns_and_finishes(repository):
+@pytest.mark.needs_git_2_48
+def test_review_then_approve_removes_the_review_workspace_and_finishes(repository, tmp_path):
     task, task_branch = started(repository)
     recorded(task_branch)
     task_branch.submit()
     repository.git.switch("main")
     by_someone_else(repository, task.number)
-    review = repository.review_task(task.number)
-    assert review.task == task.number and repository.status().reviewing_task == task.number
+    review = repository.review_task(task.number, tmp_path / "r1")
+    assert review.task == task.number and same_path(review.workspace, tmp_path / "r1")
+    assert Repository(review.workspace, github=repository.github).status().reviewing_task == task.number
+    assert repository.status().reviewing is None      # 元の clone は確認中にならない（設定が漏れない）
     result = repository.approve(task.number, "よいです")
-    assert result.returned_to == "main" and result.approved and result.closed_issue == task.number
-    assert repository.status().reviewing is None and repository.git.current_branch() == "main"
+    assert same_path(result.review_removed, tmp_path / "r1") and not (tmp_path / "r1").exists()
+    assert result.approved and result.closed_issue == task.number and repository.git.current_branch() == "main"
     assert not repository.git.has_local_branch(task_branch.branch)    # 作業者の手元（同じclone）も片付いた
 
 
@@ -245,21 +250,72 @@ def test_own_submission_cannot_be_approved(repository):
     assert error.value.code == ErrorCode.OWN_PULL_REQUEST and f"task finish {task.number}" in error.value.hint
 
 
-def test_own_submission_under_review_returns_when_approve_fails_and_finish_returns_too(repository):
-    """自分の提出を task review で確かめて approve しても、確認中（切り離された状態）のまま残さない。finish も戻ってから。"""
+@pytest.mark.needs_git_2_48
+def test_own_submission_under_review_removes_the_review_workspace_when_approve_fails_and_on_finish(repository, tmp_path):
+    """自分の提出を task review で確かめて approve しても、確認用の作業空間を残さない。その中で finish しても消える。"""
     task, task_branch = started(repository)
     recorded(task_branch)
     task_branch.submit()
     repository.git.switch("main")
-    repository.review_task(task.number)
+    repository.review_task(task.number, tmp_path / "r1")
     with pytest.raises(WorkError) as error:
         repository.approve(task.number)
-    assert error.value.code == ErrorCode.OWN_PULL_REQUEST and "main に戻りました" in error.value.hint
-    assert repository.status().reviewing is None and repository.git.current_branch() == "main"
-    repository.review_task(task.number)
+    assert error.value.code == ErrorCode.OWN_PULL_REQUEST and "確認用の作業空間" in error.value.hint
+    assert not (tmp_path / "r1").exists() and repository._review_workspaces() == {}
+    review = repository.review_task(task.number, tmp_path / "r2")
+    inside = Repository(review.workspace, github=repository.github)
+    result = inside.finish(task.number)      # 確認用の作業空間の中で：先に消して、元の clone で続ける
+    assert result.closed_issue == task.number and same_path(result.review_removed, tmp_path / "r2")
+    assert not (tmp_path / "r2").exists() and same_path(inside.root, repository.root)
+    assert repository.git.current_branch() == "main"
+
+
+@pytest.mark.needs_git_2_48
+def test_a_review_workspace_that_cannot_be_removed_does_not_stop_approve_or_reject(repository, tmp_path, monkeypatch):
+    """確認用の作業空間を消せなくても（他のプログラムが使っている等。わけの種類は問わない）、判定を出した後は止めずに
+    完了・差し戻しまで進め、残したことを notices で知らせる。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
+    repository.git.switch("main")
+    by_someone_else(repository, task.number)
+    repository.review_task(task.number, tmp_path / "r1")
+
+    def in_use(*args, **options):
+        raise WorkError("in_use", "他のプログラムが使っているため消せません。")
+    monkeypatch.setattr(repository, "_end_review_at", in_use)
+    rejected = repository.reject(task.number, "直して")
+    assert rejected.review_removed is None and any("確認用の作業空間" in n for n in repository.notices)
+    task_branch.submit()
+    by_someone_else(repository, task.number)
+    result = repository.approve(task.number, "よいです")
+    assert result.approved and result.closed_issue == task.number and (tmp_path / "r1").exists()
+
+
+@pytest.mark.needs_git_2_48
+def test_finish_tidies_a_workspace_whose_folder_was_removed_by_hand(repository, tmp_path):
+    """作業空間のフォルダーを手で消しても（ロック付きの記録が残る）、finish は記録を片付けて最後まで終える。"""
+    import shutil
+    task = repository.create_task("t")
+    repository.start_task_in(task.number, tmp_path / "w5", name="x")
+    inside = Repository(tmp_path / "w5", github=repository.github)
+    recorded(inside.current_task_branch(), message="a")
+    inside.current_task_branch().submit()
+    shutil.rmtree(tmp_path / "w5")
     result = repository.finish(task.number)
-    assert result.closed_issue == task.number and repository.status().reviewing is None
-    assert repository.git.current_branch() == "main" and any("main に戻りました" in n for n in repository.notices)
+    assert result.closed_issue == task.number
+    assert len(repository.git.worktrees()) == 1
+    assert not any(b.startswith(f"task/{task.number}-") for b in repository.git.local_branches())
+
+
+@pytest.mark.needs_git_2_48
+def test_starting_again_after_the_workspace_folder_was_removed(repository, tmp_path):
+    import shutil
+    task = repository.create_task("t")
+    repository.start_task_in(task.number, tmp_path / "w6", name="x")
+    shutil.rmtree(tmp_path / "w6")
+    repository.start_task_in(task.number, tmp_path / "w6")
+    assert (tmp_path / "w6").is_dir()
 
 
 def test_reject_and_resubmit(repository):
@@ -269,7 +325,7 @@ def test_reject_and_resubmit(repository):
     by_someone_else(repository, task.number)
     assert code_of(lambda: repository.reject(task.number, " ")) == ErrorCode.INVALID_ARGUMENT
     result = repository.reject(task.number, "名前を直して")
-    assert result.task == task.number and result.returned_to is None
+    assert result.task == task.number and result.review_removed is None
     reviews = repository.github.pull_request_activity(repository.root, result.pull_request).reviews
     assert reviews[-1].state == "CHANGES_REQUESTED"
 

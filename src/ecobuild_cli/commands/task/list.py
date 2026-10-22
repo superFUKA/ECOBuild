@@ -3,6 +3,8 @@ from typing import Annotated
 from ..._output import run_command
 from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
 
+AGENT = "read"
+
 
 def command(
     all: Annotated[bool, "閉じたIssueも表示する"] = False,
@@ -23,8 +25,8 @@ def command(
 
     * は今いるタスクブランチ、+ は手元にタスクブランチがあるもの、- はGitHubにだけあるものです。
 
-    このPCの別のclone（task start --dir で作ったもの等）にいるタスクブランチは、その場所も出します。
-    作業役（エージェントのチーム）が作業中のタスクは、その作業役と場所を出します（JSON の worker）。
+    作業空間（.ecobuild/w/<番号>）等、ほかの場所にいるタスクブランチは、その場所も出します。
+    子のエージェント（子タスクの持ち主）が作業中のタスクは、そのエージェントと場所を出します（JSON の worker）。
     """
     here = []
 

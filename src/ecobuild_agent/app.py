@@ -1,15 +1,15 @@
 """アプリ用の起動のエージェント（Claude Code の claude -p を stream-json で動かす。係が持つ）。
 
-AI（進行役の頼み）が起動したエージェントは、端末の画面ではなく、係（serve）がプロセスとして持つ（人が起動したものは
+AI（親のエージェントの頼み）が起動したエージェントは、端末の画面ではなく、係（serve）がプロセスとして持つ（人が起動したものは
 今までどおり対話型）：
 - 起動：コンテナの中で claude -p --input-format stream-json --output-format stream-json …（起動のしかた Launch は
-  AgentModule.app_launch が作る。会話の ID・役・モデル・使い方の文・設定は対話型と同じ作り方）。標準出力は状態の置き場所の
+  AgentModule.app_launch が作る。会話の ID・登録・モデル・使い方の文・設定は対話型と同じ作り方）。標準出力は状態の置き場所の
   events.jsonl に直接追記させる（係が止まっても、エージェントは返答を終えるまで書ける。次の係が続きを読む）。
 - 係は見回りのたびに events.jsonl の新しい行を読み、様子（state.json）を書き、返答の終わり（result）で replied.json を
-  書く（係の _watch_reply が進行役に知らせる。返答の途中で終わったときも書く）。受け箱のもの（言付け・知らせ）は、作業中でも
+  書く（係の _watch_reply が親に知らせる。返答の途中で終わったときも書く）。受け箱のもの（言付け・知らせ）は、作業中でも
   すぐ標準入力へ入れる（Claude Code は返答を止めずに次の区切りで読む）。
 - 止める：標準入力を閉じる（返答を終えてから終わる）。待ちきれなければ、中のプロセスごと止める。
-- 持っているものは ECOBUILD_HOME/agents/app.json に覚える（係が終わっても消さない）。係が終わるときは標準入力を閉じて
+- 持っているものは ECOBUILD_HOME/agents/app.json に覚える（エージェントの ID ごと。係が終わっても消さない）。係が終わるときは標準入力を閉じて
   少し待つだけで、返答の途中のものは返答を終えるまで動く。次の係はそれを引き継いで出来事を読み、終わっていれば
   --resume で起こす（adopt・wake）。
 """
@@ -33,7 +33,7 @@ from .errors import ErrorCode
 
 EVENTS = "events.jsonl"     # 置き場所の中：Claude Code の出来事（1行1つ。起動し直しても追記）と、係の印（type ecobuild）
 ERRORS = "app-stderr.log"   # 置き場所の中：Claude Code の標準エラー
-HELD = Path("agents") / "app.json"   # ECOBUILD_HOME の下：係が持っているもの（作業空間・会話の ID・役）
+HELD = Path("agents") / "app.json"   # ECOBUILD_HOME の下：係が持っているもの（エージェントの ID・作業空間・会話の ID・登録）
 FLAGS = ("-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--replay-user-messages")
 STOP_WAIT = 60      # 止める（閉じる・起動し直す・引き取る）とき、返答を終えるのを待つ秒数（過ぎれば止める）
 CLOSE_WAIT = 8      # 係が終わるとき、返答を終えるのを待つ秒数（過ぎても止めない：返答を終えて自分で終わる）
@@ -46,13 +46,15 @@ TOOL_KEYS = ("command", "file_path", "notebook_path", "pattern", "url", "query",
 
 @dataclass(frozen=True)
 class Launch:
-    """アプリ用の起動のしかた（AgentModule.app_launch が作る）。kill：中のプロセスを止める（待ちきれないとき）。"""
+    """アプリ用の起動のしかた（AgentModule.app_launch が作る）。agent_id：エージェントの ID（agents の記録）。
+    kill：中のプロセスを止める（待ちきれないとき）。"""
     root: Path
     folder: Path
     argv: tuple[str, ...]
     env: dict | None
     session: str
-    role: str
+    agent_id: str
+    registration: str = ""
     kill: Callable[[], None] | None = field(default=None, compare=False)
 
 
@@ -130,13 +132,14 @@ def record(folder: Path, event: str, **values) -> None:
 class Agent:
     """係が持つアプリ用のエージェント1つ。process（このPCの子プロセス）か、前の係から引き継いだもの（pid だけ）。"""
 
-    def __init__(self, root: Path, folder: Path, *, session: str = "", role: str = "", launch: Launch | None = None,
-                 process: subprocess.Popen | None = None, pid: int | None = None, stopping: bool = False,
-                 log: Callable[[str], None] = lambda message: None):
-        self.root, self.folder, self.session, self.role = Path(root), Path(folder), session, role
+    def __init__(self, agent_id: str, root: Path, folder: Path, *, session: str = "", registration: str = "",
+                 launch: Launch | None = None, process: subprocess.Popen | None = None, pid: int | None = None,
+                 stopping: bool = False, log: Callable[[str], None] = lambda message: None):
+        self.agent_id, self.root, self.folder = agent_id, Path(root), Path(folder)
+        self.session, self.registration = session, registration
         self.launch, self.process, self.log = launch, process, log
         self.pid = process.pid if process is not None else pid
-        self.stopping = stopping   # 止めた（終わっても進行役に知らせない）
+        self.stopping = stopping   # 止めた（終わっても親に知らせない）
         self.ended = False
         self.waking = False        # 引き継いだものを起こす（係が一度だけ）
         self._lock = threading.Lock()
@@ -150,7 +153,7 @@ class Agent:
         folder.mkdir(parents=True, exist_ok=True)
         before = status.read(folder / status.STATE)
         before = before if isinstance(before, dict) else {}
-        record(folder, "start", session=launch.session, role=launch.role)
+        record(folder, "start", session=launch.session, agent=launch.agent_id, registration=launch.registration)
         out, err = open(folder / EVENTS, "ab"), open(folder / ERRORS, "ab")
         try:
             process = subprocess.Popen(list(launch.argv), stdin=subprocess.PIPE, stdout=out, stderr=err, env=launch.env,
@@ -161,9 +164,10 @@ class Agent:
         finally:
             out.close()
             err.close()
-        agent = cls(launch.root, folder, session=launch.session, role=launch.role, launch=launch, process=process, log=log)
+        agent = cls(launch.agent_id, launch.root, folder, session=launch.session, registration=launch.registration,
+                    launch=launch, process=process, log=log)
         agent.state = {"mode": status.APP, "state": status.IDLE, "since": time.time(), "session": launch.session,
-                       "role": launch.role, "pid": process.pid, "read": (folder / EVENTS).stat().st_size,
+                       "registration": launch.registration, "pid": process.pid, "read": (folder / EVENTS).stat().st_size,
                        "at": time.time(), **{k: before[k] for k in ("last_reply", "replied_at", "limits") if k in before}}
         agent._save()
         status.started(folder, process.pid, status.APP)
@@ -300,7 +304,7 @@ class Agent:
         status.write_reply(self.folder, message, continued=queued)   # 入れた言付けが残っていれば、続けている
 
     def _end(self) -> None:
-        """プロセスが終わった。止めたのでなければ、進行役に知らせる（返答の終わりとして）。"""
+        """プロセスが終わった。止めたのでなければ、親に知らせる（返答の終わりとして）。"""
         self.ended = True
         code = self.process.returncode if self.process is not None else None
         was = self.state.get("state")
@@ -310,7 +314,7 @@ class Agent:
             detail = _tail(self.folder / ERRORS)
             message = (f"（エージェント〔Claude Code〕が{'返答の途中で' if was == status.WORKING else ''}終わりました"
                        f"{f'：終了コード {code}' if code is not None else ''}。"
-                       "agent team restart で起動し直せます）" + (f"\n{detail}" if detail else ""))
+                       "agent restart で起動し直せます）" + (f"\n{detail}" if detail else ""))
             self.state["error"] = message
             status.write_reply(self.folder, message)
         self._save()   # running.json は残す（mode app のまま、プロセスが終わっているので「止まっている」）
@@ -360,55 +364,58 @@ def _tail(file: Path, size: int = 600) -> str:
 
 
 class Apps:
-    """係が持つアプリ用のエージェント（作業空間ごとに1つ）。
+    """係が持つアプリ用のエージェント（エージェントの ID ごとに1つ。同じ作業空間に何人いてもよい）。
 
-    launch(root, role, resume, progress) → Launch：起動のしかた（使う側が渡す：AgentModule を本体の係は知らない）。"""
+    launch(agent_id, resume, progress) → Launch：記録（agents）のあるエージェントの起動のしかた（使う側が渡す：
+    AgentModule を本体の係は知らない）。"""
 
     def __init__(self, launch: Callable[..., Launch], log: Callable[[str], None] = lambda message: None):
         self.launch, self.log = launch, log
         self._agents: dict[str, Agent] = {}
         self._lock = threading.Lock()
-        self._held = threading.Lock()   # HELD を書く（作業役の作成は並べて行うので、起動も重なる）
+        self._held = threading.Lock()   # HELD を書く（子の作成は並べて行うので、起動も重なる）
 
-    @staticmethod
-    def _key(root: Path) -> str:
-        return os.path.normcase(str(Path(root).resolve()))
-
-    def get(self, root: Path) -> Agent | None:
+    def get(self, agent_id: str) -> Agent | None:
         with self._lock:
-            return self._agents.get(self._key(root))
+            return self._agents.get(agent_id)
 
-    def holds(self, root: Path) -> bool:
-        found = self.get(root)
+    def holds(self, agent_id: str) -> bool:
+        found = self.get(agent_id)
         return found is not None and not found.ended
+
+    def in_workspace(self, root: Path) -> list[Agent]:
+        """作業空間 root で動いているもの。"""
+        key = os.path.normcase(str(Path(root).resolve()))
+        return [agent for agent in self.agents() if not agent.ended
+                and os.path.normcase(str(agent.root.resolve())) == key]
 
     def agents(self) -> list[Agent]:
         with self._lock:
             return list(self._agents.values())
 
-    def start(self, root: Path, *, role: str = "", prompt: str = "", resume: str = "",
+    def start(self, agent_id: str, *, prompt: str = "", resume: str = "",
               progress: Callable[[str], None] = lambda message: None) -> Agent:
-        """作業空間 root のエージェントをアプリ用で起動し（resume：その会話の続きから）、prompt があれば最初に入れる。"""
-        if self.holds(root):
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントは、もう係が動かしています。",
-                                hint="agent team list で様子を見られます。")
-        launch = self.launch(root, role, resume, progress)
+        """エージェント agent_id をアプリ用で起動し（resume：その会話の続きから）、prompt があれば最初に入れる。"""
+        if self.holds(agent_id):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} は、もう係が動かしています。",
+                                hint="agent status で様子を見られます。")
+        launch = self.launch(agent_id, resume, progress)
         if status.running_mode(launch.folder) == "":
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントは、対話型（人の画面）で動いています。",
-                                hint="その画面を閉じてから（引き取ったものなら agent team handback で）やり直してください。")
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} は、対話型（人の画面）で動いています。",
+                                hint="その画面を閉じてから（引き取ったものなら agent handback で）やり直してください。")
         agent = Agent.start(launch, self.log)
         with self._lock:
-            self._agents[self._key(root)] = agent
+            self._agents[launch.agent_id] = agent
         self._remember()
         if prompt.strip():
             agent.send(prompt)
-        self.log(f"エージェントをアプリ用で起動しました（{root}{'・続きから' if resume else ''}）")
+        self.log(f"エージェント {launch.agent_id} をアプリ用で起動しました（{launch.root}{'・続きから' if resume else ''}）")
         return agent
 
-    def stop(self, root: Path, wait: float = STOP_WAIT) -> Agent | None:
-        """作業空間 root のエージェントを止めて、持つのをやめる（返答を終えさせてから）。"""
+    def stop(self, agent_id: str, wait: float = STOP_WAIT) -> Agent | None:
+        """エージェント agent_id を止めて、持つのをやめる（返答を終えさせてから）。"""
         with self._lock:
-            agent = self._agents.pop(self._key(root), None)
+            agent = self._agents.pop(agent_id, None)
         self._remember()
         if agent is not None and not agent.ended:
             agent.stop(wait)
@@ -450,22 +457,24 @@ class Apps:
         found = status.read(_settings.home() / HELD)
         adopted = []
         for entry in found.get("agents") or () if isinstance(found, dict) else ():
-            root, folder = Path(str(entry.get("root") or "")), Path(str(entry.get("folder") or ""))
-            if not entry.get("root") or not root.is_dir() or not folder.is_dir() or self.get(root) is not None:
+            agent_id, root = str(entry.get("id") or ""), Path(str(entry.get("workspace") or ""))
+            folder = status.directory(agent_id) if agent_id else None   # 前の版の記録（ID がない）は読まない
+            if folder is None or not entry.get("workspace") or not root.is_dir() or self.get(agent_id) is not None:
                 continue
             running = status.read(folder / status.RUNNING)
             pid = running.get("pid") if isinstance(running, dict) and running.get("mode") == status.APP else None
-            agent = Agent(root, folder, session=str(entry.get("session") or ""), role=str(entry.get("role") or ""),
+            agent = Agent(agent_id, root, folder, session=str(entry.get("session") or ""),
+                          registration=str(entry.get("registration") or ""),
                           pid=pid if isinstance(pid, int) else None, stopping=True, log=self.log)
             with self._lock:
-                self._agents[self._key(root)] = agent
+                self._agents[agent_id] = agent
             adopted.append(agent)
         return adopted
 
     def _remember(self) -> None:
         """持っているものを HELD に書く（係が終わっても残す）。"""
-        held = [{"root": str(agent.root), "folder": str(agent.folder), "session": agent.session, "role": agent.role}
-                for agent in self.agents()]
+        held = [{"id": agent.agent_id, "workspace": str(agent.root), "session": agent.session,
+                 "registration": agent.registration} for agent in self.agents()]
         path = _settings.home() / HELD
         with self._held:
             try:

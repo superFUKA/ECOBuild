@@ -12,7 +12,7 @@ import click
 from cli_framework import create_cli
 from ecobuild.errors import EcoBuildError
 
-from . import _catalog, _errors, _extensions, _help, _inside, _log, _output, _types, commands
+from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _types, commands
 from ._output import use_utf8_when_redirected
 
 
@@ -23,6 +23,10 @@ TASK_SECTIONS = (
     ("提出と完了", ("submit", "checks", "withdraw", "review", "approve", "reject", "finish", "revert")),
 )
 
+
+# Python の予約語のオプション（引数の名前に _ を付けたもの → 打つときの名前）。CLIFrameWork は名前の _ を - にするので、
+# 後ろの _ が - で残る（as_ → --as-）
+RESERVED_OPTIONS = {"agent start": {"as_": "--as"}}
 
 _CURRENT = object()
 
@@ -35,10 +39,43 @@ def build_cli(module_type: str | None | object = _CURRENT):
     cli = create_cli(commands, name="ecobuild", extensions=_types.extensions(module_type))
     if isinstance(cli, click.Group):
         _types.attach(cli, module_type)
+        _hide(cli)
+        _reserved(cli)
     task = cli.commands.get("task") if isinstance(cli, click.Group) else None
     if isinstance(task, click.Group):
         task.format_commands = types.MethodType(_format_sections(TASK_SECTIONS), task)
     return cli
+
+
+def _hide(cli: click.Group) -> None:
+    """一覧に出さないコマンド（_effects.HIDDEN）を隠す。打てば動く。"""
+    for path in _effects.HIDDEN:
+        command = cli
+        for name in path.split():
+            command = command.commands.get(name) if isinstance(command, click.Group) else None
+        if command is not None:
+            command.hidden = True
+
+
+def _reserved(cli: click.Group) -> None:
+    """予約語のオプションの名前を直す（RESERVED_OPTIONS。コマンドは使うときに読むので、読んだときに直す）。"""
+    def rename(command: click.Command, names: dict[str, str]) -> click.Command:
+        for parameter in command.params:
+            if isinstance(parameter, click.Option) and parameter.name in names:
+                parameter.opts = [names[parameter.name]]
+        return command
+
+    for path, names in RESERVED_OPTIONS.items():
+        command = cli
+        for name in path.split():
+            command = command.commands.get(name) if isinstance(command, click.Group) else None
+        if command is None:
+            continue
+        load = getattr(command, "_load", None)
+        if load is None:
+            rename(command, names)
+        else:   # CLIFrameWork の遅れて読むコマンド
+            command._load = lambda load=load, names=names: rename(load(), names)
 
 
 def version() -> str | None:

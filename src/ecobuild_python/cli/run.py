@@ -5,6 +5,8 @@ from ecobuild.errors import EcoBuildError
 from ecobuild_cli.kit import run_command, usage_error
 from ecobuild_python import _python
 
+AGENT = "change"
+
 
 def command(
     *argv: Annotated[str, "プログラムへ渡す引数（-- の後ろに並べる：ecobuild run -- --port 8080 \"a b\"）"],

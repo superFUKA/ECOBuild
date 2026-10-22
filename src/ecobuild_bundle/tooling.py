@@ -21,6 +21,8 @@ from ecobuild.results import DoctorItem
 from ecobuild.settings import HOME_VARIABLE, Types, default_home, home, load_config, set_config
 from ecobuild_container import docker as _docker
 from ecowork import process as _process
+from ecowork.errors import WorkError
+from ecowork.git import MINIMUM_VERSION, git_version
 
 # 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは DoctorItem.install）
 INSTALL = {
@@ -33,6 +35,8 @@ INSTALL = {
         "gh": ["sudo", "apt-get", "install", "--yes", "gh"],
     },
 }
+# git が古いとき（MINIMUM_VERSION 未満）の上げ方（Windows。ほかは INSTALL のまま）
+UPGRADE_GIT = ("winget", "upgrade", "--id", "Git.Git", "--exact", "--silent")
 
 
 def set_home(path: Path) -> list[str]:
@@ -101,8 +105,7 @@ def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str 
     items = [DoctorItem("python", sys.version_info >= (3, 11), True, sys.version.split()[0],
                         "Python 3.11 以上が必要です。", id="python")]
     git = _version("git", "--version")
-    items.append(DoctorItem("git", git is not None, True, git or "見つかりません", "git をインストールしてください。",
-                            "install", id="git"))
+    items.append(_git_item(git))
     gh = _version("gh", "--version")
     items.append(DoctorItem("gh", gh is not None, True, (gh or "見つかりません").splitlines()[0],
                             "GitHub CLI（gh）をインストールしてください。", "install", id="gh"))
@@ -145,6 +148,22 @@ def doctor(types: Types = (), extra: Iterable[DoctorItem] = (), *, command: str 
             items.append(item if item.id else replace(item, id=f"{type_class.name}.{_id_part(item.name)}"))
     items += (item if item.id else replace(item, id=_id_part(item.name)) for item in extra)
     return DoctorReport(tuple(_unique_ids(items)))
+
+
+def _git_item(found: str | None) -> DoctorItem:
+    """git：あるか・版が MINIMUM_VERSION 以上か（作業空間を相対パスの worktree で記録する。古い git はそのリポジトリを
+    開けなくなる）。古ければ上げ方（Windows：winget upgrade）。"""
+    if found is None:
+        return DoctorItem("git", False, True, "見つかりません", "git をインストールしてください。", "install", id="git")
+    minimum = ".".join(map(str, MINIMUM_VERSION[:2]))
+    try:
+        new_enough = git_version() >= MINIMUM_VERSION
+    except WorkError:  # 版を読めない（動かせない git）
+        new_enough = False
+    return DoctorItem("git", new_enough, True, found if new_enough else f"{found}（{minimum} 以上が要ります）",
+                      f"git を {minimum} 以上に上げてください（作業空間を相対パスで記録するため）"
+                      + (f"：{' '.join(UPGRADE_GIT)}" if os.name == "nt" else "") + "。",
+                      "install", UPGRADE_GIT if os.name == "nt" and not new_enough else (), id="git")
 
 
 def _id_part(name: str) -> str:

@@ -77,6 +77,11 @@ def test_open_moves_a_window_or_opens_one(tmp_path, monkeypatch):
     assert navigate["target"] == "w1" and navigate["tab"] == "projects"
     # called by that window itself: it does it (apply)
     assert app.action("open", {"module": str(module), "page": "help"}, origin="w1") == {"apply": {"navigate": {"page": "help"}}}
+    # a folder in one of its workspaces (.ecobuild/w/<名前>): the module's window (its own clone)
+    workspace = module / ".ecobuild" / "w" / "7"
+    (workspace / ".ecobuild").mkdir(parents=True)
+    (workspace / ".ecobuild" / "ecobuild.toml").write_text('[module]\nname = "M"\n', encoding="utf-8")
+    assert app.action("open", {"module": str(workspace / ".ecobuild"), "page": "tasks"})["window"] == "w1"
     # the hub, from the hub: apply; folder from a window: the window opens it
     app.see_window({"id": "h1", "kind": "hub"})
     assert app.action("open", {}, origin="h1") == {"apply": {"navigate": {}}}
@@ -164,7 +169,8 @@ def test_agents_go_to_the_electron_window(tmp_path):
     assert event["type"] == "agents" and event["op"] == "agent-send" and event["params"] == {"tab": 1, "text": "テストして"}
     with pytest.raises(gui.GuiError):
         app.action("agent-show", {"tab": 9})
-    assert app.action("agent-open", {"dir": "C:/ECO/Calc"})["done"] == "asked"
+    assert app.action("agent-open", {"dir": "C:/ECO/Calc", "registration": "worker"})["done"] == "asked"
+    assert app.events.items[-1]["params"] == {"dir": "C:/ECO/Calc", "registration": "worker"}   # 登録の名前も main へ
 
 
 def test_opening_goes_to_a_page_window_or_the_electron_main(tmp_path, monkeypatch):
@@ -176,3 +182,14 @@ def test_opening_goes_to_a_page_window_or_the_electron_main(tmp_path, monkeypatc
     app.see_window({"id": "w1", "kind": "hub"})
     assert app.action("open", {"module": "C:/ECO/Calc"})["window"] == "w1"
     assert app.events.items[-1]["type"] == "open-window" and app.events.items[-1]["target"] == "w1"
+
+
+def test_the_agent_registrations_open_in_the_hub_settings(tmp_path):
+    """エージェントの登録（ハブの設定の「エージェント」のタブ）：ハブの窓があればそこが移り、なければその画面を開く。"""
+    app = make_app(tmp_path)
+    app.see_window({"id": "agents-main", "kind": "agents", "tabs": []})
+    assert app.action("open", {"page": "settings", "tab": "agents"})["window"] == "agents-main"
+    assert app.events.items[-1]["page"] == "hub.html#settings/agents"
+    app.see_window({"id": "h1", "kind": "hub"})
+    assert app.action("open", {"page": "settings", "tab": "agents"}) == {"done": "navigated", "window": "h1"}
+    assert app.events.items[-1]["type"] == "navigate" and app.events.items[-1]["tab"] == "agents"

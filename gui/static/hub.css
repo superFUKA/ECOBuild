@@ -111,6 +111,12 @@
 .empty-modules { margin-top: 32px; padding: 32px; border: 1px dashed #46515e; border-radius: 14px; color: #a5aeba; line-height: 1.8; }
 .diagnostics .item-name { font-weight: 600; }
 .diagnostics li button { margin-left: 10px; padding: 4px 10px; border: 1px solid #81cbb9; border-radius: 6px; background: transparent; color: #9ee4d3; cursor: pointer; }
+/* エージェントの登録（設定の「エージェント」） */
+.registry-list .registry-name { margin-left: 8px; color: #a5aeba; font-family: Consolas, monospace; }
+.registry-list .registry-source { margin-left: 8px; padding: 1px 8px; border-radius: 10px; background: #2b3440; color: #a5aeba; font-size: 11px; }
+.registry-list .registry-source[data-source="user"] { background: #1f3a33; color: #9ee4d3; }
+.registry-list .registry-actions { white-space: nowrap; }
+.registry-list .registry-actions button.danger-text { border-color: #b46a6a; color: #ffb4b4; }
 /* 初めて開いたとき等、開発の環境が整っていないときの案内（モジュール一覧の上） */
 .setup-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 16px; padding: 14px 18px; border: 1px solid #6b5a3a; border-radius: 10px; background: #2a2418; }
 .setup-banner[hidden] { display: none; }

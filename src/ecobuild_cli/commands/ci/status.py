@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import local_time, optional_argument, run_command
 
+AGENT = "read"
+
 
 def command(
     *number: Annotated[int, "タスクの番号（--task と同じ）"],

@@ -1,6 +1,7 @@
 'use strict';
 // エージェントが書き出す状態（ecobuild_agent.status：status.json・replied.json）を読む。
-// 置き場所は、端末の出力の見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で分かる（found）。
+// 置き場所は、端末の出力の見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で分かる（found）。作業空間のエージェントの
+// 置き場所はエージェントごとで、その名前がエージェントの ID（agentIdOf）。
 // 使用量の制限（5時間・週）はアカウント共通なので、どのタブから届いたものも1つにまとめて、最新を持つ。
 const fs = require('fs');
 const path = require('path');
@@ -12,6 +13,12 @@ let limits = {};
 function found(data) {
   const m = MARK.exec(data);
   return m ? m[1] : null;
+}
+
+// 置き場所の名前がエージェントの ID（a- と16進の10文字）なら、その ID（オペレーター等、ID でなければ null）
+function agentIdOf(folder) {
+  const name = String(folder || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  return /^a-[0-9a-f]{10}$/.test(name) ? name : null;
 }
 
 function read(file) {
@@ -50,7 +57,7 @@ function summary(s) {
           fiveHour: limit('five_hour'), weekly: limit('seven_day')};
 }
 
-// 受け箱（inbox/。ECOBuild の係が入れる：言付け・作業役の知らせ）の一番古いものを取り出す（なければ null）。
+// 受け箱（inbox/。ECOBuild の係が入れる：言付け・子の知らせ）の一番古いものを取り出す（なければ null）。
 // ecobuild_agent.status.take と同じ形：名前の順が届いた順、.taken に名前を変えて取ったものだけを使う
 function take(folder) {
   const inbox = path.join(folder, 'inbox');
@@ -65,4 +72,4 @@ function take(folder) {
   return null;
 }
 
-module.exports = {found, poll, summary, take};
+module.exports = {found, agentIdOf, poll, summary, take};

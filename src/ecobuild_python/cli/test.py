@@ -4,6 +4,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "change"
+
 
 def command(
     *tests: Annotated[str, "流すテスト（ファイル・フォルダ・tests/x.py::test_a。省略すると全部）"],

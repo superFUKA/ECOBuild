@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import run_command
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """ブランチの一覧を表示します（タスクブランチかどうか、作成元、手元・GitHubのどちらにあるか）。"""

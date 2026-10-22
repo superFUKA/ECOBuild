@@ -46,10 +46,12 @@
       .map(g => [g.repository, g.description || g.type]);
   }
 
-  // Which place to show (one of the module's workspaces, e.g. one on a task branch with uncommitted changes).
+  // Which place to show: the module's own clone (the default branch) or one of its workspaces (e.g. one on a task branch
+  // with uncommitted changes).
   function placeSelect() {
-    const options = MOD.places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${esc(MOD.states.get(MOD.keyOf(p))?.branch || p)}${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? '' : '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
-    if (MOD.places.length < 2) return '';   // only one workspace: nothing to choose
+    const places = [MOD.root, ...MOD.places.filter(p => MOD.keyOf(p) !== MOD.keyOf(MOD.root))];
+    const options = places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? 'モジュールのフォルダ（既定のブランチ）' : esc(MOD.states.get(MOD.keyOf(p))?.branch || p) + '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
+    if (places.length < 2) return '';   // no workspace: nothing to choose
     return `<div class="mi-place"><label class="mi-note">表示する場所<select id="mi-place">${options}</select></label></div>`;
   }
   // The files of the module (as the explorer lists them: git's files and the untracked ones, not the ignored ones).

@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -19,6 +20,7 @@ def cli(module, monkeypatch):
     def invoke(*args):
         return runner.invoke(build_cli(), list(args), catch_exceptions=False)
 
+    invoke.chdir = monkeypatch.chdir
     return invoke
 
 
@@ -26,10 +28,20 @@ def as_json(result):
     return json.loads(result.stdout)
 
 
+def start(cli, *args) -> Path:
+    """作業空間を作るコマンド（task start・task new --start）を流して、その作業空間へ移る。作業空間の場所を返す。"""
+    document = as_json(cli(*args, "--json"))
+    assert document["ok"], document
+    result = document["result"]
+    place = Path((result.get("task_branch") or result)["workspace"])
+    cli.chdir(place)
+    return place
+
+
 def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
-                 ["workspace", "list"], ["workspace", "create"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"], ["workspace", "path"],
+                 ["workspace", "list"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
                  ["container", "stop"], ["container", "remove"], ["container", "dockerfile"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],
@@ -53,7 +65,7 @@ def test_old_commands_are_gone():
     """pr グループ・task merge／remove／plan はなくした（task finish・task prune <番号>・task edit 等）。"""
     runner = CliRunner()
     for args in (["pr", "list"], ["task", "merge"], ["task", "remove"], ["task", "plan"], ["task", "clean"], ["link"],
-                 ["unlink"]):
+                 ["unlink"], ["workspace", "create"], ["workspace", "path"]):
         assert runner.invoke(build_cli(), [*args, "--help"]).exit_code == 2, args
     shown = runner.invoke(build_cli(), ["task", "--help"]).output
     assert shown.index("コマンド（計画）:") < shown.index("コマンド（作業）:") < shown.index("コマンド（提出と完了）:")
@@ -68,9 +80,13 @@ def test_cli_full_cycle(cli, module):
     document = as_json(result)
     assert document["ok"] and document["result"]["task_branch"]["branch"] == "task/1-0除算対策"
     assert "_module" not in document["result"]["task"]
+    work = Path(document["result"]["task_branch"]["workspace"])       # 元の clone の中の作業空間。元の clone は main のまま
+    assert work == module.root / ".ecobuild" / "w" / "1" and git(module.root, "branch", "--show-current") == "main"
+    assert git(module.root, "status", "--porcelain") == ""             # 作業空間は元の clone の git に見えない
+    cli.chdir(work)
 
-    write(module.root / "calc.cpp", "int calc;\n")
-    write(module.root / "notes.tmp", "メモ\n")          # 管理するファイルの対象外
+    write(work / "calc.cpp", "int calc;\n")
+    write(work / "notes.tmp", "メモ\n")          # 管理するファイルの対象外
     status = as_json(cli("status", "--json"))["result"]
     assert status["excluded"] == ["notes.tmp"]
     committed = as_json(cli("task", "commit", "--message", "計算を追加", "--json"))["result"]
@@ -81,8 +97,9 @@ def test_cli_full_cycle(cli, module):
 
     pr = as_json(cli("task", "submit", "--no-check", "--json"))["result"]
     assert pr["head"] == "task/1-0除算対策" and pr["base"] == "main"
-    finished = cli("task", "finish")
+    finished = cli("task", "finish")                  # 作業空間の中で完了しても、作業空間ごと片付く
     assert finished.exit_code == 0 and "完了しました：#1 0除算対策" in finished.stdout
+    assert f"作業空間 {work} を消しました" in finished.stdout and not work.exists()
     assert git(module.root, "branch", "--show-current") == "main"
     assert "task/1-0除算対策" not in git(module.root, "branch", "--list")
     assert cli("task", "prune").stdout.strip() == "片付けるタスクブランチはありません"
@@ -90,9 +107,9 @@ def test_cli_full_cycle(cli, module):
 
 def test_commit_paths_and_track(cli, module):
     """パスを書けば対象外のファイルも含める。管理するファイルは ecobuild track で足せる。"""
-    assert cli("task", "new", "記録", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "data" / "a.json", "{}\n")
-    write(module.root / "b.json", "{}\n")
+    work = start(cli, "task", "new", "記録", "--start", "--name", "作業")
+    write(work / "data" / "a.json", "{}\n")
+    write(work / "b.json", "{}\n")
     nothing = as_json(cli("task", "commit", "--message", "x", "--json"))
     assert nothing["error"]["code"] == "nothing_to_commit" and "data/a.json" in nothing["error"]["hint"]
     chosen = as_json(cli("task", "commit", "data", "--message", "データ", "--json"))["result"]
@@ -100,20 +117,20 @@ def test_commit_paths_and_track(cli, module):
     listed = as_json(cli("track", "--json"))["result"]
     assert {"pattern": "*.cpp", "source": "type", "excluded": False} in listed["patterns"]
     assert cli("track", "add", "*.json").exit_code == 0
-    assert 'include = ["*.json"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
+    assert 'include = ["*.json"]' in (work / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     committed = as_json(cli("task", "commit", "--message", "設定とデータ", "--json"))["result"]
     assert set(committed["files"]) == {"b.json", ".ecobuild/ecobuild.toml"}
     assert cli("track", "remove", "*.md").exit_code == 0
-    assert 'exclude = ["*.md"]' in (module.root / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
+    assert 'exclude = ["*.md"]' in (work / ".ecobuild" / "ecobuild.toml").read_text(encoding="utf-8")
     assert as_json(cli("track", "remove", ".ecobuild/ecobuild.toml", "--json"))["error"]["code"] == "invalid_argument"
-    write(module.root / "doc.md", "x\n")
+    write(work / "doc.md", "x\n")
     assert as_json(cli("status", "--json"))["result"]["excluded"] == ["doc.md"]
 
 
 def test_task_reset_keep_leaves_the_changes_uncommitted(cli, module):
     """task reset --keep：コミットを取り消して変更を残す（ECOBuild のファイルの変更も、変更のまま）。"""
-    assert cli("task", "new", "取り消し", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "a.txt", "a\n")
+    work = start(cli, "task", "new", "取り消し", "--start", "--name", "作業")
+    write(work / "a.txt", "a\n")
     assert cli("task", "commit", "a.txt", "--message", "a").exit_code == 0
     assert cli("track", "add", "*.json").exit_code == 0          # ecobuild.toml が変わる（コミットはしない）
     assert cli("task", "commit", "--message", "設定", "--json").exit_code == 0
@@ -127,16 +144,17 @@ def test_task_reset_keep_leaves_the_changes_uncommitted(cli, module):
 
 
 def test_task_drop_confirms_lost_commits(cli, module):
-    as_json(cli("task", "new", "やめる作業", "--start", "--name", "作業", "--json"))
-    write(module.root / "a.txt", "a\n")
+    work = start(cli, "task", "new", "やめる作業", "--start", "--name", "作業")
+    write(work / "a.txt", "a\n")
     assert cli("task", "add", "a.txt").exit_code == 0
     assert cli("task", "commit", "--message", "途中").exit_code == 0
     refused = cli("task", "drop", "--json")
     assert refused.exit_code == 1 and as_json(refused)["error"]["code"] == "confirmation_required"
     dropped = as_json(cli("task", "drop", "--close", "--yes", "--json"))["result"]
-    assert dropped["lost_commits"] == ["途中"] and dropped["switched_to"] == "main" and dropped["issue_closed"]
+    assert dropped["lost_commits"] == ["途中"] and dropped["issue_closed"]
+    assert dropped["workspace_removed"] == work.as_posix() and not work.exists() and dropped["switched_to"] is None
     human = cli("task", "drop")
-    assert human.exit_code == 1  # もうタスクブランチにいない
+    assert human.exit_code == 1  # もうタスクブランチにいない（元の clone へ出た）
 
 
 def test_errors_are_reported_as_json(cli, module):
@@ -185,18 +203,19 @@ def test_optional_arguments_are_also_positional(cli, module):
 
 
 def test_task_clean_one_and_resume(cli, module):
-    """task prune <番号>：開いているタスクなら、手元の写しだけを消す（以前の task remove）。"""
-    as_json(cli("task", "new", "手元を消す", "--start", "--name", "作業", "--json"))
-    write(module.root / "a.txt", "a\n")
+    """task prune <番号>：開いているタスクなら、手元の写しだけを消す（以前の task remove）。作業空間も一緒に消える。"""
+    work = start(cli, "task", "new", "手元を消す", "--start", "--name", "作業")
+    write(work / "a.txt", "a\n")
     assert cli("task", "commit", "a.txt", "--message", "途中").exit_code == 0
     refused = as_json(cli("task", "prune", "1", "--json"))
     assert refused["error"]["code"] == "commits_would_be_lost"
     assert cli("task", "push").exit_code == 0
     removed = cli("task", "prune", "1")
     assert removed.exit_code == 0 and "ecobuild task start 1" in removed.stdout
+    assert f"作業空間 {work} を消しました" in removed.stdout and not work.exists()
     assert "- #1" in cli("task", "list").stdout  # GitHubにだけある
-    resumed = as_json(cli("task", "start", "1", "--json"))["result"]
-    assert resumed["branch"] == "task/1-作業" and (module.root / "a.txt").exists()
+    assert start(cli, "task", "start", "1") == work
+    assert git(work, "branch", "--show-current") == "task/1-作業" and (work / "a.txt").exists()
 
 
 def test_task_clean_without_targets(cli):
@@ -205,7 +224,7 @@ def test_task_clean_without_targets(cli):
 
 
 def test_task_labels_assignees_and_comments(cli, module):
-    as_json(cli("task", "new", "落ちる", "--label", "bug,urgent", "--start", "--name", "作業", "--json"))
+    start(cli, "task", "new", "落ちる", "--label", "bug,urgent", "--start", "--name", "作業")
     as_json(cli("task", "new", "説明", "--label", "docs", "--json"))
     listed = cli("task", "list", "--label", "bug")
     assert "#1 落ちる〈作業中〉 [bug] [urgent]（担当：tester）" in listed.stdout and "#2" not in listed.stdout
@@ -222,8 +241,8 @@ def test_task_labels_assignees_and_comments(cli, module):
 
 def test_draft_submission_can_be_made_ready(cli, module):
     """下書きの提出は完了できず、案内される ecobuild task submit で解除してから完了できる。"""
-    assert cli("task", "new", "下書き", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "a.cpp", "a\n")
+    work = start(cli, "task", "new", "下書き", "--start", "--name", "作業")
+    write(work / "a.cpp", "a\n")
     cli("task", "commit", "--message", "a")
     pr = as_json(cli("task", "submit", "--draft", "--no-check", "--json"))["result"]
     assert pr["draft"]
@@ -243,14 +262,14 @@ def test_draft_submission_can_be_made_ready(cli, module):
 
 def test_finish_follows_the_submission_unless_told(cli, module):
     """閉じるかは提出で決める：中間提出を task finish すると続ける。--complete／--partial で変えられる。"""
-    assert cli("task", "new", "続ける", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "a.cpp", "a\n")
+    work = start(cli, "task", "new", "続ける", "--start", "--name", "作業")
+    write(work / "a.cpp", "a\n")
     cli("task", "commit", "--message", "a")
     assert as_json(cli("task", "submit", "--partial", "--no-check", "--json"))["result"]["partial"]
     assert as_json(cli("task", "submit", "--partial", "--complete", "--json"))["error"]["code"] == "invalid_argument"
     first = as_json(cli("task", "finish", "--json"))["result"]
-    assert first["partial"] and first["closed_issue"] is None
-    write(module.root / "b.cpp", "b\n")
+    assert first["partial"] and first["closed_issue"] is None and work.exists()   # 中間提出：作業空間は残る
+    write(work / "b.cpp", "b\n")
     cli("task", "commit", "--message", "b")
     assert as_json(cli("task", "submit", "--partial", "--no-check", "--json"))["result"]["partial"]
     assert not as_json(cli("task", "submit", "--complete", "--no-check", "--json"))["result"]["partial"]
@@ -258,20 +277,20 @@ def test_finish_follows_the_submission_unless_told(cli, module):
 
 
 def test_submit_refuses_uncommitted_changes(cli, module):
-    assert cli("task", "new", "未記録", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "a.cpp", "a\n")
+    work = start(cli, "task", "new", "未記録", "--start", "--name", "作業")
+    write(work / "a.cpp", "a\n")
     refused = as_json(cli("task", "submit", "--no-check", "--json"))
     assert refused["error"]["code"] == "dirty_working_tree" and refused["error"]["details"] == ["a.cpp"]
-    write(module.root / "ignored.tmp", "x\n")       # 管理しないファイルは止めない
+    write(work / "ignored.tmp", "x\n")       # 管理しないファイルは止めない
     cli("task", "commit", "--message", "a")
     assert cli("task", "submit", "--no-check").exit_code == 0
 
 
 def test_review_approve_and_reject_from_cli(cli, module):
-    """番号はタスクの番号。自分の提出は承認できず、task finish を案内する。"""
+    """番号はタスクの番号。自分の提出は承認できず、task finish を案内する。確認は確認用の作業空間（.ecobuild/w/r<PR>）で。"""
     from dataclasses import replace
-    assert cli("task", "new", "見てもらう", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "a.cpp", "a\n")
+    work = start(cli, "task", "new", "見てもらう", "--start", "--name", "作業")
+    write(work / "a.cpp", "a\n")
     cli("task", "commit", "--message", "a")
     cli("task", "submit", "--no-check")
     own = as_json(cli("task", "approve", "1", "--json"))
@@ -279,14 +298,21 @@ def test_review_approve_and_reject_from_cli(cli, module):
     github = module.repository.github
     number = module.repository.submission(1).number
     github.pulls[number] = replace(github.pulls[number], author="someone")
+    cli.chdir(module.root)
     assert cli("task", "reject", "1").exit_code == 2         # 理由がない
     assert "#1 を差し戻しました" in cli("task", "reject", "1", "--message", "直して").stdout
     reviewed = cli("task", "review", "1")
-    assert reviewed.exit_code == 0 and "task approve 1" in reviewed.stdout
+    review = module.root / ".ecobuild" / "w" / f"r{number}"
+    assert reviewed.exit_code == 0 and "task approve 1" in reviewed.stdout and str(review) in reviewed.stdout
+    assert git(module.root, "branch", "--show-current") == "main"      # 元の clone は切り替えない
+    listed = as_json(cli("workspace", "list", "--json"))["result"]["modules"][0]["workspaces"]
+    assert {(w["name"], w["review"]) for w in listed} == {("1", None), (f"r{number}", number)}
+    cli.chdir(review)
     assert "#1 の提出を確認中" in cli("status").stdout
     approved = cli("task", "approve", "1", "--message", "よい")
     assert approved.exit_code == 0 and "承認して完了しました：#1" in approved.stdout
-    assert "確認の前の場所 task/1-作業 に戻りました" in approved.stdout
+    assert f"確認用の作業空間 {review} を消しました" in approved.stdout and f"作業空間 {work} を消しました" in approved.stdout
+    assert not review.exists() and not work.exists()
     assert git(module.root, "branch", "--show-current") == "main" and "task/1-作業" not in git(module.root, "branch")
 
 
@@ -396,8 +422,8 @@ def test_legacy_board_setting_is_taken_over(cli, module):
 
 def test_subtasks_from_cli(cli, module):
     """子タスクのタスクブランチは親のタスクブランチから派生し、子が終わるまで親は終了できない（コマンドで一周）。"""
-    def work(name):
-        write(module.root / name, name + "\n")
+    def work(place, name):
+        write(place / name, name + "\n")
         assert cli("task", "commit", name, "--message", name).exit_code == 0
 
     assert cli("task", "new", "親").exit_code == 0
@@ -405,16 +431,18 @@ def test_subtasks_from_cli(cli, module):
     assert as_json(cli("task", "start", "2", "--name", "子", "--base", "main", "--json"))["error"]["code"] == "invalid_base"
     started = cli("task", "start", "2", "--name", "子")
     assert started.exit_code == 0 and "作成元 task/1-親" in started.output and "task/1-親 をGitHubに作りました" in started.output
-    work("child.txt")
+    child = module.root / ".ecobuild" / "w" / "2"
+    cli.chdir(child)
+    work(child, "child.txt")
     pr = as_json(cli("task", "submit", "--no-check", "--json"))["result"]
     assert pr["base"] == "task/1-親"
     finished = as_json(cli("task", "finish", "--json"))["result"]
-    assert finished["closed_issue"] == 2 and finished["switched_to"] == "task/1-親"
+    assert finished["closed_issue"] == 2 and finished["workspace_removed"] == child.as_posix() and not child.exists()
 
     assert cli("task", "new", "子2", "--parent", "1").exit_code == 0
-    assert cli("task", "start", "1").exit_code == 0
-    assert (module.root / "child.txt").exists()
-    work("parent.txt")
+    parent = start(cli, "task", "start", "1")
+    assert (parent / "child.txt").exists()
+    work(parent, "parent.txt")
     submitted = cli("task", "submit", "--no-check")
     assert submitted.exit_code == 0 and "子タスクが終わるまで完了できません" in submitted.output
     refused = as_json(cli("task", "finish", "--json"))
@@ -425,7 +453,8 @@ def test_subtasks_from_cli(cli, module):
     closed = cli("task", "close", "4")                       # タスクブランチなしで閉じた子
     assert closed.exit_code == 0 and "子タスクはすべて閉じました" in closed.output and "task finish 1" in closed.output
     assert as_json(cli("task", "finish", "1", "--json"))["result"]["closed_issue"] == 1
-    assert git(module.root, "branch", "--show-current") == "main"
+    assert git(module.root, "branch", "--show-current") == "main" and not parent.exists()
+    cli.chdir(module.root)
     assert cli("sync").exit_code == 0
     assert (module.root / "child.txt").exists() and (module.root / "parent.txt").exists()
 
@@ -487,130 +516,118 @@ def test_module_list_and_show(cli, module, tmp_path):
 
 @pytest.fixture
 def parallel(cli, module, monkeypatch):
-    """タスク #1 を、別の作業空間（モジュールの隣の Calc-1）で始める。型の準備はしない。"""
+    """タスク #1 を作業空間（元の clone の中の .ecobuild/w/1）で始める。型の準備はしない。"""
     from ecobuild.results import PrepareResult
     from ecobuild_cpp.type import CppType
     monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
     assert cli("task", "new", "並行作業").exit_code == 0
-    assert cli("task", "start", "1", "--dir", "../Calc-1", "--name", "作業").exit_code == 0
+    place = start(cli, "task", "start", "1", "--name", "作業")
     monkeypatch.chdir(module.root)
-    return module.root.parent / "Calc-1"
+    return place
 
 
-def test_workspace_create(cli, module, monkeypatch):
-    """作業空間を作る：既定のブランチのclone を記録し、タスクはそこで開始する。"""
-    from ecobuild.results import PrepareResult
-    from ecobuild_cpp.type import CppType
-    monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
-    created = as_json(cli("workspace", "create", "../Calc-2", "--json"))["result"]
-    other = module.root.parent / "Calc-2"
-    assert created["root"] == other.as_posix() and created["name"] == "Calc"
+def test_workspaces(cli, module, parallel, monkeypatch, tmp_path):
+    """このPCのモジュールの一覧：元の clone と、その中の作業空間（タスクブランチのあるもの）。作業空間は一覧に入れない。"""
     listed = as_json(cli("workspace", "list", "--json"))["result"]
-    assert (other.as_posix(), "main", None, "cpp") in [(c["path"], c["branch"], c["task"], c["type"]) for c in listed]
-    assert as_json(cli("workspace", "create", "../Calc-2", "--json"))["error"]["code"] == "already_exists"
-
-    assert cli("task", "new", "そこで作業").exit_code == 0
-    monkeypatch.chdir(other)
-    assert cli("task", "start", "1", "--name", "作業").exit_code == 0
-    assert as_json(cli("status", "--json"))["result"]["branch"] == "task/1-作業"
-
-
-def test_workspace_default_place(cli, module, monkeypatch, tmp_path):
-    """場所を省いた作業空間は <置き場所>/<モジュール名>/<番号>（モジュールの隣に Calc-2 等を並べない）。置き場所はこのPCの設定。"""
-    from ecobuild.results import PrepareResult
-    from ecobuild_cpp.type import CppType
-    monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
-    shared = module.root.parent / "workspace" / "Calc"
-    assert as_json(cli("workspace", "path", "--json"))["result"]["path"] == (shared / "1").as_posix()
-    assert as_json(cli("workspace", "create", "--json"))["result"]["root"] == (shared / "1").as_posix()
-    assert as_json(cli("workspace", "path", "--json"))["result"]["path"] == (shared / "2").as_posix()   # 空いている番号
-    assert cli("task", "new", "並行作業").exit_code == 0
-    assert as_json(cli("workspace", "path", "--task", "1", "--json"))["result"]["path"] == (shared / "1").as_posix()
-    assert as_json(cli("task", "start", "1", "--dir", "x", "--new-workspace", "--json"))["error"]["code"] == "usage_error"
-    cli("config", "set", "workspace_directory", str(tmp_path / "places"))
-    assert cli("task", "start", "1", "--new-workspace", "--name", "作業", "--json").exit_code == 0
-    assert (tmp_path / "places" / "Calc" / "1" / ".git").is_dir()
-
-
-def test_workspaces(cli, module, parallel, monkeypatch):
-    """このPCの作業空間の記録：使ったモジュールと task start --dir の作業空間。タスクブランチのある作業空間も分かる。"""
-    listed = as_json(cli("workspace", "list", "--json"))["result"]
-    assert sorted((c["path"], c["branch"], c["task"]) for c in listed) == sorted([
-        (module.root.as_posix(), "main", None), (parallel.as_posix(), "task/1-作業", 1)])
+    assert [m["path"] for m in listed["modules"]] == [module.root.as_posix()] and listed["legacy"] == []
+    entry = listed["modules"][0]
+    assert (entry["branch"], entry["default_branch"], entry["task"]) == ("main", "main", None)
+    assert [(w["name"], w["path"], w["branch"], w["task"], w["review"]) for w in entry["workspaces"]] == [
+        ("1", parallel.as_posix(), "task/1-作業", 1, None)]
     assert "task/1-作業＝タスク #1" in cli("workspace", "list").output
 
     task = as_json(cli("task", "list", "--json"))["result"][0]
-    assert task["workspace"] == parallel.as_posix() and not task["task_branch"]
+    assert task["workspace"] == parallel.as_posix() and task["task_branch"]   # ブランチは元の clone と共有
     assert "+ #1 並行作業" in cli("task", "list").output and f"（場所：{parallel}）" in cli("task", "list").output
     status = as_json(cli("task", "status", "1", "--json"))["result"]
     assert status["workspace"] == parallel.as_posix() == status["task"]["workspace"]
     assert "タスクブランチ：task/1-作業" in cli("task", "status", "1").output
     shown = as_json(cli("module", "show", "--json"))["result"]
-    assert sorted(c["path"] for c in shown["workspaces"]) == sorted([module.root.as_posix(), parallel.as_posix()])
+    assert [c["path"] for c in shown["workspaces"]] == [parallel.as_posix()]
     assert "このPCの作業空間" in cli("module", "show").output
 
-    assert as_json(cli("workspace", "forget", "../Calc-1", "--json"))["result"]["exists"]
-    assert len(as_json(cli("workspace", "list", "--json"))["result"]) == 1
-    assert as_json(cli("workspace", "forget", "../Calc-1", "--json"))["error"]["code"] == "workspace_not_recorded"
-    assert as_json(cli("workspace", "add", "../Calc-1", "--json"))["result"]["task"] == 1
+    for command in ("add", "forget"):                 # 作業空間は元の clone から分かるので、一覧に入れない・外さない
+        assert as_json(cli("workspace", command, ".ecobuild/w/1", "--json"))["error"]["code"] == "invalid_argument"
+    assert as_json(cli("workspace", "forget", ".", "--json"))["result"]["exists"]
+    assert as_json(cli("workspace", "list", "--json"))["result"]["modules"] == []
+    assert as_json(cli("workspace", "forget", ".", "--json"))["error"]["code"] == "workspace_not_recorded"
+    monkeypatch.chdir(parallel)                       # 作業空間の中で使うと、元の clone が一覧に入る
+    assert cli("status").exit_code == 0
+    assert [m["path"] for m in as_json(cli("workspace", "list", "--json"))["result"]["modules"]] == [module.root.as_posix()]
+    monkeypatch.chdir(module.root)
     nested = module.root / "deps" / "Base"            # 依存先のclone 等、他のモジュールの中のものは記録しない
     write(nested / ".ecobuild" / "ecobuild.toml", "")
     assert as_json(cli("workspace", "add", "deps/Base", "--json"))["error"]["code"] == "invalid_argument"
 
-    git(parallel, "remote", "set-url", "origin", "https://github.com/tester/remote.git")
+    git(module.root, "switch", "--quiet", "-c", "other")   # 元の clone が既定のブランチにいなければ知らせる
+    noticed = as_json(cli("workspace", "list", "--json"))
+    assert any("既定のブランチ main に戻してください" in n for n in noticed["notices"])
+    git(module.root, "switch", "--quiet", "main")
+
+    git(module.root, "remote", "set-url", "origin", "https://github.com/tester/remote.git")
     module.repository.github.archived_repositories.append("tester/remote")
-    fetched = {c["path"]: c for c in as_json(cli("workspace", "list", "--fetch", "--json"))["result"]}
-    assert (fetched[module.root.as_posix()]["repository"], fetched[module.root.as_posix()]["remote"]) == (None, None)
-    assert (fetched[parallel.as_posix()]["repository"], fetched[parallel.as_posix()]["remote"]) == ("tester/remote",
-                                                                                                     "archived")
-    parallel.rename(parallel.with_name("Moved"))      # ECOBuildの外で移動した
+    fetched = as_json(cli("workspace", "list", "--fetch", "--json"))["result"]["modules"][0]
+    assert (fetched["repository"], fetched["remote"]) == ("tester/remote", "archived")
+    monkeypatch.chdir(tmp_path)
+    module.root.rename(module.root.with_name("Moved"))   # ECOBuildの外で移動した
     assert "見つかりません" in cli("workspace", "list").output
-    exists = {c["path"]: c["exists"] for c in as_json(cli("workspace", "list", "--json"))["result"]}
-    assert exists == {module.root.as_posix(): True, parallel.as_posix(): False}
+    exists = {c["path"]: c["exists"] for c in as_json(cli("workspace", "list", "--json"))["result"]["modules"]}
+    assert exists == {module.root.as_posix(): False}
 
 
-def test_old_clone_records_are_read(cli, module, monkeypatch):
-    """以前の記録（clones.json。種類つき）は読み、次に書くときに workspaces.json へ移す。"""
+def test_old_records_move_to_the_module_list(cli, module, parallel, tmp_path):
+    """以前の記録（workspaces.json・clones.json）は読むだけ：modules.json がなければ移す。同じリポジトリの clone が
+    2つ以上あれば1つを元の clone にし（.ecobuild/ の外 → フォルダー名がリポジトリ名 → タスクブランチにいない）、残りと
+    ほかのモジュールの .ecobuild/ の中のもの（前の版の作業役）は前の版の作業空間（legacy）にする。作業空間は飛ばす。"""
     from ecobuild import workspaces
-    old = workspaces.file().with_name(workspaces.OLD_FILE_NAME)
+    remote = module.repository.github.bare
+    other = tmp_path / "Calc-2"                        # 前の版の作業空間（タスクブランチにいる）
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    git(other, "switch", "--quiet", "-c", "task/9-前の作業")
+    team = module.root / ".ecobuild" / "ai" / "team" / "2-作業役"
+    git(tmp_path, "clone", "--quiet", str(remote), str(team))
+    old = workspaces.file().with_name("workspaces.json")
+    recorded = [other, module.root, parallel, team, tmp_path / "なくなった"]
+    text = json.dumps({"workspaces": [{"path": p.as_posix()} for p in recorded]})
+    old.write_text(text, encoding="utf-8")
     workspaces.file().unlink(missing_ok=True)
-    old.write_text(json.dumps({"clones": [{"path": module.root.as_posix(), "kind": "module"}]}), encoding="utf-8")
-    assert [c["path"] for c in as_json(cli("workspace", "list", "--json"))["result"]] == [module.root.as_posix()]
-    assert workspaces.forget(module.root) and not old.exists() and workspaces.recorded() == []
+    listed = as_json(cli("workspace", "list", "--json"))["result"]
+    assert [(m["path"], m["exists"]) for m in listed["modules"]] == [(module.root.as_posix(), True),
+                                                                     ((tmp_path / "なくなった").as_posix(), False)]
+    assert sorted(entry["path"] for entry in listed["legacy"]) == sorted([other.as_posix(), team.as_posix()])
+    assert "前の版の作業空間" in cli("workspace", "list").output
+    assert old.read_text(encoding="utf-8") == text and workspaces.file().is_file()   # 以前の記録はそのまま
+    data = json.loads(workspaces.file().read_text(encoding="utf-8"))
+    assert data["version"] == 1 and {"path", "repository", "url"} <= set(data["modules"][0])
+    workspaces.file().unlink()                         # 消せば、また移す
+    assert len(as_json(cli("workspace", "list", "--json"))["result"]["legacy"]) == 2
 
 
 def test_close_workspace(cli, module, parallel, monkeypatch):
-    """workspace close：場所ごと消して記録から外す。GitHubにないものがあれば止める（--discard-local で捨てる）。"""
+    """workspace close：作業空間（git worktree）を場所ごと消す。GitHubにないものがあれば止める（--discard-local で捨てる）。
+    元の clone は閉じられない。"""
     write(parallel / "local.txt", "x\n")
-    stopped = as_json(cli("workspace", "close", "../Calc-1", "--json"))
+    stopped = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))
     assert stopped["error"]["code"] == "unfinished_work" and parallel.exists()
-    assert as_json(cli("workspace", "close", "../Calc-1", "--discard-local", "--json"))["error"]["code"] \
+    assert as_json(cli("workspace", "close", ".ecobuild/w/1", "--discard-local", "--json"))["error"]["code"] \
         == "confirmation_required"
     (parallel / "local.txt").unlink()
-    preview = as_json(cli("workspace", "close", "../Calc-1", "--dry-run", "--json"))["result"]
+    preview = as_json(cli("workspace", "close", ".ecobuild/w/1", "--dry-run", "--json"))["result"]
     assert not preview["done"] and parallel.exists()
-    output = cli("workspace", "close", "../Calc-1").output
+    output = cli("workspace", "close", ".ecobuild/w/1").output
     assert f"作業空間 {parallel} を閉じました" in output and not parallel.exists()
-    assert [c["path"] for c in as_json(cli("workspace", "list", "--json"))["result"]] == [module.root.as_posix()]
-    # タスクは開いたまま、GitHubのタスクブランチも残る（別の作業空間で再開できる）
+    assert len(git(module.root, "worktree", "list").splitlines()) == 1     # git の記録も片付けた
+    assert as_json(cli("workspace", "list", "--json"))["result"]["modules"][0]["workspaces"] == []
+    # タスクは開いたまま、タスクブランチも残る（task start で同じ場所に作り直せる）
     assert as_json(cli("task", "status", "1", "--json"))["result"]["remote"]
-
-
-def test_close_workspace_with_another_inside(cli, module, monkeypatch):
-    """中に別の作業空間（clone）があれば閉じない（新しいファイルとして見え、一緒に消えてしまうため）。"""
-    from ecobuild.results import PrepareResult
-    from ecobuild_cpp.type import CppType
-    monkeypatch.setattr(CppType, "prepare", lambda self: PrepareResult((), False))
-    assert cli("task", "new", "中で並行作業").exit_code == 0
-    assert cli("task", "start", "1", "--dir", "inner/Calc-1", "--name", "作業").exit_code == 0
+    assert start(cli, "task", "start", "1") == parallel
     monkeypatch.chdir(module.root)
-    stopped = as_json(cli("workspace", "close", "--json"))
-    assert stopped["error"]["code"] == "unfinished_work" and (module.root / "inner" / "Calc-1" / ".git").exists()
+    refused = as_json(cli("workspace", "close", "--json"))   # 元の clone
+    assert refused["error"]["code"] == "invalid_argument" and module.root.exists()
 
 
 def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
-    """他のプログラムが使っていて動かせなければ、消せるものだけを消して、残ったものを知らせる。"""
-    from pathlib import Path
+    """他のプログラムが使っていて動かせなければ、何も消さずに断る（git の記録が残るので、途中まで消さない）。"""
     real = Path.rename
 
     def held(self, target):
@@ -618,39 +635,101 @@ def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
             raise PermissionError("使用中")
         return real(self, target)
     monkeypatch.setattr(Path, "rename", held)
-    result = as_json(cli("workspace", "close", "../Calc-1", "--json"))["result"]
-    assert not result["removed"] and parallel.is_dir() and not any(parallel.iterdir())
-    assert [c["path"] for c in as_json(cli("workspace", "list", "--json"))["result"]] == [module.root.as_posix()]
+    refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))
+    assert refused["error"]["code"] == "in_use" and (parallel / ".git").is_file()
+    assert "locked" in git(module.root, "worktree", "list", "--porcelain")   # ロックも戻した
 
 
-def test_finish_can_close_workspace(cli, module, parallel, monkeypatch):
-    """task finish --close-workspace：完了したら、その作業空間を閉じる（ほかのタスクの作業空間では使えない）。"""
-    wrong = as_json(cli("task", "finish", "1", "--close-workspace", "--json"))
-    assert wrong["error"]["code"] == "invalid_argument"
+def test_finish_removes_the_workspace(cli, module, parallel, monkeypatch):
+    """task finish：タスクブランチと一緒に作業空間も消す（作業空間の中で実行しても。外へ出てから消す）。
+    管理するファイルに当たる新しいファイルがあれば、作業空間とタスクブランチは残して知らせる。"""
+    assert cli("task", "finish", "1", "--close-workspace", "--json").exit_code == 2   # いつも消すので、オプションはない
     monkeypatch.chdir(parallel)
     write(parallel / "a.txt", "a\n")
     assert cli("task", "commit", "--message", "a を追加", "a.txt").exit_code == 0
-    result = as_json(cli("task", "finish", "--close-workspace", "--json"))["result"]
-    assert result["closed_workspace"]["path"] == parallel.as_posix() and not parallel.exists()
-    monkeypatch.chdir(module.root)
-    assert [c["path"] for c in as_json(cli("workspace", "list", "--json"))["result"]] == [module.root.as_posix()]
+    result = as_json(cli("task", "finish", "--json"))["result"]
+    assert result["workspace_removed"] == parallel.as_posix() and not parallel.exists()
+    assert Path.cwd().resolve() == module.root.resolve()
+    assert as_json(cli("workspace", "list", "--json"))["result"]["modules"][0]["workspaces"] == []
+
+    number = str(as_json(cli("task", "new", "残す", "--json"))["result"]["task"]["number"])
+    kept = start(cli, "task", "start", number, "--name", "残す")
+    write(kept / "b.cpp", "b\n")
+    assert cli("task", "commit", "b.cpp", "--message", "b").exit_code == 0
+    assert cli("task", "submit", "--no-check").exit_code == 0
+    write(kept / "c.cpp", "c\n")                       # 管理するファイルに当たる、コミットしていない新しいファイル
+    monkeypatch.chdir(module.root)                    # 元の clone から完了する（作業空間の中なら、完了の前に止まる）
+    result = as_json(cli("task", "finish", number, "--json"))
+    assert result["ok"] and result["result"]["workspace_kept"] and (kept / "c.cpp").exists()
+    assert any("新しいファイル" in n for n in result["notices"])
+
+
+def _dependency_with_local_work(workspace: Path) -> Path:
+    """作業空間の中の依存先の clone（deps/<名前>）に、GitHubにないコミットを置く。"""
+    lib = workspace / "deps" / "Lib"
+    lib.mkdir(parents=True)
+    git(lib, "init", "--quiet")
+    write(lib / "x.txt", "x\n")
+    git(lib, "add", "x.txt")
+    git(lib, "commit", "--quiet", "-m", "依存先の作業")
+    return lib
+
+
+def test_drop_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, module, parallel):
+    """作業空間の中の依存先の clone（除外しているので作業空間の変更には見えない）に手元にだけあるものがあれば、
+    作業空間を消さずに残して知らせる（依存先の作業を失わない）。"""
+    lib = _dependency_with_local_work(parallel)
+    dropped = as_json(cli("task", "drop", "1", "--yes", "--json"))
+    assert dropped["ok"], dropped
+    assert "GitHubにない" in dropped["result"]["workspace_kept"] and (lib / "x.txt").is_file()
+
+
+def test_finish_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, module, parallel):
+    """finish も同じ：作業空間とタスクブランチを残して知らせる（完了はする）。"""
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    lib = _dependency_with_local_work(parallel)
+    result = as_json(cli("task", "finish", "1", "--no-wait", "--json"))
+    assert result["ok"], result
+    assert "GitHubにない" in result["result"]["workspace_kept"] and (lib / "x.txt").is_file()
+    assert "task/1-作業" in git(module.root, "branch", "--list")
+
+
+def test_finish_leaves_a_worktree_made_by_hand(cli, module, parallel, tmp_path):
+    """人が git worktree で作った作業ツリーがタスクブランチを取り出していれば、それは消さず、ブランチも残して
+    知らせる（完了はする）。workspace close でも閉じない。"""
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    git(module.root, "worktree", "remove", "--force", "--force", str(parallel))
+    hand = tmp_path / "hand"
+    git(module.root, "worktree", "add", "--quiet", str(hand), "task/1-作業")
+    result = as_json(cli("task", "finish", "1", "--no-wait", "--json"))
+    assert result["ok"], result
+    assert "ECOBuild が作った作業空間ではない" in result["result"]["workspace_kept"] and hand.is_dir()
+    assert "task/1-作業" in git(module.root, "branch", "--list")
+    refused = as_json(cli("workspace", "close", str(hand), "--json"))
+    assert refused["error"]["code"] == "invalid_argument" and hand.is_dir()
 
 
 def test_delete_removes_every_clone(cli, module, parallel, may_delete, monkeypatch):
-    """--remove-workspaces：このPCに記録した作業空間すべて。どれか1つにでもGitHubにないものがあれば止める。"""
+    """--remove-workspaces：このPCの元の clone（中の作業空間ごと）すべて。どれか1つにでもGitHubにないものがあれば止める。"""
     github = module.repository.github
     assert cli("module", "archive", "tester/remote", "--yes").exit_code == 0
     write(parallel / "local.txt", "x\n")
     stopped = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-workspaces", "--json"))
     assert stopped["error"]["code"] == "unfinished_work" and github.deleted_repositories == []
-    assert any(str(parallel) in item for item in stopped["error"]["details"])
+    assert any(".ecobuild/w/1" in item for item in stopped["error"]["details"])   # 中の作業空間も見る
     (parallel / "local.txt").unlink()
     # 他のプログラムが使っている clone は動かせない：GitHubのリポジトリも消さずに止め、clone はそのまま残る
     from pathlib import Path
     real = Path.rename
 
     def held(self, target):
-        if self == parallel:
+        if self == module.root:
             raise PermissionError("使用中")
         return real(self, target)
     monkeypatch.setattr(Path, "rename", held)
@@ -660,8 +739,8 @@ def test_delete_removes_every_clone(cli, module, parallel, may_delete, monkeypat
     assert not list(module.root.parent.glob(".*.deleting*"))    # 先に移したものも元に戻した
     monkeypatch.setattr(Path, "rename", real)
     output = cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-workspaces").output
-    assert f"作業空間 {parallel} を削除しました" in output and not parallel.exists()
-    assert as_json(cli("workspace", "list", "--json"))["result"] == []
+    assert f"作業空間 {module.root} を削除しました" in output and not parallel.exists() and not module.root.exists()
+    assert as_json(cli("workspace", "list", "--json"))["result"] == {"modules": [], "legacy": []}
 
 
 def test_delete_discards_local_work_when_asked(cli, module, parallel, may_delete):
@@ -681,9 +760,9 @@ def test_delete_removes_every_clone_as_json(cli, module, parallel, may_delete):
     assert cli("module", "archive", "tester/remote", "--yes").exit_code == 0
     result = as_json(cli("module", "delete", "tester/remote", "--confirm", "tester/remote", "--remove-workspaces",
                          "--json"))["result"]
-    assert sorted(result["removed"]) == sorted([module.root.as_posix(), parallel.as_posix()])
+    assert result["removed"] == [module.root.as_posix()]     # 作業空間は元の clone と一緒に消える
     assert result["workspace_removed"] and not module.root.exists() and not parallel.exists()
-    assert as_json(cli("workspace", "list", "--json"))["result"] == []
+    assert as_json(cli("workspace", "list", "--json"))["result"] == {"modules": [], "legacy": []}
 
 
 def test_errors_from_repository_changed_on_github(cli, module, monkeypatch):
@@ -768,13 +847,14 @@ def test_delete_finds_clone_made_by_new(cli, module, may_delete, tmp_path, monke
 def test_files_made_by_ecobuild_are_always_committed(cli, module):
     """ECOBuildのコマンド（file add 等）が作ったファイルは、管理するファイルの対象外でもコミットに含める。"""
     from ecobuild.results import FilesChanged
-    assert cli("task", "new", "作る", "--start", "--name", "作業").exit_code == 0
-    write(module.root / "made.txt", "x\n")
-    write(module.root / "other.txt", "y\n")
-    module._created(FilesChanged("file add", ("made.txt",)))
-    result = module.commit("作ったもの")
+    work = start(cli, "task", "new", "作る", "--start", "--name", "作業")
+    write(work / "made.txt", "x\n")
+    write(work / "other.txt", "y\n")
+    other = type(module).find(work, github=module.repository.github)
+    other._created(FilesChanged("file add", ("made.txt",)))
+    result = other.commit("作ったもの")
     assert result.files == ("made.txt",) and result.skipped == ("other.txt",)
-    assert module._created_files() == set()
+    assert other._created_files() == set()
 
 
 def test_team_commands(cli, module):
@@ -805,36 +885,58 @@ def test_team_commands(cli, module):
 
 
 def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
+    import os
     import ecoagent
     from ecobuild_agent import inside
     started = []
     monkeypatch.setattr(ecoagent, "start", lambda directory, command, **_: started.append((directory, command))
-                        or ecoagent.Session(1, tuple(command), directory))
+                        or ecoagent.Session(os.getpid(), tuple(command), directory))
     monkeypatch.setattr(inside, "agent_launch", lambda root, agent, **_: (tuple(agent), None))   # コンテナの中の起動の代わり
-    assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ起動する
+    assert as_json(cli("agent", "start", "--as", "lead", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ
     assert started == []
 
-    cli("task", "new", "AIで作業", "--start", "--name", "作業")
-    assert as_json(cli("agent", "start", "--json"))["ok"]
-    assert "container = true" in (module.root / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")   # 自動でコンテナに
-    (directory, command), = started                     # Claude Code には ECOBuild の使い方を渡す
-    assert directory == module.root and command[0] == "claude" and "--session-id" in command   # 役を覚える新しい会話
+    work = start(cli, "task", "new", "AIで作業", "--start", "--name", "作業")
+    assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "invalid_argument"          # 登録を指定する
+    refused = as_json(cli("agent", "start", "--as", "worker", "--json"))["error"]                  # 人が起動しない登録
+    assert refused["code"] == "invalid_argument" and "lead" in refused["hint"] and started == []
+    first = as_json(cli("agent", "start", "--as", "lead", "--json"))["result"]
+    assert "container = true" in (work / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")   # 自動でコンテナに
+    (directory, command), = started                     # Claude Code には登録の文書と、専用の MCP サーバーを渡す
+    assert directory == work and command[0] == "claude" and "--session-id" in command   # 会話を記録に書く
+    assert first["registration"] == "lead" and first["task"]["number"] == 1 and first["kind"] == "owner"
+    assert first["session"] == command[command.index("--session-id") + 1]
+    from ecobuild_agent import agents
     from ecobuild_agent import status as agent_status
-    import ecobuild_container as container
-    folder = agent_status.directory(container.name(module.root))   # コンテナの中の場所（同じ名前のファイルがこの PC の置き場所に）
+    folder = agents.load(first["id"]).folder            # エージェントの置き場所（中からは INSIDE/<ID>）
     guide = command[command.index("--append-system-prompt-file") + 1]
-    assert guide.endswith("/guide.md") and "ecobuild build" in (folder / "guide.md").read_text(encoding="utf-8")
+    assert guide == f"{agent_status.INSIDE}/{first['id']}/guide.md"
+    text = (folder / "guide.md").read_text(encoding="utf-8")
+    assert "## あなたの役：進行役" in text and "ecobuild build" not in text   # 登録の文書。CLI の手順（agent guide）は渡さない
+    assert command[command.index("--mcp-config") + 1].endswith(f"/{first['id']}/mcp.json") and "--strict-mcp-config" in command
+    server = json.loads((folder / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["ecobuild"]
+    assert server["args"][:4] == ["agent", "mcp", "--agent", first["id"]]
     settings_file = command[command.index("--settings") + 1].rsplit("/", 1)[-1]
     settings = json.loads((folder / settings_file).read_text(encoding="utf-8"))
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("replied deliver")   # 新しい画面：受け箱はフックが届ける
+    guard = settings["hooks"]["PreToolUse"]                                               # 書ける場所は絞らない
+    assert guard == [{"matcher": "Bash", "hooks": [{"type": "command", "command": "ecobuild agent guard"}]}]   # シェルの関所だけ
     started.clear()
-    (module.root / "sub").mkdir()
-    monkeypatch.chdir(module.root / "sub")
-    result = as_json(cli("agent", "start", "--agent", "codex --full-auto", "--json"))["result"]
-    assert started[-1] == (module.root, ("codex", "--full-auto"))      # Claude Code でなければ何も足さない
-    assert result["command"] == ["codex", "--full-auto"]
-    cli("agent", "start")
-    assert started[-1][1][0] == "claude"
+    (work / "sub").mkdir()
+    monkeypatch.chdir(work / "sub")
+    second = as_json(cli("agent", "start", "--as", "lead", "--program", "codex --full-auto", "--json"))["result"]
+    assert started[-1] == (work, ("codex", "--full-auto"))      # Claude Code でなければ何も足さない
+    assert second["id"] != first["id"]                                 # 同じ作業空間に2人目
+    again = as_json(cli("agent", "start", "--program", f"claude --resume {first['session']}", "--json"))["result"]
+    assert again["id"] == first["id"] and started[-1][1][:3] == ("claude", "--resume", first["session"])   # 会話で記録を引く
+    # 記録のない会話・Claude Code の一覧で選ぶ（値なしの --resume）は、--as の登録で起動する（なければ分かる誤り）
+    for program in ("claude --resume", "claude --resume no-record"):
+        refused = as_json(cli("agent", "start", "--program", program, "--json"))["error"]
+        assert refused["code"] == "invalid_argument" and "--as" in refused["message"]
+    other = as_json(cli("agent", "start", "--as", "lead", "--program", "claude --resume no-record", "--json"))["result"]
+    assert other["id"] not in (first["id"], second["id"]) and other["registration"] == "lead"
+    # コンテナの中の MCP サーバーには、このPCで解決した登録を写して渡す（中には登録がない）
+    assert "--registration-file" in server["args"]
+    assert json.loads((folder / "registration.json").read_text(encoding="utf-8"))["name"] == "lead"
 
 
 def test_container(cli, module):
@@ -865,7 +967,7 @@ def test_container_dockerfile(cli, module, tmp_path):
     refused = as_json(cli("container", "dockerfile", "--write", str(edited), "--json"))["error"]
     assert refused["code"] == "not_on_task_branch" and "task start" in refused["hint"] and not path.exists()
 
-    assert cli("task", "new", "解析ツール", "--start", "--name", "lint", "--json").exit_code == 0
+    path = start(cli, "task", "new", "解析ツール", "--start", "--name", "lint") / ".ecobuild/container/Dockerfile"
     assert as_json(cli("container", "dockerfile", "--json"))["result"]["editable"]
     wrote = as_json(cli("container", "dockerfile", "--write", str(edited), "--json"))["result"]
     assert wrote["changed"] and wrote["exists"] and wrote["hash"] != shown["hash"] and wrote["editable"]
@@ -884,9 +986,29 @@ def test_submit_checks_are_set_with_task_checks(cli, module):
     assert as_json(cli("task", "checks", "--json"))["result"] == {"items": [], "tests": []}
     refused = as_json(cli("task", "checks", "--set", "build", "--json"))
     assert refused["error"]["code"] == "not_on_task_branch"
-    assert cli("task", "new", "確認の設定", "--start", "--name", "作業").exit_code == 0
+    start(cli, "task", "new", "確認の設定", "--start", "--name", "作業")
     assert as_json(cli("task", "checks", "--set", "generated,test", "--tests", "tests/unit", "--json"))["result"] == {
         "items": ["generated", "test"], "tests": ["tests/unit"]}
     assert "提出の確認：生成ファイル・テスト" in cli("task", "checks").stdout
     assert as_json(cli("task", "checks", "--set", "lint", "--json"))["error"]["code"] == "invalid_argument"
     assert as_json(cli("task", "checks", "--set", "none", "--json"))["result"] == {"items": [], "tests": []}
+
+
+def test_workspace_names_stay_inside(module):
+    """作業空間の名前は、外へ出るもの・パスの区切りを受け付けない。"""
+    from ecobuild.errors import EcoBuildError
+    assert module.workspace_place("12") == module.root / ".ecobuild" / "w" / "12"
+    assert module.workspace_place("r5-x_1") == module.root / ".ecobuild" / "w" / "r5-x_1"
+    for name in ("..", "a/b", "a\\b", "", ".hidden", "-x", "x" * 33):
+        with pytest.raises(EcoBuildError):
+            module.workspace_place(name)
+
+
+def test_start_refuses_task_held_by_the_original(cli, module):
+    """元の clone がそのタスクブランチを取り出していれば、分かる誤りにする（同じブランチは1か所だけ）。ほかのタスクは始められる。"""
+    assert cli("task", "new", "その場").exit_code == 0
+    assert cli("task", "new", "別").exit_code == 0
+    module.repository.task(1).start(name="その場")       # 前の版のように、元の clone で取り出した
+    refused = as_json(cli("task", "start", "1", "--json"))["error"]
+    assert refused["code"] == "branch_checked_out" and "switch main" in refused["hint"]
+    assert start(cli, "task", "start", "2", "--name", "別") == module.root / ".ecobuild" / "w" / "2"

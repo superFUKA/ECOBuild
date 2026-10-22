@@ -5,6 +5,8 @@ from typing import Annotated
 from ..._output import lines, optional_argument, run_command
 from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
 
+AGENT = "read"
+
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 UNKNOWN_MERGEABLE = "確認中（GitHubが調べています。少し後の task status で分かります）"
 BODY_LINES = 10   # 文字の出力に出す本文の行数（--body で全部）
@@ -29,7 +31,7 @@ def body_text(body: str, whole: bool) -> str | None:
 
 
 def child_line(t, root) -> str:
-    """子タスクの1行：段階・提出・作業役・タスクブランチ。"""
+    """子タスクの1行：段階・提出・作業中のエージェント・タスクブランチ。"""
     parts = [STAGE_NAMES.get(t.stage or "", ""),
              submission_text(t.submission) if t.submission else None,
              worker_text(t.worker) if t.worker else None,
@@ -58,8 +60,8 @@ def command(
 ) -> int:
     """タスクの状態：Issue（ラベル・担当者・コメント）、タスクブランチ、提出（レビュー・コメント・CIの結果）を表示します。
 
-    Issue の本文（長ければ先頭。全部は --body）と、子タスクの様子（段階・提出・作業役・タスクブランチ）も出します。
-    作業役（エージェントのチーム）が作業中のタスクは、その作業役と場所を出します（JSON の worker）。
+    Issue の本文（長ければ先頭。全部は --body）と、子タスクの様子（段階・提出・作業中のエージェント・タスクブランチ）も出します。
+    子のエージェント（子タスクの持ち主）が作業中のタスクは、そのエージェントと場所を出します（JSON の worker）。
     """
 
     issue = optional_argument(number, issue, "--issue", json)

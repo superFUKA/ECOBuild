@@ -138,26 +138,27 @@ def test_stale_check_is_failure_everywhere(repository):
     assert repository.ci_failed_log()[0] == 5
 
 
-def test_dedicated_clone_does_not_use_original_hooks(repository, tmp_path):
-    """別の作業空間（clone）には、元のcloneに結び付いたフックを渡さない（open で clone 先のものを作る）。"""
+@pytest.mark.needs_git_2_48
+def test_workspace_does_not_use_original_hooks(repository, tmp_path):
+    """作業空間（worktree）には、元の clone に結び付いたフックを渡さない（open で作業空間のものを作る）。"""
 
     class Recorder(Hooks):
         def __init__(self):
             self.roots = []
 
-        def after_switch(self, repository):
+        def prepare_workspace(self, repository):
             self.roots.append(repository.root)
 
     original = Recorder()
     repo = Repository(repository.root, github=repository.github, command="ecobuild", hooks=original)
-    task = repo.create_task("並行作業")
-    repo.clone_task_branch(task.number, tmp_path / "plain")
-    assert original.roots == []
+    first, second = repo.create_task("並行作業"), repo.create_task("もう一つ")
+    plain = repo.start_task_in(first.number, tmp_path / "plain")
+    assert original.roots == [] and plain.created and plain.repository.current_task_branch().number == first.number
 
-    clone_hooks = Recorder()
-    other = repo.clone_task_branch(task.number, tmp_path / "hooked",
-                                 open=lambda root: Repository(root, github=repo.github, hooks=clone_hooks))
-    assert original.roots == [] and clone_hooks.roots == [other.root]
+    workspace_hooks = Recorder()
+    other = repo.start_task_in(second.number, tmp_path / "hooked",
+                               open=lambda root: Repository(root, github=repo.github, hooks=workspace_hooks))
+    assert original.roots == [] and workspace_hooks.roots == [other.repository.root]
 
 
 def test_review_requested_pull_requests(repository):

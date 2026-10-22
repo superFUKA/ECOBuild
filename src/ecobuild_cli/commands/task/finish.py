@@ -3,7 +3,7 @@ from typing import Annotated
 from ecobuild.errors import EcoBuildError, ErrorCode
 
 from ..._output import lines, optional_argument, run_command
-from ..workspace.close import leave, render_closed
+from ..workspace.close import leave, render_removed
 
 
 def render_finish(r) -> str:
@@ -20,11 +20,12 @@ def render_finish(r) -> str:
                   else "次のタスクの候補はありません（ecobuild task list）")
     return lines(
         "\n".join(waited) or None,
-        f"確認の前の場所 {r.returned_to} に戻りました" if r.returned_to else None,
+        f"確認用の作業空間 {r.review_removed} を消しました" if r.review_removed else None,
         f"手元の #{r.task} のタスクブランチを片付けました" + (f"（{r.switched_to} に移りました）" if r.switched_to else "")
         if r.removed else None,
+        render_removed(r),
         ("承認して" if r.approved else "") + done,
-        render_closed(r.closed_workspace) if r.closed_workspace else follow,
+        follow,
     )
 
 
@@ -37,10 +38,9 @@ def command(
     partial: Annotated[bool, "取り込んでもタスクを閉じず、タスクブランチを作り直して続ける（中間の取り込み。提出を中間提出に切り替える）"] = False,
     complete: Annotated[bool, "取り込んでタスクを閉じる（中間提出も最後の提出に切り替える）"] = False,
     timeout: Annotated[int, "CIを待つ時間の上限（秒）"] = 1800,
-    close_workspace: Annotated[bool, "完了したら、この作業空間を閉じる（場所ごと削除する。GitHubにないものがあれば閉じない）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチを片付けます。
+    """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチと作業空間を片付けます。
 
     提出していなければ提出してから取り込みます（1人のモジュールの普段の形）。閉じるかどうかは提出のとおり（task submit
     --partial の中間提出なら、取り込んだ後にタスクブランチを作り直して続ける）で、--complete／--partial で変えられます。
@@ -54,9 +54,8 @@ def command(
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--partial と --complete は一緒に使えません。")
         if wait and not ignore_checks:
             inv.info("CIの結果を待ってから完了します（ワークフローがあれば）…")
-        if close_workspace:
-            leave(inv.module.root)
+        leave(inv.module.root, inv)   # この作業空間を消すことがある
         return inv.module.finish(task or None, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
-                                 partial=True if partial else False if complete else None, timeout=timeout, close_workspace=close_workspace)
+                                 partial=True if partial else False if complete else None, timeout=timeout)
 
     return run_command("task finish", action, render_finish, json_output=json)

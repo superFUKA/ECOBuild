@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
+from ..workspace.close import leave
 from .finish import render_finish
 
 
@@ -15,11 +16,12 @@ def command(
 ) -> int:
     """提出を承認し、そのまま完了します（task finish と同じ手順）。
 
-    ecobuild task review で確認中なら、確認の前の場所へ戻ってから完了します。自分の提出は承認できません
+    ecobuild task review の確認用の作業空間があれば、消してから完了します。自分の提出は承認できません
     （自分で完了するなら ecobuild task finish）。
     """
 
     def action(inv):
+        leave(inv.module.root, inv)   # 確認用の作業空間・タスクの作業空間を消すことがある
         return inv.module.repository.approve(task, message, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
                                   timeout=timeout)
 

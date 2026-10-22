@@ -4,6 +4,8 @@ from .._gui_command import open_window
 from .._output import run_command, usage_error
 from .task.diff import render_files
 
+AGENT = "read"
+
 
 def command(
     *paths: Annotated[str, "このファイル・ディレクトリの差分だけにする"],

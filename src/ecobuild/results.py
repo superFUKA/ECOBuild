@@ -47,7 +47,7 @@ class ModuleInfo:
     default_base: str                # タスクブランチの既定の作成元
     projects: tuple[str, ...]
     dependencies: tuple[str, ...]    # 直接の依存先の名前
-    workspaces: tuple["WorkspaceEntry", ...] = ()   # このPCにある、このモジュールの作業空間（記録したもの。ここも含む）
+    workspaces: tuple["TaskWorkspace", ...] = ()   # このPCにある、このモジュールの作業空間（元の clone の .ecobuild/w/）
     format: int = 0                  # モジュールの仕様の版（ecobuild.toml の format）
     latest_format: int = 0           # この ECOBuild の版。format が小さければ module upgrade で上げられる
 
@@ -89,18 +89,53 @@ class ModuleUpgraded:
 
 
 @dataclass(frozen=True)
+class TaskWorkspace:
+    """モジュールの中の作業空間（<元の clone>/.ecobuild/w/<名前> の git worktree）の1件。"""
+    name: str                        # 置き場所の名前（タスクの番号・確認用なら r<PRの番号>）
+    path: Path
+    branch: str | None = None        # 取り出しているブランチ（確認用は切り離された状態で None）
+    task: int | None = None          # タスクブランチなら、その番号
+    lock: Lock | None = None         # ロック（使用中）の状態（workspace list で調べる。調べていなければ None）
+    account: str | None = None       # この作業空間を動かす GitHub のアカウント（account use。なければ None）
+    review: int | None = None        # 確認用の作業空間（task review）なら、確認している PR の番号
+
+
+@dataclass(frozen=True)
 class WorkspaceEntry:
-    """このPCにある作業空間（workspace list）の1件。場所は記録から、他はそのつど作業空間から読む。"""
+    """このPCにあるモジュール（元の clone。workspace list）の1件。場所は記録から、他はそのつど読む。"""
     path: Path
     exists: bool                     # その場所にある（False：移動・削除したか、外付けのドライブを外している）
     repository: str | None = None    # 所有者/名前（origin が GitHub のものなら）
     url: str | None = None           # origin
-    branch: str | None = None        # 今のブランチ
-    task: int | None = None          # タスクブランチ（task/<番号>-<名前>）にいれば、その番号
+    branch: str | None = None        # 元の clone の今のブランチ（ふつうは既定のブランチ）
+    task: int | None = None          # 元の clone がタスクブランチ（task/<番号>-<名前>）にいれば、その番号
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
     type: str = ""                   # モジュールの型（ecobuild.toml の [module] type。読めなければ空）
-    lock: Lock | None = None         # ロック（使用中）の状態。場所がなければ None
+    lock: Lock | None = None         # 元の clone のロック（使用中）の状態。場所がなければ None
+    default_branch: str = ""         # タスクブランチの既定の作成元（ecobuild.toml の default_base）
+    workspaces: tuple[TaskWorkspace, ...] = ()   # 中の作業空間（.ecobuild/w/）
+
+
+@dataclass(frozen=True)
+class LegacyEntry:
+    """前の版が作った、独立した clone の作業空間（workspace list の legacy）。workspace close で閉じる。"""
+    path: Path
+    exists: bool
+    repository: str | None = None
+    url: str | None = None
+    branch: str | None = None
+    task: int | None = None
+    lock: Lock | None = None
+    remote: str | None = None        # --fetch（WorkspaceEntry と同じ）
+    moved_to: str | None = None
+
+
+@dataclass(frozen=True)
+class WorkspaceList:
+    """workspace list：このPCのモジュール（元の clone と中の作業空間）と、前の版の作業空間。"""
+    modules: tuple[WorkspaceEntry, ...] = ()
+    legacy: tuple[LegacyEntry, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -119,7 +154,7 @@ class WorkspaceForgotten:
 
 @dataclass(frozen=True)
 class WorkspaceClosed:
-    """作業空間を閉じた結果（workspace close・task finish --close-workspace）。"""
+    """作業空間を閉じた結果（workspace close。task finish・drop 等で消えた作業空間は ecowork の workspace_removed）。"""
     path: Path
     removed: bool = True             # 場所ごと消えた（False：他のプログラムが使っている等で、空のフォルダーか一部が残った）
     left: tuple[str, ...] = ()       # 消せずに残ったもの（removed が False のとき）

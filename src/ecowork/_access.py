@@ -12,8 +12,10 @@ from . import github as _github
 from .errors import ErrorCode, WorkError
 
 ADMIN = "admin"
-# 作業空間（clone）に結び付けたアカウント（git の設定。コミットされず、その clone だけ）。この clone の gh・git は
-# そのアカウントとして動く：gh は GH_TOKEN を渡し、git の push は clone の credential.helper がそのアカウントの鍵を渡す。
+# 作業空間に結び付けたアカウント（git の設定。コミットされず、その作業空間だけ）。この作業空間の gh・git は
+# そのアカウントとして動く：gh は GH_TOKEN を渡し、git の push は credential.helper がそのアカウントの鍵を渡す。
+# 作業空間（linked worktree）では、その作業空間だけの設定（--worktree）に書く：作業空間どうしは .git/config を共有する。
+# 元の clone では --local に書き、その値はアカウントを決めていない作業空間すべての既定になる。
 ACCOUNT_KEY = "ecowork.account"
 _HELPER_KEY = "credential.https://github.com.helper"
 # その clone の git が GitHub に出す鍵：このPCの gh のそのアカウントの鍵（なければ、渡された GH_TOKEN：コンテナの中）
@@ -44,18 +46,21 @@ class Permissions:
             if not account or any(c.isspace() or c in "'\"$`;&|<>" for c in account):
                 raise WorkError(ErrorCode.INVALID_ARGUMENT, f"アカウントの名前が正しくありません：{account}")
         github = self.github.with_account(account) if hasattr(self.github, "with_account") else self.github
+        scope = "--local"
+        if self.git.is_linked_worktree():
+            scope = "--worktree"
+            self.git.enable_worktree_config()
         if account is not None:
             login, number, name = github.identity(self.root)   # ログインしていなければ account_not_logged_in
-            self.git.set_config(ACCOUNT_KEY, login)
-            self.git.set_config("user.name", name or login)
-            self.git.set_config("user.email", f"{number}+{login}@users.noreply.github.com")
-            self.git.run("config", "--local", "--unset-all", _HELPER_KEY, check=False)
-            self.git.run("config", "--local", "--add", _HELPER_KEY, "")   # 全体の設定の helper を使わない
-            self.git.run("config", "--local", "--add", _HELPER_KEY, _HELPER.format(account=login))
+            self.git.run("config", scope, ACCOUNT_KEY, login)
+            self.git.run("config", scope, "user.name", name or login)
+            self.git.run("config", scope, "user.email", f"{number}+{login}@users.noreply.github.com")
+            self.git.run("config", scope, "--unset-all", _HELPER_KEY, check=False)
+            self.git.run("config", scope, "--add", _HELPER_KEY, "")   # 全体の設定の helper を使わない
+            self.git.run("config", scope, "--add", _HELPER_KEY, _HELPER.format(account=login))
         else:
-            for key in (ACCOUNT_KEY, "user.name", "user.email"):
-                self.git.unset_config(key)
-            self.git.run("config", "--local", "--unset-all", _HELPER_KEY, check=False)
+            for key in (ACCOUNT_KEY, "user.name", "user.email", _HELPER_KEY):
+                self.git.run("config", scope, "--unset-all", key, check=False)
         self.github = github
         self._access = self._creators = None
         return self.account

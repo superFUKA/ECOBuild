@@ -57,14 +57,22 @@ def test_command_lock_of_dead_process_is_released(root):
 
 
 def test_agent_lock_follows_the_process(root):
-    folder = status.prepare(container.name(root), root)
+    """作業空間のエージェントの誰か1人でも動いていればロック（エージェントごとの running.json）。"""
+    from ecobuild_agent import agents
+    first = agents.create(registration="worker", workspace=root)
+    helper = agents.create(registration="worker", workspace=root, kind=agents.HELPER, parent=first.id)
+    folder = status.prepare(first.folder, root)
     assert not locks.status(root).locked
     status.started(folder, os.getpid())
     reason = locks.status(root).reasons[0]
-    assert (reason.kind, reason.pid) == ("agent", os.getpid()) and reason.since
+    assert (reason.kind, reason.pid) == ("agent", os.getpid()) and reason.since and first.id in reason.text
     status.started(folder, os.getpid(), status.APP)
     assert "係" in locks.status(root).reasons[0].text
     status.started(folder, dead_pid())
+    assert not locks.status(root).locked
+    status.started(helper.folder, os.getpid())                           # 手伝いだけが動いていても
+    assert [r.kind for r in locks.status(root).reasons] == ["agent"]
+    status.started(helper.folder, dead_pid())
     assert not locks.status(root).locked
 
 
@@ -98,7 +106,8 @@ def test_container_locks_are_checked_with_one_docker_call(tmp_path, monkeypatch)
 
 
 def test_force_ignores_automatic_locks_while_the_cause_continues(root):
-    folder = status.prepare(container.name(root), root)
+    from ecobuild_agent import agents
+    folder = status.prepare(agents.create(registration="worker", workspace=root).folder, root)
     status.started(folder, os.getpid())
     locks.lock(root, "手動")
     locks.unlock(root, force=True)                      # 手動も外れ、自動は無視される

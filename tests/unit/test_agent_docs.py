@@ -94,20 +94,8 @@ def test_generic_commands_are_not_in_the_readme():
 def test_agent_guide_warns_against_known_failures(name):
     """agent guide は、実際に起きた失敗（リダイレクトで書く・記憶に頼る・裏で動かして終える）を防ぐ。"""
     text = _documents(name)["agent guide"]
-    for phrase in ("Edit／Write", "heredoc", "~/.claude/…/memory", "裏で動かしたまま", "`workspace create`"):
+    for phrase in ("Edit／Write", "heredoc", "~/.claude/…/memory", "裏で動かしたまま", "`.ecobuild/w/<番号>`"):
         assert phrase in text, f"{name}: {phrase}"
-
-
-@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
-def test_member_guide_leaves_out_what_the_lead_does(name):
-    """作業役の作業空間の agent guide は、作業役がしない操作（task new --start・task finish・workspace close）を案内しない。"""
-    config, module_type = ModuleConfig(name="Sample", type=name), REGISTRY.load(name)
-    text = _docs.agent_guide(config, module_type, member=True)
-    assert "--start" not in text and "`ecobuild task finish" not in text and "`ecobuild workspace close`" not in text
-    assert "上の役" in text and "`ecobuild task submit" in text and "`workspace create`" in text
-    missing = [m for m in _MENTION.findall(text) if not _exists(build_cli(name), m.split())]
-    assert missing == []
-    assert "ecobuild task finish" in _docs.agent_guide(config, module_type)   # 進行役・人の作業空間は今までどおり
 
 
 def test_guide_names_only_what_the_type_has():
@@ -115,16 +103,3 @@ def test_guide_names_only_what_the_type_has():
     python = _documents("python")["agent guide"]
     assert "Project" not in python and "cmake" not in python
     assert "Project・依存" in _documents("cpp")["agent guide"]
-
-
-def test_worker_workspace_is_assigned_by_the_lead(tmp_path):
-    import json
-    from types import SimpleNamespace
-    from ecobuild_agent import AgentModule, team
-    workspace = SimpleNamespace(root=tmp_path)
-    assert not AgentModule.assigned_by_lead(workspace)          # 記録がない＝人・進行役の作業空間
-    (tmp_path / team.MEMBER_FILE).parent.mkdir(parents=True)
-    (tmp_path / team.MEMBER_FILE).write_text(json.dumps({"role": team.WORKER}), encoding="utf-8")
-    assert AgentModule.assigned_by_lead(workspace)
-    (tmp_path / team.MEMBER_FILE).write_text(json.dumps({"role": team.MANAGER}), encoding="utf-8")
-    assert not AgentModule.assigned_by_lead(workspace)

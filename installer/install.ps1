@@ -177,7 +177,8 @@ function Get-RunningEcobuild {
 function Get-EcobuildRole($commandLine) {
     $line = "$commandLine"
     if ($line -match '\bagent\s+serve\b') { return "ECOBuild の係（GUI が起動するもの。止めてかまいません。GUI を起動すると、また動きます）" }
-    if ($line -match '\bagent\s+team\b') { return "進行役が頼んだチームの操作（作業役を作る等）を待っているもの。止めると、その操作は失敗になります（作業空間の作業は消えません）" }
+    if ($line -match '\bagent\s+team\b') { return "前の版の、進行役が頼んだチームの操作（作業役を作る等）を待っているもの。止めると、その操作は失敗になります（作業空間の作業は消えません）" }
+    if ($line -match '\bagent\s+mcp\b') { return "エージェントのツール（MCP）のサーバー。止めると、そのエージェントが ECOBuild のツールを使えなくなります（エージェントを起動し直すと戻ります）" }
     if ($line -match '\bagent\s+(start|operator)\b') { return "エージェント（Claude Code）を動かしているもの。止めると、そのエージェントが終わります" }
     if ($line -match '\bagent\s+token\s+login\b') { return "エージェントのログインの窓" }
     return "ecobuild のコマンド"

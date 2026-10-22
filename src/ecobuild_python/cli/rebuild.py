@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import build_like
 
+AGENT = "change"
+
 
 def command(
     configuration: Annotated[str, "構成（Debug／Release。既定：ビルド設定の構成、なければDebug）"] = "",

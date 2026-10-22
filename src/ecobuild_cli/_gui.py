@@ -30,7 +30,8 @@ def doctor_items() -> list[DoctorItem]:
         return []
     tortoise = find()
     return [DoctorItem("TortoiseGit", tortoise is not None, False, tortoise or "見つかりません（任意）",
-                       "log・diff・blame の --gui に使います。")]
+                       "log・diff・blame の --gui に使います。TortoiseGit が使う git が古い（2.48 未満）と、作業空間を"
+                       "作った後は元の clone を開けなくなります（新しい git を使うように設定してください）。")]
 
 
 def open_window(command: str, path: Path, **extra: str) -> None:

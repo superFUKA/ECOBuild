@@ -23,10 +23,43 @@ REMOTE = "origin"
 RECENT_FETCH = 10
 FETCHED_MARK = "ecowork-fetched"
 # 同じ clone の fetch は1つずつ（GUI が読むだけのコマンドを並べて回すと、refs/remotes の更新が取り合いになり
-# 「cannot lock ref」で失敗する）。.git の FETCH_LOCK を持つ間だけ fetch する。待ちきれなければロックなしで行う
+# 「cannot lock ref」で失敗する）。.git の FETCH_LOCK を持つ間だけ fetch する。待ちきれなければロックなしで行う。
+# FETCH_LOCK・FETCHED_MARK は共有の .git（--git-common-dir）に置く：作業空間（worktree）どうしは refs を共有する
 FETCH_LOCK = "ecowork-fetch.lock"
 FETCH_LOCK_TIMEOUT = 120
+_CONFIG_LOCKED = re.compile(r"could not lock config file", re.IGNORECASE)
+_CONFIG_LOCK_WAITS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6)   # 共有の設定の書き込みの取り合いを待つ（秒）
 _DUBIOUS = re.compile(r"detected dubious ownership in repository at '([^']*)'")
+
+# 作業空間（git worktree）を相対パスで記録する（--relative-paths）には git 2.48 以上が要る。相対パスにするのは、
+# 元の clone を動かしても・コンテナの中で別の場所に見せても、作業空間がつながったままになるように
+MINIMUM_VERSION = (2, 48, 0)
+_VERSION = re.compile(r"(\d+)\.(\d+)(?:\.(\d+))?")
+# 作業空間のロックの理由（git worktree lock）。gc の prune で記録が消えないように、作るときに付ける
+WORKTREE_LOCK_REASON = "ecobuild"
+
+
+def git_version(executable: str = "git") -> tuple[int, int, int]:
+    """git の版（"git version 2.45.1.windows.1" → (2, 45, 1)）。読めなければ（git がない等）ecowork の誤り。"""
+    try:
+        completed = _process.run([executable, "--version"], cwd=None, check=False, env=_ENV)
+    except OSError:
+        completed = None
+    match = _VERSION.search(completed.stdout) if completed is not None and completed.ok else None
+    if match is None:
+        raise WorkError(ErrorCode.GIT_ERROR, "git の版を読めませんでした（git が見つからない等）。",
+                        hint="ecobuild setup --install", details=None if completed is None else completed.output)
+    return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
+
+
+def require_worktree_support() -> None:
+    """作業空間（worktree）を作れる git（MINIMUM_VERSION 以上）でなければ止める。"""
+    version = git_version()
+    if version < MINIMUM_VERSION:
+        raise WorkError(ErrorCode.GIT_ERROR, "git 2.48 以上が必要です（作業空間を相対パスで記録するため）。",
+                        hint="ecobuild setup --install",
+                        details={"version": ".".join(map(str, version)),
+                                 "required": ".".join(map(str, MINIMUM_VERSION))})
 
 
 @dataclass(frozen=True)
@@ -57,6 +90,23 @@ class MergeOutcome:
 class StashEntry:
     index: int
     message: str
+
+    @property
+    def branch(self) -> str | None:
+        """退避したブランチ（メッセージの「WIP on <ブランチ>:」「On <ブランチ>:」から。切り離された状態なら None）。"""
+        match = re.match(r"^(?:WIP on|On) ([^:]+):", self.message)
+        return None if match is None or match.group(1) == "(no branch)" else match.group(1)
+
+
+@dataclass(frozen=True)
+class Worktree:
+    """git worktree list の1つ。main：元の clone（main の作業ツリー）。"""
+    path: Path
+    head: str
+    branch: str | None                 # 切り離された状態ならNone
+    locked: bool
+    prunable: bool                     # フォルダーがなくなった記録（worktree prune で片付く）
+    main: bool
 
 
 # clone した作業空間の改行コードの扱い：取り出すときは記録のまま（LF）、記録するときは CRLF を LF にする。
@@ -152,7 +202,7 @@ class Git:
         """この clone の fetch を、ほかのコマンド（プロセス）と1つずつにする。ロックを持てなければ（読み取り専用の
         場所・待ちきれない等）そのまま行う（cannot lock ref はやり直しで受ける）。"""
         try:
-            path = self.root / self.output("rev-parse", "--git-path", FETCH_LOCK)
+            path = self.common_directory() / FETCH_LOCK
             file = open(path, "a+")
         except (OSError, WorkError):
             yield
@@ -166,7 +216,7 @@ class Git:
                     _unlock_file(file)
 
     def _mark(self) -> Path:
-        return self.root / self.output("rev-parse", "--git-path", FETCHED_MARK)
+        return self.common_directory() / FETCHED_MARK
 
     def _fetched_recently(self) -> bool:
         try:
@@ -177,10 +227,22 @@ class Git:
     def local_branches(self) -> list[str]:
         return self.output("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()
 
-    def checked_out_branches(self) -> set[str]:
-        """どれかの git worktree（今いる所も含む）で取り出しているブランチ。消すと git が断る。"""
-        lines = self.output("for-each-ref", "--format=%(worktreepath) %(refname:short)", "refs/heads").splitlines()
-        return {line.rsplit(" ", 1)[1] for line in lines if " " in line and not line.startswith(" ")}   # ブランチ名に空白はない
+    def checked_out_branches(self) -> dict[str, Path]:
+        """どれかの git worktree（今いる所も含む）で取り出しているブランチ → 取り出している場所。消すと git が断る。"""
+        found = self._checked_out()
+        if any(not path.is_dir() for path in found.values()):
+            # フォルダーを手で消した作業空間（ロック付きの記録が残り、git はまだそのパスに付けて返す）：記録を片付けて読み直す
+            self.forget_missing_worktrees()
+            found = self._checked_out()
+        return found
+
+    def _checked_out(self) -> dict[str, Path]:
+        found = {}
+        for line in self.output("for-each-ref", "--format=%(refname:short) %(worktreepath)", "refs/heads").splitlines():
+            name, _, path = line.partition(" ")   # ブランチ名に空白はない
+            if path:
+                found[name] = Path(path) if Path(path).is_absolute() else self.root / path
+        return found
 
     def remote_branches(self) -> list[str]:
         prefix = REMOTE + "/"
@@ -209,14 +271,114 @@ class Git:
         self.run("branch", "--quiet", f"--set-upstream-to={REMOTE}/{name}", name)
 
     def get_config(self, key: str) -> str | None:
-        completed = self.run("config", "--local", "--get", key, check=False)
-        return completed.stdout.strip() if completed.ok else None
+        """この clone の設定の値：この作業空間だけの設定（--worktree）があればそれ、なければ共有の設定（--local）。
+        このPC全体の設定（--global・--system）は読まない。"""
+        completed = self.run("config", "--show-scope", "--get-all", key, check=False)
+        values = [value for scope, _, value in (line.partition("\t") for line in completed.stdout.splitlines())
+                  if scope in ("local", "worktree")]
+        return values[-1].strip() if completed.ok and values else None
 
     def set_config(self, key: str, value: str) -> None:
-        self.run("config", "--local", key, value)
+        self._write_config("--local", key, value)
 
     def unset_config(self, key: str) -> None:
-        self.run("config", "--local", "--unset", key, check=False)
+        self._write_config("--local", "--unset", key, check=False)
+
+    def _write_config(self, *args: str, check: bool = True) -> _process.Completed:
+        """設定を書く。作業空間どうしは共有の設定（.git/config）を書き合うので、ほかの作業空間が書いている最中
+        （config.lock を持っている。git は待たずに断る）なら、少し待ってやり直す。"""
+        for wait in (*_CONFIG_LOCK_WAITS, None):
+            completed = self.run("config", *args, check=False)
+            if completed.ok or wait is None or not _CONFIG_LOCKED.search(completed.stderr or ""):
+                break
+            time.sleep(wait)
+        if check and not completed.ok:
+            raise _git_error(completed)
+        return completed
+
+    def config_worktree(self, key: str, value: str | None) -> None:
+        """この作業空間だけの設定（git config --worktree）。None なら外す。作業空間（linked worktree）では
+        extensions.worktreeConfig を入れてから書く。作業空間を作ったことのない clone では、--local と同じ所に書く（git の仕様）。"""
+        if self.is_linked_worktree():
+            self.enable_worktree_config()
+        if value is None:
+            self._write_config("--worktree", "--unset-all", key, check=False)
+        else:
+            self._write_config("--worktree", key, value)
+
+    # 作業空間（git worktree） ------------------------------------------------------
+
+    def common_directory(self) -> Path:
+        """共有の .git（作業空間どうしで共有する refs・設定・hooks の置き場所。--git-common-dir）。"""
+        return Path(self.output("rev-parse", "--path-format=absolute", "--git-common-dir"))
+
+    def common_root(self) -> Path:
+        """元の clone（main の作業ツリー）。作業空間（linked worktree）の中でも、元の clone の場所を返す。"""
+        return self.common_directory().parent
+
+    def is_linked_worktree(self) -> bool:
+        """作業空間（git worktree add で作ったもの）か。元の clone（main の作業ツリー）なら False。"""
+        directories = self.output("rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir").splitlines()
+        return not same_path(Path(directories[0]), Path(directories[-1]))
+
+    def worktrees(self) -> list[Worktree]:
+        """このリポジトリの作業ツリー（git worktree list --porcelain）。最初が元の clone。"""
+        found, entry = [], {}
+        for line in self.output("worktree", "list", "--porcelain").splitlines() + [""]:
+            if line:
+                key, _, value = line.partition(" ")
+                entry[key] = value
+                continue
+            if "worktree" in entry:
+                branch = entry.get("branch")
+                found.append(Worktree(Path(entry["worktree"]), entry.get("HEAD", ""),
+                                      branch.removeprefix("refs/heads/") if branch else None,
+                                      "locked" in entry, "prunable" in entry, not found))
+            entry = {}
+        return found
+
+    def worktree_add(self, path: Path, branch: str | None = None, *, detach_at: str | None = None) -> None:
+        """作業空間（git worktree）を path に作る：branch を取り出すか、detach_at のコミットを切り離された状態で。
+        いつも相対パスで記録し（--relative-paths）、gc の prune で記録が消えないようにロックする（--lock）。
+        初めてのときは、共有の設定に worktree.useRelativePaths（手で git worktree add しても相対に）と
+        extensions.worktreeConfig（作業空間ごとの設定。config_worktree）を書く。"""
+        if (branch is None) == (detach_at is None):
+            raise ValueError("branch か detach_at のどちらか1つを渡してください")
+        require_worktree_support()
+        self.enable_worktree_config("worktree.useRelativePaths")
+        target = ["--detach", str(path), detach_at] if branch is None else [str(path), branch]
+        self.run("worktree", "add", "--quiet", "--relative-paths", "--lock", "--reason", WORKTREE_LOCK_REASON, *target)
+
+    def enable_worktree_config(self, *more: str) -> None:
+        """共有の設定に extensions.worktreeConfig（作業空間ごとの設定）と more を true で書く（なければ）。"""
+        for key in ("extensions.worktreeConfig", *more):
+            if self.run("config", "--local", "--get", key, check=False).stdout.strip() != "true":
+                self._write_config("--local", key, "true")
+
+    def worktree_remove(self, path: Path, *, force: bool = False) -> None:
+        """作業空間を消す（ロックを外してから）。消せなければ（変更がある・使用中）ロックを戻して誤りにする。"""
+        self.run("worktree", "unlock", str(path), check=False)
+        completed = self.run("worktree", "remove", *(["--force"] if force else []), str(path), check=False)
+        if not completed.ok:
+            if Path(path).exists():
+                self.run("worktree", "lock", "--reason", WORKTREE_LOCK_REASON, str(path), check=False)
+            raise _git_error(completed)
+
+    def worktree_prune(self) -> None:
+        """フォルダーがなくなった作業空間の記録を片付ける（ロック中の記録は git が残す）。"""
+        self.run("worktree", "prune")
+
+    def forget_missing_worktrees(self) -> list[Path]:
+        """フォルダーがなくなった作業空間（元の clone 以外）の記録を、ロック中でも片付ける（作業空間はいつもロック付きで
+        作るので、フォルダーを手で消すと git worktree prune では消えない）。片付けた場所を返す。"""
+        missing = [tree.path for tree in self.worktrees() if not tree.main and not tree.path.is_dir()]
+        if not missing:
+            return []
+        main = Git(self.common_root(), command=self.command)   # 今の場所が消えた作業空間のこともあるので、元の clone で
+        for path in missing:
+            main.run("worktree", "unlock", str(path), check=False)
+        main.run("worktree", "prune", check=False)
+        return missing
 
     # 記録 ----------------------------------------------------------------
 
@@ -407,8 +569,10 @@ class Git:
         self.run(*args)
         return self.rev_parse("refs/stash") != before
 
-    def stash_pop(self) -> MergeOutcome:
-        completed = self.run("stash", "pop", "--quiet", check=False)
+    def stash_pop(self, index: int | None = None) -> MergeOutcome:
+        """退避した変更を戻す。index：stash@{index}（省略すると最後に退避したもの）。"""
+        completed = self.run("stash", "pop", "--quiet", *([f"stash@{{{index}}}"] if index is not None else []),
+                             check=False)
         if completed.ok:
             return MergeOutcome(True)
         conflicted = self.working_tree().conflicted
@@ -422,10 +586,23 @@ class Git:
 
 
 def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | None = None) -> _process.Completed:
+    if cwd is not None and not Path(cwd).is_dir():
+        # 消えた場所（フォルダーを手で消した作業空間等）：OS の誤りで落ちず、場所を添えた git の誤りにする
+        raise WorkError(ErrorCode.GIT_ERROR, f"{cwd} がありません（git {' '.join(args[1:4])} を実行できません）。",
+                        hint="フォルダーを消した作業空間なら、もう一度実行すると記録を片付けます。")
     try:
         return _process.run(args, cwd=cwd, check=check, env=_ENV, input=input)
     except _process.ProcessFailed as failure:
         raise _git_error(failure.completed) from None
+
+
+def same_path(a: Path, b: Path) -> bool:
+    """同じ場所か（大文字と小文字・区切りの違いを除いて）。"""
+    try:
+        a, b = Path(a).resolve(), Path(b).resolve()
+    except OSError:
+        pass
+    return os.path.normcase(a) == os.path.normcase(b)
 
 
 def _numstat_paths(text: str) -> list[str]:

@@ -334,21 +334,36 @@ class Serve:
         return {**_member(member), "session": session, "app": True}
 
     def _wake(self, agent: app.Agent) -> None:
-        """前の係が持っていたものを、続きから起こす（返答の途中で止まっていたら続けさせる）。進行役に知らせる。"""
+        """前の係が持っていたものを、続きから起こす（返答の途中で止まっていたら続けさせる）。進行役に知らせる。
+        タスクが閉じていれば起こさず、持つのをやめる（作業空間を閉じ忘れた作業役が起き上がり、コンテナが動いて作業空間が
+        ロックされ続けないように）。"""
         interrupted = bool(agent.state.get("ended_working"))
-        try:
-            self.apps.start(agent.root, role=agent.role, resume=agent.session, progress=self.log,
-                            prompt=app.INTERRUPTED_PROMPT if interrupted else "")
-            done = "前の会話の続きから起こしました" + ("（返答の途中だったので、続けるよう伝えました）" if interrupted else "")
-        except EcoBuildError as error:
+        if self._task_closed(agent.root):
             self.apps.stop(agent.root, 0)
-            done = f"起こせませんでした：{error.message}"
+            done = "起こしませんでした（タスクが閉じています。作業空間は agent team close で閉じられます）"
+        else:
+            try:
+                self.apps.start(agent.root, role=agent.role, resume=agent.session, progress=self.log,
+                                prompt=app.INTERRUPTED_PROMPT if interrupted else "")
+                done = "前の会話の続きから起こしました" + ("（返答の途中だったので、続けるよう伝えました）" if interrupted else "")
+            except EcoBuildError as error:
+                self.apps.stop(agent.root, 0)
+                done = f"起こせませんでした：{error.message}"
         self.log(f"係が起動し直したので、{agent.root} のエージェントを{done}")
         info = team.member_info(agent.root)
         if info.get("lead"):
             name = f"{team.ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or agent.root.name}」"
             agent_status.put(team.inbox_of(Path(info["lead"])), f"[ECOBuild] 係が起動し直したので、{name}を{done}。",
                              sender=str(agent.root), owner=team.notice_owner(agent.root))
+
+    def _task_closed(self, root: Path) -> bool:
+        """作業空間 root のタスクが閉じているか（GitHub に聞く。分からなければ閉じていないとみなす＝起こす）。"""
+        try:
+            doc = self.run(["task", "status", "--json"], root)
+        except Exception:
+            return False
+        result = doc.get("result") if isinstance(doc, dict) and doc.get("ok") else None
+        return isinstance(result, dict) and result.get("state") == "closed"
 
     def wake(self) -> None:
         """係が動き始めたとき：前の係が持っていたアプリ用のエージェントを引き継ぐ（終わったものから続きから起こす）。"""

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 FILE_NAME = "modules.json"
 VERSION = 1
 OLD_FILE_NAMES = ("workspaces.json", "clones.json")   # 以前の記録（読むだけ。新しい記録がなければ移す）
-LOCK_NAME = "modules.lock"   # 記録を読んで書き直す間のロック（作業役を並べて作る等、同時に書くと記録が消える）
+LOCK_NAME = "modules.lock"   # 記録を読んで書き直す間のロック（子タスクを並べて作る等、同時に書くと記録が消える）
 AREA = f"{_config.DIRECTORY}/w"   # 元の clone の中の、作業空間の置き場所（git に見せない：info/exclude）
 _REVIEW_KEY = "ecowork.review"    # 確認用の作業空間の印（ecowork が作業空間だけの設定に書く）
 _ACCOUNT_KEY = "ecowork.account"
@@ -119,7 +119,7 @@ def _migrate() -> tuple[list[ModuleRecord], list[ModuleRecord]]:
     """以前の記録（作業空間ごと）から、元の clone の一覧を作る。
 
     - 作業空間（linked worktree）と、ECOBuild が自分で持っていたもの（ECOBUILD_HOME の中）は飛ばす。
-    - ほかのモジュールの .ecobuild/ の中（作業役の作業空間 等）は legacy。
+    - ほかのモジュールの .ecobuild/ の中（前の版の作業役の作業空間 等）は legacy。
     - 同じリポジトリの clone が2つ以上あれば、1つを元の clone にし、残りは legacy にする。選び方は今までの GUI と同じ：
       .ecobuild/ の外 → フォルダー名がリポジトリ名と同じ → タスクブランチにいない → 記録した順。
     - 見つからない場所は、そのまま元の clone として残す（workspace forget で外せる）。
@@ -167,7 +167,7 @@ def _in_home(path: Path) -> bool:
 
 
 def _inside_other_area(root: Path) -> bool:
-    """ほかのモジュールの .ecobuild/ の中にある（作業役の作業空間・作業空間 .ecobuild/w/ 等）。"""
+    """ほかのモジュールの .ecobuild/ の中にある（作業空間 .ecobuild/w/・前の版の作業役の作業空間 等）。"""
     root = Path(root).resolve()
     return any((parent / _config.FILE_NAME).is_file() and root.is_relative_to(parent / _config.DIRECTORY)
                for parent in root.parents)
@@ -270,15 +270,18 @@ def is_legacy(root: Path) -> bool:
 
 
 def inside(root: Path) -> list[Path]:
-    """モジュール root の .ecobuild/ の中にある作業空間（作業空間 .ecobuild/w/・前の版の作業役 等）。中の作業空間の中に
-    あるものも。root を閉じると一緒に消えるもの。"""
+    """前からの clone の作業空間 root の .ecobuild/ の中にある、前の版の作業空間（独立した clone。作業役 等）。中の
+    作業空間の中にあるものも。root を閉じると一緒に消えるもの。worktree の作業空間（.ecobuild/w/。git worktree list で
+    読む：task_workspaces）は数えない。"""
     found = []
     for folder, children, _ in os.walk(Path(root) / _config.DIRECTORY):
         here = Path(folder)
-        if (here / ".git").exists() and (here / _config.FILE_NAME).is_file():
+        if (here / ".git").is_dir() and (here / _config.FILE_NAME).is_file():
             found.append(here)
             found += inside(here)
             children.clear()   # 中の作業空間の中は、その作業空間として見た（上で）
+        elif here == area(root):
+            children.clear()   # worktree の作業空間の置き場所
         else:
             children[:] = [c for c in children if c != ".git"]
     return found

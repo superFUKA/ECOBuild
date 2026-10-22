@@ -200,7 +200,7 @@ class ContainerModule:
     @classmethod
     def close_workspace(cls, path, **options):
         """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。
-        前からの clone なら、中の作業空間（作業役 等。一緒に消える）のコンテナも（worktree の作業空間は直下に並び、
+        前からの clone なら、中の作業空間（前の版の作業役 等。一緒に消える）のコンテナも（worktree の作業空間は直下に並び、
         子は中にいない）。"""
         try:   # 閉じると ecobuild.local.toml も消えるので、先に読む
             root = _workspaces.module_root(Path(path))

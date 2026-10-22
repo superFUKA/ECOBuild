@@ -592,7 +592,7 @@ class TaskSummary:
     workspace: Path | None = None            # タスクブランチのある手元の場所（このclone。利用側が他のcloneも足す）
     submission: PullRequestState | None = None    # 開いている提出（task list で分かるとき）
     branch: str | None = None                     # タスクブランチの名前（手元かGitHubにあるとき）
-    worker: object = None                         # このタスクを作業している役（利用側が決める。エージェントの作業役 等）
+    worker: object = None                         # このタスクを作業している役（利用側が決める。子のエージェント 等）
 
     @classmethod
     def _from(cls, task: _model.Task, *, task_branch: bool, current: bool, remote: bool,
@@ -632,7 +632,7 @@ class TaskStatus:
     commits: tuple[str, ...] = ()           # 提出に入るコミット（作成元にない、タスクブランチのもの。新しい順、「短いID 件名」）
     branch: str | None = None               # タスクブランチの名前（手元かGitHubにあるとき）
     children: tuple[TaskSummary, ...] = ()  # 子タスクの様子（段階・提出・タスクブランチ。subtasks と同じタスク）
-    worker: object = None                   # このタスクを作業している役（利用側が決める。エージェントの作業役 等）
+    worker: object = None                   # このタスクを作業している役（利用側が決める。子のエージェント 等）
 
 
 @dataclass(frozen=True)

@@ -700,18 +700,22 @@ class Module:
 
     def _check_nothing_unpushed(self) -> None:
         """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも、
-        .ecobuild/ の中の作業空間（作業空間 .ecobuild/w/・前の版の作業役 等。閉じると一緒に消える）とその依存先も。
+        .ecobuild/ の中の作業空間（作業空間 .ecobuild/w/・前の版の作業役の clone。閉じると一緒に消える）とその依存先も。
 
         作業空間（git worktree）はブランチと退避を元の clone・ほかの作業空間と共有するので、見るのは自分が取り出している
         もの（HEAD と、そのブランチで退避したもの）だけ。"""
         found = []
         roots = []
-        for workspace in (self.root, *_workspaces.inside(self.root)):
+        for workspace in (self.root, *(w.path for w in _workspaces.task_workspaces(self.root)),
+                          *_workspaces.inside(self.root)):
             nested = (*workspace.glob("*/.git"), *workspace.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
             roots += [workspace] + sorted(p.parent for p in nested)
         for root in roots:
             git = _Git(root)
-            label = "" if root == self.root else f"{root.relative_to(self.root).as_posix()}："
+            try:   # 作業空間の場所は git が書いたもの（ドライブの大文字・小文字が違うことがある）
+                label = "" if root == self.root else f"{root.resolve().relative_to(self.root.resolve()).as_posix()}："
+            except ValueError:
+                label = f"{root}："
             linked = git.is_linked_worktree()
             if git.output("status", "--porcelain"):
                 found.append(f"{label}未コミットの変更")

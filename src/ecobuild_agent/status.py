@@ -165,7 +165,7 @@ def own_directory() -> Path | None:
 
 
 WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 serve が読む）
-INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・作業役の知らせ）
+INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・子の知らせ）
 
 
 def prepare(folder: Path | str, root: Path | None = None) -> Path:
@@ -214,7 +214,7 @@ def _write(file: Path, value) -> None:
 
 
 REPLIES = "replied.jsonl"   # 置き場所の中：返答の終わりの記録（1回1行の追記。replied.json は最後の1回だけ）
-NOTICE = "notice"           # 受け箱のものの種類：作業役の返答の終わりの知らせ（同じ作業役の古いものは新しいものにまとめる）
+NOTICE = "notice"           # 受け箱のものの種類：子の返答の終わりの知らせ（同じ子の古いものは新しいものにまとめる）
 _last_put = 0
 
 

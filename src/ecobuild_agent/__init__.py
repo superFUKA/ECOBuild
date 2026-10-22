@@ -23,7 +23,7 @@ from pathlib import Path
 
 import ecoagent
 import ecobuild_container as container
-from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # noqa: F401（コマンドの重さ。CLI の _effects が使う）
+from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ  # noqa: F401（コマンドの重さ。CLI の _effects が使う）
 from ecobuild import locks
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError, WorkError, operation
@@ -366,6 +366,8 @@ class AgentModule:
             "- ECOBuild の操作（タスク・ビルド・テスト・実行・提出・子のエージェント）は、MCP のツール（ecobuild）で行います。"
             "シェルから ecobuild・gh を使わず、git で書き込む操作（commit・push・switch 等）もしません。型のツール（テスト・"
             "ビルドの道具）も直接使わず、build・test・run のツールで。",
+            "- リポジトリの AGENTS.md にある CLI の手順は、外から ECOBuild を使うときのものです。ここでは、"
+            "そこにある `ecobuild` のコマンドを同じ名前のツール（task commit → task_commit 等）に読み替えます。",
             f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
             "ここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",

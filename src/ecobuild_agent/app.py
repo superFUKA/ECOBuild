@@ -1,12 +1,12 @@
 """アプリ用の起動のエージェント（Claude Code の claude -p を stream-json で動かす。係が持つ）。
 
-AI（進行役の頼み）が起動したエージェントは、端末の画面ではなく、係（serve）がプロセスとして持つ（人が起動したものは
+AI（親のエージェントの頼み）が起動したエージェントは、端末の画面ではなく、係（serve）がプロセスとして持つ（人が起動したものは
 今までどおり対話型）：
 - 起動：コンテナの中で claude -p --input-format stream-json --output-format stream-json …（起動のしかた Launch は
   AgentModule.app_launch が作る。会話の ID・登録・モデル・使い方の文・設定は対話型と同じ作り方）。標準出力は状態の置き場所の
   events.jsonl に直接追記させる（係が止まっても、エージェントは返答を終えるまで書ける。次の係が続きを読む）。
 - 係は見回りのたびに events.jsonl の新しい行を読み、様子（state.json）を書き、返答の終わり（result）で replied.json を
-  書く（係の _watch_reply が進行役に知らせる。返答の途中で終わったときも書く）。受け箱のもの（言付け・知らせ）は、作業中でも
+  書く（係の _watch_reply が親に知らせる。返答の途中で終わったときも書く）。受け箱のもの（言付け・知らせ）は、作業中でも
   すぐ標準入力へ入れる（Claude Code は返答を止めずに次の区切りで読む）。
 - 止める：標準入力を閉じる（返答を終えてから終わる）。待ちきれなければ、中のプロセスごと止める。
 - 持っているものは ECOBUILD_HOME/agents/app.json に覚える（エージェントの ID ごと。係が終わっても消さない）。係が終わるときは標準入力を閉じて
@@ -139,7 +139,7 @@ class Agent:
         self.session, self.registration = session, registration
         self.launch, self.process, self.log = launch, process, log
         self.pid = process.pid if process is not None else pid
-        self.stopping = stopping   # 止めた（終わっても進行役に知らせない）
+        self.stopping = stopping   # 止めた（終わっても親に知らせない）
         self.ended = False
         self.waking = False        # 引き継いだものを起こす（係が一度だけ）
         self._lock = threading.Lock()
@@ -304,7 +304,7 @@ class Agent:
         status.write_reply(self.folder, message, continued=queued)   # 入れた言付けが残っていれば、続けている
 
     def _end(self) -> None:
-        """プロセスが終わった。止めたのでなければ、進行役に知らせる（返答の終わりとして）。"""
+        """プロセスが終わった。止めたのでなければ、親に知らせる（返答の終わりとして）。"""
         self.ended = True
         code = self.process.returncode if self.process is not None else None
         was = self.state.get("state")
@@ -373,7 +373,7 @@ class Apps:
         self.launch, self.log = launch, log
         self._agents: dict[str, Agent] = {}
         self._lock = threading.Lock()
-        self._held = threading.Lock()   # HELD を書く（作業役の作成は並べて行うので、起動も重なる）
+        self._held = threading.Lock()   # HELD を書く（子の作成は並べて行うので、起動も重なる）
 
     def get(self, agent_id: str) -> Agent | None:
         with self._lock:

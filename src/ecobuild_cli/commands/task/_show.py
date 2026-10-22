@@ -71,7 +71,7 @@ def workers(root) -> dict[int, dict]:
 
 
 def with_worker(task, found: dict[int, dict]):
-    """task（TaskSummary・TaskStatus）に作業役を足す（開いているタスクだけ）。場所が分からなければ作業役の場所にする。"""
+    """task（TaskSummary・TaskStatus）に作業中の子のエージェントを足す（開いているタスクだけ）。場所が分からなければそのエージェントの場所にする。"""
     worker = found.get(task.number) if task.state == "open" else None
     if worker is None:
         return task

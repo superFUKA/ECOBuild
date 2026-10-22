@@ -5,7 +5,8 @@
 - run：ecobuild のコマンドを、GUIを通して実行する。ボタンが行うことの大半はこれ（引数は ecobuild のコマンドそのもの。
   一覧と使い方は ecobuild --help --json）。開いている画面には、実行したことが伝わる（別の画面・エージェントが実行しても）。
 - そのほか：GUIにしかない操作（画面を開く・移る、フォルダ・Visual Studio で開く、知らせを出す）。
-- agents・agent-…：エージェントの窓（Electron の GUI だけ。タブ＝作業空間のエージェント）。番号はタブの番号（0 はオペレーター）。
+- agents・agent-…：エージェントの窓（Electron の GUI だけ。タブ＝起動したエージェント1人。1つの作業空間に何人でも）。
+  番号はタブの番号（0 はオペレーター。ふだんはタブにせず裏で動く）。
 
 呼ぶ側（origin）が画面なら、画面の中で行うこと（窓を開く・移る・開く）はその画面が行う（答えの "apply"）。
 外（ecobuild gui・MCP）から呼んだときは、開いている画面に頼み（events）、なければサーバーが行う。
@@ -31,7 +32,8 @@ class Action:
     summary: str
     help: str = ""
     params: tuple[Param, ...] = field(default_factory=tuple)
-    # 重さ（ecobuild のコマンドと同じ：read・change・confirm）。エージェント（オペレーター）は confirm を人に聞いてから使う
+    # 重さ（ecobuild のコマンドと同じ：read・change・confirm。GUI だけの requested＝ほかのエージェントに頼む）。
+    # オペレーターは confirm を人に聞いてから使い、requested は使わない（operator_kit.HIDDEN_EFFECTS）
     effect: str = "change"
 
     def describe(self) -> dict:
@@ -52,7 +54,7 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
            (Param("args", "ecobuild の引数（例：[\"task\", \"start\", \"12\"]）", "array", True),
             Param("dir", "実行する場所（モジュール・作業空間のフォルダ。省略時は ecobuild gui を実行したフォルダ）"),
             Param("stdin", "標準入力に渡す文字列（コミットメッセージ等を標準入力で渡すコマンド用）")),
-           effect="confirm"),   # 中のコマンドの重さは分からない（エージェントは ecobuild を直接使う）
+           effect="confirm"),   # 中のコマンドの重さは分からない（オペレーターには渡さない：operator_kit.HIDDEN_ACTIONS）
     Action("open", "GUIの画面（ハブ・モジュールの開発環境の窓）を開くか、そこへ移ります。「〇〇を開いて」「〇〇の開発環境」はこれ（module に作業空間の場所か名前）。",
            "module を省くとハブ。module はモジュールのフォルダ（このPCの作業空間）か、ハブの一覧にあるモジュール名。"
            "開いている窓があればそこで移り、なければ開きます。",
@@ -148,7 +150,7 @@ EXAMPLES = (
      "ecobuild gui windows --json の looking: true の窓（module・タスク・作業空間）を対象に。ハブなら直前の会話から"),
     ("「ECOSTL でエージェント起動して」「ECOSTL の AI 開いて」「エコ STL で作業始めて」", "ecobuild gui agent-open --dir C:/ECO/ECOSTL --registration lead（タスクブランチの作業空間でだけ。登録は ecobuild agent registry list）"),
     ("「みんな今どうなってる？」「エージェントの様子は？」", "ecobuild gui agents を読み、各タブの状態・最後の返答を1〜2行ずつ"),
-    ("「1番に、テストを実行してって送って」", "ecobuild gui agent-send --tab 1 --text \"テストを実行して\"（「送って」「伝えて」と言われたときだけ。文はユーザーの言葉のまま）"),
+    ("「1番に、テストを実行してって送って」", "ecobuild gui agent-send --tab 1 --text \"テストを実行して\"（人が「送って」「伝えて」と言ったときだけ。文はユーザーの言葉のまま。オペレーターは使えない）"),
     ("「1番を前に出して」「2番見せて」", "ecobuild gui agent-show --tab 1"),
     ("「2番の名前をレビューにして」", "ecobuild gui agent-rename --tab 2 --name レビュー"),
     ("「2番を再起動して」「レビューを起動し直して」／「続きから起動し直して」", "ecobuild gui agent-restart --tab 2 ／ --tab 2 --continue（名前で言われたら ecobuild gui agents で番号を探す）"),

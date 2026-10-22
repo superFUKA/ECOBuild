@@ -31,8 +31,8 @@ CREDENTIALS = ".credentials.json"         # 中でログインしたもの（AGE
 
 
 def agent_volume(root: Path) -> str:
-    """作業空間のコンテナのエージェントの設定・会話の記録・記憶のボリューム（コンテナごと。作業役どうし・進行役と
-    混ざらない。名前がコンテナの名前で始まるので、コンテナを消すと一緒に消える）。"""
+    """作業空間のコンテナのエージェントの設定・会話の記録・記憶のボリューム（コンテナごと。ほかの作業空間の
+    エージェントと混ざらない。名前がコンテナの名前で始まるので、コンテナを消すと一緒に消える）。"""
     return f"{container.name(root)}-agent"
 MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
 AGENT_FLAGS = {"claude": ("--dangerously-skip-permissions",)}   # 中で確認なしに動かすときに足すもの

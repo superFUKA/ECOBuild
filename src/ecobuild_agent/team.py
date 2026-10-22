@@ -812,8 +812,11 @@ def _lead_briefing(program: str) -> list[str]:
 
 
 def inbox_of(root: Path) -> Path:
-    """作業空間 root のエージェントの、状態の置き場所（受け箱がある）。"""
-    return agent_status.directory(container.name(root))
+    """作業空間 root のエージェント（タスクの持ち主。いちばん新しい記録）の、状態の置き場所（受け箱がある）。記録が
+    なければ、作業空間の置き場所（エージェントの置き場所の親）。"""
+    from . import agents
+    owners = [record for record in agents.in_workspace(root) if record.kind == agents.OWNER]
+    return owners[-1].folder if owners else agent_status.place(container.name(root))
 
 
 def send(root: Path, name: str, text: str) -> Member:
@@ -1296,17 +1299,20 @@ def should_forward() -> bool:
 
 def requests_folder(root: Path) -> Path:
     """頼みの置き場所：状態の置き場所の中（コンテナの中ではマウントした所）。"""
+    own = agent_status.own_directory()   # コンテナの中のエージェント：自分の置き場所
+    if own is not None:
+        return own / REQUESTS
     if os.environ.get(container.INSIDE):
         return Path(agent_status.INSIDE) / REQUESTS
-    return agent_status.directory(container.name(root)) / REQUESTS
+    return inbox_of(root) / REQUESTS
 
 
 def forward(root: Path, args: list[str], cwd: Path, *, timeout: float = REQUEST_TIMEOUT,
-            wait=time.sleep, progress=lambda message: None) -> dict:
+            wait=time.sleep, progress=lambda message: None, folder: Path | None = None) -> dict:
     """このPCの係（agent_serve）に ecobuild のコマンド（args。cwd：root の中の場所）を実行してもらい、その JSON の結果
     （{ok, result|error}）を返す。係が動いていなければ（拾われなければ）止める。待つ間、係の途中経過を progress に渡し、
-    途中経過が途切れたら（係が止まった）止める。"""
-    folder = requests_folder(root)
+    途中経過が途切れたら（係が止まった）止める。folder：頼みの置き場所（省けば requests_folder）。"""
+    folder = folder or requests_folder(root)
     folder.mkdir(parents=True, exist_ok=True)
     beat = agent_status.read(folder / SERVE_BEAT)   # 係が動いているか、先に見る（止まっていれば待たない）
     if isinstance(beat, dict) and isinstance(beat.get("at"), (int, float)) and time.time() - beat["at"] > BEAT_STALE:

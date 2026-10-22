@@ -11,7 +11,6 @@ from ecobuild import locks
 from ecobuild.results import CheckItem, CheckReport
 from ecobuild_agent import status as agent_status
 from ecobuild_cli import build_cli
-from ecobuild_container import name as container_name
 from ecowork import github as _github
 
 pytestmark = pytest.mark.local
@@ -83,7 +82,8 @@ def test_locked_workspace_refuses_switching_and_closing(cli, module):
 
 
 def test_automatic_lock_needs_force(cli, module):
-    folder = agent_status.prepare(container_name(module.root), module.root)
+    from ecobuild_agent import agents
+    folder = agent_status.prepare(agents.create(registration="worker", workspace=module.root).folder, module.root)
     agent_status.started(folder, os.getpid())
     state = as_json(cli("workspace", "unlock", "--json"))["result"]["lock"]            # 普通の unlock では外れない
     assert state["locked"] and state["reasons"][0]["kind"] == "agent" and state["reasons"][0]["pid"] == os.getpid()

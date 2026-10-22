@@ -86,22 +86,23 @@ def test_stop_stops_the_process_and_its_children(tmp_path):
     assert not status.alive(process.pid)
 
 
-def test_a_lead_may_write_only_in_its_area(tmp_path, monkeypatch):
-    """進行役の編集の道具は、エージェント用の置き場所（計画・任せる内容）の中だけ（PreToolUse フック）。"""
-    import os
+def test_every_agent_has_its_own_folder_under_the_workspace(tmp_path, monkeypatch):
+    """置き場所はエージェントごと（<コンテナの名前>/<ID>）。ID で探せる。前の版の直下のものは数えない。編集を絞る
+    フック（前の進行役の lead-edit）は付けない。"""
+    import ecobuild_container as container
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
-    folder = status.prepare("box", tmp_path)
-    area = (tmp_path / "work" / ".ecobuild" / "ai").as_posix()
-    cwd = str(tmp_path / "work")
-
-    def decide(path):
-        out = hook(folder, "lead-edit", area, data={"cwd": cwd, "tool_input": {"file_path": path}})
-        return json.loads(out)["hookSpecificOutput"]["permissionDecision"] if out else "allow"
-    assert decide(".ecobuild/ai/plan.md") == "allow"
-    assert decide(os.path.join(area, "briefs", "a.md")) == "allow"
-    assert decide("src/app.py") == "deny"
-    assert decide(".ecobuild/ai/../../src/app.py") == "deny"
-    assert decide(str(tmp_path / "work" / ".ecobuild" / "aiX" / "x")) == "deny"
+    root = tmp_path / "work"
+    root.mkdir()
+    first = status.create_directory(root, "a-0000000001")
+    second = status.create_directory(root, "a-0000000002")
+    assert first.parent == second.parent == status.place(container.name(root))
+    assert status.directory("a-0000000002") == second and status.directory("a-9999999999") is None
+    assert status.workspace_of(first) == root
+    status.prepare(container.name(root), root)                       # 前の版：作業空間の置き場所の直下
+    assert status.folders() == [first, second]
+    assert status.directory("../x") is None and status.inside("a-0000000001") == f"{status.INSIDE}/a-0000000001"
+    settings = json.loads(status.claude_settings(first.as_posix(), "python", app=False))
+    assert "PreToolUse" not in settings["hooks"] and "lead-edit" not in status.REPORT
 
 
 def test_the_hook_leaves_notices_for_other_conversations(tmp_path):

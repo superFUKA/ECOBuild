@@ -24,6 +24,10 @@ TASK_SECTIONS = (
 )
 
 
+# Python の予約語のオプション（引数の名前に _ を付けたもの → 打つときの名前）。CLIFrameWork は名前の _ を - にするので、
+# 後ろの _ が - で残る（as_ → --as-）
+RESERVED_OPTIONS = {"agent start": {"as_": "--as"}}
+
 _CURRENT = object()
 
 
@@ -36,6 +40,7 @@ def build_cli(module_type: str | None | object = _CURRENT):
     if isinstance(cli, click.Group):
         _types.attach(cli, module_type)
         _hide(cli)
+        _reserved(cli)
     task = cli.commands.get("task") if isinstance(cli, click.Group) else None
     if isinstance(task, click.Group):
         task.format_commands = types.MethodType(_format_sections(TASK_SECTIONS), task)
@@ -50,6 +55,27 @@ def _hide(cli: click.Group) -> None:
             command = command.commands.get(name) if isinstance(command, click.Group) else None
         if command is not None:
             command.hidden = True
+
+
+def _reserved(cli: click.Group) -> None:
+    """予約語のオプションの名前を直す（RESERVED_OPTIONS。コマンドは使うときに読むので、読んだときに直す）。"""
+    def rename(command: click.Command, names: dict[str, str]) -> click.Command:
+        for parameter in command.params:
+            if isinstance(parameter, click.Option) and parameter.name in names:
+                parameter.opts = [names[parameter.name]]
+        return command
+
+    for path, names in RESERVED_OPTIONS.items():
+        command = cli
+        for name in path.split():
+            command = command.commands.get(name) if isinstance(command, click.Group) else None
+        if command is None:
+            continue
+        load = getattr(command, "_load", None)
+        if load is None:
+            rename(command, names)
+        else:   # CLIFrameWork の遅れて読むコマンド
+            command._load = lambda load=load, names=names: rename(load(), names)
 
 
 def version() -> str | None:

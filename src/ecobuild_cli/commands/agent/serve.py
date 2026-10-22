@@ -48,9 +48,11 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
                 acks.setdefault(str(key), threading.Event()).set()
         stop.set()
 
-    def launch(path: Path, role: str, resume: str, progress):
+    def launch(agent_id: str, resume: str, progress):
+        from ecobuild_agent import agents
         from ..._module import Module
-        return Module.find(path).app_launch(role=role, resume=resume, source=source(), progress=progress)
+        record = agents.load(agent_id)
+        return Module.find(record.workspace).app_launch(agent_id, resume=resume, source=source(), progress=progress)
 
     def log(message: str) -> None:
         click.echo(message, err=True)

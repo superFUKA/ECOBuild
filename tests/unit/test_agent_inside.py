@@ -32,7 +32,7 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     monkeypatch.setattr(ecoagent, "start", lambda directory, command, env=None: started.append((command, env))
                         or ecoagent.Session(1, tuple(command), Path(directory)))
     container.choose(root, True, fake.run)
-    inside.start_agent(root, ("claude",), deny=("WebFetch",))
+    inside.start_agent(root, ("claude",), deny=("WebFetch",), agent_id="a-0123456789")
     written = next(args for args in fake.calls if args[1] == "exec")
     assert written[2:4] == ["--user", "0"] and inside.MANAGED_SETTINGS in written[-1]
     assert inside.write_settings(("WebFetch",)) == written[-1] and '"' not in written[-1]
@@ -40,6 +40,8 @@ def test_agent_starts_inside_without_prompts(monkeypatch, root, tmp_path):
     assert command[-2:] == ["claude", "--dangerously-skip-permissions"] and "--tty" in command
     assert env["GH_TOKEN"] == "secret" and "secret" not in command
     assert env[tokens.TOKEN_VARIABLE] == "sk-ant-oat01-abc" and "sk-ant-oat01-abc" not in command
+    assert env[inside.status.AGENT_VARIABLE] == "a-0123456789"                           # 中のエージェントが自分の置き場所を知る
+    assert command[command.index(inside.status.AGENT_VARIABLE) - 1] == "--env"
     assert "TERM=xterm-256color" in command and "COLORTERM=truecolor" in command          # Claude のオレンジが赤にならない
     assert any(args[-3:-1] == ["python3", "-c"] for args in fake.calls)                  # 初めての質問に先に答える
 
@@ -77,7 +79,7 @@ def test_first_run_answers_are_added_without_changing_the_rest(tmp_path, monkeyp
     (tmp_path / ".claude.json").write_text(json.dumps({"numStartups": 3, "projects": {"/work": {"allowedTools": ["x"]}}}))
     (tmp_path / "settings.json").write_text(json.dumps({"theme": "light"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path))
-    subprocess.run([sys.executable, "-c", inside.first_run_script()], check=True)
+    subprocess.run([sys.executable, "-c", inside.first_run_script(tmp_path / "plain")], check=True)   # 前からの clone：/work
     state = json.loads((tmp_path / ".claude.json").read_text())
     assert state["numStartups"] == 3 and state["hasCompletedOnboarding"] is True
     assert state["projects"]["/work"] == {"allowedTools": ["x"], "hasTrustDialogAccepted": True}
@@ -142,7 +144,8 @@ def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):
     assert f"{inside.agent_volume(root)}:{inside.AGENT_HOME}" in run                    # 設定・会話の記録はコンテナごと
     assert f"{inside.AGENT_VOLUME}:{inside.SHARED_HOME}" in run                         # 中でログインしたものは共有
     assert inside.agent_volume(root).startswith(container.name(root) + "-")
-    assert any(item.endswith(":" + inside.status.INSIDE) for item in run)               # 状態の置き場所
+    assert any(item.endswith(":" + inside.status.INSIDE) for item in run)               # 状態の置き場所（作業空間の分）
+    assert any(container.name(root) in item and item.endswith(":" + inside.status.INSIDE) for item in run)
     container.remove(root, fake.run)
     removed = [args[-1] for args in fake.calls if args[1:3] == ["volume", "rm"]]
     assert inside.agent_volume(root) in removed and inside.AGENT_VOLUME not in removed
@@ -160,29 +163,24 @@ def test_what_the_agent_may_not_use(monkeypatch, root, tmp_path):
 
 
 def test_each_container_keeps_its_own_conversations(tmp_path, monkeypatch):
-    """設定はコンテナごと：中でログインしたものは共有の場所を指し、前に共有していた会話のうち、この作業空間のもの
-    （覚えた会話）だけを写す。"""
+    """設定はコンテナごと：中でログインしたものは共有の場所を指す。前に共有していた会話は写さない（前の版の記録は読まない）。"""
     import json
     import os
     import subprocess
     import sys
-    home, shared, work = tmp_path / "home", tmp_path / "shared", tmp_path / "work"
+    home, shared = tmp_path / "home", tmp_path / "shared"
     home.mkdir()
     old = shared / "projects" / "-work"
     old.mkdir(parents=True)
-    for session in ("mine", "other"):
-        (old / f"{session}.jsonl").write_text("{}\n", encoding="utf-8")
-    (old / "mine").mkdir()
-    (work / ".ecobuild" / "ai").mkdir(parents=True)
-    (work / ".ecobuild" / "ai" / "roles.json").write_text(json.dumps({"mine": "worker"}), encoding="utf-8")
-    script = (inside.first_run_script().replace(repr(inside.SHARED_HOME), repr(str(shared)))
-              .replace(repr("/work/.ecobuild/ai/roles.json"), repr(str(work / ".ecobuild" / "ai" / "roles.json"))))
+    (old / "mine.jsonl").write_text("{}\n", encoding="utf-8")
+    script = inside.first_run_script(tmp_path / "work").replace(repr(inside.SHARED_HOME), repr(str(shared)))
+    assert "roles.json" not in script
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
     done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
     if done.returncode and "symlink" in done.stderr.lower() and os.name == "nt":
         pytest.skip("このPCではシンボリックリンクを作れない（Windows の権限）")
     assert done.returncode == 0, done.stderr
-    copied = home / "projects" / "-work"
-    assert (copied / "mine.jsonl").is_file() and (copied / "mine").is_dir() and not (copied / "other.jsonl").exists()
+    assert not (home / "projects").exists()
+    assert json.loads((home / ".claude.json").read_text())["projects"] == {"/work": {"hasTrustDialogAccepted": True}}
     link = home / ".credentials.json"
     assert os.path.islink(link) and os.readlink(link).endswith(os.path.join(str(shared), ".credentials.json"))

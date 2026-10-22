@@ -31,7 +31,7 @@ from pathlib import Path
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
 
-from . import app
+from . import agents, app
 from . import status as agent_status
 from . import team
 from .errors import ErrorCode
@@ -64,8 +64,8 @@ class Serve:
     run(args, cwd, progress=None, stall=None)：ECOBuild のコマンドを cwd で実行し、その JSON の結果（{ok, result|error}）を
     返す。progress(line)：コマンドの経過（人向けの1行）。stall：経過がこの秒数出なければ止まったとみなして止める。
     emit(event)：起動した側への出来事（None なら起動した側はいない）。ack(key, timeout)：その返事を待つ（届いたか）。
-    launch(root, role, resume, progress)：アプリ用の起動のしかた（app.Launch。AgentModule.app_launch。None なら
-    アプリ用のエージェントを動かさない）。
+    launch(agent_id, resume, progress)：記録のあるエージェントのアプリ用の起動のしかた（app.Launch。
+    AgentModule.app_launch。None ならアプリ用のエージェントを動かさない）。
     log(message)：したことを人に知らせる。
 
     見回りは待たない：頼みはすぐに受け取り（拾った印 .taken。頼んだ側は拾われたかで係がいるかを見る）、実行は裏で行う。
@@ -100,6 +100,10 @@ class Serve:
             self._requests(folder, root)
             if root is not None:
                 self._watch_reply(folder, root)
+        for folder in agent_status.workspace_folders():   # エージェントの記録がまだない作業空間からの頼み
+            root = agent_status.workspace_of(folder)
+            self._alive(folder)
+            self._requests(folder, root)
         for agent in wake:   # 返答の終わりを見てから起こす（起こすと置き場所を用意し直す）
             self._later(agent.folder, lambda agent=agent: self._wake(agent))
 
@@ -285,31 +289,38 @@ class Serve:
             return {**member, "note": "この係はエージェントを起動できません（起動していません）。"}
         resume = team.resumed_session(tuple(str(member.get("agent") or "").split()), lambda: "") or ""
         try:
-            self.apps.start(Path(member["path"]), role=member.get("role", team.WORKER), prompt=member.get("prompt", ""),
-                            resume=resume, progress=progress)
+            agent_id = _member_agent(member)
+            self.apps.start(agent_id, prompt=member.get("prompt", ""), resume=resume, progress=progress)
         except EcoBuildError as error:
             self.log(f"エージェントを起動できませんでした：{error.message}")
             return {**member, "note": f"作業役は作りましたが、起動していません：{error.message}"
                                       + (f"（{error.hint}）" if error.hint else "")}
-        return {**member, "app": True}
+        return {**member, "id": agent_id, "app": True}
 
     def _own(self, root: Path, args: list[str], progress: Callable[[str], None]) -> dict:
-        """人が頼んだ、この作業空間のアプリ用の起動（agent start --app）・止める（agent stop）。"""
+        """記録のあるエージェント（この作業空間のもの）のアプリ用の起動（agent start --app --id <ID>）・止める
+        （agent stop <ID>）。"""
+        agent_id = args[2] if args[1] == "stop" and len(args) > 2 else _option(args, "--id")
+        record = agents.load(agent_id)
+        if os.path.normcase(str(Path(record.workspace).resolve())) != os.path.normcase(str(Path(root).resolve())):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} は、この作業空間のものではありません。")
         if args[1] == "stop":
-            if self.apps is None or not self.apps.holds(root):
-                raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントを、係は動かしていません。")
-            self.apps.stop(root)
-            return {"path": str(root), "stopped": True}
+            if self.apps is None or not self.apps.holds(agent_id):
+                raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} を、係は動かしていません。")
+            self.apps.stop(agent_id)
+            return {"id": agent_id, "path": str(root), "stopped": True}
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
-        agent = self.apps.start(root, role=_option(args, "--role"), prompt=_option(args, "--prompt"), progress=progress)
-        return {"path": str(root), "role": agent.role, "session": agent.session, "app": True}
+        agent = self.apps.start(agent_id, prompt=_option(args, "--prompt"), progress=progress)
+        return {"id": agent_id, "path": str(root), "registration": agent.registration, "session": agent.session,
+                "app": True}
 
     def _takeover(self, member: team.Member, progress: Callable[[str], None]) -> dict:
         """人が引き取る：係のアプリ用のエージェントを止め（返答を終えさせてから）、続きから開く会話を返す。"""
-        if self.apps is not None and self.apps.holds(member.path):
+        agent_id = _member_agent(_member(member))
+        if self.apps is not None and self.apps.holds(agent_id):
             progress(f"「{member.name}」のエージェントを止めています（返答を終えてから）…")
-            self.apps.stop(member.path)
+            self.apps.stop(agent_id)
         elif agent_status.running_mode(team.inbox_of(member.path)) == "":
             raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{member.name}」は、もう対話型（人の画面）で動いています。")
         session = agent_status.session_of(team.inbox_of(member.path))
@@ -330,7 +341,7 @@ class Serve:
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
         progress(f"「{member.name}」を係に戻しています…")
-        self.apps.start(member.path, role=member.role, prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
+        self.apps.start(_member_agent(_member(member)), prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
         return {**_member(member), "session": session, "app": True}
 
     def _wake(self, agent: app.Agent) -> None:
@@ -339,15 +350,15 @@ class Serve:
         ロックされ続けないように）。"""
         interrupted = bool(agent.state.get("ended_working"))
         if self._task_closed(agent.root):
-            self.apps.stop(agent.root, 0)
+            self.apps.stop(agent.agent_id, 0)
             done = "起こしませんでした（タスクが閉じています。作業空間は agent team close で閉じられます）"
         else:
             try:
-                self.apps.start(agent.root, role=agent.role, resume=agent.session, progress=self.log,
+                self.apps.start(agent.agent_id, resume=agent.session, progress=self.log,
                                 prompt=app.INTERRUPTED_PROMPT if interrupted else "")
                 done = "前の会話の続きから起こしました" + ("（返答の途中だったので、続けるよう伝えました）" if interrupted else "")
             except EcoBuildError as error:
-                self.apps.stop(agent.root, 0)
+                self.apps.stop(agent.agent_id, 0)
                 done = f"起こせませんでした：{error.message}"
         self.log(f"係が起動し直したので、{agent.root} のエージェントを{done}")
         info = team.member_info(agent.root)
@@ -379,13 +390,17 @@ class Serve:
     def _stop(self, path: Path) -> None:
         """作業空間 path のエージェントを止める：係が持っていれば係が（返答を終えさせてから）、人の画面（対話型）なら
         起動した側に頼む（いなければ、動かしているプロセスを止める）。"""
-        if self.apps is not None and self.apps.holds(path):
-            self.apps.stop(path)
+        held = self.apps.in_workspace(path) if self.apps is not None else []
+        if held:
+            for agent in held:
+                self.apps.stop(agent.agent_id)
             return
         if self.emit is None:
-            pid = agent_status.running_pid(team.inbox_of(path))
-            if pid is not None:
-                agent_status.stop(pid)
+            for record in agents.in_workspace(path):
+                folder = agent_status.directory(record.id)
+                pid = agent_status.running_pid(folder) if folder is not None else None
+                if pid is not None:
+                    agent_status.stop(pid)
             return
         key = uuid.uuid4().hex
         self.emit({"event": "agent-stop", "key": key, "path": str(path)})
@@ -427,6 +442,20 @@ class Serve:
 def _member(member: team.Member) -> dict:
     return {"name": member.name, "role": member.role, "path": str(member.path), "task": member.task,
             "branch": member.branch, "lead": member.lead}
+
+
+def _member_agent(member: dict) -> str:
+    """作業役（team の作業空間）のエージェントの ID：その作業空間の持ち主の記録、なければ作る（登録は役の名前の見本。
+    親は作った進行役の作業空間の持ち主）。"""
+    path = Path(str(member.get("path") or ""))
+    owners = [record for record in agents.in_workspace(path) if record.kind == agents.OWNER]
+    if owners:
+        return owners[-1].id
+    lead = Path(str(member.get("lead") or "")) if member.get("lead") else None
+    parents = [record for record in agents.in_workspace(lead) if record.kind == agents.OWNER] if lead else []
+    return agents.create(registration=str(member.get("role") or "worker"), workspace=path,
+                         parent=parents[-1].id if parents else None, name=str(member.get("name") or ""),
+                         task={"number": member.get("task"), "branch": member.get("branch") or ""}).id
 
 
 # ---- 常駐 ----------------------------------------------------------------------------------------------------

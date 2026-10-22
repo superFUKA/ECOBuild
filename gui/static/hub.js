@@ -1,5 +1,5 @@
 'use strict';
-// Hub: the list of modules (the workspaces on this PC: ecobuild workspace list) and the settings shared by every module.
+// Hub: the list of modules (each module's own clone on this PC: ecobuild workspace list) and the settings shared by every module.
 const $ = id => document.getElementById(id);
 const {esc} = ECO;
 
@@ -72,7 +72,7 @@ const githubEntry = m => knownModules().find(g => sameRepository(g.repository, m
 let archived = [];
 function renderArchived() {
   archived = knownModules().filter(g => g.archived).map(g => {
-    const local = clones.filter(c => c.exists && sameRepository(g.repository, cloneRepository(c)));
+    const local = [...clones, ...legacy].filter(c => c.exists && sameRepository(g.repository, cloneRepository(c)));
     return {name: g.repository.split('/').pop(), repository: g.repository, description: g.description, clones: local,
             path: local[0]?.path || '', exists: local.length > 0};
   });
@@ -96,7 +96,9 @@ $('archived-list').addEventListener('click', async event => {
 // (ECO.action open: an open window of the module comes forward instead of a second one.)
 const openModule = path => ECO.action('open', {module: path}).catch(e => ECO.toast(e.message, 'bad'));
 
-let clones = [], order = [];
+// clones: the modules on this PC (workspace list: modules, each a module's own clone with its workspaces inside);
+// legacy: the workspaces the previous version made (clones of their own), to be closed.
+let clones = [], legacy = [], order = [];
 const pathKey = p => p.replaceAll('\\', '/').toLowerCase();
 const baseName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
 // 所有者/名前 when the origin is on GitHub, otherwise the name in the URL (matched by name: sameRepository).
@@ -106,26 +108,20 @@ const cloneRepository = c => c.repository || (c.url ? baseName(c.url).replace(/\
 const repositoryName = c => baseName(c.repository || '');
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
-  const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { clones = fresh.result; renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
-  if (!doc.ok) ECO.showError(doc, 'このPCの作業空間の一覧を読めませんでした');
-  clones = doc.ok ? doc.result : []; clonesLoaded = true;
+  const take = result => { clones = result?.modules || []; legacy = result?.legacy || []; };
+  const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { take(fresh.result); renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
+  if (!doc.ok) ECO.showError(doc, 'このPCのモジュールの一覧を読めませんでした');
+  take(doc.ok ? doc.result : null); clonesLoaded = true;
   order = saved.map(pathKey);
   renderModules();
 }
 function renderModules() {
   if (!$('module-list') || !clonesLoaded) return;
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
-  // One row per module. Of its workspaces on this PC: the one already in the list (order), else the original clone (not
-  // inside another's .ecobuild/ — an agent's —, then the folder named as the repository, not ECOBuild-2), then one not on
-  // a task branch; the first in the list when still even. The card shows the module's name, not the folder's.
-  const original = c => !pathKey(c.path).includes('/.ecobuild/') ? 0 : 4;
-  const named = c => c.repository && baseName(c.path).toLowerCase() === repositoryName(c).toLowerCase() ? 0 : 2;
-  const score = c => (order.includes(pathKey(c.path)) ? 0 : 8) + original(c) + named(c) + (c.task == null ? 0 : 1), chosen = new Map();
-  for (const c of clones) {
-    const id = (cloneRepository(c) || pathKey(c.path)).toLowerCase(), held = chosen.get(id);
-    if (!held || score(c) < score(held)) chosen.set(id, c);
-  }
-  modules = [...chosen.values()]
+  // One card per module: its own clone (the CLI lists each module once; its workspaces are inside it). The card shows the
+  // module's name, not the folder's.
+  renderLegacy();
+  modules = clones
     .map(c => ({path: c.path, name: repositoryName(c) || baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url,
       type: c.type || (cloneRepository(c) && githubEntry({repository: cloneRepository(c)})?.type) || ''}))
     .filter(m => !githubEntry(m)?.archived)
@@ -148,6 +144,24 @@ function renderModules() {
     return `<li class="module-type-head" role="presentation"><h3>${esc(type ? typeLabel(type) : '型が分からないもの')}</h3><span>${members.length}</span></li>${members.map(([m, i]) => card(m, i)).join('')}`;
   }).join('');
 }
+// The workspaces the previous version made (clones of their own): shown apart, to be closed (workspace close; it stops
+// when something there is not on GitHub). Work is now done in workspaces inside the module (.ecobuild/w/).
+function renderLegacy() {
+  const box = $('legacy-workspaces'); if (!box) return;
+  box.hidden = !legacy.length;
+  $('legacy-count').textContent = `（${legacy.length}）`;
+  $('legacy-list').innerHTML = legacy.map((c, i) => `<li><div><strong>${esc(c.path)}</strong><small>${esc(cloneRepository(c) || '（GitHubのリポジトリなし）')}${!c.exists ? '・フォルダが見つかりません' : c.task != null ? `・タスク #${c.task}（${esc(c.branch || '')}）` : c.branch ? '・' + esc(c.branch) : ''}</small></div>
+      <span class="archived-actions">${c.exists ? `<button type="button" data-legacy="folder" data-i="${i}">フォルダを開く</button><button type="button" class="danger-text" data-legacy="close" data-i="${i}">閉じる…</button>` : `<button type="button" data-legacy="forget" data-i="${i}">一覧から外す</button>`}</span></li>`).join('');
+}
+$('legacy-list').addEventListener('click', async event => {
+  const button = event.target.closest('[data-legacy]'); if (!button) return;
+  const c = legacy[Number(button.dataset.i)];
+  if (button.dataset.legacy === 'folder') { ECO.action('folder', {dir: c.path}).catch(e => ECO.toast(e.message, 'bad')); return; }
+  if (button.dataset.legacy === 'forget') { if (await ECO.run(null, ['workspace', 'forget', c.path], {success: `${c.path} を一覧から外しました。`})) loadModules(); return; }
+  const doc = await ECO.run(null, ['workspace', 'close', c.path], {title: '前の作業空間を閉じる', busy: `${c.path} を閉じています…`, success: r => r.removed ? `${c.path} を閉じました。` : `${c.path} を閉じましたが、一部が残りました（${(r.left || []).join('、')}）。使っているプログラムを閉じてから消してください。`,
+    confirm: `前の版の作業空間 ${c.path} をフォルダごと消します。ビルドの出力なども消えます。\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるときは消しません。続きの作業は、モジュールの窓のタスク管理で「作業を再開」すると、モジュールの中の作業空間でできます。`});
+  if (doc) loadModules();
+});
 const TYPE_LABELS = {cpp: 'C++', python: 'Python', generic: 'その他（generic）'};
 const typeLabel = type => TYPE_LABELS[type] ? `${TYPE_LABELS[type]}` : type;
 // 一覧から外す: ecobuild workspace forget (the folder and the GitHub repository stay). With a reason: the module cannot be
@@ -580,7 +594,7 @@ function archiveModule(m, repository, dir) {
 
 // Step 2: an archived module: delete it, or undo the archive.
 async function deleteArchivedModule(m, repository, dir, question) {
-  const local = clones.filter(c => c.exists && sameRepository(repository, cloneRepository(c))).map(c => c.path);
+  const local = [...clones, ...legacy].filter(c => c.exists && sameRepository(repository, cloneRepository(c))).map(c => c.path);
   let permission = false;
   const done = await ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
     intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、90日以内なら GitHub のアカウント設定から復元できます。タスク管理の情報は削除せずに閉じ、復元したときに引き継ぎます。`,

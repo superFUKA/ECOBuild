@@ -396,6 +396,18 @@ def test_delete_runs_outside_the_clone_and_repository_name(tmp_path):
     root.mkdir()
     assert gui._working_directory(str(root), ["module", "delete", "Calc", "--remove-workspaces"]) == str(tmp_path)
     assert gui._working_directory(str(root), ["status"]) == str(root)
+    # 作業空間（<元の clone>/.ecobuild/w/<名前>）はタスクの操作で消えるので、元の clone から起動する（-C は作業空間のまま）
+    _module(root)
+    workspace = root / ".ecobuild" / "w" / "12"
+    (workspace / "src").mkdir(parents=True)
+    for args in (["task", "finish", "12"], ["task", "drop", "12"], ["task", "review", "--done"], ["status"]):
+        assert gui._working_directory(str(workspace), args) == str(root)
+    assert gui._working_directory(str(workspace / "src"), ["status"]) == str(root)
+    assert gui._working_directory(str(workspace), ["workspace", "close", str(workspace)]) == str(workspace.parent)
+    # .ecobuild/w の名前でも、モジュールの中でなければ作業空間ではない
+    other = tmp_path / "x" / ".ecobuild" / "w" / "1"
+    other.mkdir(parents=True)
+    assert gui._working_directory(str(other), ["status"]) == str(other)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     for url, expected in (("https://github.com/owner/Calc.git", "owner/Calc"), ("git@github.com:owner/Calc", "owner/Calc"),
                           ("C:/fake/gh/Calc.git", "Calc")):
@@ -490,10 +502,10 @@ def test_workspace_lock_and_unlock_do_not_wait_and_make_the_cached_list_stale(tm
     for args in (["workspace", "lock", "--reason", "x"], ["workspace", "unlock"], ["workspace", "unlock", "--force", "--yes"]):
         assert gui._unlocked(args) and not gui._read_only(args) and not gui._cacheable(args)
     assert gui._cacheable(["workspace", "list"]) and not gui._unlocked(["workspace", "list"])
-    reply = {"ok": True, "result": [{"path": "C:/m", "exists": True}]}   # lock の無い応答
+    reply = {"ok": True, "result": {"modules": [{"path": "C:/m", "exists": True, "workspaces": []}], "legacy": []}}   # lock の無い応答
     script = f"import json; print(json.dumps({reply!r}))"
     app = gui.App(gui.Cli([sys.executable, "-c", script]), gui.Store(tmp_path / "gui.json"), "t", 1)
-    assert app.api("query", {"args": ["workspace", "list"], "mode": "fresh"})["doc"]["result"][0]["path"] == "C:/m"
+    assert app.api("query", {"args": ["workspace", "list"], "mode": "fresh"})["doc"]["result"]["modules"][0]["path"] == "C:/m"
     assert not app.api("query", {"args": ["workspace", "list"], "mode": "cache"}).get("stale")
     app.api("cli", {"args": ["workspace", "lock"]})
     assert app.api("query", {"args": ["workspace", "list"], "mode": "cache"})["stale"]
@@ -507,5 +519,38 @@ def test_the_screens_know_the_lock():
     assert "workspace_locked" in common and "['workspace', 'unlock', '--force', '--yes']" in common
     for other in (ws, mod, tasks):
         assert "--force" not in other                       # 非常用は奥（ロックの詳細）だけ
-    assert "ECO.whyLocked" in ws and "ECO.whyLocked" in tasks and "ECO.whyLocked" in mod
+    assert "ECO.whyLocked" in ws and "ECO.whyLocked" in mod
     assert "ECO.lockOf" in mod and "'lock-button'" in ws
+
+
+def test_find_module_gives_the_module_clone(tmp_path):
+    """モジュールの窓は元の clone で開く：作業空間（.ecobuild/w/<名前>）の中のフォルダからでも、名前からでも
+    （workspace list の modules。前の版の作業空間 legacy は探さない）。"""
+    calc = _module(tmp_path / "Calc")
+    workspace = _module(calc / ".ecobuild" / "w" / "7")
+    (workspace / "src").mkdir()
+    reply = {"ok": True, "result": {"modules": [{"path": calc.as_posix(), "exists": True, "repository": "owner/Calc"}],
+                                    "legacy": [{"path": (tmp_path / "Old").as_posix(), "exists": True, "repository": "owner/Old"}]}}
+    cli = gui.Cli([sys.executable, "-c", f"import json; print(json.dumps({reply!r}))"])
+    assert Path(gui.find_module(cli, str(workspace / "src"))) == calc.resolve()
+    assert Path(gui.find_module(cli, str(workspace))) == calc.resolve()
+    assert Path(gui.find_module(cli, str(calc))) == calc.resolve()
+    assert gui.find_module(cli, "Calc") == gui.find_module(cli, "owner/Calc") == calc.as_posix()
+    with pytest.raises(gui.GuiError):
+        gui.find_module(cli, "Old")
+
+
+def test_the_screens_use_the_workspaces_in_the_module():
+    """作業空間はモジュールの中の worktree だけ（画面のコードの約束）：場所を入れて作る・別の clone を登録する・
+    元の clone を切り替えることはしない。"""
+    static = Path(__file__).parent.parent / "static"
+    read = lambda name: (static / name).read_text(encoding="utf-8")   # noqa: E731
+    hub, mod, tasks, ws, submissions = (read(n) for n in ("hub.js", "module.js", "tasks.js", "workspace.js", "submissions.js"))
+    for text in (mod, tasks):
+        assert "['workspace', 'path'" not in text and "['workspace', 'create'" not in text and "'--dir'" not in text
+    assert "['workspace', 'add'" not in mod and "['workspace', 'forget'" not in mod     # 登録・外すはハブ（元の clone）だけ
+    assert "--close-workspace" not in (Path(gui.__file__)).read_text(encoding="utf-8")
+    assert "result?.modules" in hub and "legacy" in hub and "score" not in hub     # 代表を点数で選ばない
+    assert "doc.result.workspace" in mod and "doc.result.workspace" in tasks and "doc.result.workspace" in submissions
+    assert "'open-task'" in ws and "'open-task'" in mod
+    assert "['task', 'review', '--done']" in submissions

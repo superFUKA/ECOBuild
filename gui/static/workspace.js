@@ -36,7 +36,8 @@ const KIND_LABEL = {conflicted: '衝突', staged: 'ステージ済み', unstaged
 
 WS.refresh = async ({fetch = false} = {}) => {
   const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet: !fetch});
-  if (!doc.ok) { WS.status = null; renderBanners(doc); renderChanges(); return; }
+  // Not readable (also when a task operation removed this workspace): the module window reads its list again.
+  if (!doc.ok) { WS.status = null; renderBanners(doc); renderChanges(); WS.notifyParent(); return; }
   const before = WS.status?.task;
   // Whether the GitHub repository is archived is known only with --fetch: keep the last answer.
   if (doc.result.archived === null || doc.result.archived === undefined) doc.result.archived = WS.status?.archived ?? null;
@@ -149,8 +150,8 @@ function renderBanners(errorDoc) {
   else {
     if (ECO.lockOf(s).locked) out.push(banner(`この作業空間はロックされています（${esc(ECO.lockSummary(ECO.lockOf(s)))}）。ロック中は、タスクブランチの切り替え・削除ができません。<button data-git="lock">ロックの詳細…</button>`));
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
-    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに戻る</button>`));
-    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチから切り替え、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
+    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
+    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチからその作業空間を開き、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
@@ -426,44 +427,34 @@ async function loadHistory() {
   if (doc.ok) shown(doc); else historyView.error(doc.error.message);
 }
 WS.onRefresh(loadHistory);
-// Switching the task branch placed here (task start <n>: one already started, here or on GitHub). A new task is
-// started from タスク管理 (its dialog chooses the base and the place). A task branch placed in another workspace is
-// not placed here too: its tab is shown instead (one task branch, one place).
+// Another task's workspace (a workspace holds one task branch: it is not switched). A started task's tab is shown;
+// one without a workspace here gets one (task start, by the module window: MOD.openWorkspace). A new task is started
+// from タスク管理 (its dialog chooses the base).
 const keyOf = dir => dir.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 ECO.info().then(info => { WS.me = info.me || ''; }).catch(() => {});
-function whyNotSwitch(s) {
-  if (!s) return 'この場所の状態を読めません。';
-  const locked = ECO.whyLocked(s);
-  if (locked) return locked + '（外し方：ヘッダーの「ロック」から。自動のロックは、動いているものが終われば外れます）';
-  if (s.merging) return '取り込みの途中です（完了するか中止してから切り替えます）。';
-  if (s.reviewing) return '提出を確認中です（「判定せずに戻る」で戻ってから切り替えます）。';
-  const excluded = new Set(s.excluded || []);
-  if (s.staged.length || s.unstaged.length || s.conflicted.length || s.untracked.some(p => !excluded.has(p))) return '未コミットの変更があります（コミットするか退避してから切り替えます）。';
-  return '';
-}
 get('switch-branch').addEventListener('click', async () => {
-  const button = get('switch-branch'), r = button.getBoundingClientRect(), s = WS.status;
+  const button = get('switch-branch'), r = button.getBoundingClientRect(), embedded = window.parent !== window;
   const doc = await ECO.query(WS.dir, ['task', 'list']);
   if (!doc.ok) return ECO.showError(doc);
-  const why = whyNotSwitch(s), here = keyOf(WS.dir);
+  const here = keyOf(WS.dir), notEmbedded = 'モジュールの窓の中で開いたときだけ選べます';
   const started = doc.result.filter(t => t.state === 'open' && (t.current || t.task_branch || t.remote || t.workspace));
   const items = started.map(t => {
     const label = `#${t.number} ${t.title}`;
-    if (t.current) return [`✓ ${label}（ここに置いています）`, () => {}, false];
-    if (t.workspace && keyOf(t.workspace) !== here) {
+    if (t.current || (t.workspace && keyOf(t.workspace) === here)) return [`✓ ${label}（この作業空間）`, () => {}, false];
+    if (t.workspace) {
       return [`${label}（作業空間 ${t.workspace.split(/[\\/]/).pop()}）`, () => window.parent.postMessage({type: 'open-place', dir: t.workspace}, location.origin),
-        window.parent !== window, `別の作業空間に置いてあります。そのタブを表示します（${t.workspace}）`];
+        embedded, embedded ? `その作業空間のタブを表示します（${t.workspace}）` : notEmbedded];
     }
     const others = WS.me && t.assignees?.length && !t.assignees.includes(WS.me) ? t.assignees : [];
     if (others.length) return [`${label}（担当：${others.join('、')}）`, () => {}, false, 'ほかの人が担当しています。引き継ぐなら、タスク管理の「作業を開始」から'];
-    return [label + (t.task_branch ? '' : '（GitHubから再開）'), () => WS.run(['task', 'start', String(t.number)],
-      {success: r => `タスクブランチ ${r.branch} に切り替えました。`}).then(d => d && WS.reloadFiles?.()), !why, why];
+    return [label + (t.task_branch ? '（作業空間を作って開く）' : '（GitHubから再開）'), () => window.parent.postMessage({type: 'open-task', n: t.number}, location.origin),
+      embedded, embedded ? 'そのタスクの作業空間をモジュールの中に作って、新しいタブで開きます' : notEmbedded];
   });
   ECO.menu([
-    [why || 'この作業空間に置くタスクブランチ', null],
+    ['タスクの作業空間を開く', null],
     ...items,
-    ...(started.some(t => !t.current) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
-    ...(window.parent !== window ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
+    ...(started.some(t => !(t.current || (t.workspace && keyOf(t.workspace) === here))) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
+    ...(embedded ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
   ], r.left, r.bottom + 4);
 });
 
@@ -475,7 +466,7 @@ async function gitAction(action) {
     case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
     case 'lock': return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
     case 'clean-finished': if (ECO.whyLocked(WS.status)) return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
-      return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.switched_to ? `${r.switched_to} に移りました。` : '')}).then(() => WS.reloadFiles?.());
+      return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.workspace_removed ? `作業空間 ${r.workspace_removed} を消しました。` : r.workspace_kept ? `作業空間を残しました（${r.workspace_kept}）。` : '')});
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));
@@ -517,7 +508,7 @@ async function gitAction(action) {
     }
     case 'unarchive': return ECO.offerUnarchive(WS.dir, {error: {message: 'GitHubのリポジトリがアーカイブ（読み取り専用）されています。'}});
     case 'fetch': return WS.refresh({fetch: true}).then(() => say('GitHubの最新を確認しました。'));
-    case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終えて戻りました。'}).then(() => WS.reloadFiles?.());
+    case 'review-done': return WS.run(['task', 'review', '--done'], {success: '判定せずに確認を終え、確認用の作業空間を消しました。'});
     case 'go-tasks': if (window.parent !== window) window.parent.document.getElementById('tasks-menu')?.click(); return;
   }
 }

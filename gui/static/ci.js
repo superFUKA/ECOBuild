@@ -183,7 +183,7 @@
       }});
   }
   function dispatch() {
-    const current = MOD.states.get(MOD.keyOf(MOD.root))?.branch || '';
+    const current = MOD.states.get(MOD.keyOf(MOD.activePlace() || ''))?.branch || '';   // the tab shown now's
     const branches = st.branches.length ? st.branches : [current].filter(Boolean);
     return ECO.form({title: 'CIを手動で実行', intro: 'GitHub にあるブランチの内容で CI を動かします（手元の未Pushのコミットは入りません）。',
       fields: [{name: 'branch', label: 'ブランチ', type: 'select', value: st.branch || (branches.includes(current) ? current : branches[0]), options: branches.map(b => [b, b])}], ok: '実行',

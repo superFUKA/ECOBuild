@@ -936,10 +936,10 @@ function setup({ecobuild, python, group, module}) {
   ipcMain.on('agents:copy', (event, text) => { if (typeof text === 'string' && text) clipboard.writeText(text); });
   ipcMain.handle('agents:paste', () => clipboard.readText());
   ipcMain.handle('agents:last-reply', (event, id) => findSession(id)?.lastMessage || findSession(id)?.reply || '');
-  // ＋：このPCの作業空間（ecobuild workspace list）
+  // ＋：このPCの作業空間（ecobuild workspace list の、各モジュールの中の作業空間）
   ipcMain.handle('agents:workspaces', () => new Promise(resolve => require('child_process').execFile(ecobuildPath(),
     ['workspace', 'list', '--json'], {windowsHide: true, timeout: 30000, env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, (error, stdout) => {
-      try { resolve((JSON.parse(String(stdout).trim().split('\n').pop()).result || []).filter(w => w.exists !== false)); }
+      try { resolve(((JSON.parse(String(stdout).trim().split('\n').pop()).result || {}).modules || []).filter(m => m.exists !== false).flatMap(m => m.workspaces || [])); }
       catch (e) { resolve([]); }
     })));
   ipcMain.on('agents:ready', event => {

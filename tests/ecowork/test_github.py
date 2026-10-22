@@ -247,3 +247,44 @@ def test_issue_details_reads_the_rest_of_long_lists(monkeypatch, tmp_path):
     monkeypatch.setattr(_process, "run", recorder)
     details = _github.GhCli("o/r").issue_details(tmp_path, 7)
     assert len(details.comments) == 101 and len(recorder.calls) == 2
+
+
+def test_reusing_reads_reads_an_issue_once_until_something_is_written(monkeypatch, tmp_path):
+    """1つの操作の中で同じIssueを何度も確かめても、gh は1回（書いた後は読み直す）。"""
+    from ecotask import github as _task_github
+    issue = json.dumps({"number": 7, "title": "x", "url": "u", "state": "OPEN"})
+    recorder = Recorder({"issue view": (0, issue), "issue edit": (0, ""), "pr merge": (0, "")})
+    monkeypatch.setattr(_process, "run", recorder)
+    github = _github.GhCli("o/r")
+    github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+    assert len(recorder.calls) == 2   # 操作の外では今までどおり
+    recorder.calls.clear()
+    with github.reusing_reads():
+        github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+        assert len(recorder.calls) == 1
+        github.edit_issue(tmp_path, 7, title="y")
+        github.get_issue(tmp_path, 7)
+        github.merge_pull_request(tmp_path, 9, squash=True, subject=None)   # GitHub が Issue を閉じるかもしれない
+        github.get_issue(tmp_path, 7)
+        assert [c[1:3] for c in recorder.calls] == [("issue", "view"), ("issue", "edit"), ("issue", "view"),
+                                                    ("pr", "merge"), ("issue", "view")]
+        monkeypatch.setattr(_task_github, "REUSE_SECONDS", -1)   # 間が空いた（CI を待った等）
+        github.get_issue(tmp_path, 7)
+        assert len(recorder.calls) == 6
+
+
+def test_known_writes_forget_only_what_they_change(monkeypatch, tmp_path):
+    """Issue の本文を変えても親子・依存の写しは使い、コメントは写しを捨てない（task start で親と自分の本文に印を書く間）。"""
+    issue = json.dumps({"number": 7, "title": "x", "url": "u", "state": "OPEN"})
+    relation = json.dumps({"parent": None, "sub": None, "dep": None})
+    recorder = Recorder({"issue view": (0, issue), "issue edit": (0, ""), "issue comment": (0, ""),
+                         "api repos/{owner}/{repo}/issues/7": (0, relation)})
+    monkeypatch.setattr(_process, "run", recorder)
+    github = _github.GhCli("o/r")
+    with github.reusing_reads():
+        github.get_issue(tmp_path, 7), github.issue_relation(tmp_path, 7)
+        github.edit_issue(tmp_path, 7, body="印")
+        github.comment_issue(tmp_path, 7, "c")
+        github.issue_relation(tmp_path, 7), github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+    assert [c[1:3] for c in recorder.calls] == [("issue", "view"), ("api", "repos/{owner}/{repo}/issues/7"),
+                                                ("issue", "edit"), ("issue", "comment"), ("issue", "view")]

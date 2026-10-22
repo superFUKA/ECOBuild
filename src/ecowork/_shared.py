@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from pathlib import Path
 
@@ -14,6 +15,15 @@ def _stash_branch(message: str) -> str | None:
     """退避した変更のメッセージ（git stash list の %gs）から、退避したブランチ。"""
     match = _STASH_BRANCH.match(message)
     return None if match is None or match.group(1) == "(no branch)" else match.group(1)
+
+
+def reusing_reads(operation):
+    """Repository の操作の間、GitHub の同じ読みを1回にする（ecotask.github の reusing_reads）。"""
+    @functools.wraps(operation)
+    def run(self, *args, **kwargs):
+        with self.github.reusing_reads():
+            return operation(self, *args, **kwargs)
+    return run
 
 
 _PR_IN_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")

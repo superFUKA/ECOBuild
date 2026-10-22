@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import itertools
 import re
@@ -430,6 +431,10 @@ class FakeGitHub:
                                       tuple((b, item) for (b, i), item in self.items.items() if i == n)
                                       if every_board else ()))
         return records
+
+    @contextlib.contextmanager
+    def reusing_reads(self):
+        yield
 
     def issue_details(self, repo, number):
         record = self.task_records(repo, closed=True, board_id=None, number=number)[0]

@@ -115,11 +115,17 @@ const frames = new Map(), hidden = new Set();
 let activePlace = null;
 const keyOf = dir => dir.replaceAll('\\', '/').toLowerCase();
 const addTabButton = document.createElement('button');
-addTabButton.type = 'button'; addTabButton.textContent = '＋'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間を作る・表示'; addTabButton.setAttribute('aria-label', addTabButton.title);
+// The list of the module's workspaces (shows a closed tab again; workspaces are made by starting a task), as Chrome's tab search.
+addTabButton.type = 'button'; addTabButton.className = 'add-workspace-tab'; addTabButton.title = '作業空間の一覧（閉じたタブを再表示）'; addTabButton.setAttribute('aria-label', addTabButton.title);
+addTabButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-bar'; tabs.before(tabBar); tabBar.append(tabs, addTabButton);
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
-emptyNote.innerHTML = '<p>表示中の作業空間はありません。</p><p>作業空間は、タスクの作業をする場所です。タスク管理で「作業を開始」すると、モジュールの中（.ecobuild/w/〈番号〉）にタスクブランチ（task/〈番号〉-〈名前〉）の作業空間を作り、ここにタブで開きます。タスクを完了する・作業を捨てると、作業空間は消えます。閉じたタブは「＋」から再表示できます。</p><button type="button" data-go-tasks>タスク管理を開く</button>';
+emptyNote.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+  <h2>表示中の作業空間はありません</h2><p>タスク管理でタスクの「作業を開始」すると、ここにタブで開きます。</p>
+  <div class="empty-actions"><button type="button" class="primary" data-go-tasks>タスク管理を開く</button><button type="button" data-show-list hidden>作業空間の一覧</button></div>
+  <details><summary>作業空間とは</summary><p>タスクの作業をする場所です。モジュールの中（.ecobuild/w/〈番号〉）にタスクブランチ（task/〈番号〉-〈名前〉）の作業空間ができます。タスクを完了する・作業を捨てると消えます。閉じたタブは、タブの列の右の ▾ から再表示できます。</p></details>`;
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
+emptyNote.querySelector('[data-show-list]').addEventListener('click', () => addTabButton.click());
 panels.append(emptyNote);
 
 // Every workspace of the module has a tab (its state read by ecobuild status).
@@ -136,13 +142,16 @@ function syncTabs() {
   }
   if (!activePlace) { const next = MOD.places.find(tabVisible); if (next) activate(next); }
   emptyNote.hidden = !!activePlace;
+  // No tab: no empty tab row (the page leads to the list when there are closed tabs).
+  tabBar.hidden = !MOD.places.some(tabVisible);
+  emptyNote.querySelector('[data-show-list]').hidden = !MOD.places.some(isWorkspace);
 }
 
 const placeLabel = dir => {
   const state = MOD.states.get(keyOf(dir));
   const branch = state ? (state.reviewing ? `PR #${state.reviewing} を確認中` : state.branch || '（ブランチなし）') : '…';
   const title = state?.task ? MOD.titles.get(keyOf(dir)) || '' : '';
-  return {branch, title, where: dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop()};
+  return {branch, title, where: state?.task ? '#' + state.task : dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop()};
 };
 function renderTab(dir) {
   const button = tabs.querySelector(`[data-dir="${CSS.escape(keyOf(dir))}"]`); if (!button) return;
@@ -197,7 +206,7 @@ function closeTab(dir) {
   panels.querySelector(`[role=tabpanel][data-dir="${CSS.escape(key)}"]`).hidden = true;
   if (activePlace === key) {
     const next = MOD.places.find(tabVisible);
-    if (next) activate(next, true); else { activePlace = null; emptyNote.hidden = false; }
+    if (next) activate(next, true); else { activePlace = null; emptyNote.hidden = false; tabBar.hidden = !MOD.places.some(tabVisible); }
   }
 }
 function removeTab(dir) {
@@ -206,28 +215,32 @@ function removeTab(dir) {
   tabs.querySelector(`[data-group="${CSS.escape(key)}"]`)?.remove();
   panels.querySelector(`[role=tabpanel][data-dir="${CSS.escape(key)}"]`)?.remove();
   MOD.places = MOD.places.filter(p => keyOf(p) !== key); MOD.states.delete(key);
-  if (activePlace === key) { activePlace = null; const next = MOD.places.find(tabVisible); if (next) activate(next); else emptyNote.hidden = false; }
-}
-// Reload what a place shows (after a task operation changed the branch there, etc.).
-function reloadPlace(dir) {
-  const key = keyOf(dir);
-  frames.get(key)?.contentWindow?.location.reload();
-  return refreshState(dir);
+  if (activePlace === key) { activePlace = null; const next = MOD.places.find(tabVisible); if (next) activate(next); else emptyNote.hidden = false; tabBar.hidden = !MOD.places.some(tabVisible); }
 }
 // The module's workspaces on this PC (workspace list: the module's own clone's workspaces): the tabs. A clone of the
 // previous version (a workspace of its own, listed as legacy) opened as a module is its own one place.
 MOD.workspaces = new Map();   // keyOf(path) → {name, path, branch, task, account, review}
-let rootNoticed = false;
+// The module's own clone is kept on the default branch (work is done in the workspaces). Off it, a band under the top bar
+// says so while it lasts (a state, not an event: not a notice that goes away); × hides it for this window.
+let rootBandClosed = false;
+function showRootBand(text) {
+  let band = document.getElementById('root-band');
+  if (!text || rootBandClosed) { band?.remove(); return; }
+  if (!band) {
+    band = document.createElement('div'); band.id = 'root-band'; band.className = 'eco-banner root-band'; band.setAttribute('role', 'status');
+    band.innerHTML = '<span></span><button type="button" class="root-band-close" aria-label="閉じる" title="閉じる">×</button>';
+    band.querySelector('button').addEventListener('click', () => { rootBandClosed = true; band.remove(); });
+    document.querySelector('header')?.after(band);
+  }
+  band.querySelector('span').textContent = text;
+}
 async function listedWorkspaces() {
   const doc = await ECO.cli(null, ['workspace', 'list'], {quiet: true});
   if (!doc.ok) { ECO.toast(doc.error?.message || 'このPCのモジュールの一覧を読めませんでした。', 'bad'); return null; }
   const mine = (doc.result.modules || []).find(m => keyOf(m.path) === keyOf(MOD.root));
   if (mine) {
-    // The module's own clone is kept on the default branch (work is done in the workspaces): said once.
-    if (!rootNoticed && mine.exists && mine.default_branch && mine.branch !== mine.default_branch) {
-      rootNoticed = true;
-      ECO.toast(`このモジュールのフォルダ（${MOD.root}）が ${mine.branch || '切り離された状態'} にいます。作業は作業空間でするので、既定のブランチ ${mine.default_branch} に戻してください。`, 'info', 12000);
-    }
+    showRootBand(mine.exists && mine.default_branch && mine.branch !== mine.default_branch
+      ? `このモジュールのフォルダ（${MOD.root}）が ${mine.branch || '切り離された状態'} にいます。作業は作業空間でするので、既定のブランチ ${mine.default_branch} に戻してください。` : '');
     return mine.workspaces || [];
   }
   const old = (doc.result.legacy || []).find(m => keyOf(m.path) === keyOf(MOD.root));
@@ -337,7 +350,6 @@ tabs.addEventListener('contextmenu', e => {
   const dir = MOD.places.find(p => keyOf(p) === group.dataset.group), state = MOD.states.get(group.dataset.group) || {};
   const others = MOD.places.filter(p => keyOf(p) !== group.dataset.group && tabVisible(p));
   ECO.menu([
-    ['このタブを表示', () => activate(dir, true)],
     ['タブを閉じる（作業空間は残ります）', () => closeTab(dir)],
     ['他のタブを閉じる', () => others.forEach(closeTab), others.length > 0],
     '-',
@@ -363,12 +375,15 @@ tabs.addEventListener('keydown', event => {
 addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), ws = isWorkspace(p);
-    const label = ws ? `${ECO.esc(branch)}${title ? '　' + ECO.esc(title) : ''}${tabVisible(p) ? '（表示中）' : ''}${ECO.lockOf(MOD.states.get(keyOf(p))).locked ? '　🔒ロック中：' + ECO.esc(ECO.lockSummary(ECO.lockOf(MOD.states.get(keyOf(p))))) : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
+    const lock = ECO.lockOf(MOD.states.get(keyOf(p)));
+    const label = ws ? `${ECO.esc(title || branch)}${tabVisible(p) ? '<span class="picker-shown">表示中</span>' : ''}${lock.locked ? '<span aria-label="ロック中"> 🔒</span>' : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
     const own = MOD.workspaces.get(keyOf(p))?.name;   // a workspace in the module (not the previous version's clone itself)
-    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>作業空間 ${ECO.esc(where)}：${ECO.esc(p)}</small></button>${own ? `<button type="button" data-close-place="${i}" title="作業空間を閉じる（フォルダごと削除します）">閉じる</button>` : ''}</div>`;
+    const sub = [title ? branch : '', `${where}：${p}`, lock.locked ? 'ロック中：' + ECO.lockSummary(lock) : ''].filter(Boolean).map(ECO.esc).join('<br>');
+    // Removing the folder is not the dialog's 閉じる: its own words, in red.
+    return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${sub}</small></button>${own ? `<button type="button" class="picker-remove" data-close-place="${i}" title="作業空間を削除（フォルダごと。タスクブランチは残ります）">削除…</button>` : ''}</div>`;
   }).join('') || '<p class="eco-help">作業空間はまだありません。</p>';
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業空間</h2><p>このモジュールの作業空間です。作業空間はタスクごとにモジュールの中（.ecobuild/w/）に作られ、タスクを完了する・作業を捨てると消えます。新しい作業空間は、タスク管理でタスクの「作業を開始」をすると作られます。</p><div>${rows}</div>
+  d.innerHTML = `<h2>作業空間</h2><p>このモジュールの作業空間です。新しい作業空間は、タスク管理でタスクの「作業を開始」すると作られます。</p><div>${rows}</div>
     <div class="picker-actions"><button type="button" data-go-tasks>タスク管理を開く</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());

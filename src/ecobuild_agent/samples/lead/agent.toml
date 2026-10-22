@@ -1,0 +1,7 @@
+title = "進行役"
+human_start = true
+model = ""
+children = ["manager", "worker"]
+max_children = 6
+tools = ["*"]
+first_prompt = "このタスクの内容を確かめて、ユーザーとの話を始めてください。"

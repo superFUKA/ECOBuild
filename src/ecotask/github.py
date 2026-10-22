@@ -7,10 +7,13 @@ gh に専用のコマンドがないもの・gh の版で壊れやすいもの�
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import os
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -51,6 +54,7 @@ class TaskRecord:
     item: "_board.BoardItem | None" = None
     created_at: str | None = None       # Issueを作った日時（2026-10-10T01:02:03Z）
     closed_at: str | None = None        # 閉じた日時（開いていればNone）
+    items: "tuple[tuple[str, _board.BoardItem], ...]" = ()   # every_board で読んだとき：(ボードのID, 項目)
 
 
 @dataclass(frozen=True)
@@ -71,6 +75,19 @@ class Comment:
     body: str
 
 
+@dataclass(frozen=True)
+class IssueDetails:
+    """1件の詳細（task status）を1回で読んだもの。record の item は None で、ボードの値はボードごとに items に持つ
+    （どのボードを使うかを、ボードを探すのと並べて読むため）。"""
+    record: TaskRecord
+    items: tuple[tuple[str, "_board.BoardItem"], ...]   # (ボードのID, 項目)
+    comments: tuple[Comment, ...]
+    parent: IssueInfo | None
+    sub_issues: tuple[IssueInfo, ...]
+    blocked_by: tuple[IssueInfo, ...]
+    blocking: tuple[IssueInfo, ...]
+
+
 class TaskGitHub(Protocol):
     def current_user(self, repo: Path) -> str: ...
     def create_issue(self, repo: Path, title: str, body: str, *, labels: tuple[str, ...] = (),
@@ -83,6 +100,8 @@ class TaskGitHub(Protocol):
                    add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = ()) -> None: ...
     def comment_issue(self, repo: Path, number: int, body: str) -> None: ...
     def issue_comments(self, repo: Path, number: int) -> list[Comment]: ...
+    def issue_details(self, repo: Path, number: int) -> IssueDetails: ...
+    def reusing_reads(self) -> "contextlib.AbstractContextManager[None]": ...
     def reopen_issue(self, repo: Path, number: int) -> None: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
     # 親子（Sub-issues）・依存（Issue dependencies）・マイルストーン
@@ -119,11 +138,48 @@ class TaskGitHub(Protocol):
                            options: tuple[tuple[str, str, str], ...] = (),
                            iterations: tuple[tuple[str, str, int], ...] = ()) -> None: ...
     def task_records(self, repo: Path, *, closed: bool, board_id: str | None,
-                     number: int | None = None) -> list[TaskRecord]: ...
+                     number: int | None = None, every_board: bool = False) -> list[TaskRecord]: ...
     def board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem | None: ...
     def add_board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem: ...
     def set_board_value(self, repo: Path, board_id: str, item_id: str, field: _board.BoardField, value: str) -> None: ...
     def clear_board_value(self, repo: Path, board_id: str, item_id: str, field_id: str) -> None: ...
+
+
+REUSE_SECONDS = 10   # reusing_reads の写しを使う長さ（CI を待つ等、間が空けば読み直す）
+
+
+def reusable(read):
+    """reusing_reads の中では、同じ引数の読みを1回にする（書く呼び出しがあれば、読み直す）。"""
+    @functools.wraps(read)
+    def reading(self, repo, *args):
+        reads = self.__dict__.get("_reads")
+        if reads is None:
+            return read(self, repo, *args)
+        key = (read.__name__, repo, *args)
+        now = time.monotonic()
+        if key not in reads or now - reads[key][0] > REUSE_SECONDS:
+            reads[key] = (now, read(self, repo, *args))
+        found = reads[key][1]
+        return list(found) if isinstance(found, list) else found
+    return reading
+
+
+def _board_items(key) -> bool:
+    """ボードの値を書いたときに捨てる写し（ボードの項目だけ。Issue・親子は変わらない）。"""
+    return key[0] == "_issue_items"
+
+
+# 読むだけの gh のコマンド（これ以外は書くものとして、reusing_reads の写しを捨てる）
+_READ_COMMANDS = {("issue", "view"), ("issue", "list"), ("pr", "view"), ("pr", "list"), ("pr", "diff"),
+                  ("pr", "checks"), ("repo", "view"), ("label", "list"), ("run", "list"), ("run", "view"),
+                  ("release", "list"), ("secret", "list")}
+_API_WRITE_OPTIONS = {"--method", "-X", "--input", "-f", "-F", "--field", "--raw-field"}
+
+
+def _reads_only(args) -> bool:
+    if args[0] == "api":
+        return args[1:2] != ["graphql"] and not _API_WRITE_OPTIONS.intersection(args)
+    return tuple(args[:2]) in _READ_COMMANDS
 
 
 class GhCli:
@@ -137,6 +193,37 @@ class GhCli:
     def __init__(self, repository: str | None = None, account: str | None = None):
         self.repository = repository
         self.account = account
+
+    @contextlib.contextmanager
+    def reusing_reads(self):
+        """この中では、同じIssue（本文・親子と依存・子・依存の相手・ボードの項目）を読むのは1回だけ（1つの操作の中で、
+        確かめのたびに同じものを読み直していた。task start で gh を約30回）。書く呼び出し（gh のコマンド・REST・
+        GraphQL の mutation）があれば写しを全部捨てる（PR の取り込みで GitHub が Issue を閉じる等も読み直す）。"""
+        if self.__dict__.get("_reads") is not None:
+            yield
+            return
+        self._reads = {}
+        try:
+            yield
+        finally:
+            self._reads = None
+
+    def _wrote(self) -> None:
+        reads = self.__dict__.get("_reads")
+        if reads:
+            only = self.__dict__.get("_forget_only")
+            for key in [key for key in reads if only is None or only(key)]:
+                del reads[key]
+
+    @contextlib.contextmanager
+    def _forgetting(self, only):
+        """この中の書く呼び出しは、写しのうち only(キー) が真のものだけ捨てる（何が変わるか分かっている書き）。
+        キーは（読みの名前, repo, 引数…）。"""
+        self._forget_only = only
+        try:
+            yield
+        finally:
+            self._forget_only = None
 
     def with_account(self, account: str | None) -> "GhCli":
         """account として呼ぶ接続（None ならログイン中のアカウント）。"""
@@ -209,6 +296,7 @@ class GhCli:
         url = self._gh(args, cwd=repo).stdout.strip()
         return self.get_issue(repo, number_from_url(url))
 
+    @reusable
     def get_issue(self, repo, number):
         completed = self._gh(["issue", "view", str(number), "--json", _ISSUE_FIELDS],
                              cwd=repo, check=False)
@@ -242,10 +330,12 @@ class GhCli:
                                ("--add-assignee", add_assignees), ("--remove-assignee", remove_assignees)):
             for value in values:
                 args += [option, value]
-        self._gh(args, cwd=repo)
+        with self._forgetting(lambda key: key[0] == "get_issue" and key[2:] == (number,)):   # 親子・依存は変わらない
+            self._gh(args, cwd=repo)
 
     def comment_issue(self, repo, number, body):
-        self._gh(["issue", "comment", str(number), "--body", body], cwd=repo)
+        with self._forgetting(lambda key: False):   # コメントは写しに持たない
+            self._gh(["issue", "comment", str(number), "--body", body], cwd=repo)
 
     def issue_comments(self, repo, number):
         data = self._json(["issue", "view", str(number), "--json", "comments"], cwd=repo)
@@ -265,6 +355,8 @@ class GhCli:
 
     def _api(self, method, path, payload, *, cwd):
         """REST API（repos/<所有者>/<名前>/<path>）を呼ぶ。payload はJSONで標準入力から渡す。"""
+        if method != "GET":
+            self._wrote()
         args = ["api", "--method", method, f"repos/{{owner}}/{{repo}}/{path}"]
         if payload is not None:
             args += ["--input", "-"]
@@ -292,6 +384,7 @@ class GhCli:
                 sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
         return result
 
+    @reusable
     def issue_relation(self, repo, number):
         d = self._json(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq",
                         "{parent: .parent_issue_url, sub: .sub_issues_summary, dep: .issue_dependencies_summary}"],
@@ -300,6 +393,7 @@ class GhCli:
         return IssueRelations(number_from_url(d["parent"]) if d.get("parent") else None, sub.get("total", 0),
                               sub.get("completed", 0), dep.get("blocked_by", 0), dep.get("blocking", 0))
 
+    @reusable
     def sub_issues(self, repo, number):
         return self._rest_issues(repo, f"issues/{number}/sub_issues")
 
@@ -309,9 +403,11 @@ class GhCli:
     def remove_sub_issue(self, repo, parent, child):
         self._api("DELETE", f"issues/{parent}/sub_issue", {"sub_issue_id": self._issue_id(repo, child)}, cwd=repo)
 
+    @reusable
     def blocked_by(self, repo, number):
         return self._rest_issues(repo, f"issues/{number}/dependencies/blocked_by")
 
+    @reusable
     def blocking(self, repo, number):
         return self._rest_issues(repo, f"issues/{number}/dependencies/blocking")
 
@@ -472,12 +568,43 @@ class GhCli:
         nodes = ((data.get("repositoryOwner") or {}).get("projectsV2") or {}).get("nodes") or []
         return tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed"))) for n in nodes)
 
-    def task_records(self, repo, *, closed, board_id, number=None):
-        """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""
-        items = (" projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }") if board_id else ""
-        fields = ("number title url state stateReason createdAt closedAt body parent { number } subIssuesSummary { total completed } "
-                  "issueDependenciesSummary { blockedBy blocking } milestone { title dueOn } "
-                  "assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }" + items)
+    def issue_details(self, repo, number):
+        """1件の詳細を GraphQL 1回で読む（Issue・ボードの値・コメント・親・子・依存。今まで gh を7回、3段に分けて待っていた）。
+        コメント等が1回で読み切れないときだけ、その分を読み足す。"""
+        refs = "pageInfo { hasNextPage } nodes { " + _REF + " }"
+        data = self._graphql(repo, """
+            query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+              issue(number: $number) { """ + _TASK_FIELDS + _ITEMS + """
+                comments(first: 100) { pageInfo { hasNextPage } nodes { author { login } body } }
+                parent { """ + _REF + """ } subIssues(first: 100) { """ + refs + """ }
+                blockedBy(first: 100) { """ + refs + """ } blocking(first: 100) { """ + refs + """ } } } }""",
+                             number=number, **self._repo_vars(repo))
+        node = data["repository"]["issue"]
+        if node is None:
+            raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
+
+        def listed(key, more):
+            found = node.get(key) or {}
+            if (found.get("pageInfo") or {}).get("hasNextPage"):
+                return tuple(more(repo, number))
+            return tuple(_ref(n) for n in found.get("nodes") or [] if n)
+
+        comments = node.get("comments") or {}
+        if (comments.get("pageInfo") or {}).get("hasNextPage"):
+            comments = tuple(self.issue_comments(repo, number))
+        else:
+            comments = tuple(Comment((c.get("author") or {}).get("login", ""), c.get("body") or "")
+                             for c in comments.get("nodes") or [] if c)
+        record = _task_record(node, None, every_board=True)
+        return IssueDetails(replace(record, items=()), record.items, comments,
+                            None if not node.get("parent") else _ref(node["parent"]),
+                            listed("subIssues", self.sub_issues), listed("blockedBy", self.blocked_by),
+                            listed("blocking", self.blocking))
+
+    def task_records(self, repo, *, closed, board_id, number=None, every_board=False):
+        """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。
+        every_board：すべてのボードの値を items に読む（使うボードが分かる前に読み始めるため）。"""
+        fields = _TASK_FIELDS + (_ITEMS if board_id or every_board else "")
         if number is not None:
             data = self._graphql(repo, """
                 query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
@@ -485,7 +612,7 @@ class GhCli:
             node = data["repository"]["issue"]
             if node is None:
                 raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
-            return [_task_record(node, board_id)]
+            return [_task_record(node, board_id, every_board)]
         records, after = [], None
         while True:
             data = self._graphql(repo, """
@@ -494,7 +621,7 @@ class GhCli:
                     pageInfo { hasNextPage endCursor } nodes { """ + fields + " } } } }",
                                  states=None if closed else ["OPEN"], after=after, **self._repo_vars(repo))
             issues = data["repository"]["issues"]
-            records += [_task_record(node, board_id) for node in issues["nodes"]]
+            records += [_task_record(node, board_id, every_board) for node in issues["nodes"]]
             if not issues["pageInfo"]["hasNextPage"]:
                 return records
             after = issues["pageInfo"]["endCursor"]
@@ -507,25 +634,29 @@ class GhCli:
         item = _board_item(issue["projectItems"]["nodes"], board_id)
         if item is not None:
             return item
-        data = self._graphql(repo, """
-            mutation($project: ID!, $content: ID!) {
-              addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } } }""",
-                             project=board_id, content=issue["id"])
+        with self._forgetting(_board_items):
+            data = self._graphql(repo, """
+                mutation($project: ID!, $content: ID!) {
+                  addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } } }""",
+                                 project=board_id, content=issue["id"])
         return _board.BoardItem(data["addProjectV2ItemById"]["item"]["id"], {})
 
     def set_board_value(self, repo, board_id, item_id, field, value):
-        self._graphql(repo, """
-            mutation($project: ID!, $item: ID!, $field: ID!, $value: ProjectV2FieldValue!) {
-              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
-                                                    value: $value}) { projectV2Item { id } } }""",
-                      project=board_id, item=item_id, field=field.id, value=_field_value(field, value))
+        with self._forgetting(_board_items):
+            self._graphql(repo, """
+                mutation($project: ID!, $item: ID!, $field: ID!, $value: ProjectV2FieldValue!) {
+                  updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field,
+                                                        value: $value}) { projectV2Item { id } } }""",
+                          project=board_id, item=item_id, field=field.id, value=_field_value(field, value))
 
     def clear_board_value(self, repo, board_id, item_id, field_id):
-        self._graphql(repo, """
-            mutation($project: ID!, $item: ID!, $field: ID!) {
-              clearProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field}) {
-                projectV2Item { id } } }""", project=board_id, item=item_id, field=field_id)
+        with self._forgetting(_board_items):
+            self._graphql(repo, """
+                mutation($project: ID!, $item: ID!, $field: ID!) {
+                  clearProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field}) {
+                    projectV2Item { id } } }""", project=board_id, item=item_id, field=field_id)
 
+    @reusable
     def _issue_items(self, repo, number):
         data = self._graphql(repo, """
             query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
@@ -558,6 +689,8 @@ class GhCli:
 
     def _graphql(self, repo, query, **variables):
         """GraphQL を呼ぶ（本文はJSONで標準入力から渡す）。権限が足りなければ board_permission。"""
+        if query.lstrip().startswith("mutation"):
+            self._wrote()
         args = ["api", "graphql", "--input", "-"]
         completed = _process.run(["gh", *args], cwd=repo, check=False,
                                  input=json.dumps({"query": query, "variables": variables}),
@@ -586,14 +719,18 @@ class GhCli:
         return json.loads(completed.stdout)["data"]
 
     def _issue_id(self, repo, number):
-        """親子・依存のAPIが使う、Issueの内部のID（番号ではない）。"""
+        """親子・依存のAPIが使う、Issueの内部のID（番号ではない。変わらないので、1回聞いたら覚える）。"""
+        ids = self.__dict__.setdefault("_ids", {})
+        if (repo, number) in ids:
+            return ids[(repo, number)]
         completed = self._gh(["api", f"repos/{{owner}}/{{repo}}/issues/{number}", "--jq", ".id"], cwd=repo,
                              check=False)
         if not completed.ok:
             if not_found(completed):
                 raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。", details=completed.output)
             raise gh_error(["api", "issues"], completed)
-        return int(completed.stdout.strip())
+        ids[(repo, number)] = int(completed.stdout.strip())
+        return ids[(repo, number)]
 
     def _rest_issues(self, repo, path):
         output = self._gh(["api", "--paginate", f"repos/{{owner}}/{{repo}}/{path}?per_page=100", "--jq", ".[]"],
@@ -604,10 +741,16 @@ class GhCli:
         return json.loads(self._gh(args, cwd=cwd).stdout)
 
     def _gh(self, args, *, cwd, check=True):
+        writes = not _reads_only(args)
+        if writes:
+            self._wrote()
         try:
             return _process.run(["gh", *args], cwd=cwd, check=check, env=self._env())
         except _process.ProcessFailed as failure:
             raise gh_error(args, failure.completed) from None
+        finally:
+            if writes:
+                self._wrote()
 
 
 # ボードの定義（get_board）として読むもの
@@ -731,8 +874,20 @@ _VALUES = ("fieldValues(first: 50) { nodes { "
            f"... on ProjectV2ItemFieldIterationValue {{ title {_FIELD_NAME} }} "
            "} }")
 
+# タスク1件として読むもの（_task_record）と、そのボードの項目
+_TASK_FIELDS = ("number title url state stateReason createdAt closedAt body parent { number } "
+                "subIssuesSummary { total completed } issueDependenciesSummary { blockedBy blocking } "
+                "milestone { title dueOn } assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }")
+_ITEMS = " projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }"
+# 親子・依存の相手として読むもの（_ref）
+_REF = "number title url state"
 
-def _task_record(node: dict, board_id: str | None) -> TaskRecord:
+
+def _ref(node: dict) -> IssueInfo:
+    return IssueInfo(node["number"], node["title"], node.get("url") or "", node["state"].lower())
+
+
+def _task_record(node: dict, board_id: str | None, every_board: bool = False) -> TaskRecord:
     sub, dep = node.get("subIssuesSummary") or {}, node.get("issueDependenciesSummary") or {}
     milestone = node.get("milestone") or {}
     issue = IssueInfo(node["number"], node["title"], node["url"], node["state"].lower(), node.get("body") or "",
@@ -742,10 +897,12 @@ def _task_record(node: dict, board_id: str | None) -> TaskRecord:
     relations = IssueRelations((node.get("parent") or {}).get("number"), sub.get("total", 0), sub.get("completed", 0),
                                dep.get("blockedBy", 0), dep.get("blocking", 0))
     reason = (node.get("stateReason") or "").lower() or None
-    item = None if not board_id else _board_item((node.get("projectItems") or {}).get("nodes") or [], board_id)
+    nodes = (node.get("projectItems") or {}).get("nodes") or []
+    item = None if not board_id else _board_item(nodes, board_id)
+    items = tuple((n["project"]["id"], _board_item([n], n["project"]["id"])) for n in nodes if n) if every_board else ()
     return TaskRecord(issue, relations, reason if issue.state == "closed" else None,
                       (milestone.get("dueOn") or "")[:10] or None, item, node.get("createdAt"),
-                      node.get("closedAt") if issue.state == "closed" else None)
+                      node.get("closedAt") if issue.state == "closed" else None, items)
 
 
 def _board_item(nodes: list, board_id: str) -> _board.BoardItem | None:

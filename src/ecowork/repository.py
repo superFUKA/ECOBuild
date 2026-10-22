@@ -30,7 +30,7 @@ from ._completion import Completion
 from ._members import Members
 from ._access import ACCOUNT_KEY, Permissions
 from ._sync import Syncing
-from ._shared import _github_name
+from ._shared import _github_name, reusing_reads
 
 
 class Hooks:
@@ -328,6 +328,7 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 
     # タスクとタスクブランチ ---------------------------------------------------------
 
+    @reusing_reads
     def start_task_in(self, number: int, place: Path | str, *, base: str | None = None, name: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False, account: str | None = None,
                       open: Callable[[Path], "Repository"] | None = None) -> wm.StartResult:
@@ -662,6 +663,7 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         if hasattr(self.tracker, "store"):
             self.tracker.store.root = self.root
 
+    @reusing_reads
     def _submit_task_branch(self, task_branch: wm.TaskBranch, *, title: str | None, partial: bool | None,
                           draft: bool = False, reviewers: tuple[str, ...] = (),
                           sections: dict[str, str] | None = None) -> wm.PullRequest:
@@ -967,6 +969,7 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         if branch.remote:
             self.git.push_delete(branch.name)
 
+    @reusing_reads
     def _start_task_branch(self, task: wm.Task, base: str | None, *, name: str | None = None,
                            ignore_blocked: bool = False, take_over: bool = False) -> wm.TaskBranch:
         """その場（この作業ツリー）でタスクブランチを作る・切り替える（Task.start）。作業空間（start_task_in）を持たない

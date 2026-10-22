@@ -23,6 +23,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -362,8 +363,9 @@ def listing() -> "WorkspaceList":
     場所の順）。ロックの調べ（拡張の docker 等）は、まとめて1回。"""
     from .results import WorkspaceList
     modules, legacy_items = _load()
-    found = [module_entry(item.path) for item in modules if not _in_home(item.path)]
-    old = [legacy_entry(item.path) for item in legacy_items]
+    with ThreadPoolExecutor(max_workers=8) as pool:   # 場所ごとに git を呼ぶので並べる（順に待つと十数の場所で約2秒）
+        found = list(pool.map(module_entry, [item.path for item in modules if not _in_home(item.path)]))
+        old = list(pool.map(legacy_entry, [item.path for item in legacy_items]))
     places = [e.path for e in found + old if e.exists] + [w.path for e in found for w in e.workspaces]
     locks = dict(zip(map(key, places), _locks.status_of(places)))
     found = [replace(e, lock=locks[key(e.path)],

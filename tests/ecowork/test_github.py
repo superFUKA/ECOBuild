@@ -209,3 +209,82 @@ def test_remembered_board_is_read_with_the_board_list(remote_and_clone, monkeypa
     assert len(queries) == 3
     assert second.get_board(work, "o", 3).id == "P"   # 2回目（書いた後の読み直し）は聞き直す
     assert len(queries) == 4
+
+
+def _details_node(**changes):
+    ref = lambda n, state="OPEN": {"number": n, "title": f"t{n}", "url": f"u{n}", "state": state}
+    node = {"number": 7, "title": "x", "url": "u7", "state": "OPEN", "stateReason": None, "body": "本文",
+            "createdAt": "2026-10-01T00:00:00Z", "closedAt": None, "parent": ref(3),
+            "subIssuesSummary": {"total": 1, "completed": 0}, "issueDependenciesSummary": {"blockedBy": 1, "blocking": 0},
+            "milestone": None, "assignees": {"nodes": [{"login": "me"}]}, "labels": {"nodes": []},
+            "projectItems": {"nodes": [{"id": "I1", "project": {"id": "P1"}, "fieldValues": {"nodes": [
+                {"name": "In Progress", "field": {"name": "Status"}}]}}]},
+            "comments": {"pageInfo": {"hasNextPage": False}, "nodes": [{"author": {"login": "a"}, "body": "c"}]},
+            "subIssues": {"pageInfo": {"hasNextPage": False}, "nodes": [ref(8)]},
+            "blockedBy": {"pageInfo": {"hasNextPage": False}, "nodes": [ref(5, "CLOSED")]},
+            "blocking": {"pageInfo": {"hasNextPage": False}, "nodes": []}}
+    return {**node, **changes}
+
+
+def test_issue_details_reads_everything_in_one_query(monkeypatch, tmp_path):
+    """task status の詳細（Issue・ボードの値・コメント・親・子・依存）は GraphQL 1回（以前は gh を7回）。"""
+    recorder = Recorder({"api graphql": (0, json.dumps({"data": {"repository": {"issue": _details_node()}}}))})
+    monkeypatch.setattr(_process, "run", recorder)
+    details = _github.GhCli("o/r").issue_details(tmp_path, 7)
+    assert len(recorder.calls) == 1
+    assert details.record.issue.body == "本文" and details.record.relations.parent == 3
+    assert details.items[0][0] == "P1" and details.items[0][1].values == {"Status": "In Progress"}
+    assert details.comments == (_github.Comment("a", "c"),)
+    assert (details.parent.number, [i.number for i in details.sub_issues]) == (3, [8])
+    assert [(i.number, i.state) for i in details.blocked_by] == [(5, "closed")] and details.blocking == ()
+
+
+def test_issue_details_reads_the_rest_of_long_lists(monkeypatch, tmp_path):
+    """1回で読み切れないコメントだけ読み足す。"""
+    node = _details_node(comments={"pageInfo": {"hasNextPage": True}, "nodes": []})
+    recorder = Recorder({"api graphql": (0, json.dumps({"data": {"repository": {"issue": node}}})),
+                         "issue view": (0, json.dumps({"comments": [{"author": {"login": "b"}, "body": "d"}] * 101}))})
+    monkeypatch.setattr(_process, "run", recorder)
+    details = _github.GhCli("o/r").issue_details(tmp_path, 7)
+    assert len(details.comments) == 101 and len(recorder.calls) == 2
+
+
+def test_reusing_reads_reads_an_issue_once_until_something_is_written(monkeypatch, tmp_path):
+    """1つの操作の中で同じIssueを何度も確かめても、gh は1回（書いた後は読み直す）。"""
+    from ecotask import github as _task_github
+    issue = json.dumps({"number": 7, "title": "x", "url": "u", "state": "OPEN"})
+    recorder = Recorder({"issue view": (0, issue), "issue edit": (0, ""), "pr merge": (0, "")})
+    monkeypatch.setattr(_process, "run", recorder)
+    github = _github.GhCli("o/r")
+    github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+    assert len(recorder.calls) == 2   # 操作の外では今までどおり
+    recorder.calls.clear()
+    with github.reusing_reads():
+        github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+        assert len(recorder.calls) == 1
+        github.edit_issue(tmp_path, 7, title="y")
+        github.get_issue(tmp_path, 7)
+        github.merge_pull_request(tmp_path, 9, squash=True, subject=None)   # GitHub が Issue を閉じるかもしれない
+        github.get_issue(tmp_path, 7)
+        assert [c[1:3] for c in recorder.calls] == [("issue", "view"), ("issue", "edit"), ("issue", "view"),
+                                                    ("pr", "merge"), ("issue", "view")]
+        monkeypatch.setattr(_task_github, "REUSE_SECONDS", -1)   # 間が空いた（CI を待った等）
+        github.get_issue(tmp_path, 7)
+        assert len(recorder.calls) == 6
+
+
+def test_known_writes_forget_only_what_they_change(monkeypatch, tmp_path):
+    """Issue の本文を変えても親子・依存の写しは使い、コメントは写しを捨てない（task start で親と自分の本文に印を書く間）。"""
+    issue = json.dumps({"number": 7, "title": "x", "url": "u", "state": "OPEN"})
+    relation = json.dumps({"parent": None, "sub": None, "dep": None})
+    recorder = Recorder({"issue view": (0, issue), "issue edit": (0, ""), "issue comment": (0, ""),
+                         "api repos/{owner}/{repo}/issues/7": (0, relation)})
+    monkeypatch.setattr(_process, "run", recorder)
+    github = _github.GhCli("o/r")
+    with github.reusing_reads():
+        github.get_issue(tmp_path, 7), github.issue_relation(tmp_path, 7)
+        github.edit_issue(tmp_path, 7, body="印")
+        github.comment_issue(tmp_path, 7, "c")
+        github.issue_relation(tmp_path, 7), github.get_issue(tmp_path, 7), github.get_issue(tmp_path, 7)
+    assert [c[1:3] for c in recorder.calls] == [("issue", "view"), ("api", "repos/{owner}/{repo}/issues/7"),
+                                                ("issue", "edit"), ("issue", "comment"), ("issue", "view")]

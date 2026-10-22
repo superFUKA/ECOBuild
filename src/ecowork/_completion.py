@@ -320,6 +320,7 @@ class Completion:
         """
         current = self.git.current_branch()
         remote = set(self.git.remote_branches())
+        checked_out = self.git.checked_out_branches()   # ほかの git worktree が使っているブランチは git が消させない
         removed, kept = [], []
         for branch in self.git.local_branches():
             number = wm.task_number(branch)
@@ -331,7 +332,7 @@ class Completion:
                     continue
             except WorkError:
                 continue
-            if self.hooks.branch_locks(self, branch):   # ロック中のほかの作業空間が使っている：残す（次の機会に片付く）
+            if branch in checked_out or self.hooks.branch_locks(self, branch):   # ほかの作業空間が使っている：残す（次の機会に片付く）
                 kept.append(branch)
                 continue
             self.git.delete_branch(branch, force=True)
@@ -341,7 +342,7 @@ class Completion:
             self.notices.append(f"完了したタスクの手元のタスクブランチを片付けました：{', '.join(removed)}")
         if kept:
             self.notices.append(f"完了したタスクの手元のタスクブランチ {', '.join(kept)} は、ほかの作業空間が使用中"
-                                "（ロック中）のため残しました。")
+                                "（取り出し中・ロック中）のため残しました。")
         return tuple(removed)
 
     def task_diff(self, number: int | None = None) -> str:

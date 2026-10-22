@@ -885,7 +885,8 @@ def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     settings_file = command[command.index("--settings") + 1].rsplit("/", 1)[-1]
     settings = json.loads((folder / settings_file).read_text(encoding="utf-8"))
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("replied deliver")   # 新しい画面：受け箱はフックが届ける
-    assert "PreToolUse" not in settings["hooks"]                                          # 書ける場所は絞らない
+    guard = settings["hooks"]["PreToolUse"]                                               # 書ける場所は絞らない
+    assert guard == [{"matcher": "Bash", "hooks": [{"type": "command", "command": "ecobuild agent guard"}]}]   # シェルの関所だけ
     started.clear()
     (work / "sub").mkdir()
     monkeypatch.chdir(work / "sub")

@@ -1,20 +1,24 @@
 """ECOBuild の係（このPCで常駐する）：エージェントの間の取り次ぎを、画面を持つアプリから切り離して本体で行う。
 
-- 頼み（team.REQUESTS）：コンテナの中・GUI の窓の中の進行役が書いたチームの操作（agent team …）を、このPCで実行して
-  結果を書き戻す（team.forward が待っている）。拾ってから結果を書くまで、途中経過（team.PROGRESS）を毎秒書く
-  （頼んだ側は、係が動いているか・何をしているかを見ながら待つ）。
-- 進行役への知らせ：作業役の返答が終わったら（Stop フックの replied.json）、進行役の受け箱に入れる（team.lead_notice。
+- 頼み（children.REQUESTS）：エージェントの状態の置き場所に書かれた頼みを、このPCで実行して結果を書き戻す
+  （children.forward が待っている）。拾ってから結果を書くまで、途中経過（children.PROGRESS）を毎秒書く。
+  - ツール（{"tool", "arguments", "agent"}）：コンテナの中の MCP サーバーが渡す、子を扱うツール（children_*・
+    report_to_parent）。呼び手は頼みを書いた置き場所のエージェント（頼みの agent と違えば断る）。確かめ（直接の子だけ・
+    起動してよい登録・子の数）もここで行う。
+  - 人の操作（{"args", "cwd"}）：係が持つエージェントの起動・止める・起動し直す・引き取る・返す・閉じる
+    （agent start --app --id・stop・restart・takeover・handback・close）。
+- 親への知らせ：子の返答が終わったら（replied.json）、親の受け箱に入れる（children.parent_notice。子タスクの子には、
   作業空間・GitHub を調べた事実と注意を添える：裏で行うので見回りは止まらない）。
 - 返答が終わったら、作業空間の型に手元をそろえさせる（project update。C++ では Visual Studio の構成。ほかの型は何もしない）。
-- AI（進行役の頼み）が起動するエージェントは、係がアプリ用の起動で持つ（app。GUI がいてもいなくても同じ。コンテナでだけ）：
-  作業役を作った・起動し直したら起動し、閉じる・起動し直す前に止め、受け箱のものを標準入力へ入れる。人が引き取る
-  （takeover：止めて会話の ID を返す。人は対話型で claude --resume）・返す（handback）、人がアプリ用で起動する
-  （agent start --app・agent stop）も係が行う。係が終わるときは止め（返答を終えさせてから）、次の係が続きから起こす。
+- AI が起動するエージェント（子）は、係がアプリ用の起動（画面なし。app）で持つ：起動し、閉じる・起動し直す前に止め、
+  受け箱のものを標準入力へ入れる。係が終わるときは止め（返答を終えさせてから）、次の係が続きから起こす。
 
-人が起動したもの（対話型）を動かしているのは、係を起動した側（GUI の窓等）。閉じる前に止める、は出来事（emit）として
-その側に頼む（返事 ack を待つ）。起動した側がいなければ、そのプロセスを止める（agent_status.running_pid）。
+人が起動したもの（対話型）を動かしているのは、係を起動した側（GUI の窓等）。止める・開くは出来事（emit）としてその側に
+頼む（返事 ack を待つ）：{"event": "agent-stop", "key", "id", "path"}・{"event": "agent-start", "key", "id", "parent",
+"registration", "kind", "path", "prompt", "program"}。起動した側がいなければ、止めるのはそのプロセスを止める
+（agent_status.running_pid）。
 
-ECOBuild のコマンドは run で実行する（使う側が渡す：プログラム名を本体に書かない）。
+ECOBuild のコマンドは run で、作業空間の Module は find で開く（使う側が渡す：プログラム名・型を本体に書かない）。
 """
 
 from __future__ import annotations
@@ -26,20 +30,20 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Callable
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
 
-from . import agents, app
+from . import agents, app, children, registry
 from . import status as agent_status
-from . import team
 from .errors import ErrorCode
 
-TEAM_COMMANDS = ("start", "close", "send", "list", "restart", "log", "takeover", "handback")
+HUMAN_COMMANDS = ("start", "stop", "restart", "takeover", "handback", "close")   # 人の操作（agent <これ> <ID>）
 LOCK = Path("agents") / "serve.lock"   # ECOBUILD_HOME の下：係はこのPCに1つ
-STOP_TIMEOUT = 30                       # 作業役を止めてもらう返事を待つ秒数
-START_LIMIT = 4                         # 同じ置き場所の作業役の作成（agent team start）を、並べて実行する数
+STOP_TIMEOUT = 30                       # 起動した側に止めてもらう返事を待つ秒数
+START_LIMIT = 4                         # 同じ置き場所の手伝いの起動を、並べて実行する数
 
 Run = Callable[..., dict]   # run(args, cwd, progress=None, stall=None)
 
@@ -58,6 +62,33 @@ def _option(args: list[str], name: str) -> str:
     return args[args.index(name) + 1] if name in args and args.index(name) + 1 < len(args) else ""
 
 
+def plain(value):
+    """結果を JSON にできる形に（dataclass・Path・tuple。ほかのもの〔Repository 等〕は外す）。"""
+    if is_dataclass(value) and not isinstance(value, type):
+        found = {}
+        for field in fields(value):
+            item = plain(getattr(value, field.name))
+            if not field.name.startswith("_") and item is not _SKIP:
+                found[field.name] = item
+        return found
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, dict):
+        return {str(key): item for key, raw in value.items() if (item := plain(raw)) is not _SKIP}
+    if isinstance(value, (list, tuple)):
+        return [item for raw in value if (item := plain(raw)) is not _SKIP]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value") and isinstance(getattr(value, "value"), (str, int)):   # Enum
+        return value.value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return _SKIP
+
+
+_SKIP = object()
+
+
 class Serve:
     """係の1回分の見回り（step）と、その状態（返答の終わりを見た時刻）。
 
@@ -66,20 +97,19 @@ class Serve:
     emit(event)：起動した側への出来事（None なら起動した側はいない）。ack(key, timeout)：その返事を待つ（届いたか）。
     launch(agent_id, resume, progress)：記録のあるエージェントのアプリ用の起動のしかた（app.Launch。
     AgentModule.app_launch。None ならアプリ用のエージェントを動かさない）。
+    find(path)：作業空間の Module（本体＋拡張。子タスクを作る・取り込む・作業空間を閉じる。None なら子タスクを扱わない）。
     log(message)：したことを人に知らせる。
 
     見回りは待たない：頼みはすぐに受け取り（拾った印 .taken。頼んだ側は拾われたかで係がいるかを見る）、実行は裏で行う。
-    同じ置き場所（作業空間）のものは届いた順に1つずつ、ほかの置き場所のものとは並べて（作業役を作る clone 等で長く
-    かかっても、ほかのエージェントの頼みを待たせない）。ただし作業役の作成（agent team start）どうしは、同じ置き場所でも
-    START_LIMIT まで並べる（進行役が何人も作るとき、1人ずつ待たせない）。作成とほかの頼みの順は変えない：ほかの頼み
-    （close・restart 等）は前に届いた作成が終わってから、後に届いた作成はその頼みが終わってから（作っている途中の
-    作業役を閉じない）。background=False なら、その場で実行する。"""
+    同じ置き場所（エージェント）のものは届いた順に1つずつ、ほかの置き場所のものとは並べて（子タスクを作る等で長く
+    かかっても、ほかのエージェントの頼みを待たせない）。ただし手伝いの起動どうしは、同じ置き場所でも START_LIMIT まで
+    並べる。background=False なら、その場で実行する。"""
 
     def __init__(self, run: Run, *, emit: Callable[[dict], None] | None = None,
                  ack: Callable[[str, float], bool] = lambda key, timeout: True,
-                 launch: Callable[..., app.Launch] | None = None,
+                 launch: Callable[..., app.Launch] | None = None, find: Callable[[Path], object] | None = None,
                  log: Callable[[str], None] = lambda message: None, background: bool = True):
-        self.run, self.emit, self.ack, self.log = run, emit, ack, log
+        self.run, self.emit, self.ack, self.log, self.find = run, emit, ack, log, find
         self.apps = app.Apps(launch, log) if launch is not None else None
         self.background = background
         self.started = time.time()
@@ -99,11 +129,7 @@ class Serve:
                 self._alive(folder)
             self._requests(folder, root)
             if root is not None:
-                self._watch_reply(folder, root)
-        for folder in agent_status.workspace_folders():   # エージェントの記録がまだない作業空間からの頼み
-            root = agent_status.workspace_of(folder)
-            self._alive(folder)
-            self._requests(folder, root)
+                self._watch_reply(folder)
         for agent in wake:   # 返答の終わりを見てから起こす（起こすと置き場所を用意し直す）
             self._later(agent.folder, lambda agent=agent: self._wake(agent))
 
@@ -177,10 +203,11 @@ class Serve:
             pass
 
     def _alive(self, folder: Path) -> None:
-        """頼みの置き場所に、係が動いている印（team.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の生死を見る）。"""
-        file = folder / team.REQUESTS / team.SERVE_BEAT
+        """頼みの置き場所に、係が動いている印（children.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の生死を見る）。"""
+        file = folder / children.REQUESTS / children.SERVE_BEAT
         seen = agent_status.read(file)
-        if isinstance(seen, dict) and isinstance(seen.get("at"), (int, float)) and time.time() - seen["at"] < team.BEAT_EVERY:
+        if isinstance(seen, dict) and isinstance(seen.get("at"), (int, float)) \
+                and time.time() - seen["at"] < children.BEAT_EVERY:
             return
         try:
             file.parent.mkdir(parents=True, exist_ok=True)
@@ -197,7 +224,7 @@ class Serve:
 
     # ---- 頼み -------------------------------------------------------------------------------------------
     def _requests(self, folder: Path, root: Path | None) -> None:
-        inbox = folder / team.REQUESTS
+        inbox = folder / children.REQUESTS
         for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
             if "." in file.stem:   # 頼みは <id>.json だけ（結果 <id>.result.json 等は拾わない）
                 continue
@@ -206,27 +233,28 @@ class Serve:
                 os.replace(file, taken)       # 拾った（頼んだ側に係がいると分かる）。ほかが拾ったものは飛ばす
             except OSError:
                 continue
-            self._report(inbox / f"{file.stem}{team.PROGRESS}", "順番を待っています（同じ作業空間の前の頼みを実行中）")
+            self._report(inbox / f"{file.stem}{children.PROGRESS}", "順番を待っています（同じエージェントの前の頼みを実行中）")
             request = agent_status.read(taken)
-            starting = isinstance(request, dict) and [str(a) for a in request.get("args") or []][:3] == \
-                ["agent", "team", "start"]
-            self._later(folder, lambda taken=taken: self._answer(inbox, taken, root), parallel=starting)
+            helper = isinstance(request, dict) and request.get("tool") == "children_start" \
+                and (request.get("arguments") or {}).get("kind") == children.HELPER
+            self._later(folder, lambda taken=taken: self._answer(inbox, taken, folder, root), parallel=helper)
 
-    def _answer(self, inbox: Path, taken: Path, root: Path | None) -> None:
+    def _answer(self, inbox: Path, taken: Path, folder: Path, root: Path | None) -> None:
         """拾った頼み1つを実行して、結果を書き戻す。"""
         request = agent_status.read(taken)
-        report = inbox / f"{taken.stem}{team.PROGRESS}"
+        report = inbox / f"{taken.stem}{children.PROGRESS}"
         if not isinstance(request, dict) or not request.get("id"):
             taken.unlink(missing_ok=True)
             self._report(report, done=True)
             return
         try:
-            doc = self.handle(root, request, progress=lambda line: self._report(report, line))
+            doc = self.handle(root, request, progress=lambda line: self._report(report, line), folder=folder)
         except Exception as error:   # 頼んだ側を待たせたままにしない
             doc = failed(f"係が頼みを実行できませんでした：{error}")
         result = inbox / f"{request['id']}.result.json"
         temporary = result.with_name(result.name + ".tmp")
         try:
+            inbox.mkdir(parents=True, exist_ok=True)   # 閉じたエージェントの頼み（agent close）：置き場所ごと消えている
             temporary.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
             os.replace(temporary, result)
         except OSError:
@@ -234,124 +262,263 @@ class Serve:
         taken.unlink(missing_ok=True)
         self._report(report, done=True)
 
-    def handle(self, root: Path | None, request: dict, progress: Callable[[str], None] = lambda line: None) -> dict:
-        """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。"""
+    def handle(self, root: Path | None, request: dict, progress: Callable[[str], None] = lambda line: None, *,
+               folder: Path | None = None) -> dict:
+        """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。folder：頼みを書いた
+        エージェントの置き場所（ツールの呼び手）。"""
+        if request.get("tool"):
+            return self._tool(folder, request, progress)
         args = [str(a) for a in request.get("args") or []]
-        own = args[:2] in (["agent", "start"], ["agent", "stop"]) and (args[1] == "stop" or "--app" in args)
-        reporting = args[:2] == ["agent", "report"]   # 作業役が報告を上の役に知らせる（コンテナの中から）
-        if not own and not reporting and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
+        human = args[:1] == ["agent"] and len(args) > 1 and args[1] in HUMAN_COMMANDS \
+            and (args[1] != "start" or "--app" in args)
+        if not human:
             return failed(f"この頼みは受け付けません：ecobuild {' '.join(args)}")
         if root is None:
             return failed("頼んだエージェントの作業空間が分かりません。", hint="エージェントを起動し直してください。")
-        cwd = (root / str(request.get("cwd") or ".")).resolve()
-        if not cwd.is_relative_to(root.resolve()):
-            return failed("作業空間の外では実行しません。")
         shown = " ".join(a if len(a) <= 40 else a[:40] + "…" for a in args if a != "--json")
         self.log(f"頼み：ecobuild {shown}（{root}）")
         progress(f"実行しています：ecobuild {shown}")
-        if reporting:
-            return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
         try:
-            if own:
-                return {"ok": True, "result": self._own(root, args, progress), "error": None}
-            if args[2] in ("takeover", "handback") and len(args) > 3:
-                member = team.find(root, args[3])
-                return {"ok": True, "result": (self._takeover if args[2] == "takeover" else self._handback)(member, progress),
-                        "error": None}
+            return {"ok": True, "result": self._human(root, args, progress), "error": None}
         except EcoBuildError as error:
             return _error(error)
-        if args[2] in ("close", "restart") and len(args) > 3:
-            try:
-                member = team.find(root, args[3])
-            except EcoBuildError as error:
-                return _error(error)
-            if args[2] == "close" and "--dry-run" in args:   # 確かめるだけ：止めない
-                return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
-            problems = team.close_problems(member) if args[2] == "close" and "--force" not in args else []
-            if problems:   # 止める前に確かめる（止めると作業中でなくなる）
-                return {"ok": False, "result": None, "error": {
-                    "code": ErrorCode.UNFINISHED_WORK, "message": f"「{member.name}」はまだ閉じられません。",
-                    "hint": "様子を確かめて（agent team list）、それでも閉じるなら --force。", "details": problems}}
-            progress(f"「{member.name}」のエージェントを止めています…")
-            self._stop(member.path)   # 使っているフォルダーは消せない・起動し直す前に止める
-            if args[2] == "restart" and "--no-open" not in args:
-                args = [*args, "--no-open"]   # 起動は係が（アプリ用で）
-        doc = self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
-        if args[2] in ("start", "restart") and doc.get("ok") and (doc.get("result") or {}).get("path"):
-            progress("エージェントを起動しています…")
-            doc = {**doc, "result": self._start(doc["result"], progress)}
-        return doc
 
-    def _start(self, member: dict, progress: Callable[[str], None] = lambda line: None) -> dict:
-        """作った（起動し直す）作業役を、係がアプリ用で起動する（AI が起動するものはタブにしない）。起動できなければ
-        （コンテナでない等）、作業役はそのままで、わけを note に。"""
-        if self.apps is None:
-            return {**member, "note": "この係はエージェントを起動できません（起動していません）。"}
-        resume = team.resumed_session(tuple(str(member.get("agent") or "").split()), lambda: "") or ""
-        try:
-            agent_id = _member_agent(member)
-            self.apps.start(agent_id, prompt=member.get("prompt", ""), resume=resume, progress=progress)
-        except EcoBuildError as error:
-            self.log(f"エージェントを起動できませんでした：{error.message}")
-            return {**member, "note": f"作業役は作りましたが、起動していません：{error.message}"
-                                      + (f"（{error.hint}）" if error.hint else "")}
-        return {**member, "id": agent_id, "app": True}
-
-    def _own(self, root: Path, args: list[str], progress: Callable[[str], None]) -> dict:
-        """記録のあるエージェント（この作業空間のもの）のアプリ用の起動（agent start --app --id <ID>）・止める
-        （agent stop <ID>）。"""
-        agent_id = args[2] if args[1] == "stop" and len(args) > 2 else _option(args, "--id")
+    def _human(self, root: Path, args: list[str], progress: Callable[[str], None]) -> dict:
+        """人の操作：記録のあるエージェント（この作業空間のもの）の起動（agent start --app --id <ID>）・止める・起動し直す・
+        引き取る・返す・閉じる（agent <操作> <ID>）。"""
+        action = args[1]
+        agent_id = _option(args, "--id") if action == "start" else args[2] if len(args) > 2 else ""
         record = agents.load(agent_id)
         if os.path.normcase(str(Path(record.workspace).resolve())) != os.path.normcase(str(Path(root).resolve())):
             raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} は、この作業空間のものではありません。")
-        if args[1] == "stop":
+        if action == "stop":
             if self.apps is None or not self.apps.holds(agent_id):
                 raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} を、係は動かしていません。")
             self.apps.stop(agent_id)
             return {"id": agent_id, "path": str(root), "stopped": True}
+        if action == "restart":
+            return self._restart(record, resume="--resume" in args, progress=progress)
+        if action == "takeover":
+            return self._takeover(record, progress, open_window="--no-open" not in args)
+        if action == "handback":
+            return self._handback(record, progress)
+        if action == "close":
+            return self._close(record, progress, force="--force" in args)
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
         agent = self.apps.start(agent_id, prompt=_option(args, "--prompt"), progress=progress)
         return {"id": agent_id, "path": str(root), "registration": agent.registration, "session": agent.session,
                 "app": True}
 
-    def _takeover(self, member: team.Member, progress: Callable[[str], None]) -> dict:
-        """人が引き取る：係のアプリ用のエージェントを止め（返答を終えさせてから）、続きから開く会話を返す。"""
-        agent_id = _member_agent(_member(member))
-        if self.apps is not None and self.apps.holds(agent_id):
-            progress(f"「{member.name}」のエージェントを止めています（返答を終えてから）…")
-            self.apps.stop(agent_id)
-        elif agent_status.running_mode(team.inbox_of(member.path)) == "":
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{member.name}」は、もう対話型（人の画面）で動いています。")
-        session = agent_status.session_of(team.inbox_of(member.path))
-        if not session:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{member.name}」の会話が分かりません。")
-        return {**_member(member), "session": session, "agent": f"claude --resume {session}"}
+    # ---- ツール（子を扱う） -------------------------------------------------------------------------------
+    def _tool(self, folder: Path | None, request: dict, progress: Callable[[str], None]) -> dict:
+        """エージェントの MCP サーバーからのツールの頼み。呼び手は頼みを書いた置き場所のエージェント。"""
+        tool = str(request.get("tool") or "")
+        try:
+            caller = agents.load(folder.name) if folder is not None else None
+            if caller is None or (request.get("agent") and request["agent"] != caller.id):
+                raise EcoBuildError(ErrorCode.AGENT_ERROR, "頼んだエージェントが分かりません（自分の置き場所から頼んでください）。")
+            if not registry.allows_tool(children._registration(caller), tool):
+                raise EcoBuildError(ErrorCode.AGENT_ERROR, f"ツール {tool} は、このエージェントの登録で許されていません。")
+            arguments = children.check_arguments(tool, request.get("arguments") or {})
+            self.log(f"ツール：{tool}（{caller.name}・{caller.id}）")
+            return {"ok": True, "result": self._call(caller, tool, arguments, progress), "error": None}
+        except EcoBuildError as error:
+            return _error(error)
 
-    def _handback(self, member: team.Member, progress: Callable[[str], None]) -> dict:
-        """人が返す：対話型を閉じた後、係がアプリ用で続きから起こす。"""
-        folder = team.inbox_of(member.path)
-        if agent_status.running_mode(folder) == "":
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{member.name}」は、まだ対話型（人の画面）で動いています。",
-                                hint="その画面（タブ）を閉じてから返してください。")
-        session = agent_status.session_of(folder)
-        if not session:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{member.name}」の会話が分かりません。",
-                                hint="agent team restart で新しい会話で起動し直せます。")
+    def _call(self, caller: agents.AgentRecord, tool: str, arguments: dict, progress: Callable[[str], None]):
+        if tool == "children_list":
+            return {"id": caller.id, "members": children.listed(caller)}
+        if tool == "children_start":
+            return self._start_child(caller, arguments, progress)
+        if tool == "report_to_parent":
+            return children.report(caller, arguments["text"])
+        child = children.child_of(caller, arguments["id"])
+        if tool == "children_send":
+            key = children.send(child, arguments["text"], sender=children.sender_of(caller))
+            return {"id": child.id, "name": child.name, "message_id": key}
+        if tool == "children_cancel":
+            return {"id": child.id, "name": child.name, "message_id": children.cancel(child, arguments["message"])}
+        if tool == "children_stop":
+            if not self._stop_agent(child, progress):
+                raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{child.name}」は動いていません。")
+            return {"id": child.id, "name": child.name, "stopped": True}
+        if tool == "children_restart":
+            return self._restart(child, resume=bool(arguments.get("resume")), progress=progress)
+        if tool == "children_log":
+            tail = arguments.get("tail")
+            found, cursor = app.read_events(child.folder, tail=50 if tail is None else max(0, tail))
+            return {"id": child.id, "name": child.name, "events": found, "next": cursor,
+                    "activity": agent_status.activity(child.folder)}
+        if tool == "children_accept":
+            return self._accept(caller, child, progress)
+        return self._close(child, progress)   # children_close
+
+    def _module(self, root: Path):
+        if self.find is None:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係は子タスクを扱えません。")
+        return self.find(Path(root))
+
+    def _start_child(self, caller: agents.AgentRecord, arguments: dict, progress: Callable[[str], None]) -> dict:
+        """子を作り（children.start）、係がアプリ用で起動する。起動できなければ、子はそのままで、わけを note に。"""
+        kind = arguments["kind"]
+        module = self._module(caller.root) if kind == children.SUBTASK else None
+        record, prompt = children.start(module, caller, registration=arguments["registration"], kind=kind,
+                                        brief=arguments["brief"], title=arguments.get("title") or "", progress=progress)
+        result = {**children.shown(record), "app": False}
+        if self.apps is None:
+            return {**result, "note": "この係はエージェントを起動できません（起動していません）。"}
+        progress(f"「{record.name}」を起動しています…")
+        try:
+            self.apps.start(record.id, prompt=prompt, progress=progress)
+        except EcoBuildError as error:
+            self.log(f"エージェントを起動できませんでした：{error.message}")
+            return {**result, "note": f"子は作りましたが、起動していません：{error.message}"
+                                      + (f"（{error.hint}）" if error.hint else "")}
+        return {**children.shown(record), "app": True}
+
+    def _restart(self, record: agents.AgentRecord, *, resume: bool, progress: Callable[[str], None]) -> dict:
+        """止めて、係がアプリ用で起動し直す（作業空間・作業はそのまま。resume：前の会話の続きから）。"""
+        prompt, session = children.restart_prompt(record, resume=resume)
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
-        progress(f"「{member.name}」を係に戻しています…")
-        self.apps.start(_member_agent(_member(member)), prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
-        return {**_member(member), "session": session, "app": True}
+        self._stop_agent(record, progress)
+        progress(f"「{record.name}」を起動し直しています…")
+        self.apps.start(record.id, prompt=prompt, resume=session, progress=progress)
+        return {**children.shown(record), "app": True, "resumed": bool(session)}
+
+    def _accept(self, caller: agents.AgentRecord, child: agents.AgentRecord, progress: Callable[[str], None]) -> dict:
+        """子タスクの提出を取り込む：確かめ（閉じられないときは何もしない）→ 子を止めて控えを写す → task finish →
+        sync → 作業空間を閉じる（finish が消していなければ）→ 記録を消す。途中で止まったら、どこまで済んだかを書く。"""
+        if caller.kind == agents.HELPER:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "手伝いは子タスクを取り込めません（タスクの持ち主がすることです）。")
+        if not children.own_workspace(child) or not child.task:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"「{child.name}」は手伝いなので、取り込む提出はありません。",
+                                hint="終わったら children_close で閉じてください。")
+        problems = children.close_problems(child)
+        if problems:
+            raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{child.name}」はまだ取り込めません（閉じられないため）。",
+                                hint="様子を確かめて（children_list）、終わるのを待つか止めてから、もう一度。", details=problems)
+        module = self._module(caller.root)
+        number = int(child.task.get("number") or 0)
+        done = []
+        try:
+            self._stop_agent(child, progress)
+            kept = children.archive(child)
+            progress(f"#{number}（{child.name}）を取り込みます…")
+            finished = plain(module.finish(number))
+            done.append("task finish")
+            progress("手元を最新にします…")
+            synced = plain(module.sync())
+            done.append("sync")
+            closed = None
+            if child.root.exists():
+                closed = plain(type(module).close_workspace(child.root))
+        except EcoBuildError as error:
+            step = "作業空間を閉じる" if len(done) == 2 else "sync" if done else "task finish"
+            details = error.details if isinstance(error.details, (list, tuple)) else [error.details] if error.details else []
+            raise EcoBuildError(error.code, f"「{child.name}」の取り込みが {step} で止まりました：{error.message}",
+                                hint=error.hint, details=[*(f"済み：{d}" for d in done), *details]) from error
+        children.forget(child)
+        return {"id": child.id, "name": child.name, "task": number, "finish": finished, "sync": synced,
+                "closed": closed, "archive": kept}
+
+    def _close(self, record: agents.AgentRecord, progress: Callable[[str], None], *, force: bool = False) -> dict:
+        """閉じる：止めて、控えを親の作業空間へ写し、子タスクの作業空間なら場所ごと消し、記録を消す。閉じられないわけ
+        （作業中・届いていない言付け・提出の後のコミット・子がいる。force なら子がいること以外は飛ばす）・GitHub にない
+        もの（未コミットの変更・push していないコミット）があれば何もしない。"""
+        problems = children.close_problems(record)
+        if force:
+            problems = [p for p in problems if "子がいます" in p]
+        if problems:
+            raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{record.name}」はまだ閉じられません。",
+                                hint="様子を確かめて、終わるのを待つか止めてから、もう一度。", details=problems)
+        own = children.own_workspace(record) and record.root.exists()
+        if own:
+            left = children.unpushed_files(record)
+            if left:
+                raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{record.name}」の作業空間に、GitHub にない変更があります。",
+                                    hint="コミット・提出してもらうか、要らなければ子に消してもらってから閉じてください。",
+                                    details=[f"ファイル：{path}" for path in left])
+        self._stop_agent(record, progress)
+        kept = children.archive(record)
+        result = None
+        if own:
+            progress(f"「{record.name}」の作業空間を閉じています…")
+            module = self._module(record.root)
+            result = plain(type(module).close_workspace(record.root))
+        children.forget(record)
+        return {"id": record.id, "name": record.name, "path": record.workspace, "workspace": result, "archive": kept}
+
+    # ---- 止める・引き取る ------------------------------------------------------------------------------------
+    def _stop_agent(self, record: agents.AgentRecord, progress: Callable[[str], None] = lambda line: None) -> bool:
+        """エージェントを止める：係が持っていれば係が（返答を終えさせてから）、人の画面（対話型）なら起動した側に頼む
+        （いなければ、動かしているプロセスを止める）。動いていたか。"""
+        if self.apps is not None and self.apps.holds(record.id):
+            progress(f"「{record.name}」を止めています（返答を終えてから）…")
+            self.apps.stop(record.id)
+            return True
+        folder = agent_status.directory(record.id)
+        pid = agent_status.running_pid(folder) if folder is not None else None
+        if pid is None:
+            return False
+        progress(f"「{record.name}」を止めています…")
+        if self.emit is None:
+            agent_status.stop(pid)
+            return True
+        key = uuid.uuid4().hex
+        self.emit({"event": "agent-stop", "key": key, "id": record.id, "path": record.workspace})
+        if not self.ack(key, STOP_TIMEOUT):
+            self.log(f"エージェントを止めた返事が届きませんでした（{record.id}）。プロセスを止めます。")
+            agent_status.stop(pid)
+        return True
+
+    def _takeover(self, record: agents.AgentRecord, progress: Callable[[str], None], *, open_window: bool) -> dict:
+        """人が引き取る：係のアプリ用のエージェントを止め（返答を終えさせてから）、続きから開く会話を返す。open_window で
+        起動した側（GUI）がいれば、人の画面で開くよう頼む（agent-start。opened）。"""
+        folder = record.folder
+        if self.apps is not None and self.apps.holds(record.id):
+            progress(f"「{record.name}」のエージェントを止めています（返答を終えてから）…")
+            self.apps.stop(record.id)
+        elif agent_status.running_mode(folder) == "":
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{record.name}」は、もう対話型（人の画面）で動いています。")
+        session = agent_status.session_of(folder) or record.session
+        if not session:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{record.name}」の会話が分かりません。")
+        program = f"claude --resume {session}"
+        result = {**children.shown(record), "session": session, "agent": program, "opened": False}
+        if open_window and self.emit is not None:
+            key = uuid.uuid4().hex
+            self.emit({"event": "agent-start", "key": key, "id": record.id, "parent": record.parent,
+                       "registration": record.registration, "kind": record.kind, "path": record.workspace,
+                       "prompt": "", "program": program})
+            result["opened"] = self.ack(key, STOP_TIMEOUT)
+        return result
+
+    def _handback(self, record: agents.AgentRecord, progress: Callable[[str], None]) -> dict:
+        """人が返す：対話型を閉じた後、係がアプリ用で続きから起こす。"""
+        folder = record.folder
+        if agent_status.running_mode(folder) == "":
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{record.name}」は、まだ対話型（人の画面）で動いています。",
+                                hint="その画面（タブ）を閉じてから返してください。")
+        session = agent_status.session_of(folder) or record.session
+        if not session:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"「{record.name}」の会話が分かりません。",
+                                hint="agent restart で新しい会話で起動し直せます。")
+        if self.apps is None:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
+        progress(f"「{record.name}」を係に戻しています…")
+        self.apps.start(record.id, prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
+        return {**children.shown(record), "session": session, "app": True}
 
     def _wake(self, agent: app.Agent) -> None:
-        """前の係が持っていたものを、続きから起こす（返答の途中で止まっていたら続けさせる）。進行役に知らせる。
-        タスクが閉じていれば起こさず、持つのをやめる（作業空間を閉じ忘れた作業役が起き上がり、コンテナが動いて作業空間が
+        """前の係が持っていたものを、続きから起こす（返答の途中で止まっていたら続けさせる）。親に知らせる。
+        タスクが閉じていれば起こさず、持つのをやめる（閉じ忘れた子が起き上がり、コンテナが動いて作業空間が
         ロックされ続けないように）。"""
         interrupted = bool(agent.state.get("ended_working"))
         if self._task_closed(agent.root):
             self.apps.stop(agent.agent_id, 0)
-            done = "起こしませんでした（タスクが閉じています。作業空間は agent team close で閉じられます）"
+            done = "起こしませんでした（タスクが閉じています。children_close・agent close で閉じられます）"
         else:
             try:
                 self.apps.start(agent.agent_id, resume=agent.session, progress=self.log,
@@ -360,12 +527,12 @@ class Serve:
             except EcoBuildError as error:
                 self.apps.stop(agent.agent_id, 0)
                 done = f"起こせませんでした：{error.message}"
-        self.log(f"係が起動し直したので、{agent.root} のエージェントを{done}")
-        info = team.member_info(agent.root)
-        if info.get("lead"):
-            name = f"{team.ROLE_NAMES.get(info.get('role'), '作業役')}「{info.get('name') or agent.root.name}」"
-            agent_status.put(team.inbox_of(Path(info["lead"])), f"[ECOBuild] 係が起動し直したので、{name}を{done}。",
-                             sender=str(agent.root), owner=team.notice_owner(agent.root))
+        self.log(f"係が起動し直したので、{agent.root} のエージェント {agent.agent_id} を{done}")
+        record = children._load_or_none(agent.agent_id)
+        parent = children._load_or_none(record.parent) if record is not None else None
+        if parent is not None:
+            agent_status.put(parent.folder, f"[ECOBuild] 係が起動し直したので、{children._who(record)}を{done}。",
+                             sender=record.id)
 
     def _task_closed(self, root: Path) -> bool:
         """作業空間 root のタスクが閉じているか（GitHub に聞く。分からなければ閉じていないとみなす＝起こす）。"""
@@ -387,28 +554,8 @@ class Serve:
         if self.apps is not None:
             self.apps.close()
 
-    def _stop(self, path: Path) -> None:
-        """作業空間 path のエージェントを止める：係が持っていれば係が（返答を終えさせてから）、人の画面（対話型）なら
-        起動した側に頼む（いなければ、動かしているプロセスを止める）。"""
-        held = self.apps.in_workspace(path) if self.apps is not None else []
-        if held:
-            for agent in held:
-                self.apps.stop(agent.agent_id)
-            return
-        if self.emit is None:
-            for record in agents.in_workspace(path):
-                folder = agent_status.directory(record.id)
-                pid = agent_status.running_pid(folder) if folder is not None else None
-                if pid is not None:
-                    agent_status.stop(pid)
-            return
-        key = uuid.uuid4().hex
-        self.emit({"event": "agent-stop", "key": key, "path": str(path)})
-        if not self.ack(key, STOP_TIMEOUT):
-            self.log(f"エージェントを止めた返事が届きませんでした（{path}）。そのまま閉じます。")
-
     # ---- 返答の終わり ----------------------------------------------------------------------------------------
-    def _watch_reply(self, folder: Path, root: Path) -> None:
+    def _watch_reply(self, folder: Path) -> None:
         replied = agent_status.read(folder / "replied.json")
         at = replied.get("at") if isinstance(replied, dict) else None
         if not isinstance(at, (int, float)):
@@ -419,43 +566,25 @@ class Serve:
             return
         message = replied.get("message") or ""
         continued = replied.get("continued") if isinstance(replied.get("continued"), int) else 0
-        self._later(folder, lambda: self.replied(root, message, continued=continued))
+        self._later(folder, lambda: self.replied(folder, message, continued=continued))
 
-    def replied(self, root: Path, message: str, *, continued: int = 0) -> None:
-        """作業空間 root のエージェントの返答が終わった（continued：受け箱の言付けを受け取って、返答を終えずに続けている）。
-        進行役の受け箱にまだ届いていない、この作業役の前の知らせは出して、新しい知らせにまとめる（最新の1件だけ渡す）。"""
-        info = team.member_info(root)
-        if info.get("lead"):
-            inbox = team.inbox_of(Path(info["lead"]))
-            pending = agent_status.forget_from(inbox, str(root), agent_status.NOTICE, remove=False)
-            notice = team.lead_notice(root, message, continued=continued, merged=pending)
+    def replied(self, folder: Path, message: str, *, continued: int = 0) -> None:
+        """置き場所 folder のエージェントの返答が終わった（continued：受け箱の言付けを受け取って、返答を終えずに続けて
+        いる）。親の受け箱にまだ届いていない、この子の前の知らせは出して、新しい知らせにまとめる（最新の1件だけ渡す）。"""
+        record = children._load_or_none(Path(folder).name)
+        if record is None:
+            return
+        parent = children._load_or_none(record.parent)
+        if parent is not None:
+            pending = agent_status.forget_from(parent.folder, record.id, agent_status.NOTICE, remove=False)
+            notice = children.parent_notice(record, message, continued=continued, merged=pending)
             if notice is not None:
-                lead, text = notice
-                agent_status.forget_from(inbox, str(root), agent_status.NOTICE)   # 知らせを作れてから出す
-                agent_status.put(team.inbox_of(lead), text, sender=str(root), owner=team.notice_owner(root),
-                                 kind=agent_status.NOTICE)
-                self.log(f"進行役に知らせました：{text.splitlines()[0]}")
+                _, text = notice
+                agent_status.forget_from(parent.folder, record.id, agent_status.NOTICE)   # 知らせを作れてから出す
+                agent_status.put(parent.folder, text, sender=record.id, kind=agent_status.NOTICE)
+                self.log(f"親に知らせました：{text.splitlines()[0]}")
         if not continued:
-            self.run(["project", "update"], root)   # 型に手元をそろえさせる（持たない型は not_supported。気にしない）
-
-
-def _member(member: team.Member) -> dict:
-    return {"name": member.name, "role": member.role, "path": str(member.path), "task": member.task,
-            "branch": member.branch, "lead": member.lead}
-
-
-def _member_agent(member: dict) -> str:
-    """作業役（team の作業空間）のエージェントの ID：その作業空間の持ち主の記録、なければ作る（登録は役の名前の見本。
-    親は作った進行役の作業空間の持ち主）。"""
-    path = Path(str(member.get("path") or ""))
-    owners = [record for record in agents.in_workspace(path) if record.kind == agents.OWNER]
-    if owners:
-        return owners[-1].id
-    lead = Path(str(member.get("lead") or "")) if member.get("lead") else None
-    parents = [record for record in agents.in_workspace(lead) if record.kind == agents.OWNER] if lead else []
-    return agents.create(registration=str(member.get("role") or "worker"), workspace=path,
-                         parent=parents[-1].id if parents else None, name=str(member.get("name") or ""),
-                         task={"number": member.get("task"), "branch": member.get("branch") or ""}).id
+            self.run(["project", "update"], record.root)   # 型に手元をそろえさせる（持たない型は not_supported。気にしない）
 
 
 # ---- 常駐 ----------------------------------------------------------------------------------------------------

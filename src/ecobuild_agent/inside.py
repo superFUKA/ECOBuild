@@ -36,6 +36,9 @@ def agent_volume(root: Path) -> str:
     return f"{container.name(root)}-agent"
 MANAGED_SETTINGS = "/etc/claude-code/managed-settings.json"
 AGENT_FLAGS = {"claude": ("--dangerously-skip-permissions",)}   # 中で確認なしに動かすときに足すもの
+# 使わせないものの既定（設定 agent_deny の前に足す）：ECOBuild・GitHub・ブランチの操作はツール（MCP）で行う
+# （シェルの関所 ecobuild agent guard でも止める。こちらは Claude Code の許可の規則で、関所より先に止める）
+DEFAULT_DENY = ("Bash(ecobuild:*)", "Bash(gh:*)", "Bash(git commit:*)", "Bash(git push:*)", "Bash(git worktree:*)")
 DENY_KEY = "agent_deny"   # このPCの設定（config）と ecobuild.local.toml（この作業空間だけ。このPCの設定に足す）：使わせないもの
 # 中のエージェントの初めての質問に先に答えておく（足りないものだけ足す）。.claude.json：初めての案内・中の作業空間の
 # 信頼（場所は first_run が足す）。settings.json：テーマ・確認なしのモードの注意（コンテナなので出さない）
@@ -108,8 +111,8 @@ def set_deny(root: Path, rules: tuple[str, ...]) -> bool:
 
 
 def agent_settings(rules: tuple[str, ...]) -> str:
-    """中のエージェントの managed-settings（使わせないものだけ）。"""
-    return json.dumps({"permissions": {"deny": list(rules)}}, ensure_ascii=False)
+    """中のエージェントの managed-settings（使わせないものだけ：既定 DEFAULT_DENY と rules）。"""
+    return json.dumps({"permissions": {"deny": list(dict.fromkeys((*DEFAULT_DENY, *rules)))}}, ensure_ascii=False)
 
 
 def write_settings(rules: tuple[str, ...]) -> str:

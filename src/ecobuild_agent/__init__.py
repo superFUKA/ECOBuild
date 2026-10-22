@@ -4,7 +4,7 @@
   作業空間のエージェントの起動・会話・起動のときに渡す文書（agent_briefing）。起動するのは登録（registry）のエージェント。
 - agents：起動したエージェント1人ごとの記録（ID・登録・親・持ち主か手伝いか）。registry：エージェントの登録。
   mcp：エージェント専用の MCP サーバー（許したツールだけを渡す）。
-- team：子の作業役。serve：このPCの係（エージェントの間の取り次ぎ）。app：係が持つアプリ用の起動のエージェント
+- children：子のエージェント（手伝い・子タスク）を扱うツール。serve：このPCの係（エージェントの間の取り次ぎ）。app：係が持つアプリ用の起動のエージェント
   （AI が起動したもの。claude -p の stream-json）。status：エージェントごとの状態の置き場所（画面を持つアプリへ知らせる）。
   inside：コンテナの中のエージェント（コンテナに足すもの FEATURE）。
   tokens：中のエージェントのログイン。
@@ -29,7 +29,7 @@ from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
-from . import agents, app, inside, registry, status
+from . import agents, app, children, inside, registry, status
 from .agents import AgentRecord
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
@@ -39,6 +39,8 @@ AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置
 EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書き足す間のロック（git の <名前>.lock とは別の名前）
 GUIDE_FILE = "guide.md"       # エージェントの置き場所の中：起動のときに渡す文（--append-system-prompt-file）
 MCP_FILE = "mcp.json"         # エージェントの置き場所の中：エージェント専用の MCP サーバーの設定（--mcp-config）
+# シェルの関所（ecobuild agent guard。中の ECOBuild）：シェルの ecobuild・gh・git の書き込みを止める（ecobuild_agent.guard）
+GUARD_HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "ecobuild agent guard"}]}]}}
 SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID（起動を頼んだ会話）
 RESUME_FLAGS = ("--resume", "-r")
 CONTINUE_FLAGS = ("--continue", "-c")
@@ -161,13 +163,12 @@ class AgentModule:
 
     def _start_app(self, registration, *, parent, kind, prompt, progress) -> AgentRecord:
         """画面なし（アプリ用の起動）：記録を作り、このPCの係に起動を頼む（係が app_launch で起動して持つ）。"""
-        from . import team
         task_branch = self._task_for_agent()
         self._ensure_container(progress)
         record = self._record(registration, task_branch, parent, kind, None)
         args = ["agent", "start", "--app", "--id", record.id, *(["--prompt", prompt] if prompt else [])]
-        doc = team.forward(self.root, [*args, "--json"], self.root, progress=progress,
-                           folder=record.folder / team.REQUESTS)
+        doc = children.forward(record.folder / children.REQUESTS, {"args": [*args, "--json"], "cwd": "."},
+                               progress=progress)
         if not doc.get("ok"):
             error = doc.get("error") or {}
             raise EcoBuildError(error.get("code") or ErrorCode.AGENT_ERROR, error.get("message") or "係での起動に失敗しました。",
@@ -335,8 +336,10 @@ class AgentModule:
         return found
 
     def _status_settings(self, folder: Path, record: AgentRecord, *, app: bool, streamed: bool = False) -> str:
-        """状態を書き出させる --settings（status）。コンテナの中から見た置き場所と中の Python。streamed：アプリ用の起動。"""
-        return status.settings_argument(folder, status.inside(record.id), "python3", app=app, streamed=streamed)
+        """状態を書き出させる --settings（status）と、シェルの関所（GUARD_HOOK）。コンテナの中から見た置き場所と中の
+        Python。streamed：アプリ用の起動。"""
+        return status.settings_argument(folder, status.inside(record.id), "python3", GUARD_HOOK, app=app,
+                                        streamed=streamed)
 
     # ---- 会話 -----------------------------------------------------------------------------------------------
     def agent_conversations(self, limit: int = 20) -> AgentConversations:

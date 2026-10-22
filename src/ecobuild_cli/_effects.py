@@ -3,8 +3,7 @@
 コマンドの一覧（ecobuild --help --json の effect）と、シェルの関所（ecobuild agent guard）が使う。
 - confirm：消す・取り返しがつかない・ほかの人に届く操作。エージェントは実行する前にユーザーに聞く。
 - human：人が画面で答える・管理者の権限が要る・エージェント自身を動かす操作（係・人の画面への引き取り）。
-  エージェントは使わない。チームの作業役を作る・言付ける・起動し直す（agent team start・send・restart）は進行役・管理役が
-  使うので change、閉じる・取り込む（close・accept）は作業空間を消すので confirm。
+  エージェントは使わない。エージェントを閉じる（agent close）は子タスクの作業空間を消すので confirm。
 書いていないコマンドは change。重さを上げるオプション（--yes 等）が付けば confirm。
 """
 
@@ -14,7 +13,7 @@ from ecobuild_agent import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # noqa: F401
 
 EFFECTS = {
     READ: (
-        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent registry list", "agent registry show", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
+        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent registry list", "agent registry show", "agent status", "agent list", "agent children", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
@@ -23,13 +22,13 @@ EFFECTS = {
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
-        "agent registry remove", "agent team accept", "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
+        "agent registry remove", "agent close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent guard", "agent registry add", "agent registry set", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent guard", "agent registry add", "agent registry set", "agent serve", "agent handback", "agent takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

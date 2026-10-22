@@ -51,18 +51,22 @@ def elsewhere(path, root) -> str:
 
 
 def workers(root) -> dict[int, dict]:
-    """この作業空間の中にいるチーム（作業役・管理役。管理役の下の作業役も）：タスクの番号 → 名前・役・場所。
-    作業役の作業空間は記録（workspace list）にないことがあるので、チームの置き場所の member.json から読む。"""
-    from ecobuild_agent import team
+    """エージェントが起動した子（子タスクの持ち主）が作業中のタスク：タスクの番号 → 名前・登録・場所・ID。
+    子タスクの作業空間はこのPCのエージェントの記録から読む（root のモジュールの作業空間のものだけ）。"""
+    from ecobuild import workspaces
+    from ecobuild_agent import agents
     found = {}
-    area = Path(root) / team.TEAM_AREA
-    for path in sorted(area.iterdir()) if area.is_dir() else ():
-        info = team.member_info(path)
-        number = info.get("task")
-        if isinstance(number, int) and number > 0:
-            found[number] = {"name": str(info.get("name") or path.name), "role": str(info.get("role") or team.WORKER),
-                             "path": path}
-            found.update({n: w for n, w in workers(path).items() if n not in found})
+    try:
+        area = workspaces.area(workspaces.original_of(Path(root)))
+    except Exception:   # モジュールの外 等
+        return found
+    for record in agents.all_records():
+        number = (record.task or {}).get("number")
+        if not record.parent or record.kind != agents.OWNER or not isinstance(number, int) or number <= 0:
+            continue
+        path = Path(record.workspace)
+        if path.parent == area or workspaces.same(path.parent, area):
+            found[number] = {"name": record.name, "registration": record.registration, "path": path, "id": record.id}
     return found
 
 
@@ -75,5 +79,4 @@ def with_worker(task, found: dict[int, dict]):
 
 
 def worker_text(worker) -> str:
-    from ecobuild_agent import team
-    return f"{team.ROLE_NAMES.get(worker['role'], '作業役')} {worker['name']} が作業中（{worker['path']}）"
+    return f"エージェント {worker['name']}（{worker.get('id')}・登録 {worker.get('registration')}）が作業中（{worker['path']}）"

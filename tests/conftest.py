@@ -47,11 +47,10 @@ def _tool_home(monkeypatch, tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def _outside_agents(monkeypatch):
-    """ECOBuild の作業空間（エージェントの窓・コンテナの中）で試験を動かしても、その印で動きを変えない。"""
-    from ecobuild_agent import team
+    """ECOBuild の作業空間（コンテナの中）で試験を動かしても、その印で動きを変えない。"""
     from ecobuild_container import INSIDE
-    monkeypatch.delenv(team.WINDOW_VARIABLE, raising=False)
     monkeypatch.delenv(INSIDE, raising=False)
+    monkeypatch.delenv("ECOBUILD_AGENT_ID", raising=False)
 
 
 @pytest.fixture(autouse=True)

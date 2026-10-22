@@ -63,10 +63,10 @@ def test_guard_command():
         return CliRunner().invoke(build_cli(None), ["agent", "guard"],
                                   input=json.dumps({"tool_input": {"command": command}}))
 
-    assert hook("ecobuild -C C:/Calc task list --json").exit_code == 0
-    stopped = hook("ecobuild task finish 12 --yes")
-    assert stopped.exit_code == 2 and "task finish" in stopped.output
+    stopped = hook("ecobuild -C C:/Calc task list --json")                 # 作業空間のエージェント：ecobuild はツールで
+    assert stopped.exit_code == 2 and "MCP のツール" in stopped.output
     assert hook("git push --force").exit_code == 2
+    assert hook("git status && ls").exit_code == 0                           # ダメなもの以外は通す
 
 
 def test_extensions_name_their_effects(tmp_path):

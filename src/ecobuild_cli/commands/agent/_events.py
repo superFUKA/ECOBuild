@@ -1,10 +1,10 @@
-"""アプリ用の起動のエージェントの出来事（events.jsonl）の表示：team log・agent log が使う。"""
+"""アプリ用の起動のエージェントの出来事（events.jsonl）の表示：agent log・agent children が使う。"""
 import json as _json
 import time
 
 import click
 from ecobuild_agent import status as _status
-from ecobuild_agent import team as _team
+from ecobuild_agent import children as _children
 
 from ..._output import Invocation, execute
 
@@ -52,9 +52,9 @@ def describe(event: dict) -> str | None:
 
 
 def render(data: dict) -> str:
-    """team log・agent log の表示：様子の1行と、出来事。"""
+    """agent log の表示：様子の1行と、出来事。"""
     activity = data.get("activity") or {}
-    head = _team.describe_activity(activity)
+    head = _children.describe_activity(activity)
     mode = "アプリ用（係）" if activity.get("mode") == _status.APP else ""
     lines = [f"様子：{head}" + (f"  {mode}" if mode else "")] if head else []
     lines += [text for text in (describe(e) for e in data.get("events") or ()) if text]

@@ -75,18 +75,46 @@ class Invocation:
         if self.yes:
             return
         if self.json_output or not sys.stdin.isatty():
-            raise EcoBuildError(
-                ErrorCode.CONFIRMATION_REQUIRED,
-                f"確認が必要です：{prompt}",
-                hint="内容を確認し、--yes を付けて実行してください。",
-            )
-        if not click.confirm(prompt, default=False, err=True):
+            raise confirmation_required(prompt)
+        if not ask_confirm(prompt, default=False):
             raise click.Abort()
 
     def info(self, message: str) -> None:
         """人向けの進捗。--json時も標準エラーなのでJSONを壊さない。"""
         _log.logger.info("%s", message, extra={"event": "progress"})
         click.echo(message, err=True)
+
+
+def confirmation_required(prompt: str, option: str = "--yes") -> EcoBuildError:
+    """確認が必要なのに、聞けない（--json・端末でない）か答えがない（入力が閉じている）ときの誤り。"""
+    return EcoBuildError(ErrorCode.CONFIRMATION_REQUIRED, f"確認が必要です：{prompt}",
+                         hint=f"内容を確認し、{option} を付けて実行してください（確認せずに実行します）。")
+
+
+def _no_input(abort: click.exceptions.Abort) -> bool:
+    """click の質問が、入力の終わり（標準入力が閉じている等）で Abort になった。Ctrl+C（中断）とは分ける。"""
+    return isinstance(abort.__context__, EOFError)
+
+
+def ask_confirm(prompt: str, *, default: bool, option: str = "--yes") -> bool:
+    """端末で [y/N] を聞く（click.confirm）。答えがない（入力が閉じている）なら、option で確認せずに実行できると
+    案内する誤り（予期しない Abort にしない）。Ctrl+C は今までどおり中断（click.Abort）。"""
+    try:
+        return click.confirm(prompt, default=default, err=True)
+    except click.exceptions.Abort as abort:
+        if _no_input(abort):
+            raise confirmation_required(prompt, option) from None
+        raise
+
+
+def ask_text(prompt: str, *, option: str = "--yes", **options: Any) -> str:
+    """端末で文字を聞く（click.prompt）。答えがないときは ask_confirm と同じ。"""
+    try:
+        return click.prompt(prompt, err=True, **options)
+    except click.exceptions.Abort as abort:
+        if _no_input(abort):
+            raise confirmation_required(prompt, option) from None
+        raise
 
 
 def execute(

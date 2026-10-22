@@ -8,7 +8,7 @@ import click
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
 from ..._module_target import find_clone, full_name
-from ..._output import lines, run_command
+from ..._output import ask_text, lines, run_command
 
 
 def command(
@@ -78,7 +78,8 @@ def _confirm(inv, question: str, repository: str, given: str) -> None:
         raise EcoBuildError(ErrorCode.CONFIRMATION_REQUIRED, f"確認が必要です：{question}",
                             hint=f"内容を確認し、--confirm {repository} を付けて実行してください。")
     click.echo(question, err=True)
-    typed = click.prompt(f"削除するには {repository} と入力してください", default="", show_default=False, err=True)
+    typed = ask_text(f"削除するには {repository} と入力してください", option=f"--confirm {repository}", default="",
+                     show_default=False)
     if typed.strip().casefold() != repository.casefold():
         raise click.Abort()
 

@@ -78,6 +78,10 @@ def _application_error(error: Exception, *, debug: bool) -> None:
     from . import _errors, _output
     if _output.output_closed(error):
         raise error
+    if isinstance(error, click.exceptions.Abort):   # 確認で「いいえ」・Ctrl+C：不具合ではない（入口の main と同じ）
+        if not _output.json_requested:
+            click.echo("中断しました。", err=True)
+        raise click.exceptions.Exit(1) from error
     if debug:
         import traceback
         traceback.print_exception(type(error), error, error.__traceback__)

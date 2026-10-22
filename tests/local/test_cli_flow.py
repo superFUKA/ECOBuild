@@ -97,7 +97,8 @@ def test_cli_full_cycle(cli, module):
 
     pr = as_json(cli("task", "submit", "--no-check", "--json"))["result"]
     assert pr["head"] == "task/1-0除算対策" and pr["base"] == "main"
-    finished = cli("task", "finish")                  # 作業空間の中で完了しても、作業空間ごと片付く
+    (work / "notes.tmp").unlink()                     # 対象外の新しいファイルが残っていれば、作業空間は消さない（失われる）
+    finished = cli("task", "finish")                 # 作業空間の中で完了しても、作業空間ごと片付く
     assert finished.exit_code == 0 and "完了しました：#1 0除算対策" in finished.stdout
     assert f"作業空間 {work} を消しました" in finished.stdout and not work.exists()
     assert git(module.root, "branch", "--show-current") == "main"
@@ -575,6 +576,16 @@ def test_workspaces(cli, module, parallel, monkeypatch, tmp_path):
     assert exists == {module.root.as_posix(): False}
 
 
+def test_default_branch_comes_from_branches_table(tmp_path):
+    """元の clone の既定のブランチは ecobuild.toml の [branches] default_base（config.load と同じ）。[module] ではない。"""
+    from ecobuild import workspaces
+    module = 'format = 3\n\n[module]\nname = "X"\ntype = "python"\n'
+    write(tmp_path / ".ecobuild" / "ecobuild.toml", module + '\n[branches]\ndefault_base = "feature/mvp"\n')
+    assert workspaces._default_branch(tmp_path) == "feature/mvp"
+    write(tmp_path / ".ecobuild" / "ecobuild.toml", module)
+    assert workspaces._default_branch(tmp_path) == "main"
+
+
 def test_old_records_move_to_the_module_list(cli, module, parallel, tmp_path):
     """以前の記録（workspaces.json・clones.json）は読むだけ：modules.json がなければ移す。同じリポジトリの clone が
     2つ以上あれば1つを元の clone にし（.ecobuild/ の外 → フォルダー名がリポジトリ名 → タスクブランチにいない）、残りと
@@ -664,6 +675,23 @@ def test_finish_removes_the_workspace(cli, module, parallel, monkeypatch):
     assert any("新しいファイル" in n for n in result["notices"])
 
 
+def test_finish_tells_how_to_remove_a_kept_workspace(cli, module, parallel, monkeypatch):
+    """作業空間を使用中で消せず残したら（作業空間の中のシェルから finish した等）、後で消す方法を案内する。"""
+    from ecobuild.errors import EcoBuildError, ErrorCode
+    from ecobuild_bundle import Module
+
+    def in_use(cls, path, **options):
+        raise EcoBuildError(ErrorCode.IN_USE, f"作業空間 {path} は、他のプログラムが使っているため消せません。")
+    monkeypatch.setattr(Module, "close_workspace", classmethod(in_use))
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    finished = cli("task", "finish", "1", "--no-wait")
+    assert finished.exit_code == 0 and "作業空間を残しました" in finished.stdout and parallel.exists()
+    assert "ecobuild task prune --task 1" in finished.stdout
+
+
 def _dependency_with_local_work(workspace: Path) -> Path:
     """作業空間の中の依存先の clone（deps/<名前>）に、GitHubにないコミットを置く。"""
     lib = workspace / "deps" / "Lib"
@@ -682,6 +710,27 @@ def test_drop_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, modul
     dropped = as_json(cli("task", "drop", "1", "--yes", "--json"))
     assert dropped["ok"], dropped
     assert "GitHubにない" in dropped["result"]["workspace_kept"] and (lib / "x.txt").is_file()
+
+
+def test_drop_keeps_a_workspace_with_new_files_out_of_management(cli, module, parallel):
+    """管理するファイルの対象外の新しいファイル（未追跡で除外していない）があれば、作業空間ごと消さずに残して知らせる
+    （黙って消すと失われる）。--discard なら今どおり消す。"""
+    write(parallel / "memo.xyz", "書きかけ\n")
+    dropped = as_json(cli("task", "drop", "1", "--yes", "--json"))
+    assert dropped["ok"], dropped
+    assert "新しいファイル" in dropped["result"]["workspace_kept"] and (parallel / "memo.xyz").is_file()
+    assert "task/1-作業" in git(module.root, "branch", "--list")
+    pruned = as_json(cli("task", "prune", "--task", "1", "--json"))     # prune も同じ
+    assert "新しいファイル" in json.dumps(pruned, ensure_ascii=False) and (parallel / "memo.xyz").is_file(), pruned
+    (parallel / "memo.xyz").unlink()
+    assert as_json(cli("task", "prune", "--task", "1", "--json"))["ok"] and not parallel.exists()
+
+
+def test_discarding_removes_new_files_out_of_management(cli, module, parallel):
+    """捨てるとき（discard。確認用の作業空間を消す等）は、新しいファイルがあっても作業空間ごと消す（今どおり）。"""
+    from ecobuild.module import _TypeHooks
+    write(parallel / "memo.xyz", "書きかけ\n")
+    assert _TypeHooks(module).remove_workspace(module.repository, parallel, discard=True) and not parallel.exists()
 
 
 def test_finish_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, module, parallel):
@@ -1012,3 +1061,27 @@ def test_start_refuses_task_held_by_the_original(cli, module):
     refused = as_json(cli("task", "start", "1", "--json"))["error"]
     assert refused["code"] == "branch_checked_out" and "switch main" in refused["hint"]
     assert start(cli, "task", "start", "2", "--name", "別") == module.root / ".ecobuild" / "w" / "2"
+
+
+@pytest.mark.parametrize("answer, said", [("", "--yes を付けて"), ("n\n", "中断しました")])
+def test_confirmation_without_an_answer(module, monkeypatch, capsys, answer, said):
+    """確認（[y/N]）に答えがない（標準入力が閉じている）なら、--yes を案内する誤り。「いいえ」なら中断。
+    どちらも「予期しないエラー（Abort）」にしない。"""
+    import io
+    import sys
+    from types import SimpleNamespace
+    import ecobuild_cli
+    from ecowork import Repository
+    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
+    monkeypatch.chdir(module.root)
+    monkeypatch.setattr(Repository, "prune_task_branches",
+                        lambda self, dry_run=False: SimpleNamespace(removed=("task/9-x",)))
+
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
+    monkeypatch.setattr(sys, "stdin", Terminal(answer))
+    with pytest.raises(SystemExit) as stopped:
+        ecobuild_cli.main(["task", "prune"])
+    error = capsys.readouterr().err
+    assert stopped.value.code == 1 and said in error and "予期しない" not in error, error

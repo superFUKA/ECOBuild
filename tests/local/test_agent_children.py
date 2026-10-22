@@ -256,6 +256,20 @@ def test_restarting_and_closing_a_helper(serve, parent):
     assert parent.root.exists()                                                          # 手伝いの作業空間は親のもの
 
 
+def test_closing_the_last_running_agent_stops_the_container(serve, parent, lead, monkeypatch):
+    """作業空間の最後の（動いている）エージェントを閉じたら、その作業空間のコンテナを止める（動いたままだと
+    ロックになり、task finish が止まる）。ほかのエージェントが動いていれば止めない。"""
+    stopped = []
+    monkeypatch.setattr(children, "stop_container", lambda root, progress=None: stopped.append(Path(root)))
+    first, second = helper_of(serve, parent), helper_of(serve, parent)
+    idle(serve, first)
+    idle(serve, second)
+    ok(call(serve, parent, "children_close", id=first.id))
+    assert stopped == []                                                                 # second が動いている
+    ok(call(serve, parent, "children_close", id=second.id))
+    assert stopped == [lead.root]                                                        # parent は動いていない
+
+
 def test_a_child_with_children_is_not_closed(serve, parent, lead):
     child = helper_of(serve, parent)
     agents.create(registration="worker", workspace=lead.root, parent=child.id, kind=agents.HELPER, name="孫")

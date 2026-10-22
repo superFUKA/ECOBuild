@@ -4,6 +4,8 @@ from typing import Annotated
 
 from ..._output import lines, run_command
 
+AGENT = "owner"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """GitHubの最新を取り込み、依存先と生成ファイルを最新にします。

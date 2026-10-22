@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """依存関係の図（依存先の依存先も）をツリーで表示します。2回目以降に出てくる依存先は、その先を省きます。"""

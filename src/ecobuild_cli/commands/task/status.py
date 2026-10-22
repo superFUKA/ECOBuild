@@ -5,6 +5,8 @@ from typing import Annotated
 from ..._output import lines, optional_argument, run_command
 from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
 
+AGENT = "read"
+
 MERGEABLE = {"CONFLICTING": "衝突あり（ecobuild sync で解決）", "MERGEABLE": "可能"}
 UNKNOWN_MERGEABLE = "確認中（GitHubが調べています。少し後の task status で分かります）"
 BODY_LINES = 10   # 文字の出力に出す本文の行数（--body で全部）

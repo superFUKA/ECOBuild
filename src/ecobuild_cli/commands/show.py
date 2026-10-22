@@ -4,6 +4,8 @@ from .._gui_command import compare
 from .._output import optional_argument, run_command, usage_error
 from .task.diff import render_files
 
+AGENT = "read"
+
 
 def command(
     *commit: Annotated[str, "コミット（--revision と同じ）"],

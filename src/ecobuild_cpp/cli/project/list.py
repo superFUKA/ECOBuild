@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+AGENT = "read"
+
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """Projectの一覧（種類・場所・リンク）を表示します。"""

@@ -3,6 +3,8 @@ from typing import Annotated
 from ecobuild.module import CHECK_NAMES
 from .._output import run_command, split_list
 
+AGENT = "change"
+
 NAMES = CHECK_NAMES
 
 

@@ -4,6 +4,8 @@ from typing import Annotated
 from ..._gui_command import compare
 from ..._output import optional_argument, run_command, split_list, usage_error
 
+AGENT = "read"
+
 KINDS = {"A": "追加", "M": "変更", "D": "削除", "T": "種類の変更"}
 
 

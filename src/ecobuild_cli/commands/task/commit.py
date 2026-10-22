@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ..._output import lines, missing, run_command
 
+AGENT = "owner"
+
 
 def command(
     *paths: Annotated[str, "コミットするファイル・フォルダー（省略時：タスクブランチの変更すべて）"],

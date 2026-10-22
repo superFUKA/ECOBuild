@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import add_files
 
+AGENT = "change"
+
 
 def command(
     *paths: Annotated[str, "追加するファイル（Projectのディレクトリの中。今いるディレクトリからの相対）"],

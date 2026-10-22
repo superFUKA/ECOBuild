@@ -717,10 +717,14 @@ const ECO = (() => {
     return result;
   }
   const byWhom = e => e.by === 'agent' ? 'エージェント' : '別の画面';
+  const READ_ONLY = ['list', 'show', 'status', 'diff', 'log', 'next', 'overdue', 'workload', 'types', 'path'];
   async function handle(e) {
     const mine = e.target ? e.target === windowId : true;
     if (e.type === 'ran' && e.origin !== windowId) {
-      toast(`${byWhom(e)}が実行しました：ecobuild ${e.args.join(' ')}${e.ok ? '' : `（失敗：${e.message || ''}）`}`, e.ok ? 'info' : 'bad', 7000);
+      // Only what changed something is worth a notice: another window's look-ups (a check, a dry run, a list) are not.
+      const args = e.args || [], words = args.filter(a => !a.startsWith('-'));
+      const lookup = args.some(a => ['--check', '--dry-run', '--help'].includes(a)) || words[0] === 'doctor' || READ_ONLY.includes(words[1]);
+      if (!lookup) toast(`${byWhom(e)}が実行しました：ecobuild ${e.args.join(' ')}${e.ok ? '' : `（失敗：${e.message || ''}）`}`, e.ok ? 'info' : 'bad', 7000);
       for (const fn of changeHandlers) { try { fn(e); } catch (error) { console.error(error); } }
     } else if (e.type === 'notify') {
       toast(`${e.by === 'agent' ? 'エージェントから' : '知らせ'}：${e.message}`, e.kind || 'info', 12000);
@@ -768,22 +772,24 @@ const ECO = (() => {
     });
   }
 
-  // Context menu: items are [label, action, enabled = true] or '-' for a separator.
+  // Context menu: items are [label, action, enabled = true, tip = '', {danger}] or '-' for a separator.
+  // {right: true}: x is where the menu's right edge goes (a ⋯ button: the menu lines up under it).
   // menuOpener: the button that opened the menu. Pressing it again only closes the menu (the press closes it; the click
   // that follows is swallowed, or it would open it again).
   let openMenu = null, menuOpener = null, lastPressed = null, swallowClick = null;
-  function menu(items, x, y) {
+  function menu(items, x, y, {right = false} = {}) {
     openMenu?.remove();
     const el = document.createElement('div'); el.className = 'eco-menu'; el.setAttribute('role', 'menu');
     for (const item of items) {
       if (item === '-') { el.append(document.createElement('hr')); continue; }
-      const [text, action, enabled = true, tip = ''] = item;   // tip: shown when the pointer is on the item
+      const [text, action, enabled = true, tip = '', {danger = false} = {}] = item;   // tip: shown when the pointer is on the item
       if (action === null) { const head = document.createElement('div'); head.className = 'eco-menu-head'; head.textContent = text; el.append(head); continue; }   // a heading of the items below
-      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled; if (tip) b.title = tip;
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled; if (tip) b.title = tip; if (danger) b.className = 'danger';
       b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
       el.append(b);
     }
     document.body.append(el); openMenu = el; menuOpener = lastPressed?.closest?.('button, summary') || null;
+    if (right) x -= el.offsetWidth;
     el.style.left = Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)) + 'px';
     el.style.top = Math.max(8, Math.min(y, innerHeight - el.offsetHeight - 8)) + 'px';
     el.querySelector('button:not(:disabled)')?.focus();

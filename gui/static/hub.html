@@ -33,11 +33,11 @@
       <div class="setup-banner update-banner" id="update-banner" role="status" hidden></div>
       <ul class="module-list" id="module-list" aria-label="モジュール一覧"><li class="empty-modules" style="grid-column:1/-1">読み込んでいます…</li></ul>
       <p class="empty-modules" id="no-active-modules" hidden>アーカイブしていないモジュールはありません。</p>
-      <details class="archived-modules" id="archived-modules" hidden><summary>アーカイブ済み <span id="archived-count"></span></summary>
+      <details class="archived-modules" id="archived-modules" hidden><summary>アーカイブ済み <span class="count" id="archived-count"></span></summary>
         <p class="note">アーカイブ（読み取り専用に）したモジュールです。アーカイブを解除すると再び変更でき、不要なら削除できます。</p>
         <ul id="archived-list"></ul></details>
-      <details class="archived-modules" id="legacy-workspaces" hidden><summary>前の作業空間 <span id="legacy-count"></span></summary>
-        <p class="note">前の版の ECOBuild が作った、独立した clone の作業空間です。今は作業空間をモジュールの中（.ecobuild/w/）に作るので、GitHub に送った作業を確かめてから閉じてください（GitHub にない作業があれば閉じません）。</p>
+      <details class="archived-modules" id="legacy-workspaces" hidden><summary>前の作業空間 <span class="count" id="legacy-count"></span></summary>
+        <p class="note" title="今は作業空間をモジュールの中（.ecobuild/w/）に作ります。GitHub に送った作業を確かめてから閉じてください。">前の版が作った、独立した clone の作業空間です。GitHub にない作業があるものは閉じません。</p>
         <ul id="legacy-list"></ul></details>
     </section>
     <section id="settings" aria-labelledby="settings-title" hidden>
@@ -109,7 +109,7 @@
     </section>
     <section id="operator" aria-labelledby="operator-title" hidden>
       <div class="page-heading"><h2 id="operator-title">オペレーター</h2><div class="operator-tools"><span class="operator-state" id="operator-state" role="status">待機中</span><button type="button" class="cancel" id="operator-new" title="今の会話を終えて、新しく始めます">新しい会話</button></div></div>
-      <p class="note">ECOBuild の操作（タスクを作る・開始する・提出する・作業空間を開く など）を、ことばで頼めます。AI はコードを書かず、ecobuild のコマンドで操作します。消す・取り返しのつかない操作は、実行する前に確認します。</p>
+      <p class="note" id="operator-intro" hidden>ECOBuild の操作（タスクを作る・開始する・提出する・作業空間を開く など）を、ことばで頼めます。AI はコードを書かず、ecobuild のコマンドで操作します。消す・取り返しのつかない操作は、実行する前に確認します。</p>
       <ol class="operator-log" id="operator-log" aria-live="polite"></ol>
       <form class="operator-form" id="operator-form"><textarea id="operator-input" rows="2" placeholder="例：Calc の新しいタスク「ログを出す」を作って開始して（Enter で送る、Shift+Enter で改行）" aria-label="オペレーターに頼むこと"></textarea><button type="submit" class="add-button" id="operator-send">送る</button></form>
     </section>
@@ -120,13 +120,13 @@
     <form id="add-form">
       <div class="dialog-heading"><h2 id="add-title">モジュールを追加</h2></div>
       <fieldset class="method-options"><legend class="sr-only">追加方法</legend>
-        <label class="method-option"><input type="radio" name="method" value="new" checked><span><strong>新規作成</strong><small>新しいモジュールを作成</small></span></label>
-        <label class="method-option"><input type="radio" name="method" value="clone"><span><strong>GitHubから取得</strong><small>既存のモジュールをclone</small></span></label>
-        <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダ</strong><small>clone済みのフォルダを登録</small></span></label>
-        <label class="method-option"><input type="radio" name="method" value="adopt"><span><strong>リポジトリをモジュールに</strong><small>ECOBuild を使っていない clone を取り込む</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="new" checked><span><strong>新規作成</strong><small>GitHub にリポジトリも作る</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="clone"><span><strong>GitHubから取得</strong><small>ECOBuild のモジュールを clone</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="register"><span><strong>手元のフォルダを登録</strong><small>clone 済みのモジュールを一覧に足す</small></span></label>
+        <label class="method-option"><input type="radio" name="method" value="adopt"><span><strong>リポジトリをモジュールに</strong><small>ほかのリポジトリに .ecobuild を足す</small></span></label>
       </fieldset>
       <fieldset id="new-fields" style="border:0;padding:0;margin:0">
-        <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label><label class="field">型<select name="type" id="type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
+        <div class="form-grid"><label class="field">モジュール名<input placeholder="例：MathCore" name="name" pattern="[A-Za-z][A-Za-z0-9_\-]*" title="英字で始まる英数字・アンダースコア・ハイフン" required></label><label class="field">型<select name="type" id="type-select"><option value="cpp">C++</option><option value="python">Python</option><option value="generic">その他（generic）</option></select></label></div>
         <div class="form-grid" id="kind-fields"><label class="field" id="app-field">最初に作るもの<select name="kind" id="kind-select"></select></label><label class="field" id="project-field">名前（任意）<input name="project" placeholder="省略時はモジュール名" pattern="[A-Za-z][A-Za-z0-9_]*" title="英字で始まる英数字・アンダースコア"></label></div>
         <label class="check" id="test-field"><input type="checkbox" name="test" checked> <span id="test-label">テスト用のProjectも作る</span></label>
       </fieldset>
@@ -137,7 +137,7 @@
       </fieldset>
       <div id="parent-fields">
         <label class="field">保存先の親フォルダ<span class="dir-row"><input name="directory" required><button type="button" data-pick="directory">参照…</button></span></label>
-        <p class="note">このフォルダの下にモジュール名のフォルダを作ります。</p>
+        <p class="note" id="parent-note">このフォルダの下にモジュール名のフォルダを作ります。</p>
       </div>
       <fieldset id="new-more" style="border:0;padding:0;margin:0">
         <details class="more-options"><summary>詳細設定 <span>説明・所有者・公開範囲</span></summary>
@@ -150,7 +150,7 @@
         <label class="field">モジュールのフォルダ<span class="dir-row"><input name="folder" required placeholder=".ecobuild のあるフォルダ"><button type="button" data-pick="folder">参照…</button></span></label>
       </fieldset>
       <fieldset id="adopt-fields" hidden disabled style="border:0;padding:0;margin:0">
-        <div class="form-grid"><label class="field">リポジトリのフォルダ<span class="dir-row"><input name="adopt-folder" required placeholder="GitHub のリポジトリを clone したフォルダ"><button type="button" data-pick="adopt-folder">参照…</button></span></label><label class="field">型<select name="adopt-type" id="adopt-type-select"><option value="cpp">cpp</option><option value="python">python</option><option value="generic">generic</option></select></label></div>
+        <div class="form-grid"><label class="field">リポジトリのフォルダ<span class="dir-row"><input name="adopt-folder" required placeholder="GitHub のリポジトリを clone したフォルダ"><button type="button" data-pick="adopt-folder">参照…</button></span></label><label class="field">型<select name="adopt-type" id="adopt-type-select"><option value="cpp">C++</option><option value="python">Python</option><option value="generic">その他（generic）</option></select></label></div>
         <p class="note">今のブランチに .ecobuild/ を置いて「ECOBuild のモジュールにする」としてコミットし、GitHub へ push します（そのブランチがタスクブランチの作成元になります）。README などのファイルは変えません。できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。</p>
       </fieldset>
       <p id="add-error" role="alert"></p>

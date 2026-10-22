@@ -40,9 +40,11 @@ const OPERATOR = (() => {
     const log = $('operator-log');
     const messages = resident ? (view?.log || []) : state.messages;
     log.replaceChildren(...messages.map(item));
-    if (!messages.length) {
+    if (!messages.length) {   // before the talk starts: what the operator does, in the middle (as chat apps)
       const li = document.createElement('li'); li.className = 'operator-empty';
-      li.textContent = 'まだ会話はありません。下の欄に頼むことを書いて送ってください。'; log.append(li);
+      const intro = document.createElement('p'); intro.textContent = $('operator-intro')?.textContent || '';
+      const hint = document.createElement('p'); hint.textContent = '下の欄に頼むことを書いて送ってください。';
+      li.append(intro, hint); log.append(li);
     }
     // 考え中は、オペレーターが本当に考え中・起動中・待たせているときだけ（返答を取りこぼしても止まって見えないように）
     const waiting = resident ? view && (['thinking', 'waiting', 'starting'].includes(view.state) || view.queued > 0) : busy;

@@ -118,3 +118,17 @@ def test_tidy_leaves_finished_branch_used_elsewhere(repository):
     assert repository.git.has_local_branch("task/1") and any("残しました" in n for n in repository.notices)
     repository.hooks = Locked()
     assert repository._tidy_finished() == ("task/1",)
+
+
+def test_tidy_leaves_finished_branch_checked_out_in_another_git_worktree(repository, tmp_path):
+    # git worktree が取り出しているブランチは git が消させない：片付けで止まらずに残す
+    repository.create_task("a").start()
+    repository.git.switch("main")
+    git(repository.root, "push", "origin", "--delete", "task/1")
+    repository.github.close_issue(repository.root, 1)
+    git(repository.root, "worktree", "add", str(tmp_path / "other"), "task/1")
+    repository.git.fetch()
+    assert repository._tidy_finished() == ()
+    assert repository.git.has_local_branch("task/1") and any("残しました" in n for n in repository.notices)
+    git(repository.root, "worktree", "remove", str(tmp_path / "other"))
+    assert repository._tidy_finished() == ("task/1",)

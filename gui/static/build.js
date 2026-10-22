@@ -221,7 +221,7 @@ WS.onRefresh(renderPrDetail);
   const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
   const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
   const nameField = () => ({name: 'name', label: '名前（空欄なら既定の名前。入れた名前は会話の名前にもなります）', value: '', placeholder: defaultAgentName()});
-  // role 'lead': the 進行役 (only talks with the user; hands what was decided to the one 管理役 under it, which makes the
+  // role 'lead': the 進行役 (only talks with the user; makes a 管理役 per piece of work as the talk goes and hands each what was decided; they make the
   // 作業役 = child tasks in their own workspaces; does not edit). It gets a window of its own with its tab fixed at the left.
   // The agent always runs in the container: a workspace that is not one is made so (container on) when it starts.
   async function startAgent(command = agentCommand(), typed, role = '') {
@@ -230,7 +230,7 @@ WS.onRefresh(renderPrDetail);
     const title = role === 'lead' ? '進行役を起動' : 'エージェントを起動';
     if (shell) {
       if (typed === undefined) {
-        const v = await ECO.form({title, intro: role === 'lead' ? '進行役は、ユーザーとのやりとりに特化した役です。決めたことを自分の下の管理役に命令し、管理役が作業役（子タスクと、その作業空間）に任せて進めます。自分ではファイルを編集せず、作業役も直接作りません。新しい窓で開きます。コンテナでない作業空間は、自動でコンテナにします。' : undefined,
+        const v = await ECO.form({title, intro: role === 'lead' ? '進行役は、ユーザーとのやりとりに特化した役です。話の流れに応じて仕事ごとに管理役を作って命令し（何人でも）、管理役が作業役（子タスクと、その作業空間）に任せて進めます。自分ではファイルを編集せず、作業役も直接作りません。新しい窓で開きます。コンテナでない作業空間は、自動でコンテナにします。' : undefined,
           fields: [{...nameField(), focus: true}], ok: '起動'});
         if (!v) return;   // cancelled
         typed = v.name.trim();
@@ -270,7 +270,7 @@ WS.onRefresh(renderPrDetail);
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
       ...(claudeCommand() ? [['進行役を起動…', () => startAgent(agentCommand(), undefined, 'lead'), ready,
-        'ユーザーとの話に特化し、決めたことを下の管理役に命令するエージェント（管理役が作業役に任せて進めます）。新しい窓で開きます'],
+        'ユーザーとの話に特化し、仕事ごとに管理役を作って命令するエージェント（管理役が作業役に任せて進めます）。新しい窓で開きます'],
         ['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
         'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
       ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [

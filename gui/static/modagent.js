@@ -44,7 +44,7 @@
       <td class="mi-sub">${esc((m.last_reply || '').slice(0, 120))}</td>
       <td class="mi-row-actions"><button type="button" data-ma-send="${esc(m.name)}">言付け…</button></td></tr>`).join('');
     box.innerHTML = `
-      <p class="mi-note">進行役は、このモジュールのエージェントです。タスクを持たず、あなたと話して仕事を決め、直下の<strong>管理役</strong>（仕事ごとのタスク）に送ります。作業の割り振り・取り込みは管理役と作業役がします。ブランチ・タスク・提出の管理もでき、消す・取り込む等の重い操作は、あなたが「はい」と答えたときだけ行います。</p>
+      <p class="mi-note">進行役は、このモジュールのエージェントです。タスクを持たず、あなたと話して仕事を決め、仕事ごとに<strong>管理役</strong>（仕事ごとのタスク。何人でも）を作って送ります。作業の割り振り・取り込みは管理役と作業役がします。ブランチ・タスク・提出の管理もでき、消す・取り込む等の重い操作は、あなたが「はい」と答えたときだけ行います。</p>
       <div class="ma-card">
         <div class="ma-head"><h3>進行役</h3><span class="ma-state" data-state="${esc(p?.running ? p.state : 'off')}">${esc(state)}</span></div>
         ${p?.exists ? `<p class="mi-sub">作業空間：<code>${esc(p.root)}</code>（${esc(p.branch || '?')}）</p>` : ''}

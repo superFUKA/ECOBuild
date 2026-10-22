@@ -177,6 +177,11 @@ class Git:
     def local_branches(self) -> list[str]:
         return self.output("for-each-ref", "--format=%(refname:short)", "refs/heads").splitlines()
 
+    def checked_out_branches(self) -> set[str]:
+        """どれかの git worktree（今いる所も含む）で取り出しているブランチ。消すと git が断る。"""
+        lines = self.output("for-each-ref", "--format=%(worktreepath) %(refname:short)", "refs/heads").splitlines()
+        return {line.rsplit(" ", 1)[1] for line in lines if " " in line and not line.startswith(" ")}   # ブランチ名に空白はない
+
     def remote_branches(self) -> list[str]:
         prefix = REMOTE + "/"
         names = self.output("for-each-ref", "--format=%(refname:short)", f"refs/remotes/{REMOTE}").splitlines()

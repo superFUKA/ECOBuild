@@ -57,7 +57,7 @@
       : s.current ? ['今の設定のとおり', 'ok'] : ['今の設定と違います（作り直すと合います）', 'warn'];
     const row = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
     return `<div class="ci-card"><div class="ci-card-head"><div><strong>${esc(s.path)}</strong> ${pill(text, cls)}</div>
-        <div class="mi-actions"><button type="button" data-ci-action="init">${s.exists ? '設定を変える…' : 'CIを用意する…'}</button>${s.exists ? '<button type="button" class="quiet-danger" data-ci-action="remove">CIをやめる…</button>' : ''}</div></div>
+        <div class="mi-actions"><button type="button" data-ci-action="init">${s.exists ? '設定を変える…' : 'CIを用意する…'}</button>${s.exists ? '<button type="button" class="danger-text" data-ci-action="remove">CIをやめる…</button>' : ''}</div></div>
       <dl class="ci-settings">${row('OS', s.os ? esc(s.os.join('、')) : '型の既定')}${row('構成', esc(s.configurations.join('、')))}
         ${row('共有ライブラリ', s.shared ? 'その構成でもビルド・テストする' : 'しない')}
         ${row('push で動かすブランチ', s.branches ? esc(s.branches.join('、')) : `${esc(s.default_base)}（既定）`)}${row('提出（PR）・手動', '常に動く')}</dl>
@@ -95,7 +95,7 @@
   function runsHtml() {
     if (!st.runs.length) return `<p class="mi-note">${st.branch ? `${esc(st.branch)} の` : ''}CIの実行はありません。</p>`;
     if (!st.runs.some(r => r.id === st.run)) st.run = 0;
-    return `<table class="mi-table ci-runs"><thead><tr><th>結果</th><th>#</th><th>ブランチ</th><th>きっかけ</th><th>日時</th><th></th></tr></thead><tbody>${st.runs.map(r => {
+    return `<table class="mi-table ci-runs"><thead><tr><th>結果</th><th>#</th><th>ブランチ</th><th>きっかけ</th><th>日時</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>${st.runs.map(r => {
       const [text, cls] = result(r);
       return `<tr data-ci-run="${r.id}" class="${r.id === st.run ? 'selected' : ''}" title="${esc(r.workflow)}">
         <td>${pill(text, cls)}</td><td>${r.id}</td><td class="ci-branch">${esc(r.branch)}</td><td>${esc(EVENTS[r.event] || r.event)}</td><td>${esc(ECO.localTime(r.created, true))}</td>
@@ -104,7 +104,7 @@
   }
   function secretsHtml() {
     const list = st.secrets === null ? '<p class="mi-note">シークレットの一覧を読めませんでした（リポジトリの管理者の権限が要ります）。</p>'
-      : st.secrets.length ? `<ul class="ci-secrets">${st.secrets.map(n => `<li><code>${esc(n)}</code><button type="button" class="quiet-danger" data-ci-secret="${esc(n)}">削除</button></li>`).join('')}</ul>`
+      : st.secrets.length ? `<ul class="ci-secrets">${st.secrets.map(n => `<li><code>${esc(n)}</code><button type="button" class="danger-text" data-ci-secret="${esc(n)}">削除…</button></li>`).join('')}</ul>`
       : '<p class="mi-note">シークレットはありません。</p>';
     return `${list}<p class="mi-note">非公開の依存先を CI で取得するには、それを読めるトークンを ECOBUILD_DEPS_TOKEN に登録します。値は GitHub に送るだけで、表示も保存もしません。</p>`;
   }
@@ -114,15 +114,15 @@
     if (!st.loaded) { main.innerHTML = ECO.loading(); return; }
     // Running by hand needs the workflow on GitHub (ECOBuild's has workflow_dispatch).
     const runnable = !!st.state?.exists;
-    el('ci-run').disabled = !runnable;
-    el('ci-run').title = runnable ? 'GitHub にあるブランチの内容で CI を動かします' : 'CIのワークフローがありません（「CIを用意する…」で作り、提出して取り込みます）';
+    const runTitle = runnable ? 'GitHub にあるブランチの内容で CI を動かします' : 'CIのワークフローがありません（「CIを用意する…」で作り、提出して取り込みます）';
     const options = [['', 'すべてのブランチ'], ...st.branches.map(b => [b, b])];
     if (st.branch && !st.branches.includes(st.branch)) options.push([st.branch, st.branch]);
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
       <h4 class="br-section">提出の確認</h4>${checksHtml()}
       <h4 class="br-section">設定</h4>${settingsHtml()}
       <div class="ci-section-row"><h4 class="br-section">実行</h4>
-        <select id="ci-branch" aria-label="ブランチ">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === st.branch ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+        <select id="ci-branch" aria-label="ブランチ">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === st.branch ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+        <span class="ci-section-end"><button type="button" id="ci-actions" title="GitHub の Actions の画面を開きます"${st.url ? '' : ' disabled'}>GitHub で見る ↗</button><button type="button" class="primary" id="ci-run" title="${esc(runTitle)}"${runnable ? '' : ' disabled'}>▶ 手動で実行</button></span></div>
       <div id="ci-runs">${runsHtml()}</div>
       <div class="ci-section-row"><h4 class="br-section">シークレット</h4><button type="button" data-ci-action="secret-set">＋ 登録</button></div>${secretsHtml()}`;
     gate();
@@ -130,7 +130,7 @@
   // Greys what changes the CI for those who are not admins (looking at the runs and their logs stays).
   function gate() {
     if (ECO.isAdmin(st.access)) return;
-    for (const b of [el('ci-run'), ...el('ci-main').querySelectorAll('[data-ci-action=init], [data-ci-action=checks], [data-ci-action=remove], [data-ci-action=rerun], [data-ci-action=secret-set], [data-ci-secret]')]) {
+    for (const b of [...el('ci-main').querySelectorAll('#ci-run'), ...el('ci-main').querySelectorAll('[data-ci-action=init], [data-ci-action=checks], [data-ci-action=remove], [data-ci-action=rerun], [data-ci-action=secret-set], [data-ci-secret]')]) {
       b.disabled = true; b.title = ECO.adminNote;
     }
   }
@@ -226,6 +226,8 @@
 
   const main = el('ci-main');
   main.addEventListener('click', e => {
+    if (e.target.closest('#ci-run:not(:disabled)')) return dispatch();
+    if (e.target.closest('#ci-actions:not(:disabled)')) { window.open(st.url.replace(/\.git$/, '') + '/actions', '_blank', 'noopener'); return; }
     const b = e.target.closest('[data-ci-action]'), row = e.target.closest('[data-ci-run]');
     const r = row && st.runs.find(x => x.id === Number(row.dataset.ciRun));
     if (b?.disabled) return;
@@ -241,7 +243,7 @@
     const secret = e.target.closest('[data-ci-secret]');
     if (secret) {
       const name = secret.dataset.ciSecret;
-      ECO.run(MOD.root, ['ci', 'secret', 'remove', name], {success: `シークレット ${name} を削除しました。`, confirm: `シークレット ${name} を GitHub から削除します。これを使う CI は動かなくなるかもしれません。`, title: 'シークレットを削除'})
+      ECO.run(MOD.root, ['ci', 'secret', 'remove', name], {success: `シークレット ${name} を削除しました。`, confirm: `シークレット ${name} を GitHub から削除します。これを使う CI は動かなくなるかもしれません。`, title: 'シークレットを削除', ok: '削除する', danger: true})
         .then(doc => { if (doc) loadSecrets(); });
       return;
     }
@@ -266,8 +268,6 @@
       [`${r.branch} の実行だけを表示`, () => { st.branch = r.branch; loadRuns(); }, st.branch !== r.branch],
     ], e.clientX, e.clientY);
   });
-  el('ci-run').addEventListener('click', dispatch);
-  el('ci-actions').addEventListener('click', () => { if (st.url) window.open(st.url.replace(/\.git$/, '') + '/actions', '_blank', 'noopener'); });
 
   // The tab shows: read (once; 更新 reads again).
   window.MANAGE_CI = {show: () => { if (!st.loaded) { render(); load(); } else render(); }, reload: load};

@@ -34,13 +34,12 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
-// The tabs of 管理 (メンバー, CI): the chosen one's panel and its buttons (data-manage-for) show.
+// The tabs of 管理 (メンバー, CI): the chosen one's panel shows.
 const MANAGE_TABS = ['members', 'ci'];
 const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'members';
 function showManageTab(view) {
   for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
   for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
-  for (const p of document.querySelectorAll('#manage-content [data-manage-for]')) p.hidden = p.dataset.manageFor !== view;
   if (view === 'ci') window.MANAGE_CI?.show(); else window.MANAGE_MEMBERS?.show();
 }
 pageHooks.manage = () => showManageTab(manageView());

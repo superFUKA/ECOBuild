@@ -1,24 +1,23 @@
 /* 管理 › CI: the settings (a card), the runs (a table, filtered by branch) and the secrets, in one scrolling column. */
 .ci-main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
+.ci-main > * { max-width: 960px; }
 .ci-main > .br-section:first-child, .ci-main > .eco-banner + .br-section { margin-top: 4px; }
-.ci-card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; max-width: 880px; }
+.ci-card { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; }
 .ci-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ci-card-head strong { font-size: 13px; margin-right: 6px; }
-.mi .ci-card-head button { padding: 4px 12px; }
 .ci-settings { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; margin: 10px 0; font-size: 12px; }
 .ci-settings dt { color: #a5aeba; }
 .ci-settings dd { margin: 0; }
-.ci-section-row { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; }
+.ci-section-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 8px; }
 .ci-section-row .br-section { margin: 0; }
-.mi .ci-section-row button { padding: 3px 10px; font-size: 12px; }
-.ci-section-row select { max-width: 260px; }
+.ci-section-row select { max-width: 260px; height: 24px; padding: 0 6px; font-size: 12px; }
+.ci-section-end { display: flex; gap: 6px; margin-left: auto; }
 .ci-runs tbody tr { cursor: default; }
 .ci-runs tbody tr:hover td { background: #1d232a; }
 .ci-runs tbody tr.selected td { background: #1f2a2a; }
 .ci-runs .ci-branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ci-row-actions { text-align: right; white-space: nowrap; }
-.mi .ci-row-actions button { padding: 2px 8px; font-size: 11px; margin-left: 4px; }
+.mi .ci-row-actions button { margin-left: 4px; }
 .ci-secrets { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; max-width: 520px; }
 .ci-secrets li { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; }
-.mi .ci-secrets button { padding: 2px 8px; font-size: 11px; }
 @media (max-width: 760px) { .ci-settings { grid-template-columns: 1fr; } .ci-runs th:nth-child(4), .ci-runs td:nth-child(4) { display: none; } }

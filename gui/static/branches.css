@@ -1,6 +1,6 @@
 /* ブランチ: the shared branches as tabs on the left (with the submissions coming in), the chosen one on the right. */
 .br-top-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 8px; }
-.br-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); }
+.br-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr); }
 .br-side { min-height: 0; overflow: auto; padding: 10px 8px; border-right: 1px solid var(--line); background: #171c22; display: flex; flex-direction: column; gap: 2px; }
 .mi .br-side button { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; width: 100%; text-align: left;
   padding: 7px 10px 7px calc(10px + var(--depth, 0) * 14px); border: 0; border-left: 2px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
@@ -10,7 +10,7 @@
 .br-side-sub { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .br-count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #3a3156; color: #e3d9ff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600; }
 .br-count.zero { background: #2a323b; color: #6b7581; font-weight: 400; }
-.br-main { min-width: 0; min-height: 0; overflow: auto; padding: 18px 20px 28px; }
+.br-main { min-width: 0; min-height: 0; overflow: auto; padding: 12px 16px 20px; }
 .br-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .br-head h3 { margin: 0 0 6px; font-size: 16px; }
 .br-section { margin: 18px 0 8px; font-size: 13px; color: #cdd5df; display: flex; align-items: center; gap: 8px; }
@@ -29,26 +29,17 @@
 /* Looking at the submission on the left (small), what to do with it on the right (as in the workspace's 提出). */
 .br-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303640; }
 .br-tools .pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
-.mi .br-tools .pr-look button { border: 0; background: transparent; color: #a5aeba; padding: 4px 8px; font-size: 12px; }
+.mi .br-tools .pr-look button { min-height: 24px; border: 0; background: transparent; color: #a5aeba; padding: 2px 8px; font-size: 12px; }
 .mi .br-tools .pr-look button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
 .br-tools .pr-act { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
-.br-tools .pr-act button { padding: 5px 14px; }
-.mi .quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
-.mi .quiet-danger:hover:not(:disabled) { border-color: #7a3b3b; }
 .br-task-branches { margin-top: 22px; font-size: 12px; color: #cdd5df; }
 .br-task-branches summary { cursor: pointer; color: var(--muted); }
 .br-task-branches ul { margin: 8px 0 0; padding-left: 18px; line-height: 2; }
-.br-task-branches button { padding: 2px 8px; font-size: 11px; }
-@media (max-width: 760px) { .br-body { grid-template-columns: 1fr; } .br-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 180px; } }
-/* Room: as the other pages of the module window. */
-.br-main { padding: 12px 16px 20px; }
-/* 管理: its tabs (ブランチ, …) with the chosen tab's buttons on the same row. */
-.manage-tabs-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.manage-tabs-row .br-top-actions { padding-bottom: 4px; }
-.mi .br-top-actions button { padding: 4px 12px; }
+@media (max-width: 960px) { .br-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); } .br-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 160px; } }
 /* What only some can do (account show: 管理 is for admins, a submission for its base's maker and admins): grey, the reason on hover. */
-.mi button:disabled, .mi button:disabled:hover { opacity: .45; cursor: not-allowed; border-color: #46515e; }
+.mi button:disabled, .mi button:disabled:hover { opacity: .45; cursor: not-allowed; border-color: #46515e; background-color: #252d36; }
 .mi button.primary:disabled { background: #2f4d46; border-color: #2f4d46; color: #9fb7b0; }
+.mi .mi-link:disabled, .mi .mi-tabs button:disabled { background: none; }
 /* ブランチ: the facts about the chosen branch. */
 .br-facts { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 13px; }
 .br-facts dt { color: #a5aeba; }
@@ -57,20 +48,24 @@
 .sub-title { margin-top: 0; font-size: 15px; }
 /* 管理 › メンバー. */
 .members-main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
-.members-bar { display: flex; justify-content: flex-end; margin: 4px 0 8px; max-width: 880px; }
-.members-table { max-width: 880px; }
+.members-main > * { max-width: 960px; }
 .members-table .mi-row-actions { text-align: right; white-space: nowrap; }
 .members-table .mi-row-actions button + button { margin-left: 6px; }
 
-/* 取り込み: one shared branch into another (branch merge --into), with what it would do first (--dry-run). */
-.br-merge { margin: 0 0 18px; padding: 12px 14px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-.br-merge h4 { margin: 0 0 10px; font-size: 14px; }
-.br-merge-row { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+/* 取り込み: one shared branch into another (branch merge --into), with what it would do first (--dry-run); a card that folds. */
+.br-merge { margin: 22px 0 0; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.br-merge > summary { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; cursor: pointer; list-style: none; }
+.br-merge > summary::-webkit-details-marker { display: none; }
+.br-merge > summary::before { content: '▸'; color: var(--accent); }
+.br-merge[open] > summary::before { content: '▾'; }
+.br-merge > summary h4 { margin: 0; font-size: 14px; }
+.br-merge-sum { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.br-merge > #br-merge { padding: 0 14px 14px; }
+.br-merge-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
 .br-merge-pick { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; color: var(--muted); }
-.br-merge-pick select { min-width: 160px; max-width: 260px; }
+.br-merge-pick select { width: 100%; min-width: 0; }
 .br-merge-arrow { padding: 0 2px 6px; font-size: 16px; color: var(--accent); }
-.mi .br-merge-swap { padding: 4px 10px; }
-.br-merge-row .mi-link { margin-left: auto; padding-bottom: 6px; }
+.br-merge-row .mi-link { padding-bottom: 7px; white-space: nowrap; }
 .br-merge-result { margin-top: 12px; font-size: 13px; }
 .br-merge-result:empty { display: none; }
 .br-merge-what { margin: 0 0 8px; line-height: 1.7; }
@@ -83,3 +78,4 @@
 .br-merge-files ul { margin: 6px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; line-height: 1.7; overflow-wrap: anywhere; }
 .br-merge-go { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
 .br-merge .eco-banner { margin: 8px 0; }
+.br-conflicts { margin: 6px 0 8px; padding-left: 20px; line-height: 1.7; overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 12px; }

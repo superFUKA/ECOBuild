@@ -54,8 +54,6 @@ def effect(path: str, options: tuple[str, ...] = ()) -> str:
         found = CHANGE      # 値を渡すと設定を変える
     if path == "container dockerfile" and any(o.split("=")[0] == "--write" for o in options):
         found = CHANGE      # --write は環境の Dockerfile を書く
-    if path == "task prune" and "--remote" in options and "--dry-run" not in options:
-        found = CONFIRM     # GitHub のブランチを消す
     if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options):
         found = CONFIRM
     return found
@@ -88,6 +86,8 @@ MODULE_LEAD = {
     "agent start": HUMAN, "agent team takeover": HUMAN, "agent team handback": HUMAN,
     "task start": HUMAN, "task commit": HUMAN, "workspace create": HUMAN, "workspace add": HUMAN,
     "workspace close": HUMAN,   # 作業空間はこのPCにある：閉じるのはユーザー
+    # 進行役の作業空間にはタスクブランチがない：task drop はいつも、ほかの作業空間（ほかの役・人）のものを消すことになる
+    "task drop": HUMAN,
 }
 
 
@@ -98,6 +98,8 @@ def classify_module_lead(args: list[str], extra: dict[str, str] | None = None) -
         return MODULE_LEAD[name], name
     if name == "task new" and "--start" in args:
         return HUMAN, name
+    if name == "task close" and any(o in args for o in ("--yes", "-y")):
+        return HUMAN, name      # タスクブランチの作業を捨てて閉じる（ほかの作業空間のもの）
     return found, name
 
 

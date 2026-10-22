@@ -125,8 +125,9 @@ def test_the_facilitator_reads_more_and_is_told_what_is_never_allowed(module, tm
     code, message = _hook("gh api -X DELETE repos/a/b/git/refs/heads/task/3", asked, "はい", tmp_path)
     assert code == 2 and "「はい」と答えても通りません" in message and "足りないコマンド" in message
     assert _hook("ecobuild workspace close C:/x", "ecobuild workspace close C:/x でよいですか？", "はい", tmp_path)[0] == 2
-    code, message = _hook("ecobuild task prune --remote --yes")
-    assert code == 2 and "「はい」" in message                                         # GitHub のブランチを消す
-    assert _hook("ecobuild task prune --remote --dry-run")[0] == 0
+    asked = "ecobuild task drop 3 --yes を実行してよいですか？"                    # 自分の作業空間の外のタスクブランチには触らない
+    assert _hook("ecobuild task drop 3 --yes", asked, "はい", tmp_path)[0] == 2
+    assert _hook("ecobuild task close 3 --not-planned --yes", "ecobuild task close 3 でよいですか", "はい", tmp_path)[0] == 2
+    assert _hook("ecobuild task close 3", "ecobuild task close 3 でよいですか", "はい", tmp_path)[0] == 0
     briefing = facilitator.prepare(module).agent_briefing(None, team.LEAD)
-    assert "進行役には当てはまりません" in briefing and "task prune --remote" in briefing and "workspace list" in briefing
+    assert "進行役には当てはまりません" in briefing and "自分の管理の外" in briefing

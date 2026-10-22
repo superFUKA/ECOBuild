@@ -235,8 +235,7 @@ class Serve:
         args = [str(a) for a in request.get("args") or []]
         own = args[:2] in (["agent", "start"], ["agent", "stop"]) and (args[1] == "stop" or "--app" in args)
         reporting = args[:2] == ["agent", "report"]   # 作業役が報告を上の役に知らせる（コンテナの中から）
-        listing = args[:2] == ["workspace", "list"]   # このPCの作業空間の一覧（読むだけ。コンテナの中の進行役から）
-        if not own and not reporting and not listing and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
+        if not own and not reporting and (args[:2] != ["agent", "team"] or len(args) < 3 or args[2] not in TEAM_COMMANDS):
             return failed(f"この頼みは受け付けません：ecobuild {' '.join(args)}")
         if root is None:
             return failed("頼んだエージェントの作業空間が分かりません。", hint="エージェントを起動し直してください。")
@@ -246,7 +245,7 @@ class Serve:
         shown = " ".join(a if len(a) <= 40 else a[:40] + "…" for a in args if a != "--json")
         self.log(f"頼み：ecobuild {shown}（{root}）")
         progress(f"実行しています：ecobuild {shown}")
-        if reporting or listing:
+        if reporting:
             return self.run(args, cwd, progress=progress, stall=team.STALL_SECONDS)
         try:
             if own:

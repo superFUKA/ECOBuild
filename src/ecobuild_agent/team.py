@@ -700,6 +700,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "止めずに次の区切りで届きます）。結果の番号で、届いたか（`agent team list --json` の messages）が分かり、まだ届いて"
             "いなければ `--cancel <番号>`・`--replace <番号>` で取り消し・置き換えができます。",
             "8. 作業役から「分けたい」と提案されたら、作業役を足します（管理役は管理役を作りません）。",
+            f"   片付けてよいのは、自分の作業空間の中のタスクブランチ（`{program} task prune`・`task drop`）と、自分が作った作業役"
+            f"（`{program} agent team close`）だけです。ほかの管理役・進行役のタスクブランチ・作業空間、GitHub にだけ残ったブランチには"
+            "触りません（気づいたら進行役に伝えるだけ）。",
             "9. 作業役のモデルは既定でこのPCの設定（agent_worker_model）です。難しい仕事だけ `--model opus` 等で変えられます。",
             "10. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>` で同じ会話を人の"
             "画面で開き、終わったら `agent team handback <名前>` で係に戻す）。引き取り・返しはユーザーがする操作です。",
@@ -834,10 +837,10 @@ def module_lead_briefing(program: str) -> list[str]:
         "別の方法を探さずに、できないこと（ECOBuild に足りないコマンド）としてユーザーに伝えます。",
         f"- コマンドは、使う前に `{program} <コマンド> --help` で引数を確かめます（ない引数を付けない）。エージェントの様子は "
         f"`{program} agent status`・`agent team list --nested`・`agent team log <名前>` で読めます。",
-        f"- 閉じたタスクの残りのタスクブランチ（GitHub にあるもの）は `{program} task prune --remote --dry-run` で一覧を見て、"
-        f"`{program} task prune --remote --yes` で消します（消すので「はい」が要ります。作成元に入っていないものは残り、わけが出ます）。",
-        f"- コンテナの中でも `{program} workspace list` は、このPCの作業空間の一覧です（係が読みます）。作業空間を閉じる"
-        f"（`{program} workspace close`）のは、ユーザーがこのPC（GUI・端末）でします。閉じてよいものを挙げて、ユーザーに頼みます。",
+        "- タスクブランチ・作業空間を消す片付けはしません（あなたの作業空間にはタスクブランチがなく、ほかはすべて自分の管理の外です）。"
+        "管理役のものは管理役が、自分の作業空間の中のものだけを片付けます。ほかの管理役・ほかの進行役のタスクブランチ、"
+        "そのタスクの作業空間、GitHub にだけ残ったブランチには触りません。残っているのに気づいたら、ユーザーに伝えるだけにします"
+        "（`task drop`・`workspace close` はユーザーがします）。",
         "",
     ]
 

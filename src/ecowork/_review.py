@@ -232,15 +232,11 @@ class Reviewing:
             raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"手元にタスク #{number} のタスクブランチはありません。")
         return result
 
-    def prune_task_branches(self, *, dry_run: bool = False, only: int | None = None,
-                            remote: bool = False) -> wm.CleanResult:
-        """Issueが閉じたタスクブランチのブランチを片付ける。未pushの変更があるタスクブランチは残す。only：その番号のタスクブランチだけ。
-        remote：手元にない、GitHubだけのタスクブランチ（別の作業空間・別のPCで作ったもの）も消す（作成元に入っていないものは残す）。"""
+    def prune_task_branches(self, *, dry_run: bool = False, only: int | None = None) -> wm.CleanResult:
+        """Issueが閉じたタスクブランチのブランチを片付ける。未pushの変更があるタスクブランチは残す。only：その番号のタスクブランチだけ。"""
         self.git.fetch()
         current = self.git.current_branch()
         removed, skipped, switched_to = [], [], None
-        if remote:
-            removed, skipped = self._prune_remote_task_branches(dry_run, only)
         for branch in self.git.local_branches():
             number = wm.task_number(branch)
             if number is None or (only is not None and number != only):
@@ -279,34 +275,6 @@ class Reviewing:
             self.git.unset_config(wm.base_key(branch))
             removed.append(branch)
         return wm.CleanResult(tuple(removed), tuple(skipped), switched_to, dry_run)
-
-    def _prune_remote_task_branches(self, dry_run: bool, only: int | None) -> tuple[list[str], list[wm.SkippedBranch]]:
-        """GitHubにだけあるタスクブランチのうち、Issueが閉じたものを消す（fetch の後に呼ぶ）。作成元はIssueの本文の印。"""
-        local = set(self.git.local_branches())
-        removed, skipped = [], []
-        for branch in self.git.remote_branches():
-            number = wm.task_number(branch)
-            if number is None or branch in local or (only is not None and number != only):
-                continue
-            try:
-                issue = self.github.get_issue(self.root, number)
-            except WorkError:
-                skipped.append(wm.SkippedBranch(branch, "Issueを取得できません"))
-                continue
-            if issue.state != "closed":
-                continue
-            base = wm.issue_base(issue.body) or self.default_base
-            locks = self.hooks.branch_locks(self, branch)
-            if self._lost_commits(branch, base, local=False, remote=True):
-                skipped.append(wm.SkippedBranch(branch, f"{base} に入っていないコミットがあります"
-                                                        f"（捨てる場合は {self._op('task drop')} {number}）"))
-            elif locks:
-                skipped.append(wm.SkippedBranch(branch, f"作業空間が使用中（ロック中）です（{locks[0]}）"))
-            else:
-                if not dry_run:
-                    self.git.push_delete(branch)
-                removed.append(branch)
-        return removed, skipped
 
     def drop_task(self, number: int | None = None, *, close: bool = False, discard: bool = False,
                        dry_run: bool = False) -> wm.DropResult:

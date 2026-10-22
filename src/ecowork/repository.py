@@ -539,19 +539,7 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         kept = [f"{_git.REMOTE}/{base}" if self.git.has_remote_branch(base) else base]
         kept += self._merged_heads(branch)
         kept = [ref for ref in kept if self.git.rev_parse(ref)]
-        lost = tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
-        if lost and kept and self._contained(tips, kept[0]):
-            return ()   # 中身は作成元に入っている（手で取り込んだ・まとめて取り込んだ等で、コミットが別のもの）
-        return lost
-
-    def _contained(self, tips: list[str], base: str) -> bool:
-        """tips の中身が、すべて base に入っているか（base に取り込んでも何も変わらない）。"""
-        tree = self.git.output("rev-parse", f"{base}^{{tree}}")
-        for tip in tips:
-            merged = self.git.run("merge-tree", "--write-tree", base, tip, check=False)
-            if not merged.ok or merged.stdout.split()[:1] != [tree]:
-                return False
-        return True
+        return tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
 
     def _switch_to_latest(self, name: str) -> None:
         if self.git.has_local_branch(name):

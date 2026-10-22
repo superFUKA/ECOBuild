@@ -85,7 +85,10 @@ class Completion:
             number = self.require_task_branch("番号を省略したタスクの完了").number
         reviewing = self._reviewing()
         if reviewing is not None and self._task_of_pull_request(reviewing) == number:
-            returned = self._leave_review(reviewing)   # その提出を確認中（task review）なら、確認の前の場所へ戻ってから
+            try:   # その提出を確認中（task review）なら、確認の前の場所へ戻ってから。戻れなくても完了は今までどおり進める
+                returned = self._leave_review(reviewing)
+            except WorkError:
+                returned = None
             if returned:
                 self.notices.append(f"確認を終えて {returned} に戻りました。")
         branch = self._task_branch_of(number)

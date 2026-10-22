@@ -173,33 +173,3 @@ def test_submit_sections_are_replaced_on_resubmit(repository):
     task_branch.submit(partial=True, sections={"note": ""})
     body = github.pulls[pr.number].body
     assert body.startswith("Refs #1") and "説明1" not in body and "ecowork-section: note" not in body
-
-
-def test_prune_remote_removes_closed_task_branches_left_only_on_github(repository):
-    """手元にない、GitHubだけに残った閉じたタスクのタスクブランチ（--remote）：中身が作成元に入っていれば消す
-    （手で取り込んでコミットが別のものでも）、入っていなければ残す。開いているタスクには触らない。"""
-    root, github = repository.root, repository.github
-    numbers = []
-    for title, name, text in (("取り込んでいない", "a.txt", "a\n"), ("手で取り込んだ", "b.txt", "b\n"), ("作業中", "c.txt", "c\n")):
-        task_branch = repository.create_task(title).start()
-        commit_file(task_branch, root, name, text, title)
-        task_branch.push()
-        numbers.append(task_branch.number)
-        repository.prune_task_branch(task_branch.number)      # 開いているうちに手元の写しだけ消す（別の作業空間で作った形）
-    lost, merged, open_ = numbers
-    git(root, "switch", "--quiet", "main")
-    write(root / "b.txt", "b\n")
-    git(root, "add", "b.txt")
-    git(root, "commit", "--quiet", "-m", "手で取り込み")
-    git(root, "push", "--quiet", "origin", "main")
-    github.close_issue(root, lost)
-    github.close_issue(root, merged)
-
-    assert repository.prune_task_branches(remote=False).removed == ()          # 既定は手元のものだけ
-    preview = repository.prune_task_branches(dry_run=True, remote=True)
-    assert preview.removed == (f"task/{merged}",)
-    assert [s.branch for s in preview.skipped] == [f"task/{lost}"] and "task drop" in preview.skipped[0].reason
-    assert f"origin/task/{merged}" in git(root, "branch", "-r")                 # dry-run は消さない
-    assert repository.prune_task_branches(remote=True).removed == (f"task/{merged}",)
-    remote = git(root, "ls-remote", "--heads", "origin")
-    assert f"task/{merged}" not in remote and f"task/{lost}" in remote and f"task/{open_}" in remote

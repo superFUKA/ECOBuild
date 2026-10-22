@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import itertools
 import json
+import math
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -94,7 +96,10 @@ def check(command: str, policy: Policy, exchange: Exchange | None = None) -> str
             continue
         name = re.sub(r"\.(exe|cmd|bat|ps1)$", "", Path(words[0].replace("\\", "/")).name, flags=re.IGNORECASE).lower()
         if name in policy.programs:
-            for args in _expanded(words[1:], loops):    # for の変数は、値を1つずつ入れて調べる
+            expanded = _expanded(words[1:], loops)     # for の変数は、値を入れて調べる
+            if expanded is None:
+                return "for の値の組み合わせが多すぎます。分けて実行してください。"
+            for args in expanded:
                 problem = _program(args, policy, exchange, policy.classifiers.get(name, policy.classify))
                 if problem:
                     return problem
@@ -105,17 +110,19 @@ def check(command: str, policy: Policy, exchange: Exchange | None = None) -> str
     return None
 
 
-def _expanded(args: list[str], loops: dict[str, list[str]]) -> list[list[str]]:
-    """args の for の変数に、値を1つずつ入れたもの（for の変数がなければ args だけ）。"""
-    used = {name for a in args for name in _names(a)} & loops.keys()
+def _expanded(args: list[str], loops: dict[str, list[str]]) -> list[list[str]] | None:
+    """args の for の変数に値を入れたもの：変数の値の組み合わせをすべて（for の変数がなければ args だけ。多すぎれば None）。"""
+    used = sorted({name for a in args for name in _names(a)} & loops.keys())
     if not used:
         return [args]
+    if math.prod(max(len(loops[name]), 1) for name in used) > 200:
+        return None
     found = []
-    for name in sorted(used):
-        for value in loops[name] or [""]:
-            found.append([w for a in args for w in
-                          (_VARIABLE.sub(lambda m: value if (m.group(1) or m.group(2)) == name else m.group(0), a).split()
-                           if name in _names(a) else [a])])
+    for values in itertools.product(*(loops[name] or [""] for name in used)):
+        chosen = dict(zip(used, values))
+        found.append([w for a in args for w in
+                      (_VARIABLE.sub(lambda m: chosen.get(m.group(1) or m.group(2), m.group(0)), a).split()
+                       if chosen.keys() & _names(a) else [a])])
     return found
 
 

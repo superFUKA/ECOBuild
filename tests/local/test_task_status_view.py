@@ -67,17 +67,19 @@ def test_parent_status_lists_children_with_their_state(cli, module):
     assert "タスクブランチあり" not in shown.split(f"#{waiting} ")[1].splitlines()[0]
 
 
-def test_task_of_a_working_member_shows_the_member_instead_of_start(cli, module):
-    """作業役（チームの置き場所の member.json）が作業中のタスクは、task start で再開とは案内しない。"""
-    number = as_json(cli("task", "new", "作業役のタスク", "--json"))["task"]["number"]
-    member = module.root / ".ecobuild" / "ai" / "team" / f"{number}-係"
-    (member / ".ecobuild" / "ai").mkdir(parents=True)
-    (member / ".ecobuild" / "ai" / "member.json").write_text(
-        json.dumps({"role": "worker", "name": "係", "task": number}, ensure_ascii=False), encoding="utf-8")
+def test_task_of_a_working_child_shows_the_agent_instead_of_start(cli, module):
+    """エージェントが起動した子（子タスクの持ち主。記録 agents）が作業中のタスクは、task start で再開とは案内しない。"""
+    from ecobuild_agent import agents
+    number = as_json(cli("task", "new", "子のタスク", "--json"))["task"]["number"]
+    parent = agents.create(registration="manager", workspace=module.root)
+    place = module.root / ".ecobuild" / "w" / str(number)
+    place.mkdir(parents=True)
+    child = agents.create(registration="worker", workspace=place, parent=parent.id, name="係",
+                          task={"number": number, "branch": f"task/{number}-係"})
     shown = cli("task", "status", str(number)).output
-    assert "作業役 係 が作業中" in shown and "task start" not in shown
+    assert f"エージェント 係（{child.id}・登録 worker）が作業中" in shown and "task start" not in shown
     status = as_json(cli("task", "status", str(number), "--json"))
     assert status["worker"]["name"] == "係" and status["workspace"]
     listed = next(t for t in as_json(cli("task", "list", "--json")) if t["number"] == number)
-    assert listed["worker"]["name"] == "係"
-    assert "作業役 係 が作業中" in cli("task", "list").output
+    assert listed["worker"]["name"] == "係" and listed["worker"]["id"] == child.id
+    assert "エージェント 係" in cli("task", "list").output

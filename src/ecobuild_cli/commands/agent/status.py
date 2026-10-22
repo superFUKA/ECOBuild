@@ -2,7 +2,7 @@ from typing import Annotated
 
 from ecobuild_agent import agents as _agents
 from ecobuild_agent import status as _status
-from ecobuild_agent import team as _team
+from ecobuild_agent import children as _children
 
 from ..._output import lines, run_command
 
@@ -52,7 +52,7 @@ def _one(r: dict) -> str:
         if r.get("id") else ""
     return lines(
         head or None,
-        f"様子：{_team.describe_activity(r) or '不明'}"
+        f"様子：{_children.describe_activity(r) or '不明'}"
         + ("（係が画面なしで動かしています）" if r.get("mode") == _status.APP else ""),
         f"会話：{r['session']}" if r.get("session") else None,
         f"最後の返答：{r['last_reply']}" if r.get("last_reply") else None,

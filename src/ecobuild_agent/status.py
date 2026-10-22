@@ -199,16 +199,6 @@ def folders() -> list[Path]:
 ID_GLOB = "a-??????????"   # エージェントの ID の形（agents.ID_PREFIX と 16進の10文字）
 
 
-def workspace_folders() -> list[Path]:
-    """作業空間の置き場所（<コンテナの名前>）のうち、作業空間を書いたもの（エージェントの記録がまだない作業空間から、
-    このPCの端末が係に頼むときの頼みの置き場所）。"""
-    root = _settings.home() / FOLDER
-    try:
-        return sorted(p for p in root.iterdir() if p.is_dir() and (p / WORKSPACE).is_file())
-    except OSError:
-        return []
-
-
 def read(file: Path):
     """JSON のファイル（読めなければ None）。"""
     try:

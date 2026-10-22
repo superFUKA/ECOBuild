@@ -12,19 +12,13 @@ def command(id: Annotated[str, "止めるエージェントの ID（a- で始ま
     """
     def action(inv):
         from ecobuild.errors import EcoBuildError
-        from ecobuild_agent import agents, status, team
+        from ecobuild_agent import agents, children, status
         from ecobuild_agent.errors import ErrorCode
         record = agents.load(id)
         folder = record.folder
         mode = status.running_mode(folder)
         if mode == status.APP:
-            doc = team.forward(record.root, ["agent", "stop", record.id, "--json"], record.root, progress=inv.info,
-                               folder=folder / team.REQUESTS)
-            if not doc.get("ok"):
-                error = doc.get("error") or {}
-                raise EcoBuildError(error.get("code") or ErrorCode.AGENT_ERROR,
-                                    error.get("message") or "係での実行に失敗しました。", hint=error.get("hint"))
-            return doc.get("result") or {"id": record.id, "stopped": True}
+            return children.ask_serve(record, ["agent", "stop", record.id], inv.info) or {"id": record.id, "stopped": True}
         pid = status.running_pid(folder)
         if pid is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント「{record.name}」（{record.id}）は動いていません。")

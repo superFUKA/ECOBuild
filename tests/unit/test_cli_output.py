@@ -51,12 +51,12 @@ def test_an_argument_taken_once_is_not_written_as_many(outside, capsys):
     """#9-21・#11：task status 等は位置引数を1つだけ受ける（optional_argument）。使い方に ... を書かない。"""
     code, found = document(capsys, "task", "status", "--help", "--json")
     assert found["result"]["arguments"][0]["multiple"] is False
-    code, found = document(capsys, "agent", "team", "close", "--help", "--json")
+    code, found = document(capsys, "agent", "status", "--help", "--json")
     assert found["result"]["arguments"][0]["multiple"] is True                 # いくつも受けるもの
     code, out, _ = run(capsys, "task", "status", "--help")
     assert "[NUMBER]" in out and "[NUMBER]..." not in out
-    code, out, _ = run(capsys, "agent", "team", "close", "--help")
-    assert "[NAME]..." in out
+    code, out, _ = run(capsys, "agent", "status", "--help")
+    assert "[ID]..." in out
 
 
 def test_examples_are_taken_from_the_help():
@@ -179,12 +179,12 @@ def test_failure_without_a_reason_is_still_logged_as_an_error(outside):
 
 def test_long_arguments_are_shortened(outside):
     brief = "任せる仕事" * 1000
-    _log.start(["agent", "team", "start", "名前", "--brief", brief])
+    _log.start(["task", "new", "名前", "--body", brief])
     _log.finish(0)
     start = next(e for e in log_entries() if e["event"] == "command.start")
     shown = start["data"]["args"][-1]
     assert len(shown) < 300 and shown.startswith("任せる仕事") and f"{len(brief)}字" in shown and "sha256" in shown
-    assert start["data"]["args"][:5] == ["agent", "team", "start", "名前", "--brief"]
+    assert start["data"]["args"][:4] == ["task", "new", "名前", "--body"]
 
 
 def test_forwarded_run_is_written(outside, monkeypatch):

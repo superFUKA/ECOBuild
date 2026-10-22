@@ -533,7 +533,7 @@ function wireTeam() {
     if (!member?.id || !member.name) return {ok: false, error: '子のエージェントが分かりません'};
     member = {leadId, id: String(member.id), name: String(member.name), path: String(member.path || '')};
     if (action === 'folder') { const error = await shell.openPath(member.path); return error ? {ok: false, error} : {ok: true}; }
-    if (action === 'module') { openModule(member.path); return {ok: true}; }
+    if (action === 'module') { openModule(team.moduleRoot(member.path)); return {ok: true}; }   // 作業空間なら元の clone の窓
     if (action === 'handback') {
       const tab = sessions.find(x => x.takenOver?.id === member.id && !x.exited);
       if (tab) { closeSession(tab.id); return {ok: true, message: 'タブを閉じて、係に戻しています…'}; }   // 閉じると返す

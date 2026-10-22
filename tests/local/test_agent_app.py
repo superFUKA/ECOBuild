@@ -196,6 +196,71 @@ def test_the_serve_runs_a_child_without_a_screen_from_start_to_close(lead, paren
     assert json.loads((Path(os.environ["ECOBUILD_HOME"]) / app.HELD).read_text(encoding="utf-8")) == {"agents": []}
 
 
+def test_what_the_agents_can_write_does_not_change_what_the_serve_trusts(lead, parent, tmp_path):
+    """コンテナから書ける状態の置き場所の記録（agent.json）を書き換えても、係は信じない（記録はマウントしない所にある）。
+    そこからの人の操作の頼み・名乗りのないツールの頼みは受けない。"""
+    fake = Fake(tmp_path)
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
+    helper = agents.create(registration="worker", workspace=lead.root, parent=parent.id, kind=agents.HELPER,
+                           task=parent.task)
+    agent_status.prepare(helper.folder, lead.root)
+    copy = helper.folder / agents.RECORD
+    data = json.loads(copy.read_text(encoding="utf-8"))
+    copy.write_text(json.dumps({**data, "registration": "lead", "kind": agents.OWNER, "workspace": str(tmp_path)}),
+                    encoding="utf-8")
+    assert agents.load(helper.id) == helper and agent_status.workspace_of(helper.folder) == lead.root
+    refused = tool(serve, helper, "children_start", registration="worker", kind="subtask", brief="目的：x")
+    assert not refused["ok"]
+    requests = helper.folder / children.REQUESTS          # 手伝いが、人の操作をまねて持ち主を閉じさせる
+    (requests / "h1.json").write_text(json.dumps({"id": "h1", "args": ["agent", "close", parent.id, "--force"]}),
+                                      encoding="utf-8")
+    (parent.folder / children.REQUESTS).mkdir(exist_ok=True)
+    (parent.folder / children.REQUESTS / "h2.json").write_text(   # 名乗らずに持ち主の置き場所へ
+        json.dumps({"id": "h2", "tool": "children_list", "arguments": {}}), encoding="utf-8")
+    serve.step()
+    serve.wait()
+    closing = json.loads((requests / "h1.result.json").read_text(encoding="utf-8"))
+    assert not closing["ok"] and "人の操作" in closing["error"]["message"] and agents.load(parent.id)
+    assert not json.loads((parent.folder / children.REQUESTS / "h2.result.json").read_text(encoding="utf-8"))["ok"]
+    assert children.human_requests(parent.id).parent == agent_status.private(parent.id)
+
+
+def test_helpers_started_together_keep_the_number_of_children(lead, tmp_path, monkeypatch):
+    """手伝いの起動を並べても、子の数の上限を超えない（確かめと記録を作るのを呼び手ごとに1つずつ）。"""
+    from ecobuild_agent import registry
+    one = registry.Registration(name="one", title="one", document="", children=("worker",), max_children=1,
+                                tools=("*",))
+    real = registry.load
+    monkeypatch.setattr(registry, "load", lambda name: one if name == "one" else real(name))
+    caller = agents.create(registration="one", workspace=lead.root)
+    slow = agents.create
+    monkeypatch.setattr(agents, "create", lambda **kw: (time.sleep(0.2), slow(**kw))[1])
+    results = []
+
+    def go():
+        try:
+            children.start(None, caller, registration="worker", kind=children.HELPER, brief="目的：x")
+            results.append("ok")
+        except EcoBuildError:
+            results.append("refused")
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert sorted(results) == ["ok", "refused", "refused", "refused"] and len(agents.children(caller.id)) == 1
+
+
+def test_closing_a_child_task_stops_its_container_first(lead, parent, monkeypatch):
+    """子タスクの作業空間のコンテナは、エージェントを止めても動いたまま（ロックになる）：閉じる前に止める。"""
+    import ecobuild_container as container
+    stopped = []
+    monkeypatch.setattr(container, "enabled", lambda root: True)
+    monkeypatch.setattr(container, "stop", lambda root, *a, **k: stopped.append(Path(root)) or
+                        type("R", (), {"changed": True})())
+    assert children.stop_container(lead.root) and stopped == [lead.root]
+
+
 def test_restarting_stops_and_starts_again_without_a_screen(lead, parent, tmp_path):
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)

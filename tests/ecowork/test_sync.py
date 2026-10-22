@@ -279,3 +279,22 @@ def test_reset_task_keep_leaves_the_changes(repository):
     assert git(root, "rev-parse", "HEAD").strip() == first
     assert (root / "b.txt").read_text(encoding="utf-8") == "2\n" and (root / "c.txt").exists()
     assert set(repository.status().untracked) >= {"b.txt", "c.txt"}
+
+
+@pytest.mark.needs_git_2_48
+def test_stash_drop_on_the_original_clone_leaves_what_another_worktree_stashed(repository, tmp_path):
+    """退避は作業ツリーどうしで共有：元の clone の stash drop は、切り離された作業ツリー（確認用の作業空間）や、ほかの
+    作業ツリーが取り出しているブランチで退避したものを選ばない。"""
+    repository.git.worktree_add(tmp_path / "r1", detach_at="HEAD")
+    write(tmp_path / "r1" / "README.md", "確認中の変更\n")
+    git(tmp_path / "r1", "stash", "push", "--quiet")
+    repository.git.run("branch", "feature/x")
+    repository.git.worktree_add(tmp_path / "fx", "feature/x")
+    write(tmp_path / "fx" / "README.md", "ほかの作業ツリー\n")
+    git(tmp_path / "fx", "stash", "push", "--quiet")
+    assert code_of(repository.stash_drop) == ErrorCode.NO_STASH
+    assert len(repository.stashes()) == 2
+    write(repository.root / "README.md", "元の clone\n")
+    repository.stash()
+    repository.stash_drop()
+    assert len(repository.stashes()) == 2 and all("main" not in m for m in repository.stashes())

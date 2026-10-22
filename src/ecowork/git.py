@@ -27,6 +27,8 @@ FETCHED_MARK = "ecowork-fetched"
 # FETCH_LOCK・FETCHED_MARK は共有の .git（--git-common-dir）に置く：作業空間（worktree）どうしは refs を共有する
 FETCH_LOCK = "ecowork-fetch.lock"
 FETCH_LOCK_TIMEOUT = 120
+_CONFIG_LOCKED = re.compile(r"could not lock config file", re.IGNORECASE)
+_CONFIG_LOCK_WAITS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6)   # 共有の設定の書き込みの取り合いを待つ（秒）
 _DUBIOUS = re.compile(r"detected dubious ownership in repository at '([^']*)'")
 
 # 作業空間（git worktree）を相対パスで記録する（--relative-paths）には git 2.48 以上が要る。相対パスにするのは、
@@ -227,11 +229,19 @@ class Git:
 
     def checked_out_branches(self) -> dict[str, Path]:
         """どれかの git worktree（今いる所も含む）で取り出しているブランチ → 取り出している場所。消すと git が断る。"""
+        found = self._checked_out()
+        if any(not path.is_dir() for path in found.values()):
+            # フォルダーを手で消した作業空間（ロック付きの記録が残り、git はまだそのパスに付けて返す）：記録を片付けて読み直す
+            self.forget_missing_worktrees()
+            found = self._checked_out()
+        return found
+
+    def _checked_out(self) -> dict[str, Path]:
         found = {}
         for line in self.output("for-each-ref", "--format=%(refname:short) %(worktreepath)", "refs/heads").splitlines():
             name, _, path = line.partition(" ")   # ブランチ名に空白はない
             if path:
-                found[name] = Path(path)
+                found[name] = Path(path) if Path(path).is_absolute() else self.root / path
         return found
 
     def remote_branches(self) -> list[str]:
@@ -269,10 +279,22 @@ class Git:
         return values[-1].strip() if completed.ok and values else None
 
     def set_config(self, key: str, value: str) -> None:
-        self.run("config", "--local", key, value)
+        self._write_config("--local", key, value)
 
     def unset_config(self, key: str) -> None:
-        self.run("config", "--local", "--unset", key, check=False)
+        self._write_config("--local", "--unset", key, check=False)
+
+    def _write_config(self, *args: str, check: bool = True) -> _process.Completed:
+        """設定を書く。作業空間どうしは共有の設定（.git/config）を書き合うので、ほかの作業空間が書いている最中
+        （config.lock を持っている。git は待たずに断る）なら、少し待ってやり直す。"""
+        for wait in (*_CONFIG_LOCK_WAITS, None):
+            completed = self.run("config", *args, check=False)
+            if completed.ok or wait is None or not _CONFIG_LOCKED.search(completed.stderr or ""):
+                break
+            time.sleep(wait)
+        if check and not completed.ok:
+            raise _git_error(completed)
+        return completed
 
     def config_worktree(self, key: str, value: str | None) -> None:
         """この作業空間だけの設定（git config --worktree）。None なら外す。作業空間（linked worktree）では
@@ -280,9 +302,9 @@ class Git:
         if self.is_linked_worktree():
             self.enable_worktree_config()
         if value is None:
-            self.run("config", "--worktree", "--unset-all", key, check=False)
+            self._write_config("--worktree", "--unset-all", key, check=False)
         else:
-            self.run("config", "--worktree", key, value)
+            self._write_config("--worktree", key, value)
 
     # 作業空間（git worktree） ------------------------------------------------------
 
@@ -331,7 +353,7 @@ class Git:
         """共有の設定に extensions.worktreeConfig（作業空間ごとの設定）と more を true で書く（なければ）。"""
         for key in ("extensions.worktreeConfig", *more):
             if self.run("config", "--local", "--get", key, check=False).stdout.strip() != "true":
-                self.run("config", "--local", key, "true")
+                self._write_config("--local", key, "true")
 
     def worktree_remove(self, path: Path, *, force: bool = False) -> None:
         """作業空間を消す（ロックを外してから）。消せなければ（変更がある・使用中）ロックを戻して誤りにする。"""
@@ -345,6 +367,18 @@ class Git:
     def worktree_prune(self) -> None:
         """フォルダーがなくなった作業空間の記録を片付ける（ロック中の記録は git が残す）。"""
         self.run("worktree", "prune")
+
+    def forget_missing_worktrees(self) -> list[Path]:
+        """フォルダーがなくなった作業空間（元の clone 以外）の記録を、ロック中でも片付ける（作業空間はいつもロック付きで
+        作るので、フォルダーを手で消すと git worktree prune では消えない）。片付けた場所を返す。"""
+        missing = [tree.path for tree in self.worktrees() if not tree.main and not tree.path.is_dir()]
+        if not missing:
+            return []
+        main = Git(self.common_root(), command=self.command)   # 今の場所が消えた作業空間のこともあるので、元の clone で
+        for path in missing:
+            main.run("worktree", "unlock", str(path), check=False)
+        main.run("worktree", "prune", check=False)
+        return missing
 
     # 記録 ----------------------------------------------------------------
 
@@ -552,6 +586,10 @@ class Git:
 
 
 def _run(args: list[str], *, cwd: Path | None, check: bool = True, input: str | None = None) -> _process.Completed:
+    if cwd is not None and not Path(cwd).is_dir():
+        # 消えた場所（フォルダーを手で消した作業空間等）：OS の誤りで落ちず、場所を添えた git の誤りにする
+        raise WorkError(ErrorCode.GIT_ERROR, f"{cwd} がありません（git {' '.join(args[1:4])} を実行できません）。",
+                        hint="フォルダーを消した作業空間なら、もう一度実行すると記録を片付けます。")
     try:
         return _process.run(args, cwd=cwd, check=check, env=_ENV, input=input)
     except _process.ProcessFailed as failure:

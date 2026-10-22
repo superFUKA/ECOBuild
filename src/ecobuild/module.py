@@ -156,6 +156,9 @@ class _TypeHooks(Hooks):
                 raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"作業空間 {path} に、コミットしていない新しいファイルがあります。",
                                     hint=f"{self._module.op('task commit')} で記録するか、要らなければ消してから、もう一度実行してください。",
                                     details=pending)
+            # 作業空間の中の依存先の clone（deps/<名前> 等。.gitignore で除外しているので ecowork からは見えない）に、
+            # 手元にだけある変更・コミット・退避があれば消さない（ecowork は作業空間とタスクブランチを残して知らせる）
+            other._check_nothing_unpushed(include_self=False)
         type(self._module).close_workspace(path, discard_local=True, github=repository.github)
         return True
 
@@ -698,18 +701,20 @@ class Module:
                                 hint="ECOBuildで作ったモジュールだけを扱えます。")
         return info
 
-    def _check_nothing_unpushed(self) -> None:
+    def _check_nothing_unpushed(self, *, include_self: bool = True) -> None:
         """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも、
         .ecobuild/ の中の作業空間（作業空間 .ecobuild/w/・前の版の作業役の clone。閉じると一緒に消える）とその依存先も。
 
         作業空間（git worktree）はブランチと退避を元の clone・ほかの作業空間と共有するので、見るのは自分が取り出している
-        もの（HEAD と、そのブランチで退避したもの）だけ。"""
+        もの（HEAD と、そのブランチで退避したもの）だけ。
+        include_self が偽なら、このモジュールの場所そのものは見ない（中の依存先の clone 等だけ。タスクブランチを消す前の
+        作業空間のように、そのもののコミット・変更は呼び手がすでに確かめたとき）。"""
         found = []
         roots = []
         for workspace in (self.root, *(w.path for w in _workspaces.task_workspaces(self.root)),
                           *_workspaces.inside(self.root)):
             nested = (*workspace.glob("*/.git"), *workspace.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
-            roots += [workspace] + sorted(p.parent for p in nested)
+            roots += ([workspace] if include_self or workspace != self.root else []) + sorted(p.parent for p in nested)
         for root in roots:
             git = _Git(root)
             try:   # 作業空間の場所は git が書いたもの（ドライブの大文字・小文字が違うことがある）

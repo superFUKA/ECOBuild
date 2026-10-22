@@ -201,3 +201,22 @@ def test_fetch_reuse_skips_a_fetch_just_made(remote_and_clone, monkeypatch):
     assert len(fetches) == 1
     other.fetch()           # reuse なしは必ず取得する
     assert len(fetches) == 2
+
+
+def test_writing_the_shared_config_waits_while_another_workspace_holds_its_lock(repository, monkeypatch):
+    """作業空間どうしは .git/config を共有する：ほかが書いている最中（config.lock）なら、待ってやり直す。"""
+    import ecowork.git as _git
+    monkeypatch.setattr(_git.time, "sleep", lambda seconds: None)
+    real = repository.git.run
+    failures = []
+
+    def run(*args, **options):
+        if args[:2] == ("config", "--local") and len(failures) < 2:
+            failures.append(args)
+            from dataclasses import replace
+            return replace(real("config", "--local", "--get", "no.such-key", check=False),
+                           stderr="error: could not lock config file .git/config: File exists")
+        return real(*args, **options)
+    monkeypatch.setattr(repository.git, "run", run)
+    repository.git.set_config("ecowork.test", "1")
+    assert len(failures) == 2 and repository.git.get_config("ecowork.test") == "1"

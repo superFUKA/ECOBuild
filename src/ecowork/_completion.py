@@ -316,9 +316,7 @@ class Completion:
             return None
         try:
             return self._end_review_at(pull_request, place).workspace
-        except WorkError as error:
-            if error.code not in (ErrorCode.WORKSPACE_LOCKED, ErrorCode.DIRTY_WORKING_TREE, ErrorCode.GIT_ERROR):
-                raise
+        except WorkError as error:   # 消せればよいだけ（判定は出した後）：わけ（使用中・変更あり・他のプログラムが使用中等）を知らせて進む
             self.notices.append(f"確認用の作業空間 {place} は残しました（{error.message}）。"
                                 f"{self._op('task review')} --done で消せます。")
             return None
@@ -330,7 +328,7 @@ class Completion:
         fetch の後に呼ぶ。失われるコミットがあれば残す（task prune と同じ）。
         """
         try:
-            self.git.worktree_prune()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（ロック中のものは git が残す）
+            self.git.forget_missing_worktrees()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（ロック中のものも）
         except WorkError:
             pass
         current = self.git.current_branch()

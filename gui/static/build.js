@@ -283,12 +283,13 @@ WS.onRefresh(renderPrDetail);
     const list = doc.result.conversations;
     ECO.menu([
       [list.length ? '再開する会話（新しい順）' : (doc.result.note || 'この作業空間の会話はまだありません'), null],
-      ...list.map(c => [`${c.title}　${when(c.updated)}`, () => startAgent(`${base} --resume ${c.id}`, c.title, ''), true,
+      // a registration is passed too: the CLI uses the conversation's record if it has one, otherwise this registration
+      ...list.map(c => [`${c.title}　${when(c.updated)}`, async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --resume ${c.id}`, c.title, r); }, true,
         `発言 ${c.prompts}${c.branch ? `・${c.branch}` : ''}・${c.id}`]),
       '-',
       // --continue: the CLI needs a registration (the last conversation may be no agent's record yet)
       ['最後の会話の続きから', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --continue`, '', r); }, list.length > 0],
-      ['Claude の一覧で選ぶ', () => startAgent(`${base} --resume`, '', ''), true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
+      ['Claude の一覧で選ぶ', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --resume`, '', r); }, true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
     ], x, y);
   }
   get('agent-more').addEventListener('click', () => {

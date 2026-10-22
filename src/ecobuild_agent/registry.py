@@ -85,6 +85,29 @@ def load(name: str) -> Registration:
     raise _unknown(name)
 
 
+def to_data(registration: Registration) -> dict:
+    """登録を JSON にできる形に（このPCで解決した登録を、コンテナの中の MCP サーバーへ渡す）。"""
+    return {"name": registration.name, "title": registration.title, "document": registration.document,
+            "human_start": registration.human_start, "model": registration.model,
+            "children": list(registration.children), "max_children": registration.max_children,
+            "tools": list(registration.tools), "first_prompt": registration.first_prompt, "source": registration.source}
+
+
+def from_file(path: Path | str) -> Registration:
+    """to_data で書いたファイルの登録（読めなければ誤り）。"""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return Registration(
+            name=str(data["name"]), title=str(data.get("title") or data["name"]), document=str(data.get("document", "")),
+            human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
+            children=tuple(str(v) for v in data.get("children", [])), max_children=int(data.get("max_children", 0)),
+            tools=tuple(str(v) for v in data.get("tools", [])), first_prompt=str(data.get("first_prompt", "")),
+            source=str(data.get("source", USER)))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"登録のファイル {path} を読めません。",
+                            details=str(error)) from error
+
+
 def allows_tool(registration: Registration, tool_name: str) -> bool:
     """登録がそのツールを許すか（tools のどれかの fnmatch に合う）。"""
     return any(fnmatch.fnmatchcase(tool_name, pattern) for pattern in registration.tools)

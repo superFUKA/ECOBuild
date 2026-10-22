@@ -163,4 +163,11 @@ function stopAll() {
   for (const contents of [...follows.keys()]) unfollow(contents);
 }
 
-module.exports = {setup, tick, refresh, shown, follow, unfollow, operation, operate, stopAll, view: leadId => teams.get(leadId)?.view || null};
+// The module (the original clone) a member's place belongs to: a workspace is <the original clone>/.ecobuild/w/<name>
+// (a git worktree inside it), and the module window is opened on the original clone (as the GUI server's _module_of).
+function moduleRoot(place) {
+  const found = /^(.*?)[\\/]\.ecobuild[\\/]w[\\/][^\\/]+[\\/]?$/.exec(String(place || ''));
+  return found ? found[1] : place;
+}
+
+module.exports = {setup, tick, refresh, shown, follow, unfollow, operation, operate, stopAll, moduleRoot, view: leadId => teams.get(leadId)?.view || null};

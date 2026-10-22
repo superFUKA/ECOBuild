@@ -212,7 +212,7 @@ function renderDetail(body, id, back) {
   head.append(ops);
   if (m.doing) sub.append(el('span', 'doing', `今：${m.doing}`));
   sub.append(el('span', '', flags(m)));
-  if (m.branch) sub.append(el('span', 'where', `#${m.task} ${m.branch}`));
+  if (m.branch) sub.append(el('span', 'where', `${m.task?.number ? `#${m.task.number} ` : ''}${m.branch}`));
   if (m.model) sub.append(el('span', '', m.model));
   if (m.usage && typeof m.usage.cost_usd === 'number') sub.append(el('span', '', `最後の返答 $${m.usage.cost_usd.toFixed(3)}`));
   const notice = notices.get(m.id);

@@ -167,8 +167,8 @@ def test_tools_are_the_common_ones_and_those_of_the_type(catalog):
 def test_helpers_do_not_get_the_owners_tools(catalog):
     owner = _names(catalog, "python")
     helper = _names(catalog, "python", mcp.HELPER)
-    assert {"task_commit", "task_push", "task_submit", "sync"} <= owner
-    assert not {"task_commit", "task_push", "task_submit", "sync"} & helper
+    assert {"task_commit", "task_push", "task_submit", "sync", "sync_continue", "sync_abort"} <= owner
+    assert not {"task_commit", "task_push", "task_submit", "sync", "sync_continue", "sync_abort"} & helper
     assert {"task_status", "build"} <= helper
 
 
@@ -247,6 +247,29 @@ def test_agent_mcp_lists_the_tools_over_stdio(tmp_path, monkeypatch, capsys):
     names = {t["name"] for t in answers[1]["result"]["tools"]}
     assert {"task_status", "task_list", "build"} <= names
     assert not {"task_commit", "task_submit", "status", "test"} & names     # 手伝い・登録で許していない
+
+
+def test_agent_mcp_reads_the_registration_resolved_outside(tmp_path, monkeypatch, capsys):
+    """コンテナの中の MCP サーバーは、このPCで解決した登録のファイル（--registration-file）を読む（中の ECOBUILD_HOME には
+    ユーザーの登録がない）。"""
+    from ecobuild_agent import registry
+    config_file = tmp_path / config.FILE_NAME
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text('format = 1\n\n[module]\nname = "M"\ntype = "python"\n', encoding="utf-8")
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))   # この名前の登録はない
+    found = registry.Registration(name="reviewer", title="確認", document="", tools=("task_status",))
+    (tmp_path / "registration.json").write_text(json.dumps(registry.to_data(found)), encoding="utf-8")
+    assert registry.from_file(tmp_path / "registration.json") == found
+    requests = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(json.dumps(r) + "\n" for r in requests)))
+    from ecobuild_cli import main
+    with pytest.raises(SystemExit) as stop:
+        main(["agent", "mcp", "--agent", "a1", "--registration", "reviewer", "--kind", "owner",
+              "--workspace", str(tmp_path), "--registration-file", str(tmp_path / "registration.json")])
+    assert stop.value.code == 0
+    answers = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert {t["name"] for t in answers[1]["result"]["tools"]} == {"task_status"}
 
 
 def test_agent_mcp_needs_the_agent_and_a_known_kind(capsys):

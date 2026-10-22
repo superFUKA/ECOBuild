@@ -664,6 +664,39 @@ def test_finish_removes_the_workspace(cli, module, parallel, monkeypatch):
     assert any("新しいファイル" in n for n in result["notices"])
 
 
+def _dependency_with_local_work(workspace: Path) -> Path:
+    """作業空間の中の依存先の clone（deps/<名前>）に、GitHubにないコミットを置く。"""
+    lib = workspace / "deps" / "Lib"
+    lib.mkdir(parents=True)
+    git(lib, "init", "--quiet")
+    write(lib / "x.txt", "x\n")
+    git(lib, "add", "x.txt")
+    git(lib, "commit", "--quiet", "-m", "依存先の作業")
+    return lib
+
+
+def test_drop_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, module, parallel):
+    """作業空間の中の依存先の clone（除外しているので作業空間の変更には見えない）に手元にだけあるものがあれば、
+    作業空間を消さずに残して知らせる（依存先の作業を失わない）。"""
+    lib = _dependency_with_local_work(parallel)
+    dropped = as_json(cli("task", "drop", "1", "--yes", "--json"))
+    assert dropped["ok"], dropped
+    assert "GitHubにない" in dropped["result"]["workspace_kept"] and (lib / "x.txt").is_file()
+
+
+def test_finish_keeps_a_workspace_whose_dependency_clone_has_local_work(cli, module, parallel):
+    """finish も同じ：作業空間とタスクブランチを残して知らせる（完了はする）。"""
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    lib = _dependency_with_local_work(parallel)
+    result = as_json(cli("task", "finish", "1", "--no-wait", "--json"))
+    assert result["ok"], result
+    assert "GitHubにない" in result["result"]["workspace_kept"] and (lib / "x.txt").is_file()
+    assert "task/1-作業" in git(module.root, "branch", "--list")
+
+
 def test_finish_leaves_a_worktree_made_by_hand(cli, module, parallel, tmp_path):
     """人が git worktree で作った作業ツリーがタスクブランチを取り出していれば、それは消さず、ブランチも残して
     知らせる（完了はする）。workspace close でも閉じない。"""
@@ -895,6 +928,15 @@ def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
     assert second["id"] != first["id"]                                 # 同じ作業空間に2人目
     again = as_json(cli("agent", "start", "--program", f"claude --resume {first['session']}", "--json"))["result"]
     assert again["id"] == first["id"] and started[-1][1][:3] == ("claude", "--resume", first["session"])   # 会話で記録を引く
+    # 記録のない会話・Claude Code の一覧で選ぶ（値なしの --resume）は、--as の登録で起動する（なければ分かる誤り）
+    for program in ("claude --resume", "claude --resume no-record"):
+        refused = as_json(cli("agent", "start", "--program", program, "--json"))["error"]
+        assert refused["code"] == "invalid_argument" and "--as" in refused["message"]
+    other = as_json(cli("agent", "start", "--as", "lead", "--program", "claude --resume no-record", "--json"))["result"]
+    assert other["id"] not in (first["id"], second["id"]) and other["registration"] == "lead"
+    # コンテナの中の MCP サーバーには、このPCで解決した登録を写して渡す（中には登録がない）
+    assert "--registration-file" in server["args"]
+    assert json.loads((folder / "registration.json").read_text(encoding="utf-8"))["name"] == "lead"
 
 
 def test_container(cli, module):

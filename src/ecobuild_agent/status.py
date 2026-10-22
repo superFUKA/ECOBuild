@@ -5,8 +5,10 @@
 - status.json：モデル・コンテキストの使用率・使用量の制限（5時間・週）・会話の ID（statusLine が受け取るもの）
 - replied.json：返答が終わった時刻と、最後の返答の文（Stop フック）
 - prompted.json：発言を受け取った時刻（UserPromptSubmit フック。返答の終わりより新しければ作業中）
-ECOBuild が書くもの：agent.json（エージェントの記録。agents）、workspace.json（どの作業空間か）、inbox/（エージェントに
+ECOBuild が書くもの：agent.json（エージェントの記録の写し。中から見るためだけ）、inbox/（エージェントに
 届けるもの。put・take）、
+係が信じるもの（記録 agent.json・作業空間 workspace.json・人の操作の頼み）は、コンテナにマウントしない別の置き場所
+（private：ECOBUILD_HOME/agents/records/<ID>）に置く（中のエージェントが書き換えて権限を上げられないように）。
 running.json（エージェントを動かしているこのPCのプロセス。止まっているかを見る・止める）。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
 ほかの端末には何も見えない）。コンテナにはその作業空間の置き場所（<コンテナの名前>）をマウントし（INSIDE）、中の
@@ -131,6 +133,16 @@ def place(name: str) -> Path:
     return _settings.home() / FOLDER / name
 
 
+RECORDS = Path("agents") / "records"   # ECOBUILD_HOME の下：係が信じる記録（コンテナにマウントしない）
+
+
+def private(agent_id: str) -> Path:
+    """エージェント（ID）の、係が信じるものの置き場所（ECOBUILD_HOME/agents/records/<ID>）：記録（agent.json）・作業空間
+    （workspace.json）・人の操作の頼み（requests/）。コンテナにはマウントしないので、中のエージェントは書き換えられない
+    （状態の置き場所 place の中はコンテナから書けるので、そこにあるものを係は信じない）。"""
+    return _settings.home() / RECORDS / agent_id
+
+
 def directory(agent_id: str) -> Path | None:
     """エージェント（ID）の置き場所を探す（なければ None）。"""
     root = _settings.home() / FOLDER
@@ -148,8 +160,14 @@ def create_directory(workspace_root: Path, agent_id: str) -> Path:
     folder = place(container.name(Path(workspace_root))) / agent_id
     folder.mkdir(parents=True, exist_ok=True)
     if workspace_of(folder) != Path(workspace_root):
-        _write(folder / WORKSPACE, {"root": str(Path(workspace_root))})
+        _record_workspace(agent_id, Path(workspace_root))
     return folder
+
+
+def _record_workspace(agent_id: str, root: Path) -> None:
+    trusted = private(agent_id)
+    trusted.mkdir(parents=True, exist_ok=True)
+    _write(trusted / WORKSPACE, {"root": str(Path(root))})
 
 
 def inside(agent_id: str) -> str:
@@ -164,7 +182,7 @@ def own_directory() -> Path | None:
     return Path(inside(agent_id)) if agent_id and os.environ.get(container.INSIDE) else None
 
 
-WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 serve が読む）
+WORKSPACE = "workspace.json"   # 信じる記録の置き場所（private）の中：どの作業空間のエージェントか（係 serve が読む）
 INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・子の知らせ）
 
 
@@ -177,13 +195,14 @@ def prepare(folder: Path | str, root: Path | None = None) -> Path:
         (folder / old).unlink(missing_ok=True)
     (folder / SCRIPT).write_text(REPORT, encoding="utf-8", newline="\n")
     if root is not None:
-        _write(folder / WORKSPACE, {"root": str(Path(root))})
+        _record_workspace(folder.name, Path(root))
     return folder
 
 
 def workspace_of(folder: Path) -> Path | None:
-    """置き場所が、どの作業空間のエージェントのものか（記録がなければ None：オペレーター等）。"""
-    data = read(Path(folder) / WORKSPACE)
+    """置き場所が、どの作業空間のエージェントのものか（記録がなければ None：オペレーター等）。置き場所の中のものは
+    コンテナから書き換えられるので、信じる記録の置き場所（private）から読む。"""
+    data = read(private(Path(folder).name) / WORKSPACE)
     return Path(data["root"]) if isinstance(data, dict) and data.get("root") else None
 
 

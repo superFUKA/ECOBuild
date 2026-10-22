@@ -39,6 +39,7 @@ AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置
 EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書き足す間のロック（git の <名前>.lock とは別の名前）
 GUIDE_FILE = "guide.md"       # エージェントの置き場所の中：起動のときに渡す文（--append-system-prompt-file）
 MCP_FILE = "mcp.json"         # エージェントの置き場所の中：エージェント専用の MCP サーバーの設定（--mcp-config）
+REGISTRATION_FILE = "registration.json"   # エージェントの置き場所の中：このPCで解決した登録（中の MCP サーバーが読む）
 # シェルの関所（ecobuild agent guard。中の ECOBuild）：シェルの ecobuild・gh・git の書き込みを止める（ecobuild_agent.guard）
 GUARD_HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "ecobuild agent guard"}]}]}}
 SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID（起動を頼んだ会話）
@@ -167,7 +168,7 @@ class AgentModule:
         self._ensure_container(progress)
         record = self._record(registration, task_branch, parent, kind, None)
         args = ["agent", "start", "--app", "--id", record.id, *(["--prompt", prompt] if prompt else [])]
-        doc = children.forward(record.folder / children.REQUESTS, {"args": [*args, "--json"], "cwd": "."},
+        doc = children.forward(children.human_requests(record.id), {"args": [*args, "--json"], "cwd": "."},
                                progress=progress)
         if not doc.get("ok"):
             error = doc.get("error") or {}
@@ -432,6 +433,10 @@ class AgentModule:
             (folder / GUIDE_FILE).write_text(self.agent_briefing(task, record), encoding="utf-8", newline="\n")
             command = (*command, "--append-system-prompt-file", f"{where}/{GUIDE_FILE}")
         if "--mcp-config" not in command:
+            if boxed:   # コンテナの中からはこのPCの登録が見えないので、このPCで解決した登録を写して渡す
+                (folder / REGISTRATION_FILE).write_text(
+                    json.dumps(registry.to_data(self._registration(record)), ensure_ascii=False, indent=1),
+                    encoding="utf-8", newline="\n")
             (folder / MCP_FILE).write_text(json.dumps(self.mcp_config(record, boxed), ensure_ascii=False, indent=1),
                                            encoding="utf-8", newline="\n")
             command = (*command, "--mcp-config", f"{where}/{MCP_FILE}", "--strict-mcp-config")
@@ -443,6 +448,8 @@ class AgentModule:
         workspace = container.workdir(self.root) if boxed else str(self.root)
         args = ["agent", "mcp", "--agent", record.id, "--registration", record.registration, "--kind", record.kind,
                 "--workspace", workspace]
+        if boxed:   # このPCで解決した登録（_briefed が置き場所に写す。中の ECOBUILD_HOME には登録がない）
+            args += ["--registration-file", f"{status.inside(record.id)}/{REGISTRATION_FILE}"]
         program, before = ("ecobuild", []) if boxed else (sys.executable, ["-m", "ecobuild_cli"])
         return {"mcpServers": {"ecobuild": {"type": "stdio", "command": program, "args": [*before, *args]}}}
 

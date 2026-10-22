@@ -15,6 +15,12 @@ test('子の操作は、子のエージェントの ID で ecobuild agent … �
   assert.strictEqual(team.operation('send', member), null);   // 知らない操作
 });
 
+test('モジュールの窓は、作業空間（.ecobuild/w/<名前>）の場所なら元の clone で開く', () => {
+  assert.strictEqual(team.moduleRoot('/w/calc/.ecobuild/w/12'), '/w/calc');
+  assert.strictEqual(team.moduleRoot('C:\\w\\calc\\.ecobuild\\w\\r12\\'), 'C:\\w\\calc');
+  assert.strictEqual(team.moduleRoot('/w/calc'), '/w/calc');
+});
+
 test('ID の分からない子は操作しない', async () => {
   assert.deepStrictEqual(await team.operate('stop', {name: '画面', path: '/w'}), {ok: false, error: '子のエージェントの ID が分かりません'});
 });

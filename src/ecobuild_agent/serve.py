@@ -6,7 +6,9 @@
     report_to_parent）。呼び手は頼みを書いた置き場所のエージェント（頼みの agent と違えば断る）。確かめ（直接の子だけ・
     起動してよい登録・子の数）もここで行う。
   - 人の操作（{"args", "cwd"}）：係が持つエージェントの起動・止める・起動し直す・引き取る・返す・閉じる
-    （agent start --app --id・stop・restart・takeover・handback・close）。
+    （agent start --app --id・stop・restart・takeover・handback・close）。これはこのPCだけの置き場所
+    （children.human_requests。コンテナにマウントしない）からだけ受ける：中のエージェントがまねて、ほかのエージェントを
+    止める・閉じる等をさせない。
 - 親への知らせ：子の返答が終わったら（replied.json）、親の受け箱に入れる（children.parent_notice。子タスクの子には、
   作業空間・GitHub を調べた事実と注意を添える：裏で行うので見回りは止まらない）。
 - 返答が終わったら、作業空間の型に手元をそろえさせる（project update。C++ では Visual Studio の構成。ほかの型は何もしない）。
@@ -125,9 +127,13 @@ class Serve:
         wake = self.apps.step() if self.apps is not None else []   # 前の係から引き継ぎ、終わったもの
         for folder in agent_status.folders():
             root = agent_status.workspace_of(folder)
+            human = children.human_requests(folder.name)
             if root is not None:
-                self._alive(folder)
-            self._requests(folder, root)
+                self._alive(folder / children.REQUESTS)
+                self._alive(human)
+            # 状態の置き場所（コンテナから書ける）からはツールの頼みだけ、人の操作はこのPCだけの置き場所から受ける
+            self._requests(folder, root, folder / children.REQUESTS, human=False)
+            self._requests(folder, root, human, human=True)
             if root is not None:
                 self._watch_reply(folder)
         for agent in wake:   # 返答の終わりを見てから起こす（起こすと置き場所を用意し直す）
@@ -202,9 +208,10 @@ class Serve:
         except OSError:
             pass
 
-    def _alive(self, folder: Path) -> None:
-        """頼みの置き場所に、係が動いている印（children.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の生死を見る）。"""
-        file = folder / children.REQUESTS / children.SERVE_BEAT
+    def _alive(self, inbox: Path) -> None:
+        """頼みの置き場所 inbox に、係が動いている印（children.SERVE_BEAT）を書く（BEAT_EVERY 秒ごと。頼む側が先に係の
+        生死を見る）。"""
+        file = inbox / children.SERVE_BEAT
         seen = agent_status.read(file)
         if isinstance(seen, dict) and isinstance(seen.get("at"), (int, float)) \
                 and time.time() - seen["at"] < children.BEAT_EVERY:
@@ -223,8 +230,9 @@ class Serve:
             self._report(file)
 
     # ---- 頼み -------------------------------------------------------------------------------------------
-    def _requests(self, folder: Path, root: Path | None) -> None:
-        inbox = folder / children.REQUESTS
+    def _requests(self, folder: Path, root: Path | None, inbox: Path, *, human: bool) -> None:
+        """inbox の頼みを拾う（folder：頼んだエージェントの状態の置き場所。仕事の順番もここごと）。human：人の操作を
+        受けてよい置き場所（このPCだけのもの）か。"""
         for file in sorted(inbox.glob("*.json")) if inbox.is_dir() else ():
             if "." in file.stem:   # 頼みは <id>.json だけ（結果 <id>.result.json 等は拾わない）
                 continue
@@ -237,9 +245,10 @@ class Serve:
             request = agent_status.read(taken)
             helper = isinstance(request, dict) and request.get("tool") == "children_start" \
                 and (request.get("arguments") or {}).get("kind") == children.HELPER
-            self._later(folder, lambda taken=taken: self._answer(inbox, taken, folder, root), parallel=helper)
+            self._later(folder, lambda taken=taken: self._answer(inbox, taken, folder, root, human=human),
+                        parallel=helper)
 
-    def _answer(self, inbox: Path, taken: Path, folder: Path, root: Path | None) -> None:
+    def _answer(self, inbox: Path, taken: Path, folder: Path, root: Path | None, *, human: bool = False) -> None:
         """拾った頼み1つを実行して、結果を書き戻す。"""
         request = agent_status.read(taken)
         report = inbox / f"{taken.stem}{children.PROGRESS}"
@@ -248,7 +257,8 @@ class Serve:
             self._report(report, done=True)
             return
         try:
-            doc = self.handle(root, request, progress=lambda line: self._report(report, line), folder=folder)
+            doc = self.handle(root, request, progress=lambda line: self._report(report, line), folder=folder,
+                              human=human)
         except Exception as error:   # 頼んだ側を待たせたままにしない
             doc = failed(f"係が頼みを実行できませんでした：{error}")
         result = inbox / f"{request['id']}.result.json"
@@ -263,11 +273,14 @@ class Serve:
         self._report(report, done=True)
 
     def handle(self, root: Path | None, request: dict, progress: Callable[[str], None] = lambda line: None, *,
-               folder: Path | None = None) -> dict:
+               folder: Path | None = None, human: bool = True) -> dict:
         """頼み1つを実行して、結果の JSON（{ok, result|error}）を返す。progress：途中経過。folder：頼みを書いた
-        エージェントの置き場所（ツールの呼び手）。"""
+        エージェントの置き場所（ツールの呼び手）。human：人の操作（args）を受けてよいか（コンテナから書ける置き場所の
+        頼みなら False：中のエージェントが人の操作をまねて、ほかのエージェントを止める・閉じる等をさせない）。"""
         if request.get("tool"):
             return self._tool(folder, request, progress)
+        if not human:
+            return failed("この置き場所からは、人の操作の頼みを受け付けません（ツールで頼んでください）。")
         args = [str(a) for a in request.get("args") or []]
         human = args[:1] == ["agent"] and len(args) > 1 and args[1] in HUMAN_COMMANDS \
             and (args[1] != "start" or "--app" in args)
@@ -316,7 +329,7 @@ class Serve:
         tool = str(request.get("tool") or "")
         try:
             caller = agents.load(folder.name) if folder is not None else None
-            if caller is None or (request.get("agent") and request["agent"] != caller.id):
+            if caller is None or request.get("agent") != caller.id:   # 名乗りは必須（自分の置き場所から頼む）
                 raise EcoBuildError(ErrorCode.AGENT_ERROR, "頼んだエージェントが分かりません（自分の置き場所から頼んでください）。")
             if not registry.allows_tool(children._registration(caller), tool):
                 raise EcoBuildError(ErrorCode.AGENT_ERROR, f"ツール {tool} は、このエージェントの登録で許されていません。")
@@ -404,6 +417,7 @@ class Serve:
         done = []
         try:
             self._stop_agent(child, progress)
+            children.stop_container(child.root, progress)   # 動いたままだとロックになり、finish・閉じるが作業空間を残す
             kept = children.archive(child)
             progress(f"#{number}（{child.name}）を取り込みます…")
             finished = plain(module.finish(number))
@@ -444,6 +458,7 @@ class Serve:
         kept = children.archive(record)
         result = None
         if own:
+            children.stop_container(record.root, progress)   # 動いたままだとロックになり閉じられない
             progress(f"「{record.name}」の作業空間を閉じています…")
             module = self._module(record.root)
             result = plain(type(module).close_workspace(record.root))

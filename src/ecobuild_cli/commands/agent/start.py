@@ -43,8 +43,14 @@ def _human_start(name: str, program: str) -> None:
     from ecobuild_agent import registry
     from ecobuild_agent.errors import ErrorCode
     if not name:
-        if "--resume" in program.split() or "-r" in program.split():
+        from ecobuild_agent import agents, resumed_session
+        session = resumed_session(tuple(program.split()), lambda: "")
+        if session and agents.by_session(session) is not None:   # 記録のある会話の続き：その記録の登録で起動する
             return
+        if session is not None:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                "続きから起動する会話にエージェントの記録がない（または会話を Claude Code の一覧で選ぶ）ので、"
+                                "登録を --as で指定してください。", hint=_startable_hint())
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "起動するエージェントの登録を --as で指定してください。",
                             hint=_startable_hint())
     if not registry.load(name).human_start:

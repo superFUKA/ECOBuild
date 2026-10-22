@@ -132,9 +132,18 @@ class Syncing:
             raise WorkError(ErrorCode.NO_STASH, "退避した変更はありません。")
         current = self.git.current_branch()
         carry = not self.git.is_linked_worktree()
+        if carry:
+            # 退避のメッセージにはブランチ名しかないので、ほかの作業ツリー（確認用の作業空間＝切り離された状態・人が作った
+            # 作業ツリー）で退避したかもしれないものは持ち込まない：切り離された状態のもの（ほかに作業ツリーがあるとき）と、
+            # 今ほかの作業ツリーが取り出しているブランチのもの
+            others = {branch for branch, path in self.git.checked_out_branches().items()
+                      if not _git.same_path(path, self.root)}
+            detached_elsewhere = len(self.git.worktrees()) > 1
         for entry in entries:
             source = _stash_branch(entry.message)
-            if source == current or (carry and (source is None or not wm.is_task_branch(source))):
+            if source == current or (carry and (
+                    not detached_elsewhere if source is None
+                    else not wm.is_task_branch(source) and source not in others)):
                 return entry.index
         source = _stash_branch(entries[0].message)
         if source is not None and wm.is_task_branch(source):

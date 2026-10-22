@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -171,13 +172,17 @@ def start(module, caller: agents.AgentRecord, *, registration: str, kind: str, b
           progress=lambda message: None) -> tuple[agents.AgentRecord, str]:
     """呼び手 caller の子を作る（起動はしない：係がアプリ用で起動する）。module：呼び手の作業空間の Module。
     (子の記録, 最初の発言) を返す。手伝いは同じ作業空間に記録だけ、子タスクは Issue と作業空間を作る。"""
-    found = check_start(caller, registration, kind, brief)
     title = " ".join(title.split())
     if kind == HELPER:
-        record = agents.create(registration=found.name, workspace=caller.root, kind=agents.HELPER, parent=caller.id,
-                               task=caller.task, name=title, model=found.model)
+        # 係は手伝いの起動を並べて行うので、子の数の確かめと記録を作るのを、呼び手ごとに1つずつ（上限・連番の名前を守る）
+        with _start_lock(caller.id):
+            found = check_start(caller, registration, kind, brief)
+            record = agents.create(registration=found.name, workspace=caller.root, kind=agents.HELPER, parent=caller.id,
+                                   task=caller.task, name=title, model=found.model)
         _write(record.folder / BRIEF_COPY, brief)
         return record, helper_prompt(record, brief)
+    with _start_lock(caller.id):
+        found = check_start(caller, registration, kind, brief)
     from ecowork import model as _work
     task_branch = module.require_task_branch("子タスクの作成")
     subject = title or _subject(brief) or found.name
@@ -200,6 +205,16 @@ def start(module, caller: agents.AgentRecord, *, registration: str, kind: str, b
                            task={"number": issue.number, "branch": branch}, name=title, model=found.model)
     _write(record.folder / BRIEF_COPY, brief)
     return record, found.first_prompt or FIRST_PROMPT
+
+
+_start_locks: dict[str, threading.Lock] = {}
+_start_locks_guard = threading.Lock()
+
+
+def _start_lock(agent_id: str) -> threading.Lock:
+    """呼び手 agent_id の子を作るときのロック（係は1つのプロセスなので、スレッドのロックで足りる）。"""
+    with _start_locks_guard:
+        return _start_locks.setdefault(agent_id, threading.Lock())
 
 
 def helper_prompt(record: agents.AgentRecord, brief: str, *, restarted: bool = False) -> str:
@@ -231,6 +246,18 @@ def _close_task(module, number: int, subject: str, error: Exception) -> str:
     except Exception as problem:
         return _message(problem)
     return ""
+
+
+def stop_container(root: Path, progress=lambda message: None) -> bool:
+    """子タスクの作業空間 root のコンテナを止める（取り込む・閉じる前に。中のエージェントを止めても、コンテナは
+    sleep infinity で動き続け、動いている間は作業空間のロックになる）。Docker が使えなければ何もしない。止めたか。"""
+    try:
+        if not container.enabled(root):
+            return False
+        progress("作業空間のコンテナを止めています…")
+        return container.stop(root).changed
+    except EcoBuildError:
+        return False
 
 
 def _inherit_container(parent: Path, child: Path) -> None:
@@ -830,9 +857,13 @@ def forward(folder: Path, request: dict, *, timeout: float = REQUEST_TIMEOUT, wa
                 wait(0.5)
                 continue
             result.unlink(missing_ok=True)
-            if not (folder.parent / agents.RECORD).is_file() and agents.is_id(folder.parent.name):
+            if agents.is_id(folder.parent.name) and not os.environ.get(container.INSIDE) \
+                    and not (agent_status.private(folder.parent.name) / agents.RECORD).is_file():
                 import shutil   # 頼みでそのエージェントを閉じた（記録が消えた）：結果のために残った置き場所も消す
                 shutil.rmtree(folder.parent, ignore_errors=True)
+                left = agent_status.directory(folder.parent.name)   # 止めた後に書かれた様子（状態の置き場所）も
+                if left is not None:
+                    shutil.rmtree(left, ignore_errors=True)
             return doc
         if request_file.exists() and time.monotonic() - started > 15:   # 15秒たっても拾われない：係がいない
             request_file.unlink(missing_ok=True)
@@ -842,9 +873,16 @@ def forward(folder: Path, request: dict, *, timeout: float = REQUEST_TIMEOUT, wa
     raise EcoBuildError(ErrorCode.AGENT_ERROR, "係の結果を待ちきれませんでした。", hint="GUI の窓・係の様子を確かめてください。")
 
 
+def human_requests(agent_id: str) -> Path:
+    """人の操作の頼みの置き場所（このPCだけ。status.private の中）。コンテナにマウントする状態の置き場所の頼み
+    （requests_folder）は、中のエージェントが書けるので、係はそこからはツールの頼みしか受けない。"""
+    return agent_status.private(agent_id) / REQUESTS
+
+
 def ask_serve(record: agents.AgentRecord, args: list[str], progress=lambda message: None) -> dict:
-    """人の操作（agent restart・takeover 等）を、エージェント record の置き場所から係に頼み、結果を返す（失敗は誤り）。"""
-    doc = forward(record.folder / REQUESTS, {"args": [*args, *([] if "--json" in args else ["--json"])], "cwd": "."},
+    """人の操作（agent restart・takeover 等）を、エージェント record の人の操作の頼みの置き場所から係に頼み、結果を返す
+    （失敗は誤り）。"""
+    doc = forward(human_requests(record.id), {"args": [*args, *([] if "--json" in args else ["--json"])], "cwd": "."},
                   progress=progress)
     if not doc.get("ok"):
         error = doc.get("error") or {}

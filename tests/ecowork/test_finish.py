@@ -270,6 +270,54 @@ def test_own_submission_under_review_removes_the_review_workspace_when_approve_f
     assert repository.git.current_branch() == "main"
 
 
+@pytest.mark.needs_git_2_48
+def test_a_review_workspace_that_cannot_be_removed_does_not_stop_approve_or_reject(repository, tmp_path, monkeypatch):
+    """確認用の作業空間を消せなくても（他のプログラムが使っている等。わけの種類は問わない）、判定を出した後は止めずに
+    完了・差し戻しまで進め、残したことを notices で知らせる。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
+    repository.git.switch("main")
+    by_someone_else(repository, task.number)
+    repository.review_task(task.number, tmp_path / "r1")
+
+    def in_use(*args, **options):
+        raise WorkError("in_use", "他のプログラムが使っているため消せません。")
+    monkeypatch.setattr(repository, "_end_review_at", in_use)
+    rejected = repository.reject(task.number, "直して")
+    assert rejected.review_removed is None and any("確認用の作業空間" in n for n in repository.notices)
+    task_branch.submit()
+    by_someone_else(repository, task.number)
+    result = repository.approve(task.number, "よいです")
+    assert result.approved and result.closed_issue == task.number and (tmp_path / "r1").exists()
+
+
+@pytest.mark.needs_git_2_48
+def test_finish_tidies_a_workspace_whose_folder_was_removed_by_hand(repository, tmp_path):
+    """作業空間のフォルダーを手で消しても（ロック付きの記録が残る）、finish は記録を片付けて最後まで終える。"""
+    import shutil
+    task = repository.create_task("t")
+    repository.start_task_in(task.number, tmp_path / "w5", name="x")
+    inside = Repository(tmp_path / "w5", github=repository.github)
+    recorded(inside.current_task_branch(), message="a")
+    inside.current_task_branch().submit()
+    shutil.rmtree(tmp_path / "w5")
+    result = repository.finish(task.number)
+    assert result.closed_issue == task.number
+    assert len(repository.git.worktrees()) == 1
+    assert not any(b.startswith(f"task/{task.number}-") for b in repository.git.local_branches())
+
+
+@pytest.mark.needs_git_2_48
+def test_starting_again_after_the_workspace_folder_was_removed(repository, tmp_path):
+    import shutil
+    task = repository.create_task("t")
+    repository.start_task_in(task.number, tmp_path / "w6", name="x")
+    shutil.rmtree(tmp_path / "w6")
+    repository.start_task_in(task.number, tmp_path / "w6")
+    assert (tmp_path / "w6").is_dir()
+
+
 def test_reject_and_resubmit(repository):
     task, task_branch = started(repository)
     recorded(task_branch)

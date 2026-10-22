@@ -1020,6 +1020,12 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
             # 子タスクの作業で作られた親のタスクブランチなど、担当者を決めずにできたタスクブランチもあるので、ここでも担当者にする
             if not task.assignees:
                 self.github.edit_issue(self.root, task.number, add_assignees=("@me",))
+            if self.git.get_config(wm.base_key(branch)) is None:
+                # 前の task start が作成元を記録する前に止まった（共有の設定の書き込みの取り合い等）：記録し直す
+                recorded = (self._recorded_base(task.number, branch) or self._parent_task_branch(task.number)
+                            or self.default_base)
+                self.git.set_config(wm.base_key(branch), recorded)
+                self._record_base(task.number, recorded, branch=branch)
             return branch
         # 手元にないタスクブランチ：GitHubにあればそこから再開し、作成元も記録したものにする。
         remote = branch is not None and self.git.has_remote_branch(branch)

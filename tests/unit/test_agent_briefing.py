@@ -4,6 +4,7 @@ import json
 import subprocess
 from types import SimpleNamespace
 
+from ecobuild_agent import registry
 from ecobuild_agent import AGENT_AREA, status
 from ecobuild_bundle import Module
 from ecowork.git import Git
@@ -30,7 +31,9 @@ def test_claude_gets_the_briefing_and_the_tools_as_files(tmp_path):
     record = SimpleNamespace(id="a-0123456789", registration="worker", kind="owner")
     stub = SimpleNamespace(prepare_agent_area=lambda: prepared.append(True),
                            agent_briefing=lambda task, record: f"使い方（#{task.number}・{record.id}）",
-                           mcp_config=lambda record, boxed: {"mcpServers": {"ecobuild": {"boxed": boxed}}})
+                           mcp_config=lambda record, boxed: {"mcpServers": {"ecobuild": {"boxed": boxed}}},
+                           _registration=lambda record: registry.Registration(name="worker", title="作業", document="",
+                                                                               tools=("task_*",)))
     task = SimpleNamespace(number=12, branch="task/12-log")
     command = Module._briefed(stub, ("claude",), tmp_path, False, task, record)
     here = tmp_path.as_posix()
@@ -40,6 +43,7 @@ def test_claude_gets_the_briefing_and_the_tools_as_files(tmp_path):
     assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8")) == {"mcpServers": {"ecobuild": {"boxed": False}}}
     inside = Module._briefed(stub, ("claude",), tmp_path, True, task, record)       # コンテナの中から見た、自分の置き場所
     assert inside[2] == f"{status.INSIDE}/a-0123456789/guide.md" and inside[4] == f"{status.INSIDE}/a-0123456789/mcp.json"
+    assert registry.from_file(tmp_path / "registration.json").tools == ("task_*",)   # このPCで解決した登録の写し
     assert Module._briefed(stub, ("codex",), tmp_path, False, task, record) == ("codex",)   # Claude Code でなければ何もしない
 
 
@@ -49,6 +53,7 @@ def test_the_mcp_server_is_fixed_to_the_agent(tmp_path):
     stub = SimpleNamespace(root=tmp_path / "plain")
     server = Module.mcp_config(stub, record)["mcpServers"]["ecobuild"]
     assert server["command"] == "ecobuild" and server["args"] == [
-        "agent", "mcp", "--agent", "a-0123456789", "--registration", "worker", "--kind", "helper", "--workspace", "/work"]
+        "agent", "mcp", "--agent", "a-0123456789", "--registration", "worker", "--kind", "helper", "--workspace", "/work",
+        "--registration-file", f"{status.INSIDE}/a-0123456789/registration.json"]   # 中には このPCの登録がない
     outside = Module.mcp_config(stub, record, boxed=False)["mcpServers"]["ecobuild"]
     assert outside["args"][:2] == ["-m", "ecobuild_cli"] and outside["args"][-1] == str(tmp_path / "plain")

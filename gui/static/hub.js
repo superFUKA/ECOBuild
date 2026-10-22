@@ -502,12 +502,14 @@ async function editRegistration(name) {
     ], ok: '保存',
     submit: async v => {
       const args = ['agent', 'registry', 'set', r.name];
+      // the checks come back in the order of the options, so compare them as sets (not as lists)
+      const sameSet = (a, b) => { const x = new Set(a.filter(Boolean)), y = new Set(b.filter(Boolean)); return x.size === y.size && [...x].every(n => y.has(n)); };
       if (v.title !== r.title) args.push('--title', v.title);
       if (v.model !== r.model) args.push('--model', v.model);
       if (v.human_start !== r.human_start) args.push(v.human_start ? '--human-start' : '--no-human-start');
-      if (listArg(v.children) !== listArg(r.children)) args.push('--children', listArg(v.children));
+      if (!sameSet(v.children, r.children)) args.push('--children', listArg(v.children));
       if (Number(v.max_children) !== r.max_children) args.push('--max-children', String(Number(v.max_children) || 0));
-      if (listArg(v.tools) !== listArg(r.tools)) args.push('--tools', listArg(v.tools));
+      if (!sameSet(v.tools, r.tools)) args.push('--tools', listArg(v.tools));
       if (v.first_prompt !== (r.first_prompt || '').trim()) args.push('--first-prompt', v.first_prompt);
       const document = v.document.trim() !== r.document.trim();
       if (document) args.push('--document', '-');

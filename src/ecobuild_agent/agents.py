@@ -1,7 +1,9 @@
 """エージェントの記録：起動したエージェント1人ごとの ID・登録・親・持ち主か手伝いか・タスク・作業空間・会話。
 
 1つの作業空間に、タスクの持ち主と手伝いが何人もいる。状態の置き場所（status）はエージェントごとに分け
-（ECOBUILD_HOME/agents/status/<コンテナの名前>/<ID>/）、その中の agent.json に記録を持つ。
+（ECOBUILD_HOME/agents/status/<コンテナの名前>/<ID>/）、記録（agent.json）はコンテナにマウントしない所
+（status.private：ECOBUILD_HOME/agents/records/<ID>/）に持つ：係は中のエージェントが書き換えたものを信じない。
+状態の置き場所にも同じものを写すが、それは中から見るためだけ（読まない）。
 - ID は a-<16進の10文字>。表示名は別に持つ（登録の名前か、子なら <登録名>-<連番>）。
 - 親子は記録で持つ（作業空間は入れ子にしない）。直接の子は「親 = 自分」の記録。
 - 続きからの起動は、会話の ID（session）で記録を引く。
@@ -17,12 +19,13 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
+from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
 
 from . import status
 from .errors import ErrorCode
 
-RECORD = "agent.json"     # 状態の置き場所の中：エージェントの記録
+RECORD = "agent.json"     # 信じる記録の置き場所（status.private）の中：エージェントの記録
 ID_PREFIX = "a-"
 OWNER, HELPER = "owner", "helper"   # タスクの持ち主・手伝い（親の作業空間を一緒に使い、コミット・提出しない）
 KINDS = (OWNER, HELPER)
@@ -83,15 +86,14 @@ def create(*, registration: str, workspace: Path, kind: str = OWNER, parent: str
     record = AgentRecord(agent_id, name, registration, parent or None, kind,
                          dict(task) if task else None, str(Path(workspace)), model, session, owner_session,
                          report_only, time.time())
-    folder = status.create_directory(Path(workspace), agent_id)
-    _save(folder, record)
+    status.create_directory(Path(workspace), agent_id)
+    _save(record)
     return record
 
 
 def load(agent_id: str) -> AgentRecord:
     """ID のエージェントの記録（なければ誤り）。"""
-    folder = status.directory(agent_id) if is_id(agent_id) else None
-    found = _read(folder) if folder is not None else None
+    found = _read(agent_id) if is_id(agent_id) else None
     if found is None:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"エージェント {agent_id} はありません。",
                             hint="エージェントの ID は agent status で見られます（a- で始まります）。")
@@ -101,13 +103,17 @@ def load(agent_id: str) -> AgentRecord:
 def update(agent_id: str, **changes) -> AgentRecord:
     """記録の項目を変えて書き直す（session 等）。"""
     record = replace(load(agent_id), **changes)
-    _save(status.directory(agent_id), record)
+    _save(record)
     return record
 
 
 def all_records() -> list[AgentRecord]:
     """このPCのエージェントの記録すべて（起動した順）。"""
-    found = [record for folder in status.folders() if (record := _read(folder)) is not None]
+    try:
+        names = [p.name for p in (_settings.home() / status.RECORDS).glob(status.ID_GLOB) if p.is_dir()]
+    except OSError:
+        names = []
+    found = [record for name in names if (record := _read(name)) is not None and status.directory(name) is not None]
     return sorted(found, key=lambda r: (r.started_at, r.id))
 
 
@@ -131,9 +137,12 @@ def in_workspace(root: Path) -> list[AgentRecord]:
 
 def forget(agent_id: str) -> None:
     """記録と置き場所を消す（閉じた子・片付け）。"""
-    folder = status.directory(agent_id) if is_id(agent_id) else None
+    if not is_id(agent_id):
+        return
+    folder = status.directory(agent_id)
     if folder is not None:
         shutil.rmtree(folder, ignore_errors=True)
+    shutil.rmtree(status.private(agent_id), ignore_errors=True)
 
 
 def to_data(record: AgentRecord) -> dict:
@@ -147,13 +156,18 @@ def _key(path) -> str:
         return os.path.normcase(str(Path(path)))
 
 
-def _save(folder: Path, record: AgentRecord) -> None:
-    status._write(folder / RECORD, asdict(record))
+def _save(record: AgentRecord) -> None:
+    trusted = status.private(record.id)
+    trusted.mkdir(parents=True, exist_ok=True)
+    status._write(trusted / RECORD, asdict(record))
+    folder = status.directory(record.id)
+    if folder is not None:   # 中のエージェントが自分の様子を見る（agent status）ための写し。係は読まない
+        status._write(folder / RECORD, asdict(record))
 
 
-def _read(folder: Path) -> AgentRecord | None:
-    data = status.read(Path(folder) / RECORD)
-    if not isinstance(data, dict) or not is_id(str(data.get("id") or "")):
+def _read(agent_id: str) -> AgentRecord | None:
+    data = status.read(status.private(agent_id) / RECORD)
+    if not isinstance(data, dict) or str(data.get("id") or "") != agent_id:
         return None
     try:
         task = data.get("task") if isinstance(data.get("task"), dict) else None

@@ -40,6 +40,7 @@ def test_the_facilitator_has_its_own_workspace_without_a_task(module, tmp_path):
     assert container.enabled(root)                                                  # コンテナ必須
     assert team.is_module_place(root) and team.role_of(root) == team.LEAD
     assert not any(workspaces.same(item.path, root) for item in workspaces.recorded())   # 人の作業空間の一覧に出さない
+    assert workspaces.record(root) is False and workspaces.own(root)                 # そこで ecobuild を使っても（ECOBUILD_HOME の中）
     assert place.repository.git.working_tree().untracked == ()                      # 印は .ecobuild/ai（除外）の中
     assert code_of(lambda: team.role_of(root, team.WORKER)) == ErrorCode.INVALID_ARGUMENT
 

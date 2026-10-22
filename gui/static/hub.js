@@ -101,6 +101,9 @@ const pathKey = p => p.replaceAll('\\', '/').toLowerCase();
 const baseName = p => p.split(/[\\/]/).filter(Boolean).pop() || p;
 // 所有者/名前 when the origin is on GitHub, otherwise the name in the URL (matched by name: sameRepository).
 const cloneRepository = c => c.repository || (c.url ? baseName(c.url).replace(/\.git$/, '') : '');
+// The module's name: the GitHub repository's name (without its owner); '' for a clone of a local folder (its folder's
+// name is shown: not mistaken for the module it was cloned from).
+const repositoryName = c => baseName(c.repository || '');
 async function loadModules() {
   if (!$('module-list')) return;   // after "GUIを終了"
   const [doc, saved] = await Promise.all([ECO.query(null, ['workspace', 'list'], fresh => { clones = fresh.result; renderModules(); }), ECO.call('modules/order', {}).catch(() => [])]);
@@ -112,14 +115,18 @@ async function loadModules() {
 function renderModules() {
   if (!$('module-list') || !clonesLoaded) return;
   const rank = m => { const i = order.indexOf(pathKey(m.path)); return i < 0 ? order.length : i; };
-  // One row per module. Of its workspaces on this PC: the one already in the list (order), else one not on a task branch.
-  const score = c => (order.includes(pathKey(c.path)) ? 0 : 2) + (c.task == null ? 0 : 1), chosen = new Map();
+  // One row per module. Of its workspaces on this PC: the one already in the list (order), else the original clone (not
+  // inside another's .ecobuild/ — an agent's —, then the folder named as the repository, not ECOBuild-2), then one not on
+  // a task branch; the first in the list when still even. The card shows the module's name, not the folder's.
+  const original = c => !pathKey(c.path).includes('/.ecobuild/') ? 0 : 4;
+  const named = c => c.repository && baseName(c.path).toLowerCase() === repositoryName(c).toLowerCase() ? 0 : 2;
+  const score = c => (order.includes(pathKey(c.path)) ? 0 : 8) + original(c) + named(c) + (c.task == null ? 0 : 1), chosen = new Map();
   for (const c of clones) {
     const id = (cloneRepository(c) || pathKey(c.path)).toLowerCase(), held = chosen.get(id);
     if (!held || score(c) < score(held)) chosen.set(id, c);
   }
   modules = [...chosen.values()]
-    .map(c => ({path: c.path, name: baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url,
+    .map(c => ({path: c.path, name: repositoryName(c) || baseName(c.path), exists: c.exists, repository: cloneRepository(c), notClone: c.exists && !c.url,
       type: c.type || (cloneRepository(c) && githubEntry({repository: cloneRepository(c)})?.type) || ''}))
     .filter(m => !githubEntry(m)?.archived)
     .map((m, i) => [m, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([m]) => m);

@@ -60,6 +60,34 @@ def test_doctor_reports_missing_tools(monkeypatch):
     assert setup.done == () and any("Git.Git" in c or "git" in c for c in setup.commands)
 
 
+def test_doctor_requires_a_new_enough_git(monkeypatch):
+    """git は 2.48 以上が要る（作業空間を相対パスの worktree で記録する）。古ければ NG で、Windows では winget upgrade。"""
+    monkeypatch.setattr(tooling.shutil, "which", lambda name: "found")
+    monkeypatch.setattr(tooling, "_run", lambda args: tooling._process.Completed(tuple(args), 0, "", ""))
+    monkeypatch.setattr(tooling, "_version", lambda tool, *args: f"{tool} version 2.45.1.windows.1")
+    monkeypatch.setattr(tooling, "git_version", lambda executable="git": (2, 45, 1))
+    old = {i.id: i for i in tooling.doctor().items}["git"]
+    assert not old.ok and old.required and "2.48 以上が要ります" in old.detail and old.fix == "install"
+    if os.name == "nt":
+        assert old.install == tooling.UPGRADE_GIT and ("git", list(tooling.UPGRADE_GIT)) in tooling.install_commands(
+            tooling.DoctorReport((old,)))
+    monkeypatch.setattr(tooling, "git_version", lambda executable="git": (2, 48, 0))
+    new = {i.id: i for i in tooling.doctor().items}["git"]
+    assert new.ok and new.detail == "git version 2.45.1.windows.1" and new.install == ()
+
+
+def test_git_version_reads_the_version(monkeypatch):
+    from ecowork import git as ecowork_git
+    answer = {"text": "git version 2.45.1.windows.1\n", "code": 0}
+    monkeypatch.setattr(ecowork_git._process, "run", lambda args, check=False: ecowork_git._process.Completed(
+        tuple(args), answer["code"], answer["text"], ""))
+    assert ecowork_git.git_version() == (2, 45, 1) and ecowork_git.git_version() < ecowork_git.MINIMUM_VERSION
+    answer["text"] = "git version 2.48.0\n"
+    assert ecowork_git.git_version() >= ecowork_git.MINIMUM_VERSION
+    answer["code"] = 1
+    assert ecowork_git.git_version() == (0, 0, 0)
+
+
 class ToolType(ModuleType):
     """ツールを使う型（試験用）：診断の項目・導入コマンド・設定の項目を本体に足す。"""
     name = "tool"

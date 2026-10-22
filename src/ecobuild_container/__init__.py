@@ -1,7 +1,9 @@
 """拡張：作業空間をコンテナにする（このPCで、作業空間ごとに選ぶ）。Docker（Windows は WSL の中の Docker Engine）を使う。
 
 選択はその作業空間の ecobuild.local.toml（コミットしない）の container に持つ。フォルダを動かしても選択はついてくる。
-ファイルは今までどおりこのPC（Windows 等）に置き、コンテナにはその作業空間のフォルダだけを /work として見せる。
+ファイルは今までどおりこのPC（Windows 等）に置き、コンテナにはその作業空間のフォルダだけを見せる（layout）：
+前からの clone は /work、元の clone の worktree（.ecobuild/w/<名前>）は元の .git と自分の作業空間だけを、このPCと同じ
+並びで /repo の下に（相対パスの記録が中でもたどれる。元の clone の作業ツリー・兄弟の作業空間は見せない）。
 コンテナは作業空間ごとに1つ（名前は作業空間の場所から決まる）。root ではなく一般ユーザー（uid 1000）で動かす。
 
 コンテナの元（イメージ）はモジュールごとに2段で作る：
@@ -43,6 +45,7 @@ from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.errors import ErrorCode as _ErrorCode
 from ecobuild.results import CheckItem, CheckReport
+from ecowork.git import MINIMUM_VERSION
 from ecowork.repository import ACCOUNT_KEY
 
 from . import docker
@@ -62,12 +65,14 @@ DOCKERFILE = f"{DIRECTORY}/Dockerfile"
 IMAGE_PREFIX = "ecobuild-"      # ECOBuild が作るイメージの名前の頭（ecobuild-<モジュール>：ECOBuild の層まで）
 ENVIRONMENT_PREFIX = "ecobuild-env-"   # モジュールの環境のイメージ（ecobuild-env-<モジュール>）
 SOURCE = ("https://github.com/superFUKA/ECOBuild", "feature/mvp")   # 中に入れる ECOBuild（使う側が版を渡さなければ）
-WORKDIR = "/work"
+WORKDIR = "/work"               # 中の作業空間の場所（前からの clone。worktree の作業空間は workdir(root)）
+REPOSITORY = "/repo"            # worktree の作業空間：元の clone に当たる中の場所（.git と作業空間をこの下に同じ並びで付ける）
 USER = "1000:1000"
 LABEL = "ecobuild.workspace"    # コンテナに付けるラベル：作業空間の場所
 VERSION_LABEL = "ecobuild.container"
-VERSION = "6"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ。
-                                # 6：エージェントの設定をコンテナごとに・作業空間を一般ユーザーの持ち物として付ける）
+VERSION = "7"                   # コンテナの形の版（2：エージェントのボリューム。3：エージェントの状態の置き場所。4：マイク。5：型のキャッシュ。
+                                # 6：エージェントの設定をコンテナごとに・作業空間を一般ユーザーの持ち物として付ける。
+                                # 7：worktree：元の .git と作業空間を同じ並びで付ける）
 HOME = "/home/ubuntu"
 INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
 # 端末の色：docker exec -t は TERM=xterm（16色）にするので、色が寄ってしまう
@@ -195,10 +200,12 @@ class ContainerModule:
     @classmethod
     def close_workspace(cls, path, **options):
         """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。
-        中の作業空間（作業役 等。一緒に消える）のコンテナも。"""
+        前からの clone なら、中の作業空間（作業役 等。一緒に消える）のコンテナも（worktree の作業空間は直下に並び、
+        子は中にいない）。"""
         try:   # 閉じると ecobuild.local.toml も消えるので、先に読む
             root = _workspaces.module_root(Path(path))
-            chosen = [place for place in (root, *_workspaces.inside(root)) if enabled(place)]
+            nested = () if _linked(root) else _workspaces.inside(root)
+            chosen = [place for place in (root, *nested) if enabled(place)]
         except WorkError:
             chosen = []
         closed = super().close_workspace(path, **options)
@@ -282,9 +289,68 @@ def enabled(root: Path) -> bool:
 
 
 def name(root: Path) -> str:
-    """作業空間のコンテナの名前：ecobuild-<フォルダ名>-<場所のハッシュ>（同じ名前のフォルダが別の場所にあっても重ならない）。"""
-    folder = re.sub(r"[^a-z0-9_.-]+", "-", Path(root).name.lower()).strip("-.") or "workspace"
+    """作業空間のコンテナの名前：ecobuild-<フォルダ名>-<場所のハッシュ>（同じ名前のフォルダが別の場所にあっても重ならない）。
+    元の clone の .ecobuild/w/<名前> なら、フォルダ名は <元のフォルダ名>-<名前>（番号だけでは何のものか分からない）。"""
+    root = Path(root)
+    shown = f"{root.parents[2].name}-{root.name}" if _in_workspaces(root) else root.name
+    folder = re.sub(r"[^a-z0-9_.-]+", "-", shown.lower()).strip("-.") or "workspace"
     return f"ecobuild-{folder[:40]}-{hashlib.sha1(_workspaces.key(root).encode()).hexdigest()[:8]}"
+
+
+def _in_workspaces(root: Path) -> bool:
+    """元の clone の作業空間の置き場所（.ecobuild/w/<名前>）にあるか。"""
+    return len(root.parents) > 2 and root.parent.name == "w" and root.parent.parent.name == _config.DIRECTORY
+
+
+@dataclass(frozen=True)
+class Layout:
+    """作業空間のコンテナの付け方。workdir：中の作業空間の場所。mounts：(このPCの場所, 中の場所) の並び。"""
+    workdir: str
+    mounts: tuple[tuple[Path, str], ...]
+
+
+def layout(root: Path) -> Layout:
+    """作業空間 root をコンテナにどう付けるか。元の clone の worktree（linked worktree）なら、元の共通の .git を
+    /repo/.git に、作業空間を /repo/<元からの相対> に付け、中でもこのPCと同じ並びにする（git 2.48 の相対パスの記録が
+    どちら向きにもたどれる）。元の clone の作業ツリーと兄弟の作業空間は付けない。それ以外（前からの clone）は
+    今までどおり root を /work に。"""
+    root = Path(root)
+    common = _common_directory(root)
+    if common is not None:
+        try:
+            relative = root.resolve().relative_to(common.parent.resolve())
+        except ValueError:   # 元の clone の外の worktree：並びを保てないので今までどおり
+            relative = None
+        if relative is not None and relative.parts:
+            inner = "/".join([REPOSITORY, *relative.parts])
+            return Layout(inner, ((common, f"{REPOSITORY}/.git"), (root, inner)))
+    return Layout(WORKDIR, ((root, WORKDIR),))
+
+
+def workdir(root: Path) -> str:
+    """作業空間 root のコンテナの中の場所（中で動かすものの既定の場所。WORKDIR の代わりに使う）。"""
+    return layout(root).workdir
+
+
+def _linked(root: Path) -> bool:
+    return _common_directory(Path(root)) is not None
+
+
+def _common_directory(root: Path) -> Path | None:
+    """root が元の clone の linked worktree なら、共通の .git（このPCの絶対パス）。そうでなければ None。
+    .git がフォルダ（前からの clone）なら git を呼ばない。"""
+    if not (root / ".git").is_file():
+        return None
+    try:
+        done = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-dir",
+                               "--git-common-dir"], capture_output=True, text=True, encoding="utf-8",
+                              stdin=subprocess.DEVNULL)
+    except OSError:
+        return None
+    lines = done.stdout.strip().splitlines() if done.returncode == 0 else []
+    if len(lines) != 2 or Path(lines[0]) == Path(lines[1]):   # submodule 等（共通の .git が自分）
+        return None
+    return Path(lines[1])
 
 
 def layer(base: str, source: tuple[str, str] = SOURCE) -> str:
@@ -302,13 +368,15 @@ def layer(base: str, source: tuple[str, str] = SOURCE) -> str:
         f"# ECOBuild が作る、作業空間のコンテナのイメージ（モジュールの環境 {base} の上に ECOBuild を重ねる）",
         f"FROM {base}",
         "USER root",
+        GIT_SOURCE,
         "RUN apt-get update \\",
         f" && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends {packages} \\",
         " && rm -rf /var/lib/apt/lists/* \\",
+        f" && {GIT_VERSION_CHECK} \\",
         " && (id -u ubuntu >/dev/null 2>&1 || useradd --create-home --uid 1000 --shell /bin/bash ubuntu)",   # Ubuntu 以外の元
         "USER ubuntu",
         f"ENV {environment}",
-        f"RUN git config --global --add safe.directory {WORKDIR} \\",   # このPCのファイルは別の持ち主に見える
+        "RUN git config --global --add safe.directory '*' \\",   # このPCのファイルは別の持ち主に見える（場所は作業空間ごと）
         " && git config --global credential.https://github.com.helper '!gh auth git-credential'",   # GH_TOKEN で push
         *install,
         "RUN curl -LsSf https://astral.sh/uv/install.sh | sh \\",
@@ -316,6 +384,25 @@ def layer(base: str, source: tuple[str, str] = SOURCE) -> str:
         f"WORKDIR {WORKDIR}",
         "",
     ])
+
+
+# イメージの git は 2.48 以上（作業空間の worktree を相対パスで記録する。古い git は元の clone ごと開けない）。Ubuntu の
+# 標準の git は足りない（24.04 は 2.43）ので、Ubuntu なら git-core の PPA から入れる。鍵は Launchpad が示す PPA の署名の
+# 鍵（指紋 F911AB18…6217。PPA の InRelease がこの鍵で署名されているのを確かめた）。Ubuntu 以外の元は、版の確認で
+# 止まる（分かる誤り）
+GIT_CORE_KEY = "F911AB184317630C59970973E363C90F8F1B6217"
+GIT_SOURCE = "\n".join([
+    'RUN . /etc/os-release && if [ "$ID" = ubuntu ]; then apt-get update \\',
+    " && DEBIAN_FRONTEND=noninteractive apt-get install --yes --no-install-recommends ca-certificates curl \\",
+    " && install -d /etc/apt/keyrings \\",
+    f" && curl -fsSL 'https://keyserver.ubuntu.com/pks/lookup?op=get&options=mr&search=0x{GIT_CORE_KEY}'"
+    " -o /etc/apt/keyrings/git-core.asc \\",
+    ' && echo "deb [signed-by=/etc/apt/keyrings/git-core.asc] https://ppa.launchpadcontent.net/git-core/ppa/ubuntu'
+    ' $VERSION_CODENAME main" > /etc/apt/sources.list.d/git-core.list; fi',
+])
+GIT_VERSION_CHECK = ("git version | awk '{split($3, v, \".\"); if (!(v[1] > %d || (v[1] == %d && v[2] >= %d))) "
+                     "{print \"git %d.%d 以上が要ります（\" $3 \"）\" > \"/dev/stderr\"; exit 1}}'"
+                     % (MINIMUM_VERSION[0], MINIMUM_VERSION[0], MINIMUM_VERSION[1], MINIMUM_VERSION[0], MINIMUM_VERSION[1]))
 
 
 def recipe(root: Path, source: tuple[str, str] = SOURCE) -> Recipe:
@@ -420,14 +507,19 @@ def align_line_endings(root: Path) -> list[str]:
 def prepare_owned_mount(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> str:
     """作業空間 root のドライブを USER の持ち物として付け（付いていなければ）、docker に渡す場所を返す。付けられなければ
     WSL のいつもの場所（chmod はできない）。WSL でなければそのまま。"""
+    return mount_path(root, prefix, owned=own_drive(root, runner, prefix))
+
+
+def own_drive(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> bool:
+    """root のドライブを USER の持ち物として付ける（付いていなければ）。付いたら True（mount_path の owned）。
+    WSL でなければ何もしない（False）。付け直す単位はドライブなので、同じドライブの場所（元の .git と作業空間）は1回で済む。"""
     if prefix[:1] != ("wsl",):
-        return mount_path(root, prefix)
+        return False
     drive = PureWindowsPath(root).drive.rstrip(":")
     place = f"{OWNED_MOUNTS}/{drive.lower()}"
     script = (f"mountpoint -q {place} || {{ mkdir -p {place} && "
               f"mount -t drvfs {drive.upper()}: {place} -o uid={USER_ID},gid={USER_ID}; }}")
-    done = (runner or docker.run)([*prefix[:-1], "sh", "-c", script])
-    return mount_path(root, prefix, owned=done.ok)
+    return (runner or docker.run)([*prefix[:-1], "sh", "-c", script]).ok
 
 
 def show(root: Path, runner: docker.Runner | None = None, *, source: tuple[str, str] | None = None) -> WorkspaceContainer:
@@ -479,14 +571,17 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         progress("コンテナを作ります")
         added = features()
         volumes = [(source_, place) for feature in added for source_, place in feature.volumes(Path(root))]
-        work = prepare_owned_mount(root, runner, prefix)
+        place = layout(root)
+        owned = own_drive(root, runner, prefix)
         align_line_endings(root)
         run_docker(runner, [*prefix, "run", "--detach", "--init", "--name", name(root), "--label", f"{LABEL}={root}",
-                            "--label", f"{VERSION_LABEL}={VERSION}", "--volume", f"{work}:{WORKDIR}",
+                            "--label", f"{VERSION_LABEL}={VERSION}",
+                            *(item for outer, inner in place.mounts
+                              for item in ("--volume", f"{mount_path(outer, prefix, owned=owned)}:{inner}")),
                             *(item for source_, place in volumes for item in ("--volume", f"{_volume(source_, prefix)}:{place}")),
                             *(item for feature in added for item in feature.arguments(prefix)),
                             *(item for volume, place in caches(root) for item in ("--volume", f"{volume}:{place}")),
-                            "--workdir", WORKDIR, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
+                            "--workdir", place.workdir, "--user", USER, image, "sleep", "infinity"], "コンテナを作れませんでした")
         if caches(root):   # 新しいボリュームは root のものになるので、中の一般ユーザーが書けるように
             run_docker(runner, [*prefix, "exec", "--user", "0", name(root), "chown", USER, *(place for _, place in caches(root))],
                  "キャッシュの置き場所を用意できませんでした")
@@ -598,7 +693,8 @@ def caches(root: Path) -> list[tuple[str, str]]:
         type_class = _type_of(root)
     except WorkError:
         return []
-    return [(f"{name(root)}-{re.sub(r'[^a-z0-9_.-]+', '-', place.lower()).strip('-.') or 'cache'}", f"{WORKDIR}/{place}")
+    inner = workdir(root)
+    return [(f"{name(root)}-{re.sub(r'[^a-z0-9_.-]+', '-', place.lower()).strip('-.') or 'cache'}", f"{inner}/{place}")
             for place in type_class.build_outputs()]
 
 
@@ -702,9 +798,9 @@ def configure(root: Path, *, image: str | None = None, runner: docker.Runner | N
 def credentials(root: Path | None = None) -> dict[str, str]:
     """中へ渡す環境変数：このPCの GitHub の鍵（gh auth token）と git の名前・メール（なければ渡さない）。
     作業空間 root にアカウントを結び付けていれば（ecowork.account。AI 用のアカウント等）、そのアカウントの鍵と、
-    その clone の名前・メール。"""
+    その clone の名前・メール。--local に限らずに読む（worktree の作業空間ごとの値は --worktree の設定にある）。"""
     values = {}
-    account = _output(["git", "-C", str(root), "config", "--local", "--get", ACCOUNT_KEY]) if root is not None else ""
+    account = _output(["git", "-C", str(root), "config", "--get", ACCOUNT_KEY]) if root is not None else ""
     token = _output(["gh", "auth", "token", "--user", account]) if account else \
         os.environ.get("GH_TOKEN") or _output(["gh", "auth", "token"])
     if token:
@@ -718,14 +814,15 @@ def credentials(root: Path | None = None) -> dict[str, str]:
 
 
 def exec_command(root: Path, prefix: tuple[str, ...], args: list[str] | tuple[str, ...], names: tuple[str, ...] = (),
-                 *, directory: str = WORKDIR, tty: bool = False, stdin: bool = False, tag: str = "") -> list[str]:
+                 *, directory: str | None = None, tty: bool = False, stdin: bool = False, tag: str = "") -> list[str]:
     """コンテナの中で args を実行するコマンド。names：このPCの環境変数から渡すもの（値はコマンドラインに書かない）。
+    directory：中の場所（省略すると作業空間：workdir(root)）。
     tty（端末で動かす）なら、終わる・切られると中のプロセスも止める（EXEC_TAG）。stdin：端末なしで標準入力を渡し続ける
     （閉じると中のプロセスに入力の終わりが届く）。tag：中のプロセスに印を付ける（stop_tagged で止められる）。"""
     flags = ["--interactive", "--tty", *(item for k, v in COLORS.items() for item in ("--env", f"{k}={v}"))] if tty         else ["--interactive"] if stdin else []
     passed = [item for each in names for item in ("--env", each)]
     command = [*prefix, "exec", *flags, *(("--env", f"{EXEC_TAG}={tag}") if tag and not tty else ()), *passed,
-               "--workdir", directory, name(root), *args]
+               "--workdir", directory or workdir(root), name(root), *args]
     if not tty:
         return command
     tag = uuid.uuid4().hex[:16]
@@ -763,11 +860,12 @@ def environment(prefix: tuple[str, ...], values: dict[str, str]) -> dict[str, st
 
 def inside_path(root: Path, cwd: Path) -> str:
     """このPCの場所 cwd（作業空間の中）に当たる、コンテナの中の場所。"""
+    inner = workdir(root)
     try:
         relative = Path(cwd).resolve().relative_to(Path(root).resolve())
     except ValueError:
-        return WORKDIR
-    return "/".join([WORKDIR, *relative.parts])
+        return inner
+    return "/".join([inner, *relative.parts])
 
 
 def run_inside(root: Path, args: list[str], *, cwd: Path, command: str = "", source: tuple[str, str] | None = None,
@@ -785,13 +883,17 @@ def run_inside(root: Path, args: list[str], *, cwd: Path, command: str = "", sou
 
 
 def outside(value, root: Path):
-    """中の場所（/work…）の文字を、このPCの場所に読み替える（結果の JSON の中身）。"""
-    if isinstance(value, str) and (value == WORKDIR or value.startswith(WORKDIR + "/")):
-        return Path(root).as_posix() + value[len(WORKDIR):]
+    """中の場所（作業空間：workdir(root)。/work 等）の文字を、このPCの場所に読み替える（結果の JSON の中身）。"""
+    return _outside(value, workdir(root), Path(root).as_posix())
+
+
+def _outside(value, inner: str, outer: str):
+    if isinstance(value, str) and (value == inner or value.startswith(inner + "/")):
+        return outer + value[len(inner):]
     if isinstance(value, list):
-        return [outside(v, root) for v in value]
+        return [_outside(v, inner, outer) for v in value]
     if isinstance(value, dict):
-        return {k: outside(v, root) for k, v in value.items()}
+        return {k: _outside(v, inner, outer) for k, v in value.items()}
     return value
 
 

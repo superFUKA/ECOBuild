@@ -64,6 +64,19 @@ class StashEntry:
 # 追跡中のファイルのほぼすべてが改行だけの「変更」になる
 CLONE_CONFIG = ("core.autocrlf=input",)
 
+# 作業空間（worktree）を相対パスで記録するのに要る git の版（worktree.useRelativePaths は 2.48 から）
+MINIMUM_VERSION = (2, 48, 0)
+
+
+def git_version(executable: str = "git") -> tuple[int, int, int]:
+    """git の版（"git version 2.45.1.windows.1" 等を読む）。動かせない・読めなければ (0, 0, 0)。"""
+    try:
+        completed = _process.run([executable, "version"], check=False)
+    except Exception:  # git がない等
+        return (0, 0, 0)
+    found = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?", completed.stdout) if completed.ok else None
+    return tuple(int(part or 0) for part in found.groups()) if found else (0, 0, 0)  # type: ignore[return-value]
+
 
 def clone(url: str, destination: Path, *, branch: str | None = None) -> "Git":
     """branch：取り出すブランチ（省略時は GitHub の既定のブランチ）。改行コードの扱いを CLONE_CONFIG に決めて取り出す。"""

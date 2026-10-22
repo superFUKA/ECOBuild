@@ -23,13 +23,14 @@ navigation.forEach(button => button.addEventListener('click', () => {
   // すぐ切り替える（サーバーの返事を待たない。読み直しで接続が埋まっていると、切り替えが待たされる）
   showHubPage(page);
 }));
-ECO.onNavigate(({page, command}) => {
+ECO.onNavigate(({page, tab, command}) => {
   if (command) { location.hash = 'help/commands/' + encodeURIComponent(command); showHubPage('help'); HELP.show(location.hash.slice(1)); return; }
   showHubPage(page === 'help' || page === 'settings' ? page : 'modules');   // settings：ハブの設定（コンテナのイメージ等）
+  if (page === 'settings' && tab === 'agents') showSettingsGroup('agents');   // エージェントの登録
 });
 ECO.onChange(() => loadModules());
 if (location.hash.startsWith('#help')) setTimeout(() => showHubPage('help'));
-else if (location.hash === '#settings') setTimeout(() => showHubPage('settings'));
+else if (location.hash.startsWith('#settings')) setTimeout(() => { showHubPage('settings'); if (location.hash === '#settings/agents') showSettingsGroup('agents'); });
 
 // Module list -----------------------------------------------------------------------------------
 let modules = [];
@@ -379,7 +380,7 @@ async function loadImages(doc = null) {
   }).join('');
 }
 
-// 設定の種類（全般・AI・コンテナ・ECOBuild）
+// 設定の種類（全般・AI・エージェント・コンテナ・ECOBuild）
 function showSettingsGroup(group) {
   const tabs = [...document.querySelectorAll('[data-settings-group]')];
   if (!tabs.some(t => t.dataset.settingsGroup === group)) group = 'general';
@@ -425,9 +426,126 @@ $('token-remove').addEventListener('click', async () => {
   if (await ECO.run(null, ['agent', 'token', 'remove'], {confirm: '覚えたトークンを消します（コンテナの中で一度ログインしていれば、そのログインで使えます）。', title: 'トークンを消す', success: 'トークンを消しました。'})) loadToken();
 });
 
+// Agent registrations (ecobuild agent registry …): the agents that can be started — the document handed to the agent, the
+// tools it gets, whether a person may start it, the registrations it may start as children and how many at once. ECOBuild's
+// samples and the user's own (the same name: the user's). All the data comes from the CLI; nothing is kept by the GUI.
+const REGISTRY_SOURCES = {sample: '見本', user: '自分の登録'};
+// The tools that handle the children (the MCP tools ECOBuild adds; the names of ecobuild_agent.children.TOOLS). The
+// ecobuild commands an agent may use come from ecobuild --help --json (the commands marked for agents).
+const CHILD_TOOLS = [
+  ['children_start', '子を起動する（手伝い・子タスク）'], ['children_list', '子の一覧と様子'], ['children_send', '子に言付けを送る'],
+  ['children_cancel', '届いていない言付けを取り消す'], ['children_stop', '子を止める'], ['children_restart', '子を起動し直す'],
+  ['children_log', '子の出来事を読む'], ['children_accept', '子タスクの提出を取り込む'], ['children_close', '子を閉じる'],
+  ['report_to_parent', '親に知らせる'],
+];
+const AGENT_MARKS = {read: '見る', change: '変える', owner: 'タスクの持ち主'};
+let registryTools = null;   // [[name, label]]（読んだら覚える：ECOBuild を更新するまで変わらない）
+
+async function loadRegistry() {
+  const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+  const list = $('registry-list'); if (!list) return;
+  if (!doc.ok) { $('registry-status').textContent = doc.error?.message || '登録を読めませんでした。'; list.innerHTML = ''; return; }
+  const found = doc.result;
+  $('registry-status').textContent = found.some(r => r.human_start) ? ''
+    : '人が起動できる登録がありません。作業空間の「エージェント」で起動するには、どれかの「人が起動できる」を選んでください。';
+  list.innerHTML = found.map(r => `<li data-registration="${esc(r.name)}"><div><span class="item-name">${esc(r.title || r.name)}</span>
+      <span class="registry-name">${esc(r.name)}</span><span class="registry-source" data-source="${esc(r.source)}">${esc(REGISTRY_SOURCES[r.source] || r.source)}</span>
+      <small>${[r.human_start ? '人が起動できる' : '人は起動しない',
+               r.children.length ? `起動してよい子：${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '子は起動しない',
+               `渡すツール：${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}`, `モデル：${esc(r.model || '既定')}`].join('<br>')}</small></div>
+    <span class="registry-actions"><button type="button" data-registry-edit>編集…</button>${r.source === 'user'
+      ? '<button type="button" class="danger-text" data-registry-remove title="自分の登録を文書ごと消します（同じ名前の見本があれば、見本に戻ります）">消す</button>' : ''}</span></li>`).join('');
+}
+
+// The tools to choose from: the ecobuild commands marked for agents (common and every type's), then the children's tools.
+async function toolChoices() {
+  if (registryTools) return registryTools;
+  const doc = await ECO.cli(null, ['--help'], {quiet: true});
+  const found = new Map();
+  const walk = nodes => { for (const n of nodes || []) {
+    if (n.runnable && AGENT_MARKS[n.agent]) {
+      const name = n.path.split(/\s+/).join('_');
+      if (!found.has(name)) found.set(name, `${name}（${AGENT_MARKS[n.agent]}）${n.summary ? '：' + n.summary.replace(/。.*$/s, '') : ''}`);
+    }
+    walk(n.commands);
+  } };
+  if (doc.ok) { walk(doc.result.commands); for (const t of Object.values(doc.result.types || {})) walk(t.commands); }
+  const commands = [...found].sort((a, b) => a[0].localeCompare(b[0]));
+  registryTools = [...commands, ...CHILD_TOOLS.map(([name, label]) => [name, `${name}：${label}`])];
+  if (!doc.ok) registryTools.unshift(['', '（ecobuild のコマンドの一覧を読めませんでした）']);
+  return registryTools;
+}
+
+const listArg = values => values.filter(Boolean).join(',');
+
+async function editRegistration(name) {
+  const [shown, all, tools] = await Promise.all([ECO.cli(null, ['agent', 'registry', 'show', name], {quiet: true}),
+    ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true}), toolChoices()]);
+  if (!shown.ok) return ECO.showError(shown);
+  const r = shown.result;
+  // Patterns (* …) and names that are not in the list stay choosable, so saving does not drop them.
+  const toolOptions = [['*', '*（すべて）'], ...r.tools.filter(t => t !== '*' && !tools.some(([v]) => v === t)).map(t => [t, `${t}（今の登録の値）`]),
+                       ...tools.filter(([v]) => v)];
+  const others = (all.ok ? all.result : []).map(x => x.name).filter(x => x !== r.name);
+  const childOptions = [...new Set([...others, ...r.children])].map(x => [x, x]);
+  await ECO.form({title: `エージェントの登録：${r.name}`, wide: true,
+    intro: r.source === 'sample' ? '見本です。変えると、自分の登録として写してから変えます（見本はそのまま。自分の登録を消すと見本に戻ります）。' : '',
+    fields: [
+      {name: 'title', label: '表示名', value: r.title, row: 'a'},
+      {name: 'model', label: 'モデル（空欄なら Claude Code の既定）', value: r.model, placeholder: '例：opus・sonnet', row: 'a'},
+      {name: 'human_start', label: '人が起動できる（作業空間の「エージェント」・エージェントの窓の「＋」に出す）', type: 'checkbox', value: r.human_start},
+      {name: 'children', label: '起動してよい子（自分より強い登録〔渡すツールが多いもの〕は選べません）', type: 'checks', value: r.children, options: childOptions, empty: 'ほかの登録がありません'},
+      {name: 'max_children', label: '同時に持てる子の数', type: 'number', value: r.max_children, min: 0},
+      {name: 'tools', label: '渡すツール（エージェントはツールを通してしか ECOBuild を使えません）', type: 'checks', value: r.tools, options: toolOptions},
+      {name: 'first_prompt', label: '起動のときの最初の発言', type: 'textarea', rows: 2, value: r.first_prompt || ''},
+      {name: 'document', label: '文書（エージェントに渡す agent.md）', type: 'textarea', rows: 14, value: r.document},
+    ], ok: '保存',
+    submit: async v => {
+      const args = ['agent', 'registry', 'set', r.name];
+      if (v.title !== r.title) args.push('--title', v.title);
+      if (v.model !== r.model) args.push('--model', v.model);
+      if (v.human_start !== r.human_start) args.push(v.human_start ? '--human-start' : '--no-human-start');
+      if (listArg(v.children) !== listArg(r.children)) args.push('--children', listArg(v.children));
+      if (Number(v.max_children) !== r.max_children) args.push('--max-children', String(Number(v.max_children) || 0));
+      if (listArg(v.tools) !== listArg(r.tools)) args.push('--tools', listArg(v.tools));
+      if (v.first_prompt !== (r.first_prompt || '').trim()) args.push('--first-prompt', v.first_prompt);
+      const document = v.document.trim() !== r.document.trim();
+      if (document) args.push('--document', '-');
+      if (args.length === 4) return '';   // nothing changed
+      const doc = await ECO.run(null, args, {stdin: document ? v.document.trim() + '\n' : undefined, success: `登録「${r.name}」を変えました。`});
+      return doc ? '' : '変えられませんでした';
+    }});
+  loadRegistry();
+}
+
+$('registry-list')?.addEventListener('click', async event => {
+  const name = event.target.closest('[data-registration]')?.dataset.registration; if (!name) return;
+  if (event.target.closest('[data-registry-edit]')) return editRegistration(name);
+  if (event.target.closest('[data-registry-remove]')) {
+    if (await ECO.run(null, ['agent', 'registry', 'remove', name], {success: `登録「${name}」を消しました。`})) loadRegistry();
+  }
+});
+// Adding: a sample copied as one's own (the samples ECOBuild ships), or an empty registration.
+$('registry-add')?.addEventListener('click', async () => {
+  const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+  if (!doc.ok) return ECO.showError(doc);
+  const samples = doc.result.filter(r => r.source === 'sample');
+  await ECO.form({title: 'エージェントの登録を足す', intro: '見本を写して自分用に変えるか、空の登録から作ります。中身は足した後に「編集…」で変えます。',
+    fields: [{name: 'name', label: '名前（英小文字・数字・-・_）', required: true, focus: true, placeholder: '例：reviewer'},
+             {name: 'sample', label: '元にする見本', type: 'select', value: '', options: [['', '（空の登録）'], ...samples.map(r => [r.name, `${r.title}（${r.name}）`])]}],
+    ok: '足す',
+    submit: async v => {
+      const added = await ECO.run(null, ['agent', 'registry', 'add', v.name, ...(v.sample ? ['--from-sample', v.sample] : [])],
+                                  {success: `登録「${v.name}」を足しました。`});
+      return added ? '' : '足せませんでした';
+    }});
+  loadRegistry();
+});
+$('registry-reload')?.addEventListener('click', () => { registryTools = null; loadRegistry(); });
+
 async function loadSettings() {
   if (!$('default-owner')) return;   // after "GUIを終了"
-  loadImages(); loadToken();
+  loadImages(); loadToken(); loadRegistry();
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();

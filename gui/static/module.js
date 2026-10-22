@@ -21,7 +21,7 @@ ECO.access(MOD.root).then(a => {
 });
 
 // Left menu -----------------------------------------------------------------------------------------
-const PAGES = ['workspace', 'tasks', 'branches', 'manage', 'modinfo', 'modagent', 'settings', 'help'];
+const PAGES = ['workspace', 'tasks', 'branches', 'manage', 'modinfo', 'settings', 'help'];
 // ブランチ has the submissions coming in (the page 提出 once): the old name still leads there.
 const pageOf = page => page === 'submissions' ? 'branches' : page;
 const pageHooks = {help: () => typeof HELP !== 'undefined' && HELP.show(location.hash.slice(1).startsWith('help') ? location.hash.slice(1) : '')};

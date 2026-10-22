@@ -76,8 +76,10 @@ READ_ONLY = {
     ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"), ("container", "recipe"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
     ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
-    ("agent", "module"),   # 進行役の作業空間（ECOBuild が持つ別の clone）だけを扱う。この作業空間のファイルは変えない
+    ("agent", "list"),     # このPCのエージェントの記録と様子
 }
+# agent registry は 3語目で分かれる：list・show は見るだけ（set・add・remove は登録を変える）
+REGISTRY_READ = {"list", "show"}
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言 gui ask：自分ではファイルを変えず、見るだけのコマンドと
 # GUI の操作を、このサーバーを通して行う。待たせると止まる。終わったら覚えた結果は古くする）
 # workspace lock／unlock：ビルド等が動いていても付ける・外せる（待たせない。ロックの理由に「コマンド実行中」があるので）。
@@ -93,7 +95,7 @@ CACHEABLE = {
     ("sprint", "list"), ("sprint", "status"), ("milestone", "list"), ("milestone", "status"),
     ("module", "show"), ("module", "list"), ("module", "settings"), ("branch", "list"), ("deps", "list"), ("deps", "tree"),
     ("profile", "list"), ("project", "list"), ("workspace", "list"), ("config", "list"), ("log",),
-    ("ci", "show"), ("ci", "status"), ("account", "show"),
+    ("ci", "show"), ("ci", "status"), ("account", "show"), ("agent", "list"),
 }
 CACHE_ENTRIES = 400                 # これより多ければ、使っていないものから捨てる
 FRESH_SECONDS = 5                   # これより新しい結果は、読み直しを頼まれても実行せずに返す（別の窓・iframe が続けて
@@ -103,7 +105,15 @@ CACHE_DAYS = 14                     # これより古いものは読み込まな
 
 def _cacheable(args: list[str]) -> bool:
     command = tuple(a for a in args[:2] if not a.startswith("-"))
+    if command == ("agent", "registry"):
+        return _registry_read(args)
     return command in CACHEABLE and "--gui" not in args
+
+
+def _registry_read(args: list[str]) -> bool:
+    """agent registry list・show（見るだけ）か。"""
+    words = [a for a in args if not a.startswith("-")]
+    return words[:2] == ["agent", "registry"] and len(words) > 2 and words[2] in REGISTRY_READ
 
 
 class QueryCache:
@@ -214,6 +224,8 @@ def _read_only(args: list[str]) -> bool:
         return "--dry-run" in args
     if command == ("task", "checks"):      # --set・--tests がなければ見るだけ
         return "--set" not in args and "--tests" not in args
+    if command == ("agent", "registry"):   # list・show は見るだけ
+        return _registry_read(args)
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 
@@ -993,7 +1005,8 @@ class App:
         if not module:
             page = "hub.html" + ("#help" + ("/commands/" + urllib.parse.quote(p["command"]) if p.get("command") else "")
                                  if p.get("page") == "help" or p.get("command")
-                                 else "#settings" if p.get("page") == "settings" else "")
+                                 else "#settings" + ("/" + p["tab"] if p.get("tab") == "agents" else "")
+                                 if p.get("page") == "settings" else "")
             here = self.windows.get(origin)
             target = here if here and here.get("kind") == "hub" else                 next((w for w in self.live_windows() if w.get("kind") == "hub"), None)
         else:

@@ -435,6 +435,15 @@ def test_reading_the_account_and_the_protection_changes_nothing():
     assert gui._hash({"tab": "branches"}) == "#branches" and gui._hash({"page": "branches"}) == "#branches"
 
 
+def test_reading_the_agent_registrations_changes_nothing_but_setting_waits():
+    """エージェントの登録：list・show は見るだけで覚える。set・add・remove は登録を変える（待たせ、覚えた結果を古くする）。"""
+    for args in (["agent", "registry", "list"], ["agent", "registry", "show", "worker", "--json"], ["agent", "list"]):
+        assert gui._read_only(args) and gui._cacheable(args), args
+    for args in (["agent", "registry", "set", "worker", "--model", "opus"], ["agent", "registry", "add", "mine"],
+                 ["agent", "registry", "remove", "mine", "--yes"], ["agent", "registry"]):
+        assert not gui._read_only(args) and not gui._cacheable(args), args
+
+
 def test_the_image_editor_reads_freely_but_writing_waits():
     """イメージのエディター：環境の Dockerfile を読むのは待たない。--write はファイルを変えるので、ほかの操作と並べない。"""
     assert gui._read_only(["container", "dockerfile"]) and gui._read_only(["container", "dockerfile", "--json"])

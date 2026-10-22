@@ -42,8 +42,8 @@ class Action:
 
 PAGES = ("workspace", "tasks", "branches", "manage", "modinfo", "settings", "help")
 # 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）。members・ci は「管理」の画面の「メンバー」・「CI」のタブへ、
-# branches は「ブランチ」の画面（共有ブランチと届いている提出）へ移る
-TABS = ("home", "projects", "deps", "branches", "members", "ci", "profiles", "general", "templates", "container")
+# branches は「ブランチ」の画面（共有ブランチと届いている提出）へ移る。agents はハブの設定の「エージェント」（登録）のタブ
+TABS = ("home", "projects", "deps", "branches", "members", "ci", "profiles", "general", "templates", "container", "agents")
 
 ACTIONS: dict[str, Action] = {a.name: a for a in (
     Action("run", "ECOBuild のコマンドを、GUIを通して実行します（開いている画面に反映されます）。",
@@ -74,11 +74,13 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
             Param("kind", "種類", choices=("ok", "info", "bad")))),
     # エージェントの窓（Electron の GUI：agents/。Edge の窓では使えない）
     Action("agents", "エージェントの窓のタブの一覧（番号・名前・作業空間・状態・最後の返答・最小化しているか）。", effect="read"),
-    Action("agent-open", "作業空間のエージェントを、エージェントの窓のタブで開きます（あれば前に出す）。",
-           "タスクブランチの作業空間でだけ起動できます。作業空間がコンテナなら、その中で確認なしに動きます。",
+    Action("agent-open", "作業空間で、登録したエージェントを起動し、エージェントの窓のタブで開きます（開くたびに新しいエージェント）。",
+           "タスクブランチの作業空間でだけ起動できます。起動できるのは、人が起動できる登録だけです"
+           "（ecobuild agent registry list の human_start）。エージェントはその作業空間のコンテナの中で確認なしに動きます。",
            (Param("dir", "作業空間のフォルダ", required=True),
+            Param("registration", "起動するエージェントの登録の名前（省けるのは agent が claude --resume <会話> のときだけ）"),
             Param("name", "タブの名前（省略時はフォルダ名）"),
-            Param("agent", "起動するエージェントのコマンド（省略時は claude）"))),
+            Param("agent", "起動するコマンド（省略時は claude。claude --resume <会話> なら、その会話の続きから）"))),
     Action("agent-send", "タブのエージェントに文字を送ります（enter で送信まで）。",
            "エージェントはそれを人からの指示として実行します。人が送ることをはっきり頼んだときだけ使います。",
            (Param("tab", "タブの番号", "integer", True),
@@ -144,7 +146,7 @@ EXAMPLES = (
     ("「ハブ出して」「ハブに戻って」", "ecobuild gui open"),
     ("「これ提出して」「今のタスク」「この画面の」（モジュールの名前を言わない）",
      "ecobuild gui windows --json の looking: true の窓（module・タスク・作業空間）を対象に。ハブなら直前の会話から"),
-    ("「ECOSTL でエージェント起動して」「ECOSTL の AI 開いて」「エコ STL で作業始めて」", "ecobuild gui agent-open --dir C:/ECO/ECOSTL（タスクブランチの作業空間でだけ）"),
+    ("「ECOSTL でエージェント起動して」「ECOSTL の AI 開いて」「エコ STL で作業始めて」", "ecobuild gui agent-open --dir C:/ECO/ECOSTL --registration lead（タスクブランチの作業空間でだけ。登録は ecobuild agent registry list）"),
     ("「みんな今どうなってる？」「エージェントの様子は？」", "ecobuild gui agents を読み、各タブの状態・最後の返答を1〜2行ずつ"),
     ("「1番に、テストを実行してって送って」", "ecobuild gui agent-send --tab 1 --text \"テストを実行して\"（「送って」「伝えて」と言われたときだけ。文はユーザーの言葉のまま）"),
     ("「1番を前に出して」「2番見せて」", "ecobuild gui agent-show --tab 1"),

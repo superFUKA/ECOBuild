@@ -2,7 +2,7 @@
 // エージェントの窓の画面：タブ（番号・名前・状態）と、タブごとの端末（xterm.js）。表示するのは選んでいるタブだけ。
 // タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
 // ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線）・＋（作業空間のエージェントを開く）・☰・🎙・📌・⚙・–・×。
-// 進行役の窓には、進行役のタブの隣に「チーム」（AI が起動した作業役を見る。teamui.js）。
+// 子を起動できるエージェントの窓には、そのタブの隣に「チーム」（AI が起動した子を見る。teamui.js）。
 // フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
 // リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
 // ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方とリング。
@@ -76,12 +76,14 @@ function renderTabs() {
       + (info.pinned ? ' pinned' : '');
     b.dataset.state = info.state || '';
     b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = !info.pinned; b.dataset.id = info.id;
-    const role = info.role === 'lead' ? '進行役' : info.role === 'manager' ? '管理役' : info.role === 'worker' ? '作業役' : '';
-    b.title = `${info.num}  ${info.name}（${role ? role + '・' : ''}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
-      + (info.pinned ? '\nこの窓の進行役（左端に固定）' : '');
+    // 登録の名前（役は ECOBuild の既定ではなく、ユーザーが登録したもの）。子を起動できるエージェントの窓では、そのタブは
+    // 左端に固定して、印は登録の名前の頭文字
+    const registration = info.registration ? `登録 ${info.registration}・` : '';
+    b.title = `${info.num}  ${info.name}（${registration}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
+      + (info.agentId ? `\nエージェント ${info.agentId}` : '') + (info.pinned ? '\nこの窓のエージェント（左端に固定。子は「チーム」で見ます）' : '');
     b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.role === 'lead' ? '進' : info.role === 'manager' ? '管' : info.num;
-    b.querySelector('b').dataset.kind = info.role === 'lead' || info.role === 'manager' ? info.role : info.kind;
+    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.pinned && info.registration ? info.registration[0].toUpperCase() : info.num;
+    b.querySelector('b').dataset.kind = info.pinned ? 'lead' : info.kind;
     const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
     if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
     b.querySelector('.name').textContent = info.name;
@@ -104,7 +106,7 @@ function renderTabs() {
     });
     bar.append(b);
   }
-  if (typeof teamTab === 'function') teamTab(bar);   // 進行役の窓：進行役のタブの隣に「チーム」（teamui.js）
+  if (typeof teamTab === 'function') teamTab(bar);   // 子を起動できるエージェントの窓：そのタブの隣に「チーム」（teamui.js）
   const current = tabs.find(t => t.id === active);
   document.body.classList.toggle('listening', current?.state === 'listening');
   $('voice').classList.toggle('on', current?.state === 'listening');
@@ -338,14 +340,31 @@ $('add').addEventListener('click', async event => {
   const r = event.currentTarget.getBoundingClientRect();
   menu.hidden = false; menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + 'px'; menu.style.top = (r.bottom + 2) + 'px';
   event.stopPropagation();
-  const list = await agents.workspaces();
-  head.textContent = list.length ? '作業空間（タスクブランチのものだけ開けます）' : '記録した作業空間はありません';
+  const [list, found] = await Promise.all([agents.workspaces(), agents.registrations()]);
+  const startable = found.filter(r => r.human_start);
+  head.textContent = !list.length ? '記録した作業空間はありません'
+    : !startable.length ? '人が起動できる登録がありません（ハブの設定の「エージェント」で選べます）' : '作業空間（タスクブランチのものだけ開けます）';
   for (const w of list) {
     const b = document.createElement('button'); b.type = 'button';
     const folder = shortDir(w.path).split('/').pop();
-    b.textContent = `${folder}  ${w.branch || ''}${w.task ? `（#${w.task}）` : ''}`; b.title = w.path; b.disabled = !w.task;
-    if (!w.task) b.style.opacity = '.45';
-    b.addEventListener('click', () => { menu.hidden = true; agents.open({dir: w.path, name: folder + (w.task ? ` #${w.task}` : '')}); });
+    b.textContent = `${folder}  ${w.branch || ''}${w.task ? `（#${w.task}）` : ''}`; b.title = w.path; b.disabled = !w.task || !startable.length;
+    if (b.disabled) b.style.opacity = '.45';
+    b.addEventListener('click', clicked => {
+      clicked.stopPropagation();
+      const name = folder + (w.task ? ` #${w.task}` : '');
+      const open = r => { menu.hidden = true; agents.open({dir: w.path, name, registration: r.name, team: !!r.children?.length}); };
+      if (startable.length === 1) return open(startable[0]);
+      // 起動する登録を選ぶ（人が起動できるものだけ）
+      menu.replaceChildren();
+      const title = document.createElement('div'); title.className = 'head'; title.textContent = `${name}：起動するエージェント`; menu.append(title);
+      for (const r of startable) {
+        const item = document.createElement('button'); item.type = 'button';
+        item.textContent = r.title && r.title !== r.name ? `${r.title}（${r.name}）` : r.name;
+        item.title = r.children?.length ? `子を起動できます（${r.children.join('・')}）。新しい窓で開き、子は「チーム」で見ます` : '';
+        item.addEventListener('click', () => open(r));
+        menu.append(item);
+      }
+    });
     menu.append(b);
   }
 });

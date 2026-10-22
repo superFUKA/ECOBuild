@@ -46,6 +46,7 @@
       <nav class="settings-tabs" role="tablist" aria-label="設定の種類">
         <button type="button" role="tab" data-settings-group="general">全般</button>
         <button type="button" role="tab" data-settings-group="ai">AI</button>
+        <button type="button" role="tab" data-settings-group="agents">エージェント</button>
         <button type="button" role="tab" data-settings-group="container">コンテナ</button>
         <button type="button" role="tab" data-settings-group="about">ECOBuild</button>
       </nav>
@@ -83,6 +84,12 @@
         <h3 id="agents-title">エージェントの窓</h3>
         <p class="note">アイコン・話し方（オペレーター・作業用）、オペレーターのモデル、返答の知らせ方、リングは、エージェントの窓の ⚙ で設定します。</p>
         <div class="settings-actions"><button type="button" class="cancel" id="open-agents-settings">エージェントの窓を開く</button></div>
+      </section>
+      <section class="settings-card" data-group="agents" aria-labelledby="registry-title">
+        <div class="page-heading"><h3 id="registry-title">エージェントの登録</h3><div class="settings-actions"><button type="button" class="cancel" id="registry-reload" title="最新の情報に更新">更新</button><button type="button" class="add-button" id="registry-add" title="見本を写すか、空の登録を足します（ecobuild agent registry add）">＋ 登録を足す</button></div></div>
+        <p class="note">起動できるエージェントです（このPCの ECOBuild 全体の設定。モジュールにはコミットしません）。エージェントに渡す文書・渡すツール（エージェントはツールを通してしか ECOBuild を使えません）・人が起動できるか・起動してよい子を決めます。見本は ECOBuild が配るもので、変えると自分の登録として写してから変えます。</p>
+        <p class="note" id="registry-status" role="status">読み込んでいます…</p>
+        <ul id="registry-list" class="diagnostics registry-list"></ul>
       </section>
       <section class="settings-card" data-group="container" aria-labelledby="images-title">
         <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の作り方でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="コンテナにした作業空間のイメージを、今の作り方（.ecobuild/container と今の ECOBuild）で作ります（ecobuild container image build。1つ数分）">今の作り方で作る</button></div></div>

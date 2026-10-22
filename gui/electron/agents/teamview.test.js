@@ -4,12 +4,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 const view = require('./teamview');
 
-test('入れ子のチームは、深さと作った進行役の作業空間を付けて1列になる', () => {
-  const members = [{name: '下', role: 'lead', path: '/l/a', members: [{name: '画面', role: 'worker', path: '/l/a/b'}]},
-                   {name: '試験', role: 'worker', path: '/l/c'}];
-  const flat = view.flatten(members, '/l');
-  assert.deepStrictEqual(flat.map(m => [m.name, m.depth, m.parent]), [['下', 0, '/l'], ['画面', 1, '/l/a'], ['試験', 0, '/l']]);
+test('入れ子のチームは、深さと起動した親のエージェントの ID を付けて1列になる', () => {
+  const members = [{id: 'a-000000000a', name: '下', registration: 'manager', kind: 'owner', path: '/l/a',
+                    members: [{id: 'a-000000000b', name: '画面', registration: 'worker', kind: 'owner', path: '/l/b'}]},
+                   {id: 'a-000000000c', name: '調べ', registration: 'worker', kind: 'helper', path: '/l'}];
+  const flat = view.flatten(members, 'a-0000000001');
+  assert.deepStrictEqual(flat.map(m => [m.name, m.depth, m.parent]),
+                         [['下', 0, 'a-0000000001'], ['画面', 1, 'a-000000000a'], ['調べ', 0, 'a-0000000001']]);
   assert.strictEqual(flat[0].members, undefined);
+  assert.deepStrictEqual(flat.map(view.kindName), ['manager', 'worker', '手伝い・worker']);   // 役の名前は登録の名前
+  assert.strictEqual(view.kindName({kind: 'owner'}), '子タスク');
 });
 
 test('様子：長さ・失敗・長く道具を使っていない作業中・人の画面', () => {
@@ -30,20 +34,20 @@ test('出来事は項目になり、道具の結果は後から同じ項目に�
   const first = log.add([
     {type: 'ecobuild', event: 'start', at: 0},
     {type: 'system', subtype: 'init', model: 'claude-opus'},
-    {type: 'user', message: {content: '[進行役「全体」から] 試験も足して'}},
+    {type: 'user', message: {content: '[人から] 試験も足して'}},
     {type: 'assistant', message: {content: [{type: 'thinking', thinking: '…'}, {type: 'text', text: '足します'},
                                             {type: 'tool_use', id: 'a', name: 'Bash', input: {command: 'ecobuild  test'}}]}},
     {type: 'rate_limit_event'},
   ]);
   assert.deepStrictEqual(first.added.map(i => i.kind), ['mark', 'mark', 'input', 'text', 'tool']);
-  assert.deepStrictEqual([first.added[2].from, first.added[2].text], ['進行役「全体」', '試験も足して']);
+  assert.deepStrictEqual([first.added[2].from, first.added[2].text], ['人', '試験も足して']);
   assert.strictEqual(first.added[4].summary, 'Bash：ecobuild test');
   assert.strictEqual(first.added[4].done, false);
   const second = log.add([
     {type: 'user', message: {content: [{type: 'tool_result', tool_use_id: 'a', content: [{type: 'text', text: '1 failed'}], is_error: true}]}},
     {type: 'result', duration_ms: 61500, total_cost_usd: 0.1234, num_turns: 3, usage: {input_tokens: 10, cache_read_input_tokens: 12000, output_tokens: 800},
      permission_denials: [{tool_name: 'WebFetch'}]},
-    {type: 'user', message: {content: '[ECOBuild] 作業役「画面」の返答が終わりました。'}},
+    {type: 'user', message: {content: '[ECOBuild] 子「画面」の返答が終わりました。'}},
     {type: 'ecobuild', event: 'exit', code: 1, requested: false, at: 0},
   ]);
   assert.deepStrictEqual(second.changed.map(i => [i.summary, i.output, i.error]), [['Bash：ecobuild test', '1 failed', true]]);

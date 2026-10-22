@@ -1,10 +1,10 @@
 'use strict';
-// チームの表示（AI が起動した作業役）の、画面に依らない部分：team list の様子を1行・目立たせる印にする、
-// team log の出来事（Claude Code の stream-json と係の印）を詳しい表示の項目にする。
+// チームの表示（AI が起動した子）の、画面に依らない部分：agent children の様子を1行・目立たせる印にする、
+// agent log の出来事（Claude Code の stream-json と係の印）を詳しい表示の項目にする。
 // 窓の画面（window.html の <script>）と試験（node）の両方で読む。
 (function (root) {
   const STATE_NAMES = {working: '作業中', idle: '待機中', stopped: '止まっている', unknown: '不明'};
-  const ROLE_NAMES = {lead: '進行役', manager: '管理役', worker: '作業役'};
+
   const QUIET_SECONDS = 10 * 60;   // 作業中なのに、これだけ道具を使っていない：止まっているかもしれない
   const LONG_SECONDS = 60 * 60;    // 作業中がこれより長い
   const TOOL_KEYS = ['command', 'file_path', 'notebook_path', 'pattern', 'url', 'query', 'description', 'skill', 'prompt'];
@@ -16,14 +16,21 @@
     return `${Math.floor(seconds / 3600)}時間${Math.floor(seconds % 3600 / 60)}分`;
   }
 
-  // チーム（team list --nested の members）を、入れ子の深さ付きの1列に。parent：その人を作った進行役の作業空間
-  // （操作は ecobuild -C <parent> agent team … で）
+  // チーム（agent children の members。子の子は members に入れ子）を、入れ子の深さ付きの1列に。parent：その子を起動した
+  // エージェントの ID（操作は子の ID で ecobuild agent … <ID>）
   function flatten(members, parent, depth = 0, out = []) {
     for (const m of members || []) {
-      out.push({...m, parent, depth, members: undefined});
-      flatten(m.members, m.path, depth + 1, out);
+      out.push({...m, parent: m.parent || parent, depth, members: undefined});
+      flatten(m.members, m.id, depth + 1, out);
     }
     return out;
+  }
+
+  // 子の種類と登録の1語（手伝いか子タスクか。登録の名前は ECOBuild の既定の役ではなく、ユーザーが登録したもの）
+  function kindName(m) {
+    const registration = m.registration || '';
+    if (m.kind === 'helper') return registration ? `手伝い・${registration}` : '手伝い';
+    return registration || '子タスク';
   }
 
   // 様子：label（作業中 12分・失敗 等）・tone（working・idle・stopped・failed）・alert（目立たせるわけ。なければ ''）
@@ -53,7 +60,7 @@
     return detail ? `${name}：${detail}` : name;
   }
 
-  // 届いた発言の差出人（係が入れる言付けの頭「[進行役「名前」から]」・知らせの「[ECOBuild]」）
+  // 届いた発言の差出人（係が入れる言付けの頭「[人から]」「[「名前」から]」・知らせの「[ECOBuild]」）
   function sender(text) {
     const from = /^\[(.+?)から\]\s*/.exec(text);
     if (from) return {from: from[1], text: text.slice(from[0].length)};
@@ -136,6 +143,6 @@
   }
   const tokens = n => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
 
-  const api = {STATE_NAMES, ROLE_NAMES, duration, flatten, look, toolSummary, sender, EventLog, turnLine};
+  const api = {STATE_NAMES, duration, flatten, kindName, look, toolSummary, sender, EventLog, turnLine};
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TeamView = api;
 })(this);

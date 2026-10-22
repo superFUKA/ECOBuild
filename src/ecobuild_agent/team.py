@@ -66,6 +66,7 @@ REPORT_FILE = ".ecobuild/ai/report.md"     # 作業役の報告
 MODULE_PLACE_FILE = ".ecobuild/ai/module-lead.json"   # モジュールの進行役の作業空間の印（ecobuild_agent.facilitator が置く）
 PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
 MODEL_KEYS = {LEAD: "agent_lead_model", MANAGER: "agent_manager_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
+DEFAULT_MODELS = {MANAGER: "opus", WORKER: "sonnet"}   # 設定がないときの役のモデル（進行役は Claude Code の既定）
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
@@ -141,8 +142,8 @@ class Team:
 
 
 def model_for(role: str) -> str:
-    """このPCの設定の、役のモデル（空なら Claude Code の既定）。"""
-    return _settings.load_config().get(MODEL_KEYS[role], "").strip()
+    """このPCの設定の、役のモデル（設定がなければ DEFAULT_MODELS、空と書けば Claude Code の既定）。"""
+    return _settings.load_config().get(MODEL_KEYS[role], DEFAULT_MODELS.get(role, "")).strip()
 
 
 OWNER_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID
@@ -703,6 +704,9 @@ def briefing(root: Path, role: str, program: str) -> list[str]:
             "（--brief の書き方は作業役と同じ）。下の管理役はその部分を計画して作業役に任せ、取り込んだら自分のタスクブランチを"
             "あなたのタスクブランチへ提出します。下の管理役の返答の終わり・要約・質問はあなたに届きます（その下の作業役の知らせは"
             "届きません）。取り込み・片付けは作業役と同じ手順です。小さな部分は下の管理役にせず、作業役に任せます。",
+            f"   片付けてよいのは、自分の作業空間の中のタスクブランチ（`{program} task prune`・`task drop`）と、自分が作った作業役・管理役"
+            f"（`{program} agent team close`）だけです。ほかの管理役・進行役のタスクブランチ・作業空間、GitHub にだけ残ったブランチには"
+            "触りません（気づいたら進行役に伝えるだけ）。",
             "9. 作業役のモデルは既定でこのPCの設定（agent_worker_model）です。難しい仕事だけ `--model opus` 等で変えられます。",
             "10. ユーザーが作業役と直接話したいときは、ユーザーが引き取れます（`agent team takeover <名前>` で同じ会話を人の"
             "画面で開き、終わったら `agent team handback <名前>` で係に戻す）。引き取り・返しはユーザーがする操作です。",
@@ -844,6 +848,15 @@ def module_lead_briefing(program: str) -> list[str]:
         "そのまま示してユーザーに聞き、「はい」と答えてもらってから実行します（ECOBuild が確かめ、答えがなければ止めます）。",
         "- リポジトリのファイルを変える設定（`module settings` の値・`ci init`・Dockerfile 等）は、タスクブランチの仕事なので管理役に命令します。",
         "- 人がする操作（秘密の値・このPCの準備・更新）は、ユーザーに頼みます。",
+        "- 下の「ECOBuild の使い方」の「合うコマンドがないときは直接して構いません」は、進行役には当てはまりません。"
+        "git・gh は読むだけ使えます（変える操作は、ユーザーが「はい」と答えても通りません）。合う ECOBuild のコマンドがなければ、"
+        "別の方法を探さずに、できないこと（ECOBuild に足りないコマンド）としてユーザーに伝えます。",
+        f"- コマンドは、使う前に `{program} <コマンド> --help` で引数を確かめます（ない引数を付けない）。エージェントの様子は "
+        f"`{program} agent status`・`agent team list --nested`・`agent team log <名前>` で読めます。",
+        "- タスクブランチ・作業空間を消す片付けはしません（あなたの作業空間にはタスクブランチがなく、ほかはすべて自分の管理の外です）。"
+        "管理役のものは管理役が、自分の作業空間の中のものだけを片付けます。ほかの管理役・ほかの進行役のタスクブランチ、"
+        "そのタスクの作業空間、GitHub にだけ残ったブランチには触りません。残っているのに気づいたら、ユーザーに伝えるだけにします"
+        "（`task drop`・`workspace close` はユーザーがします）。",
         "",
     ]
 

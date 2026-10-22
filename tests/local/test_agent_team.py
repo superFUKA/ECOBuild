@@ -43,6 +43,15 @@ def lead(tmp_path, monkeypatch):
     return module
 
 
+def test_roles_have_default_models(lead):
+    """設定がなければ管理役は opus・作業役は sonnet（進行役は Claude Code の既定）。空と書けば Claude Code の既定。"""
+    assert team.agent_options(lead.root, team.MANAGER, ("claude",)) == ("claude", "--model", "opus")
+    assert team.agent_options(lead.root, team.WORKER, ("claude",)) == ("claude", "--model", "sonnet")
+    assert team.agent_options(lead.root, team.LEAD, ("claude",)) == ("claude",)
+    ecobuild_bundle.set_config("agent_worker_model", "")
+    assert team.agent_options(lead.root, team.WORKER, ("claude",)) == ("claude",)
+
+
 def test_a_worker_is_a_child_task_in_the_leads_workspace(lead, monkeypatch):
     ecobuild_bundle.set_config("agent_worker_model", "haiku")
     member = team.create(lead, "画面", "目的：ログイン画面を作る\n範囲：src/ui だけ", model="")

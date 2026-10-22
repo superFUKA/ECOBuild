@@ -142,10 +142,14 @@ def close(module, *, discard_local: bool = False):
 
 # ---- 関所（シェルのコマンド。ecobuild agent guard --role module） ------------------------------------------
 GIT_READ = frozenset({"status", "log", "show", "diff", "branch", "fetch", "ls-files", "ls-tree", "rev-parse", "remote",
-                      "blame", "describe", "shortlog", "grep", "cat-file", "merge-base", "for-each-ref", "reflog"})
+                      "blame", "describe", "shortlog", "grep", "cat-file", "merge-base", "for-each-ref", "reflog",
+                      "cherry", "rev-list", "name-rev", "show-ref", "ls-remote"})
 GH_READ = frozenset({"view", "list", "status", "diff", "checks"})
-REFUSED = ("これは進行役が使わない操作です。リポジトリのファイル・ブランチを変える作業はタスクブランチの仕事なので、"
-           "管理役に送ってください（agent team send）。人がする操作（秘密の値・このPCの準備・更新）は、ユーザーに頼んでください。")
+REFUSED = ("これは進行役が使わない操作です（ユーザーが「はい」と答えても通りません）。git・gh で変える操作は使わず、"
+           "ECOBuild のコマンドでします。リポジトリのファイル・ブランチを変える作業はタスクブランチの仕事なので、"
+           "管理役に送ってください（agent team send）。合う ECOBuild のコマンドがなければ、別の方法を探さずに、"
+           "できないこと（ECOBuild に足りないコマンド）としてユーザーに伝えてください。"
+           "人がする操作（秘密の値・このPCの準備・更新）は、ユーザーに頼んでください。")
 
 
 def classify_git(args: list[str]) -> tuple[str, str]:

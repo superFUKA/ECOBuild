@@ -40,6 +40,7 @@ def test_the_facilitator_has_its_own_workspace_without_a_task(module, tmp_path):
     assert container.enabled(root)                                                  # コンテナ必須
     assert team.is_module_place(root) and team.role_of(root) == team.LEAD
     assert not any(workspaces.same(item.path, root) for item in workspaces.recorded())   # 人の作業空間の一覧に出さない
+    assert workspaces.record(root) is False and workspaces.own(root)                 # そこで ecobuild を使っても（ECOBUILD_HOME の中）
     assert place.repository.git.working_tree().untracked == ()                      # 印は .ecobuild/ai（除外）の中
     assert code_of(lambda: team.role_of(root, team.WORKER)) == ErrorCode.INVALID_ARGUMENT
 
@@ -116,3 +117,18 @@ def test_the_facilitators_guard(tmp_path):
     assert code == 2 and "「はい」" in message                                         # 重い操作は人の「はい」
     assert _hook("ecobuild branch delete release", "ecobuild branch delete release を実行してよいですか？", "はい",
                  tmp_path)[0] == 0
+
+
+def test_the_facilitator_reads_more_and_is_told_what_is_never_allowed(module, tmp_path):
+    assert _hook("git cherry -v origin/main origin/task/3 2>/dev/null")[0] == 0
+    assert _hook("for b in task/3 task/4; do git log --oneline origin/main..origin/$b; done")[0] == 0
+    asked = "gh api -X DELETE repos/a/b/git/refs/heads/task/3 を実行してよいですか？"
+    code, message = _hook("gh api -X DELETE repos/a/b/git/refs/heads/task/3", asked, "はい", tmp_path)
+    assert code == 2 and "「はい」と答えても通りません" in message and "足りないコマンド" in message
+    assert _hook("ecobuild workspace close C:/x", "ecobuild workspace close C:/x でよいですか？", "はい", tmp_path)[0] == 2
+    asked = "ecobuild task drop 3 --yes を実行してよいですか？"                    # 自分の作業空間の外のタスクブランチには触らない
+    assert _hook("ecobuild task drop 3 --yes", asked, "はい", tmp_path)[0] == 2
+    assert _hook("ecobuild task close 3 --not-planned --yes", "ecobuild task close 3 でよいですか", "はい", tmp_path)[0] == 2
+    assert _hook("ecobuild task close 3", "ecobuild task close 3 でよいですか", "はい", tmp_path)[0] == 0
+    briefing = facilitator.prepare(module).agent_briefing(None, team.LEAD)
+    assert "進行役には当てはまりません" in briefing and "自分の管理の外" in briefing

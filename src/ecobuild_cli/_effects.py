@@ -54,6 +54,8 @@ def effect(path: str, options: tuple[str, ...] = ()) -> str:
         found = CHANGE      # 値を渡すと設定を変える
     if path == "container dockerfile" and any(o.split("=")[0] == "--write" for o in options):
         found = CHANGE      # --write は環境の Dockerfile を書く
+    if path == "task prune" and "--remote" in options and "--dry-run" not in options:
+        found = CONFIRM     # GitHub のブランチを消す
     if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options):
         found = CONFIRM
     return found
@@ -85,6 +87,7 @@ MODULE_LEAD = {
     "agent team start": CHANGE, "agent team send": CHANGE, "agent team restart": CHANGE,
     "agent start": HUMAN, "agent team takeover": HUMAN, "agent team handback": HUMAN,
     "task start": HUMAN, "task commit": HUMAN, "workspace create": HUMAN, "workspace add": HUMAN,
+    "workspace close": HUMAN,   # 作業空間はこのPCにある：閉じるのはユーザー
 }
 
 

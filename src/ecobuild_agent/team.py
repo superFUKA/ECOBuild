@@ -829,6 +829,15 @@ def module_lead_briefing(program: str) -> list[str]:
         "そのまま示してユーザーに聞き、「はい」と答えてもらってから実行します（ECOBuild が確かめ、答えがなければ止めます）。",
         "- リポジトリのファイルを変える設定（`module settings` の値・`ci init`・Dockerfile 等）は、タスクブランチの仕事なので管理役に命令します。",
         "- 人がする操作（秘密の値・このPCの準備・更新）は、ユーザーに頼みます。",
+        "- 下の「ECOBuild の使い方」の「合うコマンドがないときは直接して構いません」は、進行役には当てはまりません。"
+        "git・gh は読むだけ使えます（変える操作は、ユーザーが「はい」と答えても通りません）。合う ECOBuild のコマンドがなければ、"
+        "別の方法を探さずに、できないこと（ECOBuild に足りないコマンド）としてユーザーに伝えます。",
+        f"- コマンドは、使う前に `{program} <コマンド> --help` で引数を確かめます（ない引数を付けない）。エージェントの様子は "
+        f"`{program} agent status`・`agent team list --nested`・`agent team log <名前>` で読めます。",
+        f"- 閉じたタスクの残りのタスクブランチ（GitHub にあるもの）は `{program} task prune --remote --dry-run` で一覧を見て、"
+        f"`{program} task prune --remote --yes` で消します（消すので「はい」が要ります。作成元に入っていないものは残り、わけが出ます）。",
+        f"- コンテナの中でも `{program} workspace list` は、このPCの作業空間の一覧です（係が読みます）。作業空間を閉じる"
+        f"（`{program} workspace close`）のは、ユーザーがこのPC（GUI・端末）でします。閉じてよいものを挙げて、ユーザーに頼みます。",
         "",
     ]
 

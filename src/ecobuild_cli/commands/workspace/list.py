@@ -1,5 +1,9 @@
+import json as _json
+import os
+from types import SimpleNamespace
 from typing import Annotated
 
+import ecobuild_container as container
 from ecobuild_cli._module import Module
 from ..._output import run_command
 from .lock import lock_text
@@ -20,9 +24,21 @@ def command(
         if not r:
             return ("記録した作業空間はありません（module new・module clone で作るか、"
                     "ecobuild workspace add <場所> で記録できます）")
-        return "\n".join(_line(e) for e in r)
+        return "\n".join(_line(_entry(e) if isinstance(e, dict) else e) for e in r)
 
-    return run_command("workspace list", lambda inv: list(Module.workspaces(fetch=fetch)), render, json_output=json)
+    def action(inv):
+        if os.environ.get(container.INSIDE):
+            # コンテナの中（進行役等）：記録はこのPCにあるので、係に読んでもらう（JSON のまま）
+            from ..agent.team import _forward
+            return list(_forward.serve(inv, ["workspace", "list", *(["--fetch"] if fetch else [])]) or [])
+        return list(Module.workspaces(fetch=fetch))
+
+    return run_command("workspace list", action, render, json_output=json)
+
+
+def _entry(data):
+    """係から受け取った1件（JSON）を、属性で読める形に（表示用）。"""
+    return _json.loads(_json.dumps(data), object_hook=lambda d: SimpleNamespace(**d))
 
 
 def _line(e) -> str:

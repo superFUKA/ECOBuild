@@ -83,6 +83,11 @@ class Completion:
         """
         if number is None:
             number = self.require_task_branch("番号を省略したタスクの完了").number
+        reviewing = self._reviewing()
+        if reviewing is not None and self._task_of_pull_request(reviewing) == number:
+            returned = self._leave_review(reviewing)   # その提出を確認中（task review）なら、確認の前の場所へ戻ってから
+            if returned:
+                self.notices.append(f"確認を終えて {returned} に戻りました。")
         branch = self._task_branch_of(number)
         here = self.git.current_branch() == branch
         self._guard_removal(branch, "完了（GitHubのタスクブランチを消す）", switching=False)   # ここで切り替えられないときは、取り込みの後に残す
@@ -296,6 +301,13 @@ class Completion:
                 error.message = "自分の提出は承認・差し戻しできません（GitHubの制限）。"
                 error.hint = (f"自分で完了するなら {self._op('task finish')} {task}、やめるなら "
                               f"{self._op('task withdraw')} {task}。")
+            if self._reviewing() == pr.number:   # 確認中（切り離された状態）のまま残さない
+                try:
+                    returned = self._leave_review(pr.number)
+                except WorkError:
+                    returned = None
+                error.hint += (f"確認を終えて {returned} に戻りました。" if returned else
+                               f"確認中の場所（切り離された状態）にいます。{self._op('task review')} --done で戻れます。")
             raise
 
     def _leave_review(self, pull_request: int) -> str | None:

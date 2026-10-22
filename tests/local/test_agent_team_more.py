@@ -351,6 +351,15 @@ def test_the_serve_runs_the_report_request(lead):
     assert ran == [(["agent", "report", "--json"], member.path.resolve())]
 
 
+def test_the_serve_lists_this_pcs_workspaces_for_the_container(lead):
+    """コンテナの中の進行役の workspace list は、係がこのPCの記録を読む（閉じる等の、ほかの workspace の操作は受けない）。"""
+    ran = []
+    serve = agent_serve.Serve(lambda args, cwd, **_: ran.append((args, cwd)) or {"ok": True, "result": []})
+    assert serve.handle(lead.root, {"id": "w", "args": ["workspace", "list", "--json"], "cwd": "."})["ok"]
+    assert ran == [(["workspace", "list", "--json"], lead.root.resolve())]
+    assert not serve.handle(lead.root, {"id": "c", "args": ["workspace", "close", "x", "--json"], "cwd": "."})["ok"]
+
+
 # ---- 22：係が止まっているとき --------------------------------------------------------------------------------
 
 def test_a_stopped_serve_is_found_at_once(lead, cli, monkeypatch):

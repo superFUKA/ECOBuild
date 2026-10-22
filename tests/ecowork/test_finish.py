@@ -245,6 +245,23 @@ def test_own_submission_cannot_be_approved(repository):
     assert error.value.code == ErrorCode.OWN_PULL_REQUEST and f"task finish {task.number}" in error.value.hint
 
 
+def test_own_submission_under_review_returns_when_approve_fails_and_finish_returns_too(repository):
+    """自分の提出を task review で確かめて approve しても、確認中（切り離された状態）のまま残さない。finish も戻ってから。"""
+    task, task_branch = started(repository)
+    recorded(task_branch)
+    task_branch.submit()
+    repository.git.switch("main")
+    repository.review_task(task.number)
+    with pytest.raises(WorkError) as error:
+        repository.approve(task.number)
+    assert error.value.code == ErrorCode.OWN_PULL_REQUEST and "main に戻りました" in error.value.hint
+    assert repository.status().reviewing is None and repository.git.current_branch() == "main"
+    repository.review_task(task.number)
+    result = repository.finish(task.number)
+    assert result.closed_issue == task.number and repository.status().reviewing is None
+    assert repository.git.current_branch() == "main" and any("main に戻りました" in n for n in repository.notices)
+
+
 def test_reject_and_resubmit(repository):
     task, task_branch = started(repository)
     recorded(task_branch)

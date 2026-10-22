@@ -37,9 +37,9 @@ CONFIG_KEYS = {
     "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
     "agent_style": "作業用のエージェントの話し方（口調・答え方。空なら指定なし）",
     "agent_lead_model": "進行役のエージェントのモデル（Claude Code の --model。例 opus・fable・sonnet。空なら Claude Code の既定）",
-    "agent_manager_model": "管理役のエージェントのモデル（Claude Code の --model。例 opus・sonnet。空なら Claude Code の既定。"
+    "agent_manager_model": "管理役のエージェントのモデル（Claude Code の --model。例 opus・sonnet。設定がなければ opus、空なら Claude Code の既定。"
                            "管理役を作るときの agent team start --model でも指定できる）",
-    "agent_worker_model": "作業役のエージェントのモデル（Claude Code の --model。例 sonnet・haiku。空なら Claude Code の既定。"
+    "agent_worker_model": "作業役のエージェントのモデル（Claude Code の --model。例 sonnet・haiku。設定がなければ sonnet、空なら Claude Code の既定。"
                           "作業役ごとに agent team start --model でも指定できる）",
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
                      "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",

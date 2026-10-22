@@ -64,6 +64,7 @@ REPORT_FILE = ".ecobuild/ai/report.md"     # 作業役の報告
 MODULE_PLACE_FILE = ".ecobuild/ai/module-lead.json"   # モジュールの進行役の作業空間の印（ecobuild_agent.facilitator が置く）
 PLAN_FILE = ".ecobuild/ai/plan.md"         # 進行役の計画
 MODEL_KEYS = {LEAD: "agent_lead_model", MANAGER: "agent_manager_model", WORKER: "agent_worker_model"}   # このPCの設定：役ごとのモデル
+DEFAULT_MODELS = {MANAGER: "opus", WORKER: "sonnet"}   # 設定がないときの役のモデル（進行役は Claude Code の既定）
 REQUESTS = "requests"               # 状態の置き場所の中の、頼みの置き場所
 WINDOW_VARIABLE = "ECOBUILD_AGENT_WINDOW"   # GUI のエージェントの窓の端末で 1（頼みを係に渡す）
 REQUEST_TIMEOUT = 1800              # 頼みの結果を待つ秒数（clone・イメージ作り込みで長くかかることがある）
@@ -139,8 +140,8 @@ class Team:
 
 
 def model_for(role: str) -> str:
-    """このPCの設定の、役のモデル（空なら Claude Code の既定）。"""
-    return _settings.load_config().get(MODEL_KEYS[role], "").strip()
+    """このPCの設定の、役のモデル（設定がなければ DEFAULT_MODELS、空と書けば Claude Code の既定）。"""
+    return _settings.load_config().get(MODEL_KEYS[role], DEFAULT_MODELS.get(role, "")).strip()
 
 
 OWNER_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID

@@ -46,7 +46,7 @@ const OUTPUT = (() => {
 
   function view(box, {dir}) {
     box.classList.add('output-view');
-    box.innerHTML = `<div class="out-head"><strong class="out-title">出力</strong><span class="build-state out-state" hidden></span><span class="out-time"></span>
+    box.innerHTML = `<div class="out-head"><strong class="out-title" hidden></strong><span class="build-state out-state" hidden></span><span class="out-time"></span>
       <button type="button" class="out-counts" title="エラー・警告の行だけ表示／すべて表示" hidden></button>
       <span class="out-tools"><span class="out-shown"></span><input type="search" class="out-search" placeholder="絞り込み" aria-label="出力を絞り込む">
         <button type="button" data-out="problems" aria-pressed="false" title="エラー・警告の行だけ表示">エラー・警告だけ</button><button type="button" data-out="wrap" aria-pressed="true" title="長い行を折り返す">折り返し</button><button type="button" data-out="history" aria-haspopup="menu" title="前の出力（最近の10回）">履歴</button><button type="button" data-out="copy" title="出力をコピー">コピー</button></span></div>
@@ -56,7 +56,7 @@ const OUTPUT = (() => {
     const shown = () => runs.find(r => r.id === shownId);
     function render({follow = false} = {}) {
       const run = shown(); if (!run) return;
-      $('.out-title').textContent = run.title;
+      $('.out-title').textContent = run.title; $('.out-title').hidden = false;   // the tab says 出力: here the run's name only
       $('.out-state').hidden = false; $('.out-state').textContent = stateText(run.state);
       $('.out-state').className = 'build-state out-state ' + run.state;
       $('.out-time').textContent = seconds(run);

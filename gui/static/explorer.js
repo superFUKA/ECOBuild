@@ -263,10 +263,11 @@ function why(key) {
 }
 function showMenu(items, x, y) {
   returnFocus = document.activeElement;
-  // An item that cannot be used now is grey (still there); hovering it tells why (why).
-  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? `disabled title="${esc(why(item[0]))}"` : ''}>${esc(item[1])}</button>`).join('');
+  // An item that cannot be used now is grey (still there); hovering it tells why (why). [key, label, enabled, shortcut]:
+  // the shortcut shows at the right of the item.
+  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? `disabled title="${esc(why(item[0]))}"` : ''}><span>${esc(item[1])}</span>${item[3] ? `<kbd>${esc(item[3])}</kbd>` : ''}</button>`).join('');
   menu.hidden = false;
-  menu.style.left = Math.max(8, Math.min(x, innerWidth - 240)) + 'px';
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button:not(:disabled)')?.focus();
 }
@@ -274,8 +275,8 @@ function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
   const kinds = WS.changes().get(path) || [], tracked = !kinds.includes('untracked'), exists = !WS.files.missing.includes(path), can = editable();
   showMenu([
-    ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'エクスプローラーで表示', exists], '-',
-    ...(isReadme(path) ? [] : [['rename', '名前の変更　F2', can && exists], ['move', '移動先を指定…', can && exists], ['remove', '削除　Delete', can && exists]]),
+    ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'Windows のエクスプローラーで表示', exists], '-',
+    ...(isReadme(path) ? [] : [['rename', '名前の変更', can && exists, 'F2'], ['move', '移動先を指定…', can && exists], ['remove', '削除', can && exists, 'Delete']]),
     ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
@@ -289,14 +290,14 @@ function projectMenu(dir, x, y) {
     ...(testing ? [['p-test', 'テストを実行']] : []), ...(runnable ? [['p-run', '実行']] : []),
     ['p-target', '実行の対象にする（▶ で動かす）'], '-',
     ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], '-',
-    ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], '-',
+    ['reveal-dir', 'Windows のエクスプローラーで表示'], ['log', 'ログ'], '-',
     ['p-move', '移動…', can], ['p-remove', 'Projectを削除…', can], ['p-settings', 'Projectの設定（リンク等）']], x, y);
   menu.dataset.dir = dir;
 }
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ...(dir ? [['rename-dir', '名前の変更　F2', can], ['remove-dir', '削除　Delete', can]] : []), '-', ['reveal-dir', 'エクスプローラーで開く'], ['log', 'ログ'], ...(dir ? [['ignore-dir', '除外パターンに追加', can]] : []), '-',
+  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ...(dir ? [['rename-dir', '名前の変更', can, 'F2'], ['remove-dir', '削除', can, 'Delete']] : []), '-', ['reveal-dir', 'Windows のエクスプローラーで表示'], ['log', 'ログ'], ...(dir ? [['ignore-dir', '除外パターンに追加', can]] : []), '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }
@@ -314,7 +315,7 @@ function chosenMenu(x, y) {
   const changed = chosenChanges(), restorable = changed.filter(p => !(WS.changes().get(p) || []).includes('untracked'));
   showMenu([
     ['m-open', `Visual Studio ${ECO.vsVersion()} で開く（${existing.length} 件）`, existing.length > 0], ['m-open-default', `既定のアプリで開く（${existing.length} 件）`, existing.length > 0], '-',
-    ['m-move', '移動先を指定…', can && (files.length > 0 || dirs.some(d => !projectsByDir.has(d)))], ['remove-chosen', `選んだ ${chosen.size} 件を削除　Delete`, can],
+    ['m-move', '移動先を指定…', can && (files.length > 0 || dirs.some(d => !projectsByDir.has(d)))], ['remove-chosen', `選んだ ${chosen.size} 件を削除`, can, 'Delete'],
     ...(tests.length ? [['m-test', `テストを作成（${tests.length} 件）…`, can]] : []),
     ['m-restore', `変更を元に戻す（${restorable.length} 件）…`, can && restorable.length > 0], '-',
     ['m-commit', `コミットの対象にする（${changed.length} 件）`, can && changed.length > 0], ['m-copy', 'パスをコピー'],

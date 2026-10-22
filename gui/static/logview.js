@@ -11,7 +11,7 @@ const LOG = (() => {
   function view(box, {dir, path = '', selected = '', menu = null, onMore, detail = true}) {
     box.classList.add('log-view'); box.classList.toggle('log-list-only', !detail);
     box.innerHTML = `<div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む">
-      <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"><li class="muted">読み込んでいます…</li></ul><button type="button" class="log-more" hidden>さらに読み込む</button></div><div class="log-main"></div>`;
+      <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"><li class="muted">読み込んでいます…</li></ul><button type="button" class="log-more" hidden>さらに読み込む</button></div><div class="log-main">${detail ? '<p class="muted">左のコミットを選ぶと、変更が出ます。</p>' : ''}</div>`;
     const list = box.querySelector('.log-entries'), main = box.querySelector('.log-main'), search = box.querySelector('.log-search'), more = box.querySelector('.log-more');
     const diffs = new Map();
     let entries = null, chosen = selected, drawn = '';
@@ -27,7 +27,7 @@ const LOG = (() => {
     const choose = async sha => {
       chosen = sha; drawn = sha; renderList();
       list.querySelector('[aria-selected=true]')?.scrollIntoView({block: 'nearest'});
-      if (!sha) { main.innerHTML = ''; return; }
+      if (!sha) { main.innerHTML = detail ? '<p class="muted">左のコミットを選ぶと、変更が出ます。</p>' : ''; return; }
       if (!detail) return;
       if (!diffs.has(sha)) {
         main.innerHTML = '<p class="muted">読み込んでいます…</p>';
@@ -69,6 +69,7 @@ const LOG = (() => {
     return {
       show(commits, hasMore) {
         entries = commits; more.hidden = !hasMore; more.disabled = false;
+        box.classList.toggle('log-list-only', !detail || !commits.length);   // no log: nothing to show on the right
         // The chosen commit stays; one gone (after ここまで戻す) gives way to the newest. The one asked for may be older.
         if (!chosen || (!commit(chosen) && chosen !== selected)) choose(entries[0]?.sha || '');
         else if (drawn !== chosen) choose(chosen);

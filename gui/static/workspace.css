@@ -1,6 +1,9 @@
 /* Real-data additions to the workspace screen. */
 .explorer-tools { display: flex; gap: 2px; }
-.explorer-tools button { padding: 0 6px; font-size: 14px; line-height: 20px; border: 0; background: transparent; color: #a5aeba; }
+.explorer-tools button { display: inline-grid; place-items: center; height: 22px; padding: 0 4px; font-size: 14px; line-height: 20px; border: 0; background: transparent; color: #a5aeba; }
+.explorer-tools svg { display: block; }
+.explorer-tools #toggle-generated .eye-on, .explorer-tools #toggle-generated[aria-pressed=true] .eye-off { display: none; }
+.explorer-tools #toggle-generated[aria-pressed=true] .eye-on { display: block; }
 .explorer-tools button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
 #file-tree .file.untracked { color: #9fe0a8; }
 #file-tree .file.staged { color: #8fb7ef; }
@@ -9,9 +12,11 @@
 #file-tree summary.has-changes { color: #efc389; }
 #file-tree summary.deleted { color: #f3a5a5; } #file-tree summary.deleted .tree-name { text-decoration: line-through; }
 #file-tree summary.drop-target { background: #2b423c; }
-#file-menu hr { border: 0; border-top: 1px solid #3a424c; margin: 4px 0; }
-#file-menu button { text-align: left; font-size: 12px; padding: 7px 10px; }
-.change { padding: 4px 0; font-size: 13px; }
+#file-menu button { display: flex; align-items: center; }
+.eco-menu .menu-check { display: inline-block; width: 16px; flex: none; color: #9ee4d3; }   /* build.js choiceMenu */
+#file-menu kbd { margin-left: auto; padding-left: 24px; color: #84909e; font: 11px "Segoe UI", "Yu Gothic UI", sans-serif; }
+.change { padding: 2px 0; min-height: 24px; border-bottom: 0; font-size: 13px; }
+.change span[role=button] { font-weight: 400; color: #d5dce5; }
 .change-group { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 0 2px; font-size: 12px; font-weight: 600; color: #cdd5df; border-bottom: 1px dashed #303640; }
 .change-group:first-child { margin-top: 2px; }
 .change-group small { margin-left: auto; color: #8b95a3; font-weight: 400; }
@@ -73,10 +78,16 @@
 .change-tools { display: flex; gap: 6px; flex-wrap: wrap; }
 .change-tools button { padding: 4px 10px; font-size: 12px; }
 #stage-tools { display: inline-flex; gap: 6px; } #stage-tools[hidden] { display: none; }
-#changes { max-height: 320px; overflow-y: auto; margin-bottom: 10px; padding-right: 6px; border-bottom: 1px solid #303640; }   /* the list ends with a line, apart from the message */
+#changes { flex: 1 1 0; min-height: 120px; max-height: none; overflow-y: auto; padding-right: 6px; }
 .change-hint { margin: 8px 0 14px; font-size: 11px; }
 .commit-panel textarea { width: 100%; box-sizing: border-box; }
 .commit-panel .actions, .share .actions { align-items: center; }
+.commit-panel .actions { margin: 8px 0 14px; }
+/* The work area is a column: the commit panel takes the height left under the tabs (its list scrolls, not the page). */
+.work { display: flex; flex-direction: column; }
+.work > * { flex-shrink: 0; }
+.work > .commit-panel:not(.tab-off) { flex: 1 1 0; min-height: 320px; display: flex; flex-direction: column; }
+.work > .commit-panel[hidden] { display: none; }
 .share-more { position: relative; }
 .share-more > summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid #46515e; border-radius: 7px; color: #a5aeba; }
 .share-more > summary::-webkit-details-marker { display: none; }
@@ -86,7 +97,7 @@
 .share > .heading { margin-bottom: 4px; }
 #file-tree .file.generated { color: #84909e; font-style: italic; }
 .explorer-tools button[aria-pressed=true] { color: #9ee4d3; }
-.explorer-tools .sln-button { font-size: 10px; font-weight: 600; letter-spacing: .03em; } .explorer-tools .sln-button[hidden] { display: none; }
+.explorer-tools .sln-button { height: 18px; margin: 0 2px; padding: 0 4px; border: 1px solid #3a424c; border-radius: 4px; font-size: 10px; font-weight: 600; letter-spacing: .03em; line-height: 16px; } .explorer-tools .sln-button[hidden] { display: none; }
 .generated-tag { margin-left: 8px; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 10px; }
 /* コミット・Push・提出: one panel at a time, the tab shows how many things are there (changes, commits, submissions). */
 .work-tabs { display: flex; gap: 4px; margin: 0 0 -1px; border-bottom: 1px solid #303640; }
@@ -142,11 +153,16 @@ body.resizing { cursor: col-resize; user-select: none; }
 body.resizing iframe { pointer-events: none; }
 @media(max-width: 700px) { main { grid-template-columns: 1fr; } .splitter { display: none; } }
 
-/* The toolbar like Visual Studio's: the configuration on the left, ▶ 実行 (with the Project it runs) in the middle,
-   the AI and the editor on the right. */
-.build-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 12px; padding: 6px 12px; }
-.bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.bar-right { justify-content: flex-end; }
+/* The toolbar like Visual Studio's, on one line: the configuration, build, test and ▶ 実行 (with the Project it runs) on
+   the left, the workspace (branch, account, lock, container), the AI and the editor on the right. Narrow, the labels of
+   the account, lock and container go (the mark stays; the name is in its tip). */
+.build-bar { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; padding: 6px 12px; }
+.bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0; }
+.bar-right { margin-left: auto; justify-content: flex-end; flex-shrink: 1; }
+.build-bar button, .build-bar .tool-button span { white-space: nowrap; }
+.bar-right > *:not(.branch-button) { flex-shrink: 0; }
+@media (max-width: 1300px) { .build-bar #lock-label, .build-bar #container-label { display: none; } }
+@media (max-width: 1060px) { .build-bar #account-label { display: none; } }
 .bar-field { position: relative; display: flex !important; align-items: center; gap: 0 !important; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; }
 .bar-field > span { padding: 0 2px 0 9px; color: #84909e; font-size: 11px; white-space: nowrap; }
 .build-bar .bar-field select { border: 0; background: transparent; padding: 5px 6px; max-width: 170px; color: #edf1f5; cursor: pointer; }
@@ -156,9 +172,10 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .run-button svg { color: #5fd38d; }
 .build-bar .run-button:hover:not(:disabled) { background: #26603f; }
 .run-target { display: flex; border-left: 1px solid #2f7a52; background: #17241d; }
-.build-bar .run-target button { display: grid; place-items: center; padding: 0 3px; border: 0; border-radius: 0; background: transparent; color: #c8f5da; font-size: 12px; }
+.build-bar .run-target button { display: inline-flex; align-items: center; padding: 0 3px; border: 0; border-radius: 0; background: transparent; color: #c8f5da; font-size: 12px; }
 .build-bar .run-target button:hover { background: #26603f; }
 .build-bar .run-target button.chosen { color: #5fd38d; }
+.run-target-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px 0 6px; font-size: 12px; color: #c8f5da; }
 /* The lists of the selects: dark, like the bar (the system's white list with light text is hard to read). */
 .build-bar select option { background: #252b33; color: #edf1f5; }
 .run-target[hidden] { display: none !important; }
@@ -166,20 +183,20 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .tool-button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
 .build-bar .tool-button:hover:not(:disabled) { background: #252d36; border-color: #3a424c; }
 .build-bar .tool-button svg { color: #9eaab8; }
+.build-bar .tool-button[aria-pressed=true] { border-color: #2f5a50; background: #1b2a26; }
+.build-bar .tool-button[aria-pressed=true] svg { color: #9ee4d3; }
 .build-bar .build-more > summary { padding: 4px 9px; border-color: transparent; background: transparent; }
 .build-bar .build-more > summary:hover { background: #252d36; border-color: #3a424c; }
 .build-bar .build-more > div { right: auto; left: 0; }
-@media (max-width: 1000px) {
-  .build-bar { display: flex; flex-wrap: wrap; }
-  .bar-right { margin-left: auto; }
-}
+@media (max-width: 700px) { .build-bar { flex-wrap: wrap; } }
 
 /* The toolbar's marks: the name shows at once under the mark on hover or focus (data-tip). */
 .build-bar [data-tip] { position: relative; }
 .build-bar [data-tip]:hover::after, .build-bar [data-tip]:focus-visible::after {
   content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 40;
   padding: 4px 9px; border: 1px solid #46515e; border-radius: 5px; background: #252b33; color: #edf1f5;
-  font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; font-weight: 400; white-space: nowrap; pointer-events: none; box-shadow: 0 6px 18px #0007; }
+  font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; font-weight: 400; white-space: normal; width: max-content; max-width: 340px; text-align: left; pointer-events: none; box-shadow: 0 6px 18px #0007; }
+.build-bar .vs-group [data-tip]::after, .build-bar #container-button[data-tip]::after { left: auto; right: 0; transform: none; }
 .build-bar .build-more[open] > summary::after { display: none; }
 
 /* ビルド: 🔧 and ▾ joined, like ▶ and its ▾ but quieter. */
@@ -203,8 +220,6 @@ body.resizing iframe { pointer-events: none; }
 #file-tree summary .tree-caret:hover { background: #2b333c; color: #edf1f5; }
 /* Chosen in the explorer (a click; Ctrl・Shift for several) */
 #file-tree .file.chosen, #file-tree summary.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
-#file-menu button.danger:not(:disabled) { color: #ff9b9b; }
-#file-menu button.danger:not(:disabled):hover, #file-menu button.danger:not(:disabled):focus-visible { background: #4a2528; color: #ffc4c4; }
 /* The task branch placed in this workspace (switched from its menu). */
 .work > .heading { justify-content: flex-start; gap: 14px; }
 .work > .heading:has(> h2.visually-hidden:only-child) { display: none; }   /* on a task branch the tabs are the heading */
@@ -233,6 +248,8 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .container-button.on svg { color: #9ee4d3; }
 .build-bar #lock-button.on { border-color: #6b5a2c; background: #302a1a; color: #f0d98c; }
 .build-bar #lock-button.on svg { color: #f0d98c; }
+.build-bar .account-button.on { border-color: #3a5878; background: #1c2635; color: #b1cbef; }
+.build-bar .account-button.on svg { color: #b1cbef; }
 /* The image editor (コンテナの「イメージ（Dockerfile）」): the environment's Dockerfile, its image and ECOBuild's layer. */
 .eco-dialog.image-editor .ie-notes { margin: 8px 0; padding-left: 18px; font-size: 13px; color: #b4bec9; }
 .eco-dialog.image-editor .ie-notes li.ok { color: #9ee4d3; }

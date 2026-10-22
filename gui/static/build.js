@@ -25,23 +25,37 @@ WS.onRefresh(renderPrDetail);
     showSetting();
     if (j.ok) {
       const chosen = get('build-project').value;
-      get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(x.kind)}）</option>`).join('');
+      get('build-project').innerHTML = '<option value="">すべてのProject</option>' + j.result.map(x => `<option value="${esc(x.name)}" data-kind="${esc(x.kind)}">${esc(x.name)}（${esc(PROJECT_KIND_LABEL[x.kind] || x.kind)}）</option>`).join('');
       if (j.result.some(x => x.name === chosen)) get('build-project').value = chosen;
       showTarget();
     }
   }
-  // The Project to build・run・test: ▾ next to ▶ chooses it (a menu); its name shows on hover. The value is kept in the
-  // hidden select (build-project), which runAction reads.
+  // The Project to build・run・test: ▾ next to ▶ chooses it (a menu); its name shows next to ▾ (as Visual Studio's startup
+  // project). The value is kept in the hidden select (build-project), which runAction reads.
   // The same ▾ also holds the arguments for 実行 (a type without Projects has only these).
   function showTarget() {
     const select = get('build-project'), name = select.selectedOptions[0]?.textContent, runArgs = get('build-run-args').value;
     get('build-project-pick').dataset.tip = [name ? `対象：${name}` : '実行の設定', runArgs ? `引数：${runArgs}` : ''].filter(Boolean).join('　');
     get('build-project-pick').classList.toggle('chosen', !!select.value || !!runArgs);
+    const shown = get('build-project-pick').querySelector('.run-target-name');
+    shown.textContent = select.value; shown.hidden = !select.value;
+  }
+  // A menu of choices: the chosen one has ✓ in a column of its own (the names line up). An item's text starts with
+  // '✓ ' (chosen) or '　' (not); ECO.menu draws the text, the mark is put in its column after.
+  function choiceMenu(items, x, y) {
+    ECO.menu(items, x, y);
+    const el = [...document.querySelectorAll('.eco-menu')].pop();
+    for (const b of el?.querySelectorAll('button') || []) {
+      const text = b.textContent, on = text.startsWith('✓ ');
+      if (!on && !text.startsWith('　')) continue;
+      const mark = document.createElement('span'); mark.className = 'menu-check'; mark.textContent = on ? '✓' : '';
+      b.textContent = text.slice(on ? 2 : 1); b.prepend(mark);
+    }
   }
   get('build-project-pick').addEventListener('click', () => {
     const select = get('build-project'), r = get('build-project-pick').getBoundingClientRect(), runArgs = get('build-run-args');
     const projects = [...select.options].map(o => [(o.value === select.value ? '✓ ' : '　') + o.textContent, () => { select.value = o.value; showTarget(); }]);
-    ECO.menu([...projects, ...(projects.length ? ['-'] : []), [runArgs.value ? `実行時の引数：${runArgs.value}…` : '実行時の引数…', () => ECO.form({
+    choiceMenu([...projects, ...(projects.length ? ['-'] : []), [runArgs.value ? `実行時の引数：${runArgs.value}…` : '実行時の引数…', () => ECO.form({
       title: '実行時の引数', intro: '「実行」で、プログラムに渡す引数です（空白で区切る）。この画面を閉じるまで使います。',
       fields: [{name: 'args', label: '引数', value: runArgs.value, placeholder: '例：--size 3', focus: true}], ok: '決定',
       submit: v => { runArgs.value = (v.args || '').trim(); showTarget(); }})]], r.left, r.bottom + 4);
@@ -60,6 +74,15 @@ WS.onRefresh(renderPrDetail);
   WS.footer = PANELS.footer(get('footer'), {home: WS.dir, heightKey: 'ecobuild-gui-output-height'});
   PANELS.source(OUTPUT_PANEL, () => runs);
   const publish = () => PANELS.publish(OUTPUT_PANEL.id);
+  // 出力 in the toolbar (Ctrl+J, as VS Code's panel) shows or hides the footer with the output (after × too).
+  const outputButton = get('toggle-output');
+  const toggleOutput = () => { if (!WS.footer.toggle(OUTPUT_PANEL)) ECO.toast('出力は別の窓に出ています。', 'info'); };
+  outputButton.addEventListener('click', toggleOutput);
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'j') { e.preventDefault(); toggleOutput(); }
+  });
+  const showOutputState = () => outputButton.setAttribute('aria-pressed', String(!get('footer').hidden && WS.footer.has(OUTPUT_PANEL.id)));
+  new MutationObserver(showOutputState).observe(get('footer'), {attributes: true, attributeFilter: ['hidden']});
   function begin(title, command) {
     const run = {id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, command, state: 'run', started: Date.now(), lines: [], progress: []};
     runs.unshift(run); runs.splice(10);
@@ -123,15 +146,17 @@ WS.onRefresh(renderPrDetail);
   get('build-setting').addEventListener('click', () => {
     const r = get('build-setting').getBoundingClientRect(), config = get('build-config'), profile = get('build-profile');
     const mark = on => on ? '✓ ' : '　';
-    const fromProfile = selectedProfile && profiles[selectedProfile] ? `ビルド設定のまま（${profiles[selectedProfile].configuration}）` : '既定（Debug）';
+    // Without a build setting the default is Debug itself (no item of its own); with one, 「ビルド設定のまま」 uses its configuration.
+    const using = selectedProfile && profiles[selectedProfile], hasDebug = [...config.options].some(o => o.value === 'Debug');
     const help = features.configurationHelp || {};
-    const configurations = [...config.options].map(o => [mark(o.value === config.value) + (o.value ? o.textContent : fromProfile), () => { config.value = o.value; showSetting(); }, true,
-      o.value ? help[o.value] || '' : 'ビルド設定の構成（なければ Debug）']);
+    const configurations = [...config.options].filter(o => o.value || using || !hasDebug)
+      .map(o => [mark(o.value === config.value || (!using && hasDebug && !config.value && o.value === 'Debug')) + (o.value ? o.textContent : using ? `ビルド設定のまま（${using.configuration}）` : '既定（Debug）'),
+        () => { config.value = o.value; showSetting(); }, true, o.value ? help[o.value] || '' : 'ビルド設定の構成（なければ Debug）']);
     const names = [...profile.options].map(o => [mark(o.value === (selectedProfile || 'none')) + o.textContent, () => {
       if (o.value === (selectedProfile || 'none')) return;
       profile.value = o.value; profile.dispatchEvent(new Event('change'));
     }, !busy]);
-    ECO.menu([['構成', null], ...configurations, '-', ['ビルド設定（このPCで使う）', null],
+    choiceMenu([['構成', null], ...configurations, '-', ['ビルド設定（このPCで使う）', null],
       ...(names.length > 1 ? names : [['　ありません（左の「設定」で追加）', null, false]])], r.left, r.bottom + 4);
   });
   // "Open in editor" split button: the button opens with the chosen editor; ▾ only chooses which one (it does not open).
@@ -145,7 +170,7 @@ WS.onRefresh(renderPrDetail);
   get('choose-vs').addEventListener('click', async () => {
     installed ??= await ECO.call('vs-versions').catch(() => EDITORS.map(([v]) => v));
     const r = get('choose-vs').getBoundingClientRect(), current = ECO.vsVersion();
-    ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
+    choiceMenu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
       () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
   // AI (coding agent): ecobuild agent start --as <registration> opens it in a new window at the workspace's root and returns
@@ -214,7 +239,7 @@ WS.onRefresh(renderPrDetail);
     const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
     const where = box?.container ? 'この作業空間のコンテナの中で、登録したエージェントを確認なしに新しい画面で起動します' : 'この作業空間のルートで、登録したエージェントを新しい画面で起動します';
-    get('agent-start').title = ready ? `${where}（${command || 'claude'}）`
+    get('agent-start').dataset.tip = ready ? `${where}（${command || 'claude'}）`
       : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
   // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start

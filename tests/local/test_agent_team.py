@@ -380,23 +380,30 @@ def test_the_agent_always_starts_in_a_container(lead, monkeypatch):
     assert container.enabled(lead.root) and len(seen) == 2                                # 人が起動するもの
 
 
-def test_the_manager_is_the_only_one_under_the_lead_and_makes_the_workers(lead):
-    """記録のない作業空間は進行役：管理役を1人だけ作り（作業役は直接作れない）、作業役の知らせは作った管理役に届く
-    （進行役には届かない）。管理役は上の役へ send できる。"""
+def test_the_lead_makes_managers_per_work_and_managers_make_workers_and_managers(lead):
+    """記録のない作業空間は進行役：仕事ごとに管理役を何人でも作り（作業役は直接作れない）、作業役の知らせは作った管理役に
+    届く（進行役には届かない）。管理役は下に管理役も作れる。管理役は上の役へ send できる。"""
     top = Path(lead.root)
     (top / team.MEMBER_FILE).unlink()                                                      # 記録のないトップ
     assert team.role_of(top) == team.LEAD
     assert code_of(lambda: team.create(lead, "画面", "直接", role=team.WORKER)) == ErrorCode.INVALID_ARGUMENT
     manager = team.create(lead, "管理", "ユーザーの依頼：画面を作る", role=team.MANAGER)
     assert manager.role == team.MANAGER and team.team(lead.root).members[0].role == team.MANAGER
-    assert code_of(lambda: team.create(lead, "管理2", "もう1人", role=team.MANAGER)) == ErrorCode.INVALID_ARGUMENT
+    other = team.create(lead, "ログ", "会話の途中で始まった別の仕事：ログを直す", role=team.MANAGER)   # 2人目：別の仕事
+    assert other.task != manager.task and sorted(m.name for m in team.team(top).members) == ["ログ", "管理"]
     assert code_of(lambda: team.create(lead, "進行", "x", role=team.LEAD)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: team.create(lead, "x", "y", role="boss")) == ErrorCode.INVALID_ARGUMENT
     manager_module = Module.find(manager.path)
     assert team.role_of(manager.path) == team.MANAGER
-    assert code_of(lambda: team.create(manager_module, "孫", "x", role=team.MANAGER)) == ErrorCode.INVALID_ARGUMENT
+    sub = team.create(manager_module, "孫", "大きな部分：設定画面", role=team.MANAGER)     # 管理役の下の管理役
+    assert team.role_of(sub.path) == team.MANAGER and sub.path.parent == manager.path / team.TEAM_AREA
+    told = Module.find(sub.path).agent_briefing(Module.find(sub.path).require_task_branch("x"), team.MANAGER)
+    assert "上の管理役「管理」から命令を受け" in told and "進行役（ユーザーと話す役）から" not in told
+    where, _ = team.lead_notice(sub.path, "設定画面を取り込みました\n状態：完了")
+    assert where == manager.path                                                           # 下の管理役の知らせは作った管理役へ
     worker = team.create(manager_module, "画面", "目的：画面を作る", role=team.WORKER)    # 作業役は管理役の下に
-    assert [m.name for m in team.team(manager.path).members] == ["画面"] and [m.name for m in team.team(top).members] == ["管理"]
+    assert sorted(m.name for m in team.team(manager.path).members) == ["孫", "画面"]
+    assert sorted(m.name for m in team.team(top).members) == ["ログ", "管理"]
     where, notice = team.lead_notice(worker.path, "できました\n状態：完了")
     assert where == manager.path and where != top and "作業役「画面」" in notice             # 知らせの宛先は管理役
     team.send(top, "管理", "ボタンは右に")                                                  # 進行役 → 管理役

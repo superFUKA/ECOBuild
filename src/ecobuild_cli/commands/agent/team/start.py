@@ -17,15 +17,15 @@ def command(*name: Annotated[str, "名前（子タスクの題名・タスクブ
             brief: Annotated[str, "任せる仕事：目的・返してほしいもの・使ってよい道具・範囲（やらないこと）"] = "",
             brief_file: Annotated[str, "任せる仕事を書いたファイル（--brief の代わり）"] = "",
             brief_dir: Annotated[str, "1人1ファイルの任せる仕事を置いたフォルダー（ファイル名〔.md・.txt を除く〕が名前。全員を並べて作る）"] = "",
-            manager: Annotated[bool, "作業役ではなく、管理役を作る（進行役が、自分の下に1人だけ作る。作業役は管理役が作る）"] = False,
+            manager: Annotated[bool, "作業役ではなく、管理役を作る（進行役が仕事ごとに、管理役が大きな部分ごとに作る。作業役は管理役が作る）"] = False,
             report_only: Annotated[bool, "報告だけの作業役にする（調べもの・レビュー。ファイルを変えず・提出しない）"] = False,
             task: Annotated[int, "子タスクを新しく作らず、この番号の子タスク（作業空間がないもの）から作る"] = 0,
             model: Annotated[str, "この作業役のモデル（既定はこのPCの設定 agent_worker_model・agent_manager_model）"] = "",
             no_open: Annotated[bool, "作るだけで起動しない（係・GUI が起動するとき）"] = False,
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """作業役（--manager なら管理役）を作って起動します（作業役は管理役が、管理役は進行役が使います）。
+    """作業役（--manager なら管理役）を作って起動します（作業役は管理役が、管理役は進行役と管理役が使います）。
 
-    進行役のタスクの子タスク（題名 名前・本文 任せる仕事）と、そのタスクブランチを置いた作業空間
+    今のタスクの子タスク（題名 名前・本文 任せる仕事）と、そのタスクブランチを置いた作業空間
     （.ecobuild/ai/team/<番号>-<名前>/）を作り、任せる仕事を .ecobuild/ai/brief.md に置いて、作業役を起動します。
     作業役は終わったら .ecobuild/ai/report.md に報告を書き、管理役のタスクブランチへ提出します（--report-only なら
     提出せず、agent report で知らせます）。GitHub の一時的な失敗は、待ってやり直します。

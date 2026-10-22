@@ -10,11 +10,11 @@
 
 from __future__ import annotations
 
-from ecobuild_agent.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # noqa: F401（REQUESTED は拡張が名乗る）
+from ecobuild_agent import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # noqa: F401（REQUESTED は拡張が名乗る）
 
 EFFECTS = {
     READ: (
-        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent module status", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
+        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
@@ -23,13 +23,13 @@ EFFECTS = {
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
-        "agent module close", "agent team accept", "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
+        "agent team accept", "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent context", "agent guard", "agent module prepare", "agent module start", "agent operator", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent ask", "agent context", "agent guard", "agent operator", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }
@@ -77,30 +77,6 @@ def classify(args: list[str], extra: dict[str, str] | None = None) -> tuple[str,
         return (CONFIRM if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options) else found), name
     path = _path(words)
     return effect(path, options), path
-
-
-# モジュールの進行役（タスクを持たない）の関所：チームの操作は進行役の仕事（人がするものから外す）。タスクブランチの作業・
-# 作業空間・エージェント自身の起動は使わない（管理役・人がする）
-MODULE_LEAD = {
-    "agent team start": CHANGE, "agent team send": CHANGE, "agent team restart": CHANGE,
-    "agent start": HUMAN, "agent team takeover": HUMAN, "agent team handback": HUMAN,
-    "task start": HUMAN, "task commit": HUMAN, "workspace create": HUMAN, "workspace add": HUMAN,
-    "workspace close": HUMAN,   # 作業空間はこのPCにある：閉じるのはユーザー
-    # 進行役の作業空間にはタスクブランチがない：task drop はいつも、ほかの作業空間（ほかの役・人）のものを消すことになる
-    "task drop": HUMAN,
-}
-
-
-def classify_module_lead(args: list[str], extra: dict[str, str] | None = None) -> tuple[str, str]:
-    """進行役が ecobuild に渡す引数の (重さ, コマンドの名前)。classify に MODULE_LEAD を重ねる（task new --start も使わない）。"""
-    found, name = classify(args, extra)
-    if name in MODULE_LEAD:
-        return MODULE_LEAD[name], name
-    if name == "task new" and "--start" in args:
-        return HUMAN, name
-    if name == "task close" and any(o in args for o in ("--yes", "-y")):
-        return HUMAN, name      # タスクブランチの作業を捨てて閉じる（ほかの作業空間のもの）
-    return found, name
 
 
 def _path(words: list[str]) -> str:

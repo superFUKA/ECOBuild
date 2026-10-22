@@ -36,11 +36,12 @@ def test_status_shows_the_body_and_the_rest_with_body_option(cli):
     assert "15 行目" in cli("task", "status", str(number), "--body").output
 
 
-def test_status_submission_matches_list(cli, module):
+def test_status_submission_matches_list(cli, module, monkeypatch):
     number = as_json(cli("task", "new", "提出するタスク", "--json"))["task"]["number"]
-    cli("task", "start", str(number), "--name", "提出")
-    write(module.root / "a.txt", "a\n")
-    git(module.root, "add", "a.txt")
+    work = as_json(cli("task", "start", str(number), "--name", "提出", "--json"))["workspace"]
+    monkeypatch.chdir(work)   # 作業は作業空間（.ecobuild/w/<番号>）で
+    write(module.root / ".ecobuild" / "w" / str(number) / "a.txt", "a\n")
+    git(work, "add", "a.txt")
     cli("task", "commit", "--message", "a")
     assert cli("task", "submit", "--no-check", "--partial").exit_code == 0
     status = as_json(cli("task", "status", "--json"))

@@ -41,8 +41,9 @@ def test_config_is_reloaded_after_switching(tmp_path):
     assert module.repository.default_base == "develop"
 
 
-def test_dedicated_clone_prepares_only_the_clone(module, tmp_path, monkeypatch):
-    """別の作業空間（clone）にタスクブランチを作るとき、型の準備（依存先・生成ファイル）は clone 先だけで行う。"""
+def test_workspace_prepares_only_itself(module, tmp_path, monkeypatch):
+    """タスクを作業空間（元の clone の中の .ecobuild/w/<番号>）で始めるとき、型の準備（依存先・生成ファイル）は作業空間
+    だけで行う。元の clone のブランチは変えない。このPC用の設定（ecobuild.local.toml）は元の clone のものを写す。"""
     prepared = []
 
     def prepare(self):
@@ -50,23 +51,12 @@ def test_dedicated_clone_prepares_only_the_clone(module, tmp_path, monkeypatch):
         return PrepareResult((), False)
 
     monkeypatch.setattr(CppType, "prepare", prepare)
+    config.save_local(module.root, {"profile": "Release"})
     task = module.repository.create_task("並行作業")
-    other = module.start_task_in(task.number, tmp_path / "Calc-1")
-    assert other.root != module.root and other.repository.current_task_branch().number == task.number
+    other = module.start_task(task.number)
+    assert other.root == module.root / ".ecobuild" / "w" / str(task.number)
+    assert other.repository.current_task_branch().number == task.number and other.workspace_root == module.root
     assert prepared and set(prepared) == {other.root}
-    assert module.repository.current_task_branch() is None
-
-
-def test_created_workspace_prepares_only_the_clone(module, tmp_path, monkeypatch):
-    """新しい作業空間（clone）を作るとき、型の準備は clone 先だけで行い、ブランチは既定のまま。"""
-    prepared = []
-
-    def prepare(self):
-        prepared.append(self.module.root)
-        return PrepareResult((), False)
-
-    monkeypatch.setattr(CppType, "prepare", prepare)
-    other, _ = module.create_workspace(tmp_path / "Calc-2")
-    assert other.root != module.root and other.repository.git.current_branch() == "main"
-    assert other.repository.current_task_branch() is None
-    assert prepared and set(prepared) == {other.root}
+    assert module.repository.current_task_branch() is None and module.repository.git.current_branch() == "main"
+    assert config.load_local(other.root) == {"profile": "Release"}
+    assert module.start_task(task.number).root == other.root      # 既にあれば、その作業空間を返す

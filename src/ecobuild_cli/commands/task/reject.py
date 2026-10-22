@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from ..._output import lines, missing, run_command
+from ..workspace.close import leave
 
 
 def command(
@@ -10,12 +11,17 @@ def command(
 ) -> int:
     """提出を差し戻します（修正を依頼します）。タスクは作業中に戻り、作業者が直して task submit で出し直します。
 
-    ecobuild task review で確認中なら、確認の前の場所へ戻ります。
+    ecobuild task review の確認用の作業空間があれば消します。
     """
     if not message:
         return missing("--message", json)
+
+    def action(inv):
+        leave(inv.module.root, inv)   # 確認用の作業空間を消すことがある
+        return inv.module.repository.reject(task, message)
+
     return run_command(
-        "task reject", lambda inv: inv.module.repository.reject(task, message),
-        lambda r: lines(f"確認の前の場所 {r.returned_to} に戻りました" if r.returned_to else None,
+        "task reject", action,
+        lambda r: lines(f"確認用の作業空間 {r.review_removed} を消しました" if r.review_removed else None,
                         f"#{r.task} を差し戻しました（{r.url}）"),
         json_output=json)

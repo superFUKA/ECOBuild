@@ -110,15 +110,19 @@ def _write(root: Path, data: dict) -> None:
 
 def _exclude(root: Path) -> None:
     """lock.json・lock.lock を git の除外（.git/info/exclude）に足す（まだなければ）。"""
-    exclude = _git_common_directory(Path(root)) / "info" / "exclude"
-    if not exclude.parent.is_dir():
+    exclude(root, f"/{FILE_NAME}", f"/{LOCK_NAME}")
+
+
+def exclude(root: Path, *wanted: str) -> None:
+    """wanted の行を git の除外（共通の .git/info/exclude。作業空間どうしで共有）に足す（まだなければ）。"""
+    path = _git_common_directory(Path(root)) / "info" / "exclude"
+    if not path.parent.is_dir():
         return
-    wanted = [f"/{FILE_NAME}", f"/{LOCK_NAME}"]
     try:
-        text = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
         missing = [line for line in wanted if line not in text.splitlines()]
         if missing:
-            exclude.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n",
+            path.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n",
                                encoding="utf-8", newline="\n")
     except OSError:
         pass

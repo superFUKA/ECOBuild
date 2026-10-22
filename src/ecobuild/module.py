@@ -24,7 +24,7 @@ from pathlib import Path
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
-from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git
+from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git, WORKTREE_LOCK_REASON as _LOCK_REASON
 
 from . import _docs
 from . import ci_review as _ci_review
@@ -39,9 +39,10 @@ from .fsutil import remove_tree
 from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
-                      ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceEntry)
+                      ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceList)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+_WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
 _UNPUSHED_HINT = ("必要なものを GitHub へ送るか（コミット・push・退避の取り出し等）、捨ててよければ --discard-local を付けて"
                   "実行してください（それらは失われます）。")
 
@@ -91,9 +92,9 @@ def _locked_hint(command: str) -> str:
 
 
 class _TypeHooks(Hooks):
-    """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。
+    """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。作業空間を消すのは Module。
 
-    1つの Module（そのclone）に結び付く。別のcloneの Repository には渡さない（start_task_in を参照）。
+    1つの Module（その作業空間）に結び付く。別の作業空間の Repository には渡さない（start_task_in を参照）。
     """
 
     def __init__(self, module: "Module"):
@@ -102,8 +103,8 @@ class _TypeHooks(Hooks):
     def after_sync(self, repository: Repository) -> PrepareResult:
         return self._module._after_sync()
 
-    def after_switch(self, repository: Repository) -> None:
-        # 切り替えた先の記録に、手元をそろえる（作業版・変更のある依存先は型が触らない）。
+    def prepare_workspace(self, repository: Repository) -> None:
+        # 作った作業空間・その場で切り替えた先の記録に、手元をそろえる（作業版・変更のある依存先は型が触らない）。
         self._module._after_sync()
 
     def before_submit(self, repository: Repository) -> None:
@@ -119,31 +120,56 @@ class _TypeHooks(Hooks):
         return {ref: "ECOBuild のモジュールではありません" for ref, line in zip(refs, lines) if line.endswith(" missing")}
 
     def switch_locks(self, repository: Repository) -> list[str]:
-        return [r.text for r in _locks.status(self._module.root).reasons]
+        return [r.text for r in _locks.status(repository.root).reasons]
 
     def branch_locks(self, repository: Repository, branch: str) -> list[str]:
-        # 記録した、ほかの作業空間のうち、そのタスクブランチにいてロック中のもの（場所を添える）
-        others = [w.path for w in _workspaces.recorded()
-                  if not _workspaces.same(w.path, self._module.root) and (w.path / _config.FILE_NAME).is_file()]
-        here = []
-        for path in others:
+        # そのタスクブランチを取り出している、ほかの作業ツリー（作業空間・元の clone。git worktree list）と、同じリポジトリの
+        # 前の版の作業空間（独立した clone）のうち、ロック中のもの（場所を添える）
+        held = repository.git.checked_out_branches().get(branch)
+        here = [held] if held is not None and not _workspaces.same(held, repository.root) else []
+        mine = _workspaces.identity(repository.remote_url)
+        for path in _workspaces.legacy() if mine is not None else ():
+            if (_workspaces.same(path, repository.root) or any(_workspaces.same(path, p) for p in here)
+                    or not (path / _config.FILE_NAME).is_file()):
+                continue
             try:
-                if _Git(path).current_branch() == branch:
+                git = _Git(path)
+                if git.current_branch() == branch and _workspaces.identity(git.get_config("remote.origin.url")) == mine:
                     here.append(path)
             except Exception:   # gitで読めない（壊れたclone 等）
                 continue
         return [f"{path}：{reason.text}" for path, lock in zip(here, _locks.status_of(here)) for reason in lock.reasons]
+
+    def remove_workspace(self, repository: Repository, path: Path, *, discard: bool) -> bool:
+        # タスクブランチを消す前に、それを取り出している作業空間を消す（ecowork が、失われるコミット・コミットしていない
+        # 変更を確かめた後）。管理するファイルに当たる新しいファイルは、discard でなければ残す（消えてしまうため）。
+        # ECOBuild の置き場所（.ecobuild/ の中）の作業空間でなければ（人が git worktree で作ったもの等）触らない：ブランチは残る
+        if not _workspaces.is_managed(path):
+            raise EcoBuildError(ErrorCode.BRANCH_CHECKED_OUT,
+                                f"ECOBuild が作った作業空間ではない作業ツリー {path} が取り出しています（消しません）",
+                                hint=f"git worktree remove \"{path}\" で外してから、{self._module.op('task prune')} で"
+                                     "片付けてください。")
+        if not discard:
+            other = self._module._open_workspace(Path(path))
+            pending = [p for p in other.repository.git.working_tree().untracked if other.is_tracked(p)]
+            if pending:
+                raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"作業空間 {path} に、コミットしていない新しいファイルがあります。",
+                                    hint=f"{self._module.op('task commit')} で記録するか、要らなければ消してから、もう一度実行してください。",
+                                    details=pending)
+        type(self._module).close_workspace(path, discard_local=True, github=repository.github)
+        return True
 
 
 class Module:
     """1つのモジュール（GitHubのリポジトリ）。
 
     使える型は registry（Registry）。クラスの属性を子クラスで決めるか、作るときに渡す（本体の既定は空）。
-    このモジュールが開く別の Module（task start --dir の作業空間等）も、同じ registry を使う。
+    このモジュールが開く別の Module（task start の作業空間等）も、同じ registry を使う。
     """
 
     registry: Registry = Registry()
     command: str = ""     # ヒントに書くプログラム名（CLI は ecobuild）。空なら操作名だけ（errors.operation）
+    reviewed: wm.ReviewResult | None = None   # 確認用の作業空間として開いた（review）ときの、取り出した結果
 
     def __init__(self, root: Path, module_config: _config.ModuleConfig, *, github: _github.GitHub | None = None,
                  registry: Registry | None = None):
@@ -172,12 +198,12 @@ class Module:
         root = _config.find_root(Path(path), command=cls.command)
         return cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
 
-    def _open_clone(self, root: Path) -> "Module":
-        """今 clone した場所 root そのものを、このモジュールとして開く。上へはたどらない：作業空間は別のモジュールの
-        作業空間の中（進行役の .ecobuild/ai/team 等）に作ることがあり、たどると外のモジュールを開いて、そのブランチを変える。"""
+    def _open_workspace(self, root: Path) -> "Module":
+        """作業空間 root そのものを、このモジュールとして開く。上へはたどらない：作業空間は元の clone の中（.ecobuild/w）に
+        作るので、たどると外のモジュール（元の clone）を開いて、そのブランチを変える。"""
         if not (Path(root) / _config.FILE_NAME).is_file():
             raise EcoBuildError(ErrorCode.NOT_IN_MODULE,
-                                f"clone した {root} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
+                                f"作業空間 {root} はECOBuildのモジュールではありません（{_config.FILE_NAME} がありません）。",
                                 hint=f"取り出した作成元のブランチにモジュールがありません。作成元には、モジュールのブランチ"
                                      f"（{self.op('branch list')}）を指定してください。")
         return type(self)(Path(root), _config.load(Path(root) / _config.FILE_NAME),
@@ -387,30 +413,59 @@ class Module:
                      if r.module_file is not None and (archived is None or r.archived == archived))
 
     @staticmethod
-    def workspaces(*, fetch: bool = False, github: _github.GitHub | None = None) -> tuple[WorkspaceEntry, ...]:
-        """このPCにある作業空間（記録したもの）。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・
-        名前の変更）。GitHubのものでない origin は確かめない。"""
-        entries = _workspaces.entries()
+    def workspaces(*, fetch: bool = False, github: _github.GitHub | None = None) -> WorkspaceList:
+        """このPCにあるモジュール（記録した元の clone と、その中の作業空間）と、前の版の作業空間。fetch：GitHubの側も
+        確かめる（まだあるか・アーカイブ・名前の変更）。GitHubのものでない origin は確かめない。"""
+        listed = _workspaces.listing()
         if not fetch:
-            return tuple(entries)
+            return listed
         github = github or _github.default()
         states: dict[str, tuple[str, str | None]] = {}
-        for entry in entries:
+        for entry in (*listed.modules, *listed.legacy):
             if entry.repository and entry.repository.casefold() not in states:
                 states[entry.repository.casefold()] = _github_state(github, entry.repository)
-        return tuple(replace(e, remote=states[e.repository.casefold()][0], moved_to=states[e.repository.casefold()][1])
-                     if e.repository else e for e in entries)
 
-    def own_workspaces(self) -> tuple[WorkspaceEntry, ...]:
-        """このPCにある、このモジュール（同じリポジトリ）の作業空間（記録したもの。ここも含む）。"""
+        def checked(entry):
+            if not entry.repository:
+                return entry
+            remote, moved_to = states[entry.repository.casefold()]
+            return replace(entry, remote=remote, moved_to=moved_to)
+        return WorkspaceList(tuple(map(checked, listed.modules)), tuple(map(checked, listed.legacy)))
+
+    @property
+    def workspace_root(self) -> Path:
+        """元の clone（作業空間を置くモジュール）。作業空間（git worktree）の中ならその元、前からある独立した clone・
+        依存先の clone ならそれ自身。"""
+        return _workspaces.original_of(self.root)
+
+    def workspace_place(self, name: str) -> Path:
+        """作業空間の場所：<元の clone>/.ecobuild/w/<name>。name は英数字で始まる、英数字・_・- の32文字まで（外へ出る
+        名前・パスの区切りは受け付けない）。"""
+        if not _WORKSPACE_NAME.fullmatch(name or ""):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"作業空間の名前 {name!r} は使えません。",
+                                hint="英数字で始まる、英数字・_・- の32文字までの名前にしてください（タスクの番号等）。")
+        return _workspaces.area(self.workspace_root) / name
+
+    def task_workspaces(self) -> dict[int, Path]:
+        """このモジュールのタスクブランチを取り出している場所（タスクの番号 → 場所）：元の clone の git worktree list
+        （元の clone・作業空間）と、同じリポジトリの前の版の作業空間（独立した clone）。"""
+        found: dict[int, Path] = {}
         mine = _workspaces.identity(self.remote_url)
-        if mine is None:
-            return tuple(e for e in _workspaces.entries() if _workspaces.same(e.path, self.root))
-        return tuple(e for e in _workspaces.entries() if e.exists and _workspaces.identity(e.url) == mine)
-
-    def _task_workspaces(self) -> dict[int, Path]:
-        """タスクブランチ（task/<番号>）がある、このモジュールの作業空間（このPCの、記録したもの）。"""
-        return {e.task: e.path for e in self.own_workspaces() if e.task is not None}
+        for path in _workspaces.legacy() if mine is not None else ():
+            if not (path / _config.FILE_NAME).is_file():
+                continue
+            try:
+                git = _Git(path)
+                number = wm.task_number(git.current_branch() or "")
+                if number is not None and _workspaces.identity(git.get_config("remote.origin.url")) == mine:
+                    found[number] = path
+            except Exception:   # gitで読めない（壊れたclone 等）
+                continue
+        for worktree in self.repository.git.worktrees():
+            number = wm.task_number(worktree.branch) if worktree.branch and not worktree.prunable else None
+            if number is not None:
+                found[number] = worktree.path
+        return found
 
     def info(self) -> ModuleInfo:
         """このモジュールの情報。GitHubに問い合わせられなければ、公開・アーカイブは分からない（None）。"""
@@ -428,7 +483,8 @@ class Module:
             dependencies = ()
             self.repository.notices.append(f"依存先を読めませんでした（{error.message}）。")
         return ModuleInfo(self.name, self.config.type, self.root, repository, url, private, archived,
-                          self.config.default_base, self.project_names, dependencies, self.own_workspaces(),
+                          self.config.default_base, self.project_names, dependencies,
+                          tuple(_workspaces.task_workspaces(self.workspace_root)),
                           self.config.format, _config.FORMAT)
 
     @classmethod
@@ -507,22 +563,41 @@ class Module:
     @classmethod
     def close_workspace(cls, path: Path | str, *, discard_local: bool = False, dry_run: bool = False,
                         github: _github.GitHub | None = None) -> WorkspaceClosed:
-        """作業空間を閉じる：場所ごと消し、記録から外す。GitHubのリポジトリ・ブランチ・タスクには触らない。
+        """作業空間を閉じる：場所ごと消す。GitHubのリポジトリ・ブランチ・タスクには触らない。
 
+        閉じられるのは、作業空間（git worktree。.ecobuild/w/ の中）と、前の版の作業空間（独立した clone。記録からも外す）。
+        元の clone は閉じられない（モジュールを手元から消すのは module delete --remove-workspaces）。
         手元にだけあるもの（未コミットの変更・新しいファイル・GitHubにないコミット・退避。依存先のcloneも）があれば断る
         （discard_local なら、それも捨てる）。除外したファイル（ビルドの出力・このPC用の設定・ログ）は一緒に消える。
-        他のプログラム（端末・エディター等）が使っていてフォルダーを動かせなければ、消せるものだけを消し、
-        残ったものを返す（GitHubにないものがないことは確かめてあるので、作業は失われない）。
+        使用中（ロック中・before_close_workspace が理由を返す）なら断る。
+        他のプログラム（端末・エディター等）が使っていてフォルダーを動かせなければ、前の版の作業空間は消せるものだけを消し、
+        残ったものを返す（GitHubにないものがないことは確かめてあるので、作業は失われない）。作業空間（git worktree）は
+        記録が残るので消さずに断る。
         """
         root = _workspaces.module_root(Path(path))
+        linked = _Git(root).is_linked_worktree()
+        if not linked and not _workspaces.is_legacy(root):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{root} は元の clone なので閉じられません（作業空間はその中に作ります）。",
+                                hint=f"閉じるのは作業空間（{_workspaces.AREA}/<名前>）です（{operation(cls.command, 'workspace list')}）。"
+                                     f"このPCの一覧から外すだけなら {operation(cls.command, 'workspace forget')}。")
+        if linked and not _workspaces.is_managed(root):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"{root} は ECOBuild が作った作業空間（{_workspaces.AREA}/<名前>）ではないので閉じません。",
+                                hint=f"自分で作った作業ツリーなら git worktree remove \"{root}\" で外してください。")
         if (lock := _locks.status(root)).locked:   # --discard-local でも閉じない（使っている最中の作業空間）
             raise EcoBuildError(ErrorCode.WORKSPACE_LOCKED, "作業空間が使用中（ロック中）のため、閉じられません。",
                                 hint=_locked_hint(cls.command), details=[r.text for r in lock.reasons])
         module = cls(root, _config.load(root / _config.FILE_NAME), github=github)
+        reasons = module.before_close_workspace(root)
+        if reasons:
+            raise EcoBuildError(ErrorCode.WORKSPACE_LOCKED, "作業空間が使用中のため、閉じられません。",
+                                hint="使っているものを止めてから、もう一度実行してください。", details=list(reasons))
         if not discard_local:
             module._check_nothing_unpushed()
         if dry_run:
             return WorkspaceClosed(root, done=False)
+        if linked:
+            return cls._remove_worktree(root)
         try:
             aside = _set_aside([root])
         except EcoBuildError:   # 使われていて動かせない：その場で、消せるものだけを消す
@@ -540,27 +615,63 @@ class Module:
             with contextlib.suppress(OSError):
                 aside[0][1].rmdir()
         _workspaces.forget(root)
-        _workspaces.forget_inside(root)   # 中の作業空間（作業役 等）も一緒に消えた
         return WorkspaceClosed(root)
+
+    @staticmethod
+    def _remove_worktree(root: Path) -> WorkspaceClosed:
+        """作業空間（git worktree）root を消す：脇へ移してから（使用中なら動かせないので、何も消さずに断る）、git の記録を
+        外して中身を消す。"""
+        git = _Git(_Git(root).common_root())
+        git.run("worktree", "unlock", str(root), check=False)
+        try:
+            aside = _set_aside([root])
+        except EcoBuildError as error:   # 使用中：何も変えずに断る
+            git.run("worktree", "lock", "--reason", _LOCK_REASON, str(root), check=False)
+            raise EcoBuildError(ErrorCode.IN_USE, f"作業空間 {root} は、他のプログラムが使っているため消せません。",
+                                hint="エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、もう一度"
+                                     "実行してください。", details=error.details) from None
+        moved = aside[0][1]
+        try:
+            remove_tree(moved)
+        except OSError:
+            if _remove_contents(moved):   # 移した後で他のプログラムが使い始めた（まれ）。元の場所に戻して断る
+                _put_back(aside)
+                git.run("worktree", "lock", "--reason", _LOCK_REASON, str(root), check=False)
+                raise EcoBuildError(ErrorCode.IN_USE, f"作業空間 {root} は、他のプログラムが使っているため消せません。",
+                                    hint="エディター・端末等でそのフォルダーを開いていれば閉じてから、もう一度実行してください。")
+            with contextlib.suppress(OSError):
+                moved.rmdir()
+        git.run("worktree", "prune", check=False)   # フォルダーがなくなった記録を片付ける
+        return WorkspaceClosed(root)
+
+    def before_close_workspace(self, path: Path) -> list[str]:
+        """作業空間 path を閉じられないわけ（使っているもの。なければ空）。本体はない：拡張（エージェント等）が、動いている
+        ものを理由にする。"""
+        return []
 
     @classmethod
     def _recorded_workspaces(cls, full_name: str, github: _github.GitHub) -> list["Module"]:
-        """このPCに記録した、full_name の作業空間（今あるもの）。"""
+        """このPCに記録した、full_name の元の clone と前の版の作業空間（今あるもの。作業空間は元の clone の中にある）。"""
         found = []
-        for entry in _workspaces.entries():
-            if not entry.exists:
+        for path in [item.path for item in _workspaces.recorded()] + _workspaces.legacy():
+            if not (path / _config.FILE_NAME).is_file():
                 continue
-            if entry.repository is not None:
-                if entry.repository.casefold() != full_name.casefold():
+            try:
+                url = _Git(path).get_config("remote.origin.url") or ""
+            except Exception:   # gitで読めない（壊れたclone 等）
+                continue
+            name = _workspaces.github_name(url)
+            if name is not None:
+                if name.casefold() != full_name.casefold():
                     continue
             else:   # GitHubのものでない URL（ミラー等）は、GitHubに名前を聞く
                 try:
-                    if github.repository_name(entry.path).casefold() != full_name.casefold():
+                    if github.repository_name(path).casefold() != full_name.casefold():
                         continue
                 except WorkError:
                     continue
             try:
-                found.append(cls(entry.path, _config.load(entry.path / _config.FILE_NAME), github=github))
+                found.append(cls(path, _config.load(path / _config.FILE_NAME), github=github))
             except EcoBuildError:
                 continue
         return found
@@ -589,22 +700,30 @@ class Module:
 
     def _check_nothing_unpushed(self) -> None:
         """手元にだけあるもの（未コミットの変更・GitHubにないコミット・退避）がないことを確かめる。依存先のcloneも、
-        .ecobuild/ の中の作業空間（進行役の作業空間の中の作業役 等。閉じると一緒に消える）とその依存先も。"""
-        from ecowork.git import Git
+        .ecobuild/ の中の作業空間（作業空間 .ecobuild/w/・前の版の作業役 等。閉じると一緒に消える）とその依存先も。
+
+        作業空間（git worktree）はブランチと退避を元の clone・ほかの作業空間と共有するので、見るのは自分が取り出している
+        もの（HEAD と、そのブランチで退避したもの）だけ。"""
         found = []
         roots = []
         for workspace in (self.root, *_workspaces.inside(self.root)):
             nested = (*workspace.glob("*/.git"), *workspace.glob("*/*/.git"))   # 依存先のclone（型が置く。deps/<名前> 等）
             roots += [workspace] + sorted(p.parent for p in nested)
         for root in roots:
-            git = Git(root)
+            git = _Git(root)
             label = "" if root == self.root else f"{root.relative_to(self.root).as_posix()}："
+            linked = git.is_linked_worktree()
             if git.output("status", "--porcelain"):
                 found.append(f"{label}未コミットの変更")
-            commits = git.output("log", "--branches", "--not", "--remotes", "--format=%h %s")
+            heads = ("HEAD",) if linked else ("--branches",)
+            commits = git.output("log", *heads, "--not", "--remotes", "--format=%h %s") if git.rev_parse("HEAD") else ""
             if commits:
                 found.append(f"{label}GitHubにないコミット {len(commits.splitlines())} 件")
-            if git.output("stash", "list"):
+            branch = git.current_branch()
+            stashes = git.stash_list()
+            if linked:
+                stashes = [entry for entry in stashes if branch is not None and entry.branch == branch]
+            if stashes:
                 found.append(f"{label}退避した変更（stash）")
         if found:
             raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"作業空間 {self.root} に、GitHubにないものがあります。",
@@ -647,29 +766,38 @@ class Module:
         tasks = self.repository.tasks(closed=closed, label=label, assignee=assignee, search=search,
                                       milestone=milestone, ready=ready, sort=sort, sprint=sprint,
                                       submitted=submitted, to_review=to_review)
-        paths = self._task_workspaces()
+        paths = self.task_workspaces()
         return [replace(t, workspace=paths.get(t.number, t.workspace)) for t in tasks]
 
     def task_status(self, number: int | None = None) -> wm.TaskStatus:
-        """タスクブランチの場所は、このPCの他の作業空間（task start --dir で作ったもの等）も見る。"""
+        """タスクブランチの場所は、このPCの他の作業空間（task start で作ったもの等）も見る。"""
         status = self.repository.task_status(number)
-        path = self._task_workspaces().get(status.number, status.workspace)
+        path = self.task_workspaces().get(status.number, status.workspace)
         task = None if status.task is None else replace(status.task, workspace=path)
         return replace(status, workspace=path, task=task)
 
-    # 確認（他人の提出を手元に取り出す。依存先・生成ファイルもその記録に合わせる） ------------------------
+    # 確認（他人の提出を確認用の作業空間に取り出す。依存先・生成ファイルもその記録に合わせる） ------------------
 
-    def review(self, number: int) -> wm.ReviewResult:
-        """他人のPRを手元に取り出す。依存先・生成ファイルもそのPRの記録に合わせる。"""
-        result = self.repository.review(number)
-        self._after_sync()
-        return result
+    def review(self, number: int) -> "Module":
+        """タスク number の提出を、確認用の作業空間（<元の clone>/.ecobuild/w/r<PRの番号>。切り離された状態で、コミットは
+        できない）に取り出し、その Module を返す。依存先・生成ファイルもその提出の記録に合わせる（作業空間の Module で）。
+        既にあれば、提出の最新にする。取り出した結果（ReviewResult）は返した Module の reviewed。"""
+        pr = self.repository.require_submission(number)
+        self._exclude_workspaces()
+        opened: list[Module] = []
+        result = self.repository.review_in(pr.number, self.workspace_place(f"r{pr.number}"),
+                                           open=self._opener(opened, local_from=self.workspace_root / _config.LOCAL_FILE_NAME))
+        module = opened[0] if opened else self._open_workspace(result.workspace)
+        module.reviewed = result
+        return module
 
     def review_task(self, number: int) -> wm.ReviewResult:
-        """タスクの提出を手元に取り出して確かめる（番号はタスクの番号）。"""
-        result = self.repository.review_task(number)
-        self._after_sync()
-        return result
+        """タスクの提出を確認用の作業空間に取り出して確かめる（review の結果だけ）。"""
+        return self.review(number).reviewed
+
+    def end_review(self, number: int | None = None) -> wm.ReviewResult:
+        """確認を終えて、確認用の作業空間を消す。number：確認しているPR（省略すると、この確認用の作業空間のもの）。"""
+        return self.repository.end_review(number)
 
     # 提出と完了（番号はタスクの番号） -------------------------------------------------------
 
@@ -739,33 +867,16 @@ class Module:
         return "\n".join([title, "", f"提出した人の手元で `{self.op('check')}` が通りました（{where}）。",
                           *([""] + lines if lines else []), *own])
 
-    def finish(self, number: int | None = None, *, close_workspace: bool = False, **options) -> wm.FinishResult:
+    def finish(self, number: int | None = None, **options) -> wm.FinishResult:
         """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。
 
-        close_workspace：完了したら、この作業空間を閉じる（close_workspace と同じ。このタスクのタスクブランチが
-        ここにあるときだけ）。閉じられなければ（GitHubにないものがある等）、完了はそのままで知らせる。
+        タスクブランチを取り出していた作業空間は、タスクブランチと一緒に消える（中間提出なら残る）。消せなければ
+        （使用中・新しいファイルがある等）残して知らせる（workspace_kept）。
         """
         current = self._current_task()
         if current is not None and number in (None, current):
             self._refuse_uncommitted("完了")
-        if close_workspace and (current is None or number not in (None, current)):
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
-                                "--close-workspace は、完了するタスクのタスクブランチがある作業空間で使います。",
-                                hint=f"ほかの作業空間は {operation(self.command, 'workspace close')} <場所> で閉じられます。")
-        result = self.repository.finish(number, **options)
-        if not close_workspace:
-            return result
-        if result.partial:
-            self.repository.notices.append("中間提出のため、作業空間は閉じていません（タスクは続きます）。")
-            return result
-        try:
-            closed = type(self).close_workspace(self.root, github=self.repository.github)
-        except EcoBuildError as error:
-            self.repository.notices.append(f"作業空間 {self.root} は閉じていません（{error.message}"
-                                           f"{''.join('　' + d for d in error.details or ())}）。"
-                                           f"{operation(self.command, 'workspace close')} で閉じられます。")
-            return result
-        return replace(result, closed_workspace=closed)
+        return self.repository.finish(number, **options)
 
     def _current_task(self) -> int | None:
         task_branch = self.repository.current_task_branch()
@@ -780,11 +891,6 @@ class Module:
             raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"未コミットの変更があるため、{action}できません。",
                                 hint=f"{self.op('task commit')} --message \"…\" で記録してから、もう一度実行してください。",
                                 details=pending)
-
-    def end_review(self) -> wm.ReviewResult:
-        result = self.repository.end_review()
-        self._after_sync()
-        return result
 
     # 共同作業者・ブランチの保護（複数人での開発） ----------------------------------------------
 
@@ -952,53 +1058,56 @@ class Module:
 
     # タスクブランチ・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
-    def new_workspace_path(self, task: int | None = None) -> Path:
-        """新しい作業空間の既定の場所：<置き場所>/<モジュール名>/<番号>。置き場所はこのPCの設定 workspace_directory
-        （なければモジュールの親の workspace）。番号は task（タスクの作業空間）、なければ空いている最小の番号。
-        モジュールの隣に「<モジュール名>-<番号>」を並べると、モジュールと作業空間の見分けがつかないため。"""
-        from . import settings as _settings
-        configured = _settings.load_config().get("workspace_directory")
-        base = Path(configured).expanduser() if configured else self.root.parent / "workspace"
-        folder = (base if base.is_absolute() else self.root / base) / self.name
-        if task is not None:
-            return folder / str(task)
-        number = 1
-        while (folder / str(number)).exists():
-            number += 1
-        return folder / str(number)
+    def start_task(self, number: int, *, account: str | None = None, base: str | None = None, name: str | None = None,
+                   ignore_blocked: bool = False, take_over: bool = False) -> "Module":
+        """タスクを始める：タスクブランチを作業空間（<元の clone>/.ecobuild/w/<番号>）に取り出し、依存先と生成ファイルを
+        用意して、その作業空間の Module を返す。この場所（元の clone 等）のブランチは変えない。既にほかの作業空間が
+        そのタスクブランチを取り出していれば、そこを返す。account：その作業空間を動かす GitHub のアカウント。
 
-    def create_workspace(self, directory: Path | str, *,
-                         account: str | None = None) -> tuple["Module", tuple[DependencyChange, ...]]:
-        """新しい作業空間（このモジュールのclone）を directory に作り、依存先と生成ファイルを用意する。
-
-        ブランチは作成元（default_base）。タスクはそこで開始する（タスクブランチを置く）。準備はclone先でだけ行う。
-        account：新しい作業空間を、そのGitHubのアカウントとして動かす（AI 用のアカウント等）。
+        依存先の clone（他のモジュールの中。型が置く deps/ 等）では、今までどおりその場でタスクブランチに切り替えて、
+        この Module を返す（依存先の作業版）。
         """
-        opened: list[Module] = []
+        if _workspaces.nested(self.root) and not self.repository.git.is_linked_worktree():
+            if account:
+                self.repository.use_account(account)
+            self.repository.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked,
+                                               take_over=take_over)
+            return self
+        return self.start_task_in(number, self.workspace_place(str(number)), base=base, name=name,
+                                  ignore_blocked=ignore_blocked, take_over=take_over, account=account)
 
-        def open_clone(root: Path) -> Repository:
-            opened.append(self._open_clone(root))
-            return opened[0].repository
-
-        self.repository.clone_to(directory, open=open_clone, account=account)
-        dependencies, _ = opened[0]._after_sync()
-        return opened[0], dependencies
-
-    def start_task_in(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
+    def start_task_in(self, number: int, place: Path | str, *, base: str | None = None, name: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False, account: str | None = None) -> "Module":
-        """新しい作業空間（clone）にタスクブランチを作り（I-007）、依存先と生成ファイルを用意する。
+        """タスクブランチを作業空間（git worktree）として place に取り出し（ecowork の Repository.start_task_in）、
+        依存先と生成ファイルを用意して、その作業空間の Module を返す。ふつうは start_task（場所は ECOBuild が決める）。
 
-        準備（型の prepare）はclone先のモジュールでだけ行う（元のcloneの依存先・生成ファイルは変えない）。
+        準備（型の prepare）は作業空間のモジュールでだけ行う（ここの依存先・生成ファイルは変えない）。このPC用の設定
+        （ecobuild.local.toml。コミットしない）は、新しい作業空間へ元の clone のものを写す。
         """
+        self._exclude_workspaces()
         opened: list[Module] = []
+        local = self.workspace_root / _config.LOCAL_FILE_NAME
+        result = self.repository.start_task_in(number, place, base=base, name=name, ignore_blocked=ignore_blocked,
+                                               take_over=take_over, account=account,
+                                               open=self._opener(opened, local_from=local))
+        return opened[0] if opened else self._open_workspace(result.workspace)
 
-        def open_clone(root: Path) -> Repository:
-            opened.append(self._open_clone(root))
-            return opened[0].repository
+    def _opener(self, opened: list["Module"], *, local_from: Path | None = None) -> Callable[[Path], Repository]:
+        """ecowork が作った作業空間の場所から、その Module を開いて Repository を返す口（開いた Module は opened に入れる）。
+        local_from：まだこのPC用の設定がない作業空間に、写す設定ファイル。"""
+        def open_workspace(root: Path) -> Repository:
+            target = Path(root) / _config.LOCAL_FILE_NAME
+            if local_from is not None and local_from.is_file() and not target.exists():
+                with contextlib.suppress(OSError):
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(local_from.read_bytes())
+            opened.append(self._open_workspace(root))
+            return opened[-1].repository
+        return open_workspace
 
-        self.repository.clone_task_branch(number, directory, base=base, name=name, open=open_clone,
-                                          ignore_blocked=ignore_blocked, take_over=take_over, account=account)
-        return opened[0]
+    def _exclude_workspaces(self) -> None:
+        """作業空間の置き場所（.ecobuild/w/）を、元の clone の git に見せない（共通の info/exclude に1度だけ書く）。"""
+        _workspaces.exclude_area(self.workspace_root)
 
     def require_task_branch(self, action: str) -> wm.TaskBranch:
         """ファイルを変える操作はタスクブランチでだけ（Module と型の約束。型の操作もここで確かめる）。"""
@@ -1437,12 +1546,7 @@ class Module:
 
     def agent_guide(self) -> AgentGuide:
         """エージェント向けの作業の手順。AGENTS.md はこれを読むよう案内する（タスクブランチでなくても読める）。"""
-        return AgentGuide(_docs.agent_guide(self.config, type(self.type), member=self.assigned_by_lead()))
-
-    def assigned_by_lead(self) -> bool:
-        """この作業空間が、上の役に任されたものか（タスク・作業空間は上の役が作り、取り込み・完了・閉じるのも上の役。
-        agent guide がその手順を出さない）。本体は知らない：エージェントの拡張等が決める。"""
-        return False
+        return AgentGuide(_docs.agent_guide(self.config, type(self.type)))
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
         """GitHub Actions のワークフロー（中身は型が用意する）を、CIの設定（[ci]）から作る。

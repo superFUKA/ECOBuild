@@ -27,8 +27,6 @@ CONFIG_KEYS = {
     "owner": "module new・clone・list・deps add 等で、所有者を省略したリポジトリの所有者（組織名など。既定はログイン中のユーザー）",
     "log_level": "ログに残す量：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）",
     "log_max_mb": "ログの大きさの上限（MB、置き場所ごと。既定 200。超えたら古い日から消す）",
-    "workspace_directory": "新しい作業空間を置くフォルダ（場所を省いた workspace create・task start --new-workspace。"
-                           "中に <モジュール名>/<番号> で作る。既定：モジュールの親のフォルダの workspace）",
 }
 
 # 値が決まっている項目 → 確かめ方（合わなければ説明）

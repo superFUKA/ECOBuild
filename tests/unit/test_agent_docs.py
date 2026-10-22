@@ -94,20 +94,8 @@ def test_generic_commands_are_not_in_the_readme():
 def test_agent_guide_warns_against_known_failures(name):
     """agent guide は、実際に起きた失敗（リダイレクトで書く・記憶に頼る・裏で動かして終える）を防ぐ。"""
     text = _documents(name)["agent guide"]
-    for phrase in ("Edit／Write", "heredoc", "~/.claude/…/memory", "裏で動かしたまま", "`workspace create`"):
+    for phrase in ("Edit／Write", "heredoc", "~/.claude/…/memory", "裏で動かしたまま", "`.ecobuild/w/<番号>`"):
         assert phrase in text, f"{name}: {phrase}"
-
-
-@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
-def test_member_guide_leaves_out_what_the_lead_does(name):
-    """作業役の作業空間の agent guide は、作業役がしない操作（task new --start・task finish・workspace close）を案内しない。"""
-    config, module_type = ModuleConfig(name="Sample", type=name), REGISTRY.load(name)
-    text = _docs.agent_guide(config, module_type, member=True)
-    assert "--start" not in text and "`ecobuild task finish" not in text and "`ecobuild workspace close`" not in text
-    assert "上の役" in text and "`ecobuild task submit" in text and "`workspace create`" in text
-    missing = [m for m in _MENTION.findall(text) if not _exists(build_cli(name), m.split())]
-    assert missing == []
-    assert "ecobuild task finish" in _docs.agent_guide(config, module_type)   # 進行役・人の作業空間は今までどおり
 
 
 def test_guide_names_only_what_the_type_has():

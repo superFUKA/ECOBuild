@@ -46,6 +46,7 @@ class Invocation:
         self._module: Module | None = None
         self.command = ""                 # 実行中のコマンドの名前（execute が決める）
         self.holds = ExitStack()          # コマンドの間だけ持つもの（作業空間のロック）
+        self.notices: list[str] = []      # モジュールのない操作（workspace list 等）の知らせ
 
     @property
     def module(self) -> Module:
@@ -54,7 +55,11 @@ class Invocation:
         return self._module
 
     def use_module(self, module: Module) -> None:
-        """対象のモジュール。このPCの作業空間の記録（workspace list）にも入れる（以前からあるcloneも、使えば記録される）。"""
+        """対象のモジュール。このPCのモジュールの一覧（workspace list）にも元の clone を入れる（以前からあるcloneも、
+        使えば入る）。前のモジュールの知らせ（作業空間を作った元の clone 等）は引き継ぐ。"""
+        if self._module is not None and self._module is not module:
+            module.repository.notices[:0] = [n for n in self._module.repository.notices
+                                             if n not in module.repository.notices]
         self._module = module
         _log.use_module(module.root)
         _workspaces.record_quietly(module.root)
@@ -184,7 +189,7 @@ def _repository_state(error: WorkError) -> WorkError:
 def _notices(invocation: Invocation) -> list[str]:
     """操作は成功したが知らせておくこと（親タスクの子がすべて閉じた等）。"""
     module = invocation._module
-    return [] if module is None else list(module.repository.notices)
+    return ([] if module is None else list(module.repository.notices)) + invocation.notices
 
 
 def run_command(

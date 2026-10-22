@@ -89,6 +89,12 @@ class StashEntry:
     index: int
     message: str
 
+    @property
+    def branch(self) -> str | None:
+        """退避したブランチ（メッセージの「WIP on <ブランチ>:」「On <ブランチ>:」から。切り離された状態なら None）。"""
+        match = re.match(r"^(?:WIP on|On) ([^:]+):", self.message)
+        return None if match is None or match.group(1) == "(no branch)" else match.group(1)
+
 
 @dataclass(frozen=True)
 class Worktree:

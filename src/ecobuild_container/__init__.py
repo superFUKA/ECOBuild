@@ -979,13 +979,13 @@ def prune_images(source: tuple[str, str] = SOURCE, runner: docker.Runner | None 
 def _current_recipes(source: tuple[str, str]) -> dict[Path, Recipe]:
     """このPCのコンテナにした作業空間（別のイメージを指定したものを除く）の、今の作り方。"""
     found = {}
-    for item in _workspaces.recorded():
+    for path in _workspaces.places():
         try:
-            mine = enabled(item.path) and not _config.load_local(item.path).get(IMAGE_KEY)
+            mine = enabled(path) and not _config.load_local(path).get(IMAGE_KEY)
         except WorkError:
             continue
-        if mine and (made := _recipe_or_none(item.path, source)):
-            found[item.path] = made
+        if mine and (made := _recipe_or_none(path, source)):
+            found[path] = made
     return found
 
 

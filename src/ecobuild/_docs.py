@@ -29,6 +29,15 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()[:16]
 
 
+# 作業空間の説明（agent guide・.ecobuild/README.md）
+WORKSPACES_NOTE = (
+    "- 作業空間：タスクの作業は、元の clone（このモジュールを置いた場所）の中の作業空間 `.ecobuild/w/<番号>`（git worktree）で"
+    "行います。`ecobuild task start <番号>` で作り、`ecobuild task finish`・`task drop`・`task close` でタスクブランチと一緒に"
+    "消えます（手で閉じるなら `ecobuild workspace close`）。元の clone は既定のブランチのままにします（そこでは作業しません）。"
+    "同じタスクブランチは1か所でだけ取り出せます。作業空間・子タスクの作成は ECOBuild のコマンドに任せます"
+    "（git worktree を自分で作りません）。")
+
+
 def readme(config: ModuleConfig, module_type: "type[ModuleType]", description: str = "") -> str:
     """README：題名・説明（リポジトリの説明と同じ）・型ごとの最低限の使い方だけ。主役はモジュールの中身なので、
     ECOBuild のことは書かない（エージェント向けは AGENTS.md・agent guide に書く）。"""
@@ -58,6 +67,7 @@ def ecobuild_readme(config: ModuleConfig, module_type: "type[ModuleType]") -> st
 
 - ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`、提出の前の確認は `ecobuild check`。
 - ファイルを変えるのはタスクブランチで（`ecobuild task start <番号>`）。コミット・提出は `ecobuild task commit`・`ecobuild task submit`。
+{WORKSPACES_NOTE}
 - コーディングエージェントは `ecobuild agent guide` の手順に従います（ルートの `AGENTS.md` がそこへ案内します）。
 - ECOBuild を更新したら `ecobuild module upgrade` で、このフォルダ・`AGENTS.md`・CI のワークフローを今の形にします。
 {usage}
@@ -83,12 +93,8 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 """
 
 
-def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]", *, member: bool = False) -> str:
-    """ecobuild agent guide：エージェント向けの作業の手順（型ごとの部分は型から作る）。
-
-    member：上の役に任された作業空間（タスク・作業空間は上の役が作り、取り込み・完了・作業空間を閉じるのも上の役）。
-    自分でしない操作（task new --start・task finish・workspace close 等）の手順を出さない。
-    """
+def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
+    """ecobuild agent guide：エージェント向けの作業の手順（型ごとの部分は型から作る）。"""
     from .module_type import HasDependencies, HasFiles, HasProjects
     generated = module_type.generated_note
     has_files = issubclass(module_type, HasFiles)
@@ -109,26 +115,16 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]", *, member
                  "`ecobuild template`（ファイルテンプレート）・`ecobuild profile`（ビルドのたびに選ぶもの）で見て変えます。\n"
                  if generated and issubclass(module_type, HasProjects) else
                  f"- {generated}は手で編集しません（ECOBuild のコマンドで変えます）。\n" if generated else "")
-    if member:
-        start = ("1. タスクとタスクブランチは上の役が用意しています（今いるブランチ）。`ecobuild task status` で目的と"
-                 "**完了の条件**を確かめます（新しいタスクは作りません。足りないことがあれば上の役に伝えます）")
-        finish = ("6. 取り込み・完了（`task finish`）は上の役が行います。提出したら、上の役に知らせて待ちます"
-                  "（直すよう言われたら、直して `ecobuild task commit` → `ecobuild task submit`）\n")
-        workspace = ("- この作業空間は上の役が作り、閉じます。ほかの作業空間・子タスクを自分で作らず、作業空間を閉じません"
-                     "（`workspace create`・`workspace close` 等を使いません）。")
-    else:
-        start = ("1. `ecobuild task new \"<題名>\" --body \"<内容>\" --start --name \"<タスクブランチの名前>\"`（内容には目的と、"
-                 "**完了の条件**を確かめ方つきの箇条書き（`- [ ] …`）で書きます。提出の見直しの基準になります。既存のIssueなら "
-                 "`ecobuild task start <番号> --name \"<名前>\"`。名前は task/<番号>-<名前> のブランチになり、日本語も使えます。"
-                 "空白や ~ ^ : ? * [ ] \\ / \" < > | は使えません。既にあるタスクブランチへ戻るときは --name は要りません）")
-        finish = ("6. `ecobuild task finish`（CIを待って取り込み、提出のとおりタスクを閉じてタスクブランチを片付けるか、作り直して"
-                  "続けます。提出と違う形にするなら `--complete`／`--partial`。中間提出の後で変更がなければ、そのまま閉じます）。"
-                  "見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`"
-                  "（承認して完了）か `ecobuild task reject <番号> --message \"<内容>\"`\n")
-        workspace = ("- 作業空間・子タスクの作成は ECOBuild のコマンドに任せます（`workspace create` 等を自分で重ねません）。\n"
-                     "- 作業空間（作業をする場所＝clone）はタスクが終わっても残ります。並行作業は "
-                     "`ecobuild task start <番号> --new-workspace` で別の作業空間（既定の場所。`ecobuild workspace path`）に作り、"
-                     "終わったら `ecobuild task finish --close-workspace`（または `ecobuild workspace close`）で閉じます。")
+    start = ("1. `ecobuild task new \"<題名>\" --body \"<内容>\" --start --name \"<タスクブランチの名前>\"`（内容には目的と、"
+             "**完了の条件**を確かめ方つきの箇条書き（`- [ ] …`）で書きます。提出の見直しの基準になります。既存のIssueなら "
+             "`ecobuild task start <番号> --name \"<名前>\"`。名前は task/<番号>-<名前> のブランチになり、日本語も使えます。"
+             "空白や ~ ^ : ? * [ ] \\ / \" < > | は使えません。既にあるタスクブランチへ戻るときは --name は要りません）。"
+             "タスクブランチは作業空間（`.ecobuild/w/<番号>`）に置かれるので、2. からはその中で行います")
+    finish = ("6. `ecobuild task finish`（CIを待って取り込み、提出のとおりタスクを閉じてタスクブランチと作業空間を片付けるか、"
+              "作り直して続けます。提出と違う形にするなら `--complete`／`--partial`。中間提出の後で変更がなければ、そのまま閉じます）。"
+              "見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`"
+              "（承認して完了）か `ecobuild task reject <番号> --message \"<内容>\"`\n")
+    workspace = WORKSPACES_NOTE
     usage = module_type.ecobuild_usage(config)
     usage = f"\n{usage.rstrip()}\n" if usage else ""
     return f"""# ECOBuild の使い方（{config.name}、型：{module_type.name}）

@@ -1,8 +1,7 @@
 from typing import Annotated
 
 from ecobuild_agent import tokens as _tokens
-from ...._module import PROGRAM
-from ...._operator import program_path
+from ...._module import PROGRAM, program_path
 from ...._output import Invocation, execute
 
 

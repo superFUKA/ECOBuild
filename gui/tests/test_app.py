@@ -432,8 +432,9 @@ def test_the_image_editor_reads_freely_but_writing_waits():
 
 
 def test_asking_the_operator_does_not_hold_the_others():
-    """オペレーター（agent ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
-    assert gui._unlocked(["agent", "ask", "--session", "s1"]) and not gui._read_only(["agent", "ask"])
+    """オペレーター（gui ask）は待つ間も、ほかの操作を止めない。ただし読むだけではない（終わったら覚えた結果は古い）。"""
+    assert gui._unlocked(["gui", "ask", "--session", "s1"]) and not gui._read_only(["gui", "ask"])
+    assert not gui._unlocked(["agent", "ask"])
     assert not gui._unlocked(["task", "start", "12"])
 
 

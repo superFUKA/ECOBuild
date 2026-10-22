@@ -96,13 +96,15 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 - 窓：枠なし。📌 で最前面（常に → 自動 → オフ。自動は返答が届いたときだけ前に出る）。☰（Ctrl+Shift+A）でタブの一覧（状況・最後の出力・入力中の文字）。⚙ で返答の知らせ方（Windows の通知・右下のカードと音・知らせない。音・音量・出しておく時間）。– で最小化すると右下の表示（番号＋名前、縁で状態、返答のバッジ、クリックでのぞき見、⤢ で戻す、ドラッグで動かす）。窓を出すときにフォーカスを奪わない。
 - 下のバー：状態・モデル・コンテキスト・使用量の制限の残り（5時間・週）・場所。`agent start --here` が Claude Code に statusLine と Stop フックを渡し、作業空間ごとの置き場所（`ECOBUILD_HOME/agents/status`）に書き出させる。置き場所は端末の出力の見えない印（OSC 1337 `ECOBuildAgentStatus=`）で知る（`status.js`）。
 - ハブの左のメニューの下に「リング」「オペレーター」のかんたんな切り替え（丸：緑＝使える、黄＝起動中・登録なし、灰＝使っていない）。リングはエージェントの窓の ⚙ の「リングで操作する」と同じ、オペレーターは裏で動かす・止める。
-- オペレーター（番号 0）は裏で常駐（`ecobuild agent operator --here`）。ハブの「オペレーター」は Electron ではこれと話す（会話の記録は main が持つ。選択肢は ↑↓・決定で答える。「タブで開く」で直接やり取り）。作業フォルダーの初めての「信頼するか」には ECOBuild が答える（ECOBuild が作った一式なので）。
-- 外からの操作：GUI の操作 `agents`・`agent-open`・`agent-send`・`agent-show`・`agent-close`・`agents-window`・`operator`（`ecobuild gui …`・MCP）。Electron の main は kind が agents の窓としてサーバーの events を待ち受け、タブの様子を知らせ、頼まれた操作をする（`link.js`）。操作の重さ（`actions.py` の effect）は `ecobuild gui --help --json` で名乗り、オペレーターのフックが使う（`agent-send`・`agent-close`・`run` は確認が要る）。
+- オペレーター（番号 0）は裏で常駐（`ecobuild gui operator --here`）。ハブの「オペレーター」は Electron ではこれと話す（会話の記録は main が持つ。選択肢は ↑↓・決定で答える。「タブで開く」で直接やり取り）。作業フォルダー（GUI の置き場所の `operator`）の初めての「信頼するか」には ECOBuild が答える（GUI が作った一式なので）。
+- 外からの操作：GUI の操作 `agents`・`agent-open`・`agent-send`・`agent-show`・`agent-close`・`agents-window`・`operator`（`ecobuild gui …`・MCP）。Electron の main は kind が agents の窓としてサーバーの events を待ち受け、タブの様子を知らせ、頼まれた操作をする（`link.js`）。操作の重さ（`actions.py` の effect）は `ecobuild gui --help --json` で名乗る。オペレーターには `run`・`agent-send`（重さ requested）を渡さない。
 - 音声入力：Claude Code の音声入力（hold モード）を、Space のキーリピートを送ってまねる。🎤 か Ctrl+Alt+V で録音の開始・停止、Ctrl+Alt+↓ で送信（録音中なら止めて、聞き取りが入ってから）、Ctrl+Alt+↑ で消す（録音中なら取り消す）、Ctrl+Alt+← / → で前・次のタブ（ほかのアプリを使っていても効く。ほかのアプリが同じキーを使っていれば効かない）。聞き取り中はタブの線・窓の枠・右下の丸が赤。ハブの「オペレーター」の 🎤 でオペレーターにも（聞き取った文を確かめて「送る」）。コンテナの中のエージェントも使える（コンテナが WSLg の PulseAudio を使う。ecobuild がする）。
 - リング（Ring II）：⚙ の「リング」で使う（既定は使わない。ほかのアプリも同じリングを受けていると二重に反応する）。「探す」で識別子（Bluetooth のアドレス）、「操作を登録する」で新しい窓で各操作を3回ずつ（登録表はアプリの設定の場所の `ring-gestures.json`）、リングの LED のモードで信号が変わる操作は「オペレーターモードを登録する」。受信係は `agents/ring/listener.py`（Python の標準ライブラリだけ。Raw Input の受信・ジェスチャーの判定 `gestures.py`・カーソルの保護・接続の維持 `keepalive.ps1`）を Electron の main が子プロセスで動かす（`ring.js`）。常駐（⚙ の「PC にサインインしたときから常駐する」）：スタートアップのショートカットで、窓なしの受信係（`--resident`）がサインインのたびに動き、ECOBuild が閉じている間だけリングでカーソルが飛ぶのを止め、接続を保ち、押し込みで ECOBuild を起動する。ECOBuild が動いているかは、起動のたびに書く `running.pid` で見分ける。設定は `ring-resident.json`（消すと常駐は終わる）。割り当て（agents.json の ring）：作業モード ←→ 前・次のタブ、↑ 消す（空なら最小化・最小化中なら戻す）、↓ 送信、押し込み 音声入力、長押し スクロール、タッチ 右下の返答を閉じる。オペレーターモードは押し込み・↓・↑ がオペレーターへ。選択肢が出ているときに押し込むと選択モード（上下左右で選び、押し込みで決定）。
 - 端末の部品（node-pty・@xterm）は `npm install` で入る。インストーラーでは node-pty を asar の外に出す（`asarUnpack`）。
 
-ハブの「オペレーター」：オペレーター（ECOBuild の操作係のエージェント。コードは書かず、ecobuild のコマンドで操作する）との会話。発言ごとに `ecobuild agent ask`（文は標準入力、続きは `--session`）を呼び、返答と実行したコマンドを出す。会話（session と表示している発言）はその窓の localStorage に置くだけ（「新しい会話」で消す）。待つ間も、ほかの操作は止めない（`app.py` の `UNLOCKED`）。返答に実行したコマンドがあれば、モジュールの一覧を読み直す。消す・取り返しのつかない操作は、オペレーターが聞いて「はい」と答えたときだけ実行される（CLI のフックが止める）。
+ハブの「オペレーター」：オペレーター（GUI の案内・操作係のエージェント。`operator_kit.py`）との会話。発言ごとに `ecobuild gui ask`（文は標準入力、続きは `--session`）を呼び、返答と実行したコマンドを出す。会話（session と表示している発言）はその窓の localStorage に置くだけ（「新しい会話」で消す）。待つ間も、ほかの操作は止めない（`app.py` の `UNLOCKED`）。返答に実行したコマンドがあれば、モジュールの一覧を読み直す。
+
+オペレーターができるのは、読むこと（重さが read の ecobuild のコマンド）と GUI の操作だけ。ECOBuild を変える操作を頼まれたら、その画面を開いて案内する（押すのは人）。道具は MCP（`ecobuild gui mcp --operator`：`gui_*`・`ecobuild_read`・`ecobuild_commands`）だけで、シェル・ファイルの編集は許可の設定で止める。指示（CLAUDE.md）・許可・MCP の設定は、起動のたびに今のコマンドの一覧（`ecobuild --help --json`）と GUI の操作の一覧から作り直す。話し方は ECOBuild の設定 `operator_style`。
 
 ## モジュールの画面
 
@@ -133,7 +135,7 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 外からは：
 
 - `ecobuild gui …`：ecobuild の外部サブコマンド（`ecobuild-gui`。GUIのサーバーが起動のたびに ecobuild と同じフォルダに置く `ecobuild-gui.cmd` が `ecobuild_gui.py` を呼ぶ）。例：`ecobuild gui`（ハブ）、`ecobuild gui -C <場所> task start 12`、`ecobuild gui open ECOSTL --tab projects`、`ecobuild gui windows --json`、`ecobuild gui actions`。GUIが動いていなければ起動する（`ECOBUILD_GUI_HOME` の `server.json` に、動いているサーバーの場所がある）。
-- `ecobuild gui mcp`：MCP サーバー（標準入出力）。ツールは `ecobuild`（コマンドの実行）・`ecobuild_commands`（コマンドの一覧）・`gui_open` 等。Claude Code なら `claude mcp add ecobuild-gui -- ecobuild gui mcp`。
+- `ecobuild gui mcp`：MCP サーバー（標準入出力）。ツールは `ecobuild`（コマンドの実行）・`ecobuild_commands`（コマンドの一覧）・`gui_open` 等。`--operator` はオペレーター用（`ecobuild` の代わりに見るだけの `ecobuild_read`。`agent-send` なし）。Claude Code なら `claude mcp add ecobuild-gui -- ecobuild gui mcp`。
 
 画面は、サーバーの `events` を待ち受けて（長いポーリング）、ほかの窓・エージェントが行ったことを表示し、移動・開くの頼みに応える。窓は今表示しているものを `window-state` で知らせる。
 

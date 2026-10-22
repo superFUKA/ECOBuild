@@ -37,10 +37,10 @@ def test_container_lifecycle(monkeypatch, root, tmp_path):
     assert started.changed and started.state == "running" and started.name.startswith("ecobuild-my-calc-")
     assert started.built and started.image.startswith("ecobuild-calc:")                   # モジュールのイメージを作った
     built = (tmp_path / "home/containers" / started.image.replace(":", "-") / "Dockerfile").read_text(encoding="utf-8")
-    assert '"git+https://example.com/ECOBuild@abc123"' in built and "safe.directory /work" in built
+    assert '"git+https://example.com/ECOBuild@abc123"' in built and "safe.directory '*'" in built
     assert built.startswith("# ECOBuild") and "FROM ecobuild-env-calc:" in built                # 環境の上に ECOBuild の層
     run = next(args for args in fake.calls if args[1] == "run")
-    assert f"{root}:/work" in run and "1000:1000" in run and run[-3:] == [started.image, "sleep", "infinity"]
+    assert f"{root}:/work" in run and run[run.index("--workdir") + 1] == "/work" and "1000:1000" in run and run[-3:] == [started.image, "sleep", "infinity"]
     assert not container.start(root, fake.run).changed                                    # 動いていれば何もしない
 
     assert container.stop(root, fake.run).state == "exited"
@@ -90,6 +90,9 @@ def test_the_workspace_is_mounted_as_the_inner_user_on_wsl():
     assert "mount -t drvfs C: /mnt/ecobuild/c -o uid=1000,gid=1000" in ran[0][8]
     assert container.prepare_owned_mount(Path(r"C:\ECO\Calc"), runner(False), prefix) == "/mnt/c/ECO/Calc"
     assert container.prepare_owned_mount(Path("/home/me/Calc"), runner(True), ("docker",)) == str(Path("/home/me/Calc"))
+    ran.clear()
+    assert container.own_drive(Path(r"C:\ECO\Calc"), runner(True), prefix) and len(ran) == 1   # 付けたかだけを返す
+    assert not container.own_drive(Path(r"C:\ECO\Calc"), runner(True), ("docker",)) and len(ran) == 1   # WSL でなければ何もしない
 
 
 def test_type_tools_go_into_the_template():
@@ -357,3 +360,97 @@ def test_line_endings_seen_from_this_pc_are_copied_into_the_clone(tmp_path, monk
     assert local() == "true"
     globals_.write_text("[core]\n\tautocrlf = input\n", encoding="utf-8")
     assert container.align_line_endings(repo) == [] and local() == "true"              # clone にあれば変えない
+
+
+# worktree の作業空間（元の clone の .ecobuild/w/<名前>） -----------------------------------------------
+
+@pytest.fixture
+def worktree(tmp_path):
+    """元の clone（Calc）と、その .ecobuild/w/3 の worktree（ブランチ task/3-x）。"""
+    from helpers import git
+    main = tmp_path / "Calc"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(main))
+    config.save(config.ModuleConfig.for_new_module("Calc", "cpp"), main / config.FILE_NAME)
+    git(main, "add", ".")
+    git(main, "commit", "--quiet", "-m", "init")
+    place = main / ".ecobuild" / "w" / "3"
+    git(main, "worktree", "add", "--quiet", "-b", "task/3-x", str(place))
+    return main, place
+
+
+def test_a_worktree_is_mounted_with_the_shared_git_in_the_same_layout(worktree):
+    """worktree の作業空間は、元の .git を /repo/.git に、作業空間を /repo/<元からの相対> に（中でも同じ並び）。
+    元の clone の作業ツリー・兄弟の作業空間は付けない。前からの clone は今までどおり /work。"""
+    main, place = worktree
+    shown = container.layout(place)
+    assert shown.workdir == "/repo/.ecobuild/w/3" and container.workdir(place) == shown.workdir
+    assert [inner for _, inner in shown.mounts] == ["/repo/.git", "/repo/.ecobuild/w/3"]
+    assert shown.mounts[0][0].resolve() == (main / ".git").resolve() and shown.mounts[1][0] == place
+    assert all(outer.resolve() != main.resolve() for outer, _ in shown.mounts)        # 元の clone の作業ツリーは見せない
+    assert container.layout(main) == container.Layout("/work", ((main, "/work"),))
+    assert container.inside_path(place, place / "src") == "/repo/.ecobuild/w/3/src"
+    assert container.outside({"a": ["/repo/.ecobuild/w/3/build/x", "/work/x", "/repo/.git"]}, place) \
+        == {"a": [f"{place.as_posix()}/build/x", "/work/x", "/repo/.git"]}
+    command = container.exec_command(place, ("docker",), ["ecobuild", "build"])
+    assert command[command.index("--workdir") + 1] == "/repo/.ecobuild/w/3"
+    assert container.caches(place)[0][1] == "/repo/.ecobuild/w/3/build"
+    assert container.name(place).startswith("ecobuild-calc-3-") and container.name(place) != container.name(main)
+
+
+def test_starting_a_worktree_container_mounts_both_on_one_drive(monkeypatch, worktree, tmp_path):
+    """コンテナを作るときは layout のマウントを並べ、--workdir も作業空間に。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    main, place = worktree
+    fake = FakeDocker(monkeypatch)
+    container.choose(place, True, fake.run)
+    container.start(place, fake.run, source=("https://example.com/ECOBuild", "abc"))
+    run = next(args for args in fake.calls if args[1] == "run")
+    volumes = [run[i + 1] for i, a in enumerate(run) if a == "--volume"]
+    shared = container.layout(place).mounts[0][0]
+    assert f"{shared}:/repo/.git" in volumes and f"{place}:/repo/.ecobuild/w/3" in volumes
+    assert not any(v.endswith(":/work") for v in volumes)
+    assert run[run.index("--workdir") + 1] == "/repo/.ecobuild/w/3"
+    assert f"{container.name(place)}-build:/repo/.ecobuild/w/3/build" in volumes
+
+
+def test_the_layer_installs_a_new_enough_git():
+    """イメージの git は 2.48 以上：Ubuntu なら git-core の PPA から入れ、版を確かめて足りなければ止める。"""
+    text = container.layer("ecobuild-env-calc:123")
+    assert "ppa.launchpadcontent.net/git-core/ppa/ubuntu $VERSION_CODENAME main" in text and container.GIT_CORE_KEY in text
+    assert text.index("git-core.list") < text.index("--no-install-recommends ca-certificates curl git")
+    assert "v[2] >= 48" in text and "git 2.48 以上が要ります" in text
+
+
+def test_closing_a_worktree_does_not_look_inside_it(monkeypatch, worktree):
+    """worktree の作業空間を閉じるとき、中の作業空間は探さない（子は中ではなく元の clone の直下に並ぶ）。"""
+    from ecobuild import workspaces
+    main, place = worktree
+    looked = []
+    monkeypatch.setattr(workspaces, "inside", lambda root: looked.append(root) or [])
+
+    class Base:
+        @classmethod
+        def close_workspace(cls, path, **options):
+            return type("Closed", (), {"done": False})()
+
+    class Workspace(container.ContainerModule, Base):
+        pass
+
+    Workspace.close_workspace(place)
+    assert looked == []
+    Workspace.close_workspace(main)
+    assert looked == [main]
+
+
+def test_the_account_of_a_worktree_is_read_from_its_own_config(monkeypatch, worktree):
+    """アカウントは --local に限らずに読む（worktree の作業空間ごとの値は --worktree の設定）。"""
+    from helpers import git
+    main, place = worktree
+    git(main, "config", "extensions.worktreeConfig", "true")
+    git(place, "config", "--worktree", "ecowork.account", "bot-account")
+    asked = []
+    real = container._output
+    monkeypatch.setattr(container, "_output", lambda args: asked.append(args) or (
+        real(args) if args[0] == "git" else ""))
+    container.credentials(place)
+    assert ["gh", "auth", "token", "--user", "bot-account"] in asked

@@ -77,6 +77,11 @@ def test_open_moves_a_window_or_opens_one(tmp_path, monkeypatch):
     assert navigate["target"] == "w1" and navigate["tab"] == "projects"
     # called by that window itself: it does it (apply)
     assert app.action("open", {"module": str(module), "page": "help"}, origin="w1") == {"apply": {"navigate": {"page": "help"}}}
+    # a folder in one of its workspaces (.ecobuild/w/<名前>): the module's window (its own clone)
+    workspace = module / ".ecobuild" / "w" / "7"
+    (workspace / ".ecobuild").mkdir(parents=True)
+    (workspace / ".ecobuild" / "ecobuild.toml").write_text('[module]\nname = "M"\n', encoding="utf-8")
+    assert app.action("open", {"module": str(workspace / ".ecobuild"), "page": "tasks"})["window"] == "w1"
     # the hub, from the hub: apply; folder from a window: the window opens it
     app.see_window({"id": "h1", "kind": "hub"})
     assert app.action("open", {}, origin="h1") == {"apply": {"navigate": {}}}

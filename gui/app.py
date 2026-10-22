@@ -75,7 +75,7 @@ READ_ONLY = {
     ("project", "list"), ("profile", "list"), ("milestone", "list"), ("sprint", "list"), ("stash", "list"),
     ("ci", "status"), ("ci", "show"), ("release", "list"), ("container", "status"), ("container", "recipe"),
     ("container", "image"),   # container image list（build・prune は 3語目で分かれるが、ほかの操作を待たせなくてよい）
-    ("workspace", "path"), ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
+    ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
     ("agent", "module"),   # 進行役の作業空間（ECOBuild が持つ別の clone）だけを扱う。この作業空間のファイルは変えない
 }
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言 gui ask：自分ではファイルを変えず、見るだけのコマンドと
@@ -289,16 +289,32 @@ def _module_root(path: Path) -> Path:
     raise GuiError(f"ECOBuildのモジュールではありません（ecobuild.toml がありません）：{path}")
 
 
+def _original_clone(path: Path) -> Path | None:
+    """path がモジュールの作業空間（<元の clone>/.ecobuild/w/<名前> の git worktree）の中なら、その元の clone。"""
+    path = Path(path)
+    for place in (path, *path.parents):
+        if place.parent.name == "w" and place.parent.parent.name == ".ecobuild" \
+                and (place.parent.parent.parent / MODULE_FILE).is_file():
+            return place.parent.parent.parent
+    return None
+
+
+def _module_of(path: Path) -> Path:
+    """モジュールの窓で開く場所：元の clone（作業空間の中なら、その元の clone）。"""
+    root = _module_root(path)
+    return _original_clone(root) or root
+
+
 class GuiError(Exception):
     pass
 
 
 def find_module(cli: "Cli", module: str) -> str:
-    """モジュールのフォルダか名前から、このPCの作業空間のフォルダ。"""
+    """モジュールのフォルダか名前から、このPCのモジュールの元の clone（作業空間の中のフォルダなら、その元の clone）。"""
     if Path(module).expanduser().is_dir():
-        return str(_module_root(Path(module)))
+        return str(_module_of(Path(module)))
     listed = cli.run(None, ["workspace", "list"])
-    for entry in listed.get("result") or []:
+    for entry in (listed.get("result") or {}).get("modules") or []:
         path = entry.get("path", "")
         if entry.get("exists") and (Path(path).name.casefold() == module.casefold()
                                     or (entry.get("repository") or "").casefold() in (module.casefold(),)
@@ -393,12 +409,13 @@ def _last_json(text: str) -> dict | None:
 
 def _working_directory(directory: str | None, args: list[str]) -> str:
     """ecobuild を起動するフォルダ（場所は -C で渡すので、どこでもよい）。module delete --remove-workspaces・workspace close はその場所を消すので、親から
-    起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。"""
+    起動する（ecobuild.exe・venv の python.exe は本体を子として動かす起動役で、起動したフォルダをつかんだままになる）。
+    作業空間（.ecobuild/w/<名前>）はタスクの操作（finish・drop・prune・review --done 等）でも消えるので、いつも元の clone から起動する。"""
     if not directory:
         return str(Path.home())
-    removes = args[:2] in (["module", "delete"], ["workspace", "close"]) or (args[:2] == ["task", "finish"]
-                                                                            and "--close-workspace" in args)
-    return str(Path(directory).parent) if removes else directory
+    if args[:2] in (["module", "delete"], ["workspace", "close"]):
+        return str(Path(directory).parent)
+    return str(_original_clone(Path(directory)) or directory)
 
 
 def default_cli(explicit: str = "") -> list[str]:

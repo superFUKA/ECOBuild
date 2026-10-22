@@ -52,7 +52,7 @@ function renderPrDetail() {
     `CI ${a.checks.length ? a.checks.map(c => `${esc(c.name)} ${ECO.checkMark(c)}`).join('、') : 'なし'}`, ...(mergeable ? [esc(mergeable)] : [])].join('<span class="sep">·</span>');
   look.append(prButton('diff', '差分'), prButton('comment', 'コメント'), prButton('task', 'タスク'), prButton('refresh', '更新'));
   if (reviewing) {
-    act.append(prButton('review-done', '判定せずに戻る'));
+    act.append(prButton('review-done', '判定せずに終える'));
     const why = ECO.canTakeIn(access, t.base) ? '' : ECO.takeInNote(access, t.base);
     if (open) act.append(prButton('reject', '差し戻す', {enabled: !why, note: why}), prButton('approve', '承認して取り込む', {enabled: !draft && !why, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why}));
   } else {
@@ -118,8 +118,8 @@ async function prAction(action) {
     case 'submit': return submitDialog(t);
     case 'ready': return submitDialog(t, true);
     case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。`, title: '提出を取り下げる', refresh: false}));
-    case 'local-review': {   // 判定せずに戻る (the button for review-done)
-      const doc = await WS.run(['task', 'review', '--done'], {success: '確認を終えて戻りました。'});
+    case 'local-review': {   // 判定せずに終える (the button for review-done)
+      const doc = await WS.run(['task', 'review', '--done'], {success: '確認を終え、確認用の作業空間を消しました。'});
       await after(doc); if (doc) WS.reloadFiles?.(); return;
     }
     case 'task': if (window.parent !== window) window.parent.postMessage({type: 'show-task', n: t.number}, location.origin); return;

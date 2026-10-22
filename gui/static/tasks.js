@@ -435,30 +435,18 @@
       const task = b.is_task_branch ? byNumber(ECO.taskOfBranch(b.name)) : null;
       return [b.name, b.is_task_branch ? `${b.name}（タスクブランチ${task ? '：' + task.title : ''}）` : b.name + (b.name === defaults.default_base ? '（既定）' : '') + (b.local ? '' : '（GitHubだけ）')];
     }) : []);
-    // The new workspace's default place comes from the CLI (<workspace_directory>/<module>/<number>), not next to the module.
-    const placed = await ECO.cli(root(), ['workspace', 'path', '--task', String(n)], {quiet: true});
-    const suggested = placed.ok ? placed.result.path : '';
-    // Where to place the task branch: a workspace of this PC (one being reviewed cannot switch), by default the tab
-    // shown now when nothing is placed there; or a new workspace; or none.
-    const places = MOD.places.filter(p => { const s = MOD.states.get(MOD.keyOf(p)); return s && !s.reviewing; });
-    const placeName = p => MOD.keyOf(p) === MOD.keyOf(root()) ? 'この作業空間' : '作業空間 ' + p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
-    const placeOptions = places.map((p, i) => {
-      const s = MOD.states.get(MOD.keyOf(p));
-      const now = s.task ? `今は ${s.branch || `#${s.task} のタスクブランチ`} を置いています。` : '';
-      const locked = ECO.whyLocked(s);
-      if (locked) return ['ws' + i, `${placeName(p)}に置く`, `${locked}。ロックが外れるまで選べません（${p}）`, true];
-      return ['ws' + i, `${placeName(p)}に置く`, now + (existing ? `${existing} に切り替えます` : 'タスクブランチを作って切り替えます') + `（${p}）`];
-    });
-    const free = places.filter(p => !MOD.states.get(MOD.keyOf(p)).task && !ECO.lockOf(MOD.states.get(MOD.keyOf(p))).locked), active = MOD.activePlace?.();
-    const preferred = active && free.some(p => MOD.keyOf(p) === MOD.keyOf(active)) ? active : free[0];
-    const placeValue = preferred ? 'ws' + places.indexOf(preferred) : 'dir';
+    // The task branch goes into a workspace of its own (task start makes it in the module: .ecobuild/w/<n>; the module's
+    // own clone stays on its branch), or none is made (--no-branch). The account the workspace works as (an AI's account
+    // etc.) is chosen when more than one is logged in on this PC.
+    const listed = await ECO.cli(null, ['account', 'list'], {quiet: true}), accounts = listed.ok ? listed.result : [];
+    const accountField = accounts.length > 1 ? [{name: 'account', label: '作業空間で使う GitHub のアカウント（AI 用のアカウント等。push・提出・コミットの作者がそのアカウントになります）', type: 'select', showIf: v => v.place !== 'none',
+      value: '', options: [['', `gh の使用中のアカウント（${accounts.find(a => a.active)?.login || '?'}）`], ...accounts.filter(a => !a.active).map(a => [a.login, a.login])]}] : [];
     const assignees = d.assignees || t.assignees || [], others = me() && !assignees.includes(me()) ? assignees : [];
     await ECO.form({title: (d.remote ? '作業を再開' : '作業を開始') + `：#${n}`, intro: esc(t.title || d.title || ''), busy: `#${n} のタスクブランチを用意しています…`, fields: [
-      {name: 'place', label: 'タスクブランチを置く作業空間', type: 'radio', value: placeValue, options: [
-        ...placeOptions,
-        ['dir', '新しい作業空間を作って置く', '並行作業用。別のフォルダにcloneして、新しいタブで開きます'],
+      {name: 'place', label: '作業の場所', type: 'radio', value: 'workspace', options: [
+        ['workspace', '作業空間を作る', `タスクブランチの作業空間をモジュールの中（.ecobuild/w/${n}）に作り、新しいタブで開きます。完了する・作業を捨てると消えます`],
         ['none', 'タスクブランチを作らない', '調査・設計など、コードを変えないタスク（状態を作業中にするだけ）']]},
-      {name: 'dir', label: '新しい作業空間の場所', value: suggested, showIf: v => v.place === 'dir'},
+      ...accountField,
       ...(existing ? [] : [{name: 'branchName', label: 'タスクブランチの名前', required: true, value: ECO.branchLabel(t.title || d.title || ''), showIf: v => v.place !== 'none',
         help: `task/${n}-〈名前〉のブランチになります。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。`}]),
       {name: 'base', label: '作成元のブランチ', type: 'select', value: base, options: [[base, base + (base === defaults.default_base ? '（既定）' : '')]], showIf: v => v.place !== 'none', more: branchOptions,
@@ -471,14 +459,10 @@
         const args = ['task', 'start', String(n), ...(v.base && v.base !== base && v.place !== 'none' ? ['--base', v.base] : []), ...(v.ignoreBlocked ? ['--ignore-blocked'] : []), ...(v.takeOver ? ['--take-over'] : [])];
         if (v.place === 'none') args.push('--no-branch');
         else if (!existing) { const error = ECO.branchNameError(v.branchName || ''); if (error) return error; args.push('--name', v.branchName.trim()); }
-        if (v.place === 'dir') { if (!v.dir) return '新しい作業空間の場所を入力してください。'; args.push('--dir', v.dir); }
-        const place = v.place.startsWith('ws') ? places[Number(v.place.slice(2))] : null;
-        const lockedWhy = place && ECO.whyLocked(MOD.states.get(MOD.keyOf(place)));
-        if (lockedWhy) return lockedWhy + '。ほかの作業空間を選ぶか、ロックを外してください。';
-        const doc = await run(args, {dir: place || root(), success: v.place === 'none' ? `#${n} を作業中にしました。` : r => `タスクブランチ ${r.branch} を用意しました。`, quietErrors: true});
+        if (v.place !== 'none' && v.account) args.push('--account', v.account);
+        const doc = await run(args, {success: v.place === 'none' ? `#${n} を作業中にしました。` : r => `タスクブランチ ${r.branch} の作業空間を作りました（${r.workspace}）。`, quietErrors: true});
         if (!doc) return '開始できませんでした。';
-        if (place) { await MOD.reloadPlace(place); showModulePage('workspace'); MOD.activate(place, true); }
-        if (v.place === 'dir') { const created = await MOD.addPlace(doc.module || v.dir); await MOD.reloadPlace(created); showModulePage('workspace'); MOD.activate(created, true); }
+        if (v.place !== 'none') await MOD.showPlace(doc.result.workspace);
         reloadAfter(n);
       }});
   }
@@ -505,7 +489,7 @@
       {name: 'parent', label: '親タスク', type: 'select', row: 'links', value: preset.parent ? String(preset.parent) : '', options: parentOptions(0, 0)},
       {name: 'blockedBy', label: '先に終わるべきタスク', row: 'links', placeholder: '番号（カンマ区切り）'},
       {type: 'section', end: true},
-      {name: 'start', label: '作成したら、この作業空間で作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'},
+      {name: 'start', label: '作成したら、作業空間を作って作業を開始する（担当者を選ばなければ自分になります）', type: 'checkbox'},
       {name: 'branchName', label: 'タスクブランチの名前', required: true, showIf: v => v.start,
         help: 'task/〈番号〉-〈名前〉のブランチになります（既定は題名）。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。'}], ok: '作成',
       // The branch name follows the title until it is changed by hand.
@@ -527,7 +511,7 @@
         // task new has no priority, estimate, sprint or stage: set them with task edit.
         const planArgs = [...(v.priority ? ['--priority', v.priority] : []), ...(v.estimate ? ['--estimate', v.estimate] : []), ...(v.sprint ? ['--sprint', v.sprint] : []), ...(!v.start && v.stage === 'planned' ? ['--stage', 'planned'] : [])];
         if (planArgs.length && !await run(['task', 'edit', String(n), ...planArgs], {quietErrors: true})) { await reloadAfter(); select(n); return `#${n} は作成しましたが、計画の値を保存できませんでした。`; }
-        if (v.start) { await MOD.reloadPlace(root()); }
+        if (v.start) await MOD.showPlace(doc.result.task_branch?.workspace);
         await reloadAfter(); select(n);
       }});
   }
@@ -593,33 +577,33 @@
     if (await run(['task', 'close', String(n), '--not-planned', '--yes'], {dir: place, success: `#${n} を削除しました。`})) { if (branch) await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function dropDialog(n) {
-    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '作業を取り込まずに捨てます。提出を閉じ、タスクブランチをこのPCとGitHubから消して、元のブランチに戻ります。捨てた作業は戻せません。', fields: [{name: 'close', label: 'タスクも削除する', type: 'checkbox'}], ok: '作業を捨てる', danger: true});
+    const v = await ECO.form({title: `作業を捨てる：#${n}`, intro: '作業を取り込まずに捨てます。提出を閉じ、タスクブランチをこのPCとGitHubから消して、その作業空間も消します。捨てた作業は戻せません。', fields: [{name: 'close', label: 'タスクも削除する', type: 'checkbox'}], ok: '作業を捨てる', danger: true});
     if (!v) return;
-    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const place = placeFor(n), doc = await run(['task', 'drop', String(n), ...(v.close ? ['--close'] : [])], {dir: place, success: r => `タスクブランチ ${r.branch} の作業をやめました。` + (r.workspace_removed ? `作業空間 ${r.workspace_removed} を消しました。` : r.workspace_kept ? `作業空間を残しました（${r.workspace_kept}）。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function removeWorkspace(n) {
     const place = placeFor(n);
     const ok = await ECO.confirm({title: `このPCから片付ける：#${n}`, message: 'このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残るので、「作業を再開」でPushしたところから続けられます。\n未コミット・未Pushの変更があるときは消しません。', ok: '消す', danger: true});
     if (!ok) return;
-    const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元のタスクブランチ ${r.branch || r.removed?.join('、')} を削除しました。` + (r.switched_to ? `${r.switched_to} に戻りました。` : '')});
+    const doc = await run(['task', 'prune', String(n)], {dir: place, success: r => `手元のタスクブランチ ${r.branch || r.removed?.join('、')} を削除しました。` + (r.workspace_removed ? `作業空間 ${r.workspace_removed} を消しました。` : r.workspace_kept ? `作業空間を残しました（${r.workspace_kept}）。` : '')});
     if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
   }
+  // The task branches are the module's (every workspace's): one task prune in the module's own clone covers them all,
+  // and removes the workspaces they were checked out in.
   async function cleanDialog() {
-    const results = [];
-    for (const place of MOD.places) { const doc = await ECO.cli(place, ['task', 'prune', '--dry-run']); if (doc.ok) results.push([place, doc.result]); else return ECO.showError(doc); }
-    const removable = results.filter(([, r]) => r.removed.length), skipped = results.flatMap(([, r]) => r.skipped);
-    const body = (removable.length ? '<p>片付けるタスクブランチ：</p><ul class="eco-list">' + removable.flatMap(([p, r]) => r.removed.map(b => `<li>${esc(b)}${MOD.keyOf(p) === MOD.keyOf(root()) ? '' : `<span class="eco-help">（${esc(p)}）</span>`}</li>`)).join('') + '</ul>' : '<p>片付けるタスクブランチはありません。</p>')
-      + (skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
-    const ok = await ECO.dialog({title: '完了したタスクブランチを片付ける', body: '<p class="eco-intro">閉じたタスクのタスクブランチを消します。取り込んでいないコミットがあるものは残します。</p>' + body,
-      buttons: removable.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
+    const preview = await ECO.cli(root(), ['task', 'prune', '--dry-run']);
+    if (!preview.ok) return ECO.showError(preview);
+    const r = preview.result, removing = r.workspaces_removed || [];
+    const body = (r.removed.length ? '<p>片付けるタスクブランチ：</p><ul class="eco-list">' + r.removed.map(b => `<li>${esc(b)}</li>`).join('') + '</ul>' : '<p>片付けるタスクブランチはありません。</p>')
+      + (removing.length ? '<p>一緒に消える作業空間：</p><ul class="eco-list">' + removing.map(p => `<li>${esc(p)}</li>`).join('') + '</ul>' : '')
+      + (r.skipped.length ? '<p>残すもの：</p><ul class="eco-list">' + r.skipped.map(s => `<li>${esc(s.branch)}：${esc(s.reason)}</li>`).join('') + '</ul>' : '');
+    const ok = await ECO.dialog({title: '完了したタスクブランチを片付ける', body: '<p class="eco-intro">閉じたタスクのタスクブランチと、その作業空間を消します。取り込んでいないコミットがあるものは残します。</p>' + body,
+      buttons: r.removed.length ? [['キャンセル', '', false], ['片付ける', 'primary', true]] : [['閉じる', 'primary', false]]});
     if (!ok) return;
-    for (const [place] of removable) {
-      const doc = await run(['task', 'prune', '--yes'], {dir: place, success: r => (r.removed.length ? `片付けました：${r.removed.join('、')}` : '片付けたものはありません。') + (r.switched_to ? `（${r.switched_to} に切り替えました）` : '')});
-      if (!doc) continue;
-      for (const s of doc.result.skipped) ECO.toast(`${s.branch} は残しました：${s.reason}`, 'info', 9000);
-      await MOD.reloadPlace(place);
-    }
+    const doc = await run(['task', 'prune', '--yes'], {success: d => d.removed.length ? `片付けました：${d.removed.join('、')}` : '片付けたものはありません。'});
+    if (doc) for (const s of doc.result.skipped) ECO.toast(`${s.branch} は残しました：${s.reason}`, 'info', 9000);
+    await MOD.syncPlaces();
     reloadAfter();
   }
   // Submissions (task finish／approve／reject／withdraw): 取り込む takes an open submission in. Numbers are task numbers.
@@ -637,8 +621,8 @@
     if (await run(['task', 'withdraw', String(n)], {dir: placeFor(n), success: `#${n} の提出を取り下げました。`})) reloadAfter(n);
   }
   async function reviewSubmission(n) {
-    const doc = await run(['task', 'review', String(n)], {success: `#${n} の提出を手元に取り出しました。タスクブランチの画面でビルド・テスト・実行ができます。`});
-    if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
+    const doc = await run(['task', 'review', String(n)], {success: r => `#${n} の提出を確認用の作業空間に取り出しました（${r.workspace}）。そこでビルド・テスト・実行ができます。`});
+    if (doc) { await MOD.showPlace(doc.result.workspace); reloadAfter(n); }
   }
   async function judgeDialog(n, approve) {
     const v = await ECO.form(approve

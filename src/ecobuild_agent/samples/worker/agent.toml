@@ -1,0 +1,7 @@
+title = "作業役"
+human_start = false
+model = "sonnet"
+children = ["worker", "manager"]
+max_children = 3
+tools = ["*"]
+first_prompt = ".ecobuild/ai/brief.md に任された仕事があります。読んで作業を始めてください。返答の最後は「状態：…」の行です。"

@@ -31,6 +31,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 ecobuild_bundle = ["module_types.toml"]
 ecobuild_cpp = ["templates/*"]
+ecobuild_agent = ["samples/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

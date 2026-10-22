@@ -14,7 +14,7 @@ from ecobuild_agent.operator import CHANGE, CONFIRM, HUMAN, READ, REQUESTED  # n
 
 EFFECTS = {
     READ: (
-        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent module status", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
+        "account list", "account show", "agent conversations", "agent guide", "agent log", "agent module status", "agent registry list", "agent registry show", "agent status", "agent team list", "agent team log", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
@@ -23,13 +23,13 @@ EFFECTS = {
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
-        "agent module close", "agent team accept", "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
+        "agent module close", "agent registry remove", "agent team accept", "agent team close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
         "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent context", "agent guard", "agent module prepare", "agent module start", "agent operator", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent ask", "agent context", "agent guard", "agent module prepare", "agent module start", "agent operator", "agent registry add", "agent registry set", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

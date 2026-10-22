@@ -5,6 +5,7 @@ import pytest
 from helpers import git, write
 from ecowork import Repository
 from ecowork.errors import ErrorCode, WorkError
+from ecowork.git import same_path
 from ecowork.github import Check, Comment, PullRequestActivity, Review
 
 pytestmark = pytest.mark.local
@@ -62,7 +63,8 @@ def test_task_status_shows_reviews_and_checks(repository):
     assert status.activity.reviews[0].state == "CHANGES_REQUESTED" and status.activity.checks[0].conclusion == "failure"
 
 
-def test_review_pull_request(repository, remote_and_clone, tmp_path):
+@pytest.mark.needs_git_2_48
+def test_review_pull_request_in_a_review_workspace(repository, remote_and_clone, tmp_path):
     remote, _ = remote_and_clone
     other_root = tmp_path / "other"
     git(tmp_path, "clone", "--quiet", str(remote), str(other_root))
@@ -71,18 +73,28 @@ def test_review_pull_request(repository, remote_and_clone, tmp_path):
     commit_file(theirs, other_root, "theirs.txt", "theirs\n", "他人の変更")
     pr = theirs.submit()
 
-    write(repository.root / "dirty.txt", "x\n")
-    assert code_of(lambda: repository.review(pr.number)) == ErrorCode.DIRTY_WORKING_TREE
-    (repository.root / "dirty.txt").unlink()
-    result = repository.review(pr.number)
-    assert result.head == "task/1" and (repository.root / "theirs.txt").exists()
-    status = repository.status()
+    write(repository.root / "dirty.txt", "x\n")      # 元の clone の変更は、確認の邪魔にならない（触らない）
+    result = repository.review_in(pr.number, tmp_path / "r")
+    assert result.head == "task/1" and same_path(result.workspace, tmp_path / "r")
+    assert (tmp_path / "r" / "theirs.txt").exists() and not (repository.root / "theirs.txt").exists()
+    assert repository.git.current_branch() == "main" and repository.status().reviewing is None
+    reviewer = Repository(result.workspace, github=repository.github, command="ecobuild")
+    status = reviewer.status()
     assert status.reviewing == pr.number and status.task is None
-    assert repository.current_task_branch() is None  # コミットはできない（タスクブランチでない）
-    back = repository.end_review()
-    assert back.returned_to == "main" and not (repository.root / "theirs.txt").exists()
-    assert repository.status().reviewing is None
+    assert reviewer.current_task_branch() is None  # コミットはできない（タスクブランチでない）
+    assert same_path(repository.review_in(pr.number, tmp_path / "r2").workspace, tmp_path / "r")   # 既にあればそこ
+
+    write(tmp_path / "r" / "README.md", "変えた\n")
+    assert code_of(reviewer.end_review) == ErrorCode.DIRTY_WORKING_TREE
+    git(tmp_path / "r", "checkout", "--", "README.md")
+    back = reviewer.end_review()
+    assert same_path(back.workspace, tmp_path / "r") and not (tmp_path / "r").exists()
+    assert same_path(reviewer.root, repository.root)      # 消した場所から、元の clone へ移る
+    assert reviewer.status().reviewing is None
     assert code_of(repository.end_review) == ErrorCode.INVALID_ARGUMENT
+
+    repository.review_in(pr.number, tmp_path / "r3")
+    assert repository.end_review(pr.number).task == 1 and not (tmp_path / "r3").exists()   # 外から番号で終える
 
 
 def test_log_revert_ignore_release(repository):
@@ -160,25 +172,30 @@ def test_stash_pop_stays_in_its_workspace(repository):
     assert (root / "first.txt").exists()
 
 
-def test_status_fetch_and_dedicated_clone(repository, remote_and_clone, tmp_path):
-    remote, _ = remote_and_clone
+@pytest.mark.needs_git_2_48
+def test_status_fetch_and_workspace(repository, remote_and_clone, tmp_path):
     task = repository.create_task("並行作業")
-    dedicated = repository.clone_task_branch(task.number, tmp_path / "Calc-1")
+    dedicated = repository.start_task_in(task.number, tmp_path / "1").repository
     assert dedicated.current_task_branch().number == task.number
     assert repository.current_task_branch() is None  # 元のcloneはそのまま
-    assert code_of(lambda: repository.clone_task_branch(task.number, tmp_path / "Calc-1")) == ErrorCode.ALREADY_EXISTS
+    write(tmp_path / "2" / "x.txt", "x\n")
+    assert code_of(lambda: repository.start_task_in(repository.create_task("b").number, tmp_path / "2")) \
+        == ErrorCode.ALREADY_EXISTS
 
     finish(repository, repository.create_task("先に入る").start(), "b.txt", "b\n", "b")
     assert dedicated.status().base_behind is None
     assert dedicated.status(fetch=True).base_behind == 1
 
 
-def test_a_clone_that_cannot_be_opened_is_removed(repository, tmp_path):
-    """clone した後に開けなければ、作りかけを残さない（同じ場所でやり直せるように）。"""
+@pytest.mark.needs_git_2_48
+def test_a_workspace_that_cannot_be_opened_is_removed(repository, tmp_path):
+    """作業空間を作った後に開けなければ、作りかけを残さない（同じ場所でやり直せるように）。"""
     def refuse(root):
         raise WorkError(ErrorCode.GIT_ERROR, "開けません")
-    assert code_of(lambda: repository.clone_to(tmp_path / "ws", open=refuse)) == ErrorCode.GIT_ERROR
-    assert not (tmp_path / "ws").exists()
+    task = repository.create_task("a")
+    assert code_of(lambda: repository.start_task_in(task.number, tmp_path / "ws", open=refuse)) == ErrorCode.GIT_ERROR
+    assert not (tmp_path / "ws").exists() and len(repository.git.worktrees()) == 1
+    assert repository.start_task_in(task.number, tmp_path / "ws").created
 
 
 def test_merge_stops_when_checks_failed(repository):

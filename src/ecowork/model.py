@@ -425,11 +425,35 @@ class SkippedBranch:
 
 
 @dataclass(frozen=True)
+class Released:
+    """タスクブランチを消す前に、取り出している作業ツリーから外した結果（Repository._release_branch）。"""
+    released: bool                   # 消せる（どこも取り出していない）ようになった
+    kept: str | None = None          # 外せなかったわけ（ブランチは残す）
+    locks: tuple[str, ...] = ()      # 外せなかったわけがロックなら、その理由
+    switched_to: str | None = None   # 元の clone・依存先の clone で、その場で移った作成元
+    workspace_removed: Path | None = None   # 消した作業空間
+
+
+@dataclass(frozen=True)
+class StartResult:
+    """作業空間でのタスクの開始（Repository.start_task_in）の結果。"""
+    number: int
+    branch: str
+    base: str
+    workspace: Path | None           # タスクブランチを取り出した作業空間
+    created: bool                    # 新しく作った（False：既にあった作業空間を返した）
+    repository: "Repository" = field(default=None, repr=False, compare=False)   # その作業空間の Repository
+
+
+@dataclass(frozen=True)
 class CleanResult:
     removed: tuple[str, ...]
     skipped: tuple[SkippedBranch, ...]
-    switched_to: str | None          # 片付けたタスクブランチにいた場合、移った先
+    switched_to: str | None          # 片付けたタスクブランチを元の clone 等が取り出していた場合、その場で移った先
     dry_run: bool
+    workspace_removed: Path | None = None   # この作業空間のタスクブランチを片付けて、この作業空間を消した（dry_run なら消える）
+    workspace_kept: str | None = None       # この作業空間のタスクブランチを、残したわけ
+    workspaces_removed: tuple[Path, ...] = ()   # 片付けで消した（dry_run なら消える）作業空間すべて
 
 
 @dataclass(frozen=True)
@@ -438,10 +462,12 @@ class DropResult:
     branch: str
     lost_commits: tuple[str, ...]    # 作成元に入っていないため失われるコミット（件名）
     closed_pull_requests: tuple[int, ...]
-    switched_to: str | None          # 今いるタスクブランチを捨てた場合、移った先
+    switched_to: str | None          # 元の clone 等が取り出しているタスクブランチを捨て、その場で移った先
     issue_closed: bool               # 「対応しない」として閉じたか
     dry_run: bool
     issue_open: bool = True          # 終わった後、Issueが開いているか（閉じたIssueの残りのブランチを消したなら False）
+    workspace_removed: Path | None = None   # タスクブランチを取り出していた作業空間を消した（dry_run なら消える）
+    workspace_kept: str | None = None       # 作業空間・手元のタスクブランチを残したわけ（GitHub のブランチは消した）
 
 
 @dataclass(frozen=True)
@@ -467,7 +493,8 @@ class RemoveResult:
     branch: str
     base: str                        # 作成元（Issueに記録済み。再開すると同じ作成元になる）
     remote: bool                     # GitHubにブランチがあるか（なければ再開すると作成元の最新から）
-    switched_to: str | None          # 今いるタスクブランチを消した場合、移った先
+    switched_to: str | None          # 元の clone 等が取り出しているタスクブランチを消し、その場で移った先
+    workspace_removed: Path | None = None   # タスクブランチを取り出していた作業空間を消した
 
 
 @dataclass(frozen=True)
@@ -613,8 +640,8 @@ class ReviewResult:
     number: int                      # 確認するPR
     head: str                        # PRのブランチ
     sha: str
-    returned_to: str | None = None   # --done で戻ったブランチ
     task: int | None = None          # タスクブランチの提出なら、そのタスクの番号
+    workspace: Path | None = None    # 確認用の作業空間（review_in：作った場所・end_review：消した場所）
 
 
 @dataclass(frozen=True)
@@ -623,7 +650,7 @@ class JudgeResult:
     task: int
     pull_request: int
     url: str
-    returned_to: str | None = None   # 確認中（task review）から戻ったブランチ
+    review_removed: Path | None = None   # 確認用の作業空間（task review）を消した
 
 
 @dataclass(frozen=True)
@@ -638,13 +665,15 @@ class FinishResult:
     closed_issue: int | None
     branch_rebuilt: bool
     removed: bool                    # 手元のタスクブランチを片付けた
-    switched_to: str | None          # 今いたタスクブランチを片付けて移った先
+    switched_to: str | None          # 元の clone 等が取り出していたタスクブランチを片付け、その場で移った先
     checks: tuple = ()               # 待ったCIの実行
     next: TaskRef | None = None      # 次のタスクの候補（task next の1番目）
     approved: bool = False           # task approve：承認してから完了した
-    returned_to: str | None = None   # task approve：確認中（task review）から戻ったブランチ
+    review_removed: Path | None = None   # 確認用の作業空間（task review）を消した
     closed_workspace: object = None  # 完了の後に閉じた作業空間（利用側が決める）
     already_done: bool = False       # 完了済み（取り込み・後処理・片付けが済んでいた）で、何もしなかった
+    workspace_removed: Path | None = None   # タスクブランチを取り出していた作業空間を消した
+    workspace_kept: str | None = None       # 作業空間・手元のタスクブランチを残したわけ
 
 
 @dataclass(frozen=True)

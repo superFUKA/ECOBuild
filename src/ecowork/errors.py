@@ -45,5 +45,6 @@ class ErrorCode(_TaskErrorCode):
     REVISION_NOT_FOUND = "revision_not_found"   # 指定したコミット（版）がない・このタスクブランチの履歴にない
     PERMISSION_DENIED = "permission_denied"     # このアカウントの役割（GitHub の権限）では行えない操作
     WORKSPACE_LOCKED = "workspace_locked"       # 作業空間がロック中（使用中）で、ブランチの切り替え・タスクブランチの削除ができない
+    BRANCH_CHECKED_OUT = "branch_checked_out"   # ブランチをほかの作業ツリー（元の clone・作業空間）が取り出している（同じブランチは1か所だけ）
     UNSAFE_REPOSITORY = "unsafe_repository"     # git が持ち主の違う場所を扱わない（dubious ownership。safe.directory）
     GIT_ERROR = "git_error"

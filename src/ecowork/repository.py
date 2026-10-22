@@ -9,10 +9,8 @@
 
 from __future__ import annotations
 
-import os
-import shutil
-import stat
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
@@ -32,7 +30,7 @@ from ._completion import Completion
 from ._members import Members
 from ._access import ACCOUNT_KEY, Permissions
 from ._sync import Syncing
-from ._shared import _REVIEW_KEY, _github_name
+from ._shared import _github_name
 
 
 class Hooks:
@@ -45,10 +43,12 @@ class Hooks:
         """
         return None
 
-    def after_switch(self, repository: "Repository") -> None:
-        """タスクブランチの作成・切り替え・片付け等で、手元の内容（ブランチ）が変わった後。
+    def prepare_workspace(self, repository: "Repository") -> None:
+        """作業空間（git worktree）を作った後。repository はその作業空間の Repository（Repository.start_task_in・
+        review_in の open で作ったもの）。元の clone・依存先の clone でその場の内容が変わった後（ブランチの切り替え・
+        取り消しのコミット等）にも、その Repository で呼ぶ。
 
-        依存先の版の記録等が変わることがあるため、利用側が手元を合わせる口（sync の after_sync と同じ考え方）。
+        依存先の版の記録等に、利用側が手元を合わせる口（sync の after_sync と同じ考え方）。
         """
 
     def before_submit(self, repository: "Repository") -> None:
@@ -60,13 +60,24 @@ class Hooks:
         return {}
 
     def switch_locks(self, repository: "Repository") -> list[str]:
-        """この作業空間でブランチを切り替えるのを止める理由（日本語の文。なければ空）。使用中の作業空間を守る口。"""
+        """この作業空間（repository の場所）のロックの理由（日本語の文。なければ空）。使用中の作業空間を、
+        その場の切り替えと、消すことから守る口。"""
         return []
 
     def branch_locks(self, repository: "Repository", branch: str) -> list[str]:
-        """タスクブランチ branch を消すのを止める理由：それを使っている（今のブランチにしている）、ロック中の
-        ほかの作業空間（場所を添えた文。この作業空間は含めない。なければ空）。"""
+        """タスクブランチ branch を消すのを止める理由：それを取り出している、ロック中のほかの作業空間（場所を添えた文。
+        この作業空間は含めない。なければ空）。"""
         return []
+
+    def remove_workspace(self, repository: "Repository", path: Path, *, discard: bool) -> bool:
+        """作業空間（git worktree）path を消す。消せたら True。discard：コミットしていない変更があっても消す。
+
+        ecowork はその後に、元の clone でタスクブランチを消す。消せないわけは WorkError で知らせてもよい（ecowork は
+        ブランチを残し、notices・workspace_kept で知らせる）。既定は git worktree remove。利用側（ecobuild）は、
+        ロック・コンテナ・記録の片付けと一緒に消す。
+        """
+        _git.Git(repository.git.common_root()).worktree_remove(path, force=discard)
+        return True
 
 
 class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
@@ -267,8 +278,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         return self.git.count(f"HEAD..{base}") if self.git.rev_parse(base) else None
 
     def _reviewing(self) -> int | None:
-        value = self.git.get_config(_REVIEW_KEY)
-        return int(value) if value else None
+        """確認用の作業空間（review_in）なら、確認中のPR。"""
+        return self._review_of(self.git)
 
     # ブランチ ---------------------------------------------------------------
 
@@ -317,59 +328,85 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 
     # タスクとタスクブランチ ---------------------------------------------------------
 
-    def clone_to(self, directory: Path | str, *, open: Callable[[Path], "Repository"] | None = None,
-                 account: str | None = None) -> "Repository":
-        """このリポジトリ（origin）を directory へもう1つcloneする（新しい作業空間。ブランチは作成元〔default_base〕）。
+    def start_task_in(self, number: int, place: Path | str, *, base: str | None = None, name: str | None = None,
+                      ignore_blocked: bool = False, take_over: bool = False, account: str | None = None,
+                      open: Callable[[Path], "Repository"] | None = None) -> wm.StartResult:
+        """タスクブランチを作業空間（git worktree）として place に取り出す。この Repository の作業ツリーは変えない
+        （元の clone・ほかの作業空間のどこで実行してもよい）。場所は利用側が決める（ecobuild：<元の clone>/.ecobuild/w/<番号>）。
 
-        open：cloneした場所から、そのcloneを操作する Repository を作る（利用側のフックをclone先に結び付ける）。
-        省略するとフックなし。この Repository のフックは元のcloneに結び付いているため、clone先には渡さない。
-        account：新しい作業空間を、そのアカウントとして動かす（use_account）。
+        - ほかの作業空間が既にそのタスクブランチを取り出していれば、新しく作らずにその場所を返す（その中で早送りする）。
+        - 元の clone が取り出していれば止める（同じブランチは1か所でだけ取り出せる：git の制約）。
+        - ブランチは task start と同じ確かめ（担当者・依存・名前・作成元）をしてから作り、GitHub に置いてから取り出す。
+        open：作業空間の場所から、それを操作する Repository を作る（利用側のフックを結び付ける。省略するとフックなし）。
+        この Repository のフックはこの場所に結び付いているので、作業空間には渡さない。
+        account：その作業空間を、そのアカウントとして動かす（タスクもそのアカウントで始める：担当者もそのアカウント）。
+        作業空間の Repository で Hooks.prepare_workspace を呼ぶ。
         """
-        target, url = self._new_clone(directory)
+        place = Path(place).absolute()
         if account and hasattr(self.github, "with_account"):
-            self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
-        other = self._clone_into(target, url, open, self._clone_base(None))
+            self.github.with_account(account).identity(self.root)   # ログインしていなければ作る前に止める
+        with self._as_account(account):
+            task = self.task(number)   # Issueがあるか、先に確かめる
+            self.git.fetch()
+            branch = self._existing_task_branch(number)
+            held = self.git.checked_out_branches().get(branch) if branch else None
+            if held is not None:
+                self._refuse_main_worktree(branch, held)
+                self.tracker.check_assignee(number, take_over=take_over)
+                if not task.assignees:
+                    self.github.edit_issue(self.root, number, add_assignees=("@me",))
+                self._fast_forward(branch, held)
+            else:
+                if place.exists():
+                    raise WorkError(ErrorCode.ALREADY_EXISTS, f"{place} は既に存在します。")
+                self._require_remote_base(None if base and wm.is_task_branch(base) else base)
+                branch = self._prepare_task_branch(task, base, name=name, ignore_blocked=ignore_blocked,
+                                                   take_over=take_over)
+                self._fast_forward(branch, None)
+                self.git.worktree_add(place, branch)
+        other = self._open_workspace(held or place, open, remove_on_error=held is None)
         if account:
             other.use_account(account)
+        other.hooks.prepare_workspace(other)
+        task_branch = other.current_task_branch()
+        assert task_branch is not None
+        return wm.StartResult(task_branch.number, task_branch.branch, task_branch.base, held or place, held is None, other)
+
+    def _open_workspace(self, place: Path, open: Callable[[Path], "Repository"] | None, *,
+                        remove_on_error: bool) -> "Repository":
+        """作業空間の Repository を作る（open があればそれで）。開けなければ、今作った作業空間を消す（残すと同じ場所で
+        やり直せない）。"""
+        try:
+            if open is not None:
+                other = open(place)
+            else:
+                other = type(self)(place, github=self.github, default_base=self.default_base, command=self.command)
+        except Exception:
+            if remove_on_error:
+                try:
+                    self.git.worktree_remove(place, force=True)
+                except WorkError:
+                    pass
+            raise
+        other.notices[:0] = self.notices
         return other
 
-    def clone_task_branch(self, number: int, directory: Path | str, *, base: str | None = None, name: str | None = None,
-                          open: Callable[[Path], "Repository"] | None = None,
-                          ignore_blocked: bool = False, take_over: bool = False,
-                          account: str | None = None) -> "Repository":
-        """新しい作業空間（clone）にタスクブランチを作る（I-007）。directoryは新しく作るcloneの場所。open・account は
-        clone_to と同じ（account なら、そのアカウントとしてタスクを始める：担当者もそのアカウント）。"""
-        target, url = self._new_clone(directory)
-        task = self.task(number)  # Issueがあるか、担当者が他の人でないか、先に確かめる（clone する前に）
-        if account is None:
-            self.tracker.check_assignee(number, take_over=take_over)
-        elif task.assignees and account not in task.assignees and not take_over:
-            raise WorkError(ErrorCode.ASSIGNED_TO_OTHER, f"#{number} は {', '.join(task.assignees)} が担当しています。",
-                            hint="重ねて作業しないよう、担当者と相談してください。引き継ぐなら --take-over。",
-                            details=list(task.assignees))
-        if account and hasattr(self.github, "with_account"):
-            self.github.with_account(account).identity(self.root)   # ログインしていなければ clone する前に止める
-        # 取り出すのは作成元。タスクブランチ（子タスクの親のもの等）は start が決めるので、clone は default_base で
-        other = self._clone_into(target, url, open, self._clone_base(None if base and wm.is_task_branch(base) else base))
-        if account:
-            other.use_account(account)
-        other.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked,
-                                 **({"take_over": True} if account and take_over else {}))
-        return other
+    @contextmanager
+    def _as_account(self, account: str | None):
+        """その間だけ、GitHub を account として使う（作業空間を account のものとして始めるとき：担当者もそのアカウント）。"""
+        if not account or not hasattr(self.github, "with_account"):
+            yield
+            return
+        saved = self.github, getattr(self, "_access", None), getattr(self, "_creators", None)
+        self.github, self._access, self._creators = self.github.with_account(account), None, None
+        try:
+            yield
+        finally:
+            self.github, self._access, self._creators = saved
 
-    def _new_clone(self, directory: Path | str) -> tuple[Path, str]:
-        target = Path(directory).resolve()
-        if target.exists():
-            raise WorkError(ErrorCode.ALREADY_EXISTS, f"{target} は既に存在します。")
-        url = self.remote_url
-        if url is None:
-            raise WorkError(ErrorCode.GIT_ERROR, "GitHubのリポジトリ（origin）が設定されていません。")
-        return target, url
-
-    def _clone_base(self, base: str | None) -> str:
-        """新しい作業空間の clone で取り出すブランチ：作成元（base、なければ default_base）。必ず指定して取り出す：
-        GitHub の既定のブランチ（main 等）が作成元とは限らない（module adopt は今のブランチをモジュールにする）。
-        GitHub になければ、既定のブランチで代えずに止める。"""
+    def _require_remote_base(self, base: str | None) -> str:
+        """作業空間を作る前に、作成元（base、なければ default_base）が GitHub にあるか確かめる。GitHub の既定のブランチ
+        （main 等）で代えずに止める（module adopt は今のブランチをモジュールにするので、既定のブランチとは限らない）。"""
         base = base or self.default_base
         if not self.git.has_remote_branch(base):
             self.git.fetch()
@@ -379,19 +416,30 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
                                      "（branch list）。")
         return base
 
-    def _clone_into(self, target: Path, url: str, open: Callable[[Path], "Repository"] | None,
-                    branch: str) -> "Repository":
-        _hooks.install(_git.clone(url, target, branch=branch).hooks_directory())
-        try:
-            if open is not None:
-                other = open(target)
-            else:
-                other = type(self)(target, github=self.github, default_base=self.default_base, command=self.command)
-        except Exception:
-            _remove_tree(target)   # 今cloneしたもの（開けなければ作りかけ。残すと同じ場所でやり直せない）
-            raise
-        other.notices[:0] = self.notices
-        return other
+    def _refuse_main_worktree(self, branch: str, held: Path) -> None:
+        """元の clone（main の作業ツリー）が branch を取り出していれば止める（作業空間には取り出せない）。"""
+        main = self.git.common_root()
+        if _git.same_path(held, main):
+            raise WorkError(ErrorCode.BRANCH_CHECKED_OUT, f"元の clone が {branch} を取り出しています（{main}）。",
+                            hint=f"git -C \"{main}\" switch {self.default_base} で元の clone を作成元に戻してから、"
+                                 "もう一度実行してください（同じブランチは1か所でだけ取り出せます）。",
+                            details={"branch": branch, "path": str(main)})
+
+    def _fast_forward(self, branch: str, held: Path | None) -> None:
+        """手元のタスクブランチを、GitHub のものへ早送りする（別の場所で push された続きを取り込む。手元にだけの
+        コミットもあって早送りできなければ何もしない：sync で取り込む）。held：取り出している作業ツリー。"""
+        remote = f"{_git.REMOTE}/{branch}"
+        if not self.git.has_remote_branch(branch) or not self.git.is_ancestor(branch, remote) \
+                or self.git.rev_parse(branch) == self.git.rev_parse(remote):
+            return
+        if held is None:
+            self.git.run("update-ref", f"refs/heads/{branch}", remote)
+        else:
+            self._git_at(held).merge(remote, ff_only=True)
+
+    def _git_at(self, place: Path) -> _git.Git:
+        """作業ツリー place の git（この場所ならこの Repository のもの）。"""
+        return self.git if _git.same_path(place, self.root) else _git.Git(place, command=self.command)
 
     def create_task(self, title: str, *, body: str = "", labels: tuple[str, ...] = (),
                     assignees: tuple[str, ...] = (), parent: int | None = None, blocked_by: tuple[int, ...] = (),
@@ -475,9 +523,9 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
     def _op(self, name: str) -> str:
         return operation(self.command, name)
 
-    def _dirty(self) -> bool:
-        """未コミットの変更があるか（新しいファイルは include_new に当たるものだけを数える）。"""
-        tree = self.git.working_tree()
+    def _dirty(self, git: _git.Git | None = None) -> bool:
+        """未コミットの変更があるか（新しいファイルは include_new に当たるものだけを数える）。git：ほかの作業ツリー。"""
+        tree = (git or self.git).working_tree()
         return bool(tree.staged or tree.unstaged or tree.conflicted
                     or any(self.include_new is None or self.include_new(p) for p in tree.untracked))
 
@@ -542,14 +590,77 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         return tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
 
     def _switch_to_latest(self, name: str) -> None:
+        """この作業ツリーを、その場でブランチ name（GitHub の最新へ早送り）に切り替える。
+
+        その場で切り替えるのは、元の clone（main の作業ツリー）と依存先の clone だけ：そこが取り出しているタスクブランチを
+        消すとき（作成元へ移る）と、依存先の clone での task start。作業空間（linked worktree）では切り替えない。
+        この作業空間がロック中なら止める。"""
+        reasons = self.hooks.switch_locks(self)
+        if reasons:
+            raise self._locked_error(f"{name} への切り替え", reasons)
         if self.git.has_local_branch(name):
             self.git.switch(name)
-            if self.git.has_remote_branch(name):
-                self.git.merge(f"{_git.REMOTE}/{name}", ff_only=True)
+            remote = f"{_git.REMOTE}/{name}"
+            if self.git.has_remote_branch(name) and self.git.is_ancestor(name, remote):
+                self.git.merge(remote, ff_only=True)
         else:
             self.git.create_branch(name, f"{_git.REMOTE}/{name}", switch=True)
             self.git.set_upstream(name)
-        self.hooks.after_switch(self)
+        self.hooks.prepare_workspace(self)
+
+    def _release_branch(self, branch: str, *, action: str, discard: bool = False,
+                        dry_run: bool = False) -> wm.Released:
+        """タスクブランチ branch を消せるように、取り出している作業ツリーから外す。
+
+        - どこも取り出していない：そのまま。
+        - 作業空間（linked worktree）が取り出している：Hooks.remove_workspace で作業空間ごと消す。消した場所が
+          この Repository の場所なら、この Repository を元の clone へ移す（消した場所では git を動かせない）。
+        - 元の clone（main の作業ツリー）が取り出している：それがこの Repository なら、その場で作成元へ切り替える
+          （作業空間を持たない、前からの clone・依存先の clone と同じ道）。ほかの場所からは切り替えない（残す）。
+        ロック中・コミットしていない変更がある（作業空間は discard なら消す）なら残す。残したわけは Released.kept。
+        dry_run：何もせず、行う内容（消える作業空間・移る先）だけを返す。
+        """
+        held = self.git.checked_out_branches().get(branch)
+        here = held is not None and _git.same_path(held, self.root)
+        # ほかの作業空間のロックは、取り出していなくても見る（前からの、別の clone の作業空間）
+        locks = (self.hooks.switch_locks(self) if here else []) + self.hooks.branch_locks(self, branch)
+        if locks:
+            return wm.Released(False, kept=f"作業空間が使用中（ロック中）です（{'、'.join(locks)}）", locks=tuple(locks))
+        if held is None:
+            return wm.Released(True)
+        tree = self._git_at(held).working_tree()
+        main = self.git.common_root()
+        in_place = _git.same_path(held, main)
+        if (tree.staged or tree.unstaged or tree.conflicted) and (in_place or not discard):
+            return wm.Released(False, kept=f"{held} に未コミットの変更があります")
+        if in_place:
+            if not here:
+                return wm.Released(False, kept=f"元の clone（{held}）が取り出しています（ほかの場所からは切り替えません）")
+            base = self.git.get_config(wm.base_key(branch)) or self.default_base
+            if not dry_run:
+                self._switch_to_latest(base)
+            return wm.Released(True, switched_to=base)
+        if dry_run:
+            return wm.Released(True, workspace_removed=held)
+        try:
+            removed = self.hooks.remove_workspace(self, held, discard=discard)
+        except WorkError as error:
+            return wm.Released(False, kept=f"作業空間 {held} を消せませんでした（{error.message}）")
+        if not removed:
+            return wm.Released(False, kept=f"作業空間 {held} を消せませんでした")
+        if here:
+            self._relocate(main)
+        return wm.Released(True, workspace_removed=held)
+
+    def _relocate(self, root: Path) -> None:
+        """この Repository を root（元の clone）で動かす（今の場所の作業空間を消した後）。"""
+        fetched = self.git._fetched
+        self.root = Path(root)
+        self.git = _git.Git(self.root, command=self.command)
+        self.git._fetched = fetched
+        self.tracker.root = self.root
+        if hasattr(self.tracker, "store"):
+            self.tracker.store.root = self.root
 
     def _submit_task_branch(self, task_branch: wm.TaskBranch, *, title: str | None, partial: bool | None,
                           draft: bool = False, reviewers: tuple[str, ...] = (),
@@ -707,21 +818,38 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         if not self._needs_rebuild(branch, merged_head):
             return False
         base = self.git.get_config(wm.base_key(branch)) or self.default_base
-        previous = self.git.current_branch()
-        if previous != branch:
-            self._guard_switch("タスクブランチの作り直し（一時的に切り替わる）")
-        outcome = self.git.rebase_onto(f"{_git.REMOTE}/{base}", merged_head, branch)
-        if not outcome.merged:
-            raise WorkError(
-                ErrorCode.MERGE_CONFLICT,
-                "タスクブランチの作り直しで衝突しました。",
-                hint=f"ファイルを直して {self._op('sync continue')} で続けてください"
-                     f"（やめる場合は {self._op('sync abort')}）。",
-                details=list(outcome.conflicted),
-            )
+        onto = f"{_git.REMOTE}/{base}"
+        held = self.git.checked_out_branches().get(branch)
+        if held is None:
+            # 取り出している作業ツリーがない：作業ツリーに触れずに載せ替える（git replay）。新しい版の git は ref を
+            # 書き換え、古い版は update-ref の指示を出すので、出たときだけ流す
+            if self.git.count(f"{merged_head}..{branch}") == 0:
+                self.git.run("update-ref", f"refs/heads/{branch}", onto)
+            else:
+                completed = self.git.run("replay", "--onto", onto, f"{merged_head}..{branch}", check=False)
+                if not completed.ok:
+                    number = wm.task_number(branch)
+                    raise WorkError(
+                        ErrorCode.MERGE_CONFLICT,
+                        "タスクブランチの作り直し（続きのコミットの載せ替え）で衝突しました（タスクブランチはそのままです）。",
+                        hint=f"{self._op('task start')} {number} で作業空間に取り出してから、もう一度 "
+                             f"{self._op('task finish')} {number} を実行してください（作業空間の中で載せ替え、衝突したら"
+                             f"ファイルを直して {self._op('sync continue')}）。",
+                        details=completed.output,
+                    )
+                if completed.stdout.strip():
+                    self.git.run("update-ref", "--stdin", input=completed.stdout)
+        else:
+            outcome = self._git_at(held).rebase_onto(onto, merged_head, branch)
+            if not outcome.merged:
+                raise WorkError(
+                    ErrorCode.MERGE_CONFLICT,
+                    f"タスクブランチの作り直しで衝突しました（作業空間 {held}）。",
+                    hint=f"作業空間 {held} で、ファイルを直して {self._op('sync continue')} で続けてください"
+                         f"（やめる場合は {self._op('sync abort')}）。",
+                    details=list(outcome.conflicted),
+                )
         self.git.push(branch, force=True)
-        if previous is not None and previous != branch:
-            self.git.switch(previous)  # rebaseで移ったタスクブランチから、元のブランチへ戻る
         return True
 
     def _check_usable(self, ref: str, name: str) -> None:
@@ -827,9 +955,11 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
             raise WorkError(ErrorCode.PROTECTED_BRANCH,
                             f"{branch.name} はタスクブランチ（{', '.join(users)}）の作成元なので消せません。",
                             hint=f"先にタスクブランチを片付けてください（{self._op('task prune')}）。")
-        if self.git.current_branch() == branch.name:
-            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"今いるブランチ {branch.name} は消せません。",
-                            hint="別のブランチへ移ってから実行してください。")
+        held = self.git.checked_out_branches().get(branch.name)
+        if held is not None:
+            raise WorkError(ErrorCode.BRANCH_CHECKED_OUT, f"{branch.name} は {held} が取り出しているので消せません。",
+                            hint="その作業ツリーを別のブランチへ移すか、作業空間を閉じてから実行してください。",
+                            details={"branch": branch.name, "path": str(held)})
         if dry_run:
             return
         if branch.local:
@@ -839,6 +969,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 
     def _start_task_branch(self, task: wm.Task, base: str | None, *, name: str | None = None,
                            ignore_blocked: bool = False, take_over: bool = False) -> wm.TaskBranch:
+        """その場（この作業ツリー）でタスクブランチを作る・切り替える（Task.start）。作業空間（start_task_in）を持たない
+        依存先の clone 等のためのもの。"""
         if task.state != "open":
             raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
                             hint="作業を再開するには、GitHubでIssueを開き直してください。")
@@ -848,8 +980,34 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
                 "未コミットの変更があるため、タスクブランチを作れません（別のIssueの作業に混ざるのを防ぐため）。",
                 hint=f"変更をコミットするか、{self._op('stash')} で退避してから実行してください。",
             )
-        if self.git.current_branch() != self._existing_task_branch(task.number):   # 同じタスクブランチなら切り替わらない
-            self._guard_switch("タスクブランチを切り替え")
+        existing = self._existing_task_branch(task.number)
+        here = existing is not None and self.git.current_branch() == existing
+        if not here:   # 同じタスクブランチなら切り替わらない
+            reasons = self.hooks.switch_locks(self)
+            if reasons:
+                raise self._locked_error("タスクブランチを切り替え", reasons)
+            held = self.git.checked_out_branches().get(existing) if existing else None
+            if held is not None:
+                raise WorkError(ErrorCode.BRANCH_CHECKED_OUT, f"{existing} は作業空間 {held} が取り出しています。",
+                                hint="その作業空間で作業してください（同じブランチは1か所でだけ取り出せます）。",
+                                details={"branch": existing, "path": str(held)})
+        branch = self._prepare_task_branch(task, base, name=name, ignore_blocked=ignore_blocked, take_over=take_over)
+        if self.git.current_branch() != branch:
+            self._switch_to_latest(branch)
+        else:
+            self._fast_forward(branch, self.root)
+            self.hooks.prepare_workspace(self)
+        task_branch = self.current_task_branch()
+        assert task_branch is not None
+        return task_branch
+
+    def _prepare_task_branch(self, task: wm.Task, base: str | None, *, name: str | None = None,
+                             ignore_blocked: bool = False, take_over: bool = False) -> str:
+        """タスクを始める確かめ（担当者・依存・名前・作成元）をして、手元のタスクブランチを用意する（取り出さない）。
+        手元になければ、GitHub にあればそこから・なければ作成元から作って GitHub に置く。タスクブランチの名前を返す。"""
+        if task.state != "open":
+            raise WorkError(ErrorCode.TASK_CLOSED, f"Issue #{task.number} は閉じています。",
+                            hint="作業を再開するには、GitHubでIssueを開き直してください。")
         self.tracker.check_assignee(task.number, take_over=take_over)   # 他の人の作業に重ねない
         self.install_hooks()  # 前からあるcloneにも、作業を始めるときに入れる
         self.git.fetch()
@@ -859,64 +1017,52 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         branch = self._existing_task_branch(task.number)
         if branch is not None and self.git.has_local_branch(branch):
             self._check_usable(branch, branch)
-            # 既にあるタスクブランチへ戻る。別の場所でpushされた続きがあれば早送りで取り込む
-            # （手元にだけのコミットもあって早送りできないときは、sync で取り込む）。
-            self.git.switch(branch)
-            self.git.fetch()
-            remote = f"{_git.REMOTE}/{branch}"
-            if self.git.has_remote_branch(branch) and self.git.is_ancestor(branch, remote):
-                self.git.merge(remote, ff_only=True)
             # 子タスクの作業で作られた親のタスクブランチなど、担当者を決めずにできたタスクブランチもあるので、ここでも担当者にする
             if not task.assignees:
                 self.github.edit_issue(self.root, task.number, add_assignees=("@me",))
+            return branch
+        # 手元にないタスクブランチ：GitHubにあればそこから再開し、作成元も記録したものにする。
+        remote = branch is not None and self.git.has_remote_branch(branch)
+        if not remote and not name:
+            # 前に作って消したタスクブランチなら、Issueに記録した名前で作り直す
+            recorded = wm.issue_branch(self.github.get_issue(self.root, task.number).body) or ""
+            prefix = wm.task_branch_name(task.number) + "-"
+            if recorded.startswith(prefix):
+                name = recorded.removeprefix(prefix)
+        if not remote:
+            self.tracker.check_startable(task.number, ignore_blocked=ignore_blocked)
+            if name == "":
+                suggestion = wm.branch_label(task.title) or "<名前>"
+                raise WorkError(ErrorCode.BRANCH_NAME_REQUIRED,
+                                f"新しいタスクブランチの名前を指定してください（task/{task.number}-<名前>）。",
+                                hint=f"{self._op('task start')} {task.number} --name {suggestion}"
+                                     "（題名から作った例。日本語も使えます）")
+            branch = wm.task_branch_name(task.number, name)
+        if base is None and remote:
+            base = self._recorded_base(task.number, branch)
+        parent_branch = self._parent_task_branch(task.number)
+        if not remote:
+            base = self._child_base(task.number, base, parent_branch)
+        start = self._base_start_point(base, task_branch=parent_branch)
+        if remote:
+            start = f"{_git.REMOTE}/{branch}"
+        base = base or self.default_base
+        self._check_usable(start, branch if remote else base)
+        self.git.create_branch(branch, start, switch=False)
+        if remote:
+            self.git.set_upstream(branch)
         else:
-            # 手元にないタスクブランチ：GitHubにあればそこから再開し、作成元も記録したものにする。
-            self.git.fetch()
-            remote = branch is not None and self.git.has_remote_branch(branch)
-            if not remote and not name:
-                # 前に作って消したタスクブランチなら、Issueに記録した名前で作り直す
-                recorded = wm.issue_branch(self.github.get_issue(self.root, task.number).body) or ""
-                prefix = wm.task_branch_name(task.number) + "-"
-                if recorded.startswith(prefix):
-                    name = recorded.removeprefix(prefix)
-            if not remote:
-                self.tracker.check_startable(task.number, ignore_blocked=ignore_blocked)
-                if name == "":
-                    suggestion = wm.branch_label(task.title) or "<名前>"
-                    raise WorkError(ErrorCode.BRANCH_NAME_REQUIRED,
-                                    f"新しいタスクブランチの名前を指定してください（task/{task.number}-<名前>）。",
-                                    hint=f"{self._op('task start')} {task.number} --name {suggestion}"
-                                         "（題名から作った例。日本語も使えます）")
-                branch = wm.task_branch_name(task.number, name)
-            if base is None and remote:
-                base = self._recorded_base(task.number, branch)
-            parent_branch = self._parent_task_branch(task.number)
-            if not remote:
-                base = self._child_base(task.number, base, parent_branch)
-            start = self._base_start_point(base, task_branch=parent_branch)
-            if remote:
-                start = f"{_git.REMOTE}/{branch}"
-            base = base or self.default_base
-            self._check_usable(start, branch if remote else base)
-            self.git.create_branch(branch, start, switch=False)
-            if remote:
-                self.git.set_upstream(branch)
-            else:
-                # 新しいタスクブランチは、作った時点でGitHubにも置く（本体はGitHub、手元はその写し）。
-                try:
-                    self.git.push(branch, set_upstream=True)
-                except WorkError:
-                    self.git.delete_branch(branch, force=True)
-                    raise
-            self.git.switch(branch)
-            self.git.set_config(wm.base_key(branch), base)
-            self._record_base(task.number, base, claim=True, branch=branch)
-            if not remote:
-                self.tracker.set_stage(task.number, _board.IN_PROGRESS)
-        task_branch = self.current_task_branch()
-        assert task_branch is not None
-        self.hooks.after_switch(self)
-        return task_branch
+            # 新しいタスクブランチは、作った時点でGitHubにも置く（本体はGitHub、手元はその写し）。
+            try:
+                self.git.push(branch, set_upstream=True)
+            except WorkError:
+                self.git.delete_branch(branch, force=True)
+                raise
+        self.git.set_config(wm.base_key(branch), base)
+        self._record_base(task.number, base, claim=True, branch=branch)
+        if not remote:
+            self.tracker.set_stage(task.number, _board.IN_PROGRESS)
+        return branch
 
     def __repr__(self) -> str:
         return f"Repository({str(self.root)!r})"
@@ -925,10 +1071,3 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 def _quiet(message: str) -> None:
     pass
 
-
-def _remove_tree(path: Path) -> None:
-    """gitの読み取り専用ファイル（Windows）も含めて削除する。"""
-    def retry(function, target, _):
-        os.chmod(target, stat.S_IWRITE)
-        function(target)
-    shutil.rmtree(path, onerror=retry)

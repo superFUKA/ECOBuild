@@ -1,14 +1,16 @@
 """画面を持つアプリ（GUI のエージェントの窓）へ、エージェント（Claude Code）の状態を知らせる。
 
 この端末で動かす（agent start --here）ときだけ使う。Claude Code に --settings で statusLine と Stop フックを渡し、
-小さなスクリプト（REPORT）が、作業空間ごとの置き場所（ECOBUILD_HOME/agents/status/<コンテナの名前>）に書き出す：
+小さなスクリプト（REPORT）が、エージェントごとの置き場所（ECOBUILD_HOME/agents/status/<コンテナの名前>/<ID>）に書き出す：
 - status.json：モデル・コンテキストの使用率・使用量の制限（5時間・週）・会話の ID（statusLine が受け取るもの）
 - replied.json：返答が終わった時刻と、最後の返答の文（Stop フック）
 - prompted.json：発言を受け取った時刻（UserPromptSubmit フック。返答の終わりより新しければ作業中）
-ECOBuild が書くもの：workspace.json（どの作業空間か）、inbox/（エージェントに届けるもの。put・take）、
+ECOBuild が書くもの：agent.json（エージェントの記録。agents）、workspace.json（どの作業空間か）、inbox/（エージェントに
+届けるもの。put・take）、
 running.json（エージェントを動かしているこのPCのプロセス。止まっているかを見る・止める）。
 置き場所は、端末の出力に見えない印（OSC 1337 の ECOBuildAgentStatus=<場所>）で知らせる（アプリはそれを拾う。
-ほかの端末には何も見えない）。コンテナの中のエージェントは、この置き場所をマウントした所（INSIDE）に書く。
+ほかの端末には何も見えない）。コンテナにはその作業空間の置き場所（<コンテナの名前>）をマウントし（INSIDE）、中の
+エージェントは環境変数 ECOBUILD_AGENT_ID で自分の下のフォルダ（INSIDE/<ID>）を知る。
 画面を持つアプリがいない（新しい画面で起動した）ときは、受け箱を届けるのもフック（deliver）：返答が終わったとき
 （Stop。届いたものがあれば続けて読ませる）、人が発言したとき（UserPromptSubmit。発言に添える）、作業中に道具を使い
 終えたとき（PostToolUse。返答を止めずに添える）。
@@ -83,19 +85,7 @@ def out(value):
     sys.stdout.buffer.write(json.dumps(value, ensure_ascii=False).encode("utf-8"))
 deliver = "deliver" in sys.argv[2:]
 session = data.get("session_id") if isinstance(data.get("session_id"), str) else ""
-def inside(path, area):
-    norm = lambda p: os.path.normcase(os.path.abspath(p)).replace("\\", "/").rstrip("/")
-    return (norm(path) + "/").startswith(norm(area) + "/")
-if kind == "lead-edit":   # 管理役・進行役が書けるのは area（.ecobuild/ai）の中だけ（PreToolUse フック）
-    area = sys.argv[2]
-    given = data.get("tool_input") or {}
-    target = given.get("file_path") or given.get("notebook_path") or ""
-    target = os.path.join(data.get("cwd") or "", target) if target else ""
-    if not target or not inside(target, area):
-        out({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-             "permissionDecisionReason": "ここで書けるのは " + area + " の中（計画・覚え書き・任せる内容）だけです。"
-                                         "コード・文書の変更は任せてください（管理役は作業役に、進行役は管理役に。agent team start・send）。"}})
-elif kind == "replied":
+if kind == "replied":
     message = data.get("last_assistant_message")
     texts = take_all(session) if deliver else []   # 届いたものがあれば、返答を終えずに続けて読ませる
     now = time.time()
@@ -132,28 +122,56 @@ else:
 '''
 
 
-def directory(name: str) -> Path:
-    """作業空間（コンテナの名前で表す）の置き場所。"""
+AGENT_VARIABLE = "ECOBUILD_AGENT_ID"   # コンテナの中のエージェントの環境：自分の ID（置き場所 INSIDE/<ID>）
+
+
+def place(name: str) -> Path:
+    """名前の置き場所（ECOBUILD_HOME/agents/status/<name>）：作業空間（コンテナの名前）ごとのフォルダ。エージェントの
+    置き場所はこの下（<ID>）。オペレーター等、作業空間のエージェントでないものは、ここをそのまま使う。"""
     return _settings.home() / FOLDER / name
+
+
+def directory(agent_id: str) -> Path | None:
+    """エージェント（ID）の置き場所を探す（なければ None）。"""
+    root = _settings.home() / FOLDER
+    if not agent_id or "/" in agent_id or "\\" in agent_id or agent_id.startswith("."):
+        return None
+    try:
+        return next((folder for folder in root.glob(f"*/{agent_id}") if folder.is_dir()), None)
+    except OSError:
+        return None
+
+
+def create_directory(workspace_root: Path, agent_id: str) -> Path:
+    """作業空間 workspace_root のエージェント（ID）の置き場所を作る（コンテナの名前の下。中から INSIDE/<ID> で見える）。"""
+    import ecobuild_container as container
+    folder = place(container.name(Path(workspace_root))) / agent_id
+    folder.mkdir(parents=True, exist_ok=True)
+    if workspace_of(folder) != Path(workspace_root):
+        _write(folder / WORKSPACE, {"root": str(Path(workspace_root))})
+    return folder
+
+
+def inside(agent_id: str) -> str:
+    """コンテナの中から見た、エージェント（ID）の置き場所。"""
+    return f"{INSIDE}/{agent_id}"
+
+
+def own_directory() -> Path | None:
+    """コンテナの中で動いているエージェントの、自分の置き場所（環境変数 AGENT_VARIABLE。外・分からなければ None）。"""
+    import ecobuild_container as container
+    agent_id = os.environ.get(AGENT_VARIABLE, "").strip()
+    return Path(inside(agent_id)) if agent_id and os.environ.get(container.INSIDE) else None
 
 
 WORKSPACE = "workspace.json"   # 置き場所の中：どの作業空間のエージェントか（係 serve が読む）
 INBOX = "inbox"                # 置き場所の中：エージェントに届けるもの（言付け・作業役の知らせ）
 
 
-def register(name: str, root: Path) -> Path:
-    """置き場所に、どの作業空間かだけを書く（前の状態は消さない。まだ起動していない作業空間の頼みを係に拾わせる）。"""
-    folder = directory(name)
-    folder.mkdir(parents=True, exist_ok=True)
-    if workspace_of(folder) != Path(root):
-        _write(folder / WORKSPACE, {"root": str(Path(root))})
-    return folder
-
-
-def prepare(name: str, root: Path | None = None) -> Path:
-    """置き場所を用意し（前の状態は消す。受け箱は残す：起動の前に届いたもの）、スクリプトを置く。
-    root：作業空間の場所（記録する）。"""
-    folder = directory(name)
+def prepare(folder: Path | str, root: Path | None = None) -> Path:
+    """置き場所を用意し（前の状態は消す。受け箱は残す：起動の前に届いたもの）、スクリプトを置く。folder：エージェントの
+    置き場所（文字なら名前の置き場所 place）。root：作業空間の場所（記録する）。"""
+    folder = place(folder) if isinstance(folder, str) else Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     for old in ("status.json", "replied.json", "prompted.json"):
         (folder / old).unlink(missing_ok=True)
@@ -170,9 +188,25 @@ def workspace_of(folder: Path) -> Path | None:
 
 
 def folders() -> list[Path]:
-    """このPCの、エージェントの状態の置き場所すべて。"""
+    """このPCの、作業空間のエージェントの置き場所すべて（<コンテナの名前>/<ID>。前の版の直下のものは入れない）。"""
     root = _settings.home() / FOLDER
-    return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    try:
+        return sorted(p for p in root.glob(f"*/{ID_GLOB}") if p.is_dir())
+    except OSError:
+        return []
+
+
+ID_GLOB = "a-??????????"   # エージェントの ID の形（agents.ID_PREFIX と 16進の10文字）
+
+
+def workspace_folders() -> list[Path]:
+    """作業空間の置き場所（<コンテナの名前>）のうち、作業空間を書いたもの（エージェントの記録がまだない作業空間から、
+    このPCの端末が係に頼むときの頼みの置き場所）。"""
+    root = _settings.home() / FOLDER
+    try:
+        return sorted(p for p in root.iterdir() if p.is_dir() and (p / WORKSPACE).is_file())
+    except OSError:
+        return []
 
 
 def read(file: Path):
@@ -321,18 +355,17 @@ def _host_language() -> str:
     return found if isinstance(found, str) else ""
 
 
-def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "",
+def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True,
                     streamed: bool = False) -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
-    （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。lead_area：進行役が
-    書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。
+    （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。
     streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
     hooks = settings.setdefault("hooks", {})
     if streamed:
-        return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
+        return json.dumps(_without_empty(settings, hooks), ensure_ascii=False)
     if app:
         settings.update(VOICE)
         language = _host_language()
@@ -346,25 +379,20 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     if not app:   # アプリがいなければ、作業中に届いたものも道具を使い終えるたびに届ける
         hooks["PostToolUse"] = [*hooks.get("PostToolUse", []),
                                 {"hooks": [{"type": "command", "command": f"{script} midturn{deliver}"}]}]
-    return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
+    return json.dumps(_without_empty(settings, hooks), ensure_ascii=False)
 
 
-def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str) -> dict:
-    """管理役・進行役なら、編集の道具を lead_area の中だけにするフックを足す。"""
-    if lead_area:
-        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
-                               {"matcher": "Edit|Write|MultiEdit|NotebookEdit",
-                                "hooks": [{"type": "command", "command": f'{script} lead-edit "{lead_area}"'}]}]
+def _without_empty(settings: dict, hooks: dict) -> dict:
     if not hooks:
         settings.pop("hooks", None)
     return settings
 
 
 def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True,
-                      lead_area: str = "", streamed: bool = False) -> str:
+                      streamed: bool = False) -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed),
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, streamed=streamed),
                                  encoding="utf-8", newline="\n")
     return f"{folder}/{SETTINGS}"
 

@@ -103,16 +103,3 @@ def test_guide_names_only_what_the_type_has():
     python = _documents("python")["agent guide"]
     assert "Project" not in python and "cmake" not in python
     assert "Project・依存" in _documents("cpp")["agent guide"]
-
-
-def test_worker_workspace_is_assigned_by_the_lead(tmp_path):
-    import json
-    from types import SimpleNamespace
-    from ecobuild_agent import AgentModule, team
-    workspace = SimpleNamespace(root=tmp_path)
-    assert not AgentModule.assigned_by_lead(workspace)          # 記録がない＝人・進行役の作業空間
-    (tmp_path / team.MEMBER_FILE).parent.mkdir(parents=True)
-    (tmp_path / team.MEMBER_FILE).write_text(json.dumps({"role": team.WORKER}), encoding="utf-8")
-    assert AgentModule.assigned_by_lead(workspace)
-    (tmp_path / team.MEMBER_FILE).write_text(json.dumps({"role": team.MANAGER}), encoding="utf-8")
-    assert not AgentModule.assigned_by_lead(workspace)

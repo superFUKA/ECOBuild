@@ -302,15 +302,13 @@ def test_a_report_only_worker_gets_its_own_words(lead):
     assert team.NO_SUBMIT in (member.path / team.BRIEF_FILE).read_text(encoding="utf-8")
     assert member.prompt == team.REPORT_ONLY_PROMPT and "agent report" in member.prompt
     worker = Module.find(member.path)
-    briefing = worker.agent_briefing(worker.require_task_branch("x"), team.WORKER)
-    role_part = briefing.split("## あなたの役：作業役")[1].split("# ECOBuild の使い方")[0]
+    role_part = "\n".join(team.briefing(worker.root, team.WORKER, "ecobuild")).split("## あなたの役：作業役")[1]
     assert "この仕事は報告だけです" in role_part and "task submit` で提出します" not in role_part
     assert team.PROGRESS_FILE in role_part and "task finish`・`workspace close` は使いません" in role_part
     assert "管理役" in role_part and "進行役" not in role_part
-    assert "cmake" not in briefing.split("# ECOBuild の使い方")[0]
     assert team.PROGRESS_FILE in team.RESTART_PROMPT[team.WORKER]
     normal = Module.find(team.create(lead, "画面", "目的：作る").path)
-    assert "task submit` で提出します" in normal.agent_briefing(normal.require_task_branch("x"), team.WORKER)
+    assert "task submit` で提出します" in "\n".join(team.briefing(normal.root, team.WORKER, "ecobuild"))
     assert failure(lambda: team.create(lead, "管理", "x", role=team.MANAGER, report_only=True)).code \
         == ErrorCode.INVALID_ARGUMENT
 

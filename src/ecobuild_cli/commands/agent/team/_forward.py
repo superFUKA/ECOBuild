@@ -23,8 +23,10 @@ def run(inv, args: list[str], direct):
 def serve(inv, args: list[str]) -> dict:
     """いつも係に頼む（args の --json は足す）。このPCの端末からなら、係がこの作業空間の頼みを拾えるようにする。"""
     root = inv.module.root
-    if not os.environ.get(container.INSIDE):
-        _status.register(container.name(root), root)
+    if not os.environ.get(container.INSIDE):   # 係が頼みを拾えるように、置き場所に作業空間を書く
+        folder = _team.requests_folder(root).parent
+        if _status.workspace_of(folder) is None:
+            _status.prepare(folder, root)
     doc = _team.forward(root, [*args, "--json"], inv.cwd, progress=inv.info)
     if not doc.get("ok"):
         error = doc.get("error") or {}

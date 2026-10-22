@@ -1,9 +1,11 @@
 """拡張：作業空間のエージェント（Claude Code 等。ecoagent を使う）。
 
 - AgentModule：Module に重ねる（本体＋拡張が class Module(AgentModule, ContainerModule, ecobuild.Module) とする）。
-  作業空間のエージェントの起動・会話・起動のときに渡す使い方（agent_briefing）。
-- team：進行役・管理役・作業役。serve：このPCの係（エージェントの間の取り次ぎ）。app：係が持つアプリ用の起動のエージェント
-  （AI が起動したもの。claude -p の stream-json）。status：画面を持つアプリへ知らせる状態。
+  作業空間のエージェントの起動・会話・起動のときに渡す文書（agent_briefing）。起動するのは登録（registry）のエージェント。
+- agents：起動したエージェント1人ごとの記録（ID・登録・親・持ち主か手伝いか）。registry：エージェントの登録。
+  mcp：エージェント専用の MCP サーバー（許したツールだけを渡す）。
+- team：子の作業役。serve：このPCの係（エージェントの間の取り次ぎ）。app：係が持つアプリ用の起動のエージェント
+  （AI が起動したもの。claude -p の stream-json）。status：エージェントごとの状態の置き場所（画面を持つアプリへ知らせる）。
   operator：オペレーター（ECOBuild の操作係）。inside：コンテナの中のエージェント（コンテナに足すもの FEATURE）。
   tokens：中のエージェントのログイン。
 - 作業空間のコンテナ（ecobuild_container）は公開の口だけを使う（向きはエージェント → コンテナ。コンテナはエージェントを知らない）。
@@ -11,7 +13,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -25,50 +29,69 @@ from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
-from . import app, inside, status, team
+from . import agents, app, inside, registry, status
+from .agents import AgentRecord
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
-from .results import AgentConversations, AgentStarted
+from .results import AgentConversations
 
 AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置き場所（コミットしない。prepare_agent_area）
 EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書き足す間のロック（git の <名前>.lock とは別の名前）
+GUIDE_FILE = "guide.md"       # エージェントの置き場所の中：起動のときに渡す文（--append-system-prompt-file）
+MCP_FILE = "mcp.json"         # エージェントの置き場所の中：エージェント専用の MCP サーバーの設定（--mcp-config）
+SESSION_VARIABLE = "CLAUDE_CODE_SESSION_ID"   # Claude Code が道具に渡す、いまの会話の ID（起動を頼んだ会話）
+RESUME_FLAGS = ("--resume", "-r")
+CONTINUE_FLAGS = ("--continue", "-c")
 
-# config で扱う項目 → 説明（本体＋拡張が、本体と型の項目に足す）
+# config で扱う項目 → 説明（本体＋拡張が、本体と型の項目に足す）。モデルは登録ごと（registry）
 CONFIG_KEYS = {
     "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
     "agent_style": "作業用のエージェントの話し方（口調・答え方。空なら指定なし）",
-    "agent_lead_model": "進行役のエージェントのモデル（Claude Code の --model。例 opus・fable・sonnet。空なら Claude Code の既定）",
-    "agent_manager_model": "管理役のエージェントのモデル（Claude Code の --model。例 opus・sonnet。設定がなければ opus、空なら Claude Code の既定。"
-                           "管理役を作るときの agent team start --model でも指定できる）",
-    "agent_worker_model": "作業役のエージェントのモデル（Claude Code の --model。例 sonnet・haiku。設定がなければ sonnet、空なら Claude Code の既定。"
-                          "作業役ごとに agent team start --model でも指定できる）",
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
                      "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
 }
 
 
 def lock_source(roots) -> list[list]:
-    """作業空間のロックの理由（ecobuild.locks.add_source）：その作業空間でエージェントが動いている間
-    （agent start の3つの形・team の作業役＝係が持つもの。running.json の pid が生きている間）。"""
+    """作業空間のロックの理由（ecobuild.locks.add_source）：その作業空間でエージェントが1人でも動いている間
+    （agent start の3つの形・係が持つもの。エージェントごとの running.json の pid が生きている間）。"""
     found: list[list] = [[] for _ in roots]
     for index, root in enumerate(roots):
-        folder = status.directory(container.name(root))
-        pid = status.running_pid(folder)
-        if pid is None:
-            continue
-        data = status.read(folder / status.RUNNING)
-        at = data.get("at") if isinstance(data, dict) and isinstance(data.get("at"), (int, float)) else None
-        held = status.running_mode(folder) == status.APP
-        since = datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds") if at else None
-        text = ("この作業空間のエージェントを係（agent team）が持っています" if held
-                else "この作業空間でエージェントが動いています") + f"（pid {pid}）"
-        found[index].append((locks.Reason(locks.AGENT, text, since, pid), f"agent:{pid}:{at}"))
+        for record in agents.in_workspace(root):
+            folder = status.directory(record.id)
+            pid = status.running_pid(folder) if folder is not None else None
+            if pid is None:
+                continue
+            data = status.read(folder / status.RUNNING)
+            at = data.get("at") if isinstance(data, dict) and isinstance(data.get("at"), (int, float)) else None
+            held = status.running_mode(folder) == status.APP
+            since = datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds") if at else None
+            who = f"エージェント「{record.name}」（{record.id}）"
+            text = (f"{who}を係が持っています" if held else f"この作業空間で{who}が動いています") + f"（pid {pid}）"
+            found[index].append((locks.Reason(locks.AGENT, text, since, pid), f"agent:{record.id}:{pid}:{at}"))
     return found
+
+
+def resumed_session(command: tuple[str, ...], latest) -> str | None:
+    """command が続きからの起動なら、その会話の ID（--resume <id>。--continue なら latest() ＝ いちばん新しい会話）。
+    続きからでなければ None、続きからだが分からなければ ""。"""
+    if command[:1] != ("claude",):
+        return None
+    for index, word in enumerate(command):
+        if word in RESUME_FLAGS:
+            following = command[index + 1] if index + 1 < len(command) else ""
+            return "" if not following or following.startswith("-") else following   # 値なし：Claude の一覧で選ぶ
+        if word.startswith("--resume="):
+            return word.split("=", 1)[1]
+        if word in CONTINUE_FLAGS:
+            return latest() or ""
+    return None
 
 
 class AgentModule:
     """作業空間のエージェント。いつもコンテナの中で確認なしに起動する（コンテナにしていない作業空間は、起動の前に自動で
-    コンテナにする。使わせないものは設定 agent_deny）。"""
+    コンテナにする。使わせないものは設定 agent_deny）。1つの作業空間に、タスクの持ち主と手伝いが何人もいてよい
+    （エージェントごとに ID・置き場所・受け箱・guide.md を分ける）。"""
 
     def _ensure_container(self, progress=lambda message: None) -> None:
         """エージェントはコンテナの中で動かす：コンテナにしていない作業空間は、container on（選ぶだけ。コンテナは起動のときに作る）。"""
@@ -76,94 +99,212 @@ class AgentModule:
             progress("エージェントはコンテナの中で動かすので、この作業空間をコンテナにします（container on）")
             container.choose(self.root, True, command=self.command)
 
-    def start_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None,
-                    progress=lambda message: None, role: str = "", prompt: str = "") -> AgentStarted:
-        """作業空間のルート（モジュールのルート）で、エージェントを新しい画面で起動する。タスクブランチでだけ
-        （エージェントはタスクの作業をするもの。作業空間がタスクブランチでなければ起動しない）。
-        source：コンテナのイメージに入れる ECOBuild（container.start と同じ）。Claude Code には、ECOBuild の使い方
-        （agent_briefing）を最初から渡す。role：進行役（lead。ユーザーと話す）・管理役（manager）・作業役（worker。既定は作業空間の記録、なければ作業役）。
-        prompt：最初の発言。"""
-        task = self._task_for_agent()
+    # ---- 起動 ---------------------------------------------------------------------------------------------
+    def start_agent(self, registration: str = "", *, task: int | None = None, parent: str | None = None,
+                    kind: str = agents.OWNER, here: bool = False, app: bool = False, program=None,
+                    prompt: str | None = None, source=None, progress=lambda message: None) -> AgentRecord:
+        """登録 registration のエージェントを、タスクの作業空間のルートで起動する。タスクブランチでだけ（エージェントは
+        タスクの作業をするもの）。task：タスクの番号（省けば今の作業空間のタスク。ほかのタスクならその作業空間で）。
+        parent：親のエージェントの ID。kind：owner（タスクの持ち主）か helper（手伝い：同じ作業空間・コミットしない）。
+        既定は新しい画面で起動して戻る。here：この端末で動かして終わるまで待つ（run_agent）。app：画面なしで、このPCの
+        係に動かしてもらう（係が持つ）。program：起動するコマンド（既定は claude。claude --resume <会話> なら、その会話の
+        エージェントを続きから）。prompt：最初の発言（省けば登録の first_prompt）。source：コンテナのイメージに入れる ECOBuild。"""
+        other = self._task_module(task)
+        if other is not None:
+            return other.start_agent(registration, parent=parent, kind=kind, here=here, app=app, program=program,
+                                     prompt=prompt, source=source, progress=progress)
+        if here:
+            record, _ = self._run_here(registration, parent=parent, kind=kind, program=program, prompt=prompt,
+                                       source=source, progress=progress)
+            return record
+        if app:
+            return self._start_app(registration, parent=parent, kind=kind, prompt=prompt, progress=progress)
+        task_branch = self._task_for_agent()
         self._ensure_container(progress)
-        boxed = True
-        self._not_held_by_serve()
-        self._no_other_agent()
-        role = self._role(role, tuple(command), boxed, source, progress)
-        command = self._for_role(tuple(command), role, prompt)
-        folder = status.prepare(container.name(self.root), self.root)
-        if command[:1] == ("claude",):   # 返答の終わりを書き出させ（係が進行役に知らせる）、受け箱はフックが届ける
-            command = (*command, "--settings", self._status_settings(folder, boxed, app=False, role=role))
-        command = self._briefed(command, folder, boxed, task, role)
+        record, command, folder, _ = self._prepared(registration, task_branch, parent, kind, program, prompt, source,
+                                                     progress, app=False)
         session = inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
-                                     source=source, progress=progress)
-        status.started(folder, session.pid)   # 動いているか・止める（team の様子・起動し直す）
-        return AgentStarted(session.pid, session.command, session.directory)
+                                     source=source, progress=progress, agent_id=record.id)
+        status.started(folder, session.pid)   # 動いているか・止める（子の様子・起動し直す）
+        return record
 
-    def run_agent(self, command=ecoagent.DEFAULT_COMMAND, *, source=None, progress=lambda message: None,
-                  role: str = "", prompt: str = "") -> int:
-        """この端末で動かして、終わるまで待つ（終了コード。start_agent と同じく、コンテナならその中で）。画面を持つ別の
-        アプリ（GUI のエージェントの窓）が、自分の端末の中で動かすときに使う。Claude Code なら、状態（モデル・使用量・
-        返答の終わり）を書き出させ、その置き場所を端末に知らせる（status。画面を持つアプリが読む）。"""
-        task = self._task_for_agent()
+    def run_agent(self, registration: str = "", *, task: int | None = None, parent: str | None = None,
+                  kind: str = agents.OWNER, program=None, prompt: str | None = None, source=None,
+                  progress=lambda message: None) -> int:
+        """この端末で動かして、終わるまで待つ（終了コード。start_agent と同じく、コンテナの中で）。画面を持つ別のアプリ
+        （GUI のエージェントの窓）が、自分の端末の中で動かすときに使う。Claude Code なら、状態（モデル・使用量・返答の
+        終わり）を書き出させ、その置き場所を端末に知らせる（status。画面を持つアプリが読む）。"""
+        other = self._task_module(task)
+        if other is not None:
+            return other.run_agent(registration, parent=parent, kind=kind, program=program, prompt=prompt,
+                                   source=source, progress=progress)
+        return self._run_here(registration, parent=parent, kind=kind, program=program, prompt=prompt, source=source,
+                              progress=progress)[1]
+
+    def _run_here(self, registration, *, parent, kind, program, prompt, source, progress) -> tuple[AgentRecord, int]:
+        task_branch = self._task_for_agent()
         self._ensure_container(progress)
-        boxed = True
-        self._not_held_by_serve()
-        self._no_other_agent()
-        role = self._role(role, tuple(command), boxed, source, progress)
-        command = self._for_role(tuple(command), role, prompt)
-        folder = None
-        if command[:1] == ("claude",):
-            folder = status.prepare(container.name(self.root), self.root)
+        record, command, folder, claude = self._prepared(registration, task_branch, parent, kind, program, prompt,
+                                                          source, progress, app=True)
+        if claude:
             status.announce(folder)
-            command = (*command, "--settings", self._status_settings(folder, boxed, app=True, role=role))
-            command = self._briefed(command, folder, boxed, task, role)
             status.started(folder, os.getpid())   # このプロセスが終わるまでエージェントが動いている
         try:
-            return inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
-                                      source=source, progress=progress, here=True)
+            code = inside.start_agent(self.root, command, deny=inside.deny(self.root), command=self.command,
+                                      source=source, progress=progress, here=True, agent_id=record.id)
         except ecoagent.AgentError as error:
             raise from_ecoagent(error) from error
         finally:
-            if folder is not None:
+            if claude:
                 status.ended(folder, os.getpid())
+        return record, code
 
-    def app_launch(self, *, role: str = "", resume: str = "", source=None,
-                   progress=lambda message: None) -> app.Launch:
-        """アプリ用の起動（係が持つ。claude -p の stream-json）のしかた。エージェントはコンテナで動かす
-        （コンテナにしていなければ、自動でコンテナにする）。タスクブランチでだけ。resume：その会話の続きから（なければ新しい会話）。
-        会話の ID・役・モデル・使い方の文・設定は対話型と同じ作り方（statusLine・返答の終わりのフックは付けない：係が
-        出来事を読む）。最初の発言は標準入力から入れる（係）。"""
-        task = self._task_for_agent()
+    def _start_app(self, registration, *, parent, kind, prompt, progress) -> AgentRecord:
+        """画面なし（アプリ用の起動）：記録を作り、このPCの係に起動を頼む（係が app_launch で起動して持つ）。"""
+        from . import team
+        task_branch = self._task_for_agent()
         self._ensure_container(progress)
-        self._no_other_agent()
-        role = team.role_of(self.root, role or (team.remembered_roles(self.root).get(resume, "") if resume else ""))
-        command = self._for_role(("claude", *app.FLAGS, *(("--resume", resume) if resume else ())), role, "")
-        session = resume or command[command.index("--session-id") + 1]
-        folder = status.prepare(container.name(self.root), self.root)
-        command = (*command, "--settings", self._status_settings(folder, True, app=False, role=role, streamed=True))
-        command = self._briefed(command, folder, True, task, role)
+        record = self._record(registration, task_branch, parent, kind, None)
+        args = ["agent", "start", "--app", "--id", record.id, *(["--prompt", prompt] if prompt else [])]
+        doc = team.forward(self.root, [*args, "--json"], self.root, progress=progress,
+                           folder=record.folder / team.REQUESTS)
+        if not doc.get("ok"):
+            error = doc.get("error") or {}
+            raise EcoBuildError(error.get("code") or ErrorCode.AGENT_ERROR, error.get("message") or "係での起動に失敗しました。",
+                                hint=error.get("hint"), details=error.get("details"))
+        return agents.load(record.id)
+
+    def app_launch(self, agent_id: str, *, resume: str = "", prompt: str | None = None, source=None,
+                   progress=lambda message: None) -> app.Launch:
+        """記録のあるエージェント agent_id の、アプリ用の起動（係が持つ。claude -p の stream-json）のしかた。コンテナで
+        動かす（コンテナにしていなければ、自動でコンテナにする）。タスクブランチでだけ。resume：その会話の続きから（なければ
+        新しい会話）。会話の ID・モデル・使い方の文・設定は対話型と同じ作り方（statusLine・返答の終わりのフックは付けない：
+        係が出来事を読む）。最初の発言は標準入力から入れる（係。prompt は使わない）。"""
+        task_branch = self._task_for_agent()
+        self._ensure_container(progress)
+        record = agents.load(agent_id)
+        if not _same(record.workspace, self.root):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント {agent_id} は、この作業空間のものではありません。",
+                                hint=f"作業空間は {record.workspace} です。")
+        self._no_other_agent(record)
+        command = ("claude", *app.FLAGS, *(("--resume", resume) if resume else ()))
+        record, command = self._session(record, command)
+        session = resume or record.session
+        folder = status.prepare(record.folder, self.root)
+        command = self._options(record, command, "")
+        command = (*command, "--settings", self._status_settings(folder, record, app=False, streamed=True))
+        command = self._briefed(command, folder, True, task_branch, record)
         tag = uuid.uuid4().hex[:16]
         argv, env = inside.agent_launch(self.root, command, deny=inside.deny(self.root), command=self.command,
-                                        source=source, progress=progress, tty=False, stdin=True, tag=tag)
+                                        source=source, progress=progress, tty=False, stdin=True, tag=tag,
+                                        agent_id=record.id)
         root, program = self.root, self.command
-        return app.Launch(root, folder, tuple(argv), env, session, role,
+        return app.Launch(root, folder, tuple(argv), env, session, record.id, record.registration,
                           kill=lambda: container.stop_tagged(root, tag, command=program))
+
+    def _prepared(self, registration, task_branch, parent, kind, program, prompt, source, progress, *, app: bool):
+        """起動の準備：記録（続きからなら会話の記録）・会話の ID・モデル・最初の発言・設定・使い方の文・MCP の設定。
+        (記録, コマンド, 置き場所, Claude Code か) を返す。"""
+        command = tuple(program.split() if isinstance(program, str) else program or ()) or ecoagent.DEFAULT_COMMAND
+        claude = command[:1] == ("claude",)
+
+        def latest() -> str:
+            container.start(self.root, command=self.command, source=source, progress=progress)
+            found = self.agent_conversations(1).conversations
+            return found[0].id if found else ""
+        resumed = resumed_session(command, latest) if claude else None
+        record = agents.by_session(resumed) if resumed else None
+        if record is not None and not _same(record.workspace, self.root):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR,
+                                f"会話 {resumed} は、ほかの作業空間のエージェント「{record.name}」（{record.id}）のものです。",
+                                hint=f"その作業空間（{record.workspace}）で起動してください。")
+        if record is None:
+            record = self._record(registration, task_branch, parent, kind, resumed or "")
+        self._not_held_by_serve(record)
+        self._no_other_agent(record)
+        folder = status.prepare(record.folder, self.root)
+        if not claude:
+            return record, command, folder, False
+        self.prepare_agent_area()
+        record, command = self._session(record, command)
+        first = prompt if prompt is not None else ("" if resumed is not None else self._registration(record).first_prompt)
+        command = self._options(record, command, first)
+        command = (*command, "--settings", self._status_settings(folder, record, app=app))
+        return record, self._briefed(command, folder, True, task_branch, record), folder, True
+
+    def _record(self, registration: str, task_branch, parent, kind, session: str) -> AgentRecord:
+        """新しいエージェントの記録（登録を確かめてから）。"""
+        if not registration:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "起動するエージェントの登録を指定してください。",
+                                hint="登録は agent registry list で見られます（agent start --as <登録名>）。")
+        found = registry.load(registration)
+        if parent:
+            agents.load(parent)   # 親が分かること
+        return agents.create(registration=found.name, workspace=self.root, kind=kind, parent=parent,
+                             task={"number": task_branch.number, "branch": task_branch.branch}, model=found.model,
+                             session=session, owner_session=os.environ.get(SESSION_VARIABLE, "").strip())
+
+    @staticmethod
+    def _registration(record: AgentRecord) -> registry.Registration:
+        """記録の登録（消された登録なら、文書なしの空のもの）。"""
+        try:
+            return registry.load(record.registration)
+        except EcoBuildError:
+            return registry.Registration(name=record.registration, title=record.registration, document="")
+
+    @staticmethod
+    def _session(record: AgentRecord, command: tuple[str, ...]) -> tuple[AgentRecord, tuple[str, ...]]:
+        """新しい会話なら ID を決めて渡し（--session-id）、記録に書く。続きからならその会話を記録に書く。"""
+        resumed = resumed_session(command, lambda: "")
+        if resumed:
+            return (agents.update(record.id, session=resumed) if record.session != resumed else record), command
+        if resumed is not None or any(w in command or any(x.startswith(w + "=") for x in command)
+                                      for w in (*CONTINUE_FLAGS, "--session-id")):
+            return record, command
+        session = str(uuid.uuid4())
+        return agents.update(record.id, session=session), (*command, "--session-id", session)
+
+    @staticmethod
+    def _options(record: AgentRecord, command: tuple[str, ...], prompt: str) -> tuple[str, ...]:
+        """登録のモデル（指定済みなら足さない）と、最初の発言（claude のすぐ後ろ：--disallowedTools 等のいくつも値を
+        取る引数の後ろに置くと、その値として読まれる）。"""
+        if record.model and "--model" not in command:
+            command = (*command, "--model", record.model)
+        return (command[0], prompt, *command[1:]) if prompt.strip() else command
+
+    def _task_module(self, task: int | None):
+        """task がほかのタスクなら、その作業空間の Module（今の作業空間のタスクなら None）。"""
+        if task is None:
+            return None
+        try:
+            current = self._task_for_agent()
+        except WorkError:
+            current = None
+        if current is not None and current.number == task:
+            return None
+        places = self.task_workspaces() if hasattr(self, "task_workspaces") else {}   # 本体の口（作業空間の一覧）
+        path = places.get(task)
+        if path is None:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"タスク #{task} の作業空間がありません。",
+                                hint=f"先に {operation(self.command, f'task start {task}')} で作業空間を作ってください。")
+        return type(self).find(path)
 
     def _task_for_agent(self):
         """エージェントを起動する作業空間の今のタスク（タスクブランチでだけ起動する）。"""
         return self.require_task_branch("エージェントの起動")
 
-    def _not_held_by_serve(self) -> None:
+    def _not_held_by_serve(self, record: AgentRecord) -> None:
         """係がアプリ用で動かしているなら、対話型では起動しない（同じ会話を2つが書き換えないように）。"""
-        if status.running_mode(status.directory(container.name(self.root))) == status.APP:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間のエージェントは、係がアプリ用で動かしています。",
-                                hint="人が引き取るには、上の役の作業空間で agent team takeover <名前>"
-                                     "（人がアプリ用で起動したものは agent stop）。")
+        if status.running_mode(record.folder) == status.APP:
+            raise EcoBuildError(ErrorCode.AGENT_ERROR,
+                                f"エージェント「{record.name}」（{record.id}）は、係がアプリ用で動かしています。",
+                                hint="人が引き取るには agent takeover <ID>（人がアプリ用で起動したものは agent stop <ID>）。")
 
-    def _no_other_agent(self, wait: float = 3.0) -> None:
-        """この作業空間でエージェントがもう動いているなら、2つ目は起動しない（チーム・受け箱・状態を共有してしまう）。
-        起動し直し（前のプロセスを止めた直後）で誤って止めないよう、終わるのを wait 秒まで待つ。"""
-        folder = status.directory(container.name(self.root))
+    def _no_other_agent(self, record: AgentRecord, wait: float = 3.0) -> None:
+        """同じエージェント（ID）がもう動いているなら、2重に起動しない（同じ会話・受け箱・状態を共有してしまう）。
+        同じ作業空間のほかのエージェントは止めない。起動し直し（前のプロセスを止めた直後）で誤って止めないよう、
+        終わるのを wait 秒まで待つ。"""
+        folder = record.folder
         end = time.monotonic() + wait
         pid = status.running_pid(folder)
         while pid is not None and pid != os.getpid() and time.monotonic() < end:
@@ -174,21 +315,30 @@ class AgentModule:
         data = status.read(folder / status.RUNNING)
         at = data.get("at") if isinstance(data, dict) else None
         since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(at)) if isinstance(at, (int, float)) else "不明"
-        raise EcoBuildError(ErrorCode.AGENT_ERROR, f"この作業空間では、もうエージェントが動いています（pid {pid}・起動 {since}）。",
-                            hint="同じ作業空間に2つ目のエージェントは起動しません（チーム・受け箱・状態を共有してしまいます）。"
-                                 f"別の作業空間で {operation(self.command, 'task start <番号> --new-workspace')} するか、"
-                                 "その会話を続けてください。")
+        raise EcoBuildError(ErrorCode.AGENT_ERROR,
+                            f"エージェント「{record.name}」（{record.id}）は、もう動いています（pid {pid}・起動 {since}）。",
+                            hint="同じエージェントは2重に起動しません（同じ会話・受け箱を共有してしまいます）。その会話を"
+                                 "続けるか、別のエージェントを起動してください。")
 
-    def _status_settings(self, folder: Path, boxed: bool, *, app: bool, role: str = team.WORKER,
-                         streamed: bool = False) -> str:
-        """状態を書き出させる --settings（status）。コンテナの中からは、マウントした所と中の Python。進行役・管理役は、書けるのを
-        エージェント用の置き場所（AGENT_AREA：計画・任せる内容）の中だけにする。streamed：アプリ用の起動。"""
-        where, python = (status.INSIDE, "python3") if boxed else (folder.as_posix(), status.host_python())
-        area = ""
-        if role in team.LEADING:
-            area = f"{container.WORKDIR}/{AGENT_AREA}" if boxed else (self.root / AGENT_AREA).as_posix()
-        return status.settings_argument(folder, where, python, app=app, lead_area=area, streamed=streamed)
+    def before_close_workspace(self, path) -> list[str]:
+        """作業空間 path を閉じられないわけ（本体の口に足す）：動いているエージェント、閉じていない子タスクの持ち主。"""
+        found = list(super().before_close_workspace(path)) if hasattr(super(), "before_close_workspace") else []
+        for record in agents.in_workspace(Path(path)):
+            folder = status.directory(record.id)
+            if folder is not None and status.running_pid(folder) is not None:
+                found.append(f"エージェント「{record.name}」（{record.id}）が動いています")
+            open_tasks = [child for child in agents.children(record.id) if child.kind == agents.OWNER and child.task
+                          and not _same(child.workspace, record.workspace)]
+            if open_tasks:
+                found.append(f"エージェント「{record.name}」（{record.id}）に閉じていない子タスクがあります："
+                             + "、".join(f"#{child.task.get('number')}「{child.name}」" for child in open_tasks))
+        return found
 
+    def _status_settings(self, folder: Path, record: AgentRecord, *, app: bool, streamed: bool = False) -> str:
+        """状態を書き出させる --settings（status）。コンテナの中から見た置き場所と中の Python。streamed：アプリ用の起動。"""
+        return status.settings_argument(folder, status.inside(record.id), "python3", app=app, streamed=streamed)
+
+    # ---- 会話 -----------------------------------------------------------------------------------------------
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。
         コンテナにした作業空間では、中の会話（すべてのコンテナで共有する設定の場所にある。中の場所はどれも同じなので、
@@ -199,29 +349,38 @@ class AgentModule:
                                                  command=self.command)
         return AgentConversations(self.root, found, note)
 
-    def agent_briefing(self, task, role: str = team.WORKER) -> str:
-        """起動のときにエージェントへ渡す文：今の作業空間・タスクブランチ、役（進行役・管理役・作業役）の決まりと、ECOBuild の
-        使い方（agent guide）。AGENTS.md がないモジュールでも、最初から ECOBuild のコマンドで作業させるため。"""
-        program = self.command or "ecobuild"
-        return "\n".join([
+    # ---- 渡すもの -------------------------------------------------------------------------------------------
+    def agent_briefing(self, task, record: AgentRecord) -> str:
+        """起動のときにエージェントへ渡す文：共通の前置き（モジュール・タスク・作業空間・持ち主か手伝いか・持ち主は誰か）、
+        登録の文書、話し方。ECOBuild の操作はツール（MCP）なので、CLI の手順（agent guide）は入れない。"""
+        lines = [
             "# ECOBuild から：この作業空間での作業のしかた",
             "",
-            f"- ここは ECOBuild のモジュール「{self.config.name}」の作業空間で、タスクブランチ `{task.branch}`"
-            f"（タスク #{task.number}）にいます。タスクの内容は `{program} task status` で確かめてください。",
-            f"- 作業は下の手順のとおり、`{program}` のコマンドで行います。とくに、ビルド・テスト・実行は必ず "
-            f"`{program} build`・`{program} test`・`{program} run`（提出の前は `{program} check`）。"
-            "型のツール（テスト・ビルドの道具）を直接使いません。",
+            f"- ここは ECOBuild のモジュール「{self.config.name}」の作業空間（{container.workdir(self.root)}）で、"
+            f"タスクブランチ `{task.branch}`（タスク #{task.number}）にいます。",
+            f"- あなたはエージェント「{record.name}」（ID {record.id}・登録「{record.registration}」）です。",
+            *self._owner_lines(record),
+            "- ECOBuild の操作（タスク・ビルド・テスト・実行・提出・子のエージェント）は、MCP のツール（ecobuild）で行います。"
+            "シェルから ecobuild・gh を使わず、git で書き込む操作（commit・push・switch 等）もしません。型のツール（テスト・"
+            "ビルドの道具）も直接使わず、build・test・run のツールで。",
             f"- `{AGENT_AREA}/` はエージェント用の置き場所です（コミットされません）。メモ・下書き・調べた結果・一時ファイルは、"
-            "コマンドを使わずにここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
+            "ここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",
-            *team.briefing(self.root, role, program),
-            *self._style(),
-            self.agent_guide().text,
-        ])
+        ]
+        document = self._registration(record).document.strip()
+        return "\n".join([*lines, *([document, ""] if document else []), *self._style()])
 
-    def assigned_by_lead(self) -> bool:
-        """作業役の作業空間（記録 member.json の役が作業役）なら、タスク・作業空間は上の役のもの（agent guide が合わせる）。"""
-        return team.member_info(self.root).get("role") == team.WORKER
+    @staticmethod
+    def _owner_lines(record: AgentRecord) -> list[str]:
+        parent = _load_or_none(record.parent)
+        by = f"親のエージェント「{parent.name}」（{parent.id}）" if parent else ("親のエージェント" if record.parent else "人")
+        if record.kind == agents.HELPER:
+            owner = parent if parent is not None and parent.kind == agents.OWNER and _same(parent.workspace, record.workspace) \
+                else next((r for r in agents.in_workspace(Path(record.workspace)) if r.kind == agents.OWNER), None)
+            who = f"「{owner.name}」（{owner.id}）" if owner else "このタスクの持ち主"
+            return [f"- あなたは手伝いです（{by}が起動しました）。この作業空間とタスクは{who}のもので、コミット・提出は"
+                    "持ち主がします。あなたはコミット・提出をせず、頼まれたことを終えたら親に知らせます。"]
+        return [f"- あなたはこのタスクの持ち主です（{by}が起動しました）。コミット・提出はあなたがします。"]
 
     @staticmethod
     def _style() -> list[str]:
@@ -245,7 +404,7 @@ class AgentModule:
             line = f"/{AGENT_AREA}/"
             if line in _read(exclude).splitlines():
                 return area
-            # 作業役を並べて作ると同時に書き足しに来る：1つずつ、読んだものに足して置き換える（書きかけを読ませない）
+            # 子を並べて作ると同時に書き足しに来る：1つずつ、読んだものに足して置き換える（書きかけを読ませない）
             with locked(exclude.with_name(EXCLUDE_LOCK)):
                 text = _read(exclude)
                 if line not in text.splitlines():
@@ -255,38 +414,48 @@ class AgentModule:
                     _replace(temporary, exclude)
         return area
 
-    def _role(self, chosen: str, command: tuple[str, ...], boxed: bool, source, progress) -> str:
-        """起動する役：指定、なければ続きから起動する会話の役（起動のときに覚えたもの。team.ROLES_FILE）、なければ
-        作業空間の記録、なければ作業役。--continue は、いちばん新しい会話（コンテナなら動かしてから読む）。"""
-        if chosen:
-            return team.role_of(self.root, chosen)
-
-        def latest() -> str:
-            if boxed:
-                container.start(self.root, command=self.command, source=source, progress=progress)
-            found = self.agent_conversations(1).conversations
-            return found[0].id if found else ""
-        session = team.resumed_session(command, latest)
-        return team.role_of(self.root, team.remembered_roles(self.root).get(session, "") if session else "")
-
-    def _for_role(self, command: tuple[str, ...], role: str, prompt: str) -> tuple[str, ...]:
-        """役のモデル・使わせない道具（team.agent_options）と、最初の発言（claude のすぐ後ろ：--disallowedTools 等の
-        いくつも値を取る引数の後ろに置くと、その値として読まれる）。"""
-        if command[:1] == ("claude",):
-            self.prepare_agent_area()   # 覚えた役（.ecobuild/ai）をコミットの対象に出さない
-        command = team.new_session(self.root, role, team.agent_options(self.root, role, command))
-        return (command[0], prompt, *command[1:]) if prompt.strip() and command[:1] == ("claude",) else command
-
     def _briefed(self, command: tuple[str, ...], folder: Path, boxed: bool, task,
-                 role: str = team.WORKER) -> tuple[str, ...]:
-        """Claude Code なら、使い方の文をファイル（状態の置き場所の guide.md）にして --append-system-prompt-file で渡す
-        （長い文を引数にしない：claude.cmd は cmd.exe を通る）。"""
-        if command[:1] != ("claude",) or "--append-system-prompt-file" in command:
+                 record: AgentRecord) -> tuple[str, ...]:
+        """Claude Code なら、使い方の文をファイル（置き場所の guide.md）にして --append-system-prompt-file で、エージェント
+        専用の MCP サーバーを --mcp-config（置き場所の mcp.json）と --strict-mcp-config で渡す（長い文を引数にしない：
+        claude.cmd は cmd.exe を通る）。"""
+        if command[:1] != ("claude",):
             return command
         self.prepare_agent_area()
-        (folder / "guide.md").write_text(self.agent_briefing(task, role), encoding="utf-8", newline="\n")
-        where = status.INSIDE if boxed else folder.as_posix()
-        return (*command, "--append-system-prompt-file", f"{where}/guide.md")
+        where = status.inside(record.id) if boxed else folder.as_posix()
+        if "--append-system-prompt-file" not in command:
+            (folder / GUIDE_FILE).write_text(self.agent_briefing(task, record), encoding="utf-8", newline="\n")
+            command = (*command, "--append-system-prompt-file", f"{where}/{GUIDE_FILE}")
+        if "--mcp-config" not in command:
+            (folder / MCP_FILE).write_text(json.dumps(self.mcp_config(record, boxed), ensure_ascii=False, indent=1),
+                                           encoding="utf-8", newline="\n")
+            command = (*command, "--mcp-config", f"{where}/{MCP_FILE}", "--strict-mcp-config")
+        return command
+
+    def mcp_config(self, record: AgentRecord, boxed: bool = True) -> dict:
+        """エージェント専用の MCP サーバー（ecobuild agent mcp）の設定。呼び手は引数で固定する（ツールの引数では名乗らせない）。
+        コンテナの中では、中の ECOBuild（層に入っている ecobuild）で、中の作業空間の場所を渡す。"""
+        workspace = container.workdir(self.root) if boxed else str(self.root)
+        args = ["agent", "mcp", "--agent", record.id, "--registration", record.registration, "--kind", record.kind,
+                "--workspace", workspace]
+        program, before = ("ecobuild", []) if boxed else (sys.executable, ["-m", "ecobuild_cli"])
+        return {"mcpServers": {"ecobuild": {"type": "stdio", "command": program, "args": [*before, *args]}}}
+
+
+def _same(a, b) -> bool:
+    try:
+        return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
+    except OSError:
+        return False
+
+
+def _load_or_none(agent_id: str | None) -> AgentRecord | None:
+    if not agent_id:
+        return None
+    try:
+        return agents.load(agent_id)
+    except EcoBuildError:
+        return None
 
 
 def _read(path: Path) -> str:
@@ -305,5 +474,5 @@ def _replace(temporary: Path, path: Path) -> None:
             time.sleep(0.05)
 
 
-__all__ = ["AGENT_AREA", "AgentConversations", "AgentModule", "AgentStarted", "CONFIG_KEYS", "CONTAINER_FEATURE",
-           "ErrorCode"]
+__all__ = ["AGENT_AREA", "AgentConversations", "AgentModule", "AgentRecord", "CONFIG_KEYS", "CONTAINER_FEATURE",
+           "ErrorCode", "agents"]

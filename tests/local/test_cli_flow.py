@@ -852,36 +852,48 @@ def test_team_commands(cli, module):
 
 
 def test_agent_starts_at_the_workspace_root(cli, module, monkeypatch):
+    import os
     import ecoagent
     from ecobuild_agent import inside
     started = []
     monkeypatch.setattr(ecoagent, "start", lambda directory, command, **_: started.append((directory, command))
-                        or ecoagent.Session(1, tuple(command), directory))
+                        or ecoagent.Session(os.getpid(), tuple(command), directory))
     monkeypatch.setattr(inside, "agent_launch", lambda root, agent, **_: (tuple(agent), None))   # コンテナの中の起動の代わり
-    assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ起動する
+    assert as_json(cli("agent", "start", "--as", "lead", "--json"))["error"]["code"] == "not_on_task_branch"   # タスクブランチでだけ
     assert started == []
 
     work = start(cli, "task", "new", "AIで作業", "--start", "--name", "作業")
-    assert as_json(cli("agent", "start", "--json"))["ok"]
+    assert as_json(cli("agent", "start", "--json"))["error"]["code"] == "invalid_argument"          # 登録を指定する
+    refused = as_json(cli("agent", "start", "--as", "worker", "--json"))["error"]                  # 人が起動しない登録
+    assert refused["code"] == "invalid_argument" and "lead" in refused["hint"] and started == []
+    first = as_json(cli("agent", "start", "--as", "lead", "--json"))["result"]
     assert "container = true" in (work / ".ecobuild/ecobuild.local.toml").read_text(encoding="utf-8")   # 自動でコンテナに
-    (directory, command), = started                     # Claude Code には ECOBuild の使い方を渡す
-    assert directory == work and command[0] == "claude" and "--session-id" in command   # 役を覚える新しい会話
+    (directory, command), = started                     # Claude Code には登録の文書と、専用の MCP サーバーを渡す
+    assert directory == work and command[0] == "claude" and "--session-id" in command   # 会話を記録に書く
+    assert first["registration"] == "lead" and first["task"]["number"] == 1 and first["kind"] == "owner"
+    assert first["session"] == command[command.index("--session-id") + 1]
+    from ecobuild_agent import agents
     from ecobuild_agent import status as agent_status
-    import ecobuild_container as container
-    folder = agent_status.directory(container.name(work))   # コンテナの中の場所（同じ名前のファイルがこの PC の置き場所に）
+    folder = agents.load(first["id"]).folder            # エージェントの置き場所（中からは INSIDE/<ID>）
     guide = command[command.index("--append-system-prompt-file") + 1]
-    assert guide.endswith("/guide.md") and "ecobuild build" in (folder / "guide.md").read_text(encoding="utf-8")
+    assert guide == f"{agent_status.INSIDE}/{first['id']}/guide.md"
+    text = (folder / "guide.md").read_text(encoding="utf-8")
+    assert "## あなたの役：進行役" in text and "ecobuild build" not in text   # 登録の文書。CLI の手順（agent guide）は渡さない
+    assert command[command.index("--mcp-config") + 1].endswith(f"/{first['id']}/mcp.json") and "--strict-mcp-config" in command
+    server = json.loads((folder / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["ecobuild"]
+    assert server["args"][:4] == ["agent", "mcp", "--agent", first["id"]]
     settings_file = command[command.index("--settings") + 1].rsplit("/", 1)[-1]
     settings = json.loads((folder / settings_file).read_text(encoding="utf-8"))
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"].endswith("replied deliver")   # 新しい画面：受け箱はフックが届ける
+    assert "PreToolUse" not in settings["hooks"]                                          # 書ける場所は絞らない
     started.clear()
     (work / "sub").mkdir()
     monkeypatch.chdir(work / "sub")
-    result = as_json(cli("agent", "start", "--agent", "codex --full-auto", "--json"))["result"]
+    second = as_json(cli("agent", "start", "--as", "lead", "--program", "codex --full-auto", "--json"))["result"]
     assert started[-1] == (work, ("codex", "--full-auto"))      # Claude Code でなければ何も足さない
-    assert result["command"] == ["codex", "--full-auto"]
-    cli("agent", "start")
-    assert started[-1][1][0] == "claude"
+    assert second["id"] != first["id"]                                 # 同じ作業空間に2人目
+    again = as_json(cli("agent", "start", "--program", f"claude --resume {first['session']}", "--json"))["result"]
+    assert again["id"] == first["id"] and started[-1][1][:3] == ("claude", "--resume", first["session"])   # 会話で記録を引く
 
 
 def test_container(cli, module):

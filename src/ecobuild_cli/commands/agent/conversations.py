@@ -8,18 +8,24 @@ def command(limit: Annotated[int, "表示する件数（新しい順）"] = 20,
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """作業空間でのエージェント（Claude Code）の会話を、新しい順に表示します。
 
-    続きから再開するには ecobuild agent start --agent "claude --resume <id>"。作業空間をコンテナにしていれば、
-    コンテナの中の会話（今のブランチでのもの。コンテナが動いているときだけ読めます）。
+    続きから再開するには ecobuild agent start --program "claude --resume <id>"（その会話のエージェントを続きから。
+    --as は要りません）。作業空間をコンテナにしていれば、コンテナの中の会話（今のブランチでのもの。コンテナが動いている
+    ときだけ読めます）。
     """
     return run_command("agent conversations", lambda inv: inv.module.agent_conversations(limit), _render,
                        json_output=json)
 
 
 def _render(r) -> str:
+    from ecobuild_agent import agents
     if not r.conversations:
         return r.note or "会話はまだありません。"
-    return "\n".join(f"{_local(c.updated)}  {c.id}  {c.title}（発言 {c.prompts}{'・' + c.branch if c.branch else ''}）"
-                     for c in r.conversations)
+
+    def who(session: str) -> str:
+        found = agents.by_session(session)
+        return f"・エージェント「{found.name}」（{found.id}）" if found else ""
+    return "\n".join(f"{_local(c.updated)}  {c.id}  {c.title}（発言 {c.prompts}{'・' + c.branch if c.branch else ''}"
+                     f"{who(c.id)}）" for c in r.conversations)
 
 
 def _local(updated: str) -> str:

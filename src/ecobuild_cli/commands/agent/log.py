@@ -29,5 +29,13 @@ def command(follow: Annotated[bool, "終わらずに、新しい出来事を1つ
 
 
 def folder_of(root: Path) -> Path:
-    """この作業空間のエージェントの状態の置き場所（コンテナの中からは、マウントした所）。"""
-    return Path(_status.INSIDE) if os.environ.get(container.INSIDE) else _status.directory(container.name(root))
+    """この作業空間のエージェントの状態の置き場所（コンテナの中からは自分の置き場所。外からは、いちばん新しく起動した
+    エージェント）。"""
+    from ecobuild_agent import agents
+    own = _status.own_directory()
+    if own is not None:
+        return own
+    if os.environ.get(container.INSIDE):
+        return Path(_status.INSIDE)
+    found = agents.in_workspace(root)
+    return found[-1].folder if found else _status.place(container.name(root))

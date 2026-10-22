@@ -14,9 +14,8 @@ import pytest
 from click.testing import CliRunner
 
 from fakes import FakeGitHub
-import ecobuild_container as container
 from ecobuild.errors import EcoBuildError
-from ecobuild_agent import app
+from ecobuild_agent import agents, app
 from ecobuild_agent import inside
 from ecobuild_agent import serve as agent_serve
 from ecobuild_agent import status as agent_status
@@ -88,14 +87,15 @@ class Fake:
         self.record = tmp_path / "record.jsonl"
         self.launched = []
 
-    def __call__(self, root, role, resume, progress):
-        root = Path(root)
+    def __call__(self, agent_id, resume, progress):
+        record = agents.load(agent_id)
         session = resume or f"s-{len(self.launched) + 1}"
-        self.launched.append({"root": root, "role": role, "resume": resume})
-        folder = agent_status.prepare(container.name(root), root)
+        self.launched.append({"root": record.root, "id": agent_id, "resume": resume})
+        agents.update(agent_id, session=session)   # app_launch と同じく、会話を記録に書く
+        folder = agent_status.prepare(record.folder, record.root)
         argv = (sys.executable, str(self.script), str(self.record),
                 *(("--resume", resume) if resume else ("--session-id", session)))
-        return app.Launch(root, folder, argv, None, session, role or team.role_of(root))
+        return app.Launch(record.root, folder, argv, None, session, agent_id, record.registration)
 
     def got(self) -> list[str]:
         if not self.record.is_file():
@@ -139,11 +139,16 @@ def state(path) -> dict:
     return agent_status.read(team.inbox_of(path) / agent_status.STATE) or {}
 
 
+def agent_of(member) -> str:
+    """作業役のエージェントの ID（係が作業役を起動するときと同じ。記録がなければ作る）。"""
+    return agent_serve._member_agent(agent_serve._member(member))
+
+
 def test_the_serve_runs_a_worker_without_a_screen_from_start_to_close(lead, tmp_path):
     """作成 → 係がアプリ用で起動 → 最初の仕事が標準入力に → 出来事が events.jsonl・state.json に → 返答の終わりで進行役に
     知らせ → 作業中の send がすぐ標準入力に → close で止まる。"""
     member = team.create(lead, "画面", "目的：画面を作る")
-    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    folder = agent_status.prepare(agents.create(registration="manager", workspace=lead.root).folder, lead.root)
     fake = Fake(tmp_path)
     ran = []
     run = made(member)
@@ -180,10 +185,10 @@ def test_the_serve_runs_a_worker_without_a_screen_from_start_to_close(lead, tmp_
     assert state(member.path)["state"] == agent_status.WORKING
 
     refused = request(serve, folder, "w", ["agent", "team", "close", "画面"])
-    assert not refused["ok"] and serve.apps.holds(member.path)                          # 作業中は閉じない（止めない）
+    assert not refused["ok"] and serve.apps.holds(agent_of(member))                          # 作業中は閉じない（止めない）
     assert refused["error"]["details"] == ["「画面」は作業中です"]
     doc = request(serve, folder, "c", ["agent", "team", "close", "画面", "--force"])
-    assert doc["ok"] and not serve.apps.holds(member.path)                              # 返答を終えてから止めた
+    assert doc["ok"] and not serve.apps.holds(agent_of(member))                              # 返答を終えてから止めた
     assert state(member.path)["state"] == agent_status.STOPPED
     assert state(member.path)["last_reply"] .endswith("から] ボタンは右に")   # 途中で切っていない
     assert ran[-1][:3] == ["agent", "team", "close"] and not emitted                   # タブは開かせない・止めさせない
@@ -193,27 +198,27 @@ def test_the_serve_runs_a_worker_without_a_screen_from_start_to_close(lead, tmp_
 
 def test_restarting_stops_and_starts_again_without_a_screen(lead, tmp_path):
     member = team.create(lead, "画面", "目的：画面を作る")
-    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    folder = agent_status.prepare(agents.create(registration="manager", workspace=lead.root).folder, lead.root)
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(made(member), launch=fake)
     request(serve, folder, "a", ["agent", "team", "start", "画面"])
     until(lambda: state(member.path).get("replied_at"), serve)
     doc = request(serve, folder, "r", ["agent", "team", "restart", "画面", "--resume"])
     assert doc["ok"] and doc["result"]["app"]
-    assert fake.launched[1] == {"root": member.path, "role": "worker", "resume": "s-1"}   # 前の会話の続きから
+    assert fake.launched[1] == {"root": member.path, "id": agent_of(member), "resume": "s-1"}   # 前の会話の続きから
     until(lambda: fake.got()[-1:] == [team.RESUME_PROMPT])
     assert agent_status.session_of(team.inbox_of(member.path)) == "s-1"
-    serve.apps.stop(member.path)
+    serve.apps.stop(agent_of(member))
 
 
 def test_an_agent_that_ends_in_the_middle_is_reported_to_the_lead(lead, tmp_path):
     """作業役がどんな状態で返答を終えても（途中で落ちても）、進行役に知らせる。"""
     member = team.create(lead, "画面", "目的：画面を作る")
-    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    folder = agent_status.prepare(agents.create(registration="manager", workspace=lead.root).folder, lead.root)
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
-    serve.apps.start(member.path, role="worker", prompt="落ちてください")
-    until(lambda: not serve.apps.holds(member.path), serve)
+    serve.apps.start(agent_of(member), prompt="落ちてください")
+    until(lambda: not serve.apps.holds(agent_of(member)), serve)
     serve.step()
     serve.wait()
     notice = agent_status.take(folder)
@@ -225,20 +230,20 @@ def test_stopping_the_serve_lets_the_reply_finish_and_the_next_serve_resumes(lea
     """係が終わるときは入力を閉じるだけ（返答の途中のものは返答を終えて終わる）。次の係は引き継いで出来事を読み
     （終わった返答も進行役に知らせる）、終わったら --resume で起こし、進行役に知らせる。"""
     member = team.create(lead, "画面", "目的：画面を作る")
-    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    folder = agent_status.prepare(agents.create(registration="manager", workspace=lead.root).folder, lead.root)
     fake = Fake(tmp_path)
     first = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
-    agent = first.apps.start(member.path, role="worker", prompt="ゆっくりやって")
+    agent = first.apps.start(agent_of(member), prompt="ゆっくりやって")
     until(lambda: state(member.path).get("state") == agent_status.WORKING, first)
     first.apps.close(wait=0.1)                                                           # 返答の途中で係が終わる
     assert agent.alive()                                                                 # 止めない
     threading.Thread(target=agent.process.wait, daemon=True).start()                    # 前の係のプロセスは終わったもの
     held = json.loads((Path(os.environ["ECOBUILD_HOME"]) / app.HELD).read_text(encoding="utf-8"))["agents"]
-    assert [Path(x["root"]) for x in held] == [member.path] and held[0]["session"] == "s-1"
+    assert [Path(x["workspace"]) for x in held] == [member.path] and held[0]["session"] == "s-1"
 
     second = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
     second.wake()
-    assert second.apps.get(member.path) is not None and len(fake.launched) == 1          # 終わるまでは起こさない
+    assert second.apps.get(agent_of(member)) is not None and len(fake.launched) == 1          # 終わるまでは起こさない
     until(lambda: len(fake.launched) == 2, second)
     second.wait()
     assert fake.launched[1]["resume"] == "s-1"
@@ -251,18 +256,18 @@ def test_stopping_the_serve_lets_the_reply_finish_and_the_next_serve_resumes(lea
     until(collect, second)
     assert any(t.endswith("了解：ゆっくりやって") for t in texts)                          # 係がいない間に終えた返答
     assert any("係が起動し直したので、作業役「画面」を前の会話の続きから起こしました" in t for t in texts)
-    assert second.apps.holds(member.path) and agent.process.poll() == 0
+    assert second.apps.holds(agent_of(member)) and agent.process.poll() == 0
     assert fake.got() == ["ゆっくりやって"]                                                # 途中ではなかったので何も入れない
-    second.apps.stop(member.path)
+    second.apps.stop(agent_of(member))
 
 
 def test_the_next_serve_does_not_wake_a_member_whose_task_is_closed(lead, tmp_path):
     """タスクが閉じた作業役（作業空間を閉じ忘れたもの）は、次の係が起こさない：持つのをやめ、進行役に知らせる。"""
     member = team.create(lead, "画面", "目的：画面を作る")
-    folder = agent_status.prepare(container.name(lead.root), lead.root)
+    folder = agent_status.prepare(agents.create(registration="manager", workspace=lead.root).folder, lead.root)
     fake = Fake(tmp_path)
     first = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
-    agent = first.apps.start(member.path, role="worker", prompt="はじめて")
+    agent = first.apps.start(agent_of(member), prompt="はじめて")
     until(lambda: state(member.path).get("replied_at"), first)
     first.apps.close(wait=0.1)
     threading.Thread(target=agent.process.wait, daemon=True).start()
@@ -274,7 +279,7 @@ def test_the_next_serve_does_not_wake_a_member_whose_task_is_closed(lead, tmp_pa
         return {"ok": True, "result": {"state": "closed"}} if args[:2] == ["task", "status"] else {"ok": True, "result": {}}
     second = agent_serve.Serve(run, launch=fake)
     second.wake()
-    until(lambda: not second.apps.holds(member.path), second)
+    until(lambda: not second.apps.holds(agent_of(member)), second)
     second.wait()
     assert len(fake.launched) == 1 and (["task", "status", "--json"], member.path) in asked   # 起こさない
     assert json.loads((Path(os.environ["ECOBUILD_HOME"]) / app.HELD).read_text(encoding="utf-8")) == {"agents": []}
@@ -293,13 +298,14 @@ def test_people_can_take_over_and_hand_back(lead, tmp_path):
     member = team.create(lead, "画面", "目的：画面を作る")
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
-    serve.apps.start(member.path, role="worker", prompt="はじめて")
+    serve.apps.start(agent_of(member), prompt="はじめて")
     until(lambda: state(member.path).get("replied_at"), serve)
     member_folder = team.inbox_of(member.path)
-    assert code_of(lambda: Module.find(member.path).start_agent(("claude",))) == ErrorCode.AGENT_ERROR   # 同時に対話型は動かさない
+    resume = Module.find(member.path).start_agent
+    assert code_of(lambda: resume(program="claude --resume s-1")) == ErrorCode.AGENT_ERROR   # 同じ会話を同時に対話型で動かさない
 
     doc = serve.handle(lead.root, {"id": "t", "args": ["agent", "team", "takeover", "画面"], "cwd": "."})
-    assert doc["ok"] and doc["result"]["agent"] == "claude --resume s-1" and not serve.apps.holds(member.path)
+    assert doc["ok"] and doc["result"]["agent"] == "claude --resume s-1" and not serve.apps.holds(agent_of(member))
     agent_status.started(member_folder, os.getpid())                                    # 人の画面で動いている
     doc = serve.handle(lead.root, {"id": "h", "args": ["agent", "team", "handback", "画面"], "cwd": "."})
     assert not doc["ok"] and "まだ対話型" in doc["error"]["message"]
@@ -307,24 +313,66 @@ def test_people_can_take_over_and_hand_back(lead, tmp_path):
     doc = serve.handle(lead.root, {"id": "h", "args": ["agent", "team", "handback", "画面"], "cwd": "."})
     assert doc["ok"] and doc["result"]["app"] and fake.launched[-1]["resume"] == "s-1"
     until(lambda: fake.got()[-1:] == [app.HANDBACK_PROMPT])
-    serve.apps.stop(member.path)
+    serve.apps.stop(agent_of(member))
 
 
 def test_people_can_start_and_stop_their_own_agent_without_a_screen(lead, tmp_path):
+    """係は記録のあるエージェントを ID で起動・停止する（同じ作業空間に何人でも。同じ ID は2重にしない）。"""
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
-    doc = serve.handle(lead.root, {"id": "s", "args": ["agent", "start", "--app", "--role", "lead", "--prompt", "計画して"],
+    one = agents.create(registration="lead", workspace=lead.root)
+    two = agents.create(registration="worker", workspace=lead.root, parent=one.id, kind=agents.HELPER)
+    doc = serve.handle(lead.root, {"id": "s", "args": ["agent", "start", "--app", "--id", one.id, "--prompt", "計画して"],
                                    "cwd": "."})
-    assert doc["ok"] and doc["result"]["role"] == "lead" and fake.launched[0]["root"] == lead.root
+    assert doc["ok"] and doc["result"]["id"] == one.id and doc["result"]["registration"] == "lead"
+    assert fake.launched[0]["root"] == lead.root
     until(lambda: fake.got() == ["計画して"])
-    assert not serve.handle(lead.root, {"id": "x", "args": ["agent", "start", "--app"], "cwd": "."})["ok"]   # 2つは動かさない
+    again = serve.handle(lead.root, {"id": "x", "args": ["agent", "start", "--app", "--id", one.id], "cwd": "."})
+    assert not again["ok"]                                                                 # 同じエージェントは2重にしない
+    assert serve.handle(lead.root, {"id": "w", "args": ["agent", "start", "--app", "--id", two.id], "cwd": "."})["ok"]
+    assert serve.apps.holds(one.id) and serve.apps.holds(two.id)                         # 同じ作業空間に2人
+    assert two.folder != one.folder and two.folder.parent == one.folder.parent           # 置き場所は ID ごと
     assert not serve.handle(lead.root, {"id": "y", "args": ["agent", "start"], "cwd": "."})["ok"]   # 新しい画面は係でない
-    assert serve.handle(lead.root, {"id": "z", "args": ["agent", "stop"], "cwd": "."})["ok"]
-    assert not serve.apps.holds(lead.root)
+    assert serve.handle(lead.root, {"id": "z", "args": ["agent", "stop", one.id], "cwd": "."})["ok"]
+    assert not serve.apps.holds(one.id) and serve.apps.holds(two.id)
+    held = json.loads((Path(os.environ["ECOBUILD_HOME"]) / app.HELD).read_text(encoding="utf-8"))["agents"]
+    assert held == [{"id": two.id, "workspace": str(lead.root), "session": "s-2", "registration": "worker"}]
+    serve.apps.stop(two.id)
+
+
+def test_people_start_status_and_stop_their_own_agent_with_the_cli(lead, tmp_path, monkeypatch):
+    """CLI：agent start --as <登録> --app は記録を作って係に頼み、agent status・agent log で様子を見て、agent stop <ID> で止める。"""
+    fake = Fake(tmp_path)
+    serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
+    stop = threading.Event()
+    threading.Thread(target=agent_serve.serve_forever, args=(serve, stop, 0.1), daemon=True).start()
+    monkeypatch.chdir(lead.root)
+    from ecobuild import config
+    config.save_local(lead.root, {"container": True})
+    runner = CliRunner()
+    invoke = lambda *args: json.loads(runner.invoke(build_cli(), [*args, "--json"], catch_exceptions=False).stdout)
+    try:
+        started = invoke("agent", "start", "--as", "lead", "--app", "--prompt", "進めて")
+        assert started["ok"], started
+        agent_id = started["result"]["id"]
+        assert started["result"]["registration"] == "lead" and Path(started["result"]["workspace"]) == lead.root
+        until(lambda: (agent_status.read(agents.load(agent_id).folder / agent_status.STATE) or {}).get("replied_at"))
+        shown = invoke("agent", "status")["result"]
+        assert [a["id"] for a in shown["agents"]] == [agent_id]
+        one = invoke("agent", "status", agent_id)["result"]
+        assert one["mode"] == agent_status.APP and one["last_reply"] == "了解：進めて" and one["session"] == "s-1"
+        own = invoke("agent", "log")["result"]
+        assert any(e.get("result") == "了解：進めて" for e in own["events"])
+        assert invoke("agent", "stop", agent_id)["ok"] and not serve.apps.holds(agent_id)
+        assert invoke("agent", "stop", agent_id)["error"]["code"] == "agent_error"        # もう動いていない
+    finally:
+        stop.set()
+        for agent in serve.apps.agents():
+            serve.apps.stop(agent.agent_id, 5)
 
 
 def test_the_cli_reads_the_log_and_asks_the_serve(lead, tmp_path, monkeypatch):
-    """CLI：team log（--json・--after）、agent start --app・agent status・agent stop、team takeover・handback は係に頼む。"""
+    """CLI：team log（--json・--after）、team takeover・handback は係に頼む。"""
     member = team.create(lead, "画面", "目的：画面を作る")
     fake = Fake(tmp_path)
     serve = agent_serve.Serve(lambda args, cwd, **_: {"ok": True, "result": {}}, launch=fake)
@@ -334,7 +382,7 @@ def test_the_cli_reads_the_log_and_asks_the_serve(lead, tmp_path, monkeypatch):
     runner = CliRunner()
     invoke = lambda *args: json.loads(runner.invoke(build_cli(), [*args, "--json"], catch_exceptions=False).stdout)
     try:
-        serve.apps.start(member.path, role="worker", prompt="はじめて")
+        serve.apps.start(agent_of(member), prompt="はじめて")
         until(lambda: state(member.path).get("replied_at"))
         log = invoke("agent", "team", "log", "画面")
         assert log["ok"] and log["result"]["events"][-1]["type"] == "result"
@@ -351,19 +399,9 @@ def test_the_cli_reads_the_log_and_asks_the_serve(lead, tmp_path, monkeypatch):
         given = invoke("agent", "team", "handback", "画面")
         assert given["ok"] and given["result"]["app"]
         until(lambda: fake.got()[-1:] == [app.HANDBACK_PROMPT])
-
-        started = invoke("agent", "start", "--app", "--prompt", "進めて")
-        assert started["ok"] and Path(started["result"]["path"]) == lead.root
-        until(lambda: state(lead.root).get("replied_at"))
-        status = invoke("agent", "status")["result"]
-        assert status["mode"] == agent_status.APP and status["last_reply"].startswith("了解：") and status["session"]
-        own = invoke("agent", "log")["result"]
-        assert any(e.get("result") == "了解：進めて" for e in own["events"])
-        assert "進めて" in fake.got()   # 進行役（アプリ用）には、作業役の返答の終わりの知らせも標準入力で届く
-        assert invoke("agent", "stop")["ok"] and not serve.apps.holds(lead.root)
     finally:
         stop.set()
-        serve.apps.stop(member.path, 5)
+        serve.apps.stop(agent_of(member), 5)
 
 
 def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monkeypatch):
@@ -377,7 +415,7 @@ def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monk
 
     sub = member(lead.root, "下の管理役", team.MANAGER)
     worker = member(sub, "画面", team.WORKER)
-    folder = agent_status.prepare(container.name(worker), worker)
+    folder = agent_status.prepare(agents.create(registration="worker", workspace=worker).folder, worker)
     lines = [{"type": "user", "message": {"content": "はじめて"}},
              {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Bash", "input": {"command": "ecobuild test"}}]}},
              {"type": "rate_limit_event"},
@@ -399,31 +437,34 @@ def test_the_team_list_has_the_nested_team_and_recent_lines(lead, tmp_path, monk
 
 
 def test_the_launch_is_made_like_the_interactive_one(lead, monkeypatch):
-    """起動のしかた（AgentModule.app_launch）：コンテナの中の claude -p の stream-json。会話の ID・役・モデル・使い方の文は
-    対話型と同じ作り方。statusLine・返答の終わりのフックは付けない（進行役の書ける場所のフックは付ける）。"""
+    """起動のしかた（AgentModule.app_launch）：コンテナの中の claude -p の stream-json。会話の ID・モデル・使い方の文・
+    MCP は対話型と同じ作り方（登録から）。statusLine・返答の終わりのフック・書ける場所を絞るフックは付けない。"""
     from ecobuild import config
-    import ecobuild_bundle
     config.save_local(lead.root, {"container": True})
-    ecobuild_bundle.set_config("agent_lead_model", "opus")
     seen = {}
 
     def launch(root, agent, **options):
         seen.update(agent=agent, **options)
         return ["docker", "exec", "--interactive", *agent], {"X": "1"}
     monkeypatch.setattr(inside, "agent_launch", launch)
-    found = lead.app_launch(role="lead")
+    record = agents.create(registration="manager", workspace=lead.root, model="opus",
+                           task={"number": 1, "branch": "task/1-大きな仕事"})
+    found = lead.app_launch(record.id)
     command = seen["agent"]
     assert command[:8] == ("claude", *app.FLAGS) and seen["stdin"] and not seen["tty"] and seen["tag"]
-    assert command[command.index("--session-id") + 1] == found.session and found.role == "lead"
-    assert team.remembered_roles(lead.root)[found.session] == "lead"
+    assert seen["agent_id"] == record.id and found.agent_id == record.id and found.registration == "manager"
+    assert command[command.index("--session-id") + 1] == found.session == agents.load(record.id).session
     assert command[command.index("--model") + 1] == "opus"
-    assert command[command.index("--append-system-prompt-file") + 1] == f"{agent_status.INSIDE}/guide.md"
+    where = f"{agent_status.INSIDE}/{record.id}"
+    assert command[command.index("--append-system-prompt-file") + 1] == f"{where}/guide.md"
+    assert command[command.index("--mcp-config") + 1] == f"{where}/mcp.json" and "--strict-mcp-config" in command
+    assert found.folder == record.folder
     settings = json.loads((found.folder / agent_status.SETTINGS).read_text(encoding="utf-8"))
-    assert "statusLine" not in settings and list(settings["hooks"]) == ["PreToolUse"]       # 進行役の書ける場所だけ
-    assert "進行役" in (found.folder / "guide.md").read_text(encoding="utf-8")
-    again = lead.app_launch(resume=found.session)
+    assert "statusLine" not in settings and "hooks" not in settings
+    assert "## あなたの役：管理役" in (found.folder / "guide.md").read_text(encoding="utf-8")
+    again = lead.app_launch(record.id, resume=found.session)
     assert "--session-id" not in seen["agent"] and seen["agent"][seen["agent"].index("--resume") + 1] == found.session
-    assert again.role == "lead"                                                          # 覚えた役で続きから
+    assert again.agent_id == record.id                                                    # 同じエージェントの続き
 
 
 def code_of(action):
@@ -432,20 +473,37 @@ def code_of(action):
     return error.value.code
 
 
-def test_a_second_agent_is_not_started_while_one_is_alive(lead):
-    """生きている running.json があると、2つ目（対話型・アプリ用）は起動しない。死んだ pid なら起動を止めない。"""
+def test_a_second_agent_gets_its_own_folder_while_one_is_alive(lead, monkeypatch):
+    """同じ作業空間に2人目を起動できる。置き場所・受け箱・guide.md・mcp.json は混ざらない。同じエージェント（ID）は
+    2重に起動しない（死んだ pid なら止めない）。"""
     import subprocess
-    folder = agent_status.directory(container.name(lead.root))
-    folder.mkdir(parents=True, exist_ok=True)
+    import ecoagent
+    started = []
+    monkeypatch.setattr(ecoagent, "start", lambda directory, command, **_: started.append(tuple(command))
+                        or ecoagent.Session(os.getpid(), tuple(command), directory))
+    monkeypatch.setattr(inside, "agent_launch", lambda root, agent, **_: (tuple(agent), None))
+    first = lead.start_agent("lead")
     live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
-        agent_status.started(folder, live.pid)
+        agent_status.started(first.folder, live.pid)                                   # 1人目が動いている
+        second = lead.start_agent("manager", parent=first.id, kind=agents.HELPER, prompt="手伝って")
+        assert second.id != first.id and second.folder != first.folder and second.parent == first.id
+        assert started[-1][:2] == ("claude", "手伝って")
+        for record in (first, second):
+            assert record.id in (record.folder / "guide.md").read_text(encoding="utf-8")
+            server = json.loads((record.folder / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["ecobuild"]
+            assert server["args"][3] == record.id and server["args"][7] == record.kind
+        assert "手伝いです" in (second.folder / "guide.md").read_text(encoding="utf-8")
+        agent_status.put(second.folder, "手伝いへ")
+        assert agent_status.take(first.folder) is None and agent_status.take(second.folder)["text"] == "手伝いへ"
         with pytest.raises(EcoBuildError) as stopped:
-            lead._no_other_agent(wait=0)
+            lead._no_other_agent(agents.load(first.id), wait=0)
         assert stopped.value.code == ErrorCode.AGENT_ERROR and str(live.pid) in str(stopped.value)
-        assert code_of(lambda: lead.start_agent(("claude",))) == ErrorCode.AGENT_ERROR
-        assert code_of(lambda: lead.app_launch()) == ErrorCode.AGENT_ERROR
+        resume = f"claude --resume {agents.load(first.id).session}"
+        assert code_of(lambda: lead.start_agent(program=resume)) == ErrorCode.AGENT_ERROR   # 同じ ID は2重にしない
+        assert code_of(lambda: lead.app_launch(first.id)) == ErrorCode.AGENT_ERROR
     finally:
         live.kill()
         live.wait()
-    lead._no_other_agent(wait=0)   # 終わった pid では止めない（起動し直しの後）
+    lead._no_other_agent(agents.load(first.id), wait=0)   # 終わった pid では止めない（起動し直しの後）
+    assert lead.start_agent(program=resume).id == first.id

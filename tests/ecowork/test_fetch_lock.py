@@ -20,7 +20,7 @@ def _count_fetches(repo, monkeypatch, fetches):
 
 
 def _hold_lock(work):
-    path = work / Git(work).output("rev-parse", "--git-path", _git.FETCH_LOCK)
+    path = Git(work).common_directory() / _git.FETCH_LOCK
     file = open(path, "a+")
     assert _git._lock_file(file, 1)
     return file
@@ -59,6 +59,31 @@ def test_fetch_goes_ahead_when_the_lock_is_not_released(remote_and_clone, monkey
         _git._unlock_file(held)
         held.close()
     assert len(fetches) == 1
+
+
+@pytest.mark.needs_git_2_48
+def test_workspaces_share_the_fetch_lock_and_mark(remote_and_clone, tmp_path, monkeypatch):
+    """作業空間（worktree）どうしは refs を共有するので、fetch のロックと取得した印も共有の .git に置く
+    （作業空間ごとの .git/worktrees/<名前> に置くと、並べて fetch して cannot lock ref になる）。"""
+    _, work = remote_and_clone
+    main = Git(work)
+    main.run("branch", "other")
+    main.worktree_add(tmp_path / "w", "other")
+    inside = Git(tmp_path / "w")
+    assert inside._mark() == main._mark() == work / ".git" / _git.FETCHED_MARK
+    main.fetch()
+    fetches = []
+    _count_fetches(inside, monkeypatch, fetches)
+    inside.fetch(reuse=True)          # 元の clone が取得したばかり：作業空間でも取得し直さない
+    assert fetches == []
+    held = _hold_lock(tmp_path / "w")  # 作業空間でロックを持つと、元の clone の fetch も待つ
+    other = open(work / ".git" / _git.FETCH_LOCK, "a+")
+    try:
+        assert not _git._lock_file(other, 0.1)
+    finally:
+        other.close()
+        _git._unlock_file(held)
+        held.close()
 
 
 def test_dubious_ownership_is_its_own_error():

@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_REVIEW_KEY = "ecowork.review"              # task review で確認中のPR（手元だけ）
-_REVIEW_RETURN_KEY = "ecowork.review-return"
+# 確認用の作業空間（task review）の印：確認中のPR。その作業空間だけの設定（git config --worktree）に書く
+_REVIEW_KEY = "ecowork.review"
 _STASH_BRANCH = re.compile(r"^(?:WIP on|On) ([^:]+):")
 
 

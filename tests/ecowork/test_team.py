@@ -3,6 +3,7 @@
 import pytest
 
 from helpers import write
+from ecowork import Repository
 from ecowork.errors import ErrorCode, WorkError
 
 pytestmark = pytest.mark.local
@@ -164,10 +165,26 @@ def test_a_workspace_works_as_its_account(repository):
     assert repository.git.run("config", "--local", "--get-all", "credential.https://github.com.helper", check=False).stdout == ""
 
 
+@pytest.mark.needs_git_2_48
 def test_a_new_workspace_for_an_account(repository, tmp_path):
     task = repository.create_task("AI に", assignees=("helper-ai",))
-    assert code_of(lambda: repository.clone_task_branch(task.number, tmp_path / "ws", name="ai")) == ErrorCode.ASSIGNED_TO_OTHER
-    other = repository.clone_task_branch(task.number, tmp_path / "ws", name="ai", account="helper-ai")
+    assert code_of(lambda: repository.start_task_in(task.number, tmp_path / "ws", name="ai")) == ErrorCode.ASSIGNED_TO_OTHER
+    assert not (tmp_path / "ws").exists()
+    other = repository.start_task_in(task.number, tmp_path / "ws", name="ai", account="helper-ai").repository
     assert other.account == "helper-ai" and other.current_task_branch().number == task.number
-    plain = repository.clone_to(tmp_path / "ws2", account="helper-ai")
-    assert plain.account == "helper-ai" and repository.account is None
+    assert repository.account is None and repository.git.get_config("user.email") is None   # 元の clone に漏れない
+    second = repository.start_task_in(repository.create_task("人が").number, tmp_path / "ws2").repository
+    assert second.account is None
+    assert Repository(other.root, github=repository.github).account == "helper-ai"   # 開き直しても
+
+
+@pytest.mark.needs_git_2_48
+def test_the_original_clone_account_is_the_default_of_workspaces(repository, tmp_path):
+    """元の clone のアカウント（--local）は、アカウントを決めていない作業空間すべての既定。作業空間のもの（--worktree）が勝つ。"""
+    repository.use_account("helper-ai")
+    first = repository.start_task_in(repository.create_task("a").number, tmp_path / "1").repository
+    assert first.account == "helper-ai"
+    first.use_account("other-ai")
+    assert first.account == "other-ai" and repository.account == "helper-ai"
+    first.use_account(None)
+    assert first.account == "helper-ai"      # 作業空間のものを外すと、元の clone の既定に戻る

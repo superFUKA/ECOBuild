@@ -101,7 +101,7 @@ class History:
                                          f"{self._op('task commit')} --message で記録してください。",
                                     details=list(conflicted))
                 raise _git._git_error(completed)
-        self.hooks.after_switch(self)  # 取り消しで依存先の記録等が戻ることがある
+        self.hooks.prepare_workspace(self)  # 取り消しで依存先の記録等が戻ることがある
         return wm.RevertResult(pulls[-1].number, created.number, task_branch.branch, self.git.output("rev-parse", "HEAD"),
                                reverted_task=task)
 

@@ -6,7 +6,7 @@
 import pytest
 
 from helpers import git, write
-from ecowork import Hooks
+from ecowork import Hooks, Repository
 from ecowork.errors import ErrorCode, WorkError
 
 pytestmark = pytest.mark.local
@@ -97,14 +97,28 @@ def test_prune_current_is_refused_while_locked(repository):
     assert repository.git.current_branch() == "task/1"
 
 
-def test_review_is_refused_while_locked(repository):
+@pytest.mark.needs_git_2_48
+def test_review_does_not_touch_a_locked_workspace_and_a_locked_review_workspace_is_kept(repository, tmp_path):
     task = repository.create_task("a").start()
     write(repository.root / "a.txt", "a\n")
     task.record("a")
     task.submit()
     repository.hooks = Locked(switch=["使用中"])
-    refused(lambda: repository.review(1))
+    review = repository.review_task(1, tmp_path / "r")      # 確認は別の作業空間：この作業空間は変わらない
     assert repository.git.current_branch() == "task/1"
+    inside = Repository(review.workspace, github=repository.github, hooks=Locked(switch=["使用中"]))
+    refused(inside.end_review)
+    assert (tmp_path / "r").exists()
+    assert Repository(review.workspace, github=repository.github).end_review().workspace is not None
+
+
+@pytest.mark.needs_git_2_48
+def test_a_locked_workspace_keeps_its_finished_branch(repository, tmp_path):
+    started = repository.start_task_in(repository.create_task("a").number, tmp_path / "1")
+    inside = Repository(started.workspace, github=repository.github, hooks=Locked(switch=["使用中"]))
+    repository.github.close_issue(repository.root, 1)
+    assert [s.branch for s in inside.prune_task_branches().skipped] == ["task/1"]
+    assert (tmp_path / "1").exists() and repository.git.has_local_branch("task/1")
 
 
 def test_tidy_leaves_finished_branch_used_elsewhere(repository):

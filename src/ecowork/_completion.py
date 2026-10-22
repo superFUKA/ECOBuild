@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
 from ecotask import board as _board
 from . import git as _git
@@ -32,9 +33,10 @@ class Completion:
                             hint=f"タスク #{number} のタスクブランチで {self._op('task submit')} を実行して提出します。")
         return pr
 
-    def review_task(self, number: int) -> wm.ReviewResult:
-        """タスクの提出を手元に取り出して確認する（review と同じ。番号はタスクの番号）。"""
-        return self.review(self.require_submission(number).number)
+    def review_task(self, number: int, place: Path | str, *,
+                    open: Callable[[Path], "Repository"] | None = None) -> wm.ReviewResult:
+        """タスクの提出を、確認用の作業空間 place に取り出す（review_in と同じ。番号はタスクの番号）。"""
+        return self.review_in(self.require_submission(number).number, place, open=open)
 
     def withdraw(self, number: int | None = None) -> wm.PullRequest:
         """提出を取り下げて作業中に戻す（PRを閉じる。タスクブランチは残る。もう一度 task submit で出し直せる）。"""
@@ -46,7 +48,7 @@ class Completion:
         return self.pull_request(pr.number)
 
     def reject(self, number: int, message: str) -> wm.JudgeResult:
-        """差し戻す（修正を依頼する）。確認中（task review）なら、確認の前の場所へ戻る。"""
+        """差し戻す（修正を依頼する）。確認用の作業空間（task review）があれば消す。"""
         if not message.strip():
             raise WorkError(ErrorCode.INVALID_ARGUMENT, "差し戻す理由が必要です。",
                             hint="--message で、直してほしいことを書いてください。")
@@ -57,16 +59,16 @@ class Completion:
         return wm.JudgeResult(number, pr.number, pr.url, self._leave_review(pr.number))
 
     def approve(self, number: int, message: str = "", **finish_options) -> wm.FinishResult:
-        """承認し、そのまま完了する（finish と同じ手順）。確認中（task review）なら、先に確認の前の場所へ戻る。"""
+        """承認し、そのまま完了する（finish と同じ手順）。確認用の作業空間（task review）があれば、先に消す。"""
         pr = self.require_submission(number)
         if pr.draft:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint="作業者が準備できたら task submit で下書きを解除します。")
         self.require_take_in(pr.base, "承認")
         self._judge(pr, "approve", message)
-        returned = self._leave_review(pr.number)
+        removed = self._leave_review(pr.number)
         result = self.finish(number, **finish_options)
-        return replace(result, approved=True, returned_to=returned)
+        return replace(result, approved=True, review_removed=removed or result.review_removed)
 
     def finish(self, number: int | None = None, *, wait: bool = True, ignore_checks: bool = False,
                subject: str | None = None, partial: bool | None = None, timeout: float = 1800,
@@ -83,14 +85,17 @@ class Completion:
         """
         if number is None:
             number = self.require_task_branch("番号を省略したタスクの完了").number
+        review_removed = None
         reviewing = self._reviewing()
         if reviewing is not None and self._task_of_pull_request(reviewing) == number:
-            try:   # その提出を確認中（task review）なら、確認の前の場所へ戻ってから。戻れなくても完了は今までどおり進める
-                returned = self._leave_review(reviewing)
-            except WorkError:
-                returned = None
-            if returned:
-                self.notices.append(f"確認を終えて {returned} に戻りました。")
+            # その提出の確認用の作業空間（task review）の中なら、先に消す（元の clone へ移る）。消せなくても完了は進める
+            review_removed = self._leave_review(reviewing)
+        result = self._finish(number, wait=wait, ignore_checks=ignore_checks, subject=subject, partial=partial,
+                              timeout=timeout, sleep=sleep, clock=clock)
+        return replace(result, review_removed=review_removed) if review_removed else result
+
+    def _finish(self, number: int, *, wait: bool, ignore_checks: bool, subject: str | None, partial: bool | None,
+                timeout: float, sleep: Callable[[float], None], clock: Callable[[], float]) -> wm.FinishResult:
         branch = self._task_branch_of(number)
         here = self.git.current_branch() == branch
         self._guard_removal(branch, "完了（GitHubのタスクブランチを消す）", switching=False)   # ここで切り替えられないときは、取り込みの後に残す
@@ -123,8 +128,6 @@ class Completion:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
         self.require_take_in(pr.base, "取り込み")
-        if pr.partial and self.git.current_branch() != branch:
-            self._guard_switch("中間提出の取り込み後のタスクブランチの作り直し（一時的に切り替わる）")
         checks: tuple = ()
         if wait and not ignore_checks and self._has_workflows():
             try:
@@ -174,9 +177,10 @@ class Completion:
         if self.git.has_remote_branch(branch):
             self.git.push_delete(branch)
         self.tracker.closed(number)
-        removed, switched_to = self._clean_finished(branch)
-        return wm.FinishResult(number, last.number, last.url, title, False, False, number, False, removed, switched_to,
-                               (), self._upcoming())
+        removed, released = self._clean_finished(branch)
+        return wm.FinishResult(number, last.number, last.url, title, False, False, number, False, removed,
+                               released.switched_to, (), self._upcoming(), workspace_removed=released.workspace_removed,
+                               workspace_kept=released.kept)
 
     def _resume_finish(self, number: int, branch: str) -> wm.FinishResult:
         """Issueが閉じ、開いている提出がないタスク：取り込みの後処理と手元の片付けの残りだけを行う。
@@ -201,12 +205,13 @@ class Completion:
 
     def _after_finish(self, number: int, branch: str, pr: wm.PullRequest, merged: wm.MergeResult,
                       checks: tuple, subject: str) -> wm.FinishResult:
-        removed, switched_to, upcoming = False, None, None
+        removed, released, upcoming = False, wm.Released(False), None
         if not pr.partial:
-            removed, switched_to = self._clean_finished(branch)
+            removed, released = self._clean_finished(branch)
             upcoming = self._upcoming()
         return wm.FinishResult(number, pr.number, pr.url, subject, pr.partial, merged.resumed, merged.closed_issue,
-                               merged.branch_rebuilt, removed, switched_to, checks, upcoming)
+                               merged.branch_rebuilt, removed, released.switched_to, checks, upcoming,
+                               workspace_removed=released.workspace_removed, workspace_kept=released.kept)
 
     def _push_if_ahead(self, branch: str) -> None:
         """手元のブランチに、GitHubにないコミットがあれば送る。"""
@@ -254,30 +259,23 @@ class Completion:
                                     f"（{', '.join(error.details)}）。")
         return pr
 
-    def _clean_finished(self, branch: str) -> tuple[bool, str | None]:
-        """完了したタスクの手元のタスクブランチを片付ける。今いれば作成元へ移って最新にする。失われるコミットがあれば残す。"""
+    def _clean_finished(self, branch: str) -> tuple[bool, wm.Released]:
+        """完了したタスクの手元のタスクブランチを片付ける：取り出している作業空間を消してから、ブランチを消す
+        （元の clone 等がその場で取り出していれば、作成元へ移って最新にする）。失われるコミットがある・作業空間が
+        使用中（ロック中）・未コミットの変更があるなら残して知らせる。(消したか, 作業空間の扱い) を返す。"""
         if not self.git.has_local_branch(branch):
-            return False, None
+            return False, wm.Released(False)
         reason = self._unsafe_to_remove(branch)
         if reason is not None:
             self.notices.append(f"手元のタスクブランチ {branch} は残しました（{reason}）。")
-            return False, None
-        switched_to = None
-        if self.git.current_branch() == branch:
-            locks = self.hooks.switch_locks(self)
-            if locks:
-                self.notices.append(f"手元のタスクブランチ {branch} は、作業空間が使用中（ロック中）のため残しました"
-                                    f"（{'、'.join(locks)}）。")
-                return False, None
-            tree = self.git.working_tree()
-            if tree.staged or tree.unstaged:
-                self.notices.append(f"手元のタスクブランチ {branch} は、未コミットの変更があるため残しました。")
-                return False, None
-            switched_to = self.git.get_config(wm.base_key(branch)) or self.default_base
-            self._switch_to_latest(switched_to)
+            return False, wm.Released(False, kept=reason)
+        released = self._release_branch(branch, action="完了したタスクブランチの片付け")
+        if not released.released:
+            self.notices.append(f"手元のタスクブランチ {branch} は残しました（{released.kept}）。")
+            return False, released
         self.git.delete_branch(branch, force=True)
         self.git.unset_config(wm.base_key(branch))
-        return True, switched_to
+        return True, released
 
     def _upcoming(self) -> wm.TaskRef | None:
         """次のタスクの候補（task next の1番目）。調べられなければNone（知らせるだけなので）。"""
@@ -304,35 +302,37 @@ class Completion:
                 error.message = "自分の提出は承認・差し戻しできません（GitHubの制限）。"
                 error.hint = (f"自分で完了するなら {self._op('task finish')} {task}、やめるなら "
                               f"{self._op('task withdraw')} {task}。")
-            if self._reviewing() == pr.number:   # 確認中（切り離された状態）のまま残さない
-                try:
-                    returned = self._leave_review(pr.number)
-                except WorkError:
-                    returned = None
-                error.hint += (f"確認を終えて {returned} に戻りました。" if returned else
-                               f"確認中の場所（切り離された状態）にいます。{self._op('task review')} --done で戻れます。")
+            if self._review_workspaces().get(pr.number) is not None:   # 確認用の作業空間を残さない
+                removed = self._leave_review(pr.number)
+                error.hint += (f"確認用の作業空間 {removed} を消しました。" if removed else
+                               f"確認用の作業空間が残っています。{self._op('task review')} --done で消せます。")
             raise
 
-    def _leave_review(self, pull_request: int) -> str | None:
-        """その提出を確認中（task review）なら、確認を終えて前の場所へ戻る。戻った先（確認中でなければNone）。"""
-        if self._reviewing() != pull_request:
+    def _leave_review(self, pull_request: int) -> Path | None:
+        """その提出の確認用の作業空間（task review）があれば消す。消した場所（なければ・消せなければNone。消せない
+        わけは notices で知らせる）。"""
+        place = self._review_workspaces().get(pull_request)
+        if place is None:
             return None
         try:
-            returned = self.end_review().returned_to
+            return self._end_review_at(pull_request, place).workspace
         except WorkError as error:
-            if error.code != ErrorCode.WORKSPACE_LOCKED:
+            if error.code not in (ErrorCode.WORKSPACE_LOCKED, ErrorCode.DIRTY_WORKING_TREE, ErrorCode.GIT_ERROR):
                 raise
-            self.notices.append("作業空間が使用中（ロック中）のため、確認中の場所から戻っていません"
-                                f"（{self._op('task review')} --done で戻れます）。")
+            self.notices.append(f"確認用の作業空間 {place} は残しました（{error.message}）。"
+                                f"{self._op('task review')} --done で消せます。")
             return None
-        self.hooks.after_switch(self)
-        return returned
 
     def _tidy_finished(self) -> tuple[str, ...]:
-        """完了したタスクの手元のタスクブランチ（GitHubのブランチがなく、Issueが閉じたもの）を片付ける。今いるものは除く。
+        """完了したタスクの手元のタスクブランチ（GitHubのブランチがなく、Issueが閉じたもの）を片付ける。今いるもの・
+        ほかの作業ツリー（元の clone・作業空間）が取り出しているものは除く。
 
         fetch の後に呼ぶ。失われるコミットがあれば残す（task prune と同じ）。
         """
+        try:
+            self.git.worktree_prune()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（ロック中のものは git が残す）
+        except WorkError:
+            pass
         current = self.git.current_branch()
         remote = set(self.git.remote_branches())
         checked_out = self.git.checked_out_branches()   # ほかの git worktree が使っているブランチは git が消させない

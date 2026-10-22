@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -51,6 +51,7 @@ class TaskRecord:
     item: "_board.BoardItem | None" = None
     created_at: str | None = None       # Issueを作った日時（2026-10-10T01:02:03Z）
     closed_at: str | None = None        # 閉じた日時（開いていればNone）
+    items: "tuple[tuple[str, _board.BoardItem], ...]" = ()   # every_board で読んだとき：(ボードのID, 項目)
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,19 @@ class Comment:
     body: str
 
 
+@dataclass(frozen=True)
+class IssueDetails:
+    """1件の詳細（task status）を1回で読んだもの。record の item は None で、ボードの値はボードごとに items に持つ
+    （どのボードを使うかを、ボードを探すのと並べて読むため）。"""
+    record: TaskRecord
+    items: tuple[tuple[str, "_board.BoardItem"], ...]   # (ボードのID, 項目)
+    comments: tuple[Comment, ...]
+    parent: IssueInfo | None
+    sub_issues: tuple[IssueInfo, ...]
+    blocked_by: tuple[IssueInfo, ...]
+    blocking: tuple[IssueInfo, ...]
+
+
 class TaskGitHub(Protocol):
     def current_user(self, repo: Path) -> str: ...
     def create_issue(self, repo: Path, title: str, body: str, *, labels: tuple[str, ...] = (),
@@ -83,6 +97,7 @@ class TaskGitHub(Protocol):
                    add_assignees: tuple[str, ...] = (), remove_assignees: tuple[str, ...] = ()) -> None: ...
     def comment_issue(self, repo: Path, number: int, body: str) -> None: ...
     def issue_comments(self, repo: Path, number: int) -> list[Comment]: ...
+    def issue_details(self, repo: Path, number: int) -> IssueDetails: ...
     def reopen_issue(self, repo: Path, number: int) -> None: ...
     def close_issue(self, repo: Path, number: int, *, not_planned: bool = False) -> None: ...
     # 親子（Sub-issues）・依存（Issue dependencies）・マイルストーン
@@ -119,7 +134,7 @@ class TaskGitHub(Protocol):
                            options: tuple[tuple[str, str, str], ...] = (),
                            iterations: tuple[tuple[str, str, int], ...] = ()) -> None: ...
     def task_records(self, repo: Path, *, closed: bool, board_id: str | None,
-                     number: int | None = None) -> list[TaskRecord]: ...
+                     number: int | None = None, every_board: bool = False) -> list[TaskRecord]: ...
     def board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem | None: ...
     def add_board_item(self, repo: Path, number: int, board_id: str) -> _board.BoardItem: ...
     def set_board_value(self, repo: Path, board_id: str, item_id: str, field: _board.BoardField, value: str) -> None: ...
@@ -472,12 +487,43 @@ class GhCli:
         nodes = ((data.get("repositoryOwner") or {}).get("projectsV2") or {}).get("nodes") or []
         return tuple(_board.BoardRef(n["url"], n.get("shortDescription") or "", bool(n.get("closed"))) for n in nodes)
 
-    def task_records(self, repo, *, closed, board_id, number=None):
-        """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。"""
-        items = (" projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }") if board_id else ""
-        fields = ("number title url state stateReason createdAt closedAt body parent { number } subIssuesSummary { total completed } "
-                  "issueDependenciesSummary { blockedBy blocking } milestone { title dueOn } "
-                  "assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }" + items)
+    def issue_details(self, repo, number):
+        """1件の詳細を GraphQL 1回で読む（Issue・ボードの値・コメント・親・子・依存。今まで gh を7回、3段に分けて待っていた）。
+        コメント等が1回で読み切れないときだけ、その分を読み足す。"""
+        refs = "pageInfo { hasNextPage } nodes { " + _REF + " }"
+        data = self._graphql(repo, """
+            query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
+              issue(number: $number) { """ + _TASK_FIELDS + _ITEMS + """
+                comments(first: 100) { pageInfo { hasNextPage } nodes { author { login } body } }
+                parent { """ + _REF + """ } subIssues(first: 100) { """ + refs + """ }
+                blockedBy(first: 100) { """ + refs + """ } blocking(first: 100) { """ + refs + """ } } } }""",
+                             number=number, **self._repo_vars(repo))
+        node = data["repository"]["issue"]
+        if node is None:
+            raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
+
+        def listed(key, more):
+            found = node.get(key) or {}
+            if (found.get("pageInfo") or {}).get("hasNextPage"):
+                return tuple(more(repo, number))
+            return tuple(_ref(n) for n in found.get("nodes") or [] if n)
+
+        comments = node.get("comments") or {}
+        if (comments.get("pageInfo") or {}).get("hasNextPage"):
+            comments = tuple(self.issue_comments(repo, number))
+        else:
+            comments = tuple(Comment((c.get("author") or {}).get("login", ""), c.get("body") or "")
+                             for c in comments.get("nodes") or [] if c)
+        record = _task_record(node, None, every_board=True)
+        return IssueDetails(replace(record, items=()), record.items, comments,
+                            None if not node.get("parent") else _ref(node["parent"]),
+                            listed("subIssues", self.sub_issues), listed("blockedBy", self.blocked_by),
+                            listed("blocking", self.blocking))
+
+    def task_records(self, repo, *, closed, board_id, number=None, every_board=False):
+        """タスクをまとめて読む（GraphQL：1ページ50件ごとに1回）。number を指定するとその1件だけ。
+        every_board：すべてのボードの値を items に読む（使うボードが分かる前に読み始めるため）。"""
+        fields = _TASK_FIELDS + (_ITEMS if board_id or every_board else "")
         if number is not None:
             data = self._graphql(repo, """
                 query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) {
@@ -485,7 +531,7 @@ class GhCli:
             node = data["repository"]["issue"]
             if node is None:
                 raise TaskError(ErrorCode.TASK_NOT_FOUND, f"Issue #{number} が見つかりません。")
-            return [_task_record(node, board_id)]
+            return [_task_record(node, board_id, every_board)]
         records, after = [], None
         while True:
             data = self._graphql(repo, """
@@ -494,7 +540,7 @@ class GhCli:
                     pageInfo { hasNextPage endCursor } nodes { """ + fields + " } } } }",
                                  states=None if closed else ["OPEN"], after=after, **self._repo_vars(repo))
             issues = data["repository"]["issues"]
-            records += [_task_record(node, board_id) for node in issues["nodes"]]
+            records += [_task_record(node, board_id, every_board) for node in issues["nodes"]]
             if not issues["pageInfo"]["hasNextPage"]:
                 return records
             after = issues["pageInfo"]["endCursor"]
@@ -731,8 +777,20 @@ _VALUES = ("fieldValues(first: 50) { nodes { "
            f"... on ProjectV2ItemFieldIterationValue {{ title {_FIELD_NAME} }} "
            "} }")
 
+# タスク1件として読むもの（_task_record）と、そのボードの項目
+_TASK_FIELDS = ("number title url state stateReason createdAt closedAt body parent { number } "
+                "subIssuesSummary { total completed } issueDependenciesSummary { blockedBy blocking } "
+                "milestone { title dueOn } assignees(first: 20) { nodes { login } } labels(first: 50) { nodes { name } }")
+_ITEMS = " projectItems(first: 20) { nodes { id project { id } " + _VALUES + " } }"
+# 親子・依存の相手として読むもの（_ref）
+_REF = "number title url state"
 
-def _task_record(node: dict, board_id: str | None) -> TaskRecord:
+
+def _ref(node: dict) -> IssueInfo:
+    return IssueInfo(node["number"], node["title"], node.get("url") or "", node["state"].lower())
+
+
+def _task_record(node: dict, board_id: str | None, every_board: bool = False) -> TaskRecord:
     sub, dep = node.get("subIssuesSummary") or {}, node.get("issueDependenciesSummary") or {}
     milestone = node.get("milestone") or {}
     issue = IssueInfo(node["number"], node["title"], node["url"], node["state"].lower(), node.get("body") or "",
@@ -742,10 +800,12 @@ def _task_record(node: dict, board_id: str | None) -> TaskRecord:
     relations = IssueRelations((node.get("parent") or {}).get("number"), sub.get("total", 0), sub.get("completed", 0),
                                dep.get("blockedBy", 0), dep.get("blocking", 0))
     reason = (node.get("stateReason") or "").lower() or None
-    item = None if not board_id else _board_item((node.get("projectItems") or {}).get("nodes") or [], board_id)
+    nodes = (node.get("projectItems") or {}).get("nodes") or []
+    item = None if not board_id else _board_item(nodes, board_id)
+    items = tuple((n["project"]["id"], _board_item([n], n["project"]["id"])) for n in nodes if n) if every_board else ()
     return TaskRecord(issue, relations, reason if issue.state == "closed" else None,
                       (milestone.get("dueOn") or "")[:10] or None, item, node.get("createdAt"),
-                      node.get("closedAt") if issue.state == "closed" else None)
+                      node.get("closedAt") if issue.state == "closed" else None, items)
 
 
 def _board_item(nodes: list, board_id: str) -> _board.BoardItem | None:

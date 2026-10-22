@@ -209,3 +209,41 @@ def test_remembered_board_is_read_with_the_board_list(remote_and_clone, monkeypa
     assert len(queries) == 3
     assert second.get_board(work, "o", 3).id == "P"   # 2回目（書いた後の読み直し）は聞き直す
     assert len(queries) == 4
+
+
+def _details_node(**changes):
+    ref = lambda n, state="OPEN": {"number": n, "title": f"t{n}", "url": f"u{n}", "state": state}
+    node = {"number": 7, "title": "x", "url": "u7", "state": "OPEN", "stateReason": None, "body": "本文",
+            "createdAt": "2026-10-01T00:00:00Z", "closedAt": None, "parent": ref(3),
+            "subIssuesSummary": {"total": 1, "completed": 0}, "issueDependenciesSummary": {"blockedBy": 1, "blocking": 0},
+            "milestone": None, "assignees": {"nodes": [{"login": "me"}]}, "labels": {"nodes": []},
+            "projectItems": {"nodes": [{"id": "I1", "project": {"id": "P1"}, "fieldValues": {"nodes": [
+                {"name": "In Progress", "field": {"name": "Status"}}]}}]},
+            "comments": {"pageInfo": {"hasNextPage": False}, "nodes": [{"author": {"login": "a"}, "body": "c"}]},
+            "subIssues": {"pageInfo": {"hasNextPage": False}, "nodes": [ref(8)]},
+            "blockedBy": {"pageInfo": {"hasNextPage": False}, "nodes": [ref(5, "CLOSED")]},
+            "blocking": {"pageInfo": {"hasNextPage": False}, "nodes": []}}
+    return {**node, **changes}
+
+
+def test_issue_details_reads_everything_in_one_query(monkeypatch, tmp_path):
+    """task status の詳細（Issue・ボードの値・コメント・親・子・依存）は GraphQL 1回（以前は gh を7回）。"""
+    recorder = Recorder({"api graphql": (0, json.dumps({"data": {"repository": {"issue": _details_node()}}}))})
+    monkeypatch.setattr(_process, "run", recorder)
+    details = _github.GhCli("o/r").issue_details(tmp_path, 7)
+    assert len(recorder.calls) == 1
+    assert details.record.issue.body == "本文" and details.record.relations.parent == 3
+    assert details.items[0][0] == "P1" and details.items[0][1].values == {"Status": "In Progress"}
+    assert details.comments == (_github.Comment("a", "c"),)
+    assert (details.parent.number, [i.number for i in details.sub_issues]) == (3, [8])
+    assert [(i.number, i.state) for i in details.blocked_by] == [(5, "closed")] and details.blocking == ()
+
+
+def test_issue_details_reads_the_rest_of_long_lists(monkeypatch, tmp_path):
+    """1回で読み切れないコメントだけ読み足す。"""
+    node = _details_node(comments={"pageInfo": {"hasNextPage": True}, "nodes": []})
+    recorder = Recorder({"api graphql": (0, json.dumps({"data": {"repository": {"issue": node}}})),
+                         "issue view": (0, json.dumps({"comments": [{"author": {"login": "b"}, "body": "d"}] * 101}))})
+    monkeypatch.setattr(_process, "run", recorder)
+    details = _github.GhCli("o/r").issue_details(tmp_path, 7)
+    assert len(details.comments) == 101 and len(recorder.calls) == 2

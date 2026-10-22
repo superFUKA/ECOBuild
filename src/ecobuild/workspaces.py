@@ -19,6 +19,7 @@ import json
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -164,10 +165,14 @@ def github_name(url: str) -> str | None:
     return match.group(1) if match else None
 
 
-def entries() -> list["WorkspaceEntry"]:
+def entries(*, locks: bool = True) -> list["WorkspaceEntry"]:
     """記録した作業空間の今の様子。リポジトリ順（同じリポジトリでは場所の順）。ECOBuild が自分で持つもの（own。前の版が
-    記録したもの）は出さない。"""
-    found = [entry(item) for item in recorded() if not own(item.path)]
+    記録したもの）は出さない。作業空間ごとに git を呼ぶので並べる（task status・list のたびに読む。順に待つと
+    十数の作業空間で約2秒）。locks=False：ロックの様子（拡張の調べ。WSL・docker で約0.5秒）を読まない。"""
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = list(pool.map(entry, [item for item in recorded() if not own(item.path)]))
+    if not locks:
+        return sorted(found, key=lambda e: ((e.repository or e.url or "~").casefold(), key(e.path)))
     existing = [e.path for e in found if e.exists]
     locks = dict(zip(map(key, existing), _locks.status_of(existing)))   # 拡張の調べ（docker 等）は、まとめて1回
     found = [replace(e, lock=locks[key(e.path)]) if e.exists else e for e in found]

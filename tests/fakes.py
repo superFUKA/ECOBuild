@@ -10,7 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from helpers import git
-from ecotask.github import TaskRecord
+from ecotask.github import IssueDetails, TaskRecord
 from ecowork.github import (Comment, IssueInfo, IssueRelations, MilestoneInfo, OwnedRepository, Review,
                             PullRequestActivity, PullRequestInfo, ReleaseInfo, RepositoryInfo, RunInfo)
 from ecotask.board import BoardField, BoardInfo, BoardItem, BoardOption, BoardRef
@@ -416,7 +416,7 @@ class FakeGitHub:
         return tuple(BoardRef(b.url, self.board_descriptions.get(b.id, ""), b.closed)
                      for b in self.boards.values() if name in b.repositories)
 
-    def task_records(self, repo, *, closed, board_id, number=None):
+    def task_records(self, repo, *, closed, board_id, number=None, every_board=False):
         numbers = [number] if number is not None else [n for n, i in self.issues.items() if closed or i.state == "open"]
         records = []
         for n in numbers:
@@ -426,8 +426,18 @@ class FakeGitHub:
             records.append(TaskRecord(issue, self.issue_relation(repo, n), reason,
                                       None if milestone is None else milestone.due,
                                       None if board_id is None else self.items.get((board_id, n)),
-                                      self.created_at.get(n), self.closed_at.get(n)))
+                                      self.created_at.get(n), self.closed_at.get(n),
+                                      tuple((b, item) for (b, i), item in self.items.items() if i == n)
+                                      if every_board else ()))
         return records
+
+    def issue_details(self, repo, number):
+        record = self.task_records(repo, closed=True, board_id=None, number=number)[0]
+        parent = self.parents.get(number)
+        return IssueDetails(record, tuple((board, item) for (board, n), item in self.items.items() if n == number),
+                            tuple(self.issue_comments(repo, number)),
+                            None if parent is None else self.issues[parent], tuple(self.sub_issues(repo, number)),
+                            tuple(self.blocked_by(repo, number)), tuple(self.blocking(repo, number)))
 
     def board_item(self, repo, number, board_id):
         self.get_issue(repo, number)

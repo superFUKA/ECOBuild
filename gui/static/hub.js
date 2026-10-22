@@ -478,9 +478,9 @@ async function loadRegistry() {
     : '人が起動できる登録がありません。作業空間の「エージェント」で起動するには、どれかの「人が起動できる」を選んでください。';
   list.innerHTML = found.map(r => `<li data-registration="${esc(r.name)}"><div><span class="item-name">${esc(r.title || r.name)}</span>
       <span class="registry-name">${esc(r.name)}</span><span class="registry-source" data-source="${esc(r.source)}">${esc(REGISTRY_SOURCES[r.source] || r.source)}</span>
-      <small>${[r.human_start ? '人が起動できる' : '人は起動しない',
-               r.children.length ? `起動してよい子：${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '子は起動しない',
-               `渡すツール：${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}`, `モデル：${esc(r.model || '既定')}`].join('<br>')}</small></div>
+      <dl class="registry-facts"><dt>起動</dt><dd>${r.human_start ? '人が起動できる' : '人は起動しない'}</dd>
+        <dt>子</dt><dd>${r.children.length ? `${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '起動しない'}</dd>
+        <dt>ツール</dt><dd>${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}</dd><dt>モデル</dt><dd>${esc(r.model || '既定')}</dd></dl></div>
     <span class="registry-actions"><button type="button" data-registry-edit>編集…</button>${r.source === 'user'
       ? '<button type="button" class="danger-text" data-registry-remove title="自分の登録を文書ごと消します（同じ名前の見本があれば、見本に戻ります）">消す</button>' : ''}</span></li>`).join('');
 }
@@ -579,8 +579,8 @@ async function loadSettings() {
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();
-  $('about').innerHTML = `ログイン中のGitHubアカウント：${esc(info.me || '（取得できませんでした）')}<br>使っている ecobuild：${esc((info.cli || []).join(' '))}`
-    + (info.cli_warning ? `<br><span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
+  $('about').innerHTML = `<dl class="about-facts"><dt>GitHub のアカウント</dt><dd>${esc(info.me || '（取得できませんでした）')}</dd><dt>使っている ecobuild</dt><dd><code>${esc((info.cli || []).join(' '))}</code></dd></dl>`
+    + (info.cli_warning ? `<span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
 }
 $('owner-form').addEventListener('submit', async event => {
   event.preventDefault();

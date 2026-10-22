@@ -315,3 +315,11 @@ main input:not([type=checkbox]):not([type=radio]), main select { padding: 6px 10
 body:has(#operator:not([hidden])) .eco-toasts { bottom: 96px; }
 /* Settings: a path or a long value reads as one value. */
 #about { overflow-wrap: anywhere; }
+/* Facts as label・value rows (as GitHub's settings lists), not lines joined with <br>. */
+.registry-facts, .about-facts { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 2px 12px; margin: 6px 0 0; font-size: 12px; color: #a5aeba; }
+.about-facts { grid-template-columns: 11em minmax(0, 1fr); font-size: 13px; margin-top: 4px; }
+.registry-facts dt, .about-facts dt { color: #84909e; }
+.registry-facts dd, .about-facts dd { margin: 0; overflow-wrap: anywhere; }
+.about-facts code { font: 12px Consolas, monospace; color: #cdd5df; }
+.registry-list .registry-actions button { border-color: #46515e; color: #edf1f5; }
+.registry-list .registry-actions button:hover { border-color: #9ee4d3; }

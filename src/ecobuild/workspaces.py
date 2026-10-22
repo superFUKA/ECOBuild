@@ -416,14 +416,15 @@ def _module_type(root: Path) -> str:
 
 
 def _default_branch(root: Path) -> str:
-    """タスクブランチの既定の作成元（ecobuild.toml の [module] default_base。なければ main）。"""
-    return str(_module_table(root).get("default_base") or "main")
+    """タスクブランチの既定の作成元（ecobuild.toml の [branches] default_base。なければ main。config.load と同じ）。"""
+    return str(_module_table(root, "branches").get("default_base") or "main")
 
 
-def _module_table(root: Path) -> dict:
+def _module_table(root: Path, name: str = "module") -> dict:
+    """ecobuild.toml の表 name（読めなければ空）。一覧では壊れたモジュールでも止めないので config.load を使わない。"""
     import tomllib
     try:
-        value = tomllib.loads((root / _config.FILE_NAME).read_text(encoding="utf-8")).get("module", {})
+        value = tomllib.loads((root / _config.FILE_NAME).read_text(encoding="utf-8")).get(name, {})
     except (OSError, tomllib.TOMLDecodeError):
         return {}
     return value if isinstance(value, dict) else {}

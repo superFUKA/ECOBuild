@@ -23,6 +23,12 @@ def test_help():
     assert "ecobuild" in result.output
 
 
+def test_container_help_tells_the_current_layout():
+    """container --help：worktree の作業空間は元の .git と自分の作業空間を /repo の下に、前の版の clone は /work に。"""
+    shown = CliRunner().invoke(build_cli(None), ["container", "--help"]).output
+    assert "/repo" in shown and "/work" in shown and "フォルダだけを /work" not in shown
+
+
 @pytest.mark.parametrize("module_type", TYPES)
 def test_short_help_is_not_cut(module_type):
     """一覧に出る説明（最初の段落）が長いと、Click が空白の位置で切って「...」にする（日本語では丸ごと消える）。

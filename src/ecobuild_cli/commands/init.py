@@ -8,7 +8,7 @@ from ecobuild_bundle import tooling
 from ecobuild.errors import EcoBuildError, ErrorCode
 from .. import _gui
 from .._module import PROGRAM
-from .._output import Invocation, execute, lines
+from .._output import Invocation, ask_confirm, ask_text, execute, lines
 
 
 class _Terminal(tooling.Questions):
@@ -19,12 +19,12 @@ class _Terminal(tooling.Questions):
         self.interactive = not yes
 
     def confirm(self, prompt: str, default: bool = True) -> bool:
-        return default if self.yes else click.confirm(prompt, default=default, err=True)
+        return default if self.yes else ask_confirm(prompt, default=default)
 
     def ask(self, prompt: str, default: str = "") -> str:
         if self.yes:
             return default
-        return click.prompt(prompt, default=default, show_default=bool(default), err=True)
+        return ask_text(prompt, default=default, show_default=bool(default))
 
     def info(self, message: str) -> None:
         click.echo(message, err=True)

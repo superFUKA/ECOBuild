@@ -24,6 +24,9 @@ def render_finish(r) -> str:
         f"手元の #{r.task} のタスクブランチを片付けました" + (f"（{r.switched_to} に移りました）" if r.switched_to else "")
         if r.removed else None,
         render_removed(r),
+        # 作業空間の中で実行した（呼んだシェルがその中にいる）等で消せなかった：後で消す方法
+        f"作業空間は後で消せます：残したわけ（使っているシェル・エディター等）を片付けてから、元の clone 等で "
+        f"ecobuild task prune --task {r.task}" if r.workspace_kept and not r.removed else None,
         ("承認して" if r.approved else "") + done,
         follow,
     )

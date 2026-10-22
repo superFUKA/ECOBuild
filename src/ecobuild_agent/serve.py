@@ -463,7 +463,17 @@ class Serve:
             module = self._module(record.root)
             result = plain(type(module).close_workspace(record.root))
         children.forget(record)
+        if not own and not any(self._agent_running(other) for other in agents.in_workspace(record.root)):
+            # 作業空間の最後のエージェントを閉じた：コンテナを止める（動いたままだとロックになり、finish が作業空間を残す）
+            children.stop_container(record.root, progress)
         return {"id": record.id, "name": record.name, "path": record.workspace, "workspace": result, "archive": kept}
+
+    def _agent_running(self, record: agents.AgentRecord) -> bool:
+        """エージェントが動いているか（係が持っている・動かしているプロセスがある）。"""
+        if self.apps is not None and self.apps.holds(record.id):
+            return True
+        folder = agent_status.directory(record.id)
+        return folder is not None and agent_status.running_pid(folder) is not None
 
     # ---- 止める・引き取る ------------------------------------------------------------------------------------
     def _stop_agent(self, record: agents.AgentRecord, progress: Callable[[str], None] = lambda line: None) -> bool:

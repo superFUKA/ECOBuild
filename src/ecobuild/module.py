@@ -142,7 +142,8 @@ class _TypeHooks(Hooks):
 
     def remove_workspace(self, repository: Repository, path: Path, *, discard: bool) -> bool:
         # タスクブランチを消す前に、それを取り出している作業空間を消す（ecowork が、失われるコミット・コミットしていない
-        # 変更を確かめた後）。管理するファイルに当たる新しいファイルは、discard でなければ残す（消えてしまうため）。
+        # 変更を確かめた後）。新しいファイル（未追跡で .gitignore で除外していないもの。管理するファイルの対象外も）が
+        # あれば、discard でなければ残す（作業空間ごと消えてしまうため）。
         # ECOBuild の置き場所（.ecobuild/ の中）の作業空間でなければ（人が git worktree で作ったもの等）触らない：ブランチは残る
         if not _workspaces.is_managed(path):
             raise EcoBuildError(ErrorCode.BRANCH_CHECKED_OUT,
@@ -151,14 +152,25 @@ class _TypeHooks(Hooks):
                                      "片付けてください。")
         if not discard:
             other = self._module._open_workspace(Path(path))
-            pending = [p for p in other.repository.git.working_tree().untracked if other.is_tracked(p)]
+            # 作業空間の中の依存先の clone（deps/<名前> 等。.gitignore で除外しているので ecowork からは見えない）に、
+            # 手元にだけある変更・コミット・退避があれば消さない（ecowork は作業空間とタスクブランチを残して知らせる）
+            other._check_nothing_unpushed(include_self=False)
+            # 除外していない入れ子の clone（git が「名前/」と見せる）は、上で確かめた依存先の clone と同じに扱う
+            untracked = [p for p in other.repository.git.working_tree().untracked
+                         if not (p.endswith("/") and (Path(path) / p / ".git").exists())]
+            pending = [p for p in untracked if other.is_tracked(p)]
             if pending:
                 raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"作業空間 {path} に、コミットしていない新しいファイルがあります。",
                                     hint=f"{self._module.op('task commit')} で記録するか、要らなければ消してから、もう一度実行してください。",
                                     details=pending)
-            # 作業空間の中の依存先の clone（deps/<名前> 等。.gitignore で除外しているので ecowork からは見えない）に、
-            # 手元にだけある変更・コミット・退避があれば消さない（ecowork は作業空間とタスクブランチを残して知らせる）
-            other._check_nothing_unpushed(include_self=False)
+            if untracked:
+                raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE,
+                                    f"作業空間 {path} に、管理するファイルの対象外の新しいファイルがあります"
+                                    f"（{'、'.join(untracked[:5])}{' 等' if len(untracked) > 5 else ''}）。",
+                                    hint="要るなら作業空間の外へ移すか、"
+                                         f"{self._module.op('track')} で管理に入れて記録し、要らなければ消してから、"
+                                         "もう一度実行してください。",
+                                    details=untracked)
         type(self._module).close_workspace(path, discard_local=True, github=repository.github)
         return True
 

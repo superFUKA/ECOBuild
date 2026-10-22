@@ -24,9 +24,10 @@ def cli(module, monkeypatch):
     return invoke
 
 
-def test_diff_lists_files_with_counts(cli, module):
-    root = module.root
-    assert cli("task", "new", "差分", "--start", "--name", "差分").exit_code == 0
+def test_diff_lists_files_with_counts(cli, module, monkeypatch):
+    started = json.loads(cli("task", "new", "差分", "--start", "--name", "差分", "--json").stdout)["result"]
+    root = module.root / ".ecobuild" / "w" / str(started["task"]["number"])   # 作業は作業空間で
+    monkeypatch.chdir(root)
     write(root / "src" / "a.txt", "1\n2\n")
     write(root / "docs" / "b.md", "b\n")
     git(root, "rm", "--quiet", "README.md")

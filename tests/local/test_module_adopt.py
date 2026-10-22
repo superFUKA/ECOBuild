@@ -85,16 +85,14 @@ def test_the_current_branch_becomes_the_base(plain):
 
 
 def test_new_workspaces_take_out_the_base(plain, tmp_path):
-    """GitHub の既定のブランチ（main）にモジュールがなくても、新しい作業空間は作成元（develop）を取り出す。"""
+    """GitHub の既定のブランチ（main）にモジュールがなくても、作業空間のタスクブランチは作成元（develop）から作る。"""
     work, github = plain
     git(work, "switch", "--quiet", "-c", "develop")
     git(work, "push", "--quiet", "origin", "develop")
     module, _ = Module.adopt(work, type="generic", github=github)
-    other, _ = module.create_workspace(tmp_path / "ws")
-    assert other.repository.git.current_branch() == "develop" and other.config.default_base == "develop"
     task = module.repository.create_task("並行作業")
-    started = module.start_task_in(task.number, tmp_path / "ws-1")
-    assert started.repository.current_task_branch().base == "develop"
+    started = module.start_task(task.number)
+    assert started.repository.current_task_branch().base == "develop" and started.config.default_base == "develop"
     # モジュールでないブランチ（main）は一覧に印が付き、タスクブランチの作成元にはできない（移るとモジュールでなくなる）
     branches = {b.name: b for b in module.repository.branches()}
     assert branches["main"].unusable and branches["develop"].unusable is None
@@ -104,25 +102,24 @@ def test_new_workspaces_take_out_the_base(plain, tmp_path):
 
 
 def test_a_workspace_never_opens_the_module_around_it(plain, tmp_path):
-    """作業空間は、作成元を指定して clone し、clone した場所そのものを開く。作業空間を外のモジュールの中（進行役の
-    .ecobuild/ai/team 等）に作っても、外のモジュールを開いてそのブランチを変えない（GitHub の既定のブランチ main に
-    モジュールがない ECOBuild 自身で起きた事故）。"""
+    """作業空間は元の clone の中（.ecobuild/w/<番号>）に作り、その場所そのものを開く。外のモジュール（元の clone）を
+    開いてそのブランチを変えない（GitHub の既定のブランチ main にモジュールがない ECOBuild 自身で起きた事故）。"""
     work, github = plain
     git(work, "push", "--quiet", "origin", "main:plain")   # モジュールでないブランチ
     git(work, "switch", "--quiet", "-c", "develop")
     git(work, "push", "--quiet", "origin", "develop")
     module, _ = Module.adopt(work, type="generic", github=github)
-    inside = work / ".ecobuild" / "ai" / "team"
+    area = work.resolve() / ".ecobuild" / "w"
     task = module.repository.create_task("中に作る")
-    started = module.start_task_in(task.number, inside / "1-develop")
-    assert started.root == (inside / "1-develop").resolve() and started.repository.current_task_branch().base == "develop"
-    # 作成元にモジュールがなければ、外のモジュールを開かずに止め、作りかけを残さない
+    started = module.start_task(task.number)
+    assert started.root == area / str(task.number) and started.repository.current_task_branch().base == "develop"
+    # 作成元にモジュールがなければ、作業空間を作らずに止める
     other = module.repository.create_task("モジュールでない作成元")
-    assert code_of(lambda: module.start_task_in(other.number, inside / "2-plain", base="plain")) == ErrorCode.NOT_IN_MODULE
-    assert not (inside / "2-plain").exists()
-    # 作成元が GitHub になければ、既定のブランチで代えずに止める（clone もしない）
-    assert code_of(lambda: module.start_task_in(other.number, inside / "3-none", base="none")) == "branch_not_found"
-    assert not (inside / "3-none").exists()
+    assert code_of(lambda: module.start_task(other.number, base="plain")) == "invalid_base"
+    assert not (area / str(other.number)).exists()
+    # 作成元が GitHub になければ、既定のブランチで代えずに止める（作業空間も作らない）
+    assert code_of(lambda: module.start_task(other.number, base="none")) == "branch_not_found"
+    assert not (area / str(other.number)).exists()
     assert git(work, "branch", "--show-current").strip() == "develop"   # 外のモジュールのブランチは変わらない
 
 

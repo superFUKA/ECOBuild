@@ -151,7 +151,7 @@ function renderBanners(errorDoc) {
     if (ECO.lockOf(s).locked) out.push(banner(`この作業空間はロックされています（${esc(ECO.lockSummary(ECO.lockOf(s)))}）。ロック中は、タスクブランチの切り替え・削除ができません。<button data-git="lock">ロックの詳細…</button>`));
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
-    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクなら見出しの横のブランチからその作業空間を開き、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks">タスク管理を開く</button>`));
+    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクはツールバーのブランチ（⑂ のボタン）から開き、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
@@ -170,9 +170,9 @@ function renderBanners(errorDoc) {
   get('commit-panel').hidden = !working && !s.merging;
   get('share-panel').hidden = !working;
   get('prs-panel').hidden = !working;
-  // On a task branch the tabs (コミット・Push・提出) say what this is: the heading is only for screen readers then.
+  // The tabs (コミット・Push・提出) or the banners say what this is: the heading is only for screen readers.
   get('changes-title').textContent = working ? 'コミット・Push・提出・ログ' : '作業空間';
-  get('changes-title').classList.toggle('visually-hidden', !!working);
+  get('changes-title').classList.add('visually-hidden');
   renderTabs();
 }
 
@@ -345,7 +345,6 @@ async function renderPushList() {
   if (mine !== pushListRead) return;   // a newer status came meanwhile
   const commits = doc.ok ? doc.result.commits : [];
   box.hidden = !commits.length;
-  get('push-commits-title').textContent = `Pushするコミット（${commits.length}件、新しい順）`;
   get('push-commits-list').innerHTML = commits.map((c, i) => {
     const [sha, ...subject] = c.split(' ');
     return `<li class="push-commit${sha === chosenPushCommit ? ' chosen' : ''}" tabindex="0" data-sha="${esc(sha)}" data-index="${i}" title="ダブルクリックで変更を見る・右クリックで操作"><code>${esc(sha)}</code><span class="push-commit-subject">${esc(subject.join(' '))}</span><button type="button" class="push-commit-more" aria-label="操作" title="操作">⋯</button></li>`;
@@ -438,9 +437,12 @@ get('switch-branch').addEventListener('click', async () => {
   if (!doc.ok) return ECO.showError(doc);
   const here = keyOf(WS.dir), notEmbedded = 'モジュールの窓の中で開いたときだけ選べます';
   const started = doc.result.filter(t => t.state === 'open' && (t.current || t.task_branch || t.remote || t.workspace));
+  // This workspace's task: the one checked out here (current); by its folder only when none is (an old task's record
+  // may name the module's own folder).
+  const anyCurrent = started.some(t => t.current), isHere = t => t.current || (!anyCurrent && !!t.workspace && keyOf(t.workspace) === here);
   const items = started.map(t => {
     const label = `#${t.number} ${t.title}`;
-    if (t.current || (t.workspace && keyOf(t.workspace) === here)) return [`✓ ${label}（この作業空間）`, () => {}, false];
+    if (isHere(t)) return [`✓ ${label}（この作業空間）`, () => {}, false];
     if (t.workspace) {
       return [`${label}（作業空間 ${t.workspace.split(/[\\/]/).pop()}）`, () => window.parent.postMessage({type: 'open-place', dir: t.workspace}, location.origin),
         embedded, embedded ? `その作業空間のタブを表示します（${t.workspace}）` : notEmbedded];
@@ -453,7 +455,7 @@ get('switch-branch').addEventListener('click', async () => {
   ECO.menu([
     ['タスクの作業空間を開く', null],
     ...items,
-    ...(started.some(t => !(t.current || (t.workspace && keyOf(t.workspace) === here))) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
+    ...(started.some(t => !isHere(t)) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
     ...(embedded ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
   ], r.left, r.bottom + 4);
 });

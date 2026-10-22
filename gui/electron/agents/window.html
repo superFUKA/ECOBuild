@@ -10,15 +10,26 @@
 <body>
   <header class="bar">
     <nav class="tabs" id="tabs" role="tablist" aria-label="エージェント"></nav>
-    <button type="button" id="add" class="icon" title="作業空間のエージェントを開く" aria-label="エージェントを開く">＋</button>
-    <button type="button" id="picker" class="icon" title="タブの一覧から選ぶ（Ctrl+Shift+A）" aria-label="タブの一覧">☰</button>
-    <button type="button" id="voice" class="icon" title="音声入力：録音の開始・停止（Ctrl+Alt+V。ほかのアプリを使っていても効きます）。送るのは Ctrl+Alt+↓、消すのは Ctrl+Alt+↑" aria-label="音声入力">🎙</button>
-    <button type="button" id="topmost" class="topmost" data-mode="always" title="最前面：常に">📌 常に</button>
-    <button type="button" id="settings" class="icon" title="設定（知らせ方・リング）" aria-label="設定">⚙</button>
-    <button type="button" id="minimize" class="icon" title="最小化（右下の小さな表示になります）" aria-label="最小化">–</button>
-    <button type="button" id="close" class="icon close" title="この窓を閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる">×</button>
+    <span class="group">
+      <button type="button" id="add" class="icon" title="作業空間のエージェントを開く" aria-label="エージェントを開く"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5v11M2.5 8h11"/></svg></button>
+      <button type="button" id="picker" class="icon" title="タブの一覧から選ぶ（Ctrl+Shift+A）" aria-label="タブの一覧"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4h7.5M6 8h7.5M6 12h7.5M2.5 4h.5M2.5 8h.5M2.5 12h.5"/></svg></button>
+    </span>
+    <span class="spacer"></span>
+    <span class="group">
+      <button type="button" id="voice" class="icon" title="音声入力：録音の開始・停止（Ctrl+Alt+V。ほかのアプリを使っていても効きます）。送るのは Ctrl+Alt+↓、消すのは Ctrl+Alt+↑" aria-label="音声入力"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="8" rx="2.5"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"/></svg></button>
+      <button type="button" id="topmost" class="topmost" data-mode="always" title="最前面：常に"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1.5h6M6 1.5v4.5L3.5 9h9L10 6V1.5M8 9v5.5"/></svg><span class="label">常に</span></button>
+      <button type="button" id="settings" class="icon" title="設定（知らせ方・リング）" aria-label="設定"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/><circle cx="8" cy="8" r="4.3"/></svg></button>
+    </span>
+    <span class="group window">
+      <button type="button" id="minimize" class="icon" title="最小化（右下の小さな表示になります）" aria-label="最小化"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9"/></svg></button>
+      <button type="button" id="close" class="icon close" title="この窓を閉じる（タブはほかの窓へ移ります。最後の窓ならエージェントも終わります）" aria-label="閉じる"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button>
+    </span>
   </header>
-  <main id="screens"><p class="empty" id="empty">エージェントはありません。＋ か、作業空間の「エージェント」から開きます。</p>
+  <main id="screens"><div class="empty" id="empty"><div>
+      <p>エージェントはありません。<br>下のボタン（ヘッダーの ＋ と同じ）か、作業空間の「エージェント」から開きます。</p>
+      <button type="button" id="empty-add" class="tool">＋ エージェントを開く</button>
+      <p class="hint"><kbd>Ctrl+Shift+A</kbd> タブの一覧</p>
+    </div></div>
     <section class="team" id="team" hidden aria-label="チーム（AI が起動した子）">
       <div class="team-bar">
         <span class="views" id="team-views" role="tablist" aria-label="見方">
@@ -41,12 +52,13 @@
   <div class="menu" id="menu" role="menu" hidden></div>
 
   <section class="panel" id="picker-panel" hidden aria-label="タブの一覧">
+    <div class="head"><h2>タブの一覧</h2></div>
     <ol id="picker-list"></ol>
     <p class="note">クリック・数字キー・↑↓ と Enter で選ぶ。Esc で閉じる</p>
   </section>
 
   <section class="panel" id="settings-panel" hidden aria-label="設定">
-    <div class="head"><button type="button" id="settings-close" class="icon" title="閉じる（Esc）" aria-label="閉じる">×</button></div>
+    <div class="head"><h2>設定</h2><button type="button" id="settings-close" class="icon" title="閉じる（Esc）" aria-label="閉じる"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
     <div class="card">
       <h2>返答の知らせ方</h2>
       <div class="choices" id="notify-style">
@@ -55,7 +67,7 @@
         <label><input type="radio" name="style" value="off">知らせない（最小化中は右下に出します）</label>
       </div>
       <div class="row"><span>音</span><select id="notify-sound"></select><button type="button" id="notify-test" class="tool">試す</button></div>
-      <div class="row"><span>音量</span><input type="range" id="notify-volume" min="0" max="1" step="0.05"></div>
+      <div class="row"><span>音量</span><input type="range" id="notify-volume" min="0" max="1" step="0.05"><output id="notify-volume-value" for="notify-volume"></output></div>
       <div class="row"><span>右下に返答を出しておく時間</span><select id="notify-hold"></select></div>
       <div class="row"><label><input type="checkbox" id="notify-team">AI が起動した子（チーム）の返答の終わりも知らせる</label></div>
       <p class="note">子の返答の終わりは親のエージェントに届くので、ふだんは知らせません。</p>
@@ -68,20 +80,20 @@
     <div class="card persona">
       <h2>アイコンと話し方</h2>
       <div class="who" data-kind="operator">
-        <img class="avatar big" alt=""><div class="fields">
+        <img class="avatar big" alt="" title="画像を選ぶ"><div class="fields">
           <div class="row"><b>オペレーター</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
           <textarea rows="3" placeholder="話し方・答え方（例：やさしい敬語で、短く。結果は最初に一言で）"></textarea>
           <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
         </div>
       </div>
       <div class="who" data-kind="agent">
-        <img class="avatar big" alt=""><div class="fields">
+        <img class="avatar big" alt="" title="画像を選ぶ"><div class="fields">
           <div class="row"><b>作業用のエージェント</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
           <textarea rows="3" placeholder="話し方・答え方（例：報告は箇条書きで）"></textarea>
           <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
         </div>
       </div>
-      <p class="note">話し方は、次に起動したエージェントから効きます（口調・言い回しだけ。決まりや確認、報告の中身は変わりません）。ECOBuild の設定 operator_style・agent_style です。</p>
+      <p class="note">話し方は、次に起動したエージェントから効きます（口調・言い回しだけ。決まりや確認、報告の中身は変わりません）。ECOBuild の設定 <code>operator_style</code>・<code>agent_style</code> です。</p>
     </div>
     <div class="card">
       <h2>リング（Ring II）</h2>

@@ -83,3 +83,36 @@ header { padding: 10px 16px; }
 .nav-account-role { flex: none; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #cdd5df; font-size: 11px; line-height: 18px; }
 .module-shell.nav-collapsed .nav-account-role { display: none; }
 .tabs [role=tab] .lock-mark { margin-left: 5px; font-size: 11px; color: #f0d98c; }
+/* The account in two lines (name, then the role), so the name is not cut to "su…". */
+.module-shell:not(.nav-collapsed) .nav-account { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: center; }
+.module-shell:not(.nav-collapsed) .nav-avatar { grid-row: span 2; }
+.module-shell:not(.nav-collapsed) .nav-account-role { justify-self: start; font-size: 10px; line-height: 15px; padding: 0 5px; }
+/* The band under the top bar (the module's folder is off its default branch). */
+.eco-banner.root-band { display: flex; align-items: center; gap: 10px; margin: 0; border-width: 0 0 1px; border-radius: 0; padding: 6px 16px; }
+.root-band span { flex: 1; }
+.root-band .root-band-close { margin: 0; padding: 0 6px; border: 0; background: transparent; color: inherit; font-size: 16px; cursor: pointer; opacity: .7; }
+.root-band .root-band-close:hover { opacity: 1; }
+/* A workspace tab is one box with its × (as VS Code's and Chrome's); × only on the chosen tab and under the pointer. */
+.tabs .workspace-tab-group { border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; }
+.tabs .workspace-tab-group:hover { background: #1f262d; }
+.tabs .workspace-tab-group:has([aria-selected=true]) { background: #232c32; border-color: #35443e; border-bottom-color: #9ee4d3; }
+.tabs .workspace-tab-group > [role=tab], .tabs .workspace-tab-group > [role=tab][aria-selected=true] { border-color: transparent; background: transparent; }
+.workspace-tab-group:not(:hover):not(:has([aria-selected=true])) .close-workspace-tab { visibility: hidden; }
+.add-workspace-tab { display: grid; place-items: center; color: #a5aeba; }
+.add-workspace-tab:hover { color: #edf1f5; background: #252d36; }
+.workspace-tab-bar[hidden] { display: none; }
+/* No workspace shown: a short page in the middle (as GitHub Desktop's empty pages). */
+.empty-workspaces { max-width: 520px; margin: 12vh auto 0; padding: 24px; text-align: center; color: #a5aeba; }
+.empty-workspaces > svg { color: #46515e; }
+.empty-workspaces h2 { margin: 8px 0 6px; font-size: 16px; color: #edf1f5; }
+.empty-workspaces .empty-actions { display: flex; gap: 8px; justify-content: center; margin: 14px 0 10px; }
+.empty-workspaces .empty-actions button { margin: 0; }
+.empty-workspaces button.primary { background: #9ee4d3; color: #17332c; border-color: #9ee4d3; font-weight: 600; }
+.empty-workspaces details { margin-top: 8px; font-size: 12px; text-align: left; }
+.empty-workspaces summary { cursor: pointer; text-align: center; color: #84909e; }
+/* The workspace list: the folder's removal in red, the shown one marked. */
+.workspace-picker .picker-row { align-items: stretch; }
+.workspace-picker .picker-remove { flex: none; background: transparent; border-color: #5e3f45; color: #ffb4b4; }
+.workspace-picker .picker-remove:hover { background: #2b1a1d; }
+.workspace-picker .picker-shown { margin-left: 8px; padding: 0 7px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 11px; }
+.workspace-picker h2 { margin: 0 0 6px; font-size: 18px; }

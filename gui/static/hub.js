@@ -78,7 +78,7 @@ function renderArchived() {
             path: local[0]?.path || '', exists: local.length > 0};
   });
   $('archived-modules').hidden = !archived.length;
-  $('archived-count').textContent = `（${archived.length}）`;
+  $('archived-count').textContent = archived.length;
   $('archived-list').innerHTML = archived.map((m, i) => `<li><div><strong>${esc(m.repository)}</strong>${m.description ? `<small>${esc(m.description)}</small>` : ''}
       ${m.clones.map(c => `<small>このPC：${esc(c.path)}</small>`).join('')}</div>
       <span class="archived-actions">${m.exists ? `<button type="button" data-archived="folder" data-i="${i}">フォルダを開く</button>` : ''}<button type="button" data-archived="unarchive" data-i="${i}">解除</button><button type="button" class="danger-text" data-archived="delete" data-i="${i}">削除…</button></span></li>`).join('');
@@ -131,27 +131,46 @@ function renderModules() {
   const list = $('module-list');
   $('no-active-modules').hidden = modules.length > 0 || !archived.length;
   if (!modules.length) {
-    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubからの取得・手元のフォルダの登録ができます。</li>';
+    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubから取得・手元のフォルダを登録・リポジトリをモジュールに、の4つの方法で追加できます。</li>';
     return;
   }
   // A heading per type (in the order the types first come in the list; a module whose type is not known goes last).
   const types = [...new Set(modules.map(m => m.type || ''))].sort((a, b) => (a === '') - (b === ''));
   const card = (m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" data-type="${esc(m.type || '')}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
-    <a role="link" tabindex="0" data-open="${i}"><span class="module-icon" aria-hidden="true">${esc((m.name[0] || '?').toUpperCase())}</span><span class="module-name">${esc(m.name)}</span>
-    ${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}<span class="module-open">開発環境を開く<span aria-hidden="true">↗</span></span></a>
+    <a role="link" tabindex="0" data-open="${i}"><span class="module-icon c${hueOf(m.name)}" aria-hidden="true">${esc(initialsOf(m.name))}</span>
+    <span class="module-text"><span class="module-name">${esc(m.name)}${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}</span>
+    <span class="module-path">${esc(m.repository || m.path)}</span></span><span class="module-go" aria-hidden="true">↗</span></a>
     <button type="button" class="module-menu" data-menu="${i}" aria-label="${esc(m.name)} の操作" title="操作">⋯</button></li>`;
   list.innerHTML = types.map(type => {
     const members = modules.map((m, i) => [m, i]).filter(([m]) => (m.type || '') === type);
     return `<li class="module-type-head" role="presentation"><h3>${esc(type ? typeLabel(type) : '型が分からないもの')}</h3><span>${members.length}</span></li>${members.map(([m, i]) => card(m, i)).join('')}`;
   }).join('');
 }
+// The card's icon: a colour from the name (stays when the list is reordered) and two letters after the prefix many
+// modules share (ECOSTL・ECOCppLogger → ST・CL, not E・E).
+const hueOf = name => [...name].reduce((h, c) => (h * 33 + c.charCodeAt(0)) >>> 0, 5381) % 6;
+function initialsOf(name) {
+  const lower = name.toLowerCase();
+  let rest = name;
+  for (const other of modules) {
+    if (other.name === name) continue;
+    let n = 0; const o = other.name.toLowerCase();
+    while (n < lower.length && lower[n] === o[n]) n++;
+    // Cut only at a word boundary (ECO|Bot, not ECOB|ot) and keep something after it.
+    while (n >= 2 && !(n < name.length && /[A-Z0-9_\-. ]/.test(name[n]))) n--;
+    if (n >= 2 && name.length - n < rest.length) rest = name.slice(n);
+  }
+  rest = rest.replace(/^[_\-. ]+/, '') || name;
+  const second = rest.slice(1).match(/[A-Z0-9]/)?.[0] || rest[1] || '';
+  return (rest[0] || '?').toUpperCase() + second;
+}
 // The workspaces the previous version made (clones of their own): shown apart, to be closed (workspace close; it stops
 // when something there is not on GitHub). Work is now done in workspaces inside the module (.ecobuild/w/).
 function renderLegacy() {
   const box = $('legacy-workspaces'); if (!box) return;
   box.hidden = !legacy.length;
-  $('legacy-count').textContent = `（${legacy.length}）`;
-  $('legacy-list').innerHTML = legacy.map((c, i) => `<li><div><strong>${esc(c.path)}</strong><small>${esc(cloneRepository(c) || '（GitHubのリポジトリなし）')}${!c.exists ? '・フォルダが見つかりません' : c.task != null ? `・タスク #${c.task}（${esc(c.branch || '')}）` : c.branch ? '・' + esc(c.branch) : ''}</small></div>
+  $('legacy-count').textContent = legacy.length;
+  $('legacy-list').innerHTML = legacy.map((c, i) => `<li><div><strong>${esc(cloneRepository(c) || '（GitHubのリポジトリなし）')}${!c.exists ? '・フォルダが見つかりません' : c.task != null ? `・タスク #${c.task}` : c.branch ? '・' + esc(c.branch) : ''}</strong><small class="legacy-path">${esc(c.path)}${c.task != null && c.branch ? `（${esc(c.branch)}）` : ''}</small></div>
       <span class="archived-actions">${c.exists ? `<button type="button" data-legacy="folder" data-i="${i}">フォルダを開く</button><button type="button" class="danger-text" data-legacy="close" data-i="${i}">閉じる…</button>` : `<button type="button" data-legacy="forget" data-i="${i}">一覧から外す</button>`}</span></li>`).join('');
 }
 $('legacy-list').addEventListener('click', async event => {
@@ -176,7 +195,7 @@ async function forgetModule(m, reason = '') {
 }
 $('module-list').addEventListener('click', async event => {
   const more = event.target.closest('[data-menu]');
-  if (more) { const r = more.getBoundingClientRect(); moduleMenu(modules[Number(more.dataset.menu)], r.right - 240, r.bottom + 4); return; }
+  if (more) { const r = more.getBoundingClientRect(); moduleMenu(modules[Number(more.dataset.menu)], r.right, r.bottom + 4, {right: true}); return; }
   const open = event.target.closest('[data-open]');
   if (open) { const m = modules[Number(open.dataset.open)]; if (m.notClone) putAwayModule(m); else if (m.exists) openModule(m.path); else forgetModule(m, `フォルダ ${m.path} が見つかりません（移動・削除された等）。移動した場合は、移動先を「＋ モジュール追加」の「手元のフォルダを登録」で登録してください。`); }
 });
@@ -215,8 +234,16 @@ function updateFields() {
   // A library: whether its test is made too (module new --no-test when not).
   const library = kinds.length > 0 && LIBRARY_KINDS.includes(select.value);
   $('test-field').hidden = !library; field('test').disabled = !library;
+  showDestination();
   $('test-label').textContent = type === 'cpp' ? `テスト用のProject（${field('project').value.trim() || field('name').value.trim() || '名前'}Test）も作る` : 'テスト（tests/）も作る';
 }
+// Where the new folder goes, shown before it is made (as GitHub's new repository page shows owner / name).
+function showDestination() {
+  const method = addForm.querySelector('[name=method]:checked').value, parent = field('directory').value.trim().replace(/[\\/]+$/, '');
+  const name = method === 'new' ? field('name').value.trim() : (field('repository').value.trim().split('/').pop() || '');
+  $('parent-note').textContent = parent && name ? `作成先：${parent}/${name}` : 'このフォルダの下にモジュール名のフォルダを作ります。';
+}
+addForm.addEventListener('input', event => { if (['directory', 'name', 'repository'].includes(event.target.name)) showDestination(); });
 // module new --kind: the CLI's value and what it makes.
 const FALLBACK_KINDS = {cpp: ['app', 'library', 'shared', 'none'], python: ['app', 'library', 'none']};
 const LIBRARY_KINDS = ['library', 'shared'];   // made with their test (module new --no-test when not)
@@ -233,7 +260,7 @@ $('add-module').addEventListener('click', async () => {
     const doc = await ECO.cli(null, ['module', 'types'], {quiet: true});
     if (doc.ok) {
       types = doc.result; delete $('kind-select').dataset.type;
-      for (const id of ['type-select', 'adopt-type-select']) $(id).innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(t.name)}</option>`).join('');
+      for (const id of ['type-select', 'adopt-type-select']) $(id).innerHTML = types.map(t => `<option value="${esc(t.name)}">${esc(typeLabel(t.name))}</option>`).join('');
       updateFields();
     }
   }
@@ -251,7 +278,7 @@ function renderCloneCandidates() {
 }
 $('clone-candidates').addEventListener('click', event => {
   const pick = event.target.closest('[data-candidate]'); if (!pick) return;
-  field('repository').value = pick.dataset.candidate;
+  field('repository').value = pick.dataset.candidate; showDestination();
   for (const b of $('clone-candidates').querySelectorAll('[data-candidate]')) b.classList.toggle('selected', b === pick);
 });
 addForm.addEventListener('change', updateFields);
@@ -259,7 +286,7 @@ addForm.addEventListener('input', e => { if (e.target.name === 'name' || e.targe
 addForm.addEventListener('click', async event => {
   const pick = event.target.closest('[data-pick]'); if (!pick) return;
   const input = field(pick.dataset.pick);
-  try { const {path} = await ECO.call('pick-folder', {title: 'フォルダを選ぶ', initial: input.value}); if (path) input.value = path; } catch (e) { ECO.toast(e.message, 'bad'); }
+  try { const {path} = await ECO.call('pick-folder', {title: 'フォルダを選ぶ', initial: input.value}); if (path) { input.value = path; showDestination(); } } catch (e) { ECO.toast(e.message, 'bad'); }
 });
 addForm.addEventListener('submit', async event => {
   event.preventDefault();
@@ -375,8 +402,9 @@ async function loadImages(doc = null) {
       env ? `環境 ${esc(env.name.split(':')[1])}` : '',
       used.length ? '使っている作業空間：' + esc(used.map(folder).join('、')) : '',
       older.length ? `古いもの ${older.length} 個（${older.map(i => esc(i.size)).join('・')}${older.some(i => i.used_by.length) ? '。使用中のものは、そのコンテナを次に動かすときに入れ替わります' : ''}）` : ''].filter(Boolean);
-    return `<li><span class="type">${esc(module)}</span><span class="img-tag" title="${esc(now?.name || '')}">${now ? esc(now.name.split(':')[1]) : '—'}</span>
-      <span class="${now ? 'ok' : 'missing'}">${now ? '今の作り方' : '古いものだけ'}</span>${parts.length ? `<small>${parts.join('　')}</small>` : ''}</li>`;
+    // No image yet is the usual state (made when a container first runs): quiet, not a warning.
+    return `<li><span class="type">${esc(module)}</span><span class="img-tag" title="${esc(now?.name || '')}">${now ? esc(now.name.split(':')[1]) : ''}</span>
+      <span class="${now ? 'ok' : older.length ? 'missing' : 'muted'}">${now ? '今の作り方' : older.length ? '古いものだけ' : 'まだ作っていません'}</span>${parts.length ? `<small>${parts.join('　')}</small>` : ''}</li>`;
   }).join('');
 }
 
@@ -450,9 +478,9 @@ async function loadRegistry() {
     : '人が起動できる登録がありません。作業空間の「エージェント」で起動するには、どれかの「人が起動できる」を選んでください。';
   list.innerHTML = found.map(r => `<li data-registration="${esc(r.name)}"><div><span class="item-name">${esc(r.title || r.name)}</span>
       <span class="registry-name">${esc(r.name)}</span><span class="registry-source" data-source="${esc(r.source)}">${esc(REGISTRY_SOURCES[r.source] || r.source)}</span>
-      <small>${[r.human_start ? '人が起動できる' : '人は起動しない',
-               r.children.length ? `起動してよい子：${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '子は起動しない',
-               `渡すツール：${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}`, `モデル：${esc(r.model || '既定')}`].join('<br>')}</small></div>
+      <dl class="registry-facts"><dt>起動</dt><dd>${r.human_start ? '人が起動できる' : '人は起動しない'}</dd>
+        <dt>子</dt><dd>${r.children.length ? `${esc(r.children.join('・'))}（同時に ${r.max_children} 人まで）` : '起動しない'}</dd>
+        <dt>ツール</dt><dd>${r.tools.length ? esc(r.tools.join(', ')) : 'なし'}</dd><dt>モデル</dt><dd>${esc(r.model || '既定')}</dd></dl></div>
     <span class="registry-actions"><button type="button" data-registry-edit>編集…</button>${r.source === 'user'
       ? '<button type="button" class="danger-text" data-registry-remove title="自分の登録を文書ごと消します（同じ名前の見本があれば、見本に戻ります）">消す</button>' : ''}</span></li>`).join('');
 }
@@ -551,8 +579,8 @@ async function loadSettings() {
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
   const info = await ECO.info();
-  $('about').innerHTML = `ログイン中のGitHubアカウント：${esc(info.me || '（取得できませんでした）')}<br>使っている ecobuild：${esc((info.cli || []).join(' '))}`
-    + (info.cli_warning ? `<br><span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
+  $('about').innerHTML = `<dl class="about-facts"><dt>GitHub のアカウント</dt><dd>${esc(info.me || '（取得できませんでした）')}</dd><dt>使っている ecobuild</dt><dd><code>${esc((info.cli || []).join(' '))}</code></dd></dl>`
+    + (info.cli_warning ? `<span class="missing">注意：${esc(info.cli_warning)}</span>` : '');
 }
 $('owner-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -585,8 +613,8 @@ async function checkEnvironment() {
   banner.hidden = !missing.length;
   if (!missing.length) return;
   banner.innerHTML = `<div><strong>はじめに：開発の環境を準備してください</strong><small>足りないもの：${missing.map(i => esc(i.name)).join('、')}</small></div>
-    <button type="button" class="add-button">準備する</button>`;
-  banner.querySelector('button').addEventListener('click', () => { showHubPage('settings'); renderDiagnosis(doc.result.items); $('doctor-status').scrollIntoView(); });
+    <button type="button" class="cancel banner-action">準備する</button>`;
+  banner.querySelector('button').addEventListener('click', () => { showHubPage('settings'); showSettingsGroup('general'); renderDiagnosis(doc.result.items); $('doctor-title').scrollIntoView({block: 'start'}); });
 }
 checkEnvironment();
 window.addEventListener('focus', () => { if (!$('setup-banner').hidden) checkEnvironment(); });
@@ -626,7 +654,7 @@ async function checkUpdate({quiet = true} = {}) {
   banner.hidden = !newer;
   if (newer) {
     banner.innerHTML = `<div><strong>ECOBuild の新しい版があります</strong><small>${esc(short(r.current))} → ${esc(short(r.latest))}（${esc(r.ref)}）。${r.gui ? 'CLI と GUI' : 'CLI'}を入れ直します。</small></div>
-      <button type="button" class="add-button">更新する</button>`;
+      <button type="button" class="cancel banner-action">更新する</button>`;
     banner.querySelector('button').addEventListener('click', runUpdate);
   }
 }
@@ -751,16 +779,18 @@ async function deleteArchivedModule(m, repository, dir, question) {
 }
 
 // A module card's menu: the same one from right-clicking the card and from its ⋯ button.
-function moduleMenu(m, x, y) {
+function moduleMenu(m, x, y, options) {
+  const gone = m.exists ? '' : `フォルダが見つかりません（${m.path}）`;
   ECO.menu([
-    ['開発環境を開く', () => openModule(m.path), m.exists],
-    ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists],
-    [`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists],
-    ['ショートカットを作る…', () => makeModuleShortcut(m), m.exists],
+    ['開発環境を開く', () => openModule(m.path), m.exists, gone],
+    ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir: m.path}).catch(e => ECO.toast(e.message, 'bad')), m.exists, gone],
+    // Only the types with a solution (C++): the others never have one to open.
+    ...(!m.type || ECO.typeFeatures(m.type).solution ? [[`Visual Studio ${ECO.vsVersion()} で開く`, () => ECO.openInVisualStudio(m.path), m.exists, gone]] : []),
+    ['ショートカットを作る…', () => makeModuleShortcut(m), m.exists, gone],
     '-',
     ['一覧から外す…', () => forgetModule(m)],
-    ['片付ける（アーカイブ・削除）…', () => putAwayModule(m)],
-  ], x, y);
+    ['片付ける（アーカイブ・削除）…', () => putAwayModule(m), true, '', {danger: true}],
+  ], x, y, options);
 }
 $('module-list').addEventListener('contextmenu', event => {
   const item = event.target.closest('li[data-index]'); if (!item) return;

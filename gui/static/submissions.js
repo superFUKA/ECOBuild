@@ -26,7 +26,7 @@
     const items = incoming(name), handles = ECO.canTakeIn(st.access, name);
     if (st.item && !items.some(i => i.key === st.item)) { st.item = null; st.status = null; }
     if (!st.item && items.length) st.item = items[0].key;
-    main.innerHTML = `<h3 class="br-section">届いている提出 <span class="br-count ${items.length ? '' : 'zero'}">${items.length}</span></h3>
+    main.innerHTML = `<h3 class="br-section">届いている提出 ${items.length ? `<span class="br-count">${items.length}</span>` : ''}</h3>
       ${items.length && st.access && !handles ? `<p class="mi-note">${esc(ECO.takeInNote(st.access, name))}（見る・手元で確認・コメントはできます）。</p>` : ''}
       <div class="br-list" role="listbox" aria-label="${esc(name)} への提出">${items.map(i => itemRow(i)).join('') ||
         '<p class="mi-note">届いている提出はありません。</p>'}</div>
@@ -84,7 +84,7 @@
       act.append(b('reject', '差し戻す', {enabled: handles, note: why}),
         b('approve', '承認して取り込む', {enabled: !draft && handles, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why}));
     } else if (isOpen) {
-      act.append(b('withdraw', '取り下げ', {kind: 'quiet-danger'}),
+      act.append(b('withdraw', '提出を取り下げる', {kind: 'danger-text'}),
         b('finish', '取り込む', {enabled: !draft && handles, kind: 'primary', note: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why}));
     }
     tools.append(look, act); box.append(tools);

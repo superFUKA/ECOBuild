@@ -26,12 +26,12 @@
       <div class="tk-top-actions"><button type="button" id="tk-reload" title="GitHubから読み込み直す">更新</button><button type="button" class="primary" id="tk-new">＋ 新しいタスク</button></div>
     </div>
     <nav class="tk-views" role="tablist" aria-label="表示">
-      <button type="button" role="tab" data-view="stages">ダッシュボード</button>
+      <button type="button" role="tab" data-view="stages">ボード</button>
       <button type="button" role="tab" data-view="list">一覧</button>
       <button type="button" role="tab" data-view="next">次にやる</button>
       <button type="button" role="tab" data-view="timeline">日程</button>
       <button type="button" role="tab" data-view="sprint">スプリント</button>
-      <button type="button" role="tab" data-view="summary">集計</button>
+      <button type="button" role="tab" data-view="summary">概要</button>
     </nav>
     <form class="tk-filter" id="tk-filter" onsubmit="return false">
       <input type="search" id="tk-search" placeholder="題名で絞り込む" aria-label="検索" class="tk-search">
@@ -46,22 +46,21 @@
   </section>
   <div id="help-content" class="help-page" hidden><section id="help" aria-labelledby="help-title"></section></div>
   <section id="modinfo-content" class="mi" aria-label="モジュール" hidden>
-    <div class="mi-top"><div class="mi-top-row"><h2>モジュール</h2><button type="button" data-mi-reload title="最新の情報に更新">更新</button></div><nav class="mi-tabs" role="tablist" aria-label="モジュールの情報"><button type="button" role="tab" data-mi-view="home">ホーム</button><button type="button" role="tab" data-mi-view="projects">Project</button><button type="button" role="tab" data-mi-view="deps">依存</button></nav></div>
+    <div class="mi-top"><div class="mi-top-row"><h2>モジュール</h2><div class="mi-top-actions"><span class="mi-place-slot"></span><button type="button" data-mi-reload title="最新の情報に更新">更新</button></div></div><nav class="mi-tabs" role="tablist" aria-label="モジュールの情報"><button type="button" role="tab" data-mi-view="home">ホーム</button><button type="button" role="tab" data-mi-view="projects">Project</button><button type="button" role="tab" data-mi-view="deps">依存先</button></nav></div>
     <div class="mi-main"></div>
   </section>
   <section id="manage-content" class="mi br" aria-label="管理" hidden>
     <div class="mi-top"><div class="mi-top-row"><h2>管理</h2><button type="button" id="manage-reload" title="最新の情報に更新">更新</button></div>
-      <div class="manage-tabs-row"><nav class="mi-tabs" id="manage-tabs" role="tablist" aria-label="管理"><button type="button" role="tab" data-manage-view="members" aria-selected="true">メンバー</button><button type="button" role="tab" data-manage-view="ci" aria-selected="false">CI</button></nav>
-        <div class="br-top-actions" data-manage-for="ci" hidden><button type="button" id="ci-actions" title="GitHub の Actions の画面を開きます">GitHub で見る</button><button type="button" class="primary" id="ci-run" title="GitHub にあるブランチの内容で CI を動かします">▶ 手動で実行</button></div></div></div>
+      <nav class="mi-tabs" id="manage-tabs" role="tablist" aria-label="管理"><button type="button" role="tab" data-manage-view="members" aria-selected="true">メンバー</button><button type="button" role="tab" data-manage-view="ci" aria-selected="false">CI</button></nav></div>
     <div class="members-main" id="members-main" data-manage-view-panel="members" role="tabpanel" aria-label="メンバー"></div>
     <div class="ci-main" id="ci-main" data-manage-view-panel="ci" role="tabpanel" aria-label="CI" hidden></div>
   </section>
   <section id="branches-content" class="mi br" aria-label="ブランチ" hidden>
-    <div class="mi-top"><div class="mi-top-row"><h2>ブランチ</h2><div class="br-top-actions"><button type="button" id="br-log" title="すべてのブランチの履歴（マージを含む）を TortoiseGit で見ます">ログ</button><button type="button" class="primary" id="br-create">＋ ブランチ</button><button type="button" id="br-reload" title="最新の情報に更新">更新</button></div></div></div>
+    <div class="mi-top"><div class="mi-top-row"><h2>ブランチ</h2><div class="br-top-actions"><button type="button" id="br-log" title="すべてのブランチの履歴（マージを含む）を TortoiseGit で見ます">ログ</button><button type="button" id="br-reload" title="最新の情報に更新">更新</button><button type="button" class="primary" id="br-create">＋ ブランチ</button></div></div></div>
     <div class="br-body"><nav class="br-side" id="br-side" role="tablist" aria-orientation="vertical" aria-label="共有ブランチ"></nav><div class="br-main" id="br-main" role="tabpanel"></div></div>
   </section>
   <section id="settings-content" class="mi" aria-label="設定" hidden>
-    <div class="mi-top"><div class="mi-top-row"><h2>設定</h2><button type="button" data-mi-reload title="最新の情報に更新">更新</button></div><nav class="mi-tabs" role="tablist" aria-label="モジュールの設定"><button type="button" role="tab" data-mi-view="profiles">ビルド設定</button><button type="button" role="tab" data-mi-view="general">全般</button><button type="button" role="tab" data-mi-view="templates">ファイルテンプレート</button><button type="button" role="tab" data-mi-view="container">コンテナ</button></nav></div>
+    <div class="mi-top"><div class="mi-top-row"><h2>設定</h2><div class="mi-top-actions"><span class="mi-place-slot"></span><button type="button" data-mi-reload title="最新の情報に更新">更新</button></div></div><nav class="mi-tabs" role="tablist" aria-label="モジュールの設定"><button type="button" role="tab" data-mi-view="profiles">ビルド設定</button><button type="button" role="tab" data-mi-view="general">全般</button><button type="button" role="tab" data-mi-view="templates">ファイルテンプレート</button><button type="button" role="tab" data-mi-view="container">コンテナ</button></nav></div>
     <div class="mi-main"></div>
   </section>
 </div>

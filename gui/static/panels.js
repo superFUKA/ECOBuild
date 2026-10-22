@@ -96,7 +96,7 @@ const PANELS = (() => {
   }
 
   // The workspace's footer (under the work area): its panels are at home here. It shows while it has a panel; ×
-  // hides it (the panels stay). Its height is dragged at its top edge (kept on this PC); ⤢ enlarges it. While a panel
+  // hides it (the panels stay; toggle — the toolbar's 出力, Ctrl+J — shows it again). Its height is dragged at its top edge (kept on this PC); ⤢ enlarges it. While a panel
   // is dragged over the page, the footer shows as the place to drop it.
   function footer(el, {home, heightKey}) {
     const footerHost = host(el, {home, onEmpty: () => { el.hidden = true; }});
@@ -126,13 +126,19 @@ const PANELS = (() => {
     document.addEventListener('drop', () => { over = 0; el.classList.remove('panel-target'); closed = false; setTimeout(sync); });
     return {
       ...footerHost,
-      // Shows the panel: where it is (a window keeps it), else here with the footer open.
+      // Shows the panel: where it is (a window keeps it: false), else here with the footer open.
       reveal(panel) {
         const at = where.get(panel.id);
-        if (at && at !== footerHost.id) return;
+        if (at && at !== footerHost.id) return false;
         closed = false;
         if (!footerHost.has(panel.id)) footerHost.add(panel);
         sync();
+        return true;
+      },
+      // Hides the footer while it shows the panel, else shows the panel (as reveal).
+      toggle(panel) {
+        if (!el.hidden && footerHost.has(panel.id)) { closed = true; sync(); return true; }
+        return this.reveal(panel);
       },
     };
   }

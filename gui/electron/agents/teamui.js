@@ -15,6 +15,7 @@ const OUTPUT_LIMIT = 20000;   // 道具の出力を出す長さ
 let teamOpen = false, teamLead = null, teamData = {members: [], error: '', taken: {}}, teamFlat = [];
 let teamMode = 'list', teamFocus = null, teamTabSel = null;
 let followed = null, eventLog = null, eventItems = new Map(), moreBefore = false, followTimer = null;
+const NARROW = 640;           // 詳しい表示の幅がこれより狭いと、操作を「操作 ▾」1つにまとめる
 const notices = new Map();    // 子の ID → {text, bad}
 const pending = new Set();    // 操作中の子の ID
 
@@ -43,7 +44,7 @@ function updateTeamTab() {
   const b = $('team-tab'); if (!b) return;
   const looks = teamFlat.map(m => TeamView.look(m));
   const alerts = looks.filter(l => l.alert).length, working = looks.filter(l => l.tone === 'working').length;
-  b.querySelector('.count').textContent = teamFlat.length ? ` ${teamFlat.length}` : '';
+  b.querySelector('.count').textContent = teamFlat.length ? String(teamFlat.length) : '';   // 丸いバッジ（要確認があると赤）
   b.dataset.alert = alerts ? 'yes' : '';
   b.dataset.state = working ? 'waiting' : '';
   b.title = teamFlat.length ? `チーム（AI が起動した子）：${teamFlat.length}人・作業中 ${working}${alerts ? `・要確認 ${alerts}` : ''}`
@@ -86,6 +87,13 @@ agents.onTeamFocus(id => teamOpenPane(id));
 agents.onTeamNotice((id, text, bad) => { notices.set(id, {text, bad}); if (teamOpen) renderTeam(); });
 
 // ---- 全体 ----------------------------------------------------------------------------------------------
+// 詳しい表示の幅が NARROW をまたいだら、操作の並べ方を変える
+let teamNarrow = null;
+new ResizeObserver(() => {
+  const narrow = $('team-body').clientWidth < NARROW;
+  if (teamNarrow !== null && narrow !== teamNarrow && teamOpen && $('team-body').querySelector('.detail')) renderTeam();
+  teamNarrow = narrow;
+}).observe($('team-body'));
 for (const b of document.querySelectorAll('#team-views button')) {
   b.addEventListener('click', () => {
     teamMode = b.dataset.mode;
@@ -99,16 +107,17 @@ function renderTeam() {
   for (const b of document.querySelectorAll('#team-views button')) b.classList.toggle('on', b.dataset.mode === teamMode);
   const counts = {};
   for (const m of teamFlat) { const l = TeamView.look(m); counts[l.tone] = (counts[l.tone] || 0) + 1; if (l.alert) counts.alert = (counts.alert || 0) + 1; }
-  $('team-sum').textContent = teamFlat.length ? [['working', '作業中'], ['idle', '待機中'], ['stopped', '止まっている'], ['failed', '失敗'], ['alert', '要確認']]
-    .filter(([k]) => counts[k]).map(([k, label]) => `${label} ${counts[k]}`).join('・') : '';
+  // 数ごとに様子の色の丸（一覧・タブの色と同じ）
+  $('team-sum').replaceChildren(...(teamFlat.length ? [['working', '作業中'], ['idle', '待機中'], ['stopped', '止まっている'], ['failed', '失敗'], ['alert', '要確認']]
+    .filter(([k]) => counts[k]).map(([k, label]) => { const s = el('span', '', `${label} ${counts[k]}`); s.dataset.tone = k; return s; }) : []));
   $('team-err').textContent = teamData.error ? `読み直せませんでした：${teamData.error.split('\n')[0]}` : '';
   $('team-err').title = teamData.error || '';
   const tabsBar = $('team-tabs'), body = $('team-body');
   tabsBar.hidden = teamMode !== 'tabs';
   if (!teamFlat.length) {
     unfollow(); tabsBar.replaceChildren();
-    body.replaceChildren(el('p', 'team-empty', 'このエージェントの子はまだいません（エージェントが子を起動すると〔children_start〕、ここに出ます。'
-      + 'AI が起動した子は、タブではなくここで見ます）。'));
+    body.replaceChildren(el('p', 'team-empty', 'このエージェントはまだ子を起動していません。起動すると、ここに出ます'
+      + '（AI が起動した子は、タブではなくここで見ます）。'));
     return;
   }
   if (teamMode === 'tabs') {
@@ -148,18 +157,27 @@ function flags(m) {
 
 function renderOverview(body) {
   const box = el('div', teamMode === 'grid' ? 'team-grid' : 'team-list');
+  if (teamMode === 'list') {   // 列の見出し
+    const headrow = el('div', 'row headrow');
+    headrow.append(...['名前', '役', '様子', '今していること', '報告・言付け・ctx'].map(t => el('span', '', t)));
+    box.append(headrow);
+  }
   for (const m of teamFlat) {
     const look = TeamView.look(m);
     const item = el('div', teamMode === 'grid' ? 'tile' : 'row');
     item.dataset.tone = look.tone; item.dataset.alert = look.alert ? 'yes' : ''; item.tabIndex = 0;
     item.title = look.alert || '';
     const name = el('span', 'name', m.name);
-    if (m.depth) name.style.paddingLeft = `${m.depth * 14}px`;
+    // 入れ子：一覧ではタブと同じ「└」で字下げ。格子では字下げせず、役の横に親の名前
+    if (m.depth && teamMode === 'list') name.prepend(el('span', 'tree', '　'.repeat(m.depth - 1) + '└ '));
     const role = el('span', 'role', TeamView.kindName(m));
     const state = el('span', 'state', look.label);
     const doing = el('span', 'doing', m.doing ? `今：${m.doing}` : look.alert || (m.last_reply ? `最後：${m.last_reply}` : ''));
     if (teamMode === 'grid') {
-      const head = el('div', 'head'); head.append(name, role, state);
+      const head = el('div', 'head'); head.append(name, role);
+      const parent = m.depth ? teamFlat.find(x => x.id === m.parent) : null;
+      if (parent) { const p = el('span', 'parent', `↳ ${parent.name}`); p.title = `${parent.name} の子`; head.append(p); }
+      head.append(state);
       const recent = el('pre', 'recent', (m.recent || []).join('\n') || '（出来事はまだありません）');
       item.append(head, doing, recent, el('div', 'flags', flags(m)));
     } else {
@@ -202,12 +220,18 @@ function renderDetail(body, id, back) {
   head.append(el('b', 'name', m.name), el('span', 'role', TeamView.kindName(m)), state);
   if (look.alert) head.append(el('span', 'alert', look.alert));
   const ops = el('span', 'ops');
-  for (const op of opsFor(m)) {
-    if (op.hidden) continue;
-    const b = el('button', 'tool', op.label); b.type = 'button'; b.disabled = !!op.disabled || pending.has(m.id);
-    b.title = op.title || '';
-    b.addEventListener('click', event => { event.stopPropagation(); op.menu ? subMenu(op.menu, b) : op.run(); });
+  if (head.parentElement.clientWidth < NARROW) {   // 狭いときは「操作 ▾」1つにまとめる（中身は右クリックのメニューと同じ）
+    const b = el('button', 'tool', '操作 ▾'); b.type = 'button'; b.disabled = pending.has(m.id);
+    b.addEventListener('click', event => { event.stopPropagation(); const r = b.getBoundingClientRect(); opsMenu(m, r.right - 200, r.bottom + 2); });
     ops.append(b);
+  } else {
+    for (const op of opsFor(m)) {
+      if (op.hidden) continue;
+      const b = el('button', 'tool' + (op.danger ? ' danger' : ''), op.label); b.type = 'button'; b.disabled = !!op.disabled || pending.has(m.id);
+      b.title = op.title || '';
+      b.addEventListener('click', event => { event.stopPropagation(); op.menu ? subMenu(op.menu, b) : op.run(); });
+      ops.append(b);
+    }
   }
   head.append(ops);
   if (m.doing) sub.append(el('span', 'doing', `今：${m.doing}`));
@@ -333,7 +357,7 @@ function opsFor(m) {
     {label: '返す', hidden: app && !taken, disabled: otherScreen, title: otherScreen ? '人の画面（対話型）で動いています。その画面を閉じてから' : '係に戻し、前の会話の続きから画面なしで続けさせます',
      run: () => act(m, 'handback', '係に戻しています…', '係に戻しました')},
     {label: '場所 ▾', menu: [['エクスプローラーで開く', () => act(m, 'folder')], ['モジュールの窓で開く', () => act(m, 'module')]]},
-    {label: '閉じる…', title: m.kind === 'helper' ? '止めて、記録を消します（親の作業空間はそのまま）' : '止めて、記録と子タスクの作業空間を消します',
+    {label: '閉じる…', danger: true, title: m.kind === 'helper' ? '止めて、記録を消します（親の作業空間はそのまま）' : '止めて、記録と子タスクの作業空間を消します',
      run: () => closeMember(m)},
   ];
 }
@@ -361,9 +385,7 @@ function subMenu(items, anchor) {
     b.addEventListener('click', () => { menu.hidden = true; run(); }); menu.append(b);
   }
   const r = anchor.getBoundingClientRect();
-  menu.hidden = false;
-  menu.style.left = Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8)) + 'px';
-  menu.style.top = Math.min(r.bottom + 2, innerHeight - menu.offsetHeight - 8) + 'px';
+  placeMenu(menu, r.left, r.bottom + 2);
 }
 
 // 一覧・格子・タブの右クリック：同じ操作をメニューで
@@ -372,15 +394,14 @@ function opsMenu(m, x, y) {
   menu.append(el('div', 'head', `${TeamView.kindName(m)}「${m.name}」`));
   for (const op of opsFor(m)) {
     if (op.hidden) continue;
+    if (op.danger) menu.append(el('div', 'sep'));   // 消す操作の前に区切り
     for (const [label, run] of op.menu || [[op.label, op.run]]) {
-      const b = el('button', '', op.menu ? `${op.label.replace(' ▾', '')}：${label}` : label); b.type = 'button';
+      const b = el('button', op.danger ? 'danger' : '', op.menu ? `${op.label.replace(' ▾', '')}：${label}` : label); b.type = 'button';
       b.disabled = !!op.disabled || pending.has(m.id); b.title = op.title || '';
-      if (b.disabled) b.style.opacity = '.45';
       b.addEventListener('click', () => { menu.hidden = true; run(); }); menu.append(b);
     }
   }
-  menu.hidden = false;
-  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + 'px';
+  placeMenu(menu, x, y);
 }
 
 // ---- 知らせ（⚙）：子の返答の終わり。既定は知らせない（親のエージェントに届くので） ---------------------------------

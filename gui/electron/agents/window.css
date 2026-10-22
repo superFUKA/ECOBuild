@@ -1,56 +1,88 @@
 /* エージェントの窓。小さく常に前に置く窓なので、ヘッダー・フッターは薄く、端末を広く取る。
-   窓の枠の色で状態が分かる：選んでいる窓は青、オペレーターモード（リング）は紫、聞き取り中は赤。 */
+   窓の枠の色で状態が分かる：選んでいる窓は青、オペレーターモード（リング）は紫、聞き取り中は赤。
+   色はハブ・モジュールの窓（static/common.css・hub.css）とそろえる：地・線・文字・強調（青緑）。青は「選んでいる窓の枠」と
+   「選択肢」だけに使う。 */
 :root { color-scheme: dark;
-  --bg: #15171c; --bar: #1e2128; --line: #2c3039; --text: #c9ccd3; --muted: #7b808c; --accent: #6aa7ff;
-  --rec: #ff5a5f; --operator: #a371f7; --thinking: #e3b341; --ok: #3fb950; --warn: #d29922;
-  --claude: #e07a52; }
+  --bg: #14171b; --bar: #181c21; --panel: #1c2128; --raise: #252b33; --field: #11141a; --hover: #2b333c; --hover-accent: #36483f;
+  --line: #303640; --line-2: #343c46; --line-3: #46515e;
+  --text: #edf1f5; --muted: #a5aeba; --dim: #84909e; --accent: #9ee4d3; --accent-ink: #17332c;
+  --select: #6aa7ff; --choice: #6aa7ff;
+  --rec: #ff5a5f; --danger-text: #ffb4b4; --danger-bg: #43282b; --operator: #a371f7; --thinking: #e3b341; --ok: #3fb950; --warn: #d29922;
+  --claude: #e07a52; --mono: "Cascadia Mono", Consolas, monospace; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; overflow: hidden; }
 body { display: flex; flex-direction: column; border: 2px solid var(--line); }
-body.selected { border-color: var(--accent); }
+body.selected { border-color: var(--select); }
 body.operator { border-color: var(--operator); }
 body.listening { border-color: var(--rec); }
+/* キーボードで選んでいる場所（ハブ・モジュールの窓と同じ） */
+button:focus-visible, [tabindex]:focus-visible, summary:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* ---- ヘッダー：タブとボタン（帯は窓を動かす。タブ・ボタンは動かさない） ---- */
-.bar { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; background: var(--bar); -webkit-app-region: drag; user-select: none; }
-.tabs { display: flex; gap: 2px; flex: 1 1 0; min-width: 0; overflow: hidden; }
-.tab { -webkit-app-region: no-drag; display: flex; align-items: center; max-width: 220px; padding: 3px 8px; border: 0; border-radius: 4px;
-  background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
-.tab:hover { color: var(--text); }
-.tab.active { background: #2b303a; color: #fff; }
+/* ---- ヘッダー：タブ・＋・☰（タブの仲間）／🎙・📌・⚙／–・×（窓の操作）。帯は窓を動かす。タブ・ボタンは動かさない ---- */
+.bar { display: flex; align-items: center; gap: 2px; height: 30px; padding: 0 3px 0 6px; background: var(--bar); border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag; user-select: none; }
+.bar .spacer { flex: 1 1 0; min-width: 8px; align-self: stretch; }
+.bar .group { display: flex; align-items: center; gap: 2px; flex: none; }
+.bar .group.window { margin-left: 4px; padding-left: 4px; border-left: 1px solid var(--line-2); }
+/* タブは縮み（Chrome・VS Code のように）、それでも入らないときは横に送る（ホイール）。隠れたタブの数は ☰ に出す */
+.tabs { display: flex; gap: 2px; flex: 0 1 auto; min-width: 0; height: 100%; align-items: center; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { -webkit-app-region: no-drag; display: flex; align-items: center; flex: 0 1 auto; min-width: 56px; max-width: 220px; height: 24px; padding: 0 6px 0 8px;
+  border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
+.tab:hover { background: #1f252c; color: var(--text); }
+.tab.active { background: var(--hover); color: #fff; }
+.tab.pinned, .tab.team-tab { flex: none; }
 /* 番号は箱にせず、種類の色の小さい数字だけ */
-.tab b { margin-right: 4px; color: var(--claude); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tab b { flex: none; margin-right: 4px; color: var(--claude); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tab b[data-kind="operator"] { color: var(--operator); }
 .tab b[data-kind="lead"] { color: #e8b04a; }
-.tab.pinned { border-right: 1px solid #3a404c; border-radius: 4px 0 0 4px; margin-right: 4px; }
-.tab .name { overflow: hidden; text-overflow: ellipsis; }
-.tab .x { margin-left: 4px; opacity: 0; }
-.tab:hover .x, .tab.active .x { opacity: .6; }
-.tab .x:hover { opacity: 1; color: var(--rec); }
-.tab.exited .name { text-decoration: line-through; }
+.tab.pinned { border-right: 1px solid var(--line-3); border-radius: 4px 0 0 4px; margin-right: 4px; }
+.tab .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab .x { flex: none; width: 16px; margin-left: 2px; border-radius: 3px; text-align: center; line-height: 16px; opacity: 0; }
+.tab:hover .x, .tab.active .x { opacity: .7; }
+.tab .x:hover { opacity: 1; background: var(--danger-bg); color: var(--rec); }
+/* 未読：× の場所に ●（ホバーで × に替わる。VS Code のタブと同じ） */
+.tab.unread:not(:hover) .x { opacity: 1; color: var(--accent); font-size: 0; }
+.tab.unread:not(:hover) .x::before { content: "●"; font-size: 9px; }
+/* 終了：薄くし、番号の後ろに ■（打ち消し線は「消えた」に見えるので使わない） */
+.tab.exited { opacity: .6; }
+.tab.exited b::after { content: " ■"; color: var(--dim); font-size: 8px; vertical-align: 1px; }
 .tab.dragging { opacity: .5; outline: 1px dashed var(--accent); }
 .tab input { width: 120px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; background: var(--bg); color: #fff; font: inherit; outline: none; }
-/* 状態は下端の線だけ：考え中は黄色でゆっくり明滅、裏で実行中は黄色のまま、選択肢は青、聞き取り中は赤 */
+/* 状態は下端の線：考え中は黄色でゆっくり明滅、裏で実行中は黄色のまま、選択肢は青（地も青くし「?」を付ける）、聞き取り中は赤 */
 .tab[data-state="thinking"] { box-shadow: inset 0 -2px 0 var(--thinking); animation: think 1.6s ease-in-out infinite; }
 .tab[data-state="waiting"] { box-shadow: inset 0 -2px 0 var(--thinking); }
-.tab[data-state="choice"] { box-shadow: inset 0 -2px 0 var(--accent); }
+.tab[data-state="choice"] { box-shadow: inset 0 -2px 0 var(--choice); background: rgba(106, 167, 255, .18); color: #fff; }
+.tab.active[data-state="choice"] { background: rgba(106, 167, 255, .3); }
+.tab[data-state="choice"] .name::before { content: "?"; display: inline-block; width: 13px; height: 13px; margin-right: 4px; border-radius: 50%; background: var(--choice);
+  color: #0d1a2c; font-size: 10px; font-weight: 700; line-height: 13px; text-align: center; vertical-align: 1px; }
 .tab[data-state="listening"] { box-shadow: inset 0 -2px 0 var(--rec); animation: rec 1s ease-in-out infinite; }
 @keyframes think { 50% { box-shadow: inset 0 -2px 0 rgba(227, 179, 65, .25); } }
 @keyframes rec { 50% { box-shadow: inset 0 -2px 0 rgba(255, 90, 95, .3); } }
 @media (prefers-reduced-motion: reduce) { .tab { animation: none !important; } }
 
-button.icon { -webkit-app-region: no-drag; padding: 2px 6px; border: 0; background: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
-button.icon:hover { color: #fff; }
-button.icon.close:hover { color: var(--rec); }
+/* アイコンのボタン（16px の単色 SVG。色はボタンの color） */
+button.icon { -webkit-app-region: no-drag; position: relative; display: inline-grid; place-items: center; flex: none; min-width: 26px; height: 24px; padding: 0 5px;
+  border: 0; border-radius: 4px; background: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+button.icon:hover { background: var(--hover); color: #fff; }
+button.icon.close:hover { background: #c42b1c; color: #fff; }
 button.icon.on { color: var(--rec); }
-/* 最前面：常に（青い枠）・自動（右下に青い点）・オフ（薄く） */
-button.topmost { -webkit-app-region: no-drag; position: relative; padding: 1px 6px; border: 1px solid #343a46; border-radius: 10px; background: none;
-  color: var(--text); font: 11px "Segoe UI", "Yu Gothic UI", sans-serif; white-space: nowrap; cursor: pointer; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+/* 隠れているタブの数（☰ の右上） */
+#picker[data-hidden]::after { content: attr(data-hidden); position: absolute; top: 0; right: 0; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 7px;
+  background: var(--accent); color: var(--accent-ink); font-size: 9px; font-weight: 700; line-height: 13px; text-align: center; }
+/* 最前面：常に（青緑の縁）・自動（右下に青緑の点）・オフ（薄く） */
+button.topmost { -webkit-app-region: no-drag; position: relative; display: inline-flex; align-items: center; gap: 3px; flex: none; height: 22px; padding: 0 7px 0 5px;
+  border: 1px solid var(--line-2); border-radius: 11px; background: none; color: var(--text); font: 11px "Segoe UI", "Yu Gothic UI", sans-serif; white-space: nowrap; cursor: pointer; }
+button.topmost svg.i { width: 14px; height: 14px; }
 button.topmost[data-mode="always"] { border-color: var(--accent); color: #fff; }
+button.topmost[data-mode="always"] svg.i { color: var(--accent); }
 button.topmost[data-mode="auto"] { border-color: transparent; }
-button.topmost[data-mode="auto"]::after { content: ""; position: absolute; right: 2px; bottom: 2px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
-button.topmost[data-mode="off"] { border-color: transparent; filter: grayscale(1); opacity: .4; }
-button.topmost:hover { opacity: 1; border-color: var(--accent); }
+button.topmost[data-mode="auto"]::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+button.topmost[data-mode="off"] { border-color: transparent; color: var(--dim); }
+button.topmost:hover { background: var(--hover); border-color: var(--accent); color: #fff; }
+/* 狭い窓では最前面の文字を消して、アイコン（と点）だけにする */
+@media (max-width: 480px) { button.topmost .label { display: none; } button.topmost { padding: 0 5px; } }
 
 /* ---- 端末 ---- */
 main { position: relative; flex: 1; min-height: 0; }
@@ -58,9 +90,16 @@ main { position: relative; flex: 1; min-height: 0; }
 .screen[hidden] { display: none; }
 .empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; color: var(--muted); text-align: center; }
 .empty[hidden] { display: none; }
+.empty p { margin: 0 0 12px; line-height: 1.7; }
+.empty .hint { margin: 10px 0 0; color: var(--dim); font-size: 11px; }
+.empty .hint kbd { padding: 0 4px; border: 1px solid var(--line-3); border-radius: 3px; font: 10.5px var(--mono); }
+button.tool { padding: 3px 12px; border: 1px solid var(--line-3); border-radius: 5px; background: var(--raise); color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+button.tool:hover:not(:disabled) { border-color: var(--accent); }
+button.tool:disabled { opacity: .4; cursor: default; }
+.empty button.tool { padding: 5px 14px; font-size: 12.5px; }
 
 /* ---- フッター：モード・状態・モデル・場所・（右寄せで）使用量・リング。帯は窓を動かす ---- */
-.status { display: flex; align-items: center; gap: 8px; height: 18px; padding: 0 8px; background: var(--bar); -webkit-app-region: drag; user-select: none; }
+.status { display: flex; align-items: center; gap: 8px; height: 20px; padding: 0 8px; background: var(--bar); border-top: 1px solid var(--line); -webkit-app-region: drag; user-select: none; }
 .status .info { display: flex; flex: 1; min-width: 0; gap: 10px; overflow: hidden; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .status .info > span { flex: none; }
 .status .info .where { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -68,8 +107,12 @@ main { position: relative; flex: 1; min-height: 0; }
 .status .info .limit { -webkit-app-region: no-drag; cursor: default; }
 .status .info .low { color: var(--warn); }
 .status .info .bad { color: var(--rec); }
-.status .info .listening { color: var(--rec); }
-.status .info .choosing { padding: 0 6px; border-radius: 3px; background: var(--accent); color: #fff; }
+/* 状態の文字はタブの下の線と同じ色 */
+.status .info .st.thinking, .status .info .st.waiting { color: var(--thinking); }
+.status .info .st.choice { color: var(--choice); }
+.status .info .st.idle { color: var(--text); }
+.status .info .st.exited, .status .info .st.listening { color: var(--rec); }
+.status .info .choosing { padding: 0 6px; border-radius: 3px; background: var(--choice); color: #fff; }
 .status .mode { display: none; padding: 0 6px; border-radius: 3px; background: var(--operator); color: #fff; font-size: 11px; }
 body.operator .status .mode { display: inline-block; }
 .dot { -webkit-app-region: no-drag; width: 8px; height: 8px; border-radius: 50%; background: #555; flex: none; }
@@ -78,79 +121,100 @@ body.operator .status .mode { display: inline-block; }
 .dot.off { background: var(--rec); }
 .dot[hidden] { display: none; }
 
-/* ---- メニュー・パネル（タブの一覧・設定） ---- */
-.menu { position: fixed; z-index: 20; min-width: 180px; max-height: calc(100% - 40px); overflow: auto; padding: 4px; border: 1px solid #3a404c; border-radius: 6px;
-  background: var(--bar); box-shadow: 0 4px 16px rgba(0, 0, 0, .5); -webkit-app-region: no-drag; }
+/* ---- メニュー（ハブ・モジュールの窓のメニューと同じ見た目）・パネル（タブの一覧・設定） ---- */
+.menu { position: fixed; z-index: 20; min-width: 180px; max-width: calc(100vw - 16px); max-height: calc(100% - 40px); overflow: auto; padding: 4px; border: 1px solid var(--line-3);
+  border-radius: 7px; background: var(--raise); box-shadow: 0 8px 24px rgba(0, 0, 0, .55); -webkit-app-region: no-drag; }
 .menu[hidden] { display: none; }
 .menu button { display: block; width: 100%; padding: 4px 10px; border: 0; border-radius: 4px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.menu button:hover { background: #2b303a; color: #fff; }
-.menu .head { padding: 4px 10px 2px; color: var(--muted); font-size: 11px; }
-.panel { position: fixed; z-index: 6; inset: 30px 8px 22px 8px; overflow: auto; padding: 4px 12px 12px; border: 1px solid #343a46; border-radius: 10px;
-  background: #1b1e24; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); font-size: 12.5px; line-height: 1.6; -webkit-app-region: no-drag; }
+.menu button:hover:not(:disabled) { background: var(--hover-accent); color: #fff; }
+.menu button:disabled { opacity: .45; cursor: default; }
+.menu button.danger { color: var(--danger-text); }
+.menu button.danger:hover:not(:disabled) { background: var(--danger-bg); }
+.menu button.checked::before { content: "✓"; display: inline-block; width: 14px; margin-left: -4px; color: var(--accent); }
+.menu button.unchecked::before { content: ""; display: inline-block; width: 14px; margin-left: -4px; }
+.menu button .sub { margin-left: 8px; color: var(--dim); font-size: 11px; }
+.menu .head { padding: 4px 10px 2px; color: var(--dim); font-size: 11px; }
+.menu .sep { height: 1px; margin: 4px 6px; background: var(--line-3); }
+.panel { position: fixed; z-index: 6; inset: 34px 8px 24px 8px; overflow: auto; padding: 0 12px 12px; border: 1px solid var(--line-3); border-radius: 10px;
+  background: var(--panel); box-shadow: 0 10px 30px rgba(0, 0, 0, .55); font-size: 12.5px; line-height: 1.6; -webkit-app-region: no-drag; }
 .panel[hidden] { display: none; }
-.panel .card { margin-top: 10px; padding: 10px 14px 12px; border: 1px solid var(--line); border-radius: 8px; background: #22262e; }
-.panel h2 { margin: 0 0 6px; color: #fff; font-size: 13px; }
+.panel .head { display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1; padding: 6px 0 4px; background: var(--panel); }
+.panel .head h2 { margin: 0; font-size: 13.5px; }
+.panel .card { margin-top: 10px; padding: 10px 14px 12px; border: 1px solid var(--line); border-radius: 8px; background: #181d23; }
+.panel h2 { margin: 0 0 6px; color: #fff; font-size: 13px; font-weight: 600; }
 .panel .note { margin: 6px 0 0; color: var(--muted); font-size: 11.5px; }
 .panel .row { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .panel .row > span { flex: none; white-space: nowrap; }
 .panel .row label { display: flex; align-items: center; gap: 8px; }
 .panel .choices { display: grid; gap: 4px; }
-.panel select, .panel input[type=text] { padding: 3px 8px; border: 1px solid #3a404c; border-radius: 6px; background: #121419; color: var(--text); font: inherit; }
+.panel .choices label { display: flex; align-items: center; gap: 6px; }
+.panel input[type=radio], .panel input[type=checkbox] { accent-color: var(--accent); }
+.panel select, .panel input[type=text] { padding: 3px 8px; border: 1px solid var(--line-3); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
 .panel select { flex: 1; min-width: 0; }
 .panel input[type=range] { flex: 1; accent-color: var(--accent); }
+.panel output { flex: none; min-width: 3em; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .panel select:focus, .panel input[type=text]:focus { outline: none; border-color: var(--accent); }
-.panel button.tool { flex: none; padding: 3px 12px; border: 1px solid #3a404c; border-radius: 4px; background: #262a33; color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
-.panel button.tool:hover { border-color: var(--accent); }
-.panel .head { display: flex; justify-content: flex-end; position: sticky; top: 0; padding-top: 4px; background: #1b1e24; }
-#picker-list { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.panel button.tool { flex: none; }
+.panel code { padding: 0 4px; border-radius: 3px; background: var(--field); font: 11px var(--mono); }
+#picker-list { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
 #picker-list li { padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; }
-#picker-list li:hover, #picker-list li.current { background: #24344f; border-color: var(--accent); }
+#picker-list li:hover, #picker-list li.current { background: #213a33; border-color: var(--accent); }
 #picker-list li .line { display: flex; gap: 8px; align-items: center; }
 #picker-list li .num { color: var(--claude); font-weight: 700; }
 #picker-list li .state { margin-left: auto; color: var(--muted); font-size: 11px; }
 #picker-list li.thinking .state, #picker-list li.waiting .state { color: var(--thinking); }
-#picker-list li.choice .state { color: var(--accent); }
+#picker-list li.choice .state { color: var(--choice); }
 #picker-list li.listening .state { color: var(--rec); }
-#picker-list li pre { margin: 4px 0 0; color: var(--muted); font: 11px/1.4 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 3em; overflow: hidden; }
-.tab.unread::after { content: " •"; color: var(--accent); }
+#picker-list li pre { margin: 4px 0 0; color: var(--muted); font: 11px/1.4 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 3em; overflow: hidden; }
 .status .info .model { -webkit-app-region: no-drag; cursor: pointer; }
 .status .info .model:hover { color: var(--text); text-decoration: underline; }
 .tab .avatar { width: 16px; height: 16px; margin-right: 4px; border-radius: 50%; object-fit: cover; flex: none; }
 .persona .who { display: flex; gap: 12px; margin-top: 10px; }
 .persona .fields { flex: 1; min-width: 0; }
 .persona .row b { color: #fff; margin-right: auto; }
-.avatar.big { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; border: 1px solid var(--line); }
-.avatar.big.none { opacity: .35; }
-.persona textarea { width: 100%; padding: 6px 8px; border: 1px solid #3a404c; border-radius: 6px; background: #121419; color: var(--text);
+.avatar.big { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; flex: none; border: 1px solid var(--line-3); cursor: pointer; }
+.avatar.big.none { opacity: .7; border-style: dashed; }
+.avatar.big:hover { border-color: var(--accent); }
+.persona textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--line-3); border-radius: 6px; background: var(--bg); color: var(--text);
   font: inherit; resize: vertical; }
 .persona textarea:focus { outline: none; border-color: var(--accent); }
 
 /* ---- チーム（子を起動できるエージェントの窓：AI が起動した子。teamui.js） ---- */
 .tab.team-tab b { color: var(--accent); }
-.tab.team-tab .count { margin-left: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.tab.team-tab[data-alert="yes"] .count { color: var(--rec); font-weight: 700; }
-.tab.team-tab[data-alert="yes"]::after { content: " !"; color: var(--rec); font-weight: 700; }
+/* 数は丸いバッジ。要確認があると赤 */
+.tab.team-tab .count { margin-left: 5px; padding: 0 5px; border-radius: 8px; background: var(--hover); color: var(--text); font-size: 10px; line-height: 15px; font-variant-numeric: tabular-nums; }
+.tab.team-tab .count:empty { display: none; }
+.tab.team-tab[data-alert="yes"] .count { background: var(--rec); color: #fff; font-weight: 700; }
 .team { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .team[hidden] { display: none; }
-.team-bar { display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-.team-bar .views { display: inline-flex; border: 1px solid #343a46; border-radius: 6px; overflow: hidden; }
+.team-bar { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.team-bar .views { display: inline-flex; flex: none; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
 .team-bar .views button { padding: 2px 10px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
-.team-bar .views button + button { border-left: 1px solid #343a46; }
-.team-bar .views button.on { background: #2b303a; color: #fff; }
-.team-bar .sum { color: var(--muted); font-size: 11px; }
+.team-bar .views button + button { border-left: 1px solid var(--line-2); }
+.team-bar .views button:hover { color: var(--text); }
+.team-bar .views button.on { background: var(--hover); color: #fff; }
+.team-bar .sum { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; color: var(--muted); font-size: 11px; }
+.team-bar .sum > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.team-bar .sum > span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #555; }
+.team-bar .sum [data-tone="working"]::before { background: var(--thinking); }
+.team-bar .sum [data-tone="idle"]::before { background: var(--ok); }
+.team-bar .sum [data-tone="stopped"]::before { background: var(--dim); }
+.team-bar .sum [data-tone="failed"]::before, .team-bar .sum [data-tone="alert"]::before { background: var(--rec); }
+.team-bar .sum [data-tone="alert"] { color: var(--rec); }
 .team-bar .err { margin-left: auto; overflow: hidden; color: var(--warn); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
 .team-tabs { display: flex; gap: 2px; padding: 3px 6px; overflow-x: auto; border-bottom: 1px solid var(--line); }
 .team-tabs[hidden] { display: none; }
 .team-tabs .sub { display: flex; align-items: center; gap: 5px; flex: none; max-width: 200px; padding: 2px 8px; border: 0; border-radius: 4px;
   background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
-.team-tabs .sub.on { background: #2b303a; color: #fff; }
+.team-tabs .sub:hover { color: var(--text); }
+.team-tabs .sub.on { background: var(--hover); color: #fff; }
 .team-tabs .sub .name { overflow: hidden; text-overflow: ellipsis; }
 .team-tabs .sub .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex: none; }
 .team-tabs .sub[data-tone="working"] .dot { background: var(--thinking); }
 .team-tabs .sub[data-tone="idle"] .dot { background: var(--ok); }
 .team-tabs .sub[data-tone="failed"] .dot, .team-tabs .sub[data-alert="yes"] .dot { background: var(--rec); }
 .team-body { position: relative; flex: 1; min-height: 0; overflow: auto; }
-.team-empty { margin: 0; padding: 24px; color: var(--muted); text-align: center; }
+.team-empty { max-width: 46em; margin: 40px auto; padding: 0 24px; color: var(--muted); line-height: 1.7; text-align: center; }
 .team .note { color: var(--muted); }
 
 /* 様子の色：作業中は黄、待機中は緑、止まっているは灰、失敗は赤。目立たせるもの（要確認）は赤い縁 */
@@ -159,62 +223,68 @@ body.operator .status .mode { display: inline-block; }
 .team [data-tone="stopped"] .state, .team .state[data-tone="stopped"] { color: var(--muted); }
 .team [data-tone="failed"] .state, .team .state[data-tone="failed"] { color: var(--rec); }
 
-.team-list .row { display: grid; grid-template-columns: minmax(90px, 1.2fr) 48px minmax(80px, .9fr) minmax(0, 2fr) auto; gap: 10px; align-items: center;
-  padding: 4px 10px; border-bottom: 1px solid #20242b; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap; }
-.team-list .row:hover, .team-list .row:focus { background: #1f2430; outline: none; }
-.team-list .row > span { overflow: hidden; text-overflow: ellipsis; }
+/* 一覧：列は全部の行で同じ幅（subgrid）。頭に見出しの行 */
+.team-list { display: grid; grid-template-columns: minmax(90px, 1.2fr) max-content minmax(80px, .9fr) minmax(0, 2fr) auto; }
+.team-list .row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 10px; align-items: center;
+  padding: 4px 10px; border-bottom: 1px solid #20252b; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+.team-list .row:hover, .team-list .row:focus { background: #1d232a; }
+.team-list .row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.team-list .row.headrow { position: sticky; top: 0; z-index: 1; padding-top: 3px; padding-bottom: 3px; background: var(--bar); color: var(--dim); font-size: 10.5px; cursor: default; }
+.team-list .row.headrow:hover { background: var(--bar); }
 .team-list .name { color: #fff; }
+.team-list .name .tree { color: var(--dim); }
 .team-list .role, .team-list .flags { color: var(--muted); font-size: 11px; }
-.team-list .doing { font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; }
+.team-list .doing { font-family: var(--mono); font-size: 11px; }
 .team-list .row[data-alert="yes"] { border-left-color: var(--rec); background: rgba(255, 90, 95, .06); }
 .team-list .row[data-alert="yes"] .doing { color: var(--rec); }
 
 .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; padding: 6px; }
 .team-grid .tile { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 130px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
-  background: #1b1e24; cursor: pointer; }
-.team-grid .tile:hover, .team-grid .tile:focus { border-color: var(--accent); outline: none; }
+  background: var(--panel); cursor: pointer; }
+.team-grid .tile:hover, .team-grid .tile:focus { border-color: var(--accent); }
 .team-grid .tile[data-tone="working"] { border-top: 2px solid var(--thinking); }
 .team-grid .tile[data-alert="yes"] { border-color: var(--rec); background: #241b1e; }
 .team-grid .head { display: flex; gap: 6px; align-items: baseline; min-width: 0; white-space: nowrap; }
-.team-grid .head .name { overflow: hidden; color: #fff; font-weight: 600; text-overflow: ellipsis; }
-.team-grid .head .role { color: var(--muted); font-size: 10.5px; }
-.team-grid .head .state { margin-left: auto; font-size: 11px; }
-.team-grid .doing { overflow: hidden; font: 11px "Cascadia Mono", Consolas, monospace; white-space: nowrap; text-overflow: ellipsis; }
+.team-grid .head .name { flex: 0 1 auto; min-width: 0; overflow: hidden; color: #fff; font-weight: 600; text-overflow: ellipsis; }
+.team-grid .head .role { flex: none; color: var(--muted); font-size: 10.5px; }
+.team-grid .head .parent { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--dim); font-size: 10.5px; text-overflow: ellipsis; }
+.team-grid .head .state { flex: none; margin-left: auto; font-size: 11px; }
+.team-grid .doing { overflow: hidden; font: 11px var(--mono); white-space: nowrap; text-overflow: ellipsis; }
 .team-grid .tile[data-alert="yes"] .doing { color: var(--rec); }
-.team-grid .recent { flex: 1; min-height: 0; margin: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.35 "Cascadia Mono", Consolas, monospace;
+.team-grid .recent { flex: 1; min-height: 0; margin: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.35 var(--mono);
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .team-grid .flags { overflow: hidden; color: var(--muted); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
 
 .detail { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .detail .dhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 8px 2px; }
-.detail .dhead .name { color: #fff; font-size: 13px; }
+.detail .dhead .name { min-width: 0; overflow: hidden; color: #fff; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
 .detail .dhead .role { color: var(--muted); font-size: 11px; }
 .detail .dhead .alert { padding: 0 6px; border-radius: 3px; background: rgba(255, 90, 95, .18); color: var(--rec); font-size: 11px; }
 .detail .dhead .ops { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
 .detail .dsub { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 0 8px 5px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
-.detail .dsub .doing { color: var(--text); font-family: "Cascadia Mono", Consolas, monospace; }
+.detail .dsub .doing { color: var(--text); font-family: var(--mono); }
 .detail .dsub .notice { color: var(--accent); }
 .detail .dsub .notice.bad { color: var(--rec); white-space: pre-wrap; }
-.team button.tool { padding: 2px 9px; border: 1px solid #3a404c; border-radius: 4px; background: #262a33; color: var(--text); font: inherit; font-size: 11.5px;
-  cursor: pointer; white-space: nowrap; }
-.team button.tool:hover:not(:disabled) { border-color: var(--accent); }
-.team button.tool:disabled { opacity: .4; cursor: default; }
+.team button.tool { padding: 2px 9px; font-size: 11.5px; }
+/* 消す操作（記録と作業空間を消す）は赤い縁で、少し離す */
+.team button.tool.danger { margin-left: 8px; border-color: #6a3a3f; color: var(--danger-text); }
+.team button.tool.danger:hover:not(:disabled) { border-color: var(--rec); background: var(--danger-bg); }
 .detail .events { flex: 1; min-height: 0; overflow: auto; padding: 6px 10px 12px; font-size: 12.5px; line-height: 1.55; user-select: text; }
 .detail .events > .note { margin: 12px 0; }
 .ev { margin: 4px 0; }
 .ev .body { white-space: pre-wrap; overflow-wrap: anywhere; }
-.ev.text .body { color: #e6e8ec; }
-.ev.input { padding: 4px 8px; border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; background: #1c2230; }
+.ev.text .body { color: var(--text); }
+.ev.input { padding: 4px 8px; border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; background: #1a2a27; }
 .ev.input .from { display: block; color: var(--accent); font-size: 11px; }
-.ev.tool { color: var(--muted); font: 11.5px/1.5 "Cascadia Mono", Consolas, monospace; }
+.ev.tool { color: var(--muted); font: 11.5px/1.5 var(--mono); }
 .ev.tool summary { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; }
 .ev.tool summary:hover { color: var(--text); }
 .ev.tool .st { margin-left: 8px; color: var(--thinking); }
 .ev.tool.error .st, .ev.tool.error summary { color: var(--rec); }
 .ev.tool .label { margin: 4px 0 0 14px; color: var(--muted); font-size: 10.5px; }
-.ev.tool pre { max-height: 320px; margin: 2px 0 4px 14px; padding: 4px 8px; overflow: auto; border-radius: 4px; background: #101216; color: var(--text);
+.ev.tool pre { max-height: 320px; margin: 2px 0 4px 14px; padding: 4px 8px; overflow: auto; border: 1px solid #2a3038; border-radius: 4px; background: var(--field); color: #cdd5df;
   white-space: pre-wrap; overflow-wrap: anywhere; }
-.ev.turn { margin: 10px 0; padding-top: 4px; border-top: 1px dashed #3a404c; color: var(--muted); font-size: 11px; }
+.ev.turn { margin: 10px 0; padding-top: 4px; border-top: 1px dashed var(--line-3); color: var(--muted); font-size: 11px; }
 .ev.turn.error { color: var(--rec); }
 .ev.turn .denial { color: var(--warn); }
 .ev.mark { color: var(--muted); font-size: 11px; text-align: center; }

@@ -41,7 +41,7 @@ const ECO = (() => {
 
   // Running commands, shown at the bottom left so long operations (build, clone) are visible.
   const running = document.createElement('div'); running.className = 'eco-running'; running.setAttribute('aria-live', 'polite');
-  const toasts = document.createElement('div'); toasts.className = 'eco-toasts'; toasts.setAttribute('role', 'status');
+  const toasts = document.createElement('div'); toasts.className = 'eco-toasts'; toasts.setAttribute('role', 'status'); toasts.popover = 'manual';
   document.addEventListener('DOMContentLoaded', () => document.body.append(running, toasts, refreshing));
   // Electron (Windows・Linux): the window has no system title bar; the page's top is the bar (see the CSS).
   if (window.ecobuildShell?.frameless && window.top === window) document.documentElement.classList.add('frameless');
@@ -123,9 +123,24 @@ const ECO = (() => {
     ['task', 'list', '--all'], ['task', 'next', '--count', '10'], ['task', 'overdue', '--days', '7'], ['task', 'workload'], ['milestone', 'status']];
   const prefetch = (dir, extra = []) => call('prefetch', {dir, queries: [...FIRST_READS, ...extra]});
 
+  // Notices at the bottom right (as VS Code's): at most four, each with ×, kept while the pointer is on it; an error stays
+  // longer. They are in the top layer (a popover), so an open dialog does not cover them.
   function toast(message, kind = 'ok', ms = 4500) {
-    const item = document.createElement('div'); item.className = 'eco-toast ' + kind; item.textContent = message;
-    toasts.append(item); setTimeout(() => item.remove(), ms);
+    const item = document.createElement('div'); item.className = 'eco-toast ' + kind;
+    const text = document.createElement('span'); text.textContent = message;
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'eco-toast-close'; close.textContent = '×'; close.setAttribute('aria-label', '閉じる');
+    item.append(text, close);
+    const remove = () => { item.remove(); if (!toasts.children.length) try { toasts.hidePopover?.(); } catch (e) { /* not shown */ } };
+    let timer = null;
+    const start = () => { timer = setTimeout(remove, kind === 'bad' ? Math.max(ms, 10000) : ms); };
+    item.addEventListener('mouseenter', () => clearTimeout(timer));
+    item.addEventListener('mouseleave', start);
+    close.addEventListener('click', remove);
+    toasts.append(item);
+    while (toasts.children.length > 4) toasts.firstElementChild.remove();
+    // Shown again so it is above a dialog opened since.
+    try { if (toasts.isConnected && toasts.showPopover) { if (toasts.matches(':popover-open')) toasts.hidePopover(); toasts.showPopover(); } } catch (e) { /* no popover */ }
+    start();
   }
 
   const label = args => args.filter(a => a !== '--yes').slice(0, 4).join(' ');
@@ -220,14 +235,15 @@ const ECO = (() => {
   // In a form (see form()), a failure is not shown here: the form opens again with the error.
   // Elsewhere the "busy" overlay shows while the command runs (after a moment, so quick commands do not flicker).
   let formDepth = 0, lastError = null;
-  async function run(dir, args, {success, stdin, confirm: confirmText, title, busy: busyText} = {}) {
-    if (confirmText && !await confirm({title: title || '確認', message: confirmText, ok: '実行する'})) return null;
+  // ok: the confirming button says what happens (削除する, 取り込む) rather than 実行する; danger: red, for what cannot be undone.
+  async function run(dir, args, {success, stdin, confirm: confirmText, title, busy: busyText, ok: okText, danger = false} = {}) {
+    if (confirmText && !await confirm({title: title || '確認', message: confirmText, ok: okText || '実行する', danger})) return null;
     const inForm = formDepth > 0;
     let overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
     let doc = await cli(dir, args, {stdin});
     if (!doc.ok && doc.error?.code === 'confirmation_required') {
       overlay?.end();
-      const ok = await confirm({title: title || '確認', message: doc.error.message.replace(/^確認が必要です：/, ''), detail: detailText(doc.error.details), ok: '実行する', danger: true});
+      const ok = await confirm({title: title || '確認', message: doc.error.message.replace(/^確認が必要です：/, ''), detail: detailText(doc.error.details), ok: okText || '実行する', danger: true});
       if (!ok) return null;
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
       doc = await cli(dir, [...args, '--yes'], {stdin});
@@ -368,14 +384,16 @@ const ECO = (() => {
       const fieldHtml = f => {
         const id = 'f-' + f.name, attrs = `name="${esc(f.name)}" ${f.required ? 'required' : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} ${f.min != null ? `min="${f.min}"` : ''}`;
         const help = f.help ? `<span class="eco-help">${esc(f.help)}</span>` : '';
+        // A field that must be filled in is marked (*), as most forms do.
+        const title = f.required ? `<span>${esc(f.label)}<span class="eco-req" aria-hidden="true">*</span></span>` : esc(f.label);
         if (f.type === 'html') return f.html;
         if (f.type === 'checkbox') return `<label class="eco-check"><input type="checkbox" ${attrs} ${f.value ? 'checked' : ''}> ${esc(f.label)}</label>${help}`;
         if (f.type === 'checks') return `<fieldset class="eco-checks" data-field="${esc(f.name)}"><legend>${esc(f.label)}</legend><div>${f.options.length ? f.options.map(([v, l]) => `<label><input type="checkbox" name="${esc(f.name)}" value="${esc(v)}" ${(f.value || []).includes(v) ? 'checked' : ''}><span>${esc(l ?? v)}</span></label>`).join('') : `<span class="eco-help">${esc(f.empty || '選べるものがありません')}</span>`}</div></fieldset>${help}`;
         if (f.type === 'radio') return `<fieldset${f.inline ? ' class="eco-inline"' : ''}><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note, off]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) && !off ? 'checked' : ''}${off ? ' disabled' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
-        if (f.type === 'select') return `<label class="eco-field">${esc(f.label)}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
-        if (f.type === 'textarea') return `<label class="eco-field">${esc(f.label)}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
+        if (f.type === 'select') return `<label class="eco-field">${title}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
+        if (f.type === 'textarea') return `<label class="eco-field">${title}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
         const list = f.suggestions?.length ? `<datalist id="${id}-list">${f.suggestions.map(([v, l]) => `<option value="${esc(v)}"${l ? ` label="${esc(l)}"` : ''}></option>`).join('')}</datalist>` : '';
-        return `<label class="eco-field">${esc(f.label)}<input id="${id}" type="${f.type || 'text'}" ${attrs} ${list ? `list="${id}-list"` : ''} value="${esc(f.value ?? '')}" autocomplete="off">${list}${help}</label>`;
+        return `<label class="eco-field">${title}<input id="${id}" type="${f.type || 'text'}" ${attrs} ${list ? `list="${id}-list"` : ''} value="${esc(f.value ?? '')}" autocomplete="off">${list}${help}</label>`;
       };
       const wrap = f => f.type === 'html' ? f.html : `<div class="eco-f" data-field="${esc(f.name)}">${fieldHtml(f)}</div>`;
       let html = '', closing = '';
@@ -606,7 +624,7 @@ const ECO = (() => {
   const taskOutcome = complete => complete ? CLOSE_TEXT : KEEP_TEXT;
   const setTaskOutcome = (formEl, complete) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = taskOutcome(complete); };
   const submitOutcome = (base, {submitted = false, complete = true} = {}) => outcome([['PR', submitted ? '出している提出に、Push したコミットが加わります' : `${into(base)}へ出します（Push してから）`],
-    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「提出」かタスク管理の「取り込む」。取り込めるのは取り込み先のブランチを作った人と管理者）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
+    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「ブランチ」かタスク管理の「取り込む」。取り込めるのは取り込み先のブランチを作った人と管理者）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
   // The take-in dialog (task finish on an open submission), the same wherever it is: resolves to the CLI's arguments
   // after the number, or null. partial: the submission's (the default of 閉じずに続ける).
   async function finishForm({number, base, partial = false}) {
@@ -717,10 +735,14 @@ const ECO = (() => {
     return result;
   }
   const byWhom = e => e.by === 'agent' ? 'エージェント' : '別の画面';
+  const READ_ONLY = ['list', 'show', 'status', 'diff', 'log', 'next', 'overdue', 'workload', 'types', 'path'];
   async function handle(e) {
     const mine = e.target ? e.target === windowId : true;
     if (e.type === 'ran' && e.origin !== windowId) {
-      toast(`${byWhom(e)}が実行しました：ecobuild ${e.args.join(' ')}${e.ok ? '' : `（失敗：${e.message || ''}）`}`, e.ok ? 'info' : 'bad', 7000);
+      // Only what changed something is worth a notice: another window's look-ups (a check, a dry run, a list) are not.
+      const args = e.args || [], words = args.filter(a => !a.startsWith('-'));
+      const lookup = args.some(a => ['--check', '--dry-run', '--help'].includes(a)) || words[0] === 'doctor' || READ_ONLY.includes(words[1]);
+      if (!lookup) toast(`${byWhom(e)}が実行しました：ecobuild ${e.args.join(' ')}${e.ok ? '' : `（失敗：${e.message || ''}）`}`, e.ok ? 'info' : 'bad', 7000);
       for (const fn of changeHandlers) { try { fn(e); } catch (error) { console.error(error); } }
     } else if (e.type === 'notify') {
       toast(`${e.by === 'agent' ? 'エージェントから' : '知らせ'}：${e.message}`, e.kind || 'info', 12000);
@@ -768,22 +790,24 @@ const ECO = (() => {
     });
   }
 
-  // Context menu: items are [label, action, enabled = true] or '-' for a separator.
+  // Context menu: items are [label, action, enabled = true, tip = '', {danger}] or '-' for a separator.
+  // {right: true}: x is where the menu's right edge goes (a ⋯ button: the menu lines up under it).
   // menuOpener: the button that opened the menu. Pressing it again only closes the menu (the press closes it; the click
   // that follows is swallowed, or it would open it again).
   let openMenu = null, menuOpener = null, lastPressed = null, swallowClick = null;
-  function menu(items, x, y) {
+  function menu(items, x, y, {right = false} = {}) {
     openMenu?.remove();
     const el = document.createElement('div'); el.className = 'eco-menu'; el.setAttribute('role', 'menu');
     for (const item of items) {
       if (item === '-') { el.append(document.createElement('hr')); continue; }
-      const [text, action, enabled = true, tip = ''] = item;   // tip: shown when the pointer is on the item
+      const [text, action, enabled = true, tip = '', {danger = false} = {}] = item;   // tip: shown when the pointer is on the item
       if (action === null) { const head = document.createElement('div'); head.className = 'eco-menu-head'; head.textContent = text; el.append(head); continue; }   // a heading of the items below
-      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled; if (tip) b.title = tip;
+      const b = document.createElement('button'); b.type = 'button'; b.setAttribute('role', 'menuitem'); b.textContent = text; b.disabled = !enabled; if (tip) b.title = tip; if (danger) b.className = 'danger';
       b.addEventListener('click', () => { el.remove(); openMenu = null; action(); });
       el.append(b);
     }
     document.body.append(el); openMenu = el; menuOpener = lastPressed?.closest?.('button, summary') || null;
+    if (right) x -= el.offsetWidth;
     el.style.left = Math.max(8, Math.min(x, innerWidth - el.offsetWidth - 8)) + 'px';
     el.style.top = Math.max(8, Math.min(y, innerHeight - el.offsetHeight - 8)) + 'px';
     el.querySelector('button:not(:disabled)')?.focus();

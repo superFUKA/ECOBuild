@@ -1,7 +1,8 @@
 'use strict';
 // エージェントの窓の画面：タブ（番号・名前・状態）と、タブごとの端末（xterm.js）。表示するのは選んでいるタブだけ。
 // タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
-// ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線）・＋（作業空間のエージェントを開く）・☰・🎙・📌・⚙・–・×。
+// ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線。入らなければ縮み、それでも入らなければホイールで横に送る）・
+// ＋（作業空間のエージェントを開く）・☰（隠れたタブの数）／🎙・📌・⚙／–・×（窓の操作）。
 // 子を起動できるエージェントの窓には、そのタブの隣に「チーム」（AI が起動した子を見る。teamui.js）。
 // フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
 // リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
@@ -19,7 +20,7 @@ const TOPMOST_LABELS = {always: '常に', auto: '自動', off: 'オフ'};
 function makeTerm(info, history) {
   const el = document.createElement('div'); el.className = 'screen'; el.hidden = true; $('screens').append(el);
   const term = new Terminal({fontFamily: 'Cascadia Mono, Consolas, "BIZ UDGothic", monospace', fontSize, cursorBlink: true,
-    scrollback: 5000, allowProposedApi: true, theme: {background: '#15171c', foreground: '#d7dae0'}});
+    scrollback: 5000, allowProposedApi: true, theme: {background: '#14171b', foreground: '#d7dae0'}});
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit); term.open(el);
   term.onData(data => agents.input(info.id, data));
@@ -107,10 +108,45 @@ function renderTabs() {
     bar.append(b);
   }
   if (typeof teamTab === 'function') teamTab(bar);   // 子を起動できるエージェントの窓：そのタブの隣に「チーム」（teamui.js）
+  bar.querySelector('.tab.active')?.scrollIntoView({inline: 'nearest', block: 'nearest'});
+  countHidden();
   const current = tabs.find(t => t.id === active);
   document.body.classList.toggle('listening', current?.state === 'listening');
   $('voice').classList.toggle('on', current?.state === 'listening');
   renderStatus(current);
+}
+
+// タブが入りきらないとき：ホイールで横に送り、隠れているタブの数を ☰ に出す
+function countHidden() {
+  const bar = $('tabs'), r = bar.getBoundingClientRect();
+  // 半分より多く隠れているタブを数える
+  const hidden = [...bar.children].filter(t => { const b = t.getBoundingClientRect(); return Math.min(b.right, r.right) - Math.max(b.left, r.left) < b.width / 2; }).length;
+  if (hidden) $('picker').dataset.hidden = hidden; else delete $('picker').dataset.hidden;
+}
+$('tabs').addEventListener('wheel', event => {
+  if (!event.deltaY || $('tabs').scrollWidth <= $('tabs').clientWidth) return;
+  event.preventDefault(); $('tabs').scrollLeft += event.deltaY;
+}, {passive: false});
+$('tabs').addEventListener('scroll', countHidden);
+addEventListener('resize', countHidden);
+
+// メニューの項目：[文字, 動き, {danger, disabled, title, checked}]。null は区切り
+function menuItems(menu, items) {
+  for (const item of items) {
+    if (!item) { const sep = document.createElement('div'); sep.className = 'sep'; menu.append(sep); continue; }
+    const [label, action, o = {}] = item;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    if (o.danger) b.classList.add('danger');
+    if (o.checked !== undefined) b.classList.add(o.checked ? 'checked' : 'unchecked');
+    b.disabled = !!o.disabled; if (o.title) b.title = o.title;
+    b.addEventListener('click', () => { menu.hidden = true; action(); }); menu.append(b);
+  }
+}
+// メニューを出して、窓の中に収める
+function placeMenu(menu, x, y) {
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
 }
 
 // フッター
@@ -123,12 +159,12 @@ function renderStatus(current) {
   const add = (text, cls = '', title = '') => { const s = document.createElement('span'); s.textContent = text; if (cls) s.className = cls; if (title) s.title = title; bar.append(s); return s; };
   const info = current.info || {};
   if (ringState?.choosing) add('選択モード', 'choosing', '上下左右で選んで、押し込みで決定');
-  add(STATE_LABELS[current.state] || '', current.state === 'listening' ? 'listening' : '');
+  add(STATE_LABELS[current.state] || '', 'st ' + (current.state || ''));   // 色はタブの下の線と同じ
   if (info.model) {
     const m = add(info.model + (info.context != null ? ` · ctx ${Math.round(info.context)}%` : ''), 'model', 'クリックでモデルを切り替える');
     m.addEventListener('click', event => { event.stopPropagation(); modelMenu(current, event.clientX, event.clientY); });
   }
-  add(current.kind === 'operator' ? 'オペレーター' : shortDir(current.dir), 'where', current.dir);
+  add(current.kind === 'operator' ? 'オペレーター' : placeName(current.dir), 'where', current.dir);
   let first = true;
   for (const [label, limit] of [['5h', info.fiveHour], ['週', info.weekly]]) {
     const s = !limit ? add(`${label} —`, 'limit', '使用量の制限は、Claude が最初に返答した後に届きます')
@@ -140,6 +176,11 @@ function renderStatus(current) {
 }
 let ringState = null;
 const shortDir = dir => String(dir || '').replaceAll('\\', '/').split('/').filter(Boolean).slice(-2).join('/');
+// フッターの場所：作業空間（.worktrees の下）なら「モジュール › 作業空間」
+function placeName(dir) {
+  const p = String(dir || '').replaceAll('\\', '/').split('/').filter(Boolean), i = p.lastIndexOf('.worktrees');
+  return i > 0 && p[i + 1] ? `${p[i - 1]} › ${p[i + 1]}` : p.slice(-2).join('/');
+}
 
 // リングの丸：緑＝つながっていて登録あり、黄＝つながっているが登録なし・見つからない、赤＝受信係が止まっている
 function renderRingDot() {
@@ -176,13 +217,9 @@ function termMenu(info, term, x, y) {
   items.push(['貼り付け', () => agents.paste().then(text => text && term.paste(text))]);
   items.push(['最後の返答をコピー', async () => { const text = await agents.lastReply(info.id); if (text) agents.copy(text); }]);
   const hint = document.createElement('div'); hint.className = 'head'; hint.textContent = '文字は Claude の中でドラッグして選ぶとコピーされます（Shift を押しながらドラッグでも選べます）';
-  for (const [label, action] of items) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
-    b.addEventListener('click', () => { menu.hidden = true; action(); }); menu.append(b);
-  }
+  menuItems(menu, items);
   menu.append(hint);
-  menu.hidden = false;
-  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + 'px';
+  placeMenu(menu, x, y);
 }
 
 function closeTab(info) {
@@ -193,17 +230,14 @@ function closeTab(info) {
 
 function tabMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
-  const items = [['名前を変える', () => rename($('tabs').querySelector(`[data-id="${info.id}"]`), info)],
-                 ...(info.pinned ? [] : [['新しい窓へ', () => agents.newWindow(info.id)]]),
-                 ['起動し直す（新しい会話）', () => agents.restart(info.id)],
-                 ['続きから起動し直す（前の会話の続き）', () => agents.restart(info.id, true)],
-                 ['閉じる', () => closeTab(info)]];
-  for (const [label, action] of items) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
-    b.addEventListener('click', () => { menu.hidden = true; action(); }); menu.append(b);
-  }
-  menu.hidden = false;
-  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.min(y, innerHeight - menu.offsetHeight - 8) + 'px';
+  menuItems(menu, [['名前を変える', () => rename($('tabs').querySelector(`[data-id="${info.id}"]`), info)],
+                   ...(info.pinned ? [] : [['新しい窓へ', () => agents.newWindow(info.id)]]),
+                   null,
+                   ['起動し直す（新しい会話）', () => agents.restart(info.id)],
+                   ['続きから起動し直す（前の会話の続き）', () => agents.restart(info.id, true)],
+                   null,
+                   ['閉じる', () => closeTab(info), {danger: info.kind !== 'operator'}]]);
+  placeMenu(menu, x, y);
 }
 document.addEventListener('click', event => { if (!$('menu').contains(event.target)) $('menu').hidden = true; });
 
@@ -222,7 +256,7 @@ agents.onTabs(({tabs: list, active: selected}) => {
   $('empty').hidden = terms.size > 0;
 });
 agents.onTopmost(mode => {
-  $('topmost').textContent = `📌 ${TOPMOST_LABELS[mode] || mode}`; $('topmost').dataset.mode = mode;
+  $('topmost').querySelector('.label').textContent = TOPMOST_LABELS[mode] || mode; $('topmost').dataset.mode = mode;
   $('topmost').title = `最前面：${TOPMOST_LABELS[mode]}（押すと 常に → 自動 → オフ。自動は返答が届いたときだけ前に出ます）`;
 });
 // 選んでいる窓（フォーカスがある）は枠を青く
@@ -284,13 +318,15 @@ const HOLD_LABEL = ms => ms === -1 ? '消さない' : ms < 60000 ? `${ms / 1000}
 for (const s of ECOSounds.list) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.label; $('notify-sound').append(o); }
 agents.onNotify((notify, holds) => {
   for (const r of document.querySelectorAll('#notify-style input')) r.checked = r.value === notify.style;
-  $('notify-sound').value = notify.sound; $('notify-volume').value = notify.volume;
+  $('notify-sound').value = notify.sound; $('notify-volume').value = notify.volume; showVolume();
   const hold = $('notify-hold'); hold.replaceChildren();
   for (const ms of holds) { const o = document.createElement('option'); o.value = ms; o.textContent = HOLD_LABEL(ms); hold.append(o); }
   hold.value = notify.hold;
 });
 $('notify-style').addEventListener('change', event => agents.setNotify({style: event.target.value}));
 $('notify-sound').addEventListener('change', () => { agents.setNotify({sound: $('notify-sound').value}); agents.testSound(); });
+function showVolume() { $('notify-volume-value').textContent = `${Math.round(Number($('notify-volume').value) * 100)}%`; }
+$('notify-volume').addEventListener('input', showVolume);
 $('notify-volume').addEventListener('change', () => { agents.setNotify({volume: Number($('notify-volume').value)}); agents.testSound(); });
 $('notify-hold').addEventListener('change', () => agents.setNotify({hold: Number($('notify-hold').value)}));
 $('notify-test').addEventListener('click', () => agents.testSound());
@@ -337,8 +373,9 @@ agents.onPicker(() => ($('picker-panel').hidden ? openPicker() : closePanels()))
 $('add').addEventListener('click', async event => {
   const menu = $('menu'); menu.replaceChildren();
   const head = document.createElement('div'); head.className = 'head'; head.textContent = '読み込んでいます…'; menu.append(head);
-  const r = event.currentTarget.getBoundingClientRect();
-  menu.hidden = false; menu.style.left = Math.max(8, Math.min(r.left, innerWidth - 260)) + 'px'; menu.style.top = (r.bottom + 2) + 'px';
+  const r = $('add').getBoundingClientRect();
+  const place = () => placeMenu(menu, r.left, r.bottom + 2);
+  place();
   event.stopPropagation();
   const [list, found] = await Promise.all([agents.workspaces(), agents.registrations()]);
   const startable = found.filter(r => r.human_start);
@@ -347,8 +384,10 @@ $('add').addEventListener('click', async event => {
   for (const w of list) {
     const b = document.createElement('button'); b.type = 'button';
     const folder = shortDir(w.path).split('/').pop();
-    b.textContent = `${folder}  ${w.branch || ''}${w.task ? `（#${w.task}）` : ''}`; b.title = w.path; b.disabled = !w.task || !startable.length;
-    if (b.disabled) b.style.opacity = '.45';
+    const strong = document.createElement('b'); strong.textContent = folder;
+    const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `${w.task ? `#${w.task} ` : ''}${w.branch || ''}`;
+    b.append(strong, sub); b.disabled = !w.task || !startable.length;
+    b.title = !w.task ? `タスクブランチではないので開けません\n${w.path}` : !startable.length ? `人が起動できる登録がありません\n${w.path}` : w.path;
     b.addEventListener('click', clicked => {
       clicked.stopPropagation();
       const name = folder + (w.task ? ` #${w.task}` : '');
@@ -364,10 +403,14 @@ $('add').addEventListener('click', async event => {
         item.addEventListener('click', () => open(r));
         menu.append(item);
       }
+      place();
     });
     menu.append(b);
   }
+  place();   // 項目を足した後の幅・高さで、窓の中に収める
 });
+// 端末が空のときの「＋ エージェントを開く」：ヘッダーの ＋ と同じ
+$('empty-add').addEventListener('click', event => { event.stopPropagation(); $('add').click(); });
 
 // リングでタブの一覧を操作する（上・左で前、下・右で次、押し込みで決定、ほかで閉じる）
 agents.onPickerKey(gesture => {
@@ -381,12 +424,13 @@ agents.onPickerKey(gesture => {
 // フッターのモデル名：クリックで切り替え（待機中で入力欄が空のときに /model を送る）
 function modelMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
-  for (const [label, model] of [['Opus', 'opus'], ['Fable', 'fable'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku'], ['その他…（Claude の選択画面）', '']]) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
-    b.addEventListener('click', () => { menu.hidden = true; agents.model(info.id, model); }); menu.append(b);
-  }
+  const head = document.createElement('div'); head.className = 'head'; head.textContent = 'モデルを切り替える（待機中のときに /model を送ります）'; menu.append(head);
+  const now = String(info.info?.model || '').toLowerCase();   // 今のモデルに ✓
+  menuItems(menu, [['Opus', 'opus'], ['Fable', 'fable'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku']]
+    .map(([label, model]) => [label, () => agents.model(info.id, model), {checked: now.includes(model)}]));
+  menuItems(menu, [null, ['その他…（Claude の選択画面）', () => agents.model(info.id, '')]]);
   menu.hidden = false;
-  menu.style.left = Math.min(x, innerWidth - menu.offsetWidth - 8) + 'px'; menu.style.top = Math.max(8, y - menu.offsetHeight - 8) + 'px';
+  placeMenu(menu, x, y - menu.offsetHeight - 8);
 }
 
 // ⚙ の「エージェント」：オペレーターのモデル
@@ -409,6 +453,7 @@ $('operator-model').addEventListener('change', () => agents.setPrefs({operatorMo
 for (const who of document.querySelectorAll('.persona .who')) {
   const kind = who.dataset.kind, area = who.querySelector('textarea'), saved = who.querySelector('.saved');
   who.querySelector('.pick').addEventListener('click', () => agents.iconPick(kind));
+  who.querySelector('img').addEventListener('click', () => agents.iconPick(kind));   // アイコンを押しても「画像を選ぶ」
   who.querySelector('.clear').addEventListener('click', () => agents.iconClear(kind));
   area.addEventListener('input', () => { area.dataset.dirty = '1'; saved.textContent = ''; });
   who.querySelector('.save').addEventListener('click', async () => {

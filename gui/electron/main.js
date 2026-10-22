@@ -43,9 +43,11 @@ const sameServer = url => { try { return hubUrl && new URL(url).origin === new U
 // in the app's colors (titleBarOverlay). The page draws the bar (frameless: preload.js) and makes it draggable.
 // 39px: the page's bar is 40px with a line at its bottom, which stays visible under the buttons too.
 const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 39};
-function windowOptions([width, height], icon = ICON) {
+// minimum: below it the hub's and the module's pages break (the module's sidebar is 290px).
+const HUB_MIN = [640, 420], MODULE_MIN = [760, 480];
+function windowOptions([width, height], icon = ICON, [minWidth, minHeight] = HUB_MIN) {
   return {
-    width, height, icon, backgroundColor: '#14181d', autoHideMenuBar: true,
+    width, height, minWidth, minHeight, icon, backgroundColor: '#14171b', autoHideMenuBar: true,
     ...(process.platform === 'darwin' ? {} : {titleBarStyle: 'hidden', titleBarOverlay: TITLE_BAR}),
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   };
@@ -96,7 +98,7 @@ function openModule(root) {
     return;
   }
   const hub = new URL(hubUrl);
-  const window = new BrowserWindow(windowOptions(MODULE_SIZE, MODULE_ICON));
+  const window = new BrowserWindow(windowOptions(MODULE_SIZE, MODULE_ICON, MODULE_MIN));
   asModuleApp(window, root);
   window.loadURL(`${hub.origin}/module.html?path=${encodeURIComponent(root)}&t=${hub.searchParams.get('t')}`);
 }
@@ -125,7 +127,8 @@ app.on('web-contents-created', (event, contents) => {
       const page = new URL(url).pathname;
       const size = page === '/log.html' ? LOG_SIZE : MODULE_SIZE;
       if (page === '/panel.html') return {action: 'allow', overrideBrowserWindowOptions: panelOptions(contents, url, features)};
-      return {action: 'allow', outlivesOpener: true, overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? MODULE_ICON : ICON)};
+      return {action: 'allow', outlivesOpener: true,
+              overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? MODULE_ICON : ICON, page === '/module.html' ? MODULE_MIN : HUB_MIN)};
     }
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return {action: 'deny'};
@@ -136,11 +139,12 @@ app.on('web-contents-created', (event, contents) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
   });
   contents.on('did-create-window', (window, {url}) => asModuleApp(window, ownerOf(url)));
-  // メニューは出さないので、開発用の操作だけキーで残す。
+  // メニューは出さないので、開発用の操作だけキーで残す。読み直し（F5・Ctrl+R）は GUI のページだけ：エージェントの窓
+  // （file://）では Ctrl+R は端末のキー（Claude Code の履歴の検索）なので、そのまま端末へ通す。
   contents.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) contents.toggleDevTools();
-    else if (input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) contents.reload();
+    else if ((input.key === 'F5' || (input.control && input.key.toLowerCase() === 'r')) && !contents.getURL().startsWith('file:')) contents.reload();
   });
 });
 

@@ -33,7 +33,18 @@
   const DEP_STATE = {aligned: ['記録の版', 'ok'], differs: ['記録と別の版', 'warn'], modified: ['未コミットの変更あり', 'warn'], working: ['作業版', ''], missing: ['cloneなし', 'bad']};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const head = (title, note, actions = '') => `<div class="mi-head"><div><h3>${title}</h3><p class="mi-note">${note}</p></div><div class="mi-actions">${actions}</div></div>`;
-  const btn = (label, action, arg = '', cls = '') => `<button type="button" class="${cls}" data-mi="${action}" data-arg="${esc(arg)}">${label}</button>`;
+  // What changes the managed files runs in a task branch's workspace (inWorkspace): grey with the reason while there is none.
+  const WS_ACTIONS = new Set(['deps-update', 'link', 'unlink', 'project-add', 'project-remove', 'pch', 'project-settings', 'project-link', 'project-move', 'module-settings',
+    'template-add', 'template-remove', 'profile-add', 'profile-project', 'profile-project-clear', 'profile-remove']);
+  const NO_WS = 'タスクブランチの作業空間がありません（タスク管理で「作業を開始」してください）';
+  const wsOff = action => WS_ACTIONS.has(action) && !MOD.workspacePlaces().length;
+  const btn = (label, action, arg = '', cls = '', title = '') => `<button type="button" class="${cls}" data-mi="${action}" data-arg="${esc(arg)}"${wsOff(action) ? ` disabled title="${esc(NO_WS)}"` : title ? ` title="${esc(title)}"` : ''}>${label}</button>`;
+  // ⋯: the less used actions of a row, in a menu ([label, action, arg, danger] or '-'); kept per drawing.
+  let menus = [];
+  const more = items => `<button type="button" class="sm mi-more" data-mi-more="${menus.push(items) - 1}" aria-label="ほかの操作" title="ほかの操作">⋯</button>`;
+  const menuItems = items => items.map(i => i === '-' ? '-' : [i[0], () => ACTIONS[i[1]](i[2]), !wsOff(i[1]), wsOff(i[1]) ? NO_WS : '', {danger: !!i[3]}]);
+  // A read that failed: what it says, with 読み直す.
+  const failure = message => `<div class="eco-banner bad">${esc(message)}<button type="button" class="sm" data-mi-retry>読み直す</button></div>`;
   const here = () => place || MOD.root;
   const cli = args => ECO.cli(here(), args, {quiet: true});
   const short = sha => sha ? sha.slice(0, 8) : '-';
@@ -52,14 +63,27 @@
     const places = [MOD.root, ...MOD.places.filter(p => MOD.keyOf(p) !== MOD.keyOf(MOD.root))];
     const options = places.map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(here()) ? 'selected' : ''}>${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? 'モジュールのフォルダ（既定のブランチ）' : esc(MOD.states.get(MOD.keyOf(p))?.branch || p) + '（' + esc(p.split(/[\\/]/).pop()) + '）'}</option>`).join('');
     if (places.length < 2) return '';   // no workspace: nothing to choose
-    return `<div class="mi-place"><label class="mi-note">表示する場所<select id="mi-place">${options}</select></label></div>`;
+    return `<label class="mi-place">表示<select id="mi-place">${options}</select></label>`;
+  }
+  // The choice of the place sits beside the page's title (not redrawn while it is open).
+  function showPlace() {
+    const slot = section().querySelector('.mi-place-slot');
+    if (slot && !slot.contains(document.activeElement)) slot.innerHTML = placeSelect();
+  }
+  // Above the page: which workspace is shown (not the module's folder), and that changing needs a workspace.
+  const EDIT_VIEWS = new Set(['projects', 'deps', 'profiles', 'general', 'templates']);
+  function banners() {
+    let out = '';
+    if (MOD.keyOf(here()) !== MOD.keyOf(MOD.root)) out += `<div class="eco-banner mi-info"><span><strong>${esc(MOD.states.get(MOD.keyOf(here()))?.branch || '')}</strong> の作業空間（${esc(here())}）の内容を表示しています。</span></div>`;
+    if (EDIT_VIEWS.has(view) && !MOD.workspacePlaces().length) out += `<div class="eco-banner mi-info"><span>変更はタスクブランチの作業空間で行います。作業空間がないので、今は見るだけです${view === 'profiles' ? '（このPCで使うビルド設定は選べます）' : ''}。</span><button type="button" class="sm" data-open-tasks>タスク管理を開く</button></div>`;
+    return out;
   }
   // The files of the module (as the explorer lists them: git's files and the untracked ones, not the ignored ones).
   // The top level first; a folder opens in place. Double-click opens a file with its app.
   const openFolders = new Set();
   function fileTree() {
     const f = data.files;
-    if (!f || f.error) return `<p class="mi-note">ファイルを読めませんでした${f?.error ? '：' + esc(f.error) : ''}。</p>`;
+    if (!f || f.error) return failure(`ファイルを読めませんでした${f?.error ? '：' + f.error : ''}。`);
     const generated = new Set(f.generated), children = new Map([['', {dirs: [], files: []}]]);
     const parent = path => path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
     for (const d of f.dirs) children.set(d, {dirs: [], files: []});
@@ -72,8 +96,8 @@
       const byName = (a, b) => name(a).localeCompare(name(b), 'ja', {sensitivity: 'base'});
       return `<ul>${[...c.dirs].sort(byName).map(d => {
         const open = openFolders.has(d);
-        return `<li><button type="button" class="mi-file dir" data-mi-folder="${esc(d)}" aria-expanded="${open}"><span class="mi-caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="mi-icon" aria-hidden="true">▤</span>${esc(name(d))}<small>${count(d) || '空'}</small></button>${open ? level(d) : ''}</li>`;
-      }).join('')}${[...c.files].sort(byName).map(file => `<li><button type="button" class="mi-file${generated.has(file) ? ' generated' : ''}" data-mi-file="${esc(file)}" title="ダブルクリックで開く"><span class="mi-caret" aria-hidden="true"></span><span class="mi-icon" aria-hidden="true">▫</span>${esc(name(file))}${generated.has(file) ? '<small>生成ファイル</small>' : ''}</button></li>`).join('')}</ul>`;
+        return `<li><button type="button" class="mi-file dir" data-mi-folder="${esc(d)}" aria-expanded="${open}"><span class="mi-caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="mi-icon" aria-hidden="true">▤</span>${esc(name(d))}<small>${count(d) ? count(d) + ' 項目' : '空'}</small></button>${open ? level(d) : ''}</li>`;
+      }).join('')}${[...c.files].sort(byName).map(file => `<li class="mi-file-row"><button type="button" class="mi-file${generated.has(file) ? ' generated' : ''}" data-mi-file="${esc(file)}" title="ダブルクリック（Enter）で開く"><span class="mi-caret" aria-hidden="true"></span><span class="mi-icon" aria-hidden="true">▫</span>${esc(name(file))}${generated.has(file) ? '<small>生成ファイル</small>' : ''}</button><button type="button" class="sm mi-open" data-mi-open="${esc(file)}" tabindex="-1" title="既定のアプリで開く">開く</button></li>`).join('')}</ul>`;
     };
     return `<div class="mi-files" id="mi-files">${count('') ? level('') : '<p class="mi-note">ファイルはありません。</p>'}</div>`;
   }
@@ -81,11 +105,11 @@
   // is (module show: it asks GitHub, so it fills in when it comes).
   function renderHome() {
     const readme = data.readme;
-    const text = !readme ? '' : readme.error ? `<p class="mi-note">${esc(readme.error)}</p>`
+    const text = !readme ? '' : readme.error ? failure(readme.error)
       : `<div class="mi-readme">${/\.(md|markdown)$/i.test(data.readmeName) ? markdown(readme.text) : `<pre>${esc(readme.text)}</pre>`}${readme.truncated ? '<p>…</p>' : ''}</div>`;
     return `<div class="mi-home"><div class="mi-home-main">
       <section class="mi-section">${fileTree()}</section>
-      ${readme ? `<section class="mi-section"><div class="mi-readme-head"><h3 class="mi-readme-title">${esc(data.readmeName || 'README')}</h3>${btn('編集', 'readme-edit')}</div>${text}</section>` : ''}
+      ${readme ? `<section class="mi-section"><div class="mi-readme-head"><h3 class="mi-readme-title">${esc(data.readmeName || 'README')}</h3>${btn('✎ 編集', 'readme-edit', '', 'sm', '既定のアプリで開きます（変えたらタスクブランチでコミット）')}</div>${text}</section>` : ''}
       </div><aside class="mi-about" id="mi-about">${about()}</aside></div>`;
   }
   // The README's Markdown, shown as on GitHub: headings, paragraphs, lists, quotes, code (fenced and inline), links,
@@ -129,7 +153,7 @@
   function about() {
     const r = data.info;
     if (!r) return `<h3>このモジュール</h3><p class="mi-note"><span class="eco-spinner"></span> 読み込んでいます…</p>`;
-    if (r.error) return `<h3>このモジュール</h3><p class="mi-note">${esc(r.error.message)}</p>`;
+    if (r.error) return `<h3>このモジュール</h3>${failure(r.error.message)}`;
     const visibility = r.private === true ? pill('非公開') : r.private === false ? pill('公開') : '';
     const archived = r.archived ? pill('アーカイブ済み（読み取り専用）', 'warn') : '';
     const item = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
@@ -146,7 +170,7 @@
   function renderTree() {
     const t = data.tree;
     if (!t) return '';
-    if (t.error) return `<h4 class="mi-subhead">依存関係の図</h4><p class="mi-note">${esc(t.error.message)}</p>`;
+    if (t.error) return `<h4 class="mi-subhead">依存関係の図</h4>${failure(t.error.message)}`;
     if (!t.direct.length) return '';
     const nodes = new Map(t.nodes.map(n => [n.name, n])), shown = new Set();
     const walk = names => `<ul>${names.map(name => {
@@ -160,13 +184,13 @@
   }
   function renderDeps() {
     const deps = data.deps, projects = data.projects || [];
-    if (deps.error) return head('依存先', '') + `<p class="mi-note">${esc(deps.error.message)}</p>`;
-    return head('依存先', 'このモジュールが使う他のモジュールです。リンク・更新・リンク解除は管理ファイルを変更するため、タスクブランチでコミットし、PRで反映します。',
+    if (deps.error) return head('依存先', '') + failure(deps.error.message);
+    return head('依存先', 'このモジュールが使う他のモジュールです。リンク・更新・リンクを外すのはタスクブランチで行い、PRで反映します。',
       btn(depsFetched ? 'GitHubをもう一度確認' : 'GitHubと照らし合わせる', 'deps-fetch') + btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
-      (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th></th></tr></thead><tbody>
+      (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
         return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td>${depsFetched ? `<td>${remoteCell(d)}</td>` : ''}<td>${users.map(u => pill(u)).join(' ')}</td>
-        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
+        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す…', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
   }
   function remoteCell(d) {
     if (!d.remote) return '';
@@ -205,21 +229,21 @@
   }
   function renderProjects() {
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
-    if (projects.error) return head('Project', '') + `<p class="mi-note">${esc(projects.error.message)}</p>`;
+    if (projects.error) return head('Project', '') + failure(projects.error.message);
     const settings = data.settings, main = settings?.main_project;
-    return head('Project', 'モジュール内のProject（ライブラリ・実行ファイル・テスト・性能測定）とそのリンクです。設定の変更はタスクブランチで行います（管理ファイルが変わるので、コミットしてPRで反映します）。',
+    return head('Project', 'モジュール内のProjectとリンクです。変更はタスクブランチで行い、PRで反映します。',
       btn('＋ Project', 'project-add', '', 'primary')) +
-      (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th></th></tr></thead><tbody>
+      (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
-        <td class="mi-row-actions">${btn('設定', 'project-settings', p.name)}${btn('リンク', 'project-link', p.name)}${btn('PCH', 'pch', p.name)}${btn('移動', 'project-move', p.name)}${btn('削除', 'project-remove', p.name, 'danger-text')}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-note">字下げした小さい行は、上のProjectのテスト・性能測定です（上のProjectへのリンクは省いています）。緑のリンクは依存先（他のモジュール）、灰色はこのモジュール内のProjectです。main は他のモジュールからリンクされるProjectで、左の「設定」の「全般」で変えられます。CMakeのパッケージ等のリンクは各行の「設定」で見られます。</p>` : '<p class="eco-empty">Projectはありません。</p>');
+        <td class="mi-row-actions">${btn('設定…', 'project-settings', p.name)}${more([['リンク…', 'project-link', p.name], ['PCH…', 'pch', p.name], ['移動…', 'project-move', p.name], '-', ['削除…', 'project-remove', p.name, true]])}</td></tr>`).join('')}</tbody></table>
+      <p class="mi-legend"><span>${pill('→ 依存先', 'dep')} 他のモジュール</span><span>${pill('→ Project')} このモジュール内</span><span>${pill('main', 'ok')} 他のモジュールからリンクされる（設定 › 全般）</span><span>字下げ＝上のProjectのテスト・性能測定</span><span>パッケージ等のリンクは ⋯ の「リンク…」</span></p>` : '<p class="eco-empty">Projectはありません。</p>');
   }
   // The module's own settings (module settings): which Project other modules link, the MSVC runtime, the solution folders.
   function renderGeneral() {
     const m = data.settings;
-    if (!m) return head('全般', '') + '<p class="mi-note">このモジュールの設定を読めませんでした。</p>';
+    if (!m) return head('全般', '') + failure('このモジュールの設定を読めませんでした。');
     const f = m.folders, row = (label, value, note = '') => `<tr><th scope="row">${label}</th><td>${value}${note ? `<div class="mi-sub">${note}</div>` : ''}</td></tr>`;
-    return head('全般', 'モジュール全体の設定です。定義は .ecobuild の管理ファイルにあり、変更はタスクブランチで行います（コミットしてPRで反映します）。', btn('変更', 'module-settings', '', 'primary')) +
+    return head('全般', 'モジュール全体の設定です。変更はタスクブランチで行い、PRで反映します。', btn('変更…', 'module-settings', '', 'primary')) +
       `<table class="mi-table mi-settings"><tbody>
       ${row('他のモジュールからリンクされるProject（main）', m.main_project ? `<strong>${esc(m.main_project)}</strong>` : '<span class="mi-sub">なし（他のモジュールからリンクできない）</span>')}
       ${row('MSVC のCランタイム', {dll: 'DLL（/MD）', static: '静的（/MT）'}[m.msvc_runtime] || '既定', 'このモジュールを頂点にしたビルド全体')}
@@ -229,17 +253,17 @@
   // File templates (template list): what ecobuild file add makes a new file from.
   function renderTemplates() {
     const templates = data.settings?.templates;
-    if (!templates) return head('ファイルテンプレート', '') + '<p class="mi-note">ファイルテンプレートを読めませんでした。</p>';
+    if (!templates) return head('ファイルテンプレート', '') + failure('ファイルテンプレートを読めませんでした。');
     return head('ファイルテンプレート', '新しいファイルを作るときの元になる内容です。{{header}}・{{name}}・{{suite}}・{{project}} は作るときに置き換わります。ECOBuildの既定のもの（header・source 等）は同じ名前で登録すると差し替えられます。', btn('＋ テンプレート', 'template-add', '', 'primary')) +
-      `<table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th></th></tr></thead><tbody>
-      ${Object.entries(templates).map(([name, t]) => `<tr><td><strong>${esc(name)}</strong>${t.builtin ? ' ' + pill('既定') : ''}</td><td class="mi-mono">${esc(t.path)}</td><td class="mi-row-actions">${btn('差し替え', 'template-add', name)}${t.builtin ? '' : btn('削除', 'template-remove', name, 'danger-text')}</td></tr>`).join('')}</tbody></table>`;
+      `<table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
+      ${Object.entries(templates).map(([name, t]) => `<tr><td><strong>${esc(name)}</strong>${t.builtin ? ' ' + pill('既定') : ''}</td><td class="mi-mono">${esc(t.path)}</td><td class="mi-row-actions">${btn('差し替え…', 'template-add', name)}${t.builtin ? '' : btn('削除…', 'template-remove', name, 'danger-text')}</td></tr>`).join('')}</tbody></table>`;
   }
   // The container of the module's workspaces: the recipe of its image (container recipe: the module's environment
   // .ecobuild/container/Dockerfile, shared with the other PCs through the repository, and ECOBuild put on it), the
   // container of the place shown (container status) and this module's images on this PC (container image list).
   function renderContainer() {
     const r = data.recipe, st = data.containerStatus, images = data.images;
-    if (r?.error) return head('コンテナ', '') + `<p class="mi-note">${esc(r.error.message)}</p>`;
+    if (r?.error) return head('コンテナ', '') + failure(r.error.message);
     const inRepo = !!r.context, file = '.ecobuild/container/Dockerfile';
     const tag = name => `<span class="mi-mono" title="${esc(name)}">${esc(name)}</span>`;
     const row = (label, value, note = '') => `<tr><th scope="row">${label}</th><td>${value}${note ? `<div class="mi-sub">${note}</div>` : ''}</td></tr>`;
@@ -249,16 +273,17 @@
       : st.state === 'none' ? 'コンテナはまだありません（エージェント・ビルド等で使うときに作ります）'
       : st.outdated ? `<span class="mi-pill warn">古い</span> コンテナのイメージ ${esc(st.image)} は今の作り方のものではありません。次に動かすときに作り直します。`
       : `<span class="mi-pill ok">今の作り方</span> コンテナは ${esc(st.image)} で動いています`;
-    return head('コンテナ', `作業空間をコンテナにしたときのイメージは、モジュールの環境（${file}）に ECOBuild（エージェント・ecobuild 等）を重ねて作ります。環境はリポジトリにコミットするので、ほかのPCでも同じ環境になります。名前は作り方のハッシュで、環境か ECOBuild が変わると新しく作ります。`,
+    return head('コンテナ', `作業空間をコンテナにしたときのイメージは、モジュールの環境（${file}）に ECOBuild を重ねて作ります。`,
         btn('作業空間で編集', 'container-edit', '', inRepo ? 'primary' : '') + (inRepo ? btn('場所を開く', 'container-open') : btn('リポジトリに置く', 'container-place', '', 'primary')) + btn('今の作り方で作る', 'container-build')) +
       `<table class="mi-table mi-settings"><tbody>
-      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', (inRepo ? '解析ツール等はここに足し、タスクブランチでコミットして PR で反映します' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）') + '。ここでは読むだけです。編集・試しに作るのは「作業空間で編集」（作業空間のコンテナの「イメージ（Dockerfile）」。保存はタスクブランチで）')}
+      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', (inRepo ? '' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）。') + 'ここでは読むだけです。編集は「作業空間で編集」から（保存はタスクブランチで）。')}
       ${row('環境のイメージ', tag(r.environment))}
       ${row('コンテナのイメージ', tag(r.image), '環境に ECOBuild を重ねたもの（ECOBuild の版で変わります）')}
       ${state ? row('この作業空間のコンテナ', state) : ''}
       ${row('このPCのイメージ', mine.length ? mine.map(i => `<div>${tag(i.name)} ${i.current ? pill('今', 'ok') : pill('古い')} ${i.environment ? pill('環境') : ''}<span class="mi-sub"> ${esc(i.size)}・${esc(i.created)}${i.used_by.length ? `・使用中 ${i.used_by.length}` : ''}</span></div>`).join('')
         : '<span class="mi-sub">まだありません</span>', '古いものはハブの設定の「コンテナのイメージ」で片付けられます')}
       </tbody></table>
+      <details class="mi-recipe"><summary>しくみ</summary><p class="mi-note">環境（ECOBuild のエージェント・ecobuild 等を除いた部分）はリポジトリにコミットするので、ほかのPCでも同じ環境になります。解析ツール等は環境に足し、タスクブランチでコミットして PR で反映します。イメージの名前は作り方のハッシュで、環境か ECOBuild が変わると新しく作ります。作業空間のコンテナの「イメージ（Dockerfile）」で、編集して試しに作れます。</p></details>
       <details class="mi-recipe" open><summary>環境（${inRepo ? esc(file) : '型のひな型'}）</summary><pre class="mi-code">${esc(r.dockerfile)}</pre></details>
       <details class="mi-recipe"><summary>ECOBuild が重ねる層（リポジトリには書きません）</summary><pre class="mi-code">${esc(r.layer)}</pre></details>`;
   }
@@ -270,24 +295,25 @@
   const optionsText = options => Object.entries(options || {}).map(([k, v]) => optionText(k, v)).filter(Boolean);
   function renderProfiles() {
     const p = data.profiles;
-    if (p.error) return head('ビルド設定', '') + `<p class="mi-note">${esc(p.error.message)}</p>`;
+    if (p.error) return head('ビルド設定', '') + failure(p.error.message);
     const names = Object.keys(p.profiles), cpp = !!features.projects, parallel = cpp || !!features.parallel;
     // The columns of the type: the form of the libraries and the overrides for Projects are C++'s.
-    const columns = ['このPCで使う', '名前', '構成', ...(cpp ? ['ライブラリ'] : []), ...(parallel ? ['並列数'] : []), ...(cpp ? ['そのほか・Projectごとの上書き'] : []), ''];
-    return head('ビルド設定', (cpp ? '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。' : `名前付きのビルド設定（構成${parallel ? '・並列数' : ''}）です。`) + '定義は .ecobuild/ecobuild.toml にあり、タスクブランチで変更します。どれを使うかはこのPCだけの設定です（この場所の .ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
-      `<table class="mi-table"><thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>
+    const columns = ['使う', '名前', '構成', ...(cpp ? ['ライブラリ'] : []), ...(parallel ? ['並列数'] : []), ...(cpp ? ['そのほか・Projectごとの上書き'] : []), '<span class="sr-only">操作</span>'];
+    return head('ビルド設定', (cpp ? '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。' : `名前付きのビルド設定（構成${parallel ? '・並列数' : ''}）です。`) + '定義の変更はタスクブランチで行います。「使う」はこのPCだけの選択です（.ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
+      (names.length ? '' : '<p class="eco-empty">ビルド設定はまだありません。「＋ ビルド設定」で作ると、このPCで使うものを選べます。</p>') +
+      `<table class="mi-table"><thead><tr>${columns.map((c, i) => `<th${i ? '' : ' class="mi-narrow" title="このPCで使うビルド設定"'}>${c}</th>`).join('')}</tr></thead><tbody>
       ${names.map(n => { const x = p.profiles[n], extra = optionsText(x.options), overrides = Object.entries(x.projects || {});
-        return `<tr><td><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td>${cpp ? `<td>${x.shared ? 'すべて共有' : '静的'}</td>` : ''}${parallel ? `<td>${x.parallel}</td>` : ''}
+        return `<tr><td class="mi-narrow"><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td>${cpp ? `<td>${x.shared ? 'すべて共有' : '静的'}</td>` : ''}${parallel ? `<td>${x.parallel}</td>` : ''}
         ${cpp ? `<td>${extra.length ? `<div class="mi-sub">${extra.map(esc).join('・')}</div>` : ''}${overrides.map(([project, values]) => `<div>${pill(project)} ${esc(optionsText(values).join('・'))} ${btn('変更', 'profile-project', n + '\n' + project, 'mi-link')}${btn('外す', 'profile-project-clear', n + '\n' + project, 'mi-link danger-text')}</div>`).join('')}</td>` : ''}
-        <td class="mi-row-actions">${btn('編集', 'profile-add', n)}${cpp ? btn('Projectごとの上書き', 'profile-project', n + '\n') : ''}${btn('削除', 'profile-remove', n, 'danger-text')}</td></tr>`; }).join('')}
-      <tr><td><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="${columns.length - 1}" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
+        <td class="mi-row-actions">${btn('編集…', 'profile-add', n)}${more([...(cpp ? [['Projectごとの上書き…', 'profile-project', n + '\n'], '-'] : []), ['削除…', 'profile-remove', n, true]])}</td></tr>`; }).join('')}
+      <tr><td class="mi-narrow"><input type="radio" name="mi-profile" value="none" ${!p.selected ? 'checked' : ''} aria-label="使わない"></td><td colspan="${columns.length - 1}" class="mi-sub">使わない（構成は Debug）</td></tr></tbody></table>`;
   }
   const VIEWS = {home: renderHome, deps: renderDeps, projects: renderProjects, profiles: renderProfiles, general: renderGeneral, templates: renderTemplates,
     container: renderContainer};
   // The reads are cached (ECO.query): the kept answer shows at once and a newer one is drawn when it comes (not while
   // something is typed here, and not for another place than the one shown).
   const typing = () => !!document.activeElement?.closest?.('#' + page + '-content') && document.activeElement.matches('textarea, input:not([type=checkbox]):not([type=radio]), select');
-  function redraw() { if (!section().hidden && !typing()) mainArea().innerHTML = placeSelect() + VIEWS[view](); }
+  function redraw() { if (!section().hidden && !typing()) { menus = []; showPlace(); mainArea().innerHTML = banners() + VIEWS[view](); } }
   const result = doc => doc.ok ? doc.result : {error: doc.error};
   function read(args, set) {
     const at = MOD.keyOf(here());
@@ -330,17 +356,17 @@
     // A failure shows as what it is (with 再読み込み), not as a loading screen that never ends.
     const failed = error => {
       if (mine !== rendering) return;
-      main.innerHTML = placeSelect() + `<div class="eco-banner bad">表示できませんでした：${esc(error?.message || String(error))}<br><button type="button" data-mi-retry>読み直す</button></div>` +
-        `<pre class="mi-error">${esc(error?.stack || '')}</pre>`;
+      main.innerHTML = `<div class="eco-banner bad">表示できませんでした：${esc(error?.message || String(error))}<button type="button" class="sm" data-mi-retry>読み直す</button>` +
+        `${error?.stack ? `<details class="eco-detail"><summary>詳細</summary><pre>${esc(error.stack)}</pre></details>` : ''}</div>`;
     };
     try {
       if (reload) {
-        const key = loadKey(); main.innerHTML = placeSelect() + ECO.loading();
+        const key = loadKey(); showPlace(); main.innerHTML = banners() + ECO.loading();
         await Promise.race([LOADS[shown](), new Promise((_, reject) => setTimeout(() => reject(new Error('30秒たっても読み込みが終わりません。')), 30000))]);
         loaded.add(key);
       }
       if (mine !== rendering) return;   // another tab was chosen while loading: that render shows it
-      main.innerHTML = placeSelect() + VIEWS[shown]();
+      menus = []; showPlace(); main.innerHTML = banners() + VIEWS[shown]();
     } catch (error) { failed(error); }
   }
 
@@ -351,7 +377,10 @@
     return {name: 'place', label: '変更するタスクブランチ', type: 'select', value: current, options: places.map(p => [p, `${MOD.states.get(MOD.keyOf(p)).branch}（${p}）`]), help: '管理ファイルが変わります。タスクブランチでコミットし、PRで反映してください。'};
   };
   async function inWorkspace(title, fields, ok, build, {danger = false, intro = '', success} = {}) {
-    if (!MOD.workspacePlaces().length) return ECO.dialog({title, body: '<p>管理ファイルを変える操作はタスクブランチで行います。タスク管理でタスクの「作業を開始」をしてから、もう一度行ってください。</p>'});
+    if (!MOD.workspacePlaces().length) {
+      if (await ECO.confirm({title, message: '管理ファイルを変える操作はタスクブランチで行います。タスク管理でタスクの「作業を開始」をしてから、もう一度行ってください。', ok: 'タスク管理を開く'})) showModulePage('tasks');
+      return;
+    }
     await ECO.form({title, intro, fields: [...fields, workspaceField()], ok, danger, submit: async v => {
       const args = build(v); if (typeof args === 'string') return args;
       // build may give several commands (run in order; the success message after the last).
@@ -414,7 +443,7 @@
   }
   const ACTIONS = {
     'deps-fetch': () => { depsFetched = true; view = 'deps'; return render(); },
-    'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を、記録してある版にそろえます。手元にないものは取ってきます。作業中のものや変更のあるものはそのままにします。', title: '手元を記録に合わせる'}).then(doc => doc && render()),
+    'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を、記録してある版にそろえます。手元にないものは取ってきます。作業中のものや変更のあるものはそのままにします。', title: '手元を記録に合わせる', ok: '合わせる'}).then(doc => doc && render()),
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新に更新し、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
     'link': async () => inWorkspace('モジュールをリンク', [
       {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true, more: githubModules()},
@@ -581,7 +610,7 @@
       v => ['template', 'add', v.name.trim(), v.source.trim()], {intro: 'ファイルの中の {{header}}・{{name}}・{{suite}}・{{project}} は、作るときに置き換わります。', success: 'テンプレートを登録しました。'}),
     'container-edit': () => MOD.openImageEditor(here()),
     'container-open': () => ECO.action('folder', {dir: here(), path: '.ecobuild/container/Dockerfile', reveal: true}).catch(e => ECO.toast(e.message, 'bad')),
-    'container-place': () => ECO.run(here(), ['module', 'upgrade'], {title: 'コンテナの環境をリポジトリに置く', confirm: '型のひな型を .ecobuild/container/Dockerfile に置き、モジュールを今の ECOBuild の仕様にそろえます（module upgrade。「ECOBuild の更新」としてコミットします。タスクブランチでなければ GitHub へ push もします）。古い ECOBuild のPCでは、このモジュールを開けなくなります。', success: 'コンテナの環境を置きました。'}).then(doc => doc && render()),
+    'container-place': () => ECO.run(here(), ['module', 'upgrade'], {title: 'コンテナの環境をリポジトリに置く', confirm: '型のひな型を .ecobuild/container/Dockerfile に置き、モジュールを今の ECOBuild の仕様にそろえます（module upgrade。「ECOBuild の更新」としてコミットします。タスクブランチでなければ GitHub へ push もします）。古い ECOBuild のPCでは、このモジュールを開けなくなります。', ok: 'リポジトリに置く', success: 'コンテナの環境を置きました。'}).then(doc => doc && render()),
     'container-build': () => ECO.run(here(), ['container', 'image', 'build', '--workspace', here()], {busy: 'イメージを作っています（数分かかります）…', success: r => r.built.length ? `${r.built.length} 個のイメージを作りました。` : '今の作り方のイメージはあります。'}).then(doc => doc && render()),
     'template-remove': name => inWorkspace(`テンプレートを削除：${name}`, [], '削除', () => ['template', 'remove', name], {danger: true, success: `${name} を削除しました。`}),
     'profile-add': name => {
@@ -652,6 +681,11 @@
       return;
     }
     if (e.target.closest('[data-mi-retry], [data-mi-reload]')) { loaded.clear(); render(); return; }
+    if (e.target.closest('[data-open-tasks]')) { showModulePage('tasks'); return; }
+    const moreButton = e.target.closest('[data-mi-more]');
+    if (moreButton) { const r = moreButton.getBoundingClientRect(); ECO.menu(menuItems(menus[moreButton.dataset.miMore] || []), r.right, r.bottom + 4, {right: true}); return; }
+    const file = e.target.closest('[data-mi-open]') || (e.detail === 0 && e.target.closest('[data-mi-file]'));   // 開く, or Enter on the file
+    if (file) { ECO.action('folder', {dir: here(), path: file.dataset.miOpen || file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad')); return; }
     const tab = e.target.closest('[data-mi-view]');
     if (tab) { window.MODINFO_SHOW(tab.dataset.miView); return; }   // at once (not waiting for the server)
     const ws = e.target.closest('[data-open-ws]');
@@ -672,10 +706,25 @@
   });
   for (const sec of sections) sec.addEventListener('contextmenu', e => {
     const row = e.target.closest('.mi-table tbody tr, .mi-branch'); if (!row) return;
-    const buttons = [...row.querySelectorAll('[data-mi], [data-open-ws]')]; if (!buttons.length) return;
+    const buttons = [...row.querySelectorAll('[data-mi], [data-open-ws]')], extra = row.querySelector('[data-mi-more]');
+    if (!buttons.length && !extra) return;
     e.preventDefault();
-    ECO.menu(buttons.map(b => [b.textContent, () => b.click(), !b.disabled]), e.clientX, e.clientY);
+    ECO.menu([...buttons.map(b => [b.textContent, () => b.click(), !b.disabled, b.disabled ? b.title : '', {danger: b.classList.contains('danger-text')}]),
+      ...(extra ? [...(buttons.length ? ['-'] : []), ...menuItems(menus[extra.dataset.miMore] || [])] : [])], e.clientX, e.clientY);
   });
+  // The rows of tabs (モジュール・設定・管理): one stop for Tab, ←→ (Home・End) between the tabs shown.
+  for (const list of document.querySelectorAll('.mi .mi-tabs[role=tablist]')) {
+    const tabs = () => [...list.querySelectorAll('[role=tab]')].filter(t => !t.hidden);
+    const sync = () => { const all = tabs(), chosen = all.find(t => t.getAttribute('aria-selected') === 'true') || all[0]; for (const t of all) t.tabIndex = t === chosen ? 0 : -1; };
+    new MutationObserver(sync).observe(list, {subtree: true, attributes: true, attributeFilter: ['aria-selected', 'hidden']});
+    sync();
+    list.addEventListener('keydown', e => {
+      const all = tabs(), i = all.indexOf(document.activeElement);
+      const to = {ArrowRight: i + 1, ArrowLeft: i - 1 + all.length, Home: 0, End: all.length - 1}[e.key];
+      if (i < 0 || to === undefined) return;
+      e.preventDefault(); const next = all[to % all.length]; next.click(); next.focus();
+    });
+  }
   pageHooks.modinfo = () => { usePage('modinfo'); show(); };
   pageHooks.settings = () => { usePage('settings'); show(); };
   // The action "open" with a tab (a click here, or ecobuild gui open --tab): the page of the tab, then the tab.

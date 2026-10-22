@@ -7,7 +7,6 @@ import pytest
 
 import ecobuild_container as container
 from ecobuild_container import docker
-from ecowork.git import MINIMUM_VERSION, git_version
 from helpers import git
 
 REAL_RUN = docker.run   # conftest の _no_docker が試験の間は偽物にするので、先に取っておく
@@ -16,14 +15,13 @@ IMAGE = "alpine/git:v2.52.0"   # 中の git（2.48 以上。entrypoint は git�
 
 @pytest.fixture
 def real_docker():
-    if git_version() < MINIMUM_VERSION:
-        pytest.skip("このPCの git が 2.48 未満です")
     found = docker.status(REAL_RUN)
     if not found.ready:
         pytest.skip(f"Docker が使えません（{found.detail}）")
     return found.command
 
 
+@pytest.mark.needs_git_2_48
 def test_the_git_inside_reads_a_relative_worktree(tmp_path, real_docker):
     """元の .git と作業空間だけを同じ並びで付ければ、中の git が相対パスの記録をたどれる（status・log・commit）。
     元の clone の作業ツリー（未コミットのファイル）は中から見えない。"""

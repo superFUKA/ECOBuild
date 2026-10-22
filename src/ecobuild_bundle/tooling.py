@@ -21,6 +21,7 @@ from ecobuild.results import DoctorItem
 from ecobuild.settings import HOME_VARIABLE, Types, default_home, home, load_config, set_config
 from ecobuild_container import docker as _docker
 from ecowork import process as _process
+from ecowork.errors import WorkError
 from ecowork.git import MINIMUM_VERSION, git_version
 
 # 足りない本体のツールの導入コマンド（setup --install で実行する。型のツールは DoctorItem.install）
@@ -155,7 +156,10 @@ def _git_item(found: str | None) -> DoctorItem:
     if found is None:
         return DoctorItem("git", False, True, "見つかりません", "git をインストールしてください。", "install", id="git")
     minimum = ".".join(map(str, MINIMUM_VERSION[:2]))
-    new_enough = git_version() >= MINIMUM_VERSION
+    try:
+        new_enough = git_version() >= MINIMUM_VERSION
+    except WorkError:  # 版を読めない（動かせない git）
+        new_enough = False
     return DoctorItem("git", new_enough, True, found if new_enough else f"{found}（{minimum} 以上が要ります）",
                       f"git を {minimum} 以上に上げてください（作業空間を相対パスで記録するため）"
                       + (f"：{' '.join(UPGRADE_GIT)}" if os.name == "nt" else "") + "。",

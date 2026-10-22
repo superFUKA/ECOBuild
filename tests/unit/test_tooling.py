@@ -79,13 +79,16 @@ def test_doctor_requires_a_new_enough_git(monkeypatch):
 def test_git_version_reads_the_version(monkeypatch):
     from ecowork import git as ecowork_git
     answer = {"text": "git version 2.45.1.windows.1\n", "code": 0}
-    monkeypatch.setattr(ecowork_git._process, "run", lambda args, check=False: ecowork_git._process.Completed(
+    monkeypatch.setattr(ecowork_git._process, "run", lambda args, *_, **__: ecowork_git._process.Completed(
         tuple(args), answer["code"], answer["text"], ""))
     assert ecowork_git.git_version() == (2, 45, 1) and ecowork_git.git_version() < ecowork_git.MINIMUM_VERSION
     answer["text"] = "git version 2.48.0\n"
     assert ecowork_git.git_version() >= ecowork_git.MINIMUM_VERSION
     answer["code"] = 1
-    assert ecowork_git.git_version() == (0, 0, 0)
+    with pytest.raises(ecowork_git.WorkError):  # 読めなければ誤り（doctor は NG にする）
+        ecowork_git.git_version()
+    monkeypatch.setattr(tooling, "git_version", ecowork_git.git_version)
+    assert not {i.id: i for i in tooling.doctor().items}["git"].ok
 
 
 class ToolType(ModuleType):

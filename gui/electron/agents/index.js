@@ -1,7 +1,8 @@
 'use strict';
 // エージェントの窓（Electron の main）：エージェントを、このアプリの小さな窓のタブとして動かす。
-// - タブ＝1つのエージェント（作業空間のエージェント：`ecobuild -C <場所> agent start --here`。コンテナならその中で動く。
-//   準備・鍵の受け渡しは ecobuild がする）。端末は node-pty。状態を読むため、main 側にも見えない端末（@xterm/headless）を持つ。
+// - タブ＝1つのエージェント（作業空間のエージェント：`ecobuild -C <場所> agent start --here --as <登録>`。コンテナの中で
+//   動く。準備・鍵の受け渡しは ecobuild がする）。同じ作業空間に何人でも開ける（開くたびに新しいエージェント〔ID〕）。
+//   タブとエージェントは ID でつなぐ（ecobuild が端末の見えない印で知らせる状態の置き場所の名前が ID）。端末は node-pty。状態を読むため、main 側にも見えない端末（@xterm/headless）を持つ。
 // - 番号は 1 から続く（閉じるとそれより大きい番号が詰まる）。窓はいくつでも持て、タブは窓の間で動かせる。
 // - 窓は枠なし。最前面の表示は窓ごとに 常に → 自動 → オフ（自動は、返答が届いたとき・選んだときだけ前に出る）。
 // - 状態（考え中・裏で実行中・選択肢・待機中・終了）は画面を読んで決める（screen.js）。モデル・使用量の制限・返答の終わりは、
@@ -16,8 +17,8 @@
 // - リング（Ring II）：ジェスチャーを操作に割り当てる（ring.js が受信係を動かす）。作業モードとオペレーターモード
 //   （リングの LED のモード。信号が変わる操作は調整で「operator:<操作>」として登録）。選択肢が出ているときに押し込むと
 //   選択モード（上下左右で選び、押し込みで決定）。右下に返答のカードが出ているときのタッチは、カードを閉じる。
-// - チーム：進行役の窓には、その進行役のチーム（AI が起動した作業役。係が画面なしで動かす）を見る場所がある（team.js）。
-//   引き取った作業役はこの窓のタブになり、閉じると係に返す。
+// - チーム：子を起動できる登録のエージェントを人が起動すると、自分の窓を持ち（タブは左端に固定）、その窓でそのエージェントの
+//   子（AI が起動したもの。係が画面なしで動かす）を見られる（team.js）。引き取った子はこの窓のタブになり、閉じると係に返す。
 // 画面（window.html）とのやり取りは agents/preload.js。ほかの窓（作業空間・ハブ）からは preload.js の agents で。
 const {app, BrowserWindow, Notification, clipboard, dialog, globalShortcut, ipcMain, nativeImage, screen: display, shell} = require('electron');
 const fs = require('fs');
@@ -30,7 +31,8 @@ const dock = require('./dock');
 const link = require('./link');
 const ring = require('./ring');
 const team = require('./team');
-const {sameDir, liveTabIn, BUSY_MESSAGE} = require('./guard');
+
+const sameDir = (a, b) => path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 
 const HISTORY_LIMIT = 2 * 1024 * 1024;   // 後から開いた窓に流し直す出力（文字数）
 const POLL_MS = 1500;                     // 状態を読み直す間隔
@@ -41,8 +43,8 @@ const OPERATOR_LOG = () => path.join(app.getPath('userData'), 'operator.json'); 
 const OPERATOR_SIZE = {cols: 110, rows: 32};   // 裏で動かすときの端末の大きさ
 const ICON = path.join(__dirname, '..', '..', 'icon.ico');
 // 返答の知らせ。style：windows（Windows の通知。音も Windows の設定どおり）・ecobuild（右下のカードと音）・off。
-// hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）。team：AI が起動した作業役の返答の終わりも知らせる（ふだんは
-// 進行役に届くので知らせない）
+// hold：右下に返答を出しておく時間（ミリ秒。-1 は消さない）。team：AI が起動した子の返答の終わりも知らせる（ふだんは
+// 親のエージェントに届くので知らせない）
 const NOTIFY_DEFAULTS = {style: 'windows', sound: 'chime', volume: 0.6, hold: 8000, team: false};
 const HOLD_STEPS = [3000, 5000, 8000, 15000, 30000, 60000, -1];
 const KEY_REPEAT_MS = 33;      // 録音中に Space を送る間隔（端末のキーリピートと同じくらい。Claude Code はこれで押し続けと見る）
@@ -73,7 +75,9 @@ function childEnv() {
 let ecobuildPath = () => 'ecobuild';
 let groupWith = () => {};   // 窓をモジュールの窓の仲間にする（main.js の asModuleApp）
 let openModule = () => {};  // モジュールの窓を開く（main.js）
-const sessions = [];      // {id, num, name, dir, kind, agent, proc, term, history, exited, state, owner, statusDir, info, takenOver}
+// agent：起動するコマンド（'' は claude）。registration：登録の名前。agentId：エージェントの ID（状態の置き場所の名前で知る）。
+// lead：人が起動した、子を起動できるエージェント（自分の窓を持ち、チームを見る）。parentTab：親のエージェントのタブ
+const sessions = [];      // {id, num, name, dir, kind, agent, registration, agentId, lead, parentTab, proc, term, history, exited, state, owner, statusDir, info, takenOver}
 const windows = [];       // {win, tabs: [id], active, topmost, ready, mini}
 let nextId = 1;
 let current = null;       // 最後に使った窓（新しいタブはここに）
@@ -91,6 +95,7 @@ let pickerWindow = null;  // タブの一覧（☰）を出している窓（リ
 let icons = {operator: '', agent: ''};
 let styles = {operator: '', agent: ''};
 const iconOf = s => icons[s?.kind === 'operator' ? 'operator' : 'agent'] || '';
+let registrations = new Map();   // 登録の名前 → {name, title, human_start, children, …}（ecobuild agent registry list。「＋」のたびに読み直す）
 let ringConfig = {...RING_DEFAULTS};
 let ringMode = 'work';    // work・operator
 let choosing = null;      // 選択モードのタブの id
@@ -106,29 +111,29 @@ function writeState(patch) {
 function findSession(id) { return sessions.find(s => s.id === id); }
 function describe(s) {
   return {id: s.id, num: s.num, name: s.name, dir: s.dir, kind: s.kind, exited: s.exited, state: s.recording ? 'listening' : s.state,
-          unread: !!s.unread, role: s.role || '', pinned: !!s.owner && s.owner.leadId === s.id,
-          window: windows.indexOf(s.owner), info: status.summary(s)};
+          unread: !!s.unread, registration: s.registration || '', agentId: s.agentId || '', lead: !!s.lead,
+          pinned: !!s.owner && s.owner.leadId === s.id, window: windows.indexOf(s.owner), info: status.summary(s)};
 }
 const findOperator = () => sessions.find(s => s.kind === 'operator');
 
 function spawnSession(s, size) {
-  // モジュールの進行役（module）：dir は進行役の作業空間（agent module prepare が用意したもの）。タスクを持たない
+  // 作業空間のエージェント：登録（--as）で起動する。続きから（claude --resume <会話>）は、登録を省くとその会話の記録の登録
   const args = s.kind === 'operator' ? ['gui', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
-    : s.module ? ['-C', s.dir, 'agent', 'module', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
-                                  ...(s.prompt ? ['--prompt', s.prompt] : [])]
-    : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
-       ...(s.role ? ['--role', s.role] : []), ...(s.prompt ? ['--prompt', s.prompt] : [])];
+    : ['-C', s.dir, 'agent', 'start', '--here', ...(s.registration ? ['--as', s.registration] : []),
+       ...(s.agent ? ['--program', s.agent] : []), ...(s.prompt ? ['--prompt', s.prompt] : [])];
   s.prompt = '';   // 最初の発言は最初の1回だけ（起動し直すときは新しい会話）
   s.term = new Terminal({cols: size.cols, rows: size.rows, scrollback: 3000, allowProposedApi: true});
   s.startedAt = Date.now(); s.statusDir = null; s.info = null; s.repliedAt = undefined;
-  const proc = s.proc = pty.spawn(ecobuildPath(), args, {
-    name: 'xterm-256color', cols: size.cols, rows: size.rows, cwd: s.dir,
-    env: {...childEnv(), ECOBUILD_AGENT_WINDOW: '1'},   // 中の ecobuild agent team … は GUI に頼む（requests）
-  });
+  s.agentId = s.fixedId || '';   // 新しい会話なら新しい ID（状態の置き場所の印で知る）
+  const proc = s.proc = pty.spawn(ecobuildPath(), args, {name: 'xterm-256color', cols: size.cols, rows: size.rows, cwd: s.dir, env: childEnv()});
   // 起動し直したあとに届く前のプロセスの出力・終わりは捨てる（新しいほうを「終わった」にしない）
   proc.onData(data => {
     if (s.proc !== proc) return;
-    if (!s.statusDir) s.statusDir = status.found(data);
+    if (!s.statusDir) {
+      s.statusDir = status.found(data);
+      const id = status.agentIdOf(s.statusDir);   // オペレーターの置き場所は ID でない
+      if (id && id !== s.agentId) { s.agentId = id; pushTabs(); }
+    }
     s.history.push(data); s.size += data.length;
     while (s.size > HISTORY_LIMIT && s.history.length > 1) s.size -= s.history.shift().length;
     s.term.write(data);
@@ -142,35 +147,27 @@ function spawnSession(s, size) {
   });
 }
 
-// title：名前を指定して開いた。会話（Claude Code）の名前もそれにする。role：lead（進行役。自分の窓を持ち、左端に固定）・
-// worker（作業役）。lead：作った進行役のタブの id（作業役はその窓のタブになる）。prompt：最初の発言
-// module：モジュールの進行役（dir はその専用の作業空間。agent module start で起動する）
-function openSession({dir, agent = '', name = '', title = false, role = '', prompt = '', lead = null, module = false} = {}) {
+// title：名前を指定して開いた。会話（Claude Code）の名前もそれにする。registration：登録の名前（続きからなら省ける）。
+// prompt：最初の発言。parentTab：親のエージェントのタブ（引き取った子はその窓のタブになる）。agentId：分かっているエージェントの
+// ID（引き取った子）。team：子を起動できる登録か（省けば覚えた登録の一覧で決める）。開くたびに新しいエージェント（同じ作業空間に
+// 何人でも）。名前が重なれば「名前 (2)」のように番号を付ける
+function openSession({dir, agent = '', registration = '', name = '', title = false, prompt = '', parentTab = null, agentId = '', team} = {}) {
   if (!dir) throw new Error('作業空間の場所がありません。');
-  // 同じ作業空間で生きたエージェントのタブがあれば、2つ目は開かずそのタブを出して案内する（チーム・受け箱・状態は作業空間ごと。
-  // 起動し直しは同じタブの中なのでここを通らない）。ただし違う作業空間なら開くたびに新しいエージェント。
-  // 名前が重なれば「名前 (2)」のように番号を付ける
-  const dup = liveTabIn(sessions, dir);
-  if (dup) {
-    if (dup.owner) focusTab(dup.id);
-    const w = dup.owner || current;
-    if (w && !w.win.isDestroyed()) dialog.showMessageBox(w.win, {type: 'info', title: 'ECOBuild', message: BUSY_MESSAGE, buttons: ['OK']}).catch(() => {});
-    return {...describe(dup), existing: true};
-  }
   const base = name || path.basename(dir), taken = new Set(sessions.map(x => x.name));
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
+  const parent = parentTab ? findSession(parentTab) : null;
+  const lead = !parent && !!(team ?? registrations.get(registration)?.children?.length);
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
-             agent, savedAgent: agent, role, prompt, lead, module: !!module,
+             agent, savedAgent: agent, registration, prompt, parentTab: parent?.id ?? null, fixedId: agentId, lead,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
   if (title && isClaude(s)) s.pendingTitle = s.name;   // 起動して待機中になったら /rename（poll）
   sessions.push(s);
-  // 進行役は自分の窓（左端に固定）。作業役は作った進行役の窓。ほかは作業空間ごとの窓（タスクバーでは、その作業空間の
-  // モジュールの窓と一緒にまとまる）。なければ作る
-  const leader = lead ? findSession(lead) : null;
-  let w = role === 'lead' ? null : leader?.owner && !leader.owner.win.isDestroyed() ? leader.owner
+  // 子を起動できるエージェントは自分の窓（左端に固定。その子を見る）。引き取った子は親の窓。ほかは作業空間ごとの窓
+  // （タスクバーでは、その作業空間のモジュールの窓と一緒にまとまる）。なければ作る
+  let w = lead ? null : parent?.owner && !parent.owner.win.isDestroyed() ? parent.owner
     : windows.find(x => x.module && sameDir(x.module, dir) && !x.win.isDestroyed() && !x.leadId);
-  if (!w) { w = openWindow({module: dir}); if (role === 'lead') w.leadId = s.id; }
+  if (!w) { w = openWindow({module: dir}); if (lead) w.leadId = s.id; }
   if (w.mini) restoreWindow(w);
   spawnSession(s, w.size || {cols: 100, rows: 30});
   adopt(w, s);
@@ -188,7 +185,7 @@ function closeSession(id) {
   if (s.owner) leave(s.owner, s);
   dropCards(c => c.id === id);
   pushTabs();
-  if (s.takenOver && !app.isQuitting) handBack(s.takenOver);   // 引き取った作業役：閉じたら係に返す
+  if (s.takenOver && !app.isQuitting) handBack(s.takenOver);   // 引き取った子：閉じたら係に返す
 }
 
 function restartSession(id, agent) {
@@ -256,7 +253,7 @@ function adopt(w, s) {
   pushTabs();
 }
 
-// 進行役の窓では、進行役のタブはいつも左端（動かせない）
+// 子を起動できるエージェントの窓では、そのタブはいつも左端（動かせない）
 function pinLead(w) {
   if (w.leadId && w.tabs.includes(w.leadId)) w.tabs = [w.leadId, ...w.tabs.filter(id => id !== w.leadId)];
 }
@@ -343,14 +340,14 @@ function poll() {
   for (const s of sessions) {
     if (s.exited || !s.term) continue;
     const screen = screenText(s), read = parser.parse(screen);
-    // オペレーターの作業フォルダー・進行役が作った作業役の作業空間は ECOBuild が作ったものなので、初めての「このフォルダーを
+    // オペレーターの作業フォルダー・エージェントが起動した子の作業空間は ECOBuild が作ったものなので、初めての「このフォルダーを
     // 信頼するか」には信頼すると答える
-    if ((s.kind === 'operator' || s.lead) && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
+    if ((s.kind === 'operator' || s.parentTab) && read.state === 'choice' && !s.trusted && /Yes, I trust this folder/i.test(screen)) {
       s.trusted = true;
       const options = screen.split('\n').filter(l => /^\s*❯?\s*(No, exit|Yes, I trust this folder)/.test(l));
       const down = options.findIndex(l => /Yes, I trust/.test(l)) - options.findIndex(l => /❯/.test(l));
       s.proc.write('\x1b[B'.repeat(Math.max(0, down)) + '\r');
-      if (s.lead) continue;   // 作業役：進行役が作った作業空間（ECOBuild が作ったもの）
+      if (s.parentTab) continue;   // 子：ECOBuild が作った作業空間
       operatorLog.push({role: 'system', text: '（ECOBuild が作ったオペレーターのフォルダーを、初めての確認で「信頼する」にしました）', at: Date.now()});
       saveOperatorLog();
       continue;
@@ -381,9 +378,9 @@ function poll() {
       if (doing !== (s.doing || '')) { s.doing = doing; changed = true; }
     }
   }
-  // 受け箱のもの（係が入れた作業役の知らせ・進行役の言付け）は、入力欄が空のときに1つずつ。作業中でも送る（Claude Code は
-  // 作業中に届いた発言を、返答を止めずに次の区切りで読む：作業中の作業役の仕事を直したいとき、中断させずに伝わる）。
-  // 選択肢・起動中には送らない。同じ置き場所（同じコンテナ）のタブが複数あれば、新しく開いたほうに
+  // 受け箱のもの（係が入れた子の知らせ・言付け）は、入力欄が空のときに1つずつ。作業中でも送る（Claude Code は作業中に
+  // 届いた発言を、返答を止めずに次の区切りで読む：作業中の子の仕事を直したいとき、中断させずに伝わる）。
+  // 選択肢・起動中には送らない。受け箱はエージェントごと（同じ置き場所のタブ〔同じエージェントを開き直した〕なら、新しいほうに）
   const asked = new Set();
   for (const s of [...sessions].reverse()) {
     if (!s.statusDir || s.kind === 'operator' || s.exited || asked.has(s.statusDir)) continue;
@@ -393,7 +390,7 @@ function poll() {
     if (got?.text) typeInto(s, got.text);
   }
   if (changed) { pushTabs(); pushDock(); pushOperator(); }
-  team.tick(sessions.filter(s => s.role === 'lead' && s.kind === 'workspace' && !s.exited && s.owner).map(s => ({id: s.id, dir: s.dir})));
+  team.tick(sessions.filter(s => s.lead && s.kind === 'workspace' && !s.exited && s.owner && s.agentId).map(s => ({id: s.id, agentId: s.agentId})));
   const now = Date.now();
   if (dropCards(c => c.until !== -1 && c.until < now)) pushDock();
 }
@@ -423,8 +420,8 @@ function replied(s, message) {
 const live = new Set();   // 出ている通知（参照がなくなると、クリックが効かなくなる）
 
 // ---- ECOBuild の係（ecobuild agent serve --json）-------------------------------------------------------------
-// エージェントの間の取り次ぎ（進行役の頼み〔agent team …〕の実行・作業役の返答の終わりを進行役に知らせる・返答の後に
-// 型に手元をそろえさせる）は ECOBuild の係がする。ここは係を動かし、係の出来事に応じてタブを開く・閉じるだけ。
+// エージェントの間の取り次ぎ（子を扱うツールの頼みの実行・子の返答の終わりを親に知らせる・返答の後に型に手元をそろえさせる）
+// は ECOBuild の係がする。ここは係を動かし、係の出来事に応じてタブを開く・閉じるだけ（どちらもエージェントの ID で）。
 // 言付け・知らせは、係がエージェントの受け箱（状態の置き場所の inbox/）に入れ、ここが待機中に入力欄へ送る（poll）。
 const SERVE_RETRY_MS = 10000;
 const SERVE_STOP_MS = 20000;   // 閉じるとき、係が片付けて終わるのを待つ（係は実行中の頼みを 8 秒待ってから止める）
@@ -437,7 +434,6 @@ function typeInto(s, text) {
 
 function startServe() {
   const env = {...childEnv(), PYTHONIOENCODING: 'utf-8'};
-  delete env.ECOBUILD_AGENT_WINDOW;
   let proc;
   try { proc = require('child_process').spawn(ecobuildPath(), ['agent', 'serve', '--json'], {windowsHide: true, env}); }
   catch (e) { console.warn('agents: 係を起動できません：', e.message); return; }
@@ -456,34 +452,37 @@ function startServe() {
   });
 }
 
+// 係の出来事：agent-start {key, id, parent, registration, kind, path, prompt, program}・agent-stop {key, id, path}。
+// どちらも済んだら {"ack": key} を係の標準入力に返す（係は返事を待つ）
 function onServeEvent(event) {
   if (event.event === 'agent-start') {
-    // 進行役が作った作業役：進行役のタブの窓のタブとして開く（下の進行役なら新しい窓）。同じ作業空間の進行役のタブが
-    // 複数あれば（再開して2つある等）、新しく開いたほうの窓に
-    const leader = [...sessions].reverse().find(x => x.kind !== 'operator' && !x.exited && x.dir && sameDir(x.dir, event.lead));
-    // agent：起動し直す（team restart --resume）ときの起動のコマンド（claude --resume <会話>）
-    openSession({dir: event.path, name: event.name, title: true, role: event.role, prompt: event.prompt, agent: event.agent || '',
-                 lead: leader?.id ?? null});
-    if (leader) {
-      select(leader.id, false);   // 進行役のタブを出したまま（作業役はタブの印で分かる）
-      if (leader.owner) { if (leader.owner.mini) restoreWindow(leader.owner); else bringToFront(leader.owner); }
-    }
+    // 人の画面で開く頼み（引き取ったもの等）：親のエージェントのタブの窓のタブとして開く。親のタブが複数あれば新しいほう
+    const parent = event.parent ? [...sessions].reverse().find(x => !x.exited && x.agentId === event.parent) : null;
+    // program：続きから起動するときのコマンド（claude --resume <会話>）。登録は、新しく起動するときだけ渡す（続きからは記録の登録）
+    try {
+      openSession({dir: event.path, name: event.registration || '', agent: event.program || '', registration: event.program ? '' : event.registration || '',
+                   prompt: event.prompt || '', parentTab: parent?.id ?? null, agentId: event.id || ''});
+      if (parent) {
+        select(parent.id, false);   // 親のタブを出したまま（子はタブの印で分かる）
+        if (parent.owner) { if (parent.owner.mini) restoreWindow(parent.owner); else bringToFront(parent.owner); }
+      }
+    } catch (e) { console.warn('agents: 開けませんでした：', e.message); }
   } else if (event.event === 'agent-stop') {
-    for (const tab of sessions.filter(x => x.kind !== 'operator' && x.dir && sameDir(x.dir, event.path))) closeSession(tab.id);
-    try { serveProc?.stdin.write(JSON.stringify({ack: event.key}) + '\n'); } catch (e) { /* 係が終わった */ }
-  }
+    for (const tab of sessions.filter(x => x.kind !== 'operator' && x.agentId && x.agentId === event.id)) closeSession(tab.id);
+  } else return;
+  try { serveProc?.stdin.write(JSON.stringify({ack: event.key}) + '\n'); } catch (e) { /* 係が終わった */ }
 }
 
-// ---- チーム（AI が起動した作業役。team.js） -------------------------------------------------------------------
-// 進行役の窓の画面に、そのチームの様子（taken：引き取ってこのアプリのタブで開いているもの {作業空間: タブの番号}）を送る
+// ---- チーム（AI が起動した子。team.js） -------------------------------------------------------------------
+// 子を起動できるエージェントの窓の画面に、その子の様子（taken：引き取ってこのアプリのタブで開いているもの {ID: タブの番号}）を送る
 function pushTeam(leadId) {
   const s = findSession(leadId), view = team.view(leadId); if (!s?.owner || !view) return;
   const taken = {};
-  for (const x of sessions) if (x.takenOver && !x.exited) taken[x.takenOver.path] = {id: x.id, num: x.num};
+  for (const x of sessions) if (x.takenOver && !x.exited) taken[x.takenOver.id] = {id: x.id, num: x.num};
   send(s.owner, 'team:list', leadId, {...view, taken});
 }
 
-// 作業役の返答の終わり：ふだんは知らせない（進行役に届く）。知らせる設定なら、進行役のタブの知らせとして
+// 子の返答の終わり：ふだんは知らせない（親に届く）。知らせる設定なら、親のタブの知らせとして
 function teamReplied(leadId, member) {
   const lead = findSession(leadId), w = lead?.owner;
   if (!notify.team || notify.style === 'off' || !w) return;
@@ -496,12 +495,12 @@ function teamReplied(leadId, member) {
   }
   if (!Notification.isSupported()) return;
   const n = new Notification({title: `${lead.name} のチーム`, body: text.replace(/\s+/g, ' ').slice(0, 200), icon: ICON, silent: true});
-  n.on('click', () => { focusTab(lead.id, true); send(w, 'team:focus', member.path); });
+  n.on('click', () => { focusTab(lead.id, true); send(w, 'team:focus', member.id); });
   live.add(n); n.on('close', () => live.delete(n));
   n.show();
 }
 
-// 引き取った作業役のタブを閉じた：係に返す（人の画面が終わるまで少し待つ）
+// 引き取った子のタブを閉じた：係に返す（人の画面が終わるまで少し待つ）
 async function handBack(taken) {
   let got;
   for (let i = 0; i < 10; i++) {
@@ -510,7 +509,7 @@ async function handBack(taken) {
     await new Promise(r => setTimeout(r, 1500));
   }
   const lead = findSession(taken.leadId);
-  if (lead?.owner) send(lead.owner, 'team:notice', taken.path, got.ok ? `「${taken.name}」を係に戻しました（続きから）` : `係に戻せませんでした：${got.error}`, !got.ok);
+  if (lead?.owner) send(lead.owner, 'team:notice', taken.id, got.ok ? `「${taken.name}」を係に戻しました（続きから）` : `係に戻せませんでした：${got.error}`, !got.ok);
   team.refresh(taken.leadId);
   return got;
 }
@@ -529,23 +528,23 @@ function wireTeam() {
     });
   });
   ipcMain.on('team:unfollow', event => team.unfollow(event.sender));
-  // 操作：stop・restart（resume）・close・takeover・handback・folder・module。返すのは {ok, error, message}
+  // 操作：stop・restart（resume）・close・takeover・handback・folder・module。member は {id, name, path}。返すのは {ok, error, message}
   ipcMain.handle('team:op', async (event, leadId, action, member, options = {}) => {
-    if (!member?.path || !member.parent || !member.name) return {ok: false, error: '作業役が分かりません'};
-    member = {leadId, parent: String(member.parent), name: String(member.name), path: String(member.path), role: String(member.role || '')};
+    if (!member?.id || !member.name) return {ok: false, error: '子のエージェントが分かりません'};
+    member = {leadId, id: String(member.id), name: String(member.name), path: String(member.path || '')};
     if (action === 'folder') { const error = await shell.openPath(member.path); return error ? {ok: false, error} : {ok: true}; }
     if (action === 'module') { openModule(member.path); return {ok: true}; }
     if (action === 'handback') {
-      const tab = sessions.find(x => x.takenOver?.path === member.path);
+      const tab = sessions.find(x => x.takenOver?.id === member.id && !x.exited);
       if (tab) { closeSession(tab.id); return {ok: true, message: 'タブを閉じて、係に戻しています…'}; }   // 閉じると返す
       return handBack(member);
     }
     const got = await team.operate(action, member, options);
     if (got.ok && action === 'takeover') {
-      // 同じ会話を、この進行役の窓のタブ（対話型）で開く。以後は人が起動したものとして扱い、閉じたら返す
+      // 同じ会話を、この窓のタブ（対話型）で開く（claude --resume <会話>：登録は記録のもの）。閉じたら返す
       const opened = openSession({dir: got.result.path || member.path, agent: got.result.agent, name: member.name,
-                                  role: got.result.role || member.role || 'worker', lead: leadId});
-      const tab = opened.existing ? null : findSession(opened.id);   // 既に生きたタブがあれば引き取りの印は付けない
+                                  parentTab: leadId, agentId: member.id});
+      const tab = findSession(opened.id);
       if (tab) tab.takenOver = member;
     }
     team.refresh(leadId);
@@ -847,7 +846,7 @@ function runAction(action, target = null) {
 // ---- 外からの操作（GUI のサーバーを通して：ecobuild gui agent-… ） --------------------------------------------
 const byNum = num => sessions.find(s => s.num === Number(num));
 function external(op, p) {
-  if (op === 'agent-open') return openSession({dir: p.dir, name: p.name || '', agent: p.agent || ''});
+  if (op === 'agent-open') return openSession({dir: p.dir, name: p.name || '', agent: p.agent || '', registration: p.registration || ''});
   if (op === 'agent-send') {
     const s = byNum(p.tab); if (!s?.proc) return;
     if (s.kind === 'operator') { operatorSend(p.text); return; }
@@ -861,8 +860,10 @@ function external(op, p) {
   if (op === 'agent-restart') {
     const s = byNum(p.tab); if (!s) return;
     const base = s.kind === 'operator' ? s.agent.replace(' --continue', '') : (s.savedAgent || '');
-    // 選んだ会話から開いたタブ（--resume <id>）を続きから：--resume と --continue は一緒に渡さない
-    restartSession(s.id, p.continue ? (base.replace(/\s+--resume(\s+[\w-]+)?/, '') || 'claude') + ' --continue' : base);
+    // 選んだ会話から開いたタブ（--resume <id>）を続きから：--resume と --continue は一緒に渡さない。作業空間のエージェントは
+    // そのエージェントの会話の続きから
+    if (p.continue && s.kind !== 'operator') restartSession(s.id, resumeCommand(s));
+    else restartSession(s.id, p.continue ? (base.replace(/\s+--resume(\s+[\w-]+)?/, '') || 'claude') + ' --continue' : base);
     return;
   }
   if (op === 'agent-model') { const s = byNum(p.tab); if (s && isClaude(s)) s.pendingModel = String(p.model); return; }
@@ -875,6 +876,7 @@ function external(op, p) {
 }
 function externalList() {
   return sessions.map(s => ({num: s.num, name: s.name, dir: s.kind === 'operator' ? null : s.dir, kind: s.kind, state: s.state,
+                             agent: s.agentId || '', registration: s.registration || '',
                              reply: s.reply || '', minimized: !!s.owner?.mini, shown: !!s.owner}));
 }
 
@@ -902,6 +904,7 @@ function setup({ecobuild, python, group, module}) {
   if (group) groupWith = group;
   if (module) openModule = module;
   team.setup({ecobuild: () => ecobuildPath(), env: childEnv, onList: pushTeam, onReplied: teamReplied});
+  loadRegistrations();
   wireTeam();
   loadOperatorLog();
   const saved = readState();
@@ -936,6 +939,8 @@ function setup({ecobuild, python, group, module}) {
   ipcMain.on('agents:copy', (event, text) => { if (typeof text === 'string' && text) clipboard.writeText(text); });
   ipcMain.handle('agents:paste', () => clipboard.readText());
   ipcMain.handle('agents:last-reply', (event, id) => findSession(id)?.lastMessage || findSession(id)?.reply || '');
+  // ＋：起動できる登録（ecobuild agent registry list。人が起動できるものは human_start）
+  ipcMain.handle('agents:registrations', () => loadRegistrations());
   // ＋：このPCの作業空間（ecobuild workspace list の、各モジュールの中の作業空間）
   ipcMain.handle('agents:workspaces', () => new Promise(resolve => require('child_process').execFile(ecobuildPath(),
     ['workspace', 'list', '--json'], {windowsHide: true, timeout: 30000, env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, (error, stdout) => {
@@ -972,7 +977,7 @@ function setup({ecobuild, python, group, module}) {
   ipcMain.on('agents:topmost', event => { const w = windowOf(event); if (w) cycleTopmost(w); });
   ipcMain.on('agents:minimize', event => { const w = windowOf(event); if (w) minimizeWindow(w); });
   ipcMain.on('agents:close-window', event => windowOf(event)?.win.close());
-  ipcMain.on('agents:restart', (event, id, resume) => restartSession(id, resume ? 'claude --continue' : undefined));
+  ipcMain.on('agents:restart', (event, id, resume) => restartSession(id, resume ? resumeCommand(findSession(id)) : undefined));
   ipcMain.on('agents:notify', (event, patch) => setNotify(patch || {}));
   ipcMain.on('agents:test-sound', () => dock.play({id: notify.sound, volume: notify.volume}));
   // オペレーター（ハブの「AI に頼む」から）
@@ -1077,6 +1082,19 @@ function ecobuildRun(args) {
     });
   });
 }
+// 登録の一覧を読み直して覚える（子を起動できる登録か：自分の窓を持つか）。返すのは一覧（読めなければ覚えたもの）
+async function loadRegistrations() {
+  const doc = await ecobuildRun(['agent', 'registry', 'list']);
+  if (Array.isArray(doc?.result)) registrations = new Map(doc.result.map(r => [r.name, r]));
+  return [...registrations.values()];
+}
+
+// 続きから起動し直すコマンド：会話が分かれば その会話（claude --resume <会話>：同じエージェント）、分からなければ最後の会話
+function resumeCommand(s) {
+  const session = s?.info?.session;
+  return session ? `claude --resume ${session}` : 'claude --continue';
+}
+
 async function loadStyles() {
   for (const [kind, key] of [['operator', 'operator_style'], ['agent', 'agent_style']]) {
     const doc = await ecobuildRun(['config', 'get', key]);

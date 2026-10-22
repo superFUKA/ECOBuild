@@ -108,6 +108,8 @@ def test_cli_list_show_set_add_remove(tmp_path, monkeypatch):
                          "document_path"}
     shown = _run("show", "lead")["result"]
     assert shown["document"].startswith("## あなたの役：進行役")
+    assert shown["first_prompt"]                                              # GUI の編集が今の値を出す
+    assert _run("set", "lead", "--first-prompt", "始めて")["result"]["first_prompt"] == "始めて"
 
     changed = _run("set", "worker", "--model", "", "--no-human-start", "--document", "-", input="新しい文書\n")["result"]
     assert (changed["source"], changed["model"], changed["document"], changed["tools"]) == ("user", "", "新しい文書\n", ["*"])

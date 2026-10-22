@@ -31,8 +31,9 @@ class AgentRegistrationView:
 
 @dataclass(frozen=True)
 class AgentRegistrationShown(AgentRegistrationView):
-    """ecobuild agent registry show・add・set・remove：1つの登録と、その文書（agent.md の中身）。"""
+    """ecobuild agent registry show・add・set・remove：1つの登録と、その文書（agent.md の中身）・最初の発言（GUI の編集）。"""
     document: str = ""
+    first_prompt: str = ""
 
 
 def registration_view(registration, *, document: bool = False) -> AgentRegistrationView:
@@ -43,5 +44,5 @@ def registration_view(registration, *, document: bool = False) -> AgentRegistrat
                   max_children=registration.max_children, tools=registration.tools,
                   document_path=registry.document_path(registration))
     if document:
-        return AgentRegistrationShown(**fields, document=registration.document)
+        return AgentRegistrationShown(**fields, document=registration.document, first_prompt=registration.first_prompt)
     return AgentRegistrationView(**fields)

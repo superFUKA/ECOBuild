@@ -148,11 +148,14 @@ WS.onRefresh(renderPrDetail);
     ECO.menu(EDITORS.map(([version, name]) => [`${version === current ? '✓ ' : '　'}${name}${installed.includes(version) ? '' : '（このPCにありません）'}`,
       () => { ECO.setVsVersion(version); showVs(); }, installed.includes(version)]), r.right - 220, r.bottom + 4);
   });
-  // AI (coding agent): ecobuild agent start opens it in a new window at the workspace's root and returns at once.
-  // The command to start (--agent) is kept per PC; empty means ECOBuild's default. Only on a task branch (as the CLI).
-  const AGENT_KEY = 'ecobuild-gui-agent';
+  // AI (coding agent): ecobuild agent start --as <registration> opens it in a new window at the workspace's root and returns
+  // at once. Only a registration a person may start (human_start) is offered; the last one chosen is kept per PC, as is the
+  // command to start (--program; empty means claude). Only on a task branch (as the CLI).
+  const AGENT_KEY = 'ecobuild-gui-agent', REGISTRATION_KEY = 'ecobuild-gui-agent-registration';
   const agentCommand = () => { try { return localStorage.getItem(AGENT_KEY) || ''; } catch (e) { return ''; } };
   const setAgentCommand = command => { try { localStorage.setItem(AGENT_KEY, command); } catch (e) { /* storage blocked */ } };
+  const lastRegistration = () => { try { return localStorage.getItem(REGISTRATION_KEY) || ''; } catch (e) { return ''; } };
+  const setLastRegistration = name => { try { localStorage.setItem(REGISTRATION_KEY, name); } catch (e) { /* storage blocked */ } };
   // The workspace as a container (ecobuild container …): the agent and the builds then run inside it. The button in the
   // bar shows it and has the container's operations and its own settings. The images are the hub's (ECOBuild × type).
   let box = null;
@@ -210,45 +213,66 @@ WS.onRefresh(renderPrDetail);
   const showAgent = () => {
     const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
-    const where = box?.container ? 'この作業空間のコンテナの中で、AIを確認なしに新しい画面で起動します' : 'この作業空間のルートで、AIを新しい画面で起動します';
-    get('agent-start').title = ready ? `${where}（${command || '既定のエージェント'}）`
+    const where = box?.container ? 'この作業空間のコンテナの中で、登録したエージェントを確認なしに新しい画面で起動します' : 'この作業空間のルートで、登録したエージェントを新しい画面で起動します';
+    get('agent-start').title = ready ? `${where}（${command || 'claude'}）`
       : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
   // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start
-  // --here: the container is made ready there, the progress shows in the tab). Elsewhere a new console window.
-  // Each press opens a new agent. Its name is asked first (empty: the workspace's name and the task); a name given
-  // also becomes the conversation's name (Claude Code's /rename), so it shows by that name in the list to resume.
+  // --here --as <registration>: the container is made ready there, the progress shows in the tab). Elsewhere a new
+  // console window. Each press opens a new agent (an ID of its own; any number in one workspace). Its registration and
+  // name are asked first (empty name: the workspace's name and the task); a name given also becomes the conversation's
+  // name (Claude Code's /rename), so it shows by that name in the list to resume. A registration that may start children
+  // gets a window of its own in the app, where its children show (チーム).
   const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
   const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
   const nameField = () => ({name: 'name', label: '名前（空欄なら既定の名前。入れた名前は会話の名前にもなります）', value: '', placeholder: defaultAgentName()});
-  // role 'lead': the 進行役 (only talks with the user; makes a 管理役 per piece of work as the talk goes and hands each what was decided; they make the
-  // 作業役 = child tasks in their own workspaces; does not edit). It gets a window of its own with its tab fixed at the left.
-  // The agent always runs in the container: a workspace that is not one is made so (container on) when it starts.
-  async function startAgent(command = agentCommand(), typed, role = '') {
+  // The registrations a person may start (ecobuild agent registry list: human_start). The hub's settings change them.
+  async function startable() {
+    const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+    if (!doc.ok) { ECO.showError(doc); return null; }
+    const found = doc.result.filter(r => r.human_start);
+    if (!found.length) ECO.toast('人が起動できるエージェントの登録がありません。ハブの設定の「エージェント」で「人が起動できる」を選んでください。', 'bad', 10000);
+    return found.length ? found : null;
+  }
+  const registrationLabel = r => (r.title && r.title !== r.name ? `${r.title}（${r.name}）` : r.name) + (r.children?.length ? '　子を起動できる' : '');
+  // The registration to use without asking (resuming the last conversation): the last chosen, else the first.
+  async function defaultRegistration() {
+    const found = await startable(); if (!found) return null;
+    return found.find(r => r.name === lastRegistration()) || found[0];
+  }
+  // registration: the registration object to start ({name, children}), '' to resume a conversation by its id (its record
+  // knows the registration), or undefined to ask for it (and the name).
+  async function startAgent(command = agentCommand(), typed, registration) {
+    if (registration === undefined) {
+      const found = await startable(); if (!found) return;
+      const chosen = found.find(r => r.name === lastRegistration()) || found[0];
+      const v = await ECO.form({title: 'エージェントを起動', intro: '登録したエージェント（ハブの設定の「エージェント」）から選びます。エージェントはこの作業空間のコンテナの中で動きます（コンテナでない作業空間は、自動でコンテナにします）。',
+        fields: [{name: 'registration', label: '起動するエージェント', type: 'select', value: chosen.name, options: found.map(r => [r.name, registrationLabel(r)])},
+                 ...(agentShell() ? [{...nameField(), focus: true}] : [])], ok: '起動'});
+      if (!v) return;   // cancelled
+      registration = found.find(r => r.name === v.registration) || chosen;
+      setLastRegistration(registration.name);
+      typed = (v.name || '').trim();
+    }
+    const as = registration ? registration.name : '';
     // The workspace is a frame of the module window: the Electron bridge is on the top window.
     const shell = agentShell();
-    const title = role === 'lead' ? '進行役を起動' : 'エージェントを起動';
     if (shell) {
-      if (typed === undefined) {
-        const v = await ECO.form({title, intro: role === 'lead' ? '進行役は、ユーザーとのやりとりに特化した役です。話の流れに応じて仕事ごとに管理役を作って命令し（何人でも）、管理役が作業役（子タスクと、その作業空間）に任せて進めます。自分ではファイルを編集せず、作業役も直接作りません。新しい窓で開きます。コンテナでない作業空間は、自動でコンテナにします。' : undefined,
-          fields: [{...nameField(), focus: true}], ok: '起動'});
-        if (!v) return;   // cancelled
-        typed = v.name.trim();
-      }
       const name = typed || defaultAgentName();
-      try { const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed, role}); say(`エージェントの窓で開きました：${tab?.name || name}`); }
-      catch (e) { ECO.toast(e.message, 'bad'); }
+      try {
+        const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed, registration: as, team: !!registration?.children?.length});
+        say(`エージェントの窓で開きました：${tab?.name || name}`);
+      } catch (e) { ECO.toast(e.message, 'bad'); }
       return;
     }
     if (box?.container) say('コンテナを用意しています（最初の1回はイメージを作るので数分かかります）…');
-    const doc = await WS.cli(['agent', 'start', ...(command ? ['--agent', command] : []), ...(role ? ['--role', role] : [])]);
+    const doc = await WS.cli(['agent', 'start', ...(as ? ['--as', as] : []), ...(command ? ['--program', command] : [])]);
     if (!doc.ok) return ECO.showError(doc);
-    say(`エージェントを起動しました：${doc.result.command.join(' ')}（新しい画面で動いています）`);
+    say(`エージェント「${doc.result.name}」（${doc.result.id}）を起動しました（新しい画面で動いています）`);
   }
-  // The default start is the 進行役 (the role of a workspace without a member record); only Claude Code takes a role.
-  get('agent-start').addEventListener('click', () => startAgent(agentCommand(), undefined, claudeCommand() ? 'lead' : ''));
+  get('agent-start').addEventListener('click', () => startAgent(agentCommand(), undefined, undefined));
   // Resuming is Claude Code's (claude --resume <id>): the chosen command's options (model …) are kept. The tab takes the
-  // conversation's name (no name is asked).
+  // conversation's name (no name is asked); the conversation's record knows its registration.
   const claudeCommand = () => { const command = agentCommand(); return !command ? 'claude' : /^claude(\s|$)/.test(command) ? command : null; };
   const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
   // The workspace's conversations (ecobuild agent conversations: in the container, the ones on this branch), newest first.
@@ -259,24 +283,24 @@ WS.onRefresh(renderPrDetail);
     const list = doc.result.conversations;
     ECO.menu([
       [list.length ? '再開する会話（新しい順）' : (doc.result.note || 'この作業空間の会話はまだありません'), null],
-      ...list.map(c => [`${c.title}　${when(c.updated)}`, () => startAgent(`${base} --resume ${c.id}`, c.title), true,
+      ...list.map(c => [`${c.title}　${when(c.updated)}`, () => startAgent(`${base} --resume ${c.id}`, c.title, ''), true,
         `発言 ${c.prompts}${c.branch ? `・${c.branch}` : ''}・${c.id}`]),
       '-',
-      ['最後の会話の続きから', () => startAgent(`${base} --continue`, ''), list.length > 0],
-      ['Claude の一覧で選ぶ', () => startAgent(`${base} --resume`, ''), true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
+      // --continue: the CLI needs a registration (the last conversation may be no agent's record yet)
+      ['最後の会話の続きから', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --continue`, '', r); }, list.length > 0],
+      ['Claude の一覧で選ぶ', () => startAgent(`${base} --resume`, '', ''), true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
     ], x, y);
   }
   get('agent-more').addEventListener('click', () => {
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
-      ...(claudeCommand() ? [['進行役を起動…', () => startAgent(agentCommand(), undefined, 'lead'), ready,
-        'ユーザーとの話に特化し、仕事ごとに管理役を作って命令するエージェント（管理役が作業役に任せて進めます）。新しい窓で開きます'],
-        ['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
+      ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
         'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
-      ['起動するコマンドを指定…', () => ECO.form({title: 'エージェントを起動', intro: '起動するエージェントのコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
-        {name: 'command', label: 'コマンド（空欄なら既定のエージェント）', value: agentCommand(), placeholder: '例：claude', focus: true},
-        ...(ready && agentShell() ? [nameField()] : [])], ok: ready ? '起動' : '保存',
-        submit: async v => { setAgentCommand(v.command.trim()); showAgent(); if (ready) await startAgent(v.command.trim(), (v.name || '').trim()); }})],
+      ['起動するコマンドを指定…', () => ECO.form({title: '起動するコマンド', intro: 'エージェントを起動するコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
+        {name: 'command', label: 'コマンド（空欄なら claude）', value: agentCommand(), placeholder: '例：claude --model opus', focus: true}], ok: '保存',
+        submit: v => { setAgentCommand(v.command.trim()); showAgent(); }})],
+      ['エージェントの登録（ハブの設定）', () => ECO.action('open', {page: 'settings', tab: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,
+        '起動できるエージェント（文書・渡すツール・人が起動できるか・起動してよい子）は、ハブの設定で変えます'],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
     ], r.right - 240, r.bottom + 4);

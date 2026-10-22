@@ -22,7 +22,6 @@ body.listening { border-color: var(--rec); }
 .tab b { margin-right: 4px; color: var(--claude); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tab b[data-kind="operator"] { color: var(--operator); }
 .tab b[data-kind="lead"] { color: #e8b04a; }
-.tab b[data-kind="manager"] { color: #6fb7e8; }
 .tab.pinned { border-right: 1px solid #3a404c; border-radius: 4px 0 0 4px; margin-right: 4px; }
 .tab .name { overflow: hidden; text-overflow: ellipsis; }
 .tab .x { margin-left: 4px; opacity: 0; }
@@ -126,7 +125,7 @@ body.operator .status .mode { display: inline-block; }
   font: inherit; resize: vertical; }
 .persona textarea:focus { outline: none; border-color: var(--accent); }
 
-/* ---- チーム（進行役の窓：AI が起動した作業役。teamui.js） ---- */
+/* ---- チーム（子を起動できるエージェントの窓：AI が起動した子。teamui.js） ---- */
 .tab.team-tab b { color: var(--accent); }
 .tab.team-tab .count { margin-left: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tab.team-tab[data-alert="yes"] .count { color: var(--rec); font-weight: 700; }

@@ -217,7 +217,7 @@ function openWindow({bounds, module = null} = {}) {
   const b = bounds || (windows.length === 0 && saved) || {
     ...WINDOW_SIZE, x: area.x + area.width - WINDOW_SIZE.width - 24 - windows.length * 32, y: area.y + 48 + windows.length * 32};
   const win = new BrowserWindow({
-    ...b, minWidth: 360, minHeight: 200, frame: false, icon: ICON, backgroundColor: '#14181d', show: false,
+    ...b, minWidth: 360, minHeight: 200, frame: false, icon: ICON, backgroundColor: '#14171b', show: false,
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   });
   const w = {win, tabs: [], active: null, topmost: readState().topmost || 'always', ready: false, size: null, mini: false, module};

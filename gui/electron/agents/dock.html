@@ -5,32 +5,38 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
   <title>エージェント（右下）</title>
   <style>
-    :root { color-scheme: dark; --thinking: #f0d58a; --choice: #8fb8f0; --exited: #6b7480; --accent: #9ee4d3; }
+    /* 色はエージェントの窓（window.css）と同じ：考え中は黄・選択肢は青・聞き取り中は赤。右の縁はカード・のぞき見・チップで1本にそろえる */
+    :root { color-scheme: dark; --thinking: #e3b341; --choice: #6aa7ff; --rec: #ff5a5f; --exited: #84909e; --accent: #9ee4d3; --line: #46515e; }
     html, body { margin: 0; background: transparent; font-family: "Segoe UI", "Yu Gothic UI", sans-serif; color: #edf1f5; overflow: hidden; user-select: none; }
     #root { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 6px; padding: 4px; }
-    .card { width: 340px; max-height: 220px; overflow: hidden; padding: 9px 12px; border: 1px solid #3a424c; border-radius: 10px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; font-size: 13px; line-height: 1.6; cursor: pointer; }
+    .card { width: 360px; max-height: 220px; overflow: hidden; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; font-size: 13px; line-height: 1.6; cursor: pointer; }
     .card .head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; color: #a5aeba; font-size: 12px; }
     .card .head .avatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; }
-    .card .head .who { margin-right: auto; }
+    .card .head .who { margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .card .close { flex: none; width: 20px; height: 20px; margin: -2px -6px -2px 0; padding: 0; border: 0; border-radius: 5px; background: none; color: #a5aeba; font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
+    .card:hover .close { opacity: 1; }
+    .card .close:hover { background: #2a323b; color: #fff; }
     .card .text { white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 8; -webkit-box-orient: vertical; overflow: hidden; }
-    .peek { width: 380px; padding: 9px 12px; border: 1px solid #3a424c; border-radius: 10px; background: #14181df5; box-shadow: 0 6px 20px #0009; font: 12px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: hidden; }
+    .peek { width: 360px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: #14181df5; box-shadow: 0 6px 20px #0009; font: 12px/1.5 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: hidden; }
     .peek .input { margin-top: 6px; color: var(--accent); }
-    .chip { position: relative; display: inline-flex; align-items: center; gap: 8px; max-width: 280px; height: 40px; padding: 0 12px 0 5px; border: 1px solid #3a424c; border-radius: 20px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; cursor: pointer; }
-    .dot { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #3a424c; background: #3a2a1e; color: #f0b48a; font-size: 13px; font-weight: 700; }
+    .chip { position: relative; display: inline-flex; align-items: center; gap: 8px; max-width: 360px; height: 40px; padding: 0 8px 0 5px; border: 1px solid var(--line); border-radius: 20px; background: #1c2128f2; box-shadow: 0 6px 20px #0009; cursor: pointer; }
+    /* 丸の地は中間の灰色で番号を読みやすく。状態は縁の色だけで表す */
+    .dot { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid #46515e; background: #2a2f37; color: #f0b48a; font-size: 13px; font-weight: 700; }
     .chip.thinking .dot { border-color: var(--thinking); animation: blink 1.6s ease-in-out infinite; }
     .chip.waiting .dot { border-color: var(--thinking); }
     .chip.choice .dot { border-color: var(--choice); }
     .chip.operator .dot { background: #2c2140; color: #c9a7ff; }
     .chip.starting .dot { border-color: #6b7480; animation: blink 1.2s ease-in-out infinite; }
-    .card.heard { border-color: #ff5a5f; }
-    .chip.listening .dot { border-color: #e05555; animation: blink .8s ease-in-out infinite; }
-    .chip.exited .dot { border-color: var(--exited); filter: grayscale(1); }
+    .card.heard { border-color: var(--rec); }
+    .chip.listening .dot { border-color: var(--rec); animation: blink .8s ease-in-out infinite; }
+    .chip.exited .dot { border-color: var(--exited); color: var(--exited); }
     .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-    .badge { position: absolute; top: -4px; left: 24px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #d9534f; color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
-    .restore { margin-left: 2px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: #a5aeba; font-size: 14px; cursor: pointer; }
+    .badge { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #d9534f; color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center; }
+    .restore { flex: none; margin-left: 2px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: #a5aeba; font-size: 14px; cursor: pointer; }
     .restore:hover { background: #2a323b; color: #fff; }
-    @keyframes blink { 50% { opacity: .35; } }
-    @media (prefers-reduced-motion: reduce) { .chip.thinking .dot { animation: none; } }
+    /* 明滅は縁だけ（番号は消さない） */
+    @keyframes blink { 50% { border-color: transparent; } }
+    @media (prefers-reduced-motion: reduce) { .chip .dot { animation: none !important; } }
   </style>
 </head>
 <body>

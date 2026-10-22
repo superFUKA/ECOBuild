@@ -53,7 +53,6 @@ class Policy:
     read_only: frozenset[str] = READ_ONLY
     role: str = "このエージェント"
     refusals: dict[str, str] = field(default_factory=dict)      # 重さ → 止めたときに足す文（HUMAN 等）
-    classifiers: dict[str, Callable[[list[str]], tuple[str, str]]] = field(default_factory=dict)   # プログラムごとの classify
 
 
 @dataclass(frozen=True)
@@ -100,7 +99,7 @@ def check(command: str, policy: Policy, exchange: Exchange | None = None) -> str
             if expanded is None:
                 return "for の値の組み合わせが多すぎます。分けて実行してください。"
             for args in expanded:
-                problem = _program(args, policy, exchange, policy.classifiers.get(name, policy.classify))
+                problem = _program(args, policy, exchange, policy.classify)
                 if problem:
                     return problem
         elif name not in policy.read_only:

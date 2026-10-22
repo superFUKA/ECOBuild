@@ -322,18 +322,17 @@ def _host_language() -> str:
 
 
 def claude_settings(folder: str, python: str, base: dict | None = None, *, app: bool = True, lead_area: str = "",
-                    streamed: bool = False, guard: str = "") -> str:
+                    streamed: bool = False) -> str:
     """Claude Code の --settings に渡す設定の JSON（folder・python：エージェントから見た置き場所と Python）。
     base：一緒に渡す設定（許可・ほかのフック。statusLine と Stop フックを足す）。app：画面を持つアプリが動かす
     （音声入力を使い、受け箱はアプリが届ける）。そうでなければ、受け箱はフックが届ける（deliver）。lead_area：進行役が
     書ける場所（エージェントから見た .ecobuild/ai）。渡すと、編集の道具はその中だけにする（PreToolUse フック）。
-    streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。
-    guard：シェルのコマンドを調べるフックのコマンド（進行役：ecobuild agent guard --role module）。"""
+    streamed：アプリ用の起動（係が出来事を読む。statusLine・返答の終わり・受け箱のフックは付けない）。"""
     script = f'{python} "{folder}/{SCRIPT}"'
     settings = json.loads(json.dumps(base or {}))
     hooks = settings.setdefault("hooks", {})
     if streamed:
-        return json.dumps(_lead_guard(settings, hooks, script, lead_area, guard), ensure_ascii=False)
+        return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
     if app:
         settings.update(VOICE)
         language = _host_language()
@@ -347,14 +346,11 @@ def claude_settings(folder: str, python: str, base: dict | None = None, *, app: 
     if not app:   # アプリがいなければ、作業中に届いたものも道具を使い終えるたびに届ける
         hooks["PostToolUse"] = [*hooks.get("PostToolUse", []),
                                 {"hooks": [{"type": "command", "command": f"{script} midturn{deliver}"}]}]
-    return json.dumps(_lead_guard(settings, hooks, script, lead_area, guard), ensure_ascii=False)
+    return json.dumps(_lead_guard(settings, hooks, script, lead_area), ensure_ascii=False)
 
 
-def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str, guard: str = "") -> dict:
-    """管理役・進行役なら、編集の道具を lead_area の中だけにするフックを足す。guard：シェルのコマンドの関所（進行役）。"""
-    if guard:
-        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
-                               {"matcher": "Bash", "hooks": [{"type": "command", "command": guard}]}]
+def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str) -> dict:
+    """管理役・進行役なら、編集の道具を lead_area の中だけにするフックを足す。"""
     if lead_area:
         hooks["PreToolUse"] = [*hooks.get("PreToolUse", []),
                                {"matcher": "Edit|Write|MultiEdit|NotebookEdit",
@@ -365,11 +361,10 @@ def _lead_guard(settings: dict, hooks: dict, script: str, lead_area: str, guard:
 
 
 def settings_argument(host: Path, folder: str, python: str, base: dict | None = None, *, app: bool = True,
-                      lead_area: str = "", streamed: bool = False, guard: str = "") -> str:
+                      lead_area: str = "", streamed: bool = False) -> str:
     """設定を置き場所（host：このPCの場所）にファイルで書き、エージェントから見たその場所（folder の中）を返す。
     JSON をそのまま引数にしない（Windows の claude.cmd は cmd.exe を通るので、" が崩れる）。"""
-    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed,
-                                                 guard=guard),
+    (host / SETTINGS).write_text(claude_settings(folder, python, base, app=app, lead_area=lead_area, streamed=streamed),
                                  encoding="utf-8", newline="\n")
     return f"{folder}/{SETTINGS}"
 

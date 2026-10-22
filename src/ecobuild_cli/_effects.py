@@ -1,8 +1,8 @@
 """コマンドの重さ：見るだけ（read）・変える（change）・確認が要る（confirm）・人がする（human）。
 
-コマンドの一覧（ecobuild --help --json の effect）と、オペレーターのフック（ecobuild agent guard）が使う。
+コマンドの一覧（ecobuild --help --json の effect）と、シェルの関所（ecobuild agent guard）が使う。
 - confirm：消す・取り返しがつかない・ほかの人に届く操作。エージェントは実行する前にユーザーに聞く。
-- human：人が画面で答える・管理者の権限が要る・エージェント自身を動かす操作（オペレーター・係・人の画面への引き取り）。
+- human：人が画面で答える・管理者の権限が要る・エージェント自身を動かす操作（係・人の画面への引き取り）。
   エージェントは使わない。チームの作業役を作る・言付ける・起動し直す（agent team start・send・restart）は進行役・管理役が
   使うので change、閉じる・取り込む（close・accept）は作業空間を消すので confirm。
 書いていないコマンドは change。重さを上げるオプション（--yes 等）が付けば confirm。
@@ -29,7 +29,7 @@ EFFECTS = {
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent ask", "agent context", "agent guard", "agent operator", "agent registry add", "agent registry set", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent guard", "agent registry add", "agent registry set", "agent serve", "agent team handback", "agent team takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
         "installer update", "setup",
     ),
 }

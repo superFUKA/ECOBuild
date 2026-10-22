@@ -9,7 +9,12 @@
   ecobuild gui folder <場所> [--path …] / vs <場所> [--path …] / notify "…"
   ecobuild gui windows / activity     開いている窓と表示しているもの・最近の操作（エージェント向け）
   ecobuild gui actions [--json]        GUIの操作の一覧（--help --json と同じ）
-  ecobuild gui mcp                     MCP サーバー（標準入出力）。エージェントのツールとして登録する
+  ecobuild gui mcp [--operator]        MCP サーバー（標準入出力）。エージェントのツールとして登録する
+                                       （--operator：オペレーター用。GUI の操作と、見るだけの ecobuild のコマンドだけ）
+  ecobuild gui operator [--here] [--agent "claude …"]
+                                       オペレーター（GUI の案内・操作係のエージェント）を新しい画面で起動
+                                       （--here：この端末で動かして待つ。Electron の窓が裏で常駐させる）
+  ecobuild gui ask "…" [--session S]   オペレーターに画面を開かずに話しかけ、返答を待つ（文は省くと標準入力）
 
 結果は --json で ecobuild と同じ形の JSON（ok・result・error）。終了コードも ecobuild と同じ（0 成功・1 失敗・2 誤り）。
 """
@@ -27,15 +32,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import actions  # noqa: E402
+import operator_kit  # noqa: E402
+from operator_kit import Failure  # noqa: E402,F401（誤りは GUI の口で共通）
 
 HERE = Path(__file__).resolve().parent
 VERSION = "0.1.0"
-
-
-class Failure(Exception):
-    def __init__(self, code: str, message: str, hint: str | None = None, exit_code: int = 1):
-        super().__init__(message)
-        self.code, self.message, self.hint, self.exit_code = code, message, hint, exit_code
 
 
 # The running GUI server ------------------------------------------------------------------------------------------
@@ -178,7 +179,16 @@ def main(argv: list[str] | None = None) -> int:
             print((__doc__ or "").strip())
         return 0
     if words[0] == "mcp":
-        return mcp()
+        return mcp(operator="--operator" in words[1:])
+    if words[0] == "operator" and not _operator_action(words[1:]):
+        return operator_command([w for w in words[1:] if w != "--json"], json_output)
+    if words[0] == "ask":
+        return ask_command([w for w in words[1:] if w != "--json"], json_output)
+    if words[0] == "operator-context":   # オペレーターのフック（話しかけられるたびに今の作業空間を渡す）
+        text = operator_kit.context()
+        if text:
+            print(text)
+        return 0
     if words[0] in actions.ACTIONS and words[0] != "run":
         name = words[0]
         try:
@@ -208,6 +218,72 @@ def main(argv: list[str] | None = None) -> int:
     return _print(document, json_output)
 
 
+def _operator_action(words: list[str]) -> bool:
+    """gui operator が、GUIの操作 operator（タブで開く・裏に戻す：--state show／hide）か。"""
+    return "--state" in words or any(w in ("show", "hide") for w in words)
+
+
+def _options(words: list[str], known: dict[str, bool]) -> tuple[dict, list[str]]:
+    """--名前 値（known の値が True なら値なし）と、残りの言葉。"""
+    values, rest, i = {}, [], 0
+    while i < len(words):
+        word = words[i]
+        key = word[2:] if word.startswith("--") else None
+        if key in known:
+            if known[key]:
+                values[key] = True
+            elif i + 1 < len(words):
+                values[key] = words[i + 1]
+                i += 1
+            else:
+                raise Failure("usage_error", f"--{key} に値を指定してください。", exit_code=2)
+        elif key is not None:
+            raise Failure("usage_error", f"--{key} はありません（{'・'.join('--' + k for k in known)}）。", exit_code=2)
+        else:
+            rest.append(word)
+        i += 1
+    return values, rest
+
+
+def _failed(command: str, failure: Failure) -> dict:
+    return {"ok": False, "command": command, "result": None,
+            "error": {"code": failure.code, "message": failure.message, "hint": failure.hint}, "exit_code": failure.exit_code}
+
+
+def operator_command(words: list[str], json_output: bool) -> int:
+    """ecobuild gui operator [--here] [--agent "claude …"]：オペレーターを起動する。"""
+    try:
+        values, rest = _options(words, {"here": True, "agent": False})
+        if rest:
+            raise Failure("usage_error", f"operator の引数が多すぎます：{rest[0]}", exit_code=2)
+        command = tuple(str(values.get("agent", "")).split()) or operator_kit.DEFAULT_COMMAND
+        if values.get("here"):
+            return operator_kit.run(command)
+        started = operator_kit.start(command)
+    except Failure as failure:
+        return _print(_failed("gui operator", failure), json_output)
+    if not json_output:
+        print(f"オペレーターを起動しました：{' '.join(started['command'])}（{started['directory']}）")
+        return 0
+    return _print({"ok": True, "command": "gui operator", "result": started, "error": None}, json_output)
+
+
+def ask_command(words: list[str], json_output: bool) -> int:
+    """ecobuild gui ask "…" [--session S] [--agent "claude …"]：オペレーターに1回話しかける（文は省くと標準入力）。"""
+    try:
+        values, rest = _options(words, {"session": False, "agent": False})
+        message = " ".join(rest) or (sys.stdin.read() if not sys.stdin.isatty() else "")
+        command = tuple(str(values.get("agent", "")).split()) or operator_kit.DEFAULT_COMMAND
+        reply = operator_kit.ask(message, session=values.get("session") or None, command=command)
+    except Failure as failure:
+        return _print(_failed("gui ask", failure), json_output)
+    if not json_output:
+        done = [f"  $ {a['command']}" + ("（失敗）" if a["ok"] is False else "") for a in reply["actions"] if a["command"]]
+        print("\n".join([*done, reply["text"], f"（会話：{reply['session']}）" if reply["session"] else ""]).strip())
+        return 0
+    return _print({"ok": True, "command": "gui ask", "result": reply, "error": None}, json_output)
+
+
 def run_action(name: str, params: dict, json_output: bool) -> int:
     try:
         result = act(name, params)
@@ -221,9 +297,16 @@ def run_action(name: str, params: dict, json_output: bool) -> int:
 # MCP（Model Context Protocol）：標準入出力の JSON-RPC。ツールは GUIの操作と、ecobuild のコマンドの一覧 ------------
 MCP_PROTOCOL = "2025-06-18"
 TOOL_PREFIX = "gui_"
+INSTRUCTIONS = ("ECOBuild GUI を、人が画面を見ている前で操作するためのツールです。ecobuild ツールで ECOBuild のコマンドを実行し"
+                "（使い方は ecobuild_commands）、gui_open で画面を見せ、gui_windows・gui_activity で今の様子を確かめます。"
+                "確認が要るコマンドは、人に確かめてから --yes を付けます。")
+OPERATOR_INSTRUCTIONS = ("ECOBuild GUI を、人が画面を見ている前で案内・操作するためのツールです（オペレーター用）。gui_open で画面を見せ、"
+                         "gui_windows・gui_activity で今の様子を確かめ、ecobuild_read で見るだけのコマンドを実行します"
+                         "（使い方は ecobuild_commands）。ECOBuild を変える操作はできません。")
 
 
-def mcp_tools() -> list[dict]:
+def mcp_tools(operator: bool = False) -> list[dict]:
+    """MCP のツール。operator：オペレーター用（何でも実行できる ecobuild と agent-send を外し、見るだけの ecobuild_read を足す）。"""
     def schema(action: actions.Action) -> dict:
         properties = {}
         for p in action.params:
@@ -238,6 +321,8 @@ def mcp_tools() -> list[dict]:
 
     tools = []
     for a in actions.ACTIONS.values():
+        if operator and a.name in operator_kit.hidden_actions():
+            continue
         name = "ecobuild" if a.name == "run" else TOOL_PREFIX + a.name
         description = a.summary + (" " + a.help if a.help else "")
         if a.name == "run":
@@ -247,18 +332,31 @@ def mcp_tools() -> list[dict]:
                   "description": "ECOBuild のコマンドの一覧（説明・引数・オプション）。path を指定するとそのコマンドだけ（例：\"task start\"）。"
                                  "型ごとのコマンド（build・test 等）は型ごとに分かれています。",
                   "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "コマンド（省略で全部）"}}}})
+    if operator:
+        tools.append({"name": "ecobuild_read",
+                      "description": "見るだけ（重さが read）の ECOBuild のコマンドを、GUIを通して実行します（例：args に [\"task\", \"list\"]）。"
+                                     "変えるコマンドは断られます。",
+                      "inputSchema": {"type": "object", "properties": {
+                          "args": {"type": "array", "items": {"type": "string"}, "description": "ecobuild の引数（-C は使わず dir に）"},
+                          "dir": {"type": "string", "description": "実行する場所（モジュール・作業空間のフォルダ。省略時はこのフォルダ）"}},
+                          "required": ["args"]}})
     return tools
 
 
-def mcp_call(name: str, arguments: dict) -> tuple[object, bool]:
+def mcp_call(name: str, arguments: dict, operator: bool = False) -> tuple[object, bool]:
     if name == "ecobuild_commands":
         args = [*arguments.get("path", "").split(), "--help", "--json"]
         command = ["ecobuild", *args]
         completed = subprocess.run(command, capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
         document = json.loads(completed.stdout.strip().splitlines()[-1]) if completed.stdout.strip() else {"ok": False}
         return document.get("result") if document.get("ok") else document, not document.get("ok")
+    if operator and name == "ecobuild_read":
+        args = [str(a) for a in arguments.get("args") or [] if str(a) != "--json"]
+        operator_kit.read_command(args, operator_kit.catalog())
+        result = act("run", {"args": args, "dir": arguments.get("dir") or str(Path.cwd())})
+        return result, not (isinstance(result, dict) and result.get("ok"))
     action = "run" if name == "ecobuild" else name[len(TOOL_PREFIX):] if name.startswith(TOOL_PREFIX) else ""
-    if action not in actions.ACTIONS:
+    if action not in actions.ACTIONS or (operator and action in operator_kit.hidden_actions()):
         raise Failure("usage_error", f"ツール {name} はありません。", exit_code=2)
     params = dict(arguments)
     if action == "run" and not params.get("dir"):
@@ -269,7 +367,7 @@ def mcp_call(name: str, arguments: dict) -> tuple[object, bool]:
     return result, False
 
 
-def mcp() -> int:
+def mcp(operator: bool = False) -> int:
     def send(message: dict) -> None:
         sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
         sys.stdout.flush()
@@ -290,16 +388,14 @@ def mcp() -> int:
                 result = {"protocolVersion": (request.get("params") or {}).get("protocolVersion", MCP_PROTOCOL),
                           "capabilities": {"tools": {}},
                           "serverInfo": {"name": "ecobuild-gui", "version": VERSION},
-                          "instructions": "ECOBuild GUI を、人が画面を見ている前で操作するためのツールです。ecobuild ツールで"
-                                          " ECOBuild のコマンドを実行し（使い方は ecobuild_commands）、gui_open で画面を見せ、"
-                                          "gui_windows・gui_activity で今の様子を確かめます。確認が要るコマンドは、人に確かめてから --yes を付けます。"}
+                          "instructions": OPERATOR_INSTRUCTIONS if operator else INSTRUCTIONS}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
-                result = {"tools": mcp_tools()}
+                result = {"tools": mcp_tools(operator)}
             elif method == "tools/call":
                 params = request.get("params") or {}
-                value, is_error = mcp_call(params.get("name", ""), params.get("arguments") or {})
+                value, is_error = mcp_call(params.get("name", ""), params.get("arguments") or {}, operator)
                 result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False, indent=2)}], "isError": is_error}
             else:
                 send({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": f"method not found: {method}"}})

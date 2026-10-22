@@ -7,7 +7,7 @@
 // - 状態（考え中・裏で実行中・選択肢・待機中・終了）は画面を読んで決める（screen.js）。モデル・使用量の制限・返答の終わりは、
 //   エージェントが書き出すもの（status.js。ecobuild が置き場所を端末の見えない印で知らせる）。
 // - 最小化すると窓は隠れ、右下の表示（dock.js）になる。返答の知らせは Windows の通知か、右下のカードと音（notify）。
-// - オペレーター（ECOBuild の操作係）は番号 0 で、ふだんはタブにせず裏で動かす（`ecobuild agent operator --here`）。
+// - オペレーター（ECOBuild の操作係）は番号 0 で、ふだんはタブにせず裏で動かす（`ecobuild gui operator --here`）。
 //   ハブの「AI に頼む」がこれと話す（会話の記録はここが持つ）。頼まれればタブで開く。
 // - 外（ecobuild gui・MCP・オペレーター）からの操作は、GUI のサーバーを通して届く（link.js）。
 // - 音声入力：Claude Code の音声入力（hold モード：Space を押し続ける間だけ録音）を、Space のキーリピートを送ってまねる。
@@ -113,7 +113,7 @@ const findOperator = () => sessions.find(s => s.kind === 'operator');
 
 function spawnSession(s, size) {
   // モジュールの進行役（module）：dir は進行役の作業空間（agent module prepare が用意したもの）。タスクを持たない
-  const args = s.kind === 'operator' ? ['agent', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
+  const args = s.kind === 'operator' ? ['gui', 'operator', '--here', ...(s.agent ? ['--agent', s.agent] : [])]
     : s.module ? ['-C', s.dir, 'agent', 'module', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),
                                   ...(s.prompt ? ['--prompt', s.prompt] : [])]
     : ['-C', s.dir, 'agent', 'start', '--here', ...(s.agent ? ['--agent', s.agent] : []),

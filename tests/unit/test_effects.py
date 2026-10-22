@@ -1,11 +1,10 @@
-"""オペレーター（ECOBuild の操作係のエージェント）：コマンドの重さ・指示書・フック。"""
+"""コマンドの重さ（_effects）と、シェルの関所（agent guard）。オペレーターは GUI の側（gui/tests/test_operator.py）。"""
 
 import json
 
 import pytest
 from click.testing import CliRunner
 
-from ecobuild_agent import operator
 from ecobuild_cli import _catalog, _effects, build_cli
 
 
@@ -39,7 +38,7 @@ def test_every_listed_effect_names_a_command(tmp_path, monkeypatch):
     (["container", "dockerfile", "--write", "-"], ("change", "container dockerfile")),   # 環境の Dockerfile を書く
     (["module", "delete", "--help"], ("read", "help")),
     (["setup"], ("human", "setup")),
-    (["agent", "ask", "こんにちは"], ("human", "agent ask")),
+    (["agent", "guard"], ("human", "agent guard")),
 ])
 def test_classify(args, expected):
     assert _effects.classify(args) == expected
@@ -53,17 +52,10 @@ def test_catalog_shows_the_effect(tmp_path, monkeypatch):
     assert "effect" not in nodes["task"]
 
 
-def test_prepare_writes_the_kit_from_the_catalog(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    result = CliRunner().invoke(build_cli(None), ["agent", "operator", "--prepare", "--json"])
-    assert result.exit_code == 0, result.output
-    kit = json.loads(result.output)["result"]
-    text = open(kit["instructions"], encoding="utf-8").read()
-    assert "`ecobuild task finish` [確認]" in text and "型 cpp のモジュールだけ" in text
-    settings = json.loads(open(kit["settings"], encoding="utf-8").read())
-    assert "Bash(ecobuild:*)" in settings["permissions"]["allow"]
-    assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].endswith("agent guard")
-    assert kit["directory"].replace("\\", "/").endswith("agents/operator")
+def test_the_operator_left_the_cli():
+    """オペレーター（agent operator・ask・context）は GUI の側（ecobuild gui operator・gui ask）へ移った。"""
+    commands = {c.name for c in build_cli(None).commands["agent"].commands.values()}
+    assert not {"operator", "ask", "context"} & commands
 
 
 def test_guard_command():
@@ -75,14 +67,6 @@ def test_guard_command():
     stopped = hook("ecobuild task finish 12 --yes")
     assert stopped.exit_code == 2 and "task finish" in stopped.output
     assert hook("git push --force").exit_code == 2
-
-
-def test_ask_turns_agent_errors_into_ecobuild_errors(monkeypatch):
-    monkeypatch.setattr(operator.ecoagent.conversation.shutil, "which", lambda name: None)
-    result = CliRunner().invoke(build_cli(None), ["agent", "ask", "一覧を見せて", "--json"])
-    document = json.loads(result.output)
-    assert result.exit_code == 1 and document["error"]["code"] == "agent_error"
-    assert document["error"]["details"] == "agent_not_found"
 
 
 def test_extensions_name_their_effects(tmp_path):
@@ -109,10 +93,3 @@ def test_sending_text_needs_the_users_request():
     assert guard.check(command, policy, guard.Exchange(prompt="1番にテストを実行してって送って")) is None
     assert "頼んだときだけ" in guard.check(command, policy, guard.Exchange(prompt="ECOSTL で作業始めて"))
 
-
-def test_operator_style_goes_into_the_instructions():
-    """話し方（設定 operator_style）は指示書に載る。中身・決まりは変えないという但し書き付き。"""
-    from ecobuild_cli import _operator, build_cli
-    text = _operator.instructions(build_cli, style="語尾に「にゃ」を付けて")
-    assert "## 話し方（ユーザーの指定）" in text and "語尾に「にゃ」を付けて" in text and "報告の中身" in text
-    assert "## 話し方" not in _operator.instructions(build_cli)

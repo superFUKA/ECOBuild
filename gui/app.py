@@ -78,11 +78,11 @@ READ_ONLY = {
     ("workspace", "path"), ("agent", "guide"), ("agent", "conversations"), ("agent", "start"),   # agent start はファイルを変えず、画面を開いてすぐ戻る（ビルド中でも待たせない）
     ("agent", "module"),   # 進行役の作業空間（ECOBuild が持つ別の clone）だけを扱う。この作業空間のファイルは変えない
 }
-# 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言：自分ではファイルを変えず、頼まれた操作は
-# オペレーターが別の ecobuild で行う。変えたかもしれないので、終わったら覚えた結果は古くする）
+# 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言 gui ask：自分ではファイルを変えず、見るだけのコマンドと
+# GUI の操作を、このサーバーを通して行う。待たせると止まる。終わったら覚えた結果は古くする）
 # workspace lock／unlock：ビルド等が動いていても付ける・外せる（待たせない。ロックの理由に「コマンド実行中」があるので）。
 # 変える操作なので、終わったら覚えた結果（workspace list の lock 等）は古くする。
-UNLOCKED = {("agent", "ask"), ("workspace", "lock"), ("workspace", "unlock")}
+UNLOCKED = {("gui", "ask"), ("workspace", "lock"), ("workspace", "unlock")}
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
 

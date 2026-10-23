@@ -43,6 +43,9 @@ param(
 # 外部のコマンドの失敗は終了コードで確かめる（Windows PowerShell 5.1 では標準エラーを例外にしない）
 $ErrorActionPreference = "Continue"
 $Repository = "https://github.com/superFUKA/ECOBuild"
+# Windows の道具（taskkill・robocopy）はフルパスで呼ぶ：PATH の System32 が展開されていない（%SystemRoot%\system32 のまま）
+# PC では、名前では見つからない
+$System32 = Join-Path $env:SystemRoot "System32"
 
 function Write-Step([string]$Message) { Write-Host "==> $Message" -ForegroundColor Cyan }
 function Write-Done([string]$Message) { Write-Host "    $Message" -ForegroundColor Green }
@@ -198,7 +201,7 @@ function Wait-EcobuildClosed {
         $pressed = $false
         try { $pressed = [Console]::KeyAvailable -and ([Console]::ReadKey($true).Key -eq 'S') } catch { }   # 入力のない窓では待つだけ
         if ($pressed) {
-            foreach ($process in @(Get-RunningEcobuild)) { taskkill /T /F /PID $process.ProcessId 2>&1 | Out-Null }
+            foreach ($process in @(Get-RunningEcobuild)) { & (Join-Path $System32 "taskkill.exe") /T /F /PID $process.ProcessId 2>&1 | Out-Null }
             Start-Sleep -Seconds 1
             continue
         }
@@ -268,8 +271,10 @@ function Install-Gui {
         Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($GuiDir, [StringComparison]::OrdinalIgnoreCase) } |
             Stop-Process -Force -ErrorAction SilentlyContinue
         # 入れ替える。Electron 本体（node_modules）は残して、入れ直しの時間を省く
-        robocopy (Join-Path $temp "gui") $GuiDir /MIR /XD node_modules __pycache__ tests /NFL /NDL /NJH /NJS /NP | Out-Null
-        $copied = $LASTEXITCODE
+        # 動かなかったとき（見つからない等）は前のコマンドの終了コードが残るので、先に空にしておく
+        $global:LASTEXITCODE = $null
+        & (Join-Path $System32 "robocopy.exe") (Join-Path $temp "gui") $GuiDir /MIR /XD node_modules __pycache__ tests /NFL /NDL /NJH /NJS /NP | Out-Null
+        $copied = if ($null -eq $LASTEXITCODE) { 16 } else { $LASTEXITCODE }
         Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
         if ($copied -ge 8) { Stop-Install "GUI を $GuiDir に置けませんでした（robocopy の終了コード $copied）。" }
     }

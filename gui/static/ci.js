@@ -60,8 +60,7 @@
         <div class="mi-actions"><button type="button" data-ci-action="init">${s.exists ? '設定を変える…' : 'CIを用意する…'}</button>${s.exists ? '<button type="button" class="danger-text" data-ci-action="remove">CIをやめる…</button>' : ''}</div></div>
       <dl class="ci-settings">${row('OS', s.os ? esc(s.os.join('、')) : '型の既定')}${row('構成', esc(s.configurations.join('、')))}
         ${row('共有ライブラリ', s.shared ? 'その構成でもビルド・テストする' : 'しない')}
-        ${row('push で動かすブランチ', s.branches ? esc(s.branches.join('、')) : `${esc(s.default_base)}（既定）`)}${row('提出（PR）・手動', '常に動く')}</dl>
-      <p class="mi-note">モジュールのフォルダ（今のブランチ）の内容です。変えるときは、タスクブランチの作業空間でワークフローを作り直し、提出して取り込むと反映されます。</p></div>`;
+        ${row('push で動かすブランチ', s.branches ? esc(s.branches.join('、')) : `${esc(s.default_base)}（既定）`)}${row('提出（PR）・手動', '常に動く')}</dl></div>`;
   }
   // What task submit checks first: nothing unless the module chose (the full tests run where CI or by hand).
   const CHECK_ITEMS = [['generated', '生成ファイルが最新か'], ['conflict_markers', '衝突の印（<<<<<<< 等）がないか'], ['build', 'ビルド'], ['test', 'テスト']];
@@ -73,13 +72,13 @@
     return `<div class="ci-card"><div class="ci-card-head"><div><strong>${c.items.length ? esc(names.join('・')) : 'なし'}</strong> ${c.items.length ? '' : pill('確かめずに提出します')}</div>
         <div class="mi-actions"><button type="button" data-ci-action="checks">設定を変える…</button></div></div>
       ${c.tests.length ? `<dl class="ci-settings"><dt>流す試験</dt><dd>${esc(c.tests.join('、'))}</dd></dl>` : ''}
-      <p class="mi-note">提出（task submit）の前に手元で行う確認です。長い試験を入れると、提出のたびにその分待ちます。全部を確かめるのは CI か、手で ecobuild check です。設定は ecobuild.toml の [check] にあり、変えるときはタスクブランチでコミットして提出します。</p></div>`;
+      <p class="mi-note">長い試験を入れると提出のたびに待ちます。</p></div>`;
   }
   async function setChecks() {
     const places = await choosePlace('提出の確認'); if (!places) return;
     const c = st.checks && !st.checks.error ? st.checks : {items: [], tests: []};
     await ECO.form({title: '提出の確認を変える', wide: true,
-      intro: '提出（task submit）の前に行う確認を選びます。何も選ばなければ、確かめずに提出します。設定は ecobuild.toml の [check] に残ります。選んだタスクブランチでコミットし、提出して取り込むと、ほかの人にも効きます。',
+      intro: '何も選ばなければ、確かめずに提出します。',
       fields: [
         {name: 'place', label: '変えるタスクブランチ（作業空間）', type: 'select', value: placeDefault(places), options: placeOptions(places)},
         {name: 'items', label: '行う確認', type: 'checks', value: c.items, options: CHECK_ITEMS},
@@ -114,7 +113,7 @@
     if (!st.loaded) { main.innerHTML = ECO.loading(); return; }
     // Running by hand needs the workflow on GitHub (ECOBuild's has workflow_dispatch).
     const runnable = !!st.state?.exists;
-    const runTitle = runnable ? 'GitHub にあるブランチの内容で CI を動かします' : 'CIのワークフローがありません（「CIを用意する…」で作り、提出して取り込みます）';
+    const runTitle = runnable ? '' : 'CIのワークフローがありません（「CIを用意する…」で作り、提出して取り込みます）';
     const options = [['', 'すべてのブランチ'], ...st.branches.map(b => [b, b])];
     if (st.branch && !st.branches.includes(st.branch)) options.push([st.branch, st.branch]);
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
@@ -122,7 +121,7 @@
       <h4 class="br-section">設定</h4>${settingsHtml()}
       <div class="ci-section-row"><h4 class="br-section">実行</h4>
         <select id="ci-branch" aria-label="ブランチ">${options.map(([v, l]) => `<option value="${esc(v)}" ${v === st.branch ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
-        <span class="ci-section-end"><button type="button" id="ci-actions" title="GitHub の Actions の画面を開きます"${st.url ? '' : ' disabled'}>GitHub で見る ↗</button><button type="button" class="primary" id="ci-run" title="${esc(runTitle)}"${runnable ? '' : ' disabled'}>▶ 手動で実行</button></span></div>
+        <span class="ci-section-end"><button type="button" id="ci-actions"${st.url ? '' : ' disabled'}>GitHub で見る ↗</button><button type="button" class="primary" id="ci-run"${runTitle ? ` title="${esc(runTitle)}"` : ''}${runnable ? '' : ' disabled'}>▶ 手動で実行</button></span></div>
       <div id="ci-runs">${runsHtml()}</div>
       <div class="ci-section-row"><h4 class="br-section">シークレット</h4><button type="button" data-ci-action="secret-set">＋ 登録</button></div>${secretsHtml()}`;
     gate();
@@ -153,7 +152,7 @@
     const places = await choosePlace('CIの設定'); if (!places) return;
     const s = st.state || {os: null, configurations: ['Debug'], shared: false, branches: null, default_base: 'main', edited: false};
     await ECO.form({title: s.exists ? 'CIの設定を変える' : 'CIを用意する', wide: true,
-      intro: 'ワークフロー（.github/workflows/ecobuild.yml）を、この設定で作り直します。設定は ecobuild.toml の [ci] に残ります。選んだタスクブランチでコミットし、提出して取り込むと反映されます。',
+      intro: 'ワークフロー（.github/workflows/ecobuild.yml）を、この設定で作り直します。設定は ecobuild.toml の [ci] に残ります。',
       fields: [
         {name: 'place', label: '作り直すタスクブランチ（作業空間）', type: 'select', value: placeDefault(places), options: placeOptions(places)},
         {name: 'os', label: '動かすOS（どれも選ばなければ、今の設定のまま。初めは型の既定）', type: 'checks', value: s.os || [], options: [['windows', 'Windows'], ['linux', 'Linux']]},
@@ -175,7 +174,7 @@
   }
   async function removeCi() {
     const places = await choosePlace('CIをやめる'); if (!places) return;
-    await ECO.form({title: 'CIをやめる', danger: true, intro: 'ワークフロー（.github/workflows/ecobuild.yml）を消します。選んだタスクブランチでコミットし、提出して取り込むと、CIは動かなくなります。',
+    await ECO.form({title: 'CIをやめる', danger: true, intro: 'ワークフロー（.github/workflows/ecobuild.yml）を消します。',
       fields: [{name: 'place', label: 'タスクブランチ（作業空間）', type: 'select', value: placeDefault(places), options: placeOptions(places)}], ok: '消す',
       submit: async v => {
         if (!await ECO.run(v.place, ['ci', 'remove'], {success: 'ワークフローを消しました。コミットして提出すると反映されます。'})) return '消せませんでした。';
@@ -201,7 +200,7 @@
         return doc.ok ? ECO.output(`#${r.id} の失敗した手順`, doc.result.log || '（ログはありません）', {sub: `${r.workflow}・${r.branch}`}) : ECO.showError(doc);
       }
       case 'rerun': {
-        const v = await ECO.form({title: `#${r.id} をもう一度実行`, intro: `${esc(r.branch)} の ${esc(r.workflow)} を、同じコミットでもう一度動かします。`,
+        const v = await ECO.form({title: `#${r.id} をもう一度実行`,
           fields: failed(r) ? [{name: 'failed', label: '失敗したジョブだけを実行する', type: 'checkbox', value: true}] : [], ok: '実行'});
         if (!v) return;
         if (await ECO.run(MOD.root, ['ci', 'rerun', '--run', String(r.id), ...(v.failed ? ['--failed'] : [])], {success: `#${r.id} をもう一度実行しました。`})) setTimeout(loadRuns, 3000);
@@ -209,7 +208,7 @@
     }
   }
   function setSecret() {
-    return ECO.form({title: 'シークレットを登録', intro: 'CI で使う値を、このリポジトリのシークレットとして GitHub に登録します（同じ名前なら置き換え）。値はコマンドの引数に載せず、標準入力で渡します。',
+    return ECO.form({title: 'シークレットを登録', intro: 'CI で使う値を、このリポジトリのシークレットとして GitHub に登録します（同じ名前なら置き換え）。',
       fields: [{name: 'name', label: '名前', required: true, value: 'ECOBUILD_DEPS_TOKEN', suggestions: [['ECOBUILD_DEPS_TOKEN', '非公開の依存先を読むトークン']]},
         {name: 'value', label: '値', type: 'password', required: true}], ok: '登録',
       submit: async v => {

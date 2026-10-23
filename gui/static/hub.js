@@ -131,12 +131,13 @@ function renderModules() {
   const list = $('module-list');
   $('no-active-modules').hidden = modules.length > 0 || !archived.length;
   if (!modules.length) {
-    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。「＋ モジュール追加」から、新規作成・GitHubから取得・手元のフォルダを登録・リポジトリをモジュールに、の4つの方法で追加できます。</li>';
+    list.innerHTML = archived.length ? '' : '<li class="empty-modules" style="grid-column:1/-1">モジュールはまだありません。<div class="settings-actions"><button type="button" class="add-button" id="empty-add-module">＋ モジュール追加</button></div></li>';
+    $('empty-add-module')?.addEventListener('click', () => $('add-module').click());
     return;
   }
   // A heading per type (in the order the types first come in the list; a module whose type is not known goes last).
   const types = [...new Set(modules.map(m => m.type || ''))].sort((a, b) => (a === '') - (b === ''));
-  const card = (m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" data-type="${esc(m.type || '')}" draggable="true" title="${esc(m.path)}（右クリックで操作、ドラッグで並び替え）">
+  const card = (m, i) => `<li class="${m.exists ? '' : 'missing'}" data-index="${i}" data-type="${esc(m.type || '')}" draggable="true" title="${esc(m.path)}">
     <a role="link" tabindex="0" data-open="${i}"><span class="module-icon c${hueOf(m.name)}" aria-hidden="true">${esc(initialsOf(m.name))}</span>
     <span class="module-text"><span class="module-name">${esc(m.name)}${!m.exists ? '<span class="module-state">フォルダが見つかりません</span>' : m.notClone ? '<span class="module-state">gitのcloneではありません</span>' : ''}</span>
     <span class="module-path">${esc(m.repository || m.path)}</span></span><span class="module-go" aria-hidden="true">↗</span></a>
@@ -241,7 +242,7 @@ function updateFields() {
 function showDestination() {
   const method = addForm.querySelector('[name=method]:checked').value, parent = field('directory').value.trim().replace(/[\\/]+$/, '');
   const name = method === 'new' ? field('name').value.trim() : (field('repository').value.trim().split('/').pop() || '');
-  $('parent-note').textContent = parent && name ? `作成先：${parent}/${name}` : 'このフォルダの下にモジュール名のフォルダを作ります。';
+  $('parent-note').textContent = parent && name ? `作成先：${parent}/${name}` : '';
 }
 addForm.addEventListener('input', event => { if (['directory', 'name', 'repository'].includes(event.target.name)) showDestination(); });
 // module new --kind: the CLI's value and what it makes.
@@ -272,9 +273,9 @@ function renderCloneCandidates() {
   const box = $('clone-candidates'); if (!box) return;
   if (!githubModules) { box.innerHTML = '<p class="note"><span class="eco-spinner"></span> GitHubにあるモジュールを読み込んでいます…</p>'; return; }
   const candidates = githubModules.filter(g => !g.archived && !modules.some(m => sameRepository(g.repository, m.repository || m.name)));
-  box.innerHTML = candidates.length ? `<p class="note">GitHubにあるモジュール（クリックで選択）</p><ul>${candidates.map(g => `<li><button type="button" data-candidate="${esc(g.repository)}">
+  box.innerHTML = candidates.length ? `<p class="note">GitHubにあるモジュール</p><ul>${candidates.map(g => `<li><button type="button" data-candidate="${esc(g.repository)}">
       <strong>${esc(g.repository)}</strong><small>${esc([g.type, g.private ? '非公開' : '公開', g.updated ? '更新 ' + ECO.localTime(g.updated) : ''].filter(Boolean).join('・'))}${g.description ? '　' + esc(g.description) : ''}</small></button></li>`).join('')}</ul>`
-    : `<p class="note">${githubModules.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。'}他の所有者のものは「所有者/名前」で入力してください。</p>`;
+    : `<p class="note">${githubModules.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。'}</p>`;
 }
 $('clone-candidates').addEventListener('click', event => {
   const pick = event.target.closest('[data-candidate]'); if (!pick) return;
@@ -359,7 +360,7 @@ async function adoptRepository(folder, type) {
   const choice = await ECO.dialog({title: `${r.name} をモジュールにする`,
     body: `<p>${esc(r.root)} の <strong>${esc(r.branch)}</strong> を、型 ${esc(r.type)} のモジュールにします。次のファイルを置いて「ECOBuild のモジュールにする」としてコミットし、GitHub の ${esc(r.branch)} へ push します（ほかの人にも届きます）。</p>
       <ul>${r.paths.map(p => `<li><code>${esc(p)}</code></li>`).join('')}</ul>
-      <p class="note">型が置くもの（C++ の Solution 等）も一緒にコミットします。README などのファイルは変えません。タスクブランチは ${esc(r.branch)} から作ります。</p>`,
+      <p class="note">型が置くもの（C++ の Solution 等）も一緒にコミットします。タスクブランチは ${esc(r.branch)} から作ります。</p>`,
     buttons: [['戻る', '', false], ['モジュールにする', 'primary', true]]});
   if (!choice) { addDialog.showModal(); return; }
   const overlay = ECO.busy({title: `${r.name} をモジュールにしています…`, sub: r.root});
@@ -390,8 +391,8 @@ async function loadImages(doc = null) {
   const folder = p => p.split(/[\\/]/).pop();
   const old = r.images.filter(i => !i.current && !i.used_by.length).length;
   $('images-status').textContent = [
-    r.missing.length ? `まだ作っていない作業空間：${r.missing.map(folder).join('、')}（「今の作り方で作る」で作れます。作らなくても、コンテナを動かすときに作ります）。` : '',
-    old ? `どのコンテナも使っていない古いイメージが ${old} 個あります（「古いものを消す」で消せます）。` : ''].filter(Boolean).join(' ');
+    r.missing.length ? `まだ作っていない作業空間：${r.missing.map(folder).join('、')}（作らなくても、コンテナを動かすときに作ります）。` : '',
+    old ? `どのコンテナも使っていない古いイメージが ${old} 個あります。` : ''].filter(Boolean).join(' ');
   // モジュールごとに1行：今の作り方のイメージ（環境に ECOBuild を重ねたもの）と、残っている古いもの
   const modules = [...new Set(r.images.map(i => i.module))].sort();
   $('images-list').innerHTML = modules.map(module => {
@@ -436,7 +437,7 @@ async function loadToken() {
   const doc = await ECO.cli(null, ['agent', 'token', 'status'], {quiet: true});
   const saved = doc.ok && doc.result.saved;
   $('token-status').textContent = !doc.ok ? (doc.error?.message || '状態を読めませんでした。')
-    : saved ? 'トークンを覚えています。コンテナの中の AI はログインせずに使えます。' : 'トークンはありません。';
+    : saved ? '保存済み' : '未設定';
   $('token-remove').hidden = !saved;
 }
 // The window it opens catches the token itself when claude setup-token ends: read the status again a few times.
@@ -524,7 +525,7 @@ async function editRegistration(name) {
       {name: 'human_start', label: '人が起動できる（作業空間の「エージェント」・エージェントの窓の「＋」に出す）', type: 'checkbox', value: r.human_start},
       {name: 'children', label: '起動してよい子（自分より強い登録〔渡すツールが多いもの〕は選べません）', type: 'checks', value: r.children, options: childOptions, empty: 'ほかの登録がありません'},
       {name: 'max_children', label: '同時に持てる子の数', type: 'number', value: r.max_children, min: 0},
-      {name: 'tools', label: '渡すツール（エージェントはツールを通してしか ECOBuild を使えません）', type: 'checks', value: r.tools, options: toolOptions},
+      {name: 'tools', label: '渡すツール', type: 'checks', value: r.tools, options: toolOptions},
       {name: 'first_prompt', label: '起動のときの最初の発言', type: 'textarea', rows: 2, value: r.first_prompt || ''},
       {name: 'document', label: '文書（エージェントに渡す agent.md）', type: 'textarea', rows: 14, value: r.document},
     ], ok: '保存',
@@ -560,7 +561,7 @@ $('registry-add')?.addEventListener('click', async () => {
   const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
   if (!doc.ok) return ECO.showError(doc);
   const samples = doc.result.filter(r => r.source === 'sample');
-  await ECO.form({title: 'エージェントの登録を足す', intro: '見本を写して自分用に変えるか、空の登録から作ります。中身は足した後に「編集…」で変えます。',
+  await ECO.form({title: 'エージェントの登録を足す',
     fields: [{name: 'name', label: '名前（英小文字・数字・-・_）', required: true, focus: true, placeholder: '例：reviewer'},
              {name: 'sample', label: '元にする見本', type: 'select', value: '', options: [['', '（空の登録）'], ...samples.map(r => [r.name, `${r.title}（${r.name}）`])]}],
     ok: '足す',
@@ -610,6 +611,12 @@ $('doctor-results').addEventListener('click', event => {
 async function checkEnvironment() {
   const doc = await ECO.cli(null, ['doctor'], {quiet: true});
   const banner = $('setup-banner'), missing = doc.ok ? doc.result.items.filter(i => !i.ok && i.required) : [];
+  // 環境の準備の名前・メール：今の値を placeholder に
+  const author = doc.ok && doc.result.items.find(i => i.name === 'git の名前・メール');
+  const [, name = '', email = ''] = (author?.ok && /^(.*?)\s*<(.*)>$/.exec(author.detail)) || [];
+  const setup = $('setup-form').elements;
+  setup.namedItem('name').placeholder = name || '変更するときだけ入力';
+  setup.namedItem('email').placeholder = email || '変更するときだけ入力';
   banner.hidden = !missing.length;
   if (!missing.length) return;
   banner.innerHTML = `<div><strong>はじめに：開発の環境を準備してください</strong><small>足りないもの：${missing.map(i => esc(i.name)).join('、')}</small></div>
@@ -730,8 +737,8 @@ const errorText = doc => [doc.error.message, doc.error.hint].filter(Boolean).joi
 // Step 1: archive (read-only).
 function archiveModule(m, repository, dir) {
   return ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} をアーカイブしています…`, ok: 'アーカイブする',
-    intro: `モジュールは2段階で片付けます。まず GitHub のリポジトリ <b>${esc(repository)}</b> をアーカイブ（読み取り専用）にし、使われていないことを確認してから削除します。`,
-    fields: [{name: 'note', type: 'html', html: `<p class="eco-help">アーカイブしたモジュールは一覧から外れ、下の「アーカイブ済み」に表示されます。そこからいつでも解除または削除できます。アーカイブ中は Push や PR・Issue の変更はできません。タスク管理の情報は残ります。${m.exists ? `手元のフォルダ（${esc(m.path)}）は消しません（削除するときに一緒に消せます）。` : ''}</p>`}],
+    intro: `<b>${esc(repository)}</b> をアーカイブ（読み取り専用）にします。解除・削除は「アーカイブ済み」から。`,
+    fields: [{name: 'note', type: 'html', html: `<p class="eco-help">アーカイブ中は Push や PR・Issue の変更はできません。${m.exists ? `手元のフォルダ（${esc(m.path)}）は消しません。` : ''}</p>`}],
     submit: async () => {
       const doc = await ECO.cli(dir, ['module', 'archive', repository, '--yes']);
       if (!doc.ok) return errorText(doc);
@@ -747,7 +754,7 @@ async function deleteArchivedModule(m, repository, dir, question) {
   const done = await ECO.form({title: `モジュールを片付ける：${m.name}`, busy: `${repository} を処理しています…`, danger: true, ok: '実行する',
     intro: `<b>${esc(repository)}</b> はアーカイブ済みです。${question ? esc(question) : ''}<br>削除したリポジトリは、90日以内なら GitHub のアカウント設定から復元できます。タスク管理の情報は削除せずに閉じ、復元したときに引き継ぎます。`,
     fields: [
-      {name: 'mode', label: 'すること', type: 'radio', inline: true, value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを Issue・PR ごと削除'], ['unarchive', 'アーカイブを解除', '再び変更できるようにする']]},
+      {name: 'mode', label: 'すること', type: 'radio', inline: true, value: 'delete', options: [['delete', '削除する', 'GitHubのリポジトリを Issue・PR ごと削除'], ['unarchive', 'アーカイブを解除']]},
       ...(local.length ? [{name: 'removeClone', label: `このPCのcloneも削除する（${local.join('、')}）`, type: 'checkbox', value: true, showIf: v => v.mode === 'delete'},
         // Without it, the CLI stops when a clone has something not on GitHub (module delete --discard-local).
         {name: 'discardLocal', label: 'GitHubにない変更・コミット・退避があっても削除する（それらは失われます。チェックしなければ、ある場合は中止します）', type: 'checkbox', showIf: v => v.mode === 'delete' && v.removeClone}] : []),

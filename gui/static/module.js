@@ -17,7 +17,7 @@ ECO.access(MOD.root).then(a => {
   const box = document.getElementById('nav-account'); if (!a || !box) return;
   const tag = box.querySelector('.nav-account-role') || box.appendChild(Object.assign(document.createElement('span'), {className: 'nav-account-role'}));
   tag.textContent = ECO.roleNames[a.role] || a.role;
-  tag.title = `このモジュールでの役割：${tag.textContent}（GitHub の権限）。` + (a.admin ? '管理（ブランチ・メンバー・CI）ができます。' : '管理は管理者だけです。');
+  tag.title = `役割：${tag.textContent}（GitHub の権限）`;
 });
 
 // Left menu -----------------------------------------------------------------------------------------
@@ -83,7 +83,7 @@ const navItems = () => [...nav.querySelectorAll('[data-nav]')];
 function saveNavOrder() { try { localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(navItems().map(b => b.dataset.nav))); } catch (e) { /* storage blocked */ } }
 // 設定・ヘルプ stay at the bottom with the account (not reordered).
 const ORDERED = PAGES.filter(key => key !== 'settings' && key !== 'help'), navBottom = nav.querySelector('.nav-bottom');
-for (const key of ORDERED) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; b.title = b.title + '（ドラッグで並び替え）'; }
+for (const key of ORDERED) { const b = mEl(key + '-menu'); b.dataset.nav = key; b.draggable = true; }
 try {
   const saved = JSON.parse(localStorage.getItem(NAV_ORDER_KEY) || '[]');
   for (const key of saved.map(pageOf)) if (ORDERED.includes(key)) nav.insertBefore(mEl(key + '-menu'), navBottom);
@@ -121,8 +121,7 @@ const tabBar = document.createElement('div'); tabBar.className = 'workspace-tab-
 const emptyNote = document.createElement('div'); emptyNote.className = 'empty-workspaces';
 emptyNote.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
   <h2>表示中の作業空間はありません</h2><p>タスク管理でタスクの「作業を開始」すると、ここにタブで開きます。</p>
-  <div class="empty-actions"><button type="button" class="primary" data-go-tasks>タスク管理を開く</button><button type="button" data-show-list hidden>作業空間の一覧</button></div>
-  <details><summary>作業空間とは</summary><p>タスクの作業をする場所です。モジュールの中（.ecobuild/w/〈番号〉）にタスクブランチ（task/〈番号〉-〈名前〉）の作業空間ができます。タスクを完了する・作業を捨てると消えます。閉じたタブは、タブの列の右の ▾ から再表示できます。</p></details>`;
+  <div class="empty-actions"><button type="button" class="primary" data-go-tasks>タスク管理を開く</button><button type="button" data-show-list hidden>作業空間の一覧</button></div>`;
 emptyNote.querySelector('[data-go-tasks]').addEventListener('click', () => showModulePage('tasks'));
 emptyNote.querySelector('[data-show-list]').addEventListener('click', () => addTabButton.click());
 panels.append(emptyNote);
@@ -380,9 +379,9 @@ addTabButton.addEventListener('click', async () => {
     const sub = [title ? branch : '', `${where}：${p}`, lock.locked ? 'ロック中：' + ECO.lockSummary(lock) : ''].filter(Boolean).map(ECO.esc).join('<br>');
     // Removing the folder is not the dialog's 閉じる: its own words, in red.
     return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${sub}</small></button>${own ? `<button type="button" class="picker-remove" data-close-place="${i}" title="作業空間を削除（フォルダごと。タスクブランチは残ります）">削除…</button>` : ''}</div>`;
-  }).join('') || '<p class="eco-help">作業空間はまだありません。</p>';
+  }).join('') || '<p class="eco-help">作業空間はまだありません。タスク管理でタスクの「作業を開始」すると作られます。</p>';
   const d = document.createElement('dialog'); d.className = 'workspace-picker';
-  d.innerHTML = `<h2>作業空間</h2><p>このモジュールの作業空間です。新しい作業空間は、タスク管理でタスクの「作業を開始」すると作られます。</p><div>${rows}</div>
+  d.innerHTML = `<h2>作業空間</h2><div>${rows}</div>
     <div class="picker-actions"><button type="button" data-go-tasks>タスク管理を開く</button><button type="button" data-close>閉じる</button></div>`;
   document.body.append(d); d.showModal();
   d.addEventListener('close', () => d.remove());

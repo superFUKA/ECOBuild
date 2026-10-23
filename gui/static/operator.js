@@ -43,8 +43,7 @@ const OPERATOR = (() => {
     if (!messages.length) {   // before the talk starts: what the operator does, in the middle (as chat apps)
       const li = document.createElement('li'); li.className = 'operator-empty';
       const intro = document.createElement('p'); intro.textContent = $('operator-intro')?.textContent || '';
-      const hint = document.createElement('p'); hint.textContent = '下の欄に頼むことを書いて送ってください。';
-      li.append(intro, hint); log.append(li);
+      li.append(intro); log.append(li);
     }
     // 考え中は、オペレーターが本当に考え中・起動中・待たせているときだけ（返答を取りこぼしても止まって見えないように）
     const waiting = resident ? view && (['thinking', 'waiting', 'starting'].includes(view.state) || view.queued > 0) : busy;
@@ -132,7 +131,7 @@ const OPERATOR = (() => {
     if (!resident) return;
     // The resident operator: its tab, and the choice it shows.
     const tab = document.createElement('button'); tab.type = 'button'; tab.className = 'cancel'; tab.id = 'operator-tab';
-    tab.title = 'オペレーターをエージェントの窓のタブで開きます（画面で直接やり取りする・選択肢に答える）'; tab.textContent = 'タブで開く';
+    tab.title = 'エージェントの窓のタブで開く'; tab.textContent = 'タブで開く';
     tab.addEventListener('click', () => resident.show(!view?.shown));
     $('operator-new').before(tab);
     const box = document.createElement('div'); box.className = 'operator-choice'; box.id = 'operator-choice'; box.hidden = true;
@@ -141,7 +140,7 @@ const OPERATOR = (() => {
     $('operator-form').before(box);
     resident.onUpdate(showView);
     const mic = document.createElement('button'); mic.type = 'button'; mic.className = 'cancel operator-mic'; mic.id = 'operator-mic';
-    mic.title = '声で頼む（押すと録音、もう一度押すと止める。聞き取った文は確かめてから送る）'; mic.textContent = '🎤 声で';
+    mic.title = '声で頼む'; mic.textContent = '🎤 声で';
     mic.addEventListener('click', () => resident.voice(view?.state !== 'listening'));
     $('operator-send').before(mic);
     const heard = document.createElement('div'); heard.className = 'operator-heard'; heard.id = 'operator-heard'; heard.hidden = true;

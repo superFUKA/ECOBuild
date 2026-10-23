@@ -33,7 +33,7 @@
   function open(dir, {changed = () => {}} = {}) {
     let r = null, dirty = false, working = false;
     return ECO.dialog({title: 'イメージ（Dockerfile）', wide: true, buttons: [],
-      body: `<p class="eco-intro">この作業空間のコンテナのイメージは、モジュールの環境（${esc(FILE)}）に ECOBuild を重ねて作ります。環境は解析ツール等を足して、タスクブランチで保存・コミットし、提出してほかのPCと共有します。保存はファイルを書くだけです（コミットは「コミット」の欄で）。</p>
+      body: `<p class="eco-intro">保存してもコミットはしません。</p>
         <ul class="ie-notes"></ul>
         <textarea class="ie-text" spellcheck="false" rows="16" aria-label="${esc(FILE)}" readonly>読み込んでいます…</textarea>
         <p class="ie-reason eco-hint"></p><ol class="ie-progress eco-busy-live"></ol><p class="eco-error" role="alert"></p>

@@ -72,8 +72,8 @@ function renderPrDetail() {
 WS.judge = async (approve, number) => {
   if (!number) return;
   const v = await ECO.form(approve
-    ? {title: `承認して取り込む：#${number}`, intro: '提出を承認して、CIが終わるのを待って取り込みます。タスクは提出のとおり、閉じるか続けます。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
-    : {title: `差し戻す：#${number}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
+    ? {title: `承認して取り込む：#${number}`, intro: 'CIが終わるのを待ちます。タスクは提出のとおり閉じるか続けます。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
+    : {title: `差し戻す：#${number}`, intro: 'タスクは作業中に戻ります。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
   if (!v) return;
   const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
     {success: approve ? r => `#${number} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${number} を差し戻しました。`});
@@ -89,9 +89,9 @@ function submitDialog(t, ready = false) {
   return ECO.form({
     title: `提出：#${t.number}`, intro: ECO.submitOutcome(t.base, {submitted, complete}) + ECO.submissionCommits(t.commits),
     fields: [
-      {name: 'complete', label: '取り込まれたらタスクを完了する（外すと、取り込まれても閉じずに続ける）', type: 'checkbox', value: complete},
+      {name: 'complete', label: '取り込まれたらタスクを完了する', type: 'checkbox', value: complete},
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
-      {name: 'draft', label: '下書きとして提出する（準備ができたら「下書きを解除」）', type: 'checkbox', value: submitted && sub.draft},
+      {name: 'draft', label: '下書きとして提出する', type: 'checkbox', value: submitted && sub.draft},
       {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
       {name: 'check', label: '提出前にビルド・テストを確認する', type: 'checkbox', value: true},
     ], ok: '提出',

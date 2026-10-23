@@ -87,10 +87,10 @@
     renderMerge();
   }
   const METHODS = {
-    'fast-forward': ['早送り', 'ok', '取り込み先に新しいコミットがないので、そのまま進めます（マージコミットは作りません）。'],
-    merge: ['マージコミット', 'ok', '両方に新しいコミットがあるので、合わせたマージコミットを作ります。衝突はありません。'],
+    'fast-forward': ['早送り', 'ok', ''],
+    merge: ['マージコミット', 'ok', ''],
     conflict: ['衝突する', 'bad', '同じところが両方で変わっているので、このままでは取り込めません。'],
-    'up-to-date': ['取り込み済み', '', '入るものはありません。'],
+    'up-to-date': ['取り込み済み', '', ''],
   };
   function renderMerge() {
     const box = el('br-merge'); if (!box) return;
@@ -111,17 +111,17 @@
         衝突は提出（PR）にして直します：${esc(p.name)} を ${esc(p.into)} へ提出し、衝突を直してから、その提出を取り込みます。
         <div class="br-merge-go"><button type="button" data-br-merge="submit" ${canSubmit(p.name) ? '' : `disabled title="${esc(ECO.adminNote)}（${esc(p.name)} を作った人も）"`}>提出する…</button></div></div>`;
       // The button only when it can be merged: grey (with who may) for the others, none when in already or conflicting.
-      const mergeable = ['fast-forward', 'merge'].includes(p.method), note = p.allowed ? `GitHub の ${p.into} を変えます。提出（PR）は作りません。` : `取り込めるのは ${p.owners} です。`;
-      result = `<p class="br-merge-what"><span class="mi-pill ${cls}">${esc(label)}</span>${p.commit_count ? ` 入るコミット <b>${p.commit_count}</b> 件・変わるファイル <b>${p.file_count}</b> 件` : ''}<span class="mi-sub">　${esc(why)}</span></p>
+      const mergeable = ['fast-forward', 'merge'].includes(p.method), note = p.allowed ? '' : `取り込めるのは ${p.owners} です。`;
+      result = `<p class="br-merge-what"><span class="mi-pill ${cls}">${esc(label)}</span>${p.commit_count ? ` 入るコミット <b>${p.commit_count}</b> 件・変わるファイル <b>${p.file_count}</b> 件` : ''}${why ? `<span class="mi-sub">　${esc(why)}</span>` : ''}</p>
         ${conflicts}${commits}${files}
-        ${mergeable ? `<div class="br-merge-go"><span class="mi-sub">${esc(note)}</span>
+        ${mergeable ? `<div class="br-merge-go">${note ? `<span class="mi-sub">${esc(note)}</span>` : ''}
           <button type="button" class="primary" data-br-merge="go" ${p.allowed ? '' : `disabled title="${esc(note)}"`}>${esc(p.name)} を ${esc(p.into)} へ取り込む</button></div>` : ''}`;
     }
     const sum = el('br-merge-sum');
     if (sum) sum.innerHTML = m.reading ? '<span class="eco-spinner"></span>' : p ? `<span class="mi-pill ${(METHODS[p.method] || [])[1] || ''}">${esc((METHODS[p.method] || [p.method])[0])}</span>${p.commit_count ? ` <span class="mi-sub">${esc(p.name)} → ${esc(p.into)}・${p.commit_count} 件</span>` : ''}` : '';
     box.innerHTML = `<div class="br-merge-row">${select('br-merge-from', m.from, '取り込むブランチ')}<span class="br-merge-arrow" aria-hidden="true">→</span>${select('br-merge-into', m.into, '取り込み先')}
       <button type="button" class="br-merge-swap" data-br-merge="swap" title="向きを入れ替える" aria-label="向きを入れ替える">⇄</button>
-      <button type="button" class="mi-link" data-br-merge="reload" title="GitHub の最新で確かめ直します">確かめ直す</button></div>
+      <button type="button" class="mi-link" data-br-merge="reload">確かめ直す</button></div>
       <div class="br-merge-result" aria-live="polite">${result}</div>`;
   }
   async function mergeAction(action) {
@@ -151,15 +151,15 @@
     const creator = st.access?.creators?.[b.name] || '';
     const isDefault = b.name === (st.access?.default_base || 'main');
     const button = (action, label, {enabled = true, why = '', kind = '', help = ''} = {}) =>
-      `<button type="button" ${kind ? `class="${kind}"` : ''} data-br-action="${action}" ${enabled ? '' : 'disabled'} title="${esc(help + (enabled || !why ? '' : `\n（${why}）`))}">${label}</button>`;
+      `<button type="button" ${kind ? `class="${kind}"` : ''} data-br-action="${action}" ${enabled ? '' : 'disabled'}${((t) => t ? ` title="${esc(t)}"` : '')([help, enabled || !why ? '' : `（${why}）`].filter(Boolean).join('\n'))}>${label}</button>`;
     const takes = ECO.canTakeIn(st.access, b.submitted_to);
     const branchActions = (open(b.submission)
       ? button('merge-own', '取り込む', {kind: 'primary', enabled: takes && !b.submission.draft, why: b.submission.draft ? '下書きの提出は取り込めません' : ECO.takeInNote(st.access, b.submitted_to), help: ECO.submissionHelp.merge})
-      : !isDefault ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`, help: 'このブランチを、ほかのブランチへ取り込んでもらうように出します。'}) : '')
+      : !isDefault ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`}) : '')
       + (!isDefault ? button('branch-delete', '削除…', {kind: 'danger-text', enabled: admin(), why: ECO.adminNote, help: 'このブランチを、手元と GitHub から削除します（タスクブランチの作成元・今いるブランチは消せません）。'}) : '');
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}<button type="button" class="sm" data-br-retry>読み直す</button></div>` : ''}
       <div class="br-head"><div><h3>${esc(b.name)}</h3>
-        <p class="mi-note">${pill('ブランチ')} ${b.unusable ? pill('モジュールではない') + ' ' : ''}${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
+        <p class="mi-note">${b.unusable ? pill('モジュールではない') + ' ' : ''}${esc(where)}${b.base ? `　作成元：${esc(b.base)}` : ''}${creator && !isDefault ? `　作った人：${esc(creator)}` : ''}${open(b.submission) ? `　${pill(`${b.submission.draft ? '下書きの' : ''}提出 → ${b.submitted_to}`, 'pr')}` : ''}</p></div>
         <div class="mi-actions">${branchActions}</div></div>
       <dl class="br-facts">
         ${b.unusable ? `<dt>作業</dt><dd>${esc(b.unusable)}。タスクブランチの作成元にはできません</dd>` : ''}
@@ -193,7 +193,7 @@
   function render() {
     if (el('branches-content').hidden) return;
     if (!st.loaded) { el('br-main').innerHTML = ECO.loading(); return; }
-    el('br-create').disabled = !admin(); el('br-create').title = admin() ? 'タスクブランチ以外のブランチを作成します' : ECO.adminNote;
+    el('br-create').disabled = !admin(); el('br-create').title = admin() ? '' : ECO.adminNote;
     const choose = st.merge.chosenFor !== st.selected;
     if (choose) chooseMerge(st.selected);
     renderSide(); renderMain();
@@ -256,7 +256,7 @@
   el('br-reload').addEventListener('click', reload);
   window.BRANCHES_RELOAD = reload;   // after handling a submission (submissions.js)
   el('br-log').addEventListener('click', async () => { const doc = await cli(['log', '--all', '--gui']); if (!doc.ok) ECO.showError(doc); });
-  el('br-create').addEventListener('click', () => ECO.form({title: 'ブランチを作成', intro: 'タスクブランチ以外のブランチ（develop・release など）を作成し、GitHubに反映します。', fields: [
+  el('br-create').addEventListener('click', () => ECO.form({title: 'ブランチを作成', fields: [
     {name: 'name', label: 'ブランチ名（task/ で始まる名前はタスクブランチ専用）', required: true, placeholder: '例：develop'},
     {name: 'base', label: '作成元', type: 'select', value: st.selected, options: [['', '既定（default_base）'], ...shared().map(b => [b.name, b.name])]}], ok: '作成',
     submit: async v => {

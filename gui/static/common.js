@@ -555,16 +555,16 @@ const ECO = (() => {
       const scopes = new Set(account.scopes || []);
       const me = account.login;
       body().innerHTML = `<div class="eco-account-head"><span class="eco-account-avatar" aria-hidden="true">${esc((me[0] || '?').toUpperCase())}</span>
-          <div><div class="eco-account-name">${esc(me || 'ログインしていません')}</div><div class="eco-help">${me ? esc(account.name ? account.name + '・GitHub アカウント' : 'GitHub アカウント') : 'GitHub CLI（gh）にログインしてください'}</div></div>
+          <div><div class="eco-account-name">${esc(me || 'ログインしていません')}</div>${!me ? '<div class="eco-help">GitHub CLI（gh）にログインしてください</div>' : account.name ? `<div class="eco-help">${esc(account.name)}</div>` : ''}</div>
           ${account.url ? `<button type="button" data-account="profile">GitHub で開く</button>` : ''}</div>
         <section class="eco-account-part"><h3>GitHub のログイン</h3>
-          <p class="eco-help">ECOBuild は GitHub CLI（gh）のログインを使います。ターミナルが開き、ブラウザで承認します。</p>
+          <p class="eco-help">ターミナルが開き、ブラウザで承認します。</p>
           <div class="eco-account-buttons"><button type="button" data-account="login">${me ? '別のアカウントでログイン' : 'ログイン'}</button>${me ? '<button type="button" data-account="switch">ログイン済みのアカウントに切り替える</button>' : ''}</div></section>
         ${me ? `<section class="eco-account-part"><h3>権限</h3><ul class="eco-account-list eco-account-scopes">${SCOPES.map(([scope, text, add]) => `<li><span>${esc(text)}<small>${esc(scope)}</small></span>
           ${scopes.has(scope) ? '<span class="eco-account-ok">あります</span>' : add ? `<button type="button" data-scope="${esc(add)}">権限を追加</button>` : '<span class="eco-account-no">ありません</span>'}</li>`).join('')}</ul></section>` : ''}
         <section class="eco-account-part"><h3>コミットの作成者</h3><ul class="eco-account-list"><li><span>${author?.ok ? `${esc(name)}<small>${esc(email)}</small>` : `未設定<small>${esc(author?.hint || '')}</small>`}</span>
           <button type="button" data-account="author">変更</button></li></ul></section>
-        <section class="eco-account-part"><h3>新しいモジュールの所有者</h3><ul class="eco-account-list"><li><span>${owner ? esc(owner) : `ログイン中のユーザー${me ? `（${esc(me)}）` : ''}`}<small>モジュールの作成・取得で所有者（ユーザー・組織）を指定しなかったとき</small></span>
+        <section class="eco-account-part"><h3>新しいモジュールの所有者</h3><ul class="eco-account-list"><li><span>${owner ? esc(owner) : `ログイン中のユーザー${me ? `（${esc(me)}）` : ''}`}</span>
           <button type="button" data-account="owner">変更</button></li></ul></section>`;
       d.author = {name, email}; d.owner = owner; d.profile = account.url;
     };
@@ -575,13 +575,13 @@ const ECO = (() => {
       if (what === 'profile') window.open(d.profile, '_blank', 'noopener');
       if (what === 'login' || what === 'switch') await call('gh-login', {switch: what === 'switch'}).then(() => afterTerminal('ターミナルで続けてください。'), err => toast(err.message, 'bad'));
       if (what === 'author') {
-        const done = await form({title: 'コミットの作成者', intro: 'コミットに記録する名前とメールアドレスです（git のこのPCの設定。すべてのモジュールに共通）。', fields: [
+        const done = await form({title: 'コミットの作成者', intro: 'このPCの git の設定（すべてのモジュールに共通）', fields: [
           {name: 'name', label: '名前', value: d.author.name, required: true, focus: true}, {name: 'email', label: 'メールアドレス', type: 'email', value: d.author.email, required: true}], ok: '保存',
           submit: async v => { if (!await run(null, ['setup', '--name', v.name.trim(), '--email', v.email.trim()], {success: 'コミットの作成者を保存しました。'})) return '保存できませんでした。'; }});
         if (done) await render();
       }
       if (what === 'owner') {
-        const done = await form({title: '新しいモジュールの所有者', intro: 'モジュールの作成・取得で所有者を指定しなかったときに使う、GitHub のユーザーまたは組織です。空にするとログイン中のユーザーを使います。', fields: [
+        const done = await form({title: '新しいモジュールの所有者', fields: [
           {name: 'owner', label: 'GitHub のユーザー名・組織名', value: d.owner, placeholder: '未設定ならログイン中のユーザー', focus: true}], ok: '保存',
           submit: async v => { const owner = v.owner.trim(); if (!await run(null, owner ? ['config', 'set', 'owner', owner] : ['config', 'unset', 'owner'], {success: owner ? `既定の所有者を ${owner} にしました。` : 'ログイン中のユーザーを使います。'})) return '保存できませんでした。'; }});
         if (done) await render();
@@ -602,12 +602,12 @@ const ECO = (() => {
   const submissionText = s => !s ? '未提出' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み')
     : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`;
   const SUBMISSION_HELP = {
-    refresh: 'GitHubから、この提出の最新の状態（レビュー・コメント・CI）を読み直します。',
-    diff: 'このタスクブランチと作成元との差分（取り込むと入る変更）を見ます。',
-    comment: '提出にコメントを書きます。',
-    task: 'タスク管理で、このタスクを開きます。',
-    submit: '提出：PR を出して、見てもらえるようにします。確認（ビルド・テスト）をしてから Push します。「取り込まれたらタスクを完了する」なら取り込まれたときにタスクを閉じ、外すと閉じずに続けます（中間提出）。提出済みなら、コミットを送り直し、完了するかを変えられます。',
-    ready: '下書きの提出を、見てもらえる状態にします。',
+    refresh: '',
+    diff: '',
+    comment: '',
+    task: '',
+    submit: '確認（ビルド・テスト）→ Push → PR',
+    ready: '',
     finish: '取り込む：CIの結果を待って、提出（PR）を作成元へ取り込みます。タスクは提出のとおり、閉じるか続けます。',
     withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
     'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
@@ -624,14 +624,14 @@ const ECO = (() => {
   const taskOutcome = complete => complete ? CLOSE_TEXT : KEEP_TEXT;
   const setTaskOutcome = (formEl, complete) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = taskOutcome(complete); };
   const submitOutcome = (base, {submitted = false, complete = true} = {}) => outcome([['PR', submitted ? '出している提出に、Push したコミットが加わります' : `${into(base)}へ出します（Push してから）`],
-    ['取り込み', '見る人の承認で取り込まれます（自分で取り込むなら、モジュールの「ブランチ」かタスク管理の「取り込む」。取り込めるのは取り込み先のブランチを作った人と管理者）'], ['取り込まれたら', taskOutcome(complete), 'task']]);
+    ['取り込み', '見る人の承認で取り込まれます'], ['取り込まれたら', taskOutcome(complete), 'task']]);
   // The take-in dialog (task finish on an open submission), the same wherever it is: resolves to the CLI's arguments
   // after the number, or null. partial: the submission's (the default of 閉じずに続ける).
   async function finishForm({number, base, partial = false}) {
     const v = await form({title: `取り込む：#${number}`,
       intro: outcome([['取り込み', `CI を待って、提出を${into(base)}へ取り込みます`], ['タスク', taskOutcome(!partial), 'task']]),
       fields: [{name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）'}, {name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox'},
-        {name: 'complete', label: 'タスクを完了する（外すと、取り込んだ後も閉じずに続ける）', type: 'checkbox', value: !partial}], ok: '取り込む',
+        {name: 'complete', label: 'タスクを完了する', type: 'checkbox', value: !partial}], ok: '取り込む',
       onChange: (values, formEl) => setTaskOutcome(formEl, values.complete)});
     return v ? [...(v.subject ? ['--subject', v.subject] : []), ...(v.ignore ? ['--ignore-checks'] : []), v.complete ? '--complete' : '--partial'] : null;
   }
@@ -658,7 +658,7 @@ const ECO = (() => {
   function submissionButton(action, label, {enabled = true, kind = '', note = ''} = {}) {
     const b = document.createElement('button');
     b.type = 'button'; b.textContent = label; b.disabled = !enabled; b.dataset.prAction = action === 'review-done' ? 'local-review' : action;
-    b.title = (SUBMISSION_HELP[action] || '') + (note ? `\n（${note}）` : '');
+    b.title = [SUBMISSION_HELP[action], note && `（${note}）`].filter(Boolean).join('\n');
     if (kind) b.className = kind;
     return b;
   }

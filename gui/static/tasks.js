@@ -100,7 +100,7 @@
   function renderList() {
     const ts = visible();
     // Cleaning up is seldom done: a quiet link under the list, not a main button.
-    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" class="tk-link" data-tk="clean" title="閉じたタスクのタスクブランチと、その作業空間を消します（確認してから）">完了したタスクブランチを片付ける…</button></div>';
+    return (ts.length ? taskTable(ts) : `<p class="tk-empty">${st.tasks.length ? '条件に合うタスクはありません。' : 'タスクはまだありません。「＋ 新しいタスク」で作れます。'}</p>`) + '<div class="tk-list-foot"><button type="button" class="tk-link" data-tk="clean">完了したタスクブランチを片付ける…</button></div>';
   }
   // The board: tasks by stage. Drag a card to another column to change its stage (see the drop handler below).
   // 完了 shows the recently completed tasks (task list --all) even when 「完了したタスクも表示」 is off. Deleted tasks are
@@ -159,7 +159,7 @@
     const label = (t, r, extra = '') => `<div class="tl-label ${extra}" style="grid-row:${r}" ${sel(t)}><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span></div>`;
     const rows = dated.map((t, i) => { const r = i + 2, late = t.state === 'open' && dayOf(t.planned_end) < now, s = STAGE[stageOf(t)];
       return label(t, r) + `<div class="tl-bar ${s[2]} ${late ? 'late' : ''} ${t.number === st.selected ? 'sel' : ''} ${t.state === 'open' ? 'movable' : ''}" style="grid-row:${r};grid-column:${col(dayOf(t.planned_start))} / ${col(dayOf(t.planned_end)) + 1}" data-task="${t.number}" title="${md(t.planned_start)}〜${md(t.planned_end)}${t.state === 'open' ? '（ドラッグで移動、右端のドラッグで終了予定を変更）' : ''}">${s[1]}<span class="tl-grip" aria-hidden="true"></span></div>` + dueMark(t, r); }).join('')
-      + (gap ? `<div class="tl-group" style="grid-row:${dated.length + 2}">日程なし<span>行の上をドラッグして予定を設定</span></div><div class="tl-group-line" style="grid-row:${dated.length + 2};grid-column:2 / ${days.length + 2}"></div>` : '')
+      + (gap ? `<div class="tl-group" style="grid-row:${dated.length + 2}">日程なし</div><div class="tl-group-line" style="grid-row:${dated.length + 2};grid-column:2 / ${days.length + 2}"></div>` : '')
       + undated.map((t, i) => { const r = dated.length + gap + i + 2, open = t.state === 'open', one = t.planned_start || t.planned_end;
         return label(t, r, 'undated')
           + `<div class="tl-empty ${open ? 'plannable' : ''}" style="grid-row:${r};grid-column:2 / ${days.length + 2}" data-plan-row="${t.number}" title="${open ? 'ドラッグで予定（開始〜終了）を設定' : '閉じたタスク'}"></div>`
@@ -220,7 +220,6 @@
     // The due-date lists only when they have something: otherwise one line says so.
     const dueCard = (title, sub, ts) => ts.length ? `<section class="tk-card"><div class="tk-section-head"><h3>${title}<span class="tk-muted">${sub}</span></h3></div>${ts.map(t => row(t)).join('')}</section>` : '';
     return `<section class="tk-card"><div class="tk-section-head"><h3>次にやるタスク${mine ? '<span class="tk-muted">自分の担当</span>' : ''}</h3></div>
-      <p class="tk-note tk-note-top">着手できるタスクを、期限切れ・今のスプリント・優先度・期限の順に並べています。${mine ? '' : '担当者で「自分」を選ぶと、自分の分だけになります。'}</p>
       ${items.length ? items.join('') : '<p class="tk-muted">着手できるタスクはありません。</p>'}</section>
       ${dueCard('期限切れ', `${late.length} 件`, late)}${dueCard('期限が近い', '7日以内', soon)}
       ${overdue.ok && !late.length && !soon.length ? '<p class="tk-muted tk-next-none">期限切れ・期限が近い（7日以内）タスクはありません。</p>' : ''}`;
@@ -348,7 +347,7 @@
     const t = d.task || {}, open = d.state === 'open', place = MOD.placeOfTask(n);
     const view = {...(summary || {}), ...t, state: d.state, task_branch: d.task_branch, remote: d.remote};
     const hasWorkspace = !!place || d.task_branch;
-    const primary = !open ? `<button type="button" data-tk="reopen" title="${deleted(view) ? '削除を取り消して、タスクを戻します' : 'タスクをもう一度開きます'}">${deleted(view) ? '元に戻す' : '開き直す'}</button>`
+    const primary = !open ? `<button type="button" data-tk="reopen">${deleted(view) ? '元に戻す' : '開き直す'}</button>`
       : hasWorkspace ? '<button type="button" class="primary" data-tk="open-ws">タスクブランチを開く</button>'
       : `<button type="button" class="primary" data-tk="start">${d.remote ? '作業を再開' : '作業を開始'}</button>`;
     const dis = open ? '' : 'disabled';
@@ -360,7 +359,7 @@
     <h3 class="tk-d-title">${esc(d.title)}</h3>
     <div class="tk-d-actions">${primary}${open ? (hasWorkspace || d.remote
         ? '<button type="button" data-tk="complete" title="タスクを完了にします。出している提出・まだ取り込んでいない変更があれば取り込んでから閉じ、タスクブランチを片付けます（作業をやめるなら ⋯ の「作業を捨てる」）">完了にする</button>'
-        : '<button type="button" data-tk="complete" title="タスクを完了にします（コードを変えないタスクなど）">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
+        : '<button type="button" data-tk="complete">完了にする</button>') : ''}<button type="button" data-tk="edit">編集</button>
       <details class="tk-menu"><summary aria-label="その他の操作" title="その他の操作">⋯</summary><div>${detailMenu(n, {open, hasWorkspace, remote: d.remote, pr})}</div></details></div>
     <section class="tk-d-section"><div class="tk-d-body ${st.bodyOpen === n ? 'open' : ''}">${esc(d.body) || '<span class="tk-muted">本文はありません</span>'}</div><button type="button" class="tk-link tk-d-more" data-body-more hidden>${st.bodyOpen === n ? '折りたたむ' : 'すべて表示'}</button></section>
     <section class="tk-d-section"><h4>担当・ラベル</h4><dl class="tk-kv">
@@ -381,7 +380,7 @@
     </dl></section>
     ${relations.length ? `<section class="tk-d-section"><h4>つながり</h4><dl class="tk-kv">${relations.map(([label, xs]) => `<dt>${label}</dt><dd>${xs.map(rel).join('')}</dd>`).join('')}</dl></section>` : ''}
     <section class="tk-d-section"><h4>作業</h4><dl class="tk-kv">
-      <dt>タスクブランチ</dt><dd>${hasWorkspace ? `${esc(d.branch || t.branch || `task/${n}`)}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubにのみあります（「作業を再開」で手元に取得）</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
+      <dt>タスクブランチ</dt><dd>${hasWorkspace ? `${esc(d.branch || t.branch || `task/${n}`)}${place && MOD.keyOf(place) !== MOD.keyOf(MOD.root) ? `<div class="tk-muted">${esc(place)}</div>` : ''}` : d.remote ? `<span class="tk-muted">GitHubだけ</span>` : '<span class="tk-muted">なし</span>'}${d.base ? `<div class="tk-muted">作成元 ${esc(d.base)}</div>` : ''}</dd>
       <dt>提出</dt><dd>${submissionText(pr, open)}</dd>
     </dl>${open ? submissionButtons(n, pr, hasWorkspace) : ''}</section>
     <section class="tk-d-section"><h4>コメント ${d.comments.length}</h4>${d.comments.map(c => `<article class="tk-comment"><header>${esc(c.author)}</header><p>${esc(c.body)}</p></article>`).join('')}
@@ -423,7 +422,7 @@
   function submissionButtons(n, pr, hasWorkspace) {
     const submitted = pr?.state === 'open', d = st.details.get(n), draft = submitted && pr.draft;
     const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
-    const button = (action, label, {cls = '', off = '', help = action} = {}) => `<button type="button" ${cls ? `class="${cls}"` : ''} data-tk="${action}" title="${esc((ECO.submissionHelp[help] || '') + (off ? `\n（${off}）` : ''))}"${off ? ' disabled' : ''}>${label}</button>`;
+    const button = (action, label, {cls = '', off = '', help = action} = {}) => `<button type="button" ${cls ? `class="${cls}"` : ''} data-tk="${action}" title="${esc([ECO.submissionHelp[help], off && `（${off}）`].filter(Boolean).join('\n'))}"${off ? ' disabled' : ''}>${label}</button>`;
     const act = !submitted ? []
       : ownSubmission(d) ? [button('withdraw', '提出を取り下げる', {cls: 'tk-quiet-danger'}), button('finish', '取り込む', {cls: 'primary', off: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why})]
       : [button('review', '手元で確認', {help: 'local-review'}), button('reject', '差し戻す', {off: why}), button('approve', '承認して取り込む', {cls: 'primary', off: draft ? '下書きの提出は承認できません' : why})];
@@ -494,7 +493,7 @@
       ...(existing ? [] : [{name: 'branchName', label: 'タスクブランチの名前', required: true, value: ECO.branchLabel(t.title || d.title || ''), showIf: v => v.place !== 'none',
         help: `task/${n}-〈名前〉のブランチになります。日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。`}]),
       {name: 'base', label: '作成元のブランチ', type: 'select', value: base, options: [[base, base + (base === defaults.default_base ? '（既定）' : '')]], showIf: v => v.place !== 'none', more: branchOptions,
-        help: parent ? `子タスクは親タスクのタスクブランチ（${parentBranch}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : '既定は ecobuild.toml の default_base です。'},
+        help: parent ? `子タスクは親タスクのタスクブランチ（${parentBranch}）から作ります。` : d.remote ? 'GitHubにあるタスクブランチから再開します（作成元は記録されているものを使います）。' : ''},
       ...((d.blocked_by || []).some(b => b.state === 'open') ? [{name: 'ignoreBlocked', label: '先に終わるべきタスクが開いていても始める', type: 'checkbox'}] : []),
       ...(others.length ? [{name: 'takeOver', label: `${others.join('、')} から引き継ぐ（担当者を自分にし、タスクに残します）`, type: 'checkbox', help: 'ほかの人が担当しています。重ねて作業しないよう、相談してから引き継いでください。'}] : [])], ok: '開始',
       submit: async v => {
@@ -517,17 +516,17 @@
   async function newTaskDialog(preset = {}) {
     const people = [...new Set([...knownMembers(), ...(preset.assignees || [])])];
     await ECO.form({title: '新しいタスク', busy: 'タスクを作成しています…', fields: [
-      {name: 'title', label: '題名', required: true, placeholder: '何をするか'},
+      {name: 'title', label: '題名', required: true},
       {name: 'body', label: '本文', type: 'textarea', rows: 3, placeholder: '背景・完了の条件など（任意）'},
-      {name: 'stage', label: '段階', type: 'radio', inline: true, value: preset.stage || 'todo', showIf: v => !v.start, options: [['todo', '未着手', 'すぐに着手できる'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
+      {name: 'stage', label: '段階', type: 'radio', inline: true, value: preset.stage || 'todo', showIf: v => !v.start, options: [['todo', '未着手'], ['planned', '計画中', 'まだ着手しない（内容・時期を詰めている）']]},
       {name: 'assignees', label: '担当者', type: 'checks', value: preset.assignees || [], options: memberOptions(people), more: moreMembers(), empty: 'まだ候補がありません（下の「候補にいない担当者」で入力できます）'},
       // Seldom needed: folded under the choices.
       {type: 'section', label: '＋ 候補にいない担当者', collapsed: true},
       {name: 'otherAssignees', label: 'GitHubのアカウント', placeholder: 'カンマ区切り（任意）'},
       {type: 'section', end: true},
-      {type: 'section', label: '計画', note: '任意。あとから詳細で変えられます'},
+      {type: 'section', label: '計画'},
       {name: 'priority', label: '優先度', type: 'select', row: 'plan', value: preset.priority || '', options: [['', 'なし'], ...PRIORITIES.map(p => [p, p])]},
-      {name: 'estimate', label: '見積もり', type: 'number', row: 'plan', placeholder: '数値'},
+      {name: 'estimate', label: '見積もり', type: 'number', row: 'plan'},
       {name: 'sprint', label: 'スプリント', type: 'select', row: 'plan', value: preset.sprint || '', options: sprintOptions()},
       {name: 'plannedStart', label: '開始予定日', type: 'date', row: 'dates'}, {name: 'plannedEnd', label: '終了予定日', type: 'date', row: 'dates'}, {name: 'due', label: '期限', type: 'date', row: 'dates'},
       {type: 'section', label: '分類・つながり', note: 'ラベル・マイルストーン・親タスク・先に終わるべきタスク', collapsed: true, open: !!preset.parent},
@@ -568,7 +567,7 @@
     const current = d.parent?.number || 0;
     await ECO.form({title: `タスク #${n} を編集`, busy: `#${n} を保存しています…`, fields: [
       {name: 'title', label: '題名', value: d.title, required: true}, {name: 'body', label: '本文', type: 'textarea', value: d.body, rows: 6},
-      {type: 'section', label: 'つながり', note: '任意'},
+      {type: 'section', label: 'つながり'},
       {name: 'parent', label: '親タスク', type: 'select', value: current ? String(current) : '', options: parentOptions(n, current)},
       {name: 'addBlocked', label: '先に終わるべきタスクを追加', row: 'blocked', placeholder: '番号（カンマ区切り）'},
       {name: 'removeBlocked', label: '先に終わるべきタスクから外す', row: 'blocked', placeholder: '番号（カンマ区切り）',
@@ -677,8 +676,8 @@
   }
   async function judgeDialog(n, approve) {
     const v = await ECO.form(approve
-      ? {title: `承認して取り込む：#${n}`, intro: '提出を承認して、CIが終わるのを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
-      : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
+      ? {title: `承認して取り込む：#${n}`, intro: 'CIが終わるのを待ちます。タスクは提出のとおり閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
+      : {title: `差し戻す：#${n}`, intro: 'タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
     if (!v) return;
     const doc = await run(['task', approve ? 'approve' : 'reject', String(n), ...(v.message ? ['--message', v.message] : [])],
       {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
@@ -710,7 +709,7 @@
     const taskRow = t => `<div class="tk-row" data-task="${t.number}"><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${stageBadge(t)}${due(t)}</div>`;
     const prRow = t => `<div class="tk-row" data-task="${t.number}"><span class="tk-num">#${t.number}</span><span class="tk-grow">${esc(t.title)}</span>${submissionPill(t.submission)}</div>`;
     const section = (title, html, extra = '') => `<section class="tk-pf-section ${extra}"><h4>${title}</h4>${html || '<p class="tk-muted">ありません</p>'}</section>`;
-    body.innerHTML = `<div class="tk-pf"><header class="tk-pf-head">${avatarMark(who)}<div><div class="tk-pf-name">${esc(who)}${who === me() ? '<span class="tk-pill ok">自分</span>' : ''}</div><div class="tk-muted">GitHub アカウント</div></div>
+    body.innerHTML = `<div class="tk-pf"><header class="tk-pf-head">${avatarMark(who)}<div><div class="tk-pf-name">${esc(who)}${who === me() ? '<span class="tk-pill ok">自分</span>' : ''}</div></div>
       <button type="button" class="tk-d-close" data-close-person title="閉じる" aria-label="閉じる">×</button></header>
       <div class="tk-pf-stats">${stat('担当（親を除く）', w ? w.open : ts.length)}${stat('作業中（親を除く）', w ? w.in_progress : doing.length)}${stat('残りの見積もり', w ? w.estimate_remaining : '-')}${stat('期限切れ', w ? w.overdue : 0, w?.overdue ? 'bad' : '')}${stat('提出中', own.length)}</div>
       <div class="tk-pf-grid">${section('作業中', doing.map(taskRow).join(''))}${section('提出', own.map(prRow).join(''))}${who === me() ? section('見るように頼まれた提出', asked.map(prRow).join('')) : ''}

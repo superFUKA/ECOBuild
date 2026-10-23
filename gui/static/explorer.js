@@ -411,7 +411,7 @@ async function menuAction(action, dir) {
     case 'p-target': { const name = projectsByDir.get(dir).name; return WS.setTarget(name) ? say(`実行の対象：${name}`) : null; }
     case 'p-move': {
       const name = projectsByDir.get(dir).name;
-      return ECO.form({title: `Projectを移動：${name}`, intro: 'Projectのフォルダを移します（名前は変わりません）。', fields: [
+      return ECO.form({title: `Projectを移動：${name}`, intro: '名前は変わりません。', fields: [
         {name: 'destination', label: '移動先（モジュールからの相対パス。まだないもの）', value: dir, required: true}], ok: '移動',
         submit: async v => {
           if (!await WS.run(['project', 'move', name, v.destination], {success: `${name} を ${v.destination} へ移しました。`})) return '移動できませんでした。';
@@ -445,7 +445,7 @@ async function menuAction(action, dir) {
     case 'remove': return removeFile(path);
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
-      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore に追加して、git で管理しないようにします（すでに管理しているファイルには効きません）。変えた .gitignore はコミットしてください。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
+      const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore に追加して、git で管理しないようにします（すでに管理しているファイルには効きません）。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});
       if (v) { await WS.run(['ignore', v.pattern], {success: '.gitignore に追加しました：' + v.pattern}); await WS.reloadFiles(); }
       return;
     }
@@ -518,7 +518,7 @@ async function testDialog(path) {
   const folders = WS.files.dirs.filter(d => shown(d) && !d.split('/').some(part => part.startsWith('.') || part === 'build') && inSources(d));
   const options = [...(folders.includes(defaultFolder) ? [] : [[defaultFolder, `${defaultFolder}（新しいフォルダ）`]]), ...folders.map(d => [d, d])];
   const exists = p => WS.files.files.includes(p);
-  return ECO.form({title: 'テストを作成', intro: esc(path) + ' のテストを作ります（そのヘッダーを読み込むテストのひな形）。', busy: 'テストを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
+  return ECO.form({title: 'テストを作成', intro: esc(path), busy: 'テストを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
     {name: 'folder', label: '場所', type: 'select', value: defaultFolder, options, row: 'where'},
     {name: 'name', label: '名前', value: defaultName, required: true, row: 'where', focus: true},
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
@@ -556,8 +556,7 @@ async function newFileDialog(dir = activeDirectory) {
     ...(cpp ? [{name: 'kind', label: '種類', type: 'radio', inline: true, value: 'pair', options: [
       ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力'],
       ...(templates.length ? [['template', 'テンプレートから', '拡張子も入力']] : [])]}] : []),
-    ...(templates.length ? [{name: 'template', label: 'テンプレート', type: 'select', options: templates.map(t => [t, t]), showIf: v => v.kind === 'template',
-      help: 'モジュール画面の「Project」タブで登録したもの・ECOBuildの既定のものです。'}] : []),
+    ...(templates.length ? [{name: 'template', label: 'テンプレート', type: 'select', options: templates.map(t => [t, t]), showIf: v => v.kind === 'template'}] : []),
     ...(cpp ? [{name: 'split', label: 'ヘッダーとソースを別の場所に置く（ヘッダーは「場所」に）', type: 'checkbox', value: false, showIf: v => v.kind === 'pair',
       help: 'include/<Project>/ のヘッダーは、このProjectを使う側からも読み込めます（公開するヘッダー）。src/ は実装用で、ヘッダーとソースを並べます。'},
       {name: 'sourceFolder', label: 'ソースの場所', type: 'select', value: '', showIf: v => v.kind === 'pair' && v.split,
@@ -685,7 +684,7 @@ async function moveFile(source, destination, withTest = true) {
 const sourceTests = cpp => cpp ? 'ライブラリのソース' : 'src/ のソース';
 async function moveDialog(path) {
   const tests = await typeHasFileTests(), cpp = restricted();
-  return ECO.form({title: '名前の変更・移動', intro: esc(path), fields: [
+  return ECO.form({title: '名前の変更・移動', fields: [
     {name: 'destination', label: `移動先（モジュールからの相対パス${cpp ? '。同じProject内' : ''}）`, value: path, required: true},
     ...(tests ? [{name: 'test', label: `${sourceTests(cpp)}なら、対応するテストも移動する`, type: 'checkbox', value: true}] : [])], ok: '移動',
     submit: v => moveFile(path, v.destination, !tests || v.test)});

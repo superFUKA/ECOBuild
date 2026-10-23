@@ -56,7 +56,7 @@ WS.onRefresh(renderPrDetail);
     const select = get('build-project'), r = get('build-project-pick').getBoundingClientRect(), runArgs = get('build-run-args');
     const projects = [...select.options].map(o => [(o.value === select.value ? '✓ ' : '　') + o.textContent, () => { select.value = o.value; showTarget(); }]);
     choiceMenu([...projects, ...(projects.length ? ['-'] : []), [runArgs.value ? `実行時の引数：${runArgs.value}…` : '実行時の引数…', () => ECO.form({
-      title: '実行時の引数', intro: '「実行」で、プログラムに渡す引数です（空白で区切る）。この画面を閉じるまで使います。',
+      title: '実行時の引数', intro: 'この画面を閉じるまで使います。',
       fields: [{name: 'args', label: '引数', value: runArgs.value, placeholder: '例：--size 3', focus: true}], ok: '決定',
       submit: v => { runArgs.value = (v.args || '').trim(); showTarget(); }})]], r.left, r.bottom + 4);
   });
@@ -193,15 +193,15 @@ WS.onRefresh(renderPrDetail);
     button.classList.toggle('on', !!box?.container);
     get('container-label').textContent = box?.container ? 'コンテナ' : 'このPC';
     button.dataset.tip = !box ? 'コンテナの状態を読めませんでした' : box.container
-      ? `この作業空間はコンテナ（${boxState(box)}）。AI・ビルド・テストは中で動きます`
-      : 'この作業空間はこのPCで動きます（コンテナにすると AI・ビルドを隔離できます）';
+      ? `コンテナ：${boxState(box)}`
+      : 'このPCで動いています';
     showAgent();
   };
   const boxRun = (args, options) => WS.run(['container', ...args], options).then(doc => { loadContainer(); return doc; });
   function containerSettings() {
-    return ECO.form({title: 'このコンテナの設定', intro: 'この作業空間のコンテナだけの設定です（このPCだけ。コミットしません）。使わせないものは、このPCの設定（ecobuild config set agent_deny）に足されます。',
+    return ECO.form({title: 'このコンテナの設定', intro: 'このPCだけの設定です（コミットしません）。',
       fields: [
-        {name: 'deny', label: 'AI に使わせないもの（Claude Code の許可の規則を ; で区切る。空欄ならなし）', value: (box?.deny || []).join(';'), placeholder: '例：Bash(git push --force:*);WebFetch', focus: true},
+        {name: 'deny', label: 'AI に使わせないもの', value: (box?.deny || []).join(';'), placeholder: '例：Bash(git push --force:*);WebFetch', focus: true},
         {name: 'image', label: '使うイメージ（空欄なら型のイメージ。変えると次に動かすときに作り直します）', value: box?.custom_image || '', placeholder: '例：ecobuild-cpp:9ecd459d4955'}],
       ok: '保存',
       submit: v => boxRun(['set', ...(v.deny.trim() ? ['--deny', v.deny.trim()] : ['--no-deny']), ...(v.image.trim() ? ['--image', v.image.trim()] : ['--default-image'])], {success: '設定を保存しました。'})});
@@ -217,7 +217,7 @@ WS.onRefresh(renderPrDetail);
     const noDocker = ready ? '' : `Docker が使えません（${box?.docker_detail || '状態を読めませんでした'}）。ecobuild setup --docker で導入できます`;
     const items = box?.container ? [
       [`コンテナ：${boxState(box)}${box.image ? '（' + box.image + '）' : ''}`, null],
-      ...(box.state === 'none' ? [['前もって作る（初めて使うときの待ち時間をなくす。イメージから作ると数分）', () => boxRun(['start'], {busy: 'コンテナを作っています…', success: 'コンテナを作りました。'}), ready, noDocker]] : []),
+      ...(box.state === 'none' ? [['前もって作る', () => boxRun(['start'], {busy: 'コンテナを作っています…', success: 'コンテナを作りました。'}), ready, ready ? '初めて使うときの待ち時間をなくす（イメージから作ると数分）' : noDocker]] : []),
       ...(box.state === 'none' ? [] : [
         ['作り直す', async () => { if (await boxRun(['remove'], {confirm: 'コンテナを消してから作り直します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます）。', title: 'コンテナを作り直す'})) await boxRun(['start'], {busy: 'コンテナを作り直しています…', success: 'コンテナを作り直しました。'}); }, ready, noDocker],
         ['消す', () => boxRun(['remove'], {confirm: 'コンテナを消します（作業空間のファイルは残ります。コンテナの中で入れたものは消えます。次に使うときにまた作ります）。', title: 'コンテナを消す', success: 'コンテナを消しました。'}), ready, noDocker]]),
@@ -238,8 +238,8 @@ WS.onRefresh(renderPrDetail);
   const showAgent = () => {
     const s = WS.status, ready = !!(s && s.task && !s.reviewing), command = agentCommand();
     get('agent-start').disabled = !ready;
-    const where = box?.container ? 'この作業空間のコンテナの中で、登録したエージェントを確認なしに新しい画面で起動します' : 'この作業空間のルートで、登録したエージェントを新しい画面で起動します';
-    get('agent-start').dataset.tip = ready ? `${where}（${command || 'claude'}）`
+    const where = box?.container ? 'コンテナの中で起動・確認なし' : '起動';
+    get('agent-start').dataset.tip = ready ? `${where}：${command || 'claude'}`
       : !s ? '作業空間の状態を読み込んでいます' : 'エージェントはタスクブランチの作業空間でだけ起動できます（タスク管理で「作業を開始」してください）';
   };
   // In the Electron app the agent opens as a tab of the app's agents window (its terminal runs ecobuild agent start
@@ -250,7 +250,7 @@ WS.onRefresh(renderPrDetail);
   // gets a window of its own in the app, where its children show (チーム).
   const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
   const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
-  const nameField = () => ({name: 'name', label: '名前（空欄なら既定の名前。入れた名前は会話の名前にもなります）', value: '', placeholder: defaultAgentName()});
+  const nameField = () => ({name: 'name', label: '名前', value: '', placeholder: defaultAgentName()});
   // The registrations a person may start (ecobuild agent registry list: human_start). The hub's settings change them.
   async function startable() {
     const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
@@ -271,7 +271,7 @@ WS.onRefresh(renderPrDetail);
     if (registration === undefined) {
       const found = await startable(); if (!found) return;
       const chosen = found.find(r => r.name === lastRegistration()) || found[0];
-      const v = await ECO.form({title: 'エージェントを起動', intro: '登録したエージェント（ハブの設定の「エージェント」）から選びます。エージェントはこの作業空間のコンテナの中で動きます（コンテナでない作業空間は、自動でコンテナにします）。',
+      const v = await ECO.form({title: 'エージェントを起動', intro: box?.container ? '' : 'この作業空間は自動でコンテナにします。',
         fields: [{name: 'registration', label: '起動するエージェント', type: 'select', value: chosen.name, options: found.map(r => [r.name, registrationLabel(r)])},
                  ...(agentShell() ? [{...nameField(), focus: true}] : [])], ok: '起動'});
       if (!v) return;   // cancelled
@@ -320,9 +320,8 @@ WS.onRefresh(renderPrDetail);
   get('agent-more').addEventListener('click', () => {
     const r = get('agent-more').getBoundingClientRect(), ready = !get('agent-start').disabled;
     ECO.menu([
-      ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready,
-        'これまでの会話から選び、その続きからエージェントを起動します'], '-'] : []),
-      ['起動するコマンドを指定…', () => ECO.form({title: '起動するコマンド', intro: 'エージェントを起動するコマンドです（引数は空白で区切る）。このPCで覚えておき、「エージェント」のボタンでも使います。', fields: [
+      ...(claudeCommand() ? [['会話を選んで再開…', () => chooseConversation(r.right - 320, r.bottom + 4), ready], '-'] : []),
+      ['起動するコマンドを指定…', () => ECO.form({title: '起動するコマンド', intro: 'このPCで覚えておきます。', fields: [
         {name: 'command', label: 'コマンド（空欄なら claude）', value: agentCommand(), placeholder: '例：claude --model opus', focus: true}], ok: '保存',
         submit: v => { setAgentCommand(v.command.trim()); showAgent(); }})],
       ['エージェントの登録（ハブの設定）', () => ECO.action('open', {page: 'settings', tab: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,

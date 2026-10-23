@@ -103,8 +103,8 @@
       case 'approve': case 'reject': {
         const approve = action === 'approve';
         const v = await ECO.form(approve
-          ? {title: `承認して取り込む：#${n}`, intro: '提出を承認し、CIを待って取り込みます。タスクは提出のとおり、閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
-          : {title: `差し戻す：#${n}`, intro: '直してほしいことを書いて差し戻します。タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
+          ? {title: `承認して取り込む：#${n}`, intro: 'CIが終わるのを待ちます。タスクは提出のとおり閉じるか続けます。', fields: [{name: 'message', label: 'コメント（任意）', type: 'textarea'}], ok: '承認して取り込む'}
+          : {title: `差し戻す：#${n}`, intro: 'タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
         if (!v) return;
         // Run in the module's own clone: the workspace it was checked in (if any) is removed by approve・reject.
         const doc = await ECO.run(MOD.root, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});

@@ -284,7 +284,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
     # ブランチ ---------------------------------------------------------------
 
     def branches(self) -> list[wm.Branch]:
-        """ブランチの一覧。開いている提出があれば、その状態と取り込み先も添える。"""
+        """ブランチの一覧。開いている提出があれば、その状態と取り込み先も添える。手元だけのブランチ（タスクブランチ以外）には、
+        既定の作成元（GitHub）に取り込み済みかも添える（消してよいかの目安）。"""
         self.git.fetch(reuse=True)
         local = set(self.git.local_branches())
         remote = set(self.git.remote_branches())
@@ -292,6 +293,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
                                             key=lambda i: i.number)}
         names = sorted(local | remote)
         unusable = self.hooks.unusable(self, [f"{_git.REMOTE}/{n}" if n in remote else n for n in names])
+        default = f"{_git.REMOTE}/{self.default_base}"
+        has_default = self.git.rev_parse(default) is not None
         result = []
         for name in names:
             branch = self._branch(name, name in local, name in remote)
@@ -299,6 +302,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
             info = opened.get(name)
             if reason is not None:
                 branch = replace(branch, unusable=reason)
+            if has_default and name in local and name not in remote and not branch.is_task_branch:
+                branch = replace(branch, merged=self.git.is_ancestor(name, default))
             result.append(branch if info is None else replace(branch, submission=self._submission_state(info),
                                                               submitted_to=info.base))
         return result

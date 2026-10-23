@@ -13,6 +13,8 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
         for b in branches:
             kind = f"タスクブランチ（作成元 {b.base or '?'}）" if b.is_task_branch else "ブランチ"
             where = "・".join(w for w, ok in (("手元", b.local), ("GitHub", b.remote)) if ok)
+            if b.merged is not None:
+                where += "（取り込み済み）" if b.merged else "（取り込んでいない）"
             rows.append(f"{b.name}\t{kind}\t{where}")
         return "\n".join(rows)
 

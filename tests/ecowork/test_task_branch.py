@@ -79,6 +79,17 @@ def test_branch_rules(repository):
     assert "release" not in names and {"main", "develop", "task/1"} <= names
 
 
+def test_local_only_branch_tells_if_merged(repository):
+    git(repository.root, "branch", "old")                          # main のまま：取り込み済み
+    git(repository.root, "switch", "-q", "-c", "wip")
+    write(repository.root / "w.txt", "w\n")
+    git(repository.root, "add", "w.txt")
+    git(repository.root, "commit", "-q", "-m", "w")                # main にないコミット：取り込んでいない
+    git(repository.root, "switch", "-q", "main")
+    branches = {b.name: b for b in repository.branches()}
+    assert (branches["old"].merged, branches["wip"].merged, branches["main"].merged) == (True, False, None)
+
+
 def test_closed_task_cannot_start(repository):
     task = repository.create_task("t")
     repository.github.close_issue(repository.root, task.number)

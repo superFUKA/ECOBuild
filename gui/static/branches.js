@@ -1,6 +1,6 @@
 'use strict';
-// ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, by where they
-// come from, with the count of submissions coming in; the chosen one on the right. First the chosen branch: where it is,
+// ブランチ: the module's shared branches (main, develop, … — not the task branches) as tabs on the left, in a tree of
+// their names, with the count of submissions coming in; the chosen one on the right. First the chosen branch: where it is,
 // who made it, its own submission, the protection of the default branch, what can be done with it (made, submitted,
 // taken in, deleted, protected) and the submissions coming into it (looked at and handled: submissions.js). Then, in a
 // card that folds (open when there is something to do), taking one shared branch into another directly (branch merge
@@ -41,6 +41,7 @@
     st.loaded = true;
     if (!shared().some(b => b.name === st.selected)) {
       st.selected = (shared().find(b => b.name === (st.access?.default_base || 'main')) || shared()[0] || {}).name || '';
+      reveal(st.selected);
     }
     render();
   }
@@ -51,32 +52,79 @@
     }));
   }
 
-  // Left: the shared branches, by where they come from (a branch made from another under it), with the count coming in.
+  // Left: the shared branches as a tree of their names (feature/x under a folder feature, as in Explorer), the branches
+  // before the folders, each by name. A folder stays open or closed as left (kept for the module); a
+  // closed one shows the count coming into the branches inside. Each branch: the count coming in,
+  // dim when not an ECOBuild module, a mark when only here (not on GitHub; dimmer when already in the default base) or
+  // only on GitHub.
+  const FOLDERS_KEY = `ecobuild-branch-folders:${MOD.root}`;
+  const openFolders = (() => { try { return new Set(JSON.parse(localStorage.getItem(FOLDERS_KEY) || '[]')); } catch (e) { return new Set(); } })();
+  const saveFolders = () => { try { localStorage.setItem(FOLDERS_KEY, JSON.stringify([...openFolders])); } catch (e) { /* storage blocked */ } };
+  const parents = name => name.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'));
+  const isOpen = path => openFolders.has(path);
+  // Choosing a branch opens the folders it is in (they can be closed again: the folder then marks it).
+  const reveal = name => { if (parents(name).some(p => !openFolders.has(p))) { parents(name).forEach(p => openFolders.add(p)); saveFolders(); } };
+  const ICON = {
+    local: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.6-1A3.3 3.3 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2 2l12 12" stroke="currentColor" stroke-width="1.3"/></svg>',
+    remote: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.6-1A3.3 3.3 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>',
+  };
+  const whereOf = b => !b.remote ? `GitHub にない（手元だけ${b.merged ? '・既定の作成元に取り込み済み' : ''}）` : !b.local ? 'GitHub だけ（手元にない）' : '';
+  function tree(branches) {
+    const root = {folders: new Map(), branches: []};
+    for (const b of branches) {
+      let node = root;
+      for (const path of parents(b.name)) {
+        if (!node.folders.has(path)) node.folders.set(path, {path, folders: new Map(), branches: []});
+        node = node.folders.get(path);
+      }
+      node.branches.push(b);
+    }
+    return root;
+  }
+  const inside = node => [...node.branches, ...[...node.folders.values()].flatMap(inside)];
   function renderSide() {
-    const branches = shared(), names = new Set(branches.map(b => b.name)), side = el('br-side');
-    const rows = [], walk = (b, depth) => { rows.push([b, depth]); for (const c of branches.filter(c => c.base === b.name && c !== b)) walk(c, depth + 1); };
-    for (const b of branches.filter(b => !b.base || !names.has(b.base))) walk(b, 0);
-    side.innerHTML = rows.map(([b, depth]) => {
-      const n = incoming(b.name).length;
-      return `<button type="button" role="tab" data-br="${esc(b.name)}" aria-selected="${b.name === st.selected}" tabindex="${b.name === st.selected ? 0 : -1}" style="--depth:${depth}"
-        title="${esc(b.name)}${b.base ? `（作成元：${esc(b.base)}）` : ''}${n ? `　届いている提出 ${n} 件` : ''}">
-        <span class="br-side-name">${esc(b.name)}</span>${n ? `<span class="br-count">${n}</span>` : ''}
-        ${open(b.submission) ? `<small class="br-side-sub">提出 → ${esc(b.submitted_to)}</small>` : ''}</button>`;
-    }).join('') || '<p class="mi-note">共有ブランチはありません。</p>';
+    const side = el('br-side'), def = st.access?.default_base || 'main', rows = [];
+    const byName = (a, b) => a.localeCompare(b, 'ja');
+    const walk = (node, depth) => {
+      for (const b of [...node.branches].sort((x, y) => byName(x.name, y.name))) {
+        const n = incoming(b.name).length, where = whereOf(b), leaf = b.name.split('/').pop();
+        const cls = ['br-branch', b.unusable && 'other', !b.remote && b.merged && 'done'].filter(Boolean).join(' ');
+        const tip = [b.name, b.unusable && 'ECOBuild のモジュールではない', where, n && `届いている提出 ${n} 件`].filter(Boolean).join('\n');
+        rows.push(`<button type="button" role="tab" class="${cls}" data-br="${esc(b.name)}" aria-selected="${b.name === st.selected}" tabindex="${b.name === st.selected ? 0 : -1}" style="--depth:${depth}" title="${esc(tip)}">
+          <span class="br-side-name">${esc(leaf)}</span>${b.name === def ? pill('既定', 'ok') : ''}${where ? `<span class="br-where" aria-label="${esc(where)}">${ICON[b.remote ? 'remote' : 'local']}</span>` : ''}${n ? `<span class="br-count">${n}</span>` : ''}
+          ${open(b.submission) ? `<small class="br-side-sub">提出 → ${esc(b.submitted_to)}</small>` : ''}</button>`);
+      }
+      for (const f of [...node.folders.values()].sort((x, y) => byName(x.path, y.path))) {
+        const shown = isOpen(f.path), all = inside(f), n = shown ? 0 : all.reduce((sum, b) => sum + incoming(b.name).length, 0);
+        const holds = !shown && parents(st.selected).includes(f.path);
+        rows.push(`<button type="button" class="br-folder${holds ? ' holds' : ''}" data-br-folder="${esc(f.path)}" aria-expanded="${shown}" tabindex="-1" style="--depth:${depth}" title="${esc(f.path)}/">
+          <span class="br-side-name"><span class="br-caret" aria-hidden="true">${shown ? '▾' : '▸'}</span>${esc(f.path.split('/').pop())}</span><span class="br-folder-count">${all.length}</span>${n ? `<span class="br-count">${n}</span>` : ''}</button>`);
+        if (shown) walk(f, depth + 1);
+      }
+    };
+    walk(tree(shared()), 0);
+    side.innerHTML = rows.join('') || '<p class="mi-note">共有ブランチはありません。</p>';
+  }
+  function toggleFolder(path, show = !isOpen(path)) {
+    if (show) openFolders.add(path); else openFolders.delete(path);
+    saveFolders(); renderSide();
+    el('br-side').querySelector(`[data-br-folder="${CSS.escape(path)}"]`)?.focus();
   }
 
-  // Taking a branch into another. The chosen branch is where it goes; what comes in is, at first, a branch made from it
-  // (its work), else the branch it was made from (its latest), else another. Only branches on GitHub can be merged.
+  // Taking a branch into another. The chosen branch is one side, fixed (shown, not chosen): at first where it goes (⇄ puts
+  // it on the other side); the other is chosen: at first a branch made from it (its work), else the branch it was made
+  // from (its latest), else another. Only branches on GitHub can be merged.
   function chooseMerge(into) {
     const others = shared().filter(b => b.remote && b.name !== into), base = shared().find(b => b.name === into)?.base;
     const from = (others.find(b => b.base === into) || others.find(b => b.name === base) || others[0] || {}).name || '';
     st.merge = {...st.merge, from, into, chosenFor: into, plan: null, error: '', all: false};
   }
+  const fixedSide = () => st.merge.into === st.selected ? 'into' : 'from';
   // What the merge would do (branch merge --dry-run: changes nothing). An older answer arriving late is dropped.
   async function readPlan() {
     const m = st.merge, read = ++m.read;
     m.plan = null; m.error = '';
-    if (!m.from || !m.into || m.from === m.into) { m.reading = false; renderMerge(); return; }
+    if (!m.from || !m.into || m.from === m.into || !shared().find(b => b.name === st.selected)?.remote) { m.reading = false; renderMerge(); return; }
     m.reading = true; renderMerge();
     const doc = await cli(['branch', 'merge', m.from, '--into', m.into, '--dry-run']);
     if (read !== st.merge.read) return;
@@ -96,9 +144,12 @@
     const box = el('br-merge'); if (!box) return;
     const m = st.merge, p = m.plan;
     const option = (b, chosen) => `<option value="${esc(b.name)}" ${b.name === chosen ? 'selected' : ''} ${b.remote ? '' : 'disabled'}>${esc(b.name)}${b.remote ? '' : '（GitHub にない）'}</option>`;
-    const select = (id, chosen, label) => `<label class="br-merge-pick"><span>${label}</span><select id="${id}">${shared().map(b => option(b, chosen)).join('')}</select></label>`;
+    const fixed = fixedSide(), chosen = shared().find(b => b.name === st.selected);
+    const side = (key, label) => key === fixed
+      ? `<div class="br-merge-pick"><span>${label}</span><span class="br-merge-fixed" title="${esc(st.selected)}">${esc(st.selected)}</span></div>`
+      : `<label class="br-merge-pick"><span>${label}</span><select id="br-merge-other">${shared().filter(b => b.name !== st.selected).map(b => option(b, m[key])).join('')}</select></label>`;
     let result = '';
-    if (m.from && m.from === m.into) result = '<p class="mi-note">取り込むブランチと取り込み先が同じです。</p>';
+    if (chosen && !chosen.remote) result = `<p class="mi-note">${esc(st.selected)} は GitHub にないので、取り込みには使えません。</p>`;
     else if (m.reading) result = ECO.loading();
     else if (m.error) result = `<div class="eco-banner bad">${esc(m.error)}</div>`;
     else if (p) {
@@ -119,7 +170,7 @@
     }
     const sum = el('br-merge-sum');
     if (sum) sum.innerHTML = m.reading ? '<span class="eco-spinner"></span>' : p ? `<span class="mi-pill ${(METHODS[p.method] || [])[1] || ''}">${esc((METHODS[p.method] || [p.method])[0])}</span>${p.commit_count ? ` <span class="mi-sub">${esc(p.name)} → ${esc(p.into)}・${p.commit_count} 件</span>` : ''}` : '';
-    box.innerHTML = `<div class="br-merge-row">${select('br-merge-from', m.from, '取り込むブランチ')}<span class="br-merge-arrow" aria-hidden="true">→</span>${select('br-merge-into', m.into, '取り込み先')}
+    box.innerHTML = `<div class="br-merge-row">${side('from', '取り込むブランチ')}<span class="br-merge-arrow" aria-hidden="true">→</span>${side('into', '取り込み先')}
       <button type="button" class="br-merge-swap" data-br-merge="swap" title="向きを入れ替える" aria-label="向きを入れ替える">⇄</button>
       <button type="button" class="mi-link" data-br-merge="reload">確かめ直す</button></div>
       <div class="br-merge-result" aria-live="polite">${result}</div>`;
@@ -146,7 +197,7 @@
   function renderMain() {
     const main = el('br-main'), b = shared().find(x => x.name === st.selected);
     if (!b) { main.innerHTML = st.error ? `<div class="eco-banner bad">${esc(st.error)}<button type="button" class="sm" data-br-retry>読み直す</button></div>` : '<p class="mi-note">ブランチを選んでください。</p>'; return; }
-    const where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・');
+    const where = [b.local && '手元', b.remote && 'GitHub'].filter(Boolean).join('・') + (b.remote ? '' : b.merged ? '（既定の作成元に取り込み済み）' : b.merged === false ? '（既定の作成元に取り込んでいない）' : '');
     const taskBranches = (st.branches || []).filter(t => t.is_task_branch && t.base === b.name);
     const creator = st.access?.creators?.[b.name] || '';
     const isDefault = b.name === (st.access?.default_base || 'main');
@@ -229,6 +280,8 @@
   const section = el('branches-content');
   section.addEventListener('click', e => {
     if (e.target.closest('[data-br-retry]')) { reload(); return; }
+    const folder = e.target.closest('[data-br-folder]');
+    if (folder) { toggleFolder(folder.dataset.brFolder); return; }
     const tab = e.target.closest('[data-br]');
     if (tab) { st.selected = tab.dataset.br; render(); return; }
     const ws = e.target.closest('[data-open-ws]');
@@ -241,16 +294,28 @@
   // The card of the merge folded or opened by hand stays so for the other branches.
   section.addEventListener('toggle', e => { if (e.target.id === 'br-merge-card') st.mergeOpen = e.target.open; }, true);
   section.addEventListener('change', e => {
-    if (e.target.id !== 'br-merge-from' && e.target.id !== 'br-merge-into') return;
-    st.merge = {...st.merge, [e.target.id === 'br-merge-from' ? 'from' : 'into']: e.target.value, all: false};
+    if (e.target.id !== 'br-merge-other') return;
+    st.merge = {...st.merge, [fixedSide() === 'into' ? 'from' : 'into']: e.target.value, all: false};
     readPlan();
   });
-  // ↑↓ between the branches (the tabs are vertical).
+  // The keys of a tree (as in Explorer): ↑↓ through the rows (a branch is chosen as it is reached), → opens a folder,
+  // ← closes it or goes up to the folder of a branch.
   el('br-side').addEventListener('keydown', e => {
-    if (!['ArrowUp', 'ArrowDown'].includes(e.key)) return;
-    const tabs = [...el('br-side').querySelectorAll('[data-br]')], i = tabs.findIndex(t => t.dataset.br === st.selected);
-    const next = tabs[(i + (e.key === 'ArrowDown' ? 1 : tabs.length - 1)) % tabs.length]; if (!next) return;
-    e.preventDefault(); st.selected = next.dataset.br; render(); el('br-side').querySelector(`[data-br="${CSS.escape(st.selected)}"]`)?.focus();
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+    const side = el('br-side'), rows = [...side.querySelectorAll('[data-br], [data-br-folder]')];
+    const row = e.target.closest('[data-br], [data-br-folder]') || side.querySelector('[aria-selected=true]'); if (!row) return;
+    e.preventDefault();
+    const folder = row.dataset.brFolder;
+    if (e.key === 'ArrowRight') { if (folder !== undefined && !isOpen(folder)) toggleFolder(folder, true); return; }
+    if (e.key === 'ArrowLeft') {
+      if (folder !== undefined && isOpen(folder)) { toggleFolder(folder, false); return; }
+      const up = parents(folder ?? row.dataset.br).pop();
+      if (up) side.querySelector(`[data-br-folder="${CSS.escape(up)}"]`)?.focus();
+      return;
+    }
+    const next = rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)]; if (!next) return;
+    if (next.dataset.brFolder !== undefined) { next.focus(); return; }
+    st.selected = next.dataset.br; render(); side.querySelector(`[data-br="${CSS.escape(st.selected)}"]`)?.focus();
   });
   const reload = async () => { st.protection = undefined; await load(); readPlan(); };
   el('br-reload').addEventListener('click', reload);
@@ -261,7 +326,7 @@
     {name: 'base', label: '作成元', type: 'select', value: st.selected, options: [['', '既定（default_base）'], ...shared().map(b => [b.name, b.name])]}], ok: '作成',
     submit: async v => {
       if (!await after(await ECO.run(MOD.root, ['branch', 'create', v.name, ...(v.base ? ['--base', v.base] : [])], {success: `ブランチ ${v.name} を作成しました。`}))) return '作成できませんでした。';
-      st.selected = v.name; render();
+      st.selected = v.name; reveal(v.name); render();
     }}));
 
   pageHooks.branches = () => { if (!st.loaded) { render(); load(); } else render(); };

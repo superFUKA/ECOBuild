@@ -130,11 +130,12 @@ function unfollow(contents) {
   kill(entry.proc);
 }
 
-// ecobuild.exe は python を子に起動するので、子ごと止める
+// ecobuild.exe は python を子に起動するので、子ごと止める。taskkill はフルパスで（PATH の System32 が展開されていない
+// PC では名前で見つからない）
 function kill(proc) {
   if (!proc || proc.exitCode !== null) return;
   if (process.platform === 'win32' && proc.pid) {
-    execFile('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {windowsHide: true}, () => {});
+    execFile(require('path').join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'), ['/pid', String(proc.pid), '/T', '/F'], {windowsHide: true}, () => {});
   } else {
     try { proc.kill(); } catch (e) { /* 終わっている */ }
   }

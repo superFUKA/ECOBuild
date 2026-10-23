@@ -14,14 +14,14 @@
     <div class="sidebar-top"><button type="button" id="nav-toggle" class="nav-toggle" aria-expanded="true" title="メニューを折りたたむ"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button><h1>ECOBuild Hub</h1></div>
     <nav aria-label="ハブメニュー">
       <button type="button" class="nav-button" data-page="modules" aria-controls="modules" aria-current="page" title="モジュール"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg><span>モジュール</span></button>
-      <button type="button" class="nav-button" data-page="operator" aria-controls="operator" title="オペレーター（ECOBuild の操作をことばで頼む）"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg><span>オペレーター</span></button>
+      <button type="button" class="nav-button" data-page="operator" aria-controls="operator" title="オペレーター"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/></svg><span>オペレーター</span></button>
     </nav>
     <div class="nav-bottom">
       <button type="button" class="nav-button" data-page="settings" aria-controls="settings" title="設定"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>設定</span></button>
       <button type="button" class="nav-button" data-page="help" aria-controls="help" title="ヘルプ"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><path d="M12 17h.01"/></svg><span>ヘルプ</span></button>
       <div class="quick-toggles" id="quick-toggles" hidden>
-        <button type="button" class="nav-button quick" id="quick-ring" title="リングで操作する（押すと切り替え）"><span class="quick-dot" aria-hidden="true"></span><span>リング</span></button>
-        <button type="button" class="nav-button quick" id="quick-operator" title="オペレーター（裏で動く ECOBuild の操作係。押すと動かす・止める）"><span class="quick-dot" aria-hidden="true"></span><span>オペレーター</span></button>
+        <button type="button" class="nav-button quick" id="quick-ring"><span class="quick-dot" aria-hidden="true"></span><span>リング</span></button>
+        <button type="button" class="nav-button quick" id="quick-operator"><span class="quick-dot" aria-hidden="true"></span><span>オペレーター</span></button>
       </div>
       <div class="nav-account" id="nav-account" title="ログイン中のGitHubアカウント"><span class="nav-avatar" aria-hidden="true">?</span><span class="nav-account-name">…</span></div>
     </div>
@@ -34,15 +34,12 @@
       <ul class="module-list" id="module-list" aria-label="モジュール一覧"><li class="empty-modules" style="grid-column:1/-1">読み込んでいます…</li></ul>
       <p class="empty-modules" id="no-active-modules" hidden>アーカイブしていないモジュールはありません。</p>
       <details class="archived-modules" id="archived-modules" hidden><summary>アーカイブ済み <span class="count" id="archived-count"></span></summary>
-        <p class="note">アーカイブ（読み取り専用に）したモジュールです。アーカイブを解除すると再び変更でき、不要なら削除できます。</p>
         <ul id="archived-list"></ul></details>
       <details class="archived-modules" id="legacy-workspaces" hidden><summary>前の作業空間 <span class="count" id="legacy-count"></span></summary>
-        <p class="note" title="今は作業空間をモジュールの中（.ecobuild/w/）に作ります。GitHub に送った作業を確かめてから閉じてください。">前の版が作った、独立した clone の作業空間です。GitHub にない作業があるものは閉じません。</p>
         <ul id="legacy-list"></ul></details>
     </section>
     <section id="settings" aria-labelledby="settings-title" hidden>
       <h2 id="settings-title">設定</h2>
-      <p class="note">すべてのモジュールに共通する設定と開発環境</p>
       <nav class="settings-tabs" role="tablist" aria-label="設定の種類">
         <button type="button" role="tab" data-settings-group="general">全般</button>
         <button type="button" role="tab" data-settings-group="ai">AI</button>
@@ -52,7 +49,6 @@
       </nav>
       <section class="settings-card" data-group="general" aria-labelledby="owner-title">
         <h3 id="owner-title">既定の所有者</h3>
-        <p class="note">モジュールの作成・取得で所有者を指定しなかったときに使う、GitHub のユーザーまたは組織。</p>
         <form id="owner-form" class="inline-form"><label class="field"><span class="sr-only">GitHubのユーザー名・組織名</span><input id="default-owner" placeholder="未設定ならログイン中のユーザー" autocomplete="off"></label>
           <button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="reset-owner">既定に戻す</button></form>
         <p id="owner-status" class="note" role="status"></p>
@@ -64,7 +60,7 @@
       </section>
       <section class="settings-card" data-group="general" aria-labelledby="setup-title">
         <h3 id="setup-title">環境の準備</h3>
-        <p class="note">Git が GitHub CLI の認証を使うようにし、コミットの作成者（名前・メールアドレス）を設定します。</p>
+        <p class="note">Git に GitHub CLI の認証を使わせます。</p>
         <form id="setup-form">
           <div class="form-grid"><label class="field">名前<input name="name" autocomplete="name" placeholder="変更するときだけ入力"></label><label class="field">メールアドレス<input name="email" type="email" autocomplete="email" placeholder="変更するときだけ入力"></label></div>
           <label class="check"><input type="checkbox" name="install"> 不足しているツールもインストールする（winget）</label>
@@ -74,31 +70,30 @@
       </section>
       <section class="settings-card" data-group="ai" aria-labelledby="token-title">
         <h3 id="token-title">AI のログイン（コンテナ用）</h3>
-        <p class="note">コンテナの中の AI に渡すトークン。あれば、コンテナの中でログインせずに使えます。</p>
         <p class="note" id="token-status" role="status">読み込んでいます…</p>
         <form id="token-form" class="inline-form"><label class="field"><span class="sr-only">トークン</span><input id="token-value" type="password" autocomplete="off" placeholder="sk-ant-oat…（貼り付け）"></label>
           <button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="token-login" title="claude setup-token を新しい窓で開きます（ecobuild agent token login）">トークンを作る</button><button type="button" class="cancel danger-text" id="token-remove" hidden>消す</button></form>
-        <details class="more"><summary>トークンの作り方</summary><p class="note">「トークンを作る」で開く窓（claude setup-token）でブラウザーから許可すると、出たトークンを自動で保存します。拾えなかったときは、その窓か上の欄に貼ってください。サブスクリプションのアカウントで作れ、1年使えます。トークンがなければ、最初の1回だけコンテナの中でログインします。</p></details>
+        <details class="more"><summary>トークンの作り方</summary><p class="note">自動で拾えなかったら上の欄に貼ります。有効期間は1年です。</p></details>
       </section>
       <section class="settings-card" data-group="ai" aria-labelledby="agents-title">
         <h3 id="agents-title">エージェントの窓</h3>
-        <p class="note">アイコン・話し方（オペレーター・作業用）、オペレーターのモデル、返答の知らせ方、リングは、エージェントの窓の ⚙ で設定します。</p>
+        <p class="note">ほかの AI の設定はエージェントの窓の ⚙</p>
         <div class="settings-actions"><button type="button" class="cancel" id="open-agents-settings">エージェントの窓を開く</button></div>
       </section>
       <section class="settings-card" data-group="agents" aria-labelledby="registry-title">
-        <div class="page-heading"><h3 id="registry-title">エージェントの登録</h3><div class="settings-actions"><button type="button" class="cancel" id="registry-reload" title="最新の情報に更新">更新</button><button type="button" class="add-button" id="registry-add" title="見本を写すか、空の登録を足します（ecobuild agent registry add）">＋ 登録を足す</button></div></div>
-        <p class="note">起動できるエージェントです（このPCの ECOBuild 全体の設定。モジュールにはコミットしません）。エージェントに渡す文書・渡すツール（エージェントはツールを通してしか ECOBuild を使えません）・人が起動できるか・起動してよい子を決めます。見本は ECOBuild が配るもので、変えると自分の登録として写してから変えます。</p>
+        <div class="page-heading"><h3 id="registry-title">エージェントの登録</h3><div class="settings-actions"><button type="button" class="cancel" id="registry-reload">更新</button><button type="button" class="add-button" id="registry-add" title="ecobuild agent registry add">＋ 登録を足す</button></div></div>
+        <p class="note">このPCの全体の設定（モジュールにはコミットしない）</p>
         <p class="note" id="registry-status" role="status">読み込んでいます…</p>
         <ul id="registry-list" class="diagnostics registry-list"></ul>
       </section>
       <section class="settings-card" data-group="container" aria-labelledby="images-title">
-        <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="今の作り方でなく、どのコンテナも使っていないイメージを消します（ecobuild container image prune）">古いものを消す</button><button type="button" class="add-button" id="images-build" title="コンテナにした作業空間のイメージを、今の作り方（.ecobuild/container と今の ECOBuild）で作ります（ecobuild container image build。1つ数分）">今の作り方で作る</button></div></div>
-        <p class="note">作業空間をコンテナにしたときの元。モジュールごとに、リポジトリの .ecobuild/container/Dockerfile（環境。コミットしてほかの端末と共有）に ECOBuild を重ねて作ります。環境が変わる・ECOBuild を更新すると作り直します（古いものは自動で片付けます）。</p>
+        <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="ecobuild container image prune">古いものを消す</button><button type="button" class="add-button" id="images-build" title="ecobuild container image build（1つ数分）">今の作り方で作る</button></div></div>
+        <p class="note">元：.ecobuild/container/Dockerfile ＋ ECOBuild</p>
         <p class="note" id="images-status" role="status">読み込んでいます…</p>
         <ul id="images-list" class="image-types"></ul>
       </section>
       <section class="settings-card" data-group="about" aria-labelledby="about-title">
-        <div class="page-heading"><h3 id="about-title">ECOBuild</h3><div class="settings-actions"><button type="button" class="cancel" id="check-update" title="GitHub に新しい版があるかを確かめます（ecobuild installer update --check）">更新を確かめる</button><button type="button" class="add-button" id="run-update" hidden title="CLI と GUI を新しい版に入れ直します（ecobuild installer update）">更新する</button></div></div>
+        <div class="page-heading"><h3 id="about-title">ECOBuild</h3><div class="settings-actions"><button type="button" class="cancel" id="check-update" title="ecobuild installer update --check">更新を確かめる</button><button type="button" class="add-button" id="run-update" hidden title="ecobuild installer update">更新する</button></div></div>
         <div class="note" id="about"></div>
         <p class="note" id="update-status" role="status"></p>
       </section>
@@ -109,7 +104,7 @@
     </section>
     <section id="operator" aria-labelledby="operator-title" hidden>
       <div class="page-heading"><h2 id="operator-title">オペレーター</h2><div class="operator-tools"><span class="operator-state" id="operator-state" role="status">待機中</span><button type="button" class="cancel" id="operator-new" title="今の会話を終えて、新しく始めます">新しい会話</button></div></div>
-      <p class="note" id="operator-intro" hidden>ECOBuild の操作（タスクを作る・開始する・提出する・作業空間を開く など）を、ことばで頼めます。AI はコードを書かず、ecobuild のコマンドで操作します。消す・取り返しのつかない操作は、実行する前に確認します。</p>
+      <p class="note" id="operator-intro" hidden>AI はコードを書かず、ecobuild のコマンドで操作します。消す・取り返しのつかない操作は、実行する前に確認します。</p>
       <ol class="operator-log" id="operator-log" aria-live="polite"></ol>
       <form class="operator-form" id="operator-form"><textarea id="operator-input" rows="2" placeholder="例：Calc の新しいタスク「ログを出す」を作って開始して（Enter で送る、Shift+Enter で改行）" aria-label="オペレーターに頼むこと"></textarea><button type="submit" class="add-button" id="operator-send">送る</button></form>
     </section>
@@ -132,26 +127,24 @@
       </fieldset>
       <fieldset id="clone-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">GitHubリポジトリ<input name="repository" placeholder="所有者/名前 または 名前" pattern="[^/\s]+(/[^/\s]+)?" required></label>
-        <p class="note">ECOBuildで作成したモジュールをcloneし、依存先と生成ファイルを用意します。</p>
         <div id="clone-candidates" class="clone-candidates" aria-live="polite"></div>
       </fieldset>
       <div id="parent-fields">
         <label class="field">保存先の親フォルダ<span class="dir-row"><input name="directory" required><button type="button" data-pick="directory">参照…</button></span></label>
-        <p class="note" id="parent-note">このフォルダの下にモジュール名のフォルダを作ります。</p>
+        <p class="note" id="parent-note"></p>
       </div>
       <fieldset id="new-more" style="border:0;padding:0;margin:0">
         <details class="more-options"><summary>詳細設定 <span>説明・所有者・公開範囲</span></summary>
           <label class="field">説明（任意）<textarea name="description" rows="2"></textarea></label>
           <label class="field">所有者（任意）<input name="owner" placeholder="省略時は既定の所有者（未設定ならログイン中のユーザー）"></label>
-          <label class="check"><input type="checkbox" name="public"> 公開リポジトリにする</label>
-          <p class="note">既定は非公開です。GitHubのリポジトリ作成と初回のPushもまとめて行います。</p></details>
+          <label class="check"><input type="checkbox" name="public"> 公開リポジトリにする</label></details>
       </fieldset>
       <fieldset id="register-fields" hidden disabled style="border:0;padding:0;margin:0">
         <label class="field">モジュールのフォルダ<span class="dir-row"><input name="folder" required placeholder=".ecobuild のあるフォルダ"><button type="button" data-pick="folder">参照…</button></span></label>
       </fieldset>
       <fieldset id="adopt-fields" hidden disabled style="border:0;padding:0;margin:0">
         <div class="form-grid"><label class="field">リポジトリのフォルダ<span class="dir-row"><input name="adopt-folder" required placeholder="GitHub のリポジトリを clone したフォルダ"><button type="button" data-pick="adopt-folder">参照…</button></span></label><label class="field">型<select name="adopt-type" id="adopt-type-select"><option value="cpp">C++</option><option value="python">Python</option><option value="generic">その他（generic）</option></select></label></div>
-        <p class="note">今のブランチに .ecobuild/ を置いて「ECOBuild のモジュールにする」としてコミットし、GitHub へ push します（そのブランチがタスクブランチの作成元になります）。README などのファイルは変えません。できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。</p>
+        <p class="note">できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。</p>
       </fieldset>
       <p id="add-error" role="alert"></p>
       <div class="dialog-actions"><button type="button" class="cancel" id="cancel-add">キャンセル</button><button class="add-button" type="submit">追加</button></div>

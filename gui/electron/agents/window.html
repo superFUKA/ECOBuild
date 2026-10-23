@@ -26,16 +26,16 @@
     </span>
   </header>
   <main id="screens"><div class="empty" id="empty"><div>
-      <p>エージェントはありません。<br>下のボタン（ヘッダーの ＋ と同じ）か、作業空間の「エージェント」から開きます。</p>
+      <p>エージェントはありません。<br>作業空間の「エージェント」からも開けます。</p>
       <button type="button" id="empty-add" class="tool">＋ エージェントを開く</button>
       <p class="hint"><kbd>Ctrl+Shift+A</kbd> タブの一覧</p>
     </div></div>
     <section class="team" id="team" hidden aria-label="チーム（AI が起動した子）">
       <div class="team-bar">
         <span class="views" id="team-views" role="tablist" aria-label="見方">
-          <button type="button" data-mode="tabs" title="子ごとのタブ（詳しい表示）">タブ</button>
-          <button type="button" data-mode="grid" title="子ごとの小さな表示を並べる（クリックで大きく）">並べて</button>
-          <button type="button" data-mode="list" title="1人1行（選ぶと詳しい表示）">一覧</button>
+          <button type="button" data-mode="tabs">タブ</button>
+          <button type="button" data-mode="grid">並べて</button>
+          <button type="button" data-mode="list">一覧</button>
         </span>
         <span class="sum" id="team-sum"></span>
         <span class="err" id="team-err"></span>
@@ -70,7 +70,6 @@
       <div class="row"><span>音量</span><input type="range" id="notify-volume" min="0" max="1" step="0.05"><output id="notify-volume-value" for="notify-volume"></output></div>
       <div class="row"><span>右下に返答を出しておく時間</span><select id="notify-hold"></select></div>
       <div class="row"><label><input type="checkbox" id="notify-team">AI が起動した子（チーム）の返答の終わりも知らせる</label></div>
-      <p class="note">子の返答の終わりは親のエージェントに届くので、ふだんは知らせません。</p>
     </div>
     <div class="card">
       <h2>エージェント</h2>
@@ -80,20 +79,20 @@
     <div class="card persona">
       <h2>アイコンと話し方</h2>
       <div class="who" data-kind="operator">
-        <img class="avatar big" alt="" title="画像を選ぶ"><div class="fields">
+        <img class="avatar big" alt=""><div class="fields">
           <div class="row"><b>オペレーター</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
           <textarea rows="3" placeholder="話し方・答え方（例：やさしい敬語で、短く。結果は最初に一言で）"></textarea>
           <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
         </div>
       </div>
       <div class="who" data-kind="agent">
-        <img class="avatar big" alt="" title="画像を選ぶ"><div class="fields">
+        <img class="avatar big" alt=""><div class="fields">
           <div class="row"><b>作業用のエージェント</b><button type="button" class="tool pick">画像を選ぶ</button><button type="button" class="tool clear">既定に戻す</button></div>
           <textarea rows="3" placeholder="話し方・答え方（例：報告は箇条書きで）"></textarea>
           <div class="row"><button type="button" class="tool save">話し方を保存</button><span class="saved note"></span></div>
         </div>
       </div>
-      <p class="note">話し方は、次に起動したエージェントから効きます（口調・言い回しだけ。決まりや確認、報告の中身は変わりません）。ECOBuild の設定 <code>operator_style</code>・<code>agent_style</code> です。</p>
+      <p class="note">次に起動したエージェントから効きます。</p>
     </div>
     <div class="card">
       <h2>リング（Ring II）</h2>

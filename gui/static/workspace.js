@@ -69,8 +69,8 @@ async function loadAccount() {
   button.classList.toggle('on', !!bound);
   get('account-label').textContent = wsAccess ? wsAccess.login : '?';
   button.dataset.tip = !wsAccess ? 'アカウントを読めませんでした' : bound
-    ? `この作業空間は ${bound} として動きます（push・提出・コミットの作者・コンテナの中のエージェント。役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}）`
-    : `この作業空間は gh の使用中のアカウント ${wsAccess.login} で動きます（役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}）`;
+    ? `${bound}（この作業空間だけ）・役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}`
+    : `${wsAccess.login}（gh の使用中）・役割：${ECO.roleNames[wsAccess.role] || wsAccess.role}`;
 }
 async function useAccount(account) {
   const doc = await WS.run(['account', 'use', ...(account ? [account] : ['--clear'])],
@@ -85,7 +85,7 @@ get('account-button')?.addEventListener('click', async () => {
     [bound ? `この作業空間のアカウント：${bound}` : `gh の使用中のアカウント：${wsAccess?.login || '?'}`, null],
     '-',
     ...accounts.filter(a => a.login !== bound).map(a => [`${a.login} として動かす${a.active ? '（gh の使用中）' : ''}`, () => useAccount(a.login)]),
-    ['ほかのアカウント…', () => ECO.form({title: 'この作業空間のアカウント', intro: 'この作業空間の ecobuild・push・提出・コンテナの中のエージェントを、そのアカウントとして動かします（コミットの作者も）。この作業空間だけの設定で、コミットしません。先にそのアカウントで gh auth login しておきます（使用中のアカウントは gh auth switch で戻せます）。',
+    ['ほかのアカウント…', () => ECO.form({title: 'この作業空間のアカウント', intro: '先にそのアカウントで gh auth login しておきます。',
       fields: [{name: 'account', label: 'GitHub のアカウント', required: true, placeholder: '例：my-ai-account'}], ok: '結び付ける',
       submit: v => useAccount(v.account.trim())})],
     ...(bound ? ['-', ['結び付けを外す（gh の使用中のアカウントに戻す）', () => useAccount(null)]] : []),
@@ -98,7 +98,7 @@ function renderLock() {
   const lock = ECO.lockOf(WS.status), button = get('lock-button'); if (!button) return;
   button.classList.toggle('on', lock.locked);
   get('lock-label').textContent = lock.locked ? 'ロック中' : 'ロック';
-  button.dataset.tip = lock.locked ? `作業空間がロックされています：${ECO.lockSummary(lock)}` : 'この作業空間はロックされていません（押すと手動でロックできます）';
+  button.dataset.tip = lock.locked ? `作業空間がロックされています：${ECO.lockSummary(lock)}` : 'ロックされていません';
 }
 get('lock-button')?.addEventListener('click', async () => { await WS.refresh(); if (await ECO.lockDialog(WS.dir, WS.status)) await WS.refresh(); });
 
@@ -149,18 +149,18 @@ function renderBanners(errorDoc) {
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
     if (ECO.lockOf(s).locked) out.push(banner(`この作業空間はロックされています（${esc(ECO.lockSummary(ECO.lockOf(s)))}）。ロック中は、タスクブランチの切り替え・削除ができません。<button data-git="lock">ロックの詳細…</button>`));
-    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください（直したファイルは自動で登録します）。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
-    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（ビルド・テスト・実行ができます。コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
-    else if (!s.task) out.push(banner(`ここはタスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。ファイルの変更・コミットはタスクブランチで行います。始めているタスクはツールバーのブランチ（⑂ のボタン）から開き、新しいタスクはタスク管理で「作業を開始」してください。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
+    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
+    if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
+    else if (!s.task) out.push(banner(`タスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。コミットはタスクブランチで。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
     // Changes left where nothing is committed (main etc.): they can only be thrown away here.
     const left = !s.task && !s.reviewing && !s.merging ? WS.changes().size : 0;
-    if (left) out.push(banner(`未コミットの変更が ${left} 件残っています。タスクブランチではないので、ここではコミットできません。<button data-git="discard-left">変更を捨てる…</button>`));
+    if (left) out.push(banner(`未コミットの変更が ${left} 件あります。<button data-git="discard-left">変更を捨てる…</button>`));
     // ECOBuild commits its own update (any branch; off a task branch it is pushed too).
-    if (s.format < s.latest_format && !upgradeLater) out.push(banner(`このモジュールは以前の ECOBuild の仕様（版 ${s.format}）です。今の版 ${s.latest_format} に合わせられます（.gitignore・AGENTS.md・CI 等を今の中身に。README は変えません。変えたファイルは「ECOBuild の更新」として自動でコミットします）。` +
+    if (s.format < s.latest_format && !upgradeLater) out.push(banner(`ECOBuild の仕様が古くなっています（版 ${s.format} → ${s.latest_format}）。` +
       (s.reviewing || s.merging ? '' : '<button data-git="upgrade">最新の仕様にする</button>') + '<button data-git="upgrade-later">あとで</button>'));
   }
   get('banners').innerHTML = out.join('');
@@ -227,7 +227,7 @@ function changeGroup(project, paths) {
   name.textContent = project ? project.name : 'Project の外';
   if (project?.kind) { const kind = document.createElement('span'); kind.className = 'change-group-kind'; kind.textContent = PROJECT_KIND_LABEL[project.kind] || project.kind; name.append(kind); }
   count.textContent = `${paths.length}件`;
-  head.title = project ? `${project.top || '（モジュールの一番上）'}／チェックでこの Project の変更をすべて選ぶ` : 'どの Project にも入らないファイル（モジュールの設定・CI 等）';
+  head.title = project ? `${project.top || '（モジュールの一番上）'}` : 'どの Project にも入らないファイル（モジュールの設定・CI 等）';
   head.append(box, name, count);
   return head;
 }
@@ -255,7 +255,7 @@ function changeFolder(dir, shown, paths, depth) {
   name.innerHTML = `<span class="change-folder-icon" aria-hidden="true">${CHANGE_FOLDER_ICON}</span>`;
   name.append(shown);
   count.textContent = `${paths.length}件`;
-  head.title = `${dir}／チェックでこのフォルダ以下の変更をすべて選ぶ`;
+  head.title = dir;
   head.append(box, name, count);
   return head;
 }
@@ -325,7 +325,7 @@ get('commit').addEventListener('click', async () => {
   }
 });
 // After a Push the task is in 提出 (submit or finish it there).
-get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。提出は「提出」で。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
+get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
 
 // The commits Push sends (task push --dry-run: local and quick), listed under 「共有」 while there are any.
 // 閉じる folds the list (kept on this PC); 「一覧」 next to the count opens it again.
@@ -338,7 +338,7 @@ async function renderPushList() {
   if (!ahead) { box.hidden = true; return; }
   if (pushListClosed) {
     box.hidden = true;
-    get('push-state').insertAdjacentHTML('afterend', '<button type="button" id="push-commits-open" class="link-button" title="Pushするコミットの一覧を開く">一覧</button>');
+    get('push-state').insertAdjacentHTML('afterend', '<button type="button" id="push-commits-open" class="link-button">一覧</button>');
     return;
   }
   const mine = ++pushListRead, doc = await WS.cli(['task', 'push', '--dry-run'], {quiet: true});
@@ -373,8 +373,7 @@ function pushCommitMenu(row, x, y) {
     ['SHAをコピー', () => ECO.copyText(sha)],
     '-',
     [`${later}を取り消す（変更は残す）`, () => WS.run(['task', 'reset', `${sha}~1`, '--keep', '--yes'],
-      {success: r => `コミット ${r.dropped.length} 件を取り消しました。変更は「コミット」に残っています。`}).then(reload), true,
-      'コミットだけを取り消し、その変更はコミットしていない変更として残します（直してコミットし直せます）'],
+      {success: r => `コミット ${r.dropped.length} 件を取り消しました。変更は「コミット」に残っています。`}).then(reload)],
     [`${later}を捨てる…`, () => WS.run(['task', 'reset', `${sha}~1`], {title: 'コミットを捨てる',
       success: r => `コミット ${r.dropped.length} 件を捨てました。`}).then(reload), true,
       `${sha}「${subject}」${index ? 'から後' : ''}のコミットと、その変更を捨てます（元に戻せません）`],
@@ -413,7 +412,7 @@ function historyMenu(c, x, y) {
     ['この版の状態に戻す…', () => WS.run(['restore', '--source', c.sha],
       {confirm: `ファイルを ${short}「${c.subject}」のときの状態に戻します。これまでのコミットは消さず、戻した結果はコミットする変更になります。`, title: 'この版の状態に戻す',
        success: `${short} の状態に戻しました。内容を確かめてコミットしてください。`}).then(() => WS.reloadFiles?.()), onTask,
-      onTask ? 'ファイルをこの版のときの状態に戻します（戻した結果をコミットします）' : why],
+      onTask ? '' : why],
     ['ここまで戻す…', () => WS.run(['task', 'reset', c.sha],
       {title: 'ここまで戻す', success: r => r.dropped.length ? `${short} まで戻しました（捨てたコミット ${r.dropped.length} 件）。` : '捨てるコミットはありません。'})
       .then(() => WS.reloadFiles?.()), onTask, onTask ? 'この版より後のコミットを捨てます' : why],
@@ -445,12 +444,12 @@ get('switch-branch').addEventListener('click', async () => {
     if (isHere(t)) return [`✓ ${label}（この作業空間）`, () => {}, false];
     if (t.workspace) {
       return [`${label}（作業空間 ${t.workspace.split(/[\\/]/).pop()}）`, () => window.parent.postMessage({type: 'open-place', dir: t.workspace}, location.origin),
-        embedded, embedded ? `その作業空間のタブを表示します（${t.workspace}）` : notEmbedded];
+        embedded, embedded ? t.workspace : notEmbedded];
     }
     const others = WS.me && t.assignees?.length && !t.assignees.includes(WS.me) ? t.assignees : [];
     if (others.length) return [`${label}（担当：${others.join('、')}）`, () => {}, false, 'ほかの人が担当しています。引き継ぐなら、タスク管理の「作業を開始」から'];
     return [label + (t.task_branch ? '（作業空間を作って開く）' : '（GitHubから再開）'), () => window.parent.postMessage({type: 'open-task', n: t.number}, location.origin),
-      embedded, embedded ? 'そのタスクの作業空間をモジュールの中に作って、新しいタブで開きます' : notEmbedded];
+      embedded, embedded ? '' : notEmbedded];
   });
   ECO.menu([
     ['タスクの作業空間を開く', null],

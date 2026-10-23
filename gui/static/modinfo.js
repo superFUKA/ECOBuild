@@ -32,7 +32,7 @@
   let depsFetched = false;
   const DEP_STATE = {aligned: ['記録の版', 'ok'], differs: ['記録と別の版', 'warn'], modified: ['未コミットの変更あり', 'warn'], working: ['作業版', ''], missing: ['cloneなし', 'bad']};
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
-  const head = (title, note, actions = '') => `<div class="mi-head"><div><h3>${title}</h3><p class="mi-note">${note}</p></div><div class="mi-actions">${actions}</div></div>`;
+  const head = (title, note, actions = '') => `<div class="mi-head"><div><h3>${title}</h3>${note ? `<p class="mi-note">${note}</p>` : ''}</div><div class="mi-actions">${actions}</div></div>`;
   // What changes the managed files runs in a task branch's workspace (inWorkspace): grey with the reason while there is none.
   const WS_ACTIONS = new Set(['deps-update', 'link', 'unlink', 'project-add', 'project-remove', 'pch', 'project-settings', 'project-link', 'project-move', 'module-settings',
     'template-add', 'template-remove', 'profile-add', 'profile-project', 'profile-project-clear', 'profile-remove']);
@@ -74,7 +74,6 @@
   const EDIT_VIEWS = new Set(['projects', 'deps', 'profiles', 'general', 'templates']);
   function banners() {
     let out = '';
-    if (MOD.keyOf(here()) !== MOD.keyOf(MOD.root)) out += `<div class="eco-banner mi-info"><span><strong>${esc(MOD.states.get(MOD.keyOf(here()))?.branch || '')}</strong> の作業空間（${esc(here())}）の内容を表示しています。</span></div>`;
     if (EDIT_VIEWS.has(view) && !MOD.workspacePlaces().length) out += `<div class="eco-banner mi-info"><span>変更はタスクブランチの作業空間で行います。作業空間がないので、今は見るだけです${view === 'profiles' ? '（このPCで使うビルド設定は選べます）' : ''}。</span><button type="button" class="sm" data-open-tasks>タスク管理を開く</button></div>`;
     return out;
   }
@@ -97,7 +96,7 @@
       return `<ul>${[...c.dirs].sort(byName).map(d => {
         const open = openFolders.has(d);
         return `<li><button type="button" class="mi-file dir" data-mi-folder="${esc(d)}" aria-expanded="${open}"><span class="mi-caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="mi-icon" aria-hidden="true">▤</span>${esc(name(d))}<small>${count(d) ? count(d) + ' 項目' : '空'}</small></button>${open ? level(d) : ''}</li>`;
-      }).join('')}${[...c.files].sort(byName).map(file => `<li class="mi-file-row"><button type="button" class="mi-file${generated.has(file) ? ' generated' : ''}" data-mi-file="${esc(file)}" title="ダブルクリック（Enter）で開く"><span class="mi-caret" aria-hidden="true"></span><span class="mi-icon" aria-hidden="true">▫</span>${esc(name(file))}${generated.has(file) ? '<small>生成ファイル</small>' : ''}</button><button type="button" class="sm mi-open" data-mi-open="${esc(file)}" tabindex="-1" title="既定のアプリで開く">開く</button></li>`).join('')}</ul>`;
+      }).join('')}${[...c.files].sort(byName).map(file => `<li class="mi-file-row"><button type="button" class="mi-file${generated.has(file) ? ' generated' : ''}" data-mi-file="${esc(file)}" title="ダブルクリック（Enter）で開く"><span class="mi-caret" aria-hidden="true"></span><span class="mi-icon" aria-hidden="true">▫</span>${esc(name(file))}${generated.has(file) ? '<small>生成ファイル</small>' : ''}</button><button type="button" class="sm mi-open" data-mi-open="${esc(file)}" tabindex="-1">開く</button></li>`).join('')}</ul>`;
     };
     return `<div class="mi-files" id="mi-files">${count('') ? level('') : '<p class="mi-note">ファイルはありません。</p>'}</div>`;
   }
@@ -179,13 +178,13 @@
       const note = !n.present ? pill('cloneなし（その先は不明）', 'bad') : again ? pill('上に同じ') : '';
       return `<li><div class="mi-branch"><span class="mi-branch-name">${esc(name)}</span><span class="mi-mono mi-sub">${short(n.revision)}</span>${note}</div>${!again && n.depends_on.length ? walk(n.depends_on) : ''}</li>`;
     }).join('')}</ul>`;
-    return `<h4 class="mi-subhead">依存関係の図</h4><p class="mi-note">依存先の依存先も含めた全体です。2回目以降に出てくるものは、その先を省きます。</p>
+    return `<h4 class="mi-subhead">依存関係の図</h4>
       <ul class="mi-tree"><li><div class="mi-branch ws"><span class="mi-branch-name">${esc(t.module)}</span>${pill('このモジュール', 'ok')}</div>${walk(t.direct)}</li></ul>`;
   }
   function renderDeps() {
     const deps = data.deps, projects = data.projects || [];
     if (deps.error) return head('依存先', '') + failure(deps.error.message);
-    return head('依存先', 'このモジュールが使う他のモジュールです。リンク・更新・リンクを外すのはタスクブランチで行い、PRで反映します。',
+    return head('依存先', '',
       btn(depsFetched ? 'GitHubをもう一度確認' : 'GitHubと照らし合わせる', 'deps-fetch') + btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
       (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
@@ -198,7 +197,7 @@
     const notes = [];
     if (d.remote === 'moved') notes.push(`現在の名前は ${esc(d.moved_to)}（GitHubの転送で取得できます）`);
     if (d.remote === 'gone') notes.push('このモジュールを新しくcloneすると、この依存先を取得できません');
-    if (d.latest && d.latest !== d.recorded) notes.push(`新しい版 <span class="mi-mono">${short(d.latest)}</span> があります（「更新」で記録を更新できます）`);
+    if (d.latest && d.latest !== d.recorded) notes.push(`新しい版 <span class="mi-mono">${short(d.latest)}</span> `);
     return pill(label, cls) + notes.map(n => `<div class="mi-sub">${n}</div>`).join('');
   }
   // The Projects as a tree: a test or bench is shown under the Project of this module it links, indented (a library's test
@@ -231,19 +230,19 @@
     const projects = data.projects, deps = Array.isArray(data.deps) ? data.deps : [];
     if (projects.error) return head('Project', '') + failure(projects.error.message);
     const settings = data.settings, main = settings?.main_project;
-    return head('Project', 'モジュール内のProjectとリンクです。変更はタスクブランチで行い、PRで反映します。',
+    return head('Project', '',
       btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定…', 'project-settings', p.name)}${more([['リンク…', 'project-link', p.name], ['PCH…', 'pch', p.name], ['移動…', 'project-move', p.name], '-', ['削除…', 'project-remove', p.name, true]])}</td></tr>`).join('')}</tbody></table>
-      <p class="mi-legend"><span>${pill('→ 依存先', 'dep')} 他のモジュール</span><span>${pill('→ Project')} このモジュール内</span><span>${pill('main', 'ok')} 他のモジュールからリンクされる（設定 › 全般）</span><span>字下げ＝上のProjectのテスト・性能測定</span><span>パッケージ等のリンクは ⋯ の「リンク…」</span></p>` : '<p class="eco-empty">Projectはありません。</p>');
+      <p class="mi-legend"><span>${pill('→ 依存先', 'dep')} 他のモジュール</span><span>${pill('→ Project')} このモジュール内</span><span>${pill('main', 'ok')} 他のモジュールからリンクされる（設定 › 全般）</span></p>` : '<p class="eco-empty">Projectはありません。</p>');
   }
   // The module's own settings (module settings): which Project other modules link, the MSVC runtime, the solution folders.
   function renderGeneral() {
     const m = data.settings;
     if (!m) return head('全般', '') + failure('このモジュールの設定を読めませんでした。');
     const f = m.folders, row = (label, value, note = '') => `<tr><th scope="row">${label}</th><td>${value}${note ? `<div class="mi-sub">${note}</div>` : ''}</td></tr>`;
-    return head('全般', 'モジュール全体の設定です。変更はタスクブランチで行い、PRで反映します。', btn('変更…', 'module-settings', '', 'primary')) +
+    return head('全般', '', btn('変更…', 'module-settings', '', 'primary')) +
       `<table class="mi-table mi-settings"><tbody>
       ${row('他のモジュールからリンクされるProject（main）', m.main_project ? `<strong>${esc(m.main_project)}</strong>` : '<span class="mi-sub">なし（他のモジュールからリンクできない）</span>')}
       ${row('MSVC のCランタイム', {dll: 'DLL（/MD）', static: '静的（/MT）'}[m.msvc_runtime] || '既定', 'このモジュールを頂点にしたビルド全体')}
@@ -254,7 +253,7 @@
   function renderTemplates() {
     const templates = data.settings?.templates;
     if (!templates) return head('ファイルテンプレート', '') + failure('ファイルテンプレートを読めませんでした。');
-    return head('ファイルテンプレート', '新しいファイルを作るときの元になる内容です。{{header}}・{{name}}・{{suite}}・{{project}} は作るときに置き換わります。ECOBuildの既定のもの（header・source 等）は同じ名前で登録すると差し替えられます。', btn('＋ テンプレート', 'template-add', '', 'primary')) +
+    return head('ファイルテンプレート', '', btn('＋ テンプレート', 'template-add', '', 'primary')) +
       `<table class="mi-table"><thead><tr><th>名前</th><th>ファイル</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${Object.entries(templates).map(([name, t]) => `<tr><td><strong>${esc(name)}</strong>${t.builtin ? ' ' + pill('既定') : ''}</td><td class="mi-mono">${esc(t.path)}</td><td class="mi-row-actions">${btn('差し替え…', 'template-add', name)}${t.builtin ? '' : btn('削除…', 'template-remove', name, 'danger-text')}</td></tr>`).join('')}</tbody></table>`;
   }
@@ -273,12 +272,12 @@
       : st.state === 'none' ? 'コンテナはまだありません（エージェント・ビルド等で使うときに作ります）'
       : st.outdated ? `<span class="mi-pill warn">古い</span> コンテナのイメージ ${esc(st.image)} は今の作り方のものではありません。次に動かすときに作り直します。`
       : `<span class="mi-pill ok">今の作り方</span> コンテナは ${esc(st.image)} で動いています`;
-    return head('コンテナ', `作業空間をコンテナにしたときのイメージは、モジュールの環境（${file}）に ECOBuild を重ねて作ります。`,
+    return head('コンテナ', '',
         btn('作業空間で編集', 'container-edit', '', inRepo ? 'primary' : '') + (inRepo ? btn('場所を開く', 'container-open') : btn('リポジトリに置く', 'container-place', '', 'primary')) + btn('今の作り方で作る', 'container-build')) +
       `<table class="mi-table mi-settings"><tbody>
-      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', (inRepo ? '' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）。') + 'ここでは読むだけです。編集は「作業空間で編集」から（保存はタスクブランチで）。')}
+      ${row('環境の作り方', inRepo ? tag(file) : '<span class="mi-sub">型のひな型（まだリポジトリにありません）</span>', inRepo ? '' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）。')}
       ${row('環境のイメージ', tag(r.environment))}
-      ${row('コンテナのイメージ', tag(r.image), '環境に ECOBuild を重ねたもの（ECOBuild の版で変わります）')}
+      ${row('コンテナのイメージ', tag(r.image))}
       ${state ? row('この作業空間のコンテナ', state) : ''}
       ${row('このPCのイメージ', mine.length ? mine.map(i => `<div>${tag(i.name)} ${i.current ? pill('今', 'ok') : pill('古い')} ${i.environment ? pill('環境') : ''}<span class="mi-sub"> ${esc(i.size)}・${esc(i.created)}${i.used_by.length ? `・使用中 ${i.used_by.length}` : ''}</span></div>`).join('')
         : '<span class="mi-sub">まだありません</span>', '古いものはハブの設定の「コンテナのイメージ」で片付けられます')}
@@ -298,10 +297,10 @@
     if (p.error) return head('ビルド設定', '') + failure(p.error.message);
     const names = Object.keys(p.profiles), cpp = !!features.projects, parallel = cpp || !!features.parallel;
     // The columns of the type: the form of the libraries and the overrides for Projects are C++'s.
-    const columns = ['使う', '名前', '構成', ...(cpp ? ['ライブラリ'] : []), ...(parallel ? ['並列数'] : []), ...(cpp ? ['そのほか・Projectごとの上書き'] : []), '<span class="sr-only">操作</span>'];
-    return head('ビルド設定', (cpp ? '名前付きのビルド設定（構成・静的／共有・並列数・C++の規格・コンパイラ等）と、Projectごとの上書きです。' : `名前付きのビルド設定（構成${parallel ? '・並列数' : ''}）です。`) + '定義の変更はタスクブランチで行います。「使う」はこのPCだけの選択です（.ecobuild/ecobuild.local.toml）。', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
+    const columns = ['このPCで使う', '名前', '構成', ...(cpp ? ['ライブラリ'] : []), ...(parallel ? ['並列数'] : []), ...(cpp ? ['そのほか・Projectごとの上書き'] : []), '<span class="sr-only">操作</span>'];
+    return head('ビルド設定', '', btn('＋ ビルド設定', 'profile-add', '', 'primary')) +
       (names.length ? '' : '<p class="eco-empty">ビルド設定はまだありません。「＋ ビルド設定」で作ると、このPCで使うものを選べます。</p>') +
-      `<table class="mi-table"><thead><tr>${columns.map((c, i) => `<th${i ? '' : ' class="mi-narrow" title="このPCで使うビルド設定"'}>${c}</th>`).join('')}</tr></thead><tbody>
+      `<table class="mi-table"><thead><tr>${columns.map((c, i) => `<th${i ? '' : ' class="mi-narrow"'}>${c}</th>`).join('')}</tr></thead><tbody>
       ${names.map(n => { const x = p.profiles[n], extra = optionsText(x.options), overrides = Object.entries(x.projects || {});
         return `<tr><td class="mi-narrow"><input type="radio" name="mi-profile" value="${esc(n)}" ${p.selected === n ? 'checked' : ''} aria-label="${esc(n)} を使う"></td><td><strong>${esc(n)}</strong></td><td>${esc(x.configuration)}</td>${cpp ? `<td>${x.shared ? 'すべて共有' : '静的'}</td>` : ''}${parallel ? `<td>${x.parallel}</td>` : ''}
         ${cpp ? `<td>${extra.length ? `<div class="mi-sub">${extra.map(esc).join('・')}</div>` : ''}${overrides.map(([project, values]) => `<div>${pill(project)} ${esc(optionsText(values).join('・'))} ${btn('変更', 'profile-project', n + '\n' + project, 'mi-link')}${btn('外す', 'profile-project-clear', n + '\n' + project, 'mi-link danger-text')}</div>`).join('')}</td>` : ''}

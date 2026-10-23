@@ -9,7 +9,7 @@ const HELP = (() => {
   <div class="page-heading"><h2 id="help-title">ヘルプ</h2>
     <div class="help-tabs" role="tablist"><button type="button" role="tab" data-help-tab="guide" aria-selected="true">使い方</button><button type="button" role="tab" data-help-tab="commands" aria-selected="false">コマンド一覧</button></div></div>
   <div id="help-guide">
-    <p class="note">ECOBuildの作業は、タスク（GitHubのIssue）ごとに進めます。GUIのボタンは、ecobuild のコマンドを実行しています。コマンドの名前を押すと、コマンド一覧の説明に移ります。</p>
+    <p class="note">ECOBuildの作業は、タスク（GitHubのIssue）ごとに進めます。GUIのボタンは、ecobuild のコマンドを実行しています。</p>
     <ol class="help-steps">
       <li><span class="help-step-number">1</span><div><h4>モジュールを用意する</h4><p class="help-where">ハブ › ＋ モジュール追加</p><p class="note">新しく作るか、GitHubから取得するか、手元のフォルダを登録します。ECOBuild を使っていないリポジトリは「リポジトリをモジュールに」で取り込めます（自分のリポジトリだけ）。</p>
         <p class="help-chips"><button type="button" data-goto="module new">module new</button><button type="button" data-goto="module clone">module clone</button><button type="button" data-goto="workspace add">workspace add</button></p></div></li>

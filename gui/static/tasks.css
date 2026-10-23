@@ -235,7 +235,6 @@
 .tk-sprint-bar { margin-bottom: 12px; }
 .tk-sprint-stages { margin: 0 0 12px; }
 .tk-progress { height: 8px; border-radius: 4px; background: #2a3139; overflow: hidden; margin: 12px 0 4px; } .tk-progress span { display: block; height: 100%; background: var(--accent); }
-.tk-note.tk-note-top { margin: -4px 0 8px; }
 .tk-next-none { margin: 0 2px 16px; }
 .tk-pf-stat.warn b { color: var(--warn); }
 
@@ -270,7 +269,6 @@
 /* 日程: rows without a plan. */
 .tl-label.undated .tk-grow { color: #b6c0cb; }
 .tl-group { grid-column: 1; position: sticky; left: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 0 10px; background: #1c2128; border-top: 1px dashed #46515e; border-right: 1px solid var(--line); font-size: 11px; font-weight: 600; color: #cdd5df; white-space: nowrap; }
-.tl-group span { font-weight: normal; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .tl-group-line { background: #1c2128; border-top: 1px dashed #46515e; }
 .tl-empty { border-bottom: 1px solid #222930; z-index: 1; }
 /* Always a faint grid of days: a place to drag a plan onto. */

@@ -424,7 +424,7 @@ agents.onPickerKey(gesture => {
 // フッターのモデル名：クリックで切り替え（待機中で入力欄が空のときに /model を送る）
 function modelMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
-  const head = document.createElement('div'); head.className = 'head'; head.textContent = 'モデルを切り替える（待機中のときに /model を送ります）'; menu.append(head);
+  const head = document.createElement('div'); head.className = 'head'; head.textContent = 'モデル'; menu.append(head);
   const now = String(info.info?.model || '').toLowerCase();   // 今のモデルに ✓
   menuItems(menu, [['Opus', 'opus'], ['Fable', 'fable'], ['Sonnet', 'sonnet'], ['Haiku', 'haiku']]
     .map(([label, model]) => [label, () => agents.model(info.id, model), {checked: now.includes(model)}]));

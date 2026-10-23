@@ -49,8 +49,8 @@ const OUTPUT = (() => {
     box.innerHTML = `<div class="out-head"><strong class="out-title" hidden></strong><span class="build-state out-state" hidden></span><span class="out-time"></span>
       <button type="button" class="out-counts" title="エラー・警告の行だけ表示／すべて表示" hidden></button>
       <span class="out-tools"><span class="out-shown"></span><input type="search" class="out-search" placeholder="絞り込み" aria-label="出力を絞り込む">
-        <button type="button" data-out="problems" aria-pressed="false" title="エラー・警告の行だけ表示">エラー・警告だけ</button><button type="button" data-out="wrap" aria-pressed="true" title="長い行を折り返す">折り返し</button><button type="button" data-out="history" aria-haspopup="menu" title="前の出力（最近の10回）">履歴</button><button type="button" data-out="copy" title="出力をコピー">コピー</button></span></div>
-      <pre class="out-text"><span class="line muted">ビルド・テスト・実行の出力がここに出ます。</span></pre>`;
+        <button type="button" data-out="problems" aria-pressed="false">エラー・警告だけ</button><button type="button" data-out="wrap" aria-pressed="true">折り返し</button><button type="button" data-out="history" aria-haspopup="menu" title="前の出力（最近の10回）">履歴</button><button type="button" data-out="copy" title="出力をコピー">コピー</button></span></div>
+      <pre class="out-text"></pre>`;
     const $ = s => box.querySelector(s), text = $('.out-text'), search = $('.out-search');
     let runs = [], shownId = null, newestId = null, shownState = '', onlyProblems = false;
     const shown = () => runs.find(r => r.id === shownId);

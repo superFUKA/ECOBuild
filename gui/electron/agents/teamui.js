@@ -116,8 +116,7 @@ function renderTeam() {
   tabsBar.hidden = teamMode !== 'tabs';
   if (!teamFlat.length) {
     unfollow(); tabsBar.replaceChildren();
-    body.replaceChildren(el('p', 'team-empty', 'このエージェントはまだ子を起動していません。起動すると、ここに出ます'
-      + '（AI が起動した子は、タブではなくここで見ます）。'));
+    body.replaceChildren(el('p', 'team-empty', '子はまだいません。'));
     return;
   }
   if (teamMode === 'tabs') {
@@ -205,13 +204,11 @@ function renderDetail(body, id, back) {
   head.replaceChildren(); sub.replaceChildren();
   if (back) {
     const b = el('button', 'tool back', '← 戻る'); b.type = 'button';
-    b.title = teamMode === 'grid' ? '並べた表示に戻る' : '一覧に戻る';
     b.addEventListener('click', () => { teamFocus = null; renderTeam(); });
     head.append(b);
   }
   if (!m) {
     head.append(el('b', 'name', '（閉じた子）'));
-    sub.append(el('span', 'note', 'この子はチームの一覧から消えました（閉じられました）。読んだ出来事はそのまま残しています。'));
     unfollow();   // 読んだ出来事は消さずに残す
     return;
   }
@@ -288,7 +285,7 @@ agents.onTeamEvents((id, events, more, reset, ended) => {
   }
   for (const item of added) { const e = itemEl(item); eventItems.set(item.key, e); box.append(e); }
   for (const item of changed) { const e = eventItems.get(item.key); if (e) e.replaceWith(eventItems.set(item.key, itemEl(item, e.open)).get(item.key)); }
-  if (!eventLog.items.length) box.append(el('p', 'note', '出来事はまだありません（係が画面なしで動かしている間の記録です）。'));
+  if (!eventLog.items.length) box.append(el('p', 'note', '出来事はまだありません。'));
   if (atBottom || reset) box.scrollTop = box.scrollHeight;
 });
 

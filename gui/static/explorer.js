@@ -265,11 +265,19 @@ function showMenu(items, x, y) {
   returnFocus = document.activeElement;
   // An item that cannot be used now is grey (still there); hovering it tells why (why). [key, label, enabled, shortcut]:
   // the shortcut shows at the right of the item.
-  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${item[0]}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? `disabled title="${esc(why(item[0]))}"` : ''}><span>${esc(item[1])}</span>${item[3] ? `<kbd>${esc(item[3])}</kbd>` : ''}</button>`).join('');
+  menu.innerHTML = items.map(item => item === '-' ? '<hr>' : `<button type="button" role="menuitem" data-menu="${esc(item[0])}" ${DANGER.has(item[0]) ? 'class="danger"' : ''} ${item[2] === false ? `disabled title="${esc(why(item[0]))}"` : ''}><span>${esc(item[1])}</span>${item[3] ? `<kbd>${esc(item[3])}</kbd>` : ''}</button>`).join('');
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
   menu.querySelector('button:not(:disabled)')?.focus();
+}
+// Open the paired files: each one, and this one with them (as many tabs in the editor).
+function pairItems(path) {
+  const {tests, subjects} = pairedFiles(path), others = [...tests, ...subjects];
+  if (!others.length) return [];
+  const short = p => p.split('/').pop();
+  return [...tests.map(p => ['pair:' + p, `テストを開く：${short(p)}`]), ...subjects.map(p => ['pair:' + p, `テストの対象を開く：${short(p)}`]),
+    ['pair-all', tests.length ? `このファイルとテストを一緒に開く` : `このテストと対象を一緒に開く`], '-'];
 }
 function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
@@ -277,6 +285,7 @@ function fileMenu(path, x, y) {
   showMenu([
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'Windows のエクスプローラーで表示', exists], '-',
     ...(isReadme(path) ? [] : [['rename', '名前の変更', can && exists, 'F2'], ['move', '移動先を指定…', can && exists], ['remove', '削除', can && exists, 'Delete']]),
+    ...pairItems(path),
     ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
@@ -401,8 +410,10 @@ async function afterFileChange(doc, message) { if (doc) say(message); await WS.r
 
 async function menuAction(action, dir) {
   const path = WS.activeFile;
+  if (action.startsWith('pair:')) return openInEditor(action.slice(5));
   switch (action) {
     case 'open': return openInEditor(path);
+    case 'pair-all': { const {tests, subjects} = pairedFiles(path); for (const p of [path, ...tests, ...subjects]) await openInEditor(p); return; }
     case 'open-default': return openFile(path);
     case 'reveal': return openFile(path, true);
     case 'reveal-dir': return openFile(dir || '');
@@ -508,6 +519,31 @@ function testable(path) {
   const project = projectOfPath(path);
   if (!restricted() || !CPP_FILE.test(path) || !project || !/library/.test(project.kind || '')) return false;
   return [...projectsByDir.values()].some(p => p.name === project.name + 'Test' && p.kind === 'test');
+}
+// A file and its test, at the places file add・file test use them. C++: a library's <P>/include/<P>/a/B.h・<P>/src/a/B.cpp
+// → <P>Test/src/a/BTest.cpp (a source's may keep its extension); Python: src/<package>/a/b.py → tests/a/test_b.py.
+function testPlaces(path) {
+  if (restricted()) {
+    const root = (projectRoots || []).find(r => path.startsWith(r + '/')), project = projectOfPath(path);
+    if (!project || !CPP_FILE.test(path)) return [];
+    const testRoot = [...projectsByDir].find(([, p]) => p.name === project.name + 'Test' && p.kind === 'test')?.[0];
+    if (testRoot === undefined) return [];
+    const parts = path.slice(root.length + 1).split('/');
+    const inner = parts[0] === 'include' && parts[1] === project.name ? parts.slice(2) : ['src', 'include'].includes(parts[0]) ? parts.slice(1) : null;
+    if (!inner?.length) return [];
+    const name = inner.pop(), dot = name.lastIndexOf('.'), stem = name.slice(0, dot), ext = name.slice(dot);
+    return [...new Set(['.cpp', ext].filter(e => !/^\.h/i.test(e)))].map(e => [testRoot, 'src', ...inner, `${stem}Test${e}`].join('/'));
+  }
+  const parts = path.split('/');
+  if (parts[0] !== 'src' || parts.length < 3 || !path.endsWith('.py')) return [];
+  const stem = parts.at(-1).slice(0, -3);
+  return ['__init__', '__main__'].includes(stem) ? [] : [['tests', ...parts.slice(2, -1), `test_${stem}.py`].join('/')];
+}
+// The files paired with this one: its tests (that are there), or, for a test, the files it is the test of.
+function pairedFiles(path) {
+  const files = WS.files.files || [], tests = testPlaces(path).filter(p => files.includes(p));
+  const subjects = files.filter(f => f !== path && testPlaces(f).includes(path));
+  return {tests, subjects};
 }
 // The new file screen for the test: by default in the test Project's src/, at the same place as the file
 // (include/<Project>/a/B.h・src/a/B.cpp → <Project>Test/src/a/BTest.cpp: what ecobuild says with --dry-run).

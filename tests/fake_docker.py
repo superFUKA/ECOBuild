@@ -7,6 +7,7 @@ from ecobuild_container import docker
 class FakeDocker:
     def __init__(self, monkeypatch, *, ready=True):
         self.ready, self.containers, self.images, self.calls = ready, {}, set(), []
+        self.busy = []   # コンテナの中で動いている、sleep infinity 以外のもの（docker top）
         monkeypatch.setattr(docker.shutil, "which", lambda name: name if name == "docker" else None)
 
     def run(self, args):
@@ -31,6 +32,10 @@ class FakeDocker:
                                                               if c[0] == "running"))
         if command == "ps":
             return docker.Completed(tuple(args), 0, "\n".join(f"{c[1]}\tC:/ECO/{n}" for n, c in self.containers.items()))
+        if command == "top":
+            lines = ["PID STAT COMMAND", "1 Ss /sbin/docker-init -- sleep infinity", "7 S sleep infinity",
+                     *(f"{100 + i} {line}" for i, line in enumerate(self.busy))]
+            return docker.Completed(tuple(args), 0, "\n".join(lines))
         if command == "build":
             self.images.add(rest[rest.index("--tag") + 1])
         elif command == "run":

@@ -12,6 +12,7 @@ class AgentConversations:
     directory: Path
     conversations: tuple            # ecoagent.Conversation（id・名前・最後に書かれた日時・ブランチ・発言の数）
     note: str = ""                  # 一覧を読めなかったわけ（コンテナが止まっている等）
+    running: tuple = ()             # 今動いているエージェントの会話（{session, agent, name}。続きからは起動できない：2重になる）
 
 
 

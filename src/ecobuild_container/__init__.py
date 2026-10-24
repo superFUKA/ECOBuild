@@ -558,7 +558,11 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
     if state != "none":
         if not image and source is not None:
             image, built, environment = _image(root, runner, prefix, source, progress)
-        if version != VERSION or (image and image != current):
+        if (version != VERSION or (image and image != current)) and state == "running" and _in_use(root, runner, prefix):
+            # 消すと中で動いているもの（ほかのエージェント・端末）も止まる。全部終わってから、次に動かすときに作り直す
+            progress("コンテナは今の ECOBuild の作りより古いですが、中で動いているもの（ほかのエージェント等）があるので"
+                     "作り直さずに使います（全部終わったあと、次に起動したときに作り直します）")
+        elif version != VERSION or (image and image != current):
             progress("コンテナを作り直します（ECOBuild の更新・コンテナの環境の変更に合わせる。作業空間のファイルはそのまま）")
             run_docker(runner, [*prefix, "rm", "--force", name(root)], "古いコンテナを消せませんでした")
             state = "none"
@@ -728,6 +732,20 @@ def _inspect(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) 
         return "none", "", ""
     state, image, version = (found.output.strip().split() + ["", ""])[:3]
     return state, image, version
+
+
+def _in_use(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...]) -> bool:
+    """動いているコンテナの中で、待つだけのもの（docker-init・sleep infinity）とゾンビ以外が動いているか
+    （docker exec で動かしたエージェント・端末等）。調べられなければ、使っているとみなす（消して止めないよう）。"""
+    found = (runner or docker.run)([*prefix, "top", name(root), "-o", "pid,stat,args"])
+    if not found.ok:
+        return True
+    idle = ("sleep infinity", "/sbin/docker-init -- sleep infinity")
+    for line in found.output.splitlines()[1:]:
+        _, stat, args = (line.split(None, 2) + ["", ""])[:3]   # PID は docker top に要る
+        if args.strip() and not stat.startswith("Z") and args.strip() not in idle:
+            return True
+    return False
 
 
 def _exists(root: Path, runner: docker.Runner | None) -> bool:

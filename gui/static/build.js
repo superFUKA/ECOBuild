@@ -332,14 +332,18 @@ WS.onRefresh(renderPrDetail);
     const doc = await WS.cli(['agent', 'conversations'], {quiet: true});
     if (!doc.ok) return ECO.showError(doc);
     const list = doc.result.conversations;
+    // A running agent's conversation can't be resumed (the same agent would run twice): greyed, saying whose it is.
+    const running = new Map((doc.result.running || []).map(r => [r.session, r]));
+    const busy = c => running.get(c.id);
     ECO.menu([
       [list.length ? '再開する会話（新しい順）' : (doc.result.note || 'この作業空間の会話はまだありません'), null],
       // a registration is passed too: the CLI uses the conversation's record if it has one, otherwise this registration
-      ...list.map(c => [`${c.title}　${when(c.updated)}`, async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --resume ${c.id}`, c.title, r); }, true,
-        `発言 ${c.prompts}${c.branch ? `・${c.branch}` : ''}・${c.id}`]),
+      ...list.map(c => [`${c.title}　${when(c.updated)}${busy(c) ? '（動いています）' : ''}`, async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --resume ${c.id}`, c.title, r); }, !busy(c),
+        busy(c) ? `エージェント「${busy(c).name}」（${busy(c).agent}）が動いています。その窓・タブで続けてください` : `発言 ${c.prompts}${c.branch ? `・${c.branch}` : ''}・${c.id}`]),
       '-',
       // --continue: the CLI needs a registration (the last conversation may be no agent's record yet)
-      ['最後の会話の続きから', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --continue`, '', r); }, list.length > 0],
+      ['最後の会話の続きから', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --continue`, '', r); }, list.length > 0 && !busy(list[0]),
+        list.length && busy(list[0]) ? `最後の会話はエージェント「${busy(list[0]).name}」が動いています` : undefined],
       ['Claude の一覧で選ぶ', async () => { const r = await defaultRegistration(); if (r) startAgent(`${base} --resume`, '', r); }, true, 'Claude Code の再開の画面で選びます（検索・プレビューができます）'],
     ], x, y);
   }

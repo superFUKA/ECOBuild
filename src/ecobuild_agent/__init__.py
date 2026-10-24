@@ -335,10 +335,11 @@ class AgentModule:
         コンテナにした作業空間では、中の会話（すべてのコンテナで共有する設定の場所にある。中の場所はどれも同じなので、
         今のブランチでの会話だけ）。コンテナが動いていなければ読まない（note にわけ）。"""
         if not container.enabled(self.root):
-            return AgentConversations(self.root, tuple(ecoagent.conversations(self.root, limit=limit)))
-        found, note = inside.agent_conversations(self.root, self.repository.git.current_branch() or "", limit,
-                                                 command=self.command)
-        return AgentConversations(self.root, found, note)
+            found, note = tuple(ecoagent.conversations(self.root, limit=limit)), ""
+        else:
+            found, note = inside.agent_conversations(self.root, self.repository.git.current_branch() or "", limit,
+                                                     command=self.command)
+        return AgentConversations(self.root, found, note, _running(found))
 
     # ---- 渡すもの -------------------------------------------------------------------------------------------
     def agent_briefing(self, task, record: AgentRecord) -> str:
@@ -438,6 +439,16 @@ class AgentModule:
             args += ["--registration-file", f"{status.inside(record.id)}/{REGISTRATION_FILE}"]
         program, before = ("ecobuild", []) if boxed else (sys.executable, ["-m", "ecobuild_cli"])
         return {"mcpServers": {"ecobuild": {"type": "stdio", "command": program, "args": [*before, *args]}}}
+
+
+def _running(conversations) -> tuple[dict, ...]:
+    """会話のうち、今動いているエージェントのもの（続きから起動すると、同じエージェントが2重になるので断る）。"""
+    found = []
+    for conversation in conversations:
+        record = agents.by_session(conversation.id)
+        if record is not None and status.running_pid(record.folder) is not None:
+            found.append({"session": conversation.id, "agent": record.id, "name": record.name})
+    return tuple(found)
 
 
 def _same(a, b) -> bool:

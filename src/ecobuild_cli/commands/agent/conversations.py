@@ -10,7 +10,7 @@ def command(limit: Annotated[int, "表示する件数（新しい順）"] = 20,
 
     続きから再開するには ecobuild agent start --program "claude --resume <id>"（その会話のエージェントを続きから。
     --as は要りません）。作業空間をコンテナにしていれば、コンテナの中の会話（今のブランチでのもの。コンテナが動いている
-    ときだけ読めます）。
+    ときだけ読めます）。動いているエージェントの会話（・動いています）は、続きから起動できません（2重になる）。
     """
     return run_command("agent conversations", lambda inv: inv.module.agent_conversations(limit), _render,
                        json_output=json)
@@ -21,9 +21,11 @@ def _render(r) -> str:
     if not r.conversations:
         return r.note or "会話はまだありません。"
 
+    running = {item["session"] for item in r.running}
+
     def who(session: str) -> str:
         found = agents.by_session(session)
-        return f"・エージェント「{found.name}」（{found.id}）" if found else ""
+        return (f"・エージェント「{found.name}」（{found.id}）" if found else "") + ("・動いています" if session in running else "")
     return "\n".join(f"{_local(c.updated)}  {c.id}  {c.title}（発言 {c.prompts}{'・' + c.branch if c.branch else ''}"
                      f"{who(c.id)}）" for c in r.conversations)
 

@@ -94,3 +94,18 @@ def test_the_briefing_tells_who_owns_the_task(tmp_path, monkeypatch):
     assert "## あなたの役：管理役" in text and "agent guide" not in text
     told = found.agent_briefing(task, helper)
     assert "手伝いです" in told and f"「{owner.name}」（{owner.id}）のもの" in told and "## あなたの役：作業役" in told
+
+
+def test_a_running_agents_conversation_is_marked(tmp_path):
+    """会話の一覧で、今動いているエージェントの会話は running に（続きから起動すると2重になるので、GUI は選ばせない）。"""
+    import os
+    from ecobuild_agent import _running
+    root = tmp_path / "ws"
+    root.mkdir()
+    lead = agents.create(registration="lead", workspace=root, session="s-1")
+    talks = [SimpleNamespace(id="s-1"), SimpleNamespace(id="s-2")]
+    assert _running(talks) == ()
+    status.started(lead.folder, os.getpid())
+    assert _running(talks) == ({"session": "s-1", "agent": lead.id, "name": "lead"},)
+    status.ended(lead.folder, os.getpid())
+    assert _running(talks) == ()

@@ -3,6 +3,7 @@
 import io
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -146,6 +147,16 @@ def test_mcp_lists_and_calls_tools(monkeypatch, capsys):
     assert {"ecobuild", "gui_open", "gui_folder", "gui_vs", "gui_notify", "gui_windows", "gui_activity", "ecobuild_commands"} <= names
     assert answers[2]["result"]["isError"] is False and "task" in answers[2]["result"]["content"][0]["text"]
     assert answers[3]["result"]["isError"] is True
+
+
+def test_ecobuild_commands_reads_in_the_place(monkeypatch):
+    """ecobuild_commands：dir があれば -C でその場所の一覧を読む（型のコマンドは、その型のモジュールの中でだけ重なる）。"""
+    called = []
+    done = lambda command, **_: called.append(command) or subprocess.CompletedProcess(command, 0, json.dumps({"ok": True, "result": {"path": "deps add"}}), "")   # noqa: E731
+    monkeypatch.setattr(ecobuild_gui.subprocess, "run", done)
+    assert ecobuild_gui.mcp_call("ecobuild_commands", {"path": "deps add", "dir": "C:/M"}) == ({"path": "deps add"}, False)
+    assert ecobuild_gui.mcp_call("ecobuild_commands", {})[1] is False
+    assert called == [["ecobuild", "-C", "C:/M", "deps", "add", "--help", "--json"], ["ecobuild", "--help", "--json"]]
 
 
 def test_the_command_is_put_next_to_ecobuild(tmp_path):

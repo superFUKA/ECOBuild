@@ -139,7 +139,7 @@ RULES = """# ECOBuild オペレーター
 - `gui_<操作>`：GUI の操作（画面を開く・移る、フォルダ・Visual Studio で開く、知らせ、エージェントの窓）。下の一覧。
 - `ecobuild_read`：重さが「見る」の ecobuild のコマンドだけを実行する（args に引数、dir に場所）。ほかのコマンドは断られる。
   結果の `ok`・`error.message`・`error.hint` を読む。
-- `ecobuild_commands`：コマンドの使い方（path に "task list" 等）。
+- `ecobuild_commands`：コマンドの使い方（path に "task list" 等）。型のコマンド（build・deps 等）は、dir にその型のモジュールの場所。
 
 ## 読み方
 

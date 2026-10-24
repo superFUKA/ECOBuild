@@ -142,6 +142,7 @@ def test_a_helper_works_in_the_parents_workspace_without_a_task_of_its_own(serve
     listed = ok(call(serve, parent, "children_list"))["members"]
     assert [m["id"] for m in listed] == [child.id] and listed[0]["kind"] == agents.HELPER
     assert listed[0]["registration"] == "worker" and "state" in listed[0] and listed[0]["messages"] == []
+    assert listed[0]["title"] == "作業役"                                                # 役は登録の表示名（見本の worker）
     named = helper_of(serve, parent)
     assert named.name == "worker-2"                                                      # 名前を省けば <登録>-<番号>
 

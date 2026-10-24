@@ -36,8 +36,9 @@ def _lines(members: list, indent: str) -> list[str]:
     for m in members:
         task = m.get("task") or {}
         kind = "手伝い" if m.get("kind") == _agents.HELPER else f"子タスク #{task.get('number')}  {m.get('branch') or ''}"
-        lines.append(f"{indent}「{m['name']}」（{m['id']}・登録 {m.get('registration')}）  {kind}  "
-                     + ("報告あり" if m.get("reported") else "報告まだ"))
+        role = m.get("title") or m.get("registration")
+        lines.append(f"{indent}「{m['name']}」（{m['id']}・{role}" + (f"〔登録 {m.get('registration')}〕" if role != m.get("registration") else "")
+                     + f"）  {kind}" + ("  報告あり" if m.get("reported") else ""))
         activity = _children.describe_activity(m)
         if activity:
             lines.append(f"{indent}    様子：{activity}")

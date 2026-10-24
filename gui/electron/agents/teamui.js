@@ -3,7 +3,7 @@
 // タブの隣の「チーム」で開く。読むだけで、入力欄は置かない（指示は親のエージェントから）。見方は3つ（窓〔作業空間〕ごとに覚える）：
 // - タブ：子ごとのタブで、詳しい表示。
 // - 並べて：子ごとの小さな表示（名前・様子・今の一歩・最新の数行）。クリックで大きく（詳しい表示）、「戻る」で格子へ。
-// - 一覧：1人1行（名前・登録・様子・今の一歩・報告・届いていない言付け）。選ぶと詳しい表示。
+// - 一覧：1人1行（名前・役〔登録の表示名〕と働き方・様子・今の一歩・報告・届いていない言付け）。選ぶと詳しい表示。
 // 止まっている・失敗・作業中が長い・長く道具を使っていないものは目立たせる。詳しい表示は返答の文・道具（1行に畳み、開くと
 // 入出力）・届いた言付けと知らせ（誰からか）・返答の終わりの区切り（使用量・断られた権限）。新しい出来事は追いかける（読み
 // 返しているときは追いかけない）。操作：止める・起動し直す・引き取る（このアプリのタブで開く。閉じると係に返す）・返す・
@@ -147,7 +147,7 @@ function renderSubTabs(bar) {
 
 // ---- 一覧・格子 -----------------------------------------------------------------------------------------
 function flags(m) {
-  const out = [m.reported ? '報告あり' : '報告まだ'];
+  const out = m.reported ? ['報告あり'] : [];   // まだのときは出さない（報告するかは役による）
   if (m.waiting) out.push(`届いていない言付け ${m.waiting}`);
   if (typeof m.context === 'number') out.push(`ctx ${Math.round(m.context)}%`);
   if (teamData.taken[m.id]) out.push(`引き取り中（タブ ${teamData.taken[m.id].num}）`);
@@ -169,7 +169,7 @@ function renderOverview(body) {
     const name = el('span', 'name', m.name);
     // 入れ子：一覧ではタブと同じ「└」で字下げ。格子では字下げせず、役の横に親の名前
     if (m.depth && teamMode === 'list') name.prepend(el('span', 'tree', '　'.repeat(m.depth - 1) + '└ '));
-    const role = el('span', 'role', TeamView.kindName(m));
+    const roleText = TeamView.roleLabel(m), role = el('span', 'role', roleText.text); role.title = roleText.title;
     const state = el('span', 'state', look.label);
     const doing = el('span', 'doing', m.doing ? `今：${m.doing}` : look.alert || (m.last_reply ? `最後：${m.last_reply}` : ''));
     if (teamMode === 'grid') {
@@ -214,7 +214,8 @@ function renderDetail(body, id, back) {
   }
   const look = TeamView.look(m);
   const state = el('span', 'state', look.label); state.dataset.tone = look.tone;
-  head.append(el('b', 'name', m.name), el('span', 'role', TeamView.kindName(m)), state);
+  const roleText = TeamView.roleLabel(m), role = el('span', 'role', roleText.text); role.title = roleText.title;
+  head.append(el('b', 'name', m.name), role, state);
   if (look.alert) head.append(el('span', 'alert', look.alert));
   const ops = el('span', 'ops');
   if (head.parentElement.clientWidth < NARROW) {   // 狭いときは「操作 ▾」1つにまとめる（中身は右クリックのメニューと同じ）

@@ -26,11 +26,22 @@
     return out;
   }
 
-  // 子の種類と登録の1語（手伝いか子タスクか。登録の名前は ECOBuild の既定の役ではなく、ユーザーが登録したもの）
+  // 役：登録の表示名（役は登録で自由に決めるので、ECOBuild の決まった役の名前は出さない）。登録がなければ名前
   function kindName(m) {
-    const registration = m.registration || '';
-    if (m.kind === 'helper') return registration ? `手伝い・${registration}` : '手伝い';
-    return registration || '子タスク';
+    return m.title || m.registration || m.name || '';
+  }
+
+  // 働き方：手伝い（親の作業空間で）か、子タスク（自分のタスク・作業空間で）か。short：一覧の短い形（手伝い・#12）
+  function placeName(m, short = false) {
+    if (m.kind === 'helper') return short ? '手伝い' : '手伝い（親の作業空間）';
+    const number = m.task && m.task.number;
+    return number ? (short ? `#${number}` : `子タスク #${number}`) : '子タスク';
+  }
+
+  // 役の欄：役（登録の表示名）と働き方。title：登録の名前も
+  function roleLabel(m) {
+    return {text: `${kindName(m)}・${placeName(m, true)}`,
+            title: `${kindName(m)}${m.registration && m.registration !== kindName(m) ? `（登録 ${m.registration}）` : ''}・${placeName(m)}`};
   }
 
   // 様子：label（作業中 12分・失敗 等）・tone（working・idle・stopped・starting・failed）・alert（目立たせるわけ。なければ ''）
@@ -143,6 +154,6 @@
   }
   const tokens = n => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
 
-  const api = {STATE_NAMES, duration, flatten, kindName, look, toolSummary, sender, EventLog, turnLine};
+  const api = {STATE_NAMES, duration, flatten, kindName, look, placeName, roleLabel, toolSummary, sender, EventLog, turnLine};
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TeamView = api;
 })(this);

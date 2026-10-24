@@ -16,9 +16,10 @@ def command(
 ) -> int:
     """実行ファイルのProjectを実行します。
 
-    プログラムの出力は、実行中に流します（--json では標準エラーへ。その前のビルドの出力も、行の頭に「│ 」を付けて）。
+    プログラムの出力は、実行中に流します（--json では標準エラーへ output のイベントで。その前のビルドの出力も）。
     """
     project = optional_argument(projects, project, "--project", json)
-    # 人向けの標準出力はプログラムの出力だけ（ビルドの出力は、今までどおり失敗したときに誤りの詳細で）
+    # 人向けはプログラムの出力だけ（stdout は標準出力・stderr は標準エラーへ。ビルドの出力は、今までどおり失敗したときに
+    # 誤りの詳細で）
     with CppType.program_output(ProgramOutput(json).line, tools=json):
         return run_like(project, configuration, profile, arguments, json, streamed=True)

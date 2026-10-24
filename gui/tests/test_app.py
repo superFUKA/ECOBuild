@@ -215,31 +215,37 @@ def test_cli_returns_the_json_document_and_the_command_line(tmp_path):
 
 
 def test_cli_reports_progress_while_it_runs(tmp_path):
-    """progress を渡すと、標準エラーの行（経過）が終わる前から読める。画面は progress で番号ごとに読みに来る。"""
-    script = ("import json, sys, time; print('作成中…', file=sys.stderr, flush=True); time.sleep(1.5); "
-              "print('push中…', file=sys.stderr); print(json.dumps({'ok': True, 'result': 1}))")
+    """progress を渡すと、標準エラーのイベント（経過）が終わる前から読める。画面は progress で番号ごとに読みに来る。"""
+    script = ("import json, sys, time; say = lambda t: print(json.dumps({'kind': 'progress', 'text': t}), file=sys.stderr, "
+              "flush=True); say('作成中…'); time.sleep(1.5); say('push中…'); print(json.dumps({'ok': True, 'result': 1}))")
     app = gui.App(gui.Cli([sys.executable, "-c", script]), gui.Store(tmp_path / "gui.json"), "t", 1)
     done = {}
     worker = threading.Thread(target=lambda: done.update(app.api("cli", {"args": ["module", "new", "M"], "progress": "p1"})))
     worker.start()
     deadline = time.monotonic() + 10
-    while not app.api("progress", {"id": "p1"})["lines"] and time.monotonic() < deadline:
+    while not app.api("progress", {"id": "p1"})["events"] and time.monotonic() < deadline:
         time.sleep(0.05)
-    assert app.api("progress", {"id": "p1"})["lines"] == ["作成中…"] and not done
+    assert app.api("progress", {"id": "p1"})["events"] == [{"kind": "progress", "text": "作成中…"}] and not done
     worker.join()
     assert done["ok"] and "push中…" in done["stderr"]
-    assert app.api("progress", {"id": "p1"}) == {"lines": [], "count": 0}      # 終わったら片付ける
+    assert app.api("progress", {"id": "p1"}) == {"events": [], "count": 0}      # 終わったら片付ける
 
 
-def test_cli_keeps_the_program_output_apart(tmp_path):
-    """ツール・プログラムの出力の行（頭が「│ 」）は、経過では字下げ・空の行もそのまま。結果では stderr と分けて
-    tool_output（印を除く）に入れる。"""
-    script = ("import json, sys; print('ビルド中', file=sys.stderr); print('│   indented', file=sys.stderr); "
-              "print('│', file=sys.stderr); print('│ last', file=sys.stderr); print(json.dumps({'ok': True, 'result': 1}))")
-    lines = []
-    document = gui.Cli([sys.executable, "-c", script]).run(str(tmp_path), ["build"], progress=lines)
-    assert lines == ["ビルド中", "│   indented", "│", "│ last"]
-    assert document["stderr"].strip() == "ビルド中" and document["tool_output"].splitlines() == ["  indented", "", "last"]
+def test_cli_reads_the_stderr_events(tmp_path):
+    """標準エラーのイベントは、経過でも結果（events）でもそのまま（ツール・プログラムの出力の字下げ・空の行も）。結果の
+    stderr は ecobuild の文だけ。JSON でない行（落ちたときの traceback 等）は、ツールの標準エラーの出力とみなし、stderr
+    にも入れる。"""
+    script = ("import json, sys; e = lambda **k: print(json.dumps(k), file=sys.stderr); e(kind='progress', text='ビルド中'); "
+              "e(kind='output', text='   indented' + chr(10), stream='stdout', source='tool'); "
+              "e(kind='output', text='oops' + chr(10), stream='stderr', source='program'); "
+              "print('Traceback', file=sys.stderr); print(json.dumps({'ok': True, 'result': 1}))")
+    events = []
+    document = gui.Cli([sys.executable, "-c", script]).run(str(tmp_path), ["build"], progress=events)
+    assert events == document["events"]
+    assert [(e["kind"], e["text"], e.get("stream")) for e in events] == [
+        ("progress", "ビルド中", None), ("output", "   indented\n", "stdout"), ("output", "oops\n", "stderr"),
+        ("output", "Traceback\n", "stderr")]
+    assert document["stderr"] == "ビルド中\nTraceback\n" and "tool_output" not in document
 
 
 def test_server_end_stops_the_reads_but_not_the_changes(tmp_path):

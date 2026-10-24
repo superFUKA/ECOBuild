@@ -49,12 +49,12 @@ def test_run_captures_output(module):
 
 
 def test_run_streams_output(module):
-    """program_output の中では、実行するプログラムの出力を終わる前から1行ずつ渡す（tools=False ならビルドの行は渡さない）。
-    結果の output は今までどおり全部。"""
+    """program_output の中では、実行するプログラムの出力を終わる前から1行ずつ (行, stream, source) で渡す（tools=False
+    ならビルドの行は渡さない）。結果の output は今までどおり全部。"""
     lines = []
-    with module.type.program_output(lines.append, tools=False):
+    with module.type.program_output(lambda *line: lines.append(line), tools=False):
         result = module.run(arguments="x")
-    assert lines == ["args=1"] and "args=1" in result.output
+    assert lines == [("args=1", "stdout", "program")] and "args=1" in result.output
 
 
 def test_build_error_output_is_readable(module):

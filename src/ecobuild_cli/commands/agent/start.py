@@ -66,13 +66,15 @@ def _startable_hint() -> str:
 
 def _here(name: str, options: dict) -> int:
     """この端末で動かす。失敗は文で出す（画面を持つアプリの端末に、そのまま見える）。"""
-    import click
     from ecobuild.errors import WorkError
+    from ... import _events
     from ..._module import Module
     try:
         _human_start(name, options["program"] or "")
         module = Module.find(".")
-        return module.run_agent(name, source=source(), progress=lambda message: click.echo(message, err=True), **options)
+        return module.run_agent(name, source=source(), progress=lambda message: _events.progress(message, False),
+                                **options)
     except WorkError as error:
-        click.echo(f"エラー：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""), err=True)
+        _events.emit("error", error.message, json_output=False,
+                     human=f"エラー：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""))
         return 1

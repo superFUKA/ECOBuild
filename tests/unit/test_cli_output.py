@@ -73,6 +73,16 @@ def test_help_json_lists_error_codes(outside, capsys):
     assert {"usage_error", "unexpected_error", "task_closed", "agent_error"} <= set(errors)   # 拡張の種類も
 
 
+def test_help_json_tells_the_output_and_the_events(outside, capsys):
+    """--help --json に、結果の JSON のキー（output）と標準エラーのイベントの形（events）。結果には log（run・file）。"""
+    code, found = document(capsys, "--help", "--json")
+    assert set(found["result"]["output"]) == {"ok", "command", "module", "result", "notices", "error", "log"}
+    events = found["result"]["events"]
+    assert events["kinds"] == ["progress", "notice", "warning", "error", "output"]
+    assert {"kind", "text", "time", "stream", "source", "code"} <= set(events["keys"])
+    assert set(found["log"]) == {"run", "file"}
+
+
 # テキストの --help（55・58・64） ----------------------------------------------------------
 
 

@@ -354,6 +354,13 @@ def test_run_separates_stdout_and_stderr(program, capsys):
     assert shown.out == "" and "out" in shown.err and "err" in shown.err
 
 
+def test_run_echo_tells_the_stream(program):
+    """echo が呼べるもの（--json の ProgramOutput）なら、出力と一緒に stdout・stderr のどちらかを渡す。"""
+    seen = []
+    program("import sys; print('out'); print('err', file=sys.stderr)", echo=lambda text, stream: seen.append((stream, text)))
+    assert sorted(seen) == [("stderr", "err\n"), ("stdout", "out\n")] or sorted(seen) == [("stderr", "err\r\n"), ("stdout", "out\r\n")]
+
+
 def test_run_failure_keeps_the_return_code(program):
     with pytest.raises(EcoBuildError) as error:
         program("import sys; print('so far'); sys.exit(3)")

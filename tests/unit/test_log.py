@@ -57,11 +57,15 @@ def test_module_command_is_logged_in_the_module(module_root, capsys):
     process = next(e["data"] for e in found if e["event"] == "process" and e["data"]["args"] == ["git", "status", "--short"])
     assert process["args"] == ["git", "status", "--short"] and process["returncode"] == 0
     assert "stdout" in process and "seconds" in process
-    # ECOBuildのログには要約だけ（詳しいログの場所つき）
-    summary = entries(_log.global_directory())
-    assert [e["event"] for e in summary] == ["command.summary"]
-    assert summary[0]["data"]["module"] == module_root.as_posix()
-    assert summary[0]["data"]["log"] == log.as_posix()
+    # ECOBuildのログには、モジュールが決まるまでの行（モジュールのログにも写す）・行き先・要約（詳しいログの場所つき）
+    summary = [e for e in entries(_log.global_directory()) if e["event"] != "process"]
+    assert [e["event"] for e in summary] == ["command.start", "command.moved", "command.summary"]
+    assert summary[1]["data"] == {"module": module_root.as_posix(), "log": log.as_posix()}
+    assert summary[2]["data"]["module"] == module_root.as_posix()
+    assert summary[2]["data"]["log"] == log.as_posix()
+    # 結果の JSON の log：この run と、行のあるファイル（モジュールのログ）
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["log"]["run"] == found[0]["run"] and shown["log"]["file"].startswith(log.as_posix() + "/")
     # ログはgitに見えない。.ecobuild/.gitignore はモジュールと同じ中身（ほかに .ecobuild/ に置くものは見える）
     assert git(module_root, "status", "--porcelain").strip() == "?? .ecobuild/.gitignore"
     assert (module_root / ".ecobuild/.gitignore").read_text(encoding="utf-8") == ecobuild_module.GITIGNORE
@@ -86,6 +90,22 @@ def test_outside_a_module_everything_goes_to_the_ecobuild_log(tmp_path, monkeypa
     assert events(_log.global_directory()) == ["command.start", "command.type", "command.result", "command.end"]
     chosen = next(e for e in entries(_log.global_directory()) if e["event"] == "command.type")["data"]
     assert chosen["type"] is None and "ecobuild.toml" in chosen["reason"]     # 型のコマンドを重ねなかった理由
+
+
+def test_lines_are_written_at_once(module_root, capsys):
+    """どの行もすぐ書く：モジュールが決まる前に落ちても、そこまでは ECOBuildのログに残る。決まったら、それまでの行も
+    モジュールのログに写す（モジュールのログだけで1回の全部が読める）。"""
+    _log.start(["sample"])
+    try:
+        _log.logger.info("決まる前", extra={"event": "progress"})
+        assert events(_log.global_directory()) == ["command.start", "progress"]      # 終わる前から
+        assert _log.location()["file"].startswith(_log.global_directory().as_posix() + "/")
+        _log.use_module(module_root)
+        _log.logger.info("決まった後", extra={"event": "progress"})
+        assert events(_log.module_directory(module_root)) == ["command.start", "progress", "progress"]
+        assert events(_log.global_directory()) == ["command.start", "progress", "command.moved"]
+    finally:
+        _log.finish(0)
 
 
 def test_level_info_leaves_out_external_commands(module_root, monkeypatch, capsys):

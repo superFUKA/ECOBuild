@@ -57,6 +57,7 @@ html.frameless .panel-page .panel-tab, html.frameless .panel-page .panel-close {
 .out-text .line.warn { color: #efc389; background: #2a2418; border-left-color: #c9a35a; }
 .out-text .line.ok { color: #9fe0a8; }
 .out-text .line.muted { color: #7d8794; }
+.out-text .line.err { color: #e7b9a4; }   /* what a program wrote to its stderr (not an error by itself) */
 .out-text a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
 .out-text a:hover { color: #9ee4d3; }
 .out-text mark { background: #6b5a1f; color: #fff3c4; border-radius: 2px; }

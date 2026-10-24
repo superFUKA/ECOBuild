@@ -1,6 +1,8 @@
 """CLIの共通処理：人向けの表示とJSON、終了コード、確認の扱い。
 
---json を指定したときは、標準出力にJSONを1つだけ出す。それ以外の表示は標準エラーへ出す。
+--json を指定したときは、標準出力にJSONを1つだけ出す。それ以外の表示は標準エラーへ出す（_events。--json では1行1件の
+JSON のイベント）。結果の JSON：{ok, command, module, result, notices, error, log}。log はこのコマンドのログ
+（{run, file}。ログを書いていなければ null）。
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
 
-from . import _errors, _log
+from . import _errors, _events, _log
 
 SUCCESS = 0
 FAILURE = 1
@@ -86,9 +88,9 @@ class Invocation:
             raise click.Abort()
 
     def info(self, message: str) -> None:
-        """人向けの進捗。--json時も標準エラーなのでJSONを壊さない。"""
-        _log.logger.info("%s", message, extra={"event": "progress"})
-        click.echo(message, err=True)
+        """経過（今していること。頭が「注意：」なら注意）。標準エラーへ（--json ではイベント）。ログにも書く。"""
+        _log.logger.info("%s", message, extra={"event": "warning" if message.startswith("注意：") else "progress"})
+        _events.progress(message, self.json_output)
 
 
 def confirmation_required(prompt: str, option: str = "--yes") -> EcoBuildError:
@@ -145,6 +147,8 @@ def execute(
     _log.logger.debug("%s", command, extra={"event": "command.result", "data": {
         "command": command, "result": to_data(result), "notices": _notices(invocation)}})
     if invocation.json_output:
+        for notice in _notices(invocation):
+            _events.emit("notice", notice, json_output=True)
         _emit_json(command, invocation, result, None)
     else:
         if render is not None:
@@ -152,7 +156,7 @@ def execute(
             if text:
                 click.echo(text)
         for notice in _notices(invocation):
-            click.echo(f"お知らせ：{notice}", err=True)
+            _events.emit("notice", notice, json_output=False)
     return SUCCESS
 
 
@@ -163,18 +167,15 @@ _GONE = re.compile(r"repository not found|repository '[^']*' not found|could not
 
 
 def fail(command: str | None, invocation: Invocation | None, error: WorkError) -> int:
-    """失敗の出口：ログに command.error を残し、--json なら JSON、でなければ人向けに標準エラーへ。終了コードは1。"""
+    """失敗の出口：ログに command.error を残し、標準エラーへ誤り（--json ではイベント）、--json なら結果の JSON も。終了コードは1。"""
     log_error(command, error)
-    if invocation.json_output if invocation is not None else json_requested:
+    json_output = invocation.json_output if invocation is not None else json_requested
+    hint = _errors.hint(error.code, error.hint)
+    detail = "" if json_output else _detail_text(error.details)
+    _events.emit("error", error.message, json_output=json_output, code=error.code,
+                 human=lines(f"エラー：{error.message}", detail, hint and f"ヒント：{hint}"))
+    if json_output:
         _emit_json(command, invocation, None, error)
-    else:
-        click.echo(f"エラー：{error.message}", err=True)
-        detail = _detail_text(error.details)
-        if detail:
-            click.echo(detail, err=True)
-        hint = _errors.hint(error.code, error.hint)
-        if hint:
-            click.echo(f"ヒント：{hint}", err=True)
     return FAILURE
 
 
@@ -271,11 +272,10 @@ def usage_error(message: str, json_output: bool, *, hint: str = USAGE_HINT) -> i
     """引数の誤り。--json ならJSONで返す（ほかの誤りと同じ形）。ログに command.error を残す。終了コードは2。"""
     error = EcoBuildError(_errors.ErrorCode.USAGE_ERROR, message, hint=hint)
     log_error(attempted, error)
+    _events.emit("error", message, json_output=json_output, code=error.code)
     if json_output:
         print_document({"ok": False, "command": attempted, "module": None, "result": None, "notices": [],
                         "error": error_data(error)})
-    else:
-        click.echo(f"エラー：{message}", err=True)
     return USAGE_ERROR
 
 
@@ -418,9 +418,10 @@ emitted = False      # --json の JSON をもう出したか（予期しない�
 
 
 def print_document(document: dict) -> None:
-    """--json の JSON を1つ、標準出力へ。"""
+    """--json の JSON を1つ、標準出力へ。このコマンドのログ（log：{run, file}）を付ける。"""
     global emitted
     emitted = True
+    document = {**document, "log": document.get("log", _log.location())}
     click.echo(json.dumps(document, ensure_ascii=False))
 
 

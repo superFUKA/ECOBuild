@@ -4,21 +4,38 @@
 // the lines, 「履歴」 shows an earlier run. The runs are made by the workspace (build.js); the same view draws them in the
 // workspace's footer and in a window of its own (panels.js).
 // A run: {id, title, command, state: run・ok・bad, started, ended, lines, progress}. A line: {text, kind, head} — kind
-// ok・bad・warn・muted (toolLines reads it from a tool's text); head: ecobuild's own message (colored, not counted).
+// ok・bad・warn・muted・err (a program's stderr) (toolLines reads it from a tool's text); head: ecobuild's own message
+// (colored, not counted).
 const OUTPUT = (() => {
   const {esc} = ECO;
   // A tool's summary (Build FAILED. / 2 Error(s) / 0 個の警告) is not counted: the lines it counts are.
   const kindOf = line => /^\s*(Build (FAILED|succeeded)\.?|\d+ (Warning|Error)\(s\)|\d+ 個の(警告|エラー))\s*$|\b0 (errors?|warnings?)\b/i.test(line) ? 'muted'
     : /\b(fatal )?error\b|\bFAILED\b|エラー|^Traceback |^E {3}/i.test(line) ? 'bad' : /\bwarning\b|警告/i.test(line) ? 'warn' : '';
   const toolLines = (output, kind = null) => String(output || '').replace(/\r/g, '').replace(/\n+$/, '').split('\n').map(t => ({text: t, kind: kind ?? kindOf(t)}));
-  // The lines ecobuild reports while it runs: its own progress (muted), and the output of the tools and programs it runs
-  // (a line beginning with │, as the CLI marks them on its stderr: shown without the mark, colored as a tool's line).
-  const PROGRAM = /^│ ?/;
-  const progressLines = lines => (lines || []).map(t => {
-    if (!PROGRAM.test(t)) return {text: t, kind: 'muted'};
-    const text = t.replace(PROGRAM, '');
-    return {text, kind: kindOf(text)};
-  });
+  // The events ecobuild reports on its stderr while it runs (ecobuild --help --json の events: {kind, text, stream,
+  // source}): its progress (muted), notices, warnings and errors (colored, not counted), and the output of the tools and
+  // programs it runs (colored as a tool's line; what the program wrote to its stderr stands apart). An output event is
+  // what the tool wrote (a line with its \n, or the start of one): the pieces of a stream are joined into lines.
+  // output: false leaves the output out (the result has it).
+  const OWN = {progress: 'muted', notice: '', warning: 'warn', error: 'bad'};
+  function eventLines(events, {output = true} = {}) {
+    const lines = [], open = {};
+    const outputLine = (text, stream) => ({text, kind: kindOf(text) || (stream === 'stderr' ? 'err' : '')});
+    for (const e of events || []) {
+      if (e.kind !== 'output') {
+        if (e.kind in OWN) lines.push({text: e.kind === 'notice' ? `お知らせ：${e.text}` : e.text, kind: OWN[e.kind], head: e.kind !== 'progress'});
+        continue;
+      }
+      if (!output) continue;
+      const stream = e.stream === 'stderr' ? 'stderr' : 'stdout', parts = (open[stream]?.text || '') + String(e.text).replace(/\r/g, '');
+      if (open[stream]) lines.splice(lines.indexOf(open[stream]), 1);
+      const pieces = parts.split('\n'), rest = pieces.pop();
+      lines.push(...pieces.map(t => outputLine(t, stream)));
+      open[stream] = rest ? outputLine(rest, stream) : null;
+      if (rest) lines.push(open[stream]);
+    }
+    return lines;
+  }
   // A file and line in a compiler's or Python's message: C:\…\a.cpp(12,5)・src/a.cpp:12:5・File "…\a.py", line 12.
   const SOURCE = 'c|cc|cpp|cxx|c\\+\\+|h|hh|hpp|hxx|inl|ixx|ipp|py|pyi|cmake|txt|toml|json|cs|rs|js|ts';
   const FILE_AT = new RegExp(`File "([^"]+)", line (\\d+)|((?:[A-Za-z]:)?[\\w.\\-\\\\/]*\\.(?:${SOURCE}))(?:\\((\\d+)(?:,\\d+)?\\)|:(\\d+)(?::\\d+)?)`, 'gi');
@@ -68,7 +85,7 @@ const OUTPUT = (() => {
       $('.out-state').hidden = false; $('.out-state').textContent = stateText(run.state);
       $('.out-state').className = 'build-state out-state ' + run.state;
       $('.out-time').textContent = seconds(run);
-      const lines = [{text: run.command, kind: 'muted'}, ...(run.state === 'run' ? progressLines(run.progress) : run.lines)];
+      const lines = [{text: run.command, kind: 'muted'}, ...(run.state === 'run' ? eventLines(run.progress) : run.lines)];
       const errors = lines.filter(l => l.kind === 'bad' && !l.head).length, warnings = lines.filter(l => l.kind === 'warn' && !l.head).length;
       $('.out-counts').innerHTML = (errors ? `<span class="bad">エラー ${errors}</span>` : '') + (warnings ? `<span class="warn">警告 ${warnings}</span>` : '');
       $('.out-counts').hidden = !errors && !warnings;
@@ -113,5 +130,5 @@ const OUTPUT = (() => {
       },
     };
   }
-  return {view, toolLines};
+  return {view, toolLines, eventLines};
 })();

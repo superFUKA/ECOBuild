@@ -211,6 +211,12 @@ def test_runner_reads_the_last_json_document(tmp_path):
     broken.write_text("import sys\nsys.stderr.write('こわれた')\nsys.exit(3)\n", encoding="utf-8")
     found = mcp.runner([sys.executable, str(broken)], tmp_path)(["status"])
     assert found["ok"] is False and found["error"]["message"] == "こわれた" and found["exit_code"] == 3
+    # 標準エラーのイベント（--json）：ツール・プログラムの出力は除いて、ECOBuild の文を
+    events = tmp_path / "events.py"
+    events.write_text("import sys, json\nfor kind, text in (('output', 'cl.exe'), ('error', 'だめでした')):\n"
+                      "    print(json.dumps({'kind': kind, 'text': text}), file=sys.stderr)\nsys.exit(1)\n", encoding="utf-8")
+    found = mcp.runner([sys.executable, str(events)], tmp_path)(["status"])
+    assert found["error"]["message"] == "だめでした"
 
 
 def test_agent_mcp_is_hidden_and_for_the_launcher_only():

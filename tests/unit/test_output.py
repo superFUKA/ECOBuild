@@ -90,37 +90,107 @@ def test_local_time_shows_this_pc_time():
     assert local_time("読めない日時の文字列") == "読めない日時の文字列"
 
 
-def test_program_output_marks_lines_on_stderr_for_json(capsys):
-    """--json：ツール・プログラムの出力は標準エラーへ、行の頭に PROGRAM_MARK（部分的な行は続きに付けない）。"""
-    from ecobuild_cli.kit import PROGRAM_MARK, ProgramOutput
+def read_events(text):
+    import json
+    return [json.loads(line) for line in text.splitlines()]
+
+
+def test_program_output_is_events_on_stderr_for_json(capsys):
+    """--json：ツール・プログラムの出力は標準エラーへ、1行1件の output のイベント（書いたとおりの文字。行の途中で
+    切れたら改行なし。stream・source 付き）。標準出力には出さない。"""
+    from ecobuild_cli.kit import ProgramOutput
     output = ProgramOutput(True)
     output("a\r\nb")          # 行の途中で切れた
-    output("c\n\n")
-    output.line("  d")
+    output("c\n\n", "stderr")
+    output.line("  d", source="tool")
     shown = capsys.readouterr()
-    assert shown.out == "" and shown.err == "".join(PROGRAM_MARK + t for t in ("a\n", "bc\n", "\n", "  d\n"))
-    ProgramOutput(False)("as is\n")       # 人向けは標準出力へそのまま
-    assert capsys.readouterr().out == "as is\n"
+    events = read_events(shown.err)
+    assert shown.out == "" and all(e["kind"] == "output" and e["time"] for e in events)
+    assert [(e["text"], e["stream"], e["source"]) for e in events] == [
+        ("a\n", "stdout", "program"), ("b", "stdout", "program"), ("c\n", "stderr", "program"),
+        ("\n", "stderr", "program"), ("  d\n", "stdout", "tool")]
+
+
+def test_program_output_as_is_for_people(capsys):
+    """人向け：印を付けずにそのまま（プログラムの stdout は標準出力へ、stderr は標準エラーへ）。"""
+    from ecobuild_cli.kit import ProgramOutput
+    output = ProgramOutput(False)
+    output("as is\n")
+    output("oops\n", "stderr")
+    shown = capsys.readouterr()
+    assert (shown.out, shown.err) == ("as is\n", "oops\n")
+
+
+def test_events_for_json_and_text_for_people(capsys):
+    """経過・注意・知らせ・誤り：--json では kind の付いたイベント（頭が「注意：」の経過は warning）、人向けは今までどおりの文字。"""
+    from ecobuild_cli import _events
+    _events.progress("ビルド中", True)
+    _events.progress("注意：古い版です", True)
+    _events.emit("notice", "閉じました", json_output=True)
+    _events.emit("error", "失敗", json_output=True, code="build_failed")
+    shown = capsys.readouterr()
+    assert shown.out == ""
+    assert [(e["kind"], e["text"], e.get("code")) for e in read_events(shown.err)] == [
+        ("progress", "ビルド中", None), ("warning", "注意：古い版です", None), ("notice", "閉じました", None),
+        ("error", "失敗", "build_failed")]
+    _events.progress("ビルド中", False)
+    _events.progress("注意：古い版です", False)
+    _events.emit("notice", "閉じました", json_output=False)
+    _events.emit("error", "失敗", json_output=False)
+    assert capsys.readouterr().err == "ビルド中\n注意：古い版です\nお知らせ：閉じました\nエラー：失敗\n"
+
+
+def test_reading_events_back():
+    """ほかの ecobuild の標準エラーを読む側：JSON のイベントでない行は None。messages は出力のイベントを除いた文。"""
+    import json
+    from ecobuild_cli import _events
+    lines = [json.dumps({"kind": "progress", "text": "ビルド中"}), json.dumps({"kind": "output", "text": "cl.exe\n"}),
+             "Traceback (most recent call last):", "{not json"]
+    assert _events.parse(lines[0])["text"] == "ビルド中" and _events.parse(lines[2]) is None and _events.parse(lines[3]) is None
+    assert _events.messages("\n".join(lines)) == "ビルド中\nTraceback (most recent call last):\n{not json\n"
 
 
 def test_cpp_program_output_streams_child_lines(tmp_path):
-    """C++ の型：CppBuild の子プロセスの出力を、1行ずつ渡す（結果の ProcessReport は今までと同じ）。tools=False なら
-    CMake・CTest（cppbuild.tooling.process を通るもの）の行は渡さない。抜けたら元に戻す。"""
+    """C++ の型：CppBuild の子プロセスの出力を、1行ずつ (行, stream, source) で渡す（結果の ProcessReport は今までと同じ。
+    stdout・stderr を分けて読む）。実行するプログラム（cppbuild.execution.execute に渡したもの）は program、ほかは tool。
+    tools=False なら tool の行は渡さない。抜けたら元に戻す。"""
+    import os
     import sys
-    from cppbuild import engine, tooling
+    from cppbuild import engine, execution
     from ecobuild_cpp import _cppbuild
-    original, original_tool = engine.process, tooling.process
-    command = [sys.executable, "-c", "print('one'); print('two')"]
+    original, original_execute = engine.process, execution.execute
+    command = [sys.executable, "-c", "import sys; print('one', flush=True); print('two', file=sys.stderr)"]
     lines = []
-    with _cppbuild.program_output(lines.append):
+    write = lambda text, stream, source: lines.append((text, stream, source))  # noqa: E731
+    with _cppbuild.program_output(write):
         report = engine.process(command, tmp_path)
-    assert lines == ["one", "two"] and (report.returncode, report.output) == (0, "one\ntwo\n")
-    assert (engine.process, tooling.process) == (original, original_tool)
-    tooling.process, lines[:] = (lambda settings, args, cwd: engine.process(args, cwd)), []
-    try:
-        with _cppbuild.program_output(lines.append, tools=False):
-            tooling.process(None, command, tmp_path)       # CMake・CTest の代わり
-            engine.process(command, tmp_path)              # 実行するプログラム
-    finally:
-        tooling.process = original_tool
-    assert lines == ["one", "two"]
+    assert sorted(lines) == [("one", "stdout", "tool"), ("two", "stderr", "tool")]
+    assert (report.returncode, sorted(report.output.splitlines())) == (0, ["one", "two"])
+    assert (engine.process, execution.execute) == (original, original_execute)
+    lines[:] = []
+    with _cppbuild.program_output(write, tools=False):
+        engine.process(command, tmp_path)                                  # ビルドのツールの代わり
+        execution.execute([(command, tmp_path, dict(os.environ))])        # 実行するプログラム
+    assert sorted(lines) == [("one", "stdout", "program"), ("two", "stderr", "program")]
+
+
+def test_serve_reads_the_events_of_the_command(tmp_path):
+    """係（agent serve）が頼みの ecobuild の標準エラーを読む：経過には ECOBuild の文だけ（ツール・プログラムの出力は
+    渡さない）、結果の JSON がなければ、出力を除いた文で失敗を返す。"""
+    import subprocess
+    import sys
+    from ecobuild_cli.commands.agent import serve
+    say = ("import json, sys; e = lambda **k: print(json.dumps(k), file=sys.stderr, flush=True); "
+           "e(kind='progress', text='ビルド中'); e(kind='output', text='cl.exe' + chr(10), stream='stdout', source='tool'); "
+           "e(kind='error', text='失敗しました', code='build_failed'); ")
+
+    def wait(code):
+        process = subprocess.Popen([sys.executable, "-c", say + code], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   encoding="utf-8", errors="replace")
+        seen = []
+        return serve._wait(process, seen.append, None), seen
+
+    done, seen = wait("print(json.dumps({'ok': True, 'result': 1}))")
+    assert done == {"ok": True, "result": 1} and seen == ["ビルド中", "失敗しました"]
+    done, _ = wait("")
+    assert not done["ok"] and "cl.exe" not in done["error"]["message"] and "失敗しました" in done["error"]["message"]

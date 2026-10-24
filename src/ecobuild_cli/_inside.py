@@ -4,6 +4,7 @@
 中の ecobuild は環境変数（container.INSIDE）で中にいると分かるので、もう一度は渡さない。
 渡している間は、このPCでその作業空間をロックする（locks.running。中の ecobuild はロックを書かない：中の pid はこのPCでは
 確かめられない）。
+中の ecobuild の標準エラー（--json ならイベント：_events）は、そのまま通す。
 --json の結果の中の場所（/work…）は、このPCの場所に読み替えて出す。
 中の ecobuild のログには、このPCの run を forwarded_from に書いてもらう（_log.forward_environment）。中で失敗したら、
 このPCのログにもその誤り（command.error。--json なら中の error）を書く。
@@ -20,7 +21,7 @@ from ecobuild import locks, workspaces
 from ecobuild.errors import WorkError
 import ecobuild_container as container
 
-from . import _log
+from . import _events, _log
 from ._module import PROGRAM
 from ._output import Invocation, execute, log_error
 
@@ -44,7 +45,8 @@ def route(args: list[str], json_output: bool) -> int | None:
     try:
         with locks.running(root, words[0]):
             code, out = container.run_inside(root, command, cwd=Path.cwd(), command=PROGRAM, source=source(),
-                                             progress=lambda message: click.echo(message, err=True), capture=json_output)
+                                             progress=lambda message: _events.progress(message, json_output),
+                                             capture=json_output)
     except WorkError as error:
         def fail(inv):
             raise error

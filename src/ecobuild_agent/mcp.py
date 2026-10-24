@@ -207,12 +207,29 @@ def runner(program: Iterable[str], workspace: Path) -> Runner:
                                    env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         document = _document(completed.stdout)
         if document is None:
-            message = (completed.stderr or completed.stdout).strip()[-2000:] or f"終了コード {completed.returncode}"
+            message = ((_messages(completed.stderr) or completed.stdout).strip()[-2000:]
+                       or f"終了コード {completed.returncode}")
             return {"ok": False, "command": " ".join(argv), "result": None,
                     "error": {"code": "unexpected_error", "message": message}, "exit_code": completed.returncode}
         return document
 
     return run
+
+
+def _messages(stderr: str) -> str:
+    """ecobuild --json の標準エラー（1行1件の JSON のイベント。--help --json の events）から、ツール・プログラムの出力を
+    除いた文（JSON でない行はそのまま）。"""
+    found = []
+    for line in (stderr or "").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            event = None
+        if not isinstance(event, dict) or not isinstance(event.get("text"), str):
+            found.append(line)
+        elif event.get("kind") != "output":
+            found.append(event["text"])
+    return "\n".join(found)
 
 
 def _document(output: str) -> dict | None:

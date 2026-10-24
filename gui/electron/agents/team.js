@@ -171,4 +171,4 @@ function moduleRoot(place) {
   return found ? found[1] : place;
 }
 
-module.exports = {setup, tick, refresh, shown, follow, unfollow, operation, operate, stopAll, moduleRoot, view: leadId => teams.get(leadId)?.view || null};
+module.exports = {setup, tick, refresh, shown, follow, unfollow, operation, operate, stopAll, moduleRoot, kill, view: leadId => teams.get(leadId)?.view || null};

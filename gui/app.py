@@ -365,12 +365,21 @@ class Cli:
             lock.acquire()
         try:
             env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1", GIT_TERMINAL_PROMPT="0")
+            # 読むだけのものは、サーバーが終わるときに子ごと止める（stop_reads。変える操作は途中で止めず最後まで動かす）
+            started = _READS.add if _read_only(args) else None
             if progress is None:
-                completed = subprocess.run(argv, input=stdin or "", capture_output=True, encoding="utf-8",
-                                           errors="replace", env=env, cwd=_working_directory(directory, args),
-                                           **_no_window())
+                process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                           encoding="utf-8", errors="replace", env=env,
+                                           cwd=_working_directory(directory, args), **_no_window())
+                if started:
+                    started(process)
+                try:
+                    stdout, stderr = process.communicate(stdin or "")
+                finally:
+                    _READS.discard(process)
+                completed = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
             else:
-                completed = _run_streaming(argv, stdin or "", env, _working_directory(directory, args), progress)
+                completed = _run_streaming(argv, stdin or "", env, _working_directory(directory, args), progress, started)
         finally:
             if lock:
                 lock.release()
@@ -388,12 +397,27 @@ class Cli:
         return document
 
 
-def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list[str]) -> subprocess.CompletedProcess:
-    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。
+# 実行中の読むだけの CLI（サーバーが終わるときに子ごと止める：stop_reads）
+_READS: set[subprocess.Popen] = set()
+
+
+def stop_reads() -> None:
+    """実行中の読むだけの CLI を子ごと止める（サーバーが終わるとき）。Windows では親が終わっても子は残り、止まった
+    問い合わせ（WSL・docker 等）が残ると WSL が止まらない。変える操作（作成・push 等）は途中で止めず、最後まで動かす。"""
+    for process in list(_READS):
+        if process.poll() is None:
+            _kill_tree(process)
+
+
+def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list[str],
+                   started=None) -> subprocess.CompletedProcess:
+    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。started：始めたプロセスを渡す先。
 
     ビルド・実行したツール・プログラムの出力の行（頭が PROGRAM_MARK）は、字下げと空の行もそのまま（画面が出力として出す）。"""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                encoding="utf-8", errors="replace", env=env, cwd=cwd, **_no_window())
+    if started:
+        started(process)
     errors: list[str] = []
 
     def read_errors() -> None:
@@ -412,9 +436,12 @@ def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list
         process.stdin.close()
     except OSError:          # 入力を読まずに終わった
         pass
-    stdout = process.stdout.read()
-    process.wait()
-    reader.join()
+    try:
+        stdout = process.stdout.read()
+        process.wait()
+        reader.join()
+    finally:
+        _READS.discard(process)
     return subprocess.CompletedProcess(argv, process.returncode, stdout, "".join(errors))
 
 
@@ -1848,6 +1875,7 @@ def serve(args) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        stop_reads()
         server.server_close()
         if (_read_state() or {}).get("pid") == os.getpid():
             try:

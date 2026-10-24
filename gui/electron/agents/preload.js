@@ -36,7 +36,6 @@ contextBridge.exposeInMainWorld('agents', {
   setPrefs: patch => ipcRenderer.send('agents:prefs', patch),
   iconPick: kind => ipcRenderer.invoke('agents:icon-pick', kind),
   iconClear: kind => ipcRenderer.send('agents:icon-clear', kind),
-  styleSet: (kind, text) => ipcRenderer.invoke('agents:style-set', kind, text),
   // チーム（子を起動できるエージェントの窓：AI が起動した子）
   teamShown: (leadId, on) => ipcRenderer.invoke('team:shown', leadId, on),
   teamFollow: (member, all = false) => ipcRenderer.send('team:follow', member, all),

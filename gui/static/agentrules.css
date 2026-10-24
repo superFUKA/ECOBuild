@@ -1,0 +1,14 @@
+/* Module page エージェント (agentrules.js): the texts for the agents and the tools a registration may not use. */
+.ar .ar-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.ar .ar-card .mi-head { margin-bottom: 8px; }
+.ar .ar-text { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical; font: inherit; font-size: 13px; line-height: 1.6; margin-bottom: 10px; }
+.ar .ar-tools { margin: 0 0 12px; }
+.ar .ar-tools summary { cursor: pointer; color: #aeb7c2; font-size: 13px; }
+.ar .ar-tools[open] summary { margin-bottom: 8px; }
+.ar .ar-group { border: 1px solid #262c34; border-radius: 8px; margin: 8px 0 0; padding: 6px 10px 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ar .ar-group legend { font-size: 11px; color: var(--muted); padding: 0 4px; }
+.ar .ar-tool { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; min-width: 180px; }
+.ar .ar-tool code { font-size: 12px; }
+.ar .ar-patterns { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.ar .ar-patterns input { max-width: 420px; }
+@media (max-width: 640px) { .ar .ar-tool { min-width: 0; } }

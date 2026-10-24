@@ -36,6 +36,38 @@ class AgentRegistrationShown(AgentRegistrationView):
     first_prompt: str = ""
 
 
+@dataclass(frozen=True)
+class AgentRoleRules:
+    """ecobuild agent rules：1つの登録へのモジュールの決まり。tools：登録（このPC）で渡すツール。"""
+    name: str
+    title: str
+    text: str                       # その登録のエージェントだけへの文
+    deny: tuple[str, ...]           # その登録に使わせないツール（fnmatch）
+    tools: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AgentTool:
+    """エージェントに渡せるツール。mark：read・change・owner（コマンドのツール）・children（子を扱うツール）。"""
+    name: str
+    mark: str
+    summary: str
+
+
+@dataclass(frozen=True)
+class AgentRules:
+    """ecobuild agent rules show・set：モジュールのエージェント向けの決まり（作業ツリーにあるもの）。
+    in_force：起動したエージェントに効く版（作成元のブランチ。読めなければ空）。pending：作業ツリーのものが、まだ効く版と違う。"""
+    root: Path
+    in_force: str
+    pending: bool
+    common: str
+    roles: tuple                    # AgentRoleRules（登録の名前の順。登録にない名前の文・ツールも）
+    tools: tuple = ()               # AgentTool（show で --tools のとき）
+    changed: tuple[str, ...] = ()   # set で書いた・消したファイル
+    committed: str = ""             # set でコミットした版（しなければ空）
+
+
 def registration_view(registration, *, document: bool = False) -> AgentRegistrationView:
     """ecobuild_agent.registry.Registration を CLI の結果に（document：文書の中身も入れる）。"""
     from . import registry

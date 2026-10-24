@@ -7,6 +7,7 @@ ECOBuild は役を既定として持たない。起動するエージェント�
 
 渡すツールの範囲（tools）が、そのエージェントにできることになる（エージェントはツールを通してしか ECOBuild を使えない）。
 起動してよい子（children）には、自分より強い登録（自分に許されないツールを許すもの）を入れられない。
+モジュールは、使わせないツール（deny。ecobuild_agent.rules）を重ねて絞れる（登録の tools より広げることはない）。
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ class Registration:
     tools: tuple[str, ...] = ()         # 渡すツールの名前の fnmatch の並び
     first_prompt: str = ""              # 起動のときの最初の発言
     source: str = USER
+    deny: tuple[str, ...] = ()          # 使わせないツールの fnmatch の並び（モジュールが重ねる。agent.toml には書かない）
 
 
 FIELDS = ("title", "human_start", "model", "children", "max_children", "tools", "first_prompt")
@@ -90,7 +92,8 @@ def to_data(registration: Registration) -> dict:
     return {"name": registration.name, "title": registration.title, "document": registration.document,
             "human_start": registration.human_start, "model": registration.model,
             "children": list(registration.children), "max_children": registration.max_children,
-            "tools": list(registration.tools), "first_prompt": registration.first_prompt, "source": registration.source}
+            "tools": list(registration.tools), "first_prompt": registration.first_prompt, "source": registration.source,
+            "deny": list(registration.deny)}
 
 
 def from_file(path: Path | str) -> Registration:
@@ -102,20 +105,25 @@ def from_file(path: Path | str) -> Registration:
             human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
             children=tuple(str(v) for v in data.get("children", [])), max_children=int(data.get("max_children", 0)),
             tools=tuple(str(v) for v in data.get("tools", [])), first_prompt=str(data.get("first_prompt", "")),
-            source=str(data.get("source", USER)))
+            source=str(data.get("source", USER)), deny=tuple(str(v) for v in data.get("deny", [])))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"登録のファイル {path} を読めません。",
                             details=str(error)) from error
 
 
 def allows_tool(registration: Registration, tool_name: str) -> bool:
-    """登録がそのツールを許すか（tools のどれかの fnmatch に合う）。"""
-    return any(fnmatch.fnmatchcase(tool_name, pattern) for pattern in registration.tools)
+    """登録がそのツールを許すか（tools のどれかの fnmatch に合い、deny のどれにも合わない）。"""
+    return (any(fnmatch.fnmatchcase(tool_name, pattern) for pattern in registration.tools)
+            and not any(fnmatch.fnmatchcase(tool_name, pattern) for pattern in getattr(registration, "deny", ())))
 
 
 def stronger(child: Registration, parent: Registration) -> bool:
-    """child が parent より強いか（parent の tools では許されないツールを、child が許すことがあるか）。"""
-    return any(not _covered(pattern, parent.tools) for pattern in child.tools)
+    """child が parent より強いか（parent では許されないツールを、child が許すことがあるか）。parent が使わせない
+    ツール（deny）は、child も使わせないこと（分からなければ強いとみなす）。"""
+    if not child.tools:
+        return False
+    return (any(not _covered(pattern, parent.tools) for pattern in child.tools)
+            or any(not _covered(pattern, child.deny) for pattern in parent.deny))
 
 
 def add(name: str, *, from_sample: str | None = None, from_dir: str | Path | None = None) -> Registration:

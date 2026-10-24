@@ -123,6 +123,18 @@ const OPERATOR = (() => {
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); $('operator-form').requestSubmit(); }
     });
+    // 話し方（ECOBuild の設定 operator_style）：次にオペレーターを起動したときから。
+    $('operator-style').addEventListener('click', async () => {
+      const now = await ECO.cli(null, ['config', 'get', 'operator_style'], {quiet: true});
+      await ECO.form({title: 'オペレーターの話し方', ok: '保存', fields: [{name: 'style', label: '口調・答え方', type: 'textarea', rows: 4,
+        value: now.ok ? now.result?.value || '' : '', placeholder: '例：やさしい敬語で、短く。結果は最初に一言で',
+        help: '口調・言い回しだけが変わります（結果・エラー・数字はそのまま）。次にオペレーターを起動したときから（「新しい会話」ですぐに）。'}],
+        submit: async v => {
+          const style = (v.style || '').trim();
+          if (!await ECO.run(null, style ? ['config', 'set', 'operator_style', style] : ['config', 'unset', 'operator_style'],
+                             {success: style ? '話し方を保存しました。' : '話し方の指定をやめました。'})) return '保存できませんでした。';
+        }});
+    });
     $('operator-new').addEventListener('click', () => {
       if (resident) { resident.clear(); resident.restart(); }
       else { state = {session: null, messages: []}; save(); render(); }

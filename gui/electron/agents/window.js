@@ -441,8 +441,6 @@ agents.onPrefs(next => {
   for (const who of document.querySelectorAll('.persona .who')) {
     const kind = who.dataset.kind, img = who.querySelector('img');
     img.src = prefs.icons?.[kind] || NO_ICON; img.classList.toggle('none', !prefs.icons?.[kind]);
-    const area = who.querySelector('textarea');
-    if (document.activeElement !== area && !area.dataset.dirty) area.value = prefs.styles?.[kind] || '';
   }
   const select = $('operator-model'); select.replaceChildren();
   for (const m of prefs.operatorModels) { const o = document.createElement('option'); o.value = m; o.textContent = m || 'Claude Code の既定'; select.append(o); }
@@ -451,17 +449,10 @@ agents.onPrefs(next => {
 $('operator-model').addEventListener('change', () => agents.setPrefs({operatorModel: $('operator-model').value}));
 
 for (const who of document.querySelectorAll('.persona .who')) {
-  const kind = who.dataset.kind, area = who.querySelector('textarea'), saved = who.querySelector('.saved');
+  const kind = who.dataset.kind;
   who.querySelector('.pick').addEventListener('click', () => agents.iconPick(kind));
   who.querySelector('img').addEventListener('click', () => agents.iconPick(kind));   // アイコンを押しても「画像を選ぶ」
   who.querySelector('.clear').addEventListener('click', () => agents.iconClear(kind));
-  area.addEventListener('input', () => { area.dataset.dirty = '1'; saved.textContent = ''; });
-  who.querySelector('.save').addEventListener('click', async () => {
-    saved.textContent = '保存しています…';
-    const ok = await agents.styleSet(kind, area.value);
-    if (ok) delete area.dataset.dirty;
-    saved.textContent = ok ? '保存しました（次に起動したときから）' : '保存できませんでした';
-  });
 }
 
 agents.onOpenSettings(() => { closePanels(); $('settings-panel').hidden = false; });

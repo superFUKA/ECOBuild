@@ -77,7 +77,7 @@ WS.judge = async (approve, number) => {
   if (!v) return;
   const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
     {success: approve ? r => `#${number} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${number} を差し戻しました。`});
-  if (doc) { WS.reloadFiles?.(); await WS.refreshPrs(); }
+  if (doc) { if (approve) ECO.workspaceKept(doc.result, number); WS.reloadFiles?.(); await WS.refreshPrs(); }
 };
 
 // Submitting the task branch here (task submit): a new submission, or again (the commits pushed, whether the task is

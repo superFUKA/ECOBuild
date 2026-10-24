@@ -610,7 +610,7 @@
       const place = placeFor(n);
       const doc = await run(['task', 'finish', String(n), ...options],
         {dir: place, success: r => `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
-      if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
+      if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); reloadAfter(n); }
       return;
     }
     const t = byNumber(n) || st.details.get(n) || {};
@@ -664,7 +664,7 @@
     const place = placeFor(n);
     const doc = await run(['task', 'finish', String(n), ...options],
       {dir: place, success: r => r.partial ? `#${n} を取り込み、タスクブランチを作り直しました（タスクは続きます）。` : `#${n} を取り込み、完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
-    if (doc) { await MOD.reloadPlace(place); reloadAfter(n); }
+    if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function withdrawSubmission(n) {
     if (!await ECO.confirm({title: `提出を取り下げる：#${n}`, message: '提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。', ok: '取り下げる'})) return;
@@ -681,7 +681,7 @@
     if (!v) return;
     const doc = await run(['task', approve ? 'approve' : 'reject', String(n), ...(v.message ? ['--message', v.message] : [])],
       {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
-    if (doc) { await MOD.reloadPlace(root()); reloadAfter(n); }
+    if (doc) { if (approve) ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(root()); reloadAfter(n); }
   }
   async function revertDialog(n) {
     if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `#${n} で取り込んだ変更を元に戻すための、新しいタスクを作ります。変更を戻すコミットも用意するので、中身を確かめてから提出してください。`, ok: 'タスクを作る'})) return;

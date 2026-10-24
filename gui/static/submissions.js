@@ -108,7 +108,7 @@
         if (!v) return;
         // Run in the module's own clone: the workspace it was checked in (if any) is removed by approve・reject.
         const doc = await ECO.run(MOD.root, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
-        if (doc) await MOD.syncPlaces();
+        if (doc) { if (approve) ECO.workspaceKept(doc.result, n); await MOD.syncPlaces(); }
         return after(doc);
       }
       case 'finish': {
@@ -116,7 +116,7 @@
         if (!options) return;
         const place = MOD.placeOfTask(t.number) || MOD.root;
         const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`});
-        if (doc) await MOD.reloadPlace(place);
+        if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); }
         return after(doc);
       }
       case 'withdraw': return after(await ECO.run(MOD.root, ['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。`, title: '提出を取り下げる'}));

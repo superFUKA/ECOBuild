@@ -14,11 +14,21 @@ from ._shared import _PR_IN_SUBJECT
 class History:
     # 履歴・取り消し・その他 -----------------------------------------------------------
 
-    def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False) -> list[wm.LogEntry]:
-        """履歴。件名の (#N) からPRを、そのPRのタスクブランチからIssueを添える。"""
+    def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False, not_in: str = "",
+            unpushed: bool = False) -> list[wm.LogEntry]:
+        """履歴。件名の (#N) からPRを、そのPRのタスクブランチからIssueを添える。not_in：そのブランチ（GitHub のものがあれば
+        それ）にないコミットだけ（作成元の名前で、提出に入るコミット）。unpushed：Push で送るコミットだけ（push と同じ決まり）。"""
         args = ["log", f"--max-count={count}", "--format=%H%x1f%s%x1f%an%x1f%ad", "--date=iso-strict"]
         if all_branches:
             args.append("--all")
+        if not_in:
+            remote = f"{_git.REMOTE}/{not_in}"
+            target = remote if self.git.rev_parse(remote) else not_in if self.git.rev_parse(not_in) else None
+            if target is None:
+                raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"ブランチ {not_in} がありません。")
+            args += ["HEAD", "--not", target]
+        if unpushed:
+            args += self.unpushed_range("HEAD")
         rows = [line.split("\x1f") for line in self.git.output(*args, "--", *paths).splitlines()]
         matches = [_PR_IN_SUBJECT.search(row[1]) for row in rows]
         pull_issue = {}
@@ -29,6 +39,12 @@ class History:
             pr = int(match.group(1)) if match else None
             entries.append(wm.LogEntry(sha, subject, author, date, pr, pull_issue.get(pr)))
         return entries
+
+    def unpushed_range(self, head: str) -> list[str]:
+        """Push で送るコミットを選ぶ git log の引数：GitHub のこのブランチにないもの。まだ送ったことがなければ、GitHub のどの
+        ブランチにもないもの。"""
+        tree = self.git.working_tree()
+        return [f"{tree.upstream}..{head}"] if tree.upstream and not tree.upstream_gone else [head, "--not", "--remotes"]
 
     def show(self, revision: str = "HEAD") -> str:
         return self.git.output("show", "--stat", "--patch", revision)

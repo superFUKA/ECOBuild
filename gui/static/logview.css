@@ -18,6 +18,8 @@
 .log-commit strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .log-commit button { padding: 3px 9px; font-size: 11px; flex: none; }
 .log-main > .muted { padding: 10px; font-size: 12px; }
+/* A short list inside a panel (提出・Push): as tall as its commits, up to a limit. */
+.log-view.log-short { height: auto; } .log-view.log-short .log-entries { flex: none; max-height: 240px; }
 @media (max-width: 760px) { .log-view, #history-view.log-view { grid-template-columns: 1fr; height: auto; } .log-entries { max-height: 30vh; } }
 /* The diff looks as in a dialog (common.css styles it there only). */
 .log-main pre { margin: 0; padding: 12px; overflow: auto; background: #11141a; border: 1px solid #2a3038; border-radius: 6px; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; white-space: pre-wrap; overflow-wrap: anywhere; color: #cdd5df; }

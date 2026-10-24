@@ -282,9 +282,7 @@ class TaskBranch:
         """GitHubへ送る。commits：送るコミット（新しい順、「短いID 件名」）。dry_run なら送らずに返すだけ。"""
         repo = self._repository.git
         tree = repo.working_tree()
-        # GitHubのこのブランチにないもの。まだ送ったことがなければ、GitHubのどのブランチにもないもの
-        since = [f"{tree.upstream}..{self.branch}"] if tree.upstream and not tree.upstream_gone else [self.branch, "--not", "--remotes"]
-        log = repo.output("log", "--format=%h %s", *since)
+        log = repo.output("log", "--format=%h %s", *self._repository.unpushed_range(self.branch))
         commits = tuple(log.splitlines()) if log else ()
         if not dry_run:
             repo.push(self.branch, set_upstream=tree.upstream is None, force=force)

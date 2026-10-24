@@ -118,7 +118,9 @@
 .pr-meta-row { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; margin-top: 4px; padding-bottom: 8px; border-bottom: 1px solid #303640; }
 .pr-meta { flex: 1; min-width: 0; font-size: 12px; color: #a5aeba; overflow-wrap: anywhere; }
 .pr-meta .sep { color: #56616e; margin: 0 6px; }
-#pr-detail .pr-note { margin: 8px 0 0; font-size: 12px; color: #efc389; }
+.pr-note { margin: 8px 0 0; font-size: 12px; color: #efc389; }
+.pr-commits-box { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid #333b45; border-radius: 7px; background: #1b2027; }
+.push-commits-box .log-view, .pr-commits-box .log-view { margin-top: 6px; }
 #pr-tools { margin-top: 0; }
 #pr-tools:empty { display: none; }
 .pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
@@ -132,16 +134,6 @@
 /* The commits Push sends. */
 .push-commits-box { margin: 8px 0 4px; padding: 8px 10px; border: 1px solid #333b45; border-radius: 7px; background: #1b2027; }
 .push-commits-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #a5aeba; }
-.push-commits { margin: 6px 0 0; padding-left: 18px; max-height: 160px; overflow: auto; font-size: 12px; line-height: 1.7; }
-.push-commits code { color: #8fb8ff; margin-right: 6px; }
-/* A commit to push: chosen by a click; its menu (right click or ⋯) shows the changes or undoes it. */
-.push-commits { list-style: none; padding-left: 0; }
-.push-commit { display: flex; align-items: center; gap: 0; padding: 1px 4px; border-radius: 4px; cursor: default; }
-.push-commit:hover { background: #222a33; } .push-commit.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
-.push-commit-subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.push-commit-more { visibility: hidden; border: 0; background: transparent; color: #a5aeba; padding: 0 6px; line-height: 18px; border-radius: 3px; }
-.push-commit:hover .push-commit-more, .push-commit.chosen .push-commit-more, .push-commit:focus-within .push-commit-more { visibility: visible; }
-.push-commit-more:hover { background: #2f3843; color: #edf1f5; }
 .link-button { background: none; border: none; padding: 0 4px; color: #8fb8ff; font-size: 12px; cursor: pointer; }
 .link-button:hover { text-decoration: underline; }
 /* The divider between the explorer and the work area: drag it (or ←→ on it) to change the explorer's width. */
@@ -239,7 +231,7 @@ body.resizing iframe { pointer-events: none; }
 .branch-button:hover { border-color: #56616e; }
 .branch-button #branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .branch-button svg { flex-shrink: 0; color: #9eaab8; }
-/* ログ tab: the log view, as tall as the window allows. */
+/* ログ tab (off a task branch): the log view, as tall as the window allows. */
 #history-view.log-view { height: max(360px, calc(100vh - 370px)); margin-top: 8px; }
 
 /* The workspace's container: lit when the workspace is a container (the agent and the builds run inside). */

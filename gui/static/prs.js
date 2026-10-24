@@ -34,8 +34,8 @@ function renderPrDetail() {
   tools.replaceChildren();
   // The commits going into the submission (not in the base yet), like the counts of the other tabs.
   WS.setTabCount?.('prs', selectedPr && t && t.number === selectedPr ? t.commits?.length || 0 : 0);
-  if (!selectedPr) { get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は、モジュールの「ブランチ」で見られます。</p>'; return; }
-  if (!t || t.number !== selectedPr) return;
+  if (!selectedPr) { get('pr-note').hidden = true; get('pr-commits').hidden = true; get('pr-detail').innerHTML = '<p class="muted">この作業空間に、提出するタスクブランチはありません。モジュールに届いている提出は、モジュールの「ブランチ」で見られます。</p>'; return; }
+  if (!t || t.number !== selectedPr) { get('pr-note').hidden = true; get('pr-commits').hidden = true; return; }
   const sub = t.pull_request, open = sub?.state === 'open', draft = open && sub.draft;
   const s = WS.status || {}, reviewing = !!s.reviewing && s.reviewing_task === t.number, own = me ? t.assignees.includes(me) : !reviewing;
   // Left: looking at the submission (small). Right: what to do with it. Someone's submission being reviewed here is
@@ -63,9 +63,38 @@ function renderPrDetail() {
     act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
   }
   head.append(title, act); metaRow.append(meta, look); tools.append(head, metaRow);
-  const note = !reviewing && s.ahead ? `<p class="pr-note">未Pushのコミット ${s.ahead}件：${open ? 'Pushすると提出に加わります' : '提出するとPushします'}。</p>` : '';
-  const entries = ECO.submissionDetail(t, {own}).split('</dl>').slice(1).join('</dl>');   // the commits and the conversation
-  get('pr-detail').innerHTML = note + entries;
+  const note = get('pr-note');
+  note.hidden = !(!reviewing && s.ahead);
+  note.textContent = note.hidden ? '' : `未Pushのコミット ${s.ahead}件：${open ? 'Pushすると提出に加わります' : '提出するとPushします'}。`;
+  renderPrCommits();
+  get('pr-detail').innerHTML = ECO.submissionConversation(t);
+}
+
+// The commits going into the submission, as in the log (log --not-in <base>: here, so the commits not pushed yet are
+// in it too): author, date, a double-click (Enter) shows a commit's changes, the right click its menu (WS.commitMenu).
+// 「すべてのログ」 opens the whole log in a window of its own (the base's commits too).
+let prCommitCount = 30, prCommitsRead = 0, prCommitsShown = '';
+const prCommitsView = LOG.view(get('pr-commits-view'), {dir: WS.dir, menu: (c, x, y) => WS.commitMenu(prCommitsView, c, x, y), detail: false, search: false,
+  empty: '提出に入るコミットはありません（作成元と同じです）。', onMore: () => { prCommitCount += 30; loadPrCommits(); }});
+get('pr-commits-view').classList.add('log-short');
+get('pr-full-log').addEventListener('click', () => WS.showLog());
+function renderPrCommits() {
+  const t = prStatus, box = get('pr-commits');
+  box.hidden = !t?.base;
+  if (box.hidden) return;
+  const count = t.commits?.length;
+  get('pr-commits-title').textContent = `提出に入るコミット${count ? `（${count}件、新しい順）` : ''}`;
+  // Read again when what it is about changed (another task, another base, other commits).
+  const key = [t.number, t.base, ...(t.commits || [])].join(' ');
+  if (key !== prCommitsShown) { prCommitsShown = key; loadPrCommits(); }
+}
+async function loadPrCommits() {
+  const t = prStatus;
+  if (!t?.base) return;
+  const mine = ++prCommitsRead, args = ['log', '--not-in', t.base, '--count', String(prCommitCount)];
+  const shown = doc => { if (mine === prCommitsRead && prStatus?.number === t.number) prCommitsView.show(doc.result, doc.result.length >= prCommitCount); };
+  const doc = await ECO.query(WS.dir, args, fresh => { if (fresh.ok) shown(fresh); });
+  if (doc.ok) shown(doc); else if (mine === prCommitsRead) prCommitsView.error(doc.error.message);
 }
 
 // Approve (and take in) or reject. Also used from the banner while reviewing a submission here.

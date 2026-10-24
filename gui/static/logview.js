@@ -6,11 +6,12 @@ const LOG = (() => {
   // A log view (the workspace's ログ tab, the log window log.html): the commits on the left (search, ↑↓, read more), the chosen one's
   // changes on the right, its files folded one by one (path: the files under it open first). menu(c, x, y): a commit's
   // menu (right click, or 操作 ▾). show(commits, more): the commits read (more: there may be more); onMore: read more.
-  // detail: false (the workspace's ログ tab) shows the commits only, across; a double-click (Enter) shows the changes
-  // in a window of their own.
-  function view(box, {dir, path = '', selected = '', menu = null, onMore, detail = true}) {
+  // detail: false (the workspace's ログ tab, the commits of 提出 and Push) shows the commits only, across; a double-click
+  // (Enter) shows the changes in a window of their own. search: false leaves out the search box (a few commits); empty:
+  // what the list says when there are none.
+  function view(box, {dir, path = '', selected = '', menu = null, onMore, detail = true, search: searching = true, empty = 'ログはありません。'}) {
     box.classList.add('log-view'); box.classList.toggle('log-list-only', !detail);
-    box.innerHTML = `<div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む">
+    box.innerHTML = `<div class="log-side"><input type="search" class="log-search" placeholder="件名・作成者・SHA・#タスクで絞り込み" aria-label="ログを絞り込む"${searching ? '' : ' hidden'}>
       <ul class="log-entries" role="listbox" tabindex="0" aria-label="コミット"><li class="muted">読み込んでいます…</li></ul><button type="button" class="log-more" hidden>さらに読み込む</button></div><div class="log-main"></div>`;
     const list = box.querySelector('.log-entries'), main = box.querySelector('.log-main'), search = box.querySelector('.log-search'), more = box.querySelector('.log-more');
     const diffs = new Map();
@@ -22,7 +23,7 @@ const LOG = (() => {
       const tip = [detail ? '' : 'ダブルクリックで変更を見る', menu ? '右クリックで操作' : ''].filter(Boolean).join('・');
       list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"${tip ? ` title="${tip}"` : ''}><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
         <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></li>`).join('')
-        || `<li class="muted">${entries.length ? '一致するコミットはありません。' : 'ログはありません。'}</li>`;
+        || `<li class="muted">${entries.length ? '一致するコミットはありません。' : esc(empty)}</li>`;
     };
     const choose = async sha => {
       chosen = sha; drawn = sha; renderList();
@@ -77,6 +78,8 @@ const LOG = (() => {
       },
       error(message) { list.innerHTML = `<li class="muted">読み込めませんでした：${esc(message)}</li>`; more.disabled = false; },
       focus() { list.focus(); },
+      // The commits shown (newest first), for a menu that counts the later ones.
+      entries: () => entries || [],
       showChanges,
     };
   }

@@ -91,9 +91,8 @@ let operatorQueue = [];   // 起動を待っている間に頼まれた発言
 const OPERATOR_MODELS = ['sonnet', 'haiku', 'opus', 'fable', ''];
 let operatorModel = 'sonnet';
 let pickerWindow = null;  // タブの一覧（☰）を出している窓（リングで選ぶ）
-// アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）と、話し方（ECOBuild の設定。ここは表示と書き換えだけ）
+// アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）
 let icons = {operator: '', agent: ''};
-let styles = {operator: '', agent: ''};
 const iconOf = s => icons[s?.kind === 'operator' ? 'operator' : 'agent'] || '';
 let registrations = new Map();   // 登録の名前 → {name, title, human_start, children, …}（ecobuild agent registry list。「＋」のたびに読み直す）
 let ringConfig = {...RING_DEFAULTS};
@@ -910,7 +909,6 @@ function setup({ecobuild, python, group, module}) {
   const saved = readState();
   if (OPERATOR_MODELS.includes(saved.operatorModel)) operatorModel = saved.operatorModel;
   if (saved.icons) icons = {operator: String(saved.icons.operator || ''), agent: String(saved.icons.agent || '')};
-  loadStyles();
   // 前回のタブは開き直さない（モジュールの画面も開き直さないので、そろえる）。前の版が覚えたものは消す
   if ('tabs' in saved || 'reopen' in saved) writeState({tabs: undefined, reopen: undefined});
   ringConfig = {...RING_DEFAULTS, ...(saved.ring || {})};
@@ -1027,15 +1025,6 @@ function setup({ecobuild, python, group, module}) {
     if (!(kind in icons)) return;
     icons[kind] = ''; writeState({icons}); pushPrefs(); pushTabs(); pushDock(); pushOperator();
   });
-  ipcMain.handle('agents:style-set', async (event, kind, text) => {
-    if (!(kind in styles)) return;
-    const key = kind === 'operator' ? 'operator_style' : 'agent_style';
-    const value = String(text || '').trim();
-    const ok = await ecobuildRun(value ? ['config', 'set', key, value] : ['config', 'unset', key]);
-    if (ok) styles[kind] = value;
-    pushPrefs();
-    return ok;
-  });
   ipcMain.handle('agents:ring-find', () => ring.find());
   ipcMain.on('agents:ring-calibrate', (event, prefix) => {
     if (ringConfig.match) ring.calibrate({match: ringConfig.match, prefix: prefix || ''});
@@ -1067,9 +1056,9 @@ function screenOf(num) { const s = sessions.find(x => x.num === num); return s?.
 module.exports = {setup, connect, openSession, input, operatorSend, screenOf, sessions: () => sessions.map(describe),
                   operator: () => operatorView()};
 
-// ---- アイコン・話し方 ----------------------------------------------------------------------------------
+// ---- アイコン ----------------------------------------------------------------------------------
 function prefsView() {
-  return {operatorModel, operatorModels: OPERATOR_MODELS, icons, styles};
+  return {operatorModel, operatorModels: OPERATOR_MODELS, icons};
 }
 function pushPrefs() { for (const w of windows) send(w, 'agents:prefs', prefsView()); }
 
@@ -1093,14 +1082,6 @@ async function loadRegistrations() {
 function resumeCommand(s) {
   const session = s?.info?.session;
   return session ? `claude --resume ${session}` : 'claude --continue';
-}
-
-async function loadStyles() {
-  for (const [kind, key] of [['operator', 'operator_style'], ['agent', 'agent_style']]) {
-    const doc = await ecobuildRun(['config', 'get', key]);
-    styles[kind] = doc?.result?.value || '';
-  }
-  pushPrefs();
 }
 
 // ハブの設定から：エージェントの窓の ⚙ を開く（窓がなければ空の窓を開く）

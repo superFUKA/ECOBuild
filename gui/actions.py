@@ -42,7 +42,7 @@ class Action:
                             **({"choices": list(p.choices)} if p.choices else {})} for p in self.params]}
 
 
-PAGES = ("workspace", "tasks", "branches", "manage", "modinfo", "settings", "help")
+PAGES = ("workspace", "tasks", "branches", "agents", "manage", "modinfo", "settings", "help")   # agents：モジュールの「エージェント」（渡す文・使わせないツール）
 # 「モジュール」の画面のタブと、「設定」の画面のタブ（profiles・general・templates）。members・ci は「管理」の画面の「メンバー」・「CI」のタブへ、
 # branches は「ブランチ」の画面（共有ブランチと届いている提出）へ移る。agents はハブの設定の「エージェント」（登録）のタブ
 TABS = ("home", "projects", "deps", "branches", "members", "ci", "profiles", "general", "templates", "container", "agents")

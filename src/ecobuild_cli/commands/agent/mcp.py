@@ -30,9 +30,12 @@ def command(
     if hasattr(sys.stdin, "reconfigure"):      # 要求は UTF-8（OS の文字コードによらない）
         sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     try:
-        from ecobuild_agent import registry
-        found = registry.from_file(registration_file) if registration_file else registry.load(registration)
-        context = mcp.Context(agent, found, kind, Path(workspace or Path.cwd()).resolve())
+        from ecobuild_agent import registry, rules
+        where = Path(workspace or Path.cwd()).resolve()
+        # 登録のファイルは、起動した ECOBuild がモジュールで使わせないツールまで重ねたもの
+        found = registry.from_file(registration_file) if registration_file \
+            else rules.effective(registry.load(registration), where)
+        context = mcp.Context(agent, found, kind, where)
         return mcp.serve(context, PROGRAM, registry.allows_tool)
     except EcoBuildError as error:     # 標準出力は JSON-RPC の通り道：起動できない理由は標準エラーへ
         click.echo(f"エラー：{error.message}" + (f"\n{error.hint}" if error.hint else ""), err=True)

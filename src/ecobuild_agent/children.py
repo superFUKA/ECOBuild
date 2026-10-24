@@ -33,7 +33,7 @@ import ecobuild_container as container
 from ecobuild.errors import EcoBuildError
 from ecoagent.mcp import Tool, ToolError
 
-from . import agents, mcp, registry
+from . import agents, mcp, registry, rules
 from . import status as agent_status
 from .errors import ErrorCode
 
@@ -136,10 +136,12 @@ def child_of(caller: agents.AgentRecord, child_id: str) -> agents.AgentRecord:
 
 
 def _registration(record: agents.AgentRecord) -> registry.Registration:
+    """記録の登録に、その作業空間のモジュールで使わせないツールを重ねたもの。"""
     try:
-        return registry.load(record.registration)
+        found = registry.load(record.registration)
     except EcoBuildError:   # 消された登録：子は起動できない・ツールもない
         return registry.Registration(name=record.registration, title=record.registration, document="")
+    return rules.effective(found, record.workspace) if record.workspace else found
 
 
 def check_start(caller: agents.AgentRecord, registration: str, kind: str, brief: str) -> registry.Registration:
@@ -156,6 +158,8 @@ def check_start(caller: agents.AgentRecord, registration: str, kind: str, brief:
                             f"登録「{registration}」は、あなた（登録「{mine.name}」）が起動してよい子ではありません。",
                             hint=f"起動してよい子：{allowed}")
     found = registry.load(registration)
+    if caller.workspace:    # 子は同じモジュールの中：モジュールで使わせないツールを重ねて比べる
+        found = rules.effective(found, caller.workspace)
     if registry.stronger(found, mine):
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                             f"登録「{registration}」は、あなた（登録「{mine.name}」）より強い（許すツールが多い）ので起動できません。")

@@ -25,11 +25,10 @@ import ecoagent
 import ecobuild_container as container
 from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ  # noqa: F401（コマンドの重さ。CLI の _effects が使う）
 from ecobuild import locks
-from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
-from . import agents, app, children, inside, registry, status
+from . import agents, app, children, inside, registry, rules, status
 from .agents import AgentRecord
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
@@ -49,7 +48,6 @@ CONTINUE_FLAGS = ("--continue", "-c")
 # config で扱う項目 → 説明（本体＋拡張が、本体と型の項目に足す）。モデルは登録ごと（registry）
 CONFIG_KEYS = {
     "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
-    "agent_style": "作業用のエージェントの話し方（口調・答え方。空なら指定なし）",
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
                      "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
 }
@@ -248,11 +246,9 @@ class AgentModule:
 
     @staticmethod
     def _registration(record: AgentRecord) -> registry.Registration:
-        """記録の登録（消された登録なら、文書なしの空のもの）。"""
-        try:
-            return registry.load(record.registration)
-        except EcoBuildError:
-            return registry.Registration(name=record.registration, title=record.registration, document="")
+        """記録の登録に、その作業空間のモジュールで使わせないツールを重ねたもの（rules.effective）。消された登録なら、
+        文書なしの空のもの。"""
+        return children._registration(record)
 
     @staticmethod
     def _session(record: AgentRecord, command: tuple[str, ...]) -> tuple[AgentRecord, tuple[str, ...]]:
@@ -356,7 +352,8 @@ class AgentModule:
     # ---- 渡すもの -------------------------------------------------------------------------------------------
     def agent_briefing(self, task, record: AgentRecord) -> str:
         """起動のときにエージェントへ渡す文：共通の前置き（モジュール・タスク・作業空間・持ち主か手伝いか・持ち主は誰か）、
-        登録の文書、話し方。ECOBuild の操作はツール（MCP）なので、CLI の手順（agent guide）は入れない。"""
+        登録の文書、モジュールの決まり（全エージェント共通の文・その登録への文。作成元に取り込まれたもの：rules）。
+        ECOBuild の操作はツール（MCP）なので、CLI の手順（agent guide）は入れない。"""
         lines = [
             "# ECOBuild から：この作業空間での作業のしかた",
             "",
@@ -374,7 +371,7 @@ class AgentModule:
             "",
         ]
         document = self._registration(record).document.strip()
-        return "\n".join([*lines, *([document, ""] if document else []), *self._style()])
+        return "\n".join([*lines, *([document, ""] if document else []), *self._module_rules(record)])
 
     @staticmethod
     def _owner_lines(record: AgentRecord) -> list[str]:
@@ -388,12 +385,12 @@ class AgentModule:
                     "持ち主がします。あなたはコミット・提出をせず、頼まれたことを終えたら親に知らせます。"]
         return [f"- あなたはこのタスクの持ち主です（{by}が起動しました）。コミット・提出はあなたがします。"]
 
-    @staticmethod
-    def _style() -> list[str]:
-        """ユーザーが決めた話し方（設定 agent_style）。"""
-        style = _settings.load_config().get("agent_style", "").strip()
-        return ["## 話し方（ユーザーの指定）", "", style, "",
-                "（口調・言い回し・呼び方だけを変える。手順・確認・決まり・報告の中身（コマンド・結果・エラー・数字）は変えず、正確に伝える。コミット・PR・コード・文書など、成果物の文には使わない）", ""] if style else []
+    def _module_rules(self, record: AgentRecord) -> list[str]:
+        """モジュールの決まり（rules）：全エージェント共通の文と、その登録への文。"""
+        found = rules.in_force(self.root)
+        common, mine = found.common.strip(), found.text_for(record.registration).strip()
+        lines = ["## このモジュールの決まり（全エージェント共通）", "", common, ""] if common else []
+        return lines + ([f"## このモジュールの決まり（あなたの登録「{record.registration}」へ）", "", mine, ""] if mine else [])
 
     def prepare_agent_area(self) -> Path:
         """エージェント用の置き場所（AGENT_AREA）を作り、この clone の git の除外（info/exclude）に足す。リポジトリの

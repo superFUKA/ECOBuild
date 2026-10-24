@@ -62,14 +62,17 @@ def module(root: Path, name="Calc"):
 
 
 def test_a_workspace_with_a_running_agent_or_an_open_child_task_is_not_closed(tmp_path):
+    """動いているエージェントは使用中（ecobuild.usage の口 in_use_source）、閉じていない子タスクの持ち主は
+    before_close_workspace が閉じない理由にする。"""
     import os
+    from ecobuild_agent import in_use_source
     root, child_root = tmp_path / "ws", tmp_path / "ws2"
     root.mkdir()
     child_root.mkdir()
     owner = agents.create(registration="lead", workspace=root)
-    assert module(root).before_close_workspace(root) == []
+    assert module(root).before_close_workspace(root) == [] and in_use_source([root]) == [[]]
     status.started(owner.folder, os.getpid())
-    assert any(owner.id in reason and "動いています" in reason for reason in module(root).before_close_workspace(root))
+    assert any(owner.id in reason and "動いています" in reason for reason in in_use_source([root])[0])
     status.ended(owner.folder, os.getpid())
     child = agents.create(registration="worker", workspace=child_root, parent=owner.id, task={"number": 7, "branch": "b"})
     reasons = module(root).before_close_workspace(root)

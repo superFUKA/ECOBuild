@@ -29,7 +29,7 @@ from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git, REMOTE as _R
 from . import _docs
 from . import ci_review as _ci_review
 from . import config as _config
-from . import locks as _locks
+from . import usage as _usage
 from . import module_type as _module_type
 from . import tracking as _tracking
 from . import workspaces as _workspaces
@@ -85,12 +85,6 @@ def _with_lines(current: str, wanted: str) -> str:
     return text + ("" if text.endswith("\n") else "\n") + "".join(line + "\n" for line in last) if last else text
 
 
-def _locked_hint(command: str) -> str:
-    """ロック中で止めたときのヒント（外し方。--force は案内しない）。"""
-    return ("ロックの原因を終わらせてから、もう一度実行してください（エージェントを止める・コンテナを止める・"
-            f"実行中のコマンドが終わるのを待つ。手動のロックなら {operation(command, 'workspace unlock')} で外せます）。")
-
-
 class _TypeHooks(Hooks):
     """作業の流れの途中で、モジュールの型に手元（依存先・生成ファイル）をそろえさせる。作業空間を消すのは Module。
 
@@ -126,12 +120,12 @@ class _TypeHooks(Hooks):
     def resolve_conflicts(self, repository: Repository, root: Path) -> bool:
         return self._module._module_at(root)._regenerate_merge()
 
-    def switch_locks(self, repository: Repository) -> list[str]:
-        return [r.text for r in _locks.status(repository.root).reasons]
+    def in_use(self, repository: Repository) -> list[str]:
+        return _usage.reasons(repository.root)
 
-    def branch_locks(self, repository: Repository, branch: str) -> list[str]:
+    def branch_in_use(self, repository: Repository, branch: str) -> list[str]:
         # そのタスクブランチを取り出している、ほかの作業ツリー（作業空間・元の clone。git worktree list）と、同じリポジトリの
-        # 前の版の作業空間（独立した clone）のうち、ロック中のもの（場所を添える）
+        # 前の版の作業空間（独立した clone）のうち、使用中のもの（場所を添える）
         held = repository.git.checked_out_branches().get(branch)
         here = [held] if held is not None and not _workspaces.same(held, repository.root) else []
         mine = _workspaces.identity(repository.remote_url)
@@ -145,7 +139,7 @@ class _TypeHooks(Hooks):
                     here.append(path)
             except Exception:   # gitで読めない（壊れたclone 等）
                 continue
-        return [f"{path}：{reason.text}" for path, lock in zip(here, _locks.status_of(here)) for reason in lock.reasons]
+        return [f"{path}：{text}" for path, texts in zip(here, _usage.reasons_of(here)) for text in texts]
 
     def remove_workspace(self, repository: Repository, path: Path, *, discard: bool) -> bool:
         # タスクブランチを消す前に、それを取り出している作業空間を消す（ecowork が、失われるコミット・コミットしていない
@@ -591,7 +585,7 @@ class Module:
         元の clone は閉じられない（モジュールを手元から消すのは module delete --remove-workspaces）。
         手元にだけあるもの（未コミットの変更・新しいファイル・GitHubにないコミット・退避。依存先のcloneも）があれば断る
         （discard_local なら、それも捨てる）。除外したファイル（ビルドの出力・このPC用の設定・ログ）は一緒に消える。
-        使用中（ロック中・before_close_workspace が理由を返す）なら断る。
+        使用中（実行中のコマンド・エージェント等。usage と before_close_workspace が理由を返す）なら断る。
         他のプログラム（端末・エディター等）が使っていてフォルダーを動かせなければ、前の版の作業空間は消せるものだけを消し、
         残ったものを返す（GitHubにないものがないことは確かめてあるので、作業は失われない）。作業空間（git worktree）は
         記録が残るので消さずに断る。
@@ -606,14 +600,13 @@ class Module:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                                 f"{root} は ECOBuild が作った作業空間（{_workspaces.AREA}/<名前>）ではないので閉じません。",
                                 hint=f"自分で作った作業ツリーなら git worktree remove \"{root}\" で外してください。")
-        if (lock := _locks.status(root)).locked:   # --discard-local でも閉じない（使っている最中の作業空間）
-            raise EcoBuildError(ErrorCode.WORKSPACE_LOCKED, "作業空間が使用中（ロック中）のため、閉じられません。",
-                                hint=_locked_hint(cls.command), details=[r.text for r in lock.reasons])
         module = cls(root, _config.load(root / _config.FILE_NAME), github=github)
-        reasons = module.before_close_workspace(root)
+        reasons = _usage.reasons(root)   # --discard-local でも閉じない（使っている最中の作業空間）
+        reasons += [r for r in module.before_close_workspace(root) if r not in reasons]
         if reasons:
-            raise EcoBuildError(ErrorCode.WORKSPACE_LOCKED, "作業空間が使用中のため、閉じられません。",
-                                hint="使っているものを止めてから、もう一度実行してください。", details=list(reasons))
+            raise EcoBuildError(ErrorCode.WORKSPACE_IN_USE, "作業空間が使用中のため、閉じられません。",
+                                hint="使っているもの（エージェント・実行中のコマンド）が終わってから、もう一度実行してください。",
+                                details=reasons)
         if not discard_local:
             module._check_nothing_unpushed()
         if dry_run:
@@ -790,7 +783,7 @@ class Module:
         status = self.repository.status(fetch=fetch)
         return ModuleStatus(**{f.name: getattr(status, f.name) for f in fields(status)} | {
             "excluded": tuple(p for p in status.untracked if not self.is_tracked(p)),
-            "dependencies": self.dependency_mismatches(), "lock": _locks.status(self.root),
+            "dependencies": self.dependency_mismatches(),
             "format": self.config.format, "latest_format": _config.FORMAT})
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,

@@ -4,7 +4,6 @@ from ecobuild.module import mismatch_text
 
 from .._output import lines, run_command, upgrade_note
 from .task._show import submission_text
-from .workspace.lock import lock_text
 
 AGENT = "read"
 
@@ -38,7 +37,6 @@ def command(
         pr = r.pull_request
         return lines(
             where,
-            lock_text(r.lock) or None,
             "GitHubのリポジトリはアーカイブ（読み取り専用）されています（ecobuild module unarchive で戻せます）"
             if r.archived else None,
             "取り込みが衝突で止まっています（直して ecobuild sync continue、やめるなら sync abort）" if r.merging else None,

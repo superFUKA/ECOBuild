@@ -155,9 +155,8 @@ function renderTab(dir) {
   const button = tabs.querySelector(`[data-dir="${CSS.escape(keyOf(dir))}"]`); if (!button) return;
   const {branch, title, where} = placeLabel(dir);
   // A task's tab shows the task's title (its branch, task/<n>-<name>, on hover); another workspace shows its branch.
-  const lock = ECO.lockOf(MOD.states.get(keyOf(dir)));
-  button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}${lock.locked ? '<span class="lock-mark" aria-label="ロック中">🔒</span>' : ''}`;
-  button.title = `${branch}　${dir}` + (lock.locked ? `\nロック中：${ECO.lockSummary(lock)}` : '');
+  button.innerHTML = `${ECO.esc(title || branch)}${where ? `<small class="where">${ECO.esc(where)}</small>` : ''}`;
+  button.title = `${branch}　${dir}`;
   syncTabs();
 }
 async function refreshState(dir) {
@@ -320,8 +319,7 @@ MOD.openWorkspace = async n => {
 // branch stays (on this PC and GitHub): 「タスクブランチを開く」 makes the workspace again.
 async function closePlace(dir) {
   const state = MOD.states.get(keyOf(dir)), review = state?.reviewing;
-  if (ECO.whyLocked(state)) { if (await ECO.lockDialog(dir, state)) refreshState(dir); return; }   // in use: not removed
-  if (!await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと消します。ビルドの出力なども消えます。\n${review ? '確認をやめます（承認も差し戻しもしません）。' : 'タスクブランチは残るので、タスク管理の「タスクブランチを開く」でまた作業空間を作れます。'}\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるときは消しません。`, ok: '閉じる', danger: true})) return;
+  if (!await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと消します。ビルドの出力なども消えます。\n${review ? '確認をやめます（承認も差し戻しもしません）。' : 'タスクブランチは残るので、タスク管理の「タスクブランチを開く」でまた作業空間を作れます。'}\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるとき、使用中（エージェント・ビルド等が動いている）のときは消しません。`, ok: '閉じる', danger: true})) return;
   if (await ECO.run(null, ['workspace', 'close', dir], {success: `作業空間 ${dir} を閉じました。`})) { removeTab(dir); await syncPlaces(); pageHooks.changed?.(); }
 }
 
@@ -353,7 +351,6 @@ tabs.addEventListener('contextmenu', e => {
     '-',
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
-    [ECO.lockOf(state).locked ? 'ロックの詳細…' : '手動でロックする…', () => ECO.lockDialog(dir, state).then(changed => changed && refreshState(dir))],
     ['状態を更新', () => reloadPlace(dir)],
     ...(MOD.workspaces.get(group.dataset.group)?.name ? [['作業空間を閉じる…', () => closePlace(dir)]] : []),
     ...(state.task ? ['-', [`タスク #${state.task} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.task); }]] : []),
@@ -373,10 +370,9 @@ tabs.addEventListener('keydown', event => {
 addTabButton.addEventListener('click', async () => {
   const rows = MOD.places.map((p, i) => {
     const {branch, title, where} = placeLabel(p), ws = isWorkspace(p);
-    const lock = ECO.lockOf(MOD.states.get(keyOf(p)));
-    const label = ws ? `${ECO.esc(title || branch)}${tabVisible(p) ? '<span class="picker-shown">表示中</span>' : ''}${lock.locked ? '<span aria-label="ロック中"> 🔒</span>' : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
+    const label = ws ? `${ECO.esc(title || branch)}${tabVisible(p) ? '<span class="picker-shown">表示中</span>' : ''}` : `${ECO.esc(branch)}（状態を読めません）`;
     const own = MOD.workspaces.get(keyOf(p))?.name;   // a workspace in the module (not the previous version's clone itself)
-    const sub = [title ? branch : '', `${where}：${p}`, lock.locked ? 'ロック中：' + ECO.lockSummary(lock) : ''].filter(Boolean).map(ECO.esc).join('<br>');
+    const sub = [title ? branch : '', `${where}：${p}`].filter(Boolean).map(ECO.esc).join('<br>');
     // Removing the folder is not the dialog's 閉じる: its own words, in red.
     return `<div class="picker-row"><button type="button" data-show="${i}" ${ws ? '' : 'disabled'}>${label}<small>${sub}</small></button>${own ? `<button type="button" class="picker-remove" data-close-place="${i}" title="作業空間を削除（フォルダごと。タスクブランチは残ります）">削除…</button>` : ''}</div>`;
   }).join('') || '<p class="eco-help">作業空間はまだありません。タスク管理でタスクの「作業を開始」すると作られます。</p>';
@@ -395,7 +391,7 @@ addTabButton.addEventListener('click', async () => {
 });
 
 // What the other pages care about in a place's state (the task list shows which tasks have a task branch or a PR).
-const stateSignature = s => s ? [s.branch, s.task, s.reviewing, ECO.lockOf(s).locked, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
+const stateSignature = s => s ? [s.branch, s.task, s.reviewing, s.pull_request ? `${s.pull_request.number}:${s.pull_request.state}` : ''].join('|') : '';
 // Messages from workspace frames: their state changed (commit, switch...), so update the tab label.
 window.addEventListener('message', event => {
   if (event.origin !== location.origin) return;
@@ -411,6 +407,7 @@ window.addEventListener('message', event => {
   if (data.type === 'show-task' && data.n) { showModulePage('tasks'); window.TASKS_SELECT?.(Number(data.n)); }
 });
 
-// Automatic locks (agent・container・command) come and go without the GUI: read the places again now and then.
+// What changes without this window (another window, the CLI, an agent: commits, a submission, a workspace removed):
+// read the places again now and then (status only reads git and files: cheap, and it wakes nothing).
 setInterval(() => { if (!document.hidden) MOD.places.forEach(refreshState); }, 20000);
 MOD.ready = loadPlaces().then(syncTabs);

@@ -252,7 +252,7 @@ def _close_task(module, number: int, subject: str, error: Exception) -> str:
 
 def stop_container(root: Path, progress=lambda message: None) -> bool:
     """子タスクの作業空間 root のコンテナを止める（取り込む・閉じる前に。中のエージェントを止めても、コンテナは
-    sleep infinity で動き続け、動いている間は作業空間のロックになる）。Docker が使えなければ何もしない。止めたか。"""
+    sleep infinity で動き続け、WSL・メモリーを使い続ける）。Docker が使えなければ何もしない。止めたか。"""
     try:
         if not container.enabled(root):
             return False

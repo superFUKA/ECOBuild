@@ -172,7 +172,6 @@ const ECO = (() => {
     if (typeof details === 'string') return details;
     if (Array.isArray(details)) return details.map(d => typeof d === 'string' ? d : d?.text || JSON.stringify(d)).join('\n');
     if (details.output) return details.output;
-    if (Array.isArray(details.reasons)) return detailText(details.reasons);   // a workspace lock's reasons
     return JSON.stringify(details, null, 2);
   }
 
@@ -180,53 +179,17 @@ const ECO = (() => {
   // except for a build, test or run, whose output is what tells the cause.
   const OUTPUT_FIRST = new Set(['build_failed', 'test_failed', 'run_failed', 'cppbuild_error', 'check_failed', 'gui_no_output']);
   const detailHtml = (e, detail) => detail ? `<details class="eco-detail"${OUTPUT_FIRST.has(e.code) ? ' open' : ''}><summary>詳細（ツールの出力）</summary><pre>${esc(detail)}</pre></details>` : '';
-  // Workspace lock (workspace lock／unlock): reasons are {kind: manual|agent|container|command, text, since, pid}.
-  // An answer without `lock` (an older CLI) is "not locked".
-  const LOCK_KIND = {manual: '手動のロック', agent: 'エージェントが動いています', command: 'コマンドを実行中です'};
-  const lockReasons = v => {
-    const list = Array.isArray(v) ? v : Array.isArray(v?.reasons) ? v.reasons : v && typeof v === 'object' ? [v] : typeof v === 'string' && v ? [{text: v}] : [];
-    return list.map(r => typeof r === 'string' ? {text: r} : r).filter(r => r && typeof r === 'object');
+  // A workspace in use (an agent running in it, a build etc. running): removing or switching it stops with
+  // workspace_in_use and the things using it (texts) in the details. Nothing to unlock: they end on their own.
+  const inUseList = details => {
+    const list = (Array.isArray(details) ? details : []).map(r => typeof r === 'string' ? r : r?.text).filter(Boolean);
+    return list.length ? `<ul class="eco-list">${list.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '';
   };
-  const lockOf = state => {
-    const lock = state && state.lock, reasons = lockReasons(lock);
-    return {locked: !!(lock && (lock.locked || reasons.length)), reasons};
-  };
-  const lockReasonText = r => (r.text || LOCK_KIND[r.kind] || 'ロックされています') + (r.since ? `（${localTime(r.since, true)} から）` : '') + (r.pid ? `（pid ${r.pid}）` : '');
-  const lockSummary = lock => lock.reasons.length ? lock.reasons.map(lockReasonText).join('／') : 'ロックされています';
-  // Why a locked workspace cannot switch its task branch (empty when it is not locked).
-  const whyLocked = state => { const lock = lockOf(state); return lock.locked ? `作業空間がロックされています：${lockSummary(lock)}` : ''; };
-  const lockList = reasons => reasons.length ? `<ul class="eco-list">${reasons.map(r => `<li>${esc(lockReasonText(r))}</li>`).join('')}</ul>` : '';
-
-  // The lock of the workspace `dir`: the reasons, 手動ロックを付ける／外す, and (deep inside) the emergency unlock --force.
-  // Resolves true when the lock was changed.
-  async function lockDialog(dir, state) {
-    const lock = lockOf(state), manual = lock.reasons.some(r => r.kind === 'manual'), auto = lock.reasons.filter(r => r.kind !== 'manual');
-    const buttons = [['閉じる', '', null], ...(manual ? [['手動ロックを外す', 'primary', 'unlock']] : lock.locked ? [] : [['手動でロックする…', 'primary', 'lock']])];
-    const emergency = lock.locked && auto.length ? `<details class="eco-detail eco-emergency"><summary>非常用の操作</summary><p class="eco-hint">ふだんは使いません（使用禁止の位置づけです）。エージェントやコマンドが動いたままでも、いまあるロックを無視させます。</p><button type="button" class="danger" data-force>今あるロックを無視させる…</button></details>` : '';
-    const body = lock.locked
-      ? `<p>この作業空間は使用中です。ロック中は、この作業空間を消す操作（完了・作業を捨てる・閉じる等）とタスクブランチの削除ができません。</p>${lockList(lock.reasons)}${auto.length ? '<p class="eco-hint">エージェント・コマンドによるロックは、それが終わると自動で外れます。手動では外せません。</p>' : ''}${emergency}`
-      : '<p>この作業空間はロックされていません。手動でロックすると、この作業空間を消す操作とタスクブランチの削除ができなくなります（他の人や AI が使っている間の保護）。</p>';
-    let forced = false;
-    const choice = await dialog({title: '作業空間のロック', body: `${body}<p class="eco-cmd">${esc(dir)}</p>`, buttons,
-      onOpen: d => d.querySelector('[data-force]')?.addEventListener('click', () => { forced = true; d.close(); })});
-    if (forced) {
-      const ok = await confirm({title: '今あるロックを無視させる（非常用）', danger: true, ok: 'ロックを無視させる',
-        message: 'これは使用禁止の位置づけの非常用の操作です。\nエージェントやコマンドが動いたまま、作業空間やタスクブランチが消えることがあります。動いている作業が壊れたり、失われたりするおそれがあります。\n\nそれでも、今あるロックを無視させますか？', detail: lock.reasons.map(lockReasonText).join('\n')});
-      return ok ? !!await run(dir, ['workspace', 'unlock', '--force', '--yes'], {success: 'ロックを無視させました。'}) : false;
-    }
-    if (choice === 'unlock') return !!await run(dir, ['workspace', 'unlock'], {success: '手動ロックを外しました。'});
-    if (choice === 'lock') {
-      const v = await form({title: '作業空間をロックする', intro: 'ロック中は、この作業空間のタスクブランチの切り替え・削除ができません。', fields: [{name: 'reason', label: '理由（任意）', placeholder: '例：レビュー中・AI に任せている'}], ok: 'ロックする'});
-      return v ? !!await run(dir, ['workspace', 'lock', ...(v.reason?.trim() ? ['--reason', v.reason.trim()] : [])], {success: '作業空間をロックしました。'}) : false;
-    }
-    return false;
-  }
 
   function showError(doc, title = '失敗しました') {
     const e = doc.error || {message: '不明なエラーです。'};
-    if (e.code === 'workspace_locked') {
-      const reasons = lockReasons(e.details);
-      return dialog({title: '作業空間がロックされています', body: `<p>${esc(e.message)}</p>${lockList(reasons)}${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
+    if (e.code === 'workspace_in_use') {
+      return dialog({title: '作業空間が使用中です', body: `<p>${esc(e.message)}</p>${inUseList(e.details)}${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
     }
     const detail = detailText(e.details) || (doc.ok === false && !e.details && doc.stderr && e.code === 'gui_no_output' ? doc.stderr : '');
     return dialog({title, wide: !!detail && OUTPUT_FIRST.has(e.code), body: `<p>${esc(e.message)}</p>${e.hint ? `<p class="eco-hint">${esc(e.hint)}</p>` : ''}${detailHtml(e, detail)}${doc.argv ? `<p class="eco-cmd">${esc(doc.argv.join(' '))}</p>` : ''}`, buttons: [['閉じる', 'primary', true]]});
@@ -939,7 +902,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, workspaceKept, showError, lockOf, lockSummary, whyLocked, lockDialog, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+  return {call, cli, run, workspaceKept, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits};
 })();

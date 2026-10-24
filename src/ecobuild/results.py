@@ -11,7 +11,6 @@ from typing import NamedTuple, Protocol
 
 from ecowork import model as wm
 
-from .locks import Lock
 
 
 @dataclass(frozen=True)
@@ -57,7 +56,6 @@ class ModuleStatus(wm.Status):
     """状態（status）に、モジュールの仕様の版を足したもの（ModuleInfo と同じ意味）。"""
     format: int = 0
     latest_format: int = 0
-    lock: Lock | None = None         # この作業空間のロック（使用中）の状態
 
 
 @dataclass(frozen=True)
@@ -102,7 +100,6 @@ class TaskWorkspace:
     path: Path
     branch: str | None = None        # 取り出しているブランチ（確認用は切り離された状態で None）
     task: int | None = None          # タスクブランチなら、その番号
-    lock: Lock | None = None         # ロック（使用中）の状態（workspace list で調べる。調べていなければ None）
     account: str | None = None       # この作業空間を動かす GitHub のアカウント（account use。なければ None）
     review: int | None = None        # 確認用の作業空間（task review）なら、確認している PR の番号
 
@@ -119,7 +116,6 @@ class WorkspaceEntry:
     remote: str | None = None        # --fetch：ok・archived・moved・gone（GitHubにない）・unknown。GitHubでなければNone
     moved_to: str | None = None      # remote が moved のとき、GitHubでの今の名前
     type: str = ""                   # モジュールの型（ecobuild.toml の [module] type。読めなければ空）
-    lock: Lock | None = None         # 元の clone のロック（使用中）の状態。場所がなければ None
     default_branch: str = ""         # タスクブランチの既定の作成元（ecobuild.toml の default_base）
     workspaces: tuple[TaskWorkspace, ...] = ()   # 中の作業空間（.ecobuild/w/）
 
@@ -133,7 +129,6 @@ class LegacyEntry:
     url: str | None = None
     branch: str | None = None
     task: int | None = None
-    lock: Lock | None = None
     remote: str | None = None        # --fetch（WorkspaceEntry と同じ）
     moved_to: str | None = None
 
@@ -143,14 +138,6 @@ class WorkspaceList:
     """workspace list：このPCのモジュール（元の clone と中の作業空間）と、前の版の作業空間。"""
     modules: tuple[WorkspaceEntry, ...] = ()
     legacy: tuple[LegacyEntry, ...] = ()
-
-
-@dataclass(frozen=True)
-class WorkspaceLocked:
-    """workspace lock・unlock の結果。"""
-    path: Path
-    lock: Lock
-    forced: bool = False             # unlock --force で、自動のロックを無視させた
 
 
 @dataclass(frozen=True)

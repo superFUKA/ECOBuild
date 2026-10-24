@@ -129,14 +129,14 @@ def test_git_version_reads_the_windows_form(monkeypatch):
 # 消す ------------------------------------------------------------------------------------
 
 class Removing(Hooks):
-    """利用側の作業空間の消し方（ecobuild はロック・コンテナ・記録の片付けと一緒に消す）を真似る。"""
+    """利用側の作業空間の消し方（ecobuild はコンテナ・記録の片付けと一緒に消す）を真似る。"""
 
     def __init__(self, refuse=None):
         self.removed, self.refuse = [], refuse
 
     def remove_workspace(self, repository, path, *, discard):
         if self.refuse:
-            raise WorkError(ErrorCode.WORKSPACE_LOCKED, self.refuse)
+            raise WorkError(ErrorCode.WORKSPACE_IN_USE, self.refuse)
         self.removed.append((path, discard))
         return super().remove_workspace(repository, path, discard=discard)
 

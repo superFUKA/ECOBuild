@@ -1,6 +1,6 @@
-"""使用中（ロック中）の作業空間を守る：ブランチの切り替えと、ロック中のほかの作業空間が使っているタスクブランチの削除を止める。
+"""使用中の作業空間を守る：その場の切り替えと、使用中のほかの作業空間が取り出しているタスクブランチの削除を、直前に確かめて止める。
 
-ロックの判断は利用側（Hooks.switch_locks・branch_locks）が持つ。ここでは差し込みの効き方を確かめる。
+使用中かの判断は利用側（Hooks.in_use・branch_in_use）が持つ。ここでは差し込みの効き方を確かめる。
 """
 
 import pytest
@@ -12,14 +12,14 @@ from ecowork.errors import ErrorCode, WorkError
 pytestmark = pytest.mark.local
 
 
-class Locked(Hooks):
+class InUse(Hooks):
     def __init__(self, switch=(), branch=()):
         self.switch, self.branch, self.asked = list(switch), list(branch), []
 
-    def switch_locks(self, repository):
+    def in_use(self, repository):
         return list(self.switch)
 
-    def branch_locks(self, repository, branch):
+    def branch_in_use(self, repository, branch):
         self.asked.append(branch)
         return list(self.branch)
 
@@ -27,16 +27,16 @@ class Locked(Hooks):
 def refused(action):
     with pytest.raises(WorkError) as error:
         action()
-    assert error.value.code == ErrorCode.WORKSPACE_LOCKED
+    assert error.value.code == ErrorCode.WORKSPACE_IN_USE
     return error.value
 
 
-def test_start_another_task_is_refused_while_locked(repository):
+def test_start_another_task_is_refused_while_in_use(repository):
     first = repository.create_task("a").start()
     second = repository.create_task("b")
-    repository.hooks = Locked(switch=["エージェントが動いています"])
+    repository.hooks = InUse(switch=["エージェントが動いています"])
     error = refused(second.start)
-    assert error.details == ["エージェントが動いています"] and "workspace unlock" in error.hint
+    assert error.details == ["エージェントが動いています"] and "終わってから" in error.hint
     assert "--force" not in error.hint
     assert repository.git.current_branch() == first.branch   # 何も変わっていない
     assert not repository.git.has_local_branch("task/2")
@@ -45,7 +45,7 @@ def test_start_another_task_is_refused_while_locked(repository):
 def test_start_the_current_task_is_not_a_switch(repository):
     task = repository.create_task("a")
     task.start()
-    repository.hooks = Locked(switch=["使用中"])
+    repository.hooks = InUse(switch=["使用中"])
     assert task.start().branch == "task/1"
 
 
@@ -56,17 +56,17 @@ def test_drop_current_refused_and_other_branch_allowed(repository):
     first.push()
     repository.git.switch("main")
     second = repository.create_task("b").start()
-    repository.hooks = Locked(switch=["使用中"])
+    repository.hooks = InUse(switch=["使用中"])
     refused(lambda: repository.drop_task(2, discard=True))      # 今いるタスクブランチを消す＝切り替わる
     assert repository.git.has_local_branch("task/2")
     refused(lambda: repository.remove_task_branch(2))
     assert repository.drop_task(1, discard=True).branch == "task/1"   # 今いないものは、切り替えにならない
 
 
-def test_other_workspace_lock_stops_deleting_its_branch(repository):
+def test_other_workspace_in_use_stops_deleting_its_branch(repository):
     task = repository.create_task("a").start()
     repository.git.switch("main")
-    hooks = repository.hooks = Locked(branch=["/work/other：エージェントが動いています"])
+    hooks = repository.hooks = InUse(branch=["/work/other：エージェントが動いています"])
     error = refused(lambda: repository.drop_task(1, discard=True))
     assert error.details == ["/work/other：エージェントが動いています"]
     refused(lambda: repository.remove_task_branch(1))
@@ -76,46 +76,46 @@ def test_other_workspace_lock_stops_deleting_its_branch(repository):
     assert repository.drop_task(1, discard=True).branch == "task/1"
 
 
-def test_prune_skips_locked_and_refuses_when_named(repository):
+def test_prune_skips_in_use_and_refuses_when_named(repository):
     repository.create_task("a").start()
     repository.git.switch("main")
     repository.github.close_issue(repository.root, 1)
-    repository.hooks = Locked(branch=["/work/other：使用中"])
+    repository.hooks = InUse(branch=["/work/other：使用中"])
     skipped = repository.prune_task_branches().skipped
-    assert [s.branch for s in skipped] == ["task/1"] and "ロック中" in skipped[0].reason
+    assert [s.branch for s in skipped] == ["task/1"] and "使用中" in skipped[0].reason
     refused(lambda: repository.prune_task_branch(1))
     assert repository.git.has_local_branch("task/1")
-    repository.hooks = Locked()
+    repository.hooks = InUse()
     assert repository.prune_task_branches().removed == ("task/1",)
 
 
-def test_prune_current_is_refused_while_locked(repository):
+def test_prune_current_is_refused_while_in_use(repository):
     repository.create_task("a").start()
     repository.github.close_issue(repository.root, 1)
-    repository.hooks = Locked(switch=["使用中"])
+    repository.hooks = InUse(switch=["使用中"])
     assert [s.branch for s in repository.prune_task_branches().skipped] == ["task/1"]
     assert repository.git.current_branch() == "task/1"
 
 
 @pytest.mark.needs_git_2_48
-def test_review_does_not_touch_a_locked_workspace_and_a_locked_review_workspace_is_kept(repository, tmp_path):
+def test_review_does_not_touch_a_workspace_in_use_and_a_review_workspace_in_use_is_kept(repository, tmp_path):
     task = repository.create_task("a").start()
     write(repository.root / "a.txt", "a\n")
     task.record("a")
     task.submit()
-    repository.hooks = Locked(switch=["使用中"])
+    repository.hooks = InUse(switch=["使用中"])
     review = repository.review_task(1, tmp_path / "r")      # 確認は別の作業空間：この作業空間は変わらない
     assert repository.git.current_branch() == "task/1"
-    inside = Repository(review.workspace, github=repository.github, hooks=Locked(switch=["使用中"]))
+    inside = Repository(review.workspace, github=repository.github, hooks=InUse(switch=["使用中"]))
     refused(inside.end_review)
     assert (tmp_path / "r").exists()
     assert Repository(review.workspace, github=repository.github).end_review().workspace is not None
 
 
 @pytest.mark.needs_git_2_48
-def test_a_locked_workspace_keeps_its_finished_branch(repository, tmp_path):
+def test_a_workspace_in_use_keeps_its_finished_branch(repository, tmp_path):
     started = repository.start_task_in(repository.create_task("a").number, tmp_path / "1")
-    inside = Repository(started.workspace, github=repository.github, hooks=Locked(switch=["使用中"]))
+    inside = Repository(started.workspace, github=repository.github, hooks=InUse(switch=["使用中"]))
     repository.github.close_issue(repository.root, 1)
     assert [s.branch for s in inside.prune_task_branches().skipped] == ["task/1"]
     assert (tmp_path / "1").exists() and repository.git.has_local_branch("task/1")
@@ -126,11 +126,11 @@ def test_tidy_leaves_finished_branch_used_elsewhere(repository):
     repository.git.switch("main")
     git(repository.root, "push", "origin", "--delete", "task/1")
     repository.github.close_issue(repository.root, 1)
-    repository.hooks = Locked(branch=["/work/other：使用中"])
+    repository.hooks = InUse(branch=["/work/other：使用中"])
     repository.git.fetch()
     assert repository._tidy_finished() == ()
     assert repository.git.has_local_branch("task/1") and any("残しました" in n for n in repository.notices)
-    repository.hooks = Locked()
+    repository.hooks = InUse()
     assert repository._tidy_finished() == ("task/1",)
 
 

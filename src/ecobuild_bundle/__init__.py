@@ -18,7 +18,7 @@ import ecobuild
 import ecobuild_agent
 import ecobuild_container
 from ecobuild import config as _config
-from ecobuild import locks as _locks
+from ecobuild import usage as _usage
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
 from ecobuild.results import DoctorItem
@@ -34,9 +34,8 @@ REGISTRY = ecobuild.Registry.from_toml(
 # コンテナの拡張に、型の一覧と、エージェントがコンテナに足すもの（Claude Code 等）を渡す
 ecobuild_container.use(REGISTRY, (ecobuild_agent.CONTAINER_FEATURE,))
 
-# 作業空間のロック（使用中）の理由のうち、拡張が知っているもの：エージェントが動いている間（コンテナが動いていることは
-# 理由にしない。ecobuild.locks の説明）
-_locks.add_source(ecobuild_agent.lock_source)
+# 作業空間を使っているもののうち、拡張が知っているもの：動いているエージェント（ecobuild.usage。消す・切り替える直前に確かめる）
+_usage.add_source(ecobuild_agent.in_use_source)
 
 CONFIG_KEYS = {**ecobuild_agent.CONFIG_KEYS}   # 拡張が名乗る、このPCの設定の項目
 

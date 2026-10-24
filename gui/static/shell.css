@@ -82,7 +82,6 @@ header { padding: 10px 16px; }
 /* The account's role in this module (account show), after the name. */
 .nav-account-role { flex: none; padding: 0 6px; border-radius: 8px; background: #2a323b; color: #cdd5df; font-size: 11px; line-height: 18px; }
 .module-shell.nav-collapsed .nav-account-role { display: none; }
-.tabs [role=tab] .lock-mark { margin-left: 5px; font-size: 11px; color: #f0d98c; }
 /* The account in two lines (name, then the role), so the name is not cut to "su…". */
 .module-shell:not(.nav-collapsed) .nav-account { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: center; }
 .module-shell:not(.nav-collapsed) .nav-avatar { grid-row: span 2; }

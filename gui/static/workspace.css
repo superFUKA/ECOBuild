@@ -154,14 +154,14 @@ body.resizing iframe { pointer-events: none; }
 @media(max-width: 700px) { main { grid-template-columns: 1fr; } .splitter { display: none; } }
 
 /* The toolbar like Visual Studio's, on one line: the configuration, build, test and ▶ 実行 (with the Project it runs) on
-   the left, the workspace (branch, account, lock, container), the AI and the editor on the right. Narrow, the labels of
-   the account, lock and container go (the mark stays; the name is in its tip). */
+   the left, the workspace (branch, account, container), the AI and the editor on the right. Narrow, the labels of
+   the account and container go (the mark stays; the name is in its tip). */
 .build-bar { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; padding: 6px 12px; }
 .bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0; }
 .bar-right { margin-left: auto; justify-content: flex-end; flex-shrink: 1; }
 .build-bar button, .build-bar .tool-button span { white-space: nowrap; }
 .bar-right > *:not(.branch-button) { flex-shrink: 0; }
-@media (max-width: 1300px) { .build-bar #lock-label, .build-bar #container-label { display: none; } }
+@media (max-width: 1300px) { .build-bar #container-label { display: none; } }
 @media (max-width: 1060px) { .build-bar #account-label { display: none; } }
 .bar-field { position: relative; display: flex !important; align-items: center; gap: 0 !important; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; }
 .bar-field > span { padding: 0 2px 0 9px; color: #84909e; font-size: 11px; white-space: nowrap; }
@@ -246,8 +246,6 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .container-button span { font-size: 12px; }
 .build-bar .container-button.on { border-color: #39584f; background: #1f302c; color: #a8ead9; }
 .build-bar .container-button.on svg { color: #9ee4d3; }
-.build-bar #lock-button.on { border-color: #6b5a2c; background: #302a1a; color: #f0d98c; }
-.build-bar #lock-button.on svg { color: #f0d98c; }
 .build-bar .account-button.on { border-color: #3a5878; background: #1c2635; color: #b1cbef; }
 .build-bar .account-button.on svg { color: #b1cbef; }
 /* The image editor (コンテナの「イメージ（Dockerfile）」): the environment's Dockerfile, its image and ECOBuild's layer. */

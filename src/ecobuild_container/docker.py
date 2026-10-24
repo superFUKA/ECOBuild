@@ -89,7 +89,7 @@ PROBE_SECONDS = 15           # 状態を調べるだけの呼び出しの時間�
 
 
 def probe(args: list[str]) -> Completed:
-    """状態を調べるだけの呼び出し（status・ロックの確認）。PROBE_SECONDS で打ち切る。"""
+    """状態を調べるだけの呼び出し（状態の表示・ほかの確認）。PROBE_SECONDS で打ち切る。"""
     return _RUN(args, PROBE_SECONDS)
 
 

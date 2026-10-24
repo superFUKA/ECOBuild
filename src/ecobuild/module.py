@@ -16,6 +16,7 @@ import datetime as _dt
 import json
 
 import re
+import tempfile
 from collections.abc import Callable
 import tomllib
 from dataclasses import fields, replace
@@ -24,7 +25,7 @@ from pathlib import Path
 from ecowork import Hooks, Repository, WorkError
 from ecowork import github as _github
 from ecowork import model as wm
-from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git, WORKTREE_LOCK_REASON as _LOCK_REASON
+from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git, REMOTE as _REMOTE, WORKTREE_LOCK_REASON as _LOCK_REASON
 
 from . import _docs
 from . import ci_review as _ci_review
@@ -38,7 +39,7 @@ from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
-                      ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
+                      ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceList)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
@@ -1465,7 +1466,7 @@ class Module:
 
     # 文書・CI・確認 -------------------------------------------------------------
 
-    def upgrade(self, *, dry_run: bool = False) -> ModuleUpgraded:
+    def upgrade(self, *, dry_run: bool = False, branch: str = "") -> ModuleUpgraded:
         """モジュールを今の ECOBuild の仕様に合わせる（ecobuild.toml の format を今の版にする）。
 
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
@@ -1478,36 +1479,119 @@ class Module:
         変えたファイルは「ECOBuild の更新」としてコミットする（人の作業ではないので、どのブランチでもよい。タスクブランチでなければ
         GitHub へ push もする。タスクブランチなら、いつもの Push・提出に乗る）。未コミットの変更があれば止める（混ざらないように）。
         dry_run：変えるファイルを返すだけ（版ごとの移行と型の生成ファイルの分は、行うまで分からないので含まない）。
+        branch：今いるのでない管理用のブランチ（main・develop 等）を合わせる（_upgrade_branch。手元の作業ツリーには触れない）。
         """
+        if branch and branch != self.repository.git.current_branch():
+            return self._upgrade_branch(branch, dry_run=dry_run)
         if not dry_run:
             self.repository.check_own_commit("モジュールの更新")
-        start = self.config.format
-        before = set(self._changed_paths())
-        if not dry_run:
-            for version in range(start, _config.FORMAT):
-                if version in _MIGRATIONS:
-                    _MIGRATIONS[version](self)
-        planned, skipped = self._ecobuild_files()
-        if start != _config.FORMAT:
-            planned[_config.FILE_NAME] = ""   # 版を書き換える（中身は保存のときに作る）
         git_config = self._missing_git_config()
         if dry_run:
-            return ModuleUpgraded(start, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True,
+            planned, skipped = self._planned_upgrade()
+            return ModuleUpgraded(self.config.format, _config.FORMAT, tuple(sorted(planned)), tuple(skipped), dry_run=True,
                                   git_config=git_config)
         for setting in git_config:
             self.repository.git.set_config(*setting.split("=", 1))
+        start, changed, skipped = self._apply_upgrade()
+        if not changed:
+            return ModuleUpgraded(start, _config.FORMAT, changed, skipped, git_config=git_config)
+        commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
+        return ModuleUpgraded(start, _config.FORMAT, changed, skipped, commit=commit, branch=branch, pushed=pushed,
+                              git_config=git_config)
+
+    def _planned_upgrade(self) -> tuple[dict[str, str], list[str]]:
+        """upgrade で変えるファイル（場所 → 新しい中身。ecobuild.toml は中身を保存のときに作るので空）と、作り直さないもの。"""
+        planned, skipped = self._ecobuild_files()
+        if self.config.format != _config.FORMAT:
+            planned[_config.FILE_NAME] = ""   # 版を書き換える
+        return planned, skipped
+
+    def _apply_upgrade(self) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
+        """版ごとの移行・ECOBuild が作るファイル・版・型の生成ファイルを今のものにする（コミットはしない）。
+        返り値：(前の版, 変わったファイル, 手で編集してあるため作り直さなかったファイル)。"""
+        start = self.config.format
+        before = set(self._changed_paths())
+        for version in range(start, _config.FORMAT):
+            if version in _MIGRATIONS:
+                _MIGRATIONS[version](self)
+        planned, skipped = self._planned_upgrade()
         for path, text in planned.items():
             if path != _config.FILE_NAME:
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
                 (self.root / path).write_text(text, encoding="utf-8", newline="\n")
         self._save_config(replace(self.config, format=_config.FORMAT))
         self.type.refresh()
-        changed = tuple(sorted((set(self._changed_paths()) - before) | set(planned)))
-        if not changed:
-            return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), git_config=git_config)
-        commit, branch, pushed = self.repository.commit_own(changed, UPGRADE_MESSAGE)
-        return ModuleUpgraded(start, _config.FORMAT, changed, tuple(skipped), commit=commit, branch=branch, pushed=pushed,
-                              git_config=git_config)
+        return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned))), tuple(skipped)
+
+    def _upgrade_branch(self, name: str, *, dry_run: bool) -> ModuleUpgraded:
+        """管理用のブランチ name（GitHub の最新）を今の仕様に合わせ、「ECOBuild の更新」として GitHub の name へ push する。
+
+        管理用のブランチは作業空間で開かない（作業はタスクブランチで）ので、手元の作業ツリー・今いるブランチには触れずに、
+        一時的な作業ツリー（共有の .git の中。終われば消す）で行う。git の設定（改行コード）は作業空間のものなので変えない。
+        できるのは name への提出を取り込める人（branch merge --into と同じ）。GitHub のブランチの保護が PR を求めれば
+        push が断られる（そのときはタスクブランチで module upgrade して提出する）。手元の name は、どこでも取り出して
+        いなければ push したコミットに進め、取り出していればそのまま（その場所の sync で取り込む）。"""
+        repository, git = self.repository, self.repository.git
+        if wm.is_task_branch(name):
+            raise EcoBuildError(ErrorCode.PROTECTED_BRANCH, f"{name} はタスクブランチです。",
+                                hint=f"タスクブランチに切り替えて {self.op('module upgrade')} を実行してください（Push・提出はいつものとおり）。")
+        git.fetch()
+        if not git.has_remote_branch(name):
+            raise EcoBuildError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubにブランチ {name} がありません。")
+        if not dry_run and not repository.can_take_in(name):
+            raise EcoBuildError(ErrorCode.PERMISSION_DENIED, f"{name} の仕様の更新は、{repository.take_in_owners(name)}だけが行えます。",
+                                hint=f"{repository.take_in_owners(name)}に頼んでください。")
+        head = git.output("rev-parse", f"{_REMOTE}/{name}")
+        if (reason := self.repository.hooks.unusable(repository, [head]).get(head)) is not None:
+            raise EcoBuildError(ErrorCode.NOT_IN_MODULE, f"{name} は{reason}。")
+        area = git.common_directory() / "ecobuild"
+        area.mkdir(exist_ok=True)
+        place = Path(tempfile.mkdtemp(prefix="upgrade-", dir=area))
+        git.worktree_add(place, detach_at=head)
+        try:
+            there = type(self)(place, _config.load(place / _config.FILE_NAME), github=repository.github,
+                               registry=self.registry)
+            if dry_run:
+                planned, skipped = there._planned_upgrade()
+                return ModuleUpgraded(there.config.format, _config.FORMAT, tuple(sorted(planned)), tuple(skipped),
+                                      dry_run=True, branch=name)
+            start, changed, skipped = there._apply_upgrade()
+            if not changed:
+                return ModuleUpgraded(start, _config.FORMAT, changed, skipped, branch=name)
+            there.repository.git.add(changed, all=True)
+            commit = there.repository.git.commit(UPGRADE_MESSAGE)
+        finally:
+            with contextlib.suppress(WorkError):
+                git.worktree_remove(place, force=True)
+            if place.exists():
+                remove_tree(place)
+        pushed = git.run("push", "--quiet", _REMOTE, f"{commit}:refs/heads/{name}", check=False)
+        if not pushed.ok:
+            raise EcoBuildError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {name} への push を断りました（何も変えていません）。",
+                                hint=f"{name} のブランチの保護が PR を求めているか、その間に {name} が進みました。タスクブランチで "
+                                     f"{self.op('module upgrade')} して提出するか、もう一度実行してください。",
+                                details=pushed.output)
+        git.fetch()
+        if (git.has_local_branch(name) and name not in git.checked_out_branches()
+                and git.is_ancestor(f"refs/heads/{name}", commit)):
+            git.run("update-ref", f"refs/heads/{name}", commit)
+        return ModuleUpgraded(start, _config.FORMAT, changed, skipped, commit=commit, branch=name, pushed=True)
+
+    def branches(self) -> list[ModuleBranch]:
+        """ブランチの一覧（Repository.branches）に、それぞれの仕様の版（ecobuild.toml の format。GitHub にあれば GitHub の
+        もの。モジュールでなければ None）を添える。1回の git で全部を読む。"""
+        branches = self.repository.branches()
+        refs = {b.name: f"{_REMOTE}/{b.name}" if b.remote else b.name for b in branches}
+        formats: dict[str, int] = {}
+        if refs:
+            found = self.repository.git.run("grep", "--no-color", "-E", r"^format[[:space:]]*=", *refs.values(), "--",
+                                            _config.FILE_NAME, check=False).stdout
+            for line in found.splitlines():   # 「<ref>:<パス>:format = 4」。上にあるキー（表の前）が最初に出る
+                ref, _, value = line.partition(f":{_config.FILE_NAME}:")
+                if ref not in formats and (number := re.search(r"=\s*(\d+)", value)):
+                    formats[ref] = int(number.group(1))
+        return [ModuleBranch(**{f.name: getattr(b, f.name) for f in fields(b)}, format=formats.get(refs[b.name]),
+                             latest_format=_config.FORMAT) for b in branches]
 
     def _missing_git_config(self) -> tuple[str, ...]:
         """clone するときの git の設定（CLONE_CONFIG）のうち、この作業空間の設定（--local）と違うもの。"""

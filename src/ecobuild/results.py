@@ -89,6 +89,13 @@ class ModuleUpgraded:
 
 
 @dataclass(frozen=True)
+class ModuleBranch(wm.Branch):
+    """branch list：ブランチに、そのモジュールの仕様の版を添えたもの（Module.branches）。"""
+    format: int | None = None        # そのブランチの ecobuild.toml の format（モジュールでなければ None）
+    latest_format: int = 0           # この ECOBuild の版（format がこれより古ければ module upgrade --branch）
+
+
+@dataclass(frozen=True)
 class TaskWorkspace:
     """モジュールの中の作業空間（<元の clone>/.ecobuild/w/<名前> の git worktree）の1件。"""
     name: str                        # 置き場所の名前（タスクの番号・確認用なら r<PRの番号>）

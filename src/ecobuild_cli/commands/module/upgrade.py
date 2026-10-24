@@ -5,6 +5,7 @@ from ..._output import lines, run_command
 
 def command(
     dry_run: Annotated[bool, "変えるファイルを表示するだけ（何も変えない）"] = False,
+    branch: Annotated[str, "今いるのでない管理用のブランチ（main・develop 等）を合わせる（手元の作業ツリーには触れない）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """モジュールを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットします。
@@ -14,6 +15,8 @@ def command(
     ルートの README は変えません。
     どのブランチでもできます。タスクブランチでなければ GitHub へ push もします（タスクブランチなら、いつもの Push・提出で）。
     未コミットの変更があるときは止まります（変更が混ざらないように）。
+    --branch <名前> を付けると、管理用のブランチ（作業空間で開かないブランチ）の GitHub の最新を、手元の作業ツリーに触れずに
+    （一時的な作業ツリーで）合わせて、GitHub のそのブランチへ push します。できるのは、そのブランチへの提出を取り込める人です。
     """
 
     def render(r):
@@ -31,4 +34,4 @@ def command(
              + ("。GitHub へ push しました" if r.pushed else "。Push・提出はいつものとおり") if r.commit else None),
         )
 
-    return run_command("module upgrade", lambda inv: inv.module.upgrade(dry_run=dry_run), render, json_output=json)
+    return run_command("module upgrade", lambda inv: inv.module.upgrade(dry_run=dry_run, branch=branch), render, json_output=json)

@@ -16,10 +16,11 @@ def command(
     reason: Annotated[str, "ロックの理由（表示に出る）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
-    """今の作業空間をロックします（使用中にする）：ブランチの切り替えと、このタスクブランチを別の作業空間から消す操作を止めます。
+    """今の作業空間をロックします（使用中にする）：この作業空間を消す操作（task finish・drop・close・prune・
+    workspace close 等）と、このタスクブランチを消す操作を止めます。
 
-    外すまで残ります（ecobuild workspace unlock）。エージェントが動いている間・コンテナが動いている間・
-    build／test／run／check の実行中は、自動でロック中になります（こちらは原因が終われば外れます）。
+    外すまで残ります（ecobuild workspace unlock）。エージェントが動いている間・build／test／run／check の実行中
+    （コンテナの中で動かすものも）は、自動でロック中になります（こちらは原因が終われば外れます）。
     """
 
     def action(inv):

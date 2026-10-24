@@ -2,6 +2,8 @@
 
 渡すのは、型のツール（コンパイラー等）を動かすコマンドだけ（COMMANDS）。git・GitHub の操作はこのPCで行う（ファイルは同じ）。
 中の ecobuild は環境変数（container.INSIDE）で中にいると分かるので、もう一度は渡さない。
+渡している間は、このPCでその作業空間をロックする（locks.running。中の ecobuild はロックを書かない：中の pid はこのPCでは
+確かめられない）。
 --json の結果の中の場所（/work…）は、このPCの場所に読み替えて出す。
 中の ecobuild のログには、このPCの run を forwarded_from に書いてもらう（_log.forward_environment）。中で失敗したら、
 このPCのログにもその誤り（command.error。--json なら中の error）を書く。
@@ -14,7 +16,7 @@ import os
 from pathlib import Path
 
 import click
-from ecobuild import workspaces
+from ecobuild import locks, workspaces
 from ecobuild.errors import WorkError
 import ecobuild_container as container
 
@@ -40,8 +42,9 @@ def route(args: list[str], json_output: bool) -> int | None:
     passed = [f"{key}={value}" for key, value in _log.forward_environment().items()]
     command = ["env", *passed, PROGRAM, *args] if passed else [PROGRAM, *args]
     try:
-        code, out = container.run_inside(root, command, cwd=Path.cwd(), command=PROGRAM, source=source(),
-                                         progress=lambda message: click.echo(message, err=True), capture=json_output)
+        with locks.running(root, words[0]):
+            code, out = container.run_inside(root, command, cwd=Path.cwd(), command=PROGRAM, source=source(),
+                                             progress=lambda message: click.echo(message, err=True), capture=json_output)
     except WorkError as error:
         def fail(inv):
             raise error

@@ -521,8 +521,9 @@ def own_drive(root: Path, runner: docker.Runner | None, prefix: tuple[str, ...])
 
 
 def show(root: Path, runner: docker.Runner | None = None, *, source: tuple[str, str] | None = None) -> WorkspaceContainer:
-    """状態。source（今の ECOBuild の入れ元）を渡すと、コンテナが今の作り方のイメージか（outdated）も調べる。"""
-    return _result(root, enabled(root), False, runner, source=source)
+    """状態。source（今の ECOBuild の入れ元）を渡すと、コンテナが今の作り方のイメージか（outdated）も調べる。
+    見るだけなので WSL を起こさない（止まっていれば、コンテナも止まっている：state stopped）。"""
+    return _result(root, enabled(root), False, runner, source=source, found=docker.status(runner or docker.run, wake=False))
 
 
 def choose(root: Path, container: bool, runner: docker.Runner | None = None, *,
@@ -745,7 +746,8 @@ def _result(root: Path, container: bool, changed: bool, runner: docker.Runner | 
             built: bool = False, source: tuple[str, str] | None = None,
             found: docker.DockerStatus | None = None) -> WorkspaceContainer:
     found = found or docker.status(runner or docker.run)
-    state, image, _ = _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
+    state, image, _ = ("stopped", "", "") if found.stage == "sleeping" else \
+        _inspect(root, runner, found.command) if found.ready else ("unknown", "", "")
     local = _config.load_local(root)
     custom = local.get(IMAGE_KEY) or ""
     wanted = custom or (made.image if source is not None and (made := _recipe_or_none(root, source)) else "")

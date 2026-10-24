@@ -10,7 +10,7 @@ class Machine:
     def __init__(self, monkeypatch, *, windows=True, **state):
         self.windows = windows
         self.state = {"docker": False, "package": False, "wsl": False, "reboot": False, "distro": False, "engine": False,
-                      "running": False, "permission": True, "virtualization": True, **state}
+                      "running": False, "permission": True, "virtualization": True, "booted": False, **state}
         self.calls, self.elevated = [], []
         monkeypatch.setattr(docker.shutil, "which",
                             lambda name: name if name == "wsl" and windows or name == "docker" and self.state["docker"]
@@ -41,6 +41,11 @@ class Machine:
             s["virtualization"] |= s["wsl"]         # 再起動が要らなければ、すぐ有効になる
         elif args == ["wsl", "--list", "--quiet"]:
             output = "Ubuntu\r\n" + ("ECOBuild\r\n" if s["distro"] else "")
+        elif args == ["wsl", "--list", "--running", "--quiet"]:   # 動いているディストリ（起こさない）
+            output = "ECOBuild\r\n" if s["distro"] and s["booted"] else ""
+        elif args[:5] == ["wsl", "-d", docker.DISTRO, "-u", "root"] and s["distro"] and not s["booted"]:
+            s["booted"] = True                      # wsl -d はディストリを起こす
+            return self.run(args[:])
         elif args[:3] == ["wsl", "--install", docker.IMAGE]:
             s["distro"] = True
         elif args[:5] == ["wsl", "-d", docker.DISTRO, "-u", "root"]:
@@ -151,6 +156,18 @@ def test_status_tells_that_wsl_does_not_answer(monkeypatch):
                           else machine.run(args))
     found = docker.status(stuck, windows=True)
     assert not found.ready and found.stage == "not_running" and "応答しません" in found.detail and "wsl --shutdown" in found.detail
+
+
+def test_status_to_show_does_not_wake_wsl(monkeypatch):
+    """見せるだけの状態（wake=False）は、止まっている WSL のディストリを起こさない（GUI が窓のたびに読む。起こすたびに
+    15 秒ほど動き続け、WSL が止まらずメモリーが解放されなかった）。動いていれば、ふつうに調べる。"""
+    machine = Machine(monkeypatch, package=True, wsl=True, distro=True, engine=True, running=True)
+    found = docker.status(machine.run, windows=True, wake=False)
+    assert found.ready and found.stage == "sleeping" and "止まっています" in found.detail
+    assert not machine.state["booted"] and all(call[:2] != ["wsl", "-d"] for call in machine.calls)
+    assert docker.status(machine.run, windows=True).stage == "ready" and machine.state["booted"]   # 使うときは起こす
+    assert docker.status(machine.run, windows=True, wake=False).stage == "ready"                  # 動いていれば調べる
+    assert docker.status(Machine(monkeypatch, package=True, wsl=True).run, windows=True, wake=False).stage == "no_distro"
 
 
 def test_decode_utf16_from_wsl():

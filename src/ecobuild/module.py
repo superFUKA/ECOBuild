@@ -737,11 +737,17 @@ class Module:
             linked = git.is_linked_worktree()
             if git.output("status", "--porcelain"):
                 found.append(f"{label}未コミットの変更")
-            heads = ("HEAD",) if linked else ("--branches",)
-            commits = git.output("log", *heads, "--not", "--remotes", "--format=%h %s") if git.rev_parse("HEAD") else ""
-            if commits:
-                found.append(f"{label}GitHubにないコミット {len(commits.splitlines())} 件")
             branch = git.current_branch()
+            heads = ("HEAD",) if linked else ("--branches",)
+            commits = git.output("log", *heads, "--not", "--remotes", "--format=%h %s").splitlines() \
+                if git.rev_parse("HEAD") else []
+            if commits and linked and branch:
+                # マージ済みのPRに入っていれば GitHub にあるとみなす（task finish がタスクブランチを消した後も、
+                # スカッシュ前のコミットを GitHub にないものにしない。ecowork の _lost_commits と同じ見方）
+                repository = self.repository if root == self.root else Repository(root, github=self.repository.github)
+                commits = repository.commits_not_on_github("HEAD", branch=branch)
+            if commits:
+                found.append(f"{label}GitHubにないコミット {len(commits)} 件")
             stashes = git.stash_list()
             if linked:
                 stashes = [entry for entry in stashes if branch is not None and entry.branch == branch]

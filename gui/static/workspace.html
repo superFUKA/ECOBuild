@@ -30,7 +30,7 @@
       <textarea id="commit-message" rows="3" placeholder="コミットメッセージ（何を・なぜ変えたか）" aria-label="コミットメッセージ"></textarea>
       <div class="actions"><label><input type="checkbox" id="amend"> 直前のコミットを修正</label><button id="commit" class="primary">コミット</button></div>
       <div class="change-head"><label class="select-all"><input type="checkbox" id="select-all"> 変更ファイル<span id="change-count"></span></label>
-        <span class="change-tools"><span id="stage-tools" hidden><button data-git="stage" title="衝突を直したファイルを、直したものとして記録します">ステージ</button><button data-git="unstage">ステージを取り消す</button></span><button data-git="diff">差分</button><button data-git="discard">元に戻す…</button></span></div>
+        <span class="change-tools"><span id="stage-tools" hidden><button data-git="stage" title="衝突を直したファイルを、直したものとして記録します">ステージ</button><button data-git="unstage">ステージを取り消す</button></span><button data-git="diff">差分</button><button data-git="discard">元に戻す…</button><button type="button" id="stash-menu" aria-haspopup="menu" title="未コミットの変更を一時的にしまう・戻す">退避</button></span></div>
       <div id="changes"></div></section>
     <section class="panel share" id="share-panel" role="tabpanel" aria-labelledby="share-title">
       <div class="heading"><h3 id="share-title">Push</h3><span id="push-state" class="muted"></span></div>

@@ -83,6 +83,16 @@ GITIGNORE = """\
 /.ecobuild/.cppbuild/operations/
 """
 
+# 改行はLFにそろえる（Windows の core.autocrlf=true で CRLF にされると、コンテナ〔Linux〕の git から全ファイルが変更ありに
+# 見え、依存先として clone したときも同じ）。型の .gitattributes（type の gitattributes）。本体が新しいモジュールに置き、
+# module upgrade・adopt では足りない行を足す（* の行は先頭に足すので、元のリポジトリの *.ps1 等の決まりを上書きしない）
+GITATTRIBUTES = """\
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+"""
+
 
 # 管理するファイルの既定（ソース・ヘッダー・文書）。CppBuildの管理ファイル（.cppbuild/）・生成ファイルは別に常に含める
 TRACKED_PATTERNS = ("*.h", "*.hh", "*.hpp", "*.hxx", "*.inl", "*.ipp", "*.c", "*.cc", "*.cpp", "*.cxx", "*.ixx",
@@ -169,6 +179,10 @@ class CppType(ModuleType, Builds, HasProjects, HasFiles, HasDependencies):
     @classmethod
     def gitignore(cls) -> str:
         return GITIGNORE
+
+    @classmethod
+    def gitattributes(cls) -> str:
+        return GITATTRIBUTES
 
     @classmethod
     def tracked_patterns(cls) -> tuple[str, ...]:

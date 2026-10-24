@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -318,3 +319,35 @@ def test_switching_aligns_dependencies(short_tmp):
     assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == first
     other.repository.create_task("続きの作業").start()  # 最新のmainからタスクブランチを作る → 依存先も新しい記録へ
     assert git(other.root / "deps" / "STL", "rev-parse", "HEAD") == newer
+
+
+def test_dependency_clone_keeps_lf_line_endings(short_tmp, monkeypatch):
+    """依存先は ECOBuild の clone と同じ改行コードの扱い（core.autocrlf=input）で取り出し、clone の設定にも書く：
+    このPCの git が core.autocrlf=true（Windows の既定）でも CRLF にしない（コンテナの中の git から変更ありに見えない）。
+    新しいモジュールには、改行を LF にそろえる .gitattributes を置く。"""
+    stl_github = FakeGitHub(short_tmp / "gh1")
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
+    assert (stl.root / ".gitattributes").read_text(encoding="utf-8").startswith("* text=auto eol=lf\n")
+    git(stl.root, "rm", "--quiet", ".gitattributes")   # .gitattributes のない前の版のモジュール
+    git(stl.root, "commit", "--quiet", "-m", ".gitattributes を外す")
+    git(stl.root, "push", "--quiet", "origin", "main")
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["STL"] = stl_github.bare
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
+    ecs.repository.create_task("STLを使う").start()
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")   # このPCの設定に当たるもの（後ろに足し、消さない）
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+    ecs.link("STL")
+    clone = ecs.root / "deps" / "STL"
+    assert b"\r\n" not in (clone / "STL" / "include" / "STL" / "STL.h").read_bytes()
+    assert git(clone, "config", "--local", "core.autocrlf") == "input"
+    assert (os.environ["GIT_CONFIG_COUNT"], os.environ.get("GIT_CONFIG_KEY_1")) == ("1", None)   # 元に戻す
+    # 前の版が clone した（設定のない）依存先にも、sync で書く
+    git(clone, "config", "--local", "--unset", "core.autocrlf")
+    ecs.sync_dependencies()
+    assert git(clone, "config", "--local", "core.autocrlf") == "input"
+    remove_tree(clone)   # ビルドの前の取得（足りない依存先）でも同じ
+    ecs.build()
+    assert b"\r\n" not in (clone / "STL" / "include" / "STL" / "STL.h").read_bytes()
+    assert git(clone, "config", "--local", "core.autocrlf") == "input"

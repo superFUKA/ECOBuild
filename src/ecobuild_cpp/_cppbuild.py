@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -13,6 +14,8 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
 from cppbuild import workspace as _workspace
+
+from ecowork.git import CLONE_CONFIG, Git
 
 from ecobuild.config import DIRECTORY
 from ecobuild.errors import EcoBuildError, operation
@@ -238,6 +241,8 @@ def update(root: Path, options: BuildOptions | None = None) -> BuildOutcome:
     solution = open_solution(root)
     if options is not None:
         _apply_options(solution, options)
+    if options is None or options.fetch_git:
+        _fetch_missing(solution)
     try:
         _ensure_solution_folders(solution)
         report = solution.update()
@@ -327,9 +332,11 @@ def fetch_dependencies(root: Path) -> tuple[tuple[str, ...], tuple[DependencySou
     """足りない依存先を記録の版でcloneし、（今回cloneした名前, 全依存先）を返す。"""
     solution = open_solution(root)
     try:
-        report = solution.fetch_git_sources()
+        with _clone_config():
+            report = solution.fetch_git_sources()
     except Exception as error:
         raise _cppbuild_error("依存先を取得できません。", error) from error
+    _write_clone_config(Path(s.directory) for s in report.sources)   # 前の版が clone したものも（CRLF で取り出した等）
     sources = tuple(DependencySource(s.name, Path(s.directory), s.revision, True) for s in report.sources)
     return tuple(report.fetched), sources
 
@@ -651,8 +658,9 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
     before = {s.name for s in solution.git_sources()}
     message = f"{url} をリンクできません。"
     try:
-        # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。
-        with _transaction(solution, message):
+        # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。_clone_config は外側に：
+        # トランザクションの終わりの構成でも、依存先の依存先を clone する。
+        with _clone_config(), _transaction(solution, message):
             solution.get_project(project).settings.link_git(
                 url, solution_path=CONFIG_DIRECTORY, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
     except EcoBuildError:
@@ -666,6 +674,7 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
                             details=str(error)) from error
     except Exception as error:
         raise _cppbuild_error(message, error) from error
+    _write_clone_config(Path(s.directory) for s in solution.git_sources() if s.name not in before)
     added = [s.name for s in solution.git_sources() if s.name not in before]
     return added[0] if added else next(s.name for s in solution.git_sources() if s.url == url)
 
@@ -693,7 +702,10 @@ def record_latest(root: Path, name: str) -> str:
     if source is None:
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
     try:
-        return solution.set_git_source(source.url).revision
+        with _clone_config():
+            revision = solution.set_git_source(source.url).revision
+        _write_clone_config(Path(s.directory) for s in solution.git_sources())
+        return revision
     except Exception as error:
         raise _cppbuild_error(f"依存先 {name} の最新を取得できません。", error) from error
 
@@ -762,7 +774,61 @@ def _target(root: Path, project: str | None, options: BuildOptions, *, run_argum
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects)}")
     _apply_options(solution, options, run_project=project, run_arguments=run_arguments)
+    if options.fetch_git:
+        _fetch_missing(solution)
     return solution if project is None else solution.get_project(project)
+
+
+@contextmanager
+def _clone_config():
+    """CppBuild が依存先を clone・取り出す間、git に ECOBuild の clone と同じ設定（ecowork の CLONE_CONFIG。改行コードを
+    core.autocrlf=input に）を効かせる。CppBuild は git をこのプロセスの環境で動かすので、環境変数（GIT_CONFIG_COUNT・
+    GIT_CONFIG_KEY_<n>・GIT_CONFIG_VALUE_<n>）で、今ある設定の後ろに足す。終われば元に戻す。
+
+    付けないと Windows では CRLF で取り出し、コンテナ（Linux）の git から全ファイルが変更ありに見える。"""
+    try:
+        count = int(os.environ.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        count = 0
+    values = {"GIT_CONFIG_COUNT": str(count + len(CLONE_CONFIG))}
+    for index, setting in enumerate(CLONE_CONFIG, count):
+        values[f"GIT_CONFIG_KEY_{index}"], values[f"GIT_CONFIG_VALUE_{index}"] = setting.split("=", 1)
+    saved = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _write_clone_config(directories) -> None:
+    """依存先の clone の設定（--local）に CLONE_CONFIG を書く（後の取り出し・切り替え・コンテナの中の git でも効くように）。
+    clone がない・書けないものは飛ばす（ビルド等を止めない）。"""
+    for directory in directories:
+        if not (directory / ".git").exists():
+            continue
+        git = Git(directory)
+        for setting in CLONE_CONFIG:
+            key, value = setting.split("=", 1)
+            if git.get_config(key) != value:
+                git.run("config", "--local", key, value, check=False)
+
+
+def _fetch_missing(solution: Solution) -> None:
+    """足りない依存先があれば、操作（構成・ビルド等。CppBuild がその前に clone する）より先に _clone_config の下で
+    clone する。失敗したら何もしない（操作の側が clone し直し、いつもどおりに誤りを出す）。"""
+    try:
+        if all(s.present for s in solution.git_sources()):
+            return
+        with _clone_config():
+            report = solution.fetch_git_sources()
+        _write_clone_config(Path(s.directory) for s in report.sources if s.name in report.fetched)
+    except Exception:
+        pass
 
 
 def _apply_options(solution: Solution, options: BuildOptions, *, run_project: str | None = None,

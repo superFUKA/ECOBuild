@@ -496,7 +496,14 @@
       const ENTRY = ['main', 'wmain', 'WinMain', 'wWinMain'], entry = ENTRY.includes(d.entry_point) ? d.entry_point : 'other';
       const defaultFolder = data.settings?.folders?.projects, folderNow = d.folder === defaultFolder ? '' : d.folder || '';
       const list = values => values.join(', ');
+      // The kind (project set --kind) is saved alone: the other fields belong to the kind shown.
+      const KINDS = {executable: 'app', static_library: 'library', shared_library: 'shared'}, kindNow = KINDS[d.kind];
+      const hasTest = (Array.isArray(data.projects) ? data.projects : []).some(p => p.name === `${name}Test`);
       const fields = [
+        ...(kindNow ? [
+          {name: 'kind', label: '種類', type: 'select', value: kindNow, options: [['app', '実行ファイル'], ['library', 'ライブラリ（静的）'], ['shared', '共有ライブラリ（Windows は DLL）']],
+            help: '変えると、ソース・設定・リンクはそのままで作り直します（ほかの設定はその後で変えてください）。'},
+          {name: 'makeTest', label: `組のテスト用Project（${name}Test）を作る`, type: 'checkbox', value: true, showIf: v => v.kind !== 'app' && kindNow === 'app' && !hasTest}] : []),
         {name: 'sources', label: 'ソースディレクトリ（Projectからの相対、カンマ区切り。中のファイルがビルドに入る）', value: list(d.source_directories)},
         ...groups.flatMap((g, i) => [
           {type: 'section', label: '定義・インクルード' + g.label, note: same && kinds.length > 1 ? `ライブラリの形式（${kinds.join('・')}）すべてに使います` : ''},
@@ -529,6 +536,7 @@
         return [...(added.length ? [`--add-${option}`, added.join(',')] : []), ...(removed.length ? [`--remove-${option}`, removed.join(',')] : [])];
       };
       return inWorkspace(`Projectの設定：${name}`, fields, '保存', v => {
+        if (kindNow && v.kind !== kindNow) return ['project', 'set', name, '--kind', v.kind, ...(v.kind !== 'app' && kindNow === 'app' && !v.makeTest ? ['--no-test'] : [])];
         const common = [...diff('source-dir', d.source_directories, v.sources), ...diff('system-lib', d.system_libraries, v.systemLibs)];
         if (executable) {
           const entryPoint = v.entry === 'other' ? v.entryOther.trim() : v.entry;

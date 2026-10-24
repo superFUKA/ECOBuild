@@ -301,3 +301,71 @@ def test_settings_cli(module, monkeypatch, capsys):
     code, out = run("profile", "add", "q", "--cpp-standard", "14")
     assert code != 0 and out["error"]["code"] == "invalid_argument"
     run("profile", "remove", "p")
+
+
+def test_change_project_kind(monkeypatch, capsys):
+    """project set --kind：作り直しても、ソース・設定・リンク（依存先のモジュールも）・main・フォルダーを保つ。"""
+    from cppbuild import ProjectType
+    from ecobuild_cpp import _cppbuild
+
+    base = short_temporary_directory()
+    try:
+        stl_github = FakeGitHub(base / "gh1")
+        Module.create("STL", directory=base, kind="library", github=stl_github)
+        module = Module.create("Tool", directory=base, github=FakeGitHub(base / "gh2"), kind="app", project="Tool")
+        module.repository.create_task("種類の試験").start()
+        _cppbuild.open_solution(module.root).get_project("Tool").settings.link_git(
+            "file:///" + stl_github.bare.as_posix(), solution_path=_cppbuild.CONFIG_DIRECTORY,
+            link_type=ProjectType.STATIC_LIBRARY)
+        module.set_project("Tool", add_defines=("TOOL=1",), folder="Apps", entry_point="wmain")
+        main = (module.root / "Tool/src/main.cpp").read_text(encoding="utf-8")
+
+        # 実行ファイル（main）→ ライブラリ：入口を外し、足りないファイルと組のテスト用を足す
+        changed = module.set_project("Tool", kind="library")
+        assert (changed["kind"], changed["main"], changed["folder"], changed["entry_point"], changed["gui"]) \
+            == ("static_library", True, "Apps", "main", False)
+        assert changed["types"]["shared"]["defines"] == ["TOOL=1"] and changed["export_all_symbols"]
+        assert [link["name"] for link in changed["links"]] == ["STL/STL"]
+        assert changed["created"] == ["Tool/include/Tool/Tool.h", "Tool/src/Tool.cpp", "ToolTest/src/ToolTest.cpp"]
+        assert (module.root / "Tool/src/main.cpp").read_text(encoding="utf-8") == main   # あるものは触らない
+        assert module.project_details("ToolTest")["links"][0]["name"] == "Tool"
+        assert len(_cppbuild.open_solution(module.root).settings.get().references) == 1   # 依存先の記録も残る
+        assert module.set_project("Tool", kind="library")["created"] == []              # 同じ種類なら何もしない
+
+        # main のライブラリは、他のモジュールからのリンクが切れるので変えない。使う側がいれば実行ファイルにできない
+        assert code_of(lambda: module.set_project("Tool", kind="shared")) == ErrorCode.INVALID_ARGUMENT
+        module.set_module_settings(clear_main=True)
+        assert code_of(lambda: module.set_project("Tool", kind="app")) == ErrorCode.INVALID_ARGUMENT
+        assert code_of(lambda: module.set_project("ToolTest", kind="app")) == ErrorCode.INVALID_ARGUMENT
+
+        # ライブラリどうし：作成時の形式でリンクしていた使う側は、新しい形式でリンクし直す
+        changed = module.set_project("Tool", kind="shared", test=False)
+        assert changed["kind"] == "shared_library" and changed["created"] == []
+        assert module.project_details("ToolTest")["links"][0]["as"] == "shared"
+        assert module.test().failed == 0
+
+        # ライブラリ → 実行ファイル（使う側を消してから）
+        module.remove_project("ToolTest")
+        changed = module.set_project("Tool", kind="app")
+        assert (changed["kind"], changed["created"], changed["export_all_symbols"]) == ("executable", [], False)
+        assert [link["name"] for link in changed["links"]] == ["STL/STL"]
+        assert set(changed["types"]) == {"executable"} and changed["types"]["executable"]["defines"] == ["TOOL=1"]
+        (module.root / "Tool/src/main.cpp").unlink()
+        (module.root / "Tool/src/Tool.cpp").unlink()
+        module.set_project("Tool", kind="library", test=False)
+        assert module.set_project("Tool", kind="app")["created"] == ["Tool/src/main.cpp"]
+        assert module.build(project="Tool").artifacts
+        assert code_of(lambda: module.set_project("Tool", kind="test")) == ErrorCode.INVALID_ARGUMENT
+
+        from ecobuild_cli import main as cli
+        monkeypatch.chdir(module.root / "Tool")
+        for args, expected in ((["--no-test"], 1), (["--kind", "library", "--no-test", "--add-define", "B"], 0)):
+            capsys.readouterr()
+            with pytest.raises(SystemExit) as exited:
+                cli(["project", "set", *args, "--json"])
+            assert exited.value.code == expected
+        result = json.loads(capsys.readouterr().out)["result"]
+        assert (result["kind"], result["created"], result["types"]["static"]["defines"]) == ("static_library", [], ["TOOL=1", "B"])
+    finally:
+        monkeypatch.undo()   # 今いる場所を戻してから消す
+        remove_tree(base)

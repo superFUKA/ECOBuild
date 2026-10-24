@@ -409,8 +409,25 @@ jobs:
     def project_details(self, name: str) -> dict:
         return _settings.project_details(self.root, name)
 
-    def set_project(self, name: str, **changes) -> dict:
-        return _settings.set_project(self.root, name, **changes)
+    def set_project(self, name: str, *, kind: str | None = None, test: bool = True, **changes) -> dict:
+        """kind：種類を変える（app・library・shared。ほかの設定はその後で変える）。test：ライブラリにするとき、
+        組のテスト用Projectを作る（project add と同じく既定は作る）。足したファイルは created に入る。"""
+        created: tuple[str, ...] = ()
+        if kind is not None:
+            if kind not in _cppbuild.LIBRARY_KINDS:   # ビルド設定の形式（type）はライブラリだけ
+                using = sorted(n for n, p in self.module.config.profiles.items() if "type" in p.projects.get(name, {}))
+                if using:
+                    raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                        f"ビルド設定 {'、'.join(using)} が {name} の形式（type）を変えているので、実行ファイルにできません。",
+                                        hint=f"先に {self.module.op('profile project')} <名前> {name} --clear で外してください。")
+            created = _cppbuild.change_kind(self.root, name, kind, test=test, command=self.module.command)
+        unset = [key for key, value in changes.items()   # CLI は変えない項目も空で渡す（on／off は None）
+                 if value is None or value == () or (value is False and key in ("clear_folder", "default_warning_level"))]
+        if kind is None or len(unset) < len(changes):
+            details = _settings.set_project(self.root, name, **changes)
+        else:   # 種類だけ
+            details = _settings.project_details(self.root, name)
+        return {**details, "created": list(created)} if kind is not None else details
 
     def set_pch_headers(self, name: str, *, headers: tuple[str, ...] = (),
                         system_headers: tuple[str, ...] = ()) -> dict:

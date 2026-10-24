@@ -668,6 +668,19 @@ def visual_studio_versions() -> list[str]:
     return [version for version in VISUAL_STUDIO if _visual_studio(version)]
 
 
+SOLUTION_TYPES = {"cpp"}   # ソリューション（.sln／.slnx）を作る型。ほかの型は Visual Studio で作業空間をフォルダーとして開く
+
+
+def _vs_folder(directory: str) -> Path | None:
+    """Visual Studio でフォルダーとして開く場所（ソリューションを作らない型なら作業空間のフォルダー。作る型なら None）。"""
+    if (module_defaults(directory).get("type") or "cpp") in SOLUTION_TYPES:   # 型を書いていなければ cpp（型の既定）
+        return None
+    try:
+        return _module_root(Path(directory))
+    except GuiError:
+        return Path(directory).resolve()
+
+
 def update_solution(cli, directory: str) -> None:
     """Visual Studio で開く前に、構成を今のファイルに合わせる（C++：ecobuild project update。コンテナの中やエディターで
     足したファイルも見えるように。まだビルドしていなくても、ソリューションができる）。できなくても開くのは止めない。"""
@@ -681,38 +694,44 @@ def update_solution(cli, directory: str) -> None:
 
 def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     """ソリューションを選んだ版の Visual Studio で開く。ソリューションがなければ {"solution": None}（画面がビルドを勧める）。
+    ソリューションを作らない型（python・generic 等）は、作業空間のフォルダーを開く（{"folder": 場所}。devenv <フォルダー>）。
     ecobuild にこれを行うコマンドはないため、GUIが行う。"""
     if version not in VISUAL_STUDIO:
         raise GuiError(f"対応していない Visual Studio の版です：{version}")
-    solution = find_solution(directory)
-    if solution is None:
+    folder = _vs_folder(directory)
+    solution = None if folder else find_solution(directory)
+    if folder is None and solution is None:
         return {"solution": None}
     devenv = _visual_studio(version)
     if not devenv:
         others = [v for v in visual_studio_versions() if v != version]
         raise GuiError(f"Visual Studio {version} が見つかりません。"
                        + (f"このPCにあるのは {'・'.join(others)} です。「VS〜で開く」の横の ▾ で切り替えてください。" if others else ""))
+    if folder is not None:
+        subprocess.Popen([devenv, str(folder)], cwd=str(folder))
+        return {"solution": None, "folder": folder.as_posix(), "devenv": devenv, "version": version}
     subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
     return {"solution": solution.as_posix(), "devenv": devenv, "version": version}
 
 
-def _solution_is_open(solution: Path) -> bool:
-    """そのソリューションを開いている Visual Studio があるか（ウィンドウの題名「<ソリューション名> - Microsoft Visual Studio」で見る。
-    同じ名前のソリューションは見分けられない）。"""
+def _is_open_in_vs(opened: Path) -> bool:
+    """そのソリューション・フォルダーを開いている Visual Studio があるか（ウィンドウの題名「<ソリューション名・フォルダー名> -
+    Microsoft Visual Studio」で見る。同じ名前のものは見分けられない）。"""
     if os.name != "nt":
         return False
+    name = opened.name if opened.is_dir() else opened.stem
     completed = subprocess.run(["tasklist", "/v", "/fi", "imagename eq devenv.exe", "/fo", "csv", "/nh"],
                                capture_output=True, encoding="mbcs", errors="replace", stdin=subprocess.DEVNULL, **_no_window())
     for row in csv.reader(completed.stdout.splitlines()):
-        if row and row[0].lower() == "devenv.exe" and row[-1].split(" - ")[0].strip().lower() == solution.stem.lower():
+        if row and row[0].lower() == "devenv.exe" and row[-1].split(" - ")[0].strip().lower() == name.lower():
             return True
     return False
 
 
 def open_file_in_visual_studio(directory: str, relative: str, version: str = "2026") -> dict:
-    """ファイルを Visual Studio で開く。このモジュールのソリューションを開いた Visual Studio があればそこで（/edit）、
-    なければソリューションを開いて起動し、そのウィンドウが出てからファイルを開く（/edit）。ソリューションがまだなければ
-    ファイルだけを開く。Visual Studio がなければ GuiError（画面は既定のアプリで開く）。
+    """ファイルを Visual Studio で開く。このモジュールのソリューション（作らない型は作業空間のフォルダー）を開いた
+    Visual Studio があればそこで（/edit）、なければそれを開いて起動し、そのウィンドウが出てからファイルを開く（/edit）。
+    ソリューションがまだなければファイルだけを開く。Visual Studio がなければ GuiError（画面は既定のアプリで開く）。
     起動と同時に /command File.OpenFile を渡すと、起動途中で実行されてエラーになることがあるため使わない。"""
     if version not in VISUAL_STUDIO:
         raise GuiError(f"対応していない Visual Studio の版です：{version}")
@@ -722,20 +741,21 @@ def open_file_in_visual_studio(directory: str, relative: str, version: str = "20
     devenv = _visual_studio(version)
     if not devenv:
         raise GuiError(f"Visual Studio {version} が見つかりません。")
-    solution = find_solution(directory)
-    if solution is not None and not _solution_is_open(solution):
-        subprocess.Popen([devenv, str(solution)], cwd=str(solution.parent))
-        threading.Thread(target=_edit_when_open, args=(devenv, solution, target), daemon=True).start()
-        return {"started": True, "solution": solution.as_posix()}
+    opened = _vs_folder(directory) or find_solution(directory)
+    if opened is not None and not _is_open_in_vs(opened):
+        subprocess.Popen([devenv, str(opened)], cwd=str(opened if opened.is_dir() else opened.parent))
+        threading.Thread(target=_edit_when_open, args=(devenv, opened, target), daemon=True).start()
+        return {"started": True, "solution": None if opened.is_dir() else opened.as_posix(),
+                **({"folder": opened.as_posix()} if opened.is_dir() else {})}
     subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
-    return {"started": False, "solution": solution.as_posix() if solution else None}
+    return {"started": False, "solution": opened.as_posix() if opened and not opened.is_dir() else None}
 
 
-def _edit_when_open(devenv: str, solution: Path, target: Path, timeout: float = 180, interval: float = 1) -> bool:
-    """起動した Visual Studio のウィンドウにソリューションが出たら、ファイルを開く（/edit）。出なければ何もしない。"""
+def _edit_when_open(devenv: str, opened: Path, target: Path, timeout: float = 180, interval: float = 1) -> bool:
+    """起動した Visual Studio のウィンドウにソリューション・フォルダーが出たら、ファイルを開く（/edit）。出なければ何もしない。"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _solution_is_open(solution):
+        if _is_open_in_vs(opened):
             subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
             return True
         time.sleep(interval)

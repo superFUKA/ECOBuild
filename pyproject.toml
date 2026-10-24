@@ -30,7 +30,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 ecobuild_bundle = ["module_types.toml"]
-ecobuild_cpp = ["templates/*"]
+ecobuild_cpp = ["templates/*", "icon.svg", "icon.ico"]
+ecobuild_generic = ["icon.svg", "icon.ico"]
+ecobuild_python = ["icon.svg", "icon.ico"]
 ecobuild_agent = ["samples/*/*"]
 
 [tool.pytest.ini_options]

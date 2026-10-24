@@ -1,5 +1,6 @@
 """static/icon.svg から icon.ico（ハブ・ショートカットのアイコン）を、static/module-icon.svg から module.ico（モジュールの
 開発環境の窓・ショートカットのアイコン）を作る（開発用。アイコンを変えたら実行してコミットする）。
+SVG を引数に渡すと、それぞれの横に同じ名前の .ico を作る（型のアイコン。例：python gui/make_icon.py src/ecobuild_cpp/icon.svg）。
 
 Edge（ヘッドレス）で大きさごとに PNG に描き、PNG を入れた .ico にまとめる（Windows Vista 以降で使える形）。
 """
@@ -44,11 +45,15 @@ def main() -> None:
     edge = app._edge()
     if not edge:
         sys.exit("Edge が見つかりません。")
-    for svg, ico in (("icon.svg", "icon.ico"), ("module-icon.svg", "module.ico")):
+    pairs = [(Path(svg).resolve(), Path(svg).resolve().with_suffix(".ico")) for svg in sys.argv[1:]] or \
+        [(HERE / "static" / "icon.svg", HERE / "icon.ico"), (HERE / "static" / "module-icon.svg", HERE / "module.ico")]
+    for svg, ico in pairs:
+        if not svg.is_file():
+            sys.exit(f"SVG が見つかりません：{svg}")
         with tempfile.TemporaryDirectory() as folder:
-            images = {size: render(edge, str(HERE / "static" / svg), size, Path(folder)) for size in SIZES}
-        (HERE / ico).write_bytes(pack(images))
-        print(f"作りました：{HERE / ico}")
+            images = {size: render(edge, str(svg), size, Path(folder)) for size in SIZES}
+        ico.write_bytes(pack(images))
+        print(f"作りました：{ico}")
 
 
 if __name__ == "__main__":

@@ -934,6 +934,27 @@ class App:
         self.cache = QueryCache(None if store is None else store.path.with_name("cache.json"))
         self.events = Events()
         self.windows: dict[str, dict] = {}       # 開いている窓（画面が知らせる：種類・モジュール・画面・タブ・タスク）
+        self._type_icons: dict[str, dict] | None = None
+
+    # 型のアイコン（module types の icon・icon_ico）。型は ECOBuild の更新でしか変わらない（更新で GUI も起動し直す）ので、
+    # サーバーが動いている間は1回だけ読む。読めなければ空（窓は既定の module-icon.svg・module.ico のまま）。
+    def type_icons(self) -> dict[str, dict]:
+        if self._type_icons is None:
+            try:
+                listed = self.cli.run(None, ["module", "types"]).get("result") or []
+            except GuiError:
+                listed = []
+            self._type_icons = {t["name"]: {"svg": t.get("icon"), "ico": t.get("icon_ico")}
+                                for t in listed if isinstance(t, dict) and t.get("name")}
+        return self._type_icons
+
+    def module_icon(self, directory: str) -> dict:
+        """モジュールの窓のアイコン：svg は画面に使う URL（型のアイコン、なければ module-icon.svg）、ico は窓・タスクバー・
+        ショートカットに使う .ico のファイル（型の .ico、なければ module.ico）。"""
+        kind = module_defaults(directory).get("type", "")
+        icons = self.type_icons().get(kind) or {}
+        return {"type": kind, "svg": f"type-icon/{urllib.parse.quote(kind)}.svg" if icons.get("svg") else "module-icon.svg",
+                "ico": icons.get("ico") or str(Path(__file__).resolve().with_name("module.ico"))}
 
     # GUIの操作（actions.py）。画面のボタンも、ecobuild gui・MCP も、ここを通る ------------------------------------
     def see_window(self, window: dict) -> None:
@@ -1137,6 +1158,8 @@ class App:
             return make_directory(d("dir"), d("path"))
         if name == "module-defaults":
             return module_defaults(d("dir"))
+        if name == "module-icon":
+            return self.module_icon(d("dir"))
         if name == "open-vs":
             update_solution(self.cli, d("dir"))
             return open_in_visual_studio(d("dir"), d("version") or "2026")
@@ -1162,7 +1185,8 @@ class App:
         if name == "shortcut":
             if d("module"):
                 place = Path(d("place")) if d("place") else None
-                return {"made": [make_module_shortcut(find_module(self.cli, d("module")), place)]}
+                root = find_module(self.cli, d("module"))
+                return {"made": [make_module_shortcut(root, place, self.module_icon(root)["ico"])]}
             return {"made": make_shortcuts()}
         if name == "relaunch-after":
             return relaunch_after(int(d("pid") or 0), str(d("commit") or ""), self.cli.command)
@@ -1235,6 +1259,12 @@ def make_handler(app: App):
             path = urlparse(self.path).path
             if path == "/":
                 path = "/hub.html"
+            if path.startswith("/type-icon/") and path.endswith(".svg"):
+                # 型のアイコン（module types が知らせた SVG だけを配る）
+                icon = app.type_icons().get(urllib.parse.unquote(path[len("/type-icon/"):-len(".svg")]), {}).get("svg")
+                if not icon or not Path(icon).is_file():
+                    return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
+                return self._send(HTTPStatus.OK, Path(icon).read_bytes(), "image/svg+xml")
             target = (STATIC / path.lstrip("/")).resolve()
             if STATIC.resolve() not in target.parents or not target.is_file():
                 return self._send(HTTPStatus.NOT_FOUND, b"not found", "text/plain")
@@ -1447,8 +1477,9 @@ def module_app_id(root: str | Path) -> str:
     return "ECOBuild.Module." + hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
 
-def make_module_shortcut(root: str, place: Path | None = None) -> str:
-    """モジュールの開発環境を開くショートカットを place（省くとデスクトップ）に作る（ハブは開かず、その窓だけ）。Windowsだけ。"""
+def make_module_shortcut(root: str, place: Path | None = None, icon: str = "module.ico") -> str:
+    """モジュールの開発環境を開くショートカットを place（省くとデスクトップ）に作る（ハブは開かず、その窓だけ）。Windowsだけ。
+    icon：アイコンの .ico（gui/ からの場所か、型の .ico の絶対パス）。"""
     if os.name != "nt":
         raise GuiError("ショートカットは Windows でのみ作成できます。")
     if place is not None and not place.is_dir():
@@ -1456,7 +1487,7 @@ def make_module_shortcut(root: str, place: Path | None = None) -> str:
     place = _shortcut_places()[0] if place is None else place
     name = re.sub(r'[\\/:*?"<>|]', "_", Path(root).name)
     link = place / f"{name} - ECOBuild.lnk"
-    _write_shortcut(link, ["--module", str(root)], "module.ico", module_app_id(root), f"{Path(root).name}（ECOBuild の開発環境）")
+    _write_shortcut(link, ["--module", str(root)], icon, module_app_id(root), f"{Path(root).name}（ECOBuild の開発環境）")
     return str(link)
 
 

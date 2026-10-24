@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Type python: The module's icon (gui/static/module-icon.svg: the "E" of blocks in amber) with the type's mark at the
+       bottom right. Registered as icon in ecobuild_bundle/module_types.toml; icon.ico is made from this by gui/make_icon.py. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3228"/><stop offset="1" stop-color="#1b1712"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#5e5446" stroke-width="2"/>
+  <rect x="14" y="13" width="36" height="11" rx="3" fill="#ffd9a0"/>
+  <rect x="14" y="27" width="27" height="10" rx="3" fill="#f5b961"/>
+  <rect x="14" y="40" width="36" height="11" rx="3" fill="#dc8f35"/>
+  <rect x="24" y="33" width="38" height="29" rx="8" fill="#3776ab" stroke="#1b1712" stroke-width="3"/>
+  <text x="43" y="53.5" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="18" fill="#ffd43b">Py</text>
+</svg>

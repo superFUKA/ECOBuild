@@ -34,6 +34,23 @@ def test_registry_reports_broken_entries():
     assert registry.available() == []
 
 
+def test_registry_finds_type_icons_without_loading():
+    """型のアイコン（登録の icon）は、実装のPythonモジュールのフォルダーからの場所。なければ・ファイルがなければ None。"""
+    registry = Registry.from_toml('[cpp]\nmodule = "ecobuild_cpp"\nclass = "CppType"\nicon = "icon.svg"\n'
+                                  '[none]\nmodule = "ecobuild_generic"\nclass = "GenericType"\n'
+                                  '[missing]\nmodule = "ecobuild_python"\nclass = "PythonType"\nicon = "no.svg"\n'
+                                  '[broken]\nmodule = "no_such_module"\nclass = "X"\nicon = "icon.svg"\n')
+    assert registry.icon("cpp").name == "icon.svg" and registry.icon("cpp").parent.name == "ecobuild_cpp"
+    assert registry.icon("none") is registry.icon("missing") is registry.icon("broken") is registry.icon("nosuch") is None
+
+
+def test_bundled_types_have_icons():
+    """同梱の型には、ECOBuild のアイコンに型の印を重ねたアイコン（SVG と .ico）がある。"""
+    for name in ("cpp", "generic", "python"):
+        icon = ecobuild_bundle.REGISTRY.icon(name)
+        assert icon and icon.with_suffix(".ico").is_file(), name
+
+
 def test_core_module_has_no_types(module):
     """本体の Module は型を知らない（空の Registry）。同梱の型は ecobuild_bundle が登録する。"""
     assert Module.registry.entries() == {}

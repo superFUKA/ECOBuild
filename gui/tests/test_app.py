@@ -257,6 +257,42 @@ def test_api_requires_the_token_and_the_local_host(tmp_path):
         server.server_close()
 
 
+def test_module_icon_is_the_types(tmp_path):
+    """モジュールの窓のアイコンは型のもの（module types の icon・icon_ico を1回だけ読む）。型にアイコンがなければ既定。"""
+    svg, ico = tmp_path / "cpp.svg", tmp_path / "cpp.ico"
+    svg.write_text("<svg/>", encoding="utf-8")
+    calls = []
+
+    class Recorder(gui.Cli):
+        def run(self, directory, args, stdin=None):
+            calls.append(args)
+            return {"ok": True, "result": [{"name": "cpp", "icon": str(svg), "icon_ico": str(ico)},
+                                           {"name": "generic", "icon": None, "icon_ico": None}]}
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), None)
+    port = server.server_address[1]
+    app = gui.App(Recorder(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "t", port)
+    cpp, generic, plain = _module(tmp_path / "C"), _module(tmp_path / "G"), _module(tmp_path / "P")
+    write(cpp / ".ecobuild" / "ecobuild.toml", '[module]\ntype = "cpp"\n')
+    write(generic / ".ecobuild" / "ecobuild.toml", '[module]\ntype = "generic"\n')
+    assert app.api("module-icon", {"dir": str(cpp)}) == {"type": "cpp", "svg": "type-icon/cpp.svg", "ico": str(ico)}
+    default = str(Path(gui.__file__).resolve().with_name("module.ico"))
+    assert app.api("module-icon", {"dir": str(generic)}) == {"type": "generic", "svg": "module-icon.svg", "ico": default}
+    assert app.api("module-icon", {"dir": str(plain)})["ico"] == default
+    assert calls == [["module", "types"]]
+    server.RequestHandlerClass = gui.make_handler(app)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/type-icon/cpp.svg") as response:
+            assert response.headers["Content-Type"] == "image/svg+xml" and response.read() == b"<svg/>"
+        for name in ("generic", "nosuch", "..%2F..%2Fgui"):
+            with pytest.raises(urllib.error.HTTPError):
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/type-icon/{name}.svg")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_ecobuild_is_found_on_path_first(tmp_path, monkeypatch):
     # インストール後は PATH の ecobuild を使う（どこから起動しても同じ）
     tool = tmp_path / ("ecobuild.exe" if os.name == "nt" else "ecobuild")

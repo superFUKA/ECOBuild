@@ -90,7 +90,7 @@ def test_branch_not_checked_out_is_upgraded(tmp_path):
     # 手元はそのまま：同じタスクブランチ・同じコミット・変更なし・一時的な作業ツリーも残らない
     assert git(root, "rev-parse", "HEAD").strip() == here and git(root, "status", "--porcelain").strip() == ""
     assert len(git(root, "worktree", "list", "--porcelain").split("worktree ")) == 2
-    assert not any((root / ".git/ecobuild").iterdir())
+    assert not any((root / ".git/ecowork").iterdir())
     assert {b.name: b.format for b in old.branches()}["main"] == config.FORMAT
     again = old.upgrade(branch="main")
     assert again.paths == () and again.commit is None

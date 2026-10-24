@@ -398,6 +398,7 @@ class BranchMerged:
     into: str                        # 取り込み先
     method: str                      # fast-forward / merge
     commit: str                      # 取り込み先の新しい先頭
+    resolved: tuple[str, ...] = ()   # 衝突したが、利用側が直したファイル（ECOBuild では作り直した生成ファイル）
 
 
 @dataclass(frozen=True)
@@ -413,6 +414,7 @@ class BranchMergePlan:
     conflicts: tuple[str, ...]       # 衝突するファイル（method が conflict のとき）
     allowed: bool                    # 今のアカウントで取り込めるか（into への提出を取り込める人か）
     owners: str                      # 取り込める人（説明）
+    resolved: tuple[str, ...] = ()   # 衝突するが、利用側が直せるファイル（そのとき method は merge）
 
 
 MERGE_PLAN_COMMITS = 50

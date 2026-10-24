@@ -17,7 +17,8 @@ def command(
     """ブランチ同士（タスクブランチでないブランチ）を取り込みます。
 
     --into <先> を付けると、name を先のブランチへ直接取り込みます（提出〔PR〕を作りません。早送りできれば早送り、
-    できなければマージコミット。衝突したら何も変えずに止めます）。--dry-run を足すと、取り込む前に、入るコミット・
+    できなければマージコミット。衝突したら何も変えずに止めます。衝突したのが自動で作るファイル〔型の生成ファイル〕だけなら、
+    合わさった管理ファイルから作り直して取り込みます）。--dry-run を足すと、取り込む前に、入るコミット・
     変わるファイル・方法・衝突するファイル・取り込める人を表示します。--into を付けなければ、ecobuild branch submit
     で作った提出を、マージコミットで取り込みます。
     """
@@ -30,7 +31,9 @@ def command(
         return run_command("branch merge", plan, _render_plan, json_output=json)
     if into:
         return run_command("branch merge", lambda inv: inv.module.repository.merge_branch_into(name, into),
-                           lambda r: f"{name} を {into} へ取り込みました（{r.method}・{r.commit[:7]}）", json_output=json)
+                           lambda r: f"{name} を {into} へ取り込みました（{r.method}・{r.commit[:7]}）"
+                                     + (f"。衝突した自動で作るファイルは作り直しました：{'、'.join(r.resolved)}" if r.resolved else ""),
+                           json_output=json)
     return run_command("branch merge", lambda inv: inv.module.repository.merge_branch(name, ignore_checks=ignore_checks),
                        lambda r: f"{name} の提出を取り込みました（{r.method}）", json_output=json)
 
@@ -40,6 +43,9 @@ def _render_plan(p) -> str:
     lines += [f"  {c.sha[:7]} {c.subject}" for c in p.commits]
     if p.commit_count > len(p.commits):
         lines.append(f"  ……ほか {p.commit_count - len(p.commits)} 件")
+    if p.resolved:
+        lines.append("衝突する自動で作るファイル（取り込むときに作り直します）：")
+        lines += [f"  {f}" for f in p.resolved]
     if p.conflicts:
         lines.append("衝突するファイル：")
         lines += [f"  {f}" for f in p.conflicts]

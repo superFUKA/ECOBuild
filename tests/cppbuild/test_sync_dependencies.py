@@ -82,6 +82,36 @@ def test_sync_regenerates_conflicted_generated_files(short_tmp):
     assert not module.status().merging
 
 
+def test_branch_merge_regenerates_conflicted_generated_files(short_tmp):
+    """ブランチ同士の取り込み（branch merge --into）でも、生成ファイルだけの衝突は作り直して取り込む（一時的な作業ツリーで。
+    手元には触れない）。"""
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
+    top = ".ecobuild/.cppbuild/CppBuildTopLevel.cmake"
+    expected = (module.root / top).read_text(encoding="utf-8")
+    other = short_tmp / "other"
+    git(short_tmp, "clone", "--quiet", str(github.bare), str(other))
+    git(other, "switch", "--quiet", "-c", "dev")
+    write(other / top, expected + "# dev\n")
+    git(other, "commit", "--quiet", "-am", "dev で生成ファイルを変えた")
+    git(other, "push", "--quiet", "origin", "dev")
+    git(other, "switch", "--quiet", "main")
+    write(other / top, expected + "# main\n")
+    git(other, "commit", "--quiet", "-am", "main で生成ファイルを変えた")
+    git(other, "push", "--quiet", "origin", "main")
+    here = git(module.root, "rev-parse", "HEAD")
+
+    plan = module.repository.plan_branch_merge("dev", "main")
+    assert (plan.method, plan.conflicts, plan.resolved) == ("merge", (), (top,))
+    merged = module.repository.merge_branch_into("dev", "main")
+    assert merged.method == "merge" and merged.resolved == (top,)
+    assert git(module.root, "rev-parse", "origin/main") == merged.commit
+    assert len(git(module.root, "rev-list", "--parents", "-1", merged.commit).split()) == 3   # マージコミット
+    assert git(module.root, "show", f"{merged.commit}:{top}") == expected.strip()   # 管理ファイルから作り直した
+    assert git(module.root, "rev-parse", "HEAD") == here and not module.status().merging
+    assert len(git(module.root, "worktree", "list", "--porcelain").split("worktree ")) == 2
+
+
 def test_clone_module_prepares_dependencies(short_tmp):
     """clone はモジュールをcloneし、依存先と生成ファイルを sync と同じく用意する。"""
     stl_github = FakeGitHub(short_tmp / "gh1")

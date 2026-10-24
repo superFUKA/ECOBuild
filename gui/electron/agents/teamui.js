@@ -1,19 +1,14 @@
 'use strict';
-// 子を起動できるエージェントの窓のチーム（そのエージェントが AI として起動した子。係が画面なしで動かす）：そのエージェントの
-// タブの隣の「チーム」で開く。読むだけで、入力欄は置かない（指示は親のエージェントから）。見方は3つ（窓〔作業空間〕ごとに覚える）：
-// - タブ：子ごとのタブで、詳しい表示。
-// - 並べて：子ごとの小さな表示（名前・様子・今の一歩・最新の数行）。クリックで大きく（詳しい表示）、「戻る」で格子へ。
-// - 一覧：1人1行（名前・役〔登録の表示名〕と働き方・様子・今の一歩・報告・届いていない言付け）。選ぶと詳しい表示。
+// 子を起動できるエージェントの窓の、AI が起動した子（係が画面なしで動かす。子の子も）：窓のタブ・横の一覧・一覧に、そのエージェントの
+// 後ろへ並べる（window.js の entries）。選ぶと詳しい表示。読むだけで、入力欄は置かない（指示は親のエージェントから）。
 // 止まっている・失敗・作業中が長い・長く道具を使っていないものは目立たせる。詳しい表示は返答の文・道具（1行に畳み、開くと
 // 入出力）・届いた言付けと知らせ（誰からか）・返答の終わりの区切り（使用量・断られた権限）。新しい出来事は追いかける（読み
 // 返しているときは追いかけない）。操作：止める・起動し直す・引き取る（このアプリのタブで開く。閉じると係に返す）・返す・
 // 場所を開く・閉じる。1人はエージェントの ID でつなぐので、起動し直しても・引き取って返しても、同じ表示が続く。
 // データは main（team.js）が CLI（agent children・agent log）から読んで送ってくる。window.js の後に読む。
-const VIEW_KEY = dir => `ecobuild.teamView:${String(dir || '').toLowerCase()}`;
 const TEXT_LIMIT = 6000;      // 長い返答・発言は、ここまで出して「続き」
 const OUTPUT_LIMIT = 20000;   // 道具の出力を出す長さ
-let teamOpen = false, teamLead = null, teamData = {members: [], error: '', taken: {}}, teamFlat = [];
-let teamMode = 'list', teamFocus = null, teamTabSel = null;
+let teamLead = null, teamData = {members: [], error: '', taken: {}}, teamFlat = [], activeChild = null, teamSeen = null;
 let followed = null, eventLog = null, eventItems = new Map(), moreBefore = false, followTimer = null;
 const NARROW = 640;           // 詳しい表示の幅がこれより狭いと、操作を「操作 ▾」1つにまとめる
 const notices = new Map();    // 子の ID → {text, bad}
@@ -23,129 +18,68 @@ const leadOfWindow = () => tabs.find(t => t.pinned && t.lead) || null;
 const ref = m => ({id: m.id, name: m.name, path: m.path});
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
-// ---- タブの帯の「チーム」 ----------------------------------------------------------------------------
-// window.js の renderTabs から：子を起動できるエージェントの窓なら、そのタブの隣に「チーム」を置く
-function teamTab(bar) {
-  const lead = leadOfWindow();
-  if (!lead) { if (teamOpen) teamClosePane(); return; }
-  if (teamLead && teamLead.id !== lead.id) { teamClosePane(); teamData = {members: [], error: '', taken: {}}; teamFlat = []; }
-  teamLead = lead;
-  const b = el('button', 'tab team-tab'); b.type = 'button'; b.id = 'team-tab';
-  b.innerHTML = '<b>◇</b><span class="name">チーム</span><span class="count"></span>';
-  b.addEventListener('click', () => (teamOpen ? null : teamOpenPane()));
-  const pinned = bar.querySelector('.tab.pinned');
-  if (pinned) pinned.after(b); else bar.prepend(b);
-  if (teamOpen) for (const t of bar.querySelectorAll('.tab.active')) t.classList.remove('active');
-  b.classList.toggle('active', teamOpen);
-  updateTeamTab();
+// ---- 並べる1つ（window.js の itemButton から）：タブ・横の一覧 ----------------------------------------------------
+function childButton(m, style) {
+  const look = TeamView.look(m), role = TeamView.roleLabel(m);
+  const b = el('button', (style === 'side' ? 'tab side-item child' : 'tab child') + (m.id === activeChild ? ' active' : '')); b.type = 'button';
+  b.dataset.tone = look.tone; b.dataset.alert = look.alert ? 'yes' : '';
+  b.append(el('span', 'dot'), el('span', 'name', (style === 'side' ? '　'.repeat(m.depth) : '') + (m.depth || style === 'side' ? '└ ' : '') + m.name));
+  if (style === 'side') b.append(el('span', 'sub', [role.text, look.label, m.doing ? `今：${m.doing}` : look.alert].filter(Boolean).join('・')));
+  b.title = `${role.title}「${m.name}」：${look.label}${look.alert ? `（${look.alert}）` : ''}\nAI が起動した子（${teamLead?.name || ''} の子）`;
+  b.addEventListener('click', () => showChild(m.id));
+  b.addEventListener('contextmenu', event => { event.preventDefault(); opsMenu(m, event.clientX, event.clientY); });
+  return b;
 }
 
-function updateTeamTab() {
-  const b = $('team-tab'); if (!b) return;
-  const looks = teamFlat.map(m => TeamView.look(m));
-  const alerts = looks.filter(l => l.alert).length, working = looks.filter(l => l.tone === 'working').length;
-  b.querySelector('.count').textContent = teamFlat.length ? String(teamFlat.length) : '';   // 丸いバッジ（要確認があると赤）
-  b.dataset.alert = alerts ? 'yes' : '';
-  b.dataset.state = working ? 'waiting' : '';
-  b.title = teamFlat.length ? `チーム（AI が起動した子）：${teamFlat.length}人・作業中 ${working}${alerts ? `・要確認 ${alerts}` : ''}`
-    : 'チーム（このエージェントが AI として起動した子。まだいません）';
+// 子を選んだ：端末を隠して、子の詳しい表示
+function showChild(id) {
+  if (!leadOfWindow()) return;
+  activeChild = id; listOpen = false;
+  renderTabs();
+  renderChild();
 }
-
-function teamOpenPane(focusId = null) {
-  const lead = leadOfWindow(); if (!lead) return;
-  teamLead = lead; teamOpen = true;
-  try { teamMode = localStorage.getItem(VIEW_KEY(lead.dir)) || teamMode; } catch (e) { /* 覚えられなくても開ける */ }
-  if (!['tabs', 'grid', 'list'].includes(teamMode)) teamMode = 'list';
-  if (focusId) { if (teamMode === 'tabs') teamTabSel = focusId; else teamFocus = focusId; }
-  for (const t of terms.values()) t.el.hidden = true;
-  $('empty').hidden = true; $('team').hidden = false;
-  agents.teamShown(lead.id, true).then(view => { if (view) setTeamData(view); });
-  renderTabs(); renderTeam();
-}
-
-// window.js の show から（端末のタブを選んだ）
-function teamClosePane() {
-  if (!teamOpen) return;
-  teamOpen = false; $('team').hidden = true;
-  if (teamLead) agents.teamShown(teamLead.id, false);
+// 端末を選んだ（window.js の show から）
+function hideChild() {
+  if (!activeChild) return;
+  activeChild = null;
   unfollow();
+}
+// 子を出しているときは、様子を早めに読み直す（window.js の renderTabs から。横の一覧・一覧でも）
+function teamVisible(on) {
+  const lead = leadOfWindow(); if (!lead) return;
+  const key = `${lead.id}:${!!on}`; if (teamSeen === key) return; teamSeen = key;
+  agents.teamShown(lead.id, !!on).then(view => { if (view) setTeamData(view); });
+}
+
+function renderChild() {
+  if (!activeChild) return;
+  renderDetail($('team-body'), activeChild);
 }
 
 function setTeamData(view) {
   teamData = {members: view.members || [], error: view.error || '', taken: view.taken || {}};
   teamFlat = TeamView.flatten(teamData.members, teamLead?.agentId || '');
-  updateTeamTab();
-  if (teamOpen) renderTeam();
+  renderTabs();
+  renderChild();
 }
 
 agents.onTeamList((leadId, view) => {
   const lead = leadOfWindow();
   if (!lead || lead.id !== leadId) return;
+  if (teamLead && teamLead.id !== lead.id) { hideChild(); teamFlat = []; }
   teamLead = lead; setTeamData(view);
 });
-agents.onTeamFocus(id => teamOpenPane(id));
-agents.onTeamNotice((id, text, bad) => { notices.set(id, {text, bad}); if (teamOpen) renderTeam(); });
+agents.onTeamFocus(id => showChild(id));
+agents.onTeamNotice((id, text, bad) => { notices.set(id, {text, bad}); renderChild(); });
 
-// ---- 全体 ----------------------------------------------------------------------------------------------
 // 詳しい表示の幅が NARROW をまたいだら、操作の並べ方を変える
 let teamNarrow = null;
 new ResizeObserver(() => {
   const narrow = $('team-body').clientWidth < NARROW;
-  if (teamNarrow !== null && narrow !== teamNarrow && teamOpen && $('team-body').querySelector('.detail')) renderTeam();
+  if (teamNarrow !== null && narrow !== teamNarrow && activeChild) renderChild();
   teamNarrow = narrow;
 }).observe($('team-body'));
-for (const b of document.querySelectorAll('#team-views button')) {
-  b.addEventListener('click', () => {
-    teamMode = b.dataset.mode;
-    try { localStorage.setItem(VIEW_KEY(teamLead?.dir), teamMode); } catch (e) { /* 覚えられなくても切り替わる */ }
-    teamFocus = null; renderTeam();
-  });
-}
 
-function renderTeam() {
-  if (!teamOpen) return;
-  for (const b of document.querySelectorAll('#team-views button')) b.classList.toggle('on', b.dataset.mode === teamMode);
-  const counts = {};
-  for (const m of teamFlat) { const l = TeamView.look(m); counts[l.tone] = (counts[l.tone] || 0) + 1; if (l.alert) counts.alert = (counts.alert || 0) + 1; }
-  // 数ごとに様子の色の丸（一覧・タブの色と同じ）
-  $('team-sum').replaceChildren(...(teamFlat.length ? [['starting', '起動中'], ['working', '作業中'], ['idle', '待機中'], ['stopped', '止まっている'], ['failed', '失敗'], ['alert', '要確認']]
-    .filter(([k]) => counts[k]).map(([k, label]) => { const s = el('span', '', `${label} ${counts[k]}`); s.dataset.tone = k; return s; }) : []));
-  $('team-err').textContent = teamData.error ? `読み直せませんでした：${teamData.error.split('\n')[0]}` : '';
-  $('team-err').title = teamData.error || '';
-  const tabsBar = $('team-tabs'), body = $('team-body');
-  tabsBar.hidden = teamMode !== 'tabs';
-  if (!teamFlat.length) {
-    unfollow(); tabsBar.replaceChildren();
-    body.replaceChildren(el('p', 'team-empty', '子はまだいません。'));
-    return;
-  }
-  if (teamMode === 'tabs') {
-    if (!teamFlat.some(m => m.id === teamTabSel)) teamTabSel = teamFlat[0].id;
-    renderSubTabs(tabsBar);
-    renderDetail(body, teamTabSel, false);
-  } else if (teamFocus) {
-    renderDetail(body, teamFocus, true);
-  } else {
-    unfollow();
-    renderOverview(body);
-  }
-}
-
-function renderSubTabs(bar) {
-  bar.replaceChildren();
-  for (const m of teamFlat) {
-    const look = TeamView.look(m);
-    const b = el('button', 'sub' + (m.id === teamTabSel ? ' on' : '')); b.type = 'button';
-    b.dataset.tone = look.tone; b.dataset.alert = look.alert ? 'yes' : '';
-    b.append(el('span', 'dot'), el('span', 'name', (m.depth ? '　'.repeat(m.depth - 1) + '└ ' : '') + m.name));
-    b.title = `${TeamView.kindName(m)}「${m.name}」：${look.label}${look.alert ? `（${look.alert}）` : ''}`;
-    b.addEventListener('click', () => { teamTabSel = m.id; renderTeam(); });
-    b.addEventListener('contextmenu', event => { event.preventDefault(); opsMenu(m, event.clientX, event.clientY); });
-    bar.append(b);
-  }
-}
-
-// ---- 一覧・格子 -----------------------------------------------------------------------------------------
 function flags(m) {
   const out = m.reported ? ['報告あり'] : [];   // まだのときは出さない（報告するかは役による）
   if (m.waiting) out.push(`届いていない言付け ${m.waiting}`);
@@ -154,45 +88,8 @@ function flags(m) {
   return out.join('・');
 }
 
-function renderOverview(body) {
-  const box = el('div', teamMode === 'grid' ? 'team-grid' : 'team-list');
-  if (teamMode === 'list') {   // 列の見出し
-    const headrow = el('div', 'row headrow');
-    headrow.append(...['名前', '役', '様子', '今していること', '報告・言付け・ctx'].map(t => el('span', '', t)));
-    box.append(headrow);
-  }
-  for (const m of teamFlat) {
-    const look = TeamView.look(m);
-    const item = el('div', teamMode === 'grid' ? 'tile' : 'row');
-    item.dataset.tone = look.tone; item.dataset.alert = look.alert ? 'yes' : ''; item.tabIndex = 0;
-    item.title = look.alert || '';
-    const name = el('span', 'name', m.name);
-    // 入れ子：一覧ではタブと同じ「└」で字下げ。格子では字下げせず、役の横に親の名前
-    if (m.depth && teamMode === 'list') name.prepend(el('span', 'tree', '　'.repeat(m.depth - 1) + '└ '));
-    const roleText = TeamView.roleLabel(m), role = el('span', 'role', roleText.text); role.title = roleText.title;
-    const state = el('span', 'state', look.label);
-    const doing = el('span', 'doing', m.doing ? `今：${m.doing}` : look.alert || (m.last_reply ? `最後：${m.last_reply}` : ''));
-    if (teamMode === 'grid') {
-      const head = el('div', 'head'); head.append(name, role);
-      const parent = m.depth ? teamFlat.find(x => x.id === m.parent) : null;
-      if (parent) { const p = el('span', 'parent', `↳ ${parent.name}`); p.title = `${parent.name} の子`; head.append(p); }
-      head.append(state);
-      const recent = el('pre', 'recent', (m.recent || []).join('\n') || '（出来事はまだありません）');
-      item.append(head, doing, recent, el('div', 'flags', flags(m)));
-    } else {
-      item.append(name, role, state, doing, el('span', 'flags', flags(m)));
-    }
-    const open = () => { teamFocus = m.id; renderTeam(); };
-    item.addEventListener('click', open);
-    item.addEventListener('keydown', event => { if (event.key === 'Enter') open(); });
-    item.addEventListener('contextmenu', event => { event.preventDefault(); opsMenu(m, event.clientX, event.clientY); });
-    box.append(item);
-  }
-  body.replaceChildren(box);
-}
-
 // ---- 詳しい表示 ------------------------------------------------------------------------------------------
-function renderDetail(body, id, back) {
+function renderDetail(body, id) {
   const m = teamFlat.find(x => x.id === id);
   let detail = body.querySelector('.detail');
   if (!detail || detail.dataset.id !== id) {
@@ -202,11 +99,6 @@ function renderDetail(body, id, back) {
   }
   const head = detail.querySelector('.dhead'), sub = detail.querySelector('.dsub');
   head.replaceChildren(); sub.replaceChildren();
-  if (back) {
-    const b = el('button', 'tool back', '← 戻る'); b.type = 'button';
-    b.addEventListener('click', () => { teamFocus = null; renderTeam(); });
-    head.append(b);
-  }
   if (!m) {
     head.append(el('b', 'name', '（閉じた子）'));
     unfollow();   // 読んだ出来事は消さずに残す
@@ -362,13 +254,13 @@ function opsFor(m) {
 
 async function act(m, action, doing = '', done = '', options = {}) {
   if (pending.has(m.id)) return;
-  if (doing) { pending.add(m.id); notices.set(m.id, {text: doing}); renderTeam(); }
+  if (doing) { pending.add(m.id); notices.set(m.id, {text: doing}); renderChild(); }
   const got = await agents.teamOp(teamLead.id, action, ref(m), options);
   pending.delete(m.id);
   // note：係がしなかったこと（子はそのままで、起動していない等）
   const note = got.result?.note;
   if (doing || !got.ok) notices.set(m.id, !got.ok ? {text: got.error || '失敗しました', bad: true} : note ? {text: note, bad: true} : {text: got.message || done});
-  renderTeam();
+  renderChild();
 }
 
 function closeMember(m) {
@@ -386,7 +278,7 @@ function subMenu(items, anchor) {
   placeMenu(menu, r.left, r.bottom + 2);
 }
 
-// 一覧・格子・タブの右クリック：同じ操作をメニューで
+// タブ・横の一覧・一覧の右クリック：同じ操作をメニューで
 function opsMenu(m, x, y) {
   const menu = $('menu'); menu.replaceChildren();
   menu.append(el('div', 'head', `${TeamView.kindName(m)}「${m.name}」`));

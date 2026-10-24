@@ -31,7 +31,7 @@ button:focus-visible, [tabindex]:focus-visible, summary:focus-visible, select:fo
   border: 0; border-radius: 4px; background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
 .tab:hover { background: #1f252c; color: var(--text); }
 .tab.active { background: var(--hover); color: #fff; }
-.tab.pinned, .tab.team-tab { flex: none; }
+.tab.pinned { flex: none; }
 /* 番号は箱にせず、種類の色の小さい数字だけ */
 .tab b { flex: none; margin-right: 4px; color: var(--claude); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tab b[data-kind="operator"] { color: var(--operator); }
@@ -179,42 +179,53 @@ body.operator .status .mode { display: inline-block; }
   font: inherit; resize: vertical; }
 .persona textarea:focus { outline: none; border-color: var(--accent); }
 
-/* ---- チーム（子を起動できるエージェントの窓：AI が起動した子。teamui.js） ---- */
-.tab.team-tab b { color: var(--accent); }
-/* 数は丸いバッジ。要確認があると赤 */
-.tab.team-tab .count { margin-left: 5px; padding: 0 5px; border-radius: 8px; background: var(--hover); color: var(--text); font-size: 10px; line-height: 15px; font-variant-numeric: tabular-nums; }
-.tab.team-tab .count:empty { display: none; }
-.tab.team-tab[data-alert="yes"] .count { background: var(--rec); color: #fff; font-weight: 700; }
+/* ---- 表示のしかた：タブ・横に一覧・一覧（window.js）。AI が起動した子も並ぶ（teamui.js） ---- */
+.middle { position: relative; display: flex; flex: 1; min-height: 0; }
+.middle main { flex: 1; min-width: 0; }
+button.icon.back[hidden] { display: none; }
+/* 子：番号の代わりに様子の色の丸。親の後ろに少し寄せて並べる */
+.tab .dot { flex: none; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: #555; }
+.tab.child { color: var(--muted); }
+.tab.child[data-tone="working"] .dot, .tab.child[data-tone="starting"] .dot { background: var(--thinking); }
+.tab.child[data-tone="idle"] .dot { background: var(--ok); }
+.tab.child[data-tone="failed"] .dot, .tab.child[data-alert="yes"] .dot { background: var(--rec); }
+/* 横に一覧：左に縦に並べる。2行目に様子・場所（子は役・様子・今していること） */
+.side { display: flex; flex-direction: column; gap: 1px; flex: none; width: 200px; padding: 4px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--bar); }
+.side[hidden] { display: none; }
+.side .tab { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; flex: none; max-width: none; height: auto; min-height: 34px; padding: 3px 4px 3px 8px; text-align: left; }
+.side .tab .x { grid-column: 3; grid-row: 1; }
+.side .tab .sub { grid-column: 2 / 4; grid-row: 2; min-width: 0; overflow: hidden; color: var(--dim); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
+.side .tab.pinned { margin: 0 0 2px; border-right: 0; border-radius: 4px; }
+.side .tab .avatar { grid-row: 1 / 3; }
+.side .tab[data-state] { box-shadow: none; }
+.side .tab[data-state="thinking"], .side .tab[data-state="waiting"] { box-shadow: inset 2px 0 0 var(--thinking); }
+.side .tab[data-state="choice"] { box-shadow: inset 2px 0 0 var(--choice); }
+.side .tab[data-state="listening"] { box-shadow: inset 2px 0 0 var(--rec); }
+.side .tab.child { grid-template-columns: auto minmax(0, 1fr); min-height: 30px; }
+.side .tab.child .name { white-space: pre; }
+/* 一覧：全体に1つ1行。選ぶと全面に出す */
+.overview { position: absolute; inset: 0; overflow-y: auto; padding: 6px 0; background: var(--bg);
+  display: grid; grid-template-columns: minmax(120px, 1.3fr) max-content max-content minmax(0, 2fr); align-content: start; }
+.overview[hidden] { display: none; }
+.orow { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 12px; align-items: center; padding: 7px 12px; border-bottom: 1px solid #20252b;
+  border-left: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+.orow:hover, .orow:focus { background: #1d232a; }
+.orow > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.orow .name { color: #fff; font-size: 12.5px; white-space: pre; }
+.orow .name.unread::after { content: " ●"; color: var(--accent); font-size: 9px; }
+.orow .role { color: var(--muted); font-size: 11px; }
+.orow .doing { color: var(--muted); font: 11px var(--mono); }
+.orow.exited { opacity: .6; }
+.orow[data-state="thinking"] .state, .orow[data-state="waiting"] .state, .orow[data-tone="working"] .state, .orow[data-tone="starting"] .state { color: var(--thinking); }
+.orow[data-state="choice"] .state { color: var(--choice); }
+.orow[data-state="idle"] .state, .orow[data-tone="idle"] .state { color: var(--ok); }
+.orow[data-tone="failed"] .state { color: var(--rec); }
+.orow[data-alert="yes"] { border-left-color: var(--rec); background: rgba(255, 90, 95, .06); }
+.orow[data-alert="yes"] .doing { color: var(--rec); }
+.team-error { grid-column: 1 / -1; margin: 6px 10px; color: var(--warn); font-size: 11px; }
 .team { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
 .team[hidden] { display: none; }
-.team-bar { display: flex; align-items: center; gap: 12px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
-.team-bar .views { display: inline-flex; flex: none; border: 1px solid var(--line-2); border-radius: 6px; overflow: hidden; }
-.team-bar .views button { padding: 2px 10px; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
-.team-bar .views button + button { border-left: 1px solid var(--line-2); }
-.team-bar .views button:hover { color: var(--text); }
-.team-bar .views button.on { background: var(--hover); color: #fff; }
-.team-bar .sum { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; color: var(--muted); font-size: 11px; }
-.team-bar .sum > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.team-bar .sum > span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #555; }
-.team-bar .sum [data-tone="working"]::before, .team-bar .sum [data-tone="starting"]::before { background: var(--thinking); }
-.team-bar .sum [data-tone="idle"]::before { background: var(--ok); }
-.team-bar .sum [data-tone="stopped"]::before { background: var(--dim); }
-.team-bar .sum [data-tone="failed"]::before, .team-bar .sum [data-tone="alert"]::before { background: var(--rec); }
-.team-bar .sum [data-tone="alert"] { color: var(--rec); }
-.team-bar .err { margin-left: auto; overflow: hidden; color: var(--warn); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
-.team-tabs { display: flex; gap: 2px; padding: 3px 6px; overflow-x: auto; border-bottom: 1px solid var(--line); }
-.team-tabs[hidden] { display: none; }
-.team-tabs .sub { display: flex; align-items: center; gap: 5px; flex: none; max-width: 200px; padding: 2px 8px; border: 0; border-radius: 4px;
-  background: none; color: var(--muted); font: inherit; white-space: nowrap; cursor: pointer; }
-.team-tabs .sub:hover { color: var(--text); }
-.team-tabs .sub.on { background: var(--hover); color: #fff; }
-.team-tabs .sub .name { overflow: hidden; text-overflow: ellipsis; }
-.team-tabs .sub .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex: none; }
-.team-tabs .sub[data-tone="working"] .dot, .team-tabs .sub[data-tone="starting"] .dot { background: var(--thinking); }
-.team-tabs .sub[data-tone="idle"] .dot { background: var(--ok); }
-.team-tabs .sub[data-tone="failed"] .dot, .team-tabs .sub[data-alert="yes"] .dot { background: var(--rec); }
 .team-body { position: relative; flex: 1; min-height: 0; overflow: auto; }
-.team-empty { max-width: 46em; margin: 40px auto; padding: 0 24px; color: var(--muted); line-height: 1.7; text-align: center; }
 .team .note { color: var(--muted); }
 
 /* 様子の色：作業中・起動中は黄、待機中は緑、止まっているは灰、失敗は赤。目立たせるもの（要確認）は赤い縁 */
@@ -223,38 +234,6 @@ body.operator .status .mode { display: inline-block; }
 .team [data-tone="idle"] .state, .team .state[data-tone="idle"] { color: var(--ok); }
 .team [data-tone="stopped"] .state, .team .state[data-tone="stopped"] { color: var(--muted); }
 .team [data-tone="failed"] .state, .team .state[data-tone="failed"] { color: var(--rec); }
-
-/* 一覧：列は全部の行で同じ幅（subgrid）。頭に見出しの行 */
-.team-list { display: grid; grid-template-columns: minmax(90px, 1.2fr) max-content minmax(80px, .9fr) minmax(0, 2fr) auto; }
-.team-list .row { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; gap: 10px; align-items: center;
-  padding: 4px 10px; border-bottom: 1px solid #20252b; border-left: 3px solid transparent; cursor: pointer; white-space: nowrap; }
-.team-list .row:hover, .team-list .row:focus { background: #1d232a; }
-.team-list .row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.team-list .row.headrow { position: sticky; top: 0; z-index: 1; padding-top: 3px; padding-bottom: 3px; background: var(--bar); color: var(--dim); font-size: 10.5px; cursor: default; }
-.team-list .row.headrow:hover { background: var(--bar); }
-.team-list .name { color: #fff; }
-.team-list .name .tree { color: var(--dim); }
-.team-list .role, .team-list .flags { color: var(--muted); font-size: 11px; }
-.team-list .doing { font-family: var(--mono); font-size: 11px; }
-.team-list .row[data-alert="yes"] { border-left-color: var(--rec); background: rgba(255, 90, 95, .06); }
-.team-list .row[data-alert="yes"] .doing { color: var(--rec); }
-
-.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; padding: 6px; }
-.team-grid .tile { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 130px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
-  background: var(--panel); cursor: pointer; }
-.team-grid .tile:hover, .team-grid .tile:focus { border-color: var(--accent); }
-.team-grid .tile[data-tone="working"] { border-top: 2px solid var(--thinking); }
-.team-grid .tile[data-alert="yes"] { border-color: var(--rec); background: #241b1e; }
-.team-grid .head { display: flex; gap: 6px; align-items: baseline; min-width: 0; white-space: nowrap; }
-.team-grid .head .name { flex: 0 1 auto; min-width: 0; overflow: hidden; color: #fff; font-weight: 600; text-overflow: ellipsis; }
-.team-grid .head .role { flex: none; color: var(--muted); font-size: 10.5px; }
-.team-grid .head .parent { flex: 0 1 auto; min-width: 0; overflow: hidden; color: var(--dim); font-size: 10.5px; text-overflow: ellipsis; }
-.team-grid .head .state { flex: none; margin-left: auto; font-size: 11px; }
-.team-grid .doing { overflow: hidden; font: 11px var(--mono); white-space: nowrap; text-overflow: ellipsis; }
-.team-grid .tile[data-alert="yes"] .doing { color: var(--rec); }
-.team-grid .recent { flex: 1; min-height: 0; margin: 0; overflow: hidden; color: var(--muted); font: 10.5px/1.35 var(--mono);
-  white-space: pre-wrap; overflow-wrap: anywhere; }
-.team-grid .flags { overflow: hidden; color: var(--muted); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
 
 .detail { position: absolute; inset: 0; display: flex; flex-direction: column; min-height: 0; }
 .detail .dhead { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 8px 2px; }

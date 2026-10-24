@@ -37,6 +37,7 @@ class ModuleType:
     name = ""
     description = ""
     generated_note = ""          # 生成ファイルの説明（ヒント・AGENTS.mdに使う）。なければ空
+    icon = ""                    # 型のアイコン（SVG。実装のPythonモジュールのフォルダーからの場所）。なければ空（Registry.icon）
 
     def __init__(self, module: "Module"):
         self.module = module
@@ -300,6 +301,7 @@ class TypeEntry:
     module: str          # 実装のPythonモジュール
     cls: str             # ModuleType の子クラスの名前
     description: str = ""
+    icon: str = ""       # アイコン（SVG）のファイル。実装のPythonモジュールのフォルダーからの場所。なければ空
 
 
 class Registry:
@@ -320,21 +322,43 @@ class Registry:
         if isinstance(entry, type):
             _check_class(entry.name, entry)
             self._loaded[entry.name] = entry
-            entry = TypeEntry(entry.name, entry.__module__, entry.__qualname__, entry.description)
+            entry = TypeEntry(entry.name, entry.__module__, entry.__qualname__, entry.description, entry.icon)
         else:
             self._loaded.pop(entry.name, None)
         self._entries[entry.name] = entry
 
     @classmethod
     def from_toml(cls, text: str, *, default: str | None = None) -> "Registry":
-        """登録ファイル（TOML。[<型の名前>] に module・class・description）から作る。"""
+        """登録ファイル（TOML。[<型の名前>] に module・class・description・icon）から作る。"""
         data = tomllib.loads(text)
-        return cls((TypeEntry(name, table["module"], table["class"], table.get("description", ""))
+        return cls((TypeEntry(name, table["module"], table["class"], table.get("description", ""), table.get("icon", ""))
                     for name, table in data.items()), default=default)
 
     def entries(self) -> dict[str, TypeEntry]:
         """登録した型（名前 → 登録の内容）。"""
         return dict(self._entries)
+
+    def icon(self, name: str) -> Path | None:
+        """型のアイコン（SVG）のファイル。登録にない・ファイルがなければ None（使う側は自分の既定のアイコンにする）。
+        実装は読み込まない（場所だけ探す）。同じ名前の .ico を横に置けば、Windows のショートカット等にも使える。"""
+        import importlib.util
+        entry = self._entries.get(name)
+        if entry is None or not entry.icon:
+            return None
+        try:
+            spec = importlib.util.find_spec(entry.module)
+        except (ImportError, ValueError):
+            return None
+        if spec is None:
+            return None
+        if spec.submodule_search_locations:
+            folder = Path(next(iter(spec.submodule_search_locations)))
+        elif spec.origin:
+            folder = Path(spec.origin).parent
+        else:
+            return None
+        path = (folder / entry.icon).resolve()
+        return path if path.is_file() else None
 
     def load(self, name: str | None = None, *, command: str = "") -> type[ModuleType]:
         """型の名前（省略時は既定の型）から、型のクラスを読み込む。command：ヒントに書くプログラム名。"""

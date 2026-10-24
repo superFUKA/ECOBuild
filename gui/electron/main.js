@@ -80,14 +80,30 @@ function ownerOf(url) {
   catch (e) { return ''; }
 }
 
+// The module's icon is its type's (module types: icon_ico; the server answers module-icon): module.ico until it is
+// known, and for a type without one. Remembered per module for the windows it opens (log・panel・agents).
+const moduleIcons = new Map();
+const iconOf = root => moduleIcons.get(moduleKey(root)) || MODULE_ICON;
+async function loadModuleIcon(root) {
+  const hub = new URL(hubUrl);
+  const response = await fetch(`${hub.origin}/api/module-icon`, {method: 'POST', body: JSON.stringify({dir: root}),
+    headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': hub.searchParams.get('t') || ''}});
+  moduleIcons.set(moduleKey(root), (await response.json()).value?.ico || MODULE_ICON);
+}
+
 function asModuleApp(window, root) {
   if (!root || process.platform !== 'win32') return;
   const command = app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()];
   window.setAppDetails({
-    appId: moduleAppId(root), appIconPath: MODULE_ICON, appIconIndex: 0,
+    appId: moduleAppId(root), appIconPath: iconOf(root), appIconIndex: 0,
     relaunchCommand: [...command, `--open-module=${root}`].map(a => `"${a}"`).join(' '),
     relaunchDisplayName: path.basename(root),
   });
+  if (!moduleIcons.has(moduleKey(root))) loadModuleIcon(root).then(() => {
+    if (window.isDestroyed() || iconOf(root) === MODULE_ICON) return;
+    window.setIcon(iconOf(root));
+    asModuleApp(window, root);
+  }).catch(() => {});   // module.ico stays
 }
 
 function openModule(root) {
@@ -98,7 +114,7 @@ function openModule(root) {
     return;
   }
   const hub = new URL(hubUrl);
-  const window = new BrowserWindow(windowOptions(MODULE_SIZE, MODULE_ICON, MODULE_MIN));
+  const window = new BrowserWindow(windowOptions(MODULE_SIZE, iconOf(root), MODULE_MIN));
   asModuleApp(window, root);
   window.loadURL(`${hub.origin}/module.html?path=${encodeURIComponent(root)}&t=${hub.searchParams.get('t')}`);
 }
@@ -113,7 +129,7 @@ function panelOptions(opener, url, features) {
   const number = (key, fallback) => Number.isFinite(Number(f[key])) && f[key] !== undefined && f[key] !== '' ? Number(f[key]) : fallback;
   const parent = BrowserWindow.fromWebContents(opener);
   return {
-    ...windowOptions([number('width', 900), number('height', 440)], ownerOf(url) ? MODULE_ICON : ICON),
+    ...windowOptions([number('width', 900), number('height', 440)], ownerOf(url) ? iconOf(ownerOf(url)) : ICON),
     ...(f.left !== undefined ? {x: number('left', 0), y: number('top', 0)} : {}),
     ...(parent ? {parent} : {}), skipTaskbar: !!parent, minWidth: 360, minHeight: 160,
   };
@@ -128,7 +144,7 @@ app.on('web-contents-created', (event, contents) => {
       const size = page === '/log.html' ? LOG_SIZE : MODULE_SIZE;
       if (page === '/panel.html') return {action: 'allow', overrideBrowserWindowOptions: panelOptions(contents, url, features)};
       return {action: 'allow', outlivesOpener: true,
-              overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? MODULE_ICON : ICON, page === '/module.html' ? MODULE_MIN : HUB_MIN)};
+              overrideBrowserWindowOptions: windowOptions(size, ownerOf(url) ? iconOf(ownerOf(url)) : ICON, page === '/module.html' ? MODULE_MIN : HUB_MIN)};
     }
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return {action: 'deny'};

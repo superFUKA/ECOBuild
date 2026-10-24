@@ -898,6 +898,16 @@ const ECO = (() => {
   }
   const typeFeatures = type => TYPES[type] || {configurations: ['Debug', 'Release']};
 
+  // A module's windows (module.html?path=・log.html・panel.html?module=) show its type's icon (module types: icon) as
+  // the page's icon and the header's; a type without one keeps module-icon.svg. The window's own (taskbar) is main.js's.
+  const iconModule = location.pathname === '/module.html' ? params.get('path')
+    : ['/log.html', '/panel.html'].includes(location.pathname) ? params.get('module') : '';
+  if (iconModule) call('module-icon', {dir: iconModule}).then(icon => {
+    if (!icon.svg || icon.svg === 'module-icon.svg') return;
+    document.querySelectorAll('link[rel="icon"]').forEach(link => { link.href = icon.svg; });
+    document.querySelectorAll('img.brand-icon').forEach(img => { img.src = icon.svg; });
+  }).catch(() => {});
+
   // Splits text into command arguments for comma lists.
   const commaList = text => String(text || '').split(',').map(s => s.trim()).filter(Boolean);
 

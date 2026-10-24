@@ -956,18 +956,36 @@ class App:
         self.events = Events()
         self.windows: dict[str, dict] = {}       # 開いている窓（画面が知らせる：種類・モジュール・画面・タブ・タスク）
         self._type_icons: dict[str, dict] | None = None
+        self._type_icons_lock = threading.Lock()
 
     # 型のアイコン（module types の icon・icon_ico）。型は ECOBuild の更新でしか変わらない（更新で GUI も起動し直す）ので、
-    # サーバーが動いている間は1回だけ読む。読めなければ空（窓は既定の module-icon.svg・module.ico のまま）。
+    # サーバーが動いている間は1回だけ読む（起動したときに裏で読み始める）。読めなければ空（既定の module-icon.svg・module.ico）。
     def type_icons(self) -> dict[str, dict]:
-        if self._type_icons is None:
-            try:
-                listed = self.cli.run(None, ["module", "types"]).get("result") or []
-            except GuiError:
-                listed = []
-            self._type_icons = {t["name"]: {"svg": t.get("icon"), "ico": t.get("icon_ico")}
-                                for t in listed if isinstance(t, dict) and t.get("name")}
-        return self._type_icons
+        with self._type_icons_lock:
+            if self._type_icons is None:
+                try:
+                    listed = self.cli.run(None, ["module", "types"]).get("result") or []
+                except GuiError:
+                    listed = []
+                self._type_icons = {t["name"]: {"svg": t.get("icon"), "ico": t.get("icon_ico")}
+                                    for t in listed if isinstance(t, dict) and t.get("name")}
+            return self._type_icons
+
+    def refresh_shortcuts(self) -> list[str]:
+        """モジュールの開発環境を開く、既にあるショートカット（デスクトップ・スタートメニュー・タスクバーのピン留め）の
+        アイコンを、そのモジュールの型のアイコンにそろえる（型のアイコンを足す・変える前に作ったもの）。変えたものを返す。"""
+        if os.name != "nt":
+            return []
+        changed = []
+        for link in _module_shortcuts():
+            root = _shortcut_module(link["arguments"])
+            if not root or not Path(root).is_dir():
+                continue
+            icon = self.module_icon(root)["ico"] + ",0"
+            if link["icon"].casefold() != icon.casefold():
+                _set_shortcut_icon(link["path"], icon)
+                changed.append(link["path"])
+        return changed
 
     def module_icon(self, directory: str) -> dict:
         """モジュールの窓のアイコン：svg は画面に使う URL（型のアイコン、なければ module-icon.svg）、ico は窓・タスクバー・
@@ -1183,6 +1201,9 @@ class App:
             return module_defaults(d("dir"))
         if name == "module-icon":
             return self.module_icon(d("dir"))
+        if name == "type-icons":
+            # 型ごとの .ico（Electron が窓を作るときに、モジュールの型から選ぶ。.ico のない型は入れない）
+            return {name: icons["ico"] for name, icons in self.type_icons().items() if icons.get("ico")}
         if name == "open-vs":
             update_solution(self.cli, d("dir"))
             return open_in_visual_studio(d("dir"), d("version") or "2026")
@@ -1459,6 +1480,42 @@ public static class EcoShortcut {
     }
 }
 """
+
+
+def _pinned_places() -> list[Path]:
+    """タスクバーにピン留めしたもの（.lnk）の置き場所。"""
+    return [Path(os.environ["APPDATA"]) / "Microsoft" / "Internet Explorer" / "Quick Launch" / "User Pinned" / "TaskBar"] \
+        if os.environ.get("APPDATA") else []
+
+
+def _module_shortcuts() -> list[dict]:
+    """モジュールの開発環境を開くショートカット（--module・Electron の --open-module= を付けたもの）：path・arguments・icon。"""
+    places = [str(p) for p in _shortcut_places() + _pinned_places() if p.is_dir()]
+    script = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; $sh = New-Object -ComObject WScript.Shell; "
+              "$found = @(foreach ($p in ($env:EG_PLACES -split '\\|')) { Get-ChildItem -LiteralPath $p -Filter *.lnk -ErrorAction SilentlyContinue | "
+              "ForEach-Object { $s = $sh.CreateShortcut($_.FullName); "
+              "if ($s.Arguments -match '--module|--open-module=') { @{path = $_.FullName; arguments = $s.Arguments; icon = $s.IconLocation} } } }); "
+              "ConvertTo-Json -InputObject $found -Compress")
+    completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                               env=dict(os.environ, EG_PLACES="|".join(places)), stdin=subprocess.DEVNULL,
+                               capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+    try:
+        found = json.loads(completed.stdout or "[]")
+    except ValueError:
+        return []
+    return [f for f in found if isinstance(f, dict) and f.get("path")]
+
+
+def _shortcut_module(arguments: str) -> str:
+    """ショートカットの引数から、開くモジュールの場所（make_module_shortcut の --module・main.js の --open-module=）。"""
+    found = re.search(r'--open-module=([^"]+)', arguments) or re.search(r'--module\s+(?:"([^"]+)"|(\S+))', arguments)
+    return next((g for g in found.groups() if g), "").strip() if found else ""
+
+
+def _set_shortcut_icon(link: str, icon: str) -> None:
+    script = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.IconLocation = $env:EG_ICON; $s.Save()"
+    subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=dict(os.environ, EG_LINK=link, EG_ICON=icon),
+                   stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", **_no_window())
 
 
 def _write_shortcut(link: Path, arguments: list[str], icon: str, app_id: str, description: str) -> None:
@@ -1759,6 +1816,8 @@ def serve(args) -> None:
     app = App(cli, store, token, port)
     app.server = server
     app.move_legacy()
+    # 型のアイコンを先に読んでおき（窓を開くときに待たせない）、既にあるショートカットのアイコンを型のものにそろえる
+    threading.Thread(target=lambda: (app.type_icons(), app.refresh_shortcuts()), daemon=True).start()
     server.RequestHandlerClass = make_handler(app)
     state = {"pid": os.getpid(), "port": port, "token": token}
     url = _url(state)

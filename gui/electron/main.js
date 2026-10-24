@@ -80,33 +80,43 @@ function ownerOf(url) {
   catch (e) { return ''; }
 }
 
-// The module's icon is its type's (module types: icon_ico; the server answers module-icon): module.ico until it is
-// known, and for a type without one. Remembered per module for the windows it opens (log・panel・agents).
-const moduleIcons = new Map();
-const iconOf = root => moduleIcons.get(moduleKey(root)) || MODULE_ICON;
-async function loadModuleIcon(root) {
-  const hub = new URL(hubUrl);
-  const response = await fetch(`${hub.origin}/api/module-icon`, {method: 'POST', body: JSON.stringify({dir: root}),
-    headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': hub.searchParams.get('t') || ''}});
-  moduleIcons.set(moduleKey(root), (await response.json()).value?.ico || MODULE_ICON);
+// The module's icon is its type's (module types: icon_ico, which the server answers as type-icons once at start), and
+// module.ico for a type without one. The type is read from the module's .ecobuild/ecobuild.toml ([module] type, as
+// app.py module_defaults) when a window opens, so the window and its taskbar button have the icon from the start
+// (Windows keeps a taskbar button's first icon). An agents' window of the module gets it too (asModuleApp).
+let typeIcons = {};
+let typeIconsLoaded = null;
+function loadTypeIcons() {
+  if (!typeIconsLoaded) {
+    const hub = new URL(hubUrl);
+    typeIconsLoaded = fetch(`${hub.origin}/api/type-icons`, {method: 'POST', body: '{}',
+      headers: {'Content-Type': 'application/json', 'X-ECOBuild-Token': hub.searchParams.get('t') || ''}})
+      .then(response => response.json()).then(answer => { typeIcons = answer.value || {}; }).catch(() => {});   // module.ico stays
+  }
+  return typeIconsLoaded;
 }
+function moduleTypeOf(root) {
+  try {
+    const text = fs.readFileSync(path.join(root, '.ecobuild', 'ecobuild.toml'), 'utf8');
+    const table = text.split(/^\s*\[/m).find(t => t.startsWith('module]')) || '';
+    return (table.match(/^\s*type\s*=\s*"([^"]*)"/m) || [])[1] || '';
+  } catch (e) { return ''; }
+}
+const iconOf = root => typeIcons[moduleTypeOf(root)] || MODULE_ICON;
 
 function asModuleApp(window, root) {
   if (!root || process.platform !== 'win32') return;
   const command = app.isPackaged ? [process.execPath] : [process.execPath, app.getAppPath()];
+  window.setIcon(iconOf(root));
   window.setAppDetails({
     appId: moduleAppId(root), appIconPath: iconOf(root), appIconIndex: 0,
     relaunchCommand: [...command, `--open-module=${root}`].map(a => `"${a}"`).join(' '),
     relaunchDisplayName: path.basename(root),
   });
-  if (!moduleIcons.has(moduleKey(root))) loadModuleIcon(root).then(() => {
-    if (window.isDestroyed() || iconOf(root) === MODULE_ICON) return;
-    window.setIcon(iconOf(root));
-    asModuleApp(window, root);
-  }).catch(() => {});   // module.ico stays
 }
 
-function openModule(root) {
+async function openModule(root) {
+  await loadTypeIcons();
   const open = BrowserWindow.getAllWindows().find(w => moduleKey(moduleOf(w.webContents.getURL())) === moduleKey(root));
   if (open) {
     if (open.isMinimized()) open.restore();
@@ -224,6 +234,7 @@ function startServer() {
         if (url.pathname === '/module.html' && url.searchParams.get('path')) openModule(url.searchParams.get('path'));
         else openHub();
       });   // 外（ecobuild gui・オペレーター）からのエージェントの窓の操作を受ける
+      loadTypeIcons();   // 窓の前に型のアイコンを読み始める（モジュールの窓は待つ。ハブは待たない）
       if (pendingModule) openModule(pendingModule); else openHub();
     }
   };

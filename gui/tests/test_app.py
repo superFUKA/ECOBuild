@@ -290,6 +290,7 @@ def test_module_icon_is_the_types(tmp_path):
     default = str(Path(gui.__file__).resolve().with_name("module.ico"))
     assert app.api("module-icon", {"dir": str(generic)}) == {"type": "generic", "svg": "module-icon.svg", "ico": default}
     assert app.api("module-icon", {"dir": str(plain)})["ico"] == default
+    assert app.api("type-icons", {}) == {"cpp": str(ico)}       # Electron が窓を作るときに使う（.ico のある型だけ）
     assert calls == [["module", "types"]]
     server.RequestHandlerClass = gui.make_handler(app)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -430,6 +431,36 @@ def test_module_shortcut_opens_the_module_alone(tmp_path):
     assert app_id == gui.module_app_id(root) == gui.module_app_id(str(root).replace("\\", "/").upper() + "/") != gui.APP_ID
     assert "'ECOBuild.Module.'" in (Path(gui.__file__).parent / "electron" / "main.js").read_text(encoding="utf-8")
     assert (Path(gui.__file__).with_name("module.ico")).is_file()
+
+
+def test_shortcut_module_reads_both_launchers():
+    assert gui._shortcut_module('"C:\\GUI\\ECOBuildGUI.pyw" --module "C:\\ECO\\My Calc"') == "C:\\ECO\\My Calc"
+    assert gui._shortcut_module('"C:\\GUI\\ECOBuildGUI.pyw" --module C:\\ECO\\Calc') == "C:\\ECO\\Calc"
+    assert gui._shortcut_module('"C:\\app" "--open-module=C:\\ECO\\My Calc"') == "C:\\ECO\\My Calc"   # main.js の relaunchCommand
+    assert gui._shortcut_module('"C:\\GUI\\ECOBuildGUI.pyw"') == ""
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")
+def test_existing_module_shortcuts_get_the_types_icon(tmp_path, monkeypatch):
+    """型のアイコンを入れる前に作ったショートカット（module.ico）は、起動したときに型のアイコンにそろえる。"""
+    place, ico = tmp_path / "Desktop", tmp_path / "cpp.ico"
+    place.mkdir()
+    ico.write_bytes((Path(gui.__file__).with_name("module.ico")).read_bytes())
+    cpp, plain = _module(tmp_path / "Calc"), _module(tmp_path / "Plain")
+    write(cpp / ".ecobuild" / "ecobuild.toml", '[module]\ntype = "cpp"\n')
+    cpp_link, plain_link = gui.make_module_shortcut(str(cpp), place), gui.make_module_shortcut(str(plain), place)
+
+    class Recorder(gui.Cli):
+        def run(self, directory, args, stdin=None):
+            return {"ok": True, "result": [{"name": "cpp", "icon": None, "icon_ico": str(ico)}]}
+
+    monkeypatch.setattr(gui, "_shortcut_places", lambda: [place])
+    monkeypatch.setattr(gui, "_pinned_places", lambda: [])
+    app = gui.App(Recorder(["ecobuild"]), gui.Store(tmp_path / "gui.json"), "t", 1)
+    assert app.refresh_shortcuts() == [cpp_link]
+    icons = {Path(link["path"]).name: link["icon"] for link in gui._module_shortcuts()}
+    assert icons == {Path(cpp_link).name: f"{ico},0", Path(plain_link).name: str(Path(gui.__file__).resolve().with_name("module.ico")) + ",0"}
+    assert app.refresh_shortcuts() == []                        # そろっていれば変えない
 
 
 @pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")

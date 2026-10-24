@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ..._output import run_command, usage_error
+from ..._output import log_error, run_command, usage_error
 from ..container._source import source
 
 
@@ -76,6 +76,7 @@ def _here(name: str, options: dict) -> int:
         return module.run_agent(name, source=source(), progress=lambda message: _events.progress(message, False),
                                 **options)
     except WorkError as error:
+        log_error("agent start", error)   # ログにも理由を（書かないと「理由の記録なし」になる）
         _events.emit("error", error.message, json_output=False,
                      human=f"エラー：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""))
         return 1

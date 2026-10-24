@@ -305,6 +305,23 @@ def test_old_images_are_removed_when_the_container_is_rebuilt(root, monkeypatch,
 
 
 
+def test_a_container_in_use_is_not_rebuilt(root, monkeypatch, tmp_path):
+    """ECOBuild を更新しても、中で動いているもの（ほかのエージェント）があれば作り直さない（消すと止まる）。
+    全部終わってから動かすと作り直す。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    first = container.start(root, fake.run, source=("https://example.com/ECOBuild", "v1"))
+    fake.busy = ["Ssl+ claude --resume abc"]
+    said = []
+    kept = container.start(root, fake.run, source=("https://example.com/ECOBuild", "v2"), progress=said.append)
+    assert not any(args[1] == "rm" for args in fake.calls) and kept.image == first.image
+    assert any("作り直さずに使います" in line for line in said)
+    fake.busy = ["Z [claude] <defunct>"]                                                   # 終わったもの（ゾンビ）は数えない
+    again = container.start(root, fake.run, source=("https://example.com/ECOBuild", "v2"))
+    assert any(args[1] == "rm" for args in fake.calls) and again.image != first.image
+
+
 def test_the_check_runs_inside_when_the_workspace_is_a_container(monkeypatch, root):
     """コンテナにした作業空間の確認（task submit の中のものも）は、中の ecobuild で行う（ビルド・テストに中のツールを使う）。"""
     import json

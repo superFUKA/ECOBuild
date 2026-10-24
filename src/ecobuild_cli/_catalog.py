@@ -12,8 +12,9 @@
 オプションは names・help・flag・required・multiple・type（bool・str・int・float）・negative（真偽のオプションの否定形。
 なければ null）・choices（選べる値。なければ null）、既定値があれば default（真偽のオプションはいつも）。
 説明に「例：」の段落があれば、その中の ecobuild で始まる行を examples に。
-全体（ecobuild --help --json）には、誤りの種類の一覧（errors：code・retryable。_errors）と、今いるモジュールの型
-（type。モジュールの外なら null）も入れる。
+全体（ecobuild --help --json）には、誤りの種類の一覧（errors：code・retryable。_errors）、今いるモジュールの型
+（type。モジュールの外なら null）、--json の結果の形（output：標準出力の JSON のキー）と標準エラーのイベントの形
+（events：_events）も入れる。
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import click
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_bundle import REGISTRY
 
-from . import _effects, _errors, _help, _output, _types
+from . import _effects, _errors, _events, _help, _output, _types
 
 COMMON_OPTIONS = ("--json", "--help")
 AGENT_MARKS = ("read", "change", "owner")     # コマンドのファイルの AGENT に書ける値
@@ -72,7 +73,20 @@ def catalog(build_cli: Callable[..., click.Command], sections: dict[tuple[str, .
     extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json"}
                   for n, path in sorted(_extensions.available().items()) if n not in names]
     return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions,
-            "errors": _errors.codes(), "type": _types.current(Path.cwd())}
+            "errors": _errors.codes(), "type": _types.current(Path.cwd()), "output": OUTPUT_KEYS,
+            "events": _events.schema()}
+
+
+# --json の結果（標準出力の JSON。どのコマンドでも同じ形）のキー
+OUTPUT_KEYS = {
+    "ok": "成功したか",
+    "command": "実行したコマンド（task start 等）",
+    "module": "対象のモジュールの場所（なければ null）",
+    "result": "結果（コマンドごとの形。失敗なら null）",
+    "notices": "知らせ（成功したが知らせておくこと）の文の一覧",
+    "error": "誤り（{code, message, hint, details, retryable}。成功なら null）",
+    "log": "このコマンドのログ（{run：ログの行の run, file：その行のあるファイル}。ログを書いていなければ null）",
+}
 
 
 def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None]:

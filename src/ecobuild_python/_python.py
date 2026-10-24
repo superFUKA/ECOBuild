@@ -339,8 +339,8 @@ def run_script(root: Path, name: str, arguments: list[str], *, stream: bool = Fa
     stdout・stderr）。止められたら（SIGINT・SIGTERM）プログラムも止めて RUN_INTERRUPTED（途中までの出力つき）。
 
     stream：出力を受け継いでそのまま流す（人向け。ためない。結果の stdout・stderr は空）。偽なら stdout・stderr を
-    分けてためる（echo なら、ためながら標準エラーにも流す：--json で標準出力は JSON だけにする。呼べるもの〔文字列を
-    受ける〕なら、標準エラーの代わりにそれに渡す）。
+    分けてためる（echo なら、ためながら標準エラーにも流す：--json で標準出力は JSON だけにする。呼べるもの〔文字列と
+    stdout・stderr を受ける〕なら、標準エラーの代わりにそれに渡す）。
     stdin：None は渡さない（空）・"inherit" は受け継ぐ（対話型のプログラム）・ほかはそのファイルを渡す。
     on_start：起こした直後に (コマンドの表示, PID) で呼ぶ。
     """
@@ -360,7 +360,7 @@ def run_script(root: Path, name: str, arguments: list[str], *, stream: bool = Fa
                                 hint="ecobuild build で .venv を作り直してください。") from error
         if on_start is not None:
             on_start(command_text(args), process.pid)
-        readers = [] if stream else [_Reader(process.stdout, echo), _Reader(process.stderr, echo)]
+        readers = [] if stream else [_Reader(process.stdout, echo, "stdout"), _Reader(process.stderr, echo, "stderr")]
         stopped = _wait(process, own_group)
         for reader in readers:
             reader.join()
@@ -449,12 +449,12 @@ def _signal_program(process: subprocess.Popen, own_group: bool, number: int | No
 
 
 class _Reader(threading.Thread):
-    """プログラムの出力を読みながらためる（echo なら標準エラーにも流す。呼べるものなら、それに渡す）。部分的な行
-    （入力の催促）もすぐ流す。"""
+    """プログラムの出力を読みながらためる（echo なら標準エラーにも流す。呼べるものなら、それに（文字列, name）を渡す）。
+    部分的な行（入力の催促）もすぐ流す。name：stdout・stderr。"""
 
-    def __init__(self, stream, echo):
+    def __init__(self, stream, echo, name: str = "stdout"):
         super().__init__(daemon=True)
-        self.stream, self.echo, self.parts = stream, echo, []
+        self.stream, self.echo, self.name, self.parts = stream, echo, name, []
         self.start()
 
     def run(self) -> None:
@@ -463,7 +463,7 @@ class _Reader(threading.Thread):
             text = decoder.decode(chunk)
             self.parts.append(text)
             if callable(self.echo) and text:
-                self.echo(text)
+                self.echo(text, self.name)
             elif self.echo and text:
                 sys.stderr.write(text)
                 sys.stderr.flush()

@@ -6,7 +6,12 @@
 - モジュールのログ（<モジュール>/.ecobuild/logs/）：そのモジュールで実行したコマンドのすべて。
   .ecobuild/.gitignore（なければモジュールを作るときと同じ中身で置く）で、gitには見えない。
 - ECOBuildのログ（<ECOBUILD_HOME>/logs/）：モジュールの外で実行したコマンドのすべてと、
-  モジュールで実行したコマンドの要約（どのモジュールのログに詳しく書いたか）。
+  モジュールで実行したコマンドの始まり（モジュールが決まるまで）・行き先（command.moved）・要約（command.summary）。
+
+どの行も、起きたときにすぐファイルへ書く（途中でプロセスが落ちても、そこまでは残る）。対象のモジュールが決まるまでは
+ECOBuildのログへ書き、決まったら、それまでの行をモジュールのログへも写して（モジュールのログだけで1回のコマンドの全部が
+読める）、ECOBuildのログに行き先（command.moved：module・log）を書き、以後はモジュールのログへ書く。
+--json の結果の log（{run, file}）が、このコマンドの行のあるファイル（モジュールが決まっていればモジュールのログ）。
 
 量（log_level）：off・error・info・debug（既定。外部コマンドの引数・出力まで全部）。
 ecobuild config set log_level <量>、1回だけなら環境変数 ECOBUILD_LOG_LEVEL。
@@ -98,14 +103,14 @@ def module_directory(root: Path) -> Path:
 
 
 class _Handler(logging.Handler):
-    """1回のコマンドのログ。対象のモジュールが分かるまでは手元にためておき、分かったらモジュールのログへ書く。
-    最後までモジュールがなければ、ECOBuildのログへ書く。"""
+    """1回のコマンドのログ。どの行もすぐ書く：対象のモジュールが分かるまではECOBuildのログへ（モジュールのログへ写すために
+    手元にも覚えておく）、分かったらモジュールのログへ。"""
 
     def __init__(self, run_id: str, level: int):
         super().__init__(level)
         self.run_id = run_id
         self.module_root: Path | None = None
-        self.pending: list[str] = []
+        self.early: list[str] | None = []   # モジュールが決まる前に書いた行（決まったら写す。写したら None）
         self.errors = 0          # 書いた command.error の数
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -138,7 +143,9 @@ class _Handler(logging.Handler):
 
     def write(self, line: str) -> None:
         if self.module_root is None:
-            self.pending.append(line)
+            _append(global_directory(), [line])
+            if self.early is not None:
+                self.early.append(line)
         elif not _append(module_directory(self.module_root), [line], module=True):
             # モジュールのフォルダーがなくなった（module delete 等）：ECOBuildのログへ
             _append(global_directory(), [line])
@@ -147,16 +154,26 @@ class _Handler(logging.Handler):
         if self.module_root is not None and Path(root) == self.module_root:
             return
         self.module_root = Path(root)
-        lines, self.pending = self.pending, []
+        lines, self.early = self.early or [], None
         if lines and not _append(module_directory(self.module_root), lines, module=True):
-            _append(global_directory(), lines)
+            self.module_root = None       # モジュールのログに書けない（.ecobuild がない等）：ECOBuildのログのまま
+            return
+        _append(global_directory(), [self.marker("command.moved", "モジュールのログへ", {
+            "module": self.module_root.as_posix(), "log": module_directory(self.module_root).as_posix()})])
+
+    def marker(self, event: str, message: str, data: dict) -> str:
+        record = logging.LogRecord(logger.name, logging.INFO, "", 0, message, (), None)
+        record.event, record.data = event, data
+        return self.line(record)
+
+    def file(self) -> Path:
+        """このコマンドの行を今書いているファイル。"""
+        directory = global_directory() if self.module_root is None else module_directory(self.module_root)
+        return directory / f"{_today()}.jsonl"
 
     def finish(self, summary: str) -> None:
-        """終わり：モジュールがなければ、ためたものをECOBuildのログへ。あれば要約だけをECOBuildのログへ。"""
-        if self.module_root is None:
-            _append(global_directory(), self.pending)
-            self.pending = []
-        else:
+        """終わり：モジュールで実行したなら、要約をECOBuildのログへ（モジュールの外なら、行はもう全部そこにある）。"""
+        if self.module_root is not None:
             _append(global_directory(), [summary])
 
 
@@ -251,6 +268,14 @@ def start(args: list[str]) -> None:
 def run_id() -> str | None:
     """今のコマンドのログの run（ログを書いていなければ None）。"""
     return None if _current is None else _current.run_id
+
+
+def location() -> dict | None:
+    """今のコマンドのログ（--json の結果の log）：{run, file}。file はこのコマンドの行のあるファイル（モジュールが
+    決まっていればモジュールのログ）。ログを書いていなければ None。"""
+    if _current is None:
+        return None
+    return {"run": _current.run_id, "file": _current.file().as_posix()}
 
 
 def forward_environment() -> dict[str, str]:

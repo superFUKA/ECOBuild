@@ -18,8 +18,8 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
 from cppbuild import engine as _engine
+from cppbuild import execution as _execution
 from cppbuild import logs as _logs
-from cppbuild import tooling as _tooling
 from cppbuild import workspace as _workspace
 
 from ecowork.git import CLONE_CONFIG, Git
@@ -331,47 +331,57 @@ def run(root: Path, *, project: str | None, options: BuildOptions, arguments: st
 
 
 @contextmanager
-def program_output(write: Callable[[str], None], *, tools: bool = True) -> Iterator[None]:
-    """この中で CppBuild が動かす子プロセスの出力を、1行ずつ write に渡す（改行なし。結果の output は今までどおり全部）。
-    tools：CMake・CTest（構成・ビルド・テスト）の出力も渡す。偽なら、実行するプログラムの出力だけ。
+def program_output(write: Callable[..., None], *, tools: bool = True) -> Iterator[None]:
+    """この中で CppBuild が動かす子プロセスの出力を、1行ずつ write(行, stream, source) に渡す（行は改行なし。stream：
+    stdout・stderr、source：program〔実行するプログラム〕・tool〔CMake・コンパイラー・CTest 等〕。結果の output は
+    今までどおり全部〔stdout と stderr を届いた順に〕）。tools：ツールの出力も渡す。偽なら、実行するプログラムの出力だけ。
 
-    CppBuild には出力を逐次受け取る口がない（子プロセスはどれも cppbuild.engine.process で、終わるまでためる）ので、
-    その間だけ、同じ形の結果（ProcessReport）を返す、読みながら渡すものに替える。CMake・CTest は cppbuild.tooling.process
-    を通るので、それで分ける。CppBuild に口ができたら、それに替える。
+    CppBuild には出力を逐次受け取る口がない（子プロセスはどれも cppbuild.engine.process で、stderr を stdout にまとめて
+    終わるまでためる）ので、その間だけ、同じ形の結果（ProcessReport）を返す、stdout・stderr を分けて読みながら渡すものに
+    替える。実行するプログラムは cppbuild.execution.execute に渡されるコマンドで見分ける。CppBuild に口ができたら、それに替える。
     """
-    original, original_tool, lock, inside_tool = _engine.process, _tooling.process, threading.Lock(), threading.local()
+    original, original_execute, lock = _engine.process, _execution.execute, threading.Lock()
+    programs: set[tuple[str, ...]] = set()
 
-    def tool(*args, **kwargs):
-        inside_tool.on = True
-        try:
-            return original_tool(*args, **kwargs)
-        finally:
-            inside_tool.on = False
+    def execute(commands, *args, **kwargs):
+        commands = list(commands)
+        programs.update(tuple(str(arg) for arg in command) for command, _cwd, _env in commands)
+        return original_execute(commands, *args, **kwargs)
 
     def process(command, cwd, env=None):
-        if not tools and getattr(inside_tool, "on", False):
-            return original(command, cwd, env)
         command = tuple(str(arg) for arg in command)
+        source = "program" if command in programs else "tool"
+        if not tools and source == "tool":
+            return original(command, cwd, env)
         with _logs.command(command, cwd, env) as finished:
-            child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=False,
+            child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False,
                                      env=dict(os.environ) if env is None else env)
-            data = []
-            with child.stdout:
-                for line in child.stdout:
-                    data.append(line)
-                    with lock:   # 並べて動かす実行（run_parallel）の行が混ざらないように
-                        for text in _engine.decode_output(line).rstrip("\n").split("\n"):
-                            write(text)
+            data: list[bytes] = []
+
+            def read(pipe, stream: str) -> None:
+                with pipe:
+                    for line in pipe:
+                        with lock:   # 並べて動かす実行（run_parallel）と stdout・stderr の行が混ざらないように
+                            data.append(line)
+                            for text in _engine.decode_output(line).rstrip("\n").split("\n"):
+                                write(text, stream, source)
+
+            readers = [threading.Thread(target=read, args=(child.stdout, "stdout"), daemon=True),
+                       threading.Thread(target=read, args=(child.stderr, "stderr"), daemon=True)]
+            for reader in readers:
+                reader.start()
+            for reader in readers:
+                reader.join()
             returncode = child.wait()
             output = _engine.decode_output(b"".join(data))
             finished(returncode, output)
         return _engine.ProcessReport(command, returncode, output)
 
-    _engine.process, _tooling.process = process, tool
+    _engine.process, _execution.execute = process, execute
     try:
         yield
     finally:
-        _engine.process, _tooling.process = original, original_tool
+        _engine.process, _execution.execute = original, original_execute
 
 
 @dataclass(frozen=True)

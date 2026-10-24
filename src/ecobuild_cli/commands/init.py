@@ -1,12 +1,10 @@
 import sys
 from typing import Annotated
 
-import click
-
 import ecobuild_bundle
 from ecobuild_bundle import tooling
 from ecobuild.errors import EcoBuildError, ErrorCode
-from .. import _gui
+from .. import _events, _gui
 from .._module import PROGRAM
 from .._output import Invocation, ask_confirm, ask_text, execute, lines
 
@@ -14,8 +12,9 @@ from .._output import Invocation, ask_confirm, ask_text, execute, lines
 class _Terminal(tooling.Questions):
     """端末で聞く。yes なら聞かずに既定の答えを使う。"""
 
-    def __init__(self, yes: bool):
+    def __init__(self, yes: bool, json_output: bool = False):
         self.yes = yes
+        self.json_output = json_output
         self.interactive = not yes
 
     def confirm(self, prompt: str, default: bool = True) -> bool:
@@ -27,7 +26,7 @@ class _Terminal(tooling.Questions):
         return ask_text(prompt, default=default, show_default=bool(default))
 
     def info(self, message: str) -> None:
-        click.echo(message, err=True)
+        _events.progress(message, self.json_output)
 
 
 def command(
@@ -46,7 +45,7 @@ def command(
                                 hint="端末で実行するか、--yes（既定の答えで進める）を付けてください。"
                                      "質問しない準備は ecobuild setup です。")
         inv.info("ECOBuild の準備を始めます（Enter で [ ] の中の答えを使います）。")
-        return ecobuild_bundle.initialize(_Terminal(yes), _gui.doctor_items(), command=PROGRAM)
+        return ecobuild_bundle.initialize(_Terminal(yes, json), _gui.doctor_items(), command=PROGRAM)
 
     def render(r):
         required = [i for i in r.remaining if i.required]

@@ -12,6 +12,7 @@ import ecobuild_container as container
 from ecobuild_agent import serve as agent_serve
 from ecobuild_agent import status as agent_status
 
+from ... import _events
 from ..._output import Invocation, execute
 from ..container._source import source
 
@@ -59,7 +60,7 @@ def command(json: Annotated[bool, "出来事を1行ずつJSONで出力し、返�
         return Module.find(path)
 
     def log(message: str) -> None:
-        click.echo(message, err=True)
+        _events.progress(message, json)
 
     def action(inv):
         with agent_serve.Lock():
@@ -116,7 +117,8 @@ def run(args: list[str], cwd: Path, progress=None, stall: float | None = None) -
     """この ECOBuild のコマンドを cwd で実行し、その JSON の結果を返す。頼みとしてではなく、このPCで直接実行する
     （コンテナの中の印は渡さない）。標準入力は渡さない：係は起動したアプリの返事を読み続けており、Windows では
     読みかけのパイプを引き継いだ Python が起動の途中で止まる（頼んだ側が待ち続けた）。
-    progress(line)：コマンドの経過（標準エラーの1行ずつ）。stall：経過がこの秒数出なければ、止まったとみなして止める。"""
+    progress(line)：コマンドの経過（標準エラーのイベントの文。ツール・プログラムの出力は渡さない）。stall：標準エラーに
+    この秒数何も出なければ（出力のイベントも数える）、止まったとみなして止める。"""
     if not type_has(args, cwd):   # 型のコマンドを、その型でないモジュールで実行しない（返答のたびの project update 等）
         return agent_serve.failed(f"{' '.join(args[:2])} はこのモジュールの型のコマンドではありません。")
     env = {key: value for key, value in os.environ.items() if key != container.INSIDE}
@@ -143,8 +145,9 @@ def _wait(process: subprocess.Popen, progress, stall: float | None) -> dict:
         for line in process.stderr:
             err.append(line)
             last[0] = time.monotonic()
-            if progress is not None and line.strip():
-                progress(line.strip())
+            event = _events.parse(line)
+            if progress is not None and line.strip() and (event is None or event["kind"] != "output"):
+                progress(line.strip() if event is None else event["text"])
     readers = [threading.Thread(target=lambda: out.extend(process.stdout), daemon=True),
                threading.Thread(target=read_err, daemon=True)]
     for reader in readers:
@@ -168,4 +171,4 @@ def _wait(process: subprocess.Popen, progress, stall: float | None) -> dict:
     try:
         return _json.loads(lines[-1])
     except (IndexError, ValueError):
-        return agent_serve.failed(("".join(err) or "ecobuild の結果を読めませんでした。").strip()[-2000:])
+        return agent_serve.failed((_events.messages("".join(err)) or "ecobuild の結果を読めませんでした。").strip()[-2000:])

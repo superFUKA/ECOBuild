@@ -23,8 +23,8 @@ def command(
     """pyproject.toml の [project.scripts] のコマンドを、venv で実行します。
 
     出力はためずにそのまま流し、標準入力も渡します（対話型・Web サーバー等）。--json では出力を分けてためて
-    result に入れ、実行中は標準エラーにも流します（行の頭に「│ 」を付けて）。Ctrl+C・SIGTERM で止めると、
-    プログラムも止めます。
+    result に入れ、実行中は標準エラーにも流します（output のイベントで。stdout・stderr の別も）。Ctrl+C・SIGTERM で
+    止めると、プログラムも止めます。
     """
     if arguments and argv:
         return usage_error("--arguments と -- の後ろの引数は、どちらか1つにしてください。", json)

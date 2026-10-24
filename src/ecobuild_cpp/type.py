@@ -331,8 +331,8 @@ jobs:
 
     @staticmethod
     def program_output(write, *, tools: bool = True):
-        """この中の build・test・run 等で動かすツール・プログラムの出力を、1行ずつ write に渡す（with で使う。
-        結果・誤りの output は今までどおり全部入る）。tools：CMake・CTest の出力も（偽なら実行するプログラムだけ）。"""
+        """この中の build・test・run 等で動かすツール・プログラムの出力を、1行ずつ write(行, stream, source) に渡す
+        （with で使う。結果・誤りの output は今までどおり全部入る）。tools：ツールの出力も（偽なら実行するプログラムだけ）。"""
         return _cppbuild.program_output(write, tools=tools)
 
     def build(self, project: str | None, options: _cppbuild.BuildOptions, action: str) -> BuildResult:

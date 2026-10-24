@@ -8,57 +8,42 @@
 from __future__ import annotations
 
 import os
-import sys
-import threading
 from pathlib import Path
 
 from ecobuild.errors import EcoBuildError
 
+from . import _events
 from ._output import (
     Invocation, build_like, lines, missing, optional_argument, run_command, split_list, split_numbers,
     split_semicolons, usage_error,
 )
 
 __all__ = [
-    "PROGRAM_MARK", "Invocation", "ProgramOutput", "add_files", "build_like", "lines", "missing", "move_file",
+    "Invocation", "ProgramOutput", "add_files", "build_like", "lines", "missing", "move_file",
     "optional_argument", "remove_files", "render_profiles", "run_command", "run_like", "split_list", "split_numbers",
     "split_semicolons", "test_like", "usage_error",
 ]
-
-# 標準エラーの行のうち、ビルド・テスト・実行で動かしたツール・プログラムの出力の行の頭。ecobuild の経過の行と分ける
-# （GUI はこれで見分けて、出力の行として出す）。端末で見ても、出力の行の左の罫線に見えるだけ
-PROGRAM_MARK = "│ "
 
 
 class ProgramOutput:
     """ツール・プログラムの出力を流す口（呼ぶたびに文字列。部分的な行〔入力の催促〕もすぐ流す）。
 
-    --json では標準エラーへ、行の頭に PROGRAM_MARK を付けて（標準出力は最後の JSON だけ。出力の全部は今までどおり
-    result・error.details に入る）。人向けには標準出力へそのまま。いくつかのスレッド（stdout・stderr）から呼んでよい。
+    --json では標準エラーへ、1行ずつ output のイベントで（_events。stream：プログラムの stdout・stderr、source：
+    program〔実行するプログラム〕・tool〔ビルド・テストのツール〕。標準出力は最後の JSON だけ。出力の全部は今までどおり
+    result・error.details に入る）。人向けにはそのまま（stdout は標準出力へ、stderr は標準エラーへ）。いくつかの
+    スレッド（stdout・stderr）から呼んでよい。
     """
 
-    def __init__(self, json_output: bool):
+    def __init__(self, json_output: bool, source: str = "program"):
         self.json_output = json_output
-        self._lock = threading.Lock()
-        self._start = True    # 次の文字が行の頭か
+        self.source = source
 
-    def __call__(self, text: str) -> None:
-        text = text.replace("\r\n", "\n")
-        if not text:
-            return
-        with self._lock:
-            stream = sys.stderr if self.json_output else sys.stdout
-            if self.json_output:
-                for piece in text.splitlines(keepends=True):
-                    stream.write((PROGRAM_MARK if self._start else "") + piece)
-                    self._start = piece.endswith(("\n", "\r"))
-            else:
-                stream.write(text)
-            stream.flush()
+    def __call__(self, text: str, stream: str = "stdout", source: str | None = None) -> None:
+        _events.output(text, self.json_output, stream=stream, source=source or self.source)
 
-    def line(self, text: str) -> None:
+    def line(self, text: str, stream: str = "stdout", source: str | None = None) -> None:
         """1行（改行なし）。"""
-        self(text + "\n")
+        self(text + "\n", stream, source)
 
 
 def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str,

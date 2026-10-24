@@ -58,9 +58,9 @@ def server_is_stale() -> bool:
 STALE_MESSAGE = ("GUIが更新されました。GUIを起動し直すと新しい版に切り替わります（このウィンドウは閉じてください）。")
 IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
-PROGRAM_MARK = "│ "   # ecobuild の標準エラーの、ツール・プログラムの出力の行の頭（CLI の ecobuild_cli.kit.PROGRAM_MARK と同じ）
-PROGRESS_LINES = 5000   # 実行中の経過として画面に渡す行の数（終わりから）
-OUTPUT_CHARS = 1_000_000   # 結果に付ける、ツール・プログラムの出力（tool_output）の文字の数（終わりから）
+EVENT_KINDS = ("progress", "notice", "warning", "error", "output")   # ecobuild --json の標準エラーのイベントの kind（--help --json の events）
+PROGRESS_EVENTS = 5000   # 実行中の経過として画面に渡すイベントの数（終わりから）
+OUTPUT_CHARS = 1_000_000   # 結果に付ける、標準エラーのイベント（events）の文字の数（終わりから）
 sys.path.insert(0, str(Path(__file__).parent))
 import actions as gui_actions  # noqa: E402（GUIの操作の一覧。ecobuild_gui.py も使う）
 MODULE_FILE = Path(".ecobuild") / "ecobuild.toml"   # モジュールの印（ECOBuildの共有の設定）
@@ -352,9 +352,10 @@ class Cli:
             return self._locks.setdefault(key, threading.Lock())
 
     def run(self, directory: str | None, args: list[str], stdin: str | None = None,
-            progress: list[str] | None = None) -> dict:
-        """progress：渡せば、実行中に標準エラーの行（ecobuild の経過と、ツール・プログラムの出力）をここに足していく（画面が読みに来る）。
-        結果の stderr は ecobuild の経過・誤りの行、tool_output はツール・プログラムの出力（印を除く）。"""
+            progress: list[dict] | None = None) -> dict:
+        """progress：渡せば、実行中に標準エラーのイベント（ecobuild の経過・注意等と、ツール・プログラムの出力。_event）を
+        ここに足していく（画面が読みに来る）。結果の stderr は ecobuild の文（output 以外のイベントの text）、events は
+        標準エラーのイベントの全部（終わりの OUTPUT_CHARS 文字まで）。"""
         if not args or not all(isinstance(a, str) for a in args):
             raise GuiError("コマンドの指定が正しくありません。")
         if directory and not Path(directory).is_dir():
@@ -390,9 +391,11 @@ class Cli:
                                   "message": "ecobuild の結果を読み取れませんでした。",
                                   "hint": None, "details": (completed.stdout + completed.stderr)[-20000:]}}
         document["exit_code"] = completed.returncode
-        own, output = _split_stderr(completed.stderr)
-        document["stderr"] = own[-20000:]
-        document["tool_output"] = output[-OUTPUT_CHARS:]
+        events = [_event(line) for line in completed.stderr.splitlines(keepends=True) if line.strip()]
+        # 経過・誤りの文と、JSON でない行（落ちたときの traceback 等。raw）
+        document["stderr"] = "".join(e["text"].rstrip("\n") + "\n" for e in events
+                                     if e["kind"] != "output" or e.get("raw"))[-20000:]
+        document["events"] = _tail(events, OUTPUT_CHARS)
         document["argv"] = ["ecobuild"] + (["-C", directory] if directory else []) + args + ["--json"]
         return document
 
@@ -409,11 +412,10 @@ def stop_reads() -> None:
             _kill_tree(process)
 
 
-def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list[str],
+def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, events: list[dict],
                    started=None) -> subprocess.CompletedProcess:
-    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。started：始めたプロセスを渡す先。
-
-    ビルド・実行したツール・プログラムの出力の行（頭が PROGRAM_MARK）は、字下げと空の行もそのまま（画面が出力として出す）。"""
+    """subprocess.run と同じ結果を返す。標準エラーは読んだ行からイベント（_event）にして events に足す。started：始めた
+    プロセスを渡す先。"""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                encoding="utf-8", errors="replace", env=env, cwd=cwd, **_no_window())
     if started:
@@ -423,10 +425,8 @@ def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list
     def read_errors() -> None:
         for line in process.stderr:
             errors.append(line)
-            if line.startswith(PROGRAM_MARK.rstrip()):
-                lines.append(line.rstrip("\r\n"))
-            elif line.strip():
-                lines.append(line.strip())
+            if line.strip():
+                events.append(_event(line))
 
     reader = threading.Thread(target=read_errors, daemon=True)
     reader.start()
@@ -445,15 +445,28 @@ def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list
     return subprocess.CompletedProcess(argv, process.returncode, stdout, "".join(errors))
 
 
-def _split_stderr(text: str) -> tuple[str, str]:
-    """ecobuild の標準エラーを、ecobuild の経過・誤りの行と、ツール・プログラムの出力（頭の PROGRAM_MARK を除く）に分ける。"""
-    own, output = [], []
-    for line in text.splitlines(keepends=True):
-        if line.startswith(PROGRAM_MARK.rstrip()):
-            output.append(line[len(PROGRAM_MARK):] if line.startswith(PROGRAM_MARK) else line[len(PROGRAM_MARK.rstrip()):])
-        else:
-            own.append(line)
-    return "".join(own), "".join(output)
+def _event(line: str) -> dict:
+    """ecobuild --json の標準エラーの1行のイベント（{kind, text, time, stream・source〔output〕, code〔error〕}。
+    ecobuild --help --json の events）。JSON のイベントでない行（受け継いだ子プロセスが直に書いたもの・古い ecobuild）は、
+    CLI の決まりどおりツールの標準エラーの出力とみなす（raw を付ける）。"""
+    stripped = line.strip()
+    if stripped.startswith("{"):
+        try:
+            event = json.loads(stripped)
+        except ValueError:
+            event = None
+        if isinstance(event, dict) and event.get("kind") in EVENT_KINDS and isinstance(event.get("text"), str):
+            return event
+    return {"kind": "output", "text": line.rstrip("\r\n") + "\n", "stream": "stderr", "source": "tool", "raw": True}
+
+
+def _tail(events: list[dict], chars: int) -> list[dict]:
+    """終わりのイベントを、text の合わせて chars 文字まで。"""
+    total, start = 0, len(events)
+    while start > 0 and total + len(events[start - 1]["text"]) <= chars:
+        start -= 1
+        total += len(events[start]["text"])
+    return events[start:]
 
 
 def _last_json(text: str) -> dict | None:
@@ -978,7 +991,7 @@ class App:
         self.cli, self.store, self.token, self.port = cli, store, token, port
         self.last_contact = time.monotonic()
         self.server: ThreadingHTTPServer | None = None
-        self.progress: dict[str, list[str]] = {}    # 実行中のコマンドの経過（画面が付けた番号 → 行）
+        self.progress: dict[str, list[dict]] = {}    # 実行中のコマンドの経過（画面が付けた番号 → 標準エラーのイベント）
         self.cache = QueryCache(None if store is None else store.path.with_name("cache.json"))
         self.events = Events()
         self.windows: dict[str, dict] = {}       # 開いている窓（画面が知らせる：種類・モジュール・画面・タブ・タスク）
@@ -1156,9 +1169,9 @@ class App:
             try:
                 if not key:
                     return self.cli.run(d("dir") or None, args, d("stdin"))
-                lines = self.progress.setdefault(key, [])
+                events = self.progress.setdefault(key, [])
                 try:
-                    return self.cli.run(d("dir") or None, args, d("stdin"), progress=lines)
+                    return self.cli.run(d("dir") or None, args, d("stdin"), progress=events)
                 finally:
                     self.progress.pop(key, None)
             finally:
@@ -1201,9 +1214,10 @@ class App:
                 done = list(pool.map(lambda q: self.cache.fetch(self.cli, d("dir") or None, q)["doc"].get("ok", False), queries))
             return {"read": sum(done), "of": len(queries)}
         if name == "progress":
-            # 経過には実行したプログラムの出力の行も入るので、終わりの PROGRESS_LINES 行だけ（count：今までの行の数）
-            lines = list(self.progress.get(str(d("id") or ""), []))
-            return {"lines": lines[-PROGRESS_LINES:], "count": len(lines)}
+            # 経過（標準エラーのイベント）には実行したプログラムの出力も入るので、終わりの PROGRESS_EVENTS 件だけ
+            # （count：今までの件数）
+            events = list(self.progress.get(str(d("id") or ""), []))
+            return {"events": events[-PROGRESS_EVENTS:], "count": len(events)}
         if name == "ping":
             return {"version": VERSION, "stale": STALE_MESSAGE if server_is_stale() else "", "pid": os.getpid()}
         if name == "shutdown":

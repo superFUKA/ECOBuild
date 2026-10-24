@@ -91,11 +91,12 @@ WS.onRefresh(renderPrDetail);
     WS.footer.reveal(OUTPUT_PANEL); publish();
     return run;
   }
-  // The lines at the end: ecobuild's progress, the output of the tools and programs it ran (shown while it ran; output:
-  // when the result does not have it already, as a build's or a passing test's), then the result.
-  function finish(run, state, lines, stderr, output = '') {
-    const ran = output.trim() ? [...toolLines(output), {text: '', kind: ''}] : [];
-    Object.assign(run, {state, ended: Date.now(), lines: [...toolLines(stderr).filter(l => l.text.trim()).map(l => ({...l, kind: l.kind || 'muted'})), ...ran, ...lines]});
+  // The lines at the end: ecobuild's events on its stderr (doc.events, as shown while it ran: its progress, notices and
+  // warnings, and the output of the tools and programs it ran when the result does not have it already, as a build's or a
+  // passing test's; its error is the result's), then the result.
+  function finish(run, state, lines, events, output) {
+    const shown = OUTPUT.eventLines((events || []).filter(e => e.kind !== 'error'), {output});
+    Object.assign(run, {state, ended: Date.now(), lines: [...shown, ...(shown.length ? [{text: '', kind: ''}] : []), ...lines]});
     WS.footer.reveal(OUTPUT_PANEL); publish();
   }
   function resultLines(action, r) {
@@ -122,14 +123,14 @@ WS.onRefresh(renderPrDetail);
     if (action === 'run' && get('build-run-args').value.trim()) args.push('--arguments', get('build-run-args').value.trim());
     busy = true; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = true; });
     const run = begin(LABEL[action] + (project ? `：${project}` : ''), 'ecobuild ' + args.join(' '));
-    const doc = await WS.cli(args, {onProgress: lines => { run.progress = lines; publish(); }});
+    const doc = await WS.cli(args, {onProgress: (lines, events) => { run.progress = events; publish(); }});
     busy = false; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = false; });
     if (!doc.ok) {
       const e = doc.error, detail = ECO.detailText(e.details);
-      finish(run, 'bad', [{text: e.message, kind: 'bad', head: true}, ...(e.hint ? [{text: e.hint, kind: '', head: true}] : []), ...(detail ? [{text: '', kind: ''}, ...toolLines(detail)] : [])], doc.stderr, detail ? '' : doc.tool_output || '');
+      finish(run, 'bad', [{text: e.message, kind: 'bad', head: true}, ...(e.hint ? [{text: e.hint, kind: '', head: true}] : []), ...(detail ? [{text: '', kind: ''}, ...toolLines(detail)] : [])], doc.events, !detail);
     } else {
       const r = doc.result, failed = (action === 'test' && r.failed) || (action === 'run' && r.returncode) || (action === 'check' && r.items.some(i => !i.ok));
-      finish(run, failed ? 'bad' : 'ok', resultLines(action, r), doc.stderr, action === 'run' ? '' : doc.tool_output || '');
+      finish(run, failed ? 'bad' : 'ok', resultLines(action, r), doc.events, action !== 'run');
     }
     if (['build', 'rebuild', 'clean', 'check'].includes(action)) WS.refresh();
   }

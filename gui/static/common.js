@@ -681,7 +681,12 @@ const ECO = (() => {
       <dt>CI</dt><dd>${a.checks.length ? a.checks.map(c => `${esc(c.name)}：${checkMark(c)}`).join('<br>') : 'なし'}</dd>
       ${sub ? `<dt>URL</dt><dd>${esc(sub.url)}</dd>` : ''}</dl>
     ${submissionCommits(t.commits)}
-    ${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
+    ${submissionConversation(t)}`;
+  }
+  // The reviews and the comments on a task's submission, and those on the task.
+  function submissionConversation(t) {
+    const a = t.activity || {reviews: [], comments: []};
+    return `${a.reviews.map(r => `<div class="entry"><b>${esc(r.author)}</b> · ${esc({APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTED: 'コメント'}[r.state] || r.state)}${r.body ? '\n' + esc(r.body) : ''}</div>`).join('')}
     ${a.comments.map(c => `<div class="entry"><b>${esc(c.author)}</b>\n${esc(c.body)}</div>`).join('')}
     ${(t.comments || []).map(c => `<div class="entry"><b>${esc(c.author)}</b>（タスク）\n${esc(c.body)}</div>`).join('')}`;
   }
@@ -927,7 +932,7 @@ const ECO = (() => {
 
   return {call, cli, run, workspaceKept, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
-    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits};
+    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits, submissionConversation};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
 window.ECO = ECO;

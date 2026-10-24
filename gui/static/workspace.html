@@ -24,7 +24,7 @@
   <section class="work" aria-labelledby="changes-title">
     <div class="heading"><h2 id="changes-title">コミット・共有</h2></div>
     <div id="banners"></div>
-    <div class="work-tabs" id="work-tabs" role="tablist" aria-label="コミット・Push・提出・ログ"><button type="button" role="tab" data-tab="commit-panel">コミット<span class="tab-count" id="commit-panel-count"></span></button><button type="button" role="tab" data-tab="share-panel">Push<span class="tab-count" id="share-panel-count"></span></button><button type="button" role="tab" data-tab="prs-panel">提出<span class="tab-count" id="prs-panel-count"></span></button><button type="button" role="tab" data-tab="history-panel">ログ</button></div>
+    <div class="work-tabs" id="work-tabs" role="tablist" aria-label="コミット・Push・提出"><button type="button" role="tab" data-tab="commit-panel">コミット<span class="tab-count" id="commit-panel-count"></span></button><button type="button" role="tab" data-tab="share-panel">Push<span class="tab-count" id="share-panel-count"></span></button><button type="button" role="tab" data-tab="prs-panel">提出<span class="tab-count" id="prs-panel-count"></span></button><button type="button" role="tab" data-tab="history-panel">ログ</button></div>
     <section class="panel commit-panel" id="commit-panel" role="tabpanel" aria-labelledby="commit-title">
       <div class="heading"><h3 id="commit-title">コミット</h3></div>
       <textarea id="commit-message" rows="3" placeholder="コミットメッセージ（何を・なぜ変えたか）" aria-label="コミットメッセージ"></textarea>
@@ -34,9 +34,11 @@
       <div id="changes"></div></section>
     <section class="panel share" id="share-panel" role="tabpanel" aria-labelledby="share-title">
       <div class="heading"><h3 id="share-title">Push</h3><span id="push-state" class="muted"></span></div>
-      <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">新しい順</span><button type="button" id="push-commits-close" class="link-button">閉じる</button></div><ul id="push-commits-list" class="push-commits"></ul></div>
+      <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">Pushするコミット（新しい順）</span><button type="button" id="push-commits-close" class="link-button">閉じる</button></div><div id="push-commits-view"></div></div>
       <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push" class="primary">Push</button></div></section>
-    <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3></div><div id="pr-tools"></div><div id="pr-detail"></div></section>
+    <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3></div><div id="pr-tools"></div><p id="pr-note" class="pr-note" hidden></p>
+      <div id="pr-commits" class="pr-commits-box" hidden><div class="push-commits-head"><span id="pr-commits-title">提出に入るコミット</span><button type="button" id="pr-full-log" class="link-button" title="作成元のコミットも含めた、このブランチのすべてのログを別の窓で開きます">すべてのログ</button></div><div id="pr-commits-view"></div></div>
+      <div id="pr-detail"></div></section>
     <section class="panel" id="history-panel" role="tabpanel" aria-labelledby="history-title"><div class="heading"><h3 id="history-title">ログ</h3></div><div id="history-view"></div></section>
     <p id="operation-status" role="status"></p>
   </section>

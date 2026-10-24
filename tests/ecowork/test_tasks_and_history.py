@@ -130,6 +130,20 @@ def test_log_revert_ignore_release(repository):
     assert code_of(lambda: repository.create_release("v2", target="task/9")) == ErrorCode.INVALID_BASE
 
 
+def test_log_of_the_submission_and_of_what_push_sends(repository):
+    """log --not-in：作成元にないコミット（提出に入るもの、未Pushも）。--unpushed：Push で送るもの（push と同じ）。"""
+    root = repository.root
+    task_branch = repository.create_task("ログ").start()
+    commit_file(task_branch, root, "a.txt", "a\n", "送った")
+    task_branch.push()
+    commit_file(task_branch, root, "b.txt", "b\n", "まだ")
+    base = task_branch.base
+    assert [e.subject for e in repository.log(not_in=base)] == ["まだ", "送った"]
+    assert [e.subject for e in repository.log(unpushed=True)] == ["まだ"]
+    assert [c.split(" ", 1)[1] for c in task_branch.push(dry_run=True).commits] == ["まだ"]
+    assert code_of(lambda: repository.log(not_in="nope")) == ErrorCode.REVISION_NOT_FOUND
+
+
 def test_close_and_clean_keep_unfinished_work(repository):
     """Issueを閉じるだけでは、マージしていない作業は消えない（作業の終わり方は merge か drop）。"""
     root = repository.root

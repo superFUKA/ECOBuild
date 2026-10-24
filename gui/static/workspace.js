@@ -104,7 +104,8 @@ function renderHeader() {
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
 }
 
-// コミット・Push・提出・ログ are tabs (the one shown is kept on this PC). A tab whose panel is not shown here is hidden.
+// コミット・Push・提出 (and ログ off a task branch) are tabs (the one shown is kept on this PC). A tab whose panel is not
+// shown here is hidden.
 const TAB_KEY = 'ecobuild-gui-work-tab', TABS = ['commit-panel', 'share-panel', 'prs-panel', 'history-panel'];
 let workTab = 'commit-panel';
 try { workTab = TABS.includes(localStorage.getItem(TAB_KEY)) ? localStorage.getItem(TAB_KEY) : workTab; } catch (e) { /* storage blocked */ }
@@ -160,8 +161,11 @@ function renderBanners(errorDoc) {
   get('commit-panel').hidden = !working && !s.merging;
   get('share-panel').hidden = !working;
   get('prs-panel').hidden = !working;
+  // On a task branch 提出 lists the task's commits (the whole log is the explorer's 「ログ」, or 提出's すべてのログ);
+  // elsewhere (main etc.) the log is what there is to see here.
+  get('history-panel').hidden = working;
   // The tabs (コミット・Push・提出) or the banners say what this is: the heading is only for screen readers.
-  get('changes-title').textContent = working ? 'コミット・Push・提出・ログ' : '作業空間';
+  get('changes-title').textContent = working ? 'コミット・Push・提出' : 'ログ';
   get('changes-title').classList.add('visually-hidden');
   renderTabs();
 }
@@ -319,10 +323,11 @@ get('commit').addEventListener('click', async () => {
 // After a Push the task is in 提出 (submit or finish it there).
 get('push').addEventListener('click', async () => { if (await WS.run(['task', 'push'], {success: 'Pushしました。'})) { WS.showTab('prs-panel'); WS.refreshPrs?.(); } });
 
-// The commits Push sends (task push --dry-run: local and quick), listed under 「共有」 while there are any.
+// The commits Push sends (log --unpushed: local and quick), listed under 「Push」 while there are any, as in the log:
+// a double-click (Enter) shows a commit's changes, the right click its menu.
 // 閉じる folds the list (kept on this PC); 「一覧」 next to the count opens it again.
 const PUSH_LIST_KEY = 'ecobuild-gui-push-list-closed';
-let pushListClosed = false, pushListRead = 0;
+let pushListClosed = false, pushListRead = 0, pushCount = 30;
 try { pushListClosed = localStorage.getItem(PUSH_LIST_KEY) === '1'; } catch (e) { /* storage blocked */ }
 async function renderPushList() {
   const s = WS.status, box = get('push-commits'), ahead = s && s.task && !s.reviewing ? s.ahead : 0;
@@ -333,72 +338,45 @@ async function renderPushList() {
     get('push-state').insertAdjacentHTML('afterend', '<button type="button" id="push-commits-open" class="link-button">一覧</button>');
     return;
   }
-  const mine = ++pushListRead, doc = await WS.cli(['task', 'push', '--dry-run'], {quiet: true});
+  const mine = ++pushListRead, doc = await WS.cli(['log', '--unpushed', '--count', String(pushCount)], {quiet: true});
   if (mine !== pushListRead) return;   // a newer status came meanwhile
-  const commits = doc.ok ? doc.result.commits : [];
-  box.hidden = !commits.length;
-  get('push-commits-list').innerHTML = commits.map((c, i) => {
-    const [sha, ...subject] = c.split(' ');
-    return `<li class="push-commit${sha === chosenPushCommit ? ' chosen' : ''}" tabindex="0" data-sha="${esc(sha)}" data-index="${i}" title="ダブルクリックで変更を見る・右クリックで操作"><code>${esc(sha)}</code><span class="push-commit-subject">${esc(subject.join(' '))}</span><button type="button" class="push-commit-more" aria-label="操作" title="操作">⋯</button></li>`;
-  }).join('');
+  if (!doc.ok) { box.hidden = false; pushView.error(doc.error.message); return; }
+  box.hidden = !doc.result.length;
+  pushView.show(doc.result, doc.result.length >= pushCount);
 }
-// A commit in the list: a click chooses it, a double-click (Enter) shows its changes, the right click (⋯) its menu.
-// Not pushed yet, so it can still be undone: task reset --keep to the one before (the changes stay, to commit again)
-// or task reset to it without --keep (the changes go: ecobuild asks first, listing the commits).
-let chosenPushCommit = '';
-const pushCommitOf = el => el?.closest('.push-commit');
-const showPushCommit = sha => WS.inTortoiseGit(['show', sha], async () => {
-  const doc = await WS.cli(['show', sha], {quiet: true});
-  return doc.ok ? ECO.output('コミットの変更', doc.result, {diff: true, sub: sha}) : ECO.showError(doc);
-});
-function choosePushCommit(row) {
-  chosenPushCommit = row.dataset.sha;
-  for (const el of get('push-commits-list').children) el.classList.toggle('chosen', el === row);
-}
-function pushCommitMenu(row, x, y) {
-  choosePushCommit(row);
-  const sha = row.dataset.sha, index = Number(row.dataset.index), subject = row.querySelector('.push-commit-subject').textContent;
+// Not pushed yet, so a commit can still be undone: task reset --keep to the one before (the changes stay, to commit
+// again) or task reset to it without --keep (the changes go: ecobuild asks first, listing the commits).
+function pushCommitMenu(c, x, y) {
+  const sha = c.sha.slice(0, 8), index = pushView.entries().findIndex(e => e.sha === c.sha);
   const later = index === 0 ? 'このコミット' : `このコミットから後（${index + 1}件）`;
   const reload = () => WS.reloadFiles?.();
   ECO.menu([
-    ['変更を見る', () => showPushCommit(sha)],
-    ['SHAをコピー', () => ECO.copyText(sha)],
+    ['変更を見る', () => pushView.showChanges(c.sha)],
+    ['SHAをコピー', () => ECO.copyText(c.sha)],
     '-',
-    [`${later}を取り消す（変更は残す）`, () => WS.run(['task', 'reset', `${sha}~1`, '--keep', '--yes'],
+    [`${later}を取り消す（変更は残す）`, () => WS.run(['task', 'reset', `${c.sha}~1`, '--keep', '--yes'],
       {success: r => `コミット ${r.dropped.length} 件を取り消しました。変更は「コミット」に残っています。`}).then(reload)],
-    [`${later}を捨てる…`, () => WS.run(['task', 'reset', `${sha}~1`], {title: 'コミットを捨てる',
+    [`${later}を捨てる…`, () => WS.run(['task', 'reset', `${c.sha}~1`], {title: 'コミットを捨てる',
       success: r => `コミット ${r.dropped.length} 件を捨てました。`}).then(reload), true,
-      `${sha}「${subject}」${index ? 'から後' : ''}のコミットと、その変更を捨てます（元に戻せません）`],
+      `${sha}「${c.subject}」${index ? 'から後' : ''}のコミットと、その変更を捨てます（元に戻せません）`],
   ], x, y);
 }
-const pushList = get('push-commits-list');
-pushList.addEventListener('click', e => {
-  const row = pushCommitOf(e.target); if (!row) return;
-  if (e.target.closest('.push-commit-more')) { const r = e.target.getBoundingClientRect(); return pushCommitMenu(row, r.left, r.bottom + 4); }
-  choosePushCommit(row);
-});
-pushList.addEventListener('dblclick', e => { const row = pushCommitOf(e.target); if (row && !e.target.closest('.push-commit-more')) showPushCommit(row.dataset.sha); });
-pushList.addEventListener('contextmenu', e => { const row = pushCommitOf(e.target); if (row) { e.preventDefault(); pushCommitMenu(row, e.clientX, e.clientY); } });
-pushList.addEventListener('keydown', e => {
-  const row = pushCommitOf(e.target); if (!row || e.target !== row) return;
-  if (e.key === 'Enter') { e.preventDefault(); showPushCommit(row.dataset.sha); }
-  if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); const r = row.getBoundingClientRect(); pushCommitMenu(row, r.left + 20, r.bottom); }
-  if (['ArrowDown', 'ArrowUp'].includes(e.key)) { e.preventDefault(); const next = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling; if (next) { choosePushCommit(next); next.focus(); } }
-});
+const pushView = LOG.view(get('push-commits-view'), {dir: WS.dir, menu: pushCommitMenu, detail: false, search: false,
+  empty: 'Pushするコミットはありません。', onMore: () => { pushCount += 30; renderPushList(); }});
+get('push-commits-view').classList.add('log-short');
 const setPushListClosed = closed => { pushListClosed = closed; try { localStorage.setItem(PUSH_LIST_KEY, closed ? '1' : '0'); } catch (e) { /* storage blocked */ } renderPushList(); };
 get('push-commits-close').addEventListener('click', () => setPushListClosed(true));
 document.querySelector('.share .heading').addEventListener('click', e => { if (e.target.id === 'push-commits-open') setPushListClosed(false); });
 WS.onRefresh(renderPushList);
 
-// ログ (ecobuild log): the tab is a log view (logview.js). A commit's menu (right click, or 操作 ▾) goes back to it —
-// the files as they were (restore --source: a change to commit, the history stays) or the task branch itself (task
-// reset: the later commits, not pushed, go). The tab reads 30 commits; 「さらに読み込む」 reads 30 more.
-let historyCount = 30;
-function historyMenu(c, x, y) {
+// A commit's menu in a log view here (提出's commits, the ログ tab): its changes, or going back to it — the files as
+// they were (restore --source: a change to commit, the history stays) or the task branch itself (task reset: the later
+// commits, not pushed, go).
+WS.commitMenu = (view, c, x, y) => {
   const s = WS.status, onTask = !!(s && s.task && !s.reviewing), short = c.sha.slice(0, 8);
   const why = 'タスクブランチでだけ使えます';   // the reason a greyed item gives on hover
   ECO.menu([
-    ['変更を見る', () => historyView.showChanges(c.sha)],
+    ['変更を見る', () => view.showChanges(c.sha)],
     ['SHAをコピー', () => ECO.copyText(c.sha)],
     '-',
     ['この版の状態に戻す…', () => WS.run(['restore', '--source', c.sha],
@@ -409,9 +387,13 @@ function historyMenu(c, x, y) {
       {title: 'ここまで戻す', success: r => r.dropped.length ? `${short} まで戻しました（捨てたコミット ${r.dropped.length} 件）。` : '捨てるコミットはありません。'})
       .then(() => WS.reloadFiles?.()), onTask, onTask ? 'この版より後のコミットを捨てます' : why],
   ], x, y);
-}
-const historyView = LOG.view(get('history-view'), {dir: WS.dir, menu: historyMenu, detail: false, onMore: () => { historyCount += 30; loadHistory(); }});
+};
+// ログ (ecobuild log), off a task branch (main etc.: on one, 提出 lists the task's commits): the tab is a log view
+// (logview.js). It reads 30 commits; 「さらに読み込む」 reads 30 more.
+let historyCount = 30;
+const historyView = LOG.view(get('history-view'), {dir: WS.dir, menu: (c, x, y) => WS.commitMenu(historyView, c, x, y), detail: false, onMore: () => { historyCount += 30; loadHistory(); }});
 async function loadHistory() {
+  if (get('history-panel').hidden) return;
   const shown = doc => historyView.show(doc.result, doc.result.length >= historyCount);
   const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], shown);
   if (doc.ok) shown(doc); else historyView.error(doc.error.message);

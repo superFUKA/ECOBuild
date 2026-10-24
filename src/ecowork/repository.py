@@ -59,6 +59,16 @@ class Hooks:
         確かめ、ブランチの一覧に添える（例：ECOBuild ではモジュールでないブランチ）。既定はすべてできる。"""
         return {}
 
+    def resolvable(self, repository: "Repository", conflicts: tuple[str, ...]) -> bool:
+        """管理用のブランチ同士の取り込み（branch merge --into）で衝突するファイル conflicts を、利用側が直せるか
+        （resolve_conflicts で）。直せるなら、一時的な作業ツリーでマージして直し、マージコミットにする。既定は直せない。"""
+        return False
+
+    def resolve_conflicts(self, repository: "Repository", root: Path) -> bool:
+        """root（一時的な作業ツリー。マージが衝突で止まっている）の衝突を直して登録する。直せたら True。
+        resolvable が True のときだけ呼ぶ。"""
+        return False
+
     def switch_locks(self, repository: "Repository") -> list[str]:
         """この作業空間（repository の場所）のロックの理由（日本語の文。なければ空）。使用中の作業空間を、
         その場の切り替えと、消すことから守る口。"""

@@ -79,6 +79,7 @@ def test_agent_lock_follows_the_process(root):
 def test_container_lock_while_running(root, monkeypatch):
     fake = FakeDocker(monkeypatch)
     monkeypatch.setattr(docker, "run", fake.run)
+    monkeypatch.setattr(docker, "probe", fake.run)          # ロックの確認は時間制限付きの probe で呼ぶ
     assert not locks.status(root).locked and not fake.calls   # コンテナにしていなければ docker を呼ばない
     container.choose(root, True, fake.run)
     assert not locks.status(root).locked                      # まだコンテナがない
@@ -92,6 +93,7 @@ def test_container_lock_while_running(root, monkeypatch):
 def test_container_locks_are_checked_with_one_docker_call(tmp_path, monkeypatch):
     fake = FakeDocker(monkeypatch)
     monkeypatch.setattr(docker, "run", fake.run)
+    monkeypatch.setattr(docker, "probe", fake.run)          # ロックの確認は時間制限付きの probe で呼ぶ
     roots = []
     for index in range(3):
         folder = tmp_path / f"w{index}"

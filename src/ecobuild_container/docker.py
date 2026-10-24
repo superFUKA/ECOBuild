@@ -38,6 +38,7 @@ class Completed:
     args: tuple[str, ...]
     returncode: int
     output: str
+    timed_out: bool = False      # 時間内に終わらなかった（probe。止めて失敗とみなした）
 
     @property
     def ok(self) -> bool:
@@ -61,14 +62,26 @@ class DockerSetup:
     command: tuple[str, ...] = ()
 
 
-def run(args: list[str]) -> Completed:
-    """実行して出力を取り込む。wsl.exe は UTF-16 で出すことがあるので、NUL を含めば UTF-16 として読む。"""
+def run(args: list[str], timeout: float | None = None) -> Completed:
+    """実行して出力を取り込む。wsl.exe は UTF-16 で出すことがあるので、NUL を含めば UTF-16 として読む。
+    timeout（秒）を過ぎたら止めて、失敗（timed_out）とする。"""
     try:
-        process = subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL,
+        process = subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
                                  env={**os.environ, "WSL_UTF8": "1"})
+    except subprocess.TimeoutExpired:
+        return Completed(tuple(args), 1, f"{timeout:g} 秒たっても応答がありません", True)
     except OSError as error:
         return Completed(tuple(args), 1, str(error))
     return Completed(tuple(args), process.returncode, _decode(process.stdout + process.stderr))
+
+
+_RUN = run                   # 本物の run（status が時間制限付きの probe に置き換えるもの）
+PROBE_SECONDS = 15           # 状態を調べるだけの呼び出しの時間制限（WSL・Docker が固まっていても、一覧等を止めない）
+
+
+def probe(args: list[str]) -> Completed:
+    """状態を調べるだけの呼び出し（status・ロックの確認）。PROBE_SECONDS で打ち切る。"""
+    return _RUN(args, PROBE_SECONDS)
 
 
 def _decode(data: bytes) -> str:
@@ -93,8 +106,27 @@ def wsl(*args: str) -> list[str]:
 
 def status(runner: Runner | None = None, *, windows: bool | None = None) -> DockerStatus:
     """docker が使えるか（デーモンに繋がるか）を調べる。Windows で WSL の中を調べるときは、その中を起動する。"""
-    runner = runner or run
+    # 本物の呼び出しは時間制限付きで（WSL の中が固まると wsl -d … は返らず、workspace list 等が終わらなくなる）
+    runner = probe if runner is None or runner is _RUN else runner
     windows = os.name == "nt" if windows is None else windows
+    timed_out: list[list[str]] = []
+
+    def watched(args: list[str]) -> Completed:
+        done = runner(args)
+        if getattr(done, "timed_out", False):
+            timed_out.append(args)
+        return done
+
+    found = _status(watched, windows)
+    if timed_out and not found.ready:   # 「ありません」ではなく、応答しないこととして知らせる
+        inside = timed_out[0][:2] == ["wsl", "-d"]
+        return DockerStatus(False, "not_running",
+                            f"WSL の {DISTRO} が応答しません（wsl --shutdown で止めると直ることがあります）" if inside
+                            else f"{' '.join(timed_out[0][:2])} が {PROBE_SECONDS} 秒たっても応答しません")
+    return found
+
+
+def _status(runner: Runner, windows: bool) -> DockerStatus:
     if shutil.which("docker") is not None:
         version = runner(["docker", "version", "--format", "{{.Server.Version}}"])
         if version.ok:

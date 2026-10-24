@@ -123,6 +123,23 @@ def test_status_without_anything(monkeypatch):
     assert docker.status(machine.run, windows=True).stage == "no_engine"
 
 
+def test_probe_stops_a_command_that_does_not_answer(monkeypatch):
+    """状態を調べる呼び出しは時間制限付き（WSL の中が固まると wsl -d … が返らず、workspace list 等が終わらなかった）。"""
+    import sys
+    monkeypatch.undo()                                    # 本物の probe（conftest は docker を呼ばないよう差し替える）
+    monkeypatch.setattr(docker, "PROBE_SECONDS", 0.5)
+    done = docker.probe([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert not done.ok and done.timed_out and "応答がありません" in done.output
+
+
+def test_status_tells_that_wsl_does_not_answer(monkeypatch):
+    machine = Machine(monkeypatch, package=True, wsl=True, distro=True)
+    stuck = lambda args: (docker.Completed(tuple(args), 1, "応答がありません", True) if args[:2] == ["wsl", "-d"]
+                          else machine.run(args))
+    found = docker.status(stuck, windows=True)
+    assert not found.ready and found.stage == "not_running" and "応答しません" in found.detail and "wsl --shutdown" in found.detail
+
+
 def test_decode_utf16_from_wsl():
     assert docker._decode("WSL がありません\r\n".encode("utf-16-le")) == "WSL がありません\r\n"
     assert docker._decode("ok".encode("utf-8")) == "ok"

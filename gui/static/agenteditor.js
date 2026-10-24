@@ -95,7 +95,7 @@ window.AGENT_EDITOR = (() => {
         : 'ECOBuild の見本です。直して保存すると、このPCのプリセットとして上書きします（見本はそのまま）。'}</p>` : '';
       const removable = r.source === (opts.kind === 'module' ? 'module' : 'preset');
       return `<div class="ae-head"><div><h3>${esc(r.title)} <span class="ae-item-name">${esc(r.name)}</span></h3>
-          <div class="ae-item-badges">${badge(opts.kind === 'module' && r.source === 'sample' ? 'プリセットのまま' : SOURCES[r.source] || r.source, 'quiet')}${r.human_start ? badge('人が起動（人と話すトップの役）', 'top') : ''}${r.pending ? badge('まだ効いていない（取り込まれると効く）', 'warn') : ''}</div>${sampleNote}</div>
+          <div class="ae-item-badges">${badge(opts.kind === 'module' && r.source === 'sample' ? 'プリセットのまま' : SOURCES[r.source] || r.source, 'quiet')}${r.human_start ? badge('人が起動', 'top') : ''}${r.pending ? badge('まだ効いていない（取り込まれると効く）', 'warn') : ''}</div>${sampleNote}</div>
         <div class="mi-actions"><button type="button" class="primary" data-ae-save disabled>${opts.kind === 'module' ? (r.source === 'sample' ? 'このモジュール用に保存' : '保存してコミット') : '保存'}</button>
           <button type="button" data-ae-revert disabled>元に戻す</button>
           ${opts.kind === 'module' ? '<button type="button" data-ae-to-preset title="この登録を、このPCのプリセットとして保存します（ほかのモジュールでも使えるように）">プリセットにする</button>' : ''}
@@ -104,7 +104,7 @@ window.AGENT_EDITOR = (() => {
           <label class="ae-field">表示名<input type="text" data-ae-field="title" value="${esc(r.title)}"${off}></label>
           <label class="ae-field">モデル<select data-ae-field="model"${off}>${MODELS.map(([v, l]) => `<option value="${v}"${v === model ? ' selected' : ''}>${l}</option>`).join('')}<option value="other"${model === 'other' ? ' selected' : ''}>そのほか…</option></select>
             <input type="text" data-ae-field="model-other" value="${esc(model === 'other' ? r.model : '')}" placeholder="モデルの名前"${model === 'other' ? '' : ' hidden'}${off}></label>
-          <label class="ae-check"><input type="checkbox" data-ae-field="human_start"${r.human_start ? ' checked' : ''}${off}> 人が起動できる（作業空間の「エージェント」に出る。人と話すトップの役）</label>
+          <label class="ae-check"><input type="checkbox" data-ae-field="human_start"${r.human_start ? ' checked' : ''}${off}> 人が起動できる（作業空間の「エージェント」に出る。保存した作業空間ですぐ選べる）</label>
         </div></section>
         <section class="ae-sec"><h4>文書</h4><p class="mi-note">起動のときにエージェントに渡す、この役の文（何者か・何をするか・決まり）。</p>
           <textarea class="ae-doc" data-ae-field="document" rows="${Math.min(28, Math.max(10, r.document.split('\n').length + 2))}"${off}>${esc(r.document)}</textarea></section>

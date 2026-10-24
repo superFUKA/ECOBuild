@@ -136,3 +136,24 @@ def test_only_what_the_base_branch_has_is_in_force(tmp_path):
     assert registry.effective("lead", tmp_path).source == registry.SAMPLE
     assert registry.pending(tmp_path) == {"worker", "sneaky"}
     assert registry.load("worker", tmp_path).tools == ("*",)            # 見る・直すのは作業ツリーのもの
+
+
+def test_human_start_takes_effect_from_the_working_tree(tmp_path):
+    """人が起動できるかは作業ツリーの値ですぐ効く（ツールは広げない）。ほかの項目は作成元のまま。"""
+    _git(tmp_path, "init", "-q", "-b", "main")
+    (tmp_path / ".ecobuild").mkdir()
+    (tmp_path / ".ecobuild" / "ecobuild.toml").write_text(
+        'format = 4\n\n[module]\nname = "calc"\ntype = "python"\n\n[branches]\ndefault_base = "main"\n', encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "init")
+    _git(tmp_path, "switch", "-q", "-c", "task/1-x")
+    sample = registry.effective("worker", tmp_path)
+    registry.update(tmp_path, "worker", human_start=True, model="opus")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "start worker by hand")
+    worker = registry.effective("worker", tmp_path)
+    assert worker.human_start                                          # すぐ選べる
+    assert worker.model == sample.model and worker.source == registry.SAMPLE   # ほかの項目は作成元のまま
+    assert "worker" in registry.pending(tmp_path)                       # モデルの違いはまだ効いていない
+    registry.update(tmp_path, "worker", model=sample.model)
+    assert "worker" not in registry.pending(tmp_path)                   # 人が起動できるかだけの違いは、もう効いている

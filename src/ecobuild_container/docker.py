@@ -113,11 +113,17 @@ def wsl(*args: str) -> list[str]:
     return ["wsl", "-d", DISTRO, "-u", "root", "--exec", *args]
 
 
-def status(runner: Runner | None = None, *, windows: bool | None = None) -> DockerStatus:
-    """docker が使えるか（デーモンに繋がるか）を調べる。Windows で WSL の中を調べるときは、その中を起動する。"""
+def status(runner: Runner | None = None, *, windows: bool | None = None, wake: bool = True) -> DockerStatus:
+    """docker が使えるか（デーモンに繋がるか）を調べる。Windows で WSL の中を調べるときは、その中を起動する。
+    wake=False（状態を見せるだけ。GUI が窓のたびに読む等）：WSL の DISTRO が止まっていれば起こさず、使えるもの（stage
+    sleeping。中のコンテナも止まっている）として答える。起こすと 15 秒ほどは動き続け、何度も読むと WSL が止まらない。"""
     # 本物の呼び出しは時間制限付きで（WSL の中が固まると wsl -d … は返らず、workspace list 等が終わらなくなる）
     runner = probe if runner is None or runner is _RUN else runner
     windows = os.name == "nt" if windows is None else windows
+    if not wake and windows and shutil.which("docker") is None and shutil.which("wsl") is not None:
+        sleeping = _sleeping(runner)
+        if sleeping is not None:
+            return sleeping
     timed_out: list[list[str]] = []
 
     def watched(args: list[str]) -> Completed:
@@ -133,6 +139,18 @@ def status(runner: Runner | None = None, *, windows: bool | None = None) -> Dock
                             f"WSL の {DISTRO} が応答しません（wsl --shutdown で止めると直ることがあります）" if inside
                             else f"{' '.join(timed_out[0][:2])} が {PROBE_SECONDS} 秒たっても応答しません")
     return found
+
+
+def _names(runner: Runner, *options: str) -> set[str]:
+    return {line.strip().casefold() for line in runner(["wsl", "--list", *options, "--quiet"]).output.splitlines()
+            if line.strip()}
+
+
+def _sleeping(runner: Runner) -> DockerStatus | None:
+    """WSL の DISTRO があって止まっていれば、その状態（wsl --list は Windows 側だけで答え、ディストリを起こさない）。"""
+    if DISTRO.casefold() not in _names(runner) or DISTRO.casefold() in _names(runner, "--running"):
+        return None
+    return DockerStatus(True, "sleeping", f"WSL の {DISTRO} は止まっています（使うときに起動します）", tuple(wsl("docker")))
 
 
 def _status(runner: Runner, windows: bool) -> DockerStatus:

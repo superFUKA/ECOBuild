@@ -7,6 +7,7 @@ from ..._module import PROGRAM
 from ..._output import lines
 
 STATES = {"none": "まだありません", "running": "動いています", "exited": "止まっています", "created": "作っただけです",
+          "stopped": "WSL ごと止まっています。使うときに起動します",
           "unknown": "わかりません（Docker が使えません）"}
 
 

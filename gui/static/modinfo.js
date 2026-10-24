@@ -181,13 +181,15 @@
     return `<h4 class="mi-subhead">依存関係の図</h4>
       <ul class="mi-tree"><li><div class="mi-branch ws"><span class="mi-branch-name">${esc(t.module)}</span>${pill('このモジュール', 'ok')}</div>${walk(t.direct)}</li></ul>`;
   }
+  // A Project's link to a dependency's Project is "<dependency>/<Project>" (project list), or just the name.
+  const linksTo = (link, dep) => link === dep || link.startsWith(dep + '/');
   function renderDeps() {
-    const deps = data.deps, projects = data.projects || [];
+    const deps = data.deps, projects = Array.isArray(data.projects) ? data.projects : [];
     if (deps.error) return head('依存先', '') + failure(deps.error.message);
     return head('依存先', '',
       btn(depsFetched ? 'GitHubをもう一度確認' : 'GitHubと照らし合わせる', 'deps-fetch') + btn('手元を記録に合わせる', 'deps-sync') + btn('すべて更新', 'deps-update') + btn('＋ リンク', 'link', '', 'primary')) +
       (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
-      ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.includes(d.name)).map(p => p.name);
+      ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.some(l => linksTo(l, d.name))).map(p => p.name);
         return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td>${depsFetched ? `<td>${remoteCell(d)}</td>` : ''}<td>${users.map(u => pill(u)).join(' ')}</td>
         <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す…', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
   }
@@ -233,7 +235,7 @@
     return head('Project', '',
       btn('＋ Project', 'project-add', '', 'primary')) +
       (projects.length ? `<table class="mi-table mi-projects"><thead><tr><th>名前</th><th>種類</th><th>場所</th><th>リンク</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
-      ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => d.name === l) ? 'dep' : '')).join(' ')}</td>
+      ${projectTree(projects, main).map(({p, depth, last, parent}, i, rows) => `<tr class="${parent ? 'mi-attached' : ''}${rows[i + 1]?.parent ? ' mi-joined' : ''}"><td><span class="mi-indent" style="--depth:${depth}">${parent ? `<span class="mi-branch-line" aria-hidden="true">${last ? '└' : '├'}</span>${pill(KIND[p.kind] || p.kind, 'kind')}${esc(p.name)}` : `<strong>${esc(p.name)}</strong>${p.name === main ? ' ' + pill('main', 'ok') : ''}`}</span></td><td>${parent ? '' : pill(KIND[p.kind] || p.kind)}</td><td class="mi-mono">${esc(p.directory)}/</td><td>${p.links.filter(l => l !== parent).map(l => pill('→ ' + l, deps.some(d => linksTo(l, d.name)) ? 'dep' : '')).join(' ')}</td>
         <td class="mi-row-actions">${btn('設定…', 'project-settings', p.name)}${more([['リンク…', 'project-link', p.name], ['PCH…', 'pch', p.name], ['移動…', 'project-move', p.name], '-', ['削除…', 'project-remove', p.name, true]])}</td></tr>`).join('')}</tbody></table>
       <p class="mi-legend"><span>${pill('→ 依存先', 'dep')} 他のモジュール</span><span>${pill('→ Project')} このモジュール内</span><span>${pill('main', 'ok')} 他のモジュールからリンクされる（設定 › 全般）</span></p>` : '<p class="eco-empty">Projectはありません。</p>');
   }

@@ -833,6 +833,8 @@ const ECO = (() => {
   async function openInVisualStudio(dir, {build, version = vsVersion()} = {}) {
     let opened;
     try { opened = await action('vs', {dir, version}); } catch (e) { toast(e.message, 'bad', 9000); return false; }
+    // A type that makes no solution (python・generic): the workspace folder opens as a folder.
+    if (opened.folder) { toast(`Visual Studio ${version} でフォルダーとして開きます：` + opened.folder.split('/').pop()); return true; }
     if (!opened.solution) {
       if (!await confirm({title: `Visual Studio ${version} で開く`, message: 'ソリューション（.sln／.slnx）がまだありません（ビルドすると作成されます）。ビルドしてから開きますか？', ok: 'ビルドして開く'})) return false;
       const doc = build ? await build() : await run(dir, ['build'], {busy: 'ビルドしています…'});

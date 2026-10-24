@@ -67,7 +67,7 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
            (Param("dir", "場所（作業空間のフォルダ）", required=True),
             Param("path", "その中のファイル・フォルダ（省略時は dir そのもの）"),
             Param("reveal", "ファイルを開かず、エクスプローラーで選んだ状態で見せる", "boolean"))),
-    Action("vs", "Visual Studio で開きます（作業空間のソリューション、または その中のファイル）。「VS で」「Visual Studio で」と言われたときだけ（ただの「開いて」「開発環境」は open）。", "",
+    Action("vs", "Visual Studio で開きます（作業空間のソリューション〔ソリューションを作らない型は作業空間のフォルダー〕、または その中のファイル）。「VS で」「Visual Studio で」と言われたときだけ（ただの「開いて」「開発環境」は open）。", "",
            (Param("dir", "作業空間のフォルダ", required=True),
             Param("path", "開くファイル（省略時はソリューション）"),
             Param("version", "Visual Studio の版（2026・2022。既定 2026）", choices=("2026", "2022")))),

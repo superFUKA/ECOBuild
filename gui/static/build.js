@@ -1,6 +1,7 @@
 'use strict';
 // Build / test / run toolbar of a place. Runs ecobuild build・test・run・rebuild・clean・check and shows the result.
-// What it offers follows the module's type (the configurations; Visual Studio only for types that make a solution).
+// What it offers follows the module's type (the configurations; Visual Studio opens the solution of a type that makes
+// one, the workspace folder of the others).
 // It also starts the AI (coding agent) in the workspace: ecobuild agent start.
 WS.onRefresh(renderPrDetail);
 (() => {
@@ -14,7 +15,8 @@ WS.onRefresh(renderPrDetail);
     const config = get('build-config'), chosen = config.value;
     config.innerHTML = '<option value="">ビルド設定のまま</option>' + features.configurations.map(c => `<option>${esc(c)}</option>`).join('');
     config.value = features.configurations.includes(chosen) ? chosen : '';
-    get('vs-group').hidden = !features.solution;
+    get('open-vs').dataset.tip = features.solution ? 'この作業空間のソリューションを開きます（なければビルドして作成）'
+      : 'この作業空間のフォルダーを Visual Studio で開きます（フォルダーとして開く）';
     if (p.ok) {
       profiles = p.result.profiles; selectedProfile = p.result.selected;
       const names = Object.keys(profiles);

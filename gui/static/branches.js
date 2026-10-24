@@ -204,6 +204,9 @@
     const button = (action, label, {enabled = true, why = '', kind = '', help = ''} = {}) =>
       `<button type="button" ${kind ? `class="${kind}"` : ''} data-br-action="${action}" ${enabled ? '' : 'disabled'}${((t) => t ? ` title="${esc(t)}"` : '')([help, enabled || !why ? '' : `（${why}）`].filter(Boolean).join('\n'))}>${label}</button>`;
     const takes = ECO.canTakeIn(st.access, b.submitted_to);
+    // A shared branch of an older ECOBuild format: brought up to date here (it is not opened as a workspace).
+    const outdated = b.format != null && b.format < b.latest_format;
+    const upgrade = outdated ? button('upgrade', '最新の仕様にする…', {enabled: b.remote && ECO.canTakeIn(st.access, b.name), why: b.remote ? ECO.takeInNote(st.access, b.name) : 'GitHub にないブランチです', help: 'GitHub のこのブランチを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットして push します（手元の作業ツリーには触れません）。'}) : '';
     const branchActions = (open(b.submission)
       ? button('merge-own', '取り込む', {kind: 'primary', enabled: takes && !b.submission.draft, why: b.submission.draft ? '下書きの提出は取り込めません' : ECO.takeInNote(st.access, b.submitted_to), help: ECO.submissionHelp.merge})
       : !isDefault ? button('branch-submit', '提出する', {enabled: canSubmit(b.name), why: `${ECO.adminNote}（このブランチを作った人も）`}) : '')
@@ -214,6 +217,7 @@
         <div class="mi-actions">${branchActions}</div></div>
       <dl class="br-facts">
         ${b.unusable ? `<dt>作業</dt><dd>${esc(b.unusable)}。タスクブランチの作成元にはできません</dd>` : ''}
+        ${outdated ? `<dt>仕様</dt><dd>以前の ECOBuild の仕様（版 ${b.format}。今の版は ${b.latest_format}）　${upgrade}</dd>` : ''}
         <dt>提出を処理できる人</dt><dd>${esc(isDefault ? '管理者' : creator ? `${creator}（作った人）と管理者` : '管理者')}</dd>
         ${isDefault ? `<dt>保護</dt><dd id="br-protection">${protectionText()}</dd>` : ''}
       </dl>
@@ -264,6 +268,14 @@
         {name: 'into', label: '取り込み先', type: 'select', value: into, options: shared().filter(b => b.name !== name).map(b => [b.name, b.name])},
         {name: 'title', label: '提出の題名'}], ok: '提出',
         submit: async v => { if (!v.into) return '取り込み先を選んでください。'; if (!await after(await ECO.run(MOD.root, ['branch', 'submit', name, '--into', v.into, ...(v.title ? ['--title', v.title] : [])], {success: `${name} を ${v.into} へ提出しました。`}))) return '提出できませんでした。'; }});
+      case 'upgrade': {
+        const plan = await ECO.run(MOD.root, ['module', 'upgrade', '--branch', name, '--dry-run'], {busy: '変えるファイルを確かめています…'});
+        if (!plan) return;
+        const r = plan.result;
+        if (!await ECO.confirm({title: '最新の仕様にする', message: `GitHub の ${name} を ECOBuild の仕様（版 ${r.format} → ${r.latest_format}）に合わせて、次のファイルを変えます（生成ファイルも作り直します）。変えたファイルは「ECOBuild の更新」として ${name} にコミットし、GitHub へ push します。手元の作業ツリーには触れません。`, detail: r.paths.join('\n'), ok: '最新の仕様にする'})) return;
+        return after(await ECO.run(MOD.root, ['module', 'upgrade', '--branch', name], {busy: `${name} を最新の仕様にしています…`,
+          success: x => x.commit ? `${name} を最新の仕様にしました（${x.paths.length}件のファイル）。「ECOBuild の更新」としてコミットし、push しました。` + (x.skipped.length ? `手で編集してあるため作り直していません：${x.skipped.join('、')}` : '') : `${name} は今の仕様です（変えるファイルはありませんでした）。`}));
+      }
       case 'branch-delete': return after(await ECO.run(MOD.root, ['branch', 'delete', name], {success: `ブランチ ${name} を削除しました。`, confirm: `ブランチ ${name} を、手元と GitHub から削除します。`, title: 'ブランチを削除', ok: '削除する', danger: true}));
       case 'protect': {
         const p = st.protection && !st.protection.error ? st.protection : null;

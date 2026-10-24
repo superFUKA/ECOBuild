@@ -174,6 +174,8 @@ def test_human_output_and_usage_error(cli):
     assert result.exit_code == 0 and "develop" in result.stdout
     listed = cli("branch", "list")
     assert "develop" in listed.stdout and "main" in listed.stdout
+    rows = {b["name"]: b for b in as_json(cli("branch", "list", "--json"))["result"]}
+    assert rows["main"]["format"] == rows["main"]["latest_format"]   # 仕様の版も添える（GUI のブランチ画面が使う）
 
 
 def test_sync_continue_and_abort_commands(cli):

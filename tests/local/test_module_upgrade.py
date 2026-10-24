@@ -63,6 +63,43 @@ def test_old_module_is_upgraded(tmp_path):
     assert again.paths == () and again.commit is None   # 今の版なら変えるものはない（コミットもしない）
 
 
+def test_branch_not_checked_out_is_upgraded(tmp_path):
+    """管理用のブランチ（作業空間で開かない）は --branch で：手元の作業ツリーに触れず、GitHub のそのブランチを更新する。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    root, github = module.root, module.repository.github
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "format": 1}))
+    (root / "AGENTS.md").write_text("古い\n", encoding="utf-8")
+    git(root, "add", "--all")
+    git(root, "commit", "--quiet", "-m", "以前の版")
+    git(root, "push", "--quiet", "origin", "main")
+    old = Module.find(root, github=github)
+    old.repository.create_task("作業").start()   # 手元はタスクブランチ（main はどこでも取り出していない）
+    here = git(root, "rev-parse", "HEAD").strip()
+    assert {b.name: b.format for b in old.branches()}["main"] == 1
+
+    planned = old.upgrade(dry_run=True, branch="main")
+    assert planned.dry_run and planned.branch == "main" and planned.format == 1
+    assert {".ecobuild/ecobuild.toml", "AGENTS.md"} <= set(planned.paths)
+    done = old.upgrade(branch="main")
+    assert done.commit and done.branch == "main" and done.pushed and done.git_config == ()
+    assert git(root, "rev-parse", "origin/main").strip() == done.commit
+    assert git(root, "rev-parse", "main").strip() == done.commit   # 取り出していない手元の main も進める
+    assert git(root, "log", "-1", "--format=%s", "origin/main").strip() == "ECOBuild の更新"
+    assert f"format = {config.FORMAT}" in git(root, "show", "origin/main:.ecobuild/ecobuild.toml")
+    assert "古い" not in git(root, "show", "origin/main:AGENTS.md")
+    # 手元はそのまま：同じタスクブランチ・同じコミット・変更なし・一時的な作業ツリーも残らない
+    assert git(root, "rev-parse", "HEAD").strip() == here and git(root, "status", "--porcelain").strip() == ""
+    assert len(git(root, "worktree", "list", "--porcelain").split("worktree ")) == 2
+    assert not any((root / ".git/ecobuild").iterdir())
+    assert {b.name: b.format for b in old.branches()}["main"] == config.FORMAT
+    again = old.upgrade(branch="main")
+    assert again.paths == () and again.commit is None
+    with pytest.raises(WorkError) as error:
+        old.upgrade(branch=old.repository.git.current_branch().replace("task/1", "task/9"))
+    assert error.value.code == ErrorCode.PROTECTED_BRANCH   # タスクブランチは切り替えて module upgrade
+    assert code_of(lambda: old.upgrade(branch="nothing")) == ErrorCode.BRANCH_NOT_FOUND
+
+
 def test_upgrade_sets_line_endings_like_clone(tmp_path):
     """以前に clone した作業空間の git の改行の設定を、clone するときと同じ（core.autocrlf=input）にする。コミットしない。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))

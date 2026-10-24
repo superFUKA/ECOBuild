@@ -1,6 +1,6 @@
 'use strict';
 // One workspace on disk: changes, commit, push, PR submission.
-// History is in the explorer's menu (a file, a folder, or the whole module); stashing is left to the CLI and TortoiseGit.
+// History is in the explorer's menu (a file, a folder, or the whole module).
 const WS = {
   dir: ECO.params.get('dir') || '', module: ECO.params.get('module') || '',
   status: null, task: null, selected: new Set(), listeners: [],
@@ -286,6 +286,7 @@ function updateButtons() {
   document.querySelector('[data-git=force-push]').disabled = !editable;
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
+  get('stash-menu').disabled = !s || !!s.reviewing || !!s.merging;
   // Staging is needed only to finish a merge that stopped on a conflict (sync continue); a commit stages what is checked.
   get('stage-tools').hidden = !(s && (s.merging || s.conflicted?.length));
 }
@@ -456,6 +457,30 @@ get('switch-branch').addEventListener('click', async () => {
     ...items,
     ...(started.some(t => !isHere(t)) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
     ...(embedded ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
+  ], r.left, r.bottom + 4);
+});
+
+// Stashing (ecobuild stash): the stash is shared by every workspace of the module, and pop and drop take this branch's
+// latest one only, so the menu counts and lists this branch's entries ("On <branch>: …" / "WIP on <branch>: …").
+const stashBranch = entry => entry.match(/^(?:WIP )?[Oo]n (.+?): /)?.[1] ?? null;
+get('stash-menu').addEventListener('click', async e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const doc = await WS.cli(['stash', 'list'], {quiet: true});
+  if (!doc.ok) return ECO.showError(doc);
+  const branch = WS.status?.branch, own = doc.result.filter(entry => stashBranch(entry) === branch);
+  const others = doc.result.length - own.length, changed = WS.changes().size > 0;
+  ECO.menu([
+    ['変更を退避', () => WS.run(['stash'], {success: r => r.stashed ? '変更を退避しました。' : '退避する変更はありません。'}).then(() => WS.reloadFiles?.()),
+      changed, changed ? '未コミットの変更（新しいファイルも）をしまい、最後のコミットの状態にします' : '未コミットの変更はありません'],
+    ['退避を戻す', () => WS.run(['stash', 'pop'], {success: '退避した変更を戻しました。'}).then(() => WS.reloadFiles?.()),
+      own.length > 0, own.length ? `このブランチで最後に退避した変更を戻します：${own[0]}` : 'このブランチで退避した変更はありません'],
+    ['退避の一覧', () => ECO.output('退避の一覧', own.map((entry, i) => `${i + 1}: ${entry}`).join('\n') || 'このブランチで退避した変更はありません。',
+      {sub: others ? `${branch}（ほかのブランチの退避 ${others} 件は、それぞれの作業空間で扱います）` : branch})],
+    '-',
+    ['退避を削除…', async () => {
+      if (!await ECO.confirm({title: '退避を削除', message: `このブランチで最後に退避した変更を捨てます。\nこの操作は元に戻せません。`, detail: own[0], ok: '削除', danger: true})) return;
+      return WS.run(['stash', 'drop'], {success: '退避した変更を削除しました。'});
+    }, own.length > 0, '', {danger: true}],
   ], r.left, r.bottom + 4);
 });
 

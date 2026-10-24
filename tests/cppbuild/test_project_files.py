@@ -41,7 +41,11 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     result = module.test()
     assert result.failed == 0 and "Circle.Works" in [c.name for c in result.cases]
 
-    assert module.add_file("include/Geo/shape/Square.h").paths == ("Geo/include/Geo/shape/Square.h",)
+    # ヘッダーだけでもテストを作る。後から同じ名前のソースを足しても、テストはそのまま（1つ）
+    assert module.add_file("include/Geo/shape/Square.h").paths == ("Geo/include/Geo/shape/Square.h",
+                                                                   "GeoTest/src/shape/SquareTest.cpp")
+    assert '#include "Geo/shape/Square.h"' in (root / "GeoTest/src/shape/SquareTest.cpp").read_text(encoding="utf-8")
+    assert module.add_file("src/shape/Square.cpp").paths == ("Geo/src/shape/Square.cpp",)
     assert code_of(lambda: module.add_file("src/shape/Circle.cpp")) == ErrorCode.ALREADY_EXISTS
     monkeypatch.chdir(root)
     assert code_of(lambda: module.add_file("README.md")) == ErrorCode.NOT_IN_PROJECT

@@ -562,7 +562,7 @@ async function newFileDialog(dir = activeDirectory) {
       help: 'include/<Project>/ のヘッダーは、このProjectを使う側からも読み込めます（公開するヘッダー）。src/ は実装用で、ヘッダーとソースを並べます。'},
       {name: 'sourceFolder', label: 'ソースの場所', type: 'select', value: '', showIf: v => v.kind === 'pair' && v.split,
         options: [['', '自動（src/ の、ヘッダーと同じ構成の場所）'], ...folders.map(d => [d, d])]}] : []),
-    ...(cpp ? [{name: 'test', label: 'ライブラリのソースなら、テストも作成する', type: 'checkbox', value: true, showIf: v => v.kind === 'pair' || v.kind === 'source'}] : []),
+    ...(cpp ? [{name: 'test', label: 'ライブラリのヘッダー・ソースなら、テストも作成する（同じ名前のヘッダーとソースは1つ）', type: 'checkbox', value: true, showIf: v => v.kind !== 'template'}] : []),
     ...(pythonTests ? [{name: 'test', label: 'src/<パッケージ>/ のソースなら、tests/ にテストも作成する', type: 'checkbox', value: true}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
     onChange: (v, formEl) => {
@@ -694,7 +694,7 @@ async function moveFile(source, destination, withTest = true) {
   WS.selectInTree(destination);
   return '';
 }
-const sourceTests = cpp => cpp ? 'ライブラリのソース' : 'src/ のソース';
+const sourceTests = cpp => cpp ? 'ライブラリのヘッダー・ソース' : 'src/ のソース';
 async function moveDialog(path) {
   const tests = await typeHasFileTests(), cpp = restricted();
   return ECO.form({title: '名前の変更・移動', fields: [

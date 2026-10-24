@@ -224,7 +224,16 @@ $Installing = Join-Path $env:LOCALAPPDATA "ecobuild\installing"
 New-Item -ItemType Directory -Force (Split-Path $Installing) | Out-Null
 Set-Content -Path $Installing -Value $PID -Encoding ascii
 
+# 入れた GUI（Electron）を止める。動いている GUI は、止めた ECOBuild の係（agent serve）をすぐ起動し直し、入れ替えを
+# ふさぎ続ける（GUI はこのあと入れ替えるので、どのみち止める）
+$InstalledGui = Join-Path $env:LOCALAPPDATA "Programs\ECOBuild GUI"
+function Stop-Gui {
+    Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($InstalledGui, [StringComparison]::OrdinalIgnoreCase) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
 function Install-Ecobuild {
+    Stop-Gui
     Wait-EcobuildClosed
     Remove-PartialUninstall
     if ($Source) {
@@ -267,9 +276,8 @@ function Install-Gui {
             Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
             Stop-Install "GUI を取り出せませんでした（$Repository の $Ref）。"
         }
-        # 動いている GUI（Electron）は止める（electron.exe が使用中だと置き換えられない）
-        Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($GuiDir, [StringComparison]::OrdinalIgnoreCase) } |
-            Stop-Process -Force -ErrorAction SilentlyContinue
+        # 動いている GUI（Electron）は止める（electron.exe が使用中だと置き換えられない。入れ替えの間に起動されたものも）
+        Stop-Gui
         # 入れ替える。Electron 本体（node_modules）は残して、入れ直しの時間を省く
         # 動かなかったとき（見つからない等）は前のコマンドの終了コードが残るので、先に空にしておく
         $global:LASTEXITCODE = $null

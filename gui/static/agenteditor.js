@@ -12,13 +12,22 @@ window.AGENT_EDITOR = (() => {
   const glob = p => new RegExp('^' + p.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
   const matches = (name, patterns) => patterns.some(p => glob(p).test(name));
 
-  // opts: {kind: 'module'|'preset', dir, editable(), notEditable (why, html), top: {key, label, render(), save()} | null,
-  //        onChanged()}
+  // opts: {kind: 'module'|'preset', dir() (the place shown), target(what) (where a change is saved: a dir, null for none, or
+  //        undefined when cancelled; the module page asks for a task branch), notice() (html above), top: {key, label,
+  //        render(), click(e), dirty()} | null, onChanged(dir)}
   function create(box, opts) {
     const group = opts.kind === 'module' ? 'registry' : 'preset';
     const st = {list: null, tools: null, samples: new Set(), selected: '', shown: null, dirty: false, error: ''};
     const cli = (args, extra = {}) => ECO.cli(opts.dir(), args, {quiet: true, ...extra});
-    const run = (args, extra = {}) => ECO.run(opts.dir(), args, extra);
+    const target = what => opts.target ? opts.target(what) : Promise.resolve(opts.dir());
+    // A change runs where target() says; the page then shows that place (onChanged).
+    async function change(what, args, extra) {
+      const dir = await target(what);
+      if (dir === undefined) return null;
+      const doc = await ECO.run(dir, args, extra);
+      if (doc) { st.dirty = false; await opts.onChanged?.(dir); }
+      return doc;
+    }
 
     async function load(keep = true) {
       box.innerHTML = ECO.loading();
@@ -49,13 +58,13 @@ window.AGENT_EDITOR = (() => {
     function sideItem(r) {
       return `<button type="button" class="ae-item" data-ae-select="${esc(r.name)}" aria-current="${r.name === st.selected}">
         <span class="ae-item-title">${esc(r.title)}</span><span class="ae-item-name">${esc(r.name)}</span>
-        <span class="ae-item-badges">${r.human_start ? badge('人が起動', 'top') : ''}${r.source === 'sample' ? badge('見本', 'quiet') : ''}${r.pending ? badge('まだ効いていない', 'warn') : ''}</span></button>`;
+        <span class="ae-item-badges">${r.human_start ? badge('人が起動', 'top') : ''}${r.source === 'sample' ? badge(opts.kind === 'module' ? 'プリセットのまま' : '見本', 'quiet') : ''}${r.pending ? badge('まだ効いていない', 'warn') : ''}</span></button>`;
     }
     function side() {
       return `<nav class="ae-side" aria-label="エージェント">
         ${opts.top ? `<button type="button" class="ae-item ae-top" data-ae-select="${esc(opts.top.key)}" aria-current="${st.selected === opts.top.key}"><span class="ae-item-title">${esc(opts.top.label)}</span><span class="ae-item-name">どのエージェントにも渡す文</span></button><div class="ae-side-head">役</div>` : ''}
         ${st.list.map(sideItem).join('')}
-        <button type="button" class="ae-add" data-ae-add${opts.editable() ? '' : ' disabled title="タスクブランチの作業空間で足します"'}>＋ ${opts.kind === 'module' ? 'エージェントを追加' : 'プリセットを足す'}</button>
+        <button type="button" class="ae-add" data-ae-add>＋ ${opts.kind === 'module' ? 'エージェントを追加' : 'プリセットを足す'}</button>
       </nav>`;
     }
     function toolsSection(r, off) {
@@ -78,17 +87,19 @@ window.AGENT_EDITOR = (() => {
       if (st.selected === opts.top?.key) return opts.top.render();
       const r = st.shown;
       if (!r) return `<div class="eco-banner bad">${esc(st.error || '選んでください')}</div>`;
-      const off = opts.editable() ? '' : ' disabled';
+      const off = '';
       const others = st.list.filter(x => x.name !== r.name);
       const model = MODELS.some(([v]) => v === r.model) ? r.model : 'other';
-      const sampleNote = r.source === 'sample' ? `<p class="mi-note">ECOBuild の見本です。変えると${opts.kind === 'module' ? 'このモジュールの登録' : 'このPCのプリセット'}として写してから変えます（見本はそのまま）。</p>` : '';
+      const sampleNote = r.source === 'sample' ? `<p class="mi-note">${opts.kind === 'module'
+        ? 'プリセット（ECOBuild の見本）のままです。直して保存すると、このモジュール用に上書きします（プリセットはそのまま）。'
+        : 'ECOBuild の見本です。直して保存すると、このPCのプリセットとして上書きします（見本はそのまま）。'}</p>` : '';
       const removable = r.source === (opts.kind === 'module' ? 'module' : 'preset');
       return `<div class="ae-head"><div><h3>${esc(r.title)} <span class="ae-item-name">${esc(r.name)}</span></h3>
-          <div class="ae-item-badges">${badge(SOURCES[r.source] || r.source, 'quiet')}${r.human_start ? badge('人が起動（人と話すトップの役）', 'top') : ''}${r.pending ? badge('まだ効いていない（取り込まれると効く）', 'warn') : ''}</div>${sampleNote}</div>
-        <div class="mi-actions"><button type="button" class="primary" data-ae-save${off} disabled>${opts.kind === 'module' ? '保存してコミット' : '保存'}</button>
+          <div class="ae-item-badges">${badge(opts.kind === 'module' && r.source === 'sample' ? 'プリセットのまま' : SOURCES[r.source] || r.source, 'quiet')}${r.human_start ? badge('人が起動（人と話すトップの役）', 'top') : ''}${r.pending ? badge('まだ効いていない（取り込まれると効く）', 'warn') : ''}</div>${sampleNote}</div>
+        <div class="mi-actions"><button type="button" class="primary" data-ae-save disabled>${opts.kind === 'module' ? (r.source === 'sample' ? 'このモジュール用に保存' : '保存してコミット') : '保存'}</button>
           <button type="button" data-ae-revert disabled>元に戻す</button>
           ${opts.kind === 'module' ? '<button type="button" data-ae-to-preset title="この登録を、このPCのプリセットとして保存します（ほかのモジュールでも使えるように）">プリセットにする</button>' : ''}
-          ${removable ? `<button type="button" class="danger-text" data-ae-remove${off}>${st.samples.has(r.name) ? '見本に戻す' : '消す'}</button>` : ''}</div></div>
+          ${removable ? `<button type="button" class="danger-text" data-ae-remove>${st.samples.has(r.name) ? (opts.kind === 'module' ? 'プリセットに戻す' : '見本に戻す') : '消す'}</button>` : ''}</div></div>
         <section class="ae-sec"><h4>基本</h4><div class="ae-grid">
           <label class="ae-field">表示名<input type="text" data-ae-field="title" value="${esc(r.title)}"${off}></label>
           <label class="ae-field">モデル<select data-ae-field="model"${off}>${MODELS.map(([v, l]) => `<option value="${v}"${v === model ? ' selected' : ''}>${l}</option>`).join('')}<option value="other"${model === 'other' ? ' selected' : ''}>そのほか…</option></select>
@@ -104,7 +115,7 @@ window.AGENT_EDITOR = (() => {
           <label class="ae-field ae-narrow">同時に持てる子の数<input type="number" min="0" data-ae-field="max_children" value="${r.max_children}"${off}></label></section>`;
     }
     function draw() {
-      box.innerHTML = `${opts.notEditable && !opts.editable() ? opts.notEditable() : ''}<div class="ae">${side()}<div class="ae-main">${editor()}</div></div>`;
+      box.innerHTML = `${opts.notice ? opts.notice() : ''}<div class="ae">${side()}<div class="ae-main">${editor()}</div></div>`;
     }
     const field = name => box.querySelector(`[data-ae-field="${name}"]`);
     function edited() {
@@ -137,46 +148,53 @@ window.AGENT_EDITOR = (() => {
       const {args} = edited();
       st.dirty = args.length > 0;
       const save = box.querySelector('[data-ae-save]'), revert = box.querySelector('[data-ae-revert]');
-      if (save) save.disabled = !st.dirty || !opts.editable();
+      if (save) save.disabled = !st.dirty;
       if (revert) revert.disabled = !st.dirty;
     }
+    const committed = r => r?.committed ? `（コミット ${r.committed.slice(0, 7)}。提出して取り込まれると効きます）` : '';
     async function save() {
       const {args, stdin} = edited();
       if (!args.length) return;
       const name = st.shown.name;
-      const doc = await run(['agent', group, 'set', name, ...args], {stdin, success: opts.kind === 'module'
-        ? r => `「${name}」を保存してコミットしました（${(r?.committed || '').slice(0, 7)}。提出して取り込まれると効きます）。` : `「${name}」を保存しました。`});
-      if (doc) { st.dirty = false; opts.onChanged?.(); await load(); }
+      const doc = await change(`「${st.shown.title}」を保存`, ['agent', group, 'set', name, ...args],
+        {stdin, success: r => `「${name}」を保存しました${opts.kind === 'module' ? committed(r) : '。'}`});
+      if (doc) await load();
     }
+    // 追加：新規作成か、プリセット（このPCの手持ちと ECOBuild の見本）から作る
     async function add() {
       const presets = await cli(['agent', 'preset', 'list']);
       if (!presets.ok) return ECO.showError(presets);
       const choices = presets.result;
-      await ECO.form({title: opts.kind === 'module' ? 'エージェントを追加' : 'プリセットを足す',
-        intro: opts.kind === 'module' ? 'このPCのプリセット（ハブの設定の「エージェント」）か見本を、そのまま写してこのモジュールに登録します。タスクブランチでコミットし、取り込まれると使えます。' : '見本かほかのプリセットを写して、このPCのプリセットを作ります。',
-        fields: [{name: 'from', label: '元にするもの', type: 'select', value: choices[0]?.name || '', options: [...choices.map(p => [p.name, `${p.title}（${p.name}・${SOURCES[p.source] || p.source}）`]), ['', '（空から作る）']]},
-                 {name: 'name', label: '名前（英小文字・数字・-・_。空なら元と同じ）', placeholder: '例：reviewer'}],
-        ok: '追加',
-        submit: async v => {
-          const name = (v.name || '').trim() || v.from;
-          if (!name) return '名前を入れてください。';
-          const done = await run(['agent', group, 'add', name, ...(v.from ? ['--from-preset', v.from] : [])], {success: `「${name}」を追加しました。`});
-          if (!done) return '追加できませんでした。';
-          st.selected = name; opts.onChanged?.(); await load();
-        }});
+      const v = await ECO.form({title: opts.kind === 'module' ? 'エージェントを追加' : 'プリセットを足す',
+        intro: opts.kind === 'module' ? 'このモジュールのエージェント（役）を足します。保存するとリポジトリにコミットし、提出して取り込まれると起動できます。' : 'このPCのプリセットを足します。モジュールの「エージェント」から写して使えます。',
+        fields: [{name: 'how', label: '作り方', type: 'radio', value: choices.length ? 'preset' : 'new', options: [['preset', 'プリセットから作成', 'プリセットを写して、名前を付けて足します'], ['new', '新規作成', '空の役を作ります（文書・ツールは後で）']]},
+                 {name: 'from', label: '元にするプリセット', type: 'select', value: choices[0]?.name || '', showIf: x => x.how === 'preset',
+                  options: choices.map(p => [p.name, `${p.title}（${p.name}・${SOURCES[p.source] || p.source}）`])},
+                 {name: 'name', label: '名前（英小文字・数字・-・_）', placeholder: '例：reviewer', help: 'プリセットから作るときは、空ならプリセットと同じ名前'},
+                 {name: 'title', label: '表示名', placeholder: '例：レビュー役', showIf: x => x.how === 'new'}],
+        ok: '次へ'});
+      if (!v) return;
+      const name = (v.name || '').trim() || (v.how === 'preset' ? v.from : '');
+      if (!name) return ECO.toast('名前を入れてください。', 'bad');
+      const args = ['agent', group, 'add', name, ...(v.how === 'preset' && v.from ? ['--from-preset', v.from] : [])];
+      const doc = await change(`「${name}」を追加`, args, {success: r => `「${name}」を追加しました${opts.kind === 'module' ? committed(r) : '。'}`});
+      if (!doc) return;
+      if (v.how === 'new' && (v.title || '').trim()) await ECO.run(opts.dir(), ['agent', group, 'set', name, '--title', v.title.trim()], {});
+      st.selected = name; await load();
     }
     async function remove() {
       const name = st.shown.name, back = st.samples.has(name);
-      const doc = await run(['agent', group, 'remove', name, '--yes'], {confirm: back ? `「${name}」を見本に戻します（今の中身は消えます）。` : `「${name}」を文書ごと消します。`,
-        title: back ? '見本に戻す' : '消す', ok: back ? '見本に戻す' : '消す', danger: true, success: back ? '見本に戻しました。' : '消しました。'});
-      if (doc) { opts.onChanged?.(); await load(false); }
+      const label = back ? (opts.kind === 'module' ? 'プリセットに戻す' : '見本に戻す') : '消す';
+      if (!await ECO.confirm({title: label, message: back ? `「${name}」の上書きを消して、${opts.kind === 'module' ? 'プリセット（ECOBuild の見本）' : '見本'}に戻します。` : `「${name}」を文書ごと消します。`, ok: label, danger: true})) return;
+      const doc = await change(`「${name}」を${label}`, ['agent', group, 'remove', name, '--yes'], {success: `「${name}」を${back ? '戻しました' : '消しました'}。`});
+      if (doc) await load(false);
     }
     async function toPreset() {
       const r = st.shown;
       await ECO.form({title: 'プリセットにする', intro: `「${r.title}」を、このPCのプリセットとして保存します（ハブの設定の「エージェント」に入り、ほかのモジュールに写せます）。保存していない変更は入りません。`,
         fields: [{name: 'name', label: 'プリセットの名前', value: r.name, required: true}], ok: '保存',
         submit: async v => {
-          const done = await run(['agent', 'preset', 'add', v.name.trim(), '--from-module', r.name], {success: `プリセット「${v.name.trim()}」にしました。`});
+          const done = await ECO.run(opts.dir(), ['agent', 'preset', 'add', v.name.trim(), '--from-module', r.name], {success: `プリセット「${v.name.trim()}」にしました。`});
           return done ? '' : '保存できませんでした。';
         }});
     }

@@ -457,7 +457,7 @@ $('token-remove').addEventListener('click', async () => {
 
 // Agent presets (ecobuild agent preset …): this PC's own agents (and ECOBuild's samples), copied into a module's
 // registrations from the module page エージェント. Edited with the shared AGENT_EDITOR; all the data comes from the CLI.
-const presets = $('presets-editor') && AGENT_EDITOR.create($('presets-editor'), {kind: 'preset', dir: () => null, editable: () => true});
+const presets = $('presets-editor') && AGENT_EDITOR.create($('presets-editor'), {kind: 'preset', dir: () => null});
 $('presets-reload')?.addEventListener('click', () => presets?.load());
 
 async function loadSettings() {

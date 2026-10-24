@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shlex
 from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -60,6 +61,8 @@ PROJECT_KINDS = {
 }
 # 種類のうちライブラリ（組のテスト用Projectを作る・--link は使えない）
 LIBRARY_KINDS = ("library", "shared")
+# project set --kind で変えられる種類（テスト用・性能測定は、リンクするライブラリが決まらないので除く）
+CHANGEABLE_KINDS = ("app", "library", "shared")
 # ライブラリの形式（project set --for・project link --as・ビルド設定の type）→ CppBuildの種類
 LIBRARY_TYPES = {
     "static": ProjectType.STATIC_LIBRARY,
@@ -459,6 +462,126 @@ def remove_project(root: Path, name: str) -> bool:
     except Exception as error:
         raise _cppbuild_error(f"Project {name} を外せません。", error) from error
     return was_main
+
+
+def change_kind(root: Path, name: str, kind: str, *, test: bool = True, command: str = "") -> tuple[str, ...]:
+    """Projectの種類を変える（app・library・shared）。足したファイルを返す（同じ種類なら何もしない）。
+
+    CppBuildは作った後に種類（initial_type）を変えられないので、同じ名前・場所・設定のまま外して作り直す
+    （1つのトランザクション。失敗したら管理ファイル・生成ファイルは元に戻る）。保つもの：ソース、定義・インクルード等の設定、
+    このProjectのリンク（依存先のモジュールへのリンクは張り直す）、使う側のリンク（ライブラリどうしのときだけ。作成時の形式で
+    リンクしていたものは新しい形式で）、main、ソリューションフォルダー。変わるもの：GUID（CppBuildが作り直すたびに付け直す）と
+    Projectの並び（最後になる）。そのため、他のモジュールからリンクされうる main のライブラリは、ライブラリどうしでも変えない。
+
+    ライブラリにするとき：入口の関数・GUIアプリの設定を外し、project add と同じく、Windowsですべての関数を書き出し、
+    ないファイル（include/<名前>/<名前>.h・src/<名前>.cpp）を置き、実行ファイルからで test なら組のテスト用 <名前>Test を作る
+    （その名前のProject・ディレクトリが既にあれば作らない）。
+    実行ファイルにするとき：使う側のProject・main なら断る。入口は main にし、src/main.cpp がなければ置く。
+    """
+    if kind not in CHANGEABLE_KINDS:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"種類 {kind} には変えられません。",
+                            hint=f"{'・'.join(CHANGEABLE_KINDS)} のどれかを指定してください。")
+    solution = open_solution(root)
+    _require_project(solution, name)
+    project = solution.get_project(name)
+    data = project.settings.get()
+    target = PROJECT_KINDS[kind]
+    if data.initial_type == target:
+        return ()
+    if data.initial_type == ProjectType.TEST:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{name} はテスト用のProjectなので、種類を変えられません。")
+    module = solution.settings.get()
+    library = data.initial_type in LIBRARY_TYPES.values()
+    to_library = kind in LIBRARY_KINDS
+    main = module.main_project
+    is_main = main == name
+    users = [(other, key, dependency) for other in solution.projects() if other.name != name
+             for key, dependency in other.settings.get().dependencies.items()
+             if getattr(dependency, "project_guid", None) == data.guid]
+    if not to_library and users:
+        names = sorted({other.name for other, _, _ in users})
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                            f"{name} は {'、'.join(names)} がリンクしているので、実行ファイルにできません。",
+                            hint=f"先にリンクを外してください（{operation(command, 'project unlink')} {name} --project <Project>"
+                                 f"。テスト用のProjectなら {operation(command, 'project remove')} で消せます）。",
+                            details=names)
+    if is_main and (not to_library or library):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                            f"{name} は他のモジュールからリンクされるProject（main）なので、種類を変えられません。",
+                            hint=("種類を変えると作り直しになり、他のモジュールからのリンクが切れます。"
+                                  if library and to_library else "") +
+                                 f"先に {operation(command, 'module settings')} --no-main で main をなしにしてください"
+                                 + ("（ビルドごとに静的・共有を切り替えるなら profile の type か project link --as で足ります）。"
+                                    if library and to_library else "。"))
+    fresh = deepcopy(data)
+    used = data.types[data.initial_type]   # 今の種類の設定（ライブラリなら作成時の形式の設定）を引き継ぐ
+    if to_library:
+        if not library:
+            fresh.types = {each: deepcopy(used) for each in LIBRARY_TYPES.values()}
+            fresh.windows_export_all_symbols = True   # project add のライブラリと同じ（_add_library_header）
+        fresh.entry_point, fresh.gui = None, False
+    else:
+        fresh.types = {target: deepcopy(used)}
+        fresh.windows_export_all_symbols = False
+    fresh.initial_type = target
+    # 依存先のモジュールへのリンクは、外すとそのモジュールの記録（references）も消えるので、作り直した後に張り直す。
+    references = module.references
+    external = {key: dependency for key, dependency in data.dependencies.items()
+                if getattr(dependency, "project_guid", None) in references}
+    fresh.dependencies = {key: value for key, value in data.dependencies.items() if key not in external}
+    folders = module.solution_folders
+    folder = None if folders is None else folders.project_folders.get(name)
+    directory = module.projects[name]
+    test_name = test_project_of(name)
+    make_test = to_library and not library and test and test_name not in module.projects and not (root / test_name).exists()
+    if make_test:
+        check_project_name(test_name)
+    message = f"Project {name} の種類を変えられません。"
+    files: list[str] = []
+    try:
+        _ensure_templates(solution)
+        with _transaction(solution, message):
+            if is_main:
+                module.main_project = None
+                solution.settings.save(module)
+            for other, key, _ in users:
+                other.settings.unlink(key)
+            solution.remove_project(name)
+            remade = solution.add_project(directory, name, target, settings=fresh)
+            for dependency in external.values():
+                place = solution.root / references[dependency.project_guid].solution_directory
+                remade.settings.link_solution(place, dependency.project_type)
+            for other, _, dependency in users:   # 作成時の形式でリンクしていたものは、新しい形式で
+                as_type = target if dependency.project_type == data.initial_type else dependency.project_type
+                other.settings.link_project(remade, as_type)
+            # main は元のとおりに（CppBuildは、Projectがほかにない Solution に足したProjectを main にする）。
+            module = solution.settings.get()
+            if module.main_project != main or folder is not None:
+                module.main_project = main
+                if folder is not None:
+                    module.solution_folders.project_folders[name] = folder
+                solution.settings.save(module)
+            files = _place_kind_files(solution, remade, name, to_library)
+            if make_test:
+                files += _create_linked(solution, test_name, "test", name, suite=name)
+    except EcoBuildError:
+        raise
+    except Exception as error:
+        raise _cppbuild_error(message, error) from error
+    return tuple(files)
+
+
+def _place_kind_files(solution: Solution, project, name: str, to_library: bool) -> list[str]:
+    """種類を変えたProjectに、project add で置くもののうち、ないファイルを置く（あるものは上書きしない）。"""
+    wanted = ([(f"include/{library_header(name)}", "header", None),
+               (f"src/{name}.cpp", "source", {"header": library_header(name)})] if to_library
+              else [("src/main.cpp", "app", None)])
+    files = []
+    for path, template, replacements in wanted:
+        if not (project.root / path).exists():
+            project.add_file(path, template_name=template, replacements=replacements, auto_update=False)
+            files.append(f"{solution.settings.get().projects[name]}/{path}")
+    return files
 
 
 def set_pch(root: Path, project: str, *, enable: bool) -> str | None:

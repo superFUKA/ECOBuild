@@ -1339,7 +1339,10 @@ class Module:
 
     def set_project(self, name: str, **changes) -> dict:
         self.require_task_branch("Projectの設定")
-        return self._projects("Project の設定").set_project(name, **changes)
+        result = self._projects("Project の設定").set_project(name, **changes)
+        if result.get("created"):   # 種類を変えて足したファイル（型が返す）
+            self._created(FilesChanged("project set", tuple(result["created"]), name))
+        return result
 
     def move_project(self, name: str, destination: str) -> FilesChanged:
         self.require_task_branch("Projectの移動")

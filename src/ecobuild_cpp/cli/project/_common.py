@@ -85,4 +85,6 @@ def render_details(d: dict) -> str:
             lines.append(f"ビルドイベント（{label}）：{'; '.join(' '.join(c) for c in d['build_events'][stage])}")
     if d["output_files"]:
         lines.append(f"出力ファイルの横へコピー：{', '.join(d['output_files'])}")
+    if d.get("created"):   # project set --kind で足したファイル
+        lines.append(f"足したファイル：{', '.join(d['created'])}")
     return "\n".join(lines)

@@ -9,6 +9,8 @@ from ._common import render_details, target_project
 def command(
     *projects: Annotated[str, "対象のProject（--project と同じ）"],
     project: Annotated[str, "対象のProject（既定：今いるProject、テスト用を除いてProjectが1つならそれ）"] = "",
+    kind: Annotated[str, "種類を変える：app（実行ファイル）／library（静的ライブラリ）／shared（共有ライブラリ）。ソース・設定・リンクは保つ"] = "",
+    no_test: Annotated[bool, "--kind library・shared で、組のテスト用Project（<名前>Test）を作らない"] = False,
     type: Annotated[str, "定義・インクルードを変える形式（ライブラリ：static・shared・interface のカンマ区切り。既定はすべて）"] = "",
     add_define: Annotated[str, "このProjectだけの定義を足す（カンマ区切り。例：USE_FOO,LEVEL=2）"] = "",
     remove_define: Annotated[str, "このProjectだけの定義を外す（カンマ区切り）"] = "",
@@ -45,6 +47,11 @@ def command(
     """Projectの設定を変えます。管理ファイルが変わるので、タスクブランチでコミットしてください。
 
     ビルドのたびに選ぶもの（C++の規格・ライブラリの形式の切り替え等）は ecobuild profile で設定します。
+
+    --kind で種類を変えます（作り直しても、ソース・設定・リンク・main は保ちます。ほかの設定はその後で変えます）。
+    ライブラリにすると、入口の関数・GUIアプリの設定を外し、project add と同じく、ないファイル（include/<名前>/<名前>.h・
+    src/<名前>.cpp）と、実行ファイルからなら組のテスト用Project <名前>Test を作ります（あるものは上書きしません）。実行ファイルにすると、入口は main
+    になり、src/main.cpp がなければ置きます。ほかのProjectがリンクしているライブラリ・main は、実行ファイルにできません。
     """
     project = optional_argument(projects, project, "--project", json)
 
@@ -54,8 +61,10 @@ def command(
                 raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{option} は on か off です。")
         if warning_level not in ("", "default", *map(str, range(5))):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--warning-level は 0〜4 か default です。")
+        if no_test and kind not in ("library", "shared"):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--no-test は --kind library・shared と使います。")
         return inv.module.set_project(
-            target_project(inv, project), types=split_list(type),
+            target_project(inv, project), kind=kind or None, test=not no_test, types=split_list(type),
             add_defines=split_list(add_define), remove_defines=split_list(remove_define),
             add_public_defines=split_list(add_public_define), remove_public_defines=split_list(remove_public_define),
             add_include_directories=split_list(add_include), remove_include_directories=split_list(remove_include),

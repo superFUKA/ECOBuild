@@ -2,7 +2,6 @@ from typing import Annotated
 
 from ecobuild_cli._module import Module
 from ..._output import run_command
-from .lock import lock_text
 
 
 def command(
@@ -51,12 +50,9 @@ def _line(e) -> str:
             "moved": f"GitHubで名前が {e.moved_to} に変わっています（中で ecobuild sync を実行すると合わせます）",
             "gone": "GitHubにありません（削除されたか、見る権限がありません）",
             "unknown": "GitHubの状態を確かめられませんでした"}.get(e.remote)
-    locked = lock_text(e.lock)
-    text += (f"\n  {locked}" if locked else "") + (f"\n  {note}" if note else "")
+    text += f"\n  {note}" if note else ""
     for w in getattr(e, "workspaces", ()):
         state = (f"確認中 PR #{w.review}" if w.review is not None else w.branch or "ブランチなし") + \
             (f"＝タスク #{w.task}" if w.task is not None else "")
         text += f"\n  作業空間 {w.name}：{w.path}（{state}" + (f"・{w.account}" if w.account else "") + "）"
-        if lock_text(w.lock):
-            text += f"\n    {lock_text(w.lock)}"
     return text

@@ -93,14 +93,6 @@ get('account-button')?.addEventListener('click', async () => {
 });
 loadAccount();
 
-// The lock (workspace lock): shown on the button; a click shows the reasons, 手動ロック, and (deep inside) the emergency unlock.
-function renderLock() {
-  const lock = ECO.lockOf(WS.status), button = get('lock-button'); if (!button) return;
-  button.classList.toggle('on', lock.locked);
-  get('lock-label').textContent = lock.locked ? 'ロック中' : 'ロック';
-  button.dataset.tip = lock.locked ? `作業空間がロックされています：${ECO.lockSummary(lock)}` : 'ロックされていません';
-}
-get('lock-button')?.addEventListener('click', async () => { await WS.refresh(); if (await ECO.lockDialog(WS.dir, WS.status)) await WS.refresh(); });
 
 function renderHeader() {
   const s = WS.status;
@@ -109,7 +101,6 @@ function renderHeader() {
   get('branch-name').textContent = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.branch || '（ブランチなし）';
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
-  renderLock();
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
 }
 
@@ -148,7 +139,6 @@ function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
-    if (ECO.lockOf(s).locked) out.push(banner(`この作業空間はロックされています（${esc(ECO.lockSummary(ECO.lockOf(s)))}）。ロック中は、タスクブランチの切り替え・削除ができません。<button data-git="lock">ロックの詳細…</button>`));
     if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
     else if (!s.task) out.push(banner(`タスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。コミットはタスクブランチで。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
@@ -490,9 +480,7 @@ async function gitAction(action) {
   switch (action) {
     case 'stage': return WS.run(['task', 'add', ...sel], {success: sel.length + '件をステージしました。'});
     case 'approve': case 'reject': return WS.judge?.(action === 'approve', WS.status.reviewing_task);
-    case 'lock': return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
-    case 'clean-finished': if (ECO.whyLocked(WS.status)) return ECO.lockDialog(WS.dir, WS.status).then(changed => changed && WS.refresh());
-      return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.workspace_removed ? `作業空間 ${r.workspace_removed} を消しました。` : r.workspace_kept ? `作業空間を残しました（${r.workspace_kept}）。` : '')});
+    case 'clean-finished': return WS.run(['task', 'prune', String(WS.status.task)], {success: r => '片付けました。' + (r.workspace_removed ? `作業空間 ${r.workspace_removed} を消しました。` : r.workspace_kept ? `作業空間を残しました（${r.workspace_kept}）。` : '')});
     case 'stage-all': return WS.run(['task', 'add', '--all'], {success: 'すべての変更をステージしました。'});
     case 'unstage': {
       const staged = sel.filter(p => WS.status.staged.includes(p));

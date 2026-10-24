@@ -19,7 +19,7 @@ class ErrorCode(_ErrorCode):
 
 
 # 同じ操作をあとでやり直せば通りうるもの（ネットワーク・GitHub の一時的な失敗、使用中、CIの待ち）
-RETRYABLE = frozenset({"github_error", "workspace_locked", "in_use", "checks_pending", "no_ci_run"})
+RETRYABLE = frozenset({"github_error", "workspace_in_use", "in_use", "checks_pending", "no_ci_run"})
 
 # 誤りを出したところがヒントを付けなかったときの、種類ごとの既定のヒント
 HINTS = {

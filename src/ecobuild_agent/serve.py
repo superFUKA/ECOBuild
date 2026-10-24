@@ -460,7 +460,7 @@ class Serve:
         number = int(child.task.get("number") or 0)
         try:
             self._stop_agent(child, progress)
-            children.stop_container(child.root, progress)   # 動いたままだとロックになり、finish・閉じるが作業空間を残す
+            children.stop_container(child.root, progress)   # 動いたままだと WSL・メモリーを使い続ける
             kept = children.archive(child)
             progress(f"#{number}（{child.name}）を取り込みます…")
             finished = plain(module.finish(number))
@@ -509,7 +509,7 @@ class Serve:
         kept = children.archive(record)
         result = None
         if own:
-            children.stop_container(record.root, progress)   # 動いたままだとロックになり閉じられない
+            children.stop_container(record.root, progress)   # 動いたままだと WSL・メモリーを使い続ける
             progress(f"「{record.name}」の作業空間を閉じています…")
             module = self._module(record.root)
             try:
@@ -521,7 +521,7 @@ class Serve:
                                     hint=_KEEP_HINT.format(root=record.root), details=error.details) from error
         children.forget(record)
         if not own and not any(self._agent_running(other) for other in agents.in_workspace(record.root)):
-            # 作業空間の最後のエージェントを閉じた：コンテナを止める（動いたままだとロックになり、finish が作業空間を残す）
+            # 作業空間の最後のエージェントを閉じた：コンテナを止める（動いたままだと WSL・メモリーを使い続ける）
             children.stop_container(record.root, progress)
         return {"id": record.id, "name": record.name, "path": record.workspace, "workspace": result, "archive": kept}
 
@@ -595,8 +595,7 @@ class Serve:
 
     def _wake(self, agent: app.Agent) -> None:
         """前の係が持っていたものを、続きから起こす（返答の途中で止まっていたら続けさせる）。親に知らせる。
-        タスクが閉じていれば起こさず、持つのをやめる（閉じ忘れた子が起き上がり、コンテナが動いて作業空間が
-        ロックされ続けないように）。"""
+        タスクが閉じていれば起こさず、持つのをやめる（閉じ忘れた子が起き上がり、コンテナが動き続けないように）。"""
         interrupted = bool(agent.state.get("ended_working"))
         if self._task_closed(agent.root):
             self.apps.stop(agent.agent_id, 0)

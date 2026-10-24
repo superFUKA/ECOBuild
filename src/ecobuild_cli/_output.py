@@ -24,7 +24,7 @@ import click
 
 from ecowork import WorkError
 
-from ecobuild import locks as _locks
+from ecobuild import usage as _usage
 from ecobuild_container import INSIDE as _IN_CONTAINER
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
@@ -49,7 +49,7 @@ class Invocation:
         self.cwd = Path.cwd() if cwd is None else cwd
         self._module: Module | None = None
         self.command = ""                 # 実行中のコマンドの名前（execute が決める）
-        self.holds = ExitStack()          # コマンドの間だけ持つもの（作業空間のロック）
+        self.holds = ExitStack()          # コマンドの間だけ持つもの（作業空間の使用中の記録）
         self.notices: list[str] = []      # モジュールのない操作（workspace list 等）の知らせ
 
     @property
@@ -70,13 +70,13 @@ class Invocation:
         self._hold_workspace()
 
     def _hold_workspace(self) -> None:
-        """ビルド・テスト等の実行中は、その作業空間をロックする（その間に作業空間が消えたり切り替わったりしないように。
-        locks.COMMANDS）。コンテナの中では書かない：渡したこのPCの CLI がロックしている（_inside）。中の pid はこのPCでは
+        """ビルド・テスト等の実行中は、その作業空間を使用中にする（その間に作業空間を消したり切り替えたりしないように。
+        usage.COMMANDS）。コンテナの中では書かない：渡したこのPCの CLI が書いている（_inside）。中の pid はこのPCでは
         確かめられず、書き直すとこのPCの記録を「終わった」とみなして消してしまう。"""
         if os.environ.get(_IN_CONTAINER):
             return
-        if self._module is not None and self.command in _locks.COMMANDS:
-            self.holds.enter_context(_locks.running(self._module.root, self.command))
+        if self._module is not None and self.command in _usage.COMMANDS:
+            self.holds.enter_context(_usage.running(self._module.root, self.command))
 
     def confirm(self, prompt: str) -> None:
         """確認が必要な操作。端末でない場合や--json時は質問せず、--yesがなければ失敗する。"""

@@ -237,7 +237,7 @@ class TaskManagement:
         branch = self._task_branch_of(number)
         local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
         if local or remote:
-            self._guard_removal(branch, "タスクを閉じること", switching=False)   # ロック中のほかの作業空間が作業している
+            self._guard_removal(branch, "タスクを閉じること", switching=False)   # 使用中のほかの作業空間が取り出している
             base = self.git.get_config(wm.base_key(branch)) or self.default_base
             opened = [p.number for p in self.github.pull_requests_for_branch(self.root, branch) if p.state == "open"]
             lost = self._lost_commits(branch, base, local=local, remote=remote)

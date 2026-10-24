@@ -85,9 +85,7 @@ READ_ONLY = {
 REGISTRY_READ = {"list", "show"}
 # 待つ間、同じ場所のほかの操作を止めないもの（オペレーターへの発言 gui ask：自分ではファイルを変えず、見るだけのコマンドと
 # GUI の操作を、このサーバーを通して行う。待たせると止まる。終わったら覚えた結果は古くする）
-# workspace lock／unlock：ビルド等が動いていても付ける・外せる（待たせない。ロックの理由に「コマンド実行中」があるので）。
-# 変える操作なので、終わったら覚えた結果（workspace list の lock 等）は古くする。
-UNLOCKED = {("gui", "ask"), ("workspace", "lock"), ("workspace", "unlock")}
+UNLOCKED = {("gui", "ask")}
 FETCHING = {("status",)}   # --fetch を付けると取得する（status --fetch は、名前が変わった origin も合わせる）
 
 

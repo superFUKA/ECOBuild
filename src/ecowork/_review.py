@@ -66,9 +66,9 @@ class Reviewing:
             raise WorkError(ErrorCode.DIRTY_WORKING_TREE, f"確認中に変更したファイルがあります（{place}）。",
                             hint=f"{self._op('restore')} で戻してから実行してください。")
         here = _git.same_path(place, self.root)
-        reasons = self.hooks.switch_locks(self) if here else []
+        reasons = self.hooks.in_use(self) if here else []
         if reasons:
-            raise self._locked_error("確認を終えること（確認用の作業空間を消す）", reasons)
+            raise self._in_use_error("確認を終えること（確認用の作業空間を消す）", reasons)
         sha = git.output("rev-parse", "HEAD")
         main = self.git.common_root()
         # 変えたファイルはない（確かめた）。管理の外のファイル（ビルドの出力等）があっても消す
@@ -250,8 +250,8 @@ class Reviewing:
     def _release_or_refuse(self, branch: str, action: str) -> wm.Released:
         """タスクブランチを取り出している作業ツリーから外す（_release_branch）。外せなければ止める。"""
         released = self._release_branch(branch, action=action)
-        if released.locks:
-            raise self._locked_error(action, list(released.locks))
+        if released.in_use:
+            raise self._in_use_error(action, list(released.in_use))
         if not released.released:
             raise WorkError(ErrorCode.BRANCH_CHECKED_OUT, f"{branch} を消せません（{released.kept}）。",
                             hint="取り出している作業ツリーを片付けてから、もう一度実行してください。", details=released.kept)
@@ -310,8 +310,8 @@ class Reviewing:
             released = None
             if reason is None:
                 released = self._release_branch(branch, action="タスクブランチを片付けること", dry_run=dry_run)
-                if released.locks and only is not None:
-                    raise self._locked_error("タスクブランチを片付けること", list(released.locks))
+                if released.in_use and only is not None:
+                    raise self._in_use_error("タスクブランチを片付けること", list(released.in_use))
                 if not released.released:
                     reason = released.kept
             if reason is not None:

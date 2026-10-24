@@ -264,7 +264,7 @@ class Completion:
     def _clean_finished(self, branch: str) -> tuple[bool, wm.Released]:
         """完了したタスクの手元のタスクブランチを片付ける：取り出している作業空間を消してから、ブランチを消す
         （元の clone 等がその場で取り出していれば、作成元へ移って最新にする）。失われるコミットがある・作業空間が
-        使用中（ロック中）・未コミットの変更があるなら残して知らせる。(消したか, 作業空間の扱い) を返す。"""
+        使用中・未コミットの変更があるなら残して知らせる。(消したか, 作業空間の扱い) を返す。"""
         if not self.git.has_local_branch(branch):
             return False, wm.Released(False)
         reason = self._unsafe_to_remove(branch)
@@ -358,7 +358,7 @@ class Completion:
         fetch の後に呼ぶ。失われるコミットがあれば残す（task prune と同じ）。
         """
         try:
-            self.git.forget_missing_worktrees()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（ロック中のものも）
+            self.git.forget_missing_worktrees()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（git の worktree lock のものも）
         except WorkError:
             pass
         current = self.git.current_branch()
@@ -375,7 +375,7 @@ class Completion:
                     continue
             except WorkError:
                 continue
-            if branch in checked_out or self.hooks.branch_locks(self, branch):   # ほかの作業空間が使っている：残す（次の機会に片付く）
+            if branch in checked_out or self.hooks.branch_in_use(self, branch):   # ほかの作業空間が使っている：残す（次の機会に片付く）
                 kept.append(branch)
                 continue
             self.git.delete_branch(branch, force=True)
@@ -385,7 +385,7 @@ class Completion:
             self.notices.append(f"完了したタスクの手元のタスクブランチを片付けました：{', '.join(removed)}")
         if kept:
             self.notices.append(f"完了したタスクの手元のタスクブランチ {', '.join(kept)} は、ほかの作業空間が使用中"
-                                "（取り出し中・ロック中）のため残しました。")
+                                "（取り出し中・作業中）のため残しました。")
         return tuple(removed)
 
     def task_diff(self, number: int | None = None) -> str:

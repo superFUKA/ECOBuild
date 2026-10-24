@@ -21,7 +21,7 @@ from . import github as _github
 from . import hooks as _hooks
 from . import model as wm
 from .errors import ErrorCode, WorkError, operation
-from ._lock import Locking
+from ._in_use import InUse
 from ._tasks import TaskManagement
 from ._review import Reviewing
 from ._history import History
@@ -69,13 +69,13 @@ class Hooks:
         resolvable が True のときだけ呼ぶ。"""
         return False
 
-    def switch_locks(self, repository: "Repository") -> list[str]:
-        """この作業空間（repository の場所）のロックの理由（日本語の文。なければ空）。使用中の作業空間を、
-        その場の切り替えと、消すことから守る口。"""
+    def in_use(self, repository: "Repository") -> list[str]:
+        """この作業空間（repository の場所）を使っているもの（日本語の文。なければ空）。使用中の作業空間を、
+        その場の切り替えと、消すことから守る口（その操作の直前に確かめる）。"""
         return []
 
-    def branch_locks(self, repository: "Repository", branch: str) -> list[str]:
-        """タスクブランチ branch を消すのを止める理由：それを取り出している、ロック中のほかの作業空間（場所を添えた文。
+    def branch_in_use(self, repository: "Repository", branch: str) -> list[str]:
+        """タスクブランチ branch を消すのを止める理由：それを取り出している、使用中のほかの作業空間（場所を添えた文。
         この作業空間は含めない。なければ空）。"""
         return []
 
@@ -84,13 +84,13 @@ class Hooks:
 
         ecowork はその後に、元の clone でタスクブランチを消す。消せないわけは WorkError で知らせてもよい（ecowork は
         ブランチを残し、notices・workspace_kept で知らせる）。既定は git worktree remove。利用側（ecobuild）は、
-        ロック・コンテナ・記録の片付けと一緒に消す。
+        コンテナ・記録の片付けと一緒に消す。
         """
         _git.Git(repository.git.common_root()).worktree_remove(path, force=discard)
         return True
 
 
-class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
+class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Members, Permissions, Syncing):
     def __init__(
         self,
         root: Path | str,
@@ -627,10 +627,10 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 
         その場で切り替えるのは、元の clone（main の作業ツリー）と依存先の clone だけ：そこが取り出しているタスクブランチを
         消すとき（作成元へ移る）と、依存先の clone での task start。作業空間（linked worktree）では切り替えない。
-        この作業空間がロック中なら止める。"""
-        reasons = self.hooks.switch_locks(self)
+        この作業空間が使用中なら止める。"""
+        reasons = self.hooks.in_use(self)
         if reasons:
-            raise self._locked_error(f"{name} への切り替え", reasons)
+            raise self._in_use_error(f"{name} への切り替え", reasons)
         if self.git.has_local_branch(name):
             self.git.switch(name)
             remote = f"{_git.REMOTE}/{name}"
@@ -650,15 +650,15 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
           この Repository の場所なら、この Repository を元の clone へ移す（消した場所では git を動かせない）。
         - 元の clone（main の作業ツリー）が取り出している：それがこの Repository なら、その場で作成元へ切り替える
           （作業空間を持たない、前からの clone・依存先の clone と同じ道）。ほかの場所からは切り替えない（残す）。
-        ロック中・コミットしていない変更がある（作業空間は discard なら消す）なら残す。残したわけは Released.kept。
+        使用中・コミットしていない変更がある（作業空間は discard なら消す）なら残す。残したわけは Released.kept。
         dry_run：何もせず、行う内容（消える作業空間・移る先）だけを返す。
         """
         held = self.git.checked_out_branches().get(branch)
         here = held is not None and _git.same_path(held, self.root)
-        # ほかの作業空間のロックは、取り出していなくても見る（前からの、別の clone の作業空間）
-        locks = (self.hooks.switch_locks(self) if here else []) + self.hooks.branch_locks(self, branch)
-        if locks:
-            return wm.Released(False, kept=f"作業空間が使用中（ロック中）です（{'、'.join(locks)}）", locks=tuple(locks))
+        # ほかの作業空間が使用中かは、取り出していなくても見る（前からの、別の clone の作業空間）
+        in_use = (self.hooks.in_use(self) if here else []) + self.hooks.branch_in_use(self, branch)
+        if in_use:
+            return wm.Released(False, kept=f"作業空間が使用中です（{'、'.join(in_use)}）", in_use=tuple(in_use))
         if held is None:
             return wm.Released(True)
         tree = self._git_at(held).working_tree()
@@ -1018,9 +1018,9 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
         existing = self._existing_task_branch(task.number)
         here = existing is not None and self.git.current_branch() == existing
         if not here:   # 同じタスクブランチなら切り替わらない
-            reasons = self.hooks.switch_locks(self)
+            reasons = self.hooks.in_use(self)
             if reasons:
-                raise self._locked_error("タスクブランチを切り替え", reasons)
+                raise self._in_use_error("タスクブランチを切り替え", reasons)
             held = self.git.checked_out_branches().get(existing) if existing else None
             if held is not None:
                 raise WorkError(ErrorCode.BRANCH_CHECKED_OUT, f"{existing} は作業空間 {held} が取り出しています。",

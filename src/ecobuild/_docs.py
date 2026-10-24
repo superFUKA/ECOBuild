@@ -176,7 +176,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。だれの作業かはアカウントで分かります（コミットの署名は自動で消えます）。
 - 途中経過・申し送りは `ecobuild task comment --message "<内容>"` でIssueに残します（`ecobuild task status` で読めます）。`task start` すると担当者になります。ほかの人が担当しているタスクは `task start` が止まります（重ねて作業しないでください。引き継ぐと決めたときだけ `--take-over`）。
 - タスクブランチの本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task prune <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別の作業空間でも同じ）。
-- 作業空間はロック（使用中）されることがあります（エージェントが動いている間、build／test／run／check の実行中、`ecobuild workspace lock` したとき）。ロック中は、その作業空間を消す操作・そのタスクブランチを消す操作（task drop／prune／finish／close、workspace close 等）が `workspace_locked` で止まります。`ecobuild workspace unlock --force` は使いません。ロックで止まったら、ユーザーに伝えてください。
+- 作業空間を消す操作・そのタスクブランチを消す操作（task drop／prune／finish／close、workspace close 等）は、その作業空間が使用中（エージェントが動いている・build／test／run／check の実行中）なら `workspace_in_use` で止まります。止まったら、使っているものが終わるのを待つか、ユーザーに伝えてください。
 {workspace}
 - 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild sync continue`（直したファイルは自動で登録されます。やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。

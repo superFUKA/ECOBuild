@@ -611,31 +611,17 @@ def test_generated_files_are_marked(tmp_path):
     assert gui.list_files(str(root))["generated"] == ["Calc/CMakeLists.txt"]
 
 
-def test_workspace_lock_and_unlock_do_not_wait_and_make_the_cached_list_stale(tmp_path):
-    """workspace lock／unlock は、ビルド等が動いていても待たず、変える操作（workspace list の覚えた結果は古くなる）。
-    --force（非常用）も同じ扱い。lock の無い応答（古い CLI）はそのまま返る。"""
-    for args in (["workspace", "lock", "--reason", "x"], ["workspace", "unlock"], ["workspace", "unlock", "--force", "--yes"]):
-        assert gui._unlocked(args) and not gui._read_only(args) and not gui._cacheable(args)
-    assert gui._cacheable(["workspace", "list"]) and not gui._unlocked(["workspace", "list"])
-    reply = {"ok": True, "result": {"modules": [{"path": "C:/m", "exists": True, "workspaces": []}], "legacy": []}}   # lock の無い応答
-    script = f"import json; print(json.dumps({reply!r}))"
-    app = gui.App(gui.Cli([sys.executable, "-c", script]), gui.Store(tmp_path / "gui.json"), "t", 1)
-    assert app.api("query", {"args": ["workspace", "list"], "mode": "fresh"})["doc"]["result"]["modules"][0]["path"] == "C:/m"
-    assert not app.api("query", {"args": ["workspace", "list"], "mode": "cache"}).get("stale")
-    app.api("cli", {"args": ["workspace", "lock"]})
-    assert app.api("query", {"args": ["workspace", "list"], "mode": "cache"})["stale"]
-
-
-def test_the_screens_know_the_lock():
-    """ロックの表示・先に止める所・非常用の置き場所（画面のコードの約束）。"""
+def test_the_screens_have_no_lock_and_show_a_workspace_in_use():
+    """ロックはなくした（画面のコードの約束）：ロックのボタン・画面・印・workspace lock／unlock はなく、
+    消す操作が workspace_in_use で止まったら、使っているものを出す。"""
     static = Path(__file__).parent.parent / "static"
     read = lambda name: (static / name).read_text(encoding="utf-8")   # noqa: E731
-    common, ws, mod, tasks = read("common.js"), read("workspace.js"), read("module.js"), read("tasks.js")
-    assert "workspace_locked" in common and "['workspace', 'unlock', '--force', '--yes']" in common
-    for other in (ws, mod, tasks):
-        assert "--force" not in other                       # 非常用は奥（ロックの詳細）だけ
-    assert "ECO.whyLocked" in ws and "ECO.whyLocked" in mod
-    assert "ECO.lockOf" in mod and "'lock-button'" in ws
+    common, ws, mod, html = read("common.js"), read("workspace.js"), read("module.js"), read("workspace.html")
+    assert "workspace_in_use" in common and "workspace_locked" not in common
+    for code in (common, ws, mod, html):
+        assert "lockDialog" not in code and "lockOf" not in code and "lock-button" not in code
+        assert "'workspace', 'lock'" not in code and "'workspace', 'unlock'" not in code
+    assert ("workspace", "lock") not in gui.UNLOCKED and ("workspace", "unlock") not in gui.UNLOCKED
 
 
 def test_find_module_gives_the_module_clone(tmp_path):

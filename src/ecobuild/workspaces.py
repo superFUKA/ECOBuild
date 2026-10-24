@@ -24,12 +24,11 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from . import config as _config
-from . import locks as _locks
 from . import settings as _settings
 from .errors import EcoBuildError, ErrorCode
 from .fsutil import locked
@@ -207,7 +206,41 @@ def area(root: Path | str) -> Path:
 
 def exclude_area(root: Path | str) -> None:
     """作業空間の置き場所（/.ecobuild/w/）を git に見せない（共通の info/exclude に、なければ1度だけ書く）。"""
-    _locks.exclude(Path(root), f"/{AREA}/")
+    exclude(Path(root), f"/{AREA}/")
+
+
+def exclude(root: Path, *wanted: str) -> None:
+    """wanted の行を git の除外（共通の .git/info/exclude。作業空間どうしで共有）に足す（まだなければ）。"""
+    path = _git_common_directory(Path(root)) / "info" / "exclude"
+    if not path.parent.is_dir():
+        return
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        missing = [line for line in wanted if line not in text.splitlines()]
+        if missing:
+            path.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n",
+                               encoding="utf-8", newline="\n")
+    except OSError:
+        pass
+
+
+def _git_common_directory(root: Path) -> Path:
+    """root の git の置き場所（info/exclude がある所）。git worktree・サブモジュールでは .git がファイル（gitdir: …）で、
+    除外は本体の置き場所（commondir）にある。git を呼ばずにファイルから読む（頻繁に呼ばれるので軽く）。"""
+    dot = root / ".git"
+    if not dot.is_file():
+        return dot
+    try:
+        text = dot.read_text(encoding="utf-8").strip()
+        directory = Path(text.removeprefix("gitdir:").strip())
+        directory = directory if directory.is_absolute() else root / directory
+        common = directory / "commondir"
+        if common.is_file():
+            shared = Path(common.read_text(encoding="utf-8").strip())
+            return shared if shared.is_absolute() else directory / shared
+        return directory
+    except OSError:
+        return dot
 
 
 def record(root: Path) -> bool:
@@ -319,7 +352,7 @@ def github_name(url: str) -> str | None:
 
 
 def task_workspaces(root: Path) -> list["TaskWorkspace"]:
-    """元の clone root の作業空間（.ecobuild/w/ の git worktree。フォルダーがなくなったものは除く）。ロックは調べない。"""
+    """元の clone root の作業空間（.ecobuild/w/ の git worktree。フォルダーがなくなったものは除く）。"""
     from ecowork import model as wm
     from ecowork.git import Git
 
@@ -360,24 +393,18 @@ def _workspace_settings(path: Path) -> tuple[str | None, int | None]:
 
 def listing() -> "WorkspaceList":
     """このPCのモジュール（元の clone と、その中の作業空間）と、前の版の作業空間の今の様子。リポジトリ順（同じリポジトリでは
-    場所の順）。ロックの調べ（拡張の docker 等）は、まとめて1回。"""
+    場所の順）。"""
     from .results import WorkspaceList
     modules, legacy_items = _load()
     with ThreadPoolExecutor(max_workers=8) as pool:   # 場所ごとに git を呼ぶので並べる（順に待つと十数の場所で約2秒）
         found = list(pool.map(module_entry, [item.path for item in modules if not _in_home(item.path)]))
         old = list(pool.map(legacy_entry, [item.path for item in legacy_items]))
-    places = [e.path for e in found + old if e.exists] + [w.path for e in found for w in e.workspaces]
-    locks = dict(zip(map(key, places), _locks.status_of(places)))
-    found = [replace(e, lock=locks[key(e.path)],
-                     workspaces=tuple(replace(w, lock=locks[key(w.path)]) for w in e.workspaces)) if e.exists else e
-             for e in found]
-    old = [replace(e, lock=locks[key(e.path)]) if e.exists else e for e in old]
     order = lambda e: ((e.repository or e.url or "~").casefold(), key(e.path))   # noqa: E731
     return WorkspaceList(tuple(sorted(found, key=order)), tuple(sorted(old, key=order)))
 
 
 def module_entry(path: Path) -> "WorkspaceEntry":
-    """元の clone path の今の様子（中の作業空間も。ロックは調べない）。"""
+    """元の clone path の今の様子（中の作業空間も）。"""
     from ecowork import model as wm
 
     from .results import WorkspaceEntry

@@ -432,7 +432,7 @@ class Released:
     """タスクブランチを消す前に、取り出している作業ツリーから外した結果（Repository._release_branch）。"""
     released: bool                   # 消せる（どこも取り出していない）ようになった
     kept: str | None = None          # 外せなかったわけ（ブランチは残す）
-    locks: tuple[str, ...] = ()      # 外せなかったわけがロックなら、その理由
+    in_use: tuple[str, ...] = ()     # 外せなかったわけが使用中なら、使っているもの
     switched_to: str | None = None   # 元の clone・依存先の clone で、その場で移った作成元
     workspace_removed: Path | None = None   # 消した作業空間
 

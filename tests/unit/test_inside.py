@@ -34,15 +34,15 @@ def test_only_the_tool_commands_of_a_container_workspace(root, monkeypatch):
     assert _inside.route(["build"], False) is None
 
 
-def test_the_workspace_is_locked_while_a_command_runs_inside(root, monkeypatch):
-    """中で動いている間は、渡しているこのPCの CLI がロックする（作業空間が消されないように）。"""
-    from ecobuild import locks
+def test_the_workspace_is_in_use_while_a_command_runs_inside(root, monkeypatch):
+    """中で動いている間は、渡しているこのPCの CLI が使用中にする（作業空間が消されないように）。"""
+    from ecobuild import usage
     seen = []
-    monkeypatch.setattr(container, "run_inside", lambda r, args, **kw: seen.append(locks.status(r).reasons) or (0, ""))
+    monkeypatch.setattr(container, "run_inside", lambda r, args, **kw: seen.append(usage.reasons(r)) or (0, ""))
     config.save_local(root, {container.KEY: True})
     assert _inside.route(["build"], False) == 0
-    assert [(r.kind, "build" in r.text) for r in seen[0]] == [("command", True)]
-    assert not locks.status(root).locked                               # 終われば外れる
+    assert len(seen[0]) == 1 and "build" in seen[0][0]
+    assert usage.reasons(root) == []                                    # 終われば外れる
 
 
 def test_json_paths_are_read_back_as_this_pc(root, monkeypatch, capsys):

@@ -18,13 +18,11 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime
 from pathlib import Path
 
 import ecoagent
 import ecobuild_container as container
 from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ  # noqa: F401（コマンドの重さ。CLI の _effects が使う）
-from ecobuild import locks
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
@@ -53,23 +51,19 @@ CONFIG_KEYS = {
 }
 
 
-def lock_source(roots) -> list[list]:
-    """作業空間のロックの理由（ecobuild.locks.add_source）：その作業空間でエージェントが1人でも動いている間
+def in_use_source(roots) -> list[list[str]]:
+    """作業空間を使っているもの（ecobuild.usage.add_source）：その作業空間で動いているエージェント
     （agent start の3つの形・係が持つもの。エージェントごとの running.json の pid が生きている間）。"""
-    found: list[list] = [[] for _ in roots]
+    found: list[list[str]] = [[] for _ in roots]
     for index, root in enumerate(roots):
         for record in agents.in_workspace(root):
             folder = status.directory(record.id)
             pid = status.running_pid(folder) if folder is not None else None
             if pid is None:
                 continue
-            data = status.read(folder / status.RUNNING)
-            at = data.get("at") if isinstance(data, dict) and isinstance(data.get("at"), (int, float)) else None
             held = status.running_mode(folder) == status.APP
-            since = datetime.fromtimestamp(at).astimezone().isoformat(timespec="seconds") if at else None
             who = f"エージェント「{record.name}」（{record.id}）"
-            text = (f"{who}を係が持っています" if held else f"この作業空間で{who}が動いています") + f"（pid {pid}）"
-            found[index].append((locks.Reason(locks.AGENT, text, since, pid), f"agent:{record.id}:{pid}:{at}"))
+            found[index].append((f"{who}を係が持っています" if held else f"この作業空間で{who}が動いています") + f"（pid {pid}）")
     return found
 
 
@@ -318,12 +312,10 @@ class AgentModule:
                                  "続けるか、別のエージェントを起動してください。")
 
     def before_close_workspace(self, path) -> list[str]:
-        """作業空間 path を閉じられないわけ（本体の口に足す）：動いているエージェント、閉じていない子タスクの持ち主。"""
+        """作業空間 path を閉じられないわけ（本体の口に足す）：閉じていない子タスクの持ち主（動いているエージェントは、
+        本体が ecobuild.usage〔in_use_source〕で確かめる）。"""
         found = list(super().before_close_workspace(path)) if hasattr(super(), "before_close_workspace") else []
         for record in agents.in_workspace(Path(path)):
-            folder = status.directory(record.id)
-            if folder is not None and status.running_pid(folder) is not None:
-                found.append(f"エージェント「{record.name}」（{record.id}）が動いています")
             open_tasks = [child for child in agents.children(record.id) if child.kind == agents.OWNER and child.task
                           and not _same(child.workspace, record.workspace)]
             if open_tasks:

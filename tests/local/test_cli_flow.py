@@ -41,7 +41,7 @@ def start(cli, *args) -> Path:
 def test_every_command_has_help():
     runner = CliRunner()
     for args in (["module", "new"], ["module", "clone"], ["module", "types"], ["module", "list"], ["module", "show"],
-                 ["workspace", "list"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"], ["workspace", "lock"], ["workspace", "unlock"],
+                 ["workspace", "list"], ["workspace", "add"], ["workspace", "forget"], ["workspace", "close"],
                  ["container", "status"], ["container", "on"], ["container", "off"], ["container", "start"],
                  ["container", "stop"], ["container", "remove"], ["container", "dockerfile"],
                  ["module", "archive"], ["module", "unarchive"], ["module", "delete"], ["deps", "tree"], ["deps", "add"],

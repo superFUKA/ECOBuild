@@ -12,7 +12,8 @@ ECOBuild は役を既定として持たない。起動するエージェント�
 起動したエージェントに効くのは、作成元のブランチに取り込まれた登録（in_force）。エージェントは自分の作業空間の
 ファイル（タスクブランチ）を書き換えられるので、作業空間の登録を使うと、自分の渡すツールを広げられてしまう。作成元の
 名前は元の clone（作業空間のエージェントからは見えない）の ecobuild.toml から読み、GitHub の写し origin/<作成元>
-（なければ手元の作成元）の中身を使う。
+（なければ手元の作成元）の中身を使う。ただし人が起動できるか（human_start）だけは作業ツリーの値ですぐ効く（人が選べる
+役を決めるだけで、渡すツールは広げない。起動したエージェントの文書・ツール・子は作成元のもの）。
 
 渡すツールの範囲（tools）が、そのエージェントにできることになる（エージェントはツールを通してしか ECOBuild を使えない）。
 起動してよい子（children）には、自分より強い登録（自分に許されないツールを許すもの）を入れられない。
@@ -198,9 +199,14 @@ def load_preset(name: str) -> Registration:
 
 def list_registrations(root: Path | str, *, in_force: bool = False) -> list[Registration]:
     """モジュールで使える登録の全部（名前の順）：見本と、モジュールの登録（同じ名前ならこちら）。
-    in_force：作成元に取り込まれたもの（起動・ツールの確かめはこちら）。偽なら作業ツリーのもの（見る・直す）。"""
-    found = _all(_samples(), _module(root, in_force))
-    return [found[name] for name in sorted(found)]
+    in_force：作成元に取り込まれたもの（起動・ツールの確かめはこちら）。偽なら作業ツリーのもの（見る・直す）。
+    人が起動できるか（human_start）は、どちらも作業ツリーの値（モジュールの「エージェント」で変えたらすぐ選べる）。"""
+    here = _all(_samples(), _module(root, False))
+    if not in_force:
+        return [here[name] for name in sorted(here)]
+    found = _all(_samples(), _module(root, True))
+    return [replace(found[name], human_start=here[name].human_start) if name in here else found[name]
+            for name in sorted(found)]
 
 
 def load(name: str, root: Path | str, *, in_force: bool = False) -> Registration:
@@ -218,9 +224,10 @@ def effective(name: str, workspace: Path | str) -> Registration:
 
 
 def pending(root: Path | str) -> set[str]:
-    """作業ツリーの登録のうち、作成元に取り込まれたものと違う名前（まだ起動するエージェントに効いていない）。"""
-    here = {r.name: replace(r, folder="") for r in list_registrations(root)}
-    force = {r.name: replace(r, folder="") for r in list_registrations(root, in_force=True)}
+    """作業ツリーの登録のうち、作成元に取り込まれたものと中身が違う名前（まだ起動するエージェントに効いていない。
+    見本をモジュールの登録に写しただけ・人が起動できるかだけの違いは、もう効いている）。"""
+    here = {r.name: replace(r, folder="", source="") for r in list_registrations(root)}
+    force = {r.name: replace(r, folder="", source="") for r in list_registrations(root, in_force=True)}
     return {name for name in {*here, *force} if here.get(name) != force.get(name)}
 
 

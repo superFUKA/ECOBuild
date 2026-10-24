@@ -223,7 +223,7 @@ python3 -m venv .venv
         return self.run_program(options, _python.split_arguments(arguments))
 
     def run_program(self, options: PythonOptions, arguments: list[str], *, stream: bool = False,
-                    stdin: str | None = None, echo: bool = False, on_start=None) -> "PythonRunResult":
+                    stdin: str | None = None, echo=False, on_start=None) -> "PythonRunResult":
         """分けた引数で実行する（ecobuild run が使う。stream・stdin・echo・on_start は _python.run_script のとおり）。"""
         script = _python.script_name(self.root)
         if script is None:

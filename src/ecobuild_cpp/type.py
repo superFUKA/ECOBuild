@@ -315,6 +315,12 @@ jobs:
             **selected.options, cmake=tools.get("cmake"), ctest=tools.get("ctest"), command=self.module.command,
             projects=tuple((name, _cppbuild.ProjectOptions(**values)) for name, values in selected.projects.items()))
 
+    @staticmethod
+    def program_output(write, *, tools: bool = True):
+        """この中の build・test・run 等で動かすツール・プログラムの出力を、1行ずつ write に渡す（with で使う。
+        結果・誤りの output は今までどおり全部入る）。tools：CMake・CTest の出力も（偽なら実行するプログラムだけ）。"""
+        return _cppbuild.program_output(write, tools=tools)
+
     def build(self, project: str | None, options: _cppbuild.BuildOptions, action: str) -> BuildResult:
         outcome = _cppbuild.build(self.root, project=project, options=options, action=action)
         return BuildResult(project, options.configuration, tuple(Path(a).as_posix() for a in outcome.artifacts),

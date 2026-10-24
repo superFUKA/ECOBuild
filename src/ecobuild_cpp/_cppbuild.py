@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import shlex
+import subprocess
+import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import resources
@@ -12,6 +16,9 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
                       ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
+from cppbuild import engine as _engine
+from cppbuild import logs as _logs
+from cppbuild import tooling as _tooling
 from cppbuild import workspace as _workspace
 
 from ecobuild.config import DIRECTORY
@@ -313,6 +320,51 @@ def run(root: Path, *, project: str | None, options: BuildOptions, arguments: st
         raise EcoBuildError(ErrorCode.RUN_FAILED, f"{name} が終了コード {program.returncode} で終了しました。",
                             details={"returncode": program.returncode, "output": program.output})
     return outcome
+
+
+
+@contextmanager
+def program_output(write: Callable[[str], None], *, tools: bool = True) -> Iterator[None]:
+    """この中で CppBuild が動かす子プロセスの出力を、1行ずつ write に渡す（改行なし。結果の output は今までどおり全部）。
+    tools：CMake・CTest（構成・ビルド・テスト）の出力も渡す。偽なら、実行するプログラムの出力だけ。
+
+    CppBuild には出力を逐次受け取る口がない（子プロセスはどれも cppbuild.engine.process で、終わるまでためる）ので、
+    その間だけ、同じ形の結果（ProcessReport）を返す、読みながら渡すものに替える。CMake・CTest は cppbuild.tooling.process
+    を通るので、それで分ける。CppBuild に口ができたら、それに替える。
+    """
+    original, original_tool, lock, inside_tool = _engine.process, _tooling.process, threading.Lock(), threading.local()
+
+    def tool(*args, **kwargs):
+        inside_tool.on = True
+        try:
+            return original_tool(*args, **kwargs)
+        finally:
+            inside_tool.on = False
+
+    def process(command, cwd, env=None):
+        if not tools and getattr(inside_tool, "on", False):
+            return original(command, cwd, env)
+        command = tuple(str(arg) for arg in command)
+        with _logs.command(command, cwd, env) as finished:
+            child = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=False,
+                                     env=dict(os.environ) if env is None else env)
+            data = []
+            with child.stdout:
+                for line in child.stdout:
+                    data.append(line)
+                    with lock:   # 並べて動かす実行（run_parallel）の行が混ざらないように
+                        for text in _engine.decode_output(line).rstrip("\n").split("\n"):
+                            write(text)
+            returncode = child.wait()
+            output = _engine.decode_output(b"".join(data))
+            finished(returncode, output)
+        return _engine.ProcessReport(command, returncode, output)
+
+    _engine.process, _tooling.process = process, tool
+    try:
+        yield
+    finally:
+        _engine.process, _tooling.process = original, original_tool
 
 
 @dataclass(frozen=True)

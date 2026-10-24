@@ -144,7 +144,8 @@ const ECO = (() => {
   }
 
   const label = args => args.filter(a => a !== '--yes').slice(0, 4).join(' ');
-  // onProgress(lines): while it runs, the lines ecobuild reports (what it is doing now), read every moment.
+  // onProgress(lines): while it runs, the lines ecobuild reports (what it is doing now, and the output of the tools and
+  // programs it runs, marked │), read every moment (the last ones, when there are many).
   async function cli(dir, args, {stdin, quiet = false, onProgress} = {}) {
     let row, poll;
     if (!quiet) { row = document.createElement('div'); row.innerHTML = `<span class="eco-spinner"></span><span>実行中</span><code>ecobuild ${esc(label(args))}</code>`; running.append(row); }
@@ -153,8 +154,8 @@ const ECO = (() => {
       let seen = 0;
       poll = setInterval(async () => {
         try {
-          const {lines} = await call('progress', {id: progress});
-          if (lines.length > seen) { seen = lines.length; onProgress(lines); }
+          const {lines, count = lines.length} = await call('progress', {id: progress});
+          if (count > seen) { seen = count; onProgress(lines); }
         } catch (e) { /* the next time */ }
       }, 400);
     }

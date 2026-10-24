@@ -2,7 +2,7 @@ import signal
 from typing import Annotated
 
 from ecobuild.errors import EcoBuildError
-from ecobuild_cli.kit import run_command, usage_error
+from ecobuild_cli.kit import ProgramOutput, run_command, usage_error
 from ecobuild_python import _python
 
 AGENT = "change"
@@ -23,7 +23,8 @@ def command(
     """pyproject.toml の [project.scripts] のコマンドを、venv で実行します。
 
     出力はためずにそのまま流し、標準入力も渡します（対話型・Web サーバー等）。--json では出力を分けてためて
-    result に入れ、実行中は標準エラーにも流します。Ctrl+C・SIGTERM で止めると、プログラムも止めます。
+    result に入れ、実行中は標準エラーにも流します（行の頭に「│ 」を付けて）。Ctrl+C・SIGTERM で止めると、
+    プログラムも止めます。
     """
     if arguments and argv:
         return usage_error("--arguments と -- の後ろの引数は、どちらか1つにしてください。", json)
@@ -37,7 +38,8 @@ def command(
         values = list(argv) if argv else _python.split_arguments(arguments)
         source = str(inv.cwd / input_file) if input_file else "inherit" if stdin or not json else None
         try:
-            result = module.type.run_program(options, values, stream=not json, stdin=source, echo=json,
+            result = module.type.run_program(options, values, stream=not json, stdin=source,
+                                             echo=ProgramOutput(True) if json else False,
                                              on_start=lambda shown, pid: inv.info(f"実行中（PID {pid}）：{shown}"))
         except EcoBuildError as error:
             details = error.details if isinstance(error.details, dict) else {}

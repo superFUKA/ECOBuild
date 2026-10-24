@@ -426,7 +426,8 @@ def test_run_command_line(monkeypatch, tmp_path):
 
     class Type:
         def run_program(self, options, arguments, **kw):
-            calls.append((arguments, kw["stream"], kw["stdin"], kw["echo"]))
+            echo = kw["echo"] if isinstance(kw["echo"], bool) else type(kw["echo"]).__name__   # --json：ProgramOutput
+            calls.append((arguments, kw["stream"], kw["stdin"], echo))
             if arguments == ["fail"]:
                 raise EcoBuildError(ErrorCode.RUN_FAILED, "失敗", details={"returncode": 3})
             return type("R", (), {"returncode": 0, "output": ""})()
@@ -446,7 +447,7 @@ def test_run_command_line(monkeypatch, tmp_path):
             return 1
     monkeypatch.setattr(run_cli, "run_command", fake_run_command)
     assert run_cli.command("--port", "80") == 0 and calls[-1] == (["--port", "80"], True, "inherit", False)
-    assert run_cli.command(arguments='x "y z"', json=True) == 0 and calls[-1] == (["x", "y z"], False, None, True)
+    assert run_cli.command(arguments='x "y z"', json=True) == 0 and calls[-1] == (["x", "y z"], False, None, "ProgramOutput")
     run_cli.command("a", json=True, stdin=True)
     assert calls[-1][2] == "inherit"
     run_cli.command("a", input_file="in.txt")

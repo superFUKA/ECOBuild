@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import build_like, optional_argument
 
+from ._stream import tool_output
+
 AGENT = "change"
 
 
@@ -14,4 +16,5 @@ def command(
 ) -> int:
     """ビルドの成果物を消します（中間ファイルの置き場所 build/ は残ります）。"""
     project = optional_argument(projects, project, "--project", json)
-    return build_like("clean", project, configuration, profile, json)
+    with tool_output(json):
+        return build_like("clean", project, configuration, profile, json)

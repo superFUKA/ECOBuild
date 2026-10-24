@@ -370,15 +370,36 @@ class Git:
 
     def forget_missing_worktrees(self) -> list[Path]:
         """フォルダーがなくなった作業空間（元の clone 以外）の記録を、ロック中でも片付ける（作業空間はいつもロック付きで
-        作るので、フォルダーを手で消すと git worktree prune では消えない）。片付けた場所を返す。"""
+        作るので、フォルダーを手で消すと git worktree prune では消えない）。片付けた場所を返す。
+
+        元の clone の作業ツリーが見えないとき（コンテナ等に、共有の .git と自分の作業空間だけを付けた環境）は、ほかの
+        作業空間も見えないだけなので、何もしない（sees_main_worktree）。"""
         missing = [tree.path for tree in self.worktrees() if not tree.main and not tree.path.is_dir()]
-        if not missing:
+        if not missing or not self.sees_main_worktree():
             return []
         main = Git(self.common_root(), command=self.command)   # 今の場所が消えた作業空間のこともあるので、元の clone で
         for path in missing:
             main.run("worktree", "unlock", str(path), check=False)
         main.run("worktree", "prune", check=False)
         return missing
+
+    def sees_main_worktree(self) -> bool:
+        """元の clone の作業ツリーが、今の環境から見えるか：元の clone で取り出している一番上の項目（HEAD）のどれかがある。
+        今の場所を含むもの（付けた作業空間の上のフォルダーは、中身がなくても作られる）は数えない。見えなければ、この環境は
+        リポジトリの一部（共有の .git と自分の作業空間）だけを付けたもの。調べられない（HEAD がない等）ときも、見えないとする
+        （分からなければ、ほかの作業空間の記録に触らない）。"""
+        main = self.common_root()
+        if not main.is_dir():
+            return False
+        listed = Git(main, command=self.command).run("ls-tree", "--name-only", "-z", "HEAD", check=False)
+        if not listed.ok:
+            return False
+        here = Path(self.root).resolve()
+        for name in listed.stdout.split("\0"):
+            place = main / name
+            if name and (place.exists() or place.is_symlink()) and not here.is_relative_to(place.resolve()):
+                return True
+        return False
 
     # 記録 ----------------------------------------------------------------
 

@@ -346,7 +346,8 @@ const ECO = (() => {
   // with the error (the values entered stay).
   // Layout of the fields: the ones with the same `row` sit side by side; {type: 'section', label} starts a group under a
   // heading ({collapsed: true}: folded until opened, for what is seldom set; {end: true} ends it); `showIf: values => bool` shows a field only
-  // when it applies; a radio with `inline` lays its choices side by side.
+  // when it applies; a radio with `inline` lays its choices side by side; a text field with `multiple` has a ＋ that adds
+  // another box (× removes it) and its value is the list of what was typed in the boxes (empty ones left out).
   // Choices that take time to read (GitHub) do not hold the dialog back: `more: Promise<[[value, label]]>` on a select,
   // checks or text field (its suggestions) adds them to the open dialog when they arrive.
   const LAYOUT = new Set(['html', 'section']);
@@ -365,9 +366,14 @@ const ECO = (() => {
         if (f.type === 'radio') return `<fieldset${f.inline ? ' class="eco-inline"' : ''}><legend>${esc(f.label)}</legend>${f.options.map(([v, l, note, off]) => `<label><input type="radio" name="${esc(f.name)}" value="${esc(v)}" ${String(v) === String(f.value) && !off ? 'checked' : ''}${off ? ' disabled' : ''}><span><strong>${esc(l)}</strong>${note ? `<small>${esc(note)}</small>` : ''}</span></label>`).join('')}</fieldset>${help}`;
         if (f.type === 'select') return `<label class="eco-field">${title}<select ${attrs}>${f.options.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(f.value ?? '') ? 'selected' : ''}>${esc(l ?? v)}</option>`).join('')}</select>${help}</label>`;
         if (f.type === 'textarea') return `<label class="eco-field">${title}<textarea ${attrs} rows="${f.rows || 4}">${esc(f.value ?? '')}</textarea>${help}</label>`;
+        if (f.multiple) return `<div class="eco-field">${title}<div class="eco-multi">${multiItem(f, true)}</div>${help}</div>`;
         const list = f.suggestions?.length ? `<datalist id="${id}-list">${f.suggestions.map(([v, l]) => `<option value="${esc(v)}"${l ? ` label="${esc(l)}"` : ''}></option>`).join('')}</datalist>` : '';
         return `<label class="eco-field">${title}<input id="${id}" type="${f.type || 'text'}" ${attrs} ${list ? `list="${id}-list"` : ''} value="${esc(f.value ?? '')}" autocomplete="off">${list}${help}</label>`;
       };
+      // A box of a `multiple` field: the first has the ＋, the added ones a ×.
+      const multiItem = (f, first) => `<div class="eco-multi-item"><input type="text" name="${esc(f.name)}" ${first && f.required ? 'required' : ''} ${f.placeholder ? `placeholder="${esc(f.placeholder)}"` : ''} value="${first ? esc(f.value ?? '') : ''}" autocomplete="off" aria-label="${esc(f.label)}">${first
+        ? `<button type="button" data-multi-add title="${esc(f.label)}の欄を足す" aria-label="${esc(f.label)}の欄を足す">＋</button>`
+        : `<button type="button" data-multi-remove title="この欄を消す" aria-label="この欄を消す">×</button>`}</div>`;
       const wrap = f => f.type === 'html' ? f.html : `<div class="eco-f" data-field="${esc(f.name)}">${fieldHtml(f)}</div>`;
       let html = '', closing = '';
       for (let i = 0; i < fields.length;) {
@@ -398,6 +404,7 @@ const ECO = (() => {
           if (f.type === 'checkbox') values[f.name] = formEl.elements[f.name].checked;
           else if (f.type === 'checks') values[f.name] = [...formEl.querySelectorAll(`[name="${f.name}"]:checked`)].map(x => x.value);
           else if (f.type === 'radio') values[f.name] = formEl.querySelector(`[name="${f.name}"]:checked`)?.value ?? '';
+          else if (f.multiple) values[f.name] = [...formEl.querySelectorAll(`[name="${f.name}"]`)].map(x => x.value.trim()).filter(Boolean);
           else values[f.name] = formEl.elements[f.name].value.trim();
         }
         return values;
@@ -437,6 +444,20 @@ const ECO = (() => {
           }
         }, () => box?.classList.remove('eco-more'));
       }
+      for (const f of fields.filter(f => f.multiple)) {
+        const list = formEl.querySelector(`.eco-f[data-field="${CSS.escape(f.name)}"] .eco-multi`);
+        list?.addEventListener('click', event => {
+          const button = event.target.closest('button'); if (!button) return;
+          if (button.matches('[data-multi-add]')) {
+            list.insertAdjacentHTML('beforeend', multiItem(f, false));
+            list.lastElementChild.querySelector('input').focus();
+          } else if (button.matches('[data-multi-remove]')) {
+            const item = button.closest('.eco-multi-item'), next = item.nextElementSibling || item.previousElementSibling;
+            item.remove(); next?.querySelector('input')?.focus();
+          } else return;
+          formEl.dispatchEvent(new Event('input'));   // the preview etc. follow the boxes
+        });
+      }
       if (conditional.length) { formEl.addEventListener('input', applyConditions); formEl.addEventListener('change', applyConditions); applyConditions(); }
       if (onChange) { const changed = () => onChange(readValues(), formEl); formEl.addEventListener('input', changed); formEl.addEventListener('change', changed); changed(); }
       formEl.addEventListener('keydown', event => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); formEl.requestSubmit(); } });
@@ -462,7 +483,7 @@ const ECO = (() => {
       d.addEventListener('close', () => { if (working || d.open) return; d.remove(); resolve(result); });
       document.body.append(d); d.showModal();
       const first = fields.find(f => f.focus);   // {focus: true}: the field to type in first (otherwise the first one)
-      (first ? formEl.elements[first.name] : formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select'))?.focus();
+      (first ? formEl.querySelector(`[name="${CSS.escape(first.name)}"]`) : formEl.querySelector('input:not([type=checkbox]):not([type=radio]), textarea, select'))?.focus();
       d.formEl = formEl;
     });
   }

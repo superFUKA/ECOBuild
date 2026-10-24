@@ -475,7 +475,8 @@ async function addFile(relatives, withTest = true, template = '') {
   return '';
 }
 
-// New file: where (the folder, in a Project), what (a header and a source / a source / a header / any file) and the name.
+// New file: where (the folder, in a Project), what (a header and a source / a source / a header / any file) and the names
+// (the ＋ by the name adds a box: the files of every name are made with the same settings, in one ecobuild file add).
 // The files to make are shown as they are typed. A pair goes in the folder (src/ is for the implementation: its headers sit
 // beside the sources); with 「分ける」 (off by default) the header goes in the folder and the source in the chosen folder,
 // by default src/ at the same place as the header below include/<Project>/ (a public header and its implementation);
@@ -552,7 +553,7 @@ async function newFileDialog(dir = activeDirectory) {
   const folder = options.some(([v]) => v === dir) ? dir : near ?? options[0]?.[0] ?? '';
   return ECO.form({title: '新しいファイル', busy: 'ファイルを作成しています…（生成ファイルも更新します）', ok: '作成', fields: [
     {name: 'folder', label: '場所', type: 'select', value: folder, options, row: 'where'},
-    {name: 'name', label: '名前', required: true, row: 'where', focus: true, placeholder: cpp ? '例：Parser（拡張子なし）' : '例：notes.md'},
+    {name: 'name', label: '名前', required: true, multiple: true, row: 'where', focus: true, placeholder: cpp ? '例：Parser（拡張子なし）' : '例：notes.md'},
     ...(cpp ? [{name: 'kind', label: '種類', type: 'radio', inline: true, value: 'pair', options: [
       ['pair', 'ヘッダーとソース', `${HEADER} と ${SOURCE}`], ['source', 'ソース', SOURCE], ['header', 'ヘッダー', HEADER], ['other', 'その他', '拡張子も入力'],
       ...(templates.length ? [['template', 'テンプレートから', '拡張子も入力']] : [])]}] : []),
@@ -565,14 +566,26 @@ async function newFileDialog(dir = activeDirectory) {
     ...(pythonTests ? [{name: 'test', label: 'src/<パッケージ>/ のソースなら、tests/ にテストも作成する', type: 'checkbox', value: true}] : []),
     {name: 'preview', type: 'html', html: '<p class="eco-help new-file-preview"></p>'}],
     onChange: (v, formEl) => {
-      const plan = newFilePlan(cpp ? v : {...v, kind: 'other'}), box = formEl.querySelector('.new-file-preview');
+      const plan = newFilesPlan(cpp ? v : {...v, kind: 'other'}), box = formEl.querySelector('.new-file-preview');
       box.textContent = plan.error ?? '作成するファイル：' + plan.paths.join('、');
     },
     submit: v => {
-      const plan = newFilePlan(cpp ? v : {...v, kind: 'other'});
+      const plan = newFilesPlan(cpp ? v : {...v, kind: 'other'});
       if (plan.error !== undefined) return plan.error || '名前を入力してください。';
       return addFile(plan.paths, cpp || pythonTests ? v.test : true, cpp && v.kind === 'template' ? v.template : '');
     }});
+}
+// The files of all the names (the same settings for each); the first problem, naming the name when there are several.
+function newFilesPlan(v) {
+  const paths = [];
+  for (const name of v.name) {
+    const plan = newFilePlan({...v, name});
+    if (plan.error !== undefined) return {error: plan.error && v.name.length > 1 ? `${name}：${plan.error}` : plan.error};
+    paths.push(...plan.paths);
+  }
+  if (!paths.length) return {error: ''};
+  const twice = paths.find((path, i) => paths.indexOf(path) !== i);
+  return twice ? {error: `${twice} を2回作ろうとしています。名前が重なっていないか確かめてください。`} : {paths};
 }
 
 // Inline input in the tree for a new file / folder or a new name.

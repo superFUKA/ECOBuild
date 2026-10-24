@@ -228,7 +228,18 @@ def test_cli_reports_progress_while_it_runs(tmp_path):
     assert app.api("progress", {"id": "p1"})["lines"] == ["作成中…"] and not done
     worker.join()
     assert done["ok"] and "push中…" in done["stderr"]
-    assert app.api("progress", {"id": "p1"}) == {"lines": []}      # 終わったら片付ける
+    assert app.api("progress", {"id": "p1"}) == {"lines": [], "count": 0}      # 終わったら片付ける
+
+
+def test_cli_keeps_the_program_output_apart(tmp_path):
+    """ツール・プログラムの出力の行（頭が「│ 」）は、経過では字下げ・空の行もそのまま。結果では stderr と分けて
+    tool_output（印を除く）に入れる。"""
+    script = ("import json, sys; print('ビルド中', file=sys.stderr); print('│   indented', file=sys.stderr); "
+              "print('│', file=sys.stderr); print('│ last', file=sys.stderr); print(json.dumps({'ok': True, 'result': 1}))")
+    lines = []
+    document = gui.Cli([sys.executable, "-c", script]).run(str(tmp_path), ["build"], progress=lines)
+    assert lines == ["ビルド中", "│   indented", "│", "│ last"]
+    assert document["stderr"].strip() == "ビルド中" and document["tool_output"].splitlines() == ["  indented", "", "last"]
 
 
 def test_api_requires_the_token_and_the_local_host(tmp_path):

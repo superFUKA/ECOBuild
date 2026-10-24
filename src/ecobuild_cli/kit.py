@@ -8,7 +8,11 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
 from pathlib import Path
+
+from ecobuild.errors import EcoBuildError
 
 from ._output import (
     Invocation, build_like, lines, missing, optional_argument, run_command, split_list, split_numbers,
@@ -16,10 +20,45 @@ from ._output import (
 )
 
 __all__ = [
-    "Invocation", "add_files", "build_like", "lines", "missing", "move_file", "optional_argument", "remove_files",
-    "render_profiles", "run_command", "run_like", "split_list", "split_numbers", "split_semicolons", "test_like",
-    "usage_error",
+    "PROGRAM_MARK", "Invocation", "ProgramOutput", "add_files", "build_like", "lines", "missing", "move_file",
+    "optional_argument", "remove_files", "render_profiles", "run_command", "run_like", "split_list", "split_numbers",
+    "split_semicolons", "test_like", "usage_error",
 ]
+
+# 標準エラーの行のうち、ビルド・テスト・実行で動かしたツール・プログラムの出力の行の頭。ecobuild の経過の行と分ける
+# （GUI はこれで見分けて、出力の行として出す）。端末で見ても、出力の行の左の罫線に見えるだけ
+PROGRAM_MARK = "│ "
+
+
+class ProgramOutput:
+    """ツール・プログラムの出力を流す口（呼ぶたびに文字列。部分的な行〔入力の催促〕もすぐ流す）。
+
+    --json では標準エラーへ、行の頭に PROGRAM_MARK を付けて（標準出力は最後の JSON だけ。出力の全部は今までどおり
+    result・error.details に入る）。人向けには標準出力へそのまま。いくつかのスレッド（stdout・stderr）から呼んでよい。
+    """
+
+    def __init__(self, json_output: bool):
+        self.json_output = json_output
+        self._lock = threading.Lock()
+        self._start = True    # 次の文字が行の頭か
+
+    def __call__(self, text: str) -> None:
+        text = text.replace("\r\n", "\n")
+        if not text:
+            return
+        with self._lock:
+            stream = sys.stderr if self.json_output else sys.stdout
+            if self.json_output:
+                for piece in text.splitlines(keepends=True):
+                    stream.write((PROGRAM_MARK if self._start else "") + piece)
+                    self._start = piece.endswith(("\n", "\r"))
+            else:
+                stream.write(text)
+            stream.flush()
+
+    def line(self, text: str) -> None:
+        """1行（改行なし）。"""
+        self(text + "\n")
 
 
 def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str,
@@ -53,15 +92,25 @@ def _from_root(cwd: Path, root: Path, test: str) -> str:
     return path + sep + rest
 
 
-def run_like(project: str, configuration: str, profile: str, arguments: str, json_output: bool) -> int:
-    """run の共通の入口（プログラムの出力は人向けにはそのまま、--json では result.output）。"""
+def run_like(project: str, configuration: str, profile: str, arguments: str, json_output: bool, *,
+             streamed: bool = False) -> int:
+    """run の共通の入口（プログラムの出力は人向けにはそのまま、--json では result.output）。
+
+    streamed：プログラムの出力を実行中に流している（ProgramOutput）。人向けには終わってからもう一度は出さない。"""
 
     def action(inv):
         module = inv.module
         target = project or module.executable_at(inv.cwd)
-        return module.run(project=target, configuration=configuration, profile=profile or None, arguments=arguments)
+        try:
+            return module.run(project=target, configuration=configuration, profile=profile or None,
+                              arguments=arguments)
+        except EcoBuildError as error:
+            if streamed and not json_output and isinstance(error.details, dict) and "output" in error.details:
+                error.details["output"] = "（出力は上に流しました）"
+            raise
 
-    return run_command("run", action, lambda r: r.output, json_output=json_output)
+    return run_command("run", action, (lambda r: None) if streamed and not json_output else lambda r: r.output,
+                       json_output=json_output)
 
 
 def add_files(paths: tuple[str, ...], test: bool, template: str, json_output: bool) -> int:

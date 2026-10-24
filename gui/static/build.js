@@ -91,8 +91,11 @@ WS.onRefresh(renderPrDetail);
     WS.footer.reveal(OUTPUT_PANEL); publish();
     return run;
   }
-  function finish(run, state, lines, stderr) {
-    Object.assign(run, {state, ended: Date.now(), lines: [...toolLines(stderr).filter(l => l.text.trim()).map(l => ({...l, kind: l.kind || 'muted'})), ...lines]});
+  // The lines at the end: ecobuild's progress, the output of the tools and programs it ran (shown while it ran; output:
+  // when the result does not have it already, as a build's or a passing test's), then the result.
+  function finish(run, state, lines, stderr, output = '') {
+    const ran = output.trim() ? [...toolLines(output), {text: '', kind: ''}] : [];
+    Object.assign(run, {state, ended: Date.now(), lines: [...toolLines(stderr).filter(l => l.text.trim()).map(l => ({...l, kind: l.kind || 'muted'})), ...ran, ...lines]});
     WS.footer.reveal(OUTPUT_PANEL); publish();
   }
   function resultLines(action, r) {
@@ -123,10 +126,10 @@ WS.onRefresh(renderPrDetail);
     busy = false; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = false; });
     if (!doc.ok) {
       const e = doc.error, detail = ECO.detailText(e.details);
-      finish(run, 'bad', [{text: e.message, kind: 'bad', head: true}, ...(e.hint ? [{text: e.hint, kind: '', head: true}] : []), ...(detail ? [{text: '', kind: ''}, ...toolLines(detail)] : [])], doc.stderr);
+      finish(run, 'bad', [{text: e.message, kind: 'bad', head: true}, ...(e.hint ? [{text: e.hint, kind: '', head: true}] : []), ...(detail ? [{text: '', kind: ''}, ...toolLines(detail)] : [])], doc.stderr, detail ? '' : doc.tool_output || '');
     } else {
       const r = doc.result, failed = (action === 'test' && r.failed) || (action === 'run' && r.returncode) || (action === 'check' && r.items.some(i => !i.ok));
-      finish(run, failed ? 'bad' : 'ok', resultLines(action, r), doc.stderr);
+      finish(run, failed ? 'bad' : 'ok', resultLines(action, r), doc.stderr, action === 'run' ? '' : doc.tool_output || '');
     }
     if (['build', 'rebuild', 'clean', 'check'].includes(action)) WS.refresh();
   }

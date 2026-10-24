@@ -48,6 +48,15 @@ def test_run_captures_output(module):
     assert "args=2" in result.output
 
 
+def test_run_streams_output(module):
+    """program_output の中では、実行するプログラムの出力を終わる前から1行ずつ渡す（tools=False ならビルドの行は渡さない）。
+    結果の output は今までどおり全部。"""
+    lines = []
+    with module.type.program_output(lines.append, tools=False):
+        result = module.run(arguments="x")
+    assert lines == ["args=1"] and "args=1" in result.output
+
+
 def test_build_error_output_is_readable(module):
     """コンパイラ・MSBuildの出力（日本語環境ではメッセージも日本語）が文字化けしない（CppBuild 2bbbfb5）。"""
     path = module.root / "Calc/src/Calc.cpp"

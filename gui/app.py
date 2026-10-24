@@ -58,6 +58,9 @@ def server_is_stale() -> bool:
 STALE_MESSAGE = ("GUIが更新されました。GUIを起動し直すと新しい版に切り替わります（このウィンドウは閉じてください）。")
 IDLE_SECONDS = int(os.environ.get("ECOBUILD_GUI_IDLE") or 180)  # 画面から連絡がこの秒数なければ、裏で動くサーバーは終わる（画面は20秒ごとに連絡する）
 STATIC = Path(__file__).with_name("static")
+PROGRAM_MARK = "│ "   # ecobuild の標準エラーの、ツール・プログラムの出力の行の頭（CLI の ecobuild_cli.kit.PROGRAM_MARK と同じ）
+PROGRESS_LINES = 5000   # 実行中の経過として画面に渡す行の数（終わりから）
+OUTPUT_CHARS = 1_000_000   # 結果に付ける、ツール・プログラムの出力（tool_output）の文字の数（終わりから）
 sys.path.insert(0, str(Path(__file__).parent))
 import actions as gui_actions  # noqa: E402（GUIの操作の一覧。ecobuild_gui.py も使う）
 MODULE_FILE = Path(".ecobuild") / "ecobuild.toml"   # モジュールの印（ECOBuildの共有の設定）
@@ -350,7 +353,8 @@ class Cli:
 
     def run(self, directory: str | None, args: list[str], stdin: str | None = None,
             progress: list[str] | None = None) -> dict:
-        """progress：渡せば、実行中に標準エラーの行（ecobuild の経過）をここに足していく（画面が読みに来る）。"""
+        """progress：渡せば、実行中に標準エラーの行（ecobuild の経過と、ツール・プログラムの出力）をここに足していく（画面が読みに来る）。
+        結果の stderr は ecobuild の経過・誤りの行、tool_output はツール・プログラムの出力（印を除く）。"""
         if not args or not all(isinstance(a, str) for a in args):
             raise GuiError("コマンドの指定が正しくありません。")
         if directory and not Path(directory).is_dir():
@@ -377,13 +381,17 @@ class Cli:
                                   "message": "ecobuild の結果を読み取れませんでした。",
                                   "hint": None, "details": (completed.stdout + completed.stderr)[-20000:]}}
         document["exit_code"] = completed.returncode
-        document["stderr"] = completed.stderr[-20000:]
+        own, output = _split_stderr(completed.stderr)
+        document["stderr"] = own[-20000:]
+        document["tool_output"] = output[-OUTPUT_CHARS:]
         document["argv"] = ["ecobuild"] + (["-C", directory] if directory else []) + args + ["--json"]
         return document
 
 
 def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list[str]) -> subprocess.CompletedProcess:
-    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。"""
+    """subprocess.run と同じ結果を返す。標準エラーは読んだ行から lines に足す。
+
+    ビルド・実行したツール・プログラムの出力の行（頭が PROGRAM_MARK）は、字下げと空の行もそのまま（画面が出力として出す）。"""
     process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                encoding="utf-8", errors="replace", env=env, cwd=cwd, **_no_window())
     errors: list[str] = []
@@ -391,7 +399,9 @@ def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list
     def read_errors() -> None:
         for line in process.stderr:
             errors.append(line)
-            if line.strip():
+            if line.startswith(PROGRAM_MARK.rstrip()):
+                lines.append(line.rstrip("\r\n"))
+            elif line.strip():
                 lines.append(line.strip())
 
     reader = threading.Thread(target=read_errors, daemon=True)
@@ -406,6 +416,17 @@ def _run_streaming(argv: list[str], stdin: str, env: dict, cwd: str, lines: list
     process.wait()
     reader.join()
     return subprocess.CompletedProcess(argv, process.returncode, stdout, "".join(errors))
+
+
+def _split_stderr(text: str) -> tuple[str, str]:
+    """ecobuild の標準エラーを、ecobuild の経過・誤りの行と、ツール・プログラムの出力（頭の PROGRAM_MARK を除く）に分ける。"""
+    own, output = [], []
+    for line in text.splitlines(keepends=True):
+        if line.startswith(PROGRAM_MARK.rstrip()):
+            output.append(line[len(PROGRAM_MARK):] if line.startswith(PROGRAM_MARK) else line[len(PROGRAM_MARK.rstrip()):])
+        else:
+            own.append(line)
+    return "".join(own), "".join(output)
 
 
 def _last_json(text: str) -> dict | None:
@@ -1135,7 +1156,9 @@ class App:
                 done = list(pool.map(lambda q: self.cache.fetch(self.cli, d("dir") or None, q)["doc"].get("ok", False), queries))
             return {"read": sum(done), "of": len(queries)}
         if name == "progress":
-            return {"lines": list(self.progress.get(str(d("id") or ""), []))}
+            # 経過には実行したプログラムの出力の行も入るので、終わりの PROGRESS_LINES 行だけ（count：今までの行の数）
+            lines = list(self.progress.get(str(d("id") or ""), []))
+            return {"lines": lines[-PROGRESS_LINES:], "count": len(lines)}
         if name == "ping":
             return {"version": VERSION, "stale": STALE_MESSAGE if server_is_stale() else "", "pid": os.getpid()}
         if name == "shutdown":

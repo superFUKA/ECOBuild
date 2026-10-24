@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import optional_argument, test_like
 
+from ._stream import tool_output
+
 AGENT = "change"
 
 
@@ -14,5 +16,6 @@ def command(
 ) -> int:
     """テストします。"""
     project = optional_argument(projects, project, "--project", json)
-    return test_like(project, configuration, profile, json,
-                     empty="テスト用のProjectがありません（project add <名前> --kind library で、ライブラリとテスト用を作れます）")
+    with tool_output(json):
+        return test_like(project, configuration, profile, json,
+                         empty="テスト用のProjectがありません（project add <名前> --kind library で、ライブラリとテスト用を作れます）")

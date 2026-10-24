@@ -334,12 +334,13 @@ STOP_WAIT = 10.0    # 止めたあと、プログラムが終わるのを待つ�
 
 
 def run_script(root: Path, name: str, arguments: list[str], *, stream: bool = False, stdin: str | None = None,
-               echo: bool = False, on_start=None) -> subprocess.CompletedProcess:
+               echo=False, on_start=None) -> subprocess.CompletedProcess:
     """[project.scripts] のコマンドを .venv で実行する。終了コードが 0 でなければ RUN_FAILED（details に returncode・
     stdout・stderr）。止められたら（SIGINT・SIGTERM）プログラムも止めて RUN_INTERRUPTED（途中までの出力つき）。
 
     stream：出力を受け継いでそのまま流す（人向け。ためない。結果の stdout・stderr は空）。偽なら stdout・stderr を
-    分けてためる（echo なら、ためながら標準エラーにも流す：--json で標準出力は JSON だけにする）。
+    分けてためる（echo なら、ためながら標準エラーにも流す：--json で標準出力は JSON だけにする。呼べるもの〔文字列を
+    受ける〕なら、標準エラーの代わりにそれに渡す）。
     stdin：None は渡さない（空）・"inherit" は受け継ぐ（対話型のプログラム）・ほかはそのファイルを渡す。
     on_start：起こした直後に (コマンドの表示, PID) で呼ぶ。
     """
@@ -448,9 +449,10 @@ def _signal_program(process: subprocess.Popen, own_group: bool, number: int | No
 
 
 class _Reader(threading.Thread):
-    """プログラムの出力を読みながらためる（echo なら標準エラーにも流す）。部分的な行（入力の催促）もすぐ流す。"""
+    """プログラムの出力を読みながらためる（echo なら標準エラーにも流す。呼べるものなら、それに渡す）。部分的な行
+    （入力の催促）もすぐ流す。"""
 
-    def __init__(self, stream, echo: bool):
+    def __init__(self, stream, echo):
         super().__init__(daemon=True)
         self.stream, self.echo, self.parts = stream, echo, []
         self.start()
@@ -460,7 +462,9 @@ class _Reader(threading.Thread):
         while chunk := self.stream.read1(65536) if hasattr(self.stream, "read1") else self.stream.read(65536):
             text = decoder.decode(chunk)
             self.parts.append(text)
-            if self.echo and text:
+            if callable(self.echo) and text:
+                self.echo(text)
+            elif self.echo and text:
                 sys.stderr.write(text)
                 sys.stderr.flush()
         self.parts.append(decoder.decode(b"", final=True))

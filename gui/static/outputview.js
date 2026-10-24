@@ -11,6 +11,14 @@ const OUTPUT = (() => {
   const kindOf = line => /^\s*(Build (FAILED|succeeded)\.?|\d+ (Warning|Error)\(s\)|\d+ 個の(警告|エラー))\s*$|\b0 (errors?|warnings?)\b/i.test(line) ? 'muted'
     : /\b(fatal )?error\b|\bFAILED\b|エラー|^Traceback |^E {3}/i.test(line) ? 'bad' : /\bwarning\b|警告/i.test(line) ? 'warn' : '';
   const toolLines = (output, kind = null) => String(output || '').replace(/\r/g, '').replace(/\n+$/, '').split('\n').map(t => ({text: t, kind: kind ?? kindOf(t)}));
+  // The lines ecobuild reports while it runs: its own progress (muted), and the output of the tools and programs it runs
+  // (a line beginning with │, as the CLI marks them on its stderr: shown without the mark, colored as a tool's line).
+  const PROGRAM = /^│ ?/;
+  const progressLines = lines => (lines || []).map(t => {
+    if (!PROGRAM.test(t)) return {text: t, kind: 'muted'};
+    const text = t.replace(PROGRAM, '');
+    return {text, kind: kindOf(text)};
+  });
   // A file and line in a compiler's or Python's message: C:\…\a.cpp(12,5)・src/a.cpp:12:5・File "…\a.py", line 12.
   const SOURCE = 'c|cc|cpp|cxx|c\\+\\+|h|hh|hpp|hxx|inl|ixx|ipp|py|pyi|cmake|txt|toml|json|cs|rs|js|ts';
   const FILE_AT = new RegExp(`File "([^"]+)", line (\\d+)|((?:[A-Za-z]:)?[\\w.\\-\\\\/]*\\.(?:${SOURCE}))(?:\\((\\d+)(?:,\\d+)?\\)|:(\\d+)(?::\\d+)?)`, 'gi');
@@ -60,7 +68,7 @@ const OUTPUT = (() => {
       $('.out-state').hidden = false; $('.out-state').textContent = stateText(run.state);
       $('.out-state').className = 'build-state out-state ' + run.state;
       $('.out-time').textContent = seconds(run);
-      const lines = [{text: run.command, kind: 'muted'}, ...(run.state === 'run' ? (run.progress || []).map(t => ({text: t, kind: 'muted'})) : run.lines)];
+      const lines = [{text: run.command, kind: 'muted'}, ...(run.state === 'run' ? progressLines(run.progress) : run.lines)];
       const errors = lines.filter(l => l.kind === 'bad' && !l.head).length, warnings = lines.filter(l => l.kind === 'warn' && !l.head).length;
       $('.out-counts').innerHTML = (errors ? `<span class="bad">エラー ${errors}</span>` : '') + (warnings ? `<span class="warn">警告 ${warnings}</span>` : '');
       $('.out-counts').hidden = !errors && !warnings;

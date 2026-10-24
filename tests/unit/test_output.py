@@ -88,3 +88,39 @@ def test_local_time_shows_this_pc_time():
     assert local_time("2026-10-12T08:30:00+09:00") == here.strftime("%Y-%m-%d")      # 同じ時刻
     assert local_time("2026-10-11T23:30:00Z", "%Y-%m-%d %H:%M") == here.strftime("%Y-%m-%d %H:%M")
     assert local_time("読めない日時の文字列") == "読めない日時の文字列"
+
+
+def test_program_output_marks_lines_on_stderr_for_json(capsys):
+    """--json：ツール・プログラムの出力は標準エラーへ、行の頭に PROGRAM_MARK（部分的な行は続きに付けない）。"""
+    from ecobuild_cli.kit import PROGRAM_MARK, ProgramOutput
+    output = ProgramOutput(True)
+    output("a\r\nb")          # 行の途中で切れた
+    output("c\n\n")
+    output.line("  d")
+    shown = capsys.readouterr()
+    assert shown.out == "" and shown.err == "".join(PROGRAM_MARK + t for t in ("a\n", "bc\n", "\n", "  d\n"))
+    ProgramOutput(False)("as is\n")       # 人向けは標準出力へそのまま
+    assert capsys.readouterr().out == "as is\n"
+
+
+def test_cpp_program_output_streams_child_lines(tmp_path):
+    """C++ の型：CppBuild の子プロセスの出力を、1行ずつ渡す（結果の ProcessReport は今までと同じ）。tools=False なら
+    CMake・CTest（cppbuild.tooling.process を通るもの）の行は渡さない。抜けたら元に戻す。"""
+    import sys
+    from cppbuild import engine, tooling
+    from ecobuild_cpp import _cppbuild
+    original, original_tool = engine.process, tooling.process
+    command = [sys.executable, "-c", "print('one'); print('two')"]
+    lines = []
+    with _cppbuild.program_output(lines.append):
+        report = engine.process(command, tmp_path)
+    assert lines == ["one", "two"] and (report.returncode, report.output) == (0, "one\ntwo\n")
+    assert (engine.process, tooling.process) == (original, original_tool)
+    tooling.process, lines[:] = (lambda settings, args, cwd: engine.process(args, cwd)), []
+    try:
+        with _cppbuild.program_output(lines.append, tools=False):
+            tooling.process(None, command, tmp_path)       # CMake・CTest の代わり
+            engine.process(command, tmp_path)              # 実行するプログラム
+    finally:
+        tooling.process = original_tool
+    assert lines == ["one", "two"]

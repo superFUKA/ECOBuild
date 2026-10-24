@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from ecobuild_cli.kit import optional_argument, run_like
+from ecobuild_cli.kit import ProgramOutput, optional_argument, run_like
+from ecobuild_cpp import CppType
 
 AGENT = "change"
 
@@ -13,6 +14,11 @@ def command(
     arguments: Annotated[str, "プログラムへ渡す引数（1つの文字列）"] = "",
     json: Annotated[bool, "結果をJSONで出力する（プログラムの出力はresult.outputに入る）"] = False,
 ) -> int:
-    """実行ファイルのProjectを実行します。"""
+    """実行ファイルのProjectを実行します。
+
+    プログラムの出力は、実行中に流します（--json では標準エラーへ。その前のビルドの出力も、行の頭に「│ 」を付けて）。
+    """
     project = optional_argument(projects, project, "--project", json)
-    return run_like(project, configuration, profile, arguments, json)
+    # 人向けの標準出力はプログラムの出力だけ（ビルドの出力は、今までどおり失敗したときに誤りの詳細で）
+    with CppType.program_output(ProgramOutput(json).line, tools=json):
+        return run_like(project, configuration, profile, arguments, json, streamed=True)

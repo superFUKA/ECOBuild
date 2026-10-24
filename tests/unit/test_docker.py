@@ -132,6 +132,19 @@ def test_probe_stops_a_command_that_does_not_answer(monkeypatch):
     assert not done.ok and done.timed_out and "応答がありません" in done.output
 
 
+def test_probe_stops_the_children_too(monkeypatch, tmp_path):
+    """打ち切るときは子ごと止める（wsl.exe は中にもう1つ wsl.exe を起こし、外側だけ止めると残って WSL を止まらなくする）。"""
+    import sys
+    from ecobuild.fsutil import process_alive
+    monkeypatch.undo()
+    monkeypatch.setattr(docker, "PROBE_SECONDS", 2)
+    found = tmp_path / "child.pid"
+    script = ("import subprocess, sys, time; child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+              f"open(r'{found}', 'w').write(str(child.pid)); time.sleep(60)")
+    assert docker.probe([sys.executable, "-c", script]).timed_out
+    assert not process_alive(int(found.read_text()))
+
+
 def test_status_tells_that_wsl_does_not_answer(monkeypatch):
     machine = Machine(monkeypatch, package=True, wsl=True, distro=True)
     stuck = lambda args: (docker.Completed(tuple(args), 1, "応答がありません", True) if args[:2] == ["wsl", "-d"]

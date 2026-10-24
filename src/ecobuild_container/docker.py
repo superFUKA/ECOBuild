@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ecobuild.errors import operation
+from ecobuild.fsutil import kill_tree
 from ecobuild.results import DoctorItem
 
 DISTRO = "ECOBuild"          # Windows：Docker Engine を入れる WSL のディストリビューションの名前
@@ -64,15 +65,23 @@ class DockerSetup:
 
 def run(args: list[str], timeout: float | None = None) -> Completed:
     """実行して出力を取り込む。wsl.exe は UTF-16 で出すことがあるので、NUL を含めば UTF-16 として読む。
-    timeout（秒）を過ぎたら止めて、失敗（timed_out）とする。"""
+    timeout（秒）を過ぎたら子ごと止めて、失敗（timed_out）とする（wsl.exe は中にもう1つ wsl.exe を起こし、外側だけ
+    止めると残って WSL を止まらなくする）。"""
     try:
-        process = subprocess.run(args, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
-                                 env={**os.environ, "WSL_UTF8": "1"})
-    except subprocess.TimeoutExpired:
-        return Completed(tuple(args), 1, f"{timeout:g} 秒たっても応答がありません", True)
+        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                   env={**os.environ, "WSL_UTF8": "1"})
     except OSError as error:
         return Completed(tuple(args), 1, str(error))
-    return Completed(tuple(args), process.returncode, _decode(process.stdout + process.stderr))
+    try:
+        output, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        kill_tree(process.pid)
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        return Completed(tuple(args), 1, f"{timeout:g} 秒たっても応答がありません", True)
+    return Completed(tuple(args), process.returncode, _decode(output))
 
 
 _RUN = run                   # 本物の run（status が時間制限付きの probe に置き換えるもの）

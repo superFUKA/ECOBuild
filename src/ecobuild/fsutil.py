@@ -80,3 +80,18 @@ def process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def kill_tree(pid: int) -> None:
+    """プロセス pid を、その子ごと止める。Windows では親を止めても子は残る（wsl.exe は中にもう1つ wsl.exe を、
+    ecobuild.exe は python を起こす）ので、taskkill /T で木ごと。ほかの OS では pid だけ（子は親と一緒に止まる前提）。"""
+    import signal
+    import subprocess
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, stdin=subprocess.DEVNULL,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass

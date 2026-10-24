@@ -1038,7 +1038,8 @@ function setup({ecobuild, python, group, module}) {
     if (serveProc) {
       const proc = serveProc;
       try { proc.stdin.end(); } catch (e) { /* 終わっている */ }
-      setTimeout(() => { try { if (proc.exitCode === null) proc.kill(); } catch (e) { /* 終わっている */ } }, SERVE_STOP_MS).unref();
+      // 待っても終わらなければ子ごと止める（ecobuild.exe だけを止めると、python・wsl.exe・コンテナへの exec が残り、WSL が止まらない）
+      setTimeout(() => team.kill(proc), SERVE_STOP_MS).unref();
     }
     for (const s of sessions) if (!s.exited) try { s.proc?.kill(); } catch (e) { /* 終わっている */ }
   });

@@ -242,6 +242,28 @@ def test_cli_keeps_the_program_output_apart(tmp_path):
     assert document["stderr"].strip() == "ビルド中" and document["tool_output"].splitlines() == ["  indented", "", "last"]
 
 
+def test_server_end_stops_the_reads_but_not_the_changes(tmp_path):
+    """サーバーが終わるときは、実行中の読むだけの CLI を子ごと止める（止まった問い合わせが残ると WSL が止まらない）。
+    変える操作は途中で止めない。"""
+    sleeper = [sys.executable, "-c", "import time; time.sleep(30); print('{}')"]
+    cli = gui.Cli(sleeper)
+    done = {}
+    reading = threading.Thread(target=lambda: done.setdefault("read", cli.run(None, ["status"])))
+    changing = threading.Thread(target=lambda: done.setdefault("change", cli.run(None, ["task", "commit"])))
+    reading.start(); changing.start()
+    deadline = time.monotonic() + 10
+    while len(gui._READS) < 1 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    started = time.monotonic()
+    gui.stop_reads()
+    reading.join(10)
+    assert not reading.is_alive() and time.monotonic() - started < 10 and not done["read"]["ok"]
+    assert changing.is_alive() and not gui._READS                     # 変える操作は動いたまま
+    for process in [p for p in __import__("gc").get_objects() if isinstance(p, subprocess.Popen) and p.poll() is None]:
+        gui._kill_tree(process)
+    changing.join(10)
+
+
 def test_api_requires_the_token_and_the_local_host(tmp_path):
     server = ThreadingHTTPServer(("127.0.0.1", 0), None)
     port = server.server_address[1]

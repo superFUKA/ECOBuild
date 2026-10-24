@@ -10,7 +10,7 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
     """このPCのエージェントの全員を、親子の木で表示します。
 
     --json の結果は1人1つの並び（起動した順）で、id・name・registration・kind（owner：タスクの持ち主、helper：手伝い）・
-    parent（親の ID。人が起動したものは null）・task・workspace・state（作業中・待機中・止まっている）・since 等です。
+    parent（親の ID。人が起動したものは null）・task・workspace・state（作業中・待機中・止まっている・起動中）・since 等です。
     """
     return run_command("agent list", lambda inv: [_children.shown(r) for r in _agents.all_records()], render,
                        json_output=json)

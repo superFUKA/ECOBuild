@@ -3,7 +3,7 @@
 // agent log の出来事（Claude Code の stream-json と係の印）を詳しい表示の項目にする。
 // 窓の画面（window.html の <script>）と試験（node）の両方で読む。
 (function (root) {
-  const STATE_NAMES = {working: '作業中', idle: '待機中', stopped: '止まっている', unknown: '不明'};
+  const STATE_NAMES = {working: '作業中', idle: '待機中', stopped: '止まっている', unknown: '不明', starting: '起動中'};
 
   const QUIET_SECONDS = 10 * 60;   // 作業中なのに、これだけ道具を使っていない：止まっているかもしれない
   const LONG_SECONDS = 60 * 60;    // 作業中がこれより長い
@@ -33,13 +33,13 @@
     return registration || '子タスク';
   }
 
-  // 様子：label（作業中 12分・失敗 等）・tone（working・idle・stopped・failed）・alert（目立たせるわけ。なければ ''）
+  // 様子：label（作業中 12分・失敗 等）・tone（working・idle・stopped・starting・failed）・alert（目立たせるわけ。なければ ''）
   function look(m, now = Date.now() / 1000) {
     const state = m.state || 'unknown';
     let label = STATE_NAMES[state] || state, tone = state, alert = '';
     if (state === 'stopped' && m.error) { label = '失敗'; tone = 'failed'; alert = '止めていないのに終わりました'; }
     else if (state === 'stopped') alert = m.mode === 'app' ? '止まっています' : '';
-    if (typeof m.since === 'number' && (state === 'working' || state === 'idle')) label += ` ${duration(now - m.since)}`;
+    if (typeof m.since === 'number' && ['working', 'idle', 'starting'].includes(state)) label += ` ${duration(now - m.since)}`;
     if (state === 'working') {
       const quiet = typeof m.doing_at === 'number' ? now - m.doing_at : null;
       if (quiet !== null && quiet > QUIET_SECONDS) alert = `${duration(quiet)} 道具を使っていません`;

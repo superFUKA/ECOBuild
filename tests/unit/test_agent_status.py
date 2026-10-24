@@ -77,6 +77,26 @@ def test_the_activity_tells_working_idle_and_stopped(tmp_path, monkeypatch):
     assert status.activity(folder)["state"] == status.STOPPED and not status.alive(2 ** 22 + 12345)
 
 
+def test_the_activity_tells_starting_while_the_mark_is_fresh(tmp_path, monkeypatch):
+    """起動中：係が起動を始めた印（starting）があり、まだ動いていなければ起動中。動き始めれば印は消え、古い印は信じない。"""
+    import os
+    import time
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    folder = status.prepare("box", tmp_path)
+    status.starting(folder)
+    seen = status.activity(folder)
+    assert seen["state"] == status.STARTING and isinstance(seen["since"], float)
+    assert status.STATE_NAMES[status.STARTING] == "起動中"
+    status.started(folder, os.getpid())                                                # 起動が済んだ：印は消える
+    assert status.activity(folder)["state"] == status.WORKING and not (folder / status.STARTING_FILE).exists()
+    (folder / status.RUNNING).unlink()
+    status._write(folder / status.STARTING_FILE, {"at": time.time() - status.STARTING_FOR - 1})
+    assert status.activity(folder)["state"] == status.STOPPED                          # 古い印（起動に失敗した）
+    status.starting(folder)
+    status.not_starting(folder)
+    assert status.activity(folder)["state"] == status.STOPPED
+
+
 def test_stop_stops_the_process_and_its_children(tmp_path):
     child = "import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); time.sleep(60)"
     process = subprocess.Popen([sys.executable, "-c", child], start_new_session=True)

@@ -342,6 +342,105 @@ def test_a_failed_subtask_closes_the_child_task(serve, parent, lead, monkeypatch
     assert lead.repository.task(number).state == "closed" and not agents.children(parent.id)
 
 
+def test_a_message_to_a_stopped_child_wakes_it(serve, parent):
+    """止まっている子に言付けを送ると、前の会話の続きから起こして届ける（届けるのは動いている子だけなので）。"""
+    child = helper_of(serve, parent)
+    idle(serve, child)
+    serve.apps.stop(child.id, 5)
+    sent = ok(call(serve, parent, "children_send", id=child.id, text="ボタンは右に"))
+    assert sent["woken"] and serve.fake.launched[-1] == {"root": child.root, "id": child.id, "resume": "s-1"}
+    until(lambda: serve.apps.step() is not None
+          and serve.fake.got()[-1:] == [f"[親「{parent.name}」（{parent.id}）から] ボタンは右に"])
+    moving = ok(call(serve, parent, "children_send", id=child.id, text="もう一つ"))      # 動いている：起こさない
+    assert "woken" not in moving and len(serve.fake.launched) == 2
+
+
+def test_a_stopped_child_of_a_closed_task_is_not_woken_and_can_be_closed(serve, parent):
+    """タスクが閉じていれば起こさず、わけと起こし方を結果に書く。止まっている子への届いていない言付けは、閉じるのを止めない。"""
+    child = helper_of(serve, parent)
+    idle(serve, child)
+    serve.apps.stop(child.id, 5)
+    serve.run = lambda args, cwd, **_: {"ok": True, "result": {"state": "closed"}}
+    sent = ok(call(serve, parent, "children_send", id=child.id, text="ボタンは右に"))
+    assert sent["woken"] is False and "タスクが閉じている" in sent["note"] and "children_restart" in sent["note"]
+    assert len(serve.fake.launched) == 1 and agent_status.activity(child.folder)["waiting"] == 1
+    assert ok(call(serve, parent, "children_close", id=child.id))
+
+
+def test_a_child_is_starting_until_it_runs(serve, parent):
+    """係が起動している間（コンテナの用意）は、止まっているではなく起動中。起動し直す途中も。失敗したら印を消す。"""
+    seen = []
+    launch = serve.apps.launch
+
+    def watching(agent_id, resume, progress):
+        seen.append(agent_status.activity(agents.load(agent_id).folder)["state"])
+        return launch(agent_id, resume, progress)
+    serve.apps.launch = watching
+    child = helper_of(serve, parent)
+    assert seen == [agent_status.STARTING]
+    assert agent_status.activity(child.folder)["state"] in (agent_status.WORKING, agent_status.IDLE)
+    idle(serve, child)
+    ok(call(serve, parent, "children_restart", id=child.id))
+    assert seen == [agent_status.STARTING] * 2
+
+    def broken(agent_id, resume, progress):
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, "コンテナを用意できません")
+    serve.apps.launch = broken
+    failed = ok(call(serve, parent, "children_start", registration="worker", kind="helper", brief="もう1人"))
+    assert "起動していません" in failed["note"]
+    assert agent_status.activity(agents.load(failed["id"]).folder)["state"] == agent_status.STOPPED
+    assert children.describe_activity({"state": agent_status.STARTING, "since": time.time() - 90}) == "起動中（1分）"
+
+
+@pytest.mark.needs_git_2_48
+def test_after_finish_the_child_is_forgotten_even_if_its_workspace_is_left(serve, parent, lead, monkeypatch):
+    """取り込めた（task finish）後は、作業空間を閉じられなくても子の記録を閉じ、残したわけを note に書く。"""
+    child = agents.load(ok(call(serve, parent, "children_start", registration="worker", kind="subtask",
+                                brief="目的：直す"))["id"])
+    idle(serve, child)
+    monkeypatch.setattr(Module, "finish", lambda self, number, **_: {"task": number})
+
+    def kept(cls, path, **_):
+        raise EcoBuildError(ErrorCode.UNFINISHED_WORK, "GitHubにないものがあります。", details=["GitHubにないコミット 1 件"])
+    monkeypatch.setattr(Module, "close_workspace", classmethod(kept))
+    accepted = ok(call(serve, parent, "children_accept", id=child.id))
+    assert child.id not in [a.id for a in agents.all_records()] and child.root.exists()
+    assert "閉じられなかったので残しました" in accepted["note"] and "GitHubにないコミット 1 件" in accepted["note"]
+    assert f'ecobuild workspace close "{child.root}" --discard-local' in accepted["note"]
+
+
+@pytest.mark.needs_git_2_48
+def test_a_subtask_whose_pull_request_was_merged_and_branch_deleted_is_closed(serve, parent, lead):
+    """提出がスカッシュで取り込まれ、GitHub のタスクブランチが消えた後も、元のコミットを GitHub にないものとみなさない
+    （マージ済みのPRに入っている）。"""
+    child = agents.load(ok(call(serve, parent, "children_start", registration="worker", kind="subtask",
+                                brief="目的：直す"))["id"])
+    worker = Module.find(child.root, github=lead.repository.github)
+    commit(worker, "a.txt")
+    worker.submit(check=False)
+    idle(serve, child)
+    github = lead.repository.github
+    pull = github.pull_requests_for_branch(child.root, child.task["branch"])[0]
+    github.merge_pull_request(child.root, pull.number, squash=True, subject=None)
+    worker.repository.git.run("push", "--quiet", "origin", "--delete", child.task["branch"])
+    closed = ok(call(serve, parent, "children_close", id=child.id))
+    assert closed["workspace"] and not child.root.exists()
+
+
+@pytest.mark.needs_git_2_48
+def test_closing_a_subtask_with_unpushed_commits_tells_what_to_do_there(serve, parent, lead):
+    """agent close・children_close の誤りは、workspace close の --discard-local ではなく、その場でできる手順を案内する。"""
+    child = agents.load(ok(call(serve, parent, "children_start", registration="worker", kind="subtask",
+                                brief="目的：直す"))["id"])
+    commit(Module.find(child.root, github=lead.repository.github), "a.txt")             # push していない
+    idle(serve, child)
+    refused = call(serve, parent, "children_close", id=child.id)
+    assert not refused["ok"] and refused["error"]["code"] == ErrorCode.UNFINISHED_WORK
+    hint = refused["error"]["hint"]
+    assert f'ecobuild workspace close "{child.root}" --discard-local' in hint and "agent close" in hint
+    assert child.root.exists() and agents.load(child.id)
+
+
 def test_tools_go_through_the_requests_to_the_serve(lead, parent, tmp_path):
     """MCP のツール（children_*）は頼みとして自分の置き場所の requests/ に書き、このPCの係が実行する。"""
     fake = Fake(tmp_path)

@@ -257,9 +257,14 @@ function changeRow(path, kinds, shown, depth = 0) {
   label.className = 'change' + (WS.activeFile === path ? ' focused' : ''); label.dataset.path = path; label.style.paddingLeft = depth * 14 + 'px';
   box.type = 'checkbox'; box.checked = WS.selected.has(path);
   box.addEventListener('change', () => { if (box.checked) WS.selected.add(path); else WS.selected.delete(path); renderChanges(); });
-  name.textContent = shown; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = (shown !== path ? path + '\n' : '') + 'ダブルクリックで差分';
+  name.textContent = shown; name.tabIndex = 0; name.setAttribute('role', 'button'); name.title = (shown !== path ? path + '\n' : '') + (deleted ? 'ダブルクリックで差分' : 'ダブルクリックで開く（右クリックで差分）');
   name.addEventListener('click', e => { e.preventDefault(); WS.activeFile = path; renderChanges(); WS.selectInTree?.(path); });
-  name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
+  // As in the explorer, a double click opens the file (a deleted one has only its diff); the diff is on the right click.
+  name.addEventListener('dblclick', e => { e.preventDefault(); if (deleted || !WS.openInEditor) WS.openDiff(path, kinds); else WS.openInEditor(path); });
+  name.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    ECO.menu([['開く', () => WS.openInEditor(path), !deleted && !!WS.openInEditor], ['差分を見る', () => WS.openDiff(path, kinds)]], e.clientX, e.clientY);
+  });
   kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
   if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
   if (WS.status?.excluded?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '管理外'; tag.title = '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。'; name.append(tag); }

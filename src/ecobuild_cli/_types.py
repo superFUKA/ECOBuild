@@ -145,6 +145,11 @@ def _guard(group: click.Group, path: tuple[str, ...]) -> None:
             _guard(child, (*path, child_name))
 
 
+def owners(command: click.Command | None) -> list[str]:
+    """command がほかの型のコマンド（今のモジュールにないもの）なら、それを持つ型の名前。そうでなければ空。"""
+    return command.owners if isinstance(command, _Unavailable) else []
+
+
 class _Unavailable(click.Command):
     """今のモジュールにない、ほかの型のコマンド。引数は読まずに、理由を出して止める（--json なら JSON で）。"""
 

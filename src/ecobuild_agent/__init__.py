@@ -237,7 +237,7 @@ class AgentModule:
         if not registration:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "起動するエージェントの登録を指定してください。",
                                 hint="登録は agent registry list で見られます（agent start --as <登録名>）。")
-        found = registry.load(registration)
+        found = registry.effective(registration, self.root)
         if parent:
             agents.load(parent)   # 親が分かること
         return agents.create(registration=found.name, workspace=self.root, kind=kind, parent=parent,
@@ -246,8 +246,7 @@ class AgentModule:
 
     @staticmethod
     def _registration(record: AgentRecord) -> registry.Registration:
-        """記録の登録に、その作業空間のモジュールで使わせないツールを重ねたもの（rules.effective）。消された登録なら、
-        文書なしの空のもの。"""
+        """記録の登録（その作業空間のモジュールの、作成元に取り込まれたもの）。消された登録なら、文書なしの空のもの。"""
         return children._registration(record)
 
     @staticmethod
@@ -352,7 +351,7 @@ class AgentModule:
     # ---- 渡すもの -------------------------------------------------------------------------------------------
     def agent_briefing(self, task, record: AgentRecord) -> str:
         """起動のときにエージェントへ渡す文：共通の前置き（モジュール・タスク・作業空間・持ち主か手伝いか・持ち主は誰か）、
-        登録の文書、モジュールの決まり（全エージェント共通の文・その登録への文。作成元に取り込まれたもの：rules）。
+        登録の文書、モジュールの決まり（全エージェント共通の文。登録と同じく作成元に取り込まれたもの：rules）。
         ECOBuild の操作はツール（MCP）なので、CLI の手順（agent guide）は入れない。"""
         lines = [
             "# ECOBuild から：この作業空間での作業のしかた",
@@ -386,11 +385,9 @@ class AgentModule:
         return [f"- あなたはこのタスクの持ち主です（{by}が起動しました）。コミット・提出はあなたがします。"]
 
     def _module_rules(self, record: AgentRecord) -> list[str]:
-        """モジュールの決まり（rules）：全エージェント共通の文と、その登録への文。"""
-        found = rules.in_force(self.root)
-        common, mine = found.common.strip(), found.text_for(record.registration).strip()
-        lines = ["## このモジュールの決まり（全エージェント共通）", "", common, ""] if common else []
-        return lines + ([f"## このモジュールの決まり（あなたの登録「{record.registration}」へ）", "", mine, ""] if mine else [])
+        """モジュールの決まり（rules）：全エージェント共通の文（役ごとの文は登録の文書）。"""
+        common = rules.in_force(self.root).strip()
+        return ["## このモジュールの決まり（全エージェント共通）", "", common, ""] if common else []
 
     def prepare_agent_area(self) -> Path:
         """エージェント用の置き場所（AGENT_AREA）を作り、この clone の git の除外（info/exclude）に足す。リポジトリの

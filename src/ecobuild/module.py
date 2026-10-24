@@ -16,7 +16,6 @@ import datetime as _dt
 import json
 
 import re
-import tempfile
 from collections.abc import Callable
 import tomllib
 from dataclasses import fields, replace
@@ -119,6 +118,13 @@ class _TypeHooks(Hooks):
         lines = repository.git.run("cat-file", "--batch-check", input="".join(
             f"{ref}:{_config.FILE_NAME}\n" for ref in refs)).stdout.splitlines()
         return {ref: "ECOBuild のモジュールではありません" for ref, line in zip(refs, lines) if line.endswith(" missing")}
+
+    def resolvable(self, repository: Repository, conflicts: tuple[str, ...]) -> bool:
+        # 生成ファイルだけの衝突は、合わさった管理ファイルから作り直せば直る（sync と同じ）
+        return bool(conflicts) and all(self._module.type.is_generated(p) for p in conflicts)
+
+    def resolve_conflicts(self, repository: Repository, root: Path) -> bool:
+        return self._module._module_at(root)._regenerate_merge()
 
     def switch_locks(self, repository: Repository) -> list[str]:
         return [r.text for r in _locks.status(repository.root).reasons]
@@ -1553,13 +1559,8 @@ class Module:
         head = git.output("rev-parse", f"{_REMOTE}/{name}")
         if (reason := self.repository.hooks.unusable(repository, [head]).get(head)) is not None:
             raise EcoBuildError(ErrorCode.NOT_IN_MODULE, f"{name} は{reason}。")
-        area = git.common_directory() / "ecobuild"
-        area.mkdir(exist_ok=True)
-        place = Path(tempfile.mkdtemp(prefix="upgrade-", dir=area))
-        git.worktree_add(place, detach_at=head)
-        try:
-            there = type(self)(place, _config.load(place / _config.FILE_NAME), github=repository.github,
-                               registry=self.registry)
+        with git.temporary_worktree(head) as place:
+            there = self._module_at(place)
             if dry_run:
                 planned, skipped = there._planned_upgrade()
                 return ModuleUpgraded(there.config.format, _config.FORMAT, tuple(sorted(planned)), tuple(skipped),
@@ -1569,11 +1570,6 @@ class Module:
                 return ModuleUpgraded(start, _config.FORMAT, changed, skipped, branch=name)
             there.repository.git.add(changed, all=True)
             commit = there.repository.git.commit(UPGRADE_MESSAGE)
-        finally:
-            with contextlib.suppress(WorkError):
-                git.worktree_remove(place, force=True)
-            if place.exists():
-                remove_tree(place)
         pushed = git.run("push", "--quiet", _REMOTE, f"{commit}:refs/heads/{name}", check=False)
         if not pushed.ok:
             raise EcoBuildError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {name} への push を断りました（何も変えていません）。",
@@ -1585,6 +1581,10 @@ class Module:
                 and git.is_ancestor(f"refs/heads/{name}", commit)):
             git.run("update-ref", f"refs/heads/{name}", commit)
         return ModuleUpgraded(start, _config.FORMAT, changed, skipped, commit=commit, branch=name, pushed=True)
+
+    def _module_at(self, root: Path) -> "Module":
+        """同じリポジトリのほかの作業ツリー root（一時的な作業ツリー等）の Module（同じ型の登録・GitHub で）。"""
+        return type(self)(root, _config.load(root / _config.FILE_NAME), github=self.repository.github, registry=self.registry)
 
     def branches(self) -> list[ModuleBranch]:
         """ブランチの一覧（Repository.branches）に、それぞれの仕様の版（ecobuild.toml の format。GitHub にあれば GitHub の
@@ -1908,6 +1908,17 @@ class Module:
         self.type.refresh()
         git.add(tuple(generated))
         return True
+
+    def _regenerate_merge(self) -> bool:
+        """マージが衝突で止まった作業ツリー（ブランチ同士の取り込みの一時的な作業ツリー）で、衝突した生成ファイルを作り直し、
+        作り直して変わったほかの生成ファイルも登録する（合わさった管理ファイルどおりに）。直せたら True。"""
+        if not self._regenerate_conflicted_files():
+            return False
+        tree = self.repository.git.working_tree()
+        regenerated = tuple(p for p in (*tree.unstaged, *tree.untracked) if self.type.is_generated(p))
+        if regenerated:
+            self.repository.git.add(regenerated, all=True)
+        return not self.repository.git.working_tree().conflicted
 
     def _check_generated_files(self) -> None:
         """生成ファイルを作り直し、作り直して変わったファイルはそれだけでコミットする。ほかに生成・管理ファイルの

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 import time
-from contextlib import contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -354,6 +356,22 @@ class Git:
         for key in ("extensions.worktreeConfig", *more):
             if self.run("config", "--local", "--get", key, check=False).stdout.strip() != "true":
                 self._write_config("--local", key, "true")
+
+    @contextmanager
+    def temporary_worktree(self, ref: str) -> Iterator[Path]:
+        """ref を切り離された状態で取り出した、一時的な作業ツリー（共有の .git の中の ecowork/。終われば消す）。
+        手元の作業ツリーに触れずにファイルを変えてコミットする操作（管理用のブランチの更新・衝突を直す取り込み）の場所。"""
+        area = self.common_directory() / "ecowork"
+        area.mkdir(exist_ok=True)
+        place = Path(tempfile.mkdtemp(prefix="tmp-", dir=area))
+        self.worktree_add(place, detach_at=ref)
+        try:
+            yield place
+        finally:
+            with suppress(WorkError):
+                self.worktree_remove(place, force=True)
+            with suppress(OSError):
+                place.rmdir()
 
     def worktree_remove(self, path: Path, *, force: bool = False) -> None:
         """作業空間を消す（ロックを外してから）。消せなければ（変更がある・使用中）ロックを戻して誤りにする。"""

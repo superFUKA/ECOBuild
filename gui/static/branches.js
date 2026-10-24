@@ -161,10 +161,12 @@
       const conflicts = p.method !== 'conflict' ? '' : `<div class="eco-banner bad">衝突するファイル（${p.conflicts.length}）<ul class="br-conflicts">${p.conflicts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
         衝突は提出（PR）にして直します：${esc(p.name)} を ${esc(p.into)} へ提出し、衝突を直してから、その提出を取り込みます。
         <div class="br-merge-go"><button type="button" data-br-merge="submit" ${canSubmit(p.name) ? '' : `disabled title="${esc(ECO.adminNote)}（${esc(p.name)} を作った人も）"`}>提出する…</button></div></div>`;
+      // Conflicts only in the files the type makes: made again from the merged sources when taken in (no submission needed).
+      const resolved = p.resolved?.length ? `<p class="mi-note">自動で作るファイル ${p.resolved.length} 件が衝突しますが、取り込むときに、合わさった設定から作り直します（${p.resolved.map(esc).join('、')}）。</p>` : '';
       // The button only when it can be merged: grey (with who may) for the others, none when in already or conflicting.
       const mergeable = ['fast-forward', 'merge'].includes(p.method), note = p.allowed ? '' : `取り込めるのは ${p.owners} です。`;
       result = `<p class="br-merge-what"><span class="mi-pill ${cls}">${esc(label)}</span>${p.commit_count ? ` 入るコミット <b>${p.commit_count}</b> 件・変わるファイル <b>${p.file_count}</b> 件` : ''}${why ? `<span class="mi-sub">　${esc(why)}</span>` : ''}</p>
-        ${conflicts}${commits}${files}
+        ${conflicts}${resolved}${commits}${files}
         ${mergeable ? `<div class="br-merge-go">${note ? `<span class="mi-sub">${esc(note)}</span>` : ''}
           <button type="button" class="primary" data-br-merge="go" ${p.allowed ? '' : `disabled title="${esc(note)}"`}>${esc(p.name)} を ${esc(p.into)} へ取り込む</button></div>` : ''}`;
     }
@@ -186,7 +188,7 @@
         const how = p.method === 'fast-forward' ? '早送りで' : 'マージコミットで';
         return after(await ECO.run(MOD.root, ['branch', 'merge', p.name, '--into', p.into], {
           title: 'ブランチを取り込む', ok: '取り込む', success: `${p.name} を ${p.into} へ取り込みました。`,
-          confirm: `${p.name} の ${p.commit_count} 件のコミットを、${p.into} へ${how}取り込みます（GitHub の ${p.into} が変わります。提出〔PR〕は作りません）。`}));
+          confirm: `${p.name} の ${p.commit_count} 件のコミットを、${p.into} へ${how}取り込みます（GitHub の ${p.into} が変わります。提出〔PR〕は作りません）。` + (p.resolved?.length ? `衝突する自動で作るファイル（${p.resolved.length} 件）は作り直します。` : '')}));
       }
     }
   }

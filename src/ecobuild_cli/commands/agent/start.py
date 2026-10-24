@@ -26,7 +26,7 @@ def command(*task: Annotated[int, "タスクの番号（省けば今の作業空
         return _here(as_, options)
 
     def action(inv):
-        _human_start(as_, program)
+        _human_start(as_, program, inv.module.root)
         return inv.module.start_agent(as_, app=app, source=source(), progress=inv.info, **options)
 
     return run_command("agent start", action, _render, json_output=json)
@@ -37,7 +37,7 @@ def _render(record) -> str:
     return f"エージェント「{record.name}」（{record.id}）を起動しました（{where}{record.workspace}）。"
 
 
-def _human_start(name: str, program: str) -> None:
+def _human_start(name: str, program: str, root) -> None:
     """人が起動できる登録か（人の道だけで確かめる）。続きからの起動（登録を省いたもの）は、その会話の記録の登録。"""
     from ecobuild.errors import EcoBuildError
     from ecobuild_agent import registry
@@ -50,17 +50,18 @@ def _human_start(name: str, program: str) -> None:
         if session is not None:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                                 "続きから起動する会話にエージェントの記録がない（または会話を Claude Code の一覧で選ぶ）ので、"
-                                "登録を --as で指定してください。", hint=_startable_hint())
+                                "登録を --as で指定してください。", hint=_startable_hint(root))
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "起動するエージェントの登録を --as で指定してください。",
-                            hint=_startable_hint())
-    if not registry.load(name).human_start:
+                            hint=_startable_hint(root))
+    if not registry.effective(name, root).human_start:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"登録「{name}」は、人が起動するものではありません。",
-                            hint=_startable_hint())
+                            hint=_startable_hint(root))
 
 
-def _startable_hint() -> str:
+def _startable_hint(root) -> str:
+    """人が起動できる登録（作成元に取り込まれたもの：起動するのはこちら）。"""
     from ecobuild_agent import registry
-    names = [r.name for r in registry.list_registrations() if r.human_start]
+    names = [r.name for r in registry.list_registrations(root, in_force=True) if r.human_start]
     return ("人が起動できる登録：" + "・".join(names)) if names else "人が起動できる登録がありません（agent registry set <名前> --human-start）。"
 
 
@@ -70,8 +71,8 @@ def _here(name: str, options: dict) -> int:
     from ... import _events
     from ..._module import Module
     try:
-        _human_start(name, options["program"] or "")
         module = Module.find(".")
+        _human_start(name, options["program"] or "", module.root)
         return module.run_agent(name, source=source(), progress=lambda message: _events.progress(message, False),
                                 **options)
     except WorkError as error:

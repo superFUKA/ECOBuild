@@ -269,12 +269,13 @@ WS.onRefresh(renderPrDetail);
   const agentShell = () => (window.ecobuildShell || (() => { try { return window.top.ecobuildShell; } catch (e) { return null; } })())?.agents;
   const defaultAgentName = () => (WS.dir.replaceAll('\\', '/').split('/').filter(Boolean).pop() || 'エージェント') + (WS.status?.task ? ` #${WS.status.task}` : '');
   const nameField = () => ({name: 'name', label: '名前', value: '', placeholder: defaultAgentName()});
-  // The registrations a person may start (ecobuild agent registry list: human_start). The hub's settings change them.
+  // The registrations a person may start in this workspace (the module's, as taken in: ecobuild agent registry list
+  // --in-force, human_start). The module page エージェント changes them.
   async function startable() {
-    const doc = await ECO.cli(null, ['agent', 'registry', 'list'], {quiet: true});
+    const doc = await ECO.cli(WS.dir, ['agent', 'registry', 'list', '--in-force'], {quiet: true});
     if (!doc.ok) { ECO.showError(doc); return null; }
     const found = doc.result.filter(r => r.human_start);
-    if (!found.length) ECO.toast('人が起動できるエージェントの登録がありません。ハブの設定の「エージェント」で「人が起動できる」を選んでください。', 'bad', 10000);
+    if (!found.length) ECO.toast('人が起動できるエージェントの登録がありません。モジュールの「エージェント」で「人が起動できる」を選んでください。', 'bad', 10000);
     return found.length ? found : null;
   }
   const registrationLabel = r => (r.title && r.title !== r.name ? `${r.title}（${r.name}）` : r.name) + (r.children?.length ? '　子を起動できる' : '');
@@ -347,8 +348,8 @@ WS.onRefresh(renderPrDetail);
       ['起動するコマンドを指定…', () => ECO.form({title: '起動するコマンド', intro: 'このPCで覚えておきます。', fields: [
         {name: 'command', label: 'コマンド（空欄なら claude）', value: agentCommand(), placeholder: '例：claude --model opus', focus: true}], ok: '保存',
         submit: v => { setAgentCommand(v.command.trim()); showAgent(); }})],
-      ['エージェントの登録（ハブの設定）', () => ECO.action('open', {page: 'settings', tab: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,
-        '起動できるエージェント（文書・渡すツール・人が起動できるか・起動してよい子）は、ハブの設定で変えます'],
+      ['エージェントの登録（モジュールの「エージェント」）', () => ECO.action('open', {module: WS.dir, page: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,
+        '起動できるエージェント（文書・渡すツール・人が起動できるか・起動してよい子）は、モジュールの「エージェント」で変えます（ハブの設定はこのPCのプリセット）'],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],
     ], r.right - 240, r.bottom + 4);

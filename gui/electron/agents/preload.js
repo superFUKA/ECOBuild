@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('agents', {
   closeWindow: () => ipcRenderer.send('agents:close-window'),
   picker: () => ipcRenderer.invoke('agents:picker'),
   workspaces: () => ipcRenderer.invoke('agents:workspaces'),
-  registrations: () => ipcRenderer.invoke('agents:registrations'),
+  registrations: dir => ipcRenderer.invoke('agents:registrations', dir),
   copy: text => ipcRenderer.send('agents:copy', text),
   paste: () => ipcRenderer.invoke('agents:paste'),
   lastReply: id => ipcRenderer.invoke('agents:last-reply', id),

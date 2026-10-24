@@ -453,22 +453,25 @@ class Completion:
         作業（コミット）を直接入れられるのはタスクブランチだけで、管理用のブランチ同士のマージは管理用のブランチの操作
         （作業ではない）なので、提出（PR）を通さなくてよい。GitHub の最新どうしを、手元の作業ツリーに触れずに
         （merge-tree）合わせて into へ push する：早送りできれば早送り、できなければマージコミット。衝突したら何も
-        変えずに止める。できるのは into への提出を取り込める人だけ。GitHub のブランチの保護が PR を求めれば、push が
-        断られる（branch submit で提出する）。前もって確かめるのは plan_branch_merge。"""
+        変えずに止める。ただし衝突するファイルを利用側が直せれば（Hooks.resolvable。ECOBuild では生成ファイルだけの
+        衝突）、一時的な作業ツリーでマージして直し（Hooks.resolve_conflicts）、マージコミットにする。できるのは into への
+        提出を取り込める人だけ。GitHub のブランチの保護が PR を求めれば、push が断られる（branch submit で提出する）。
+        前もって確かめるのは plan_branch_merge。"""
         self._check_branch_merge(name, into)
         self.require_take_in(into, "取り込み")
         head, base = self._branch_merge_ends(name, into)
         method, tree, conflicts = self._branch_merge_tree(head, base)
         if method == "up-to-date":
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{name} は {into} に取り込み済みです。")
+        message, resolved = f"{name} を {into} へ取り込む", ()
         if method == "conflict":
-            raise WorkError(ErrorCode.MERGE_CONFLICT, f"{name} と {into} が衝突するので、取り込みませんでした（何も変えていません）。",
-                            hint=f"{self._op('branch submit')} {name} --into {into} で提出し、衝突を直してから "
-                                 f"{self._op('branch merge')} {name} で取り込んでください。", details=list(conflicts))
-        if method == "fast-forward":
+            if not self.hooks.resolvable(self, conflicts):
+                raise self._branch_conflict(name, into, conflicts)
+            commit, resolved, method = self._resolved_merge(head, base, message, name, into, conflicts), conflicts, "merge"
+        elif method == "fast-forward":
             commit = head
         else:
-            commit = self.git.output("commit-tree", tree, "-p", base, "-p", head, "-m", f"{name} を {into} へ取り込む")
+            commit = self.git.output("commit-tree", tree, "-p", base, "-p", head, "-m", message)
         pushed = self.git.run("push", "--quiet", _git.REMOTE, f"{commit}:refs/heads/{into}", check=False)
         if not pushed.ok:
             raise WorkError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {into} への push を断りました（何も変えていません）。",
@@ -476,7 +479,23 @@ class Completion:
                                  f"で提出して {self._op('branch merge')} {name} で取り込みます。",
                             details=pushed.output)
         self.git.fetch()
-        return wm.BranchMerged(name, into, method, commit)
+        return wm.BranchMerged(name, into, method, commit, resolved)
+
+    def _branch_conflict(self, name: str, into: str, conflicts: tuple[str, ...]) -> WorkError:
+        return WorkError(ErrorCode.MERGE_CONFLICT, f"{name} と {into} が衝突するので、取り込みませんでした（何も変えていません）。",
+                         hint=f"{self._op('branch submit')} {name} --into {into} で提出し、衝突を直してから "
+                              f"{self._op('branch merge')} {name} で取り込んでください。", details=list(conflicts))
+
+    def _resolved_merge(self, head: str, base: str, message: str, name: str, into: str, conflicts: tuple[str, ...]) -> str:
+        """base に head をマージし、衝突を利用側に直させたマージコミット（一時的な作業ツリーで。手元には触れない）。
+        直せなければ何も変えずに衝突として止める。"""
+        with self.git.temporary_worktree(base) as place:
+            there = _git.Git(place, command=self.command)
+            there.run("merge", "--no-ff", "--no-commit", head, check=False)
+            if not there.is_merging() or not self.hooks.resolve_conflicts(self, place) or there.working_tree().conflicted:
+                raise self._branch_conflict(name, into, conflicts)
+            there.run("commit", "--quiet", "--no-edit", "--message", message)
+            return there.output("rev-parse", "HEAD")
 
     def plan_branch_merge(self, name: str, into: str) -> wm.BranchMergePlan:
         """merge_branch_into を前もって確かめる（何も変えない）：入るコミット・変わるファイル・方法（早送り・マージ
@@ -484,6 +503,9 @@ class Completion:
         self._check_branch_merge(name, into)
         head, base = self._branch_merge_ends(name, into, reuse=True)
         method, _, conflicts = self._branch_merge_tree(head, base)
+        resolved = ()
+        if method == "conflict" and self.hooks.resolvable(self, conflicts):
+            method, conflicts, resolved = "merge", (), conflicts   # 取り込むときに直せる（作り直す等）
         rows = [line.split("\x1f") for line in self.git.output(
             "log", f"--max-count={wm.MERGE_PLAN_COMMITS}", "--format=%H%x1f%s%x1f%an%x1f%ad", "--date=iso-strict",
             f"{base}..{head}").splitlines()]
@@ -492,7 +514,7 @@ class Completion:
         count = int(self.git.output("rev-list", "--count", f"{base}..{head}"))
         files = tuple(f for f in self.git.output("diff", "--name-only", f"{base}...{head}").splitlines() if f)
         return wm.BranchMergePlan(name, into, method, commits, count, files[:wm.MERGE_PLAN_FILES], len(files), conflicts,
-                                  self.can_take_in(into), self.take_in_owners(into))
+                                  self.can_take_in(into), self.take_in_owners(into), resolved)
 
     def _check_branch_merge(self, name: str, into: str) -> None:
         for branch in (name, into):

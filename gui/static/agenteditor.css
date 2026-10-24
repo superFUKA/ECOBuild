@@ -1,0 +1,48 @@
+/* The agents editor (agenteditor.js): the list on the left, one registration on the right in sections. Used by the module
+   page エージェント and the hub's settings (the hub has no tasks.css: the colours have their own fallbacks). */
+.ae { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 0; border: 1px solid var(--line, #303640);
+  border-radius: 10px; overflow: hidden; background: var(--panel, #1c2128); min-height: 420px; }
+.ae-side { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; background: #171c22; border-right: 1px solid var(--line, #303640); overflow: auto; }
+.ae-side-head { margin: 12px 8px 4px; font-size: 11px; color: var(--muted, #a5aeba); }
+.ae .ae-item { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; text-align: left; padding: 6px 8px;
+  border: 0; border-left: 2px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; cursor: pointer; }
+.ae .ae-item:hover { background: #222932; }
+.ae .ae-item[aria-current=true] { background: #232c32; border-left-color: var(--accent, #9ee4d3); color: #b0efdd; }
+.ae-item-title { font-weight: 600; }
+.ae-item-name { color: var(--muted, #a5aeba); font-size: 11px; font-weight: 400; font-family: ui-monospace, Consolas, monospace; }
+.ae-item-badges { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.ae-badge { font-size: 10px; line-height: 16px; padding: 0 6px; border-radius: 8px; border: 1px solid #3a4250; color: #c4ccd6; white-space: nowrap; }
+.ae-badge.top { border-color: #3f6b60; color: #9ee4d3; }
+.ae-badge.warn { border-color: #6b5838; color: var(--warn, #efc389); }
+.ae-badge.quiet { color: var(--muted, #a5aeba); }
+.ae .ae-add { margin-top: 10px; text-align: left; }
+.ae-main { padding: 16px 20px 24px; overflow: auto; min-width: 0; }
+.ae-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+  position: sticky; top: -16px; padding: 8px 0; background: var(--panel, #1c2128); z-index: 1; }
+.ae-head h3 { margin: 0 0 4px; font-size: 16px; }
+.ae-sec { margin-top: 18px; padding-top: 14px; border-top: 1px solid #262c34; }
+.ae-sec h4 { margin: 0 0 6px; font-size: 13px; }
+.ae-sec .mi-note { margin-bottom: 8px; }
+.ae-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 16px; align-items: end; }
+.ae-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted, #a5aeba); }
+.ae-field input, .ae-field select { font-size: 13px; }
+.ae-narrow { max-width: 200px; margin-top: 10px; }
+.ae-check { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.ae textarea { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; font-size: 13px; line-height: 1.6; }
+.ae textarea.ae-doc { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.ae-radio { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+.ae-radio label { display: flex; align-items: center; gap: 6px; }
+.ae-group { border: 1px solid #262c34; border-radius: 8px; margin: 8px 0 0; padding: 6px 10px 8px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.ae-group legend { font-size: 11px; color: var(--muted, #a5aeba); padding: 0 4px; display: flex; align-items: center; gap: 8px; }
+.ae-group-actions { display: inline-flex; gap: 4px; }
+.ae-group-actions button { font-size: 10px; padding: 0 6px; min-height: 0; line-height: 16px; }
+.ae-tool { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; min-width: 190px; }
+.ae-tool code { font-size: 12px; }
+.ae-tools .ae-field { margin-top: 10px; max-width: 460px; }
+.ae-children { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+@media (max-width: 720px) {
+  .ae { grid-template-columns: 1fr; }
+  .ae-side { border-right: 0; border-bottom: 1px solid var(--line, #303640); flex-direction: row; flex-wrap: wrap; }
+  .ae .ae-item { width: auto; }
+  .ae-tool { min-width: 0; }
+}

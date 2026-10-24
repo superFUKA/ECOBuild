@@ -9,6 +9,7 @@ from ecobuild_agent import registry as _registry
 from ecobuild_agent.results import registration_view
 
 from ...._output import run_command, split_list
+from .. import _change
 from . import _render
 
 
@@ -22,31 +23,36 @@ def command(name: Annotated[str, "登録の名前"],
             first_prompt: Annotated[str, "起動のときの最初の発言"] = "",
             document: Annotated[str, "文書（agent.md）を読むファイル（- なら標準入力）"] = "",
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """登録の設定・文書を変えます（書いたオプションだけを変えます）。
+    """モジュールの登録の設定・文書を変え、タスクブランチでコミットします（書いたオプションだけを変えます）。
 
-    見本の名前なら、ユーザーの登録として写してから変えます（見本そのものは変わりません。元に戻すには
+    見本の名前なら、モジュールの登録として写してから変えます（見本そのものは変わりません。元に戻すには
     ecobuild agent registry remove）。子に自分より強い登録（許すツールが多いもの）は入れられません。
     """
+    def action(inv):
+        fields, text = changes(title=title, human_start=human_start, model=model, tools=tools, children=children,
+                               max_children=max_children, first_prompt=first_prompt, document=document)
+        changed, sha = _change.in_task_branch(inv, f"エージェントの登録「{name}」を変える",
+                                              lambda module: _registry.update(module.root, name, document=text, **fields))
+        return registration_view(changed, document=True, pending=True, committed=sha)
+
+    return run_command("agent registry set", action, lambda r: "変えました：\n" + _render.details(r), json_output=json)
+
+
+def changes(**values) -> tuple[dict, str | None]:
+    """書いたオプションだけの (設定の項目, 文書〔書いていなければ None〕)。何もなければ誤り（agent preset set も使う）。"""
     context = click.get_current_context()
 
     def given(option):
         return context.get_parameter_source(option) not in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
 
-    def action(inv):
-        fields = {key: value for key, value in (
-            ("title", title), ("human_start", human_start), ("model", model.strip()),
-            ("tools", split_list(tools)), ("children", split_list(children)), ("max_children", max_children),
-            ("first_prompt", first_prompt)) if given(key)}
-        text = None
-        if given("document"):
-            text = _read_document(document)
-        if not fields and text is None:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "変える項目がありません。",
-                                hint="--model・--tools・--children・--document 等を書いてください。")
-        return registration_view(_registry.update(name, document=text, **fields), document=True)
-
-    return run_command("agent registry set", action, lambda r: "変えました：\n" + _render.details(r),
-                       json_output=json)
+    converters = {"model": str.strip, "tools": split_list, "children": split_list}
+    fields = {key: converters.get(key, lambda v: v)(value) for key, value in values.items()
+              if key != "document" and given(key)}
+    text = _read_document(values["document"]) if given("document") else None
+    if not fields and text is None:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "変える項目がありません。",
+                            hint="--model・--tools・--children・--document 等を書いてください。")
+    return fields, text
 
 
 def _read_document(source: str) -> str:

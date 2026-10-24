@@ -40,7 +40,7 @@ def test_create_module(short_tmp):
     assert not any(f.startswith(".ecobuild/.cppbuild/output") for f in files)
     # ルートには、ECOBuild・CppBuildの内部のファイルを置かない（.ecobuild/ にまとめる）
     # AGENTS.md は作らない（エージェントを使うモジュールだけ agent init で作る）
-    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitignore", "Calc", "CalcTest", "README.md"]
+    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitattributes", ".gitignore", "Calc", "CalcTest", "README.md"]
     assert {".ecobuild/.gitattributes", ".ecobuild/.gitignore", ".ecobuild/ecobuild.toml"} <= set(files)
     assert git(root, "status", "--porcelain") == ""
     assert Module.find(root / "Calc" / "src").name == "Calc"
@@ -64,7 +64,7 @@ def test_library_without_its_test_project(short_tmp):
     github = FakeGitHub(short_tmp / "gh")
     Module.create("Calc", directory=short_tmp, kind="library", github=github, test=False)
     files = git(github.bare, "ls-tree", "-r", "--name-only", "main").splitlines()
-    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitignore", "Calc", "README.md"]
+    assert sorted({f.split("/")[0] for f in files}) == [".ecobuild", ".gitattributes", ".gitignore", "Calc", "README.md"]
 
 
 def test_existing_directory_is_rejected(short_tmp):

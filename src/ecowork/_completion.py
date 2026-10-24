@@ -210,6 +210,7 @@ class Completion:
         if not pr.partial:
             removed, released = self._clean_finished(branch)
             upcoming = self._upcoming()
+        self._advance_base(pr.base)
         return wm.FinishResult(number, pr.number, pr.url, subject, pr.partial, merged.resumed, merged.closed_issue,
                                merged.branch_rebuilt, removed, released.switched_to, checks, upcoming,
                                workspace_removed=released.workspace_removed, workspace_kept=released.kept)
@@ -277,6 +278,34 @@ class Completion:
         self.git.delete_branch(branch, force=True)
         self.git.unset_config(wm.base_key(branch))
         return True, released
+
+    def _advance_base(self, base: str) -> None:
+        """取り込んだ後、手元の作成元のブランチ base を GitHub の最新へ早送りする（元の clone の main 等が古いままだと、
+        モジュールのホームでのビルドが古いコードになる）。どの作業ツリーも取り出していなければ ref だけを、元の clone・この
+        場所が取り出していれば、変更がないときにその場で早送りする（_fast_forward）。ほかの作業空間が取り出しているもの・
+        元の clone の作業ツリーが見えない環境（コンテナの中等）では動かさない。未コミットの変更がある・手元にだけコミット
+        があって早送りできないときは、何もせず notices で知らせる。"""
+        remote = f"{_git.REMOTE}/{base}"
+        if not (self.git.has_local_branch(base) and self.git.has_remote_branch(base)) \
+                or self.git.rev_parse(base) == self.git.rev_parse(remote):
+            return
+        held = self.git.checked_out_branches().get(base)
+        if held is not None:
+            in_main = _git.same_path(held, self.git.common_root())
+            if not (in_main or _git.same_path(held, self.root)) or (in_main and not self.git.sees_main_worktree()):
+                return
+            tree = self._git_at(held).working_tree()
+            if tree.staged or tree.unstaged or tree.conflicted or self._git_at(held).is_merging():
+                self.notices.append(f"手元の {base}（{held}）は、未コミットの変更があるため最新にしていません"
+                                    f"（変更を片付けてから git -C \"{held}\" merge --ff-only {remote}）。")
+                return
+        if not self.git.is_ancestor(base, remote):
+            self.notices.append(f"手元の {base} に GitHub にないコミットがあるため、最新へ早送りしていません。")
+            return
+        try:
+            self._fast_forward(base, held)
+        except WorkError as error:
+            self.notices.append(f"手元の {base} を最新にできませんでした（{error.message}）。")
 
     def _upcoming(self) -> wm.TaskRef | None:
         """次のタスクの候補（task next の1番目）。調べられなければNone（知らせるだけなので）。"""

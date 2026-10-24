@@ -484,3 +484,34 @@ def test_new_files_outside_the_work_do_not_block(repository):
     assert other.number != task.number and (repository.root / "notes.tmp").exists()
     write(repository.root / "new.cpp", "x\n")
     assert code_of(lambda: repository.task(task.number).start()) == ErrorCode.DIRTY_WORKING_TREE
+
+
+@pytest.mark.needs_git_2_48
+def test_finish_fast_forwards_the_base_in_the_original_clone(repository, tmp_path):
+    """取り込んだ後、元の clone の手元の作成元（main）を最新へ早送りする（モジュールのホームのビルドが古くならない）。
+    未コミットの変更があれば動かさずに知らせ、どこも取り出していなければ ref だけを進める。"""
+    def finish_in_workspace(name):
+        task = repository.create_task(name)
+        place = tmp_path / name
+        repository.start_task_in(task.number, place, name=name)
+        inside = Repository(place, github=repository.github)
+        recorded(inside.current_task_branch(), name=f"{name}.txt", message=name)
+        inside.current_task_branch().submit()
+        inside.finish(task.number)
+        return inside
+
+    finish_in_workspace("a")
+    assert git(repository.root, "rev-parse", "main") == git(repository.root, "rev-parse", "origin/main")
+    assert (repository.root / "a.txt").is_file() and repository.git.working_tree().clean
+
+    write(repository.root / "README.md", "手元の変更\n")
+    before = git(repository.root, "rev-parse", "main")
+    inside = finish_in_workspace("b")
+    assert git(repository.root, "rev-parse", "main") == before
+    assert any("未コミットの変更" in n and "main" in n for n in inside.notices)
+    git(repository.root, "checkout", "--quiet", "--", "README.md")
+
+    git(repository.root, "switch", "--quiet", "--detach")   # どこも main を取り出していない
+    finish_in_workspace("c")
+    assert git(repository.root, "rev-parse", "main") == git(repository.root, "rev-parse", "origin/main")
+    assert git(repository.root, "log", "--format=%s", "-1", "main").startswith("c")

@@ -1,6 +1,6 @@
 import pytest
 
-from helpers import git, write
+from helpers import git, remove_tree, write
 from ecowork.git import Git
 from ecowork.errors import ErrorCode, WorkError
 
@@ -220,3 +220,26 @@ def test_writing_the_shared_config_waits_while_another_workspace_holds_its_lock(
     monkeypatch.setattr(repository.git, "run", run)
     repository.git.set_config("ecowork.test", "1")
     assert len(failures) == 2 and repository.git.get_config("ecowork.test") == "1"
+
+
+@pytest.mark.needs_git_2_48
+def test_forget_missing_worktrees_leaves_worktrees_it_cannot_see(remote_and_clone):
+    """元の clone の作業ツリーが見えない環境（コンテナに共有の .git と自分の作業空間だけを付けたとき）では、ほかの
+    作業空間も見えないだけなので、ロック付きの記録を消さない。元の clone が見えれば、フォルダーがない記録を片付ける。"""
+    _, work = remote_and_clone
+    main = Git(work)
+    main.create_branch("a", "main", switch=False)
+    main.create_branch("b", "main", switch=False)
+    main.worktree_add(work / ".w" / "a", "a")
+    main.worktree_add(work / ".w" / "b", "b")
+    remove_tree(work / ".w" / "b")
+    for name in git(work, "ls-tree", "--name-only", "HEAD").splitlines():   # 元の clone の取り出したファイルが見えない
+        (work / name).unlink()
+    inside = Git(work / ".w" / "a")
+    assert not inside.sees_main_worktree()
+    assert inside.forget_missing_worktrees() == []
+    assert "b" in inside.checked_out_branches() and len(main.worktrees()) == 3
+    git(work, "checkout", "--", ".")
+    assert inside.sees_main_worktree()
+    assert [p.name for p in inside.forget_missing_worktrees()] == ["b"]
+    assert "b" not in inside.checked_out_branches() and len(main.worktrees()) == 2

@@ -433,7 +433,8 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
 
     def _fast_forward(self, branch: str, held: Path | None) -> None:
         """手元のタスクブランチを、GitHub のものへ早送りする（別の場所で push された続きを取り込む。手元にだけの
-        コミットもあって早送りできなければ何もしない：sync で取り込む）。held：取り出している作業ツリー。"""
+        コミットもあって早送りできなければ何もしない：sync で取り込む）。held：取り出している作業ツリー。取り込みの後の
+        作成元のブランチにも使う（Completion._advance_base）。"""
         remote = f"{_git.REMOTE}/{branch}"
         if not self.git.has_remote_branch(branch) or not self.git.is_ancestor(branch, remote) \
                 or self.git.rev_parse(branch) == self.git.rev_parse(remote):

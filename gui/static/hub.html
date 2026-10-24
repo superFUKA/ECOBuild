@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="hub.css">
   <link rel="stylesheet" href="common.css">
   <link rel="stylesheet" href="help.css">
+  <link rel="stylesheet" href="agenteditor.css">
 </head>
 <body>
   <div class="titlebar" aria-hidden="true"><img src="icon.svg" alt="" width="16" height="16"><span>ECOBuild Hub</span></div>
@@ -80,11 +81,10 @@
         <p class="note">ほかの AI の設定はエージェントの窓の ⚙</p>
         <div class="settings-actions"><button type="button" class="cancel" id="open-agents-settings">エージェントの窓を開く</button></div>
       </section>
-      <section class="settings-card" data-group="agents" aria-labelledby="registry-title">
-        <div class="page-heading"><h3 id="registry-title">エージェントの登録</h3><div class="settings-actions"><button type="button" class="cancel" id="registry-reload">更新</button><button type="button" class="add-button" id="registry-add" title="ecobuild agent registry add">＋ 登録を足す</button></div></div>
-        <p class="note">このPCの全体の設定（モジュールにはコミットしない）</p>
-        <p class="note" id="registry-status" role="status">読み込んでいます…</p>
-        <ul id="registry-list" class="diagnostics registry-list"></ul>
+      <section class="settings-card" data-group="agents" aria-labelledby="presets-title">
+        <div class="page-heading"><h3 id="presets-title">エージェントのプリセット</h3><div class="settings-actions"><button type="button" class="cancel" id="presets-reload">更新</button></div></div>
+        <p class="note">このPCの手持ちのエージェント（コミットしません）。モジュールの「エージェント」の「＋ エージェントを追加」で、ここから写して登録します。ECOBuild の見本（進行役・管理役・作業役）も入っています。</p>
+        <div id="presets-editor"></div>
       </section>
       <section class="settings-card" data-group="container" aria-labelledby="images-title">
         <div class="page-heading"><h3 id="images-title">コンテナのイメージ</h3><div class="settings-actions"><button type="button" class="cancel" id="images-prune" title="ecobuild container image prune">古いものを消す</button><button type="button" class="add-button" id="images-build" title="ecobuild container image build（1つ数分）">今の作り方で作る</button></div></div>
@@ -151,6 +151,7 @@
     </form>
   </dialog>
   <script src="common.js"></script>
+  <script src="agenteditor.js"></script>
   <script src="hub.js"></script>
   <script src="help.js"></script>
   <script src="operator.js"></script>

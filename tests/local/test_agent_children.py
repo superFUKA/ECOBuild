@@ -79,6 +79,8 @@ def until(check, seconds=30.0):
 def lead(tmp_path, monkeypatch):
     from ecowork import github as ecowork_github
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    # ここで試すのは子の扱い：書いた登録がすぐ効くように、作業ツリーの登録を使う（作成元の版は test_agent_registry）
+    monkeypatch.setattr(registry, "effective", lambda name, workspace: registry.load(name, workspace))
     github = FakeGitHub(tmp_path / "gh")
     monkeypatch.setattr(ecowork_github, "default", lambda: github)   # 係が開く作業空間（子タスク）も偽の GitHub に
     module = Module.create("Plain", directory=tmp_path, type="generic", github=github)
@@ -166,15 +168,15 @@ def test_the_caller_is_the_folder_of_the_request_not_its_arguments(serve, parent
 
 
 def test_the_number_of_children_is_limited(serve, parent):
-    registry.update("manager", max_children=1)
+    registry.update(parent.workspace, "manager", max_children=1)
     helper_of(serve, parent)
     refused = call(serve, parent, "children_start", registration="worker", kind="helper", brief="もう1人")
     assert not refused["ok"] and "上限（1）" in refused["error"]["message"]
 
 
-def write_registration(name: str, *, tools: list[str], children_: list[str], max_children: int = 3) -> None:
-    """確かめ（registry._check）を通さずに、ユーザーの登録を置く（手で書き換えた登録のような）。"""
-    folder = registry.user_root() / name
+def write_registration(root, name: str, *, tools: list[str], children_: list[str], max_children: int = 3) -> None:
+    """確かめ（registry._check）を通さずに、モジュールの登録を置く（手で書き換えた登録のような）。"""
+    folder = Path(root) / registry.MODULE_FOLDER / name
     folder.mkdir(parents=True, exist_ok=True)
     (folder / registry.SETTINGS_FILE).write_text(
         f"title = \"{name}\"\nchildren = {json.dumps(children_)}\nmax_children = {max_children}\ntools = {json.dumps(tools)}\n",
@@ -185,7 +187,7 @@ def test_only_allowed_and_not_stronger_registrations_are_started(serve, parent, 
     refused = call(serve, parent, "children_start", registration="lead", kind="helper", brief="進めて")
     assert not refused["ok"] and "起動してよい子ではありません" in refused["error"]["message"]
     assert "worker" in refused["error"]["hint"]
-    write_registration("narrow", tools=["task_*", "children_*"], children_=["worker"])     # worker（tools *）は強い
+    write_registration(lead.root, "narrow", tools=["task_*", "children_*"], children_=["worker"])     # worker（tools *）は強い
     narrow = agents.create(registration="narrow", workspace=lead.root, parent=parent.id, kind=agents.HELPER)
     stronger = call(serve, narrow, "children_start", registration="worker", kind="helper", brief="調べて")
     assert not stronger["ok"] and "より強い" in stronger["error"]["message"]
@@ -299,7 +301,7 @@ def test_a_subtask_is_a_child_task_in_its_own_workspace_and_is_accepted(serve, p
     assert [i.number for i in lead.repository.github.sub_issues(lead.root, parent.task["number"])] == [number]
     assert (child.root / children.BRIEF_FILE).read_text(encoding="utf-8").startswith("目的：画面を作る")
     until(lambda: serve.fake.got())
-    assert serve.fake.got()[0] == registry.load("worker").first_prompt
+    assert serve.fake.got()[0] == registry.load("worker", lead.root).first_prompt
 
     worker = Module.find(child.root, github=lead.repository.github)
     commit(worker, "src/ui/a.txt")
@@ -448,7 +450,7 @@ def test_tools_go_through_the_requests_to_the_serve(lead, parent, tmp_path):
     stop = threading.Event()
     threading.Thread(target=agent_serve.serve_forever, args=(serve, stop, 0.05), daemon=True).start()
     try:
-        context = mcp.Context(parent.id, registry.load("manager"), mcp.OWNER, lead.root)
+        context = mcp.Context(parent.id, registry.load("manager", lead.root), mcp.OWNER, lead.root)
         tools = {tool.name: tool for tool in children.tools(context)}
         assert set(tools) == set(children.TOOLS)
         assert tools["children_start"].input_schema["required"] == ["registration", "kind", "brief"]
@@ -464,8 +466,8 @@ def test_tools_go_through_the_requests_to_the_serve(lead, parent, tmp_path):
 
 
 def test_the_tools_are_only_those_the_registration_allows(lead, parent):
-    write_registration("reader", tools=["children_list", "task_status"], children_=[])
-    context = mcp.Context(parent.id, registry.load("reader"), mcp.OWNER, lead.root)
+    write_registration(lead.root, "reader", tools=["children_list", "task_status"], children_=[])
+    context = mcp.Context(parent.id, registry.load("reader", lead.root), mcp.OWNER, lead.root)
     catalog = {"commands": [{"path": "task status", "runnable": True, "agent": "read"},
                             {"path": "task submit", "runnable": True, "agent": "owner"}]}
     names = [tool.name for tool in mcp.tools(context, catalog, lambda argv: {}, registry.allows_tool)]

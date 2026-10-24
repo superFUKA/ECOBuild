@@ -227,7 +227,7 @@ def test_agent_mcp_lists_the_tools_over_stdio(tmp_path, monkeypatch, capsys):
     config_file.parent.mkdir(parents=True)
     config_file.write_text('format = 1\n\n[module]\nname = "M"\ntype = "python"\n', encoding="utf-8")
     registry = types.ModuleType("ecobuild_agent.registry")
-    registry.load = lambda name: types.SimpleNamespace(name=name, tools=("task_*", "build"))
+    registry.effective = lambda name, workspace: types.SimpleNamespace(name=name, tools=("task_*", "build"))
     registry.allows_tool = lambda registration, name: any(
         fnmatch.fnmatchcase(name, pattern) for pattern in registration.tools)
     monkeypatch.setitem(sys.modules, "ecobuild_agent.registry", registry)

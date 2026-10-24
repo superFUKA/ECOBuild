@@ -94,7 +94,10 @@ let pickerWindow = null;  // タブの一覧（☰）を出している窓（リ
 // アイコン（オペレーター・作業用。小さくした PNG の data URL。'' は既定）
 let icons = {operator: '', agent: ''};
 const iconOf = s => icons[s?.kind === 'operator' ? 'operator' : 'agent'] || '';
-let registrations = new Map();   // 登録の名前 → {name, title, human_start, children, …}（ecobuild agent registry list。「＋」のたびに読み直す）
+// 作業空間 → (登録の名前 → {name, title, human_start, children, …})。登録はモジュールごと（ecobuild -C <作業空間> agent registry list
+// --in-force：起動するのは作成元に取り込まれたもの）。開くたびに読み直す
+const registrations = new Map();
+const registrationOf = (dir, name) => registrations.get(path.resolve(dir || '').toLowerCase())?.get(name);
 let ringConfig = {...RING_DEFAULTS};
 let ringMode = 'work';    // work・operator
 let choosing = null;      // 選択モードのタブの id
@@ -156,7 +159,7 @@ function openSession({dir, agent = '', registration = '', name = '', title = fal
   let unique = base;
   for (let i = 2; taken.has(unique); i++) unique = `${base} (${i})`;
   const parent = parentTab ? findSession(parentTab) : null;
-  const lead = !parent && !!(team ?? registrations.get(registration)?.children?.length);
+  const lead = !parent && !!(team ?? registrationOf(dir, registration)?.children?.length);
   const s = {id: nextId++, num: sessions.filter(x => x.kind !== 'operator').length + 1, name: unique, dir, kind: 'workspace',
              agent, savedAgent: agent, registration, prompt, parentTab: parent?.id ?? null, fixedId: agentId, lead,
              history: [], size: 0, exited: false, state: 'starting', owner: null};
@@ -845,7 +848,7 @@ function runAction(action, target = null) {
 // ---- 外からの操作（GUI のサーバーを通して：ecobuild gui agent-… ） --------------------------------------------
 const byNum = num => sessions.find(s => s.num === Number(num));
 function external(op, p) {
-  if (op === 'agent-open') return openSession({dir: p.dir, name: p.name || '', agent: p.agent || '', registration: p.registration || ''});
+  if (op === 'agent-open') return loadRegistrations(p.dir).then(() => openSession({dir: p.dir, name: p.name || '', agent: p.agent || '', registration: p.registration || ''}));
   if (op === 'agent-send') {
     const s = byNum(p.tab); if (!s?.proc) return;
     if (s.kind === 'operator') { operatorSend(p.text); return; }
@@ -903,7 +906,6 @@ function setup({ecobuild, python, group, module}) {
   if (group) groupWith = group;
   if (module) openModule = module;
   team.setup({ecobuild: () => ecobuildPath(), env: childEnv, onList: pushTeam, onReplied: teamReplied});
-  loadRegistrations();
   wireTeam();
   loadOperatorLog();
   const saved = readState();
@@ -937,8 +939,8 @@ function setup({ecobuild, python, group, module}) {
   ipcMain.on('agents:copy', (event, text) => { if (typeof text === 'string' && text) clipboard.writeText(text); });
   ipcMain.handle('agents:paste', () => clipboard.readText());
   ipcMain.handle('agents:last-reply', (event, id) => findSession(id)?.lastMessage || findSession(id)?.reply || '');
-  // ＋：起動できる登録（ecobuild agent registry list。人が起動できるものは human_start）
-  ipcMain.handle('agents:registrations', () => loadRegistrations());
+  // ＋：その作業空間で起動できる登録（モジュールの登録。人が起動できるものは human_start）
+  ipcMain.handle('agents:registrations', (event, dir) => loadRegistrations(dir));
   // ＋：このPCの作業空間（ecobuild workspace list の、各モジュールの中の作業空間）
   ipcMain.handle('agents:workspaces', () => new Promise(resolve => require('child_process').execFile(ecobuildPath(),
     ['workspace', 'list', '--json'], {windowsHide: true, timeout: 30000, env: {...process.env, PYTHONIOENCODING: 'utf-8'}}, (error, stdout) => {
@@ -1071,11 +1073,13 @@ function ecobuildRun(args) {
     });
   });
 }
-// 登録の一覧を読み直して覚える（子を起動できる登録か：自分の窓を持つか）。返すのは一覧（読めなければ覚えたもの）
-async function loadRegistrations() {
-  const doc = await ecobuildRun(['agent', 'registry', 'list']);
-  if (Array.isArray(doc?.result)) registrations = new Map(doc.result.map(r => [r.name, r]));
-  return [...registrations.values()];
+// 作業空間のモジュールの登録を読み直して覚える（子を起動できる登録か：自分の窓を持つか）。返すのは一覧（読めなければ覚えたもの）
+async function loadRegistrations(dir) {
+  if (!dir) return [];
+  const key = path.resolve(dir).toLowerCase();
+  const doc = await ecobuildRun(['-C', dir, 'agent', 'registry', 'list', '--in-force']);
+  if (Array.isArray(doc?.result)) registrations.set(key, new Map(doc.result.map(r => [r.name, r])));
+  return [...(registrations.get(key)?.values() || [])];
 }
 
 // 続きから起動し直すコマンド：会話が分かれば その会話（claude --resume <会話>：同じエージェント）、分からなければ最後の会話

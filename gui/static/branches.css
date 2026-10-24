@@ -74,12 +74,14 @@
 .br-merge > summary h4 { margin: 0; font-size: 14px; }
 .br-merge-sum { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .br-merge > #br-merge { padding: 0 14px 14px; }
-.br-merge-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
+.br-merge-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: end; gap: 8px; }
 .br-merge-pick { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; color: var(--muted); }
 .br-merge-pick select { width: 100%; min-width: 0; }
 /* The chosen branch's side of the merge: shown, not chosen. */
 .br-merge-fixed { display: block; padding: 6px 0; border: 1px solid transparent; color: #b0efdd; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.br-merge-arrow { padding: 0 2px 6px; font-size: 16px; color: var(--accent); }
+/* The arrow is the button that turns the merge around. */
+.br-merge-arrow { min-width: 34px; padding: 2px 8px; font-size: 16px; line-height: 1.4; color: var(--accent); background: transparent; border: 1px solid #3a4250; border-radius: 6px; cursor: pointer; }
+.br-merge-arrow:hover, .br-merge-arrow:focus-visible { border-color: var(--accent); background: rgba(158, 228, 211, .08); }
 .br-merge-row .mi-link { padding-bottom: 7px; white-space: nowrap; }
 .br-merge-result { margin-top: 12px; font-size: 13px; }
 .br-merge-result:empty { display: none; }

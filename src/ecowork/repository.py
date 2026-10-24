@@ -587,6 +587,22 @@ class Repository(Locking, TaskManagement, Reviewing, History, Ci, Completion, Me
                 heads.append(pull.head_sha)
         return heads
 
+    def commits_not_on_github(self, *heads: str, branch: str | None = None) -> tuple[str, ...]:
+        """heads の、GitHub にないコミット（どのリモートのブランチにも、branch のマージ済みのPRにも入っていないもの）の
+        「短い版 件名」。マージ済みのPRも見るのは、タスクブランチを消した後（task finish：スカッシュで取り込むと、元の
+        コミットはどのブランチにも残らない）に、取り込んだコミットを GitHub にないものとみなさないため（_lost_commits と同じ）。
+        GitHub に聞くのは、リモートのブランチにないコミットがあるときだけ（聞けなければ、PRは見ない）。"""
+        found = tuple(self.git.output("log", *heads, "--not", "--remotes", "--format=%h %s").splitlines())
+        if not found or not branch:
+            return found
+        try:
+            kept = self._merged_heads(branch)
+        except WorkError:
+            return found
+        if not kept:
+            return found
+        return tuple(self.git.output("log", *heads, "--not", "--remotes", *kept, "--format=%h %s").splitlines())
+
     def _lost_commits(self, branch: str, base: str, *, local: bool, remote: bool) -> tuple[str, ...]:
         """タスクブランチを消すと失われるコミット（作成元にも、マージ済みのPRにも入っていないもの）の件名。"""
         tips = ([branch] if local else []) + ([f"{_git.REMOTE}/{branch}"] if remote else [])

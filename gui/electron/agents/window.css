@@ -196,7 +196,7 @@ body.operator .status .mode { display: inline-block; }
 .team-bar .sum { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; color: var(--muted); font-size: 11px; }
 .team-bar .sum > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .team-bar .sum > span::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #555; }
-.team-bar .sum [data-tone="working"]::before { background: var(--thinking); }
+.team-bar .sum [data-tone="working"]::before, .team-bar .sum [data-tone="starting"]::before { background: var(--thinking); }
 .team-bar .sum [data-tone="idle"]::before { background: var(--ok); }
 .team-bar .sum [data-tone="stopped"]::before { background: var(--dim); }
 .team-bar .sum [data-tone="failed"]::before, .team-bar .sum [data-tone="alert"]::before { background: var(--rec); }
@@ -210,15 +210,16 @@ body.operator .status .mode { display: inline-block; }
 .team-tabs .sub.on { background: var(--hover); color: #fff; }
 .team-tabs .sub .name { overflow: hidden; text-overflow: ellipsis; }
 .team-tabs .sub .dot { width: 7px; height: 7px; border-radius: 50%; background: #555; flex: none; }
-.team-tabs .sub[data-tone="working"] .dot { background: var(--thinking); }
+.team-tabs .sub[data-tone="working"] .dot, .team-tabs .sub[data-tone="starting"] .dot { background: var(--thinking); }
 .team-tabs .sub[data-tone="idle"] .dot { background: var(--ok); }
 .team-tabs .sub[data-tone="failed"] .dot, .team-tabs .sub[data-alert="yes"] .dot { background: var(--rec); }
 .team-body { position: relative; flex: 1; min-height: 0; overflow: auto; }
 .team-empty { max-width: 46em; margin: 40px auto; padding: 0 24px; color: var(--muted); line-height: 1.7; text-align: center; }
 .team .note { color: var(--muted); }
 
-/* 様子の色：作業中は黄、待機中は緑、止まっているは灰、失敗は赤。目立たせるもの（要確認）は赤い縁 */
-.team [data-tone="working"] .state, .team .state[data-tone="working"] { color: var(--thinking); }
+/* 様子の色：作業中・起動中は黄、待機中は緑、止まっているは灰、失敗は赤。目立たせるもの（要確認）は赤い縁 */
+.team [data-tone="working"] .state, .team .state[data-tone="working"],
+.team [data-tone="starting"] .state, .team .state[data-tone="starting"] { color: var(--thinking); }
 .team [data-tone="idle"] .state, .team .state[data-tone="idle"] { color: var(--ok); }
 .team [data-tone="stopped"] .state, .team .state[data-tone="stopped"] { color: var(--muted); }
 .team [data-tone="failed"] .state, .team .state[data-tone="failed"] { color: var(--rec); }

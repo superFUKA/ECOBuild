@@ -26,6 +26,8 @@ test('様子：長さ・失敗・長く道具を使っていない作業中・�
                          {label: '失敗', tone: 'failed', alert: '止めていないのに終わりました', human: false});
   assert.strictEqual(view.look({state: 'stopped', mode: 'app'}, now).alert, '止まっています');
   assert.strictEqual(view.look({state: 'stopped'}, now).alert, '');   // 動いたことがない・人の画面を閉じた
+  assert.deepStrictEqual(view.look({state: 'starting', since: now - 90}, now),   // 係が起動している（コンテナの用意）
+                         {label: '起動中 1分', tone: 'starting', alert: '', human: false});
   assert.strictEqual(view.look({state: 'idle', mode: '', since: now - 5}, now).human, true);
 });
 

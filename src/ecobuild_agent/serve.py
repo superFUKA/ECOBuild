@@ -5,8 +5,8 @@
   - ツール（{"tool", "arguments", "agent"}）：コンテナの中の MCP サーバーが渡す、子を扱うツール（children_*・
     report_to_parent）。呼び手は頼みを書いた置き場所のエージェント（頼みの agent と違えば断る）。確かめ（直接の子だけ・
     起動してよい登録・子の数）もここで行う。
-  - 人の操作（{"args", "cwd"}）：係が持つエージェントの起動・止める・起動し直す・引き取る・返す・閉じる
-    （agent start --app --id・stop・restart・takeover・handback・close）。これはこのPCだけの置き場所
+  - 人の操作（{"args", "cwd"}）：係が持つエージェントの起動・止める・起動し直す・引き取る・返す・閉じる・言付けを届けに起こす
+    （agent start --app --id・stop・restart・takeover・handback・close・wake〔agent send が頼む〕）。これはこのPCだけの置き場所
     （children.human_requests。コンテナにマウントしない）からだけ受ける：中のエージェントがまねて、ほかのエージェントを
     止める・閉じる等をさせない。
 - 親への知らせ：子の返答が終わったら（replied.json）、親の受け箱に入れる（children.parent_notice。子タスクの子には、
@@ -42,10 +42,12 @@ from . import agents, app, children, registry
 from . import status as agent_status
 from .errors import ErrorCode
 
-HUMAN_COMMANDS = ("start", "stop", "restart", "takeover", "handback", "close")   # 人の操作（agent <これ> <ID>）
+HUMAN_COMMANDS = ("start", "stop", "restart", "takeover", "handback", "close", "wake")   # 人の操作（agent <これ> <ID>）
 LOCK = Path("agents") / "serve.lock"   # ECOBUILD_HOME の下：係はこのPCに1つ
 STOP_TIMEOUT = 30                       # 起動した側に止めてもらう返事を待つ秒数
 START_LIMIT = 4                         # 同じ置き場所の手伝いの起動を、並べて実行する数
+_KEEP_HINT = ("子に提出・push してもらうか、要らなければ ecobuild workspace close \"{root}\" --discard-local で作業空間を"
+              "消してから、もう一度閉じてください（agent close・children_close）。")   # 閉じる子の作業空間に GitHub にないもの
 
 Run = Callable[..., dict]   # run(args, cwd, progress=None, stall=None)
 
@@ -317,9 +319,12 @@ class Serve:
             return self._handback(record, progress)
         if action == "close":
             return self._close(record, progress, force="--force" in args)
+        if action == "wake":
+            return {"id": agent_id, "path": str(root),
+                    **self._wake_to_deliver(record, progress, later=f"agent restart {agent_id} --resume で起こすと届きます。")}
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
-        agent = self.apps.start(agent_id, prompt=_option(args, "--prompt"), progress=progress)
+        agent = self._launch(agent_id, record.folder, prompt=_option(args, "--prompt"), progress=progress)
         return {"id": agent_id, "path": str(root), "registration": agent.registration, "session": agent.session,
                 "app": True}
 
@@ -349,7 +354,8 @@ class Serve:
         child = children.child_of(caller, arguments["id"])
         if tool == "children_send":
             key = children.send(child, arguments["text"], sender=children.sender_of(caller))
-            return {"id": child.id, "name": child.name, "message_id": key}
+            return {"id": child.id, "name": child.name, "message_id": key,
+                    **self._wake_to_deliver(child, progress, later="children_restart で起こすと届きます。")}
         if tool == "children_cancel":
             return {"id": child.id, "name": child.name, "message_id": children.cancel(child, arguments["message"])}
         if tool == "children_stop":
@@ -383,7 +389,7 @@ class Serve:
             return {**result, "note": "この係はエージェントを起動できません（起動していません）。"}
         progress(f"「{record.name}」を起動しています…")
         try:
-            self.apps.start(record.id, prompt=prompt, progress=progress)
+            self._launch(record.id, record.folder, prompt=prompt, progress=progress)
         except EcoBuildError as error:
             self.log(f"エージェントを起動できませんでした：{error.message}")
             return {**result, "note": f"子は作りましたが、起動していません：{error.message}"
@@ -397,12 +403,50 @@ class Serve:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
         self._stop_agent(record, progress)
         progress(f"「{record.name}」を起動し直しています…")
-        self.apps.start(record.id, prompt=prompt, resume=session, progress=progress)
+        self._launch(record.id, record.folder, prompt=prompt, resume=session, progress=progress)
         return {**children.shown(record), "app": True, "resumed": bool(session)}
+
+    def _launch(self, agent_id: str, folder: Path, *, prompt: str = "", resume: str = "",
+                progress: Callable[[str], None] = lambda line: None) -> app.Agent:
+        """係がアプリ用で起動する。先に置き場所 folder へ起動中の印を書く（コンテナの用意で数十秒〜数分かかる間、様子を
+        「止まっている」にしない：親が同じ仕事をもう一度任せないように）。起動が済めば印は消え（status.started）、
+        失敗したら消す。"""
+        agent_status.starting(folder)
+        try:
+            return self.apps.start(agent_id, prompt=prompt, resume=resume, progress=progress)
+        except BaseException:
+            agent_status.not_starting(folder)
+            raise
+
+    def _wake_to_deliver(self, record: agents.AgentRecord, progress: Callable[[str], None], *, later: str) -> dict:
+        """言付けを入れた相手 record が止まっていれば、前の会話の続きから起こす（受け箱のものは、起こした後の見回りで
+        標準入力へ届く。発言は足さない：言付けだけを読ませる）。結果に足すもの：woken（起こした）・note（起こせない・
+        起こさないわけと、届け方 later）。動いている・起動中なら何もしない。タスクが閉じていれば起こさない（_wake と同じ）。
+        人が起動したもの（親がいない）は人の画面で動かすものなので、係は起こさない。"""
+        if self._agent_running(record):
+            return {}
+        if agent_status.activity(record.folder)["state"] == agent_status.STARTING:
+            return {"note": f"「{record.name}」は起動中です。起動が済めば届きます。"}
+        stopped = f"「{record.name}」は止まっているので、まだ届いていません"
+        if not record.parent:
+            return {"woken": False, "note": f"{stopped}（人が起動したエージェントです）。起動すると届きます。"}
+        if self.apps is None:
+            return {"woken": False, "note": f"{stopped}（この係は起こせません）。{later}"}
+        if self._task_closed(record.root):
+            return {"woken": False, "note": f"{stopped}（タスクが閉じているので起こしませんでした）。{later}"}
+        try:
+            _, session = children.restart_prompt(record, resume=True)
+            progress(f"「{record.name}」が止まっているので、続きから起こして届けます…")
+            self._launch(record.id, record.folder, resume=session, progress=progress)
+        except EcoBuildError as error:
+            self.log(f"言付けを届けるために起こせませんでした（{record.id}）：{error.message}")
+            return {"woken": False, "note": f"{stopped}（起こせませんでした：{error.message}）。{later}"}
+        return {"woken": True, "note": f"「{record.name}」が止まっていたので、前の会話の続きから起こしました（言付けはすぐ届きます）。"}
 
     def _accept(self, caller: agents.AgentRecord, child: agents.AgentRecord, progress: Callable[[str], None]) -> dict:
         """子タスクの提出を取り込む：確かめ（閉じられないときは何もしない）→ 子を止めて控えを写す → task finish →
-        sync → 作業空間を閉じる（finish が消していなければ）→ 記録を消す。途中で止まったら、どこまで済んだかを書く。"""
+        sync → 作業空間を閉じる（finish が消していなければ）→ 記録を消す。task finish で止まったら何も閉じない。
+        取り込めた後は、sync・作業空間を閉じるのが済まなくても記録を消し、済まなかったものとそのわけを note に書く。"""
         if caller.kind == agents.HELPER:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "手伝いは子タスクを取り込めません（タスクの持ち主がすることです）。")
         if not children.own_workspace(child) or not child.task:
@@ -414,28 +458,35 @@ class Serve:
                                 hint="様子を確かめて（children_list）、終わるのを待つか止めてから、もう一度。", details=problems)
         module = self._module(caller.root)
         number = int(child.task.get("number") or 0)
-        done = []
         try:
             self._stop_agent(child, progress)
             children.stop_container(child.root, progress)   # 動いたままだとロックになり、finish・閉じるが作業空間を残す
             kept = children.archive(child)
             progress(f"#{number}（{child.name}）を取り込みます…")
             finished = plain(module.finish(number))
-            done.append("task finish")
+        except EcoBuildError as error:
+            raise EcoBuildError(error.code, f"「{child.name}」の取り込みが task finish で止まりました：{error.message}",
+                                hint=error.hint, details=error.details) from error
+        # 取り込めた後は、子の記録を必ず閉じる（残すと親が先へ進めない）。済まなかったものは note に
+        notes = []
+        synced = closed = None
+        try:
             progress("手元を最新にします…")
             synced = plain(module.sync())
-            done.append("sync")
-            closed = None
-            if child.root.exists():
-                closed = plain(type(module).close_workspace(child.root))
         except EcoBuildError as error:
-            step = "作業空間を閉じる" if len(done) == 2 else "sync" if done else "task finish"
-            details = error.details if isinstance(error.details, (list, tuple)) else [error.details] if error.details else []
-            raise EcoBuildError(error.code, f"「{child.name}」の取り込みが {step} で止まりました：{error.message}",
-                                hint=error.hint, details=[*(f"済み：{d}" for d in done), *details]) from error
+            notes.append(f"手元を最新にできませんでした（sync）：{error.message}" + (f"（{error.hint}）" if error.hint else ""))
+        if child.root.exists():
+            try:
+                closed = plain(type(module).close_workspace(child.root))
+            except EcoBuildError as error:
+                left = "・".join(map(str, error.details)) if isinstance(error.details, (list, tuple)) else ""
+                notes.append(f"子の作業空間 {child.root} は閉じられなかったので残しました：{error.message}"
+                             + (f"（{left}）" if left else "") + "。"
+                             + (f"要らなければ ecobuild workspace close \"{child.root}\" --discard-local で消せます。"
+                                if error.code == ErrorCode.UNFINISHED_WORK else error.hint or ""))
         children.forget(child)
         return {"id": child.id, "name": child.name, "task": number, "finish": finished, "sync": synced,
-                "closed": closed, "archive": kept}
+                "closed": closed, "archive": kept, **({"note": "／".join(notes)} if notes else {})}
 
     def _close(self, record: agents.AgentRecord, progress: Callable[[str], None], *, force: bool = False) -> dict:
         """閉じる：止めて、控えを親の作業空間へ写し、子タスクの作業空間なら場所ごと消し、記録を消す。閉じられないわけ
@@ -452,7 +503,7 @@ class Serve:
             left = children.unpushed_files(record)
             if left:
                 raise EcoBuildError(ErrorCode.UNFINISHED_WORK, f"「{record.name}」の作業空間に、GitHub にない変更があります。",
-                                    hint="コミット・提出してもらうか、要らなければ子に消してもらってから閉じてください。",
+                                    hint=_KEEP_HINT.format(root=record.root),
                                     details=[f"ファイル：{path}" for path in left])
         self._stop_agent(record, progress)
         kept = children.archive(record)
@@ -461,7 +512,13 @@ class Serve:
             children.stop_container(record.root, progress)   # 動いたままだとロックになり閉じられない
             progress(f"「{record.name}」の作業空間を閉じています…")
             module = self._module(record.root)
-            result = plain(type(module).close_workspace(record.root))
+            try:
+                result = plain(type(module).close_workspace(record.root))
+            except EcoBuildError as error:   # workspace close 向けの案内（--discard-local を付ける）は、ここでは使えない
+                if error.code != ErrorCode.UNFINISHED_WORK:
+                    raise
+                raise EcoBuildError(error.code, f"「{record.name}」の作業空間に、GitHub にないものがあります。",
+                                    hint=_KEEP_HINT.format(root=record.root), details=error.details) from error
         children.forget(record)
         if not own and not any(self._agent_running(other) for other in agents.in_workspace(record.root)):
             # 作業空間の最後のエージェントを閉じた：コンテナを止める（動いたままだとロックになり、finish が作業空間を残す）
@@ -533,7 +590,7 @@ class Serve:
         if self.apps is None:
             raise EcoBuildError(ErrorCode.AGENT_ERROR, "この係はアプリ用のエージェントを動かせません。")
         progress(f"「{record.name}」を係に戻しています…")
-        self.apps.start(record.id, prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
+        self._launch(record.id, record.folder, prompt=app.HANDBACK_PROMPT, resume=session, progress=progress)
         return {**children.shown(record), "session": session, "app": True}
 
     def _wake(self, agent: app.Agent) -> None:
@@ -546,8 +603,8 @@ class Serve:
             done = "起こしませんでした（タスクが閉じています。children_close・agent close で閉じられます）"
         else:
             try:
-                self.apps.start(agent.agent_id, resume=agent.session, progress=self.log,
-                                prompt=app.INTERRUPTED_PROMPT if interrupted else "")
+                self._launch(agent.agent_id, agent.folder, resume=agent.session, progress=self.log,
+                             prompt=app.INTERRUPTED_PROMPT if interrupted else "")
                 done = "前の会話の続きから起こしました" + ("（返答の途中だったので、続けるよう伝えました）" if interrupted else "")
             except EcoBuildError as error:
                 self.apps.stop(agent.agent_id, 0)

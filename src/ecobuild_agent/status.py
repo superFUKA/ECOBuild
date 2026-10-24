@@ -422,13 +422,40 @@ def announce(folder: Path) -> None:
 RUNNING = "running.json"   # 置き場所の中：エージェントを動かしているこのPCのプロセス（pid）と起動した時刻・起動のしかた
 STATE = "state.json"       # 置き場所の中：アプリ用の起動のエージェントの様子（係が出来事から書く。ecobuild_agent.app）
 APP = "app"                # running.json の mode：アプリ用の起動（係が持つ）。なければ対話型
-WORKING, IDLE, STOPPED, UNKNOWN = "working", "idle", "stopped", "unknown"
-STATE_NAMES = {WORKING: "作業中", IDLE: "待機中", STOPPED: "止まっている", UNKNOWN: "不明"}
+STARTING_FILE = "starting.json"   # 置き場所の中：係が起動している最中の印（時刻。コンテナの用意で数十秒〜数分かかる）
+STARTING_FOR = 600                # 起動中の印を信じる秒数（これより古ければ、起動に失敗して消し忘れたものとみなす）
+WORKING, IDLE, STOPPED, UNKNOWN, STARTING = "working", "idle", "stopped", "unknown", "starting"
+STATE_NAMES = {WORKING: "作業中", IDLE: "待機中", STOPPED: "止まっている", UNKNOWN: "不明", STARTING: "起動中"}
+
+
+def starting(folder: Path) -> None:
+    """起動を始めた印を書く（起動が済めば started が消す。失敗したら not_starting で消す）。その間の様子は起動中。"""
+    try:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+        _write(Path(folder) / STARTING_FILE, {"at": time.time()})
+    except OSError:
+        pass
+
+
+def not_starting(folder: Path) -> None:
+    """起動中の印を消す（起動が済んだ・失敗した）。"""
+    try:
+        (Path(folder) / STARTING_FILE).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _starting_since(folder: Path) -> float | None:
+    """起動中の印の時刻（印がない・古ければ None）。"""
+    data = read(Path(folder) / STARTING_FILE)
+    at = data.get("at") if isinstance(data, dict) else None
+    return at if isinstance(at, (int, float)) and time.time() - at < STARTING_FOR else None
 
 
 def started(folder: Path, pid: int, mode: str = "") -> None:
-    """エージェントを動かすプロセス pid を覚える（起動したとき）。mode：起動のしかた（APP。対話型なら空）。"""
+    """エージェントを動かすプロセス pid を覚える（起動したとき。起動中の印は消す）。mode：起動のしかた（APP。対話型なら空）。"""
     _write(Path(folder) / RUNNING, {"pid": pid, "at": time.time(), **({"mode": mode} if mode else {})})
+    not_starting(folder)
 
 
 def ended(folder: Path, pid: int) -> None:
@@ -485,9 +512,16 @@ def session_of(folder: Path) -> str:
 
 
 def activity(folder: Path) -> dict:
-    """置き場所のエージェントの様子：state（作業中・待機中・止まっている・不明）、since（その様子になった時刻）、
-    last_reply（最後の返答の頭）、replied_at、context（コンテキストの使用率）、waiting（受け箱に届いていないもの）。"""
-    folder = Path(folder)
+    """置き場所のエージェントの様子：state（作業中・待機中・止まっている・不明・起動中）、since（その様子になった時刻）、
+    last_reply（最後の返答の頭）、replied_at、context（コンテキストの使用率）、waiting（受け箱に届いていないもの）。
+    動いていなくても、係が起動している最中（印が新しい間）なら起動中（since は起動を始めた時刻）。"""
+    found = _activity(Path(folder))
+    if found["state"] in (STOPPED, UNKNOWN) and (since := _starting_since(folder)) is not None:
+        found.update(state=STARTING, since=since)
+    return found
+
+
+def _activity(folder: Path) -> dict:
     if isinstance(running := read(folder / RUNNING), dict) and running.get("mode") == APP:
         return _app_activity(folder)
     running, replied, prompted, info = (read(folder / name) for name in (RUNNING, "replied.json", "prompted.json",

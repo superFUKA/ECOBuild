@@ -476,6 +476,11 @@ def test_the_cli_reads_the_log_lists_and_asks_the_serve(lead, parent, tmp_path, 
         restarted = invoke("agent", "restart", child.id, "--resume")
         assert restarted["ok"] and restarted["result"]["resumed"]
         until(lambda: state(child).get("state") == agent_status.IDLE and fake.got()[-1:] == [children.RESUME_PROMPT])
+        assert invoke("agent", "stop", child.id)["ok"]
+        woken = invoke("agent", "send", child.id, "起きて")                               # 止まっている子：係が起こして届ける
+        assert woken["ok"] and woken["result"]["woken"] and "続きから起こしました" in woken["result"]["note"]
+        until(lambda: fake.got()[-1:] == ["[人から] 起きて"])
+        until(lambda: state(child).get("state") == agent_status.IDLE)
         closed = invoke("agent", "close", child.id, "--force")
         assert closed["ok"] and child.id not in [a["id"] for a in invoke("agent", "list")["result"]]
         assert agent_status.directory(child.id) is None                                  # 頼みの置き場所も残さない

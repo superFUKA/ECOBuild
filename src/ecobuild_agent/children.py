@@ -104,11 +104,12 @@ SCHEMAS = {   # ツールの入力の形（呼び手の ID は入れない：起
                          ("text",)),
 }
 DESCRIPTIONS = {
-    "children_list": "直接の子の全員の様子（作業中・待機中・止まっている、その長さ、今していること、最後の返答、提出・報告、"
-                     "届いた言付け）を毎回まとめて出します。",
+    "children_list": "直接の子の全員の様子（作業中・待機中・止まっている・起動中、その長さ、今していること、最後の返答、提出・報告、"
+                     "届いた言付け）を毎回まとめて出します。起動中（コンテナの用意で数分かかる）の子は、起動し直さずに待ちます。",
     "children_start": "子のエージェントを起動します（手伝い helper か、子タスク subtask）。起動は ECOBuild の係が画面なしで行い、"
                       "子の返答が終わると知らせが届きます。",
-    "children_send": "子に言付けを送ります（作業中でも、返答を止めずに次の区切りで届きます）。結果の message_id で取り消せます。",
+    "children_send": "子に言付けを送ります（作業中でも、返答を止めずに次の区切りで届きます。止まっている子は、続きから起こして"
+                     "届けます。起こせなければ結果の note にわけがあります）。結果の message_id で取り消せます。",
     "children_cancel": "子へのまだ届いていない言付けを取り消します。",
     "children_stop": "子を止めます（返答を終えさせてから）。",
     "children_restart": "子を起動し直します（作業空間・作業はそのまま）。",
@@ -302,14 +303,14 @@ def _read_text(path: Path) -> str:
 # ---- 様子 -------------------------------------------------------------------------------------------------
 
 def describe_activity(member: dict, now: float | None = None) -> str:
-    """様子の1行：作業中（12分）・待機中・止まっている、と届いていない言付け・コンテキスト。"""
+    """様子の1行：作業中（12分）・待機中・止まっている・起動中、と届いていない言付け・コンテキスト。"""
     now = time.time() if now is None else now
     state = member.get("state") or ""
     text = agent_status.STATE_NAMES.get(state, "")
     if not text:
         return ""
     since = member.get("since")
-    if isinstance(since, (int, float)) and state in (agent_status.WORKING, agent_status.IDLE):
+    if isinstance(since, (int, float)) and state in (agent_status.WORKING, agent_status.IDLE, agent_status.STARTING):
         text += f"（{_duration(now - since)}）"
     if member.get("doing") and state == agent_status.WORKING:
         text += f"  今：{member['doing']}"
@@ -474,13 +475,14 @@ def _who(record: agents.AgentRecord) -> str:
 # ---- 閉じる -----------------------------------------------------------------------------------------------
 
 def close_problems(child: agents.AgentRecord) -> list[str]:
-    """子を閉じる・取り込む前に止めるわけ：作業中・届いていない言付け・提出の後のコミット・閉じていない子。"""
+    """子を閉じる・取り込む前に止めるわけ：作業中・届いていない言付け（動いている・起動中の子だけ。止まっている子には
+    届かないので、閉じるのを止めない）・提出の後のコミット・閉じていない子。"""
     from ecowork.git import Git
     found = []
     seen = agent_status.activity(child.folder)
     if seen["state"] == agent_status.WORKING:
         found.append(f"「{child.name}」は作業中です")
-    if seen.get("waiting"):
+    if seen.get("waiting") and seen["state"] in (agent_status.WORKING, agent_status.IDLE, agent_status.STARTING):
         found.append(f"「{child.name}」にまだ届いていない言付けが {seen['waiting']} 件あります")
     grandchildren = agents.children(child.id)
     if grandchildren:

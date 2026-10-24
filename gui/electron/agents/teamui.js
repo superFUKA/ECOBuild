@@ -108,7 +108,7 @@ function renderTeam() {
   const counts = {};
   for (const m of teamFlat) { const l = TeamView.look(m); counts[l.tone] = (counts[l.tone] || 0) + 1; if (l.alert) counts.alert = (counts.alert || 0) + 1; }
   // 数ごとに様子の色の丸（一覧・タブの色と同じ）
-  $('team-sum').replaceChildren(...(teamFlat.length ? [['working', '作業中'], ['idle', '待機中'], ['stopped', '止まっている'], ['failed', '失敗'], ['alert', '要確認']]
+  $('team-sum').replaceChildren(...(teamFlat.length ? [['starting', '起動中'], ['working', '作業中'], ['idle', '待機中'], ['stopped', '止まっている'], ['failed', '失敗'], ['alert', '要確認']]
     .filter(([k]) => counts[k]).map(([k, label]) => { const s = el('span', '', `${label} ${counts[k]}`); s.dataset.tone = k; return s; }) : []));
   $('team-err').textContent = teamData.error ? `読み直せませんでした：${teamData.error.split('\n')[0]}` : '';
   $('team-err').title = teamData.error || '';

@@ -12,8 +12,11 @@ test('入れ子のチームは、深さと起動した親のエージェント�
   assert.deepStrictEqual(flat.map(m => [m.name, m.depth, m.parent]),
                          [['下', 0, 'a-0000000001'], ['画面', 1, 'a-000000000a'], ['調べ', 0, 'a-0000000001']]);
   assert.strictEqual(flat[0].members, undefined);
-  assert.deepStrictEqual(flat.map(view.kindName), ['manager', 'worker', '手伝い・worker']);   // 役の名前は登録の名前
-  assert.strictEqual(view.kindName({kind: 'owner'}), '子タスク');
+  assert.deepStrictEqual(flat.map(m => view.kindName(m)), ['manager', 'worker', 'worker']);   // 役は登録（表示名がなければ名前）
+  assert.strictEqual(view.kindName({name: '下', registration: 'manager', title: '管理役'}), '管理役');
+  assert.deepStrictEqual(flat.map(m => view.roleLabel(m).text), ['manager・子タスク', 'worker・子タスク', 'worker・手伝い']);
+  assert.deepStrictEqual(view.roleLabel({kind: 'owner', registration: 'worker', title: '作業役', task: {number: 12}}),
+                         {text: '作業役・#12', title: '作業役（登録 worker）・子タスク #12'});
 });
 
 test('様子：長さ・失敗・長く道具を使っていない作業中・人の画面', () => {

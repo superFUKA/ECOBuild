@@ -333,10 +333,19 @@ def _duration(seconds: float) -> str:
 
 def shown(record: agents.AgentRecord) -> dict:
     """1人の記録と様子（JSON の形）：記録の項目（id・name・registration・kind・parent・task・workspace 等）と、
-    path・branch・session、activity の項目（state・since・last_reply 等）。"""
+    path・branch・title（登録の表示名：役は登録で自由に決めるので、それを役として見せる）・session、activity の項目
+    （state・since・last_reply 等）。"""
     folder = record.folder
     task = record.task or {}
+    used = agent_status.read(folder / "registration.json")   # 起動のときに解決した登録（REGISTRATION_FILE）
+    title = used.get("title") if isinstance(used, dict) else None
+    if not isinstance(title, str) or not title:   # まだ起動していない等：作業空間の登録から
+        try:
+            title = registry.effective(record.registration, record.workspace).title
+        except (EcoBuildError, OSError):
+            title = ""
     return {**agents.to_data(record), "path": Path(record.workspace).as_posix(), "branch": task.get("branch") or "",
+            "title": title if isinstance(title, str) and title else record.registration,
             "session": agent_status.session_of(folder) or record.session, **agent_status.activity(folder)}
 
 

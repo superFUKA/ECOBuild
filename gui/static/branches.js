@@ -111,7 +111,7 @@
     el('br-side').querySelector(`[data-br-folder="${CSS.escape(path)}"]`)?.focus();
   }
 
-  // Taking a branch into another. The chosen branch is one side, fixed (shown, not chosen): at first where it goes (⇄ puts
+  // Taking a branch into another. The chosen branch is one side, fixed (shown, not chosen): at first where it goes (the arrow, a button, puts
   // it on the other side); the other is chosen: at first a branch made from it (its work), else the branch it was made
   // from (its latest), else another. Only branches on GitHub can be merged.
   function chooseMerge(into) {
@@ -170,8 +170,7 @@
     }
     const sum = el('br-merge-sum');
     if (sum) sum.innerHTML = m.reading ? '<span class="eco-spinner"></span>' : p ? `<span class="mi-pill ${(METHODS[p.method] || [])[1] || ''}">${esc((METHODS[p.method] || [p.method])[0])}</span>${p.commit_count ? ` <span class="mi-sub">${esc(p.name)} → ${esc(p.into)}・${p.commit_count} 件</span>` : ''}` : '';
-    box.innerHTML = `<div class="br-merge-row">${side('from', '取り込むブランチ')}<span class="br-merge-arrow" aria-hidden="true">→</span>${side('into', '取り込み先')}
-      <button type="button" class="br-merge-swap" data-br-merge="swap" title="向きを入れ替える" aria-label="向きを入れ替える">⇄</button>
+    box.innerHTML = `<div class="br-merge-row">${side('from', '取り込むブランチ')}<button type="button" class="br-merge-arrow" data-br-merge="swap" title="取り込む向きを入れ替える" aria-label="取り込む向きを入れ替える">→</button>${side('into', '取り込み先')}
       <button type="button" class="mi-link" data-br-merge="reload">確かめ直す</button></div>
       <div class="br-merge-result" aria-live="polite">${result}</div>`;
   }

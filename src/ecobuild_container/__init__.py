@@ -738,7 +738,8 @@ def _exists(root: Path, runner: docker.Runner | None) -> bool:
 
 def lock_source(roots: "Sequence[Path]") -> "list[list[locks.Detected]]":
     """作業空間のロックの理由（ecobuild.locks.add_source）：その作業空間のコンテナが動いている間。
-    コンテナにしている作業空間があるときだけ、docker を呼ぶ（1回の ps でまとめて調べる。docker が使えなければ、ロックなし）。"""
+    コンテナにしている作業空間があるときだけ、docker を呼ぶ（1回の ps でまとめて調べる。docker が使えなければ、ロックなし）。
+    調べるだけなので、時間制限付き（docker.probe。WSL・Docker が固まっていても workspace list 等を止めない）。"""
     found: list[list] = [[] for _ in roots]
     boxed = [i for i, root in enumerate(roots) if enabled(root)]
     if not boxed:
@@ -746,7 +747,7 @@ def lock_source(roots: "Sequence[Path]") -> "list[list[locks.Detected]]":
     status = docker.status(docker.run)
     if not status.ready:
         return found
-    listed = docker.run([*status.command, "ps", "--filter", "status=running", "--format", "{{.Names}} {{.ID}}"])
+    listed = docker.probe([*status.command, "ps", "--filter", "status=running", "--format", "{{.Names}} {{.ID}}"])
     if not listed.ok:
         return found
     running = {parts[0]: (parts[1] if len(parts) > 1 else "") for line in listed.output.splitlines()

@@ -230,8 +230,8 @@ def test_helpers_started_together_keep_the_number_of_children(lead, tmp_path, mo
     from ecobuild_agent import registry
     one = registry.Registration(name="one", title="one", document="", children=("worker",), max_children=1,
                                 tools=("*",))
-    real = registry.load
-    monkeypatch.setattr(registry, "load", lambda name: one if name == "one" else real(name))
+    real = registry.effective
+    monkeypatch.setattr(registry, "effective", lambda name, workspace: one if name == "one" else real(name, workspace))
     caller = agents.create(registration="one", workspace=lead.root)
     slow = agents.create
     monkeypatch.setattr(agents, "create", lambda **kw: (time.sleep(0.2), slow(**kw))[1])

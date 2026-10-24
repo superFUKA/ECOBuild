@@ -195,8 +195,8 @@ def test_opening_goes_to_a_page_window_or_the_electron_main(tmp_path, monkeypatc
     assert app.events.items[-1]["type"] == "open-window" and app.events.items[-1]["target"] == "w1"
 
 
-def test_the_agent_registrations_open_in_the_hub_settings(tmp_path):
-    """エージェントの登録（ハブの設定の「エージェント」のタブ）：ハブの窓があればそこが移り、なければその画面を開く。"""
+def test_the_agent_presets_open_in_the_hub_settings(tmp_path):
+    """エージェントのプリセット（ハブの設定の「エージェント」のタブ）：ハブの窓があればそこが移り、なければその画面を開く。"""
     app = make_app(tmp_path)
     app.see_window({"id": "agents-main", "kind": "agents", "tabs": []})
     assert app.action("open", {"page": "settings", "tab": "agents"})["window"] == "agents-main"

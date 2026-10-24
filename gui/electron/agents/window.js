@@ -377,20 +377,26 @@ $('add').addEventListener('click', async event => {
   const place = () => placeMenu(menu, r.left, r.bottom + 2);
   place();
   event.stopPropagation();
-  const [list, found] = await Promise.all([agents.workspaces(), agents.registrations()]);
-  const startable = found.filter(r => r.human_start);
-  head.textContent = !list.length ? '記録した作業空間はありません'
-    : !startable.length ? '人が起動できる登録がありません（ハブの設定の「エージェント」で選べます）' : '作業空間（タスクブランチのものだけ開けます）';
+  const list = await agents.workspaces();
+  head.textContent = !list.length ? '記録した作業空間はありません' : '作業空間（タスクブランチのものだけ開けます）';
   for (const w of list) {
     const b = document.createElement('button'); b.type = 'button';
     const folder = shortDir(w.path).split('/').pop();
     const strong = document.createElement('b'); strong.textContent = folder;
     const sub = document.createElement('span'); sub.className = 'sub'; sub.textContent = `${w.task ? `#${w.task} ` : ''}${w.branch || ''}`;
-    b.append(strong, sub); b.disabled = !w.task || !startable.length;
-    b.title = !w.task ? `タスクブランチではないので開けません\n${w.path}` : !startable.length ? `人が起動できる登録がありません\n${w.path}` : w.path;
-    b.addEventListener('click', clicked => {
+    b.append(strong, sub); b.disabled = !w.task;
+    b.title = !w.task ? `タスクブランチではないので開けません\n${w.path}` : w.path;
+    b.addEventListener('click', async clicked => {
       clicked.stopPropagation();
       const name = folder + (w.task ? ` #${w.task}` : '');
+      // 登録はモジュールごと：その作業空間のモジュールの、人が起動できるもの
+      const startable = (await agents.registrations(w.path)).filter(r => r.human_start);
+      if (!startable.length) {
+        menu.replaceChildren();
+        const none = document.createElement('div'); none.className = 'head';
+        none.textContent = `${name}：人が起動できる登録がありません（モジュールの「エージェント」で選べます）`; menu.append(none);
+        return place();
+      }
       const open = r => { menu.hidden = true; agents.open({dir: w.path, name, registration: r.name, team: !!r.children?.length}); };
       if (startable.length === 1) return open(startable[0]);
       // 起動する登録を選ぶ（人が起動できるものだけ）

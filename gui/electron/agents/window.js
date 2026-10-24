@@ -3,7 +3,9 @@
 // タブのダブルクリックで名前を変え、ドラッグで並べ替え、右クリックで「新しい窓へ」「起動し直す」「続きから起動し直す」「閉じる」。
 // ヘッダー：タブ（種類の色の番号＋名前。状態は下端の線。入らなければ縮み、それでも入らなければホイールで横に送る）・
 // ＋（作業空間のエージェントを開く）・☰（隠れたタブの数）／🎙・📌・⚙／–・×（窓の操作）。
-// 子を起動できるエージェントの窓には、そのタブの隣に「チーム」（AI が起動した子を見る。teamui.js）。
+// 子を起動できるエージェントの窓では、AI が起動した子もそのタブの後ろに並ぶ（選ぶと子の詳しい表示。teamui.js）。
+// 表示のしかた（▥。このPCで覚える）：タブ（上に並べて、選んだものを出す）・横に一覧（左に縦に並べる）・一覧（全体に一覧を出し、
+// 選ぶと全面に出す。← か Esc で一覧へ戻る）。
 // フッター：オペレーターモードの札・状態・モデル・場所・（右寄せで）使用量の制限の残り（5時間・週。20% 以下で黄、5% 以下で赤）・
 // リングの丸（緑：つながっている・黄：登録なし・赤：受信係が止まっている）。窓の枠：選んでいる窓は青、オペレーターモードは紫、聞き取り中は赤。
 // ☰：すべてのタブの一覧（状況・最後の出力2行・入力中の文字）。⚙：返答の知らせ方とリング。
@@ -61,59 +63,155 @@ function fitActive() {
 }
 
 function show(id) {
-  if (typeof teamClosePane === 'function') teamClosePane();   // 端末のタブを選んだ：チームの表示を閉じる（teamui.js）
-  active = id;
-  for (const [key, t] of terms) t.el.hidden = key !== id;
-  $('empty').hidden = terms.size > 0;
-  requestAnimationFrame(() => { fitActive(); terms.get(id)?.term.focus(); });
+  if (typeof hideChild === 'function') hideChild();   // 端末のタブを選んだ：子の表示を閉じる（teamui.js）
+  active = id; listOpen = false;
   renderTabs();
+  requestAnimationFrame(() => { fitActive(); terms.get(id)?.term.focus(); });
 }
 
-function renderTabs() {
-  const bar = $('tabs'); bar.replaceChildren();
+// ---- 表示のしかた ------------------------------------------------------------------------------------------
+const LAYOUTS = [['tabs', 'タブ（上に並べる）'], ['side', '横に一覧（左に縦に並べる）'], ['list', '一覧（選ぶと全面に出す）']];
+const LAYOUT_KEY = 'ecobuild.agentLayout';
+let layout = (() => { try { return localStorage.getItem(LAYOUT_KEY) || 'tabs'; } catch (e) { return 'tabs'; } })();
+if (!LAYOUTS.some(([key]) => key === layout)) layout = 'tabs';
+let listOpen = false;   // 一覧の表示で、一覧を出している（何も開いていない）
+function setLayout(next) {
+  layout = next; listOpen = next === 'list';
+  try { localStorage.setItem(LAYOUT_KEY, next); } catch (e) { /* 覚えられなくても切り替わる */ }
+  renderTabs();
+  requestAnimationFrame(fitActive);
+}
+function openList() { listOpen = true; renderTabs(); }
+$('layout').addEventListener('click', event => {
+  event.stopPropagation();
+  const menu = $('menu'); menu.replaceChildren();
+  const head = document.createElement('div'); head.className = 'head'; head.textContent = '表示のしかた'; menu.append(head);
+  menuItems(menu, LAYOUTS.map(([key, label]) => [label, () => setLayout(key), {checked: layout === key}]));
+  const r = $('layout').getBoundingClientRect();
+  placeMenu(menu, r.left, r.bottom + 2);
+});
+$('back').addEventListener('click', openList);
+
+// 並べるもの：端末のタブと、子を起動できるエージェントのタブの後ろに、その子（teamui.js）
+function entries() {
+  const out = [];
   for (const info of tabs) {
-    const b = document.createElement('button'); b.type = 'button';
-    b.className = 'tab' + (info.id === active ? ' active' : '') + (info.exited ? ' exited' : '') + (info.unread && info.id !== active ? ' unread' : '')
-      + (info.pinned ? ' pinned' : '');
-    b.dataset.state = info.state || '';
-    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = !info.pinned; b.dataset.id = info.id;
-    // 登録の名前（役は ECOBuild の既定ではなく、ユーザーが登録したもの）。子を起動できるエージェントの窓では、そのタブは
-    // 左端に固定して、印は登録の名前の頭文字
-    const registration = info.registration ? `登録 ${info.registration}・` : '';
-    b.title = `${info.num}  ${info.name}（${registration}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
-      + (info.agentId ? `\nエージェント ${info.agentId}` : '') + (info.pinned ? '\nこの窓のエージェント（左端に固定。子は「チーム」で見ます）' : '');
-    b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
-    b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.pinned && info.registration ? info.registration[0].toUpperCase() : info.num;
-    b.querySelector('b').dataset.kind = info.pinned ? 'lead' : info.kind;
-    const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
-    if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
-    b.querySelector('.name').textContent = info.name;
-    if (info.kind === 'operator') b.querySelector('.x').title = '裏に戻す（オペレーターは止めません）';
-    b.addEventListener('click', event => {
-      if (event.target.classList.contains('x')) return closeTab(info);
-      agents.select(info.id); show(info.id);
-    });
-    b.addEventListener('dblclick', () => rename(b, info));
-    b.addEventListener('contextmenu', event => { event.preventDefault(); tabMenu(info, event.clientX, event.clientY); });
-    b.addEventListener('dragstart', event => { b.classList.add('dragging'); event.dataTransfer.setData('text/plain', String(info.id)); });
-    b.addEventListener('dragend', () => b.classList.remove('dragging'));
-    b.addEventListener('dragover', event => event.preventDefault());
-    b.addEventListener('drop', event => {
-      event.preventDefault();
-      const moved = Number(event.dataTransfer.getData('text/plain')); if (!moved || moved === info.id) return;
-      const ids = tabs.map(t => t.id).filter(id => id !== moved);
-      ids.splice(ids.indexOf(info.id), 0, moved);
-      agents.reorder(ids);
-    });
-    bar.append(b);
+    out.push({info});
+    if (info.pinned && info.lead && typeof teamFlat !== 'undefined') for (const m of teamFlat) out.push({child: m});
   }
-  if (typeof teamTab === 'function') teamTab(bar);   // 子を起動できるエージェントの窓：そのタブの隣に「チーム」（teamui.js）
-  bar.querySelector('.tab.active')?.scrollIntoView({inline: 'nearest', block: 'nearest'});
+  return out;
+}
+const activeChildId = () => (typeof activeChild !== 'undefined' ? activeChild : null);
+const isShown = e => (e.child ? e.child.id === activeChildId() : !activeChildId() && e.info.id === active);
+
+function renderTabs() {
+  const bar = $('tabs'), side = $('side'), overview = $('overview');
+  bar.replaceChildren(); side.replaceChildren();
+  const all = entries(), listing = layout === 'list' && listOpen && terms.size > 0;
+  document.body.dataset.layout = layout;
+  side.hidden = layout !== 'side';
+  $('back').hidden = layout !== 'list' || listOpen;
+  if (layout === 'tabs') for (const e of all) bar.append(itemButton(e, 'tab'));
+  else if (layout === 'side') for (const e of all) side.append(itemButton(e, 'side'));
+  else if (!listOpen) { const current = all.find(isShown); if (current) bar.append(itemButton(current, 'tab')); }
+  overview.hidden = !listing;
+  if (listing) renderOverview(overview, all);
+  // 子の様子を読み直せなかった（teamui.js）
+  const error = typeof teamData !== 'undefined' && leadOfWindow() ? teamData.error : '';
+  if (error && layout !== 'tabs') {
+    const note = document.createElement('p'); note.className = 'team-error'; note.textContent = `子の様子を読み直せませんでした：${error.split('\n')[0]}`; note.title = error;
+    (layout === 'side' ? side : overview).append(note);
+  }
+  // 出すもの：一覧を出しているときは一覧だけ。子を選んでいれば子、でなければ選んでいる端末
+  const child = activeChildId();
+  for (const [key, t] of terms) t.el.hidden = listing || !!child || key !== active;
+  $('team').hidden = listing || !child;
+  $('empty').hidden = terms.size > 0;
+  if (layout === 'tabs') bar.querySelector('.tab.active')?.scrollIntoView({inline: 'nearest', block: 'nearest'});
   countHidden();
   const current = tabs.find(t => t.id === active);
   document.body.classList.toggle('listening', current?.state === 'listening');
   $('voice').classList.toggle('on', current?.state === 'listening');
-  renderStatus(current);
+  renderStatus(child || listing ? null : current);
+  if (typeof teamVisible === 'function') teamVisible(layout !== 'tabs' || !!child);
+}
+
+function itemButton(e, style) {
+  if (e.child) return childButton(e.child, style);   // teamui.js
+  const info = e.info;
+  const b = document.createElement('button'); b.type = 'button';
+  const shown = isShown(e);
+  b.className = (style === 'side' ? 'tab side-item' : 'tab') + (shown ? ' active' : '') + (info.exited ? ' exited' : '') + (info.unread && !shown ? ' unread' : '')
+    + (info.pinned ? ' pinned' : '');
+  b.dataset.state = info.state || '';
+  b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(info.id === active)); b.draggable = !info.pinned; b.dataset.id = info.id;
+  // 登録の名前（役は ECOBuild の既定ではなく、ユーザーが登録したもの）。子を起動できるエージェントの窓では、そのタブは
+  // 左端に固定して、印は登録の名前の頭文字
+  const registration = info.registration ? `登録 ${info.registration}・` : '';
+  b.title = `${info.num}  ${info.name}（${registration}${STATE_LABELS[info.state] || info.state}）\n${info.dir}`
+    + (info.agentId ? `\nエージェント ${info.agentId}` : '') + (info.pinned ? '\nこの窓のエージェント（左端に固定。AI が起動した子は後ろに並びます）' : '');
+  b.innerHTML = `<b></b><span class="name"></span><span class="x" title="閉じる" aria-label="閉じる">×</span>`;
+  b.querySelector('b').textContent = info.kind === 'operator' ? '◆' : info.pinned && info.registration ? info.registration[0].toUpperCase() : info.num;
+  b.querySelector('b').dataset.kind = info.pinned ? 'lead' : info.kind;
+  const icon = prefs?.icons?.[info.kind === 'operator' ? 'operator' : 'agent'];
+  if (icon) { const img = document.createElement('img'); img.className = 'avatar'; img.src = icon; img.alt = ''; b.prepend(img); }
+  b.querySelector('.name').textContent = info.name;
+  if (style === 'side') {   // 横の一覧：2行目に様子と場所
+    const sub = document.createElement('span'); sub.className = 'sub';
+    sub.textContent = [STATE_LABELS[info.state] || info.state, info.kind === 'operator' ? 'オペレーター' : placeName(info.dir)].filter(Boolean).join('・');
+    b.querySelector('.name').after(sub);
+  }
+  if (info.kind === 'operator') b.querySelector('.x').title = '裏に戻す（オペレーターは止めません）';
+  b.addEventListener('click', event => {
+    if (event.target.classList.contains('x')) return closeTab(info);
+    agents.select(info.id); show(info.id);
+  });
+  b.addEventListener('dblclick', () => rename(b, info));
+  b.addEventListener('contextmenu', event => { event.preventDefault(); tabMenu(info, event.clientX, event.clientY); });
+  b.addEventListener('dragstart', event => { b.classList.add('dragging'); event.dataTransfer.setData('text/plain', String(info.id)); });
+  b.addEventListener('dragend', () => b.classList.remove('dragging'));
+  b.addEventListener('dragover', event => event.preventDefault());
+  b.addEventListener('drop', event => {
+    event.preventDefault();
+    const moved = Number(event.dataTransfer.getData('text/plain')); if (!moved || moved === info.id) return;
+    const ids = tabs.map(t => t.id).filter(id => id !== moved);
+    ids.splice(ids.indexOf(info.id), 0, moved);
+    agents.reorder(ids);
+  });
+  return b;
+}
+
+// 一覧の表示：1つ1行（名前・役・様子・今していること／場所）。選ぶと全面に出す
+function renderOverview(box, all) {
+  box.replaceChildren();
+  for (const e of all) {
+    const row = document.createElement('div'); row.className = 'orow'; row.tabIndex = 0;
+    const cell = (cls, text) => { const c = document.createElement('span'); c.className = cls; c.textContent = text || ''; row.append(c); return c; };
+    if (e.child) {
+      const m = e.child, look = TeamView.look(m), role = TeamView.roleLabel(m);
+      row.dataset.tone = look.tone; row.dataset.alert = look.alert ? 'yes' : ''; row.classList.add('child');
+      cell('name', '　'.repeat(m.depth) + '└ ' + m.name);
+      cell('role', role.text).title = role.title;
+      cell('state', look.label);
+      cell('doing', m.doing ? `今：${m.doing}` : look.alert || (m.last_reply ? `最後：${m.last_reply}` : ''));
+      row.addEventListener('click', () => showChild(m.id));
+      row.addEventListener('keydown', event => { if (event.key === 'Enter') showChild(m.id); });
+      row.addEventListener('contextmenu', event => { event.preventDefault(); opsMenu(m, event.clientX, event.clientY); });
+    } else {
+      const info = e.info;
+      row.dataset.state = info.state || ''; if (info.exited) row.classList.add('exited');
+      const name = cell('name', `${info.kind === 'operator' ? '◆' : info.num}  ${info.name}`);
+      if (info.unread) name.classList.add('unread');
+      cell('role', info.kind === 'operator' ? 'オペレーター' : info.registration || '');
+      cell('state', STATE_LABELS[info.state] || info.state);
+      cell('doing', info.kind === 'operator' ? '' : placeName(info.dir)).title = info.dir || '';
+      const open = () => { agents.select(info.id); show(info.id); };
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', event => { if (event.key === 'Enter') open(); });
+      row.addEventListener('contextmenu', event => { event.preventDefault(); tabMenu(info, event.clientX, event.clientY); });
+    }
+    box.append(row);
+  }
 }
 
 // タブが入りきらないとき：ホイールで横に送り、隠れているタブの数を ☰ に出す
@@ -230,7 +328,7 @@ function closeTab(info) {
 
 function tabMenu(info, x, y) {
   const menu = $('menu'); menu.replaceChildren();
-  menuItems(menu, [['名前を変える', () => rename($('tabs').querySelector(`[data-id="${info.id}"]`), info)],
+  menuItems(menu, [['名前を変える', () => rename(document.querySelector(`#tabs [data-id="${info.id}"], #side [data-id="${info.id}"]`), info)],
                    ...(info.pinned ? [] : [['新しい窓へ', () => agents.newWindow(info.id)]]),
                    null,
                    ['起動し直す（新しい会話）', () => agents.restart(info.id)],
@@ -249,11 +347,10 @@ agents.onExit((id, code) => terms.get(id)?.term.write(`\r\n\x1b[90m（エージ�
 agents.onSelect(id => show(id));
 agents.onTabs(({tabs: list, active: selected}) => {
   tabs = list;
-  // 出していたタブが閉じた：チームを出しているなら、チームを出したまま（引き取ったタブを「返す」で閉じたとき等）
+  // 出していたタブが閉じた：子・一覧を出しているなら、そのまま（引き取ったタブを「返す」で閉じたとき等）
   if (selected && selected !== active && terms.has(selected)) {
-    if (active === null && typeof teamOpen !== 'undefined' && teamOpen) { active = selected; renderTabs(); } else show(selected);
+    if (activeChildId() || (layout === 'list' && listOpen)) { active = selected; renderTabs(); } else show(selected);
   } else renderTabs();
-  $('empty').hidden = terms.size > 0;
 });
 agents.onTopmost(mode => {
   $('topmost').querySelector('.label').textContent = TOPMOST_LABELS[mode] || mode; $('topmost').dataset.mode = mode;
@@ -309,6 +406,8 @@ document.addEventListener('keydown', event => {
     event.preventDefault(); event.stopPropagation(); return;
   }
   if (!$('settings-panel').hidden && event.key === 'Escape') { closePanels(); event.preventDefault(); return; }
+  // 一覧の表示で開いているもの：端末の外（子の詳しい表示等）なら Esc で一覧へ（端末の Esc は Claude Code のもの）
+  if (event.key === 'Escape' && layout === 'list' && !listOpen && $('menu').hidden && !event.target.closest?.('.screen')) { openList(); event.preventDefault(); return; }
   if (event.ctrlKey && event.shiftKey && event.code === 'KeyA') { event.preventDefault(); openPicker(); }
 }, true);
 $('picker').addEventListener('click', () => ($('picker-panel').hidden ? openPicker() : closePanels()));
@@ -405,7 +504,7 @@ $('add').addEventListener('click', async event => {
       for (const r of startable) {
         const item = document.createElement('button'); item.type = 'button';
         item.textContent = r.title && r.title !== r.name ? `${r.title}（${r.name}）` : r.name;
-        item.title = r.children?.length ? `子を起動できます（${r.children.join('・')}）。新しい窓で開き、子は「チーム」で見ます` : '';
+        item.title = r.children?.length ? `子を起動できます（${r.children.join('・')}）。新しい窓で開き、子はそのエージェントの後ろに並びます` : '';
         item.addEventListener('click', () => open(r));
         menu.append(item);
       }

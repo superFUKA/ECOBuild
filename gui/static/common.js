@@ -181,7 +181,7 @@ const ECO = (() => {
   const detailHtml = (e, detail) => detail ? `<details class="eco-detail"${OUTPUT_FIRST.has(e.code) ? ' open' : ''}><summary>詳細（ツールの出力）</summary><pre>${esc(detail)}</pre></details>` : '';
   // Workspace lock (workspace lock／unlock): reasons are {kind: manual|agent|container|command, text, since, pid}.
   // An answer without `lock` (an older CLI) is "not locked".
-  const LOCK_KIND = {manual: '手動のロック', agent: 'エージェントが動いています', container: 'コンテナが動いています', command: 'コマンドを実行中です'};
+  const LOCK_KIND = {manual: '手動のロック', agent: 'エージェントが動いています', command: 'コマンドを実行中です'};
   const lockReasons = v => {
     const list = Array.isArray(v) ? v : Array.isArray(v?.reasons) ? v.reasons : v && typeof v === 'object' ? [v] : typeof v === 'string' && v ? [{text: v}] : [];
     return list.map(r => typeof r === 'string' ? {text: r} : r).filter(r => r && typeof r === 'object');
@@ -201,16 +201,16 @@ const ECO = (() => {
   async function lockDialog(dir, state) {
     const lock = lockOf(state), manual = lock.reasons.some(r => r.kind === 'manual'), auto = lock.reasons.filter(r => r.kind !== 'manual');
     const buttons = [['閉じる', '', null], ...(manual ? [['手動ロックを外す', 'primary', 'unlock']] : lock.locked ? [] : [['手動でロックする…', 'primary', 'lock']])];
-    const emergency = lock.locked && auto.length ? `<details class="eco-detail eco-emergency"><summary>非常用の操作</summary><p class="eco-hint">ふだんは使いません（使用禁止の位置づけです）。エージェントやコンテナ、コマンドが動いたままでも、いまあるロックを無視させます。</p><button type="button" class="danger" data-force>今あるロックを無視させる…</button></details>` : '';
+    const emergency = lock.locked && auto.length ? `<details class="eco-detail eco-emergency"><summary>非常用の操作</summary><p class="eco-hint">ふだんは使いません（使用禁止の位置づけです）。エージェントやコマンドが動いたままでも、いまあるロックを無視させます。</p><button type="button" class="danger" data-force>今あるロックを無視させる…</button></details>` : '';
     const body = lock.locked
-      ? `<p>この作業空間は使用中です。ロック中は、タスクブランチの切り替え・削除ができません。</p>${lockList(lock.reasons)}${auto.length ? '<p class="eco-hint">エージェント・コンテナ・コマンドによるロックは、それが終わると自動で外れます。手動では外せません。</p>' : ''}${emergency}`
-      : '<p>この作業空間はロックされていません。手動でロックすると、タスクブランチの切り替え・削除ができなくなります（他の人や AI が使っている間の保護）。</p>';
+      ? `<p>この作業空間は使用中です。ロック中は、この作業空間を消す操作（完了・作業を捨てる・閉じる等）とタスクブランチの削除ができません。</p>${lockList(lock.reasons)}${auto.length ? '<p class="eco-hint">エージェント・コマンドによるロックは、それが終わると自動で外れます。手動では外せません。</p>' : ''}${emergency}`
+      : '<p>この作業空間はロックされていません。手動でロックすると、この作業空間を消す操作とタスクブランチの削除ができなくなります（他の人や AI が使っている間の保護）。</p>';
     let forced = false;
     const choice = await dialog({title: '作業空間のロック', body: `${body}<p class="eco-cmd">${esc(dir)}</p>`, buttons,
       onOpen: d => d.querySelector('[data-force]')?.addEventListener('click', () => { forced = true; d.close(); })});
     if (forced) {
       const ok = await confirm({title: '今あるロックを無視させる（非常用）', danger: true, ok: 'ロックを無視させる',
-        message: 'これは使用禁止の位置づけの非常用の操作です。\nエージェントやコンテナ、コマンドが動いたまま、タスクブランチが切り替わったり消えたりすることがあります。動いている作業が壊れたり、失われたりするおそれがあります。\n\nそれでも、今あるロックを無視させますか？', detail: lock.reasons.map(lockReasonText).join('\n')});
+        message: 'これは使用禁止の位置づけの非常用の操作です。\nエージェントやコマンドが動いたまま、作業空間やタスクブランチが消えることがあります。動いている作業が壊れたり、失われたりするおそれがあります。\n\nそれでも、今あるロックを無視させますか？', detail: lock.reasons.map(lockReasonText).join('\n')});
       return ok ? !!await run(dir, ['workspace', 'unlock', '--force', '--yes'], {success: 'ロックを無視させました。'}) : false;
     }
     if (choice === 'unlock') return !!await run(dir, ['workspace', 'unlock'], {success: '手動ロックを外しました。'});

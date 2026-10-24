@@ -1,10 +1,20 @@
-"""作業空間のロック：使っている最中の作業空間で、ブランチが入れ替わったり（切り替え）、タスクブランチが消されたりしないようにする。
+"""作業空間のロック：使っている最中の作業空間を、消したり切り替えたりしないようにする。
+
+作業空間（元の clone の git worktree）はブランチを切り替えず、タスクの完了・作業を捨てる等で作業空間ごと消える。
+そのため守るのは、作業空間を消す操作（task finish・drop・close・prune・workspace close・確認の片付け）と、
+そのタスクブランチを消す操作。その場で切り替えるのは元の clone・依存先の clone・前の版の clone だけで、そこでは切り替えも止める
+（ecowork の Hooks.switch_locks・branch_locks。ecobuild.module がこのロックを渡す）。
 
 理由はどれか1つでもあればロック中：
 - manual：workspace lock で付け、workspace unlock で外す（外すまで残る）。
-- agent・container・command：自動。原因（エージェントのプロセス・コンテナ・実行中のコマンド）が終われば外れる。
-  workspace unlock では外れない。agent・container は拡張（ecobuild_agent・ecobuild_container）が知っているので、
-  拡張が add_source で判断の口を足す（本体は拡張を知らない。つなぐのは ecobuild_bundle）。command は本体が持つ。
+- agent・command：自動。原因（エージェントのプロセス・実行中のコマンド）が終われば外れる。workspace unlock では外れない。
+  agent は拡張（ecobuild_agent）が知っているので、拡張が add_source で判断の口を足す（本体は拡張を知らない。つなぐのは
+  ecobuild_bundle）。command は本体が持つ。
+- コンテナが動いていることは理由にしない（以前の container）：コンテナの中で作業空間を使うのはエージェントとコマンドで、
+  それぞれ agent・command になる（中のコマンドは、渡しているこのPCの CLI がロックする）。コンテナは動いたまま残ることがあり、
+  調べるには docker（Windows では WSL）を呼ぶ：ロックは GUI が頻繁に読むので、WSL を起こし続けてしまう。
+- 自動の理由の口は軽くする（ロックは status・workspace list のたびに読む）：プロセス・ファイルを見るだけにし、外のサービス・
+  仮想マシンを呼ばない。
 - 非常用の force（workspace unlock --force）：その時にある自動ロックを、その原因（key。プロセスの pid・コンテナの id 等）が
   続く間だけ無視する。原因が終わって別の原因ができれば、また止まる。
 
@@ -31,18 +41,18 @@ from .fsutil import locked, process_alive
 FILE_NAME = f"{_config.DIRECTORY}/lock.json"
 LOCK_NAME = f"{_config.DIRECTORY}/lock.lock"   # lock.json を読んで書き直す間のロック
 
-MANUAL, AGENT, CONTAINER, COMMAND = "manual", "agent", "container", "command"
-AUTOMATIC = (AGENT, CONTAINER, COMMAND)
+MANUAL, AGENT, COMMAND = "manual", "agent", "command"
+AUTOMATIC = (AGENT, COMMAND)
 
-# ブランチが変わると困るので、実行中はロックにするコマンド（ビルド・テスト・実行・確認〔task submit は中で check を行う〕：
-# 手元のファイルとブランチの版が合っている前提で長く動く。ほかは短いので対象にしない）
+# 実行中はロックにするコマンド（ビルド・テスト・実行・確認〔task submit は中で check を行う〕：作業空間のファイルを使って
+# 長く動くので、その間に作業空間が消えたり切り替わったりすると困る。ほかは短いので対象にしない）
 COMMANDS = ("build", "clean", "rebuild", "test", "run", "check", "task submit")
 
 
 @dataclass(frozen=True)
 class Reason:
     """ロックの理由。JSON の形はこのまま（GUI と合わせた約束）。"""
-    kind: str                  # manual・agent・container・command
+    kind: str                  # manual・agent・command（以前の版は container も出した）
     text: str                  # 日本語の説明
     since: str | None = None   # ISO 時刻
     pid: int | None = None

@@ -10,6 +10,7 @@ import datetime
 import enum
 import errno
 import json
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -22,6 +23,7 @@ import click
 from ecowork import WorkError
 
 from ecobuild import locks as _locks
+from ecobuild_container import INSIDE as _IN_CONTAINER
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_cli._module import Module
@@ -66,7 +68,11 @@ class Invocation:
         self._hold_workspace()
 
     def _hold_workspace(self) -> None:
-        """ビルド・テスト等の実行中は、その作業空間をロックする（ブランチが変わらないように。locks.COMMANDS）。"""
+        """ビルド・テスト等の実行中は、その作業空間をロックする（その間に作業空間が消えたり切り替わったりしないように。
+        locks.COMMANDS）。コンテナの中では書かない：渡したこのPCの CLI がロックしている（_inside）。中の pid はこのPCでは
+        確かめられず、書き直すとこのPCの記録を「終わった」とみなして消してしまう。"""
+        if os.environ.get(_IN_CONTAINER):
+            return
         if self._module is not None and self.command in _locks.COMMANDS:
             self.holds.enter_context(_locks.running(self._module.root, self.command))
 

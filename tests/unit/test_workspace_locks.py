@@ -76,35 +76,45 @@ def test_agent_lock_follows_the_process(root):
     assert not locks.status(root).locked
 
 
-def test_container_lock_while_running(root, monkeypatch):
+def test_a_running_container_is_no_lock_and_docker_is_not_called(tmp_path, monkeypatch):
+    """コンテナが動いていることはロックの理由にしない。ロックの確認は docker（Windows では WSL）を呼ばない：GUI が
+    20 秒おきに読むたびに、止まっていた WSL を起こし続けていた。"""
     fake = FakeDocker(monkeypatch)
     monkeypatch.setattr(docker, "run", fake.run)
-    monkeypatch.setattr(docker, "probe", fake.run)          # ロックの確認は時間制限付きの probe で呼ぶ
-    assert not locks.status(root).locked and not fake.calls   # コンテナにしていなければ docker を呼ばない
-    container.choose(root, True, fake.run)
-    assert not locks.status(root).locked                      # まだコンテナがない
-    fake.containers[container.name(root)] = ["running", "image", "1"]
-    reason = locks.status(root).reasons[0]
-    assert reason.kind == "container" and container.name(root) in reason.text
-    fake.containers[container.name(root)][0] = "exited"
-    assert not locks.status(root).locked
-
-
-def test_container_locks_are_checked_with_one_docker_call(tmp_path, monkeypatch):
-    fake = FakeDocker(monkeypatch)
-    monkeypatch.setattr(docker, "run", fake.run)
-    monkeypatch.setattr(docker, "probe", fake.run)          # ロックの確認は時間制限付きの probe で呼ぶ
+    monkeypatch.setattr(docker, "probe", fake.run)
     roots = []
-    for index in range(3):
+    for index in range(2):
         folder = tmp_path / f"w{index}"
         (folder / config.DIRECTORY).mkdir(parents=True)
         container.choose(folder, True, fake.run)
+        fake.containers[container.name(folder)] = ["running", "image", "1"]
         roots.append(folder)
-    fake.containers[container.name(roots[1])] = ["running", "image", "1"]
     fake.calls.clear()
-    result = locks.status_of(roots)
-    assert [s.locked for s in result] == [False, True, False]
-    assert sum(1 for call in fake.calls if call[1] == "ps") == 1
+    assert [s.locked for s in locks.status_of(roots)] == [False, False]
+    assert fake.calls == []
+
+
+def test_commands_inside_the_container_do_not_write_the_lock(root, monkeypatch):
+    """コンテナの中の ecobuild は lock.json に書かない（中の pid はこのPCでは確かめられず、このPCの記録を消してしまう）。
+    渡しているこのPCの CLI がロックする（_inside.route）。"""
+    from types import SimpleNamespace
+    from ecobuild_cli._output import Invocation
+
+    held = SimpleNamespace(root=root)
+    inside = Invocation(json_output=True)
+    inside.command = "build"
+    monkeypatch.setenv(container.INSIDE, "1")
+    inside._module = held
+    inside._hold_workspace()
+    assert not (root / locks.FILE_NAME).exists()
+    monkeypatch.delenv(container.INSIDE)
+    here = Invocation(json_output=True)
+    here.command = "build"
+    here._module = held
+    here._hold_workspace()
+    assert [r.kind for r in locks.status(root).reasons] == ["command"]
+    here.holds.close()
+    assert not locks.status(root).locked
 
 
 def test_force_ignores_automatic_locks_while_the_cause_continues(root):

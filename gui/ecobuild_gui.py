@@ -330,8 +330,11 @@ def mcp_tools(operator: bool = False) -> list[dict]:
         tools.append({"name": name, "description": description, "inputSchema": schema(a)})
     tools.append({"name": "ecobuild_commands",
                   "description": "ECOBuild のコマンドの一覧（説明・引数・オプション）。path を指定するとそのコマンドだけ（例：\"task start\"）。"
-                                 "型ごとのコマンド（build・test 等）は型ごとに分かれています。",
-                  "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "コマンド（省略で全部）"}}}})
+                                 "型ごとのコマンド（build・test 等）は型ごとに分かれています。型のコマンドを path で見るときは、"
+                                 "dir にその型のモジュール・作業空間を指定します。",
+                  "inputSchema": {"type": "object", "properties": {
+                      "path": {"type": "string", "description": "コマンド（省略で全部）"},
+                      "dir": {"type": "string", "description": "読む場所（モジュール・作業空間のフォルダ。省略時はこのフォルダ）"}}}})
     if operator:
         tools.append({"name": "ecobuild_read",
                       "description": "見るだけ（重さが read）の ECOBuild のコマンドを、GUIを通して実行します（例：args に [\"task\", \"list\"]）。"
@@ -345,8 +348,9 @@ def mcp_tools(operator: bool = False) -> list[dict]:
 
 def mcp_call(name: str, arguments: dict, operator: bool = False) -> tuple[object, bool]:
     if name == "ecobuild_commands":
-        args = [*arguments.get("path", "").split(), "--help", "--json"]
-        command = ["ecobuild", *args]
+        # 型のコマンド（build・deps 等）は、その型のモジュールの中で読むときだけ重なる（外では使えない誤り）
+        where = arguments.get("dir") or ""
+        command = ["ecobuild", *(["-C", where] if where else []), *arguments.get("path", "").split(), "--help", "--json"]
         completed = subprocess.run(command, capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
         document = json.loads(completed.stdout.strip().splitlines()[-1]) if completed.stdout.strip() else {"ok": False}
         return document.get("result") if document.get("ok") else document, not document.get("ok")

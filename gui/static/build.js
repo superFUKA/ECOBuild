@@ -83,7 +83,9 @@ WS.onRefresh(renderPrDetail);
   });
   const showOutputState = () => outputButton.setAttribute('aria-pressed', String(!get('footer').hidden && WS.footer.has(OUTPUT_PANEL.id)));
   new MutationObserver(showOutputState).observe(get('footer'), {attributes: true, attributeFilter: ['hidden']});
+  // A container workspace builds and runs in Linux (the container's): the run's title says so.
   function begin(title, command) {
+    if (box?.container) title += '（コンテナ・Linux）';
     const run = {id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, command, state: 'run', started: Date.now(), lines: [], progress: []};
     runs.unshift(run); runs.splice(10);
     WS.footer.reveal(OUTPUT_PANEL); publish();
@@ -187,17 +189,29 @@ WS.onRefresh(renderPrDetail);
   // Started and stopped by ECOBuild itself (on a build or the agent; WSL stops it when idle): running or stopped, it is
   // ready to use. So the menu has no start/stop (ecobuild container start/stop remain).
   const boxState = b => b.state === 'none' ? 'まだ作っていません（使うときに作ります）' : b.state === 'unknown' ? '状態が分かりません' : '準備済み';
+  // Starting an agent makes a workspace that is not a container one (ecobuild agent start: container on), so the builds
+  // run in Linux from then on: said once, when the state read after the start shows it (the CLI's own line, when it was
+  // read). Read again after the start, on the workspace's refresh (also when its window gets the focus) and after the
+  // button's operations.
+  let switching = null, containerRead = 0;
+  const SWITCHED = 'エージェントはコンテナの中で動かすので、この作業空間をコンテナにしました';
   const loadContainer = async () => {
+    containerRead = Date.now();
     const doc = await WS.cli(['container', 'status'], {quiet: true}); box = doc.ok ? doc.result : null;
     const button = get('container-button');
     button.classList.toggle('on', !!box?.container);
     get('container-label').textContent = box?.container ? 'コンテナ' : 'このPC';
     button.dataset.tip = !box ? 'コンテナの状態を読めませんでした' : box.container
-      ? `コンテナ：${boxState(box)}`
+      ? `コンテナ（Linux）：ビルド・テスト・実行はコンテナの中で動きます（${boxState(box)}）`
       : 'このPCで動いています';
+    if (switching && box?.container) {
+      ECO.toast(`${switching.text || SWITCHED}。以後のビルド・テスト・実行も、コンテナ（Linux）の中で動きます（このPCで動かすには「コンテナ」の「コンテナをやめる」）。`, 'info', 15000);
+      switching = null;
+    }
     showAgent();
   };
-  const boxRun = (args, options) => WS.run(['container', ...args], options).then(doc => { loadContainer(); return doc; });
+  WS.onRefresh(() => { if (Date.now() - containerRead > 5000) loadContainer(); });
+  const boxRun = (args, options) => { switching = null; return WS.run(['container', ...args], options).then(doc => { loadContainer(); return doc; }); };
   function containerSettings() {
     return ECO.form({title: 'このコンテナの設定', intro: 'このPCだけの設定です（コミットしません）。',
       fields: [
@@ -280,6 +294,7 @@ WS.onRefresh(renderPrDetail);
       typed = (v.name || '').trim();
     }
     const as = registration ? registration.name : '';
+    if (box && !box.container) switching = {text: ''};
     // The workspace is a frame of the module window: the Electron bridge is on the top window.
     const shell = agentShell();
     if (shell) {
@@ -287,11 +302,15 @@ WS.onRefresh(renderPrDetail);
       try {
         const tab = await shell.open({dir: WS.dir, agent: command, name, title: !!typed, registration: as, team: !!registration?.children?.length});
         say(`エージェントの窓で開きました：${tab?.name || name}`);
-      } catch (e) { ECO.toast(e.message, 'bad'); }
+        // its terminal runs ecobuild agent start --here, which makes the workspace a container in a moment
+        for (const ms of [2000, 6000, 15000]) setTimeout(() => { if (switching) loadContainer(); }, ms);
+      } catch (e) { switching = null; ECO.toast(e.message, 'bad'); }
       return;
     }
     if (box?.container) say('コンテナを用意しています（最初の1回はイメージを作るので数分かかります）…');
-    const doc = await WS.cli(['agent', 'start', ...(as ? ['--as', as] : []), ...(command ? ['--program', command] : [])]);
+    const doc = await WS.cli(['agent', 'start', ...(as ? ['--as', as] : []), ...(command ? ['--program', command] : [])],
+      {onProgress: lines => { const line = lines.find(l => /コンテナにします/.test(l)); if (switching && line) switching.text = line.trim().replace(/[。…]+$/, '').replace(/にします（container on）$/, 'にしました'); }});
+    if (switching) loadContainer();
     if (!doc.ok) return ECO.showError(doc);
     say(`エージェント「${doc.result.name}」（${doc.result.id}）を起動しました（新しい画面で動いています）`);
   }

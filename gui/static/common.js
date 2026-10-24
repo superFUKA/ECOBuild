@@ -124,20 +124,20 @@ const ECO = (() => {
   const prefetch = (dir, extra = []) => call('prefetch', {dir, queries: [...FIRST_READS, ...extra]});
 
   // Notices at the bottom right (as VS Code's): at most four, each with ×, kept while the pointer is on it; an error stays
-  // longer. They are in the top layer (a popover), so an open dialog does not cover them.
+  // longer, and ms 0 stays until closed (and is not pushed out by newer ones). They are in the top layer (a popover), so an open dialog does not cover them.
   function toast(message, kind = 'ok', ms = 4500) {
-    const item = document.createElement('div'); item.className = 'eco-toast ' + kind;
+    const item = document.createElement('div'); item.className = 'eco-toast ' + kind + (ms > 0 ? '' : ' sticky');
     const text = document.createElement('span'); text.textContent = message;
     const close = document.createElement('button'); close.type = 'button'; close.className = 'eco-toast-close'; close.textContent = '×'; close.setAttribute('aria-label', '閉じる');
     item.append(text, close);
     const remove = () => { item.remove(); if (!toasts.children.length) try { toasts.hidePopover?.(); } catch (e) { /* not shown */ } };
     let timer = null;
-    const start = () => { timer = setTimeout(remove, kind === 'bad' ? Math.max(ms, 10000) : ms); };
+    const start = () => { if (ms > 0) timer = setTimeout(remove, kind === 'bad' ? Math.max(ms, 10000) : ms); };
     item.addEventListener('mouseenter', () => clearTimeout(timer));
     item.addEventListener('mouseleave', start);
     close.addEventListener('click', remove);
     toasts.append(item);
-    while (toasts.children.length > 4) toasts.firstElementChild.remove();
+    while (toasts.children.length > 4) (toasts.querySelector('.eco-toast:not(.sticky)') || toasts.firstElementChild).remove();
     // Shown again so it is above a dialog opened since.
     try { if (toasts.isConnected && toasts.showPopover) { if (toasts.matches(':popover-open')) toasts.hidePopover(); toasts.showPopover(); } } catch (e) { /* no popover */ }
     start();
@@ -265,6 +265,14 @@ const ECO = (() => {
     if (success) toast(typeof success === 'function' ? success(doc.result) : success);
     for (const notice of doc.notices || []) toast('お知らせ：' + notice, 'info', 9000);
     return doc;
+  }
+
+  // A task taken in (task finish・approve) whose workspace could not be removed with its task branch (an editor such as
+  // Visual Studio or a terminal has the folder open): a warning that stays until closed, with how to remove it later.
+  function workspaceKept(r, number) {
+    if (!r?.workspace_kept) return;
+    toast(`作業空間を残しました（${r.workspace_kept}）。Visual Studio 等のエディター・端末でそのフォルダーを開いていると消せません。`
+      + `閉じてから ecobuild task prune ${number} で片付けてください。`, 'warn', 0);
   }
 
   // The module's GitHub repository was archived (on the GitHub site, another PC or the hub): changes cannot be pushed.
@@ -919,7 +927,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, showError, lockOf, lockSummary, whyLocked, lockDialog, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+  return {call, cli, run, workspaceKept, showError, lockOf, lockSummary, whyLocked, lockDialog, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits};
 })();

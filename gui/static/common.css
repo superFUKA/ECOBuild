@@ -38,6 +38,7 @@ div.eco-intro { margin: 8px 0; line-height: 1.7; }   /* the form's intro: may ho
 .eco-toast { padding: 10px 14px; border-radius: 8px; background: #213a33; color: #c8f3e6; border: 1px solid #39584f; box-shadow: 0 8px 24px #0007; font: 13px/1.6 "Segoe UI", "Yu Gothic UI", sans-serif; pointer-events: auto; white-space: pre-wrap; }
 .eco-toast.bad { background: #43282b; color: #ffd0d0; border-color: #6a3a3f; }
 .eco-toast.info { background: #252d36; color: #dbe3eb; border-color: #46515e; }
+.eco-toast.warn { background: #3d3522; color: #f3e2b5; border-color: #66573a; }
 /* The popover's own look off (it is only a place for the notices). */
 .eco-toasts { inset: auto 16px 16px auto; margin: 0; padding: 0; border: 0; background: none; overflow: visible; color: inherit; }
 .eco-toast { display: flex; align-items: flex-start; gap: 8px; }

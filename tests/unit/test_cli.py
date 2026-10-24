@@ -176,6 +176,18 @@ def test_help_json_for_one_command(tmp_path, monkeypatch, capsys):
     assert code == 2 and document["error"]["code"] == "usage_error"
 
 
+def test_help_json_for_other_type_command_says_where(tmp_path, monkeypatch, capsys):
+    """型のコマンドを、その型のモジュールの外で求めた：「不明なコマンド」ではなく、どこで使えるかを言う。"""
+    monkeypatch.chdir(tmp_path)
+    code, document = _catalog(capsys, "deps", "add")
+    assert code == 1 and document["error"]["code"] == "not_supported"
+    assert "型 cpp" in document["error"]["message"] and "モジュールの外" in document["error"]["message"]
+    assert "ecobuild deps add --help --json" in document["error"]["hint"]
+    _module_file(tmp_path).write_text('format = 1\n\n[module]\nname = "M"\ntype = "generic"\n', encoding="utf-8")
+    code, document = _catalog(capsys, "deps")
+    assert code == 1 and "このモジュールの型：generic" in document["error"]["message"]
+
+
 def _external_command(folder, name, body):
     """PATH に置く外部サブコマンド ecobuild-<name>（Python のスクリプトを呼ぶ小さな起動役）。"""
     import os

@@ -1,7 +1,9 @@
 """コマンドの一覧（ecobuild --help --json）：コマンドの説明・引数・オプションを、エージェントやGUIが読めるJSONで出す。
 
 - ecobuild --help --json：共通のコマンドと、型ごとのコマンド（型のcliパッケージにあるもの）のすべて。
-- ecobuild <コマンド>... --help --json：そのコマンド（今いるモジュールの型のコマンドも含む）だけ。
+- ecobuild <コマンド>... --help --json：そのコマンド（今いるモジュールの型のコマンドも含む）だけ。ほかの型のコマンド
+  （モジュールの外・型の違うモジュールの中で、型のコマンドを指定した）は、ない名前ではなく not_supported で、どの型の
+  モジュールの中で使えるかを言う（コマンドを実行したときと同じ）。
 実行できるコマンドには重さ（effect：read・change・confirm・human。_effects）と、エージェントに許すか（agent）を付ける。
 - agent：コマンドのファイルの先頭の定数 AGENT（read・change・owner）。書いていなければ null（エージェントのツールにしない）。
   owner はタスクの持ち主にだけ渡すもの（ブランチを変える commit・push・submit・sync 等）。import せずに AST で読む。
@@ -24,6 +26,7 @@ from typing import Any, Callable
 
 import click
 
+from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild_bundle import REGISTRY
 
 from . import _effects, _errors, _help, _output, _types
@@ -37,6 +40,9 @@ def emit(build_cli: Callable[..., click.Command], path: list[str], sections: dic
     if path:
         cli = build_cli()
         command, ctx = _find(cli, path)
+        owners = _types.owners(command)
+        if owners:
+            return _unavailable(path, owners)
         if command is None:
             return _output.usage_error(f"不明なコマンドです: '{' '.join(path)}'", True,
                                        hint="ecobuild --help で使い方を確認してください。")
@@ -75,10 +81,25 @@ def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, cl
         if not isinstance(command, click.Group):
             return None, None
         child = command.get_command(ctx, name)
+        if _types.owners(child):
+            return child, None        # ほかの型のコマンド（その下の名前は読まない）
         if child is None or child.hidden:
             return None, None
         command, ctx = child, click.Context(child, info_name=name, parent=ctx)
     return command, ctx
+
+
+def _unavailable(path: list[str], owners: list[str]) -> int:
+    """ほかの型のコマンドの一覧を求められた：この場所では使えないこと（どの型のモジュールの中で使えるか）。終了コードは1。"""
+    command, kinds, here = " ".join(path), "・".join(owners), _types.current(Path.cwd())
+    where = f"このモジュールの型：{here}" if here else "モジュールの外"
+    error = EcoBuildError(ErrorCode.NOT_SUPPORTED, f"{command} は型 {kinds} のモジュールのコマンドです。この場所では使えません"
+                                                   f"（{where}）。",
+                          hint=f"型 {kinds} のモジュールの中（または ecobuild -C <モジュールのフォルダ>）で "
+                               f"ecobuild {command} --help --json を実行すると、説明が出ます。")
+    _output.log_error(f"help {command}", error)
+    _print(None, _output.error_data(error), path)
+    return _output.FAILURE
 
 
 def _children(group: click.Group, ctx: click.Context, path: tuple[str, ...], sections, routes=None,

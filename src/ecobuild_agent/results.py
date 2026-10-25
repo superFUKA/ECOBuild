@@ -34,6 +34,7 @@ class AgentRegistrationView:
     max_turns: int = 0              # ターン数の上限（アプリ用の起動。0 ならなし）
     max_cost: float = 0.0           # 費用の上限（ドル。アプリ用の起動。0 ならなし）
     lessons: str = ""               # 教訓の記録先（モジュールの中のフォルダー。空なら報告だけ）
+    skills: tuple[str, ...] = ("*",)   # 使えるスキル（モジュールのスキルの名前の fnmatch の並び）
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,27 @@ class AgentRegistrationShown(AgentRegistrationView):
     committed：モジュールの登録を変えてコミットした版（しなければ空）。"""
     document: str = ""
     first_prompt: str = ""
+    committed: str = ""
+
+
+@dataclass(frozen=True)
+class AgentSkillView:
+    """ecobuild agent skill list・agent skill preset list：1つのスキル。source：module（モジュールのスキル）・
+    preset（このPCのスキル）。files：SKILL.md のほかのファイル。pending：作業ツリーのものが、作成元に取り込まれた
+    ものと違う（まだエージェントに渡らない）。used_by：使える登録の名前（モジュールのスキル）。"""
+    name: str
+    description: str
+    source: str
+    files: tuple[str, ...]
+    folder: str
+    pending: bool = False
+    used_by: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AgentSkillShown(AgentSkillView):
+    """ecobuild agent skill show・add・set・remove（preset も）：1つのスキルと本文。committed：コミットした版。"""
+    document: str = ""
     committed: str = ""
 
 
@@ -72,8 +94,19 @@ def registration_view(registration, *, document: bool = False, pending: bool = F
                   human_start=registration.human_start, model=registration.model, children=registration.children,
                   max_children=registration.max_children, tools=registration.tools, folder=registration.folder,
                   pending=pending, evaluation=registration.evaluation, max_rounds=registration.max_rounds,
-                  max_turns=registration.max_turns, max_cost=registration.max_cost, lessons=registration.lessons)
+                  max_turns=registration.max_turns, max_cost=registration.max_cost, lessons=registration.lessons,
+                  skills=registration.skills)
     if document:
         return AgentRegistrationShown(**fields, document=registration.document, first_prompt=registration.first_prompt,
                                       committed=committed)
     return AgentRegistrationView(**fields)
+
+
+def skill_view(skill, *, document: bool = False, pending: bool = False, used_by: tuple[str, ...] = (),
+               committed: str = "") -> AgentSkillView:
+    """ecobuild_agent.skills.Skill を CLI の結果に（document：本文も入れる）。"""
+    fields = dict(name=skill.name, description=skill.description, source=skill.source, files=skill.files,
+                  folder=skill.folder, pending=pending, used_by=used_by)
+    if document:
+        return AgentSkillShown(**fields, document=skill.document, committed=committed)
+    return AgentSkillView(**fields)

@@ -17,6 +17,7 @@ ECOBuild は役を既定として持たない。起動するエージェント�
 
 渡すツールの範囲（tools）が、そのエージェントにできることになる（エージェントはツールを通してしか ECOBuild を使えない）。
 起動してよい子（children）には、自分より強い登録（自分に許されないツールを許すもの）を入れられない。
+使えるスキル（skills）は手順の文書でツールを増やさないので、強さには数えない（ecobuild_agent.skills）。
 """
 
 from __future__ import annotations
@@ -60,6 +61,7 @@ class Registration:
     children: tuple[str, ...] = ()      # 起動してよい登録の名前
     max_children: int = 0               # 同時に持てる子の数の上限
     tools: tuple[str, ...] = ()         # 渡すツールの名前の fnmatch の並び
+    skills: tuple[str, ...] = ("*",)    # 使えるスキル（モジュールのスキルの名前の fnmatch の並び。skills.provide）
     first_prompt: str = ""              # 起動のときの最初の発言
     # 改善のループ（評価 → 直す → 評価し直す）と止める条件。起動の文に書いて渡す（上限はハーネスが守らせる）
     evaluation: str = ""                # 評価のしかた（例：check（only=build,test））。空なら任された仕事に書かれたもの
@@ -71,7 +73,7 @@ class Registration:
     folder: str = ""
 
 
-FIELDS = ("title", "human_start", "model", "children", "max_children", "tools", "first_prompt",
+FIELDS = ("title", "human_start", "model", "children", "max_children", "tools", "skills", "first_prompt",
           "evaluation", "max_rounds", "max_turns", "max_cost", "lessons")
 LOOP_FIELDS = ("evaluation", "max_rounds", "max_turns", "max_cost", "lessons")
 
@@ -244,7 +246,8 @@ def to_data(registration: Registration) -> dict:
     return {"name": registration.name, "title": registration.title, "document": registration.document,
             "human_start": registration.human_start, "model": registration.model,
             "children": list(registration.children), "max_children": registration.max_children,
-            "tools": list(registration.tools), "first_prompt": registration.first_prompt,
+            "tools": list(registration.tools), "skills": list(registration.skills),
+            "first_prompt": registration.first_prompt,
             **{key: getattr(registration, key) for key in LOOP_FIELDS}, "source": registration.source}
 
 
@@ -256,8 +259,8 @@ def from_file(path: Path | str) -> Registration:
             name=str(data["name"]), title=str(data.get("title") or data["name"]), document=str(data.get("document", "")),
             human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
             children=tuple(str(v) for v in data.get("children", [])), max_children=int(data.get("max_children", 0)),
-            tools=tuple(str(v) for v in data.get("tools", [])), first_prompt=str(data.get("first_prompt", "")),
-            **_loop(data), source=str(data.get("source", MODULE)))
+            tools=tuple(str(v) for v in data.get("tools", [])), skills=tuple(str(v) for v in data.get("skills", ["*"])),
+            first_prompt=str(data.get("first_prompt", "")), **_loop(data), source=str(data.get("source", MODULE)))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"登録のファイル {path} を読めません。",
                             details=str(error)) from error
@@ -378,7 +381,7 @@ def _changed(current: Registration, document: str | None, fields: dict, source: 
     unknown = set(fields) - set(FIELDS)
     if unknown:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "変えられない項目です：" + "、".join(sorted(unknown)))
-    for key in ("children", "tools"):
+    for key in ("children", "tools", "skills"):
         if key in fields:
             fields[key] = tuple(fields[key])
     new = replace(current, source=source, **fields)
@@ -451,8 +454,8 @@ def _read(store, name: str, *, check_name: bool = True) -> Registration:
                             details=str(error)) from error
     document = store.text(name, DOCUMENT_FILE) or ""
 
-    def strings(key):
-        value = data.get(key, [])
+    def strings(key, default=()):
+        value = data.get(key, list(default))
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}/{SETTINGS_FILE} の {key} は文字の並びです。")
         return tuple(value)
@@ -462,7 +465,8 @@ def _read(store, name: str, *, check_name: bool = True) -> Registration:
             name=name, title=str(data.get("title") or name), document=document,
             human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
             children=strings("children"), max_children=int(data.get("max_children", 0)), tools=strings("tools"),
-            first_prompt=str(data.get("first_prompt", "")), **_loop(data), source=store.source, folder=where)
+            skills=strings("skills", ("*",)), first_prompt=str(data.get("first_prompt", "")), **_loop(data),
+            source=store.source, folder=where)
     except (TypeError, ValueError) as error:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}/{SETTINGS_FILE} の値が読めません。",
                             details=str(error)) from error
@@ -490,6 +494,7 @@ def _toml(r: Registration) -> str:
         f"children = {strings(r.children)}",
         f"max_children = {r.max_children}",
         f"tools = {strings(r.tools)}",
+        f"skills = {strings(r.skills)}",
         f"first_prompt = {text(r.first_prompt)}",
         f"evaluation = {text(r.evaluation)}",
         f"max_rounds = {r.max_rounds}",

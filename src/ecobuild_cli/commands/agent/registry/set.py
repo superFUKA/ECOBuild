@@ -19,6 +19,7 @@ def command(name: Annotated[str, "登録の名前"],
             model: Annotated[str, "モデル（空なら Claude Code の既定）"] = "",
             tools: Annotated[str, "渡すツールの名前の並び（カンマ区切り。* 等の fnmatch。空なら何も渡さない）"] = "",
             children: Annotated[str, "起動してよい子の登録の名前（カンマ区切り。空なら子を起動しない）"] = "",
+            skills: Annotated[str, "使えるスキルの名前の並び（カンマ区切り。* 等の fnmatch。空なら使わせない）"] = "",
             max_children: Annotated[int, "同時に持てる子の数の上限"] = 0,
             first_prompt: Annotated[str, "起動のときの最初の発言"] = "",
             evaluation: Annotated[str, "改善のループの評価のしかた（例：check（only=build,test）。空なら任された仕事に書かれたもの）"] = "",
@@ -34,7 +35,7 @@ def command(name: Annotated[str, "登録の名前"],
     ecobuild agent registry remove）。子に自分より強い登録（許すツールが多いもの）は入れられません。
     """
     def action(inv):
-        fields, text = changes(title=title, human_start=human_start, model=model, tools=tools, children=children,
+        fields, text = changes(title=title, human_start=human_start, model=model, tools=tools, skills=skills, children=children,
                                max_children=max_children, first_prompt=first_prompt, evaluation=evaluation,
                                max_rounds=max_rounds, max_turns=max_turns, max_cost=max_cost, lessons=lessons,
                                document=document)
@@ -52,7 +53,7 @@ def changes(**values) -> tuple[dict, str | None]:
     def given(option):
         return context.get_parameter_source(option) not in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
 
-    converters = {"model": str.strip, "tools": split_list, "children": split_list, "evaluation": str.strip,
+    converters = {"model": str.strip, "tools": split_list, "skills": split_list, "children": split_list, "evaluation": str.strip,
                   "lessons": str.strip}
     fields = {key: converters.get(key, lambda v: v)(value) for key, value in values.items()
               if key != "document" and given(key)}

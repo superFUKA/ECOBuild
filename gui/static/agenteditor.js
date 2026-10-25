@@ -39,7 +39,11 @@ window.AGENT_EDITOR = (() => {
   //        render(), click(e), dirty()} | null, onChanged(dir)}
   function create(box, opts) {
     const group = opts.kind === 'module' ? 'registry' : 'preset';
-    const st = {list: null, tools: null, samples: new Set(), selected: '', shown: null, dirty: false, error: ''};
+    // The skills of the same place: the module's (agent skill …) or this PC's (agent skill preset …). Selected as skill:<name>.
+    const skillCmd = opts.kind === 'module' ? ['agent', 'skill'] : ['agent', 'skill', 'preset'];
+    const SKILL = 'skill:';
+    const isSkill = key => (key || '').startsWith(SKILL);
+    const st = {list: null, tools: null, skills: [], samples: new Set(), selected: '', shown: null, dirty: false, error: ''};
     const cli = (args, extra = {}) => ECO.cli(opts.dir(), args, {quiet: true, ...extra});
     const target = what => opts.target ? opts.target(what) : Promise.resolve(opts.dir());
     // A change runs where target() says; the page then shows that place (onChanged).
@@ -54,15 +58,16 @@ window.AGENT_EDITOR = (() => {
     async function load(keep = true) {
       box.innerHTML = ECO.loading();
       const key = opts.dir() || '';
-      const [list, tools, presets] = await Promise.all([cli(['agent', group, 'list']),
+      const [list, tools, presets, skills] = await Promise.all([cli(['agent', group, 'list']),
         toolsCache.has(key) ? {ok: true, result: toolsCache.get(key)} : cli(['agent', 'registry', 'tools']),
-        cli(['agent', 'preset', 'list'])]);
+        cli(['agent', 'preset', 'list']), cli([...skillCmd, 'list'])]);
       if (!list.ok) { box.innerHTML = `<div class="eco-banner bad">読めませんでした：${esc(list.error?.message || '')}</div>`; return; }
       if (tools.ok) toolsCache.set(key, tools.result);
-      st.list = list.result; st.tools = tools.ok ? tools.result : [];
+      st.list = list.result; st.tools = tools.ok ? tools.result : []; st.skills = skills.ok ? skills.result : [];
+      if (isSkill(st.selected) && !st.skills.some(s => SKILL + s.name === st.selected)) st.selected = '';
       // ECOBuild's samples: an own registration of the same name goes back to the sample when removed
       st.samples = new Set(presets.ok ? presets.result.filter(r => r.source === 'sample').map(r => r.name) : []);
-      if (!keep || !(st.selected === opts.top?.key || st.list.some(r => r.name === st.selected)))
+      if (!keep || !(st.selected === opts.top?.key || isSkill(st.selected) || st.list.some(r => r.name === st.selected)))
         st.selected = opts.top ? opts.top.key : (st.list.find(r => r.human_start) || st.list[0])?.name || '';
       await select(st.selected, true);
     }
@@ -70,7 +75,7 @@ window.AGENT_EDITOR = (() => {
       if (!force && st.dirty && !await ECO.confirm({title: '保存していない変更', message: '保存していない変更を捨てて移りますか？', ok: '捨てて移る', danger: true})) return;
       st.selected = name; st.dirty = false; st.shown = null;
       if (name && name !== opts.top?.key) {
-        const doc = await cli(['agent', group, 'show', name]);
+        const doc = await cli(isSkill(name) ? [...skillCmd, 'show', name.slice(SKILL.length)] : ['agent', group, 'show', name]);
         st.shown = doc.ok ? doc.result : null;
         st.error = doc.ok ? '' : doc.error?.message || '';
       }
@@ -87,7 +92,45 @@ window.AGENT_EDITOR = (() => {
         ${opts.top ? `<button type="button" class="ae-item ae-top" data-ae-select="${esc(opts.top.key)}" aria-current="${st.selected === opts.top.key}"><span class="ae-item-title">${esc(opts.top.label)}</span><span class="ae-item-name">どのエージェントにも渡す文</span></button><div class="ae-side-head">役</div>` : ''}
         ${st.list.map(sideItem).join('')}
         <button type="button" class="ae-add" data-ae-add>＋ ${opts.kind === 'module' ? 'エージェントを追加' : 'プリセットを足す'}</button>
+        <div class="ae-side-head">スキル</div>
+        ${st.skills.map(s => `<button type="button" class="ae-item" data-ae-select="${esc(SKILL + s.name)}" aria-current="${SKILL + s.name === st.selected}">
+          <span class="ae-item-title">${esc(s.name)}</span><span class="ae-item-name">${esc(firstSentence(s.description))}</span>
+          <span class="ae-item-badges">${s.pending ? badge('まだ渡らない', 'warn') : ''}</span></button>`).join('')}
+        <button type="button" class="ae-add" data-ae-skill-add>＋ スキルを追加</button>
       </nav>`;
+    }
+    // 使えるスキル: すべて (skills added later too), or the ones picked. Skills are documents read when needed: they add no tools.
+    function skillsSection(r) {
+      const all = r.skills.includes('*');
+      const exact = new Set(st.skills.map(s => s.name));
+      const others = r.skills.filter(p => p !== '*' && !exact.has(p));
+      const rows = st.skills.map(s => { const byPattern = matches(s.name, others);
+        return `<label class="ae-tool" title="${esc(s.description)}"><input type="checkbox" data-ae-skill="${esc(s.name)}"${byPattern ? ' data-by-pattern disabled' : ''}${all || byPattern || r.skills.includes(s.name) ? ' checked' : ''}>
+          <span class="ae-tool-text">${esc(firstSentence(s.description))}</span><code>${esc(s.name)}</code></label>`; });   // from すべて: start with all of them
+      return `<section class="ae-sec"><h4>使えるスキル</h4>
+        <p class="mi-note">スキルは、必要なときにエージェントが読む手順・知識です（ツールは増えません）。左の「スキル」で足し・直します。エージェントに渡るのは、取り込まれたスキルのうちここで選んだものです。</p>
+        <div class="ae-radio"><label><input type="radio" name="ae-skills-mode" value="all"${all ? ' checked' : ''}> すべて（後で足すスキルも）</label>
+          <label><input type="radio" name="ae-skills-mode" value="pick"${all ? '' : ' checked'}> 選んだものだけ</label></div>
+        <div class="ae-skills"${all ? ' hidden' : ''}>${rows.join('') || `<span class="mi-note">${opts.kind === 'module' ? 'このモジュールにスキルがありません' : 'このPCのスキルがありません'}</span>`}
+          <details class="ae-more"${others.length ? ' open' : ''}><summary>名前のパターンで選ぶ（上級）</summary>
+            <label class="ae-field">パターン（カンマ区切り。例：build-*）<input type="text" data-ae-field="skill-patterns" value="${esc(others.join(', '))}"></label></details></div></section>`;
+    }
+    // One skill: its description (what it does, when to use it: the agent decides by it) and its text (SKILL.md)
+    function skillEditor() {
+      const s = st.shown;
+      if (!s) return `<div class="eco-banner bad">${esc(st.error || '選んでください')}</div>`;
+      return `<div class="ae-head"><div><h3>${esc(s.name)} <span class="ae-item-name">スキル</span></h3>
+          <div class="ae-item-badges">${badge(opts.kind === 'module' ? 'モジュールのスキル' : 'このPCのスキル', 'quiet')}${s.pending ? badge('まだ渡らない（取り込まれると渡る）', 'warn') : ''}</div></div>
+        <div class="mi-actions"><button type="button" class="primary" data-ae-save disabled>${opts.kind === 'module' ? '保存してコミット' : '保存'}</button>
+          <button type="button" data-ae-revert disabled>元に戻す</button>
+          ${opts.kind === 'module' ? '<button type="button" data-ae-skill-to-preset title="このスキルを、このPCのスキルとして保存します（ほかのモジュールでも使えるように）">このPCのスキルにする</button>' : ''}
+          <button type="button" class="danger-text" data-ae-skill-remove>消す</button></div></div>
+        <section class="ae-sec"><h4>説明</h4><p class="mi-note">何をするか・いつ使うか。エージェントはこれを見て、読むかを決めます。</p>
+          <textarea data-ae-field="description" rows="3">${esc(s.description)}</textarea></section>
+        <section class="ae-sec"><h4>本文</h4><p class="mi-note">使うときに読む手順・決まり・例（SKILL.md の本文）。</p>
+          <textarea class="ae-doc" data-ae-field="document" rows="${Math.min(28, Math.max(10, s.document.split('\n').length + 2))}">${esc(s.document)}</textarea></section>
+        ${opts.kind === 'module' ? `<section class="ae-sec"><h4>使える役</h4><p class="mi-note">${esc(s.used_by.join('・') || 'なし')}（役の「使えるスキル」で変えます）</p></section>` : ''}
+        ${s.files.length ? `<section class="ae-sec"><h4>ほかのファイル</h4><p class="mi-note">${s.files.map(f => `<code>${esc(f)}</code>`).join(' ')}（${esc(s.folder)}）</p></section>` : ''}`;
     }
     // 渡すツール: すべて, or the tools picked, by what they are about (each with what it does and what it may change)
     function toolsSection(r) {
@@ -140,6 +183,7 @@ window.AGENT_EDITOR = (() => {
     }
     function editor() {
       if (st.selected === opts.top?.key) return opts.top.render();
+      if (isSkill(st.selected)) return skillEditor();
       const r = st.shown;
       if (!r) return `<div class="eco-banner bad">${esc(st.error || '選んでください')}</div>`;
       const model = MODELS.some(([v]) => v === r.model) ? r.model : 'other';
@@ -164,6 +208,7 @@ window.AGENT_EDITOR = (() => {
         <section class="ae-sec"><h4>最初の発言</h4><textarea data-ae-field="first_prompt" rows="2">${esc(r.first_prompt || '')}</textarea></section>
         ${loopSection(r)}
         ${toolsSection(r)}
+        ${skillsSection(r)}
         ${childrenSection(r)}`;
     }
     // The improvement loop (evaluate → fix → evaluate again) and when to stop: written into the briefing; the turn and cost
@@ -184,7 +229,7 @@ window.AGENT_EDITOR = (() => {
     }
     function draw() {
       box.innerHTML = `${opts.notice ? opts.notice() : ''}<div class="ae">${side()}<div class="ae-main">${editor()}</div></div>`;
-      if (st.shown && st.selected !== opts.top?.key) showFit(edited().v);
+      if (st.shown && st.selected !== opts.top?.key && !isSkill(st.selected)) showFit(edited().v);
     }
     const field = name => box.querySelector(`[data-ae-field="${name}"]`);
     function edited() {
@@ -197,6 +242,9 @@ window.AGENT_EDITOR = (() => {
       const pick = box.querySelector('[name=ae-tools-mode]:checked')?.value === 'pick';
       const patterns = (field('patterns')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
       v.tools = pick ? [...new Set([...box.querySelectorAll('[data-ae-tool]:checked:not([data-by-pattern])')].map(b => b.dataset.aeTool).concat(patterns))] : ['*'];
+      const pickSkills = box.querySelector('[name=ae-skills-mode]:checked')?.value === 'pick';
+      const skillPatterns = (field('skill-patterns')?.value || '').split(',').map(s => s.trim()).filter(Boolean);
+      v.skills = pickSkills ? [...new Set([...box.querySelectorAll('[data-ae-skill]:checked:not([data-by-pattern])')].map(b => b.dataset.aeSkill).concat(skillPatterns))] : ['*'];
       v.children = [...box.querySelectorAll('[data-ae-child]:checked')].map(b => b.dataset.aeChild);
       v.max_children = Number(field('max_children').value) || 0;
       v.evaluation = field('evaluation').value.trim();
@@ -208,6 +256,7 @@ window.AGENT_EDITOR = (() => {
       if (v.model !== r.model) args.push('--model', v.model);
       if (v.human_start !== r.human_start) args.push(v.human_start ? '--human-start' : '--no-human-start');
       if (!same(v.tools, r.tools)) args.push('--tools', v.tools.join(','));
+      if (!same(v.skills, r.skills)) args.push('--skills', v.skills.join(','));
       if (!same(v.children, r.children)) args.push('--children', v.children.join(','));
       if (v.max_children !== r.max_children) args.push('--max-children', String(v.max_children));
       if (v.first_prompt !== (r.first_prompt || '').trim()) args.push('--first-prompt', v.first_prompt);
@@ -218,14 +267,24 @@ window.AGENT_EDITOR = (() => {
       if (document) args.push('--document', '-');
       return {args, stdin: document ? v.document.trim() + '\n' : undefined, v};
     }
+    // A skill: what changed (--description, --document - with the text on stdin)
+    function editedSkill() {
+      const s = st.shown, args = [];
+      const description = field('description').value.trim(), document = field('document').value;
+      if (description !== s.description) args.push('--description', description);
+      const changed = document.trim() !== s.document.trim();
+      if (changed) args.push('--document', '-');
+      return {args, stdin: changed ? document.trim() + '\n' : undefined};
+    }
     function markDirty() {
       if (!st.shown) return;
-      const {args, v} = edited();
+      const skill = isSkill(st.selected);
+      const {args, v} = skill ? editedSkill() : edited();
       st.dirty = args.length > 0;
       const save = box.querySelector('[data-ae-save]'), revert = box.querySelector('[data-ae-revert]');
       if (save) save.disabled = !st.dirty;
       if (revert) revert.disabled = !st.dirty;
-      showFit(v);
+      if (!skill) showFit(v);
     }
     // What the choices come to: which children the tools picked don't allow, how many tools.
     function showFit(v) {
@@ -259,6 +318,7 @@ window.AGENT_EDITOR = (() => {
       return done;
     }
     async function save() {
+      if (isSkill(st.selected)) return saveSkill();
       const {args, stdin} = edited();
       if (!args.length) return;
       const name = st.shown.name;
@@ -312,10 +372,62 @@ window.AGENT_EDITOR = (() => {
         }});
     }
 
+    // スキル: saved, added (new, from this PC's skills, or a folder with SKILL.md), removed, kept on this PC
+    async function saveSkill() {
+      const {args, stdin} = editedSkill();
+      if (!args.length) return;
+      const name = st.shown.name;
+      const doc = await change(`スキル「${name}」を保存`, [...skillCmd, 'set', name, ...args], {stdin, success: r => `スキル「${name}」を保存しました${opts.kind === 'module' ? committed(r) : '。'}`});
+      if (doc) await load();
+    }
+    async function addSkill() {
+      const own = opts.kind === 'module' ? await cli(['agent', 'skill', 'preset', 'list']) : {ok: true, result: []};
+      const pcSkills = own.ok ? own.result : [];
+      const how = [['new', '新規作成', '説明と本文を書いて作ります'],
+        ...(pcSkills.length ? [['preset', 'このPCのスキルから', 'このPCのスキルを写します']] : []),
+        ['dir', 'フォルダーから取り込む', 'SKILL.md のあるフォルダー（Claude Code の個人のスキル ~/.claude/skills/<名前> 等）を、ほかのファイルごと写します']];
+      const v = await ECO.form({title: 'スキルを追加',
+        intro: opts.kind === 'module' ? 'このモジュールのスキルを足します。保存するとリポジトリにコミットし、提出して取り込まれるとエージェントに渡ります（役の「使えるスキル」に合うもの）。' : 'このPCのスキルを足します。モジュールの「エージェント」から写して使えます。',
+        fields: [{name: 'how', label: '作り方', type: 'radio', value: 'new', options: how},
+                 {name: 'from', label: '元にするこのPCのスキル', type: 'select', value: pcSkills[0]?.name || '', showIf: x => x.how === 'preset',
+                  options: pcSkills.map(s => [s.name, `${s.name}（${firstSentence(s.description)}）`])},
+                 {name: 'dir', label: 'フォルダー', placeholder: '例：C:\\Users\\me\\.claude\\skills\\pdf', showIf: x => x.how === 'dir'},
+                 {name: 'name', label: '名前（英小文字・数字・-）', placeholder: '例：release-notes', help: '写すときは、空なら元と同じ名前'},
+                 {name: 'description', label: '説明（何をするか・いつ使うか）', type: 'textarea', showIf: x => x.how === 'new', help: '写すときは元の説明を使います'}],
+        ok: '追加'});
+      if (!v) return;
+      const dir = (v.dir || '').trim();
+      const name = (v.name || '').trim() || (v.how === 'preset' ? v.from : v.how === 'dir' ? dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : '');
+      if (!name) return ECO.toast('名前を入れてください。', 'bad');
+      if (v.how === 'dir' && !dir) return ECO.toast('フォルダーを入れてください。', 'bad');
+      const args = [...skillCmd, 'add', name, ...(v.how === 'preset' ? ['--from-preset', v.from] : v.how === 'dir' ? ['--from-dir', dir]
+        : ['--description', (v.description || '').trim()])];
+      const doc = await change(`スキル「${name}」を追加`, args, {success: r => `スキル「${name}」を追加しました${opts.kind === 'module' ? committed(r) : '。'}`});
+      if (doc) { st.selected = SKILL + name; await load(); }
+    }
+    async function removeSkill() {
+      const name = st.shown.name;
+      if (!await ECO.confirm({title: 'スキルを消す', message: `スキル「${name}」をフォルダーごと消します。`, ok: '消す', danger: true})) return;
+      const doc = await change(`スキル「${name}」を消す`, [...skillCmd, 'remove', name, '--yes'], {success: `スキル「${name}」を消しました。`});
+      if (doc) { st.selected = ''; await load(false); }
+    }
+    async function skillToPreset() {
+      const s = st.shown;
+      await ECO.form({title: 'このPCのスキルにする', intro: `スキル「${s.name}」を、このPCのスキルとして保存します（ハブの設定の「エージェント」に入り、ほかのモジュールに写せます）。保存していない変更は入りません。`,
+        fields: [{name: 'name', label: '名前', value: s.name, required: true}], ok: '保存',
+        submit: async v => {
+          const done = await ECO.run(opts.dir(), ['agent', 'skill', 'preset', 'add', v.name.trim(), '--from-module', s.name], {success: `このPCのスキル「${v.name.trim()}」にしました。`});
+          return done ? '' : '保存できませんでした。';
+        }});
+    }
+
     box.addEventListener('click', e => {
       const pick = e.target.closest('[data-ae-select]');
       if (pick) return select(pick.dataset.aeSelect);
       if (e.target.closest('[data-ae-add]')) return add();
+      if (e.target.closest('[data-ae-skill-add]')) return addSkill();
+      if (e.target.closest('[data-ae-skill-remove]')) return removeSkill();
+      if (e.target.closest('[data-ae-skill-to-preset]')) return skillToPreset();
       if (e.target.closest('[data-ae-save]')) return save();
       if (e.target.closest('[data-ae-revert]')) { st.dirty = false; return draw(); }
       if (e.target.closest('[data-ae-remove]')) return remove();
@@ -338,6 +450,7 @@ window.AGENT_EDITOR = (() => {
     box.addEventListener('input', () => { if (st.selected !== opts.top?.key) markDirty(); });
     box.addEventListener('change', e => {
       if (e.target.name === 'ae-tools-mode') box.querySelector('.ae-tools').hidden = e.target.value !== 'pick';
+      if (e.target.name === 'ae-skills-mode') box.querySelector('.ae-skills').hidden = e.target.value !== 'pick';
       if (e.target.dataset.aeField === 'model') field('model-other').hidden = e.target.value !== 'other';
       if (st.selected !== opts.top?.key) markDirty();
     });

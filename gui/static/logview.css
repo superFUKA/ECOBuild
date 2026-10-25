@@ -11,6 +11,7 @@
 .log-entries code { color: #9ee4d3; font: 12px Consolas, monospace; }
 .log-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .log-entries small { grid-column: 2; color: #84909e; font-size: 11px; }
+.log-merge { border: 1px solid #2f5a4c; border-radius: 4px; padding: 0 5px; color: #8fd3b8; }
 .log-side .log-more { padding: 4px 10px; font-size: 12px; }
 .log-view.log-list-only { grid-template-columns: minmax(0, 1fr); } .log-view.log-list-only .log-main { display: none; }
 .log-main { min-height: 0; overflow: auto; }

@@ -142,6 +142,11 @@ def test_log_of_the_submission_and_of_what_push_sends(repository):
     assert [e.subject for e in repository.log(unpushed=True)] == ["まだ"]
     assert [c.split(" ", 1)[1] for c in task_branch.push(dry_run=True).commits] == ["まだ"]
     assert code_of(lambda: repository.log(not_in="nope")) == ErrorCode.REVISION_NOT_FOUND
+    # --branch：取り出していないブランチの履歴（取り出しているタスクブランチのコミットは入らない）
+    assert "まだ" not in [e.subject for e in repository.log(branch=base)]
+    assert [e.subject for e in repository.log(branch=task_branch.branch, not_in=base)] == ["送った"]   # GitHub のもの
+    assert code_of(lambda: repository.log(branch="nope")) == ErrorCode.REVISION_NOT_FOUND
+    assert code_of(lambda: repository.log(branch=base, unpushed=True)) == ErrorCode.INVALID_ARGUMENT
 
 
 def test_close_and_clean_keep_unfinished_work(repository):

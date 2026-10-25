@@ -392,12 +392,28 @@ WS.commitMenu = (view, c, x, y) => {
 // (logview.js). It reads 30 commits; 「さらに読み込む」 reads 30 more.
 let historyCount = 30;
 const historyView = LOG.view(get('history-view'), {dir: WS.dir, menu: (c, x, y) => WS.commitMenu(historyView, c, x, y), detail: false, onMore: () => { historyCount += 30; loadHistory(); }});
+// ブランチ：既定は今のブランチ。管理用のブランチ（GitHub にあるもの）を選ぶと、取り出さずにその履歴を読む（元の clone が
+// 古いブランチのままでも、作成元に入った取り込みが見える）
+let historyBranches = false;
+async function fillHistoryBranches() {
+  const select = get('history-branch'), here = WS.status?.branch || '';
+  select.options[0].textContent = here ? `今のブランチ（${here}）` : '今のブランチ';
+  if (historyBranches) return;
+  historyBranches = true;
+  const doc = await ECO.query(WS.dir, ['branch', 'list']);
+  if (!doc.ok) return;
+  const names = doc.result.filter(b => !b.is_task_branch && b.remote && !b.unusable).map(b => b.name).filter(n => n !== here);
+  for (const name of names) select.add(new Option(name, name));
+}
 async function loadHistory() {
   if (get('history-panel').hidden) return;
+  fillHistoryBranches();
+  const branch = get('history-branch').value;
   const shown = doc => historyView.show(doc.result, doc.result.length >= historyCount);
-  const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount)], shown);
+  const doc = await ECO.query(WS.dir, ['log', '--count', String(historyCount), ...(branch ? ['--branch', branch] : [])], shown);
   if (doc.ok) shown(doc); else historyView.error(doc.error.message);
 }
+get('history-branch').addEventListener('change', () => { historyCount = 30; loadHistory(); });
 WS.onRefresh(loadHistory);
 // Another task's workspace (a workspace holds one task branch: it is not switched). A started task's tab is shown;
 // one without a workspace here gets one (task start, by the module window: MOD.openWorkspace). A new task is started

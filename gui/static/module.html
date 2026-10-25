@@ -52,8 +52,9 @@
   </section>
   <section id="manage-content" class="mi br" aria-label="管理" hidden>
     <div class="mi-top"><div class="mi-top-row"><h2>管理</h2><button type="button" id="manage-reload">更新</button></div>
-      <nav class="mi-tabs" id="manage-tabs" role="tablist" aria-label="管理"><button type="button" role="tab" data-manage-view="members" aria-selected="true">メンバー</button><button type="button" role="tab" data-manage-view="ci" aria-selected="false">CI</button></nav></div>
+      <nav class="mi-tabs" id="manage-tabs" role="tablist" aria-label="管理"><button type="button" role="tab" data-manage-view="members" aria-selected="true">メンバー</button><button type="button" role="tab" data-manage-view="pipelines" aria-selected="false">パイプライン</button><button type="button" role="tab" data-manage-view="ci" aria-selected="false">CI</button></nav></div>
     <div class="members-main" id="members-main" data-manage-view-panel="members" role="tabpanel" aria-label="メンバー"></div>
+    <div class="ci-main" id="pipelines-main" data-manage-view-panel="pipelines" role="tabpanel" aria-label="パイプライン" hidden></div>
     <div class="ci-main" id="ci-main" data-manage-view-panel="ci" role="tabpanel" aria-label="CI" hidden></div>
   </section>
   <section id="branches-content" class="mi br" aria-label="ブランチ" hidden>
@@ -70,5 +71,5 @@
   </section>
 </div>
 <dialog id="tk-person-dialog" class="tk-dialog wide tk-person-dialog" aria-label="アカウント"><div id="tk-person-body"></div></dialog>
-<script src="common.js"></script><script src="module.js"></script><script src="tasks.js"></script><script src="modinfo.js"></script><script src="branches.js"></script><script src="submissions.js"></script><script src="members.js"></script><script src="ci.js"></script><script src="help.js"></script><script src="agenteditor.js"></script><script src="agentrules.js"></script>
+<script src="common.js"></script><script src="module.js"></script><script src="tasks.js"></script><script src="modinfo.js"></script><script src="branches.js"></script><script src="submissions.js"></script><script src="members.js"></script><script src="pipelines.js"></script><script src="ci.js"></script><script src="help.js"></script><script src="agenteditor.js"></script><script src="agentrules.js"></script>
 </body></html>

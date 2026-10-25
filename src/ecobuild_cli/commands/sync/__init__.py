@@ -7,11 +7,15 @@ from ..._output import lines, run_command
 AGENT = "owner"
 
 
-def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
+def command(
+    pipelines: Annotated[bool, "取り込んだ後のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
+    json: Annotated[bool, "結果をJSONで出力する"] = False,
+) -> int:
     """GitHubの最新を取り込み、依存先と生成ファイルを最新にします。
 
     タスクブランチでないブランチは早送り、タスクブランチは作成元の最新を取り込みます。
     衝突したら、直して ecobuild sync continue（直したファイルは自動で登録します。やめるなら ecobuild sync abort）。
+    何か取り込んだら、最新の取り込みの後に当てたパイプライン（ecobuild pipeline on）を走らせます。
     """
 
     def render(r):
@@ -22,4 +26,5 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             "生成ファイルを更新しました" if r.regenerated else None,
         )
 
-    return run_command("sync", lambda inv: inv.module.sync(), render, json_output=json)
+    return run_command("sync", lambda inv: inv.module.sync(progress=inv.info, pipelines=pipelines), render,
+                       json_output=json)

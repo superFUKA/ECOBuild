@@ -64,28 +64,111 @@ class CiSettings:
     review_auth: str = "subscription"              # 見直しの認証：subscription（契約のトークン）・api-key
 
 
-CHECK_TABLE = "check"
-# 提出の前に行える確認の項目（ecobuild check の項目のうち、選べるもの）
-SUBMIT_CHECK_ITEMS = ("generated", "conflict_markers", "build", "test")
+CHECK_TABLE = "check"   # 以前の設定：提出の前の確認（submit・tests）。読むときは before-submit のパイプライン LEGACY_PIPELINE
+PIPELINES_TABLE = "pipelines"   # 名前 = 手順の並び
+TRIGGERS_TABLE = "triggers"     # タイミング = パイプラインの名前の並び（ecobuild.local.toml にも：このPCだけ足す）
+# パイプラインの手順（ecobuild check の項目のうち、選べるもの）。test は「test:<試験>」で流す試験を絞れる
+PIPELINE_STEPS = ("generated", "conflict_markers", "build", "test")
+# パイプラインを当てられるタイミング（ECOBuild の操作の前・後）。前のものが失敗すると、その操作を止める。後のものは知らせるだけ
+TIMINGS = ("before-commit", "after-commit", "before-push", "after-push", "before-submit", "after-submit",
+           "before-finish", "after-sync", "after-start")
+TIMING_NAMES = {"before-commit": "コミットの前", "after-commit": "コミットの後", "before-push": "push の前",
+                "after-push": "push の後", "before-submit": "提出の前", "after-submit": "提出の後",
+                "before-finish": "取り込みの前", "after-sync": "最新の取り込みの後", "after-start": "タスクの開始の後"}
+LEGACY_PIPELINE = "check"
+_NAME_FORBIDDEN = set(",=\"'[]:")
 
 
 @dataclass(frozen=True)
-class SubmitChecks:
-    """task submit の前に行う確認（ecobuild.toml の [check]）。既定は何もしない（items が空）。
-
-    提出の確認を全部の試験にすると、提出のたびに長く待つ（ECOBuild 自身で1回20分以上）。何を行うかはモジュールが
-    決める（ユーザーの決定「提出時に行う確認をユーザーが設定できるように。既定は何もせずに通過」）。"""
-    items: tuple[str, ...] = ()                    # SUBMIT_CHECK_ITEMS のうち行うもの
+class Pipeline:
+    """名前を付けた確認の並び（ecobuild.toml の [pipelines]）。どのタイミングでも、単体でも（pipeline run）走らせられる。"""
+    name: str
+    steps: tuple[str, ...]                         # PIPELINE_STEPS のうち行うもの（この順に）
     tests: tuple[str, ...] = ()                    # test で流す試験（型が絞れるとき。空なら全部）
 
+    def entries(self) -> list[str]:
+        """ecobuild.toml に書く形：手順の並び。流す試験は test の代わりに「test:<試験>」を並べる。"""
+        out = []
+        for step in self.steps:
+            out += [f"test:{t}" for t in self.tests] if step == "test" and self.tests else [step]
+        return out
 
-def validate_submit_checks(settings: SubmitChecks) -> None:
-    unknown = [name for name in settings.items if name not in SUBMIT_CHECK_ITEMS]
+
+@dataclass(frozen=True)
+class Pipelines:
+    """モジュールのパイプラインと、それを当てるタイミング。triggers：モジュールで共有するもの（ecobuild.toml）。
+    local：このPCだけで足すもの（ecobuild.local.toml。共有のものに上乗せするだけで、外せない）。"""
+    pipelines: tuple[Pipeline, ...] = ()
+    triggers: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    local: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def get(self, name: str) -> Pipeline | None:
+        return next((p for p in self.pipelines if p.name == name), None)
+
+    def at(self, timing: str) -> tuple[str, ...]:
+        """そのタイミングで走らせるパイプライン（共有のもの、このPCで足したものの順。なくなったパイプラインは除く）。"""
+        names = (*self.triggers.get(timing, ()), *self.local.get(timing, ()))
+        return tuple(name for name in dict.fromkeys(names) if self.get(name) is not None)
+
+
+def validate_steps(steps: tuple[str, ...]) -> None:
+    unknown = [name for name in steps if name not in PIPELINE_STEPS]
     if unknown:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"提出の確認の項目 {', '.join(unknown)} はありません。",
-                            hint=f"{'・'.join(SUBMIT_CHECK_ITEMS)} から選んでください（カンマ区切り。なしは none）。")
-    if settings.tests and "test" not in settings.items:
-        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "流す試験は、提出の確認に test があるときだけ指定できます。")
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"手順 {', '.join(unknown)} はありません。",
+                            hint=f"{'・'.join(PIPELINE_STEPS)} から選んでください（カンマ区切り）。")
+
+
+def validate_pipeline(pipeline: Pipeline) -> None:
+    name = pipeline.name
+    if not name or len(name) > 40 or any(c.isspace() or c in _NAME_FORBIDDEN for c in name):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"パイプラインの名前「{name}」は使えません。",
+                            hint="空白・カンマ等を含まない40文字までの名前にしてください（例：quick、full）。")
+    if not pipeline.steps:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"パイプライン {name} に手順がありません。",
+                            hint=f"{'・'.join(PIPELINE_STEPS)} から1つ以上選んでください。")
+    validate_steps(pipeline.steps)
+    if len(set(pipeline.steps)) != len(pipeline.steps):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"パイプライン {name} に同じ手順が2つあります。")
+    if pipeline.tests and "test" not in pipeline.steps:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "流す試験は、手順に test があるときだけ指定できます。")
+
+
+def validate_triggers(triggers: dict[str, tuple[str, ...]], names: set[str], *, where: str = f"[{TRIGGERS_TABLE}]") -> None:
+    for timing, chosen in triggers.items():
+        if timing not in TIMINGS:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"タイミング {timing} はありません（{where}）。",
+                                hint=f"{'・'.join(TIMINGS)} から選んでください。")
+        missing = [name for name in chosen if name not in names]
+        if missing:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"パイプライン {', '.join(missing)} はありません（{where} の {timing}）。",
+                                hint="ecobuild pipeline list で一覧を見られます。")
+
+
+def _pipeline(name: str, entries: object) -> Pipeline:
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[{PIPELINES_TABLE}] の {name} は手順（文字列）の配列です。")
+    steps, tests = [], []
+    for entry in entries:
+        step, _, test = entry.partition(":")
+        if step == "test" and test:
+            tests.append(test)
+        if step not in steps:
+            steps.append(step)
+    pipeline = Pipeline(name, tuple(steps), tuple(tests))
+    try:
+        validate_pipeline(pipeline)
+    except EcoBuildError as error:
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"[{PIPELINES_TABLE}] の {name}：{error.message}") from None
+    return pipeline
+
+
+def read_triggers(table: object, where: str) -> dict[str, tuple[str, ...]]:
+    """triggers の表（タイミング → パイプラインの名前の配列）。"""
+    if not isinstance(table, dict) or not all(isinstance(v, list) and all(isinstance(n, str) for n in v)
+                                              for v in table.values()):
+        raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"{where} は、タイミング = [パイプラインの名前…] の表です。")
+    return {timing: tuple(dict.fromkeys(names)) for timing, names in table.items() if names}
 
 
 @dataclass(frozen=True)
@@ -121,18 +204,39 @@ class ModuleConfig:
         return settings
 
     @property
-    def submit_checks(self) -> SubmitChecks:
-        table = self.extra.get(CHECK_TABLE, {})
-        settings = SubmitChecks(items=_strings(table, "submit", CHECK_TABLE) or (),
-                                tests=_strings(table, "tests", CHECK_TABLE) or ())
-        validate_submit_checks(settings)
-        return settings
+    def pipelines(self) -> Pipelines:
+        """パイプラインと、それを当てるタイミング（共有のもの。このPCで足すものは Module.pipelines が重ねる）。
+        以前の [check]（提出の前の確認）は、before-submit に当てた LEGACY_PIPELINE として読む。"""
+        if PIPELINES_TABLE not in self.extra and TRIGGERS_TABLE not in self.extra and CHECK_TABLE in self.extra:
+            table = self.extra[CHECK_TABLE]
+            steps = _strings(table, "submit", CHECK_TABLE) or ()
+            if not steps:
+                return Pipelines()
+            legacy = Pipeline(LEGACY_PIPELINE, steps, _strings(table, "tests", CHECK_TABLE) or ())
+            validate_pipeline(legacy)
+            return Pipelines((legacy,), {"before-submit": (LEGACY_PIPELINE,)})
+        pipelines = tuple(_pipeline(name, entries) for name, entries in self.extra.get(PIPELINES_TABLE, {}).items())
+        triggers = read_triggers(self.extra.get(TRIGGERS_TABLE, {}), f"[{TRIGGERS_TABLE}]")
+        try:
+            validate_triggers(triggers, {p.name for p in pipelines})
+        except EcoBuildError as error:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG, error.message, hint=error.hint) from None
+        return Pipelines(pipelines, triggers)
 
-    def with_submit_checks(self, settings: SubmitChecks) -> "ModuleConfig":
-        validate_submit_checks(settings)
-        extra = {key: value for key, value in self.extra.items() if key != CHECK_TABLE}
-        if settings.items or settings.tests:
-            extra[CHECK_TABLE] = {"submit": list(settings.items), **({"tests": list(settings.tests)} if settings.tests else {})}
+    def with_pipelines(self, pipelines: tuple[Pipeline, ...], triggers: dict[str, tuple[str, ...]]) -> "ModuleConfig":
+        """パイプラインとタイミングを書き換えた設定（以前の [check] は消す。空の表は書かない）。"""
+        for pipeline in pipelines:
+            validate_pipeline(pipeline)
+        if len({p.name for p in pipelines}) != len(pipelines):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "同じ名前のパイプラインが2つあります。")
+        triggers = {timing: tuple(dict.fromkeys(names)) for timing, names in triggers.items() if names}
+        validate_triggers(triggers, {p.name for p in pipelines})
+        extra = {key: value for key, value in self.extra.items()
+                 if key not in (CHECK_TABLE, PIPELINES_TABLE, TRIGGERS_TABLE)}
+        if pipelines:
+            extra[PIPELINES_TABLE] = {p.name: p.entries() for p in pipelines}
+        if triggers:
+            extra[TRIGGERS_TABLE] = {timing: list(triggers[timing]) for timing in TIMINGS if timing in triggers}
         return replace(self, extra=extra)
 
     @property
@@ -291,7 +395,7 @@ def load_local(root: Path) -> dict:
 
 def save_local(root: Path, values: dict) -> None:
     lines = ["# ECOBuildのこのPC用の設定（コミットしない）。"]
-    lines += [f"{key} = {_quote(value)}" for key, value in sorted(values.items()) if value is not None]
+    lines += [f"{key} = {_value(value)}" for key, value in sorted(values.items()) if value is not None]
     (root / DIRECTORY).mkdir(parents=True, exist_ok=True)
     (root / LOCAL_FILE_NAME).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
@@ -337,7 +441,7 @@ def _value(value: object) -> str:
     if isinstance(value, list):
         return "[" + ", ".join(_quote(v) for v in value) + "]"
     if isinstance(value, dict):
-        return "{ " + ", ".join(f"{_quote(k)} = {_quote(v)}" for k, v in value.items()) + " }"
+        return "{ " + ", ".join(f"{_quote(k)} = {_value(v)}" for k, v in value.items()) + " }"
     return str(value) if isinstance(value, int) else _quote(value)
 
 

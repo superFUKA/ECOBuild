@@ -155,9 +155,9 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 
 {start}
 2. 編集する。{add_file}
-3. `ecobuild build`・`ecobuild test`（型が対応していれば変えたところのテストに絞ります：`ecobuild test --help`。テスト全部は流しません。提出のときに何を確かめるかはモジュールが `ecobuild task checks` で決めます）
+3. `ecobuild build`・`ecobuild test`（型が対応していれば変えたところのテストに絞ります：`ecobuild test --help`。テスト全部は流しません。コミット・提出等のときに何を確かめるかはモジュールがパイプライン〔`ecobuild pipeline list`〕で決めます。前のパイプラインが失敗したら、その操作は止まるので直してからもう一度）
 4. `ecobuild task commit --message "<内容>"`（変更・削除と、管理するファイルに当たる新しいファイルをすべて含めます。対象外の新しいファイルは結果に出るので、要るなら `ecobuild track add "<パターン>"` か、パスを書いて `ecobuild task commit <パス> --message …`）
-5. `ecobuild task submit --note "<説明>"`（設定した確認〔`ecobuild task checks`。なければ確かめない〕→ 提出。取り込まれたらタスクを閉じます。取り込まれても閉じずに続けるなら `--partial`＝中間提出）。説明には、変えたこと・完了の条件ごとに何で確かめたか（コマンドと結果）・影響する所・戻し方を書きます。確認がどの版で通ったかは ECOBuild が本文に書きます
+5. `ecobuild task submit --note "<説明>"`（提出の前のパイプライン〔なければ確かめない〕→ 提出。取り込まれたらタスクを閉じます。取り込まれても閉じずに続けるなら `--partial`＝中間提出）。説明には、変えたこと・完了の条件ごとに何で確かめたか（コマンドと結果）・影響する所・戻し方を書きます。確認がどの版で通ったかは ECOBuild が本文に書きます
 {review}{finish}
 ## 始めるとき・区切るとき
 

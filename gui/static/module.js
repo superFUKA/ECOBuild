@@ -34,17 +34,18 @@ function showModulePage(page) {
   }
   pageHooks[page]?.();
 }
-// The tabs of 管理 (メンバー, CI): the chosen one's panel shows.
-const MANAGE_TABS = ['members', 'ci'];
+// The tabs of 管理 (メンバー, パイプライン, CI): the chosen one's panel shows.
+const MANAGE_TABS = ['members', 'pipelines', 'ci'];
+const manageTab = view => ({ci: window.MANAGE_CI, pipelines: window.MANAGE_PIPELINES}[view] || window.MANAGE_MEMBERS);
 const manageView = () => document.querySelector('#manage-tabs [aria-selected=true]')?.dataset.manageView || 'members';
 function showManageTab(view) {
   for (const b of document.querySelectorAll('#manage-tabs [data-manage-view]')) b.setAttribute('aria-selected', String(b.dataset.manageView === view));
   for (const p of document.querySelectorAll('#manage-content [data-manage-view-panel]')) p.hidden = p.dataset.manageViewPanel !== view;
-  if (view === 'ci') window.MANAGE_CI?.show(); else window.MANAGE_MEMBERS?.show();
+  manageTab(view)?.show();
 }
 pageHooks.manage = () => showManageTab(manageView());
 // 更新 is 管理's: it reads again what the chosen tab shows.
-document.getElementById('manage-reload').addEventListener('click', () => (manageView() === 'ci' ? window.MANAGE_CI : window.MANAGE_MEMBERS)?.reload());
+document.getElementById('manage-reload').addEventListener('click', () => manageTab(manageView())?.reload());
 document.getElementById('manage-tabs').addEventListener('click', e => {
   const view = e.target.closest('[data-manage-view]')?.dataset.manageView; if (view) showManageTab(view);
 });
@@ -53,7 +54,7 @@ const SETTINGS_TABS = ['profiles', 'general', 'templates', 'container'];
 // The left menu moves at once (only the page's contents wait for their reads). ecobuild gui open comes in onNavigate below.
 for (const key of PAGES) mEl(key + '-menu').addEventListener('click', () => showModulePage(key));
 ECO.onNavigate(({page, tab, task, command}) => {
-  // The tabs 「メンバー」 and 「CI」 are 管理's (--tab members・ci); --tab branches (once a tab) leads to the page ブランチ.
+  // The tabs 「メンバー」「パイプライン」「CI」 are 管理's (--tab members・pipelines・ci); --tab branches (once a tab) leads to the page ブランチ.
   const target = page || (tab ? (tab === 'branches' ? 'branches' : MANAGE_TABS.includes(tab) ? 'manage' : SETTINGS_TABS.includes(tab) ? 'settings' : 'modinfo') : task ? 'tasks' : command ? 'help' : '');
   if (target) showModulePage(target);
   if (MANAGE_TABS.includes(tab)) showManageTab(tab);

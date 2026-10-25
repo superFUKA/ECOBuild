@@ -136,7 +136,7 @@ RULES = """# ECOBuild オペレーター
 
 ## 使える道具（これだけ。シェル・ファイルの編集は使えません）
 
-- `gui_<操作>`：GUI の操作（画面を開く・移る、フォルダ・Visual Studio で開く、知らせ、エージェントの窓）。下の一覧。
+- `gui_<操作>`：GUI の操作（画面を開く・移る、フォルダ・Visual Studio で開く、知らせ、エージェントの窓）。何ができるかは各道具の説明に。
 - `ecobuild_read`：重さが「見る」の ecobuild のコマンドだけを実行する（args に引数、dir に場所）。ほかのコマンドは断られる。
   結果の `ok`・`error.message`・`error.hint` を読む。
 - `ecobuild_commands`：コマンドの使い方（path に "task list" 等）。型のコマンド（build・deps 等）は、dir にその型のモジュールの場所。
@@ -184,8 +184,7 @@ def instructions(found: dict, examples=None, style_text: str = "") -> str:
     for say, do in examples if examples is not None else actions.EXAMPLES:
         if not any(f"gui {name}" in do for name in hidden_actions()):
             lines.append(f"- {say} → {do.replace('ecobuild gui ', 'gui_')}")
-    lines += ["", "## GUI の操作（道具 gui_<操作>）", ""]
-    lines += [f"- `gui_{a.name}`：{a.summary}" for a in operator_actions()]
+    # GUI の操作（gui_<操作>）は MCP の道具の説明に同じものがあるので、ここには並べない（二重に書かない）
     lines += ["", "## 見るだけのコマンド（ecobuild_read で使える。モジュールの中のものは dir に場所）", ""]
     lines += [f"- `{path}`：{summary}" for path, (effect, summary) in sorted(effects(found).items()) if effect == "read"]
     return "\n".join(lines) + "\n"

@@ -455,28 +455,24 @@ def limits(registration: registry.Registration) -> tuple[str, ...]:
 
 
 def loop_lines(registration: registry.Registration, task) -> list[str]:
-    """起動の文の「改善のループと止める条件」の節（登録に何も決めていなければ空）。"""
+    """起動の文の「改善のループと止める条件」の節：登録で決めた値だけ（進め方は登録の文書に書く。同じことを二重に
+    書かない）。何も決めていなければ空。"""
     r = registration
     if not any(getattr(r, key) for key in registry.LOOP_FIELDS):
         return []
-    evaluation = f"`{r.evaluation}`" if r.evaluation else "任された仕事に書かれた評価（なければ build・test の通り具合）"
-    lines = ["## 改善のループと止める条件（登録で決めたもの）", "",
-             f"- 評価：{evaluation}。結果は数で比べます（通ったテストの数・check の項目・失敗の数）。"]
+    lines = ["## 改善のループと止める条件（登録で決めた値）", "",
+             f"- 評価：{f'`{r.evaluation}`' if r.evaluation else '任された仕事に書かれたもの（なければ build・test）'}"]
     if r.max_rounds:
-        lines.append(f"- 評価し直すのは {r.max_rounds} 回までです。それでも成功の条件に届かなければ、そこで止めて、"
-                     "最後の評価の結果と見込みを報告に書き、状態を「質問あり」か「止まっている」にします。")
-    stops = [f"{r.max_turns} ターン" if r.max_turns else "", f"{r.max_cost:g} ドル" if r.max_cost else ""]
-    stops = [s for s in stops if s]
-    if stops:
-        lines.append(f"- この起動の上限は {'・'.join(stops)} です（ECOBuild が止めます）。上限が近づく前に区切りを付け、"
-                     "途中経過を書いておきます。")
+        lines.append(f"- 評価し直す回数の上限：{r.max_rounds} 回")
+    if r.max_turns:
+        lines.append(f"- ターン数の上限：{r.max_turns}（ECOBuild が止めます）")
+    if r.max_cost:
+        lines.append(f"- 費用の上限：{r.max_cost:g} ドル（ECOBuild が止めます）")
     if r.lessons:
         folder = r.lessons.strip().replace("\\", "/").rstrip("/")
-        lines.append(f"- 教訓：始める前に `{folder}/` を読み、当てはまるものに従います。終わるときは、次の人の役に立つこと"
-                     f"（はまったこと・効いた直し方・評価の落とし穴）を `{folder}/{task.number}.md` に短く書き、"
-                     "作業と一緒にコミットします（提出で人が見て取り込みます）。ほかのタスクのファイルは書き換えません。")
+        lines.append(f"- 教訓の記録先：`{folder}/{task.number}.md`（作業と一緒にコミット。始める前に `{folder}/` を読む）")
     else:
-        lines.append("- 教訓（はまったこと・効いた直し方・評価の落とし穴）は、報告の「教訓」の節に短く書きます。")
+        lines.append("- 教訓の記録先：報告の「教訓」の節")
     return [*lines, ""]
 
 

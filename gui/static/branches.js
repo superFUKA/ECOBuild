@@ -159,8 +159,8 @@
         ${more <= 0 ? '' : shown.length < p.commits.length ? `<button type="button" class="mi-link" data-br-merge="all">すべて表示（${p.commit_count} 件）</button>` : `<p class="mi-note">ほか ${more} 件（ログで見られます）</p>`}` : '';
       const files = p.file_count ? `<details class="br-merge-files"><summary>変わるファイル ${p.file_count} 件</summary><ul>${p.files.map(f => `<li>${esc(f)}</li>`).join('')}${p.file_count > p.files.length ? `<li class="mi-sub">ほか ${p.file_count - p.files.length} 件</li>` : ''}</ul></details>` : '';
       const conflicts = p.method !== 'conflict' ? '' : `<div class="eco-banner bad">衝突するファイル（${p.conflicts.length}）<ul class="br-conflicts">${p.conflicts.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
-        衝突は提出（PR）にして直します：${esc(p.name)} を ${esc(p.into)} へ提出し、衝突を直してから、その提出を取り込みます。
-        <div class="br-merge-go"><button type="button" data-br-merge="submit" ${canSubmit(p.name) ? '' : `disabled title="${esc(ECO.adminNote)}（${esc(p.name)} を作った人も）"`}>提出する…</button></div></div>`;
+        衝突は「衝突を直すタスク」で直します：${esc(p.into)} を ${esc(p.name)} へ取り込むタスクの作業空間で直して ${esc(p.name)} へ入れると、${esc(p.name)} → ${esc(p.into)} が取り込めるようになります。
+        <div class="br-merge-go"><button type="button" class="primary" data-br-merge="resolve">衝突を直す…</button></div></div>`;
       // Conflicts only in the files the type makes: made again from the merged sources when taken in (no submission needed).
       const resolved = p.resolved?.length ? `<p class="mi-note">自動で作るファイル ${p.resolved.length} 件が衝突しますが、取り込むときに、合わさった設定から作り直します（${p.resolved.map(esc).join('、')}）。</p>` : '';
       // The button only when it can be merged: grey (with who may) for the others, none when in already or conflicting.
@@ -183,6 +183,14 @@
       case 'reload': return readPlan();
       case 'all': m.all = true; return renderMerge();
       case 'submit': return branchAction('branch-submit', m.from, m.into);
+      case 'resolve': {   // branch resolve: a task (from the branch) taking in the other; its workspace opens stopped at the conflicts
+        const p = m.plan; if (!p) return;
+        if (!await ECO.confirm({title: '衝突を直す', ok: '作って開く', message: `${p.into} を ${p.name} へ取り込むタスクを作り、作業空間に取り出して ${p.into} を取り込みます（衝突したところで止まります）。\n`
+          + `作業空間で衝突したファイルを直して「取り込みを完了」、提出のタブで ${p.name} へ入れる（このタスクはスカッシュせずに履歴ごと入ります）と、${p.name} → ${p.into} が取り込めるようになります。`})) return;
+        const doc = await ECO.run(MOD.root, ['branch', 'resolve', p.name, '--into', p.into], {success: r => `衝突を直すタスク #${r.task} を作りました。` + (r.conflicts.length ? `衝突したファイル ${r.conflicts.length} 件を作業空間で直してください。` : '')});
+        if (doc) await MOD.showPlace(doc.result.workspace);
+        return readPlan();
+      }
       case 'go': {
         const p = m.plan; if (!p) return;
         const how = p.method === 'fast-forward' ? '早送りで' : 'マージコミットで';

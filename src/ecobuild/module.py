@@ -36,7 +36,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
+from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
@@ -1187,6 +1187,23 @@ class Module:
     def require_task_branch(self, action: str) -> wm.TaskBranch:
         """ファイルを変える操作はタスクブランチでだけ（Module と型の約束。型の操作もここで確かめる）。"""
         return self.repository.require_task_branch(action)
+
+    def resolve_branch_merge(self, name: str, into: str, *,
+                             progress: Callable[[str], None] | None = None) -> BranchResolve:
+        """name を into へ取り込むと衝突するとき、直すタスクを作って始める（ecowork の create_merge_task）：作業空間に
+        name から作るタスクブランチを取り出し、into を取り込む（sync）。衝突したところで止めて返す（作業空間で直して
+        sync continue → task apply／submit で name へ入れると、name → into が取り込めるようになる）。"""
+        task = self.repository.create_merge_task(name, into)
+        (progress or _quiet)(f"衝突を直すタスク #{task.number} を作りました。作業空間に取り出して {into} を取り込みます…")
+        branch_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", f"merge-{into}-into-{name}").strip("-")
+        here = self.start_task(task.number, base=name, name=branch_name, progress=progress)
+        try:
+            here.sync(progress=progress, pipelines=False)
+        except WorkError as error:
+            if error.code != ErrorCode.MERGE_CONFLICT:
+                raise
+        conflicts = tuple(here.repository.git.working_tree().conflicted)
+        return BranchResolve(name, into, task.number, here.root, conflicts)
 
     def sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True) -> SyncResult:
         """GitHubの最新を取り込み、手元（依存先・生成ファイル）をそろえる。

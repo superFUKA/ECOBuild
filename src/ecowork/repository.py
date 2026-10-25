@@ -793,8 +793,10 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
                 # ブランチ同士はマージコミットで履歴を残す。
                 self.github.merge_pull_request(self.root, pr.number, squash=False, subject=None)
                 return wm.MergeResult(pr.number, "merge", None, False)
-            self.github.merge_pull_request(self.root, pr.number, squash=True,
-                                           subject=f"{subject or pr.title} (#{pr.number})")
+            # 衝突を直すタスクは取り込んだブランチの履歴ごと入れる（スカッシュすると、作成元 → そのブランチが衝突のまま）
+            keep_history = bool(wm.issue_merge_from(self.github.get_issue(self.root, task).body))
+            self.github.merge_pull_request(self.root, pr.number, squash=not keep_history,
+                                           subject=None if keep_history else f"{subject or pr.title} (#{pr.number})")
         except WorkError as error:
             if error.code == ErrorCode.PULL_REQUEST_CONFLICT:
                 error.hint = (

@@ -72,6 +72,16 @@ class ModuleAdopted:
 
 
 @dataclass(frozen=True)
+class BranchResolve:
+    """branch resolve：ブランチ同士の衝突を直すタスクを作って始めた結果。"""
+    name: str                        # 取り込みたいブランチ（タスクの作成元。直したものはここへ入れる）
+    into: str                        # 取り込み先（タスクブランチへ取り込んだブランチ）
+    task: int                        # 衝突を直すタスク
+    workspace: Path                  # その作業空間
+    conflicts: tuple[str, ...]       # 直すファイル（作業空間で取り込みが止まっている。空なら取り込み済み）
+
+
+@dataclass(frozen=True)
 class ModuleUpgraded:
     """module upgrade：モジュールを今の ECOBuild の仕様に合わせた結果。"""
     format: int                      # 前の版

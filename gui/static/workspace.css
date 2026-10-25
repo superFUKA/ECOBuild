@@ -200,11 +200,18 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .build-group #build-menu, .build-bar .build-group .group-menu { display: grid; place-items: center; padding: 0 3px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent; color: #9eaab8; font-size: 12px; }
 .build-bar .build-group .group-menu[hidden] { display: none; }
 .build-bar .build-group #build-menu:hover, .build-bar .build-group .group-menu:hover { background: #252d36; color: #edf1f5; }
-/* テストを選んで実行: the tests one per line (long names), scrolled when there are many. */
-.eco-dialog fieldset.eco-checks[data-field="cases"] > div { flex-direction: column; flex-wrap: nowrap; gap: 2px; max-height: 42vh; overflow: auto; }
-.eco-dialog fieldset.eco-checks[data-field="cases"] label { border-radius: 6px; font-family: Consolas, "Yu Gothic UI", monospace; font-size: 12.5px; overflow-wrap: anywhere; }
-.eco-dialog fieldset.eco-checks[data-field="cases"] label[hidden] { display: none; }
-.test-pick-tools { display: flex; gap: 8px; margin: 0; }
+/* テストを選んで実行: the tests as a tree (one per line: long names), scrolled when there are many. */
+.test-tree { max-height: 46vh; overflow: auto; border: 1px solid #2c333b; border-radius: 8px; padding: 4px; background: #14171b; }
+.test-tree ul { list-style: none; margin: 0; padding: 0; }
+.test-tree .tt-row { display: flex; align-items: center; gap: 2px; padding-left: calc(var(--depth) * 18px); }
+.test-tree .tt-toggle { flex: none; width: 20px; height: 22px; padding: 0; border: 0; background: transparent; color: #9eaab8; font-size: 13px; }
+.test-tree button.tt-toggle:hover { color: #edf1f5; }
+.test-tree label { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 2px 6px; border-radius: 6px; font-family: Consolas, "Yu Gothic UI", monospace; font-size: 12.5px; overflow-wrap: anywhere; cursor: pointer; }
+.test-tree label:hover { background: #252d36; }
+.test-tree label small { margin-left: auto; color: #7d8895; font-size: 11px; }
+.test-tree .eco-help { margin: 8px; }
+.test-pick-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
+.test-pick-tools .tt-count { margin-left: auto; color: #9eaab8; font-size: 12px; }
 
 /* 構成・ビルド設定: one box like Visual Studio's (the configuration in use, then the build setting). */
 .build-bar .config-button { display: inline-flex; align-items: center; gap: 8px; min-width: 120px; justify-content: space-between; padding: 5px 8px 5px 11px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #edf1f5; font-size: 12px; }

@@ -43,6 +43,37 @@ from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckRe
                       ProjectSummary, RunResult, SyncResult, TestList, TestResult, WorkspaceClosed, WorkspaceList)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
+# 行の集まりのファイル（順番に意味がなく、ECOBuild が足りない行を足す）：衝突したら両方の行を合わせて直す
+LINE_SET_FILES = (".gitignore", ".gitattributes")
+
+
+def union_lines(text: str) -> str:
+    """衝突の印（<<<<<<< 等）が残った文の、それぞれの衝突を両方の行を合わせたものにする：自分の側の行の後に、相手の側の
+    行のうち自分の側にないもの（空行は続けない）。共通の祖先の側（|||||||）は捨てる。"""
+    kept: list[str] = []
+    ours: list[str] = []
+    side = None
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        if bare.startswith("<<<<<<< "):
+            side, ours = "ours", []
+        elif side == "ours" and bare.startswith("||||||| "):
+            side = "base"
+        elif side in ("ours", "base") and bare == "=======":
+            side = "theirs"
+        elif side == "theirs" and bare.startswith(">>>>>>> "):
+            side = None
+        elif side == "ours":
+            ours.append(bare)
+            kept.append(line)
+        elif side == "theirs":
+            blank_after_blank = not bare.strip() and (not kept or not kept[-1].strip())
+            if (bare.strip() and bare in ours) or blank_after_blank:
+                continue
+            kept.append(line if line.endswith("\n") else line + "\n")
+        elif side is None:
+            kept.append(line)
+    return "".join(kept)
 _WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
 _UNPUSHED_HINT = ("必要なものを GitHub へ送るか（コミット・push・退避の取り出し等）、捨ててよければ --discard-local を付けて"
                   "実行してください（それらは失われます）。")
@@ -115,8 +146,9 @@ class _TypeHooks(Hooks):
         return {ref: "ECOBuild のモジュールではありません" for ref, line in zip(refs, lines) if line.endswith(" missing")}
 
     def resolvable(self, repository: Repository, conflicts: tuple[str, ...]) -> bool:
-        # 生成ファイルだけの衝突は、合わさった管理ファイルから作り直せば直る（sync と同じ）
-        return bool(conflicts) and all(self._module.type.is_generated(p) for p in conflicts)
+        # 生成ファイルだけの衝突は、合わさった管理ファイルから作り直せば直る（sync と同じ）。行の集まりのファイル
+        # （.gitignore 等。ECOBuild が足りない行を足す）は両方の行を合わせれば直る
+        return bool(conflicts) and all(self._module.type.is_generated(p) or p in LINE_SET_FILES for p in conflicts)
 
     def resolve_conflicts(self, repository: Repository, root: Path) -> bool:
         return self._module._module_at(root)._regenerate_merge()
@@ -2070,13 +2102,26 @@ class Module:
         tree = self.repository.git.working_tree()
         return sorted({p for p in (*tree.staged, *tree.unstaged, *tree.untracked) if self.type.is_managed(p)})
 
-    def _regenerate_conflicted_files(self) -> bool:
-        """衝突した生成ファイルを、（衝突の解決済みの）管理ファイルから作り直して登録する。"""
+    def _union_line_sets(self) -> bool:
+        """衝突した行の集まりのファイル（LINE_SET_FILES：.gitignore 等）を、両方の行を合わせて直して登録する。"""
         git = self.repository.git
+        found = [p for p in git.working_tree().conflicted if p in LINE_SET_FILES and (self.root / p).is_file()]
+        for path in found:
+            target = self.root / path
+            target.write_bytes(union_lines(target.read_bytes().decode("utf-8")).encode("utf-8"))
+        if found:
+            git.add(tuple(found))
+        return bool(found)
+
+    def _regenerate_conflicted_files(self) -> bool:
+        """衝突した生成ファイルを、（衝突の解決済みの）管理ファイルから作り直して登録する。行の集まりのファイル
+        （.gitignore 等）の衝突は、先に両方の行を合わせて直す。何か直したら True。"""
+        git = self.repository.git
+        unioned = self._union_line_sets()
         conflicted = git.working_tree().conflicted
         generated = [p for p in conflicted if self.type.is_generated(p)]
         if not generated or any(self.type.is_managed(p) and p not in generated for p in conflicted):
-            return False  # 管理ファイルの衝突が残っていると作り直せない
+            return unioned  # 管理ファイルの衝突が残っていると作り直せない
         git.run("checkout", "--ours", "--", *generated)
         self.type.refresh()
         git.add(tuple(generated))

@@ -143,9 +143,10 @@ function submitDialog(t, ready = false) {
 
 // Applying the task branch here without a submission (task apply): squashed onto the latest base, the task closed and
 // its task branch and workspace cleaned up, as a finish. An open submission is closed without taking it in.
-function applyDialog(t) {
+async function applyDialog(t) {
   const submitted = t.pull_request?.state === 'open';
-  return ECO.form({
+  let conflict = null;   // stopped on a conflict with the base: offered to take the base in here and fix it (sync)
+  await ECO.form({
     title: `反映：#${t.number}`,
     intro: `<p>提出（PR）を作らずに、${esc(t.base)} の最新へ1つのコミットにまとめて入れ、タスクを完了します（CIは待ちません）。`
       + `${submitted ? '開いている提出は取り込まずに閉じます。' : ''}衝突したら何もせずに止まります。</p>` + ECO.submissionCommits(t.commits),
@@ -155,11 +156,20 @@ function applyDialog(t) {
     ], ok: '反映',
     submit: async v => {
       const args = ['task', 'apply', String(t.number), ...(v.subject && v.subject !== t.title ? ['--subject', v.subject] : []), ...(v.pipelines ? [] : ['--no-pipelines'])];
-      const doc = await WS.run(args, {success: r => `#${t.number} を ${r.base} へ反映し、完了しました。`});
-      if (!doc) return '反映できませんでした。';
-      ECO.workspaceKept(doc.result, t.number); WS.reloadFiles?.(); await WS.refreshPrs();
+      const tried = await WS.cli(args);
+      if (!tried.ok && tried.error?.code === 'merge_conflict') { conflict = tried.error; return; }
+      if (!tried.ok) { ECO.showError(tried); return '反映できませんでした。'; }
+      ECO.toast(`#${t.number} を ${tried.result.base} へ反映し、完了しました。`);
+      for (const notice of tried.notices || []) ECO.toast('お知らせ：' + notice, 'info', 9000);
+      ECO.workspaceKept(tried.result, t.number); await WS.refresh(); WS.reloadFiles?.(); await WS.refreshPrs();
     },
   });
+  if (!conflict) return;
+  const files = (conflict.details || []).join('、');
+  if (!await ECO.confirm({title: `反映：#${t.number}`, ok: '取り込んで直す', message: `${t.base} と衝突するので、反映しませんでした（何も変えていません）。${files ? `\n衝突するファイル：${files}` : ''}\n`
+    + `このタスクブランチへ ${t.base} の最新を取り込みます。衝突したファイルを直して「取り込みを完了」を押してから、もう一度「反映」してください。`})) return;
+  await WS.run(['sync'], {success: '取り込みました（衝突しませんでした）。もう一度「反映」できます。'});
+  WS.reloadFiles?.(); await WS.refreshPrs();
 }
 
 async function prAction(action) {

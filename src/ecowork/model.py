@@ -87,14 +87,27 @@ def issue_branch(body: str) -> str | None:
 
 
 def without_base(body: str) -> str:
-    return _BASE_MARK.sub("", body or "")
+    return _MERGE_MARK.sub("", _BASE_MARK.sub("", body or ""))
 
 
 def with_base(body: str, base: str, branch: str | None = None) -> str:
-    """作成元（とタスクブランチの名前）の印を書いた本文。branch を省くと、記録してある名前を残す。"""
+    """作成元（とタスクブランチの名前）の印を書いた本文。branch を省くと、記録してある名前を残す（取り込むブランチの印も）。"""
     branch = branch or issue_branch(body)
+    merge_from = issue_merge_from(body)
     text = without_base(body)
-    return (text + "\n\n" if text else "") + f"<!-- ecowork-base: {base}" + (f" branch: {branch}" if branch else "") + " -->"
+    return ((text + "\n\n" if text else "") + (f"<!-- ecowork-merge: {merge_from} -->\n" if merge_from else "")
+            + f"<!-- ecowork-base: {base}" + (f" branch: {branch}" if branch else "") + " -->")
+
+
+# 衝突を直すタスク（branch resolve）：作成元 <元> へ、管理用のブランチ <先> を取り込むタスク。本文の印（作成元の印の前）。
+# sync はタスクブランチへ <先> も取り込み、作成元へはスカッシュせずに入れる（<元> → <先> がそのまま取り込めるように）。
+_MERGE_MARK = re.compile(r"\s*<!-- ecowork-merge: (\S+) -->")
+
+
+def issue_merge_from(body: str) -> str | None:
+    """衝突を直すタスクなら、タスクブランチへ取り込むブランチ（そうでなければ None）。"""
+    match = _MERGE_MARK.search(body or "")
+    return None if match is None else match.group(1)
 
 
 # タスクブランチのPRとIssueのつながり：本文の行 Closes #<番号>（マージでIssueを閉じる）か Refs #<番号>（途中の反映）。

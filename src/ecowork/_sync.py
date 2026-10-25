@@ -24,7 +24,8 @@ class Syncing:
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。")
         task_branch = self.current_task_branch()
-        if task_branch is not None and self.github.get_issue(self.root, task_branch.number).state != "open":
+        issue = self.github.get_issue(self.root, task_branch.number) if task_branch is not None else None
+        if issue is not None and issue.state != "open":
             # 反映済みのタスクブランチへ作成元を取り込むと、squashマージのため衝突や余分なコミットになる。
             raise WorkError(
                 ErrorCode.TASK_CLOSED,
@@ -39,6 +40,9 @@ class Syncing:
         refs = [f"{_git.REMOTE}/{branch}"]
         if task_branch is not None:
             refs.append(f"{_git.REMOTE}/{task_branch.base}")
+            merge_from = wm.issue_merge_from(issue.body)
+            if merge_from:   # 衝突を直すタスク：取り込むブランチも（衝突はここで直す）
+                refs.append(f"{_git.REMOTE}/{merge_from}")
         for ref in refs:
             if self.git.rev_parse(ref) is None:
                 continue

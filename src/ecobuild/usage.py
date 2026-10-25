@@ -66,7 +66,16 @@ def _read(root: Path) -> list[dict]:
     except (OSError, ValueError):
         return []
     commands = data.get("commands") if isinstance(data, dict) else None
-    return [c for c in commands or [] if isinstance(c, dict) and isinstance(c.get("pid"), int) and process_alive(c["pid"])]
+    return [c for c in commands or [] if isinstance(c, dict) and isinstance(c.get("pid"), int)
+            and process_alive(c["pid"], _since(c))]
+
+
+def _since(command: dict) -> float | None:
+    """記録を書いた時刻（その後に起動したプロセスは、pid を使い回した別のもの）。読めなければ None。"""
+    try:
+        return datetime.fromisoformat(command["since"]).timestamp()
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _write(root: Path, commands: list[dict]) -> None:

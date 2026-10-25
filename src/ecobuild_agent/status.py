@@ -465,9 +465,9 @@ def ended(folder: Path, pid: int) -> None:
         (Path(folder) / RUNNING).unlink(missing_ok=True)
 
 
-def alive(pid: int) -> bool:
-    """このPCのプロセス pid が動いているか。"""
-    return _fsutil.process_alive(pid)
+def alive(pid: int, since: float | None = None) -> bool:
+    """このPCのプロセス pid が動いているか（since：起動を覚えた時刻。その後に起動した、pid を使い回した別のものは除く）。"""
+    return _fsutil.process_alive(pid, since)
 
 
 def stop(pid: int) -> None:
@@ -488,10 +488,12 @@ def stop(pid: int) -> None:
 
 
 def running_pid(folder: Path) -> int | None:
-    """置き場所のエージェントを動かしているプロセス（動いていなければ None）。"""
+    """置き場所のエージェントを動かしているプロセス（動いていなければ None）。覚えた後に起動したプロセスは、終わった
+    エージェントの pid をほかのプログラムが使い回したもの（動いているとみなすと、止めるときにそれを止めてしまう）。"""
     data = read(Path(folder) / RUNNING)
     pid = data.get("pid") if isinstance(data, dict) else None
-    return pid if isinstance(pid, int) and alive(pid) else None
+    at = data.get("at") if isinstance(data, dict) and isinstance(data.get("at"), (int, float)) else None
+    return pid if isinstance(pid, int) and alive(pid, at) else None
 
 
 def running_mode(folder: Path) -> str | None:

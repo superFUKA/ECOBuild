@@ -20,6 +20,7 @@ window.AGENT_EDITOR = (() => {
     ['CI', n => n.startsWith('ci_')],
     ['子のエージェント・親への報告', n => n.startsWith('children_') || n === 'report_to_parent'],
   ];
+  const TOO_MANY = 30;   // tools: past 30–50 definitions, the choice of tool tends to degrade
   const MODELS = [['', 'Claude Code の既定'], ['opus', 'Opus'], ['fable', 'Fable'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
   const toolsCache = new Map();   // dir → the tools (they change only with ECOBuild)
   const glob = p => new RegExp('^' + p.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
@@ -170,8 +171,25 @@ window.AGENT_EDITOR = (() => {
         <section class="ae-sec"><h4>文書</h4><p class="mi-note">起動のときにエージェントに渡す、この役の文（何者か・何をするか・決まり）。</p>
           <textarea class="ae-doc" data-ae-field="document" rows="${Math.min(28, Math.max(10, r.document.split('\n').length + 2))}">${esc(r.document)}</textarea></section>
         <section class="ae-sec"><h4>最初の発言</h4><textarea data-ae-field="first_prompt" rows="2">${esc(r.first_prompt || '')}</textarea></section>
+        ${loopSection(r)}
         ${toolsSection(r)}
         ${childrenSection(r)}`;
+    }
+    // The improvement loop (evaluate → fix → evaluate again) and when to stop: written into the briefing; the turn and cost
+    // limits are kept by ECOBuild when an agent starts it (claude -p), not when a person starts it in a tab
+    function loopSection(r) {
+      const num = (key, label, step, help) => `<label class="ae-field ae-narrow">${label}<input type="number" min="0" step="${step}" data-ae-field="${key}" value="${r[key] || 0}"${help ? ` title="${esc(help)}"` : ''}></label>`;
+      return `<section class="ae-sec"><h4>改善のループと止める条件</h4>
+        <p class="mi-note">評価 → 直す → 評価し直す を回し、良くなった変更だけを残す。決めたものは起動のときの文に入ります。0 は「決めない／上限なし」。ターン数・費用の上限は、ほかのエージェントが起動したとき（画面なし）に ECOBuild が止めます。</p>
+        <div class="ae-grid">
+          <label class="ae-field">評価のしかた<input type="text" data-ae-field="evaluation" value="${esc(r.evaluation || '')}" placeholder="例：check（only=build,test）。空なら任された仕事に書かれたもの"></label>
+          <label class="ae-field">教訓の記録先（モジュールの中のフォルダー）<input type="text" data-ae-field="lessons" value="${esc(r.lessons || '')}" placeholder="例：.ecobuild/agents/lessons。空なら報告に書くだけ"></label>
+        </div>
+        <div class="ae-grid">
+          ${num('max_rounds', '評価し直す回数の上限', 1, 'それでも届かなければ「質問あり」か「止まっている」で返す')}
+          ${num('max_turns', 'ターン数の上限', 1)}
+          ${num('max_cost', '費用の上限（ドル）', 0.5)}
+        </div></section>`;
     }
     function draw() {
       box.innerHTML = `${opts.notice ? opts.notice() : ''}<div class="ae">${side()}<div class="ae-main">${editor()}</div></div>`;
@@ -190,6 +208,9 @@ window.AGENT_EDITOR = (() => {
       v.tools = pick ? [...new Set([...box.querySelectorAll('[data-ae-tool]:checked:not([data-by-pattern])')].map(b => b.dataset.aeTool).concat(patterns))] : ['*'];
       v.children = [...box.querySelectorAll('[data-ae-child]:checked')].map(b => b.dataset.aeChild);
       v.max_children = Number(field('max_children').value) || 0;
+      v.evaluation = field('evaluation').value.trim();
+      v.lessons = field('lessons').value.trim();
+      for (const key of ['max_rounds', 'max_turns', 'max_cost']) v[key] = Math.max(0, Number(field(key).value) || 0);
       const same = (a, b) => a.length === b.length && a.every(x => b.includes(x));
       const args = [];
       if (v.title !== r.title) args.push('--title', v.title);
@@ -199,6 +220,9 @@ window.AGENT_EDITOR = (() => {
       if (!same(v.children, r.children)) args.push('--children', v.children.join(','));
       if (v.max_children !== r.max_children) args.push('--max-children', String(v.max_children));
       if (v.first_prompt !== (r.first_prompt || '').trim()) args.push('--first-prompt', v.first_prompt);
+      if (v.evaluation !== (r.evaluation || '')) args.push('--evaluation', v.evaluation);
+      if (v.lessons !== (r.lessons || '')) args.push('--lessons', v.lessons);
+      for (const key of ['max_rounds', 'max_turns', 'max_cost']) if (v[key] !== (r[key] || 0)) args.push(`--${key.replace('_', '-')}`, String(v[key]));
       const document = v.document.trim() !== r.document.trim();
       if (document) args.push('--document', '-');
       // the roles that start this one: their children change (added or taken off)
@@ -235,7 +259,9 @@ window.AGENT_EDITOR = (() => {
       if (count) {
         const given = v.tools.includes('*') ? st.tools : st.tools.filter(t => matches(t.name, v.tools));
         const owner = given.filter(t => t.mark === 'owner').length;
-        count.textContent = `${given.length} / ${st.tools.length} 個を渡す${owner ? `（コミット・提出のツール ${owner} 個を含む）` : '（コミット・提出はさせない）'}`;
+        count.textContent = `${given.length} / ${st.tools.length} 個を渡す${owner ? `（コミット・提出のツール ${owner} 個を含む）` : '（コミット・提出はさせない）'}`
+          + (given.length > TOO_MANY ? `。多めです：ツールが ${TOO_MANY} を超えると選び方が落ちやすい（仕事に要るものに絞るか、手順はスキル・文書に）` : '');
+        count.classList.toggle('ae-count-warn', given.length > TOO_MANY);
       }
       for (const fs of box.querySelectorAll('.ae-group')) {
         const all = fs.querySelectorAll('[data-ae-tool]'), on = fs.querySelectorAll('[data-ae-tool]:checked');

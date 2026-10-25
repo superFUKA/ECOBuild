@@ -21,6 +21,11 @@ def command(name: Annotated[str, "登録の名前"],
             children: Annotated[str, "起動してよい子の登録の名前（カンマ区切り。空なら子を起動しない）"] = "",
             max_children: Annotated[int, "同時に持てる子の数の上限"] = 0,
             first_prompt: Annotated[str, "起動のときの最初の発言"] = "",
+            evaluation: Annotated[str, "改善のループの評価のしかた（例：check（only=build,test）。空なら任された仕事に書かれたもの）"] = "",
+            max_rounds: Annotated[int, "評価し直す回数の上限（0 なら決めない）"] = 0,
+            max_turns: Annotated[int, "ターン数の上限（AI が起動したときに守らせる。0 ならなし）"] = 0,
+            max_cost: Annotated[float, "費用の上限（ドル。AI が起動したときに守らせる。0 ならなし）"] = 0.0,
+            lessons: Annotated[str, "教訓の記録先（モジュールの中のフォルダー。空なら報告だけ）"] = "",
             document: Annotated[str, "文書（agent.md）を読むファイル（- なら標準入力）"] = "",
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """モジュールの登録の設定・文書を変え、タスクブランチでコミットします（書いたオプションだけを変えます）。
@@ -30,7 +35,9 @@ def command(name: Annotated[str, "登録の名前"],
     """
     def action(inv):
         fields, text = changes(title=title, human_start=human_start, model=model, tools=tools, children=children,
-                               max_children=max_children, first_prompt=first_prompt, document=document)
+                               max_children=max_children, first_prompt=first_prompt, evaluation=evaluation,
+                               max_rounds=max_rounds, max_turns=max_turns, max_cost=max_cost, lessons=lessons,
+                               document=document)
         changed, sha = _change.in_task_branch(inv, f"エージェントの登録「{name}」を変える",
                                               lambda module: _registry.update(module.root, name, document=text, **fields))
         return registration_view(changed, document=True, pending=True, committed=sha)
@@ -45,7 +52,8 @@ def changes(**values) -> tuple[dict, str | None]:
     def given(option):
         return context.get_parameter_source(option) not in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
 
-    converters = {"model": str.strip, "tools": split_list, "children": split_list}
+    converters = {"model": str.strip, "tools": split_list, "children": split_list, "evaluation": str.strip,
+                  "lessons": str.strip}
     fields = {key: converters.get(key, lambda v: v)(value) for key, value in values.items()
               if key != "document" and given(key)}
     text = _read_document(values["document"]) if given("document") else None

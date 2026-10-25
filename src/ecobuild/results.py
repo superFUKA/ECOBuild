@@ -370,6 +370,20 @@ class TestResult:
 
 
 @dataclass(frozen=True)
+class TestEntry:
+    """流せるテスト1件（test --list）。name はそのまま test に渡せる（型によってはパターン）。file・line：書いてある場所
+    （モジュールからの相対。分からなければ None）。"""
+    name: str
+    file: str | None = None
+    line: int | None = None
+
+
+@dataclass(frozen=True)
+class TestList:
+    tests: tuple[TestEntry, ...]
+
+
+@dataclass(frozen=True)
 class RunResult:
     project: str | None
     configuration: str

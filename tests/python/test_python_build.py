@@ -31,6 +31,9 @@ def test_build_test_run(tmp_path):
     assert error.value.code == ErrorCode.TEST_FAILED and error.value.details["failed"] == ["tests/test_bad.py::test_bad"]
     selected = module.test(tests=("tests/test_calc.py",))                      # 変えたところのテストだけ（落ちるものは流さない）
     assert selected.passed == 1 and selected.failed == 0
+    listed = {t.name: t.file for t in module.list_tests().tests}               # 流さずに集める（名前はそのまま test に渡せる）
+    assert listed["tests/test_bad.py::test_bad"] == "tests/test_bad.py" and "tests/test_calc.py::test_import" in listed
+    assert module.test(tests=("tests/test_calc.py::test_import",)).passed == 1
     assert [i.name for i in module.check(build=False).items][:2] == ["generated", "conflict_markers"]
 
 

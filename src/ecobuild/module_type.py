@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from .config import ModuleConfig, Profile
     from .module import Module
     from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, DependencyTree, FilesChanged,
-                          LinkResult, PrepareResult, ProjectSummary, RunResult, TestResult)
+                          LinkResult, PrepareResult, ProjectSummary, RunResult, TestEntry, TestResult)
     from .results import DoctorItem
 
 
@@ -180,6 +180,10 @@ class Builds(ABC):
     @abstractmethod
     def test(self, project: str | None, options: Any, tests: tuple[str, ...] = ()) -> "TestResult":
         """tests：流すテストを絞る（型が分かる書き方。空なら全部）。絞れない型は、指定されたら not_supported。"""
+
+    def list_tests(self, project: str | None, options: Any) -> "tuple[TestEntry, ...]":
+        """流せるテストの一覧（名前は test の tests に渡せるもの）。絞れない型は not_supported。"""
+        raise self.not_supported("テストの一覧")
 
     @abstractmethod
     def run(self, project: str | None, options: Any, arguments: str) -> "RunResult":

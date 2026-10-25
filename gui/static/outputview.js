@@ -8,8 +8,11 @@
 // (colored, not counted).
 const OUTPUT = (() => {
   const {esc} = ECO;
-  // A tool's summary (Build FAILED. / 2 Error(s) / 0 個の警告) is not counted: the lines it counts are.
-  const kindOf = line => /^\s*(Build (FAILED|succeeded)\.?|\d+ (Warning|Error)\(s\)|\d+ 個の(警告|エラー))\s*$|\b0 (errors?|warnings?)\b/i.test(line) ? 'muted'
+  // A tool's summary (Build FAILED. / 2 Error(s) / 0 個の警告) is not counted: the lines it counts are. CTest's
+  // (100% tests passed, 0 tests failed out of 1) is ok when nothing failed (its "failed" is not an error).
+  const ctestSummary = /^\s*\d+% tests passed, (\d+) tests? failed out of \d+/i;
+  const kindOf = line => ctestSummary.test(line) ? (line.match(ctestSummary)[1] === '0' ? 'ok' : 'muted')
+    : /^\s*(Build (FAILED|succeeded)\.?|\d+ (Warning|Error)\(s\)|\d+ 個の(警告|エラー))\s*$|\b0 (errors?|warnings?)\b/i.test(line) ? 'muted'
     : /\b(fatal )?error\b|\bFAILED\b|エラー|^Traceback |^E {3}/i.test(line) ? 'bad' : /\bwarning\b|警告/i.test(line) ? 'warn' : '';
   const toolLines = (output, kind = null) => String(output || '').replace(/\r/g, '').replace(/\n+$/, '').split('\n').map(t => ({text: t, kind: kind ?? kindOf(t)}));
   // The events ecobuild reports on its stderr while it runs (ecobuild --help --json の events: {kind, text, stream,

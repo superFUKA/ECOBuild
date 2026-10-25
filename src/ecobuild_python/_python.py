@@ -268,6 +268,16 @@ def run_tests(root: Path, python: Path, tests: tuple[str, ...] = (), *, filter: 
     return cases
 
 
+def collect_tests(root: Path, python: Path) -> list[str]:
+    """流せるテストの nodeid（pytest --collect-only。流さない）。集められなければ TEST_FAILED（構文の誤り等）。
+    addopts は外す（-n 等は集めるのに要らず、xdist は集めたものを出さない）。"""
+    args = [str(python), "-m", "pytest", "--collect-only", "-q", "-o", "addopts=", "-p", "no:cacheprovider"]
+    completed = execute(args, root)
+    if completed.returncode not in (0, NO_TESTS):
+        raise failure(ErrorCode.TEST_FAILED, "テストを集められませんでした", args, completed)
+    return [line.strip() for line in completed.stdout.splitlines() if "::" in line and not line.startswith(" ")]
+
+
 _RANK = {"passed": 0, "skipped": 1, "failed": 2}
 
 

@@ -12,6 +12,7 @@ WS.onRefresh(renderPrDetail);
   async function loadOptions() {
     const [p, j, type] = await Promise.all([WS.cli(['profile', 'list'], {quiet: true}), WS.cli(['project', 'list'], {quiet: true}), ECO.moduleType(WS.dir)]);
     features = ECO.typeFeatures(type);
+    get('test-menu').hidden = !features.tests;
     const config = get('build-config'), chosen = config.value;
     config.innerHTML = '<option value="">ビルド設定のまま</option>' + features.configurations.map(c => `<option>${esc(c)}</option>`).join('');
     config.value = features.configurations.includes(chosen) ? chosen : '';
@@ -116,15 +117,19 @@ WS.onRefresh(renderPrDetail);
   }
 
   // project: this Project only (the explorer's menu on a Project), without changing the target chosen next to ▶.
-  async function runAction(action, only = '') {
+  // chosen: the tests to run ({tests, filter, lastFailed}: ecobuild test's arguments; the names say their Project, so
+  // the target next to ▶ is not used).
+  async function runAction(action, only = '', chosen = null) {
     if (busy) return;
-    const project = only || get('build-project').value, configuration = get('build-config').value;
+    const project = chosen ? '' : only || get('build-project').value, configuration = get('build-config').value;
     // ▶ on a test Project runs its tests, as Visual Studio does (ecobuild run is for executables only).
     if (action === 'run' && project && [...get('build-project').options].find(o => o.value === project)?.dataset.kind === 'test') action = 'test';
-    const args = action === 'check' ? ['check'] : [action, ...(project ? ['--project', project] : []), ...(configuration ? ['--configuration', configuration] : [])];
+    const picked = chosen ? [...chosen.tests, ...(chosen.filter ? ['--filter', chosen.filter] : []), ...(chosen.lastFailed ? ['--last-failed'] : [])] : [];
+    const args = action === 'check' ? ['check'] : [action, ...picked, ...(project ? ['--project', project] : []), ...(configuration ? ['--configuration', configuration] : [])];
     if (action === 'run' && get('build-run-args').value.trim()) args.push('--arguments', get('build-run-args').value.trim());
     busy = true; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = true; });
-    const run = begin(LABEL[action] + (project ? `：${project}` : ''), 'ecobuild ' + args.join(' '));
+    const what = chosen ? [...chosen.tests, ...(chosen.filter ? [`-k ${chosen.filter}`] : []), ...(chosen.lastFailed ? ['前回の失敗'] : [])] : project ? [project] : [];
+    const run = begin(LABEL[action] + (what.length ? `：${what.length > 3 ? what.slice(0, 3).join('、') + ` ほか ${what.length - 3} 件` : what.join('、')}` : ''), 'ecobuild ' + args.join(' '));
     const doc = await WS.cli(args, {onProgress: (lines, events) => { run.progress = events; publish(); }});
     busy = false; document.querySelectorAll('[data-build]').forEach(b => { b.disabled = false; });
     if (!doc.ok) {
@@ -134,9 +139,46 @@ WS.onRefresh(renderPrDetail);
       const r = doc.result, failed = (action === 'test' && r.failed) || (action === 'run' && r.returncode) || (action === 'check' && r.items.some(i => !i.ok));
       finish(run, failed ? 'bad' : 'ok', resultLines(action, r), doc.events, action !== 'run');
     }
+    if (action === 'test') {
+      const cases = doc.ok ? doc.result.cases : doc.error?.details?.cases;
+      if (Array.isArray(cases) && cases.length) lastCases = cases.map(c => ({name: c.name, status: c.status}));
+    }
     if (['build', 'rebuild', 'clean', 'check'].includes(action)) WS.refresh();
   }
   document.querySelector('.build-bar').addEventListener('click', e => { const b = e.target.closest('[data-build]'); if (b) runAction(b.dataset.build); });
+
+  // テスト ▾: run only some of the tests (a type that can choose them: features.tests). The names come from the last test
+  // run in this screen (a case's name runs it again: ecobuild test <name>) or are written.
+  let lastCases = [], lastChosen = {text: '', filter: '', lastFailed: false};
+  const failedCases = () => lastCases.filter(c => !['passed', 'skipped'].includes(c.status)).map(c => c.name);
+  get('test-menu').addEventListener('click', () => {
+    const r = get('test-menu').getBoundingClientRect(), failed = failedCases();
+    ECO.menu([['すべてのテスト', () => runAction('test'), !busy],
+      [failed.length ? `失敗したテストだけ再実行（${failed.length} 件）` : '失敗したテストだけ再実行', () => runAction('test', '', {tests: failed}), !busy && failed.length > 0,
+        failed.length ? '' : 'この画面で流したテストに、失敗したものはありません'],
+      ['テストを選んで実行…', chooseTests, !busy]], r.left, r.bottom + 4);
+  });
+  async function chooseTests() {
+    const names = features.tests === 'names', mark = {failed: '✗ ', passed: '✓ ', skipped: '- '};
+    const order = {failed: 0, skipped: 1, passed: 2}, cases = [...lastCases].sort((a, b) => (order[a.status] ?? 0) - (order[b.status] ?? 0));
+    await ECO.form({title: 'テストを選んで実行',
+      intro: cases.length ? 'この画面で前に流したテストから選ぶか、名前を書きます。' : 'テストを一度流すと、その結果から選べます。ここでは名前を書いて選べます。',
+      fields: [
+        ...(cases.length ? [{name: 'cases', label: '前に流したテスト', type: 'checks', options: cases.map(c => [c.name, (mark[c.status] || '✗ ') + c.name])}] : []),
+        {name: 'text', label: names ? 'テストの名前（1行に1つ。<テスト用Project>.<Suite>.<Test>。* ? が使えます。Project の名前だけならその全部）'
+          : 'ファイル・フォルダ・テスト（1行に1つ。例：tests/test_x.py、tests/unit、tests/test_x.py::test_a）', type: 'textarea', rows: 3, value: lastChosen.text,
+          placeholder: names ? '例：CalcTest.Add.*' : '例：tests/test_calc.py'},
+        ...(names ? [] : [{name: 'filter', label: '名前で選ぶ式（pytest の -k。例：add and not slow）', value: lastChosen.filter},
+          {name: 'lastFailed', label: '前回失敗したテストだけ（前回の失敗がなければ全部）', type: 'checkbox', value: lastChosen.lastFailed}])],
+      ok: '実行',
+      // Not awaited: the run shows in 出力 (the dialog's busy overlay would stay while the tests run).
+      submit: v => {
+        const written = (v.text || '').split('\n').map(s => s.trim()).filter(Boolean), tests = [...new Set([...(v.cases || []), ...written])];
+        if (!tests.length && !v.filter && !v.lastFailed) return '流すテストを選ぶか、名前を書いてください。';
+        lastChosen = {text: v.text || '', filter: v.filter || '', lastFailed: !!v.lastFailed};
+        runAction('test', '', {tests, filter: lastChosen.filter, lastFailed: lastChosen.lastFailed});
+      }});
+  }
   get('build-profile').addEventListener('change', async e => {
     const doc = await WS.run(['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定の使用をやめました。' : `このPCではビルド設定 ${e.target.value} を使います。`, refresh: false});
     if (!doc) e.target.value = selectedProfile || 'none'; else selectedProfile = e.target.value === 'none' ? null : e.target.value;
@@ -367,6 +409,8 @@ WS.onRefresh(renderPrDetail);
   loadOptions();   // the build settings and Projects do not need the status
   WS.reloadBuildOptions = loadOptions;
   WS.buildProject = (action, project) => runAction(action, project);
+  // The explorer's 「テストを実行」 on a test file or folder (python): ecobuild test <path>.
+  WS.runTests = tests => runAction('test', '', {tests});
   // The explorer's 「実行の対象にする」: the target next to ▶ (as Visual Studio's startup project).
   WS.setTarget = project => {
     const select = get('build-project');

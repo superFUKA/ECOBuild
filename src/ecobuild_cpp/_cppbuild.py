@@ -281,27 +281,62 @@ def build(root: Path, *, project: str | None, options: BuildOptions, action: str
     return outcome
 
 
-def test(root: Path, *, project: str | None, options: BuildOptions) -> TestOutcome:
-    """テスト用のProjectがなければ、何もせずに成功（ケースなし）。"""
-    if project is None and not _tests(open_solution(root)):
+def test(root: Path, *, project: str | None, options: BuildOptions, tests: tuple[str, ...] = ()) -> TestOutcome:
+    """テスト用のProjectがなければ、何もせずに成功（ケースなし）。
+
+    tests：流すテスト。<テスト用Project>（その全部）か <テスト用Project>.<Suite>.<Test>（* は任意の文字列、? は1文字）。
+    project がテスト用Projectなら、その中の <Suite>.<Test> だけでもよい。ケースの名前は <テスト用Project>.<Suite>.<Test>
+    （そのまま並べて流し直せる）。"""
+    solution = open_solution(root)
+    if project is None and not tests and not _tests(solution):
         return TestOutcome(True, (), ())
-    target = _target(root, project, options)
+    selection = _test_selection(solution, project, tests) if tests else None
+    target = _target(root, None if selection else project, options, test_selection=selection)
     try:
         report = target.test()
     except Exception as error:
         raise _cppbuild_error("テストを実行できません。", error) from error
     reports = report.projects if report.projects else (report,)
-    cases = tuple(TestCase(c.name, c.status) for r in reports for c in r.cases)
+    cases = tuple(TestCase(f"{r.project}.{c.name}" if r.project else c.name, c.status) for r in reports for c in r.cases)
     processes = tuple(_process(p) for r in reports for p in r.processes)
     diagnostics = tuple(d for r in reports for d in r.diagnostics)
     outcome = TestOutcome(report.success, cases, processes, diagnostics)
     if not outcome.success:
         failed = [c.name for c in cases if c.status not in {"passed", "skipped"}]
-        raise EcoBuildError(ErrorCode.TEST_FAILED,
-                            "テストに失敗しました。" + (f"（{', '.join(failed)}）" if failed else ""),
+        unmatched = [r.project for r in reports if any(d.startswith("No tests match") for d in r.diagnostics)]
+        message = ("テストに失敗しました。" + (f"（{', '.join(failed)}）" if failed else "") if failed or not unmatched
+                   else f"当てはまるテストがありません（{'、'.join(unmatched)}）。")
+        raise EcoBuildError(ErrorCode.TEST_FAILED, message,
+                            hint=None if failed or not unmatched else
+                            "名前は <テスト用Project>.<Suite>.<Test> です（* ? が使えます。ecobuild test で全部の名前が出ます）。",
                             details={"cases": [c.__dict__ for c in cases], "diagnostics": list(diagnostics),
                                      "output": _joined(processes)})
     return outcome
+
+
+def _test_selection(solution: Solution, project: str | None, tests: tuple[str, ...]) -> dict[str, list[str] | None]:
+    """流すテスト（test の tests）を、テスト用Projectごとのケースのパターンに（None はその全部）。"""
+    names = _tests(solution)
+    if project is not None and project not in names:
+        raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はテスト用ではありません。",
+                            hint=f"テスト用のProject：{'、'.join(names) or 'なし'}")
+    selection: dict[str, list[str] | None] = {}
+    for test in tests:
+        # Project名に . があってもよいので、長い名前から当てる
+        owner = next((n for n in sorted(names, key=len, reverse=True) if test == n or test.startswith(n + ".")), None)
+        if owner is None and project is None:
+            raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"テスト {test} のテスト用Projectが分かりません。",
+                                hint=f"<テスト用Project>.<Suite>.<Test> で書いてください（テスト用のProject："
+                                     f"{'、'.join(names) or 'なし'}）。")
+        if owner is None or (project is not None and owner != project):
+            owner, pattern = project, test
+        else:
+            pattern = test[len(owner) + 1:] if test != owner else None
+        if pattern is None or selection.get(owner, []) is None:
+            selection[owner] = None
+        else:
+            selection.setdefault(owner, []).append(pattern)
+    return selection
 
 
 def run(root: Path, *, project: str | None, options: BuildOptions, arguments: str) -> BuildOutcome:
@@ -947,7 +982,7 @@ def _solution_settings(**values) -> SolutionBuildSettings:
     return SolutionBuildSettings(intermediate_directory=f"{_TO_ROOT}/{BUILD_DIRECTORY}", **values)
 
 
-def _target(root: Path, project: str | None, options: BuildOptions, *, run_arguments=None):
+def _target(root: Path, project: str | None, options: BuildOptions, *, run_arguments=None, test_selection=None):
     solution = open_solution(root)
     configuration = options.configuration
     if configuration not in CONFIGURATIONS:
@@ -957,7 +992,7 @@ def _target(root: Path, project: str | None, options: BuildOptions, *, run_argum
     if project is not None and project not in projects:
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects)}")
-    _apply_options(solution, options, run_project=project, run_arguments=run_arguments)
+    _apply_options(solution, options, run_project=project, run_arguments=run_arguments, test_selection=test_selection)
     if options.fetch_git:
         _fetch_missing(solution)
     return solution if project is None else solution.get_project(project)
@@ -1016,8 +1051,10 @@ def _fetch_missing(solution: Solution) -> None:
 
 
 def _apply_options(solution: Solution, options: BuildOptions, *, run_project: str | None = None,
-                   run_arguments=None) -> None:
+                   run_arguments=None, test_selection: dict[str, list[str] | None] | None = None) -> None:
     """ビルド設定をSolutionと各Projectに渡す（CppBuildは保存しないので、開くたびに渡す）。
+
+    test_selection：流すテスト用Projectと、そのケースのパターン（None は全部。_test_selection）。
 
     構成・生成環境はSolution全体で1つ（依存でつながるProjectは揃っている必要がある）。Projectごとに変えられるのは
     ライブラリの形式・C++の規格・成果物の置き場所・テストの並列数・GoogleTestのZIP。
@@ -1039,6 +1076,7 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
             configuration=options.configuration, parallel=options.parallel, shared_libraries=options.shared,
             architecture=options.architecture, cpp_standard=options.cpp_standard or 20,
             test_continue_on_failure=options.test_continue_on_failure, fetch_git=options.fetch_git,
+            test_projects=list(test_selection) if test_selection else None,
             tools=ToolSettings(cmake=options.cmake or "cmake", ctest=options.ctest or "ctest"),
             cmake=CMakeSettings(generator=options.generator, toolset=options.toolset, c_compiler=options.c_compiler,
                                 cxx_compiler=options.cxx_compiler, toolchain_file=options.toolchain_file,
@@ -1054,6 +1092,8 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
                 googletest_archive=own.googletest_archive or options.googletest_archive)
             if name == run_project and run_arguments is not None:
                 settings.run_arguments = list(run_arguments)
+            if test_selection and test_selection.get(name) is not None:
+                settings.test_cases = list(test_selection[name])
             solution.get_project(name).set_build_settings(settings)
     except Exception as error:
         raise _cppbuild_error("ビルド設定を渡せません。", error) from error

@@ -191,11 +191,15 @@ body.resizing iframe { pointer-events: none; }
 .build-bar .vs-group [data-tip]::after, .build-bar #container-button[data-tip]::after { left: auto; right: 0; transform: none; }
 .build-bar .build-more[open] > summary::after { display: none; }
 
-/* ビルド: 🔧 and ▾ joined, like ▶ and its ▾ but quieter. */
+/* ビルド・テスト: the button and ▾ joined, like ▶ and its ▾ but quieter (テスト without ▾ when its type cannot choose). */
 .build-group { display: inline-flex; align-items: stretch; border: 1px solid #3a424c; border-radius: 7px; }
 .build-bar .build-group .tool-button { border: 0; border-radius: 6px 0 0 6px; }
-.build-bar .build-group #build-menu { display: grid; place-items: center; padding: 0 3px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent; color: #9eaab8; font-size: 12px; }
-.build-bar .build-group #build-menu:hover { background: #252d36; color: #edf1f5; }
+.build-bar .build-group .tool-button:has(+ [hidden]) { border-radius: 6px; }
+.build-bar .build-group #build-menu, .build-bar .build-group .group-menu { display: grid; place-items: center; padding: 0 3px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent; color: #9eaab8; font-size: 12px; }
+.build-bar .build-group .group-menu[hidden] { display: none; }
+.build-bar .build-group #build-menu:hover, .build-bar .build-group .group-menu:hover { background: #252d36; color: #edf1f5; }
+/* テストを選んで実行: the last run's tests, scrolled when there are many. */
+.eco-dialog fieldset.eco-checks[data-field="cases"] > div { max-height: 36vh; overflow: auto; }
 
 /* 構成・ビルド設定: one box like Visual Studio's (the configuration in use, then the build setting). */
 .build-bar .config-button { display: inline-flex; align-items: center; gap: 8px; min-width: 120px; justify-content: space-between; padding: 5px 8px 5px 11px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #edf1f5; font-size: 12px; }

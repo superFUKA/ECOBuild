@@ -876,10 +876,12 @@ const ECO = (() => {
   // offer for it: the commands differ by type (ecobuild --help in the module). A type the GUI does not know gets the
   // commands every type has (build・test・run・clean with a configuration, profile add with a configuration).
   const TYPES = {
-    cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true,
+    // tests: how ecobuild test chooses the tests to run (names: <test Project>.<Suite>.<Test>; paths: files・folders・
+    // nodeids, with --filter and --last-failed). Without it, a test run is the whole.
+    cpp: {configurations: ['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'], projects: true, solution: true, templates: true, tests: 'names',
       configurationHelp: {Debug: '開発用（最適化なし・デバッグ情報あり）', Release: '配布用（速さ優先で最適化）',
         RelWithDebInfo: 'Release＋デバッグ情報', MinSizeRel: '小ささ優先で最適化'}},
-    python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true,
+    python: {configurations: ['Debug', 'Release'], parallel: true, fileTests: true, tests: 'paths',
       configurationHelp: {Debug: '開発用（.venv に編集可能で入れる）', Release: '配布用（wheel・sdist も作る）'}},
     generic: {configurations: ['Debug', 'Release'],
       configurationHelp: {Debug: '開発用', Release: '配布用'}},

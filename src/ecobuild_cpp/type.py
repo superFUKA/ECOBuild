@@ -341,9 +341,8 @@ jobs:
                            None, action)
 
     def test(self, project: str | None, options: _cppbuild.BuildOptions, tests: tuple[str, ...] = ()) -> TestResult:
-        if tests:
-            raise self.not_supported("テストの絞り込み")
-        outcome = _cppbuild.test(self.root, project=project, options=options)
+        """tests：<テスト用Project> か <テスト用Project>.<Suite>.<Test>（* ? が使える。_cppbuild.test）。"""
+        outcome = _cppbuild.test(self.root, project=project, options=options, tests=tuple(tests))
         cases = tuple(TestCaseResult(c.name, c.status) for c in outcome.cases)
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         failed = len(cases) - count("passed") - count("skipped")

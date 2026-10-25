@@ -47,22 +47,23 @@ class ProgramOutput:
 
 
 def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str,
-              tests: tuple[str, ...] = ()) -> int:
+              tests: tuple[str, ...] = (), names: bool = False) -> int:
     """test の共通の入口。empty：テストが1件もないときの表示（型ごとに次の一手が違う）。
-    tests：流すテスト（今いるディレクトリからの相対。:: の後ろはそのまま）。モジュールの root からの相対にして渡す。"""
+    tests：流すテスト（今いるディレクトリからの相対。:: の後ろはそのまま）。モジュールの root からの相対にして渡す。
+    names：tests はパスでなく名前（そのまま渡す。今いる Project を既定の対象にしない）。"""
 
     def action(inv):
         module = inv.module
-        target = project or module.project_at(inv.cwd)
+        target = project or (None if names and tests else module.project_at(inv.cwd))
         options, name = module.build_options(configuration, profile or None)
-        selected = tuple(_from_root(inv.cwd, module.root, t) for t in tests)
-        inv.info(f"テスト中：{target or ('、'.join(selected) if selected else '全体')}（{options.configuration}"
-                 + (f"、{name}" if name else "") + "）")
+        selected = tuple(tests) if names else tuple(_from_root(inv.cwd, module.root, t) for t in tests)
+        chosen = "、".join(([target] if target else []) + list(selected))
+        inv.info(f"テスト中：{chosen or '全体'}（{options.configuration}" + (f"、{name}" if name else "") + "）")
         return module.test(project=target, configuration=configuration, profile=profile or None, tests=selected)
 
     return run_command("test", action,
                        lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}"
-                       if r.passed + r.failed + r.skipped or project else empty,
+                       if r.passed + r.failed + r.skipped or project else "当てはまるテストがありません" if tests else empty,
                        json_output=json_output)
 
 

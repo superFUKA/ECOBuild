@@ -1321,16 +1321,14 @@ class App:
                                                     "。GUIのサーバーが画面より古い可能性があります。GUIを起動し直してください。"))
 
 
-MANAGE_TABS = ("members", "ci")   # 「管理」の画面のタブ（branches は「ブランチ」の画面。ほかのタブは「モジュール」・「設定」）
-
-
 def _hash(where: dict) -> str:
     """モジュールの窓の URL の # の部分（#modinfo/projects・#tasks/12・#help/commands/task%20start）。"""
-    page = where.get("page") or ("branches" if where.get("tab") == "branches" else "manage" if where.get("tab") in MANAGE_TABS else "modinfo" if where.get("tab") else
+    # --tab：branches は「ブランチ」の画面、ほかは「モジュール」（メンバー・パイプライン・CI・エージェントも）か「設定」のタブ
+    page = where.get("page") or ("branches" if where.get("tab") == "branches" else "modinfo" if where.get("tab") else
                                  "tasks" if where.get("task") else "help" if where.get("command") else "")
     if not page:
         return ""
-    extra = where.get("tab") if page in ("modinfo", "manage") else str(where.get("task")) if page == "tasks" and where.get("task") else \
+    extra = where.get("tab") if page == "modinfo" else str(where.get("task")) if page == "tasks" and where.get("task") else \
         "commands/" + urllib.parse.quote(where["command"]) if page == "help" and where.get("command") else ""
     return "#" + page + ("/" + extra if extra else "")
 

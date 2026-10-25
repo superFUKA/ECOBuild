@@ -1,5 +1,5 @@
 'use strict';
-// 管理 › CI: the module's CI (GitHub Actions) — its settings and workflow (ci show; changed with ci init / ci remove, which
+// モジュール › CI: the module's CI (GitHub Actions) — its settings and workflow (ci show; changed with ci init / ci remove, which
 // write the workflow file: on a task branch, so in a workspace with one, then committed and submitted), its runs on every
 // branch or one (ci status --all / --branch; the log of the failed steps, run again, run by hand on a branch) and the
 // secrets the CI uses (ci secret). The reads run in the module's folder. Changing any of it is managing: admins only
@@ -76,7 +76,7 @@
     return `${list}<p class="mi-note">非公開の依存先を CI で取得するには、それを読めるトークンを ECOBUILD_DEPS_TOKEN に登録します。値は GitHub に送るだけで、表示も保存もしません。</p>`;
   }
   function render() {
-    if (el('manage-content').hidden || el('ci-main').hidden) return;
+    if (el('modinfo-content').hidden || el('ci-main').hidden) return;
     const main = el('ci-main');
     if (!st.loaded) { main.innerHTML = ECO.loading(); return; }
     // Running by hand needs the workflow on GitHub (ECOBuild's has workflow_dispatch).
@@ -237,5 +237,5 @@
 
   // The tab shows: read (once; 更新 reads again).
   window.MANAGE_CI = {show: () => { if (!st.loaded) { render(); load(); } else render(); }, reload: load};
-  ECO.onChange(() => { if (st.loaded) { if (!main.hidden && !el('manage-content').hidden) load(); else st.loaded = false; } });
+  ECO.onChange(() => { if (st.loaded) { if (!main.hidden && !el('modinfo-content').hidden) load(); else st.loaded = false; } });
 })();

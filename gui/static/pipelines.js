@@ -1,14 +1,14 @@
 'use strict';
-// 管理 › パイプライン: named lists of checks (pipeline add/remove: [pipelines] in ecobuild.toml), run one now
+// モジュール › パイプライン: named lists of checks (pipeline add/remove: [pipelines] in ecobuild.toml), run one now
 // (pipeline run), and which of them run at each timing of ECOBuild's operations (pipeline on: [triggers]; before an
 // operation a failure stops it, after one it is only told). What the module shares is changed on a task branch (then
 // committed and submitted, like the CI's workflow); what only this PC adds (pipeline on --local, ecobuild.local.toml)
 // is changed anywhere, in every place of the module here. None by default. Shown and changed in the place chosen at
-// the top (a workspace with a task branch to change, else what the base branch has).
+// the top of モジュール (a workspace with a task branch to change, else what the base branch has).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const st = {data: null, error: '', place: '', loaded: false};
+  const st = {data: null, error: '', place: '', loaded: false};   // place: the one read
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const STEPS = [['generated', '生成ファイルが最新か'], ['conflict_markers', '衝突の印（<<<<<<< 等）がないか'], ['build', 'ビルド'], ['test', 'テスト']];
   const STEP_NAMES = {generated: '生成ファイル', conflict_markers: '衝突の印', build: 'ビルド', test: 'テスト'};
@@ -26,15 +26,10 @@
   const stateOf = p => MOD.states.get(MOD.keyOf(p));
   const editable = p => { const s = stateOf(p); return !!s?.task && !s.reviewing; };
   const places = () => [MOD.root, ...MOD.places.filter(p => MOD.keyOf(p) !== MOD.keyOf(MOD.root))];
-  const placeLabel = p => { const s = stateOf(p); return `${s?.branch || '?'}${MOD.keyOf(p) === MOD.keyOf(MOD.root) ? '（元の clone）' : ''}`; };
-  function defaultPlace() {
-    const active = MOD.activePlace();
-    return active && editable(active) ? active : MOD.workspacePlaces().find(editable) || MOD.root;
-  }
-  const here = () => places().find(p => MOD.keyOf(p) === MOD.keyOf(st.place)) || (st.place = defaultPlace());
+  const here = () => MOD.shownPlace?.() || MOD.root;
 
   async function load() {
-    const place = here();
+    const place = st.place = here();
     const doc = await ECO.query(place, ['pipeline', 'list'], fresh => { if (fresh.ok && place === here()) { st.data = fresh.result; render(); } });
     if (place !== here()) return;
     st.data = doc.ok ? doc.result : null;
@@ -67,14 +62,14 @@
         <td>${chips(t)}</td><td class="ci-row-actions"><button type="button" data-pl-action="trigger"${none ? ' disabled title="先にパイプラインを作ってください"' : ''}>変える…</button><button type="button" data-pl-action="local"${none ? ' disabled title="先にパイプラインを作ってください"' : ''}>このPCで足す…</button></td></tr>`).join('')).join('')}</tbody></table>`;
   }
   function render() {
-    if (el('manage-content').hidden || el('pipelines-main').hidden) return;
+    if (el('modinfo-content').hidden || el('pipelines-main').hidden) return;
     const main = el('pipelines-main');
     if (!st.loaded) { main.innerHTML = ECO.loading(); return; }
     const place = here(), canEdit = editable(place);
     const note = canEdit ? 'ここで変えたものは、コミットして提出し、取り込まれるとモジュールで共有されます。'
-      : 'パイプラインと当て方は、タスクブランチ（作業空間）で変えます。上で作業空間を選んでください。「このPCで足す」はどこでも使えます。';
+      : 'パイプラインと当て方は、タスクブランチ（作業空間）で変えます。右上の「表示」で作業空間を選んでください。「このPCで足す」はどこでも使えます。';
     main.innerHTML = `${st.error ? `<div class="eco-banner bad">${esc(st.error)}</div>` : ''}
-      <div class="ci-section-row pl-place"><label for="pl-place">場所</label><select id="pl-place">${places().map(p => `<option value="${esc(p)}" ${MOD.keyOf(p) === MOD.keyOf(place) ? 'selected' : ''}>${esc(placeLabel(p))}</option>`).join('')}</select><span class="mi-note">${esc(note)}</span></div>
+      <p class="mi-note pl-place">${esc(note)}</p>
       ${st.data ? `<div class="ci-section-row"><h4 class="br-section">パイプライン</h4><span class="ci-section-end"><button type="button" data-pl-action="add">＋ パイプライン</button></span></div>${pipelinesHtml()}
       <div class="ci-section-row"><h4 class="br-section">タイミング</h4></div>${timingsHtml()}
       <p class="mi-note">走らせずに進めたいときは、コマンドに --no-pipelines（提出は --no-check）を付けます。GitHub の CI は「CI」のタブです。</p>` : ''}`;
@@ -135,7 +130,6 @@
   }
 
   const main = el('pipelines-main');
-  main.addEventListener('change', e => { if (e.target.id === 'pl-place') { st.place = e.target.value; st.loaded = false; render(); load(); } });
   main.addEventListener('click', e => {
     const b = e.target.closest('[data-pl-action]'); if (!b || b.disabled) return;
     const p = st.data?.pipelines.find(x => x.name === b.closest('[data-pl]')?.dataset.pl);
@@ -150,6 +144,9 @@
     }
   });
 
-  window.MANAGE_PIPELINES = {show: () => { if (!st.loaded) { render(); MOD.ready.then(load); } else render(); }, reload: load};
-  ECO.onChange(() => { if (st.loaded) { if (!main.hidden && !el('manage-content').hidden) load(); else st.loaded = false; } });
+  // Shown again: read when not yet, or when another place was chosen meanwhile.
+  const fresh = () => st.loaded && MOD.keyOf(st.place) === MOD.keyOf(here());
+  window.MANAGE_PIPELINES = {show: () => { if (!fresh()) { st.loaded = false; render(); MOD.ready.then(load); } else render(); },
+                             reload: () => { if (!fresh()) { st.loaded = false; render(); } return load(); }};
+  ECO.onChange(() => { if (st.loaded) { if (!main.hidden && !el('modinfo-content').hidden) load(); else st.loaded = false; } });
 })();

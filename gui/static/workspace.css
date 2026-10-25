@@ -108,6 +108,8 @@
 .tab-count.zero { color: #6b7581; }
 .tab-off { display: none; }
 [role=tabpanel] > .heading h3, .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.history-branch { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; color: #a9b4c0; margin-bottom: 6px; }
+.history-branch select { max-width: 260px; }
 /* 提出: looking at the submission on the left (small), what to do with it on the right. */
 .pr-head { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
 .pr-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }

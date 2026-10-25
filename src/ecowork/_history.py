@@ -8,7 +8,7 @@ from __future__ import annotations
 from . import git as _git
 from . import model as wm
 from .errors import ErrorCode, WorkError
-from ._shared import _PR_IN_SUBJECT
+from ._shared import _PR_IN_SUBJECT, _TASK_IN_SUBJECT
 
 
 class History:
@@ -39,7 +39,9 @@ class History:
         entries = []
         for match, (sha, subject, author, date) in zip(matches, rows):
             pr = int(match.group(1)) if match else None
-            entries.append(wm.LogEntry(sha, subject, author, date, pr, pull_issue.get(pr)))
+            applied = None if match else _TASK_IN_SUBJECT.search(subject)   # 提出を通さずに反映したもの
+            entries.append(wm.LogEntry(sha, subject, author, date, pr,
+                                       int(applied.group(1)) if applied else pull_issue.get(pr)))
         return entries
 
     def _branch_ref(self, name: str) -> str:

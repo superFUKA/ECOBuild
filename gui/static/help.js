@@ -21,8 +21,8 @@ const HELP = (() => {
         <p class="help-chips"><button type="button" data-goto="build">build</button><button type="button" data-goto="test">test</button><button type="button" data-goto="run">run</button><button type="button" data-goto="task commit">task commit</button><button type="button" data-goto="agent start">agent start</button></p></div></li>
       <li><span class="help-step-number">5</span><div><h4>提出して、レビューを受ける</h4><p class="help-where">作業空間 › 提出 › 提出する</p><p class="note">作成元へ提出（PR）します。提出の前にパイプライン（モジュール › パイプライン）を当てていれば、それが通ってから出します。</p>
         <p class="help-chips"><button type="button" data-goto="pipeline run">pipeline run</button><button type="button" data-goto="task submit">task submit</button><button type="button" data-goto="task review">task review</button><button type="button" data-goto="task approve">task approve</button></p></div></li>
-      <li><span class="help-step-number">6</span><div><h4>完了する</h4><p class="help-where">作業空間 › 提出 › 完了する</p><p class="note">提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。</p>
-        <p class="help-chips"><button type="button" data-goto="task finish">task finish</button><button type="button" data-goto="sync">sync</button></p></div></li>
+      <li><span class="help-step-number">6</span><div><h4>完了する</h4><p class="help-where">作業空間 › 提出 › 完了する</p><p class="note">提出を取り込み、タスクを閉じます。作成元を自分が管理している（作った・管理者）なら、作業空間 › 提出 › 反映で、提出せずに作成元へ入れて完了できます。ほかの人の変更は同期で取り込みます。</p>
+        <p class="help-chips"><button type="button" data-goto="task finish">task finish</button><button type="button" data-goto="task apply">task apply</button><button type="button" data-goto="sync">sync</button></p></div></li>
     </ol>
     <h3 class="help-terms-title">用語</h3>
     <dl class="help-terms">

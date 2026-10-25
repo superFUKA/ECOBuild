@@ -904,9 +904,22 @@ class Module:
         pipelines：取り込みの前のパイプラインを、そのタスクブランチ（ここか、このPCの作業空間）で走らせる。どこにも
         取り出していなければ省いて知らせる。
         """
+        self._before_finish(number, "完了", progress=progress, pipelines=pipelines)
+        return self.repository.finish(number, **options)
+
+    def apply(self, number: int | None = None, *, progress: Callable[[str], None] | None = None,
+              pipelines: bool = True, subject: str | None = None) -> wm.ApplyResult:
+        """タスクを提出を通さずに作成元へ反映して完了する（ecowork の Repository.apply_task。作成元への提出を処理できる
+        人だけ）。取り込みの前のパイプライン・作業空間の片付けは finish と同じ。"""
+        self._before_finish(number, "反映", progress=progress, pipelines=pipelines)
+        return self.repository.apply_task(number, subject=subject)
+
+    def _before_finish(self, number: int | None, action: str, *, progress: Callable[[str], None] | None,
+                       pipelines: bool) -> None:
+        """完了・反映の前：ここのタスクなら未コミットの変更で止め、取り込みの前のパイプラインを走らせる。"""
         current = self._current_task()
         if current is not None and number in (None, current):
-            self._refuse_uncommitted("完了")
+            self._refuse_uncommitted(action)
         if pipelines and self.pipelines().at("before-finish"):
             target = current if number is None else number
             place = self.task_workspaces().get(target) if target is not None and target != current else None
@@ -916,7 +929,6 @@ class Module:
                                                f"パイプラインは走らせませんでした")
             else:
                 here.run_pipelines("before-finish", progress=progress)
-        return self.repository.finish(number, **options)
 
     def _current_task(self) -> int | None:
         task_branch = self.repository.current_task_branch()

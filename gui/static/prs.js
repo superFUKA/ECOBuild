@@ -122,7 +122,7 @@ function submitDialog(t, ready = false) {
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
       {name: 'draft', label: '下書きとして提出する', type: 'checkbox', value: submitted && sub.draft},
       {name: 'reviewer', label: '見てもらう人（カンマ区切り、任意）'},
-      {name: 'check', label: '提出の前・後のパイプラインを走らせる（管理 › パイプラインで当てたもの。なければ何もしません）', type: 'checkbox', value: true},
+      {name: 'check', label: '提出の前・後のパイプラインを走らせる（モジュール › パイプラインで当てたもの。なければ何もしません）', type: 'checkbox', value: true},
     ], ok: '提出',
     onChange: (values, formEl) => ECO.setTaskOutcome(formEl, values.complete),
     submit: async v => {

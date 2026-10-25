@@ -1,4 +1,4 @@
-/* 管理 › CI: the settings (a card), the runs (a table, filtered by branch) and the secrets, in one scrolling column. */
+/* モジュール › CI: the settings (a card), the runs (a table, filtered by branch) and the secrets, in one scrolling column. */
 .ci-main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
 .ci-main > * { max-width: 960px; }
 .ci-main > .br-section:first-child, .ci-main > .eco-banner + .br-section { margin-top: 4px; }
@@ -21,10 +21,8 @@
 .ci-secrets { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; max-width: 520px; }
 .ci-secrets li { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); font-size: 12px; }
 @media (max-width: 760px) { .ci-settings { grid-template-columns: 1fr; } .ci-runs th:nth-child(4), .ci-runs td:nth-child(4) { display: none; } }
-/* 管理 › パイプライン: the place, the pipelines (cards: their steps in order) and the timings (a table by operation). */
-.pl-place label { font-size: 12px; color: #a5aeba; }
-.pl-place select { max-width: 320px; height: 24px; padding: 0 6px; font-size: 12px; }
-.pl-place .mi-note { margin: 0; }
+/* モジュール › パイプライン: the pipelines (cards: their steps in order) and the timings (a table by operation). */
+.pl-place { margin: 0 0 8px; }
 .pl-list { display: flex; flex-direction: column; gap: 8px; }
 .pl-steps { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; vertical-align: middle; }
 .pl-arrow { color: var(--muted); font-size: 11px; }

@@ -59,7 +59,7 @@
 .br-facts dd { margin: 0; }
 /* 提出: the branch the submissions go into. */
 .sub-title { margin-top: 0; font-size: 15px; }
-/* 管理 › メンバー. */
+/* モジュール › メンバー. */
 .members-main { flex: 1; min-height: 0; overflow: auto; padding: 12px 16px 24px; }
 .members-main > * { max-width: 960px; }
 .members-table .mi-row-actions { text-align: right; white-space: nowrap; }

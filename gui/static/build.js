@@ -421,7 +421,7 @@ WS.onRefresh(renderPrDetail);
       ['起動するコマンドを指定…', () => ECO.form({title: '起動するコマンド', intro: 'このPCで覚えておきます。', fields: [
         {name: 'command', label: 'コマンド（空欄なら claude）', value: agentCommand(), placeholder: '例：claude --model opus', focus: true}], ok: '保存',
         submit: v => { setAgentCommand(v.command.trim()); showAgent(); }})],
-      ['エージェントの登録（モジュールの「エージェント」）', () => ECO.action('open', {module: WS.dir, page: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,
+      ['エージェントの登録（モジュールの「エージェント」）', () => ECO.action('open', {module: WS.dir, page: 'modinfo', tab: 'agents'}).catch(e => ECO.toast(e.message, 'bad')), true,
         '起動できるエージェント（文書・渡すツール・人が起動できるか・起動してよい子）は、モジュールの「エージェント」で変えます（ハブの設定はこのPCのプリセット）'],
       ['AGENTS.md を作る', () => WS.run(['agent', 'init'], {success: 'AGENTS.md を作りました。コミットしてください。'}).then(doc => doc && WS.reloadFiles?.()), ready],
       ['AI向けの作業の手順を見る', async () => { const doc = await WS.cli(['agent', 'guide'], {quiet: true}); return doc.ok ? ECO.output('AI向けの作業の手順', doc.result.text) : ECO.showError(doc); }],

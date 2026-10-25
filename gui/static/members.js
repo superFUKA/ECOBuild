@@ -1,5 +1,5 @@
 'use strict';
-// 管理 › メンバー: the module's collaborators and the people invited (module members), with their roles — GitHub's
+// モジュール › メンバー: the module's collaborators and the people invited (module members), with their roles — GitHub's
 // permissions, which are what ECOBuild's roles are (account show). Inviting, changing a role and removing are for
 // admins; GitHub shows the list to admins only, so the others see why. A personal account's repository gives
 // collaborators "write" only (GitHub's rule): the role is chosen only in an organization's.

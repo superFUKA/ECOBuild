@@ -1,19 +1,24 @@
 'use strict';
 // Module-wide screens. モジュール（what the module is and holds）: home (as a repository's page on GitHub: the files and the
-// README, and module show beside them), Projects, dependencies and links (deps tree). 設定（how it is built）:
+// README, and module show beside them), Projects, dependencies and links (deps tree), and the panels of other scripts
+// (members.js・pipelines.js・ci.js・agentrules.js: their show・reload; the place chosen here is theirs too). 設定（how it is built）:
 // build settings, the module's settings (module settings), file templates, the container (its image's recipe). Both pages share the reads and the dialogs.
 // Changes to managed files (ecobuild.toml, CMake files) run on a task branch chosen in the dialog (committed via PR).
 (() => {
   const el = id => document.getElementById(id);
   const {esc} = ECO;
-  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps'], settings: ['profiles', 'general', 'templates', 'container']};
+  const PAGE_VIEWS = {modinfo: ['home', 'projects', 'deps', 'members', 'pipelines', 'ci', 'agents'], settings: ['profiles', 'general', 'templates', 'container']};
+  // The tabs drawn by other scripts (each in its own panel), and those of them that show the place chosen (not the
+  // GitHub's module only: members・ci).
+  const PANELS = {members: () => window.MANAGE_MEMBERS, pipelines: () => window.MANAGE_PIPELINES, ci: () => window.MANAGE_CI, agents: () => window.MODULE_AGENTS};
+  const PLACELESS = new Set(['members', 'ci']);
   const [hashPage, hashView] = location.hash.slice(1).split('/');
   let page = PAGE_VIEWS[hashPage] ? hashPage : 'modinfo';
   const lastView = {modinfo: 'home', settings: 'profiles'};
   if (PAGE_VIEWS[page].includes(hashView)) lastView[page] = hashView;
   let view = lastView[page], place = '', data = {};
   // The page shown (モジュール or 設定): its section and its main area.
-  const section = () => el(page + '-content'), mainArea = () => section().querySelector('.mi-main');
+  const section = () => el(page + '-content'), mainArea = () => section().querySelector(':scope > .mi-main:not([data-mi-panel])');
   function usePage(next) { if (next !== page) { lastView[page] = view; page = next; view = lastView[next]; } }
   // What the module's type offers (ECO.typeFeatures): Projects・dependencies・templates are of the types that have them.
   let features = ECO.typeFeatures('');
@@ -68,8 +73,11 @@
   // The choice of the place sits beside the page's title (not redrawn while it is open).
   function showPlace() {
     const slot = section().querySelector('.mi-place-slot');
-    if (slot && !slot.contains(document.activeElement)) slot.innerHTML = placeSelect();
+    if (slot && !slot.contains(document.activeElement)) slot.innerHTML = PLACELESS.has(view) ? '' : placeSelect();
   }
+  // The place for the panels (agentrules.js shows the place a change was committed in).
+  MOD.shownPlace = here;
+  MOD.showPlaceOf = dir => { place = dir; loaded.clear(); showPlace(); };
   // Above the page: which workspace is shown (not the module's folder), and that changing needs a workspace.
   const EDIT_VIEWS = new Set(['projects', 'deps', 'profiles', 'general', 'templates']);
   function banners() {
@@ -349,10 +357,13 @@
   // shown reads it again).
   const loaded = new Set(), loadKey = () => view + '|' + MOD.keyOf(here());   // view names are unique over both pages
   // Read again when the tab was left while it was still loading (its loading screen is what is there).
-  const show = () => render(!loaded.has(loadKey()) || !!mainArea().querySelector(':scope > .eco-loading'));
+  const show = () => render(!PANELS[view] && (!loaded.has(loadKey()) || !!mainArea().querySelector(':scope > .eco-loading')));
   async function render(reload = true) {
     await typeLoaded;
     for (const b of document.querySelectorAll('.mi-tabs [data-mi-view]')) b.setAttribute('aria-selected', String(b.dataset.miView === view));
+    mainArea().hidden = !!PANELS[view];
+    for (const p of section().querySelectorAll(':scope > [data-mi-panel]')) p.hidden = p.dataset.miPanel !== view;
+    if (PANELS[view]) { rendering++; showPlace(); PANELS[view]()?.[reload ? 'reload' : 'show'](); return; }   // the panel reads what it needs
     const main = mainArea(), mine = ++rendering, shown = view;
     // A failure shows as what it is (with 再読み込み), not as a loading screen that never ends.
     const failed = error => {
@@ -707,7 +718,11 @@
     if (file) ECO.action('folder', {dir: here(), path: file.dataset.miFile}).catch(error => ECO.toast(error.message, 'bad'));
   });
   for (const sec of sections) sec.addEventListener('change', async e => {
-    if (e.target.id === 'mi-place') { place = e.target.value; loaded.clear(); render(); }
+    if (e.target.id === 'mi-place') {
+      // A panel with something not saved (エージェント) asks first.
+      if (PANELS[view] && await PANELS[view]()?.leave?.() === false) { e.target.value = here(); return; }
+      place = e.target.value; loaded.clear(); render();
+    }
     if (e.target.name === 'mi-profile') {
       const doc = await ECO.run(here(), ['profile', 'use', e.target.value], {success: e.target.value === 'none' ? 'ビルド設定の使用をやめました。' : `このPCではビルド設定 ${e.target.value} を使います。`});
       render(!doc);
@@ -742,5 +757,6 @@
     if (!of) return;
     usePage(of); view = tab; ECO.setState({tab}); show();
   };
-  ECO.onChange(() => { loaded.clear(); if (!section().hidden) render(); });
+  // The panels read again by themselves.
+  ECO.onChange(() => { loaded.clear(); if (!section().hidden && !PANELS[view]) render(); });
 })();

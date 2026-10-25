@@ -115,3 +115,30 @@ def test_a_git_worktree_excludes_the_record(tmp_path):
     git(main, "worktree", "add", "--quiet", str(tmp_path / "other"))
     with usage.running(tmp_path / "other", "build"):
         assert git(tmp_path / "other", "status", "--porcelain", "--untracked-files=all").strip() == ""
+
+
+def test_a_reused_pid_is_not_in_use(root):
+    """終わったエージェント・コマンドの pid を、後から起動した別のプログラムが使い回していれば、動いていないとみなす
+    （Windows は pid をすぐ使い回す。動いているとみなすと作業空間が消せず、agent stop がそのプログラムを止める）。"""
+    from ecobuild_agent import agents
+    record = agents.create(registration="worker", workspace=root)
+    folder = status.prepare(record.folder, root)
+    status.started(folder, os.getpid())
+    data = json.loads((folder / status.RUNNING).read_text(encoding="utf-8"))
+    (folder / status.RUNNING).write_text(json.dumps({**data, "at": data["at"] - 86400}), encoding="utf-8")   # 起動より前の記録
+    assert status.running_pid(folder) is None and usage.reasons(root) == []
+    (folder / status.RUNNING).write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")   # 時刻のない前の版の記録：pid だけで
+    assert status.running_pid(folder) == os.getpid()
+    (folder / status.RUNNING).unlink()
+    data = {"commands": [{"id": "x", "pid": os.getpid(), "command": "build", "since": "2000-01-01T00:00:00+09:00"}]}
+    (root / usage.FILE_NAME).write_text(json.dumps(data), encoding="utf-8")
+    assert usage.reasons(root) == []
+
+
+def test_the_start_time_of_a_process_is_read():
+    import time
+    from ecobuild import fsutil
+    started = fsutil.process_started(os.getpid())
+    assert started is None or 0 <= time.time() - started < 3600
+    assert fsutil.process_alive(os.getpid(), time.time())
+    assert started is None or not fsutil.process_alive(os.getpid(), time.time() - 86400)   # 読めない OS は pid だけ

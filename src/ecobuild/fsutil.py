@@ -58,10 +58,19 @@ def locked(path: Path, *, timeout: float = 30.0, wait: bool = True) -> Iterator[
                 msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
 
 
-def process_alive(pid: int) -> bool:
-    """このPCのプロセス pid が動いているか。"""
+REUSE_SLACK = 2.0   # 起動の時刻の比べ方のゆとり（秒。記録はプロセスが起動した後に書く）
+
+
+def process_alive(pid: int, since: float | None = None) -> bool:
+    """このPCのプロセス pid が動いているか。since（そのプロセスが起動していたと分かっている時刻。記録を書いた時刻）
+    があれば、pid が使い回されたもの（since より後に起動した別のプログラム。Windows は pid をすぐ使い回す）は
+    動いていないとみなす。起動の時刻が分からなければ pid だけで決める。"""
     if pid <= 0:
         return False
+    if since is not None:
+        begun = process_started(pid)
+        if begun is not None and begun > since + REUSE_SLACK:
+            return False
     if os.name == "nt":
         import ctypes
         kernel = ctypes.windll.kernel32
@@ -80,6 +89,32 @@ def process_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def process_started(pid: int) -> float | None:
+    """このPCのプロセス pid が起動した時刻（UNIX 時刻）。分からなければ（ない・権限がない・調べ方のない OS）None。"""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.windll.kernel32
+        handle = kernel.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]   # 起動・終了・カーネル・ユーザー
+            if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return None
+            created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime   # 1601 年からの 100 ナノ秒
+            return (created - 116444736000000000) / 10_000_000
+        finally:
+            kernel.CloseHandle(handle)
+    try:   # Linux：/proc の起動からの時間（クロックの刻み）＋ 起動した時刻
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+        boot = next(float(line.split()[1]) for line in Path("/proc/stat").read_text().splitlines()
+                    if line.startswith("btime "))
+        return boot + int(fields[19]) / os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError, IndexError, StopIteration, AttributeError):
+        return None
 
 
 def kill_tree(pid: int) -> None:

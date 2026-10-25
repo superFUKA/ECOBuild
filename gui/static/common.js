@@ -236,7 +236,7 @@ const ECO = (() => {
   // Visual Studio or a terminal has the folder open): a warning that stays until closed, with how to remove it later.
   function workspaceKept(r, number) {
     if (!r?.workspace_kept) return;
-    toast(`作業空間を残しました（${r.workspace_kept}）。Visual Studio 等のエディター・端末でそのフォルダーを開いていると消せません。`
+    toast(`作業空間を残しました（${r.workspace_kept}）。残したわけ（動いているエージェント、そのフォルダーを開いている Visual Studio 等のエディター・端末）を`
       + `閉じてから ecobuild task prune ${number} で片付けてください。`, 'warn', 0);
   }
 

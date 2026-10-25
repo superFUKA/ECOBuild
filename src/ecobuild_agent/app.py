@@ -215,7 +215,7 @@ class Agent:
     def alive(self) -> bool:
         if self.process is not None:
             return self.process.poll() is None
-        return self.pid is not None and status.alive(self.pid)
+        return self.pid is not None and status.running_pid(self.folder) == self.pid   # 引き継いだもの：使い回しを除く
 
     def poll(self) -> None:
         """新しい出来事を読み、終わっていれば片付ける。"""
@@ -474,8 +474,8 @@ class Apps:
             folder = status.directory(agent_id) if agent_id else None   # 前の版の記録（ID がない）は読まない
             if folder is None or not entry.get("workspace") or not root.is_dir() or self.get(agent_id) is not None:
                 continue
-            running = status.read(folder / status.RUNNING)
-            pid = running.get("pid") if isinstance(running, dict) and running.get("mode") == status.APP else None
+            # 動いているもの（pid を使い回した別のプログラムは除く。止めるときにそれを止めないように）
+            pid = status.running_pid(folder) if status.running_mode(folder) == status.APP else None
             agent = Agent(agent_id, root, folder, session=str(entry.get("session") or ""),
                           registration=str(entry.get("registration") or ""),
                           pid=pid if isinstance(pid, int) else None, stopping=True, log=self.log)

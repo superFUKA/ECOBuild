@@ -60,6 +60,10 @@ function renderPrDetail() {
     // the reviewer's (or the module's ブランチ・task management), and completing a task is in task management.
     if (open) act.append(prButton('withdraw', '提出を取り下げる', {kind: 'danger-text'}));
     if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
+    // 反映 (task apply): into the base without a submission, for those who handle the base (its creator: a subtask's
+    // parent task branch too; admins). Usually 提出; greyed with the reason for the others.
+    const applyWhy = !t.base ? '作成元が分かりません' : ECO.canTakeIn(access, t.base) ? '' : ECO.applyNote(access, t.base);
+    act.append(prButton('apply', '反映', {enabled: !applyWhy, note: applyWhy}));
     act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
   }
   head.append(title, act); metaRow.append(meta, look); tools.append(head, metaRow);
@@ -134,6 +138,27 @@ function submitDialog(t, ready = false) {
   });
 }
 
+// Applying the task branch here without a submission (task apply): squashed onto the latest base, the task closed and
+// its task branch and workspace cleaned up, as a finish. An open submission is closed without taking it in.
+function applyDialog(t) {
+  const submitted = t.pull_request?.state === 'open';
+  return ECO.form({
+    title: `反映：#${t.number}`,
+    intro: `<p>提出（PR）を作らずに、${esc(t.base)} の最新へ1つのコミットにまとめて入れ、タスクを完了します（CIは待ちません）。`
+      + `${submitted ? '開いている提出は取り込まずに閉じます。' : ''}衝突したら何もせずに止まります。</p>` + ECO.submissionCommits(t.commits),
+    fields: [
+      {name: 'subject', label: 'コミットの件名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
+      {name: 'pipelines', label: '取り込みの前のパイプラインを走らせる（モジュール › パイプラインで当てたもの。なければ何もしません）', type: 'checkbox', value: true},
+    ], ok: '反映',
+    submit: async v => {
+      const args = ['task', 'apply', String(t.number), ...(v.subject && v.subject !== t.title ? ['--subject', v.subject] : []), ...(v.pipelines ? [] : ['--no-pipelines'])];
+      const doc = await WS.run(args, {success: r => `#${t.number} を ${r.base} へ反映し、完了しました。`});
+      if (!doc) return '反映できませんでした。';
+      ECO.workspaceKept(doc.result, t.number); WS.reloadFiles?.(); await WS.refreshPrs();
+    },
+  });
+}
+
 async function prAction(action) {
   const t = prStatus, n = String(t.number);
   const after = async doc => { if (doc) await WS.refreshPrs(); };
@@ -145,6 +170,7 @@ async function prAction(action) {
     case 'approve': return WS.judge(true, t.number);
     case 'reject': return WS.judge(false, t.number);
     case 'submit': return submitDialog(t);
+    case 'apply': return applyDialog(t);
     case 'ready': return submitDialog(t, true);
     case 'withdraw': return after(await WS.run(['task', 'withdraw', n], {success: '提出を取り下げました。', confirm: `#${n} の提出を取り下げて、作業中に戻します。タスクブランチは残るので、あとでもう一度提出できます。`, title: '提出を取り下げる', refresh: false}));
     case 'local-review': {   // 判定せずに終える (the button for review-done)

@@ -603,6 +603,7 @@ const ECO = (() => {
     submit: '提出の前のパイプライン → Push → PR',
     ready: '',
     finish: '取り込む：CIの結果を待って、提出（PR）を作成元へ取り込みます。タスクは提出のとおり、閉じるか続けます。',
+    apply: '反映：提出（PR）を作らずに、作成元の最新へ1つのコミットにまとめて入れ、タスクを完了します（作成元を作った人と管理者だけ）。',
     withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
     'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
     'review-done': '確認をやめて、確認用の作業空間を消します（承認も差し戻しもしません）。',
@@ -646,6 +647,8 @@ const ECO = (() => {
   const creatorOf = (a, base) => base && base !== a?.default_base ? a?.creators?.[base] || '' : '';
   const canTakeIn = (a, base) => !a || a.admin || (!!creatorOf(a, base) && creatorOf(a, base).toLowerCase() === a.login.toLowerCase());
   const takeInNote = (a, base) => `${base} への提出を処理できるのは、${creatorOf(a, base) ? `${base} を作った ${creatorOf(a, base)} と` : ''}管理者だけです`;
+  // Applying a task without a submission (task apply) is for the same people: they could take in their own submission.
+  const applyNote = (a, base) => `提出せずに ${base} へ反映できるのは、${creatorOf(a, base) ? `${base} を作った ${creatorOf(a, base)} と` : ''}管理者だけです（ほかの人は提出します）`;
   const ADMIN_NOTE = '管理者だけが行えます';
   const ROLE_NAMES = {read: '読む', triage: 'タスクの整理', write: '書き込み', maintain: '管理の一部', admin: '管理者'};
   // A button for an action on a submission (data-pr-action): its help as the title, a note after it (why it is off etc.).
@@ -933,7 +936,7 @@ const ECO = (() => {
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
   return {call, cli, run, workspaceKept, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
-    access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
+    access, isAdmin, canTakeIn, takeInNote, applyNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits, submissionConversation};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.

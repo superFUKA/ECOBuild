@@ -27,6 +27,8 @@ def reusing_reads(operation):
 
 
 _PR_IN_SUBJECT = re.compile(r"\(#(\d+)\)\s*$")
+# 提出を通さずに反映した（task apply）コミットの件名の終わり：(タスク #N)
+_TASK_IN_SUBJECT = re.compile(r"\(タスク #(\d+)\)\s*$")
 
 
 _MARKER_LINE = re.compile(r"^(?:<{7}|>{7}|\|{7})(?: |$)|^={7}$")

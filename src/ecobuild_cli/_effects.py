@@ -25,7 +25,7 @@ EFFECTS = {
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
         "agent registry remove", "agent preset remove", "agent close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
-        "restore", "stash drop", "sync abort", "task approve", "task close", "task drop", "task finish",
+        "restore", "stash drop", "sync abort", "task apply", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (

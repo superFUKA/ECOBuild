@@ -596,7 +596,8 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
                 self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{pull.number}/head", check=False)
             if self.git.rev_parse(pull.head_sha) is not None:
                 heads.append(pull.head_sha)
-        return heads
+        # 提出を通さずに反映した（task apply）版も、取り込み済み
+        return heads + [sha for sha in self._applied_heads(branch) if self.git.rev_parse(sha) is not None]
 
     def commits_not_on_github(self, *heads: str, branch: str | None = None) -> tuple[str, ...]:
         """heads の、GitHub にないコミット（どのリモートのブランチにも、branch のマージ済みのPRにも入っていないもの）の

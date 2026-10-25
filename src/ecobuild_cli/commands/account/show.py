@@ -17,11 +17,12 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
         return {"login": access.login, "role": access.role, "owner": access.owner, "owner_type": access.owner_type,
                 "workspace_account": repository.account,
                 "admin": repository.is_admin(), "default_base": repository.default_base,
-                "creators": {name: who for name, who in creators.items() if not name.startswith("task/")}}
+                # タスクブランチも入れる（子タスクの作成元。親のタスクブランチを作った人が子タスクを反映できる）
+                "creators": creators}
 
     def render(r):
         own = sorted(name for name, who in r["creators"].items()
-                     if who.casefold() == r["login"].casefold() and name != r["default_base"])
+                     if who.casefold() == r["login"].casefold() and name != r["default_base"] and not name.startswith("task/"))
         return lines(
             f"アカウント：{r['login']}（{ROLES.get(r['role'], r['role'])}）"
             + ("　この作業空間に結び付けたアカウント" if r.get("workspace_account") else "　gh の使用中のアカウント"),

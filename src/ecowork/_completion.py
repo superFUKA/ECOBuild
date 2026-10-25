@@ -261,6 +261,134 @@ class Completion:
                                     f"（{', '.join(error.details)}）。")
         return pr
 
+    # 反映（提出を通さずに作成元へ） --------------------------------------------------------
+
+    @reusing_reads
+    def apply_task(self, number: int | None = None, *, subject: str | None = None) -> wm.ApplyResult:
+        """タスクを提出（PR）を通さずに作成元へ反映して完了する：タスクブランチを作成元の最新へスカッシュした1つの
+        コミットにして push し、開いている提出があれば閉じ、Issueを閉じ、タスクブランチ（GitHub・手元）を片付ける。
+
+        できるのは作成元への提出を処理できる人（作成元を作った人と管理者。子タスクなら親のタスクブランチを作った人）
+        だけ。その人は自分で承認して取り込めるので、PR を通さない道を普段の方法として使ってよい。承認が必須のモジュール
+        では使えない（提出して承認を受ける）。CI は待たない（PR がないので走らない）。衝突したら何も変えずに止める
+        （生成ファイルだけの衝突は直す。Hooks.resolvable）。件名は「<subject（既定は題名）> (タスク #N)」で、本文の
+        APPLIED_TRAILER に元のタスクブランチの版を残す（手元のタスクブランチを、失われるコミットがあるとみなさずに
+        片付けるため。_merged_heads）。push の後で止まったら、もう一度実行すると残りの後処理だけを行う。"""
+        if number is None:
+            number = self.require_task_branch("番号を省略したタスクの反映").number
+        branch = self._task_branch_of(number)
+        here = self.git.current_branch() == branch
+        self._guard_removal(branch, "反映（GitHubのタスクブランチを消す）", switching=False)
+        if here:
+            tree = self.git.working_tree()
+            if tree.staged or tree.unstaged or tree.conflicted or self.git.is_merging():
+                raise WorkError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更があるため、反映できません。",
+                                hint=f"{self._op('task commit')} --message \"…\" で記録してから、もう一度実行してください。",
+                                details=list(dict.fromkeys(tree.staged + tree.unstaged + tree.conflicted)))
+        self.git.fetch()
+        issue = self.github.get_issue(self.root, number)
+        local, remote = self.git.has_local_branch(branch), self.git.has_remote_branch(branch)
+        base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
+            or self.default_base
+        if issue.state != "open":
+            tips = {self.git.rev_parse(ref) for ref, there in ((branch, local), (f"{_git.REMOTE}/{branch}", remote)) if there}
+            if not tips & set(self._applied_heads(branch)):
+                raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は閉じています。",
+                                hint=f"タスクブランチが残っていれば {self._op('task prune')} {number} で片付けられます。")
+            return self._after_apply(number, branch, base, issue.title, None, None)   # 反映して閉じた後で止まった：片付けの残りだけ
+        if not (local or remote):
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"タスク #{number} のタスクブランチがありません。",
+                            hint=f"{self._op('task start')} {number} でタスクブランチを作り、変更を記録してから反映します"
+                                 f"（コードを変えないタスクなら {self._op('task close')} {number}）。")
+        self.require_take_in(base, "反映")
+        if self.require_approval:
+            raise WorkError(ErrorCode.APPROVAL_REQUIRED, f"このモジュールは承認が必須なので、タスク #{number} は提出せずには"
+                                                         "反映できません。",
+                            hint=f"{self._op('task submit')} で提出し、見る人が {self._op('task approve')} {number} "
+                                 "で承認・完了します。")
+        self.tracker.check_finishable(number, action="反映")
+        if local:
+            self._push_if_ahead(branch)   # 手元にだけあるコミットも入れる（GitHub と分かれていれば push が断る）
+        if not self.git.has_remote_branch(base):
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHubに作成元のブランチ {base} がありません。")
+        head = self.git.output("rev-parse", f"{_git.REMOTE}/{branch}")
+        start = self.git.output("rev-parse", f"{_git.REMOTE}/{base}")
+        title = subject or issue.title
+        commit = None
+        if head not in self._applied_heads(branch):   # 反映済み（push の後で止まった）なら後処理だけ
+            if here:
+                self.hooks.before_submit(self)
+            self._refuse_conflict_markers(self.git.conflict_markers(f"{start}...{head}"), committed=True)
+            commit = self._applied_commit(number, branch, base, head, start, title)
+        submission = self.submission(number)
+        if submission is not None:
+            # 提出してから反映に切り替えた：提出は取り込まずに閉じる（反映したことを書き残す）
+            self.github.comment_pull_request(self.root, submission.number,
+                                             f"提出を通さずに {base} へ反映したので閉じます"
+                                             + (f"（{commit[:7]}）。" if commit else "。"))
+            self.github.close_pull_request(self.root, submission.number)
+        self.github.close_issue(self.root, number)
+        return self._after_apply(number, branch, base, title, commit, submission.number if submission else None)
+
+    def _after_apply(self, number: int, branch: str, base: str, title: str, commit: str | None,
+                     closed_submission: int | None) -> wm.ApplyResult:
+        """反映して Issue を閉じた後：GitHub のタスクブランチ（反映した版のままなら）を消し、手元を片付ける。"""
+        remote = f"{_git.REMOTE}/{branch}"
+        if self.git.has_remote_branch(branch) and self.git.rev_parse(remote) in self._applied_heads(branch):
+            self.git.push_delete(branch)
+        self.tracker.closed(number)
+        removed, released = self._clean_finished(branch)
+        upcoming = self._upcoming()
+        self._advance_base(base)
+        return wm.ApplyResult(number, title, base, commit, "squash" if commit else "up-to-date", closed_submission,
+                              removed, released.switched_to, upcoming, workspace_removed=released.workspace_removed,
+                              workspace_kept=released.kept)
+
+    def _applied_commit(self, number: int, branch: str, base: str, head: str, start: str,
+                        title: str) -> str:
+        """head（タスクブランチ）を start（作成元の最新）へスカッシュした1つのコミットを作り、作成元へ push する。
+        入れる変更がなければ止める。"""
+        method, tree, conflicts = self._branch_merge_tree(head, start)
+        if method == "fast-forward":
+            tree = self.git.output("rev-parse", f"{head}^{{tree}}")
+        elif method == "conflict":
+            if not self.hooks.resolvable(self, conflicts):
+                raise self._apply_conflict(number, branch, base, conflicts)
+            try:
+                merged = self._resolved_merge(head, start, "反映", branch, base, conflicts)
+            except WorkError as error:
+                if error.code != ErrorCode.MERGE_CONFLICT:
+                    raise
+                raise self._apply_conflict(number, branch, base, conflicts) from None
+            tree = self.git.output("rev-parse", f"{merged}^{{tree}}")
+        if method == "up-to-date" or tree == self.git.output("rev-parse", f"{start}^{{tree}}"):
+            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"タスク #{number} には、{base} へ反映する変更がありません。",
+                            hint=f"変更を {self._op('task commit')} で記録してから実行してください（変更が要らないなら "
+                                 f"{self._op('task close')} {number}）。")
+        message = (f"{title} (タスク #{number})\n\nタスク #{number} を提出せずに {base} へ反映しました。\n\n"
+                   f"{wm.APPLIED_TRAILER}: {branch} {head}")
+        commit = self.git.output("commit-tree", tree, "-p", start, "-m", message)
+        pushed = self.git.run("push", "--quiet", _git.REMOTE, f"{commit}:refs/heads/{base}", check=False)
+        if not pushed.ok:
+            raise WorkError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {base} への push を断りました（何も変えていません）。",
+                            hint=f"{base} が反映の間に進んだなら、もう一度実行してください。ブランチの保護が PR を求めて"
+                                 f"いるなら、{self._op('task submit')} で提出して {self._op('task finish')} {number} で"
+                                 "取り込みます。", details=pushed.output)
+        self.git.fetch()
+        return commit
+
+    def _apply_conflict(self, number: int, branch: str, base: str, conflicts: tuple[str, ...]) -> WorkError:
+        return WorkError(ErrorCode.MERGE_CONFLICT, f"{branch} と {base} が衝突するので、反映しませんでした（何も変えていません）。",
+                         hint=f"タスクブランチで {self._op('sync')} を実行して {base} を取り込み、衝突を解決してから、もう一度 "
+                              f"{self._op('task apply')} {number} を実行してください。", details=list(conflicts))
+
+    def _applied_heads(self, branch: str) -> list[str]:
+        """branch を反映した（task apply）ときのタスクブランチの版。GitHub のブランチのコミットの APPLIED_TRAILER から。"""
+        found = self.git.output("log", "--remotes", "--fixed-strings", f"--grep={wm.APPLIED_TRAILER}: {branch} ",
+                                "--format=%b")
+        prefix = f"{wm.APPLIED_TRAILER}: {branch} "
+        return [line[len(prefix):].strip() for line in found.splitlines() if line.startswith(prefix)]
+
     def _clean_finished(self, branch: str) -> tuple[bool, wm.Released]:
         """完了したタスクの手元のタスクブランチを片付ける：取り出している作業空間を消してから、ブランチを消す
         （元の clone 等がその場で取り出していれば、作成元へ移って最新にする）。失われるコミットがある・作業空間が

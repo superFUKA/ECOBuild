@@ -66,6 +66,10 @@ def base_key(branch: str) -> str:
     return f"branch.{branch}.ecowork-base"
 
 
+# 提出を通さずに反映した（task apply）コミットの本文の印：「<印>: <タスクブランチ> <反映したときのタスクブランチの版>」
+APPLIED_TRAILER = "ECOBuild-Applied"
+
+
 # タスクブランチの本体はGitHubにあり、手元はその写し（消しても task start で作り直せる）。
 # 作成元とタスクブランチの名前もGitHubに残すため、Issueの本文の末尾に印（表示されないHTMLのコメント）を書く。
 _BASE_MARK = re.compile(r"\s*<!-- ecowork-base: (\S+)(?: branch: (\S+))? -->\s*$")
@@ -685,6 +689,22 @@ class DiffFile:
     added: int | None                # 足した行（バイナリなら None）
     deleted: int | None              # 消した行（バイナリなら None）
     eol_only: bool = False           # 改行コード（CRLF と LF）だけの差
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    """タスクの反映（task apply：提出を通さずに作成元へ）の結果。"""
+    task: int
+    subject: str                     # 反映したコミットの件名（(タスク #N) の前）
+    base: str                        # 反映した先（作成元）
+    commit: str | None               # 作成元へ入れたコミット（前の反映の後処理だけを行ったなら None）
+    method: str                      # squash（入れた）・up-to-date（反映済みで、後処理だけを行った）
+    closed_submission: int | None    # 閉じた提出（PR。提出してから反映したとき）
+    removed: bool                    # 手元のタスクブランチを片付けた
+    switched_to: str | None          # 元の clone 等が取り出していたタスクブランチを片付け、その場で移った先
+    next: TaskRef | None = None      # 次のタスクの候補（task next の1番目）
+    workspace_removed: Path | None = None   # タスクブランチを取り出していた作業空間を消した
+    workspace_kept: str | None = None       # 作業空間・手元のタスクブランチを残したわけ
 
 
 @dataclass(frozen=True)

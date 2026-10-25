@@ -64,6 +64,16 @@ def message_line(text: str) -> bytes:
             + "\n").encode("utf-8")
 
 
+def limit_reached(subtype) -> str:
+    """結果（result）のエラーの種類が、登録の上限で止まったものなら、その名前（ほかは空）。"""
+    subtype = str(subtype or "")
+    if "max_turns" in subtype:
+        return "ターン数の上限"
+    if "budget" in subtype:
+        return "費用の上限"
+    return ""
+
+
 def tool_summary(name: str, given) -> str:
     """道具を使った1行（今していること）：「Bash：ecobuild test」「Edit：src/x.py」。"""
     given = given if isinstance(given, dict) else {}
@@ -296,7 +306,10 @@ class Agent:
         if window and self.state.get("context_tokens"):
             self.state["context"] = round(self.state["context_tokens"] * 100 / window, 1)
         message = text
-        if error:
+        limit = limit_reached(event.get("subtype")) if event.get("is_error") else ""
+        if limit:   # 登録の上限（--max-turns・--max-budget-usd）：ハーネスが止めた。親には「止まっている」と知らせる
+            message += f"\n（{limit}に達したので ECOBuild が止めました）\n状態：止まっている"
+        elif error:
             message += f"\n（エラーで返答を終えました：{error}）"
         if denials:
             message += f"\n（断られた権限が {len(denials)} 件あります）"

@@ -4,4 +4,4 @@ model = "opus"
 children = ["manager", "worker"]
 max_children = 6
 tools = ["*"]
-first_prompt = ".ecobuild/ai/brief.md に親から任された仕事があります。読んだら、仕事を観点で分けて、子に一度に任せてください。"
+first_prompt = ".ecobuild/ai/brief.md に親から任された仕事があります。読んだら、成功の条件と評価を決め、文脈が独立した部分ごとに子へ任せてください（1人で回せるなら1人の作業役に）。"

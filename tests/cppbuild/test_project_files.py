@@ -39,7 +39,7 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     assert '#include "Geo/shape/Circle.h"' in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
     assert "TEST(Circle, Works)" in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
     result = module.test()
-    assert result.failed == 0 and "Circle.Works" in [c.name for c in result.cases]
+    assert result.failed == 0 and "GeoTest.Circle.Works" in [c.name for c in result.cases]
 
     # ヘッダーだけでもテストを作る。後から同じ名前のソースを足しても、テストはそのまま（1つ）
     assert module.add_file("include/Geo/shape/Square.h").paths == ("Geo/include/Geo/shape/Square.h",

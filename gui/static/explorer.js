@@ -139,7 +139,10 @@ generatedButton.addEventListener('click', () => {
 // ecobuild.toml and the files; ecobuild does it after its own operations, this is for changes made elsewhere — in an
 // editor, or inside the container: project update runs on this PC, for its Visual Studio).
 const slnButton = get('refresh-sln');
-ECO.moduleType(WS.dir).then(type => { slnButton.hidden = type !== 'cpp'; }).catch(() => {});
+// A type that runs the tests in a file or folder (python: ecobuild test tests/x.py): its tests/ has 「テストを実行」.
+let testPaths = false;
+const runnableTest = (path, folder = false) => testPaths && (path === 'tests' || path.startsWith('tests/')) && (folder || /(^|\/)test_[^/]*\.py$|_test\.py$/.test(path));
+ECO.moduleType(WS.dir).then(type => { slnButton.hidden = type !== 'cpp'; testPaths = ECO.typeFeatures(type).tests === 'paths'; }).catch(() => {});
 WS.onRefresh(() => { slnButton.disabled = !editable(); slnButton.title = editable() ? 'ソリューション（.sln）と生成ファイルを今の構成で作り直す' : why('sln'); });
 slnButton.addEventListener('click', async () => {
   slnButton.disabled = true;
@@ -286,6 +289,7 @@ function fileMenu(path, x, y) {
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'Windows のエクスプローラーで表示', exists], '-',
     ...(isReadme(path) ? [] : [['rename', '名前の変更', can && exists, 'F2'], ['move', '移動先を指定…', can && exists], ['remove', '削除', can && exists, 'Delete']]),
     ...pairItems(path),
+    ...(runnableTest(path) ? [['run-test', 'テストを実行', exists]] : []),
     ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
     ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
@@ -306,7 +310,7 @@ function projectMenu(dir, x, y) {
 function folderMenu(dir, x, y) {
   if (projectsByDir.has(dir)) return projectMenu(dir, x, y);
   activeDirectory = dir; const can = editable();
-  showMenu([['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ...(dir ? [['rename-dir', '名前の変更', can, 'F2'], ['remove-dir', '削除', can, 'Delete']] : []), '-', ['reveal-dir', 'Windows のエクスプローラーで表示'], ['log', 'ログ'], ...(dir ? [['ignore-dir', '除外パターンに追加', can]] : []), '-',
+  showMenu([...(runnableTest(dir, true) ? [['run-test-dir', 'テストを実行'], '-'] : []), ['new-file', '新しいファイル', can], ['new-folder', '新しいフォルダ', can], ...(dir ? [['rename-dir', '名前の変更', can, 'F2'], ['remove-dir', '削除', can, 'Delete']] : []), '-', ['reveal-dir', 'Windows のエクスプローラーで表示'], ['log', 'ログ'], ...(dir ? [['ignore-dir', '除外パターンに追加', can]] : []), '-',
     ['toggle-generated', get('toggle-generated').getAttribute('aria-pressed') === 'true' ? '生成ファイルを隠す' : '生成ファイルを表示'], ['reload', '読み直す']], x, y);
   menu.dataset.dir = dir;
 }
@@ -453,6 +457,8 @@ async function menuAction(action, dir) {
     case 'rename': return inlineName({rename: path});
     case 'move': return moveDialog(path);
     case 'test': return testDialog(path);
+    case 'run-test': return WS.runTests([path]);
+    case 'run-test-dir': return WS.runTests([dir]);
     case 'remove': return removeFile(path);
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {

@@ -42,6 +42,29 @@ def test_test(module):
     assert result.cases[0].name.endswith("Builds")
 
 
+def test_select_tests(module):
+    """流すテストを <テスト用Project>[.<Suite>.<Test>]（* ?）で選ぶ。結果の名前はそのまま流し直せる形。"""
+    path = module.root / "CalcTest/src/CalcTest.cpp"
+    original = path.read_text(encoding="utf-8")
+    write(path, original + "\nTEST(Calc, Second) { SUCCEED(); }\n")
+    try:
+        names = lambda result: sorted(c.name for c in result.cases)  # noqa: E731
+        assert names(module.test()) == ["CalcTest.Calc.Builds", "CalcTest.Calc.Second"]
+        assert names(module.test(tests=("CalcTest.Calc.Builds",))) == ["CalcTest.Calc.Builds"]
+        assert names(module.test(tests=("CalcTest.*.Sec*",))) == ["CalcTest.Calc.Second"]
+        assert names(module.test(project="CalcTest", tests=("Calc.B?ilds",))) == ["CalcTest.Calc.Builds"]
+        assert len(module.test(tests=("CalcTest", "CalcTest.Calc.Builds")).cases) == 2   # Project の全部が勝つ
+        with pytest.raises(EcoBuildError) as error:
+            module.test(tests=("CalcTest.Nothing.*",))
+        assert error.value.code == ErrorCode.TEST_FAILED and "当てはまるテストがありません" in error.value.message
+        for project, tests in ((None, ("Calc.Builds",)), ("Calc", ("Calc.Builds",))):   # Project が分からない・テスト用でない
+            with pytest.raises(EcoBuildError) as error:
+                module.test(project=project, tests=tests)
+            assert error.value.code == ErrorCode.PROJECT_NOT_FOUND and "CalcTest" in error.value.hint
+    finally:
+        write(path, original)
+
+
 def test_run_captures_output(module):
     result = module.run(arguments="a 'b c'")
     assert result.returncode == 0

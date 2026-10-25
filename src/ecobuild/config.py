@@ -19,7 +19,8 @@ LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild
 # の中身や置き場所を変えたら1つ上げる。古い版のモジュールは読めて、module upgrade で今の版にする（Module.upgrade）。
 # 1：最初の版。2：module upgrade ができた版（中身の変更なし）。3：拡張が置くファイル（Module.environment_files。コンテナの環境 .ecobuild/container/Dockerfile）。
 # 4：作業空間が元の clone の中の worktree（.ecobuild/w/）になり、AGENTS.md・.ecobuild/README.md がそれと、ECOBuild が起動したエージェントのツール（MCP）を案内する。
-FORMAT = 4
+# 5：AGENTS.md に「文書とコードが食い違うときはコードに従い、食い違いを報告に書く」（古い指示ファイルが動くコードを書き換えさせないため）。
+FORMAT = 5
 
 
 @dataclass(frozen=True)

@@ -46,7 +46,7 @@ def test_agents_md_points_to_the_guide(name):
     documents = _documents(name)
     assert "`ecobuild agent guide`" in documents["AGENTS.md"]
     assert "## 作業の流れ" not in documents["AGENTS.md"] and "## 作業の流れ" in documents["agent guide"]
-    assert len(documents["AGENTS.md"].splitlines()) <= 12
+    assert len(documents["AGENTS.md"].splitlines()) <= 13
 
 
 def test_guide_follows_the_type():
@@ -103,3 +103,10 @@ def test_guide_names_only_what_the_type_has():
     python = _documents("python")["agent guide"]
     assert "Project" not in python and "cmake" not in python
     assert "Project・依存" in _documents("cpp")["agent guide"]
+
+
+@pytest.mark.parametrize("name", sorted(REGISTRY.entries()))
+def test_agents_md_prefers_the_code(name):
+    """文書とコードが食い違えばコードに従い、食い違いを報告に書く（古い AGENTS.md が動くコードを書き換えさせない）。"""
+    agents = _documents(name)["AGENTS.md"]
+    assert "コードに従い" in agents and "食い違いは最後の報告" in agents

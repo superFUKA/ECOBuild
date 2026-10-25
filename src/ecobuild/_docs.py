@@ -95,6 +95,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - ECOBuild が起動したエージェント（MCP のツール `ecobuild` を渡されたもの）は、この手順の `ecobuild` コマンドの代わりに
   そのツールを使います。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。
+- 文書（AGENTS.md・README・コメント 等）と今のコードで書き方が食い違うときはコードに従い、見つけた食い違いは最後の報告（提出の説明 `--note`）にすべて書きます。
 {hand_edit}- 失敗したら、結果の `error.code` と `error.hint` に従ってください。
 """
 

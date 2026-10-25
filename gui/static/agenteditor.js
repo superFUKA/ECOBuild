@@ -114,20 +114,11 @@ window.AGENT_EDITOR = (() => {
             <label class="ae-field">パターン（カンマ区切り。例：task_*。後で増えるツールも合えば渡します）<input type="text" data-ae-field="patterns" value="${esc(others.join(', '))}"></label></details>
         </div></section>`;
     }
-    // だれが起動するか: a person (the workspace's エージェント), and the roles that have this one in 起動してよい子 (saved on
-    // their registrations). An agent no role has, with no commit/submit tools, is one only a person starts and steers.
-    const parentsOf = name => st.list.filter(x => x.name !== name && x.children.includes(name)).map(x => x.name);
+    // 起動: only whether a person starts it by hand (the workspace's エージェント). Which roles start it as a child is
+    // chosen on those roles (起動してよい子).
     function startSection(r) {
-      const parents = parentsOf(r.name);
-      const rows = st.list.filter(x => x.name !== r.name).map(x => `<label class="ae-child"><input type="checkbox" data-ae-parent="${esc(x.name)}"${parents.includes(x.name) ? ' checked' : ''}>
-          <span class="ae-child-main"><span class="ae-item-title">${esc(x.title)}</span> <span class="ae-item-name">${esc(x.name)}</span>
-            <span class="ae-child-info">${esc(toolsText(x.tools))}</span></span>
-          <span class="ae-child-warn" data-ae-parent-warn hidden>${badge('この役のほうが強いので子にできない', 'warn')}</span></label>`);
-      return `<section class="ae-sec"><h4>だれが起動するか</h4>
-        <label class="ae-check"><input type="checkbox" data-ae-field="human_start"${r.human_start ? ' checked' : ''}> 人が手で起動できる（作業空間の「エージェント」の ＋ に出る）</label>
-        <p class="mi-note">子として起動できる役（それぞれの「起動してよい子」に入れます）。どれにも入れなければ、ほかのエージェントからは起動されません。</p>
-        <div class="ae-children">${rows.join('') || '<span class="mi-note">ほかの役がありません</span>'}</div>
-        <p class="mi-note ae-start-sum" data-ae-start-sum></p></section>`;
+      return `<section class="ae-sec"><h4>起動</h4>
+        <label class="ae-check"><input type="checkbox" data-ae-field="human_start"${r.human_start ? ' checked' : ''}> 人が手で起動できる（作業空間の「エージェント」の ＋ に出る）</label></section>`;
     }
     // 起動してよい子: chosen from the agents of this list (this module's, or the presets), this one too
     function childrenSection(r) {
@@ -225,35 +216,24 @@ window.AGENT_EDITOR = (() => {
       for (const key of ['max_rounds', 'max_turns', 'max_cost']) if (v[key] !== (r[key] || 0)) args.push(`--${key.replace('_', '-')}`, String(v[key]));
       const document = v.document.trim() !== r.document.trim();
       if (document) args.push('--document', '-');
-      // the roles that start this one: their children change (added or taken off)
-      const wanted = [...box.querySelectorAll('[data-ae-parent]:checked')].map(b => b.dataset.aeParent), had = parentsOf(r.name);
-      const parents = st.list.filter(x => wanted.includes(x.name) !== had.includes(x.name))
-        .map(x => [x.name, wanted.includes(x.name) ? [...x.children, r.name] : x.children.filter(n => n !== r.name)]);
-      return {args, stdin: document ? v.document.trim() + '\n' : undefined, parents, v};
+      return {args, stdin: document ? v.document.trim() + '\n' : undefined, v};
     }
     function markDirty() {
       if (!st.shown) return;
-      const {args, parents, v} = edited();
-      st.dirty = args.length > 0 || parents.length > 0;
+      const {args, v} = edited();
+      st.dirty = args.length > 0;
       const save = box.querySelector('[data-ae-save]'), revert = box.querySelector('[data-ae-revert]');
       if (save) save.disabled = !st.dirty;
       if (revert) revert.disabled = !st.dirty;
       showFit(v);
     }
-    // What the choices come to: which children/parents the tools picked don't allow, how many tools, who starts it.
+    // What the choices come to: which children the tools picked don't allow, how many tools.
     function showFit(v) {
-      const me = {tools: v.tools};
       for (const row of box.querySelectorAll('[data-ae-child-row]')) {
         const x = st.list.find(y => y.name === row.dataset.aeChildRow), box_ = row.querySelector('input'), strong = x && x.name !== st.shown.name && stronger(x, v.tools);
         row.querySelector('[data-ae-child-warn]').hidden = !strong;
         box_.disabled = strong && !box_.checked;
         row.classList.toggle('ae-off', !!strong);
-      }
-      for (const b of box.querySelectorAll('[data-ae-parent]')) {
-        const x = st.list.find(y => y.name === b.dataset.aeParent), strong = x && stronger(me, x.tools);
-        b.closest('.ae-child').querySelector('[data-ae-parent-warn]').hidden = !strong;
-        b.disabled = strong && !b.checked;
-        b.closest('.ae-child').classList.toggle('ae-off', !!strong);
       }
       const count = box.querySelector('[data-ae-count]');
       if (count) {
@@ -267,13 +247,6 @@ window.AGENT_EDITOR = (() => {
         const all = fs.querySelectorAll('[data-ae-tool]'), on = fs.querySelectorAll('[data-ae-tool]:checked');
         fs.querySelector('[data-ae-group-count]').textContent = `${on.length} / ${all.length}`;
       }
-      const sum = box.querySelector('[data-ae-start-sum]');
-      if (sum) {
-        const parents = [...box.querySelectorAll('[data-ae-parent]:checked')].map(b => st.list.find(x => x.name === b.dataset.aeParent)?.title || b.dataset.aeParent);
-        const who = [v.human_start ? '人（手で）' : '', ...parents].filter(Boolean);
-        sum.textContent = who.length ? `起動するのは：${who.join('・')}${parents.length ? '' : '（ほかのエージェントからは起動されません）'}`
-          : '起動するのは：だれもいません（人も、どの役も起動できません）';
-      }
     }
     const committed = r => r?.committed ? `（コミット ${r.committed.slice(0, 7)}。提出して取り込まれると効きます）` : '';
     // Several changes in one place (asked once). null: cancelled; else whether all were made (it stops at the first failure).
@@ -285,16 +258,11 @@ window.AGENT_EDITOR = (() => {
       st.dirty = false; await opts.onChanged?.(dir);
       return done;
     }
-    // This registration and the roles that start it: taken off them first, added last (so the checks of strength pass)
     async function save() {
-      const {args, stdin, parents} = edited();
-      if (!args.length && !parents.length) return;
+      const {args, stdin} = edited();
+      if (!args.length) return;
       const name = st.shown.name;
-      const parentStep = ([parent, children]) => [['agent', group, 'set', parent, '--children', children.join(',')],
-        {success: `「${parent}」の起動してよい子を変えました。`}];
-      const steps = [...parents.filter(([, c]) => !c.includes(name)).map(parentStep),
-        ...(args.length ? [[['agent', group, 'set', name, ...args], {stdin, success: r => `「${name}」を保存しました${opts.kind === 'module' ? committed(r) : '。'}`}]] : []),
-        ...parents.filter(([, c]) => c.includes(name)).map(parentStep)];
+      const steps = [[['agent', group, 'set', name, ...args], {stdin, success: r => `「${name}」を保存しました${opts.kind === 'module' ? committed(r) : '。'}`}]];
       if (await changeAll(`「${st.shown.title}」を保存`, steps) !== null) await load();
     }
     // 追加：新規作成か、プリセット（このPCの手持ちと ECOBuild の見本）から作る
@@ -309,11 +277,7 @@ window.AGENT_EDITOR = (() => {
                   options: choices.map(p => [p.name, `${p.title}（${p.name}・${SOURCES[p.source] || p.source}）`])},
                  {name: 'name', label: '名前（英小文字・数字・-・_）', placeholder: '例：reviewer', help: 'プリセットから作るときは、空ならプリセットと同じ名前'},
                  {name: 'title', label: '表示名', placeholder: '例：レビュー役', showIf: x => x.how === 'new'},
-                 {name: 'who', label: 'だれが起動する', type: 'radio', value: 'human', options: [
-                   ['human', '人が手で起動する', '作業空間の「エージェント」の ＋ から。ほかの役の子にはしません（管理役などは起動できない）'],
-                   ['parents', 'ほかの役が子として起動する', '選んだ役の「起動してよい子」に入れます']]},
-                 {name: 'parents', label: '起動できる役', type: 'checks', showIf: x => x.who === 'parents',
-                  options: st.list.map(x => [x.name, `${x.title}（${x.name}）`])},
+                 {name: 'human_start', label: '人が手で起動できる（作業空間の「エージェント」の ＋ に出る）', type: 'checkbox', value: true},
                  {name: 'no_owner', label: 'コミット・push・提出はさせない（変えたファイルは人が見て、人がコミット・提出する）', type: 'checkbox', value: true}],
         ok: '追加'});
       if (!v) return;
@@ -321,15 +285,13 @@ window.AGENT_EDITOR = (() => {
       if (!name) return ECO.toast('名前を入れてください。', 'bad');
       const from = v.how === 'preset' ? choices.find(p => p.name === v.from) : null;
       const set = [...(v.how === 'new' && (v.title || '').trim() ? ['--title', v.title.trim()] : []),
-                   v.who === 'human' ? '--human-start' : '--no-human-start'];
+                   v.human_start ? '--human-start' : '--no-human-start'];
       if (v.no_owner) {   // the tools of the preset (empty for a new one: all), less the ones that change the branch
         const base = from && !from.tools.includes('*') ? st.tools.filter(t => matches(t.name, from.tools)) : st.tools;
         set.push('--tools', base.filter(t => t.mark !== 'owner').map(t => t.name).join(','));
       }
-      const parents = v.who === 'parents' ? v.parents || [] : [];
       const steps = [[['agent', group, 'add', name, ...(from ? ['--from-preset', from.name] : [])], {success: r => `「${name}」を追加しました${opts.kind === 'module' ? committed(r) : '。'}`}],
-        [['agent', group, 'set', name, ...set], {}],
-        ...parents.map(p => [['agent', group, 'set', p, '--children', [...st.list.find(x => x.name === p).children, name].join(',')], {}])];
+        [['agent', group, 'set', name, ...set], {}]];
       if (await changeAll(`「${name}」を追加`, steps) === null) return;
       st.selected = name; await load();
     }

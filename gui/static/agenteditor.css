@@ -54,7 +54,6 @@
 .ae-child-main { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
 .ae-child-info { flex-basis: 100%; font-size: 11px; color: var(--muted, #a5aeba); }
 .ae-child.ae-off { opacity: .65; }
-.ae-start-sum { margin-top: 8px; color: #cdd5df; }
 @media (max-width: 720px) {
   .ae { grid-template-columns: 1fr; }
   .ae-side { border-right: 0; border-bottom: 1px solid var(--line, #303640); flex-direction: row; flex-wrap: wrap; }

@@ -4,9 +4,11 @@
 // diff, submit, finish, withdraw; approve/reject while reviewing. The submissions of the whole module are in the
 // module's ブランチ page. Every number is a task number; the pull request behind a submission is the CLI's business.
 let selectedPr = 0, prStatus = null, me = '';
-let access = null;   // the account's role here (account show): approving and sending back are greyed for those who do not handle the base
+// The account's role here (account show): approving and sending back are greyed for those who do not handle the base,
+// and it chooses between 反映 and 提出. Not read (an older ecobuild, no GitHub): as if handling it (the CLI decides).
+let access = null, accessRead = false;
 ECO.info().then(info => { me = info.me || ''; });
-ECO.access(WS.dir).then(a => { access = a; });
+ECO.access(WS.dir).then(a => { access = a; accessRead = true; if (prStatus) renderPrDetail(); });
 const prButton = ECO.submissionButton;
 
 // The task branch here, while it is worked on (not finished, not reviewing someone's submission).
@@ -44,6 +46,7 @@ function renderPrDetail() {
   const look = document.createElement('div'), act = document.createElement('div');
   head.className = 'pr-head'; title.className = 'pr-title'; metaRow.className = 'pr-meta-row'; meta.className = 'pr-meta';
   look.className = 'pr-look'; act.className = 'pr-act';
+  const applies = !reviewing && accessRead && !!t.base && ECO.canTakeIn(access, t.base);
   const state = !sub ? 'none' : sub.state === 'open' ? (draft ? 'draft' : 'open') : sub.state;
   title.innerHTML = `<strong title="${esc(t.title)}">#${t.number} ${esc(t.title)}</strong><span class="pr-state ${state}">${esc(ECO.submissionText(sub))}</span>`;
   const a = t.activity || {checks: [], mergeable: ''};
@@ -56,20 +59,20 @@ function renderPrDetail() {
     const why = ECO.canTakeIn(access, t.base) ? '' : ECO.takeInNote(access, t.base);
     if (open) act.append(prButton('reject', '差し戻す', {enabled: !why, note: why}), prButton('approve', '承認して取り込む', {enabled: !draft && !why, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why}));
   } else {
-    // Only submitting here: whether the task is closed when it is taken in is chosen in the dialog. Taking it in is
-    // the reviewer's (or the module's ブランチ・task management), and completing a task is in task management.
+    // One way in: those who handle the base (its creator: a subtask's parent task branch too; admins) apply it
+    // (task apply: no submission, as nobody else would take theirs in); the others submit (whether the task is closed
+    // when it is taken in is chosen in the dialog) and the base's handler takes it in. Nothing until the role is read.
     if (open) act.append(prButton('withdraw', '提出を取り下げる', {kind: 'danger-text'}));
-    if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
-    // 反映 (task apply): into the base without a submission, for those who handle the base (its creator: a subtask's
-    // parent task branch too; admins). Usually 提出; greyed with the reason for the others.
-    const applyWhy = !t.base ? '作成元が分かりません' : ECO.canTakeIn(access, t.base) ? '' : ECO.applyNote(access, t.base);
-    act.append(prButton('apply', '反映', {enabled: !applyWhy, note: applyWhy}));
-    act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
+    if (applies) act.append(prButton('apply', '反映', {kind: 'primary'}));
+    else if (accessRead) {
+      if (draft) act.append(prButton('ready', '下書きを解除', {kind: 'primary'}));
+      act.append(prButton('submit', '提出', {kind: draft ? '' : 'primary'}));
+    }
   }
   head.append(title, act); metaRow.append(meta, look); tools.append(head, metaRow);
   const note = get('pr-note');
   note.hidden = !(!reviewing && s.ahead);
-  note.textContent = note.hidden ? '' : `未Pushのコミット ${s.ahead}件：${open ? 'Pushすると提出に加わります' : '提出するとPushします'}。`;
+  note.textContent = note.hidden ? '' : `未Pushのコミット ${s.ahead}件：${applies ? '反映すると一緒に入ります' : open ? 'Pushすると提出に加わります' : '提出するとPushします'}。`;
   renderPrCommits();
   get('pr-detail').innerHTML = ECO.submissionConversation(t);
 }

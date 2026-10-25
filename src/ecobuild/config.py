@@ -295,9 +295,32 @@ def validate_ci(settings: CiSettings) -> None:
                             hint=f"{'・'.join(CI_REVIEW_AUTH)} から選んでください。")
 
 
+_CONFLICT_START, _CONFLICT_BASE, _CONFLICT_MIDDLE, _CONFLICT_END = "<<<<<<< ", "||||||| ", "=======", ">>>>>>> "
+
+
+def ours(text: str) -> str:
+    """衝突の印（<<<<<<< 等）が残った文から、自分の側（HEAD）だけを取り出す（印がなければそのまま）。"""
+    kept, side = [], None
+    for line in text.splitlines(keepends=True):
+        bare = line.rstrip("\r\n")
+        if bare.startswith(_CONFLICT_START):
+            side = "ours"
+        elif side == "ours" and bare.startswith(_CONFLICT_BASE):
+            side = "base"
+        elif side in ("ours", "base") and bare == _CONFLICT_MIDDLE:
+            side = "theirs"
+        elif side == "theirs" and bare.startswith(_CONFLICT_END):
+            side = None
+        elif side in (None, "ours"):
+            kept.append(line)
+    return "".join(kept)
+
+
 def load(path: Path) -> ModuleConfig:
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        # 取り込み（sync・branch resolve）で衝突して印が残っている間も、モジュールとして動けるように自分の側で読む
+        # （ファイルは印のまま。直すのは人で、sync continue は印が残っていれば止める）
+        data = tomllib.loads(ours(path.read_text(encoding="utf-8")))
         version = data.get("format")
         if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise ValueError("format は1以上の整数です")

@@ -12,6 +12,19 @@ def test_roundtrip(tmp_path):
     assert config.load(path) == original
 
 
+def test_a_conflicted_config_is_read_as_our_side(tmp_path):
+    """取り込みで衝突して印が残っている間も、自分の側（HEAD）で読める（直すのは人。ファイルは印のまま）。"""
+    original = config.ModuleConfig.for_new_module("Calc", "cpp")
+    path = tmp_path / config.FILE_NAME
+    config.save(original, path)
+    text = path.read_text(encoding="utf-8")
+    line = next(l for l in text.splitlines() if l.startswith("format"))
+    conflicted = text.replace(line, f"<<<<<<< HEAD\n{line}\n||||||| base\nformat = 1\n=======\nformat = 999\n>>>>>>> origin/main")
+    path.write_text(conflicted, encoding="utf-8")
+    assert config.load(path) == original and path.read_text(encoding="utf-8") == conflicted
+    assert config.ours("a\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> m\nz\n") == "a\nx\nz\n"
+
+
 def test_roundtrip_keeps_projects_of_older_modules(tmp_path):
     """以前のモジュールの [projects]（作成時の基本のProject）は、使わないが読み書きでは消さない。"""
     original = config.ModuleConfig("Calc", config.ProjectNames("Calc", "CalcTest"), type="cpp")

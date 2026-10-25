@@ -158,24 +158,87 @@ WS.onRefresh(renderPrDetail);
         failed.length ? '' : 'この画面で流したテストに、失敗したものはありません'],
       ['テストを選んで実行…', chooseTests, !busy]], r.left, r.bottom + 4);
   });
-  // テストを選んで実行: the module's tests as a list to tick (ecobuild test --list: read without running them; C++ from
-  // the test Projects' TEST(…), Python by pytest's collection). The ones run in this screen come first with how they
-  // ended (failed ones at the top); the list arrives while the dialog is open. Names・patterns can also be written.
+  // テストを選んで実行: the module's tests as a tree to tick (ecobuild test --list: read without running them; C++ from
+  // the test Projects' TEST(…), Python by pytest's collection; the list arrives while the dialog is open). C++ is
+  // Project › Suite › Test, Python folder › file › class › test. A group's box ticks what is in it; the search (words
+  // split by spaces: names with all of them) narrows the tree and opens the groups that match. The ones run in this
+  // screen are marked with how they ended. Names・patterns can also be written.
   async function chooseTests() {
-    const names = features.tests === 'names', mark = {failed: '✗ ', passed: '✓ ', skipped: '- '};
-    const order = {failed: 0, skipped: 1, passed: 2}, cases = [...lastCases].sort((a, b) => (order[a.status] ?? 0) - (order[b.status] ?? 0));
+    const names = features.tests === 'names', mark = {failed: '✗ ', passed: '✓ ', skipped: '- '}, esc = ECO.esc;
+    const status = new Map(lastCases.map(c => [c.name, c.status]));
+    // A name's steps down the tree: [label, key]. A group's key runs all that is in it (C++ a Project, or its Suite as
+    // a pattern; Python a folder, file or class), so a fully ticked group is passed as one name.
+    const steps = name => {
+      if (names) {
+        const m = name.match(/^([^.]+)\.([^.]+)\.(.+)$/);
+        return m ? [[m[1], m[1]], [m[2], `${m[1]}.${m[2]}.*`], [m[3], name]] : [[name, name]];
+      }
+      const [file, ...parts] = name.split('::'), dirs = file.split('/');
+      return [...dirs.map((d, i) => [d, dirs.slice(0, i + 1).join('/')]), ...parts.map((p, i) => [p, [file, ...parts.slice(0, i + 1)].join('::')])];
+    };
+    const root = {key: '', children: new Map(), leaves: []}, known = new Set();
+    const add = name => {
+      if (known.has(name)) return;
+      known.add(name);
+      let node = root;
+      for (const [label, key] of steps(name)) {
+        node.leaves.push(name);
+        if (!node.children.has(key)) node.children.set(key, {key, label, children: new Map(), leaves: []});
+        node = node.children.get(key);
+      }
+      node.leaves.push(name); node.leaf = name;
+    };
+    for (const c of lastCases) add(c.name);
+    const picked = new Set(lastChosen.cases), opened = new Set(), closed = new Set();
+    let complete = false, query = [];
     const listed = WS.cli(['test', '--list'], {quiet: true}).then(doc => {
-      if (!doc.ok) { ECO.toast(`テストの一覧を読めませんでした：${doc.error.message}`, 'bad', 8000); return []; }
-      return doc.result.tests.map(t => [t.name, '　' + t.name]);
+      if (!doc.ok) { ECO.toast(`テストの一覧を読めませんでした：${doc.error.message}`, 'bad', 8000); return; }
+      for (const t of doc.result.tests) add(t.name);
+      complete = true;
     });
+    const shown = name => query.every(w => name.toLowerCase().includes(w));
+    // Open: what the search matched, what was opened by hand, a group alone in its parent, and all of a small tree.
+    const isOpen = (node, single) => query.length > 0 || opened.has(node.key) || (!closed.has(node.key) && (single || root.leaves.length <= 40));
+    const row = (node, depth, single) => {
+      const visible = node.leaves.filter(shown);
+      if (!visible.length) return '';
+      const on = node.leaves.filter(n => picked.has(n)).length, group = !node.leaf, open = group && isOpen(node, single);
+      const failed = node.leaves.some(n => status.get(n) === 'failed');
+      const label = node.leaf ? (status.has(node.leaf) ? mark[status.get(node.leaf)] || '✗ ' : '') + node.label : (failed ? '✗ ' : '') + node.label;
+      const kids = group && open ? [...node.children.values()].map(c => row(c, depth + 1, node.children.size === 1)).join('') : '';
+      return `<li><div class="tt-row" style="--depth:${depth}">${group
+        ? `<button type="button" class="tt-toggle" data-toggle="${esc(node.key)}" aria-expanded="${open}" aria-label="${open ? '畳む' : '開く'}">${open ? '▾' : '▸'}</button>`
+        : '<span class="tt-toggle"></span>'}<label${node.leaf ? ` title="${esc(node.leaf)}"` : ''}><input type="checkbox" data-key="${esc(node.key)}" ${on && on === node.leaves.length ? 'checked' : ''} ${on && on < node.leaves.length ? 'data-mixed' : ''}><span>${esc(label)}</span>${group
+        ? `<small>${query.length ? `${visible.length} / ` : ''}${node.leaves.length}</small>` : ''}</label></div>${kids ? `<ul>${kids}</ul>` : ''}</li>`;
+    };
+    const find = key => { const walk = node => node.key === key ? node : [...node.children.values()].map(walk).find(Boolean); return walk(root); };
+    let tree = null, count = null;
+    const render = () => {
+      if (!tree) return;
+      const focused = document.activeElement?.closest?.('.test-tree') && (document.activeElement.dataset.key ?? document.activeElement.dataset.toggle);
+      const rows = [...root.children.values()].map(c => row(c, 0, root.children.size === 1)).join('');
+      tree.innerHTML = rows ? `<ul>${rows}</ul>` : `<p class="eco-help">${!root.leaves.length
+        ? complete ? 'テストが見つかりませんでした（下の「名前で指定」に書いてください）' : 'テストを探しています…（見つからなければ、下の「名前で指定」に書いてください）'
+        : '検索に当てはまるテストはありません'}</p>`;
+      for (const box of tree.querySelectorAll('[data-mixed]')) box.indeterminate = true;
+      if (focused != null) tree.querySelector(`[data-key="${CSS.escape(focused)}"], [data-toggle="${CSS.escape(focused)}"]`)?.focus();
+      count.textContent = `${picked.size} 件を選んでいます` + (complete ? '' : '（一覧を読んでいます…）');
+    };
+    const tick = (leaves, on) => { for (const n of leaves) if (on) picked.add(n); else picked.delete(n); render(); };
+    // What to pass: a fully ticked group by its key (once the whole list is read, so the group has nothing unseen),
+    // else the ticked tests. All of them: no names (every test runs).
+    const chosenNames = () => {
+      if (complete && root.leaves.every(n => picked.has(n))) return [];
+      const walk = node => !node.leaf && complete && node.key && node.leaves.length > 1 && node.leaves.every(n => picked.has(n)) ? [node.key]
+        : node.leaf ? picked.has(node.leaf) ? [node.leaf] : [] : [...node.children.values()].flatMap(walk);
+      return [...walk(root), ...[...picked].filter(n => !known.has(n))];   // ticked before but not in the tree now
+    };
     let wired = false;
     await ECO.form({title: 'テストを選んで実行', wide: true,
-      intro: '流すテストにチェックを付けます（✗ ✓ はこの画面で前に流した結果）。',
+      intro: '流すテストにチェックを付けます。まとまりのチェックで中の全部を選べます（✗ ✓ はこの画面で前に流した結果）。',
       fields: [
-        {name: 'search', label: '絞り込み（この文字を含むテストだけ表示）', placeholder: names ? '例：Add' : '例：test_calc', focus: true},
-        {name: 'all', type: 'html', html: '<p class="test-pick-tools"><button type="button" data-pick="on">表示中をすべて選ぶ</button><button type="button" data-pick="off">選択を外す</button></p>'},
-        {name: 'cases', label: 'テスト', type: 'checks', value: lastChosen.cases, options: cases.map(c => [c.name, (mark[c.status] || '✗ ') + c.name]),
-          more: listed, empty: 'テストを探しています…（見つからなければ、下の「名前で指定」に書いてください）'},
+        {name: 'search', label: '名前で探す（空白で区切ると、全部を含むもの）', placeholder: names ? '例：Calc Add' : '例：test_calc', focus: true},
+        {name: 'tree', type: 'html', html: '<p class="test-pick-tools"><button type="button" data-pick="on">見つかったものを選ぶ</button><button type="button" data-pick="off">見つかったものを外す</button><button type="button" data-pick="clear">選択をすべて外す</button><span class="tt-count"></span></p><div class="test-tree" role="group" aria-label="テスト"></div>'},
         {type: 'section', label: '名前で指定', collapsed: !lastChosen.text && !lastChosen.filter && !lastChosen.lastFailed},
         {name: 'text', label: names ? 'テストの名前（1行に1つ。<テスト用Project>.<Suite>.<Test>。* ? が使えます。Project の名前だけならその全部）'
           : 'ファイル・フォルダ・テスト（1行に1つ。例：tests/test_x.py、tests/unit、tests/test_x.py::test_a）', type: 'textarea', rows: 3, value: lastChosen.text,
@@ -185,22 +248,38 @@ WS.onRefresh(renderPrDetail);
         {type: 'section', end: true}],
       ok: '実行',
       onChange: (v, formEl) => {
-        const q = (v.search || '').toLowerCase(), boxes = () => [...formEl.querySelectorAll('[data-field="cases"] label')];
-        for (const label of boxes()) label.hidden = !!q && !label.textContent.toLowerCase().includes(q);
-        if (wired) return;
-        wired = true;
-        formEl.querySelector('.test-pick-tools').addEventListener('click', e => {
-          const on = e.target.closest('[data-pick]')?.dataset.pick; if (!on) return;
-          for (const label of boxes()) if (!label.hidden || on === 'off') label.querySelector('input').checked = on === 'on';
-        });
-        // The list arrives later: what is typed in 絞り込み applies to it too.
-        listed.then(() => setTimeout(() => formEl.dispatchEvent(new Event('input')), 0));
+        const words = (v.search || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (wired && words.join(' ') === query.join(' ')) return;
+        query = words;
+        if (!wired) {
+          wired = true;
+          tree = formEl.querySelector('.test-tree'); count = formEl.querySelector('.tt-count');
+          formEl.querySelector('.test-pick-tools').addEventListener('click', e => {
+            const how = e.target.closest('[data-pick]')?.dataset.pick; if (!how) return;
+            if (how === 'clear') tick([...picked], false); else tick(root.leaves.filter(shown), how === 'on');
+          });
+          tree.addEventListener('click', e => {
+            const key = e.target.closest('[data-toggle]')?.dataset.toggle; if (key == null) return;
+            const open = e.target.closest('[data-toggle]').getAttribute('aria-expanded') === 'true';
+            (open ? opened : closed).delete(key); (open ? closed : opened).add(key);
+            render();
+          });
+          // A group's box ticks (or clears) what of it the search shows.
+          tree.addEventListener('change', e => {
+            const box = e.target.closest('[data-key]'), node = box && find(box.dataset.key); if (!node) return;
+            tick(node.leaves.filter(shown), box.checked);
+          });
+          formEl.elements.search.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) e.preventDefault(); });   // Enter only searches
+          listed.then(render);
+        }
+        render();
       },
       // Not awaited: the run shows in 出力 (the dialog's busy overlay would stay while the tests run).
       submit: v => {
-        const written = (v.text || '').split('\n').map(s => s.trim()).filter(Boolean), tests = [...new Set([...(v.cases || []), ...written])];
-        if (!tests.length && !v.filter && !v.lastFailed) return '流すテストを選ぶか、名前を書いてください。';
-        lastChosen = {cases: v.cases || [], text: v.text || '', filter: v.filter || '', lastFailed: !!v.lastFailed};
+        const written = (v.text || '').split('\n').map(s => s.trim()).filter(Boolean), every = complete && root.leaves.length && root.leaves.every(n => picked.has(n));
+        const tests = [...new Set([...chosenNames(), ...written])];
+        if (!tests.length && !every && !v.filter && !v.lastFailed) return '流すテストを選ぶか、名前を書いてください。';
+        lastChosen = {cases: [...picked], text: v.text || '', filter: v.filter || '', lastFailed: !!v.lastFailed};
         runAction('test', '', {tests, filter: lastChosen.filter, lastFailed: lastChosen.lastFailed});
       }});
   }

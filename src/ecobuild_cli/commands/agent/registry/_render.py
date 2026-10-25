@@ -18,6 +18,7 @@ def details(r) -> str:
         f"  モデル：{r.model or '既定'}",
         f"  起動してよい子：{'・'.join(r.children) or 'なし'}（同時に {r.max_children} 人まで）",
         f"  渡すツール：{', '.join(r.tools) or 'なし'}",
+        f"  使えるスキル：{', '.join(r.skills) or 'なし'}",
         *([f"  改善のループ：{loop(r)}"] if loop(r) else []),
         f"  置き場所：{r.folder}",
         *([f"  コミット：{committed[:7]}（Push はしていません。提出して取り込まれると効きます）"] if committed else []),

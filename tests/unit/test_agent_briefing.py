@@ -4,7 +4,7 @@ import json
 import subprocess
 from types import SimpleNamespace
 
-from ecobuild_agent import registry
+from ecobuild_agent import registry, skills
 from ecobuild_agent import AGENT_AREA, status
 from ecobuild_bundle import Module
 from ecowork.git import Git
@@ -29,7 +29,7 @@ def test_claude_gets_the_briefing_and_the_tools_as_files(tmp_path):
     --strict-mcp-config）。どちらもエージェントの置き場所に置く。"""
     prepared = []
     record = SimpleNamespace(id="a-0123456789", registration="worker", kind="owner")
-    stub = SimpleNamespace(prepare_agent_area=lambda: prepared.append(True),
+    stub = SimpleNamespace(root=tmp_path / "plain", prepare_agent_area=lambda: prepared.append(True),
                            agent_briefing=lambda task, record: f"使い方（#{task.number}・{record.id}）",
                            mcp_config=lambda record, boxed: {"mcpServers": {"ecobuild": {"boxed": boxed}}},
                            _registration=lambda record: registry.Registration(name="worker", title="作業", document="",
@@ -45,6 +45,35 @@ def test_claude_gets_the_briefing_and_the_tools_as_files(tmp_path):
     assert inside[2] == f"{status.INSIDE}/a-0123456789/guide.md" and inside[4] == f"{status.INSIDE}/a-0123456789/mcp.json"
     assert registry.from_file(tmp_path / "registration.json").tools == ("task_*",)   # このPCで解決した登録の写し
     assert Module._briefed(stub, ("codex",), tmp_path, False, task, record) == ("codex",)   # Claude Code でなければ何もしない
+
+
+def test_the_skills_the_registration_allows_are_given_by_add_dir(tmp_path):
+    """作成元に取り込まれたスキルのうち、登録の skills に合うものを置き場所に写し、--add-dir で渡す（なければ渡さない）。"""
+    root = tmp_path / "module"
+    root.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True)
+    (root / ".ecobuild").mkdir()
+    (root / ".ecobuild" / "ecobuild.toml").write_text(
+        'format = 5\n\n[module]\nname = "calc"\ntype = "python"\n\n[branches]\ndefault_base = "main"\n', encoding="utf-8")
+    skills.add(root, "build-help", description="ビルドの手順")
+    skills.add(root, "deploy", description="配る手順")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-q", "-m", "skills"], check=True)
+    record = SimpleNamespace(id="a-0123456789", registration="worker", kind="owner")
+    allowed = []
+    stub = SimpleNamespace(root=root, prepare_agent_area=lambda: None, agent_briefing=lambda task, record: "",
+                           mcp_config=lambda record, boxed: {},
+                           _registration=lambda record: registry.Registration(name="worker", title="作業", document="",
+                                                                               skills=tuple(allowed)))
+    task = SimpleNamespace(number=12, branch="task/12-log")
+    folder = tmp_path / "area"
+    folder.mkdir()
+    assert "--add-dir" not in Module._briefed(stub, ("claude",), folder, True, task, record)   # 使えるスキルがない
+    allowed.append("build-*")
+    command = Module._briefed(stub, ("claude",), folder, True, task, record)
+    assert command[command.index("--add-dir") + 1] == f"{status.INSIDE}/a-0123456789/skills"
+    assert [p.name for p in (folder / "skills" / ".claude" / "skills").iterdir()] == ["build-help"]
 
 
 def test_the_mcp_server_is_fixed_to_the_agent(tmp_path):

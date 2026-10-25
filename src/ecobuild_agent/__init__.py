@@ -26,7 +26,7 @@ from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ  # noqa: F401（コマ�
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
-from . import agents, app, children, inside, registry, rules, status
+from . import agents, app, children, inside, registry, rules, skills, status
 from .agents import AgentRecord
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
@@ -36,6 +36,7 @@ AGENT_AREA = ".ecobuild/ai"   # 作業空間の中のエージェント用の置
 EXCLUDE_LOCK = "ecobuild-exclude.lock"   # git の除外（info/exclude）に書き足す間のロック（git の <名前>.lock とは別の名前）
 GUIDE_FILE = "guide.md"       # エージェントの置き場所の中：起動のときに渡す文（--append-system-prompt-file）
 MCP_FILE = "mcp.json"         # エージェントの置き場所の中：エージェント専用の MCP サーバーの設定（--mcp-config）
+SKILLS_FOLDER = "skills"      # エージェントの置き場所の中：使えるスキル（<ここ>/.claude/skills/<名前>/。--add-dir）
 REGISTRATION_FILE = "registration.json"   # エージェントの置き場所の中：このPCで解決した登録（中の MCP サーバーが読む）
 # シェルの関所（ecobuild agent guard。中の ECOBuild）：シェルの ecobuild・gh・git の書き込みを止める（ecobuild_agent.guard）
 GUARD_HOOK = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "ecobuild agent guard"}]}]}}
@@ -430,6 +431,11 @@ class AgentModule:
             (folder / MCP_FILE).write_text(json.dumps(self.mcp_config(record, boxed), ensure_ascii=False, indent=1),
                                            encoding="utf-8", newline="\n")
             command = (*command, "--mcp-config", f"{where}/{MCP_FILE}", "--strict-mcp-config")
+        # 使えるスキル（作成元に取り込まれたもののうち、登録の skills に合うもの）を置き場所に写し、--add-dir で渡す
+        # （Claude Code は --add-dir のフォルダーの .claude/skills を読む）
+        if skills.provide(self.root, self._registration(record).skills, folder / SKILLS_FOLDER / ".claude" / "skills") \
+                and "--add-dir" not in command:
+            command = (*command, "--add-dir", f"{where}/{SKILLS_FOLDER}")
         return command
 
     def mcp_config(self, record: AgentRecord, boxed: bool = True) -> dict:

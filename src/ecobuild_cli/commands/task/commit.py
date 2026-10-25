@@ -10,6 +10,7 @@ def command(
     message: Annotated[str, "コミットメッセージ（必須）"] = "",
     all: Annotated[bool, "（以前の書き方。指定しなくても変更はすべて含めます）"] = False,
     amend: Annotated[bool, "直前のコミットをやり直す"] = False,
+    pipelines: Annotated[bool, "コミットの前・後のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクブランチの変更をコミットします（タスクブランチでのみ）。
@@ -17,6 +18,7 @@ def command(
     パスを省くと、変更・削除したファイルすべてと、管理するファイル（ecobuild track）に当たる新しいファイルを含めます。
     当たらない新しいファイルと、改行コード（CRLF／LF）だけが変わったファイルは含めず、一覧で知らせます。
     パスを書くと、そのファイルだけをコミットします（改行コードだけの変更も含めます）。
+    コミットの前・後に当てたパイプライン（ecobuild pipeline on）があれば走らせます。前のものが失敗したらコミットしません。
     """
     if not message and not amend:
         return missing("--message", json)
@@ -24,7 +26,7 @@ def command(
     def action(inv):
         module = inv.module
         relative = tuple(module.relative_path(p, inv.cwd) for p in paths)
-        return module.commit(message, relative, amend=amend)
+        return module.commit(message, relative, amend=amend, progress=inv.info, pipelines=pipelines)
 
     def render(r):
         return lines(

@@ -41,6 +41,7 @@ def command(
     partial: Annotated[bool, "取り込んでもタスクを閉じず、タスクブランチを作り直して続ける（中間の取り込み。提出を中間提出に切り替える）"] = False,
     complete: Annotated[bool, "取り込んでタスクを閉じる（中間提出も最後の提出に切り替える）"] = False,
     timeout: Annotated[int, "CIを待つ時間の上限（秒）"] = 1800,
+    pipelines: Annotated[bool, "取り込みの前のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチと作業空間を片付けます。
@@ -58,7 +59,8 @@ def command(
         if wait and not ignore_checks:
             inv.info("CIの結果を待ってから完了します（ワークフローがあれば）…")
         leave(inv.module.root, inv)   # この作業空間を消すことがある
-        return inv.module.finish(task or None, wait=wait, ignore_checks=ignore_checks, subject=subject or None,
+        return inv.module.finish(task or None, progress=inv.info, pipelines=pipelines,
+                                 wait=wait, ignore_checks=ignore_checks, subject=subject or None,
                                  partial=True if partial else False if complete else None, timeout=timeout)
 
     return run_command("task finish", action, render_finish, json_output=json)

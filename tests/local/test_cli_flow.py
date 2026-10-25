@@ -1032,17 +1032,28 @@ def test_container_dockerfile(cli, module, tmp_path):
     assert as_json(cli("container", "recipe", "--json"))["result"]["dockerfile"] == "FROM debian:12\n"   # 試しに作る元
 
 
-def test_submit_checks_are_set_with_task_checks(cli, module):
-    """提出の前の確認（[check]）は既定でなし。task checks で見て、タスクブランチで変える。"""
-    assert as_json(cli("task", "checks", "--json"))["result"] == {"items": [], "tests": []}
-    refused = as_json(cli("task", "checks", "--set", "build", "--json"))
+def test_pipelines_are_made_and_put_with_the_cli(cli, module):
+    """パイプラインは既定でなし。pipeline add・on はタスクブランチで、on --local はどこでも。run で単体で走らせる。"""
+    assert as_json(cli("pipeline", "list", "--json"))["result"] == {"pipelines": [], "triggers": {}, "local": {}}
+    assert "パイプラインはありません" in cli("pipeline", "list").stdout
+    refused = as_json(cli("pipeline", "add", "quick", "--steps", "generated", "--json"))
     assert refused["error"]["code"] == "not_on_task_branch"
-    start(cli, "task", "new", "確認の設定", "--start", "--name", "作業")
-    assert as_json(cli("task", "checks", "--set", "generated,test", "--tests", "tests/unit", "--json"))["result"] == {
-        "items": ["generated", "test"], "tests": ["tests/unit"]}
-    assert "提出の確認：生成ファイル・テスト" in cli("task", "checks").stdout
-    assert as_json(cli("task", "checks", "--set", "lint", "--json"))["error"]["code"] == "invalid_argument"
-    assert as_json(cli("task", "checks", "--set", "none", "--json"))["result"] == {"items": [], "tests": []}
+    start(cli, "task", "new", "パイプラインの設定", "--start", "--name", "作業")
+    made = as_json(cli("pipeline", "add", "quick", "--steps", "generated,test", "--tests", "tests/unit", "--json"))["result"]
+    assert made["pipelines"] == [{"name": "quick", "steps": ["generated", "test"], "tests": ["tests/unit"]}]
+    put = as_json(cli("pipeline", "on", "before-submit", "quick", "--json"))["result"]
+    assert put["triggers"] == {"before-submit": ["quick"]}
+    assert as_json(cli("pipeline", "on", "before-push", "quick", "--local", "--json"))["result"]["local"] == {
+        "before-push": ["quick"]}
+    shown = cli("pipeline", "list").stdout
+    assert "quick：生成ファイル・テスト（流す試験：tests/unit）" in shown and "提出の前（before-submit）：quick" in shown
+    assert "push の前（before-push）：quick（このPCだけ）" in shown
+    assert as_json(cli("pipeline", "add", "lint", "--steps", "lint", "--json"))["error"]["code"] == "invalid_argument"
+    assert as_json(cli("pipeline", "on", "before-lunch", "quick", "--json"))["error"]["code"] == "invalid_argument"
+    assert as_json(cli("pipeline", "add", "gen", "--steps", "generated", "--json"))["ok"]
+    assert as_json(cli("pipeline", "run", "gen", "--json"))["result"]["ok"]
+    removed = as_json(cli("pipeline", "remove", "quick", "--json"))["result"]
+    assert removed["triggers"] == {} and removed["local"] == {}   # このPCの当て方も、なくなったものは出さない
 
 
 def test_workspace_names_stay_inside(module):

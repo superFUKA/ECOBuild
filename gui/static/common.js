@@ -221,7 +221,7 @@ const ECO = (() => {
       const ok = await confirm({title: '生成ファイルのコミット', message: 'ECOBuild の更新などで、自動で作られるファイルが変わりました。先にこれらだけをコミットしてから続けますか？', detail: outdated.join('\n'), ok: 'コミットして続ける'});
       if (!ok) return null;
       overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
-      const step = await cli(dir, ['task', 'commit', ...outdated, '--message', '生成ファイルを構成の更新に合わせる']);
+      const step = await cli(dir, ['task', 'commit', ...outdated, '--message', '生成ファイルを構成の更新に合わせる', '--no-pipelines']);
       doc = step.ok ? await cli(dir, args, {stdin}) : step;
     }
     overlay?.end();
@@ -600,7 +600,7 @@ const ECO = (() => {
     diff: '',
     comment: '',
     task: '',
-    submit: '確認（ビルド・テスト）→ Push → PR',
+    submit: '提出の前のパイプライン → Push → PR',
     ready: '',
     finish: '取り込む：CIの結果を待って、提出（PR）を作成元へ取り込みます。タスクは提出のとおり、閉じるか続けます。',
     withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',

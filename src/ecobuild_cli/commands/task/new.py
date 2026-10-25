@@ -20,6 +20,7 @@ def command(
     start: Annotated[bool, "続けてタスクブランチを作り、作業空間に取り出す（task start と同じ。--name が必要）"] = False,
     name: Annotated[str, "--start時のタスクブランチの名前（task/<番号>-<名前>。日本語も使えます。題名をそのまま使うなら同じ文字列）"] = "",
     base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親のタスクブランチに決まる）"] = "",
+    pipelines: Annotated[bool, "--start時、タスクの開始の後のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスク（GitHub Issue）を作成します。"""
@@ -34,7 +35,8 @@ def command(
                                             "planned_end": planned_end or None})
         if not start:
             return {"task": task, "task_branch": None}
-        module = inv.module.start_task(task.number, base=base or None, name=name)
+        module = inv.module.start_task(task.number, base=base or None, name=name, progress=inv.info,
+                                       pipelines=pipelines)
         inv.use_module(module)
         return {"task": task, "task_branch": started(module)}
 

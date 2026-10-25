@@ -11,6 +11,7 @@ def command(
     ignore_blocked: Annotated[bool, "先に終わるべきタスクが開いていても始める"] = False,
     no_branch: Annotated[bool, "タスクブランチを作らずに作業中にする（調査・設計等、コードを変えないタスク）"] = False,
     take_over: Annotated[bool, "他の人が担当していても引き継いで始める（担当者を自分にし、タスクに残す）"] = False,
+    pipelines: Annotated[bool, "タスクの開始の後のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """Issueのタスクブランチ（task/<番号>-<名前>）を作ってGitHubにも置き、作業空間に取り出します。
@@ -28,7 +29,8 @@ def command(
         if no_branch:
             return inv.module.repository.start_task_without_branch(issue, ignore_blocked=ignore_blocked, take_over=take_over)
         module = inv.module.start_task(issue, base=base or None, name=name, ignore_blocked=ignore_blocked,
-                                       take_over=take_over, account=account or None)
+                                       take_over=take_over, account=account or None, progress=inv.info,
+                                       pipelines=pipelines)
         inv.use_module(module)
         return started(module)
 

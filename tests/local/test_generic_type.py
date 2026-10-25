@@ -134,7 +134,8 @@ def test_submit_writes_check_evidence(tmp_path):
     task_branch = module.repository.create_task("証拠").start()
     commands = {"build": python("print('built')"), "test": python("print('tested')")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
-    module.set_submit_checks(config.SubmitChecks(items=("build", "test")))
+    module.set_pipeline(config.Pipeline("full", ("build", "test")))
+    module.set_trigger("before-submit", ("full",))
     task_branch.stage(all=True)
     task_branch.commit("コマンド")
     pr = module.submit(note="テストのコマンドを足した。戻すならこのPRを戻す。")
@@ -164,38 +165,108 @@ def test_submit_writes_check_evidence(tmp_path):
     assert "- OK テスト：成功 1" in module.repository.github.pulls[pr.number].body
 
 
-def test_submit_checks_only_what_the_module_chose(tmp_path):
-    """提出の前の確認は [check] で決める（ecobuild task checks）。既定は何もせずに出し、そう書く。"""
+def test_submit_runs_only_the_pipelines_put_before_it(tmp_path):
+    """提出の前に走るのは、before-submit に当てたパイプラインだけ。既定は何もせずに出し、そう書く。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     task_branch = module.repository.create_task("提出の確認").start()
     commands = {"build": python("import sys; sys.exit(5)"), "test": python("print('tested')")}   # ビルドは失敗する
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
-    assert module.config.submit_checks == config.SubmitChecks()
+    assert module.pipelines() == config.Pipelines()
     task_branch.stage(all=True)
     task_branch.commit("コマンド")
     pr = module.submit()   # 何も確かめない（失敗するビルドも動かさない）
     body = module.repository.github.pulls[pr.number].body
     assert module_mod.NO_CHECKS_SET_NOTE in body and module_mod.submitted_check(body) == (None, None)
 
-    settings = module.set_submit_checks(config.SubmitChecks(items=("conflict_markers", "test")))
-    assert settings.items == ("conflict_markers", "test") and settings.tests == ()
-    assert config.load(module.root / config.FILE_NAME).submit_checks == settings
+    module.set_pipeline(config.Pipeline("quick", ("conflict_markers", "test")))
+    module.set_pipeline(config.Pipeline("full", ("build", "test")))
+    assert module.pipelines().at("before-submit") == ()   # 作っただけでは走らない
+    module.set_trigger("before-submit", ("quick",))
+    assert config.load(module.root / config.FILE_NAME).pipelines.at("before-submit") == ("quick",)
     task_branch.stage(all=True)
     task_branch.commit("提出の確認")
-    module.submit()        # 選んだ項目だけ（ビルドは動かさないので通る）
+    module.submit()        # 当てたものだけ（ビルドは動かさないので通る）
     body = module.repository.github.pulls[pr.number].body
     assert "- OK 衝突の印" in body and "- OK テスト" in body and "ビルド" not in body
     assert not module.checked()   # 一部だけの確認は、全部を通った版として残さない
+    module.set_trigger("before-submit", ("quick", "full"))
+    task_branch.stage(all=True)
+    task_branch.commit("全部")
+    with pytest.raises(EcoBuildError) as error:   # 前のものが失敗したら出さない
+        module.submit()
+    assert error.value.code == ErrorCode.CHECK_FAILED and "提出の前のパイプライン full" in error.value.message
     with pytest.raises(EcoBuildError) as error:   # 試験を絞れない型に絞る試験を書いたら、飛ばさずに失敗
         module.check(only=("test",), tests=("t",))
     assert error.value.code == ErrorCode.CHECK_FAILED
+
+
+def test_pipelines_are_made_put_and_run(tmp_path):
+    """パイプラインは単体で作り、単体でも走らせ、どのタイミングにも当てられる。前のものは操作を止め、後のものは知らせるだけ。
+    このPCだけで足す当て方は ecobuild.local.toml（共有の設定は変えない）。以前の [check] は before-submit のものとして読む。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    task_branch = module.repository.create_task("パイプライン").start()
+    commands = {"build": python("import sys; sys.exit(5)"), "test": python("print('tested')")}   # ビルドは失敗する
+    module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {
+        "commands": commands, "check": {"submit": ["test"]}}}))
+    legacy = module.pipelines()
+    assert legacy.at("before-submit") == (config.LEGACY_PIPELINE,) and legacy.get("check").steps == ("test",)
+
+    module.set_pipeline(config.Pipeline("quick", ("generated", "test")))
+    text = (module.root / config.FILE_NAME).read_text(encoding="utf-8")
+    assert "[check]" not in text and "[pipelines]" in text and "[triggers]" in text   # 以前の設定は新しい形で書き直す
+    module.set_pipeline(config.Pipeline("broken", ("build",)))
+    assert module.run_pipeline("quick").ok
+    failed = module.run_pipeline("broken")
+    assert not failed.ok and failed.items[0].name == "build" and not failed.items[0].ok
+
+    module.set_trigger("before-commit", ("broken",))
+    (module.root / "a.txt").write_text("a\n", encoding="utf-8")
     with pytest.raises(EcoBuildError) as error:
-        module.set_submit_checks(config.SubmitChecks(items=("lint",)))
-    assert error.value.code == ErrorCode.INVALID_ARGUMENT
-    with pytest.raises(EcoBuildError):
-        module.set_submit_checks(config.SubmitChecks(items=("build",), tests=("t",)))   # test なしで試験を指定
-    assert module.set_submit_checks(config.SubmitChecks()) == config.SubmitChecks()
-    assert "[check]" not in (module.root / config.FILE_NAME).read_text(encoding="utf-8")
+        module.commit("a")
+    assert error.value.code == ErrorCode.CHECK_FAILED and "コミットの前" in error.value.message
+    assert module.repository.git.working_tree().untracked or module.repository.git.working_tree().unstaged
+    module.commit("a", pipelines=False)   # 走らせずに進める
+    module.set_trigger("before-commit", ())
+    module.set_trigger("after-commit", ("broken",))
+    (module.root / "b.txt").write_text("b\n", encoding="utf-8")
+    module.repository.notices.clear()
+    assert module.commit("b").sha                                     # 後のものの失敗は止めない
+    assert any("コミットの後のパイプライン broken" in n for n in module.repository.notices)
+    module.set_trigger("after-commit", ())
+
+    module.set_trigger("before-push", ("broken",), local=True)        # このPCだけ（共有の設定は変わらない）
+    assert module.pipelines().at("before-push") == ("broken",)
+    assert config.load(module.root / config.FILE_NAME).pipelines.at("before-push") == ()
+    assert "broken" in (module.root / config.LOCAL_FILE_NAME).read_text(encoding="utf-8")
+    with pytest.raises(EcoBuildError) as error:
+        module.push()
+    assert "push の前" in error.value.message
+    module.set_trigger("before-push", (), local=True)
+    assert module.pipelines().local == {}
+
+    module.set_trigger("before-submit", ("quick",))
+    module.remove_pipeline("quick")                                     # 当てていたところからも外れる
+    assert module.pipelines().at("before-submit") == () and module.pipelines().get("quick") is None
+    for bad in (lambda: module.set_trigger("before-lunch", ("broken",)), lambda: module.set_trigger("after-push", ("none",)),
+                lambda: module.set_pipeline(config.Pipeline("lint", ("lint",))),
+                lambda: module.set_pipeline(config.Pipeline("a b", ("test",))),
+                lambda: module.set_pipeline(config.Pipeline("t", ("build",), ("tests/x",))),
+                lambda: module.run_pipeline("nothing")):
+        with pytest.raises(EcoBuildError) as error:
+            bad()
+        assert error.value.code == ErrorCode.INVALID_ARGUMENT
+
+
+def test_pipeline_tests_are_written_as_test_steps(tmp_path):
+    """流す試験は ecobuild.toml に「test:<試験>」として並べ、読むと手順 test と試験に戻る。"""
+    pipeline = config.Pipeline("unit", ("generated", "test"), ("tests/unit", "tests/x.py"))
+    assert pipeline.entries() == ["generated", "test:tests/unit", "test:tests/x.py"]
+    base = config.ModuleConfig(name="M", type="generic")
+    written = base.with_pipelines((pipeline,), {"before-push": ("unit",)})
+    assert written.extra["pipelines"] == {"unit": pipeline.entries()} and written.pipelines.get("unit") == pipeline
+    config.save(written, tmp_path / config.FILE_NAME)
+    assert config.load(tmp_path / config.FILE_NAME).pipelines == written.pipelines
+
 
 
 def test_ci_settings_and_hand_edited_workflow(tmp_path):

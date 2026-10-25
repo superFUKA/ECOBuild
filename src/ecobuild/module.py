@@ -38,7 +38,8 @@ from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
-                      ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
+                      ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
+                      PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestList, TestResult, WorkspaceClosed, WorkspaceList)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
@@ -831,7 +832,8 @@ class Module:
     def submit(self, *, title: str | None = None, partial: bool | None = None, draft: bool = False,
                reviewers: tuple[str, ...] = (), check: bool = True, note: str | None = None,
                verified_by: tuple[str, ...] = (), progress: Callable[[str], None] | None = None) -> wm.PullRequest:
-        """タスクブランチを提出する：（check で確かめる）→ push → 提出（PR）。提出済みなら送り直し・下書きの付け外し。
+        """タスクブランチを提出する：（check なら提出の前のパイプライン）→ push → 提出（PR）→ 提出の後のパイプライン。
+        提出済みなら送り直し・下書きの付け外し。check=False（--no-check）なら、前も後もパイプラインを走らせない。
 
         未コミットの変更（追跡中のファイル・管理するファイルに当たる新しいファイル）があれば止める。
         提出の本文に、確認の結果（どの版で何が通ったか。出し直しのたびに今の版のものへ）と、note（提出の説明。
@@ -852,24 +854,23 @@ class Module:
             (progress or _quiet)("注意：手元の依存先が記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches))
         saved = self._last_check()
         items = None if saved is None else tuple(CheckItem(**item) for item in saved.get("items", ()))
-        settings = self.config.submit_checks
-        if check and saved is None and not settings.items:
-            (progress or _quiet)(f"提出の確認は設定していません（確認せずに出します。設定は {self.op('task checks')}）")
+        if check and saved is None and not self.pipelines().at("before-submit"):
+            (progress or _quiet)(f"提出の前のパイプラインはありません（確認せずに出します。設定は {self.op('pipeline on')}）")
             items = ()
         elif check:
             if saved is not None:
-                (progress or _quiet)("この版は確認済みです（ビルド・テストを省きます）")
+                (progress or _quiet)("この版は確認済みです（提出の前のパイプラインを省きます）")
             else:
-                names = "・".join(CHECK_NAMES[name] for name in settings.items)
-                (progress or _quiet)(f"確認しています（{names}）…")
-                items = self.check(allow_dependency_mismatch=draft, only=settings.items, tests=settings.tests).items
-                for item in items:
-                    (progress or _quiet)(_check_line(item))
+                runs = self.run_pipelines("before-submit", progress=progress)
+                items = tuple(item for run in runs for item in run.items)
         checked_at = (self._last_check() or saved or {}).get("at")   # 今通したなら記録は新しい
         sections = {SUBMIT_CHECK_SECTION: self._check_section(items, checked_at, verified)}
         if note is not None:
             sections = {SUBMIT_NOTE_SECTION: note, **sections}
-        return task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers, sections=sections)
+        result = task_branch.submit(title=title, partial=partial, draft=draft, reviewers=reviewers, sections=sections)
+        if check:
+            self.run_pipelines("after-submit", progress=progress)
+        return result
 
     def _check_section(self, items: tuple[CheckItem, ...] | None, at: str | None,
                        verified: tuple[tuple[str, str], ...] = ()) -> str:
@@ -885,7 +886,7 @@ class Module:
             return "\n".join([f"{title}\n\nこの版（`{head}`）は `{self.op('check')}`（生成ファイル・衝突の印・ビルド・"
                               f"テスト）を行わずに提出しました{NO_CHECK_NOTE}。", *own])
         if not items:
-            return "\n".join([f"{title}\n\nこの版（`{head}`）は、提出の確認を設定していないので確かめずに提出しました"
+            return "\n".join([f"{title}\n\nこの版（`{head}`）は、提出の前のパイプラインがないので確かめずに提出しました"
                               f"{NO_CHECKS_SET_NOTE}。", *own])
         profile = _config.load_local(self.root).get("profile")
         when = at or _dt.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M")
@@ -894,15 +895,27 @@ class Module:
         return "\n".join([title, "", f"提出した人の手元で `{self.op('check')}` が通りました（{where}）。",
                           *([""] + lines if lines else []), *own])
 
-    def finish(self, number: int | None = None, **options) -> wm.FinishResult:
+    def finish(self, number: int | None = None, *, progress: Callable[[str], None] | None = None,
+               pipelines: bool = True, **options) -> wm.FinishResult:
         """タスクを完了する（ecowork の Repository.finish。wait・ignore_checks・subject・timeout）。
 
         タスクブランチを取り出していた作業空間は、タスクブランチと一緒に消える（中間提出なら残る）。消せなければ
         （使用中・新しいファイルがある等）残して知らせる（workspace_kept）。
+        pipelines：取り込みの前のパイプラインを、そのタスクブランチ（ここか、このPCの作業空間）で走らせる。どこにも
+        取り出していなければ省いて知らせる。
         """
         current = self._current_task()
         if current is not None and number in (None, current):
             self._refuse_uncommitted("完了")
+        if pipelines and self.pipelines().at("before-finish"):
+            target = current if number is None else number
+            place = self.task_workspaces().get(target) if target is not None and target != current else None
+            here = self if target is not None and target == current else self._open_workspace(place) if place else None
+            if here is None:
+                self.repository.notices.append(f"#{target} のタスクブランチがこのPCにないので、取り込みの前の"
+                                               f"パイプラインは走らせませんでした")
+            else:
+                here.run_pipelines("before-finish", progress=progress)
         return self.repository.finish(number, **options)
 
     def _current_task(self) -> int | None:
@@ -991,12 +1004,16 @@ class Module:
         self._save_config(replace(self.config, extra=_tracking.with_lists(self.config.extra, include, exclude)))
         return self.tracked_files()
 
-    def commit(self, message: str, paths: tuple[str, ...] = (), *, amend: bool = False) -> wm.RecordResult:
+    def commit(self, message: str, paths: tuple[str, ...] = (), *, amend: bool = False,
+               progress: Callable[[str], None] | None = None, pipelines: bool = True) -> wm.RecordResult:
         """変更をコミットする（task commit）。パスなし：追跡中のファイルの変更・削除と、管理するファイルに当たる新しい
-        ファイル。パスあり：そのパスだけ（対象外の新しいファイルも、名前を書いたものは含める）。"""
+        ファイル。パスあり：そのパスだけ（対象外の新しいファイルも、名前を書いたものは含める）。
+        pipelines：コミットの前・後のパイプラインを走らせる。"""
         task_branch = self.require_task_branch("コミット")
         if not message.strip() and not amend:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "コミットメッセージが空です。")
+        if pipelines:
+            self.run_pipelines("before-commit", progress=progress)
         outside = ()
         if paths:
             paths = tuple(p.replace("\\", "/").strip("/") or "." for p in paths)
@@ -1005,7 +1022,21 @@ class Module:
                             if any(r == "." or p == r or p.startswith(r + "/") for r in paths) and not self.is_tracked(p))
         result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
         self._forget_created(result.files)
+        if pipelines:
+            self.run_pipelines("after-commit", progress=progress)
         return replace(result, outside=outside)
+
+    def push(self, *, force: bool = False, dry_run: bool = False, progress: Callable[[str], None] | None = None,
+             pipelines: bool = True) -> wm.PushResult:
+        """タスクブランチを GitHub へ push する（task push）。pipelines：push の前・後のパイプラインを走らせる
+        （dry_run では走らせない）。"""
+        task_branch = self.require_task_branch("push")
+        if pipelines and not dry_run:
+            self.run_pipelines("before-push", progress=progress)
+        result = task_branch.push(force=force, dry_run=dry_run)
+        if pipelines and result.pushed:
+            self.run_pipelines("after-push", progress=progress)
+        return result
 
     # ECOBuild 自身のファイル（.ecobuild の中と、型の管理ファイル・生成ファイル）。変わったら何でもコミットするのではなく、
     # それを変えるのが目的の操作（リンク・提出の前の作り直し等）だけが、その操作のメッセージでコミットする
@@ -1086,22 +1117,27 @@ class Module:
     # タスクブランチ・最新化・退避（型に手元をそろえさせる・設定を読み直す） ---------------------------------
 
     def start_task(self, number: int, *, account: str | None = None, base: str | None = None, name: str | None = None,
-                   ignore_blocked: bool = False, take_over: bool = False) -> "Module":
+                   ignore_blocked: bool = False, take_over: bool = False,
+                   progress: Callable[[str], None] | None = None, pipelines: bool = True) -> "Module":
         """タスクを始める：タスクブランチを作業空間（<元の clone>/.ecobuild/w/<番号>）に取り出し、依存先と生成ファイルを
         用意して、その作業空間の Module を返す。この場所（元の clone 等）のブランチは変えない。既にほかの作業空間が
         そのタスクブランチを取り出していれば、そこを返す。account：その作業空間を動かす GitHub のアカウント。
 
         依存先の clone（他のモジュールの中。型が置く deps/ 等）では、今までどおりその場でタスクブランチに切り替えて、
-        この Module を返す（依存先の作業版）。
+        この Module を返す（依存先の作業版）。pipelines：始めたタスクブランチで、タスクの開始の後のパイプラインを走らせる。
         """
         if _workspaces.nested(self.root) and not self.repository.git.is_linked_worktree():
             if account:
                 self.repository.use_account(account)
             self.repository.task(number).start(base=base, name=name, ignore_blocked=ignore_blocked,
                                                take_over=take_over)
-            return self
-        return self.start_task_in(number, self.workspace_place(str(number)), base=base, name=name,
-                                  ignore_blocked=ignore_blocked, take_over=take_over, account=account)
+            started = self
+        else:
+            started = self.start_task_in(number, self.workspace_place(str(number)), base=base, name=name,
+                                         ignore_blocked=ignore_blocked, take_over=take_over, account=account)
+        if pipelines:
+            started.run_pipelines("after-start", progress=progress)
+        return started
 
     def start_task_in(self, number: int, place: Path | str, *, base: str | None = None, name: str | None = None,
                       ignore_blocked: bool = False, take_over: bool = False, account: str | None = None) -> "Module":
@@ -1140,18 +1176,27 @@ class Module:
         """ファイルを変える操作はタスクブランチでだけ（Module と型の約束。型の操作もここで確かめる）。"""
         return self.repository.require_task_branch(action)
 
-    def sync(self) -> SyncResult:
+    def sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True) -> SyncResult:
         """GitHubの最新を取り込み、手元（依存先・生成ファイル）をそろえる。
 
         衝突したのが生成ファイルだけなら、管理ファイルから作り直して取り込みを完了する。
+        pipelines：何か取り込んだら、最新の取り込みの後のパイプラインを走らせる。
         """
+        return self._sync_pipelines(self._sync(), progress=progress, pipelines=pipelines)
+
+    def _sync_pipelines(self, result: SyncResult, *, progress, pipelines: bool) -> SyncResult:
+        if pipelines and result.merged:
+            self.run_pipelines("after-sync", progress=progress)
+        return result
+
+    def _sync(self) -> SyncResult:
         try:
             return self._sync_result(self.repository.sync())
         except WorkError as error:
             if error.code != ErrorCode.MERGE_CONFLICT or not self.repository.git.is_merging():
                 raise
             if self._regenerate_conflicted_files() and not self.repository.git.working_tree().conflicted:
-                return self.continue_sync()
+                return self._continue_sync()
             conflicted = self.repository.git.working_tree().conflicted
             error.details = list(conflicted)
             if any(self.type.is_generated(p) for p in conflicted):
@@ -1159,11 +1204,15 @@ class Module:
                               f"{self.op('sync continue')} で管理ファイルから作り直します。")
             raise
 
-    def continue_sync(self) -> SyncResult:
+    def continue_sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True) -> SyncResult:
         """衝突を解決した後、止まっている取り込みを完了し、手元をそろえる。
 
         印のなくなったファイルは登録し、衝突した生成ファイルは（解決した）管理ファイルから作り直す。
+        pipelines：最新の取り込みの後のパイプラインを走らせる。
         """
+        return self._sync_pipelines(self._continue_sync(), progress=progress, pipelines=pipelines)
+
+    def _continue_sync(self) -> SyncResult:
         if self.repository.git.is_merging() or self.repository.git.is_rebasing():
             self.repository.resolve_conflicts(skip=self.type.is_generated)
         self._regenerate_conflicted_files()
@@ -1751,11 +1800,11 @@ class Module:
 
         コミットの前に使ってよい：生成ファイルは最新にし、未コミットなら知らせるだけ（コミットは task submit が確かめる）。
         依存先：手元の版が記録と違えば失敗（手元では通っても CI は記録の版を使う）。allow_dependency_mismatch なら知らせるだけ。
-        only：行う項目だけ（提出の確認の設定 [check] submit。config.SUBMIT_CHECK_ITEMS）。None なら全部。tests：test で
+        only：行う項目だけ（パイプラインの手順。config.PIPELINE_STEPS）。None なら全部。tests：test で
         流す試験（空なら全部）。全部を行って通ったときだけ、通った版として残す（task submit が繰り返さないため）。
         """
         if only is not None:
-            _config.validate_submit_checks(_config.SubmitChecks(items=only))
+            _config.validate_steps(only)
         wanted = (lambda name: True) if only is None else (lambda name: name in only)
         items = []
         if wanted("generated"):
@@ -1804,11 +1853,108 @@ class Module:
                                 details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
         return report
 
-    def set_submit_checks(self, settings: _config.SubmitChecks) -> _config.SubmitChecks:
-        """提出の前に行う確認（[check]）を変える。ecobuild.toml を変えるので、タスクブランチでだけ（コミットして提出）。"""
-        self.require_task_branch("提出の確認の設定")
-        self._save_config(self.config.with_submit_checks(settings))
-        return self.config.submit_checks
+    # パイプライン：名前を付けた確認の並び。単体で走らせるか、操作のタイミング（config.TIMINGS）に当てる。
+    # パイプラインと当て方は ecobuild.toml（共有。変えるのはタスクブランチでだけ）、このPCだけ足す当て方は
+    # ecobuild.local.toml（コミットしない）。既定は何もない（操作に確認を勝手に結び付けない）。
+
+    def pipelines(self) -> _config.Pipelines:
+        """パイプラインと、それを当てるタイミング（共有のもの＋このPCで足したもの）。"""
+        local = _config.read_triggers(_config.load_local(self.root).get(_config.TRIGGERS_TABLE, {}),
+                                      _config.LOCAL_FILE_NAME)
+        shared = self.config.pipelines   # なくなったパイプライン・知らないタイミングは、このPCの分から除く
+        local = {t: kept for t, names in local.items() if t in _config.TIMINGS
+                 if (kept := tuple(n for n in names if shared.get(n) is not None))}
+        return replace(shared, local=local)
+
+    def set_pipeline(self, pipeline: _config.Pipeline) -> _config.Pipelines:
+        """パイプラインを作る（同じ名前があれば中身を置き換える）。ecobuild.toml を変えるので、タスクブランチでだけ。"""
+        self.require_task_branch("パイプラインの変更")
+        current = self.config.pipelines
+        pipelines = tuple(pipeline if p.name == pipeline.name else p for p in current.pipelines)
+        if current.get(pipeline.name) is None:
+            pipelines += (pipeline,)
+        self._save_config(self.config.with_pipelines(pipelines, current.triggers))
+        return self.pipelines()
+
+    def remove_pipeline(self, name: str) -> _config.Pipelines:
+        """パイプラインを消す（当てていたタイミングからも外す）。タスクブランチでだけ。"""
+        self.require_task_branch("パイプラインの変更")
+        current = self.config.pipelines
+        self._require_pipeline(current, name)
+        triggers = {timing: tuple(n for n in names if n != name) for timing, names in current.triggers.items()}
+        self._save_config(self.config.with_pipelines(tuple(p for p in current.pipelines if p.name != name), triggers))
+        return self.pipelines()
+
+    def set_trigger(self, timing: str, names: tuple[str, ...], *, local: bool = False) -> _config.Pipelines:
+        """timing に当てるパイプラインを names にする（空なら外す）。local：このPCだけで足す分（ecobuild.local.toml。
+        どこでも変えられる）。そうでなければモジュールで共有する分（ecobuild.toml。タスクブランチでだけ）。"""
+        current = self.pipelines()
+        _config.validate_triggers({timing: names}, {p.name for p in current.pipelines})
+        if local:
+            values = _config.load_local(self.root)
+            table = {**current.local, timing: tuple(dict.fromkeys(names))}
+            table = {t: list(n) for t, n in table.items() if n}
+            values = {key: value for key, value in values.items() if key != _config.TRIGGERS_TABLE}
+            _config.save_local(self.root, {**values, **({_config.TRIGGERS_TABLE: table} if table else {})})
+        else:
+            self.require_task_branch("パイプラインを当てるタイミングの変更")
+            shared = self.config.pipelines
+            self._save_config(self.config.with_pipelines(shared.pipelines, {**shared.triggers, timing: names}))
+        return self.pipelines()
+
+    def run_pipeline(self, name: str, *, progress: Callable[[str], None] | None = None) -> PipelineRun:
+        """パイプラインを1つ、今すぐ走らせる（pipeline run）。失敗しても誤りにせず、結果（ok・items）で返す。"""
+        current = self.pipelines()
+        return self._run_pipeline(self._require_pipeline(current, name), "", progress)
+
+    def run_pipelines(self, timing: str, *, progress: Callable[[str], None] | None = None) -> tuple[PipelineRun, ...]:
+        """timing に当てたパイプラインを順に走らせる。前（before-*）のものが失敗したら check_failed で止める（その操作も
+        止まる。残りは走らせない）。後（after-*）のものの失敗は、知らせ（notices）に残すだけ。"""
+        current = self.pipelines()
+        when = _config.TIMING_NAMES[timing]
+        runs = []
+        for name in current.at(timing):
+            if timing.startswith("before-"):
+                run = self._run_pipeline(current.get(name), timing, progress)
+                runs.append(run)
+                if not run.ok:
+                    failed = "、".join(CHECK_NAMES.get(i.name, i.name) for i in run.items if not i.ok)
+                    raise EcoBuildError(ErrorCode.CHECK_FAILED, f"{when}のパイプライン {name} が失敗しました：{failed}",
+                                        hint=f"直してから、もう一度実行してください（パイプラインだけを試すなら "
+                                             f"{self.op('pipeline run')} {name}。走らせずに進めるなら --no-pipelines）。",
+                                        details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in run.items])
+                continue
+            try:
+                run = self._run_pipeline(current.get(name), timing, progress)
+            except EcoBuildError as error:
+                run = PipelineRun(name, timing, False, (CheckItem("error", False, error.message),))
+            runs.append(run)
+            if not run.ok:
+                failed = "、".join(CHECK_NAMES.get(i.name, i.name) for i in run.items if not i.ok)
+                self.repository.notices.append(f"{when}のパイプライン {name} が失敗しました：{failed}")
+        return tuple(runs)
+
+    def _run_pipeline(self, pipeline: _config.Pipeline, timing: str,
+                      progress: Callable[[str], None] | None) -> PipelineRun:
+        say = progress or _quiet
+        when = f"（{_config.TIMING_NAMES[timing]}）" if timing else ""
+        say(f"パイプライン {pipeline.name}{when}：{'・'.join(CHECK_NAMES.get(s, s) for s in pipeline.steps)}…")
+        try:
+            items = self.check(only=pipeline.steps, tests=pipeline.tests).items
+        except EcoBuildError as error:
+            if error.code != ErrorCode.CHECK_FAILED:
+                raise
+            items = tuple(CheckItem(**item) for item in error.details or ())
+        for item in items:
+            say(_check_line(item))
+        return PipelineRun(pipeline.name, timing, all(item.ok for item in items), items)
+
+    def _require_pipeline(self, current: _config.Pipelines, name: str) -> _config.Pipeline:
+        pipeline = current.get(name)
+        if pipeline is None:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"パイプライン {name} はありません。",
+                                hint=f"{self.op('pipeline list')} で一覧を見られます。")
+        return pipeline
 
     def _check_generated(self) -> list[CheckItem]:
         try:
@@ -1941,9 +2087,10 @@ class Module:
 SUBMIT_NOTE_SECTION = "note"     # 提出の本文の節（ecowork の with_section）：提出の説明
 SUBMIT_CHECK_SECTION = "check"   # 確認の結果
 NO_CHECK_NOTE = "（--no-check）"   # 確認の節の、check を行わずに提出した印（submitted_check が読む）
-NO_CHECKS_SET_NOTE = "（確認の設定なし）"   # 提出の確認（[check] submit）が空なので確かめなかった印
+NO_CHECKS_SET_NOTE = "（確認の設定なし）"   # 提出の前のパイプラインがないので確かめなかった印
 CHECK_NAMES = {"generated": "生成ファイル", "conflict_markers": "衝突の印", "excluded": "管理しないファイル",
-               "eol_only": "改行コードだけの差", "dependencies": "依存先", "build": "ビルド", "test": "テスト"}
+               "eol_only": "改行コードだけの差", "dependencies": "依存先", "build": "ビルド", "test": "テスト",
+               "error": "実行できず"}
 _MISMATCH_STATES = {"working": "作業版", "modified": "未コミットの変更あり", "differs": "記録と別の版"}
 
 

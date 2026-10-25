@@ -313,6 +313,15 @@ class CheckReport:
 
 
 @dataclass(frozen=True)
+class PipelineRun:
+    """パイプラインを1回走らせた結果（pipeline run・操作のタイミング）。"""
+    name: str
+    timing: str                      # 当てたタイミング（config.TIMINGS）。単体で走らせたなら空
+    ok: bool
+    items: tuple[CheckItem, ...]
+
+
+@dataclass(frozen=True)
 class ModuleCloned:
     name: str
     root: Path

@@ -41,8 +41,9 @@ def test_the_briefing_tells_the_loop_and_the_limits():
     r = registry.Registration(name="worker", title="作業役", document="", evaluation="check", max_rounds=3,
                               max_turns=100, max_cost=1.5, lessons=".ecobuild/agents/lessons/")
     text = "\n".join(loop_lines(r, SimpleNamespace(number=42)))
-    assert "`check`" in text and "3 回まで" in text and "100 ターン・1.5 ドル" in text
+    assert "`check`" in text and "上限：3 回" in text and "上限：100" in text and "1.5 ドル" in text
     assert "`.ecobuild/agents/lessons/42.md`" in text
+    assert "進め方" not in text and "restore" not in text      # 値だけ：進め方は登録の文書に（二重に書かない）
     assert loop_lines(registry.Registration(name="x", title="x", document=""), SimpleNamespace(number=1)) == []
     assert "報告の「教訓」" in "\n".join(loop_lines(registry.Registration(name="x", title="x", document="", max_rounds=2),
                                                    SimpleNamespace(number=1)))

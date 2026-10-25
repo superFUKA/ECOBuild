@@ -112,6 +112,46 @@ def test_branch_merge_regenerates_conflicted_generated_files(short_tmp):
     assert len(git(module.root, "worktree", "list", "--porcelain").split("worktree ")) == 2
 
 
+def test_gitignore_conflicts_are_merged_by_lines(short_tmp):
+    """.gitignore 等（行の集まり）の衝突は両方の行を合わせて直す：sync でも、ブランチ同士の取り込みでも止まらない。"""
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
+    base = (module.root / ".gitignore").read_text(encoding="utf-8")
+    other = short_tmp / "other"
+    git(short_tmp, "clone", "--quiet", str(github.bare), str(other))
+    git(other, "switch", "--quiet", "-c", "dev")
+    write(other / ".gitignore", base + "/same/\n")
+    git(other, "commit", "--quiet", "-am", "dev で除外を足した")
+    git(other, "push", "--quiet", "origin", "dev")
+    git(other, "switch", "--quiet", "main")
+    write(other / ".gitignore", base + "/same/\n\n# main\n*.exe\n")
+    git(other, "commit", "--quiet", "-am", "main で除外を足した")
+    git(other, "push", "--quiet", "origin", "main")
+
+    plan = module.repository.plan_branch_merge("dev", "main")
+    assert (plan.method, plan.conflicts, plan.resolved) == ("merge", (), (".gitignore",))
+    merged = module.repository.merge_branch_into("dev", "main")
+    assert git(module.root, "show", f"{merged.commit}:.gitignore") == (base + "/same/\n\n# main\n*.exe").strip()
+
+    task_branch = module.repository.create_task("t").start()
+    started = (module.root / ".gitignore").read_text(encoding="utf-8")
+    write(module.root / ".gitignore", started + "/mine/\n")
+    task_branch.commit("手元で除外を足した", all=True)
+    git(other, "pull", "--quiet", "--ff-only", "origin", "main")
+    write(other / ".gitignore", started + "/theirs/\n")
+    git(other, "commit", "--quiet", "-am", "main でさらに除外を足した")
+    git(other, "push", "--quiet", "origin", "main")
+    module.sync()
+    text = (module.root / ".gitignore").read_text(encoding="utf-8")
+    assert "/mine/" in text and "/theirs/" in text and "*.exe" in text and "<<<<<<<" not in text and not module.status().merging
+
+
+def test_union_lines_keeps_both_sides():
+    from ecobuild.module import union_lines
+    text = "a\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\nx\n\n# y\ny\n>>>>>>> m\nz\n"
+    assert union_lines(text) == "a\nx\n\n# y\ny\nz\n"
+
+
 def test_clone_module_prepares_dependencies(short_tmp):
     """clone はモジュールをcloneし、依存先と生成ファイルを sync と同じく用意する。"""
     stl_github = FakeGitHub(short_tmp / "gh1")

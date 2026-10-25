@@ -149,7 +149,7 @@ WS.onRefresh(renderPrDetail);
 
   // テスト ▾: run only some of the tests (a type that can choose them: features.tests). The names come from the last test
   // run in this screen (a case's name runs it again: ecobuild test <name>) or are written.
-  let lastCases = [], lastChosen = {text: '', filter: '', lastFailed: false};
+  let lastCases = [], lastChosen = {cases: [], text: '', filter: '', lastFailed: false};
   const failedCases = () => lastCases.filter(c => !['passed', 'skipped'].includes(c.status)).map(c => c.name);
   get('test-menu').addEventListener('click', () => {
     const r = get('test-menu').getBoundingClientRect(), failed = failedCases();
@@ -158,24 +158,49 @@ WS.onRefresh(renderPrDetail);
         failed.length ? '' : 'この画面で流したテストに、失敗したものはありません'],
       ['テストを選んで実行…', chooseTests, !busy]], r.left, r.bottom + 4);
   });
+  // テストを選んで実行: the module's tests as a list to tick (ecobuild test --list: read without running them; C++ from
+  // the test Projects' TEST(…), Python by pytest's collection). The ones run in this screen come first with how they
+  // ended (failed ones at the top); the list arrives while the dialog is open. Names・patterns can also be written.
   async function chooseTests() {
     const names = features.tests === 'names', mark = {failed: '✗ ', passed: '✓ ', skipped: '- '};
     const order = {failed: 0, skipped: 1, passed: 2}, cases = [...lastCases].sort((a, b) => (order[a.status] ?? 0) - (order[b.status] ?? 0));
-    await ECO.form({title: 'テストを選んで実行',
-      intro: cases.length ? 'この画面で前に流したテストから選ぶか、名前を書きます。' : 'テストを一度流すと、その結果から選べます。ここでは名前を書いて選べます。',
+    const listed = WS.cli(['test', '--list'], {quiet: true}).then(doc => {
+      if (!doc.ok) { ECO.toast(`テストの一覧を読めませんでした：${doc.error.message}`, 'bad', 8000); return []; }
+      return doc.result.tests.map(t => [t.name, '　' + t.name]);
+    });
+    let wired = false;
+    await ECO.form({title: 'テストを選んで実行', wide: true,
+      intro: '流すテストにチェックを付けます（✗ ✓ はこの画面で前に流した結果）。',
       fields: [
-        ...(cases.length ? [{name: 'cases', label: '前に流したテスト', type: 'checks', options: cases.map(c => [c.name, (mark[c.status] || '✗ ') + c.name])}] : []),
+        {name: 'search', label: '絞り込み（この文字を含むテストだけ表示）', placeholder: names ? '例：Add' : '例：test_calc', focus: true},
+        {name: 'all', type: 'html', html: '<p class="test-pick-tools"><button type="button" data-pick="on">表示中をすべて選ぶ</button><button type="button" data-pick="off">選択を外す</button></p>'},
+        {name: 'cases', label: 'テスト', type: 'checks', value: lastChosen.cases, options: cases.map(c => [c.name, (mark[c.status] || '✗ ') + c.name]),
+          more: listed, empty: 'テストを探しています…（見つからなければ、下の「名前で指定」に書いてください）'},
+        {type: 'section', label: '名前で指定', collapsed: !lastChosen.text && !lastChosen.filter && !lastChosen.lastFailed},
         {name: 'text', label: names ? 'テストの名前（1行に1つ。<テスト用Project>.<Suite>.<Test>。* ? が使えます。Project の名前だけならその全部）'
           : 'ファイル・フォルダ・テスト（1行に1つ。例：tests/test_x.py、tests/unit、tests/test_x.py::test_a）', type: 'textarea', rows: 3, value: lastChosen.text,
           placeholder: names ? '例：CalcTest.Add.*' : '例：tests/test_calc.py'},
         ...(names ? [] : [{name: 'filter', label: '名前で選ぶ式（pytest の -k。例：add and not slow）', value: lastChosen.filter},
-          {name: 'lastFailed', label: '前回失敗したテストだけ（前回の失敗がなければ全部）', type: 'checkbox', value: lastChosen.lastFailed}])],
+          {name: 'lastFailed', label: '前回失敗したテストだけ（前回の失敗がなければ全部）', type: 'checkbox', value: lastChosen.lastFailed}]),
+        {type: 'section', end: true}],
       ok: '実行',
+      onChange: (v, formEl) => {
+        const q = (v.search || '').toLowerCase(), boxes = () => [...formEl.querySelectorAll('[data-field="cases"] label')];
+        for (const label of boxes()) label.hidden = !!q && !label.textContent.toLowerCase().includes(q);
+        if (wired) return;
+        wired = true;
+        formEl.querySelector('.test-pick-tools').addEventListener('click', e => {
+          const on = e.target.closest('[data-pick]')?.dataset.pick; if (!on) return;
+          for (const label of boxes()) if (!label.hidden || on === 'off') label.querySelector('input').checked = on === 'on';
+        });
+        // The list arrives later: what is typed in 絞り込み applies to it too.
+        listed.then(() => setTimeout(() => formEl.dispatchEvent(new Event('input')), 0));
+      },
       // Not awaited: the run shows in 出力 (the dialog's busy overlay would stay while the tests run).
       submit: v => {
         const written = (v.text || '').split('\n').map(s => s.trim()).filter(Boolean), tests = [...new Set([...(v.cases || []), ...written])];
         if (!tests.length && !v.filter && !v.lastFailed) return '流すテストを選ぶか、名前を書いてください。';
-        lastChosen = {text: v.text || '', filter: v.filter || '', lastFailed: !!v.lastFailed};
+        lastChosen = {cases: v.cases || [], text: v.text || '', filter: v.filter || '', lastFailed: !!v.lastFailed};
         runAction('test', '', {tests, filter: lastChosen.filter, lastFailed: lastChosen.lastFailed});
       }});
   }

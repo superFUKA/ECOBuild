@@ -65,6 +65,26 @@ def test_select_tests(module):
         write(path, original)
 
 
+def test_list_tests(module):
+    """流せるテストを、ビルドせずにソースの TEST(…) 等から（値・型でふやすものはパターン）。名前はそのまま流せる。"""
+    path = module.root / "CalcTest/src/more/MoreTest.cpp"
+    write(path, '#include <gtest/gtest.h>\n\nstruct Fix : ::testing::Test {};\nTEST_F(Fix, Works) { SUCCEED(); }\n'
+                '  TEST_P(Param, Each) {}\n// TEST(Comment, Ignored) は行の頭でないので数えない\n')
+    try:
+        listed = [(t.name, t.file, t.line) for t in module.list_tests().tests]
+        assert any(n == "CalcTest.Calc.Builds" and f == "CalcTest/src/CalcTest.cpp" for n, f, _ in listed)
+        assert ("CalcTest.Fix.Works", "CalcTest/src/more/MoreTest.cpp", 4) in listed
+        assert ("CalcTest.*/Param.Each/*", "CalcTest/src/more/MoreTest.cpp", 5) in listed
+        assert not any("Comment" in n for n, _, _ in listed)
+        assert module.list_tests(project="CalcTest").tests == module.list_tests().tests
+        with pytest.raises(EcoBuildError) as error:
+            module.list_tests(project="Calc")
+        assert error.value.code == ErrorCode.PROJECT_NOT_FOUND
+    finally:
+        path.unlink()
+    assert [c.name for c in module.test(tests=("CalcTest.Calc.Builds",)).cases] == ["CalcTest.Calc.Builds"]
+
+
 def test_run_captures_output(module):
     result = module.run(arguments="a 'b c'")
     assert result.returncode == 0

@@ -25,7 +25,7 @@ from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
 from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, DependencyState, DependencyTree,
                               FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
-                              TestResult)
+                              TestEntry, TestResult)
 
 from . import _cppbuild, _settings
 
@@ -347,6 +347,10 @@ jobs:
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         failed = len(cases) - count("passed") - count("skipped")
         return TestResult(project, options.configuration, count("passed"), failed, count("skipped"), cases)
+
+    def list_tests(self, project: str | None, options: _cppbuild.BuildOptions) -> tuple[TestEntry, ...]:
+        """テスト用Projectのソースの TEST(…) 等から（ビルドしない。_cppbuild.list_tests）。"""
+        return tuple(TestEntry(*found) for found in _cppbuild.list_tests(self.root, project=project))
 
     def run(self, project: str | None, options: _cppbuild.BuildOptions, arguments: str) -> RunResult:
         outcome = _cppbuild.run(self.root, project=project, options=options, arguments=arguments)

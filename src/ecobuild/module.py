@@ -39,7 +39,7 @@ from .fsutil import remove_tree
 from .results import (AgentGuide, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
                       DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PrepareResult, ProfileList,
-                      ProjectSummary, RunResult, SyncResult, TestResult, WorkspaceClosed, WorkspaceList)
+                      ProjectSummary, RunResult, SyncResult, TestList, TestResult, WorkspaceClosed, WorkspaceList)
 
 _NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 _WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}")
@@ -1244,6 +1244,11 @@ class Module:
              tests: tuple[str, ...] = ()) -> TestResult:
         options, _ = self.build_options(configuration, profile)
         return self._builds("テスト").test(project, options, tuple(tests))
+
+    def list_tests(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestList:
+        """流せるテストの一覧（test --list。名前はそのまま test に渡せる）。"""
+        options, _ = self.build_options(configuration, profile)
+        return TestList(tuple(self._builds("テストの一覧").list_tests(project, options)))
 
     def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
             arguments: str = "") -> RunResult:

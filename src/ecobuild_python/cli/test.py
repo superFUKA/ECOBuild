@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from ecobuild_cli.kit import run_command
+from ecobuild_cli.kit import list_tests_like, run_command
 
 AGENT = "change"
 
@@ -11,6 +11,7 @@ def command(
     *tests: Annotated[str, "流すテスト（ファイル・フォルダ・tests/x.py::test_a。省略すると全部）"],
     filter: Annotated[str, "名前で選ぶ式（pytest の -k。例：\"add and not slow\"）"] = "",
     last_failed: Annotated[bool, "前回失敗したテストだけ流す（pytest の --last-failed。前回の失敗がなければ全部）"] = False,
+    list: Annotated[bool, "流せるテストの一覧を出す（流さない。名前はそのまま ecobuild test に渡せる）"] = False,
     configuration: Annotated[str, "構成（Debug／Release。既定：ビルド設定の構成、なければDebug）"] = "",
     profile: Annotated[str, "名前付きビルド設定（既定：ecobuild profile use で選んだもの）"] = "",
     json: Annotated[bool, "結果をJSONで出力する（テストごとの結果は result.cases。失敗のときは error.details の counts・cases）"] = False,
@@ -18,7 +19,10 @@ def command(
     """pytest でテストします（venv がなければ作ります）。変えたところのテストだけ流すなら、ファイル等を並べます。
 
     テストの名前（cases の name）は pytest の nodeid で、そのまま並べて流し直せます。check はいつも全部を流します。
+    --list は pytest が集めるテストの一覧を出します（流しません）。
     """
+    if list:
+        return list_tests_like("", configuration, profile, json)
 
     def action(inv):
         module = inv.module

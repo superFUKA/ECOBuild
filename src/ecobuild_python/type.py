@@ -16,7 +16,7 @@ from ecobuild.config import ModuleConfig, Profile
 from ecobuild.errors import EcoBuildError, ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasFiles, ModuleType
-from ecobuild.results import BuildResult, FilesChanged, RunResult, TestResult
+from ecobuild.results import BuildResult, FilesChanged, RunResult, TestEntry, TestResult
 
 from . import _python, _scaffold
 
@@ -216,6 +216,11 @@ python3 -m venv .venv
         count = lambda status: sum(1 for c in cases if c.status == status)  # noqa: E731
         return TestResult(None, options.configuration, count("passed"), count("failed"), count("skipped"),
                           tuple(cases))
+
+    def list_tests(self, project: str | None, options: PythonOptions) -> tuple[TestEntry, ...]:
+        """pytest が集めるテスト（nodeid。file はその :: の前）。venv がなければ作る。"""
+        _no_project(project)
+        return tuple(TestEntry(nodeid, nodeid.split("::")[0]) for nodeid in _python.collect_tests(self.root, self._environment()))
 
     def run(self, project: str | None, options: PythonOptions, arguments: str) -> RunResult:
         """arguments：1つの文字列（_python.split_arguments で分ける）。出力はためて返す（stdin は渡さない）。"""

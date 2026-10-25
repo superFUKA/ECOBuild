@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import threading
@@ -337,6 +338,42 @@ def _test_selection(solution: Solution, project: str | None, tests: tuple[str, .
         else:
             selection.setdefault(owner, []).append(pattern)
     return selection
+
+
+# GoogleTest のテストの書き方。TEST・TEST_F はそのままの名前、値・型でふやすものは CTest の名前に合うパターン
+# （TEST_P：<Prefix>/<Suite>.<Test>/<番号>、TYPED_TEST：<Suite>/<番号>.<Test>、TYPED_TEST_P：<Prefix>/<Suite>/<番号>.<Test>）。
+_TEST_MACRO = re.compile(r"^[ \t]*(TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P)[ \t]*\([ \t]*(\w+)[ \t]*,[ \t]*(\w+)[ \t]*\)", re.M)
+_TEST_NAMES = {"TEST": "{suite}.{test}", "TEST_F": "{suite}.{test}", "TEST_P": "*/{suite}.{test}/*",
+               "TYPED_TEST": "{suite}/*.{test}", "TYPED_TEST_P": "*/{suite}/*.{test}"}
+
+
+def list_tests(root: Path, *, project: str | None) -> list[tuple[str, str, int]]:
+    """テスト用Projectのソースに書いてあるテスト（名前・モジュールからの相対のファイル・行）。ビルドしない。
+
+    名前は test の tests に渡せる <テスト用Project>.<Suite>.<Test>（値・型でふやすテストはパターン）。
+    project：そのテスト用Projectだけ（テスト用でなければ PROJECT_NOT_FOUND）。"""
+    solution = open_solution(root)
+    names = _tests(solution)
+    if project is not None and project not in names:
+        raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はテスト用ではありません。",
+                            hint=f"テスト用のProject：{'、'.join(names) or 'なし'}")
+    found = []
+    for name in [project] if project else names:
+        base = Path(solution.get_project(name).root)
+        for directory in solution.get_project(name).settings.get().source_directories:
+            for path in sorted((base / directory).rglob("*")):
+                if path.suffix.lower() not in SOURCE_SUFFIXES + HEADER_SUFFIXES or not path.is_file():
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                relative = path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
+                for match in _TEST_MACRO.finditer(text):
+                    macro, suite, test = match.groups()
+                    found.append((f"{name}." + _TEST_NAMES[macro].format(suite=suite, test=test), relative,
+                                  text.count("\n", 0, match.start()) + 1))
+    return list(dict.fromkeys(found))
 
 
 def run(root: Path, *, project: str | None, options: BuildOptions, arguments: str) -> BuildOutcome:

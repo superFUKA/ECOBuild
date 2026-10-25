@@ -21,7 +21,7 @@ from ._output import (
 __all__ = [
     "Invocation", "ProgramOutput", "add_files", "build_like", "lines", "missing", "move_file",
     "optional_argument", "remove_files", "render_profiles", "run_command", "run_like", "split_list", "split_numbers",
-    "split_semicolons", "test_like", "usage_error",
+    "split_semicolons", "list_tests_like", "test_like", "usage_error",
 ]
 
 
@@ -64,6 +64,17 @@ def test_like(project: str, configuration: str, profile: str, json_output: bool,
     return run_command("test", action,
                        lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}"
                        if r.passed + r.failed + r.skipped or project else "当てはまるテストがありません" if tests else empty,
+                       json_output=json_output)
+
+
+def list_tests_like(project: str, configuration: str, profile: str, json_output: bool) -> int:
+    """test --list の共通の入口：流せるテストの名前（そのまま test に渡せる）。流さない。"""
+
+    def action(inv):
+        return inv.module.list_tests(project=project or None, configuration=configuration, profile=profile or None)
+
+    return run_command("test", action,
+                       lambda r: "\n".join(t.name for t in r.tests) + f"\n（{len(r.tests)} 件）" if r.tests else "テストがありません",
                        json_output=json_output)
 
 

@@ -61,11 +61,19 @@ class Registration:
     max_children: int = 0               # 同時に持てる子の数の上限
     tools: tuple[str, ...] = ()         # 渡すツールの名前の fnmatch の並び
     first_prompt: str = ""              # 起動のときの最初の発言
+    # 改善のループ（評価 → 直す → 評価し直す）と止める条件。起動の文に書いて渡す（上限はハーネスが守らせる）
+    evaluation: str = ""                # 評価のしかた（例：check（only=build,test））。空なら任された仕事に書かれたもの
+    max_rounds: int = 0                 # 評価し直す回数の上限（0 なら決めない）
+    max_turns: int = 0                  # ターン数の上限（アプリ用の起動の --max-turns。0 ならなし）
+    max_cost: float = 0.0               # 費用の上限（ドル。アプリ用の起動の --max-budget-usd。0 ならなし）
+    lessons: str = ""                   # 教訓の記録先（モジュールの中のフォルダー。<タスクの番号>.md に書いてコミット。空なら報告だけ）
     source: str = MODULE
     folder: str = ""
 
 
-FIELDS = ("title", "human_start", "model", "children", "max_children", "tools", "first_prompt")
+FIELDS = ("title", "human_start", "model", "children", "max_children", "tools", "first_prompt",
+          "evaluation", "max_rounds", "max_turns", "max_cost", "lessons")
+LOOP_FIELDS = ("evaluation", "max_rounds", "max_turns", "max_cost", "lessons")
 
 
 # ---- 置き場所 ------------------------------------------------------------------------------------------
@@ -236,7 +244,8 @@ def to_data(registration: Registration) -> dict:
     return {"name": registration.name, "title": registration.title, "document": registration.document,
             "human_start": registration.human_start, "model": registration.model,
             "children": list(registration.children), "max_children": registration.max_children,
-            "tools": list(registration.tools), "first_prompt": registration.first_prompt, "source": registration.source}
+            "tools": list(registration.tools), "first_prompt": registration.first_prompt,
+            **{key: getattr(registration, key) for key in LOOP_FIELDS}, "source": registration.source}
 
 
 def from_file(path: Path | str) -> Registration:
@@ -248,7 +257,7 @@ def from_file(path: Path | str) -> Registration:
             human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
             children=tuple(str(v) for v in data.get("children", [])), max_children=int(data.get("max_children", 0)),
             tools=tuple(str(v) for v in data.get("tools", [])), first_prompt=str(data.get("first_prompt", "")),
-            source=str(data.get("source", MODULE)))
+            **_loop(data), source=str(data.get("source", MODULE)))
     except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"登録のファイル {path} を読めません。",
                             details=str(error)) from error
@@ -383,6 +392,13 @@ def _check(new: Registration, known: dict[str, Registration], *, children_known:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "表示名（title）が空です。")
     if new.max_children < 0:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "子の数の上限（max_children）は 0 以上です。")
+    for key in ("max_rounds", "max_turns", "max_cost"):
+        if getattr(new, key) < 0:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"上限（{key}）は 0 以上です（0 なら上限なし）。")
+    lessons = new.lessons.replace("\\", "/").strip()
+    if lessons and (lessons.startswith("/") or re.match(r"^[A-Za-z]:", lessons) or ".." in lessons.split("/")):
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"教訓の記録先「{new.lessons}」は、モジュールの中のフォルダーです。",
+                            hint="モジュールのルートからの相対パスで書きます（例：.ecobuild/agents/lessons）。")
     known = {**known, new.name: new}
     missing = [child for child in new.children if child not in known]
     if missing and children_known:
@@ -446,7 +462,7 @@ def _read(store, name: str, *, check_name: bool = True) -> Registration:
             name=name, title=str(data.get("title") or name), document=document,
             human_start=bool(data.get("human_start", False)), model=str(data.get("model", "")),
             children=strings("children"), max_children=int(data.get("max_children", 0)), tools=strings("tools"),
-            first_prompt=str(data.get("first_prompt", "")), source=store.source, folder=where)
+            first_prompt=str(data.get("first_prompt", "")), **_loop(data), source=store.source, folder=where)
     except (TypeError, ValueError) as error:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{where}/{SETTINGS_FILE} の値が読めません。",
                             details=str(error)) from error
@@ -475,4 +491,16 @@ def _toml(r: Registration) -> str:
         f"max_children = {r.max_children}",
         f"tools = {strings(r.tools)}",
         f"first_prompt = {text(r.first_prompt)}",
+        f"evaluation = {text(r.evaluation)}",
+        f"max_rounds = {r.max_rounds}",
+        f"max_turns = {r.max_turns}",
+        f"max_cost = {float(r.max_cost)}",
+        f"lessons = {text(r.lessons)}",
     ]) + "\n"
+
+
+def _loop(data: dict) -> dict:
+    """改善のループと止める条件の項目（agent.toml・to_data の写し。書いていなければ既定）。"""
+    return {"evaluation": str(data.get("evaluation", "")), "max_rounds": int(data.get("max_rounds", 0)),
+            "max_turns": int(data.get("max_turns", 0)), "max_cost": float(data.get("max_cost", 0) or 0),
+            "lessons": str(data.get("lessons", ""))}

@@ -22,7 +22,7 @@ const LOG = (() => {
       if (!entries) return;
       const tip = [detail ? '' : 'ダブルクリックで変更を見る', menu ? '右クリックで操作' : ''].filter(Boolean).join('・');
       list.innerHTML = visible().map(c => `<li role="option" data-sha="${esc(c.sha)}" aria-selected="${c.sha === chosen}"${tip ? ` title="${tip}"` : ''}><code>${esc(c.sha.slice(0, 8))}</code><span class="log-subject">${esc(c.subject)}</span>
-        <small>${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue ? `・#${c.issue}` : ''}</small></li>`).join('')
+        <small>${c.pull_request ? `<span class="log-merge" title="PR #${c.pull_request} を取り込んだコミット（スカッシュ）">取り込み PR #${c.pull_request}${c.issue ? `・タスク #${c.issue}` : ''}</span> ` : ''}${esc(c.author)}・${esc(ECO.localTime(c.date, true))}${c.issue && !c.pull_request ? `・#${c.issue}` : ''}</small></li>`).join('')
         || `<li class="muted">${entries.length ? '一致するコミットはありません。' : esc(empty)}</li>`;
     };
     const choose = async sha => {

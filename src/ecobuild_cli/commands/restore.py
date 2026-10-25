@@ -2,6 +2,8 @@ from typing import Annotated
 
 from .._output import run_command
 
+AGENT = "change"
+
 
 def command(
     *paths: Annotated[str, "元に戻すファイル"],

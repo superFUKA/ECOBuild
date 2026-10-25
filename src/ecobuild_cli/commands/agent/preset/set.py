@@ -16,6 +16,11 @@ def command(name: Annotated[str, "プリセットの名前"],
             children: Annotated[str, "起動してよい子の登録の名前（カンマ区切り。空なら子を起動しない）"] = "",
             max_children: Annotated[int, "同時に持てる子の数の上限"] = 0,
             first_prompt: Annotated[str, "起動のときの最初の発言"] = "",
+            evaluation: Annotated[str, "改善のループの評価のしかた（例：check（only=build,test）。空なら任された仕事に書かれたもの）"] = "",
+            max_rounds: Annotated[int, "評価し直す回数の上限（0 なら決めない）"] = 0,
+            max_turns: Annotated[int, "ターン数の上限（AI が起動したときに守らせる。0 ならなし）"] = 0,
+            max_cost: Annotated[float, "費用の上限（ドル。AI が起動したときに守らせる。0 ならなし）"] = 0.0,
+            lessons: Annotated[str, "教訓の記録先（モジュールの中のフォルダー。空なら報告だけ）"] = "",
             document: Annotated[str, "文書（agent.md）を読むファイル（- なら標準入力）"] = "",
             json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
     """プリセットの設定・文書を変えます（書いたオプションだけ）。
@@ -25,7 +30,9 @@ def command(name: Annotated[str, "プリセットの名前"],
     """
     def action(inv):
         fields, text = changes(title=title, human_start=human_start, model=model, tools=tools, children=children,
-                               max_children=max_children, first_prompt=first_prompt, document=document)
+                               max_children=max_children, first_prompt=first_prompt, evaluation=evaluation,
+                               max_rounds=max_rounds, max_turns=max_turns, max_cost=max_cost, lessons=lessons,
+                               document=document)
         return registration_view(_registry.update_preset(name, document=text, **fields), document=True)
 
     return run_command("agent preset set", action, lambda r: "変えました：\n" + _render.details(r), json_output=json)

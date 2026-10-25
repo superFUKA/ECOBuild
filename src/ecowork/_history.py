@@ -15,18 +15,20 @@ class History:
     # 履歴・取り消し・その他 -----------------------------------------------------------
 
     def log(self, *, count: int = 20, paths: tuple[str, ...] = (), all_branches: bool = False, not_in: str = "",
-            unpushed: bool = False) -> list[wm.LogEntry]:
+            unpushed: bool = False, branch: str = "") -> list[wm.LogEntry]:
         """履歴。件名の (#N) からPRを、そのPRのタスクブランチからIssueを添える。not_in：そのブランチ（GitHub のものがあれば
-        それ）にないコミットだけ（作成元の名前で、提出に入るコミット）。unpushed：Push で送るコミットだけ（push と同じ決まり）。"""
+        それ）にないコミットだけ（作成元の名前で、提出に入るコミット）。unpushed：Push で送るコミットだけ（push と同じ決まり）。
+        branch：今取り出しているブランチではなく、そのブランチ（GitHub のものがあればそれ）の履歴（取り出さずに読む）。"""
         args = ["log", f"--max-count={count}", "--format=%H%x1f%s%x1f%an%x1f%ad", "--date=iso-strict"]
+        if branch and (all_branches or unpushed):
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "ブランチの指定は、すべてのブランチ・Push で送るものと一緒には使えません。")
+        head = self._branch_ref(branch) if branch else "HEAD"
         if all_branches:
             args.append("--all")
         if not_in:
-            remote = f"{_git.REMOTE}/{not_in}"
-            target = remote if self.git.rev_parse(remote) else not_in if self.git.rev_parse(not_in) else None
-            if target is None:
-                raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"ブランチ {not_in} がありません。")
-            args += ["HEAD", "--not", target]
+            args += [head, "--not", self._branch_ref(not_in)]
+        elif branch:
+            args.append(head)
         if unpushed:
             args += self.unpushed_range("HEAD")
         rows = [line.split("\x1f") for line in self.git.output(*args, "--", *paths).splitlines()]
@@ -39,6 +41,15 @@ class History:
             pr = int(match.group(1)) if match else None
             entries.append(wm.LogEntry(sha, subject, author, date, pr, pull_issue.get(pr)))
         return entries
+
+    def _branch_ref(self, name: str) -> str:
+        """ブランチの名前の版：GitHub のもの（origin/<名前>）があればそれ、なければ手元のもの。"""
+        remote = f"{_git.REMOTE}/{name}"
+        if self.git.rev_parse(remote):
+            return remote
+        if self.git.rev_parse(name):
+            return name
+        raise WorkError(ErrorCode.REVISION_NOT_FOUND, f"ブランチ {name} がありません。")
 
     def unpushed_range(self, head: str) -> list[str]:
         """Push で送るコミットを選ぶ git log の引数：GitHub のこのブランチにないもの。まだ送ったことがなければ、GitHub のどの

@@ -12,6 +12,7 @@ def command(
     all: Annotated[bool, "すべてのブランチのログ"] = False,
     not_in: Annotated[str, "このブランチ（GitHub のもの）にないコミットだけ（作成元を書くと、提出に入るコミット）"] = "",
     unpushed: Annotated[bool, "まだ Push していないコミットだけ（Push で送るもの）"] = False,
+    branch: Annotated[str, "今のブランチではなく、このブランチ（GitHub のものがあればそれ）のログ（取り出さずに読む）"] = "",
     gui: Annotated[bool, "TortoiseGitで表示する（Windows）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -25,5 +26,5 @@ def command(
             for e in r) or "ログはありません"
 
     return run_command("log", lambda inv: inv.module.repository.log(
-        count=count, paths=paths, all_branches=all, not_in=not_in, unpushed=unpushed), render,
+        count=count, paths=paths, all_branches=all, not_in=not_in, unpushed=unpushed, branch=branch), render,
                        json_output=json)

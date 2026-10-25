@@ -186,6 +186,7 @@ class AgentModule:
         session = resume or record.session
         folder = status.prepare(record.folder, self.root)
         command = self._options(record, command, "")
+        command = (*command, *limits(self._registration(record)))
         command = (*command, "--settings", self._status_settings(folder, record, app=False, streamed=True))
         command = self._briefed(command, folder, True, task_branch, record)
         tag = uuid.uuid4().hex[:16]
@@ -362,8 +363,10 @@ class AgentModule:
             "ここへ自由に書いて構いません。作業の成果（コード・文書）はここに置かず、モジュールの中の本来の場所へ。",
             "",
         ]
-        document = self._registration(record).document.strip()
-        return "\n".join([*lines, *([document, ""] if document else []), *self._module_rules(record)])
+        found = self._registration(record)
+        document = found.document.strip()
+        return "\n".join([*lines, *([document, ""] if document else []), *loop_lines(found, task),
+                          *self._module_rules(record)])
 
     @staticmethod
     def _owner_lines(record: AgentRecord) -> list[str]:
@@ -439,6 +442,38 @@ class AgentModule:
             args += ["--registration-file", f"{status.inside(record.id)}/{REGISTRATION_FILE}"]
         program, before = ("ecobuild", []) if boxed else (sys.executable, ["-m", "ecobuild_cli"])
         return {"mcpServers": {"ecobuild": {"type": "stdio", "command": program, "args": [*before, *args]}}}
+
+
+def limits(registration: registry.Registration) -> tuple[str, ...]:
+    """登録の上限を Claude Code の引数に（アプリ用の起動＝claude -p でだけ効く：対話型は人が見て止める）。"""
+    found: tuple[str, ...] = ()
+    if registration.max_turns:
+        found += ("--max-turns", str(registration.max_turns))
+    if registration.max_cost:
+        found += ("--max-budget-usd", f"{registration.max_cost:g}")
+    return found
+
+
+def loop_lines(registration: registry.Registration, task) -> list[str]:
+    """起動の文の「改善のループと止める条件」の節：登録で決めた値だけ（進め方は登録の文書に書く。同じことを二重に
+    書かない）。何も決めていなければ空。"""
+    r = registration
+    if not any(getattr(r, key) for key in registry.LOOP_FIELDS):
+        return []
+    lines = ["## 改善のループと止める条件（登録で決めた値）", "",
+             f"- 評価：{f'`{r.evaluation}`' if r.evaluation else '任された仕事に書かれたもの（なければ build・test）'}"]
+    if r.max_rounds:
+        lines.append(f"- 評価し直す回数の上限：{r.max_rounds} 回")
+    if r.max_turns:
+        lines.append(f"- ターン数の上限：{r.max_turns}（ECOBuild が止めます）")
+    if r.max_cost:
+        lines.append(f"- 費用の上限：{r.max_cost:g} ドル（ECOBuild が止めます）")
+    if r.lessons:
+        folder = r.lessons.strip().replace("\\", "/").rstrip("/")
+        lines.append(f"- 教訓の記録先：`{folder}/{task.number}.md`（作業と一緒にコミット。始める前に `{folder}/` を読む）")
+    else:
+        lines.append("- 教訓の記録先：報告の「教訓」の節")
+    return [*lines, ""]
 
 
 def _running(conversations) -> tuple[dict, ...]:

@@ -29,6 +29,11 @@ class AgentRegistrationView:
     tools: tuple[str, ...]          # 渡すツールの名前の fnmatch の並び
     folder: str                     # 置き場所（agent.toml・agent.md のあるフォルダー）
     pending: bool = False           # モジュールの登録：作業ツリーのものが、作成元に取り込まれたものと違う（まだ効かない）
+    evaluation: str = ""            # 改善のループ：評価のしかた（空なら任された仕事に書かれたもの）
+    max_rounds: int = 0             # 評価し直す回数の上限（0 なら決めない）
+    max_turns: int = 0              # ターン数の上限（アプリ用の起動。0 ならなし）
+    max_cost: float = 0.0           # 費用の上限（ドル。アプリ用の起動。0 ならなし）
+    lessons: str = ""               # 教訓の記録先（モジュールの中のフォルダー。空なら報告だけ）
 
 
 @dataclass(frozen=True)
@@ -66,7 +71,8 @@ def registration_view(registration, *, document: bool = False, pending: bool = F
     fields = dict(name=registration.name, title=registration.title, source=registration.source,
                   human_start=registration.human_start, model=registration.model, children=registration.children,
                   max_children=registration.max_children, tools=registration.tools, folder=registration.folder,
-                  pending=pending)
+                  pending=pending, evaluation=registration.evaluation, max_rounds=registration.max_rounds,
+                  max_turns=registration.max_turns, max_cost=registration.max_cost, lessons=registration.lessons)
     if document:
         return AgentRegistrationShown(**fields, document=registration.document, first_prompt=registration.first_prompt,
                                       committed=committed)

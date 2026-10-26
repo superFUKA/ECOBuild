@@ -142,25 +142,28 @@ function submitDialog(t, ready = false) {
 }
 
 // Applying the task branch here without a submission (task apply): squashed onto the latest base, the task closed and
-// its task branch and workspace cleaned up, as a finish. An open submission is closed without taking it in.
+// its task branch and workspace cleaned up, as a finish; or, unticked, the task goes on (--partial: the task branch is
+// made again from the latest base, the workspace stays). An open submission is closed without taking it in.
 async function applyDialog(t) {
   const submitted = t.pull_request?.state === 'open';
   let conflict = null;   // stopped on a conflict with the base: offered to take the base in here and fix it (sync)
   await ECO.form({
     title: `反映：#${t.number}`,
-    intro: `<p>提出（PR）を作らずに、${esc(t.base)} の最新へ1つのコミットにまとめて入れ、タスクを完了します（CIは待ちません）。`
-      + `${submitted ? '開いている提出は取り込まずに閉じます。' : ''}衝突したら何もせずに止まります。</p>` + ECO.submissionCommits(t.commits),
+    intro: ECO.applyOutcome(t.base) + `<p>${submitted ? '開いている提出は取り込まずに閉じます。' : ''}衝突したら何もせずに止まります。</p>` + ECO.submissionCommits(t.commits),
     fields: [
+      {name: 'complete', label: '反映したらタスクを完了する', type: 'checkbox', value: true},
       {name: 'subject', label: 'コミットの件名', value: t.title || '', placeholder: '空欄ならタスクの題名'},
       {name: 'pipelines', label: '取り込みの前のパイプラインを走らせる（モジュール › パイプラインで当てたもの。なければ何もしません）', type: 'checkbox', value: true},
     ], ok: '反映',
+    onChange: (values, formEl) => ECO.setTaskOutcome(formEl, values.complete),
     submit: async v => {
-      const args = ['task', 'apply', String(t.number), ...(v.subject && v.subject !== t.title ? ['--subject', v.subject] : []), ...(v.pipelines ? [] : ['--no-pipelines'])];
+      const args = ['task', 'apply', String(t.number), ...(v.complete ? [] : ['--partial']), ...(v.subject && v.subject !== t.title ? ['--subject', v.subject] : []), ...(v.pipelines ? [] : ['--no-pipelines'])];
       const tried = await WS.cli(args);
       if (!tried.ok && tried.error?.code === 'merge_conflict') { conflict = tried.error; return; }
       if (!tried.ok) { ECO.showError(tried); return '反映できませんでした。'; }
-      ECO.toast(!tried.result.commit ? `#${t.number} の変更はすでに ${tried.result.base} に入っていたので、入れずに完了しました。`
-        : `#${t.number} を ${tried.result.base} へ反映し、完了しました。`);
+      const r = tried.result;
+      ECO.toast(r.partial ? (!r.commit ? `#${t.number} の変更はすでに ${r.base} に入っていました（タスクは続きます）。` : `#${t.number} を ${r.base} へ反映しました（タスクは続きます）。`)
+        : !r.commit ? `#${t.number} の変更はすでに ${r.base} に入っていたので、入れずに完了しました。` : `#${t.number} を ${r.base} へ反映し、完了しました。`);
       for (const notice of tried.notices || []) ECO.toast('お知らせ：' + notice, 'info', 9000);
       ECO.workspaceKept(tried.result, t.number); await WS.refresh(); WS.reloadFiles?.(); await WS.refreshPrs();
     },

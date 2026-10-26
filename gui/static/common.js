@@ -603,7 +603,7 @@ const ECO = (() => {
     submit: '提出の前のパイプライン → Push → PR',
     ready: '',
     finish: '取り込む：CIの結果を待って、提出（PR）を作成元へ取り込みます。タスクは提出のとおり、閉じるか続けます。',
-    apply: '反映：提出（PR）を作らずに、作成元の最新へ1つのコミットにまとめて入れ、タスクを完了します（作成元を作った人と管理者には、提出の代わりにこれが出ます）。',
+    apply: '反映：提出（PR）を作らずに、作成元の最新へ1つのコミットにまとめて入れます。タスクは完了するか続けるかを選べます（作成元を作った人と管理者には、提出の代わりにこれが出ます）。',
     withdraw: '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。',
     'local-review': '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。',
     'review-done': '確認をやめて、確認用の作業空間を消します（承認も差し戻しもしません）。',
@@ -620,6 +620,8 @@ const ECO = (() => {
   const setTaskOutcome = (formEl, complete) => { const row = formEl.closest('dialog')?.querySelector('[data-outcome="task"]'); if (row) row.textContent = taskOutcome(complete); };
   const submitOutcome = (base, {submitted = false, complete = true} = {}) => outcome([['PR', submitted ? '出している提出に、Push したコミットが加わります' : `${into(base)}へ出します（Push してから）`],
     ['取り込み', '見る人の承認で取り込まれます'], ['取り込まれたら', taskOutcome(complete), 'task']]);
+  const applyOutcome = (base, {complete = true} = {}) => outcome([['反映', `提出（PR）を作らずに、${into(base)}の最新へ1つのコミットにまとめて入れます（CIは待ちません）`],
+    ['反映したら', taskOutcome(complete), 'task']]);
   // The take-in dialog (task finish on an open submission), the same wherever it is: resolves to the CLI's arguments
   // after the number, or null. partial: the submission's (the default of 閉じずに続ける).
   async function finishForm({number, base, partial = false}) {
@@ -935,7 +937,7 @@ const ECO = (() => {
 
   return {call, cli, run, workspaceKept, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
-    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits, submissionConversation};
+    submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, applyOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits, submissionConversation};
 })();
 // The pages inside a window (the workspace's frame) use the window's ECO: the same window id for the actions.
 window.ECO = ECO;

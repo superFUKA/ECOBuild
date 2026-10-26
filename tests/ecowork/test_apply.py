@@ -197,3 +197,49 @@ def test_apply_again_after_it_stopped_does_only_the_rest(repository):
     assert git(repository.root, "rev-parse", "origin/main") == applied
     assert repository.task(task.number).state == "closed"
     assert code_of(lambda: repository.apply_task(task.number)) == ErrorCode.TASK_CLOSED   # 片付いた後
+
+
+def test_apply_partial_keeps_the_task_going(repository):
+    """中間の反映：作成元へ入れても Issue は閉じず、タスクブランチを作成元の最新から作り直して続ける。"""
+    task, task_branch = started(repository, "続ける")
+    write(repository.root / "a.txt", "a\n")
+    task_branch.record("a")
+    pr = task_branch.submit()
+    result = repository.apply_task(partial=True)
+    assert result.partial and result.rebuilt and result.commit and not result.removed
+    assert result.closed_submission == pr.number and repository.github.pulls[pr.number].state == "closed"
+    assert repository.task(task.number).state == "open"
+    assert repository.git.current_branch() == task_branch.branch
+    applied = git(repository.root, "rev-parse", "origin/main")
+    assert git(repository.root, "rev-parse", "HEAD") == applied                       # 作成元の最新から作り直した
+    assert git(repository.root, "rev-parse", f"origin/{task_branch.branch}") == applied
+    assert code_of(lambda: repository.apply_task(partial=True)) == ErrorCode.NOTHING_TO_SUBMIT
+    write(repository.root / "b.txt", "b\n")
+    task_branch.record("b")
+    result = repository.apply_task()
+    assert not result.partial and result.removed and repository.task(task.number).state == "closed"
+    assert git(repository.root, "rev-list", "--count", f"{applied}..origin/main") == "1"
+
+
+def test_apply_partial_rebuilds_a_task_branch_only_on_github(repository):
+    task, task_branch = started(repository)
+    write(repository.root / "a.txt", "a\n")
+    task_branch.record("a")
+    task_branch.push()
+    repository.git.switch("main")
+    repository.git.delete_branch(task_branch.branch, force=True)
+    result = repository.apply_task(task.number, partial=True)
+    assert result.partial and result.rebuilt and repository.task(task.number).state == "open"
+    assert git(repository.root, "rev-parse", f"origin/{task_branch.branch}") == git(repository.root, "rev-parse", "origin/main")
+
+
+def test_apply_partial_of_a_parent_with_open_subtasks(repository):
+    """子タスクが開いていても、中間の反映はできる（完了の反映は止まる）。"""
+    parent = repository.create_task("親")
+    repository.create_task("子", parent=parent.number)
+    task_branch = repository.task(parent.number).start(ignore_blocked=True)
+    write(repository.root / "a.txt", "a\n")
+    task_branch.record("a")
+    assert code_of(repository.apply_task) == ErrorCode.OPEN_SUBTASKS
+    assert repository.apply_task(partial=True).partial
+    assert repository.task(parent.number).state == "open"

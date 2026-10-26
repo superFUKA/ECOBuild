@@ -134,19 +134,32 @@ get('work-tabs').addEventListener('keydown', e => {
 });
 
 function banner(html, kind = '') { return `<div class="eco-banner ${kind}">${html}</div>`; }
+// What stopped on a conflict (status stopped) and its two sides (sync take --side current／incoming).
+const STOPPED = {merge: '取り込み', rebase: 'タスクブランチの作り直し', revert: '取り消し', stash: '退避した変更の戻し'};
+const SIDES = {merge: ['このタスクブランチの側', '取り込む側'], rebase: ['作成元の側', '自分のコミットの側'],
+  revert: ['今の内容', '取り消した内容'], stash: ['今の内容', '退避した変更']};
+WS.sides = () => SIDES[WS.status?.stopped] || ['今の側', '入ってくる側'];
+// A conflicted file resolved with one side's content (the explorer's menu); 続ける finishes what stopped.
+WS.takeSide = async (path, incoming) => {
+  const doc = await WS.run(['sync', 'take', path, '--side', incoming ? 'incoming' : 'current'], {success: `${path} を${WS.sides()[incoming ? 1 : 0]}で解決しました。`});
+  await WS.reloadFiles?.();
+  return doc;
+};
 // 「あとで」 hides the old-format banner while this screen is open (it comes back when reopened).
 let upgradeLater = false;
 function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
-    if (s.merging) out.push(banner(`取り込み中に衝突が発生しました。衝突したファイルを修正して「取り込みを完了」を押してください。<button data-git="sync-continue">取り込みを完了</button><button data-git="sync-abort">取り込みを中止</button>`, 'bad'));
+    if (s.merging) out.push(banner(`${STOPPED[s.stopped] || '取り込み'}の途中で衝突しました。衝突したファイルを直して（右クリックで片方の側を採る・「差分」で TortoiseGit の衝突の画面）、「続ける」を押してください。<button data-git="sync-continue">続ける</button><button data-git="sync-abort">やめる</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
     else if (!s.task) out.push(banner(`タスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。コミットはタスクブランチで。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
     else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
-    if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。<button data-git="sync">最新を取り込む</button>`));
+    // Before taking the base in: the files it would conflict on (fixed here after taking it in; better before submitting).
+    const clashes = s.base_conflicts || [];
+    if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。` + (clashes.length ? `取り込むと ${clashes.length} 件のファイルが衝突します（${clashes.map(esc).join('、')}）。取り込んで直してから提出してください。` : '') + `<button data-git="sync">最新を取り込む</button>`, clashes.length ? 'bad' : ''));
     // Changes left where nothing is committed (main etc.): they can only be thrown away here.
     const left = !s.task && !s.reviewing && !s.merging ? WS.changes().size : 0;
     if (left) out.push(banner(`未コミットの変更が ${left} 件あります。<button data-git="discard-left">変更を捨てる…</button>`));
@@ -503,8 +516,14 @@ async function gitAction(action) {
         if (!v.gui) setTimeout(() => ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: v.path}));
       }});
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
-    case 'sync-continue': return WS.run(['sync', 'continue'], {success: '取り込みを完了しました。'});
-    case 'sync-abort': return WS.run(['sync', 'abort'], {success: '取り込みを中止し、取り込む前の状態に戻しました。', confirm: '止まっている取り込みを中止し、取り込む前の状態に戻します。', title: '取り込みを中止'}).then(() => WS.reloadFiles?.());
+    case 'sync-continue': {
+      const what = STOPPED[WS.status?.stopped] || '取り込み';
+      return WS.run(['sync', 'continue'], {success: WS.status?.stopped === 'stash' ? '衝突を直しました（退避した変更は残っています。いらなければ「退避」から捨てます）。' : `${what}を完了しました。`}).then(() => WS.reloadFiles?.());
+    }
+    case 'sync-abort': {
+      const what = STOPPED[WS.status?.stopped] || '取り込み';
+      return WS.run(['sync', 'abort'], {success: `${what}をやめて、前の状態に戻しました。`, confirm: `止まっている${what}をやめて、前の状態に戻します。` + (WS.status?.stopped === 'stash' ? '戻した変更は捨てます（退避した変更は残っています）。' : ''), title: `${what}をやめる`}).then(() => WS.reloadFiles?.());
+    }
     case 'upgrade': {
       const plan = await WS.cli(['module', 'upgrade', '--dry-run'], {quiet: true});
       if (!plan.ok) return ECO.showError(plan);

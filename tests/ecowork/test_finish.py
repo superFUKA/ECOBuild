@@ -395,6 +395,46 @@ def test_revert_task_and_diff(repository):
     assert code_of(lambda: repository.revert_task(reverted.task)) == ErrorCode.PULL_REQUEST_NOT_OPEN
 
 
+def test_revert_conflict_continues_with_sync_continue(repository):
+    """取り消しが衝突で止まったら、直して sync continue で取り消しを終える（task commit ではなく。止まっている操作 revert）。"""
+    first, first_branch = started(repository, "先")
+    recorded(first_branch, text="a\n")
+    repository.finish()
+    second, second_branch = started(repository, "後")
+    recorded(second_branch, text="b\n")
+    repository.finish()
+    with pytest.raises(WorkError) as error:
+        repository.revert_task(first.number)
+    assert error.value.code == ErrorCode.MERGE_CONFLICT and "sync continue" in error.value.hint
+    assert repository.status().stopped == "revert"
+    head = git(repository.root, "rev-parse", "HEAD")
+    repository.take_side(("a.txt",), incoming=True)                   # 取り消す側（先の変更をなくす）
+    assert repository.continue_sync().merged == ("revert",)
+    assert repository.status().stopped is None and not (repository.root / "a.txt").exists()
+    assert git(repository.root, "log", "-1", "--format=%s").startswith("Revert")
+    git(repository.root, "reset", "--quiet", "--hard", head)
+    assert code_of(lambda: repository.revert_task(first.number)) == ErrorCode.MERGE_CONFLICT
+    repository.take_side(("a.txt",), incoming=False)                  # 今のまま：取り消すものがなくなる
+    repository.continue_sync()
+    assert repository.status().stopped is None and git(repository.root, "rev-parse", "HEAD") != ""
+
+
+def test_finish_stops_on_a_conflict_before_waiting_for_ci(repository):
+    """作成元と衝突する提出は、CI を待たずに止める（衝突するファイルを添え、直し方・差し戻しを案内する）。"""
+    first, first_branch = started(repository, "先")
+    second, second_branch = started(repository, "後")
+    recorded(second_branch, text="b\n")
+    second_branch.submit()
+    repository.git.switch(first_branch.branch)
+    recorded(first_branch, text="a\n")
+    repository.finish()
+    with pytest.raises(WorkError) as error:
+        repository.finish(second.number)
+    assert error.value.code == ErrorCode.PULL_REQUEST_CONFLICT and error.value.details == ["a.txt"]
+    assert "sync" in error.value.hint and "task reject" in error.value.hint
+    assert repository.task(second.number).state == "open"
+
+
 def test_tasks_show_submissions(repository):
     task, task_branch = started(repository)
     recorded(task_branch)

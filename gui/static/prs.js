@@ -112,7 +112,10 @@ WS.judge = async (approve, number) => {
     : {title: `差し戻す：#${number}`, intro: 'タスクは作業中に戻ります。手元で確認していたなら、確認する前のブランチに戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
   if (!v) return;
   const doc = await WS.run(['task', approve ? 'approve' : 'reject', String(number), ...(v.message ? ['--message', v.message] : [])],
-    {success: approve ? r => `#${number} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${number} を差し戻しました。`});
+    {success: approve ? r => `#${number} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${number} を差し戻しました。`,
+      // Someone else's submission that conflicts with its base: sent back to be fixed in its task branch.
+      onError: {pull_request_conflict: d => ECO.takeInConflict(d, {number, base: prStatus?.base || '作成元', own: false,
+        reject: async message => { if (await WS.run(['task', 'reject', String(number), '--message', message], {success: `#${number} を差し戻しました。`})) await WS.refreshPrs(); }})}});
   if (doc) { if (approve) ECO.workspaceKept(doc.result, number); WS.reloadFiles?.(); await WS.refreshPrs(); }
 };
 
@@ -122,8 +125,11 @@ function submitDialog(t, ready = false) {
   const sub = t.pull_request, submitted = sub?.state === 'open';
   if (ready) return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs());
   const complete = submitted ? !sub.partial : true;
+  // It can be submitted (to be looked at), but not taken in until the conflicts are fixed here (最新を取り込む).
+  const clashes = WS.status?.base_conflicts || [];
+  const warning = clashes.length ? `<div class="eco-banner bad">${esc(t.base)} と衝突するファイルがあります（${clashes.map(esc).join('、')}）。このままでは取り込めません。先に「最新を取り込む」で直してから提出すると確実です。</div>` : '';
   return ECO.form({
-    title: `提出：#${t.number}`, intro: ECO.submitOutcome(t.base, {submitted, complete}) + ECO.submissionCommits(t.commits),
+    title: `提出：#${t.number}`, intro: warning + ECO.submitOutcome(t.base, {submitted, complete}) + ECO.submissionCommits(t.commits),
     fields: [
       {name: 'complete', label: '取り込まれたらタスクを完了する', type: 'checkbox', value: complete},
       {name: 'title', label: '題名', value: t.title || '', placeholder: '空欄ならタスクの題名'},

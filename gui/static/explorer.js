@@ -285,14 +285,16 @@ function pairItems(path) {
 function fileMenu(path, x, y) {
   WS.activeFile = path; activeDirectory = dirOf(path); renderTree();
   const kinds = WS.changes().get(path) || [], tracked = !kinds.includes('untracked'), exists = !WS.files.missing.includes(path), can = editable();
+  const conflicted = kinds.includes('conflicted');
   showMenu([
     ['open', `Visual Studio ${ECO.vsVersion()} で開く`, exists], ['open-default', '既定のアプリで開く', exists], ['reveal', 'Windows のエクスプローラーで表示', exists], '-',
     ...(isReadme(path) ? [] : [['rename', '名前の変更', can && exists, 'F2'], ['move', '移動先を指定…', can && exists], ['remove', '削除', can && exists, 'Delete']]),
     ...pairItems(path),
     ...(runnableTest(path) ? [['run-test', 'テストを実行', exists]] : []),
     ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
-    ['restore', '変更を元に戻す', can && tracked && kinds.length > 0], ['ignore', '除外パターンに追加', can], '-',
-    ['diff', '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
+    ...(conflicted ? [['take-current', `${WS.sides()[0]}を採る`], ['take-incoming', `${WS.sides()[1]}を採る`], '-'] : []),
+    ['restore', '変更を元に戻す', can && tracked && kinds.length > 0 && !conflicted], ['ignore', '除外パターンに追加', can], '-',
+    ['diff', conflicted ? '衝突を直す（差分）' : '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
   ], x, y);
 }
 // A Project's own folder: what Visual Studio's Solution Explorer offers on a project (build, test, run, the target).
@@ -460,6 +462,7 @@ async function menuAction(action, dir) {
     case 'run-test': return WS.runTests([path]);
     case 'run-test-dir': return WS.runTests([dir]);
     case 'remove': return removeFile(path);
+    case 'take-current': case 'take-incoming': return WS.takeSide(path, action === 'take-incoming');
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {
       const v = await ECO.form({title: '除外パターンに追加', intro: '.gitignore に追加して、git で管理しないようにします（すでに管理しているファイルには効きません）。', fields: [{name: 'pattern', label: 'パターン', value: action === 'ignore-dir' ? (dir ? dir + '/' : '') : path, required: true}], ok: '追加'});

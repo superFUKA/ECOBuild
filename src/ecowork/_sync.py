@@ -18,7 +18,7 @@ class Syncing:
 
     def sync(self) -> wm.SyncResult:
         """GitHubの最新を取り込む。タスクブランチでないブランチは早送り、タスクブランチは作成元の最新も取り込む。"""
-        if self.git.is_merging() or self.git.is_rebasing():
+        if self.git.stopped() is not None:
             raise self._in_progress_error()
         branch = self.git.current_branch()
         if branch is None:
@@ -91,14 +91,27 @@ class Syncing:
         return tuple(conflicted)
 
     def continue_sync(self) -> wm.SyncResult:
-        """衝突を解決した後、止まっている取り込み（またはタスクブランチの作り直し）を完了する。
-
-        衝突したファイルは、印がなくなっていれば登録してから続ける（resolve_conflicts）。
+        """衝突を解決した後、止まっている操作（git.stopped：取り込み・タスクブランチの作り直し・取り消し・退避した変更の
+        戻し）を完了する。衝突したファイルは、印がなくなっていれば登録してから続ける（resolve_conflicts）。
+        退避した変更の戻しは、登録を外して未コミットの変更にするだけ（退避した変更は stash drop まで残る）。
         """
         branch = self.git.current_branch() or ""
-        if self.git.is_rebasing() or self.git.is_merging():
-            self.resolve_conflicts()
-            self._refuse_conflict_markers(self.git.conflict_markers(cached=True))
+        stopped = self.git.stopped()
+        if stopped is None:
+            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている操作（取り込み・取り消し等）はありません。")
+        self.resolve_conflicts()
+        if stopped == "stash":
+            self.git.run("reset", "--quiet")   # 戻した変更は未コミットの変更に（コミットはいつもどおり task commit で）
+            return wm.SyncResult(branch, ())
+        self._refuse_conflict_markers(self.git.conflict_markers(cached=True))
+        if stopped == "revert":
+            outcome = self.git.revert_continue()
+            if not outcome.merged:
+                raise WorkError(ErrorCode.MERGE_CONFLICT, "続きの取り消しで衝突しました。",
+                                hint=f"ファイルを直して、もう一度 {self._op('sync continue')}。",
+                                details=list(outcome.conflicted))
+            self.hooks.prepare_workspace(self)   # 取り消しで依存先の記録等が戻ることがある
+            return wm.SyncResult(branch, ("revert",))
         if self.git.is_rebasing():
             outcome = self.git.rebase_continue()
             if not outcome.merged:
@@ -107,18 +120,39 @@ class Syncing:
                                 details=list(outcome.conflicted))
             branch = self.git.current_branch() or branch
             return wm.SyncResult(branch, ("rebase",), self.hooks.after_sync(self))
-        if self.git.is_merging():
-            self.git.merge_continue()
-            return wm.SyncResult(branch, ("merge",), self.hooks.after_sync(self))
-        raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている取り込みはありません。")
+        self.git.merge_continue()
+        return wm.SyncResult(branch, ("merge",), self.hooks.after_sync(self))
 
     def abort_sync(self) -> None:
-        if self.git.is_rebasing():
+        """止まっている操作をやめて、その前に戻す。退避した変更の戻しは、戻した変更を捨てる（退避した変更は残っている）。"""
+        stopped = self.git.stopped()
+        if stopped == "rebase":
             self.git.rebase_abort()
-        elif self.git.is_merging():
+        elif stopped == "merge":
             self.git.merge_abort()
+        elif stopped == "revert":
+            self.git.revert_abort()
+        elif stopped == "stash":
+            self.git.run("reset", "--quiet", "--merge")
         else:
-            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている取り込みはありません。")
+            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "止まっている操作（取り込み・取り消し等）はありません。")
+
+    def take_side(self, paths: tuple[str, ...], *, incoming: bool) -> tuple[str, ...]:
+        """衝突したファイル paths を、片方の側の内容で解決する（今の側＝HEAD／入ってくる側）。paths なしは衝突した
+        ファイルすべて。衝突していないファイルは止める。退避した変更の戻しでは登録を外す（未コミットの変更にする）。"""
+        conflicted = self.git.working_tree().conflicted
+        if not conflicted:
+            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "衝突しているファイルはありません。")
+        chosen = tuple(paths) or conflicted
+        others = [p for p in chosen if p not in conflicted]
+        if others:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "衝突していないファイルがあります。", details=others,
+                            hint=f"衝突しているファイル：{'、'.join(conflicted)}")
+        stash = self.git.stopped() == "stash"
+        self.git.take_side(chosen, incoming=incoming)
+        if stash:
+            self.git.run("reset", "--quiet", "--", *chosen)
+        return chosen
 
     def stash(self) -> wm.StashResult:
         stashed = self.git.stash_push()
@@ -164,12 +198,10 @@ class Syncing:
         index = self._own_stash()
         outcome = self.git.stash_pop(index)
         if not outcome.merged:
-            # タスクブランチでないブランチでは add できない。登録を外せば（restore --staged）解決済みになる。
-            mark = (f"{self._op('task add')} で登録" if self.current_task_branch() is not None
-                    else f"{self._op('restore')} --staged <パス> で解決済みに")
+            # sync continue が直したファイルの登録を外して解決済みにする（タスクブランチでないブランチでも）
             raise WorkError(ErrorCode.MERGE_CONFLICT, "退避した変更を戻すときに衝突しました。",
-                            hint=f"衝突したファイルを直して {mark}してください。退避した変更は残っているので、"
-                                 f"解決したら {self._op('stash drop')} で捨ててください。",
+                            hint=f"衝突したファイルを直して {self._op('sync continue')}（やめるなら {self._op('sync abort')}）。"
+                                 f"退避した変更は残っているので、解決したら {self._op('stash drop')} で捨ててください。",
                             details=list(outcome.conflicted))
         return wm.StashResult(True, self._stash_messages())
 

@@ -566,7 +566,7 @@ class Status:
     conflicted: tuple[str, ...]
     ahead: int
     behind: int
-    merging: bool
+    merging: bool                      # 衝突等で止まっている操作がある（stopped）
     pull_request: PullRequestState | None
     upstream_gone: bool = False      # GitHubのブランチが削除された（別の場所での反映・中止など）
     reviewing: int | None = None     # task review で確認中のPR
@@ -577,6 +577,9 @@ class Status:
     excluded: tuple[str, ...] = ()   # 新しいファイルのうち、task commit が自動で含めないもの（利用側が決める）
     dependencies: tuple = ()         # 手元の版が記録と違う依存先（利用側が決める）
     eol_only: tuple[str, ...] = ()   # 変更のうち、改行コード（CRLF と LF）だけが違うファイル（task commit が自動で含めない）
+    stopped: str | None = None       # 止まっている操作：merge（取り込み）・rebase（作り直し）・revert（取り消し）・stash
+                                     # （退避した変更の戻し）。続けるのは sync continue、やめるのは sync abort
+    base_conflicts: tuple[str, ...] = ()   # status --fetch：作成元の最新を取り込むと衝突するファイル（自動で直るものは除く）
 
 
 @dataclass(frozen=True)

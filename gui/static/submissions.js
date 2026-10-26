@@ -70,6 +70,7 @@
     const t = st.status;
     if (!t || 'task:' + t.number !== st.item) { box.innerHTML = st.item ? ECO.loading() : ''; return; }
     const sub = t.pull_request, isOpen = open(sub), own = mine(t), draft = isOpen && sub.draft, reviewing = reviewingPlace(t.number);
+    const conflicting = t.activity?.mergeable === 'CONFLICTING';   // GitHub cannot take it in: fixed in the task branch first
     box.innerHTML = ECO.submissionDetail(t, {own});
     // Left: looking at it (small). Right: what can be done with it — someone else's is checked, approved or sent back;
     // one's own is taken in or withdrawn (submitting and making a draft ready are done in its workspace). Approving,
@@ -82,15 +83,19 @@
     if (isOpen && !own) {
       if (!reviewing) act.append(b('local-review', '手元で確認'));
       act.append(b('reject', '差し戻す', {enabled: handles, note: why}),
-        b('approve', '承認して取り込む', {enabled: !draft && handles, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why}));
+        b('approve', '承認して取り込む', {enabled: !draft && handles && !conflicting, kind: 'primary', note: draft ? '下書きの提出は承認できません' : why || (conflicting ? ECO.conflictNote(false) : '')}));
     } else if (isOpen) {
       act.append(b('withdraw', '提出を取り下げる', {kind: 'danger-text'}),
-        b('finish', '取り込む', {enabled: !draft && handles, kind: 'primary', note: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why}));
+        b('finish', '取り込む', {enabled: !draft && handles && !conflicting, kind: 'primary', note: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why || (conflicting ? ECO.conflictNote(true) : '')}));
     }
     tools.append(look, act); box.append(tools);
   }
   // Doing things. After a change, the reads are read again (the server marks them stale) and the screen redrawn.
   const after = async doc => { if (doc) { st.status = null; await window.BRANCHES_RELOAD?.(); } return doc; };
+  // Taking in stopped on a conflict with the base: one's own is fixed in its task branch, someone else's is sent back.
+  const onConflict = (t, own) => ({pull_request_conflict: doc => ECO.takeInConflict(doc, {number: t.number, base: t.base, own,
+    fix: async () => { await MOD.takeInBase(t.number); st.status = null; await window.BRANCHES_RELOAD?.(); },
+    reject: async message => after(await ECO.run(MOD.root, ['task', 'reject', String(t.number), '--message', message], {success: `#${t.number} を差し戻しました。`}))})});
   async function taskAction(action) {
     const t = st.status; if (!t) return;
     const n = String(t.number);
@@ -107,7 +112,7 @@
           : {title: `差し戻す：#${n}`, intro: 'タスクは作業中に戻ります。', fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true}], ok: '差し戻す', danger: true});
         if (!v) return;
         // Run in the module's own clone: the workspace it was checked in (if any) is removed by approve・reject.
-        const doc = await ECO.run(MOD.root, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`});
+        const doc = await ECO.run(MOD.root, ['task', action, n, ...(v.message ? ['--message', v.message] : [])], {success: approve ? r => `#${n} を承認して取り込みました。` + (r.partial ? 'タスクは続きます。' : 'タスクを完了しました。') : `#${n} を差し戻しました。`, onError: onConflict(t, false)});
         if (doc) { if (approve) ECO.workspaceKept(doc.result, n); await MOD.syncPlaces(); }
         return after(doc);
       }
@@ -115,7 +120,7 @@
         const options = await ECO.finishForm({number: n, base: t.base, partial: !!t.pull_request?.partial});
         if (!options) return;
         const place = MOD.placeOfTask(t.number) || MOD.root;
-        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`});
+        const doc = await ECO.run(place, ['task', 'finish', n, ...options], {success: r => r.partial ? `#${n} を取り込みました（タスクは続きます）。` : `#${n} を取り込み、完了しました。`, onError: onConflict(t, true)});
         if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); }
         return after(doc);
       }

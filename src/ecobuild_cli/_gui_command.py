@@ -6,11 +6,15 @@ from . import _gui
 from ._output import Invocation, execute
 
 
-def open_window(command: str, paths: tuple[str, ...], json_output: bool) -> int:
+def open_window(command: str, paths: tuple[str, ...], json_output: bool, *, conflicted: str | None = None) -> int:
+    """conflicted：衝突しているファイルなら、代わりに開く画面（diff → conflicteditor：TortoiseGitMerge で直す）。"""
     def action(inv):
         target = (inv.cwd / paths[0]).resolve() if paths else inv.module.root
-        _gui.open_window(command, target)
-        return {"opened": command, "path": str(target)}
+        opened = command
+        if conflicted and paths and inv.module.relative_path(target, inv.module.root) in                 inv.module.repository.git.working_tree().conflicted:
+            opened = conflicted
+        _gui.open_window(opened, target)
+        return {"opened": opened, "path": str(target)}
 
     return execute(command, Invocation(json_output=json_output), action, lambda r: f"TortoiseGitで開きました：{r['path']}")
 

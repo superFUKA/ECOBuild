@@ -22,7 +22,7 @@ def command(
                      "判定せずに戻るなら ecobuild task review --done）") if r.reviewing_task else \
                 f"PR #{r.reviewing} を確認中（ecobuild task review --done で戻る）"
         elif r.task:
-            where = f"タスクブランチ #{r.task}（{r.branch}、作成元 {r.base}）"
+            where = f"タスクブランチ #{r.task}（{r.branch}、作成元 {r.base}" + (f" の {r.base_at[:7]} まで取り込み済み" if r.base_at else "") + "）"
         elif r.branch is None:
             where = "ブランチにいません（切り離された状態。依存先のcloneなら記録の版。作業は ecobuild task start）"
         else:

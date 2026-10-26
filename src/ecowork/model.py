@@ -580,6 +580,7 @@ class Status:
     stopped: str | None = None       # 止まっている操作：merge（取り込み）・rebase（作り直し）・revert（取り消し）・stash
                                      # （退避した変更の戻し）。続けるのは sync continue、やめるのは sync abort
     base_conflicts: tuple[str, ...] = ()   # status --fetch：作成元の最新を取り込むと衝突するファイル（自動で直るものは除く）
+    base_at: str | None = None       # タスクブランチが取り込んでいる作成元のバージョン（GitHub の作成元との共通のコミット）
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ AGENT = "owner"
 
 def command(
     from_branch: Annotated[str, "作成元のほかに取り込むブランチ（GitHub の別の管理ブランチ・別のタスクブランチ。タスクブランチでだけ）"] = "",
+    at: Annotated[str, "最新ではなく、このコミットまで取り込む（--from-branch のブランチ、なければ作成元のコミット）"] = "",
     pipelines: Annotated[bool, "取り込んだ後のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -17,6 +18,7 @@ def command(
     タスクブランチでないブランチは早送り、タスクブランチは作成元の最新を取り込みます。
     --from-branch <ブランチ> で、作成元のほかのブランチ（別の管理ブランチ・別のタスクブランチ）もタスクブランチへ取り込みます。
     取り込んだコミットは、このタスクブランチの提出にも入ります。
+    --at <コミット> で、最新ではなくそのコミットまで取り込みます（選べるコミットは ecobuild log --branch <ブランチ>）。
     衝突したら、直して ecobuild sync continue（直したファイルは自動で登録します。やめるなら ecobuild sync abort）。
     何か取り込んだら、最新の取り込みの後に当てたパイプライン（ecobuild pipeline on）を走らせます。
     """
@@ -29,5 +31,5 @@ def command(
             "生成ファイルを更新しました" if r.regenerated else None,
         )
 
-    return run_command("sync", lambda inv: inv.module.sync(progress=inv.info, pipelines=pipelines, from_branch=from_branch), render,
+    return run_command("sync", lambda inv: inv.module.sync(progress=inv.info, pipelines=pipelines, from_branch=from_branch, at=at), render,
                        json_output=json)

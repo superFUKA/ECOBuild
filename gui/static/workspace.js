@@ -483,28 +483,29 @@ const stashBranch = entry => entry.match(/^(?:WIP )?[Oo]n (.+?): /)?.[1] ?? null
 // 取り込む (the toolbar, where the branch's name was: a workspace holds one task branch, so what it belongs to — its
 // base — is what there is to take in; the opposite way of Push). The button takes the base's latest in (sync) any time,
 // not only from the 最新 banner; it names the base, counts how far behind it is (GitHub's latest: status --fetch) and
-// turns red when taking it in would conflict. ▾: another branch (into a task branch only) and looking at GitHub again.
+// turns red when taking it in would conflict. On a task branch it also shows the base's version taken in (status base_at)
+// and a click chooses the version to take in (sync-pick). ▾: the latest at once, and looking at GitHub again.
 // Checking someone's submission here there is nothing to take in: not shown.
 function renderSync() {
   const s = WS.status, group = get('sync-group');
   group.hidden = !s || !!s.reviewing;
   if (group.hidden) return;
   const behind = s.base_behind || s.behind || 0, clashes = s.base_conflicts?.length || 0;
-  get('sync-label').textContent = s.task && s.base ? s.base : '取り込む';
+  get('sync-label').innerHTML = s.task && s.base ? esc(s.base) + (s.base_at ? ` <span class="sync-version">${esc(s.base_at.slice(0, 7))}</span>` : '') : '取り込む';
   const count = get('sync-count');
   count.hidden = !behind; count.textContent = behind;
   group.classList.toggle('due', behind > 0); group.classList.toggle('bad', clashes > 0);
   get('sync-button').dataset.tip = s.merging ? '止まっている操作を、帯の「続ける」か「やめる」で終えてから取り込めます'
-    : (s.task ? `作成元 ${s.base || ''} の最新を取り込む` : 'GitHub の最新を取り込む')
+    : (s.task ? `作成元 ${s.base || ''} の ${s.base_at?.slice(0, 7) || '?'} まで取り込んでいます。押すと、取り込むバージョンを選べます` : 'GitHub の最新を取り込む')
       + (behind ? `（新しいコミット ${behind} 件${clashes ? `・取り込むと衝突するファイル ${clashes} 件：${s.base_conflicts.join('、')}` : ''}）` : '');
 }
-get('sync-button').addEventListener('click', () => gitAction('sync'));
+get('sync-button').addEventListener('click', () => gitAction(WS.status?.task ? 'sync-pick' : 'sync'));
 get('sync-more').addEventListener('click', e => {
   const r = e.currentTarget.getBoundingClientRect(), s = WS.status || {}, stopped = !!s.merging;
   const why = '止まっている操作を、帯の「続ける」か「やめる」で終えてから取り込めます';
   ECO.menu([
     ['最新を取り込む', () => gitAction('sync'), !stopped, stopped ? why : s.task ? `GitHub の作成元（${s.base || ''}）の最新を取り込みます` : 'GitHub の最新を取り込みます'],
-    ['ほかのブランチから取り込む…', () => gitAction('sync-from'), !!s.task && !stopped, stopped ? why : s.task ? '別の管理ブランチ・別のタスクブランチの変更を取り込みます' : 'タスクブランチでだけ取り込めます'],
+    ['バージョン・ブランチを選んで取り込む…', () => gitAction('sync-pick'), !!s.task && !stopped, stopped ? why : s.task ? '作成元のどのバージョンまで取り込むか、または別の管理ブランチ・別のタスクブランチを選びます' : 'タスクブランチでだけ選べます'],
     '-',
     ['GitHub の最新を確認', () => gitAction('fetch'), true, '作成元の遅れ・取り込むと衝突するファイルを確かめます（取り込みはしません）'],
   ], r.left, r.bottom + 4);
@@ -560,21 +561,41 @@ async function gitAction(action) {
         if (!v.gui) setTimeout(() => ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: v.path}));
       }});
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
-    case 'sync-from': {
-      // Another branch on GitHub (a management branch or another task branch) into this task branch; its commits go into the submission too.
-      const doc = await ECO.query(WS.dir, ['branch', 'list']);
+    case 'sync-pick': {
+      // The version to take in: the base's commits newer than the version taken in (status base_at), or another branch on
+      // GitHub (a management branch or another task branch; the base's latest comes with it) at any of its commits.
+      // What is taken in goes into this task branch's submission too.
+      const s = WS.status, doc = await ECO.query(WS.dir, ['branch', 'list']);
       if (!doc.ok) return ECO.showError(doc);
-      const skip = [WS.status.branch, WS.status.base];
-      const usable = doc.result.filter(b => b.remote && !b.unusable && !skip.includes(b.name));
-      const options = [...usable.filter(b => !b.is_task_branch).map(b => [b.name, b.name]),
+      const usable = doc.result.filter(b => b.remote && !b.unusable && b.name !== s.branch && b.name !== s.base);
+      const branches = [[s.base, `${s.base}（作成元）`], ...usable.filter(b => !b.is_task_branch).map(b => [b.name, b.name]),
         ...usable.filter(b => b.is_task_branch).map(b => [b.name, `${b.name}（タスクブランチ）`])];
-      if (!options.length) return say('取り込めるほかのブランチが GitHub にありません。');
-      return ECO.form({title: 'ほかのブランチから取り込む',
-        intro: `選んだブランチの変更を、このタスクブランチ（${esc(WS.status.branch)}）へ取り込みます。作成元（${esc(WS.status.base || '')}）の最新も一緒に取り込みます。取り込んだコミットは、このタスクブランチの提出にも入ります。`,
-        fields: [{name: 'branch', label: '取り込むブランチ', type: 'select', value: options[0][0], options}], ok: '取り込む',
+      const versions = async branch => {
+        const log = await WS.cli(['log', '--branch', branch, '--count', '50'], {quiet: true});
+        if (!log.ok) return [];
+        let entries = log.result;
+        const here = branch === s.base && s.base_at ? entries.findIndex(e => e.sha === s.base_at) : -1;
+        if (here >= 0) entries = entries.slice(0, here);   // older ones are in already
+        return entries.map((e, i) => [e.sha, `${e.sha.slice(0, 7)}  ${ECO.localTime(e.date, true)}  ${e.subject}` + (i === 0 ? '（最新）' : '')]);
+      };
+      let shown = null;
+      return ECO.form({title: '取り込む', wide: true,
+        intro: `選んだバージョンまでを、このタスクブランチ（${esc(s.branch)}）へ取り込みます。今は作成元 ${esc(s.base)} の <code>${esc(s.base_at?.slice(0, 7) || '?')}</code> まで取り込んでいます。ほかのブランチを選ぶと、作成元の最新も一緒に取り込みます。取り込んだコミットは、このタスクブランチの提出にも入ります。`,
+        fields: [{name: 'branch', label: 'ブランチ', type: 'select', value: s.base, options: branches},
+          {name: 'at', label: 'バージョン（新しい順）', type: 'select', value: '', options: [['', '読み込んでいます…']]}],
+        ok: '取り込む',
+        onChange: async (v, formEl) => {
+          if (v.branch === shown) return;
+          shown = v.branch;
+          const options = await versions(v.branch), select = formEl.elements.at;
+          if (shown !== v.branch) return;
+          select.replaceChildren(...(options.length ? options : [['', v.branch === s.base ? '最新まで取り込んでいます' : 'コミットがありません']]).map(([value, label]) => new Option(label, value)));
+        },
         submit: async v => {
+          if (!v.at) return v.branch === s.base ? '作成元は最新まで取り込んでいます。' : 'バージョンを選んでください。';
+          const args = ['sync', ...(v.branch !== s.base ? ['--from-branch', v.branch] : []), '--at', v.at];
           // A conflict stops here like 最新を取り込む: the banner then offers 続ける／やめる.
-          setTimeout(async () => { await WS.run(['sync', '--from-branch', v.branch], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '：すでに入っていました')}); await WS.reloadFiles?.(); });
+          setTimeout(async () => { await WS.run(args, {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '：すでに入っていました')}); await WS.reloadFiles?.(); });
         }});
     }
     case 'sync-continue': {

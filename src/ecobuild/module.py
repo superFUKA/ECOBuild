@@ -940,11 +940,12 @@ class Module:
         return self.repository.finish(number, **options)
 
     def apply(self, number: int | None = None, *, progress: Callable[[str], None] | None = None,
-              pipelines: bool = True, subject: str | None = None) -> wm.ApplyResult:
+              pipelines: bool = True, subject: str | None = None, partial: bool = False) -> wm.ApplyResult:
         """タスクを提出を通さずに作成元へ反映して完了する（ecowork の Repository.apply_task。作成元への提出を処理できる
-        人だけ）。取り込みの前のパイプライン・作業空間の片付けは finish と同じ。"""
+        人だけ）。取り込みの前のパイプライン・作業空間の片付けは finish と同じ。partial：完了せず、タスクブランチを
+        作成元の最新から作り直して続ける（作業空間は残る）。"""
         self._before_finish(number, "反映", progress=progress, pipelines=pipelines)
-        return self.repository.apply_task(number, subject=subject)
+        return self.repository.apply_task(number, subject=subject, partial=partial)
 
     def _before_finish(self, number: int | None, action: str, *, progress: Callable[[str], None] | None,
                        pipelines: bool) -> None:

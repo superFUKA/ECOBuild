@@ -719,6 +719,8 @@ class ApplyResult:
     next: TaskRef | None = None      # 次のタスクの候補（task next の1番目）
     workspace_removed: Path | None = None   # タスクブランチを取り出していた作業空間を消した
     workspace_kept: str | None = None       # 作業空間・手元のタスクブランチを残したわけ
+    partial: bool = False            # 中間の反映（タスクは閉じず、タスクブランチを作成元の最新から作り直して続ける）
+    rebuilt: bool = False            # 中間の反映で、タスクブランチを作り直した
 
 
 @dataclass(frozen=True)

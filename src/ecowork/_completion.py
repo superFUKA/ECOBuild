@@ -264,7 +264,8 @@ class Completion:
     # 反映（提出を通さずに作成元へ） --------------------------------------------------------
 
     @reusing_reads
-    def apply_task(self, number: int | None = None, *, subject: str | None = None) -> wm.ApplyResult:
+    def apply_task(self, number: int | None = None, *, subject: str | None = None,
+                   partial: bool = False) -> wm.ApplyResult:
         """タスクを提出（PR）を通さずに作成元へ反映して完了する：タスクブランチを作成元の最新へスカッシュした1つの
         コミットにして push し、開いている提出があれば閉じ、Issueを閉じ、タスクブランチ（GitHub・手元）を片付ける。
 
@@ -273,7 +274,10 @@ class Completion:
         では使えない（提出して承認を受ける）。CI は待たない（PR がないので走らない）。衝突したら何も変えずに止める
         （生成ファイルだけの衝突は直す。Hooks.resolvable）。件名は「<subject（既定は題名）> (タスク #N)」で、本文の
         APPLIED_TRAILER に元のタスクブランチの版を残す（手元のタスクブランチを、失われるコミットがあるとみなさずに
-        片付けるため。_merged_heads）。push の後で止まったら、もう一度実行すると残りの後処理だけを行う。"""
+        片付けるため。_merged_heads）。push の後で止まったら、もう一度実行すると残りの後処理だけを行う。
+
+        partial：中間の反映。Issueは閉じず（作業中に戻す）、タスクブランチを作成元の最新から作り直して続ける（中間提出の
+        取り込みと同じ。_rebuild_task_branch）。子タスクが開いていても反映できる。"""
         if number is None:
             number = self.require_task_branch("番号を省略したタスクの反映").number
         branch = self._task_branch_of(number)
@@ -291,7 +295,7 @@ class Completion:
         base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
         if issue.state != "open":
-            if not (local or remote) or self._lost_commits(branch, base, local=local, remote=remote):
+            if partial or not (local or remote) or self._lost_commits(branch, base, local=local, remote=remote):
                 raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は閉じています。",
                                 hint=f"タスクブランチが残っていれば {self._op('task prune')} {number} で片付けられます。")
             return self._after_apply(number, branch, base, issue.title, None, None)   # 反映して閉じた後で止まった：片付けの残りだけ
@@ -305,7 +309,8 @@ class Completion:
                                                          "反映できません。",
                             hint=f"{self._op('task submit')} で提出し、見る人が {self._op('task approve')} {number} "
                                  "で承認・完了します。")
-        self.tracker.check_finishable(number, action="反映")
+        if not partial:
+            self.tracker.check_finishable(number, action="反映")
         if local:
             self._push_if_ahead(branch)   # 手元にだけあるコミットも入れる（GitHub と分かれていれば push が断る）
         if not self.git.has_remote_branch(base):
@@ -335,6 +340,9 @@ class Completion:
                                              f"提出を通さずに {base} へ反映したので閉じます（{commit[:7]}）。" if commit
                                              else f"変更はすでに {base} に入っているので閉じます。")
             self.github.close_pull_request(self.root, submission.number)
+        if partial:
+            return self._after_partial_apply(number, branch, base, head, title, commit,
+                                             submission.number if submission else None)
         self.github.close_issue(self.root, number)
         return self._after_apply(number, branch, base, title, commit, submission.number if submission else None)
 
@@ -350,6 +358,23 @@ class Completion:
         return wm.ApplyResult(number, title, base, commit, "squash" if commit else "up-to-date", closed_submission,
                               removed, released.switched_to, upcoming, workspace_removed=released.workspace_removed,
                               workspace_kept=released.kept)
+
+    def _after_partial_apply(self, number: int, branch: str, base: str, head: str, title: str, commit: str | None,
+                             closed_submission: int | None) -> wm.ApplyResult:
+        """中間の反映の後：タスクブランチを作成元の最新から作り直し（反映した版 head より後のコミットは載せ替える）、
+        作業中に戻す。手元にタスクブランチがなければ、GitHub のタスクブランチを作成元の最新にする。"""
+        if self.git.has_local_branch(branch):
+            rebuilt = self._rebuild_task_branch(branch, head)
+            if not rebuilt:
+                self.notices.append(f"手元のタスクブランチ {branch} は反映した版を含んでいないので、作り直していません。")
+        else:
+            self.git.run("push", "--quiet", "--force", _git.REMOTE, f"{_git.REMOTE}/{base}:refs/heads/{branch}")
+            self.git.fetch()
+            rebuilt = True
+        self.tracker.set_stage(number, _board.IN_PROGRESS)
+        self._advance_base(base)
+        return wm.ApplyResult(number, title, base, commit, "squash" if commit else "up-to-date", closed_submission,
+                              False, None, partial=True, rebuilt=rebuilt)
 
     def _applied_commit(self, number: int, branch: str, base: str, head: str, start: str,
                         title: str, *, keep_history: bool = False) -> str:

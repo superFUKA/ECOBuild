@@ -1098,3 +1098,16 @@ def test_confirmation_without_an_answer(module, monkeypatch, capsys, answer, sai
         ecobuild_cli.main(["task", "prune"])
     error = capsys.readouterr().err
     assert stopped.value.code == 1 and said in error and "予期しない" not in error, error
+
+
+def test_apply_partial_in_the_workspace_keeps_it(cli, module):
+    """task apply --partial：作業空間の中で反映しても、タスクと作業空間は残り、作成元の最新から続ける。"""
+    work = start(cli, "task", "new", "途中まで", "--start", "--name", "途中")
+    write(work / "calc.cpp", "int calc;\n")
+    assert cli("task", "commit", "--message", "途中まで").exit_code == 0
+    applied = cli("task", "apply", "--partial")
+    assert applied.exit_code == 0, applied.output
+    assert "タスクは続きます" in applied.stdout and "作り直しました" in applied.stdout
+    assert work.exists() and git(work, "branch", "--show-current") == "task/1-途中"
+    assert git(work, "rev-parse", "HEAD") == git(module.root, "rev-parse", "origin/main")
+    assert as_json(cli("status", "--json"))["result"]["task"] == 1

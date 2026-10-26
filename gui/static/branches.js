@@ -186,7 +186,7 @@
       case 'resolve': {   // branch resolve: a task (from the branch) taking in the other; its workspace opens stopped at the conflicts
         const p = m.plan; if (!p) return;
         if (!await ECO.confirm({title: '衝突を直す', ok: '作って開く', message: `${p.into} を ${p.name} へ取り込むタスクを作り、作業空間に取り出して ${p.into} を取り込みます（衝突したところで止まります）。\n`
-          + `作業空間で衝突したファイルを直して「取り込みを完了」、提出のタブで ${p.name} へ入れる（このタスクはスカッシュせずに履歴ごと入ります）と、${p.name} → ${p.into} が取り込めるようになります。`})) return;
+          + `作業空間で衝突したファイルを直して「続ける」、提出のタブで ${p.name} へ入れる（このタスクはスカッシュせずに履歴ごと入ります）と、${p.name} → ${p.into} が取り込めるようになります。`})) return;
         const doc = await ECO.run(MOD.root, ['branch', 'resolve', p.name, '--into', p.into], {success: r => `衝突を直すタスク #${r.task} を作りました。` + (r.conflicts.length ? `衝突したファイル ${r.conflicts.length} 件を作業空間で直してください。` : '')});
         if (doc) await MOD.showPlace(doc.result.workspace);
         return readPlan();

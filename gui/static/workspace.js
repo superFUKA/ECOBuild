@@ -34,13 +34,27 @@ const changeKinds = s => {
 WS.changes = () => WS.status ? changeKinds(WS.status) : new Map();
 const KIND_LABEL = {conflicted: '衝突', staged: 'ステージ済み', unstaged: '変更', untracked: '追加'};
 
-WS.refresh = async ({fetch = false} = {}) => {
-  const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet: !fetch});
+// What only status --fetch knows (GitHub's latest: how far behind the base, the files taking it in would conflict on,
+// archived). It is read when the screen is shown and then every few minutes while it is (WS.fetchedAt: when); the
+// plain status in between reads only this PC and keeps the last answer while the branch here stays as it was.
+const FETCH_EVERY = 3 * 60 * 1000;
+WS.fetchedAt = 0;
+let fetched = null;   // {key, base_behind, base_conflicts}
+const fetchKey = s => [s.branch, s.task, s.base, s.ahead, s.behind, s.merging].join('|');
+WS.refresh = async ({fetch = false, quiet = !fetch} = {}) => {
+  if (fetch) get('status-fetched').textContent = '確認中…';
+  const doc = await WS.cli(['status', ...(fetch ? ['--fetch'] : [])], {quiet});
+  // A look at GitHub of its own accord that failed (offline etc.): what this PC knows is read instead.
+  if (!doc.ok && fetch && quiet) { WS.fetchedAt = Date.now(); return WS.refresh(); }
   // Not readable (also when a task operation removed this workspace): the module window reads its list again.
   if (!doc.ok) { WS.status = null; renderBanners(doc); renderChanges(); WS.notifyParent(); return; }
   const before = WS.status?.task;
   // Whether the GitHub repository is archived is known only with --fetch: keep the last answer.
   if (doc.result.archived === null || doc.result.archived === undefined) doc.result.archived = WS.status?.archived ?? null;
+  if (fetch) { WS.fetchedAt = Date.now(); fetched = {key: fetchKey(doc.result), base_behind: doc.result.base_behind, base_conflicts: doc.result.base_conflicts}; }
+  else if (fetched && fetched.key === fetchKey(doc.result)) Object.assign(doc.result, {base_behind: fetched.base_behind, base_conflicts: fetched.base_conflicts});
+  // The branch moved (a commit, taking in, a reset): the last answer no longer holds, GitHub is looked at again soon.
+  else if (fetched) { fetched = null; WS.fetchedAt = 0; }
   WS.status = doc.result;
   // The task (its title for the header) is read from GitHub, which takes seconds: the changes are shown first.
   if (WS.status.task && WS.status.task !== before) {
@@ -102,6 +116,26 @@ function renderHeader() {
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
+  renderStatusBar();
+}
+
+// The footer bar (as VS Code's status bar): the panels to show or hide on the left (出力: build.js), the workspace's
+// state on the right — what Push sends, how far behind the base (GitHub's latest: status --fetch) and when GitHub was
+// last looked at (a click looks again).
+function renderStatusBar() {
+  const s = WS.status, onTask = !!(s && s.task && !s.reviewing);
+  const push = get('status-push');
+  push.hidden = !onTask;
+  push.textContent = onTask ? (s.ahead ? `↑ 未Push ${s.ahead}` : '↑ Push済み') : '';
+  push.title = onTask ? (s.ahead ? `Push していないコミットが ${s.ahead} 件あります` : 'コミットはすべて Push してあります') : '';
+  const behind = s ? s.base_behind || 0 : 0, clashes = s?.base_conflicts?.length || 0, base = get('status-base');
+  base.hidden = !onTask || !behind;
+  base.classList.toggle('bad', clashes > 0);
+  base.textContent = behind ? `↓ ${s.base} より ${behind} 遅れ${clashes ? `・衝突 ${clashes}` : ''}` : '';
+  base.title = behind ? `作成元 ${s.base} の新しいコミット ${behind} 件を取り込んでいません` + (clashes ? `（取り込むと衝突するファイル：${s.base_conflicts.join('、')}）` : '') : '';
+  const at = WS.fetchedAt ? new Date(WS.fetchedAt) : null;
+  get('status-fetched').textContent = at ? `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')} に確認` : '未確認';
+  get('status-fetch').disabled = !s;
 }
 
 // コミット・Push・提出 (and ログ off a task branch) are tabs (the one shown is kept on this PC). A tab whose panel is not
@@ -156,7 +190,7 @@ function renderBanners(errorDoc) {
     else if (!s.task) out.push(banner(`タスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。コミットはタスクブランチで。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
     if (s.upstream_gone && s.finished) out.push(banner(`#${s.task} は完了しています。<button data-git="clean-finished">タスクブランチを片付ける</button>`));
-    else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業をやめる」で片付けてください。`, 'bad'));
+    else if (s.upstream_gone) out.push(banner(`GitHub上の ${esc(s.branch)} は削除されています（別の場所で中止された可能性があります）。タスク管理の「作業を捨てる」で片付けてください。`, 'bad'));
     // Before taking the base in: the files it would conflict on (fixed here after taking it in; better before submitting).
     const clashes = s.base_conflicts || [];
     if (s.behind || s.base_behind) out.push(banner(`最新の変更を取り込んでいません。` + (clashes.length ? `取り込むと ${clashes.length} 件のファイルが衝突します（${clashes.map(esc).join('、')}）。取り込んで直してから提出してください。` : '') + `<button data-git="sync">最新を取り込む</button>`, clashes.length ? 'bad' : ''));
@@ -172,7 +206,8 @@ function renderBanners(errorDoc) {
   // (while a merge is under way the commit panel stays: its files are staged there).
   const working = !s || s.task || s.reviewing;
   get('commit-panel').hidden = !working && !s.merging;
-  get('share-panel').hidden = !working;
+  // Checking someone's submission here: nothing of it is pushed from here (its changes stay to look at, 提出 judges it).
+  get('share-panel').hidden = !working || !!s?.reviewing;
   get('prs-panel').hidden = !working;
   // On a task branch 提出 lists the task's commits (the whole log is the explorer's 「ログ」, or 提出's すべてのログ);
   // elsewhere (main etc.) the log is what there is to see here.
@@ -218,19 +253,22 @@ function renderChanges() {
   }
   if (!all.size) list.innerHTML = '<p class="muted">変更はありません。</p>';
   list.scrollTop = scroll;
-  get('select-all').checked = all.size > 0 && WS.selected.size === all.size;
+  get('select-all').checked = all.size > 0 && bulkOf([...all.keys()]).every(p => WS.selected.has(p));
   updateButtons();
 }
 WS.renderChanges = renderChanges;
 
+// A file whose change is only its line endings (CRLF／LF: status eol_only) is left out of what a check over several
+// files takes (all, a Project, a folder), as task commit leaves it out by itself; its own check takes it.
+const eolOnly = path => !!WS.status?.eol_only?.includes(path);
+const bulkOf = paths => { const some = paths.filter(p => !eolOnly(p)); return some.length ? some : paths; };
+WS.bulkOf = bulkOf;
 const PROJECT_KIND_LABEL = {static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定'};
 function changeGroup(project, paths) {
   const head = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), count = document.createElement('small');
   head.className = 'change-group';
   box.type = 'checkbox';
-  const chosen = paths.filter(p => WS.selected.has(p)).length;
-  box.checked = chosen === paths.length; box.indeterminate = chosen > 0 && chosen < paths.length;
-  box.addEventListener('change', () => { for (const p of paths) { if (box.checked) WS.selected.add(p); else WS.selected.delete(p); } renderChanges(); });
+  setGroupBox(box, paths);
   name.textContent = project ? project.name : 'Project の外';
   if (project?.kind) { const kind = document.createElement('span'); kind.className = 'change-group-kind'; kind.textContent = PROJECT_KIND_LABEL[project.kind] || project.kind; name.append(kind); }
   count.textContent = `${paths.length}件`;
@@ -256,9 +294,7 @@ function changeFolder(dir, shown, paths, depth) {
   const head = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), count = document.createElement('small');
   head.className = 'change-folder'; head.style.paddingLeft = depth * 14 + 'px';
   box.type = 'checkbox';
-  const chosen = paths.filter(p => WS.selected.has(p)).length;
-  box.checked = chosen === paths.length; box.indeterminate = chosen > 0 && chosen < paths.length;
-  box.addEventListener('change', () => { for (const p of paths) { if (box.checked) WS.selected.add(p); else WS.selected.delete(p); } renderChanges(); });
+  setGroupBox(box, paths);
   name.innerHTML = `<span class="change-folder-icon" aria-hidden="true">${CHANGE_FOLDER_ICON}</span>`;
   name.append(shown);
   count.textContent = `${paths.length}件`;
@@ -267,6 +303,16 @@ function changeFolder(dir, shown, paths, depth) {
   return head;
 }
 const CHANGE_FOLDER_ICON = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 3.5h4.2l1.5 1.5h7.3v8.5h-13z" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-linejoin="round"/></svg>';
+// A Project's or a folder's check: on when what it takes (bulkOf) is all checked; it checks that, unchecks everything.
+function setGroupBox(box, paths) {
+  const taken = bulkOf(paths), chosen = paths.filter(p => WS.selected.has(p)).length;
+  box.checked = taken.every(p => WS.selected.has(p)); box.indeterminate = !box.checked && chosen > 0;
+  box.addEventListener('change', () => {
+    for (const p of paths) WS.selected.delete(p);
+    if (box.checked) for (const p of taken) WS.selected.add(p);
+    renderChanges();
+  });
+}
 
 function changeRow(path, kinds, shown, depth = 0) {
   const label = document.createElement('label'), box = document.createElement('input'), name = document.createElement('span'), kind = document.createElement('small');
@@ -280,6 +326,7 @@ function changeRow(path, kinds, shown, depth = 0) {
   name.addEventListener('dblclick', e => { e.preventDefault(); WS.openDiff(path, kinds); });
   kind.className = 'kind ' + (deleted ? 'deleted' : kinds[0]); kind.textContent = (deleted ? '削除' : '') + (deleted && kinds[0] !== 'staged' ? '' : kinds.map(k => KIND_LABEL[k]).join(' · '));
   if (WS.files?.generated?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '生成'; tag.title = 'CppBuild が作り直すファイル（Projectやファイルを足した結果）。そのままコミットしてください。'; name.append(tag); }
+  if (eolOnly(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '改行のみ'; tag.title = '改行コード（CRLF／LF）だけが変わっています。まとめて選んでもコミットに含めません（含めるならこのファイルに印を付けます）。'; name.append(tag); }
   if (WS.status?.excluded?.includes(path)) { const tag = document.createElement('span'); tag.className = 'generated-tag'; tag.textContent = '管理外'; tag.title = '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。'; name.append(tag); }
   label.append(box, name, kind);
   return label;
@@ -303,7 +350,7 @@ function updateButtons() {
 }
 WS.updateButtons = updateButtons;
 for (const id of ['commit-message', 'amend']) get(id).addEventListener('input', updateButtons);
-get('select-all').addEventListener('change', e => { WS.selected = new Set(e.target.checked ? WS.changes().keys() : []); renderChanges(); });
+get('select-all').addEventListener('change', e => { WS.selected = new Set(e.target.checked ? bulkOf([...WS.changes().keys()]) : []); renderChanges(); });
 
 async function showDiff(path, kinds) {
   if (kinds.includes('untracked')) {
@@ -577,3 +624,15 @@ WS.showLog = (path = '') => ECO.openPage(`log.html?dir=${encodeURIComponent(WS.d
 WS.ready = WS.refresh();
 // After the archive was undone (from an error, or the banner), read the state again.
 window.addEventListener('eco-unarchived', () => WS.refresh({fetch: true}));
+// GitHub's latest while this screen is shown (in the module window, its tab is the one shown): first after the quick
+// read, then every few minutes. A hidden tab looks again when it is shown (within the tick).
+const shownNow = () => !document.hidden && (!window.frameElement || window.frameElement.offsetParent !== null);
+let fetching = false;
+async function fetchIfDue() {
+  if (fetching || !shownNow() || !WS.status || Date.now() - WS.fetchedAt < FETCH_EVERY) return;
+  fetching = true;
+  try { await WS.refresh({fetch: true, quiet: true}); } finally { fetching = false; }
+}
+WS.ready.then(fetchIfDue);
+setInterval(fetchIfDue, 20000);
+document.addEventListener('visibilitychange', fetchIfDue);

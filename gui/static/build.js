@@ -76,8 +76,16 @@ WS.onRefresh(renderPrDetail);
   const OUTPUT_PANEL = {id: 'output:' + WS.dir.replaceAll('\\', '/').toLowerCase(), kind: 'output', dir: WS.dir, module: WS.module || WS.dir, title: '出力'};
   WS.footer = PANELS.footer(get('footer'), {home: WS.dir, heightKey: 'ecobuild-gui-output-height'});
   PANELS.source(OUTPUT_PANEL, () => runs);
-  const publish = () => PANELS.publish(OUTPUT_PANEL.id);
-  // 出力 in the toolbar (Ctrl+J, as VS Code's panel) shows or hides the footer with the output (after × too).
+  // The footer bar's 出力 also tells how the latest run went (running, succeeded, failed), shown or not.
+  const RUN_STATE = {run: ['実行中', '実行中'], ok: ['✓', '成功'], bad: ['✗', '失敗']};
+  function showRunState() {
+    const run = runs[0], mark = get('output-state'), [text, word] = RUN_STATE[run?.state] || ['', ''];
+    mark.hidden = !text; mark.textContent = text; mark.className = 'status-run ' + (run?.state || '');
+    outputButton.title = `出力を出す・しまう（Ctrl+J）${run ? `
+最後の実行：${run.title}（${word}）` : ''}`;
+  }
+  const publish = () => { PANELS.publish(OUTPUT_PANEL.id); showRunState(); };
+  // 出力 in the footer bar (Ctrl+J, as VS Code's panel) shows or hides the footer with the output (after × too).
   const outputButton = get('toggle-output');
   const toggleOutput = () => { if (!WS.footer.toggle(OUTPUT_PANEL)) ECO.toast('出力は別の窓に出ています。', 'info'); };
   outputButton.addEventListener('click', toggleOutput);

@@ -478,39 +478,9 @@ async function loadHistory() {
 }
 get('history-branch').addEventListener('change', () => { historyCount = 30; loadHistory(); });
 WS.onRefresh(loadHistory);
-// Another task's workspace (a workspace holds one task branch: it is not switched). A started task's tab is shown;
-// one without a workspace here gets one (task start, by the module window: MOD.openWorkspace). A new task is started
-// from タスク管理 (its dialog chooses the base).
-const keyOf = dir => dir.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
-ECO.info().then(info => { WS.me = info.me || ''; }).catch(() => {});
-get('switch-branch').addEventListener('click', async () => {
-  const button = get('switch-branch'), r = button.getBoundingClientRect(), embedded = window.parent !== window;
-  const doc = await ECO.query(WS.dir, ['task', 'list']);
-  if (!doc.ok) return ECO.showError(doc);
-  const here = keyOf(WS.dir), notEmbedded = 'モジュールの窓の中で開いたときだけ選べます';
-  const started = doc.result.filter(t => t.state === 'open' && (t.current || t.task_branch || t.remote || t.workspace));
-  // This workspace's task: the one checked out here (current); by its folder only when none is (an old task's record
-  // may name the module's own folder).
-  const anyCurrent = started.some(t => t.current), isHere = t => t.current || (!anyCurrent && !!t.workspace && keyOf(t.workspace) === here);
-  const items = started.map(t => {
-    const label = `#${t.number} ${t.title}`;
-    if (isHere(t)) return [`✓ ${label}（この作業空間）`, () => {}, false];
-    if (t.workspace) {
-      return [`${label}（作業空間 ${t.workspace.split(/[\\/]/).pop()}）`, () => window.parent.postMessage({type: 'open-place', dir: t.workspace}, location.origin),
-        embedded, embedded ? t.workspace : notEmbedded];
-    }
-    const others = WS.me && t.assignees?.length && !t.assignees.includes(WS.me) ? t.assignees : [];
-    if (others.length) return [`${label}（担当：${others.join('、')}）`, () => {}, false, 'ほかの人が担当しています。引き継ぐなら、タスク管理の「作業を開始」から'];
-    return [label + (t.task_branch ? '（作業空間を作って開く）' : '（GitHubから再開）'), () => window.parent.postMessage({type: 'open-task', n: t.number}, location.origin),
-      embedded, embedded ? '' : notEmbedded];
-  });
-  ECO.menu([
-    ['タスクの作業空間を開く', null],
-    ...items,
-    ...(started.some(t => !isHere(t)) ? [] : [['ほかに始めているタスクはありません', () => {}, false]]),
-    ...(embedded ? ['-', ['新しいタスクを始める（タスク管理）', () => gitAction('go-tasks')]] : []),
-  ], r.left, r.bottom + 4);
-});
+// The branch of this workspace (a workspace holds one task branch: it is not switched; the other workspaces are the
+// module window's tabs, a task is started or resumed in タスク管理). A click copies its name.
+get('branch-label').addEventListener('click', () => { const branch = WS.status?.branch; if (branch) ECO.copyText(branch); });
 
 // Stashing (ecobuild stash): the stash is shared by every workspace of the module, and pop and drop take this branch's
 // latest one only, so the menu counts and lists this branch's entries ("On <branch>: …" / "WIP on <branch>: …").

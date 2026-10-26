@@ -674,5 +674,6 @@ def test_the_screens_use_the_workspaces_in_the_module():
     assert "--close-workspace" not in (Path(gui.__file__)).read_text(encoding="utf-8")
     assert "result?.modules" in hub and "legacy" in hub and "score" not in hub     # 代表を点数で選ばない
     assert "doc.result.workspace" in mod and "doc.result.workspace" in tasks and "doc.result.workspace" in submissions
-    assert "'open-task'" in ws and "'open-task'" in mod
+    # 作業空間はタスクブランチ1つ：作業空間の中から別のタスクへ移らない（ほかの作業空間はタブ、始める・再開はタスク管理）
+    assert "switch-branch" not in ws and "'open-task'" not in ws and "'open-task'" not in mod
     assert "['task', 'review', '--done']" in submissions

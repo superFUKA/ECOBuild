@@ -339,9 +339,7 @@ function updateButtons() {
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
   get('push').disabled = !editable || !s.ahead;
   document.querySelector('[data-git=force-push]').disabled = !editable;
-  // Taking in is possible any time (not only from the 最新 banner); another branch only into a task branch.
-  document.querySelector('.share-more [data-git=sync]').disabled = !s || !!s.reviewing || !!s.merging;
-  document.querySelector('[data-git=sync-from]').disabled = !editable || !!s.merging;
+  get('sync-button').disabled = !s || !!s.reviewing || !!s.merging;
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
   get('stash-menu').disabled = !s || !!s.reviewing || !!s.merging;
@@ -485,6 +483,15 @@ get('branch-label').addEventListener('click', () => { const branch = WS.status?.
 // Stashing (ecobuild stash): the stash is shared by every workspace of the module, and pop and drop take this branch's
 // latest one only, so the menu counts and lists this branch's entries ("On <branch>: …" / "WIP on <branch>: …").
 const stashBranch = entry => entry.match(/^(?:WIP )?[Oo]n (.+?): /)?.[1] ?? null;
+// 取り込む (the toolbar: it is about the whole branch, the opposite way of Push): any time, not only from the 最新 banner.
+// Another branch only into a task branch.
+get('sync-button').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect(), s = WS.status || {};
+  ECO.menu([
+    ['最新を取り込む', () => gitAction('sync'), true, s.task ? `GitHub の作成元（${s.base || ''}）の最新を取り込みます` : 'GitHub の最新を取り込みます'],
+    ['ほかのブランチから取り込む…', () => gitAction('sync-from'), !!s.task, s.task ? '別の管理ブランチ・別のタスクブランチの変更を取り込みます' : 'タスクブランチでだけ取り込めます'],
+  ], r.left, r.bottom + 4);
+});
 get('stash-menu').addEventListener('click', async e => {
   const r = e.currentTarget.getBoundingClientRect();
   const doc = await WS.cli(['stash', 'list'], {quiet: true});

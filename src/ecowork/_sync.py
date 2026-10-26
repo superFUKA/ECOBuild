@@ -16,14 +16,22 @@ from ._shared import _stash_branch, _markers_in
 class Syncing:
     # 最新化・退避・取り消し ------------------------------------------------------
 
-    def sync(self) -> wm.SyncResult:
-        """GitHubの最新を取り込む。タスクブランチでないブランチは早送り、タスクブランチは作成元の最新も取り込む。"""
+    def sync(self, *, from_branch: str = "") -> wm.SyncResult:
+        """GitHubの最新を取り込む。タスクブランチでないブランチは早送り、タスクブランチは作成元の最新も取り込む。
+
+        from_branch：タスクブランチへ、作成元のほかに取り込むブランチ（GitHub の。別の管理ブランチ・別のタスクブランチ）。
+        取り込んだコミットはこのタスクブランチの提出にも入る。
+        """
         if self.git.stopped() is not None:
             raise self._in_progress_error()
         branch = self.git.current_branch()
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。")
         task_branch = self.current_task_branch()
+        if from_branch and task_branch is None:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT,
+                            f"{branch} はタスクブランチではないため、ほかのブランチを取り込めません（早送りだけです）。",
+                            hint="取り込むのはタスクブランチで行い、提出して入れてください。")
         issue = self.github.get_issue(self.root, task_branch.number) if task_branch is not None else None
         if issue is not None and issue.state != "open":
             # 反映済みのタスクブランチへ作成元を取り込むと、squashマージのため衝突や余分なコミットになる。
@@ -35,6 +43,9 @@ class Syncing:
             )
         self.git.fetch()
         self.check_repository()
+        if from_branch and self.git.rev_parse(f"{_git.REMOTE}/{from_branch}") is None:
+            raise WorkError(ErrorCode.BRANCH_NOT_FOUND, f"GitHub にブランチ {from_branch} がありません。",
+                            hint="取り込めるのは GitHub にあるブランチです（手元だけのブランチは push してから）。")
         self._tidy_finished()
         merged = []
         refs = [f"{_git.REMOTE}/{branch}"]
@@ -43,6 +54,8 @@ class Syncing:
             merge_from = wm.issue_merge_from(issue.body)
             if merge_from:   # 衝突を直すタスク：取り込むブランチも（衝突はここで直す）
                 refs.append(f"{_git.REMOTE}/{merge_from}")
+            if from_branch and f"{_git.REMOTE}/{from_branch}" not in refs:
+                refs.append(f"{_git.REMOTE}/{from_branch}")
         for ref in refs:
             if self.git.rev_parse(ref) is None:
                 continue

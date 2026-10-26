@@ -292,6 +292,9 @@ function updateButtons() {
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
   get('push').disabled = !editable || !s.ahead;
   document.querySelector('[data-git=force-push]').disabled = !editable;
+  // Taking in is possible any time (not only from the 最新 banner); another branch only into a task branch.
+  document.querySelector('.share-more [data-git=sync]').disabled = !s || !!s.reviewing || !!s.merging;
+  document.querySelector('[data-git=sync-from]').disabled = !editable || !!s.merging;
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
   get('stash-menu').disabled = !s || !!s.reviewing || !!s.merging;
@@ -516,6 +519,23 @@ async function gitAction(action) {
         if (!v.gui) setTimeout(() => ECO.output('差分', doc.result || '差分はありません。', {diff: true, sub: v.path}));
       }});
     case 'sync': return WS.run(['sync'], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '')}).then(() => WS.reloadFiles?.());
+    case 'sync-from': {
+      // Another branch on GitHub (a management branch or another task branch) into this task branch; its commits go into the submission too.
+      const doc = await ECO.query(WS.dir, ['branch', 'list']);
+      if (!doc.ok) return ECO.showError(doc);
+      const skip = [WS.status.branch, WS.status.base];
+      const usable = doc.result.filter(b => b.remote && !b.unusable && !skip.includes(b.name));
+      const options = [...usable.filter(b => !b.is_task_branch).map(b => [b.name, b.name]),
+        ...usable.filter(b => b.is_task_branch).map(b => [b.name, `${b.name}（タスクブランチ）`])];
+      if (!options.length) return say('取り込めるほかのブランチが GitHub にありません。');
+      return ECO.form({title: 'ほかのブランチから取り込む',
+        intro: `選んだブランチの変更を、このタスクブランチ（${esc(WS.status.branch)}）へ取り込みます。作成元（${esc(WS.status.base || '')}）の最新も一緒に取り込みます。取り込んだコミットは、このタスクブランチの提出にも入ります。`,
+        fields: [{name: 'branch', label: '取り込むブランチ', type: 'select', value: options[0][0], options}], ok: '取り込む',
+        submit: async v => {
+          // A conflict stops here like 最新を取り込む: the banner then offers 続ける／やめる.
+          setTimeout(async () => { await WS.run(['sync', '--from-branch', v.branch], {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '：すでに入っていました')}); await WS.reloadFiles?.(); });
+        }});
+    }
     case 'sync-continue': {
       const what = STOPPED[WS.status?.stopped] || '取り込み';
       return WS.run(['sync', 'continue'], {success: WS.status?.stopped === 'stash' ? '衝突を直しました（退避した変更は残っています。いらなければ「退避」から捨てます）。' : `${what}を完了しました。`}).then(() => WS.reloadFiles?.());

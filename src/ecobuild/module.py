@@ -1238,22 +1238,24 @@ class Module:
         conflicts = tuple(here.repository.git.working_tree().conflicted)
         return BranchResolve(name, into, task.number, here.root, conflicts)
 
-    def sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True) -> SyncResult:
+    def sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True,
+             from_branch: str = "") -> SyncResult:
         """GitHubの最新を取り込み、手元（依存先・生成ファイル）をそろえる。
 
         衝突したのが生成ファイルだけなら、管理ファイルから作り直して取り込みを完了する。
         pipelines：何か取り込んだら、最新の取り込みの後のパイプラインを走らせる。
+        from_branch：タスクブランチへ、作成元のほかに取り込むブランチ（Repository.sync）。
         """
-        return self._sync_pipelines(self._sync(), progress=progress, pipelines=pipelines)
+        return self._sync_pipelines(self._sync(from_branch), progress=progress, pipelines=pipelines)
 
     def _sync_pipelines(self, result: SyncResult, *, progress, pipelines: bool) -> SyncResult:
         if pipelines and result.merged:
             self.run_pipelines("after-sync", progress=progress)
         return result
 
-    def _sync(self) -> SyncResult:
+    def _sync(self, from_branch: str = "") -> SyncResult:
         try:
-            return self._sync_result(self.repository.sync())
+            return self._sync_result(self.repository.sync(from_branch=from_branch))
         except WorkError as error:
             if error.code != ErrorCode.MERGE_CONFLICT or not self.repository.git.is_merging():
                 raise

@@ -146,6 +146,24 @@ def test_gitignore_conflicts_are_merged_by_lines(short_tmp):
     assert "/mine/" in text and "/theirs/" in text and "*.exe" in text and "<<<<<<<" not in text and not module.status().merging
 
 
+def test_a_task_whose_gitignore_lines_are_in_the_base_loses_nothing(short_tmp):
+    """.gitignore が衝突しても、両方の行を合わせると作成元と同じなら、タスクブランチの変更は作成元に入っている。"""
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("Calc", directory=short_tmp, kind="library", github=github)
+    base = (module.root / ".gitignore").read_text(encoding="utf-8")
+    task_branch = module.repository.create_task("t").start()
+    write(module.root / ".gitignore", base + "/same/\n")
+    task_branch.commit("除外を足した", all=True)
+    task_branch.push()
+    other = short_tmp / "other"
+    git(short_tmp, "clone", "--quiet", str(github.bare), str(other))
+    write(other / ".gitignore", base + "/same/\n\n# main\n*.exe\n")
+    git(other, "commit", "--quiet", "-am", "別のタスクで同じ除外と、さらに除外を足した")
+    git(other, "push", "--quiet", "origin", "main")
+    module.repository.git.fetch()
+    assert not module.repository._lost_commits(task_branch.branch, "main", local=True, remote=True)
+
+
 def test_union_lines_keeps_both_sides():
     from ecobuild.module import union_lines
     text = "a\n<<<<<<< HEAD\nx\n||||||| base\nold\n=======\nx\n\n# y\ny\n>>>>>>> m\nz\n"

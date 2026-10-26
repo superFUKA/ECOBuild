@@ -159,7 +159,7 @@ async function applyDialog(t) {
       const tried = await WS.cli(args);
       if (!tried.ok && tried.error?.code === 'merge_conflict') { conflict = tried.error; return; }
       if (!tried.ok) { ECO.showError(tried); return '反映できませんでした。'; }
-      ECO.toast(tried.result.method === 'already-in' ? `#${t.number} の変更はすでに ${tried.result.base} に入っていたので、入れずに完了しました。`
+      ECO.toast(!tried.result.commit ? `#${t.number} の変更はすでに ${tried.result.base} に入っていたので、入れずに完了しました。`
         : `#${t.number} を ${tried.result.base} へ反映し、完了しました。`);
       for (const notice of tried.notices || []) ECO.toast('お知らせ：' + notice, 'info', 9000);
       ECO.workspaceKept(tried.result, t.number); await WS.refresh(); WS.reloadFiles?.(); await WS.refreshPrs();

@@ -103,11 +103,41 @@ def test_apply_completes_when_the_changes_are_already_in(repository):
     repository.apply_task(first.number)
     before = git(repository.root, "rev-parse", "origin/main")
     result = repository.apply_task(second.number)
-    assert (result.commit, result.method) == (None, "already-in") and result.removed
+    assert (result.commit, result.method) == (None, "up-to-date") and result.removed
     assert git(repository.root, "rev-parse", "origin/main") == before      # 何も入れない
     assert repository.task(second.number).state == "closed"
     assert not repository.git.has_local_branch(second_branch.branch)
     assert not repository.git.has_remote_branch(second_branch.branch)
+
+
+def absorbed(repository):
+    """同じ変更を、別のタスク（先）で作成元へ入れた後のタスク（後）。後のコミットは作成元にない。"""
+    first, first_branch = started(repository, "先")
+    second, second_branch = started(repository, "後")
+    write(repository.root / "a.txt", "a\n")
+    second_branch.record("a")
+    second_branch.push()
+    repository.git.switch(first_branch.branch)
+    write(repository.root / "a.txt", "a\n")
+    first_branch.record("同じ変更")
+    repository.apply_task(first.number)
+    return second, second_branch
+
+
+def test_a_task_whose_changes_are_in_closes_as_completed(repository):
+    """閉じる（task close）・片付け（prune）も、反映と同じ判断：中身が作成元にあれば失われる変更はない。"""
+    second, second_branch = absorbed(repository)
+    assert repository.close_task(second.number).state == "closed"
+    assert second.number not in repository.github.not_planned              # 捨てたのではなく「完了」
+    assert not repository._lost_commits(second_branch.branch, "main", local=True, remote=True)
+
+
+def test_apply_resumes_after_closing_a_task_whose_changes_are_in(repository):
+    """入れずに完了する途中（Issue を閉じた後）で止まっても、もう一度の反映で片付けの残りを行う。"""
+    second, second_branch = absorbed(repository)
+    repository.github.close_issue(repository.root, second.number)
+    result = repository.apply_task(second.number)
+    assert result.commit is None and not repository.git.has_remote_branch(second_branch.branch)
 
 
 def test_apply_is_for_those_who_handle_the_base(repository):

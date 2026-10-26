@@ -90,6 +90,26 @@ def test_apply_refuses_conflicts_and_nothing_to_apply(repository):
     assert repository.task(second.number).state == "open"
 
 
+def test_apply_completes_when_the_changes_are_already_in(repository):
+    """コミットはあるが、同じ中身が別のタスクで作成元に入っている：入れずに完了し、タスクブランチも片付ける。"""
+    first, first_branch = started(repository, "先")
+    second, second_branch = started(repository, "後")
+    write(repository.root / "a.txt", "a\n")
+    second_branch.record("a")
+    second_branch.push()
+    repository.git.switch(first_branch.branch)
+    write(repository.root / "a.txt", "a\n")
+    first_branch.record("同じ変更")
+    repository.apply_task(first.number)
+    before = git(repository.root, "rev-parse", "origin/main")
+    result = repository.apply_task(second.number)
+    assert (result.commit, result.method) == (None, "already-in") and result.removed
+    assert git(repository.root, "rev-parse", "origin/main") == before      # 何も入れない
+    assert repository.task(second.number).state == "closed"
+    assert not repository.git.has_local_branch(second_branch.branch)
+    assert not repository.git.has_remote_branch(second_branch.branch)
+
+
 def test_apply_is_for_those_who_handle_the_base(repository):
     """作成元を作った人と管理者だけ。既定のブランチは管理者だけ。承認が必須のモジュールでは使えない。"""
     repository.create_branch("develop")

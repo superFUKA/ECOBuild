@@ -710,8 +710,9 @@ class ApplyResult:
     task: int
     subject: str                     # 反映したコミットの件名（(タスク #N) の前）
     base: str                        # 反映した先（作成元）
-    commit: str | None               # 作成元へ入れたコミット（前の反映の後処理だけを行ったなら None）
-    method: str                      # squash（入れた）・up-to-date（反映済みで、後処理だけを行った）
+    commit: str | None               # 作成元へ入れたコミット（入れずに完了した・前の反映の後処理だけを行ったなら None）
+    method: str                      # squash（入れた）・already-in（中身が作成元に入っていたので、入れずに完了した）・
+                                     # up-to-date（反映済みで、後処理だけを行った）
     closed_submission: int | None    # 閉じた提出（PR。提出してから反映したとき）
     removed: bool                    # 手元のタスクブランチを片付けた
     switched_to: str | None          # 元の clone 等が取り出していたタスクブランチを片付け、その場で移った先

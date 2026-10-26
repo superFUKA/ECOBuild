@@ -279,6 +279,7 @@ button.status-item:disabled { opacity: .5; cursor: default; }
 .build-bar .sync-group .sync-button:hover:not(:disabled), .build-bar .sync-group .vs-more:hover { border-color: #56616e; }
 .build-bar .sync-group svg { flex-shrink: 0; color: #9eaab8; }
 #sync-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-version { color: #8e99a6; font-family: Consolas, monospace; font-size: 11px; }
 .sync-count { flex-shrink: 0; min-width: 16px; padding: 1px 5px; border-radius: 8px; background: #4a3f22; color: #efc389; font-size: 11px; text-align: center; }
 .build-bar .sync-group.due .sync-button, .build-bar .sync-group.due .vs-more { border-color: #7a6532; }
 .build-bar .sync-group.due .sync-button svg { color: #efc389; }

@@ -244,6 +244,7 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             staged=tree.staged, unstaged=tree.unstaged, untracked=tree.untracked, conflicted=tree.conflicted,
             ahead=tree.ahead, behind=tree.behind, merging=stopped is not None, pull_request=pull_request,
             upstream_gone=tree.upstream_gone, reviewing=reviewing, base_behind=base_behind,
+            base_at=self._base_at(task_branch) if task_branch is not None else None,
             stopped=stopped, base_conflicts=self._base_conflicts("HEAD", f"{_git.REMOTE}/{task_branch.base}")
             if base_behind and stopped is None else (),
             archived=archived, reviewing_task=None if reviewing is None else self._task_of_pull_request(reviewing),
@@ -297,6 +298,14 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
     def _base_behind(self, task_branch: wm.TaskBranch) -> int | None:
         base = f"{_git.REMOTE}/{task_branch.base}"
         return self.git.count(f"HEAD..{base}") if self.git.rev_parse(base) else None
+
+    def _base_at(self, task_branch: wm.TaskBranch) -> str | None:
+        """タスクブランチが取り込んでいる作成元のバージョン（GitHub の作成元との共通のコミット）。"""
+        base = f"{_git.REMOTE}/{task_branch.base}"
+        if self.git.rev_parse(base) is None or self.git.rev_parse("HEAD") is None:
+            return None
+        found = self.git.run("merge-base", "HEAD", base, check=False)
+        return found.stdout.strip() if found.ok else None
 
     def _reviewing(self) -> int | None:
         """確認用の作業空間（review_in）なら、確認中のPR。"""

@@ -377,3 +377,23 @@ def test_sync_takes_in_another_branch(repository, remote_and_clone, tmp_path):
     assert result.merged == ("origin/release",)
     assert (repository.root / "release.txt").read_text(encoding="utf-8") == "release\n"
     assert repository.sync(from_branch="release").merged == ()
+
+
+def test_sync_takes_in_the_base_at_a_chosen_commit(repository, remote_and_clone, tmp_path):
+    """作成元を、最新ではなく選んだコミットまで取り込む。取り込んでいる作成元のバージョンは status の base_at。"""
+    remote, _ = remote_and_clone
+    task_branch = repository.create_task("t").start()
+    write(repository.root / "mine.txt", "mine\n")
+    task_branch.record("手元の変更")
+    start = repository.status().base_at
+    assert start == git(repository.root, "rev-parse", "origin/main").strip()
+    push_from_other_clone(remote, tmp_path, "first.txt", "first\n")
+    push_from_other_clone(remote, tmp_path, "second.txt", "second\n")
+    git(repository.root, "fetch", "--quiet")
+    first = git(repository.root, "rev-parse", "origin/main~1").strip()
+    assert code_of(lambda: repository.sync(at="HEAD")) == ErrorCode.INVALID_ARGUMENT   # 作成元にないコミット（手元の）
+    assert repository.sync(at=first).merged == (f"origin/main@{first[:7]}",)
+    assert (repository.root / "first.txt").exists() and not (repository.root / "second.txt").exists()
+    assert repository.status().base_at == first
+    repository.sync()
+    assert (repository.root / "second.txt").exists()

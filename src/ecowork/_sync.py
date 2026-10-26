@@ -16,11 +16,12 @@ from ._shared import _stash_branch, _markers_in
 class Syncing:
     # 最新化・退避・取り消し ------------------------------------------------------
 
-    def sync(self, *, from_branch: str = "") -> wm.SyncResult:
+    def sync(self, *, from_branch: str = "", at: str = "") -> wm.SyncResult:
         """GitHubの最新を取り込む。タスクブランチでないブランチは早送り、タスクブランチは作成元の最新も取り込む。
 
         from_branch：タスクブランチへ、作成元のほかに取り込むブランチ（GitHub の。別の管理ブランチ・別のタスクブランチ）。
         取り込んだコミットはこのタスクブランチの提出にも入る。
+        at：from_branch（なければ作成元）を、最新ではなくこのコミット（そのブランチにあるもの）まで取り込む。
         """
         if self.git.stopped() is not None:
             raise self._in_progress_error()
@@ -28,9 +29,10 @@ class Syncing:
         if branch is None:
             raise WorkError(ErrorCode.GIT_ERROR, "ブランチにいません（切り離された状態です）。")
         task_branch = self.current_task_branch()
-        if from_branch and task_branch is None:
+        if (from_branch or at) and task_branch is None:
             raise WorkError(ErrorCode.INVALID_ARGUMENT,
-                            f"{branch} はタスクブランチではないため、ほかのブランチを取り込めません（早送りだけです）。",
+                            f"{branch} はタスクブランチではないため、ほかのブランチ・選んだバージョンを取り込めません"
+                            "（早送りだけです）。",
                             hint="取り込むのはタスクブランチで行い、提出して入れてください。")
         issue = self.github.get_issue(self.root, task_branch.number) if task_branch is not None else None
         if issue is not None and issue.state != "open":
@@ -49,6 +51,7 @@ class Syncing:
         self._tidy_finished()
         merged = []
         refs = [f"{_git.REMOTE}/{branch}"]
+        revs = {}   # 最新でなく選んだバージョンを取り込むもの
         if task_branch is not None:
             refs.append(f"{_git.REMOTE}/{task_branch.base}")
             merge_from = wm.issue_merge_from(issue.body)
@@ -56,12 +59,23 @@ class Syncing:
                 refs.append(f"{_git.REMOTE}/{merge_from}")
             if from_branch and f"{_git.REMOTE}/{from_branch}" not in refs:
                 refs.append(f"{_git.REMOTE}/{from_branch}")
+            if at:   # 選んだバージョンまで（取り込んだものは「ブランチ@コミット」と示す）
+                target = f"{_git.REMOTE}/{from_branch or task_branch.base}"
+                commit = self.git.rev_parse(at)
+                if commit is None or not self.git.is_ancestor(commit, target):
+                    raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{at} は {target} のコミットではありません。",
+                                    hint=f"{self._op('log')} --branch {from_branch or task_branch.base} で、"
+                                         "選べるコミットを見られます。")
+                revs[target] = commit
         for ref in refs:
-            if self.git.rev_parse(ref) is None:
+            rev = revs.get(ref, ref)
+            if rev != ref:
+                ref = f"{ref}@{rev[:7]}"
+            if self.git.rev_parse(rev) is None:
                 continue
             # タスクブランチでないブランチは早送りだけ（コミットはPRのマージでだけ入る）。
             try:
-                outcome = self.git.merge(ref, ff_only=task_branch is None,
+                outcome = self.git.merge(rev, ff_only=task_branch is None,
                                          message=None if task_branch is None else f"{ref} を取り込み")
             except WorkError as error:
                 if error.code == ErrorCode.NOT_FAST_FORWARD:

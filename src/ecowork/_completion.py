@@ -129,6 +129,9 @@ class Completion:
             raise WorkError(ErrorCode.PULL_REQUEST_DRAFT, f"タスク #{number} の提出は下書きです。",
                             hint=f"準備ができたら、タスクブランチで {self._op('task submit')} を実行して下書きを解除してください。")
         self.require_take_in(pr.base, "取り込み")
+        conflicts = self._base_conflicts(f"{_git.REMOTE}/{pr.head}", f"{_git.REMOTE}/{pr.base}")
+        if conflicts:   # CI を待つ前に（待っても取り込めない）
+            raise self._take_in_conflict(pr, conflicts)
         checks: tuple = ()
         if wait and not ignore_checks and self._has_workflows():
             try:

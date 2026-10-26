@@ -151,21 +151,83 @@ def test_sync_refuses_closed_workspace(repository):
     assert error.value.code == ErrorCode.TASK_CLOSED and "ecobuild task prune" in error.value.hint
 
 
-def test_stash_pop_conflict_on_main_then_drop(repository, remote_and_clone, tmp_path):
-    """タスクブランチでないブランチでは add できないので、restore --staged で解決し、stash drop で片付ける。"""
-    remote, _ = remote_and_clone
+def _stash_pop_conflict(repository, remote, tmp_path):
     write(repository.root / "README.md", "local\n")
     repository.stash()
     push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
     repository.sync()
     with pytest.raises(WorkError) as error:
         repository.stash_pop()
-    assert "ecobuild restore --staged" in error.value.hint and "ecobuild stash drop" in error.value.hint
+    return error.value
+
+
+def test_stash_pop_conflict_on_main_continues_then_drop(repository, remote_and_clone, tmp_path):
+    """退避した変更の戻しの衝突も、止まっている操作（stash）として sync continue で終える（タスクブランチでない
+    ブランチでも）。直したファイルは未コミットの変更になり、退避した変更は stash drop まで残る。"""
+    remote, _ = remote_and_clone
+    error = _stash_pop_conflict(repository, remote, tmp_path)
+    assert "ecobuild sync continue" in error.hint and "ecobuild stash drop" in error.hint
+    status = repository.status()
+    assert (status.stopped, status.merging) == ("stash", True)
+    assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT                  # 止まっている間は取り込まない
+    assert code_of(repository.continue_sync) == ErrorCode.CONFLICT_MARKERS
     write(repository.root / "README.md", "resolved\n")
-    repository.restore("README.md", staged=True)
-    assert repository.status().conflicted == ()
+    assert repository.continue_sync().merged == ()
+    status = repository.status()
+    assert (status.stopped, status.conflicted, status.staged, status.unstaged) == (None, (), (), ("README.md",))
     assert repository.stash_drop().entries == ()
     assert code_of(repository.stash_drop) == ErrorCode.NO_STASH
+
+
+def test_stash_pop_conflict_aborts_keeping_the_stash(repository, remote_and_clone, tmp_path):
+    remote, _ = remote_and_clone
+    _stash_pop_conflict(repository, remote, tmp_path)
+    repository.abort_sync()
+    assert (repository.root / "README.md").read_text(encoding="utf-8") == "remote\n"
+    assert repository.status().stopped is None and repository.stashes()
+
+
+def test_take_side_resolves_with_one_side(repository, remote_and_clone, tmp_path):
+    """衝突したファイルを、今の側（タスクブランチ）か入ってくる側（作成元）の内容で解決する。"""
+    remote, _ = remote_and_clone
+    _conflict_in_workspace(repository, remote, tmp_path)
+    assert code_of(lambda: repository.take_side(("other.txt",), incoming=True)) == ErrorCode.INVALID_ARGUMENT
+    assert repository.take_side((), incoming=True) == ("README.md",)
+    assert (repository.root / "README.md").read_text(encoding="utf-8") == "remote\n"
+    assert repository.status().conflicted == ()
+    repository.continue_sync()
+    assert repository.status().stopped is None
+    assert code_of(lambda: repository.take_side((), incoming=False)) == ErrorCode.NO_SYNC_IN_PROGRESS
+
+
+def test_take_side_removes_a_file_deleted_on_that_side(repository, remote_and_clone, tmp_path):
+    remote, _ = remote_and_clone
+    task_branch = repository.create_task("t").start()
+    write(repository.root / "README.md", "local\n")
+    task_branch.record("手元の変更")
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    git(other, "rm", "--quiet", "README.md")
+    git(other, "commit", "--quiet", "-m", "消した")
+    git(other, "push", "--quiet", "origin", "main")
+    assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
+    repository.take_side(("README.md",), incoming=True)
+    repository.continue_sync()
+    assert not (repository.root / "README.md").exists()
+
+
+def test_status_and_submit_tell_the_conflicts_with_the_base(repository, remote_and_clone, tmp_path):
+    """作成元を取り込む前に、衝突するファイルを知らせる（status --fetch・提出のお知らせ）。手元は変えない。"""
+    remote, _ = remote_and_clone
+    task_branch = repository.create_task("t").start()
+    write(repository.root / "README.md", "local\n")
+    task_branch.record("手元の変更")
+    push_from_other_clone(remote, tmp_path, "README.md", "remote\n")
+    status = repository.status(fetch=True)
+    assert (status.base_behind, status.base_conflicts, status.stopped) == (1, ("README.md",), None)
+    task_branch.submit()
+    assert any("衝突する" in n and "README.md" in n for n in repository.notices)
+    assert not repository.git.is_merging()
 
 
 def test_sync_explains_local_commits_on_main(repository, remote_and_clone, tmp_path):

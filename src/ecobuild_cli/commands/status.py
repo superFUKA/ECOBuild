@@ -8,6 +8,8 @@ from .task._show import submission_text
 AGENT = "read"
 
 
+STOPPED = {"merge": "取り込み", "rebase": "タスクブランチの作り直し", "revert": "取り消し", "stash": "退避した変更の戻し"}
+
 def command(
     fetch: Annotated[bool, "GitHubの最新を取得してから表示する（作成元の遅れも表示）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
@@ -39,10 +41,12 @@ def command(
             where,
             "GitHubのリポジトリはアーカイブ（読み取り専用）されています（ecobuild module unarchive で戻せます）"
             if r.archived else None,
-            "取り込みが衝突で止まっています（直して ecobuild sync continue、やめるなら sync abort）" if r.merging else None,
+            f"{STOPPED.get(r.stopped, '操作')}が衝突で止まっています（直すか ecobuild sync take で片方の側を採って "
+            "ecobuild sync continue、やめるなら sync abort）" if r.merging else None,
             f"未push：{r.ahead}" if r.ahead else None,
             f"GitHubより遅れています：{r.behind}（ecobuild sync）" if r.behind else None,
             f"作成元 {r.base} より遅れています：{r.base_behind}（ecobuild sync で取り込み）" if r.base_behind else None,
+            f"  取り込むと衝突するファイル：{'、'.join(r.base_conflicts)}" if r.base_conflicts else None,
             gone,
             f"提出：{submission_text(pr)} {pr.url}" if pr and not r.finished else None,
             "\n".join(files) if files else "変更はありません",

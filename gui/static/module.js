@@ -270,6 +270,19 @@ async function showPlace(dir) {
 }
 // The place where task <n>'s task branch (task/<n>-<name>) is checked out (if any).
 MOD.placeOfTask = n => MOD.places.find(p => MOD.states.get(keyOf(p))?.task === n || MOD.workspaces.get(keyOf(p))?.task === n) || null;
+// Task <n>'s submission conflicts with its base: take the base into its task branch (in its workspace, made again from
+// GitHub if there is none here) and push; on a conflict its workspace opens stopped there, to fix and 続ける.
+MOD.takeInBase = async n => {
+  let place = MOD.placeOfTask(n);
+  if (!place) {
+    const started = await ECO.run(MOD.root, ['task', 'start', String(n)]);
+    if (!started) return;
+    place = started.result.workspace; await syncPlaces();
+  }
+  const synced = await ECO.run(place, ['sync'], {onError: {merge_conflict: () => ECO.toast(`#${n}：衝突したファイルを直して「続ける」を押し、Push してから、もう一度取り込んでください。`, 'warn', 0)}});
+  if (synced) await ECO.run(place, ['task', 'push'], {success: `#${n}：最新を取り込んで Push しました（衝突しませんでした）。もう一度取り込めます。`});
+  await reloadPlace(place); await showPlace(place);
+};
 MOD.workspacePlaces = () => MOD.places.filter(p => MOD.states.get(keyOf(p))?.task);
 MOD.openInVisualStudio = dir => ECO.openInVisualStudio(dir).then(() => reloadPlace(dir));
 // The tab shown now, or null.

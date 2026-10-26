@@ -118,18 +118,18 @@ class History:
         created = self.create_task(title, body=body)
         task_branch = created.start(base=pulls[-1].base, name=wm.branch_label(title) or None)
         self.git.fetch()
-        for pr in reversed(pulls):
-            parents = self.git.output("rev-list", "--parents", "-n", "1", pr.merge_commit).split()
-            args = ["revert", "--no-edit"] + (["-m", "1"] if len(parents) > 2 else []) + [pr.merge_commit]
-            completed = self.git.run(*args, check=False)
-            if not completed.ok:
-                conflicted = self.git.working_tree().conflicted
-                if conflicted:
-                    raise WorkError(ErrorCode.MERGE_CONFLICT, "取り消しで衝突しました。",
-                                    hint=f"タスクブランチ {task_branch.branch} で、衝突したファイルを直して "
-                                         f"{self._op('task commit')} --message で記録してください。",
-                                    details=list(conflicted))
-                raise _git._git_error(completed)
+        # 新しいものから順に1回の revert で（衝突で止まったら、直して sync continue で残りも続く）。-m 1 はマージコミット
+        # （ブランチ同士の取り込み）では取り込み先の側を、スカッシュのコミットでは何もしない
+        completed = self.git.run("revert", "--no-edit", "-m", "1", *(pr.merge_commit for pr in reversed(pulls)),
+                                 check=False)
+        if not completed.ok:
+            conflicted = self.git.working_tree().conflicted
+            if conflicted:
+                raise WorkError(ErrorCode.MERGE_CONFLICT, "取り消しで衝突しました。",
+                                hint=f"タスクブランチ {task_branch.branch} で、衝突したファイルを直して "
+                                     f"{self._op('sync continue')}（残りの取り消しも続けます。やめるなら "
+                                     f"{self._op('sync abort')}）。", details=list(conflicted))
+            raise _git._git_error(completed)
         self.hooks.prepare_workspace(self)  # 取り消しで依存先の記録等が戻ることがある
         return wm.RevertResult(pulls[-1].number, created.number, task_branch.branch, self.git.output("rev-parse", "HEAD"),
                                reverted_task=task)

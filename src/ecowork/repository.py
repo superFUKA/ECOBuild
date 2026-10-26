@@ -235,14 +235,17 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             if tree.upstream_gone:
                 finished = self.github.get_issue(self.root, task_branch.number).state == "closed"
         reviewing = self._reviewing()
+        stopped = self.git.stopped()
+        base_behind = self._base_behind(task_branch) if fetch and task_branch is not None else None
         return wm.Status(
             branch=tree.branch,
             task=None if task_branch is None else task_branch.number,
             base=None if task_branch is None else task_branch.base,
             staged=tree.staged, unstaged=tree.unstaged, untracked=tree.untracked, conflicted=tree.conflicted,
-            ahead=tree.ahead, behind=tree.behind, merging=self.git.is_merging(), pull_request=pull_request,
-            upstream_gone=tree.upstream_gone, reviewing=reviewing,
-            base_behind=self._base_behind(task_branch) if fetch and task_branch is not None else None,
+            ahead=tree.ahead, behind=tree.behind, merging=stopped is not None, pull_request=pull_request,
+            upstream_gone=tree.upstream_gone, reviewing=reviewing, base_behind=base_behind,
+            stopped=stopped, base_conflicts=self._base_conflicts("HEAD", f"{_git.REMOTE}/{task_branch.base}")
+            if base_behind and stopped is None else (),
             archived=archived, reviewing_task=None if reviewing is None else self._task_of_pull_request(reviewing),
             finished=finished,
             eol_only=self.git.eol_only("HEAD") if (tree.staged or tree.unstaged) and self.git.rev_parse("HEAD") else (),
@@ -282,6 +285,14 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
                                 f"削除した可能性があります。GitHubの既定のブランチは {default}）。"
                                 "モジュールの設定の作成元を合わせてください。")
         return info.archived
+
+    def _base_conflicts(self, head: str, base_ref: str) -> tuple[str, ...]:
+        """head へ base_ref を取り込むと衝突するファイル（利用側が直せるもの〔Hooks.resolvable：生成ファイル・
+        .gitignore 等〕だけなら空）。手元には触れない（merge-tree）。取り込む前・提出の前に知らせるため。"""
+        if self.git.rev_parse(base_ref) is None:
+            return ()
+        method, _, conflicts = self._branch_merge_tree(base_ref, head)
+        return conflicts if method == "conflict" and not self.hooks.resolvable(self, conflicts) else ()
 
     def _base_behind(self, task_branch: wm.TaskBranch) -> int | None:
         base = f"{_git.REMOTE}/{task_branch.base}"
@@ -552,7 +563,7 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
     def _in_progress_error(self) -> WorkError:
         return WorkError(
             ErrorCode.MERGE_CONFLICT,
-            "前回の取り込みが衝突で止まっています。",
+            "前回の操作（取り込み・取り消し等）が衝突で止まっています。",
             hint=f"ファイルを直して {self._op('sync continue')} で続けるか、"
                  f"{self._op('sync abort')} でやめてください。",
             details=list(self.git.working_tree().conflicted),
@@ -714,6 +725,10 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{task_branch.base} へ反映する変更がありません。",
                             hint=f"変更を {self._op('task commit')} で記録してから再実行してください。")
         self._refuse_conflict_markers(self.git.conflict_markers(f"{base_ref}...{task_branch.branch}"), committed=True)
+        conflicts = self._base_conflicts(task_branch.branch, base_ref)
+        if conflicts:   # 提出はできる（レビュー等）が、このままでは取り込めない
+            self.notices.append(f"{task_branch.base} と衝突するファイルがあります（{'、'.join(conflicts)}）。取り込む前に、"
+                                f"タスクブランチで {self._op('sync')} を実行して直してください。")
         task_branch.push()
         opened = [p for p in self.github.pull_requests_for_branch(self.root, task_branch.branch) if p.state == "open"]
         if not opened:
@@ -805,12 +820,23 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
                                            subject=None if keep_history else f"{subject or pr.title} (#{pr.number})")
         except WorkError as error:
             if error.code == ErrorCode.PULL_REQUEST_CONFLICT:
-                error.hint = (
-                    f"タスクブランチ {pr.head} で {self._op('sync')} を実行して {pr.base} を取り込み、衝突を解決して、"
-                    f"{self._op('task push')} してから、もう一度実行してください。" if task is not None else
-                    f"{pr.base} の変更を {pr.head} へ取り込んで衝突を解決してから、もう一度実行してください。")
+                raise self._take_in_conflict(pr) from None
             raise
         return self._finish_merge(pr, current, resumed=False)
+
+    def _take_in_conflict(self, pr: wm.PullRequest, conflicts: tuple[str, ...] | None = None) -> WorkError:
+        """提出 pr が作成元と衝突して取り込めない。details は衝突するファイル（分かれば）。直すのはタスクブランチの持ち主
+        （sync で作成元を取り込んで直し、push）。ほかの人は差し戻して直してもらう。"""
+        if conflicts is None:
+            conflicts = self._base_conflicts(f"{_git.REMOTE}/{pr.head}", f"{_git.REMOTE}/{pr.base}")
+        task = wm.task_number(pr.head)
+        return WorkError(
+            ErrorCode.PULL_REQUEST_CONFLICT, f"PR #{pr.number} は {pr.base} と衝突しているため、取り込めません（何も変えていません）。",
+            hint=(f"タスクブランチ {pr.head} で {self._op('sync')} を実行して {pr.base} を取り込み、衝突を直して "
+                  f"{self._op('task push')} してから、もう一度実行してください（ほかの人の提出なら "
+                  f"{self._op('task reject')} {task} で差し戻して直してもらいます）。" if task is not None else
+                  f"{pr.base} の変更を {pr.head} へ取り込んで衝突を解決してから、もう一度実行してください。"),
+            details=list(conflicts))
 
     def _finish_merge(self, pr: wm.PullRequest, info: _github.PullRequestInfo, *, resumed: bool) -> wm.MergeResult:
         """マージした後の処理。今の状態を見て、終わっていない手順だけを行う（何度呼んでもよい）。"""

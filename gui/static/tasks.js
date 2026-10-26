@@ -400,7 +400,7 @@
     const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
     const groups = [
       [item('github', 'GitHubで開く'), !open && pr?.state === 'merged' ? item('revert', '取り込みを取り消す…') : '',
-        others && !pr.draft ? item('finish', '承認せずに取り込む…', {title: ECO.submissionHelp.finish, off: why}) : '', others ? item('withdraw', '提出を取り下げる…', {title: ECO.submissionHelp.withdraw}) : ''],
+        others && !pr.draft ? item('finish', '承認せずに取り込む…', {title: ECO.submissionHelp.finish, off: why || (d?.activity?.mergeable === 'CONFLICTING' ? ECO.conflictNote(false) : '')}) : '', others ? item('withdraw', '提出を取り下げる…', {title: ECO.submissionHelp.withdraw}) : ''],
       [hasWorkspace ? item('remove', 'このPCから片付ける…', {title: 'このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残り、「作業を再開」で続きから始められます（別のPCで続けるとき等）。'}) : ''],
       [hasWorkspace || remote ? item('drop', '作業を捨てる…', {danger: true, title: '作業を取り込まずに捨てます。タスクブランチと提出はこのPCとGitHubから消え、タスクは未着手に戻ります。'}) : '',
         open ? item('delete', '削除…', {danger: true, title: 'タスクを削除します（あとで元に戻せます）'}) : ''],
@@ -423,9 +423,10 @@
     const submitted = pr?.state === 'open', d = st.details.get(n), draft = submitted && pr.draft;
     const why = ECO.canTakeIn(st.access, d?.base) ? '' : ECO.takeInNote(st.access, d?.base || '取り込み先');
     const button = (action, label, {cls = '', off = '', help = action} = {}) => `<button type="button" ${cls ? `class="${cls}"` : ''} data-tk="${action}" title="${esc([ECO.submissionHelp[help], off && `（${off}）`].filter(Boolean).join('\n'))}"${off ? ' disabled' : ''}>${label}</button>`;
+    const conflicting = d?.activity?.mergeable === 'CONFLICTING';   // GitHub cannot take it in: fixed in the task branch first
     const act = !submitted ? []
-      : ownSubmission(d) ? [button('withdraw', '提出を取り下げる', {cls: 'tk-quiet-danger'}), button('finish', '取り込む', {cls: 'primary', off: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why})]
-      : [button('review', '手元で確認', {help: 'local-review'}), button('reject', '差し戻す', {off: why}), button('approve', '承認して取り込む', {cls: 'primary', off: draft ? '下書きの提出は承認できません' : why})];
+      : ownSubmission(d) ? [button('withdraw', '提出を取り下げる', {cls: 'tk-quiet-danger'}), button('finish', '取り込む', {cls: 'primary', off: draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why || (conflicting ? ECO.conflictNote(true) : '')})]
+      : [button('review', '手元で確認', {help: 'local-review'}), button('reject', '差し戻す', {off: why}), button('approve', '承認して取り込む', {cls: 'primary', off: draft ? '下書きの提出は承認できません' : why || (conflicting ? ECO.conflictNote(false) : '')})];
     if (!submitted && !hasWorkspace) return '';
     return `<div class="tk-sub-actions"><div>${button('diff', '差分')}</div><div>${act.join('')}</div></div>`;
   }
@@ -434,6 +435,10 @@
 
   // Operations ------------------------------------------------------------------------------------
   const run = (args, options = {}) => ECO.run(options.dir || root(), args, options);
+  // Taking in stopped on a conflict with the base: one's own is fixed in its task branch, someone else's is sent back.
+  const onConflict = (n, own) => ({pull_request_conflict: doc => ECO.takeInConflict(doc, {number: n, base: st.details.get(n)?.base || '作成元', own,
+    fix: async () => { await MOD.takeInBase(n); reloadAfter(n); },
+    reject: async message => { if (await run(['task', 'reject', String(n), '--message', message], {success: `#${n} を差し戻しました。`})) reloadAfter(n); }})});
   const placeFor = n => MOD.placeOfTask(n) || root();
 
   // Choices for dialogs. ecobuild has no command for "members who can be assigned", so the candidates are
@@ -609,7 +614,7 @@
       if (!options) return;
       const place = placeFor(n);
       const doc = await run(['task', 'finish', String(n), ...options],
-        {dir: place, success: r => `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+        {dir: place, success: r => `#${n} を完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : ''), onError: onConflict(n, !d.pull_request || ownSubmission(d))});
       if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); reloadAfter(n); }
       return;
     }
@@ -663,7 +668,7 @@
     if (!options) return;
     const place = placeFor(n);
     const doc = await run(['task', 'finish', String(n), ...options],
-      {dir: place, success: r => r.partial ? `#${n} を取り込み、タスクブランチを作り直しました（タスクは続きます）。` : `#${n} を取り込み、完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : '')});
+      {dir: place, success: r => r.partial ? `#${n} を取り込み、タスクブランチを作り直しました（タスクは続きます）。` : `#${n} を取り込み、完了しました。` + (r.next ? `次の候補：#${r.next.number} ${r.next.title}` : ''), onError: onConflict(n, ownSubmission(d))});
     if (doc) { ECO.workspaceKept(doc.result, n); await MOD.reloadPlace(place); reloadAfter(n); }
   }
   async function withdrawSubmission(n) {
@@ -685,7 +690,16 @@
   }
   async function revertDialog(n) {
     if (!await ECO.confirm({title: `取り込みを取り消す：#${n}`, message: `#${n} で取り込んだ変更を元に戻すための、新しいタスクを作ります。変更を戻すコミットも用意するので、中身を確かめてから提出してください。`, ok: 'タスクを作る'})) return;
-    const doc = await run(['task', 'revert', String(n)], {success: r => `#${n} を取り消すタスクブランチ ${r.branch}（タスク #${r.task}）を作りました。`});
+    // Stopped on a conflict: the new task's workspace opens stopped there (続ける also reverts the rest).
+    const stopped = async () => {
+      await MOD.syncPlaces();
+      for (const p of MOD.places) await MOD.refreshState(p);
+      const place = MOD.places.find(p => MOD.states.get(MOD.keyOf(p))?.stopped === 'revert');
+      ECO.toast('取り消しで衝突しました。衝突したファイルを直して「続ける」を押すと、残りの取り消しも続けます。', 'warn', 0);
+      if (place) await MOD.showPlace(place);
+      reloadAfter();
+    };
+    const doc = await run(['task', 'revert', String(n)], {success: r => `#${n} を取り消すタスクブランチ ${r.branch}（タスク #${r.task}）を作りました。`, onError: {merge_conflict: stopped}});
     if (doc) { await MOD.reloadPlace(root()); reloadAfter(); }
   }
   async function plan(n, key, value) {

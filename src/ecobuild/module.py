@@ -1115,7 +1115,7 @@ class Module:
             return None
         task_branch = self.repository.current_task_branch()
         git = self.repository.git
-        if task_branch is None or self.repository._reviewing() is not None or git.is_merging() or git.working_tree().conflicted:
+        if task_branch is None or self.repository._reviewing() is not None or git.stopped() is not None:
             return None
         result = task_branch.record(message, changed)
         self._forget_created(result.files)
@@ -1266,7 +1266,7 @@ class Module:
             raise
 
     def continue_sync(self, *, progress: Callable[[str], None] | None = None, pipelines: bool = True) -> SyncResult:
-        """衝突を解決した後、止まっている取り込みを完了し、手元をそろえる。
+        """衝突を解決した後、止まっている操作（取り込み・作り直し・取り消し・退避した変更の戻し）を完了し、手元をそろえる。
 
         印のなくなったファイルは登録し、衝突した生成ファイルは（解決した）管理ファイルから作り直す。
         pipelines：最新の取り込みの後のパイプラインを走らせる。
@@ -1274,7 +1274,7 @@ class Module:
         return self._sync_pipelines(self._continue_sync(), progress=progress, pipelines=pipelines)
 
     def _continue_sync(self) -> SyncResult:
-        if self.repository.git.is_merging() or self.repository.git.is_rebasing():
+        if self.repository.git.stopped() is not None:
             self.repository.resolve_conflicts(skip=self.type.is_generated)
         self._regenerate_conflicted_files()
         return self._sync_result(self.repository.continue_sync())
@@ -1282,6 +1282,13 @@ class Module:
     def abort_sync(self) -> None:
         self.repository.abort_sync()
         self._reload()
+
+    def take_side(self, paths: tuple[str, ...], *, incoming: bool) -> tuple[str, ...]:
+        """衝突したファイルを片方の側の内容で解決する（ecowork の Repository.take_side）。続きは continue_sync。"""
+        try:
+            return self.repository.take_side(paths, incoming=incoming)
+        finally:
+            self._reload()
 
     def stash(self) -> wm.StashResult:
         result = self.repository.stash()

@@ -201,7 +201,8 @@ const ECO = (() => {
   // Elsewhere the "busy" overlay shows while the command runs (after a moment, so quick commands do not flicker).
   let formDepth = 0, lastError = null;
   // ok: the confirming button says what happens (削除する, 取り込む) rather than 実行する; danger: red, for what cannot be undone.
-  async function run(dir, args, {success, stdin, confirm: confirmText, title, busy: busyText, ok: okText, danger = false} = {}) {
+  // onError: {error code: handler(doc)} — a failure with that code goes to its handler (what to do next) instead of the error dialog.
+  async function run(dir, args, {success, stdin, confirm: confirmText, title, busy: busyText, ok: okText, danger = false, onError} = {}) {
     if (confirmText && !await confirm({title: title || '確認', message: confirmText, ok: okText || '実行する', danger})) return null;
     const inForm = formDepth > 0;
     let overlay = inForm ? null : busy({title: busyText || '実行しています…', sub: 'ecobuild ' + label(args), delay: 300});
@@ -226,11 +227,32 @@ const ECO = (() => {
     }
     overlay?.end();
     if (!doc.ok && !inForm && doc.error?.code === 'repository_archived') { await offerUnarchive(dir, doc); return null; }
+    if (!doc.ok && !inForm && onError?.[doc.error?.code]) { await onError[doc.error.code](doc); return null; }
     if (!doc.ok) { if (inForm) lastError = doc; else await showError(doc); return null; }
     if (success) toast(typeof success === 'function' ? success(doc.result) : success);
     for (const notice of doc.notices || []) toast('お知らせ：' + notice, 'info', 9000);
     return doc;
   }
+
+  // A submission that conflicts with its base cannot be taken in (task finish・approve; nothing changed): the one whose
+  // task branch it is takes the base in there and fixes it (fix); anyone else sends it back to be fixed (reject).
+  async function takeInConflict(doc, {number, base, own, fix, reject}) {
+    const files = (doc.error.details || []).filter(f => typeof f === 'string');
+    const list = files.length ? `<p>衝突するファイル：</p><ul class="eco-list">${files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : '';
+    const next = own ? `タスクブランチへ ${esc(base)} の最新を取り込んで直します（衝突したら、直して「続ける」を押し、Push してから、もう一度取り込みます）。`
+      : 'タスクブランチの作業者に、最新を取り込んで直してもらいます（差し戻し）。';
+    const choice = await dialog({title: `取り込めません：#${number}`, body: `<p>${esc(doc.error.message)}</p>${list}<p class="eco-hint">${next}</p>`,
+      buttons: [['閉じる', '', null], own ? ['取り込んで直す', 'primary', 'fix'] : ['差し戻す…', 'primary', 'reject']]});
+    if (choice === 'fix') return fix();
+    if (choice !== 'reject') return;
+    const v = await form({title: `差し戻す：#${number}`, intro: 'タスクは作業中に戻ります。', ok: '差し戻す', danger: true,
+      fields: [{name: 'message', label: '直してほしいこと', type: 'textarea', required: true,
+        value: `${base} と衝突しているので、タスクブランチへ最新を取り込んで直してください${files.length ? `（${files.join('、')}）` : ''}。`}]});
+    if (v) return reject(v.message);
+  }
+  // Why taking a submission in is greyed while GitHub says it conflicts with its base.
+  const conflictNote = own => own ? '作成元と衝突しています。タスクブランチの作業空間で最新を取り込んで直し、Push してから取り込みます'
+    : '作成元と衝突しています。差し戻して、作業者に最新を取り込んで直してもらいます';
 
   // A task taken in (task finish・approve) whose workspace could not be removed with its task branch (an editor such as
   // Visual Studio or a terminal has the folder open): a warning that stays until closed, with how to remove it later.
@@ -933,7 +955,7 @@ const ECO = (() => {
 
   const loading = text => `<div class="eco-loading"><span class="eco-spinner"></span>${esc(text || '読み込んでいます…')}</div>`;
 
-  return {call, cli, run, workspaceKept, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
+  return {call, cli, run, workspaceKept, takeInConflict, conflictNote, showError, offerUnarchive, dialog, confirm, form, output, inTortoiseGit, toast, esc, localTime, commaList, branchLabel, branchNameError, taskOfBranch, info, loading, detailText, colorDiff, diffHtml, copyText, params, busy, menu, openInVisualStudio, vsVersion, setVsVersion, moduleType, typeFeatures, navToggle, query, prefetch, action, setState, onChange, onNavigate, openPage, windowId, windowState,
     access, isAdmin, canTakeIn, takeInNote, adminNote: ADMIN_NOTE, roleNames: ROLE_NAMES,
     submissionText, checkMark, submissionHelp: SUBMISSION_HELP, submitOutcome, setTaskOutcome, finishForm, completeForm, submissionButton, submissionDetail, submissionCommits, submissionConversation};
 })();

@@ -589,6 +589,46 @@ class Git:
     def rebase_abort(self) -> None:
         self.run("rebase", "--abort")
 
+    def is_reverting(self) -> bool:
+        return self.rev_parse("REVERT_HEAD") is not None
+
+    def revert_continue(self) -> MergeOutcome:
+        """止まっている取り消し（revert）を続ける（残りのコミットの取り消しも）。衝突は登録してから呼ぶ。
+        直した結果が今と同じ（そのコミットの取り消しが空）なら、そのコミットは飛ばして続ける。"""
+        empty = self.run("diff", "--cached", "--quiet", "HEAD", check=False).ok
+        completed = self.run("revert", "--skip" if empty else "--continue", check=False)
+        if completed.ok:
+            return MergeOutcome(True)
+        conflicted = self.working_tree().conflicted
+        if conflicted:
+            return MergeOutcome(False, conflicted)
+        raise _git_error(completed)
+
+    def revert_abort(self) -> None:
+        self.run("revert", "--abort")
+
+    def stopped(self) -> str | None:
+        """衝突等で止まっている操作：rebase（載せ替え）・merge（取り込み）・revert（取り消し）・stash（退避した変更を
+        戻すときの衝突：ほかに止まっている操作のない衝突）。なければ None。"""
+        if self.is_rebasing():
+            return "rebase"
+        if self.is_merging():
+            return "merge"
+        if self.is_reverting():
+            return "revert"
+        return "stash" if self.working_tree().conflicted else None
+
+    def take_side(self, paths: tuple[str, ...], *, incoming: bool) -> None:
+        """衝突したファイルを片方の側の内容にして登録する：今の側（HEAD。git の --ours）か、入ってくる側（取り込む
+        ブランチ・載せ替えるコミット・取り消し・戻す退避。--theirs）。その側で消えているファイルは消す。"""
+        stage = "3" if incoming else "2"
+        for path in paths:
+            if not self.run("rev-parse", "--verify", "--quiet", f":{stage}:{path}", check=False).ok:
+                self.run("rm", "--quiet", "--", path)
+            else:
+                self.run("checkout", "--theirs" if incoming else "--ours", "--", path)
+                self.run("add", "--", path)
+
     def rebase_onto(self, new_base: str, upstream: str, branch: str) -> MergeOutcome:
         completed = self.run("rebase", "--quiet", "--autostash", "--onto", new_base, upstream, branch, check=False)
         if completed.ok:

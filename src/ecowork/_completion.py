@@ -291,8 +291,7 @@ class Completion:
         base = (self.git.get_config(wm.base_key(branch)) if local else None) or self._recorded_base(number, branch) \
             or self.default_base
         if issue.state != "open":
-            tips = {self.git.rev_parse(ref) for ref, there in ((branch, local), (f"{_git.REMOTE}/{branch}", remote)) if there}
-            if not tips & set(self._applied_heads(branch)):
+            if not (local or remote) or self._lost_commits(branch, base, local=local, remote=remote):
                 raise WorkError(ErrorCode.TASK_CLOSED, f"タスク #{number} は閉じています。",
                                 hint=f"タスクブランチが残っていれば {self._op('task prune')} {number} で片付けられます。")
             return self._after_apply(number, branch, base, issue.title, None, None)   # 反映して閉じた後で止まった：片付けの残りだけ
@@ -315,71 +314,57 @@ class Completion:
         start = self.git.output("rev-parse", f"{_git.REMOTE}/{base}")
         title = subject or issue.title
         commit = None
-        already_in = False   # コミットはあるが、同じ中身が別のタスク等で作成元に入っていた：入れずに完了する
         keep_history = bool(wm.issue_merge_from(issue.body))   # 衝突を直すタスク：スカッシュしない
-        applied = self.git.is_ancestor(head, start) if keep_history else head in self._applied_heads(branch)
-        if not applied:   # 反映済み（push の後で止まった）なら後処理だけ
+        if not keep_history and self.git.is_ancestor(head, start) and head not in self._applied_heads(branch):
+            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"タスク #{number} には、{base} へ反映する変更がありません。",
+                            hint=f"変更を {self._op('task commit')} で記録してから実行してください（変更が要らないなら "
+                                 f"{self._op('task close')} {number}）。")
+        # 変更が作成元に入っていれば（前の反映が push の後で止まった・同じ変更が別のタスク等で入った）後処理だけ。
+        # 衝突を直すタスクは履歴を入れるもの（作成元が取り込み先を含むように）なので、中身が同じでも履歴で見る
+        taken = self.git.is_ancestor(head, start) if keep_history \
+            else not self._lost_commits(branch, base, local=False, remote=True)
+        if not taken:
             if here:
                 self.hooks.before_submit(self)
             self._refuse_conflict_markers(self.git.conflict_markers(f"{start}...{head}"), committed=True)
             commit = self._applied_commit(number, branch, base, head, start, title, keep_history=keep_history)
-            already_in = commit is None
         submission = self.submission(number)
         if submission is not None:
             # 提出してから反映に切り替えた：提出は取り込まずに閉じる（反映したことを書き残す）
             self.github.comment_pull_request(self.root, submission.number,
-                                             f"変更がすでに {base} に入っていたので閉じます。" if already_in else
-                                             f"提出を通さずに {base} へ反映したので閉じます"
-                                             + (f"（{commit[:7]}）。" if commit else "。"))
+                                             f"提出を通さずに {base} へ反映したので閉じます（{commit[:7]}）。" if commit
+                                             else f"変更はすでに {base} に入っているので閉じます。")
             self.github.close_pull_request(self.root, submission.number)
         self.github.close_issue(self.root, number)
-        return self._after_apply(number, branch, base, title, commit, submission.number if submission else None,
-                                 already_in=already_in)
+        return self._after_apply(number, branch, base, title, commit, submission.number if submission else None)
 
     def _after_apply(self, number: int, branch: str, base: str, title: str, commit: str | None,
-                     closed_submission: int | None, *, already_in: bool = False) -> wm.ApplyResult:
-        """反映して Issue を閉じた後：GitHub のタスクブランチ（反映した版のままなら）を消し、手元を片付ける。
-        already_in：中身が作成元に入っていたタスクブランチ（その版のまま）は、コミットが作成元になくても消す。"""
-        remote = f"{_git.REMOTE}/{branch}"
-        tip = self.git.rev_parse(remote) if self.git.has_remote_branch(branch) else None
-        if tip is not None:
-            if already_in or tip in self._applied_heads(branch) \
-                    or self.git.is_ancestor(tip, f"{_git.REMOTE}/{base}"):   # 履歴ごと入れたもの
-                self.git.push_delete(branch)
+                     closed_submission: int | None) -> wm.ApplyResult:
+        """反映して Issue を閉じた後：GitHub のタスクブランチ（消しても変更が失われないなら）を消し、手元を片付ける。"""
+        if self.git.has_remote_branch(branch) and not self._lost_commits(branch, base, local=False, remote=True):
+            self.git.push_delete(branch)
         self.tracker.closed(number)
-        removed, released = self._clean_finished(branch, contained=tip if already_in else None)
+        removed, released = self._clean_finished(branch)
         upcoming = self._upcoming()
         self._advance_base(base)
-        method = "squash" if commit else "already-in" if already_in else "up-to-date"
-        return wm.ApplyResult(number, title, base, commit, method, closed_submission,
+        return wm.ApplyResult(number, title, base, commit, "squash" if commit else "up-to-date", closed_submission,
                               removed, released.switched_to, upcoming, workspace_removed=released.workspace_removed,
                               workspace_kept=released.kept)
 
     def _applied_commit(self, number: int, branch: str, base: str, head: str, start: str,
-                        title: str, *, keep_history: bool = False) -> str | None:
+                        title: str, *, keep_history: bool = False) -> str:
         """head（タスクブランチ）を start（作成元の最新）へスカッシュした1つのコミットを作り、作成元へ push する。
-        コミットはあるが、合わせても作成元から変わらない（同じ中身が別のタスク等で入っていた）なら None。
-        コミットがなければ止める。keep_history（衝突を直すタスク）：スカッシュせず、早送りかマージコミットで入れる。"""
+        変更が start に入っていないときだけ呼ぶ（_lost_commits）。keep_history（衝突を直すタスク）：スカッシュせず、
+        早送りかマージコミットで入れる。"""
         method, tree, conflicts = self._branch_merge_tree(head, start)
         merged = None
         if method == "fast-forward":
             tree = self.git.output("rev-parse", f"{head}^{{tree}}")
         elif method == "conflict":
-            if not self.hooks.resolvable(self, conflicts):
+            merged = self._merge_resolving(head, start, f"{title} (タスク #{number})", conflicts)
+            if merged is None:
                 raise self._apply_conflict(number, branch, base, conflicts)
-            try:
-                merged = self._resolved_merge(head, start, f"{title} (タスク #{number})", branch, base, conflicts)
-            except WorkError as error:
-                if error.code != ErrorCode.MERGE_CONFLICT:
-                    raise
-                raise self._apply_conflict(number, branch, base, conflicts) from None
             tree = self.git.output("rev-parse", f"{merged}^{{tree}}")
-        if method == "up-to-date" or (not keep_history and tree == self.git.output("rev-parse", f"{start}^{{tree}}")):
-            if method != "up-to-date" and self.git.count(f"{start}..{head}"):
-                return None
-            raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"タスク #{number} には、{base} へ反映する変更がありません。",
-                            hint=f"変更を {self._op('task commit')} で記録してから実行してください（変更が要らないなら "
-                                 f"{self._op('task close')} {number}）。")
         if keep_history:
             commit = head if method == "fast-forward" else merged or self.git.output(
                 "commit-tree", tree, "-p", start, "-p", head, "-m",
@@ -409,15 +394,13 @@ class Completion:
         prefix = f"{wm.APPLIED_TRAILER}: {branch} "
         return [line[len(prefix):].strip() for line in found.splitlines() if line.startswith(prefix)]
 
-    def _clean_finished(self, branch: str, *, contained: str | None = None) -> tuple[bool, wm.Released]:
+    def _clean_finished(self, branch: str) -> tuple[bool, wm.Released]:
         """完了したタスクの手元のタスクブランチを片付ける：取り出している作業空間を消してから、ブランチを消す
         （元の clone 等がその場で取り出していれば、作成元へ移って最新にする）。失われるコミットがある・作業空間が
-        使用中・未コミットの変更があるなら残して知らせる。(消したか, 作業空間の扱い) を返す。
-        contained：中身が作成元に入っていた版。手元のブランチがその版までなら、失われるコミットとみなさない。"""
+        使用中・未コミットの変更があるなら残して知らせる。(消したか, 作業空間の扱い) を返す。"""
         if not self.git.has_local_branch(branch):
             return False, wm.Released(False)
-        safe = contained is not None and self.git.is_ancestor(branch, contained)
-        reason = None if safe else self._unsafe_to_remove(branch)
+        reason = self._unsafe_to_remove(branch)
         if reason is not None:
             self.notices.append(f"手元のタスクブランチ {branch} は残しました（{reason}）。")
             return False, wm.Released(False, kept=reason)
@@ -615,9 +598,10 @@ class Completion:
             raise WorkError(ErrorCode.NOTHING_TO_SUBMIT, f"{name} は {into} に取り込み済みです。")
         message, resolved = f"{name} を {into} へ取り込む", ()
         if method == "conflict":
-            if not self.hooks.resolvable(self, conflicts):
+            commit = self._merge_resolving(head, base, message, conflicts)
+            if commit is None:
                 raise self._branch_conflict(name, into, conflicts)
-            commit, resolved, method = self._resolved_merge(head, base, message, name, into, conflicts), conflicts, "merge"
+            resolved, method = conflicts, "merge"
         elif method == "fast-forward":
             commit = head
         else:
@@ -653,16 +637,33 @@ class Completion:
                          hint=f"{self._op('branch resolve')} {name} --into {into} で衝突を直すタスクを作り、その作業空間で直して "
                               f"{name} へ入れてから、もう一度取り込んでください。", details=list(conflicts))
 
-    def _resolved_merge(self, head: str, base: str, message: str, name: str, into: str, conflicts: tuple[str, ...]) -> str:
-        """base に head をマージし、衝突を利用側に直させたマージコミット（一時的な作業ツリーで。手元には触れない）。
-        直せなければ何も変えずに衝突として止める。"""
+    def _merge_resolving(self, head: str, base: str, message: str, conflicts: tuple[str, ...]) -> str | None:
+        """base に head をマージし、衝突 conflicts を利用側に直させたマージコミット（一時的な作業ツリーで。手元には
+        触れない。どのブランチも動かさない）。利用側が直せない（Hooks.resolvable）・直しきれないなら None。"""
+        if not self.hooks.resolvable(self, conflicts):
+            return None
         with self.git.temporary_worktree(base) as place:
             there = _git.Git(place, command=self.command)
             there.run("merge", "--no-ff", "--no-commit", head, check=False)
             if not there.is_merging() or not self.hooks.resolve_conflicts(self, place) or there.working_tree().conflicted:
-                raise self._branch_conflict(name, into, conflicts)
+                return None
             there.run("commit", "--quiet", "--no-edit", "--message", message)
             return there.output("rev-parse", "HEAD")
+
+    def _absorbed(self, tip: str, base: str) -> bool:
+        """tip のコミットは base に入っていないが、合わせても base から変わらない（同じ変更が別のタスク等で base に
+        入った）。衝突は、利用側が直せるもの（.gitignore・生成ファイル等）なら直して比べる。手元には触れない。"""
+        method, tree, conflicts = self._branch_merge_tree(tip, base)
+        if method == "fast-forward":
+            tree = self.git.output("rev-parse", f"{tip}^{{tree}}")
+        elif method == "conflict":
+            merged = self._merge_resolving(tip, base, "確かめ", conflicts)
+            if merged is None:
+                return False
+            tree = self.git.output("rev-parse", f"{merged}^{{tree}}")
+        elif method != "merge":
+            return False   # up-to-date：コミットごと base に入っている（吸収ではない）
+        return tree == self.git.output("rev-parse", f"{base}^{{tree}}")
 
     def plan_branch_merge(self, name: str, into: str) -> wm.BranchMergePlan:
         """merge_branch_into を前もって確かめる（何も変えない）：入るコミット・変わるファイル・方法（早送り・マージ

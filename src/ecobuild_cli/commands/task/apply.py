@@ -7,9 +7,7 @@ from ..workspace.close import leave, render_removed
 def render_apply(r) -> str:
     """task apply の結果。最後の行は何をしたか、その下に次の一手。"""
     done = (f"#{r.task} を {r.base} へ反映し、完了しました（{r.commit[:7]}）：{r.subject}" if r.commit
-            else f"#{r.task} の変更はすでに {r.base} に入っていたので、入れずに完了しました：{r.subject}"
-            if r.method == "already-in"
-            else f"#{r.task} は {r.base} へ反映済みでした。残りの後処理を行い、完了しました：{r.subject}")
+            else f"#{r.task} の変更はすでに {r.base} に入っていました。入れずに後処理を行い、完了しました：{r.subject}")
     return lines(
         f"開いていた提出は閉じました（取り込まずに）" if r.closed_submission else None,
         f"手元の #{r.task} のタスクブランチを片付けました" + (f"（{r.switched_to} に移りました）" if r.switched_to else "")

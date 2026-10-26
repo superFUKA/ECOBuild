@@ -616,12 +616,18 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         return tuple(self.git.output("log", *heads, "--not", "--remotes", *kept, "--format=%h %s").splitlines())
 
     def _lost_commits(self, branch: str, base: str, *, local: bool, remote: bool) -> tuple[str, ...]:
-        """タスクブランチを消すと失われるコミット（作成元にも、マージ済みのPRにも入っていないもの）の件名。"""
+        """タスクブランチを消すと失われる変更：作成元にも、取り込み済みの版（マージ済みのPR・反映）にも入っていない
+        コミットの件名。コミットが残っていても、中身が作成元に入っている版（_absorbed：同じ変更が別のタスク等で入った）
+        は失われない。タスクの作業が作成元に入ったかの判断はこれ1つ（片付け・閉じる・捨てる・完了・反映）。"""
         tips = ([branch] if local else []) + ([f"{_git.REMOTE}/{branch}"] if remote else [])
-        kept = [f"{_git.REMOTE}/{base}" if self.git.has_remote_branch(base) else base]
-        kept += self._merged_heads(branch)
-        kept = [ref for ref in kept if self.git.rev_parse(ref)]
-        return tuple(self.git.output("log", "--format=%s", *tips, "--not", *kept).splitlines())
+        into = f"{_git.REMOTE}/{base}" if self.git.has_remote_branch(base) else base
+        kept = [ref for ref in [into, *self._merged_heads(branch)] if self.git.rev_parse(ref)]
+        lost: dict[str, str] = {}
+        for tip in tips:
+            found = self.git.output("log", "--format=%H %s", tip, "--not", *kept).splitlines()
+            if found and not (into in kept and self._absorbed(tip, into)):
+                lost.update(line.partition(" ")[::2] for line in found)
+        return tuple(lost.values())
 
     def _switch_to_latest(self, name: str) -> None:
         """この作業ツリーを、その場でブランチ name（GitHub の最新へ早送り）に切り替える。

@@ -92,7 +92,9 @@
 .share-more > summary { list-style: none; cursor: pointer; padding: 6px 10px; border: 1px solid #46515e; border-radius: 7px; color: #a5aeba; }
 .share-more > summary::-webkit-details-marker { display: none; }
 .share-more > div { position: absolute; right: 0; bottom: calc(100% + 4px); z-index: 5; padding: 6px; background: #252b33; border: 1px solid #46515e; border-radius: 8px; box-shadow: 0 8px 24px #0007; }
-.share-more button { white-space: nowrap; color: #f3a5a5; }
+.share-more > div { display: flex; flex-direction: column; gap: 4px; }
+.share-more button { white-space: nowrap; }
+.share-more button[data-git=force-push] { color: #f3a5a5; }
 .commit-panel > .heading { margin-bottom: 14px; }
 .share > .heading { margin-bottom: 4px; }
 #file-tree .file.generated { color: #84909e; font-style: italic; }

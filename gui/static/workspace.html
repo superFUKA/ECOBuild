@@ -35,7 +35,7 @@
     <section class="panel share" id="share-panel" role="tabpanel" aria-labelledby="share-title">
       <div class="heading"><h3 id="share-title">Push</h3><span id="push-state" class="muted"></span></div>
       <div id="push-commits" class="push-commits-box" hidden><div class="push-commits-head"><span id="push-commits-title">Pushするコミット（新しい順）</span><button type="button" id="push-commits-close" class="link-button">閉じる</button></div><div id="push-commits-view"></div></div>
-      <div class="actions"><details class="share-more"><summary aria-label="その他のPush">⋯</summary><div><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push" class="primary">Push</button></div></section>
+      <div class="actions"><details class="share-more"><summary aria-label="取り込み・その他のPush">⋯</summary><div><button type="button" data-git="sync" title="GitHub の最新（タスクブランチなら作成元の最新も）を取り込みます">最新を取り込む</button><button type="button" data-git="sync-from" title="別の管理ブランチ・別のタスクブランチの変更を、このタスクブランチへ取り込みます">ほかのブランチから取り込む…</button><button type="button" data-git="force-push">強制Push…</button></div></details><button id="push" class="primary">Push</button></div></section>
     <section class="panel" id="prs-panel" role="tabpanel" aria-labelledby="prs-title"><div class="heading"><h3 id="prs-title">提出</h3></div><div id="pr-tools"></div><p id="pr-note" class="pr-note" hidden></p>
       <div id="pr-commits" class="pr-commits-box" hidden><div class="push-commits-head"><span id="pr-commits-title">提出に入るコミット</span><button type="button" id="pr-full-log" class="link-button" title="作成元のコミットも含めた、このブランチのすべてのログを別の窓で開きます">すべてのログ</button></div><div id="pr-commits-view"></div></div>
       <div id="pr-detail"></div></section>

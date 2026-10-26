@@ -360,3 +360,20 @@ def test_stash_drop_on_the_original_clone_leaves_what_another_worktree_stashed(r
     repository.stash()
     repository.stash_drop()
     assert len(repository.stashes()) == 2 and all("main" not in m for m in repository.stashes())
+
+
+def test_sync_takes_in_another_branch(repository, remote_and_clone, tmp_path):
+    """タスクブランチへ、作成元のほかのブランチ（GitHub の別の管理ブランチ等）も取り込む。タスクブランチでないブランチでは止める。"""
+    remote, _ = remote_and_clone
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    git(other, "switch", "--quiet", "-c", "release")
+    git(other, "push", "--quiet", "-u", "origin", "release")
+    push_from_other_clone(remote, tmp_path, "release.txt", "release\n", branch="release")
+    assert code_of(lambda: repository.sync(from_branch="release")) == ErrorCode.INVALID_ARGUMENT
+    repository.create_task("t").start()
+    assert code_of(lambda: repository.sync(from_branch="nothing")) == ErrorCode.BRANCH_NOT_FOUND
+    result = repository.sync(from_branch="release")
+    assert result.merged == ("origin/release",)
+    assert (repository.root / "release.txt").read_text(encoding="utf-8") == "release\n"
+    assert repository.sync(from_branch="release").merged == ()

@@ -401,8 +401,6 @@ window.addEventListener('message', event => {
     const after = () => { if (stateSignature(MOD.states.get(keyOf(data.dir))) !== before) pageHooks.changed?.(); };
     if (data.status) { MOD.states.set(keyOf(data.dir), data.status); renderTab(data.dir); after(); } else refreshState(data.dir).then(after);
   }
-  if (data.type === 'open-place' && data.dir) showPlace(data.dir);
-  if (data.type === 'open-task' && data.n) MOD.openWorkspace(Number(data.n));
   if (data.type === 'show-task' && data.n) { showModulePage('tasks'); window.TASKS_SELECT?.(Number(data.n)); }
 });
 

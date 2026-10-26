@@ -112,7 +112,7 @@ function renderHeader() {
   const s = WS.status;
   const where = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.task ? `タスクブランチ · ${s.branch}${WS.task ? '　' + WS.task.title : ''}` : `ブランチ · ${s.branch || '（なし）'}`;
   get('workspace-label').textContent = where;
-  get('branch-name').textContent = s.reviewing ? `#${s.reviewing_task || '?'} の提出を確認中` : s.branch || '（ブランチなし）';
+  renderSync();
   document.title = `${get('module-name').textContent} — ${s.branch || ''}`;
   get('push-state').textContent = s.ahead ? `未Pushのコミット ${s.ahead}件` : 'すべてPush済み';
   setTabCount('share-panel', s.task && !s.reviewing ? s.ahead : 0);
@@ -339,7 +339,7 @@ function updateButtons() {
   get('commit').textContent = WS.selected.size ? `コミット（${WS.selected.size}件）` : 'コミット';
   get('push').disabled = !editable || !s.ahead;
   document.querySelector('[data-git=force-push]').disabled = !editable;
-  get('sync-button').disabled = !s || !!s.reviewing || !!s.merging;
+  get('sync-button').disabled = !s || !!s.merging;
   for (const b of document.querySelectorAll('[data-git=stage],[data-git=unstage],[data-git=discard]')) b.disabled = !editable || !WS.selected.size;
   document.querySelector('[data-git=diff]').disabled = !all.size;
   get('stash-menu').disabled = !s || !!s.reviewing || !!s.merging;
@@ -476,20 +476,37 @@ async function loadHistory() {
 }
 get('history-branch').addEventListener('change', () => { historyCount = 30; loadHistory(); });
 WS.onRefresh(loadHistory);
-// The branch of this workspace (a workspace holds one task branch: it is not switched; the other workspaces are the
-// module window's tabs, a task is started or resumed in タスク管理). A click copies its name.
-get('branch-label').addEventListener('click', () => { const branch = WS.status?.branch; if (branch) ECO.copyText(branch); });
 
 // Stashing (ecobuild stash): the stash is shared by every workspace of the module, and pop and drop take this branch's
 // latest one only, so the menu counts and lists this branch's entries ("On <branch>: …" / "WIP on <branch>: …").
 const stashBranch = entry => entry.match(/^(?:WIP )?[Oo]n (.+?): /)?.[1] ?? null;
-// 取り込む (the toolbar: it is about the whole branch, the opposite way of Push): any time, not only from the 最新 banner.
-// Another branch only into a task branch.
-get('sync-button').addEventListener('click', e => {
-  const r = e.currentTarget.getBoundingClientRect(), s = WS.status || {};
+// 取り込む (the toolbar, where the branch's name was: a workspace holds one task branch, so what it belongs to — its
+// base — is what there is to take in; the opposite way of Push). The button takes the base's latest in (sync) any time,
+// not only from the 最新 banner; it names the base, counts how far behind it is (GitHub's latest: status --fetch) and
+// turns red when taking it in would conflict. ▾: another branch (into a task branch only) and looking at GitHub again.
+// Checking someone's submission here there is nothing to take in: not shown.
+function renderSync() {
+  const s = WS.status, group = get('sync-group');
+  group.hidden = !s || !!s.reviewing;
+  if (group.hidden) return;
+  const behind = s.base_behind || s.behind || 0, clashes = s.base_conflicts?.length || 0;
+  get('sync-label').textContent = s.task && s.base ? s.base : '取り込む';
+  const count = get('sync-count');
+  count.hidden = !behind; count.textContent = behind;
+  group.classList.toggle('due', behind > 0); group.classList.toggle('bad', clashes > 0);
+  get('sync-button').dataset.tip = s.merging ? '止まっている操作を、帯の「続ける」か「やめる」で終えてから取り込めます'
+    : (s.task ? `作成元 ${s.base || ''} の最新を取り込む` : 'GitHub の最新を取り込む')
+      + (behind ? `（新しいコミット ${behind} 件${clashes ? `・取り込むと衝突するファイル ${clashes} 件：${s.base_conflicts.join('、')}` : ''}）` : '');
+}
+get('sync-button').addEventListener('click', () => gitAction('sync'));
+get('sync-more').addEventListener('click', e => {
+  const r = e.currentTarget.getBoundingClientRect(), s = WS.status || {}, stopped = !!s.merging;
+  const why = '止まっている操作を、帯の「続ける」か「やめる」で終えてから取り込めます';
   ECO.menu([
-    ['最新を取り込む', () => gitAction('sync'), true, s.task ? `GitHub の作成元（${s.base || ''}）の最新を取り込みます` : 'GitHub の最新を取り込みます'],
-    ['ほかのブランチから取り込む…', () => gitAction('sync-from'), !!s.task, s.task ? '別の管理ブランチ・別のタスクブランチの変更を取り込みます' : 'タスクブランチでだけ取り込めます'],
+    ['最新を取り込む', () => gitAction('sync'), !stopped, stopped ? why : s.task ? `GitHub の作成元（${s.base || ''}）の最新を取り込みます` : 'GitHub の最新を取り込みます'],
+    ['ほかのブランチから取り込む…', () => gitAction('sync-from'), !!s.task && !stopped, stopped ? why : s.task ? '別の管理ブランチ・別のタスクブランチの変更を取り込みます' : 'タスクブランチでだけ取り込めます'],
+    '-',
+    ['GitHub の最新を確認', () => gitAction('fetch'), true, '作成元の遅れ・取り込むと衝突するファイルを確かめます（取り込みはしません）'],
   ], r.left, r.bottom + 4);
 });
 get('stash-menu').addEventListener('click', async e => {

@@ -676,4 +676,8 @@ def test_the_screens_use_the_workspaces_in_the_module():
     assert "doc.result.workspace" in mod and "doc.result.workspace" in tasks and "doc.result.workspace" in submissions
     # 作業空間はタスクブランチ1つ：作業空間の中から別のタスクへ移らない（ほかの作業空間はタブ、始める・再開はタスク管理）
     assert "switch-branch" not in ws and "'open-task'" not in ws and "'open-task'" not in mod
+    # ブランチ名の場所は作成元の変更を取り込むボタン（押すと sync、▾ でほかのブランチ・GitHub の最新を確認）
+    html = (static / "workspace.html").read_text(encoding="utf-8")
+    assert 'id="sync-button"' in html and 'id="sync-more"' in html and 'id="branch-label"' not in html
+    assert "get('sync-button').addEventListener('click', () => gitAction('sync'))" in ws
     assert "['task', 'review', '--done']" in submissions

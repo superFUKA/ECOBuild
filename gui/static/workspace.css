@@ -154,7 +154,7 @@ body.resizing iframe { pointer-events: none; }
 .bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0; }
 .bar-right { margin-left: auto; justify-content: flex-end; flex-shrink: 1; }
 .build-bar button, .build-bar .tool-button span { white-space: nowrap; }
-.bar-right > *:not(.branch-button) { flex-shrink: 0; }
+.bar-right > *:not(.sync-group) { flex-shrink: 0; }
 @media (max-width: 1300px) { .build-bar #container-label { display: none; } }
 @media (max-width: 1060px) { .build-bar #account-label { display: none; } }
 .bar-field { position: relative; display: flex !important; align-items: center; gap: 0 !important; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; }
@@ -242,11 +242,6 @@ body.resizing iframe { pointer-events: none; }
 .work > .heading { padding-top: 10px; }
 /* What an operation did is not written under the work area (it shows in what changed); kept for screen readers. */
 #operation-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-/* The task branch of this workspace (in the toolbar: it is about the whole workspace); a click switches it. */
-.branch-button { display: inline-flex; align-items: center; gap: 7px; min-width: 0; max-width: 280px; padding: 5px 8px 5px 10px; border: 1px solid #3a424c; border-radius: 6px; background: #14171b; color: #a8dfd0; font-size: 12px; }
-.branch-button:hover { border-color: #56616e; }
-.branch-button #branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.branch-button svg { flex-shrink: 0; color: #9eaab8; }
 /* ログ tab (off a task branch): the log view, as tall as the window allows. */
 #history-view.log-view { height: max(360px, calc(100vh - 370px)); margin-top: 8px; }
 
@@ -277,3 +272,16 @@ button.status-item:disabled { opacity: .5; cursor: default; }
 .status-item.bad { color: #f3a5a5; }
 .status-text { cursor: default; }
 .status-run { font-weight: 600; } .status-run.ok { color: #9fe0a8; } .status-run.bad { color: #f3a5a5; } .status-run.run { color: #efc389; }
+/* 取り込む: the base's name (it may be long: it gives way first), how far behind it is, red when it would conflict. */
+.build-bar .sync-group { min-width: 0; }
+.build-bar .sync-group .sync-button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 260px; padding: 5px 10px; border-color: #3a424c; color: #cdd5df; }
+.build-bar .sync-group .vs-more { border-color: #3a424c; border-left-color: #2a3038; color: #a5aeba; }
+.build-bar .sync-group .sync-button:hover:not(:disabled), .build-bar .sync-group .vs-more:hover { border-color: #56616e; }
+.build-bar .sync-group svg { flex-shrink: 0; color: #9eaab8; }
+#sync-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-count { flex-shrink: 0; min-width: 16px; padding: 1px 5px; border-radius: 8px; background: #4a3f22; color: #efc389; font-size: 11px; text-align: center; }
+.build-bar .sync-group.due .sync-button, .build-bar .sync-group.due .vs-more { border-color: #7a6532; }
+.build-bar .sync-group.due .sync-button svg { color: #efc389; }
+.build-bar .sync-group.bad .sync-button, .build-bar .sync-group.bad .vs-more { border-color: #8a4646; }
+.build-bar .sync-group.bad .sync-count { background: #4a2626; color: #f3a5a5; }
+.build-bar .sync-group.bad .sync-button svg { color: #f3a5a5; }

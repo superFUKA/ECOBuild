@@ -179,6 +179,10 @@ def _main(args: list[str]) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    if args[:1] == ["host"] and args[1:2] and args[1] in _inside.COMMANDS:
+        # ecobuild host <コマンド>：コンテナにした作業空間でも、このPCで実行する（コンテナの拡張の確認も、中へ渡さない）
+        os.environ[_inside.container.HOST] = "1"
+        args = args[1:]
     _output.attempted = _attempted(args)
     if args[:1] == ["--version"]:
         found = version()

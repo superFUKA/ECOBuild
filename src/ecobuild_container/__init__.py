@@ -73,6 +73,7 @@ VERSION = "7"                   # コンテナの形の版（2：エージェン
                                 # 7：worktree：元の .git と作業空間を同じ並びで付ける）
 HOME = "/home/ubuntu"
 INSIDE = "ECOBUILD_IN_CONTAINER"  # 中で 1（中の ecobuild がもう一度コンテナへ渡さないように）
+HOST = "ECOBUILD_ON_HOST"         # 1 なら、コンテナにした作業空間でもこのPCで実行する（ecobuild host <コマンド>）
 # 端末の色：docker exec -t は TERM=xterm（16色）にするので、色が寄ってしまう
 COLORS = {"TERM": "xterm-256color", "COLORTERM": "truecolor"}
 # 端末で動かすもの（エージェント等）の印。docker exec は、こちらの docker（端末のタブ）が終わっても中のプロセスを止めない
@@ -164,7 +165,7 @@ class ContainerModule:
 
     def check(self, *, build: bool = True, allow_dependency_mismatch: bool = False,
               only: tuple[str, ...] | None = None, tests: tuple[str, ...] = ()) -> CheckReport:
-        if os.environ.get(INSIDE) or not enabled(self.root):
+        if not routed(self.root):
             return super().check(build=build, allow_dependency_mismatch=allow_dependency_mismatch, only=only, tests=tests)
         args = ["ecobuild", "check", "--json", *([] if build else ["--no-build"]),
                 *(["--allow-dependency-mismatch"] if allow_dependency_mismatch else []),
@@ -280,6 +281,12 @@ class ImageList:
     missing: tuple[str, ...] = ()   # 今の作り方のイメージがまだない作業空間（コンテナにしたもの）
     removed: tuple[str, ...] = ()   # 今回消したイメージ（prune）
     built: tuple[str, ...] = ()     # 今回作ったイメージ（build）
+
+
+def routed(root: Path) -> bool:
+    """ビルド・テスト・確認等をコンテナの中へ渡すか：コンテナにした作業空間で、中にいなくて、このPCで実行する
+    （環境変数 HOST）のでもないとき。"""
+    return not os.environ.get(INSIDE) and not os.environ.get(HOST) and enabled(root)
 
 
 def enabled(root: Path) -> bool:

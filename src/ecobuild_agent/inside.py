@@ -110,6 +110,41 @@ def set_deny(root: Path, rules: tuple[str, ...]) -> bool:
     return True
 
 
+# このPCで実行させる（ecobuild host）------------------------------------------------------------------
+# 許した作業空間の並び（ECOBUILD_HOME の下。コンテナにマウントしない：作業空間の ecobuild.local.toml は中から書き換えられる）
+HOST_RUN_FILE = Path("agents") / "host_run.json"
+
+
+def _host_run_key(root: Path) -> str:
+    return os.path.normcase(str(Path(root).resolve()))
+
+
+def _host_run_list() -> list[str]:
+    try:
+        found = json.loads((_settings.home() / HOST_RUN_FILE).read_text(encoding="utf-8")).get("workspaces")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [str(v) for v in found] if isinstance(found, list) else []
+
+
+def host_run(root: Path) -> bool:
+    """この作業空間のエージェントに、ビルド・テスト等をこのPCで実行させるか（ツール host_run。既定は許さない：
+    エージェントの書いたコードが、コンテナの守りなしにこのPCで動く）。"""
+    return _host_run_key(root) in _host_run_list()
+
+
+def set_host_run(root: Path, allowed: bool) -> bool:
+    """この作業空間のエージェントに、このPCでの実行を許す・許さない。変えたら True（起動し直したエージェントから効く）。"""
+    key, found = _host_run_key(root), _host_run_list()
+    if (key in found) == allowed:
+        return False
+    found = [*found, key] if allowed else [v for v in found if v != key]
+    path = _settings.home() / HOST_RUN_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"workspaces": found}, ensure_ascii=False, indent=1), encoding="utf-8", newline="\n")
+    return True
+
+
 def agent_settings(rules: tuple[str, ...]) -> str:
     """中のエージェントの managed-settings（使わせないものだけ：既定 DEFAULT_DENY と rules）。"""
     return json.dumps({"permissions": {"deny": list(dict.fromkeys((*DEFAULT_DENY, *rules)))}}, ensure_ascii=False)

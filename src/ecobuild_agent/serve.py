@@ -3,8 +3,9 @@
 - 頼み（children.REQUESTS）：エージェントの状態の置き場所に書かれた頼みを、このPCで実行して結果を書き戻す
   （children.forward が待っている）。拾ってから結果を書くまで、途中経過（children.PROGRESS）を毎秒書く。
   - ツール（{"tool", "arguments", "agent"}）：コンテナの中の MCP サーバーが渡す、子を扱うツール（children_*・
-    report_to_parent）。呼び手は頼みを書いた置き場所のエージェント（頼みの agent と違えば断る）。確かめ（直接の子だけ・
-    起動してよい登録・子の数）もここで行う。
+    report_to_parent）と、このPCで実行するツール（host_run。作業空間で ecobuild host <コマンド>。許したかは
+    このPCの設定で確かめる）。呼び手は頼みを書いた置き場所のエージェント（頼みの agent と違えば断る）。
+    確かめ（直接の子だけ・起動してよい登録・子の数）もここで行う。
   - 人の操作（{"args", "cwd"}）：係が持つエージェントの起動・止める・起動し直す・引き取る・返す・閉じる・言付けを届けに起こす
     （agent start --app --id・stop・restart・takeover・handback・close・wake〔agent send が頼む〕）。これはこのPCだけの置き場所
     （children.human_requests。コンテナにマウントしない）からだけ受ける：中のエージェントがまねて、ほかのエージェントを
@@ -38,7 +39,7 @@ from pathlib import Path
 from ecobuild import settings as _settings
 from ecobuild.errors import EcoBuildError
 
-from . import agents, app, children, registry
+from . import agents, app, children, host, inside, registry
 from . import status as agent_status
 from .errors import ErrorCode
 
@@ -338,6 +339,9 @@ class Serve:
                 raise EcoBuildError(ErrorCode.AGENT_ERROR, "頼んだエージェントが分かりません（自分の置き場所から頼んでください）。")
             if not registry.allows_tool(children._registration(caller), tool):
                 raise EcoBuildError(ErrorCode.AGENT_ERROR, f"ツール {tool} は、このエージェントの登録で許されていません。")
+            if tool == host.TOOL:
+                return {"ok": True, "result": self._host(caller, host.check_arguments(request.get("arguments") or {}),
+                                                         progress), "error": None}
             arguments = children.check_arguments(tool, request.get("arguments") or {})
             self.log(f"ツール：{tool}（{caller.name}・{caller.id}）")
             return {"ok": True, "result": self._call(caller, tool, arguments, progress), "error": None}
@@ -372,6 +376,17 @@ class Serve:
         if tool == "children_accept":
             return self._accept(caller, child, progress)
         return self._close(child, progress)   # children_close
+
+    def _host(self, caller: agents.AgentRecord, arguments: dict, progress: Callable[[str], None]) -> dict:
+        """host_run：このPCで ecobuild host <コマンド> を実行し、その --json の結果を返す。許したかは、このPCの設定で
+        もう一度確かめる（MCP サーバーの --host-run は中から変えられる）。"""
+        root = Path(caller.workspace)
+        if not inside.host_run(root):
+            raise EcoBuildError(ErrorCode.AGENT_ERROR, "この作業空間では、このPCでの実行を許していません。",
+                                hint="人が ecobuild container set --host-run on で許し、エージェントを起動し直します。")
+        args = host.argv(arguments)
+        self.log(f"ツール：{host.TOOL}（{caller.name}・{caller.id}）：ecobuild {' '.join(args[:-1])}")
+        return self.run(args, root, progress=progress)
 
     def _module(self, root: Path):
         if self.find is None:

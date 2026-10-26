@@ -132,7 +132,7 @@ function syncTabs() {
 
 const placeLabel = dir => {
   const state = MOD.states.get(keyOf(dir));
-  const branch = state ? (state.reviewing ? `PR #${state.reviewing} を確認中` : state.branch || '（ブランチなし）') : '…';
+  const branch = state ? (state.reviewing ? `#${state.reviewing_task || '?'} の提出を確認中` : state.branch || '（ブランチなし）') : '…';
   const title = state?.task ? MOD.titles.get(keyOf(dir)) || '' : '';
   return {branch, title, where: state?.task ? '#' + state.task : dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop()};
 };
@@ -313,12 +313,13 @@ MOD.openWorkspace = async n => {
   }
   showModulePage('workspace'); activate(place, true); return true;
 };
-// Close a workspace: workspace close removes its folder (it stops when something there is not on GitHub). A task's
-// branch stays (on this PC and GitHub): 「タスクブランチを開く」 makes the workspace again.
+// Remove a workspace: workspace close removes its folder (it stops when something there is not on GitHub). A task's
+// branch stays (on this PC and GitHub): 「タスクブランチを開く」 makes the workspace again. The GUI says 削除: 閉じる is
+// the tab's (the workspace stays).
 async function closePlace(dir) {
   const state = MOD.states.get(keyOf(dir)), review = state?.reviewing;
-  if (!await ECO.confirm({title: '作業空間を閉じる', message: `作業空間 ${dir} をフォルダごと消します。ビルドの出力なども消えます。\n${review ? '確認をやめます（承認も差し戻しもしません）。' : 'タスクブランチは残るので、タスク管理の「タスクブランチを開く」でまた作業空間を作れます。'}\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるとき、使用中（エージェント・ビルド等が動いている）のときは消しません。`, ok: '閉じる', danger: true})) return;
-  if (await ECO.run(null, ['workspace', 'close', dir], {success: `作業空間 ${dir} を閉じました。`})) { removeTab(dir); await syncPlaces(); pageHooks.changed?.(); }
+  if (!await ECO.confirm({title: '作業空間を削除', message: `作業空間 ${dir} をフォルダごと消します。ビルドの出力なども消えます。\n${review ? '確認をやめます（承認も差し戻しもしません）。' : 'タスクブランチは残るので、タスク管理の「タスクブランチを開く」でまた作業空間を作れます。'}\nGitHubにない作業（未コミットの変更・未Pushのコミット・退避）があるとき、使用中（エージェント・ビルド等が動いている）のときは消しません。`, ok: '削除', danger: true})) return;
+  if (await ECO.run(null, ['workspace', 'close', dir], {success: `作業空間 ${dir} を削除しました。`})) { removeTab(dir); await syncPlaces(); pageHooks.changed?.(); }
 }
 
 const TAB_ORDER_KEY = 'ecobuild-gui-tab-order:' + keyOf(MOD.root);
@@ -350,7 +351,7 @@ tabs.addEventListener('contextmenu', e => {
     ['エクスプローラーでフォルダを開く', () => ECO.action('folder', {dir}).catch(err => ECO.toast(err.message, 'bad'))],
     [`Visual Studio ${ECO.vsVersion()} で開く`, () => MOD.openInVisualStudio(dir)],
     ['状態を更新', () => reloadPlace(dir)],
-    ...(MOD.workspaces.get(group.dataset.group)?.name ? [['作業空間を閉じる…', () => closePlace(dir)]] : []),
+    ...(MOD.workspaces.get(group.dataset.group)?.name ? [['作業空間を削除…', () => closePlace(dir)]] : []),
     ...(state.task ? ['-', [`タスク #${state.task} を表示`, () => { showModulePage('tasks'); window.TASKS_SELECT?.(state.task); }]] : []),
   ], e.clientX, e.clientY);
 });

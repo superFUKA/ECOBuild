@@ -230,6 +230,12 @@ def _read_only(args: list[str]) -> bool:
     return command in READ_ONLY or command[:1] in READ_ONLY
 
 
+def _fetching_read(args: list[str]) -> bool:
+    """GitHub の最新を取ってから読むだけ（status --fetch）か。取得するので待たせるが、何も変えないので知らせない。"""
+    command = tuple(a for a in args[:2] if not a.startswith("-"))
+    return "--fetch" in args and (command[:1] in FETCHING or command in FETCHING)
+
+
 def _unlocked(args: list[str]) -> bool:
     return tuple(a for a in args[:2] if not a.startswith("-")) in UNLOCKED
 
@@ -1076,7 +1082,7 @@ class App:
         if name == "run":
             body = {"dir": p.get("dir"), "args": p["args"], "stdin": p.get("stdin"), "progress": progress}
             document = self.api("cli", body)
-            if not _read_only(p["args"]) and not _cacheable(p["args"]):
+            if not _read_only(p["args"]) and not _cacheable(p["args"]) and not _fetching_read(p["args"]):
                 error = document.get("error") or {}
                 self.events.publish({"type": "ran", "by": by, "origin": origin, "dir": p.get("dir"),
                                      "args": p["args"], "ok": bool(document.get("ok")),

@@ -267,3 +267,15 @@ body.resizing iframe { pointer-events: none; }
 .eco-dialog.image-editor .ie-reason:empty { display: none; }
 .eco-dialog.image-editor .ie-layer { margin-top: 12px; }
 .eco-dialog.image-editor .ie-layer summary { cursor: pointer; color: #b4bec9; font-size: 13px; }
+/* The footer bar (as VS Code's status bar): always at the bottom, under the panels (the 出力 footer). The panels to
+   show or hide on the left, the workspace's state on the right. */
+.status-bar { flex-shrink: 0; display: flex; align-items: stretch; justify-content: space-between; gap: 8px; height: 24px; padding: 0 6px; border-top: 1px solid #303640; background: #191e24; color: #a5aeba; font-size: 12px; }
+.status-bar > div { display: flex; align-items: stretch; gap: 2px; min-width: 0; }
+.status-item { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: 12px; line-height: 1; white-space: nowrap; }
+button.status-item { cursor: pointer; }
+button.status-item:hover:not(:disabled) { background: #252d36; color: #edf1f5; }
+button.status-item:disabled { opacity: .5; cursor: default; }
+.status-item[aria-pressed=true] { color: #9ee4d3; background: #1b2a26; }
+.status-item.bad { color: #f3a5a5; }
+.status-text { cursor: default; }
+.status-run { font-weight: 600; } .status-run.ok { color: #9fe0a8; } .status-run.bad { color: #f3a5a5; } .status-run.run { color: #efc389; }

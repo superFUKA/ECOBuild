@@ -121,11 +121,13 @@ WS.judge = async (approve, number) => {
 
 // Submitting the task branch here (task submit): a new submission, or again (the commits pushed, whether the task is
 // closed when it is taken in, draft or not). 下書きを解除 makes a draft ready without asking.
-function submitDialog(t, ready = false) {
+async function submitDialog(t, ready = false) {
   const sub = t.pull_request, submitted = sub?.state === 'open';
   if (ready) return WS.run(['task', 'submit', '--no-check'], {success: '下書きを解除しました。'}).then(doc => doc && WS.refreshPrs());
   const complete = submitted ? !sub.partial : true;
-  // It can be submitted (to be looked at), but not taken in until the conflicts are fixed here (最新を取り込む).
+  // It can be submitted (to be looked at), but not taken in until the conflicts are fixed here (最新を取り込む):
+  // GitHub's latest is looked at first, so the warning is about the base as it is now.
+  await WS.refresh({fetch: true, quiet: true});
   const clashes = WS.status?.base_conflicts || [];
   const warning = clashes.length ? `<div class="eco-banner bad">${esc(t.base)} と衝突するファイルがあります（${clashes.map(esc).join('、')}）。このままでは取り込めません。先に「最新を取り込む」で直してから提出すると確実です。</div>` : '';
   return ECO.form({
@@ -177,7 +179,7 @@ async function applyDialog(t) {
   if (!conflict) return;
   const files = (conflict.details || []).join('、');
   if (!await ECO.confirm({title: `反映：#${t.number}`, ok: '取り込んで直す', message: `${t.base} と衝突するので、反映しませんでした（何も変えていません）。${files ? `\n衝突するファイル：${files}` : ''}\n`
-    + `このタスクブランチへ ${t.base} の最新を取り込みます。衝突したファイルを直して「取り込みを完了」を押してから、もう一度「反映」してください。`})) return;
+    + `このタスクブランチへ ${t.base} の最新を取り込みます。衝突したファイルを直して「続ける」を押してから、もう一度「反映」してください。`})) return;
   await WS.run(['sync'], {success: '取り込みました（衝突しませんでした）。もう一度「反映」できます。'});
   WS.reloadFiles?.(); await WS.refreshPrs();
 }

@@ -528,6 +528,9 @@ def test_commands_that_fetch_wait_for_the_others():
     for args in (["status", "--fetch"], ["task", "next", "--count", "5"], ["task", "overdue"], ["task", "workload"],
                  ["sprint", "status"], ["milestone", "status"], ["build"]):
         assert not gui._read_only(args), args
+    # status --fetch は待たせるが、何も変えないので、ほかの窓へ「実行しました」と知らせない
+    assert gui._fetching_read(["status", "--fetch"]) and not gui._fetching_read(["status"])
+    assert not gui._fetching_read(["task", "next"]) and not gui._fetching_read(["build"])
 
 
 def test_reading_the_account_and_the_protection_changes_nothing():

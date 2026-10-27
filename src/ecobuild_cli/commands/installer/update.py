@@ -6,7 +6,7 @@ from ..._output import lines, run_command
 
 def command(
     check: Annotated[bool, "新しい版があるかを確かめるだけ（入れ直さない）"] = False,
-    ref: Annotated[str, "入れる版（ブランチ・タグ・コミット）。省略時は入れたときの版（ブランチなら、その最新）"] = "",
+    ref: Annotated[str, "入れる版（ブランチ・タグ・コミット）。省略時は入れたときの版（ブランチなら、その最新）。候補は ecobuild installer versions"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """ECOBuild（CLI と GUI）を GitHub の最新に更新します。

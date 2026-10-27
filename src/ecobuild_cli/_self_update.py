@@ -66,13 +66,87 @@ def installed() -> Installed:
                         hint="インストーラー（installer/install.ps1 等）をもう一度実行して入れ直してください。")
 
 
-def check(ref: str | None = None) -> SelfUpdate:
-    """入れ元の版（ref で別の版に変えられる）の最新と、入っているものを比べる。"""
+@dataclass(frozen=True)
+class Version:
+    """入れられる版の候補（ブランチ・タグのコミット）。"""
+    sha: str
+    date: str                # コミットの日時（ISO 8601）
+    subject: str
+    current: bool = False    # 今入っている版
+    latest: bool = False     # そのブランチ・タグの最新
+
+
+@dataclass(frozen=True)
+class Versions:
+    url: str
+    installed_ref: str | None   # 入れたときに指定した版
+    current: str | None         # 入っているコミット
+    ref: str                    # 候補（commits）を出したブランチ・タグ
+    default_branch: str | None  # 入れ元のリポジトリの既定のブランチ（分からなければ None）
+    branches: tuple[str, ...]   # ref が先頭、次に既定のブランチ、ほかは名前順
+    tags: tuple[str, ...]       # 新しい版が先
+    commits: tuple[Version, ...]   # ref の最近のコミット（新しい順）
+
+
+def _updatable() -> Installed:
     current = installed()
     if current.editable:
         raise EcoBuildError(ErrorCode.NOT_UPDATABLE,
                             f"この ecobuild は開発用に手元のソース（{current.url}）から入っています。",
                             hint="ソースを更新（git pull 等）すれば、そのまま反映されます。")
+    return current
+
+
+def versions(ref: str | None = None, count: int = 30) -> Versions:
+    """入れられる版の候補：入れ元のリポジトリのブランチ・タグと、ref（省略時は入れたときのブランチ、コミットを入れて
+    いれば既定のブランチ）の最近のコミット。update --ref に渡して入れ直す（前の版へ戻すのにも）。"""
+    current = _updatable()
+    branches, tags = [], []
+    for line in _git("ls-remote", "--heads", "--tags", current.url).splitlines():
+        name = line.split("\t")[-1].strip()
+        if name.startswith("refs/heads/"):
+            branches.append(name.removeprefix("refs/heads/"))
+        elif name.startswith("refs/tags/") and not name.endswith("^{}"):
+            tags.append(name.removeprefix("refs/tags/"))
+    default = _default_branch(current.url)
+    installed_branch = current.ref if current.ref in branches else None
+    target = ref or installed_branch or default or (branches[0] if branches else None)
+    if not target or (target not in branches and target not in tags and not _COMMIT.fullmatch(target)):
+        raise EcoBuildError(ErrorCode.REVISION_NOT_FOUND, f"{current.url} に版 {target or '（ブランチがありません）'} がありません。",
+                            hint="--ref でブランチ・タグを指定してください。")
+    first = [b for b in dict.fromkeys([target, installed_branch, default]) if b in branches]
+    ordered = first + sorted(b for b in branches if b not in first)
+    commits = _recent_commits(current.url, target, count)
+    return Versions(current.url, current.ref, current.commit, target, default, tuple(ordered),
+                    tuple(sorted(tags, key=_natural, reverse=True)),
+                    tuple(Version(sha, date, subject, sha == current.commit, i == 0)
+                          for i, (sha, date, subject) in enumerate(commits)))
+
+
+def _default_branch(url: str) -> str | None:
+    for line in _git("ls-remote", "--symref", url, "HEAD").splitlines():
+        if line.startswith("ref: refs/heads/"):
+            return line.removeprefix("ref: refs/heads/").split("\t")[0].strip()
+    return None
+
+
+def _recent_commits(url: str, ref: str, count: int) -> list[tuple[str, str, str]]:
+    """ref の最近のコミット（sha・日時・件名）。中身（ファイル）は取らない（--filter=tree:0）。"""
+    with tempfile.TemporaryDirectory(prefix="ecobuild-versions-", ignore_cleanup_errors=True) as directory:
+        _git("init", "--quiet", directory)
+        _git("-C", directory, "fetch", "--quiet", "--filter=tree:0", "--depth", str(max(count, 1)), url, ref)
+        listed = _git("-C", directory, "log", "--format=%H%x1f%cI%x1f%s", "FETCH_HEAD")
+    return [tuple(line.split("\x1f", 2)) for line in listed.splitlines() if line.count("\x1f") >= 2]
+
+
+def _natural(name: str) -> list:
+    """v1.10 が v1.9 より後になるように（数字は数として比べる）。"""
+    return [(1, int(part), "") if part.isdigit() else (0, 0, part) for part in re.split(r"(\d+)", name)]
+
+
+def check(ref: str | None = None) -> SelfUpdate:
+    """入れ元の版（ref で別の版に変えられる）の最新と、入っているものを比べる。"""
+    current = _updatable()
     target = ref or current.ref or "HEAD"
     latest = target if _COMMIT.fullmatch(target) else _remote_commit(current.url, target)
     return SelfUpdate(current.url, target, current.commit, latest, latest == current.commit,

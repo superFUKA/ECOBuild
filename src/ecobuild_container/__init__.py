@@ -592,6 +592,8 @@ def start(root: Path, runner: docker.Runner | None = None, *, command: str = "",
         if environment:
             tidy(environment, runner, prefix)   # 前の環境（ほかのイメージの元になっていれば消えない）
     else:
+        # WSL のドライブが外れていると（WSL が再起動した等）、付け直さずに動かすと作業空間が空に見える
+        own_drive(root, runner, prefix)
         run_docker(runner, [*prefix, "start", name(root)], "コンテナを動かせませんでした")
     return _result(root, True, True, runner, built=built)
 

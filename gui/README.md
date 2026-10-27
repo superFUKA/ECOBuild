@@ -59,7 +59,7 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 - アプリ（`app.isPackaged`）は、同梱の Python でサーバーを動かし、`bin\ecobuild.exe` を使う。`ecobuild gui` から起動したときも、`app.py` はこのアプリの exe を開く（`packaged_app()`）。
 - ショートカットの AppUserModelID は `appId`（`ECOBuild.GUI`）で、窓と同じ。
 - 初期設定は `ecobuild init` を流さず、ハブが開いたときに `doctor` を見て、足りなければ一覧の上に「はじめに」を出す（「準備する」で設定の環境チェックへ。GitHub へのログイン・権限はそこのボタンから端末の窓で）。
-- ECOBuild 自体の更新：ハブが開いたときに `installer update --check` を見て、新しい版があれば一覧の上に出す（設定の「ECOBuild（このGUI）」にも。「更新を確かめる」で確かめ直す）。「更新する」は `installer update`（別の窓のインストーラーが CLI と GUI を入れ直す）。GUI はいったん終了し、インストーラーの窓が閉じたら起動し直す（`relaunch-after`：切り離したプロセスが `installer update` の返す窓のプロセスを待ち、ショートカットと同じ起動をする。インストーラーは、うまくいけば窓を閉じ、失敗なら Enter を待つ）。手元のソースから入れたもの・同梱のインストーラーで入れたもの（更新できない）は何も出さない。
+- ECOBuild 自体の更新：ハブが開いたときに `installer update --check` を見て、新しい版があれば一覧の上に出す（設定の「ECOBuild（このGUI）」にも。「更新を確かめる」で確かめ直す）。「更新する」は `installer update`（別の窓のインストーラーが CLI と GUI を入れ直す）。GUI はいったん終了し、インストーラーの窓が閉じたら起動し直す（`relaunch-after`：切り離したプロセスが `installer update` の返す窓のプロセスを待ち、ショートカットと同じ起動をする。インストーラーは、うまくいけば窓を閉じ、失敗なら Enter を待つ）。「版を選んで入れ直す…」は `installer versions`（入れ元のブランチ・タグと最近のコミット）から選んで `installer update --ref` で入れ直す（前の版へ戻すのにも。ブランチの最新はブランチ名で、古いコミットはそのコミットで入れる）。手元のソースから入れたもの・同梱のインストーラーで入れたもの（更新できない）は何も出さない。
 - 署名はしていない（初めて開くと SmartScreen の「Windows によって PC が保護されました」が出る。「詳細情報」→「実行」）。
 - `bundle\out`・`bundle\cache`・`dist` はコミットしない。
 

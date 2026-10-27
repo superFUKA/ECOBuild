@@ -46,3 +46,51 @@ def test_source_installs_are_not_updated(monkeypatch):
     with pytest.raises(EcoBuildError) as error:
         _self_update.check()
     assert error.value.code == ErrorCode.NOT_UPDATABLE and "git pull" in error.value.hint
+
+
+def test_versions_lists_branches_tags_and_recent_commits(monkeypatch):
+    """installer versions：入れたときのブランチが先頭、次に既定のブランチ。タグは新しい版が先。今の版・最新に印。"""
+    monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("https://example.invalid/E", "dev", OLD))
+    remote = {"--heads": f"{NEW}\trefs/heads/zz\n{NEW}\trefs/heads/main\n{OLD}\trefs/heads/dev\n"
+                         f"{OLD}\trefs/tags/v1.9\n{NEW}\trefs/tags/v1.10\n{NEW}\trefs/tags/v1.10^{{}}\n",
+              "--symref": f"ref: refs/heads/main\tHEAD\n{NEW}\tHEAD\n"}
+    monkeypatch.setattr(_self_update, "_git", lambda *args: remote[args[1]])
+    asked = []
+    monkeypatch.setattr(_self_update, "_recent_commits",
+                        lambda url, ref, count: asked.append((ref, count)) or [(NEW, "2026-10-02T00:00:00+09:00", "新しい"),
+                                                                               (OLD, "2026-10-01T00:00:00+09:00", "古い")])
+    result = _self_update.versions()
+    assert (result.ref, result.default_branch, result.branches, result.tags) == ("dev", "main", ("dev", "main", "zz"), ("v1.10", "v1.9"))
+    assert [(c.sha, c.current, c.latest) for c in result.commits] == [(NEW, False, True), (OLD, True, False)]
+    assert _self_update.versions("zz", 5).branches == ("zz", "dev", "main") and asked[-1] == ("zz", 5)
+    assert _self_update.versions("v1.9").ref == "v1.9"
+    with pytest.raises(EcoBuildError) as error:
+        _self_update.versions("nothing")
+    assert error.value.code == ErrorCode.REVISION_NOT_FOUND
+
+
+def test_versions_of_a_pinned_commit_start_from_the_default_branch(monkeypatch):
+    monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("https://example.invalid/E", OLD, OLD))
+    monkeypatch.setattr(_self_update, "_git", lambda *args: f"{NEW}\trefs/heads/main\n" if args[1] == "--heads" else "ref: refs/heads/main\tHEAD\n")
+    monkeypatch.setattr(_self_update, "_recent_commits", lambda url, ref, count: [])
+    assert _self_update.versions().ref == "main"
+
+
+def test_recent_commits_are_read_from_the_repository(tmp_path):
+    """sha・日時・件名を新しい順に、count まで（偽の GitHub：手元の git のリポジトリ）。"""
+    import subprocess
+    source = tmp_path / "source"
+    subprocess.run(["git", "init", "--quiet", "-b", "main", str(source)], check=True)
+    for subject in ("一つ目", "二つ目", "三つ目"):
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "commit", "--quiet", "--allow-empty", "-m", subject], check=True)
+    commits = _self_update._recent_commits(source.as_uri(), "main", 2)
+    assert [subject for _, _, subject in commits] == ["三つ目", "二つ目"]
+    assert all(len(sha) == 40 and "T" in date for sha, date, _ in commits)
+
+
+def test_source_installs_have_no_versions(monkeypatch):
+    monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("file:///C:/src", None, None, editable=True))
+    with pytest.raises(EcoBuildError) as error:
+        _self_update.versions()
+    assert error.value.code == ErrorCode.NOT_UPDATABLE

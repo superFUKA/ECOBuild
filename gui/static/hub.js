@@ -541,6 +541,7 @@ async function checkUpdate({quiet = true} = {}) {
   const r = doc.ok ? doc.result : null, newer = !!r && !r.up_to_date;
   updateGui = !!r?.gui;
   $('run-update').hidden = !newer;
+  $('pick-version').hidden = !doc.ok;   // cannot be updated (local source, Setup.exe) or GitHub out of reach: not offered
   if (!doc.ok) $('update-status').textContent = quiet ? '' : `更新を確かめられません：${doc.error.message}${doc.error.hint ? '（' + doc.error.hint + '）' : ''}`;
   else $('update-status').textContent = newer ? `新しい版があります：${short(r.current)} → ${short(r.latest)}（${r.ref}）` : `最新です：${short(r.latest)}（${r.ref}）`;
   const banner = $('update-banner');
@@ -548,19 +549,64 @@ async function checkUpdate({quiet = true} = {}) {
   if (newer) {
     banner.innerHTML = `<div><strong>ECOBuild の新しい版があります</strong><small>${esc(short(r.current))} → ${esc(short(r.latest))}（${esc(r.ref)}）。${r.gui ? 'CLI と GUI' : 'CLI'}を入れ直します。</small></div>
       <button type="button" class="cancel banner-action">更新する</button>`;
-    banner.querySelector('button').addEventListener('click', runUpdate);
+    banner.querySelector('button').addEventListener('click', () => runUpdate());
   }
+}
+// 版を選んで入れ直す: a branch or tag of the repository it was installed from, then one of its recent commits (installer
+// versions, newest first), put in with installer update --ref — going back to an earlier version too. The latest of a
+// branch goes in by the branch's name (later updates follow the branch); an older commit by itself (it stays there,
+// no newer version is offered, until the latest of a branch is chosen here again).
+async function pickVersion() {
+  const wait = ECO.busy({title: '入れられる版を調べています…', sub: 'ecobuild installer versions'});
+  const first = await ECO.cli(null, ['installer', 'versions'], {quiet: true});
+  wait.end();
+  if (!first.ok) return ECO.showError(first, '入れられる版を調べられませんでした');
+  const r = first.result, loaded = {[r.ref]: r.commits};
+  const refs = [...r.branches.map(b => [b, b + (b === r.installed_ref ? '（今のブランチ）' : b === r.default_branch ? '（既定のブランチ）' : '')]),
+    ...r.tags.map(t => [t, `${t}（タグ）`])];
+  const commits = async ref => {
+    if (!loaded[ref]) {
+      const doc = await ECO.cli(null, ['installer', 'versions', '--ref', ref], {quiet: true});
+      if (!doc.ok) return null;
+      loaded[ref] = doc.result.commits;
+    }
+    return loaded[ref];
+  };
+  const label = c => `${short(c.sha)}  ${ECO.localTime(c.date, true)}  ${c.subject}` + (c.current ? '（今の版）' : '') + (c.latest ? '（最新）' : '');
+  let shown = null;
+  return ECO.form({title: '版を選んで入れ直す', wide: true,
+    intro: `選んだ版の ECOBuild（${updateGui ? 'CLI と GUI' : 'CLI'}）に入れ直します。前の版へ戻すのにも使えます。今は <code>${esc(short(r.current))}</code>（${esc(r.installed_ref || '版の指定なし')}）が入っています。`
+      + 'ブランチの最新を選ぶと、その後の更新はそのブランチの最新を追います。古いコミットを選ぶと、その版のままになります（新しい版の案内は出ません。戻すには、ここでブランチの最新を選びます）。',
+    fields: [{name: 'ref', label: 'ブランチ・タグ', type: 'select', value: r.ref, options: refs},
+      {name: 'sha', label: 'バージョン（新しい順）', type: 'select', value: '', options: [['', '読み込んでいます…']]}],
+    ok: '入れ直す',
+    onChange: async (v, formEl) => {
+      if (v.ref === shown) return;
+      shown = v.ref;
+      const list = await commits(v.ref), select = formEl.elements.sha;
+      if (shown !== v.ref) return;
+      const options = list?.length ? list.map(c => [c.sha, label(c)]) : [['', list ? 'コミットがありません' : '読み込めませんでした']];
+      select.replaceChildren(...options.map(([value, text]) => new Option(text, value)));
+    },
+    submit: async v => {
+      const chosen = (loaded[v.ref] || []).find(c => c.sha === v.sha);
+      if (!chosen) return 'バージョンを選んでください。';
+      if (chosen.current) return 'その版が今入っています。';
+      const ref = chosen.latest ? v.ref : chosen.sha;
+      setTimeout(() => runUpdate(ref, `${v.ref} の ${short(chosen.sha)}（${chosen.subject}）`));
+    }});
 }
 // The GUI ends while the installer runs (so it can be replaced, and the new ecobuild is the one used) and opens again
 // when the installer's window has closed (relaunch-after: a process of its own waits for it).
 let updateGui = false;   // the installer puts the GUI in too: installer update --check says
-async function runUpdate() {
-  const message = `${updateGui ? 'CLI と GUI' : 'CLI（ecobuild）'}を新しい版に入れ直します。GUI はいったんすべての窓を閉じ（ビルド・実行中のものも止まります）、別の窓のインストーラーが終わったら起動し直します。`;
-  if (!await ECO.confirm({title: 'ECOBuild を更新', message, ok: '更新する'})) return;
-  const doc = await ECO.run(null, ['installer', 'update']);
+// ref (from 版を選んで入れ直す): the version to put in instead of the latest; what: how it is named in the question.
+async function runUpdate(ref = '', what = '') {
+  const message = `${updateGui ? 'CLI と GUI' : 'CLI（ecobuild）'}を${ref ? ` ${what} ` : '新しい版'}に入れ直します。GUI はいったんすべての窓を閉じ（ビルド・実行中のものも止まります）、別の窓のインストーラーが終わったら起動し直します。`;
+  if (!await ECO.confirm({title: ref ? 'ECOBuild を入れ直す' : 'ECOBuild を更新', message, ok: ref ? '入れ直す' : '更新する'})) return;
+  const doc = await ECO.run(null, ['installer', 'update', ...(ref ? ['--ref', ref] : [])]);
   if (!doc) return;
   const r = doc.result;
-  if (r.up_to_date) { ECO.toast('最新です。', 'ok'); return checkUpdate(); }
+  if (r.up_to_date) { ECO.toast(ref ? 'その版が入っています。' : '最新です。', 'ok'); return checkUpdate(); }
   try { await ECO.call('relaunch-after', {pid: r.process || 0, commit: r.latest}); }
   catch (e) {
     $('update-status').textContent = '更新を始めました。インストーラーの窓が閉じたら、GUI を起動し直してください。';
@@ -572,7 +618,8 @@ async function runUpdate() {
   window.close();
 }
 $('check-update').addEventListener('click', () => checkUpdate({quiet: false}));
-$('run-update').addEventListener('click', runUpdate);
+$('run-update').addEventListener('click', () => runUpdate());
+$('pick-version').addEventListener('click', pickVersion);
 checkUpdate();
 
 // The hub opens small (the list and the settings only). Edge may ignore the size it is started with when it is running

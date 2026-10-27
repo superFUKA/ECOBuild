@@ -16,7 +16,7 @@ EFFECTS = {
     READ: (
         "account list", "account show", "agent conversations", "agent guide", "agent log", "agent registry list", "agent registry show", "agent registry tools", "agent rules show", "agent preset list", "agent preset show", "agent skill list", "agent skill show", "agent skill preset list", "agent skill preset show", "agent status", "agent list", "agent children", "agent token status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
         "config get", "config list", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
-        "installer show", "log", "milestone list", "milestone status", "module list", "module settings",
+        "installer show", "installer versions", "log", "milestone list", "milestone status", "module list", "module settings",
         "module show", "module types", "profile list", "project list", "project show", "release list", "show",
         "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
         "task overdue", "task status", "task workload", "template list", "track", "workspace list",

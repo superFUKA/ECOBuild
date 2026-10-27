@@ -49,7 +49,10 @@ CONFIG_KEYS = {
     "operator_style": "オペレーターの話し方（口調・答え方。例：やさしい敬語で短く。空なら指定なし）",
     inside.DENY_KEY: "コンテナの中のエージェントに使わせない道具・コマンド（Claude Code の許可の規則を ; で区切る。"
                      "例 Bash(git push --force:*);WebFetch。既定はなし＝すべて使える）",
+    inside.VERSION_KEY: "コンテナのイメージに入れる Claude Code の版（例 2.1.302・stable・latest。空なら、イメージを作るときの最新。"
+                        "変えるとイメージを作り直す）",
 }
+CONFIG_VALUES = {inside.VERSION_KEY: inside.check_version}   # 値が決まっている項目 → 確かめ方（合わなければ説明）
 
 
 def in_use_source(roots) -> list[list[str]]:
@@ -524,5 +527,5 @@ def _replace(temporary: Path, path: Path) -> None:
             time.sleep(0.05)
 
 
-__all__ = ["AGENT_AREA", "AgentConversations", "AgentModule", "AgentRecord", "CONFIG_KEYS", "CONTAINER_FEATURE",
-           "ErrorCode", "agents"]
+__all__ = ["AGENT_AREA", "AgentConversations", "AgentModule", "AgentRecord", "CONFIG_KEYS", "CONFIG_VALUES",
+           "CONTAINER_FEATURE", "ErrorCode", "agents"]

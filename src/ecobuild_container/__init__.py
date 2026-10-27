@@ -103,15 +103,20 @@ exit $code
 class Feature:
     """ほかの拡張が作業空間のコンテナに足すもの（コンテナは中身を知らない）。
     packages：イメージに入れる apt のパッケージ。environment：イメージの環境変数 (名前, 値)。install：イメージを作るときに
-    一般ユーザーで動かす sh の文（1つの RUN に && でつなぐ）。volumes(root)：コンテナに付けるもの (このPCの場所〔Path〕か
+    一般ユーザーで動かす sh の文（1つの RUN に && でつなぐ。設定で変わるなら、文を返す関数。イメージの作り方を作るたびに
+    呼ぶ）。volumes(root)：コンテナに付けるもの (このPCの場所〔Path〕か
     名前付きボリューム〔str〕, 中の場所)。arguments(prefix)：docker run に足す引数（prefix：docker の呼び方）。
     中身を変えたら、イメージの名前（ハッシュ）が変わって作り直す。付け方を変えたら VERSION を上げる。"""
     name: str
     packages: tuple[str, ...] = ()
     environment: tuple[tuple[str, str], ...] = ()
-    install: tuple[str, ...] = ()
+    install: tuple[str, ...] | Callable[[], tuple[str, ...]] = ()
     volumes: Callable[[Path], tuple[tuple[Path | str, str], ...]] = lambda root: ()
     arguments: Callable[[tuple[str, ...]], tuple[str, ...]] = lambda prefix: ()
+
+    def steps(self) -> tuple[str, ...]:
+        """イメージを作るときに動かす sh の文（install。関数なら今の文）。"""
+        return tuple(self.install() if callable(self.install) else self.install)
 
 
 _registry: "Registry | None" = None   # 型の一覧（型のひな型・ビルドの出力の場所を読む）
@@ -360,8 +365,8 @@ def layer(base: str, source: tuple[str, str] = SOURCE) -> str:
                          *(package for feature in added for package in feature.packages)))
     environment = " ".join((f"PATH={HOME}/.local/bin:$PATH",
                             *(f"{key}={value}" for feature in added for key, value in feature.environment), f"{INSIDE}=1"))
-    install = [("RUN " if index == 0 else " && ") + step + (" \\" if index + 1 < len(feature.install) else "")
-               for feature in added for index, step in enumerate(feature.install)]
+    install = [("RUN " if index == 0 else " && ") + step + (" \\" if index + 1 < len(steps) else "")
+               for steps in (feature.steps() for feature in added) for index, step in enumerate(steps)]
     return "\n".join([
         f"# ECOBuild が作る、作業空間のコンテナのイメージ（モジュールの環境 {base} の上に ECOBuild を重ねる）",
         f"FROM {base}",

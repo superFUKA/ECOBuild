@@ -157,6 +157,66 @@ def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):
     assert inside.agent_volume(root) in removed and inside.AGENT_VOLUME not in removed
 
 
+def test_the_claude_code_version_can_be_chosen(monkeypatch, root, tmp_path):
+    """Claude Code の版：設定 agent_claude_version を install.sh に渡す（bash -s <版>）。空なら前と同じ文（イメージの名前が
+    変わらない＝作り直さない）。版を変えるとイメージの名前が変わる。sh の文に入るので、版の形でない値は設定できない。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    empty = container.layer("ecobuild-env-calc:123")
+    assert "\n && curl -fsSL https://claude.ai/install.sh | bash\n" in empty and " -s " not in empty
+    assert inside.install_claude() == "curl -fsSL https://claude.ai/install.sh | bash"     # 空のときの文は変えない
+    before = container.recipe(root).image
+    ecobuild_bundle.set_config(inside.VERSION_KEY, "2.1.302")
+    assert inside.claude_version() == "2.1.302"
+    assert "\n && curl -fsSL https://claude.ai/install.sh | bash -s 2.1.302\n" in container.layer("ecobuild-env-calc:123")
+    chosen = container.recipe(root).image
+    assert chosen != before
+    ecobuild_bundle.set_config(inside.VERSION_KEY, "stable")
+    assert container.recipe(root).image not in (before, chosen)
+    for wrong in ("2.1", "1; rm -rf /", "$(id)", "beta"):
+        with pytest.raises(WorkError):
+            ecobuild_bundle.set_config(inside.VERSION_KEY, wrong)
+    ecobuild_bundle.set_config(inside.VERSION_KEY, None)
+    assert container.layer("ecobuild-env-calc:123") == empty and container.recipe(root).image == before
+
+
+def test_a_chosen_version_is_not_updated_inside(monkeypatch, root, tmp_path):
+    """版を選んだら、中の Claude Code が自分で上げないように DISABLE_AUTOUPDATER を渡す（選んでいなければ渡さない）。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    monkeypatch.setattr(container, "docker_command", lambda runner, command: ("docker",))
+    monkeypatch.setattr(container.docker, "run", fake.run)
+    monkeypatch.setattr(container, "credentials", lambda root=None: {})
+    container.choose(root, True, fake.run)
+    _, env = inside.agent_launch(root, ("claude",))
+    assert inside.UPDATER_VARIABLE not in env
+    ecobuild_bundle.set_config(inside.VERSION_KEY, "2.1.302")
+    command, env = inside.agent_launch(root, ("claude",))
+    assert env[inside.UPDATER_VARIABLE] == "1" and inside.UPDATER_VARIABLE in command
+
+
+def test_the_versions_inside_and_to_choose(monkeypatch, root, tmp_path):
+    """入っている版は動いているコンテナの claude --version、選べる版は npm の版の一覧（正式な版、新しい順）。"""
+    import json
+    from ecobuild_container import docker as _docker
+    fake = FakeDocker(monkeypatch)
+    assert inside.installed_version(root, fake.run)[1].startswith("コンテナが動いていない")
+    fake.containers[container.name(root)] = ["running", "image", ""]
+    original = fake.run
+    def runner(args):
+        if args[-2:] == ["claude", "--version"]:
+            return _docker.Completed(tuple(args), 0, "2.1.302 (Claude Code)\n")
+        return original(args)
+    assert inside.installed_version(root, runner) == ("2.1.302", "")
+    data = {"dist-tags": {"stable": "2.1.300", "latest": "2.1.310", "next": "2.1.311-beta.1"},
+            "versions": {v: {} for v in ("2.1.9", "2.1.300", "2.1.310", "2.1.311-beta.1", "2.0.77")}}
+    tags, versions, reason = inside.available_versions(3, fetch=lambda url: json.dumps(data).encode())
+    assert tags == {"stable": "2.1.300", "latest": "2.1.310"} and versions == ("2.1.310", "2.1.300", "2.1.9") and not reason
+
+    def offline(url):
+        raise OSError("つながりません")
+    assert inside.available_versions(fetch=offline)[:2] == ({}, ()) and "手で" in inside.available_versions(fetch=offline)[2]
+
+
 def test_what_the_agent_may_not_use(monkeypatch, root, tmp_path):
     """使わせないもの：このPCの設定 agent_deny に、この作業空間だけのもの（ecobuild.local.toml）を足す。"""
     monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))

@@ -38,6 +38,7 @@ ecobuild_container.use(REGISTRY, (ecobuild_agent.CONTAINER_FEATURE,))
 _usage.add_source(ecobuild_agent.in_use_source)
 
 CONFIG_KEYS = {**ecobuild_agent.CONFIG_KEYS}   # 拡張が名乗る、このPCの設定の項目
+CONFIG_VALUES = {**ecobuild_agent.CONFIG_VALUES}   # その確かめ方
 
 
 class Module(ecobuild_agent.AgentModule, ecobuild_container.ContainerModule, ecobuild.Module):
@@ -72,8 +73,8 @@ def config_keys() -> dict[str, str]:
 
 
 def set_config(key: str, value: str | None) -> dict[str, str]:
-    return _settings.set_config(key, value, REGISTRY.available(), CONFIG_KEYS)
+    return _settings.set_config(key, value, REGISTRY.available(), CONFIG_KEYS, CONFIG_VALUES)
 
 
-__all__ = ["CONFIG_KEYS", "DEFAULT_TYPE", "Module", "REGISTRY", "config_keys", "doctor", "initialize", "set_config",
-           "setup", "tooling"]
+__all__ = ["CONFIG_KEYS", "CONFIG_VALUES", "DEFAULT_TYPE", "Module", "REGISTRY", "config_keys", "doctor", "initialize",
+           "set_config", "setup", "tooling"]

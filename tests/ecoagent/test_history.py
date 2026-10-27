@@ -53,3 +53,15 @@ def test_runs_alone_as_a_script(tmp_path):
     done = subprocess.run([sys.executable, "-I", history.__file__, "/work", "task/1"], capture_output=True, text=True,
                           encoding="utf-8", env={**os.environ, "CLAUDE_CONFIG_DIR": str(tmp_path)}, check=True)
     assert [c["id"] for c in json.loads(done.stdout)] == ["a"]
+
+
+def test_conversations_without_a_known_branch_belong_to_every_branch(tmp_path):
+    """ブランチを読めなかった会話（HEAD・空）は、ブランチで絞っても入れる。空の branch は絞らない（中で動かすとき）。"""
+    folder = tmp_path / "projects" / "-work"
+    _record(folder, "head", [_user("hi", branch="HEAD")], 1000)
+    _record(folder, "none", [_user("hi", branch="")], 2000)
+    _record(folder, "other", [_user("hi", branch="task/2")], 3000)
+    assert [c.id for c in ecoagent.conversations("/work", config_dir=tmp_path, branch="task/1")] == ["none", "head"]
+    done = subprocess.run([sys.executable, "-I", history.__file__, "/work", ""], capture_output=True, text=True,
+                          encoding="utf-8", env={**os.environ, "CLAUDE_CONFIG_DIR": str(tmp_path)}, check=True)
+    assert [c["id"] for c in json.loads(done.stdout)] == ["other", "none", "head"]

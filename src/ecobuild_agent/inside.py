@@ -170,7 +170,8 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
 def agent_conversations(root: Path, branch: str, limit: int = 20, runner: docker.Runner | None = None, *,
                         command: str = "") -> tuple[tuple, str]:
     """中のエージェントの会話（ecoagent.history を中の Python で動かす。中の ECOBuild の版によらない）と、読めなかった
-    わけ。中の場所（container.workdir）は前からの clone ではどのコンテナも同じ /work なので、branch での会話だけ。"""
+    わけ。前からの clone（中の場所が /work）はブランチを切り替えて使うので、branch での会話だけ。元の clone の worktree の
+    作業空間は中の場所が作業空間ごとに違うので絞らない（中の Claude Code はブランチを HEAD と記録することがある）。"""
     import ecoagent
     from ecoagent import history
     found = docker.status(runner or docker.run)
@@ -179,7 +180,9 @@ def agent_conversations(root: Path, branch: str, limit: int = 20, runner: docker
     if container.container_state(root, runner, found.command) != "running":
         return (), "コンテナが動いていないので、会話の一覧を読めません（エージェントを起動すると読めます）。"
     source = base64.b64encode(Path(history.__file__).read_bytes()).decode("ascii")
-    script = f"import base64,sys;sys.argv[1:]={[container.workdir(root), branch, str(limit)]!r};exec(base64.b64decode('{source}'))"
+    inner = container.workdir(root)
+    only = branch if inner == container.WORKDIR else ""   # 空：絞らない
+    script = f"import base64,sys;sys.argv[1:]={[inner, only, str(limit)]!r};exec(base64.b64decode('{source}'))"
     done = (runner or docker.run)([*found.command, "exec", container.name(root), "python3", "-c", script])
     try:
         return tuple(ecoagent.Conversation(**c) for c in json.loads(done.output)) if done.ok else (), ""

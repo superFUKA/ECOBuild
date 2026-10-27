@@ -109,6 +109,16 @@ def test_local_operations_stay_inside_the_place(tmp_path):
         gui.make_file(str(tmp_path), "a/b/c.txt")      # 既にある
     assert gui.read_text(str(tmp_path), "a/b/c.txt")["text"] == ""
 
+    # 衝突を直す画面：書き戻す（改行はそのまま・新しいファイルは作らない）。UTF-8 でないものは lossy
+    assert gui.write_text(str(tmp_path), "a/b/c.txt", "一\r\n二\n") == {"path": "a/b/c.txt"}
+    assert (tmp_path / "a/b/c.txt").read_bytes() == "一\r\n二\n".encode("utf-8")
+    assert gui.read_text(str(tmp_path), "a/b/c.txt")["lossy"] is False
+    for bad in ("a/b/none.txt", "../x.txt", "a"):
+        with pytest.raises(gui.GuiError):
+            gui.write_text(str(tmp_path), bad, "x")
+    (tmp_path / "sjis.txt").write_bytes("日本語".encode("cp932"))
+    assert gui.read_text(str(tmp_path), "sjis.txt")["lossy"] is True
+
     # 型が file move・file remove を持たないとき（generic）の代わり
     assert gui.move_file(str(tmp_path), "a/b/c.txt", "d/c2.txt") == {"paths": ["d/c2.txt"]}
     assert not (tmp_path / "a/b/c.txt").exists() and (tmp_path / "d/c2.txt").is_file()

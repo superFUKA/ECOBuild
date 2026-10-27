@@ -888,7 +888,23 @@ def read_text(directory: str, relative: str) -> dict:
     data = target.read_bytes()[:400_000]
     if b"\0" in data[:8000]:
         return {"binary": True, "text": ""}
-    return {"binary": False, "text": data.decode("utf-8", errors="replace"), "truncated": target.stat().st_size > len(data)}
+    truncated = target.stat().st_size > len(data)
+    try:
+        data.decode("utf-8")
+        lossy = False
+    except UnicodeDecodeError as e:
+        lossy = not (truncated and e.start >= len(data) - 3)   # 切ったところで文字が割れただけなら UTF-8
+    # lossy：UTF-8 でない（Shift_JIS 等）。text は読めない字を置き換えたもので、書き戻すと壊れる
+    return {"binary": False, "text": data.decode("utf-8", errors="replace"), "truncated": truncated, "lossy": lossy}
+
+
+def write_text(directory: str, relative: str, text: str) -> dict:
+    """あるファイルの中身を書き換える（衝突を直す画面）。UTF-8 で、改行はそのまま。新しいファイルは作らない。"""
+    target = _inside(directory, relative)
+    if not target.is_file():
+        raise GuiError(f"ファイルが見つかりません：{relative}")
+    target.write_bytes(text.encode("utf-8"))
+    return {"path": target.relative_to(Path(directory).resolve()).as_posix()}
 
 
 _PICK = r"""
@@ -1321,6 +1337,8 @@ class App:
             return open_path(d("dir"), d("path") or "", bool(d("reveal")))
         if name == "read":
             return read_text(d("dir"), d("path"))
+        if name == "write":
+            return write_text(d("dir"), d("path"), str(d("text") or ""))
         if name == "pick-folder":
             return pick_folder(d("title") or "", d("initial") or "")
         raise GuiError(f"不明な操作です：{name}" + (f"。{STALE_MESSAGE}" if server_is_stale() else

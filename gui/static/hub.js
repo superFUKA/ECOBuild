@@ -455,6 +455,30 @@ $('token-remove').addEventListener('click', async () => {
   if (await ECO.run(null, ['agent', 'token', 'remove'], {confirm: '覚えたトークンを消します（コンテナの中で一度ログインしていれば、そのログインで使えます）。', title: 'トークンを消す', success: 'トークンを消しました。'})) loadToken();
 });
 
+// The Claude Code version put into the containers' images (ecobuild config … agent_claude_version; the choices from
+// ecobuild agent version list). Empty: the newest when an image is made. Changing it makes the images again.
+async function loadClaudeVersion(setting) {
+  $('claude-version').value = setting || '';
+  $('claude-version-status').textContent = setting ? `今は ${setting} を入れます。` : '今は、イメージを作るときの最新を入れます。';
+  const doc = await ECO.cli(null, ['agent', 'version', 'list'], {quiet: true});
+  if (!doc.ok || !$('claude-version-list')) return;
+  const r = doc.result, tags = Object.entries(r.channels || {});
+  $('claude-version-list').innerHTML = [...tags.map(([tag, version]) => [tag, `${tag}（今は ${version}）`]), ...r.versions.map(v => [v, ''])]
+    .map(([v, l]) => `<option value="${esc(v)}"${l ? ` label="${esc(l)}"` : ''}></option>`).join('');
+  if (r.reason) $('claude-version-status').textContent += ` ${r.reason}`;
+}
+$('claude-version-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const version = $('claude-version').value.trim();
+  const doc = await ECO.run(null, version ? ['config', 'set', 'agent_claude_version', version] : ['config', 'unset', 'agent_claude_version'],
+    {success: '保存しました。次にコンテナを動かすときに、イメージを作り直します。'});
+  if (doc) { loadClaudeVersion(version); loadImages(); }
+});
+$('reset-claude-version').addEventListener('click', async () => {
+  const doc = await ECO.run(null, ['config', 'unset', 'agent_claude_version'], {success: '既定（イメージを作るときの最新）に戻しました。'});
+  if (doc) { loadClaudeVersion(''); loadImages(); }
+});
+
 // Agent presets (ecobuild agent preset …): this PC's own agents (and ECOBuild's samples), copied into a module's
 // registrations from the module page エージェント. Edited with the shared AGENT_EDITOR; all the data comes from the CLI.
 const presets = $('presets-editor') && AGENT_EDITOR.create($('presets-editor'), {kind: 'preset', dir: () => null});
@@ -465,6 +489,7 @@ async function loadSettings() {
   loadImages(); loadToken(); presets?.load();
   const doc = await ECO.cli(null, ['config', 'list'], {quiet: true});
   if (doc.ok && $('default-owner')) { $('default-owner').value = doc.result.owner || ''; ownerHint(doc.result.owner); }
+  if (doc.ok && $('claude-version')) loadClaudeVersion(doc.result.agent_claude_version);
   const info = await ECO.info();
   $('about').innerHTML = `<dl class="about-facts"><dt>GitHub のアカウント</dt><dd>${esc(info.me || '（取得できませんでした）')}</dd><dt>使っている ecobuild</dt><dd><code>${esc((info.cli || []).join(' '))}</code></dd></dl>`
     + (info.cli_warning ? `<span class="missing">注意：${esc(info.cli_warning)}</span>` : '');

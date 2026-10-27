@@ -92,6 +92,13 @@
         <p class="note" id="images-status" role="status">読み込んでいます…</p>
         <ul id="images-list" class="image-types"></ul>
       </section>
+      <section class="settings-card" data-group="container" aria-labelledby="claude-version-title">
+        <h3 id="claude-version-title">Claude Code の版</h3>
+        <p class="note">コンテナのイメージに入れる版（このPCの設定 agent_claude_version）。空なら、イメージを作るときの最新。変えると、次にコンテナを動かすときにイメージを作り直します（数分）。版を選ぶと、中で自動では上げません。</p>
+        <form id="claude-version-form" class="inline-form"><label class="field"><span class="sr-only">版</span><input id="claude-version" list="claude-version-list" autocomplete="off" placeholder="例 2.1.302・stable・latest（空なら最新）"><datalist id="claude-version-list"></datalist></label>
+          <button type="submit" class="add-button">保存</button><button type="button" class="cancel" id="reset-claude-version">既定に戻す</button></form>
+        <p class="note" id="claude-version-status" role="status"></p>
+      </section>
       <section class="settings-card" data-group="about" aria-labelledby="about-title">
         <div class="page-heading"><h3 id="about-title">ECOBuild</h3><div class="settings-actions"><button type="button" class="cancel" id="check-update" title="ecobuild installer update --check">更新を確かめる</button><button type="button" class="cancel" id="pick-version" hidden title="ecobuild installer versions → installer update --ref">版を選んで入れ直す…</button><button type="button" class="add-button" id="run-update" hidden title="ecobuild installer update">更新する</button></div></div>
         <div class="note" id="about"></div>

@@ -1,7 +1,7 @@
 """このPCの設定（どのモジュールにも属さないもの）：置き場所（ECOBUILD_HOME）と config.toml。I-030。
 
 本体・型・拡張が読む（cloneの記録の場所・既定の所有者・型が使うツールのパス・拡張の設定）。項目は本体の CONFIG_KEYS と、
-型の tool_settings と、拡張が名乗る項目（使う側が extra で渡す）。このPCの準備（ツールの導入・ログイン等）は本体の外
+型の tool_settings と、拡張が名乗る項目（使う側が extra で、その確かめ方を checks で渡す）。このPCの準備（ツールの導入・ログイン等）は本体の外
 （ecobuild_bundle.tooling）。
 """
 
@@ -11,7 +11,7 @@ import json
 import os
 import tomllib
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from .errors import EcoBuildError, ErrorCode
 
@@ -69,12 +69,15 @@ def load_config() -> dict[str, str]:
     return {key: value for key, value in data.items() if isinstance(value, str)}
 
 
-def set_config(key: str, value: str | None, types: Types = (), extra: dict[str, str] | None = None) -> dict[str, str]:
+def set_config(key: str, value: str | None, types: Types = (), extra: dict[str, str] | None = None,
+               checks: dict[str, Callable[[str], str | None]] | None = None) -> dict[str, str]:
+    """設定を変える（value が None なら消す）。checks：拡張の項目の確かめ方（CONFIG_VALUES と同じ形）。"""
     keys = config_keys(types, extra)
+    checks = {**CONFIG_VALUES, **(checks or {})}
     if key not in keys:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} はありません。",
                             hint="設定できる項目：" + "、".join(keys))
-    problem = None if value is None or key not in CONFIG_VALUES else CONFIG_VALUES[key](value)
+    problem = None if value is None or key not in checks else checks[key](value)
     if problem:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"設定 {key} に {value} は使えません。", hint=problem)
     values = load_config()

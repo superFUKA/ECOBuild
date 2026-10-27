@@ -4,6 +4,7 @@
 （AGENT_VOLUME）に残す（中の CLAUDE_CONFIG_DIR。このPCの ~/.claude は見せない）。状態の置き場所（status。作業空間の
 エージェント全員の分。中のエージェントは環境変数 ECOBUILD_AGENT_ID で自分の下のフォルダを知る）とマイクも付ける。
 中は隔離されているので確認なしで動かし、使わせない道具・コマンドだけを managed-settings の deny に書く（ダメなものだけを列挙する）。
+イメージに入れる Claude Code の版は、このPCの設定 agent_claude_version（空なら作るときの最新。変えるとイメージの名前が変わる）。
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -68,18 +70,88 @@ def sound(prefix: tuple[str, ...]) -> tuple[str, ...]:
     return ()
 
 
+# イメージに入れる Claude Code の版 -----------------------------------------------------------------
+
+VERSION_KEY = "agent_claude_version"   # このPCの設定：イメージに入れる Claude Code の版（空なら作るときの最新）
+CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash"   # 版は bash -s <版> で渡す
+CHANNELS = ("stable", "latest")        # 版の代わりに書けるもの（install.sh が受け取る）
+UPDATER_VARIABLE = "DISABLE_AUTOUPDATER"   # 版を選んだら、中の Claude Code が自分で新しい版に上げないように（起動のときに渡す）
+_VERSION = re.compile(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?")   # 2.1.302 等（sh の文に入るので、ほかの文字は通さない）
+
+
+def check_version(value: str) -> str | None:
+    """設定 agent_claude_version の値を確かめる（合わなければ説明。空は既定＝作るときの最新）。"""
+    value = value.strip()
+    if not value or value in CHANNELS or _VERSION.fullmatch(value):
+        return None
+    return "版（例 2.1.302）か stable・latest を指定してください（空なら、イメージを作るときの最新）。"
+
+
+def claude_version() -> str:
+    """イメージに入れる Claude Code の版（このPCの設定 agent_claude_version。空なら最新。確かめられない値は使わない）。"""
+    value = _settings.load_config().get(VERSION_KEY, "").strip()
+    return value if check_version(value) is None else ""
+
+
+def install_claude(version: str = "") -> str:
+    """Claude Code を入れる sh の文（version：版。空なら最新＝前と同じ文。版を変えるとイメージの名前が変わって作り直す）。"""
+    return f"{CLAUDE_INSTALL} -s {version}" if version else CLAUDE_INSTALL
+
+
+def install_steps() -> tuple[str, ...]:
+    """イメージを作るときに動かす文（FEATURE の install。イメージの作り方を作るたびに設定の版を読む）。"""
+    return (f"mkdir -p {AGENT_HOME} {SHARED_HOME}",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
+            install_claude(claude_version()))
+
+
 FEATURE = container.Feature(
     "agent",
     packages=("sox", "libsox-fmt-pulse",    # 音声入力（PulseAudio で録音する。sound を見る）
               "file"),                       # エージェントがファイルの種類・改行コードを調べる（20人の試しで、ないと失敗した）
     environment=(("CLAUDE_CONFIG_DIR", AGENT_HOME),),
-    install=(f"mkdir -p {AGENT_HOME} {SHARED_HOME}",     # ボリュームの持ち主を ubuntu に（初めて付けたときに写る）
-             "curl -fsSL https://claude.ai/install.sh | bash"),
+    install=install_steps,
     # 設定・会話の記録・記憶（コンテナごと）、中でログインしたもの（共有）、中のエージェントが状態を書き出す所（このPCの画面が読む）
     volumes=lambda root: ((agent_volume(root), AGENT_HOME), (AGENT_VOLUME, SHARED_HOME),
                           (status.place(container.name(root)), status.INSIDE)),
     arguments=sound,
 )
+
+
+# 入っている版・選べる版 --------------------------------------------------------------------------
+
+PACKAGE_URL = "https://registry.npmjs.org/@anthropic-ai/claude-code"   # 選べる版（npm の版と install.sh の版は同じ）
+
+
+def installed_version(root: Path, runner: docker.Runner | None = None) -> tuple[str, str]:
+    """作業空間 root の動いているコンテナの中の Claude Code の版（claude --version）と、読めなかったわけ。"""
+    found = docker.status(runner or docker.run)
+    if not found.ready:
+        return "", f"Docker が使えません（{found.detail}）。"
+    if container.container_state(root, runner, found.command) != "running":
+        return "", "コンテナが動いていないので、中の版を読めません（エージェントを起動すると読めます）。"
+    done = (runner or docker.run)([*found.command, "exec", container.name(root), "claude", "--version"])
+    words = done.output.split() if done.ok else []
+    return (words[0], "") if words else ("", "中の claude --version を読めませんでした。")
+
+
+def available_versions(limit: int = 30, fetch: Callable[[str], bytes] | None = None
+                       ) -> tuple[dict[str, str], tuple[str, ...], str]:
+    """選べる版：stable・latest がどの版か、新しい順の版（正式な版だけ。limit 個まで）、読めなかったわけ。
+    npm の registry の短い形（版の一覧と dist-tags）を読む。fetch：URL → 中身（試験で差し替える）。"""
+    def download(url: str) -> bytes:
+        import urllib.request
+        request = urllib.request.Request(url, headers={"Accept": "application/vnd.npm.install-v1+json"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.read()
+    try:
+        data = json.loads((fetch or download)(PACKAGE_URL))
+        tags = {tag: value for tag, value in (data.get("dist-tags") or {}).items()
+                if tag in CHANNELS and isinstance(value, str)}
+        released = [v for v in data.get("versions") or {} if re.fullmatch(r"\d+\.\d+\.\d+", v)]
+    except (OSError, ValueError, AttributeError) as error:
+        return {}, (), f"選べる版の一覧を読めませんでした（{error}）。版を手で書けます（例 2.1.302・stable・latest）。"
+    released.sort(key=lambda v: tuple(int(n) for n in v.split(".")), reverse=True)
+    return tags, tuple(released[:limit]), ""
 
 
 # 使わせないもの ------------------------------------------------------------------------------------
@@ -163,6 +235,8 @@ def agent_launch(root: Path, agent: tuple[str, ...], *, deny: tuple[str, ...] = 
         values[tokens.TOKEN_VARIABLE] = token
     if agent_id:
         values[status.AGENT_VARIABLE] = agent_id
+    if claude_version():
+        values[UPDATER_VARIABLE] = "1"   # 選んだ版のまま（イメージを作ったときの版）
     return (container.exec_command(root, prefix, agent, tuple(values), tty=tty, stdin=stdin, tag=tag),
             container.environment(prefix, values))
 

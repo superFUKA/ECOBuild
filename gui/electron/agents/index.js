@@ -229,15 +229,20 @@ function openWindow({bounds, module = null} = {}) {
   win.loadFile(path.join(__dirname, 'window.html'));
   win.once('ready-to-show', () => { if (!w.mini) win.showInactive(); });   // 作業中のアプリのフォーカスを奪わない
   win.on('focus', () => { current = w; });
-  win.on('close', () => { if (windows.length === 1) writeState({bounds: win.getBounds()}); });
+  win.on('close', event => {
+    // 窓を閉じると中のエージェントも終わる：動いているものがあれば確かめる（アプリを終えるときは聞かない）
+    const running = w.tabs.map(findSession).filter(s => s && s.kind !== 'operator' && !s.exited);
+    if (!app.isQuitting && running.length && dialog.showMessageBoxSync(win, {
+      type: 'question', buttons: ['終わらせて閉じる', 'キャンセル'], defaultId: 1, cancelId: 1, title: 'エージェント',
+      message: `この窓のエージェント ${running.length} 個を終わらせて閉じますか？`,
+      detail: running.map(s => `${s.num}  ${s.name}`).join('\n')}) !== 0) { event.preventDefault(); return; }
+    if (windows.length === 1) writeState({bounds: win.getBounds()});
+  });
   win.on('closed', () => {
-    // 閉じた窓のタブは、ほかの窓へ移す（最後の窓なら、エージェントも終わる）
+    // 閉じた窓のタブは、ほかの窓へ移さずに閉じる（別のモジュールの窓に飛ばない）。オペレーターは裏に戻る
     windows.splice(windows.indexOf(w), 1);
+    for (const id of [...w.tabs]) closeSession(id);
     const rest = windows.find(x => !x.mini) || windows[0];
-    for (const id of [...w.tabs]) {
-      const s = findSession(id); if (!s) continue;
-      if (rest) adopt(rest, s); else closeSession(id);
-    }
     if (current === w) current = rest || null;
     pushTabs(); pushDock();
   });

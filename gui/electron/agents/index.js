@@ -261,8 +261,9 @@ function pinLead(w) {
 }
 
 function leave(w, s) {
+  const at = w.tabs.indexOf(s.id);
   w.tabs = w.tabs.filter(id => id !== s.id);
-  if (w.active === s.id) w.active = w.tabs.at(-1) ?? null;
+  if (w.active === s.id) w.active = w.tabs[Math.min(at, w.tabs.length - 1)] ?? null;   // 出していたタブを閉じた：右隣（なければ左隣）
   send(w, 'agents:release', s.id);
   if (!w.tabs.length && !w.win.isDestroyed() && windows.length > 1) w.win.close();   // 空になった窓は閉じる
 }

@@ -95,6 +95,19 @@ def test_the_workspace_is_mounted_as_the_inner_user_on_wsl():
     assert not container.own_drive(Path(r"C:\ECO\Calc"), runner(True), ("docker",)) and len(ran) == 1   # WSL でなければ何もしない
 
 
+def test_starting_a_stopped_container_mounts_the_drive_again(monkeypatch, root, tmp_path):
+    """止まっていたコンテナを動かす前にも、ドライブを付ける（外れていると作業空間が空に見える）。"""
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    container.choose(root, True, fake.run)
+    started = container.start(root, fake.run, source=("https://example.com/ECOBuild", "abc123"))
+    container.stop(root, fake.run)
+    owned = []   # 付けたときに docker を何回呼んでいたか
+    monkeypatch.setattr(container, "own_drive", lambda *args: owned.append(len(fake.calls)) or True)
+    container.start(root, fake.run)
+    assert owned == [fake.calls.index(["docker", "start", started.name])]   # 動かす直前に1回
+
+
 def test_type_tools_go_into_the_template():
     from ecobuild_bundle import REGISTRY
     cpp, generic = container.dockerfile(REGISTRY.load("cpp")), container.dockerfile(REGISTRY.load("generic"))

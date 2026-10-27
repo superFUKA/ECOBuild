@@ -907,8 +907,9 @@ def dependency_graph(root: Path) -> tuple[tuple, dict[str, tuple[str, ...]]]:
     return sources, edges
 
 
-def link(root: Path, project: str, url: str, *, shared: bool) -> str:
-    """Projectから、gitのリポジトリにあるモジュールのライブラリをリンクする。依存先の名前を返す。"""
+def link(root: Path, project: str, url: str, *, shared: bool, revision: str | None = None) -> str:
+    """Projectから、gitのリポジトリにあるモジュールのライブラリをリンクする（revision：ブランチ・タグ・コミット。None は
+    既定のブランチの最新）。依存先の名前を返す。"""
     solution = open_solution(root)
     _require_project(solution, project)
     before = {s.name for s in solution.git_sources()}
@@ -918,7 +919,7 @@ def link(root: Path, project: str, url: str, *, shared: bool) -> str:
         # トランザクションの終わりの構成でも、依存先の依存先を clone する。
         with _clone_config(), _transaction(solution, message):
             solution.get_project(project).settings.link_git(
-                url, solution_path=CONFIG_DIRECTORY, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
+                url, revision, solution_path=CONFIG_DIRECTORY, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
     except EcoBuildError:
         raise
     except AlreadyRegisteredError as error:
@@ -951,19 +952,20 @@ def unlink(root: Path, name: str) -> tuple[str, ...]:
     return tuple(project for project, _ in report.unlinked)
 
 
-def record_latest(root: Path, name: str) -> str:
-    """依存先の記録を、GitHubの既定ブランチの最新にする。記録したコミットを返す。"""
+def record_revision(root: Path, name: str, revision: str | None = None) -> str:
+    """依存先の記録を、GitHubの既定ブランチの最新（revision：ブランチ・タグ・コミット）にする。記録したコミットを返す。"""
     solution = open_solution(root)
     source = next((s for s in solution.git_sources() if s.name == name and s.recorded_by is None), None)
     if source is None:
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
     try:
         with _clone_config():
-            revision = solution.set_git_source(source.url).revision
+            recorded = solution.set_git_source(source.url, revision).revision
         _write_clone_config(Path(s.directory) for s in solution.git_sources())
-        return revision
+        return recorded
     except Exception as error:
-        raise _cppbuild_error(f"依存先 {name} の最新を取得できません。", error) from error
+        raise _cppbuild_error(f"依存先 {name} の{'最新' if revision is None else ' ' + revision + ' '}を取得できません。",
+                              error) from error
 
 
 # 内部 ----------------------------------------------------------------------

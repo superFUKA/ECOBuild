@@ -260,6 +260,42 @@ def test_link_deps_and_work_version(short_tmp):
     assert error.value.code == "dependency_not_found"
 
 
+def test_choose_the_version_of_a_dependency(short_tmp):
+    """deps versions で選べる版（ブランチ・タグ・コミット）を見て、deps update --at・deps add --at でその版を記録する。"""
+    stl_github = FakeGitHub(short_tmp / "gh1")
+    stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
+    first = git(stl.root, "rev-parse", "HEAD")
+    git(stl.root, "tag", "-a", "v1", "-m", "v1")
+    git(stl.root, "push", "--quiet", "origin", "v1")
+    second = new_stl_commit(stl.root, "#pragma once\n// v2\n")
+    git(stl.root, "tag", "v2")
+    git(stl.root, "push", "--quiet", "origin", "v2")
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["STL"] = stl_github.bare
+    ecs = Module.create("ECS", directory=short_tmp, kind="library", github=github)
+    ecs.repository.create_task("STLを使う").start()
+
+    linked = ecs.link("STL", revision="v1")   # 最新でなく、選んだ版をリンクする
+    assert linked.revision == first and ecs.dependencies()[0].recorded == first
+    third = new_stl_commit(stl.root, "#pragma once\n// v3\n")
+    found = ecs.dependency_versions("STL")
+    assert (found.recorded, found.default_branch, found.branch, found.branches) == (first, "main", "main", ("main",))
+    assert sorted((t.name, t.sha) for t in found.tags) == [("v1", first), ("v2", second)]   # 注釈付きのタグも指すコミット
+    assert [(c.sha, c.tags) for c in found.commits][:3] == [(third, ()), (second, ("v2",)), (first, ("v1",))]
+    assert found.commits[1].subject == "STLを更新"
+
+    changes = ecs.update_dependencies("STL", "v2")
+    assert [(c.name, c.action) for c in changes] == [("STL", "aligned")] and "→" in changes[0].reason
+    assert ecs.dependencies()[0].recorded == second and git(ecs.root / "deps" / "STL", "rev-parse", "HEAD") == second
+    assert "その版です" in ecs.update_dependencies("STL", second)[0].reason
+    with pytest.raises(Exception) as error:
+        ecs.update_dependencies(None, "v1")   # 版を選ぶときは依存先を1つ
+    assert error.value.code == "invalid_argument"
+    with pytest.raises(Exception) as error:
+        ecs.dependency_versions("STL", branch="nosuch")
+    assert error.value.code == "invalid_argument"
+
+
 def test_link_aligns_existing_clone(short_tmp):
     """依存先の依存先として clone 済みのモジュールを link すると、手元の clone も記録した版に合わせる（実用試験 D-3）。"""
     base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")

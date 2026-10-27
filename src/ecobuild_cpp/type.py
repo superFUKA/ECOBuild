@@ -23,8 +23,8 @@ from ecobuild.errors import EcoBuildError
 from .errors import ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
-from ecobuild.results import (BuildResult, DependencyChange, DependencyNode, DependencyState, DependencyTree,
-                              FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
+from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, DependencyNode, DependencyState,
+                              DependencyTag, DependencyTree, DependencyVersions, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestEntry, TestResult)
 
 from . import _cppbuild, _settings
@@ -35,6 +35,13 @@ _INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILIN
 # 名前付きビルド設定の、型 cpp の項目（[profiles.<名前>] の configuration・shared・parallel 以外）：
 # 名前 → (値の型, 使える値。None は何でも)。値の意味は _cppbuild.BuildOptions
 _POSITIVE = range(1, 1 << 16)
+SEP = "\x1f"   # git の --format の欄の区切り（件名に出てこない）
+
+
+def _fields(text: str, count: int) -> list[tuple[str, ...]]:
+    """SEP で区切った行の欄（count 個。後ろの欄に SEP が出てきてもそこで切らない）。"""
+    return [tuple(line.split(SEP, count - 1)) for line in text.splitlines() if line]
+
 PROFILE_OPTIONS = {
     "architecture": (str, _cppbuild.ARCHITECTURES),
     "cpp_standard": (int, _cppbuild.CPP_STANDARDS),
@@ -849,10 +856,10 @@ jobs:
 
     # 依存先 ------------------------------------------------------------------------
 
-    def link(self, url: str, *, project: str | None, shared: bool) -> LinkResult:
+    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None) -> LinkResult:
         """project を省くと、テスト用を除いてProjectが1つならそれ。"""
         target = project or self._only_project()
-        name = _cppbuild.link(self.root, target, url, shared=shared)
+        name = _cppbuild.link(self.root, target, url, shared=shared, revision=revision)
         revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
         # 依存先の依存先として既にcloneがあると、CppBuildは記録だけ進める。手元も記録の版に合わせる（作業版は触らない）。
         clone = next((c for c in self._align_dependencies() if c.name == name), None)
@@ -890,25 +897,56 @@ jobs:
         nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name]) for s in sources)
         return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 
-    def update_dependencies(self, name: str | None) -> tuple[DependencyChange, ...]:
-        """依存先の記録を、GitHubの最新にする（I-018）。手元のcloneも合わせ、生成ファイルを更新する。"""
+    def update_dependencies(self, name: str | None, revision: str | None = None) -> tuple[DependencyChange, ...]:
+        """依存先の記録を、GitHubの最新にする（I-018）。revision：最新でなくこの版に。手元のcloneも合わせ、
+        生成ファイルを更新する。"""
         names = [name] if name else [s.name for s in _cppbuild.git_sources(self.root)]
         if name:
             self._source(name)
         updated = {}
         for each in names:
             before = self._source(each).revision
-            updated[each] = (before, _cppbuild.record_latest(self.root, each))
+            updated[each] = (before, _cppbuild.record_revision(self.root, each, revision))
         changes = []
         for change in self._align_dependencies():
             if change.name not in updated:
                 continue
             before, after = updated[change.name]
-            note = "最新です" if before == after else f"{before[:7]} → {after[:7]}"
+            note = (("最新です" if revision is None else "その版です") if before == after
+                    else f"{before[:7]} → {after[:7]}")
             changes.append(DependencyChange(change.name, change.action,
                                             note if change.reason is None else f"{note}（{change.reason}）"))
         self._update()
         return tuple(changes)
+
+    def dependency_versions(self, name: str, *, branch: str | None = None, count: int = 30) -> DependencyVersions:
+        """手元の clone（deps/<名前>）に GitHub から取り込み直して読む（clone がなければ deps sync を案内）。"""
+        source = self._source(name)
+        directory = Path(source.directory)
+        if not (directory / ".git").exists():
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} の clone がありません。",
+                                hint=f"{self.module.op('deps sync')} で取得してから選べます。")
+        clone = Git(directory, command=self.module.command)
+        clone.run("fetch", "--prune", "--tags", "--force", "origin")
+        found = re.search(r"^ref: refs/heads/(\S+)\s+HEAD", clone.output("ls-remote", "--symref", "origin", "HEAD"), re.M)
+        branches = tuple(line.removeprefix("origin/") for line in clone.output(
+            "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin").splitlines()
+            if line.startswith("origin/") and line != "origin/HEAD")
+        default = found.group(1) if found else (branches[0] if branches else "")
+        shown = branch or default
+        if shown not in branches:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"依存先 {name} にブランチ {shown} はありません。",
+                                hint=f"ブランチ：{'、'.join(branches) or 'なし'}")
+        # タグの指すコミット：注釈付きのタグは *objectname、軽いタグは objectname
+        tags = tuple(DependencyTag(tag, peeled or sha, date) for tag, peeled, sha, date in _fields(clone.output(
+            "for-each-ref", "--sort=-creatordate",
+            f"--format=%(refname:short){SEP}%(*objectname){SEP}%(objectname){SEP}%(creatordate:iso-strict)", "refs/tags"), 4))
+        tagged: dict[str, list[str]] = {}
+        for tag in tags:
+            tagged.setdefault(tag.sha, []).append(tag.name)
+        commits = tuple(DependencyCommit(sha, date, subject, tuple(tagged.get(sha, ()))) for sha, date, subject in _fields(
+            clone.output("log", f"--max-count={count}", f"--format=%H{SEP}%cI{SEP}%s", f"refs/remotes/origin/{shown}"), 3))
+        return DependencyVersions(name, source.url, source.revision, default, shown, branches, tags, commits)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         changes = self._align_dependencies()

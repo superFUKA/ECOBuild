@@ -37,7 +37,7 @@ from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registr
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
-                      DependencyTree, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
+                      DependencyTree, DependencyVersions, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestList, TestResult, WorkspaceClosed, WorkspaceList)
@@ -1522,13 +1522,15 @@ class Module:
 
     # 依存先（型） -----------------------------------------------------------------
 
-    def link(self, repository: str, *, project: str | None = None, shared: bool = False) -> LinkResult:
-        """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。"""
+    def link(self, repository: str, *, project: str | None = None, shared: bool = False,
+             revision: str | None = None) -> LinkResult:
+        """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。revision：リンクする版（ブランチ・タグ・
+        コミット。省くと既定のブランチの最新）。"""
         self.require_task_branch("依存先のリンク")
         dependencies = self._dependencies("依存先")
         url = self.repository.github.get_repository(repository).clone_url
         before = self.own_changes()
-        result = dependencies.link(url, project=project, shared=shared)
+        result = dependencies.link(url, project=project, shared=shared, revision=revision)
         self.commit_own_changes(f"{'・'.join(result.projects)} に {result.name}（{result.revision[:7]}）をリンク", before)
         return result
 
@@ -1581,13 +1583,22 @@ class Module:
         """依存関係の図（依存先の依存先も）。"""
         return self._dependencies("依存先").dependency_tree()
 
-    def update_dependencies(self, name: str | None = None) -> tuple[DependencyChange, ...]:
-        """依存先の記録を、GitHubの最新にする（I-018）。"""
+    def update_dependencies(self, name: str | None = None, revision: str | None = None) -> tuple[DependencyChange, ...]:
+        """依存先の記録を、GitHubの最新にする（I-018）。revision：最新でなく、この版（ブランチ・タグ・コミット）に
+        （依存先を1つ name で選ぶ）。"""
+        if revision and not name:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "版を選ぶときは、依存先を1つ指定してください。",
+                                hint=f"{self.op('deps update')} <依存先> --at <版>")
         self.require_task_branch("依存先の更新")
         before = self.own_changes()
-        result = self._dependencies("依存先").update_dependencies(name)
-        self.commit_own_changes(f"依存先 {name} を最新に" if name else "依存先を最新に", before)
+        result = self._dependencies("依存先").update_dependencies(name, revision)
+        self.commit_own_changes(f"依存先 {name} を {revision} に" if revision else
+                                f"依存先 {name} を最新に" if name else "依存先を最新に", before)
         return result
+
+    def dependency_versions(self, name: str, *, branch: str | None = None, count: int = 30) -> DependencyVersions:
+        """依存先 name の選べる版（deps update --at・deps add --at で選ぶもの）。"""
+        return self._dependencies("依存先の版の一覧").dependency_versions(name, branch=branch, count=count)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""

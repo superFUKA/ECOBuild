@@ -247,6 +247,34 @@ class DependencyState:
 
 
 @dataclass(frozen=True)
+class DependencyCommit:
+    sha: str
+    date: str                        # コミットの日時（ISO 8601）
+    subject: str
+    tags: tuple[str, ...] = ()       # このコミットに付いたタグ
+
+
+@dataclass(frozen=True)
+class DependencyTag:
+    name: str
+    sha: str                         # タグの指すコミット
+    date: str
+
+
+@dataclass(frozen=True)
+class DependencyVersions:
+    """依存先の選べる版（deps versions）：GitHub のブランチ・タグと、branch の最近のコミット（新しい順）。"""
+    name: str
+    url: str
+    recorded: str                    # 記録された版（コミット）
+    default_branch: str              # GitHub の既定のブランチ（deps update の最新はこのブランチの最新）
+    branch: str                      # commits のブランチ
+    branches: tuple[str, ...]
+    tags: tuple[DependencyTag, ...]  # 新しい順
+    commits: tuple[DependencyCommit, ...]
+
+
+@dataclass(frozen=True)
 class LinkResult:
     name: str                        # 依存先の名前（deps/<名前>）
     url: str

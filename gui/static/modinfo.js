@@ -39,7 +39,7 @@
   const pill = (text, cls = '') => `<span class="mi-pill ${cls}">${esc(text)}</span>`;
   const head = (title, note, actions = '') => `<div class="mi-head"><div><h3>${title}</h3>${note ? `<p class="mi-note">${note}</p>` : ''}</div><div class="mi-actions">${actions}</div></div>`;
   // What changes the managed files runs in a task branch's workspace (inWorkspace): grey with the reason while there is none.
-  const WS_ACTIONS = new Set(['deps-update', 'link', 'unlink', 'project-add', 'project-remove', 'pch', 'project-settings', 'project-link', 'project-move', 'module-settings',
+  const WS_ACTIONS = new Set(['deps-update', 'deps-pick', 'link', 'unlink', 'project-add', 'project-remove', 'pch', 'project-settings', 'project-link', 'project-move', 'module-settings',
     'template-add', 'template-remove', 'profile-add', 'profile-project', 'profile-project-clear', 'profile-remove']);
   const NO_WS = 'タスクブランチの作業空間がありません（タスク管理で「作業を開始」してください）';
   const wsOff = action => WS_ACTIONS.has(action) && !MOD.workspacePlaces().length;
@@ -199,7 +199,7 @@
       (deps.length ? `<table class="mi-table"><thead><tr><th>名前</th><th>記録の版</th><th>手元の版</th><th>状態</th>${depsFetched ? '<th>GitHub</th>' : ''}<th>使っているProject</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>
       ${deps.map(d => { const [label, cls] = DEP_STATE[d.state] || [d.state, ''], users = projects.filter(p => p.links.some(l => linksTo(l, d.name))).map(p => p.name);
         return `<tr><td><strong>${esc(d.name)}</strong><div class="mi-sub">${esc(d.url)}</div></td><td class="mi-mono">${short(d.recorded)}</td><td class="mi-mono">${short(d.local)}${d.branch ? `<div class="mi-sub">${esc(d.branch)}</div>` : ''}</td><td>${pill(label, cls)}</td>${depsFetched ? `<td>${remoteCell(d)}</td>` : ''}<td>${users.map(u => pill(u)).join(' ')}</td>
-        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name)}${btn('リンクを外す…', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
+        <td class="mi-row-actions">${btn('更新', 'deps-update', d.name, '', 'GitHub の既定のブランチの最新にします')}${btn('版を選ぶ…', 'deps-pick', d.name, '', 'ブランチ・タグ・コミットから選んで記録します（前の版に戻すのにも）')}${btn('リンクを外す…', 'unlink', d.name, 'danger-text')}</td></tr>`; }).join('')}</tbody></table>` + renderTree() : '<p class="eco-empty">依存先はありません。</p>');
   }
   function remoteCell(d) {
     if (!d.remote) return '';
@@ -388,12 +388,12 @@
     const current = places.find(p => MOD.keyOf(p) === MOD.keyOf(here())) || places[0] || '';
     return {name: 'place', label: '変更するタスクブランチ', type: 'select', value: current, options: places.map(p => [p, `${MOD.states.get(MOD.keyOf(p)).branch}（${p}）`]), help: '管理ファイルが変わります。タスクブランチでコミットし、PRで反映してください。'};
   };
-  async function inWorkspace(title, fields, ok, build, {danger = false, intro = '', success} = {}) {
+  async function inWorkspace(title, fields, ok, build, {danger = false, intro = '', success, wide = false, onChange} = {}) {
     if (!MOD.workspacePlaces().length) {
       if (await ECO.confirm({title, message: '管理ファイルを変える操作はタスクブランチで行います。タスク管理でタスクの「作業を開始」をしてから、もう一度行ってください。', ok: 'タスク管理を開く'})) showModulePage('tasks');
       return;
     }
-    await ECO.form({title, intro, fields: [...fields, workspaceField()], ok, danger, submit: async v => {
+    await ECO.form({title, intro, wide, onChange, fields: [...fields, workspaceField()], ok, danger, submit: async v => {
       const args = build(v); if (typeof args === 'string') return args;
       // build may give several commands (run in order; the success message after the last).
       const commands = Array.isArray(args[0]) ? args : [args];
@@ -457,12 +457,45 @@
     'deps-fetch': () => { depsFetched = true; view = 'deps'; return render(); },
     'deps-sync': () => ECO.run(here(), ['deps', 'sync'], {success: r => '依存先を記録の版に合わせました。' + (r?.length ? r.map(x => `${x.name}：${x.action}`).join('、') : ''), confirm: '手元の依存先を、記録してある版にそろえます。手元にないものは取ってきます。作業中のものや変更のあるものはそのままにします。', title: '手元を記録に合わせる', ok: '合わせる'}).then(doc => doc && render()),
     'deps-update': name => inWorkspace(name ? `依存先 ${name} を更新` : '依存先をすべて更新', [], '更新', () => ['deps', 'update', ...(name ? [name] : [])], {intro: '依存先の記録をGitHubの最新に更新し、手元のcloneと生成ファイルも合わせます。', success: '依存先を更新しました。'}),
+    'deps-pick': name => {
+      // The version to record: a tag, or a commit of a branch of the dependency on GitHub (deps versions, newest first).
+      const dep = (Array.isArray(data.deps) ? data.deps : []).find(d => d.name === name);
+      let shown = null;
+      const versions = async branch => {
+        const doc = await cli(['deps', 'versions', name, ...(branch ? ['--branch', branch] : [])]);
+        if (!doc.ok) { ECO.showError(doc); return null; }
+        const r = doc.result, mark = sha => sha === r.recorded ? '（記録の版）' : '';
+        return {r, options: [
+          ...r.tags.map(t => [t.name, `タグ ${t.name}  ${short(t.sha)}  ${ECO.localTime(t.date, true)}${mark(t.sha)}`]),
+          ...r.commits.map((c, i) => [c.sha, `${short(c.sha)}  ${ECO.localTime(c.date, true)}  ${c.subject}${c.tags.length ? `  [${c.tags.join(', ')}]` : ''}${i === 0 ? '（最新）' : ''}${mark(c.sha)}`])]};
+      };
+      return inWorkspace(`依存先 ${name} の版を選ぶ`, [
+        {name: 'branch', label: 'ブランチ', type: 'select', value: '', options: [['', '読み込んでいます…']]},
+        {name: 'at', label: 'バージョン（タグ、ブランチのコミットの新しい順）', type: 'select', value: '', options: [['', '読み込んでいます…']]}], '記録する',
+        v => v.at ? ['deps', 'update', name, '--at', v.at] : 'バージョンを選んでください。',
+        {wide: true, intro: `選んだ版を依存先 ${esc(name)} の記録にし、手元の clone と生成ファイルも合わせます。今の記録は <code>${esc(short(dep?.recorded))}</code> です。前の版に戻すのにも使えます。`,
+          success: r => r?.[0]?.reason ? `${name}：${r[0].reason}` : `${name} の版を記録しました。`,
+          onChange: async (v, formEl) => {
+            if (shown !== null && v.branch === shown) return;
+            const asked = shown === null ? '' : v.branch;
+            shown = v.branch;
+            const found = await versions(asked);
+            if (!found || shown !== v.branch) return;
+            const {r, options} = found, branch = formEl.elements.branch, at = formEl.elements.at;
+            if (!asked) {
+              shown = r.branch;
+              branch.replaceChildren(...r.branches.map(b => new Option(b === r.default_branch ? `${b}（既定）` : b, b, b === r.branch, b === r.branch)));
+            }
+            at.replaceChildren(...(options.length ? options : [['', 'コミットがありません']]).map(([value, label]) => new Option(label, value)));
+          }});
+    },
     'link': async () => inWorkspace('モジュールをリンク', [
       {name: 'repository', label: 'リポジトリ（名前、または 所有者/名前）', required: true, more: githubModules()},
       {name: 'project', label: 'リンクするProject', type: 'select', options: [['', '既定（テスト用を除いて1つならそれ）'], ...(Array.isArray(data.projects) ? data.projects.filter(p => p.kind !== 'test').map(p => [p.name, `${p.name}（${KIND[p.kind] || p.kind}）`]) : [])],
         help: 'リンクされるのは、相手のモジュールで最初に作ったProjectです（ライブラリである必要があります）。'},
-      {name: 'shared', label: '共有ライブラリとしてリンクする', type: 'checkbox'}], 'リンク',
-      v => ['deps', 'add', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
+      {name: 'shared', label: '共有ライブラリとしてリンクする', type: 'checkbox'},
+      {name: 'at', label: '版（任意）', placeholder: '空なら既定のブランチの最新', help: 'ブランチ・タグ・コミットを指定できます。後から行の「版を選ぶ…」で選び直せます。'}], 'リンク',
+      v => ['deps', 'add', v.repository, ...(v.project ? ['--project', v.project] : []), ...(v.shared ? ['--shared'] : []), ...(v.at ? ['--at', v.at.trim()] : [])], {success: r => `${r.name} をリンクしました（${r.projects.join('、')}）。`}),
     'unlink': name => inWorkspace(`リンクを外す：${name}`, [], '外す', () => ['deps', 'remove', name], {danger: true, intro: '依存先のリンクを外します。手元のcloneは、記録の版のままなら削除します（作業中や変更がある場合は残します）。', success: `${name} のリンクを外しました。`}),
     'project-add': () => {
       // app・test・bench link a library of this module (test・bench need one); a library gets its test Project.

@@ -292,9 +292,9 @@ function fileMenu(path, x, y) {
     ...pairItems(path),
     ...(runnableTest(path) ? [['run-test', 'テストを実行', exists]] : []),
     ...(testable(path) ? [['test', 'テストを作成…', can && exists]] : []),
-    ...(conflicted ? [['take-current', `${WS.sides()[0]}を採る`], ['take-incoming', `${WS.sides()[1]}を採る`], '-'] : []),
+    ...(conflicted ? [['resolve', '衝突を直す…'], ['take-current', `${WS.sides()[0]}を採る`], ['take-incoming', `${WS.sides()[1]}を採る`], '-'] : []),
     ['restore', '変更を元に戻す', can && tracked && kinds.length > 0 && !conflicted], ['ignore', '除外パターンに追加', can], '-',
-    ['diff', conflicted ? '衝突を直す（差分）' : '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
+    ['diff', conflicted ? 'TortoiseGit で衝突を直す（差分）' : '差分', kinds.length > 0], ['log', 'ログ', tracked], ['blame', '注釈履歴', tracked && exists],
   ], x, y);
 }
 // A Project's own folder: what Visual Studio's Solution Explorer offers on a project (build, test, run, the target).
@@ -462,6 +462,7 @@ async function menuAction(action, dir) {
     case 'run-test': return WS.runTests([path]);
     case 'run-test-dir': return WS.runTests([dir]);
     case 'remove': return removeFile(path);
+    case 'resolve': return WS.resolveConflicts(path);
     case 'take-current': case 'take-incoming': return WS.takeSide(path, action === 'take-incoming');
     case 'restore': if (await ECO.confirm({title: '変更を元に戻す', message: `${path} の変更を捨てて、最後のコミットの状態に戻します。\nこの操作は元に戻せません。`, ok: '元に戻す', danger: true})) { await WS.run(['restore', path], {success: '変更を元に戻しました：' + path}); await WS.reloadFiles(); } return;
     case 'ignore': case 'ignore-dir': {

@@ -173,6 +173,8 @@ const STOPPED = {merge: '取り込み', rebase: 'タスクブランチの作り�
 const SIDES = {merge: ['このタスクブランチの側', '取り込む側'], rebase: ['作成元の側', '自分のコミットの側'],
   revert: ['今の内容', '取り消した内容'], stash: ['今の内容', '退避した変更']};
 WS.sides = () => SIDES[WS.status?.stopped] || ['今の側', '入ってくる側'];
+// 続ける (the banner's; also the conflicts screen's when every file is fixed).
+WS.continueSync = () => gitAction('sync-continue');
 // A conflicted file resolved with one side's content (the explorer's menu); 続ける finishes what stopped.
 WS.takeSide = async (path, incoming) => {
   const doc = await WS.run(['sync', 'take', path, '--side', incoming ? 'incoming' : 'current'], {success: `${path} を${WS.sides()[incoming ? 1 : 0]}で解決しました。`});
@@ -185,7 +187,7 @@ function renderBanners(errorDoc) {
   const s = WS.status, out = [];
   if (!s) out.push(banner(`この場所の状態を取得できませんでした：${esc(errorDoc?.error?.message || '')}`, 'bad'));
   else {
-    if (s.merging) out.push(banner(`${STOPPED[s.stopped] || '取り込み'}の途中で衝突しました。衝突したファイルを直して（右クリックで片方の側を採る・「差分」で TortoiseGit の衝突の画面）、「続ける」を押してください。<button data-git="sync-continue">続ける</button><button data-git="sync-abort">やめる</button>`, 'bad'));
+    if (s.merging) out.push(banner(`${STOPPED[s.stopped] || '取り込み'}の途中で衝突しました。衝突したファイルを直して（「衝突を直す」の画面・右クリックで片方の側を採る・TortoiseGit）、「続ける」を押してください。${s.conflicted?.length ? '<button data-git="resolve-conflicts" class="primary">衝突を直す…</button>' : ''}<button data-git="sync-continue">続ける</button><button data-git="sync-abort">やめる</button>`, 'bad'));
     if (s.reviewing) out.push(banner(`#${s.reviewing_task || '?'} の提出を手元で確認しています（コミットはできません）。${s.reviewing_task ? '<button data-git="approve">承認して取り込む</button><button data-git="reject">差し戻す</button>' : ''}<button data-git="review-done">判定せずに終える</button>`));
     else if (!s.task) out.push(banner(`タスクブランチではありません（${esc(s.branch || 'ブランチなし')}）。コミットはタスクブランチで。<button data-git="go-tasks" class="primary">タスク管理を開く</button>`));
     if (s.archived) out.push(banner(`GitHubのリポジトリはアーカイブ（読み取り専用）されています。Push・PR・タスクの変更はできません。<button data-git="unarchive">アーカイブを解除</button>`, 'bad'));
@@ -598,6 +600,7 @@ async function gitAction(action) {
           setTimeout(async () => { await WS.run(args, {success: r => `取り込みました（${r.branch}）` + (r.merged?.length ? '：' + r.merged.join(', ') : '：すでに入っていました')}); await WS.reloadFiles?.(); });
         }});
     }
+    case 'resolve-conflicts': return WS.resolveConflicts();
     case 'sync-continue': {
       const what = STOPPED[WS.status?.stopped] || '取り込み';
       return WS.run(['sync', 'continue'], {success: WS.status?.stopped === 'stash' ? '衝突を直しました（退避した変更は残っています。いらなければ「退避」から捨てます）。' : `${what}を完了しました。`}).then(() => WS.reloadFiles?.());

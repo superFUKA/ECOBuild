@@ -265,8 +265,8 @@ class HasDependencies(ABC):
     module: "Module"
 
     @abstractmethod
-    def link(self, url: str, *, project: str | None, shared: bool) -> "LinkResult":
-        ...
+    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None) -> "LinkResult":
+        """revision：リンクする版（ブランチ・タグ・コミット。None は既定のブランチの最新）。記録はコミット。"""
 
     @abstractmethod
     def unlink(self, name: str) -> "LinkResult":
@@ -288,8 +288,12 @@ class HasDependencies(ABC):
                               tuple(DependencyNode(d.name, d.url, d.recorded, d.local is not None, ()) for d in direct))
 
     @abstractmethod
-    def update_dependencies(self, name: str | None) -> tuple["DependencyChange", ...]:
-        ...
+    def update_dependencies(self, name: str | None, revision: str | None = None) -> tuple["DependencyChange", ...]:
+        """依存先の記録を GitHub の最新に（name を省くとすべて）。revision：最新でなくこの版に（name が要る）。"""
+
+    def dependency_versions(self, name: str, *, branch: str | None = None, count: int = 30) -> "DependencyVersions":
+        """依存先 name の選べる版（ブランチ・タグ・branch〔既定は GitHub の既定のブランチ〕の最近のコミット）。"""
+        raise self.not_supported("依存先の版の一覧")
 
     @abstractmethod
     def sync_dependencies(self) -> tuple["DependencyChange", ...]:

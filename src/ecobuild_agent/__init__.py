@@ -334,8 +334,8 @@ class AgentModule:
     # ---- 会話 -----------------------------------------------------------------------------------------------
     def agent_conversations(self, limit: int = 20) -> AgentConversations:
         """作業空間でのエージェントの会話（新しい順。続きから再開するものを選ぶ）。タスクブランチでなくても読める。
-        コンテナにした作業空間では、中の会話（すべてのコンテナで共有する設定の場所にある。中の場所はどれも同じなので、
-        今のブランチでの会話だけ）。コンテナが動いていなければ読まない（note にわけ）。"""
+        コンテナにした作業空間では、中の会話（コンテナごとの設定の場所にある。前からの clone は今のブランチでの会話だけ）。
+        コンテナが動いていなければ読まない（note にわけ）。"""
         if not container.enabled(self.root):
             found, note = tuple(ecoagent.conversations(self.root, limit=limit)), ""
         else:

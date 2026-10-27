@@ -103,7 +103,8 @@ def test_the_token_is_caught_from_the_screen(monkeypatch, tmp_path):
 
 
 def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root, tmp_path):
-    """中の会話は、ecoagent.history を中の python3 で動かして読む（今のブランチのものだけ）。止まっていれば読まない。"""
+    """中の会話は、ecoagent.history を中の python3 で動かして読む（前からの clone は今のブランチのものだけ）。
+    止まっていれば読まない。"""
     import json
     import os
     import subprocess
@@ -129,6 +130,11 @@ def test_conversations_inside_are_read_with_the_python_inside(monkeypatch, root,
 
     found, note = inside.agent_conversations(root, "task/1", runner=run_inside)
     assert [c.id for c in found] == ["a"] and note == ""
+    # 元の clone の worktree の作業空間：中の場所は作業空間ごとに違うので、ブランチで絞らない
+    folder.rename(folder.with_name("-repo--ecobuild-w-1"))
+    monkeypatch.setattr(container, "workdir", lambda root: "/repo/.ecobuild/w/1")
+    found, _ = inside.agent_conversations(root, "task/1", runner=run_inside)
+    assert sorted(c.id for c in found) == ["a", "b"]
 
 
 def test_the_agent_is_added_to_the_container(monkeypatch, root, tmp_path):

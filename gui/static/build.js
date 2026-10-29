@@ -376,9 +376,11 @@ WS.onRefresh(renderPrDetail);
     return ECO.form({title: 'このコンテナの設定', intro: 'このPCだけの設定です（コミットしません）。',
       fields: [
         {name: 'deny', label: 'AI に使わせないもの', value: (box?.deny || []).join(';'), placeholder: '例：Bash(git push --force:*);WebFetch', focus: true},
-        {name: 'image', label: '使うイメージ（空欄なら型のイメージ。変えると次に動かすときに作り直します）', value: box?.custom_image || '', placeholder: '例：ecobuild-cpp:9ecd459d4955'}],
+        {name: 'image', label: '使うイメージ（空欄なら型のイメージ。変えると次に動かすときに作り直します）', value: box?.custom_image || '', placeholder: '例：ecobuild-cpp:9ecd459d4955'},
+        {name: 'host_run', label: 'AI にビルド・テスト・実行をこのPCでさせる（ツール host_run）', type: 'checkbox', value: !!box?.host_run,
+         help: 'AI の書いたコードが、コンテナの守りなしにこのPCで動きます。起動し直した AI から効きます。'}],
       ok: '保存',
-      submit: v => boxRun(['set', ...(v.deny.trim() ? ['--deny', v.deny.trim()] : ['--no-deny']), ...(v.image.trim() ? ['--image', v.image.trim()] : ['--default-image'])], {success: '設定を保存しました。'})});
+      submit: v => boxRun(['set', ...(v.deny.trim() ? ['--deny', v.deny.trim()] : ['--no-deny']), ...(v.image.trim() ? ['--image', v.image.trim()] : ['--default-image']), '--host-run', v.host_run ? 'on' : 'off'], {success: '設定を保存しました。'})});
   }
   // The image editor: the module's environment (.ecobuild/container/Dockerfile) of this workspace. Reading works on any
   // branch and without Docker; saving is on a task branch only and 試しに作る needs Docker (the editor greys them with

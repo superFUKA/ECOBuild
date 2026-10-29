@@ -36,11 +36,13 @@ PYTHON_TYPES = {"str": (str,), "int": (int,), "float": (int, float), "bool": (bo
 @dataclass(frozen=True)
 class Context:
     """MCP サーバーを起動したエージェント。registration：登録（ecobuild_agent.registry.Registration）。
-    kind：owner（タスクの持ち主）か helper（手伝い）。workspace：作業空間の場所。"""
+    kind：owner（タスクの持ち主）か helper（手伝い）。workspace：作業空間の場所。host_run：ビルド・テスト等をこのPCで
+    実行するツールを渡すか（起動した ECOBuild が、このPCの設定で決める）。"""
     agent_id: str
     registration: Any
     kind: str
     workspace: Path
+    host_run: bool = False
 
 
 Provider = Callable[[Context], "list[Tool]"]

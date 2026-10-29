@@ -26,7 +26,7 @@ from ecoagent.guard import CHANGE, CONFIRM, HUMAN, READ  # noqa: F401（コマ�
 from ecobuild.errors import EcoBuildError, WorkError, operation
 from ecobuild.fsutil import locked
 
-from . import agents, app, children, inside, registry, rules, skills, status
+from . import agents, app, children, host, inside, registry, rules, skills, status
 from .agents import AgentRecord
 from .errors import ErrorCode, from_ecoagent
 from .inside import FEATURE as CONTAINER_FEATURE
@@ -449,6 +449,8 @@ class AgentModule:
                 "--workspace", workspace]
         if boxed:   # このPCで解決した登録（_briefed が置き場所に写す。中の ECOBUILD_HOME には登録がない）
             args += ["--registration-file", f"{status.inside(record.id)}/{REGISTRATION_FILE}"]
+        if boxed and inside.host_run(self.root):   # このPCで実行するツール（container set --host-run on）
+            args.append("--host-run")
         program, before = ("ecobuild", []) if boxed else (sys.executable, ["-m", "ecobuild_cli"])
         return {"mcpServers": {"ecobuild": {"type": "stdio", "command": program, "args": [*before, *args]}}}
 

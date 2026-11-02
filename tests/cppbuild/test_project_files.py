@@ -115,6 +115,19 @@ def test_file_test_makes_the_test_of_a_file(module):
     (root / "Geo/include/Geo/calc/Add.h").unlink()
 
 
+def test_removing_the_last_source_changes_nothing(module):
+    """Projectの最後の .cpp を消すと構成に失敗する（ソースがない）。消したファイルを戻し、分かる言葉で断る。"""
+    root = module.root
+    main = root / "GeoApp/src/main.cpp"
+    before = main.read_bytes()
+    with pytest.raises(EcoBuildError) as error:
+        module.remove_file(main)
+    assert error.value.code == ErrorCode.CPPBUILD_ERROR and "GeoApp" in error.value.message
+    assert main.read_bytes() == before
+    assert module.add_file(root / "GeoApp/src/Extra.cpp").paths == ("GeoApp/src/Extra.cpp",)   # 構成はそのまま使える
+    module.remove_file(root / "GeoApp/src/Extra.cpp")
+
+
 def test_projects_bench_pch_and_remove(module):
     added = module.add_project("GeoBench", "bench")
     assert added.paths == ("GeoBench/src/bench.cpp",)

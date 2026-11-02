@@ -789,19 +789,6 @@ def add_file(root: Path, project: str, path: str, *, replacements: dict | None =
     return (Path(target.root) / path).relative_to(root).as_posix()
 
 
-def remove_file(root: Path, project: str, path: str) -> str:
-    solution = open_solution(root)
-    target = solution.get_project(project)
-    try:
-        target.remove_file(path, auto_update=False)
-        solution.update()
-    except FileNotFoundError:
-        raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{path} がありません。") from None
-    except Exception as error:
-        raise _cppbuild_error(f"{path} を削除できません。", error) from error
-    return (Path(target.root) / path).relative_to(root).as_posix()
-
-
 def move_files(root: Path, moves: list[tuple[str, str, str]]) -> tuple[str, ...]:
     """まとめて移動する（(Project, 元, 先)。構成の作り直しは最後に1回）。移動元・移動先の組を順に返す。"""
     solution = open_solution(root)
@@ -825,22 +812,55 @@ def move_files(root: Path, moves: list[tuple[str, str, str]]) -> tuple[str, ...]
 
 
 def remove_files(root: Path, removals: list[tuple[str, str]]) -> tuple[str, ...]:
-    """まとめて削除する（(Project, パス)。構成の作り直しは最後に1回）。"""
+    """まとめて削除する（(Project, パス)。構成の作り直しは最後に1回）。
+
+    削除と構成は一体：構成に失敗したら（Projectの最後の .cpp を消してソースがなくなった等）、管理ファイルは
+    CppBuildの transaction が、消したファイルは消す前の中身から戻し、何も変えずにエラーにする。"""
     solution = open_solution(root)
-    done = []
+    files = [(project, path, Path(solution.get_project(project).root) / path) for project, path in removals]
+    for _, _, file in files:
+        if not file.is_file():
+            raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{file} がありません。")
+    saved = {file: file.read_bytes() for _, _, file in files}
+    message = "ファイルを削除できません。"
     try:
-        for project, path in removals:
-            target = solution.get_project(project)
-            target.remove_file(path, auto_update=False)
-            done.append((Path(target.root) / path).relative_to(root).as_posix())
-    except FileNotFoundError as error:
-        raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{error} がありません。") from None
+        with solution.transaction() as report:
+            for project, path, _ in files:
+                solution.get_project(project).remove_file(path, auto_update=False)
+        if report.update.success:
+            return tuple(file.relative_to(root).as_posix() for _, _, file in files)
+        failure = EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"{message}CMakeの構成に失敗したので、元に戻しました。",
+                                details=_joined(tuple(_process(p) for p in report.update.processes)))
     except Exception as error:
-        raise _cppbuild_error("ファイルを削除できません。", error) from error
-    finally:
-        if done:
-            solution.update()
-    return tuple(done)
+        failure = _cppbuild_error(f"{message}構成に失敗したので、元に戻しました。", error)
+    for file, content in saved.items():
+        if not file.is_file():
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(content)
+    sourceless = _without_sources(solution, files)
+    if sourceless:
+        failure = EcoBuildError(failure.code, f"{message}{'・'.join(sourceless)} のソース（.cpp 等）がなくなるので、元に戻しました。",
+                                hint="C++のProjectには、コンパイルするソースが1つは要ります。先に別のソースを足すか、"
+                                     "Projectごと消してください。", details=failure.details)
+    raise failure
+
+
+def _without_sources(solution: Solution, files: list[tuple[str, str, Path]]) -> list[str]:
+    """消すとソース（コンパイルするファイル）が1つもなくなるProject（ヘッダーだけのライブラリは除く）。
+    構成の失敗の説明に使うだけで、断るかどうかは CppBuild の構成が決める。"""
+    gone = {file.resolve() for _, _, file in files}
+    names = []
+    for name in dict.fromkeys(project for project, _, _ in files):
+        project = solution.get_project(name)
+        settings = project.settings.get()
+        if settings.initial_type == ProjectType.INTERFACE_LIBRARY:
+            continue
+        root = Path(project.root)
+        left = [p for directory in settings.source_directories if (root / directory).is_dir()
+                for p in (root / directory).rglob("*") if p.is_file() and p.resolve() not in gone]
+        if not any(p.suffix.lower() in (*SOURCE_SUFFIXES, ".c") for p in left):
+            names.append(name)
+    return names
 
 
 def move_file(root: Path, project: str, source: str, destination: str) -> tuple[str, str]:

@@ -579,7 +579,8 @@ def test_asking_the_operator_does_not_hold_the_others():
 
 
 def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monkeypatch):
-    """ソリューションを開いた Visual Studio があればそこで（/edit）、なければソリューションごと起動して開く。"""
+    """ソリューションを開いた Visual Studio があればその窓で（DTE。できなければ /edit）、なければソリューションごと起動して開く。
+    /edit だけでは最後に使った別の窓で開くことがある。"""
     root = _module(tmp_path / "Calc")
     write(root / "src" / "Calc.cpp", "")
     write(root / "build" / "Calc.slnx", "")
@@ -594,6 +595,8 @@ def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monke
 
     monkeypatch.setattr(gui.subprocess, "run", lambda *a, **kw: Done())
     monkeypatch.setattr(gui.os, "name", "nt")
+    windows, reachable = [], [True]
+    monkeypatch.setattr(gui, "_open_in_vs_window", lambda pids, path: windows.append((pids, path)) or reachable[0])
     waits = []
     monkeypatch.setattr(gui.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda self: waits.append(args)})())
     target = (root / "src" / "Calc.cpp").resolve()
@@ -606,9 +609,13 @@ def test_a_file_opens_in_the_visual_studio_that_has_the_solution(tmp_path, monke
     gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")
     assert started[-1][1] != "/edit"                                     # 別のソリューションの Visual Studio では開かない
     titles.append("Calc - Microsoft Visual Studio")
+    count = len(started)
     assert gui._edit_when_open("devenv.exe", solution, target)
-    assert started[-1][1:] == ["/edit", str(target)]
+    assert windows[-1] == ([1], target) and len(started) == count      # そのソリューションの窓で開く（/edit は使わない）
     assert not gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")["started"]
+    assert windows[-1] == ([1], target) and len(started) == count
+    reachable[0] = False                                                 # その窓に届かなければ（管理者として動かしている等）/edit
+    gui.open_file_in_visual_studio(str(root), "src/Calc.cpp")
     assert started[-1][1:] == ["/edit", str(target)]
     with pytest.raises(gui.GuiError):
         gui.open_file_in_visual_studio(str(root), "../outside.cpp")
@@ -623,7 +630,7 @@ def test_a_type_without_a_solution_opens_the_workspace_folder(tmp_path, monkeypa
     started, waits = [], []
     monkeypatch.setattr(gui, "_visual_studio", lambda version: "devenv.exe")
     monkeypatch.setattr(gui.subprocess, "Popen", lambda args, **kw: started.append(args))
-    monkeypatch.setattr(gui, "_is_open_in_vs", lambda opened: False)
+    monkeypatch.setattr(gui, "_vs_processes", lambda opened: [])
     monkeypatch.setattr(gui.threading, "Thread", lambda target, args, daemon: type("T", (), {"start": lambda self: waits.append(args)})())
     opened = gui.open_in_visual_studio(str(root / "src"))
     assert opened["folder"] == root.resolve().as_posix() and opened["solution"] is None

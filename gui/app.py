@@ -720,18 +720,67 @@ def open_in_visual_studio(directory: str, version: str = "2026") -> dict:
     return {"solution": solution.as_posix(), "devenv": devenv, "version": version}
 
 
-def _is_open_in_vs(opened: Path) -> bool:
-    """そのソリューション・フォルダーを開いている Visual Studio があるか（ウィンドウの題名「<ソリューション名・フォルダー名> -
+def _vs_processes(opened: Path) -> list[int]:
+    """そのソリューション・フォルダーを開いている Visual Studio のプロセス番号（ウィンドウの題名「<ソリューション名・フォルダー名> -
     Microsoft Visual Studio」で見る。同じ名前のものは見分けられない）。"""
     if os.name != "nt":
-        return False
+        return []
     name = opened.name if opened.is_dir() else opened.stem
     completed = subprocess.run(["tasklist", "/v", "/fi", "imagename eq devenv.exe", "/fo", "csv", "/nh"],
                                capture_output=True, encoding="mbcs", errors="replace", stdin=subprocess.DEVNULL, **_no_window())
-    for row in csv.reader(completed.stdout.splitlines()):
-        if row and row[0].lower() == "devenv.exe" and row[-1].split(" - ")[0].strip().lower() == name.lower():
-            return True
-    return False
+    return [int(row[1]) for row in csv.reader(completed.stdout.splitlines())
+            if len(row) > 2 and row[0].lower() == "devenv.exe" and row[1].isdigit()
+            and row[-1].split(" - ")[0].strip().lower() == name.lower()]
+
+
+def _is_open_in_vs(opened: Path) -> bool:
+    """そのソリューション・フォルダーを開いている Visual Studio があるか。"""
+    return bool(_vs_processes(opened))
+
+
+# 実行中の Visual Studio（プロセス番号で選ぶ）の DTE を ROT（実行中のオブジェクトの表）から取り出す。PowerShell の Add-Type で使う。
+# devenv /edit は「最後に使った Visual Studio」で開くため、ソリューションを開いた窓とは別の窓で開くことがある。
+_VS_DTE = r"""
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+public static class EcoVs {
+    [DllImport("ole32.dll")] static extern int GetRunningObjectTable(int reserved, out IRunningObjectTable table);
+    [DllImport("ole32.dll")] static extern int CreateBindCtx(int reserved, out IBindCtx context);
+    public static object Dte(int pid) {
+        IRunningObjectTable table; IBindCtx context; IEnumMoniker monikers;
+        if (GetRunningObjectTable(0, out table) != 0 || CreateBindCtx(0, out context) != 0) return null;
+        table.EnumRunning(out monikers);
+        IMoniker[] one = new IMoniker[1];
+        while (monikers.Next(1, one, IntPtr.Zero) == 0) {
+            string name;
+            one[0].GetDisplayName(context, null, out name);
+            if (name.StartsWith("!VisualStudio.DTE.") && name.EndsWith(":" + pid)) {
+                object dte;
+                table.GetObject(one[0], out dte);
+                return dte;
+            }
+        }
+        return null;
+    }
+}
+"""
+
+# 起動したばかりの Visual Studio は COM の呼び出しを断ることがある（RPC_E_CALL_REJECTED）ため、少し待って何度か試す。
+_VS_OPEN_FILE = ("$ErrorActionPreference = 'Stop'; Add-Type -TypeDefinition $env:EG_CS; "
+                 "foreach ($p in ($env:EG_PIDS -split ',')) { $dte = [EcoVs]::Dte([int]$p); if ($dte -eq $null) { continue }; "
+                 "for ($i = 0; $i -lt 20; $i++) { try { [void]$dte.ItemOperations.OpenFile($env:EG_FILE); "
+                 "try { $dte.MainWindow.Activate() } catch {}; exit 0 } catch { Start-Sleep -Milliseconds 500 } } }; exit 1")
+
+
+def _open_in_vs_window(pids: list[int], target: Path) -> bool:
+    """そのプロセスの Visual Studio の窓でファイルを開く（DTE の ItemOperations.OpenFile）。できなければ False。"""
+    if os.name != "nt" or not pids:
+        return False
+    completed = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _VS_OPEN_FILE],
+                               env=dict(os.environ, EG_CS=_VS_DTE, EG_PIDS=",".join(map(str, pids)), EG_FILE=str(target)),
+                               stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace", **_no_window())
+    return completed.returncode == 0
 
 
 def open_file_in_visual_studio(directory: str, relative: str, version: str = "2026") -> dict:
@@ -748,21 +797,26 @@ def open_file_in_visual_studio(directory: str, relative: str, version: str = "20
     if not devenv:
         raise GuiError(f"Visual Studio {version} が見つかりません。")
     opened = _vs_folder(directory) or find_solution(directory)
-    if opened is not None and not _is_open_in_vs(opened):
+    pids = _vs_processes(opened) if opened is not None else []
+    if opened is not None and not pids:
         subprocess.Popen([devenv, str(opened)], cwd=str(opened if opened.is_dir() else opened.parent))
         threading.Thread(target=_edit_when_open, args=(devenv, opened, target), daemon=True).start()
         return {"started": True, "solution": None if opened.is_dir() else opened.as_posix(),
                 **({"folder": opened.as_posix()} if opened.is_dir() else {})}
-    subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
+    if not _open_in_vs_window(pids, target):       # その窓で開けなければ（管理者として動かしている等）/edit に任せる
+        subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
     return {"started": False, "solution": opened.as_posix() if opened and not opened.is_dir() else None}
 
 
 def _edit_when_open(devenv: str, opened: Path, target: Path, timeout: float = 180, interval: float = 1) -> bool:
-    """起動した Visual Studio のウィンドウにソリューション・フォルダーが出たら、ファイルを開く（/edit）。出なければ何もしない。"""
+    """起動した Visual Studio のウィンドウにソリューション・フォルダーが出たら、その窓でファイルを開く（できなければ /edit）。
+    出なければ何もしない。"""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _is_open_in_vs(opened):
-            subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
+        pids = _vs_processes(opened)
+        if pids:
+            if not _open_in_vs_window(pids, target):
+                subprocess.Popen([devenv, "/edit", str(target)], cwd=str(target.parent))
             return True
         time.sleep(interval)
     return False

@@ -17,6 +17,7 @@ def command(
     kind: Annotated[str, "owner（タスクの持ち主）か helper（手伝い。ブランチを変えるツールは渡さない）"] = mcp.OWNER,
     workspace: Annotated[str, "作業空間の場所（ツールはここで ECOBuild のコマンドを実行する。既定は今いるディレクトリ）"] = "",
     registration_file: Annotated[str, "起動した ECOBuild が解決した登録のファイル（コンテナの中。あれば登録はここから読む）"] = "",
+    host_run: Annotated[bool, "ビルド・テスト等をこのPCで実行するツール（host_run）を渡す（実行する係も、このPCの設定を確かめる）"] = False,
 ) -> int:
     """エージェント専用の MCP サーバー（標準入出力の JSON-RPC）を、入力が閉じるまで動かします。
 
@@ -34,7 +35,7 @@ def command(
         where = Path(workspace or Path.cwd()).resolve()
         # 登録のファイルは、起動した ECOBuild が作成元に取り込まれた登録から写したもの
         found = registry.from_file(registration_file) if registration_file else registry.effective(registration, where)
-        context = mcp.Context(agent, found, kind, where)
+        context = mcp.Context(agent, found, kind, where, host_run)
         return mcp.serve(context, PROGRAM, registry.allows_tool)
     except EcoBuildError as error:     # 標準出力は JSON-RPC の通り道：起動できない理由は標準エラーへ
         click.echo(f"エラー：{error.message}" + (f"\n{error.hint}" if error.hint else ""), err=True)

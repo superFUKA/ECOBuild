@@ -13,15 +13,16 @@ STATES = {"none": "まだありません", "running": "動いています", "exi
 
 @dataclasses.dataclass(frozen=True)
 class ContainerView(WorkspaceContainer):
-    """コンテナの状態と、この作業空間だけのエージェントの設定（使わせないもの。エージェントの拡張が持つ）。"""
+    """コンテナの状態と、この作業空間だけのエージェントの設定（使わせないもの・このPCでの実行。エージェントの拡張が持つ）。"""
     deny: tuple[str, ...] = ()
+    host_run: bool = False
 
 
 def view(result: WorkspaceContainer, *, changed: bool | None = None) -> ContainerView:
     values = {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
     if changed is not None:
         values["changed"] = changed
-    return ContainerView(**values, deny=_agent.workspace_deny(result.path))
+    return ContainerView(**values, deny=_agent.workspace_deny(result.path), host_run=_agent.host_run(result.path))
 
 
 def render(r, done: str | None = None):
@@ -39,4 +40,5 @@ def render(r, done: str | None = None):
         None if r.custom_image or not r.container else f"環境の作り方：{r.recipe or '型のひな型（' + PROGRAM + ' module upgrade で .ecobuild/container/Dockerfile に置けます）'}",
         f"この作業空間だけの設定：イメージ {r.custom_image}" if r.custom_image else None,
         f"この作業空間だけの設定：エージェントに使わせないもの {';'.join(r.deny)}" if r.deny else None,
+        "この作業空間だけの設定：エージェントにビルド・テスト等をこのPCで実行させます（host_run）" if r.host_run else None,
     )

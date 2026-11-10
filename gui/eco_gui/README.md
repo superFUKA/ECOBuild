@@ -53,6 +53,22 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `members`（メンバー） | `static/members.js` | 一覧・招待・外す。役割の変更と、管理者でないときの灰色の表示は、まだ |
 | `pipelines`（パイプライン） | `static/pipelines.js` | 一覧・足す・流す・消す。タスクの段階への割り当て（`pipeline on`）は、まだ |
 | `ci`（CI） | `static/ci.js` | 設定の表示・最近の実行・流す。設定の作成・ログ・秘密の値は、まだ |
+| `task`（タスクの詳細） | `static/tasks.js` | 題・本文・状態・コメント。編集（題・段階・優先度・期限・見積もり・担当）・コメント・始める・閉じる・開き直す |
+| `board`（ボード） | `static/tasks.js` | 段階ごとの列。段階を変える（計画中・未着手の間だけ。CLI の決まり） |
+| `schedule`（日程） | `static/tasks.js` | 予定の帯・次にやる・期限・スプリント・マイルストーン・担当ごとの量（表示だけ） |
+| `submissions`・`submission`（提出） | `static/submissions.js`・`prs.js` | 届いている提出・自分の提出。差分・手元で確認・承認・差し戻し・取り下げ・取り込む・反映・取り消し |
+| `merge`（取り込み・提出） | `static/branches.js` | ブランチを直接取り込む・提出する・衝突を直すタスクを作る |
+| `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
+| `settings`（設定） | `static/modinfo.js` | 全般・ビルド設定・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
+| `container`（コンテナ） | `static/modinfo.js` | 状態・入・切・起こす・止める・イメージ・レシピ |
+| `hub-settings`・`hub-archive` | `static/hub.js` の設定 | アカウント・全体の設定・AI（ログイン・版）・コンテナのイメージ・ECOBuild の更新・アーカイブと削除 |
+| `agents`・`agent-skills`・`agent-rules`・`agent-presets`・`pc-agents` | `static/agenteditor.js`・`agentrules.js` | 登録・スキル・共通の文・プリセット・Claude Code の版。文書の本文の保存は、まだ（CLI が標準入力かファイルで受けるため） |
+| `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
+| `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語。コマンドの一覧と検索は、まだ |
+| `build`（ビルドと試験） | `static/build.js` | ビルド設定を選ぶ・ビルド・試験（全部・1つ・絞る）・実行・クリーン |
+| `stashes`（退避） | `static/workspace.js` | 一覧・退避・戻す・捨てる（最後の1つ） |
+| `blame`（ファイルの記録） | `static/explorer.js` | ファイルの履歴と、行ごとの記録 |
+| `cpp`（C++） | `static/explorer.js`・`modinfo.js` | サブプロジェクト・依存先・テンプレート |
 
 ## まだ決まっていないこと
 

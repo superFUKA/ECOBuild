@@ -25,7 +25,16 @@ class FakeEcobuild:
 
     def commands(self):
         text = {"type": "string"}
-        specs = self._specs(text)
+        specs = {}
+        # どの試験でも全部の画面のつなぎが確かめられるよう、ほかの試験のファイルが足したコマンドも一覧に入れる
+        for module in ("tasks", "review", "settings", "agents", "polish"):
+            importlib.import_module(f"test_eco_gui_{module}")
+        fakes = [fake() for fake in FakeEcobuild.__subclasses__() if not isinstance(self, fake)]
+        for name, spec in [pair for fake in fakes for pair in fake._specs(text).items()] + list(self._specs(text).items()):
+            known = specs.get(name)
+            if known is not None:  # 同じコマンドをいくつかのファイルが書いている：引数は合わせたもの、ほかは後のもの
+                spec = {**spec, "args": {**spec["args"], "properties": {**known["args"]["properties"], **spec["args"]["properties"]}}}
+            specs[name] = spec
         for spec in specs.values():  # 本物と同じく、どのコマンドも module を受ける
             spec["args"]["properties"]["module"] = text
         return specs
@@ -365,13 +374,20 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.idle()
     assert nodes(relay, window)["info"]["props"]["data"]["name"] == "Calc"
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
-    for screen in ("files", "tasks", "branches", "history", "members", "pipelines", "ci", "overview"):
+    menu = [item["id"] for item in nodes(relay, window)["nav"]["props"]["items"]]
+    assert set(menu) >= {"board", "schedule", "submissions", "agents", "settings", "container", "help"}
+    known = ("files", "tasks", "branches", "history", "members", "pipelines", "ci", "overview")
+    for screen in known:
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
         relay.idle()
         tree = relay.display.tree(window)
         assert (tree["screen"], nodes(relay, window)["nav"]["props"]["current"]) == (screen, screen)
-    assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
     assert [e["message"] for e in relay.display.events_after(0) if e["command"] == "notify"] == []
+    for screen in [item for item in menu if item not in known]:  # ほかの項目も、同じ窓で開ける（中身は、それぞれの試験で）
+        relay.input(window, "nav", "selected", {"id": screen}, human=True)
+        relay.idle()
+        assert relay.display.tree(window)["screen"] == screen
+    assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
 
 
 def test_row_buttons_call_different_commands(relay):

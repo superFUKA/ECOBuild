@@ -24,7 +24,9 @@ SCREEN = {
         {"id": "stage", "part": "button", "props": {"label": "ステージ", "hint": "チェックした変更を、次のコミットに入れる印を付ける"}},
         {"id": "unstage", "part": "button", "props": {"label": "ステージを取り消す", "hint": "チェックした変更のステージだけを取り消す（中身は残す）"}},
         {"id": "discard", "part": "button", "props": {"label": "変更を捨てる", "hint": "チェックしたファイルを、最後のコミットの状態に戻す"}},
-        {"id": "actions", "layout": "row", "children": ["push", "sync", "submit", "stash", "unstash"]},
+        {"id": "actions", "layout": "row", "children": ["push", "sync", "submit", "stash", "unstash", "open_conflicts", "open_container"]},
+        {"id": "open_conflicts", "part": "button", "props": {"label": "衝突を直す…", "hint": "取り込みで衝突したファイルを、どちらの側にするか選ぶ"}},
+        {"id": "open_container", "part": "button", "props": {"label": "コンテナ…"}},
         {"id": "stash", "part": "button", "props": {"label": "退避", "hint": "まだコミットしていない変更を、いったんよける"}},
         {"id": "unstash", "part": "button", "props": {"label": "退避を戻す"}},
         {"id": "push", "part": "button", "props": {"label": "Push", "hint": "コミットを GitHub へ送る"}},
@@ -73,6 +75,8 @@ SCREEN = {
         {"on": "clean.pressed", "run": "clean", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
         # 細かく決めて動かす画面・退避の一覧（この作業空間の窓として開く）
         {"on": "open_build.pressed", "open": "build", "args": {"module": {"arg": "module"}}},
+        {"on": "open_conflicts.pressed", "open": "conflicts", "args": {"module": {"arg": "module"}}},
+        {"on": "open_container.pressed", "open": "container", "args": {"module": {"arg": "module"}}},
         {"on": "open_stashes.pressed", "open": "stashes", "args": {"module": {"arg": "module"}}},
     ],
 }

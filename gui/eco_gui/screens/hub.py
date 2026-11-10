@@ -5,7 +5,10 @@ SCREEN = {
     "window": {"title": "ECOBuild", "width": 900, "height": 720},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["head", "modules", "add_title", "register", "clone", "create"]},
-        {"id": "head", "layout": "row", "children": ["title", "reload", "doctor", "settings", "archive"]},
+        {"id": "head", "layout": "row", "children": ["title", "reload", "doctor", "settings", "archive", "operator", "pc_agents", "help"]},
+        {"id": "operator", "part": "button", "props": {"label": "オペレーター"}},
+        {"id": "pc_agents", "part": "button", "props": {"label": "エージェントの設定"}},
+        {"id": "help", "part": "button", "props": {"label": "ヘルプ"}},
         {"id": "doctor", "part": "button", "props": {"label": "環境チェック"}},
         {"id": "settings", "part": "button", "props": {"label": "設定", "hint": "アカウント・AI・コンテナのイメージ・ECOBuild の更新"}},
         {"id": "archive", "part": "button", "props": {"label": "片付け", "hint": "モジュールをアーカイブ・削除する"}},
@@ -38,6 +41,9 @@ SCREEN = {
         {"on": "modules.action", "when": {"action": "open"}, "open": "overview", "args": {"module": {"payload": "id"}}},
         {"on": "modules.action", "when": {"action": "forget"}, "run": "workspace forget", "args": {"path": {"payload": "id"}}},
         {"on": "doctor.pressed", "open": "doctor"},
+        {"on": "operator.pressed", "open": "operator"},
+        {"on": "pc_agents.pressed", "open": "pc-agents"},
+        {"on": "help.pressed", "open": "help-guide"},
         {"on": "settings.pressed", "open": "hub-settings"},
         {"on": "archive.pressed", "open": "hub-archive"},
         # 足す（ecobuild workspace add <フォルダー>・ecobuild module clone <リポジトリ>・ecobuild module new <名前> --type <型>）

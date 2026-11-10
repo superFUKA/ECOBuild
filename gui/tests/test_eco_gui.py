@@ -20,11 +20,19 @@ class FakeEcobuild:
 
     def __init__(self):
         self.calls = []
+        self.modules = []
         self.members = [{"login": "octocat", "role": "write", "invited": False}, {"login": "hubot", "role": "read", "invited": True}]
 
     def commands(self):
         text = {"type": "string"}
+        specs = self._specs(text)
+        for spec in specs.values():  # 本物と同じく、どのコマンドも module を受ける
+            spec["args"]["properties"]["module"] = text
+        return specs
+
+    def _specs(self, text):
         return {
+            "workspace list": {"description": "モジュールの一覧", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             "account show": {"description": "アカウント", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"}
                for name in ("module show", "task list", "pipeline list", "ci show", "ci status")},
@@ -40,7 +48,12 @@ class FakeEcobuild:
         }
 
     def run(self, name, args, context, on_event):
+        self.modules.append(args.get("module"))
+        args = {key: value for key, value in args.items() if key != "module"}
         self.calls.append((name, args))
+        if name == "workspace list":
+            return {"ok": True, "result": {"modules": [{"path": "C:/work/Calc", "type": "python", "branch": "main"},
+                                                       {"path": "C:/work/Game", "type": "cpp", "branch": "dev"}]}}
         if name == "account show":
             return {"ok": True, "result": {"login": "superFUKA", "role": "admin"}}
         if name == "module members":
@@ -89,17 +102,17 @@ def test_ecobuild_catalog_is_converted_to_the_form_guiframework_reads():
         {"name": "build", "path": "build", "summary": "ビルド", "help": "", "runnable": True, "effect": "change",
          "arguments": [{"name": "TARGETS", "param": "targets", "help": "対象", "required": False, "multiple": True, "type": "str"}],
          "options": [option("clean", "--clean", True, "--no-clean")]}]}, "cpp": {"commands": [{"name": "vs", "path": "vs", "runnable": True, "effect": "change"}]}}}}
-    backend = EcobuildBackend(["ecobuild", "-C", "."])
+    backend = EcobuildBackend(["ecobuild"])
     backend.ask = lambda argv: catalog
     specs = backend.commands()
     assert set(specs) == {"module members", "module members remove", "doctor", "build"}  # 今の型（python）のコマンドだけ足す
     assert specs["doctor"]["weight"] == "confirm"  # 「人がする」は、窓の前の人に確かめてから
-    assert specs["module members remove"]["args"] == {"type": "object", "required": ["user"],
-                                                      "properties": {"user": {"type": "string", "description": "外す人"}}}
+    assert specs["module members remove"]["args"]["required"] == ["user"]
+    assert sorted(specs["module members remove"]["args"]["properties"]) == ["module", "user"]
     assert backend.command_line("module members remove", {"user": "octocat"}, ["yes"]) == [
-        "ecobuild", "-C", ".", "module", "members", "remove", "--yes", "--json", "--", "octocat"]
-    assert backend.command_line("build", {"targets": ["a", "b"], "clean": False}) == [
-        "ecobuild", "-C", ".", "build", "--no-clean", "--json", "--", "a", "b"]
+        "ecobuild", "module", "members", "remove", "--yes", "--json", "--", "octocat"]
+    assert backend.command_line("build", {"targets": ["a", "b"], "clean": False, "module": "C:/m"}) == [
+        "ecobuild", "-C", "C:/m", "build", "--no-clean", "--json", "--", "a", "b"]
 
 
 @pytest.fixture
@@ -123,6 +136,35 @@ def answer(relay, window, yes):
             return overlays[0]
         time.sleep(0.01)
     raise AssertionError("確認が出ません")
+
+
+def test_hub_opens_a_window_per_module_and_commands_run_in_that_module(relay):
+    hub = relay.execute({"command": "open", "screen": "hub"})["window"]
+    relay.idle()
+    assert [row["path"] for row in nodes(relay, hub)["modules"]["props"]["rows"]] == ["C:/work/Calc", "C:/work/Game"]
+    relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "open"}, human=True)
+    relay.idle()
+    opened = [w for w in relay.display.windows() if w["screen"] == "overview"]
+    assert [w["args"] for w in opened] == [{"module": "C:/work/Game"}]
+    assert relay.backend.modules[-1] == "C:/work/Game"  # そのモジュールで読む
+    relay.input(opened[0]["id"], "nav", "selected", {"id": "tasks"}, human=True)  # メニューで切り替えても、同じモジュール
+    relay.idle()
+    assert relay.display.tree(opened[0]["id"])["args"] == {"module": "C:/work/Game"} and relay.backend.modules[-1] == "C:/work/Game"
+    relay.input(hub, "modules", "action", {"id": "C:/work/Calc", "action": "open"}, human=True)
+    relay.idle()
+    assert len(relay.display.windows()) == 3  # モジュールごとに窓
+
+
+def test_the_module_argument_becomes_ecobuild_dash_c():
+    from eco_gui.backend import EcobuildBackend
+
+    backend = EcobuildBackend(["ecobuild"])
+    backend.ask = lambda argv: {"ok": True, "result": {"type": None, "commands": [
+        {"name": "status", "path": "status", "summary": "状態", "runnable": True, "effect": "read", "arguments": [],
+         "options": [{"names": ["--fetch"], "param": "fetch", "flag": True, "type": "bool", "negative": "--no-fetch"}]}]}}
+    assert "module" in backend.commands()["status"]["args"]["properties"]
+    assert backend.command_line("status", {"module": "C:/work/Calc", "fetch": True}) == ["ecobuild", "-C", "C:/work/Calc", "status", "--fetch", "--json"]
+    assert backend.command_line("status", {}) == ["ecobuild", "status", "--json"]
 
 
 def test_the_menu_switches_screens_in_the_same_window(relay):

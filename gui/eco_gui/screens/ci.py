@@ -1,11 +1,13 @@
 """モジュール › CI：設定と、最近の実行。"""
 
+ARGS = {"module": "."}  # モジュールのフォルダー
+
 SCREEN = {
     "root": "page",
     "window": {"title": "CI", "width": 760, "height": 560},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["nav", "head", "config", "runs"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "ci"}},
+        {"id": "nav", "screen": "menu", "args": {"current": "ci", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "run", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "CI", "heading": True}},
         {"id": "run", "part": "button", "props": {"label": "流す", "hint": "作成元のブランチで CI を流す"}},
@@ -25,9 +27,9 @@ SCREEN = {
         }},
     ],
     "bindings": [
-        {"read": "ci show", "to": "config.data"},
-        {"read": "ci status", "to": "runs.rows"},
-        {"on": "run.pressed", "run": "ci run"},
+        {"read": "ci show", "args": {"module": {"arg": "module"}}, "to": "config.data"},
+        {"read": "ci status", "args": {"module": {"arg": "module"}}, "to": "runs.rows"},
+        {"on": "run.pressed", "run": "ci run", "args": {"module": {"arg": "module"}}},
         {"on": "reload.pressed", "refresh": True},
     ],
 }

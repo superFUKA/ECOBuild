@@ -37,6 +37,24 @@ def convert(node: dict[str, Any]) -> dict[str, Any]:
 
 
 class EcobuildBackend(MachineBackend):
+    """ecobuild とのつなぎ。どのコマンドも、引数 module（モジュールのフォルダー）を受ける。
+
+    ecobuild は「どのモジュールで実行するか」を、コマンドの前の `-C <フォルダー>` で受ける（git -C と同じ）。
+    一覧には出ないので、ここで全部のコマンドの引数に足し、呼ぶときに `-C` に直す。
+    """
+
+    def commands(self) -> dict[str, dict[str, Any]]:
+        specs = super().commands()
+        for spec in specs.values():
+            spec["args"]["properties"]["module"] = {"type": "string", "description": "モジュールのフォルダー"}
+        return specs
+
+    def command_line(self, name: str, args: Any, extra: Any = ()) -> list[str]:
+        rest = {key: value for key, value in args.items() if key != "module"}
+        line = super().command_line(name, rest, extra)
+        module = args.get("module")
+        return [*self.argv, "-C", str(module), *line[len(self.argv):]] if module else line
+
     def catalog(self) -> dict[str, Any]:
         data = self.ask(["--help", "--json"])
         result = data.get("result") or {}

@@ -13,9 +13,12 @@ GUIFrameWork を入れた Python で（版は `requirements.txt`）：
 
 ```bat
 cd gui
-set ECOBUILD_GUI_MODULE=C:\path\to\module
-python -m eco_gui.app serve --screen overview
+python -m eco_gui.app serve --screen hub
 ```
+
+ダブルクリックで開くなら `gui/ECOBuildGUINext.pyw`（中継地点を裏で起こし、ハブを開く。もう動いていれば、ハブを前に出す）。
+
+ハブの「開く」で、モジュールの窓が開きます。中継地点は1つで、どのモジュールで実行するかは画面の引数 `module`（`ecobuild -C` に渡る）で決まります。
 
 別の端末から：
 
@@ -30,6 +33,7 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 
 | 画面 | もとの場所 | 状態 |
 |---|---|---|
+| `hub`（ハブ） | `static/hub.js` | モジュールの一覧と「開く」だけ。作る・取得・設定・並べ替えは、まだ |
 | `menu`（モジュールの窓のメニュー） | `static/module.js` の左のメニュー | 選ぶと、同じ窓で画面が切り替わる。どの画面にも置いてある |
 | `overview`（概要） | `static/modinfo.js` のホーム | 名前・型・リポジトリなど。README・ファイルの木は、まだ |
 | `tasks`（タスク） | `static/tasks.js` | 開いているタスクの一覧だけ。ボード・日程・作る・始めるは、まだ |

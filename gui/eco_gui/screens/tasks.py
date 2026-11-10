@@ -1,11 +1,13 @@
 """モジュール › タスク：開いているタスクの一覧。"""
 
+ARGS = {"module": "."}  # モジュールのフォルダー
+
 SCREEN = {
     "root": "page",
     "window": {"title": "タスク", "width": 760, "height": 560},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["nav", "head", "tasks"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "tasks"}},
+        {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "タスク", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
@@ -18,7 +20,7 @@ SCREEN = {
         }},
     ],
     "bindings": [
-        {"read": "task list", "to": "tasks.rows"},
+        {"read": "task list", "args": {"module": {"arg": "module"}}, "to": "tasks.rows"},
         {"on": "reload.pressed", "refresh": True},
     ],
 }

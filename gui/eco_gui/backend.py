@@ -59,7 +59,9 @@ class EcobuildBackend(MachineBackend):
         data = self.ask(["--help", "--json"])
         result = data.get("result") or {}
         commands = list(result.get("commands") or [])
-        kind = result.get("type")  # 今いるモジュールの型のコマンドも足す
-        commands += ((result.get("types") or {}).get(kind) or {}).get("commands") or []
+        # 型ごとのコマンド（build・test・file 等）も足す。中継地点は1つでどの型のモジュールも扱うので、全部の型の分を足す
+        # （同じ名前のコマンドは1つとして扱われる。その型でないモジュールで呼べば、ecobuild が「使えない」と答える）
+        for kind in sorted(result.get("types") or {}):
+            commands += result["types"][kind].get("commands") or []
         return {"name": "ecobuild", "path": "", "runnable": False, "effect": None, "parameters": [],
                 "commands": [convert(node) for node in commands]}

@@ -4,9 +4,9 @@ ARGS = {"module": "."}  # 作業空間のフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "作業空間", "width": 820, "height": 640},
+    "window": {"title": "作業空間", "width": 820, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "commit", "actions", "log_title", "log"]},
+        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "commit", "actions", "tools", "out", "log_title", "log"]},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "module"}, "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
@@ -22,6 +22,11 @@ SCREEN = {
         {"id": "push", "part": "button", "props": {"label": "Push", "hint": "コミットを GitHub へ送る"}},
         {"id": "sync", "part": "button", "props": {"label": "取り込む", "hint": "作成元の新しいコミットを取り込む"}},
         {"id": "submit", "part": "button", "props": {"label": "提出", "hint": "作成元への取り込みを頼む"}},
+        {"id": "tools", "layout": "row", "children": ["build", "test", "clean"]},
+        {"id": "build", "part": "button", "props": {"label": "ビルド"}},
+        {"id": "test", "part": "button", "props": {"label": "試験"}},
+        {"id": "clean", "part": "button", "props": {"label": "クリーン", "hint": "ビルドで作ったものを消す"}},
+        {"id": "out", "part": "output"},
         {"id": "log_title", "part": "note", "props": {"text": "最近のコミット"}},
         {"id": "log", "part": "table", "props": {
             "columns": [{"key": "date", "label": "日時"}, {"key": "author", "label": "だれが"}, {"key": "subject", "label": "何を"}],
@@ -44,5 +49,9 @@ SCREEN = {
         {"on": "push.pressed", "run": "task push", "args": {"module": {"arg": "module"}}},
         {"on": "sync.pressed", "run": "sync", "args": {"module": {"arg": "module"}}},
         {"on": "submit.pressed", "run": "task submit", "args": {"module": {"arg": "module"}}},
+        # ビルド・試験：動かした道具の出力を、続けて出す
+        {"on": "build.pressed", "run": "build", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
+        {"on": "test.pressed", "run": "test", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
+        {"on": "clean.pressed", "run": "clean", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
     ],
 }

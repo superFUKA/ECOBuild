@@ -40,7 +40,8 @@ class FakeEcobuild:
             "task commit": {"description": "コミットします", "weight": "change", "args": {"type": "object", "required": [], "properties": {
                 "paths": {"type": "array", "items": text}, "message": text}}},
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": weight}
-               for name, weight in (("task push", "change"), ("sync", "change"), ("task submit", "confirm"))},
+               for name, weight in (("task push", "change"), ("sync", "change"), ("task submit", "confirm"),
+                                    ("build", "change"), ("test", "change"), ("clean", "change"))},
             "ci run": {"description": "CI を流す", "args": {"type": "object", "properties": {}, "required": []}, "weight": "change"},
             **{f"pipeline {verb}": {"description": verb, "weight": "change",
                                     "args": {"type": "object", "properties": {"name": text, **({"steps": text} if verb == "add" else {})},
@@ -71,6 +72,9 @@ class FakeEcobuild:
         if name == "status":
             return {"ok": True, "result": {"branch": "task/12-login", "task": 12, "ahead": 1, "behind": 0,
                                            "staged": [], "unstaged": ["a.py", "b.py"], "untracked": ["new.txt"]}}
+        if name == "build":
+            for line in ("構成しています…\n", "ビルドしています…\n"):
+                on_event({"event": "output", "message": line})
         if name == "log":
             return {"ok": True, "result": [{"sha": "abc", "subject": "最初", "author": "octocat", "date": "2026-11-01"}]}
         if name == "task list":
@@ -116,7 +120,7 @@ def test_ecobuild_catalog_is_converted_to_the_form_guiframework_reads():
     backend = EcobuildBackend(["ecobuild"])
     backend.ask = lambda argv: catalog
     specs = backend.commands()
-    assert set(specs) == {"module members", "module members remove", "doctor", "build"}  # 今の型（python）のコマンドだけ足す
+    assert set(specs) == {"module members", "module members remove", "doctor", "build", "vs"}  # どの型のコマンドも足す
     assert specs["doctor"]["weight"] == "confirm"  # 「人がする」は、窓の前の人に確かめてから
     assert specs["module members remove"]["args"]["required"] == ["user"]
     assert sorted(specs["module members remove"]["args"]["properties"]) == ["module", "user"]
@@ -201,6 +205,30 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     relay.input(window, "submit", "pressed", {}, human=True)  # 提出は、確かめてから
     assert answer(relay, window, True)["part"] == "confirm-box"
     assert ("task submit", {}) in relay.backend.calls
+
+
+def test_build_output_is_shown_as_it_arrives(relay):
+    window = relay.execute({"command": "open", "screen": "workspace", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    relay.input(window, "build", "pressed", {}, human=True)
+    relay.idle()
+    assert ("build", {}) in relay.backend.calls and relay.backend.modules[-1] == "C:/work/Calc"
+    assert nodes(relay, window)["out"]["props"]["lines"] == ["構成しています…", "ビルドしています…"]
+    relay.input(window, "clean", "pressed", {}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["out"]["props"]["lines"] == []  # 次の実行が始まると、前の出力は消える
+
+
+def test_commands_of_every_module_type_are_listed_once():
+    from eco_gui.backend import EcobuildBackend
+
+    def node(path, effect="change"):
+        return {"name": path.split()[-1], "path": path, "summary": path, "runnable": True, "effect": effect, "arguments": [], "options": []}
+
+    backend = EcobuildBackend(["ecobuild"])
+    backend.ask = lambda argv: {"ok": True, "result": {"type": None, "commands": [node("status", "read")], "types": {
+        "cpp": {"commands": [node("build"), node("vs")]}, "python": {"commands": [node("build"), node("test")]}}}}
+    assert sorted(backend.commands()) == ["build", "status", "test", "vs"]
 
 
 def test_the_menu_switches_screens_in_the_same_window(relay):

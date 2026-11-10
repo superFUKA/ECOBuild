@@ -103,18 +103,21 @@ SCREEN = {
         {"id": "account_use", "part": "button", "props": {"label": "このアカウントで動かす"}},
         {"id": "account_clear", "part": "button", "props": {"label": "結び付けを外す"}},
 
-        # 片付け（module archive・unarchive・delete）
-        {"id": "put_away", "layout": "column", "children": ["away_note", "away_name", "away_row", "delete_note", "delete_row"]},
+        # 片付け（module archive・unarchive・delete）。どのモジュールかは、module show で読んだリポジトリ（人は打たない）
+        {"id": "put_away", "layout": "column", "children": ["away_note", "away_now", "away_row", "delete_note", "delete_row"]},
         {"id": "away_note", "part": "note", "props": {
             "text": "使わなくなったモジュールは、まずアーカイブ（読み取り専用）にします。削除できるのは、アーカイブしたものだけです。"}},
-        {"id": "away_name", "part": "text-input", "props": {
-            "title": "片付けるモジュール（取り違えないように、所有者/名前 を入力）", "placeholder": "例：owner/name"}},
+        {"id": "away_now", "part": "facts", "props": {
+            "items": [{"key": "repository", "label": "片付けるモジュール"}, {"key": "archived", "label": "今の状態"}],
+            "labels": {"archived": {"true": "アーカイブ済み（読み取り専用）", "false": "アーカイブしていない"}}}},
         {"id": "away_row", "layout": "row", "children": ["archive", "unarchive"]},
         {"id": "archive", "part": "button", "props": {"label": "アーカイブする"}},
         {"id": "unarchive", "part": "button", "props": {"label": "アーカイブを解除"}},
         {"id": "delete_note", "part": "note", "props": {
-            "text": "削除すると、GitHub のリポジトリを Issue・PR ごと消します（90日以内なら GitHub のアカウントの設定から戻せます）。"}},
-        {"id": "delete_row", "layout": "row", "children": ["remove_workspaces", "delete"]},
+            "text": "削除すると、GitHub のリポジトリを Issue・PR ごと消します（90日以内なら GitHub のアカウントの設定から戻せます）。アーカイブ済みのときだけ、下に削除の欄が出ます。"}},
+        {"id": "delete_row", "layout": "row", "children": ["delete_confirm", "remove_workspaces", "delete"]},
+        {"id": "delete_confirm", "part": "text-input", "props": {
+            "title": "削除の確かめ（取り違えないように、所有者/名前 を入力）", "placeholder": "例：owner/name"}},
         {"id": "remove_workspaces", "part": "select", "props": {"title": "この PC の作業空間", "options": [
             {"value": "", "label": "残す"}, {"value": "true", "label": "一緒に削除する"}]}},
         {"id": "delete", "part": "button", "props": {"label": "削除する"}},
@@ -165,13 +168,22 @@ SCREEN = {
         {"on": "account_use.pressed", "run": "account use", "args": {"module": {"arg": "module"}, "account": {"value": "account_name"}}},
         {"on": "account_clear.pressed", "run": "account use", "args": {"module": {"arg": "module"}, "clear": True}},
         # 片付け（ecobuild module archive <名前>・module unarchive <名前>・module delete <名前> --confirm <名前> [--remove-workspaces]）
-        # 削除の確かめ（--confirm）には、人が打った名前をそのまま渡す。合っているかは ecobuild が確かめる
-        {"on": "away_name.changed", "set": {"away_name": {"payload": "text"}}},
-        {"on": "archive.pressed", "run": "module archive", "args": {"module": {"arg": "module"}, "name": {"value": "away_name"}}},
-        {"on": "unarchive.pressed", "run": "module unarchive", "args": {"module": {"arg": "module"}, "name": {"value": "away_name"}}},
+        # 名前は、module show で読んだリポジトリを共有の値にして渡す。今の状態に合うボタンだけを出す
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "away_now.data"},
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "into": "module_repository", "from": "repository"},
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "into": "module_archived", "from": "archived"},
+        {"show": "archive", "when": {"module_archived": False}},
+        {"show": "unarchive", "when": {"module_archived": True}},
+        {"show": "delete_confirm", "when": {"module_archived": True}},
+        {"show": "remove_workspaces", "when": {"module_archived": True}},
+        {"show": "delete", "when": {"module_archived": True}},
+        {"on": "archive.pressed", "run": "module archive", "args": {"module": {"arg": "module"}, "name": {"value": "module_repository"}}},
+        {"on": "unarchive.pressed", "run": "module unarchive", "args": {"module": {"arg": "module"}, "name": {"value": "module_repository"}}},
+        # 削除の確かめ（--confirm）だけは、人が打った名前をそのまま渡す。合っているかは ecobuild が確かめる。打つまで押せない
+        {"on": "delete_confirm.changed", "set": {"delete_confirm": {"payload": "text"}}},
         {"on": "remove_workspaces.changed", "set": {"remove_workspaces": {"payload": "value"}}},
-        {"on": "delete.pressed", "run": "module delete", "args": {
-            "module": {"arg": "module"}, "name": {"value": "away_name"}, "confirm": {"value": "away_name"},
+        {"on": "delete.pressed", "run": "module delete", "require": ["confirm"], "args": {
+            "module": {"arg": "module"}, "name": {"value": "module_repository"}, "confirm": {"value": "delete_confirm"},
             "remove_workspaces": {"value": "remove_workspaces"}}},
     ],
 }

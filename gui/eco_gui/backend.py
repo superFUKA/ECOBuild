@@ -11,6 +11,16 @@ from typing import Any
 
 from guiframework import MachineBackend
 
+# 長い文を標準入力で受けるコマンド → その引数。画面からは文（本文）そのものを受け、コマンドラインには `-`
+# （標準入力から読む）を書いて、文は標準入力へ渡す（コマンドラインの長さの上限・改行の扱いに左右されない）。
+# 鍵・トークンには使わない（画面の値は、表示の状況から読める）。
+FROM_STANDARD_INPUT = {
+    "agent registry set": "document", "agent preset set": "document",
+    "agent skill set": "document", "agent skill add": "document",
+    "agent skill preset set": "document", "agent skill preset add": "document",
+    "agent rules set": "common",
+}
+
 
 def convert(node: dict[str, Any]) -> dict[str, Any]:
     """ecobuild の一覧の1件を、約束の形にする。"""
@@ -51,9 +61,16 @@ class EcobuildBackend(MachineBackend):
 
     def command_line(self, name: str, args: Any, extra: Any = ()) -> list[str]:
         rest = {key: value for key, value in args.items() if key != "module"}
+        if self.standard_input(name, args) is not None:  # 文は標準入力で渡す。コマンドラインには「標準入力から」と書く
+            rest[FROM_STANDARD_INPUT[name]] = "-"
         line = super().command_line(name, rest, extra)
         module = args.get("module")
         return [*self.argv, "-C", str(module), *line[len(self.argv):]] if module else line
+
+    def standard_input(self, name: str, args: Any) -> str | None:
+        """標準入力へ渡す文字：長い文を `-` で受けるコマンドの、その引数の文（ほかのコマンドは None）。"""
+        value = args.get(FROM_STANDARD_INPUT.get(name, ""))
+        return value if isinstance(value, str) else None
 
     def catalog(self) -> dict[str, Any]:
         data = self.ask(["--help", "--json"])

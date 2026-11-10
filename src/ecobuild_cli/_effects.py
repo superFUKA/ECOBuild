@@ -15,11 +15,11 @@ from ecobuild_agent import CHANGE, CONFIRM, HUMAN, READ
 EFFECTS = {
     READ: (
         "account list", "account show", "agent conversations", "agent guide", "agent log", "agent registry list", "agent registry show", "agent registry tools", "agent rules show", "agent preset list", "agent preset show", "agent skill list", "agent skill show", "agent skill preset list", "agent skill preset show", "agent status", "agent list", "agent children", "agent token status", "agent version list", "agent version status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
-        "config get", "config list", "files", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
-        "installer show", "installer versions", "log", "milestone list", "milestone status", "module list", "module members", "module settings",
+        "config get", "config list", "files", "help", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
+        "installer check", "installer show", "installer versions", "log", "milestone list", "milestone status", "module list", "module members", "module protection", "module settings",
         "module show", "module types", "pipeline list", "profile list", "project list", "project show", "release list", "show",
         "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
-        "task overdue", "task status", "task workload", "template list", "track", "workspace list",
+        "task overdue", "task status", "task workload", "template list", "tests", "track", "workspace list",
     ),
     CONFIRM: (
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",

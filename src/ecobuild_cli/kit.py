@@ -67,13 +67,13 @@ def test_like(project: str, configuration: str, profile: str, json_output: bool,
                        json_output=json_output)
 
 
-def list_tests_like(project: str, configuration: str, profile: str, json_output: bool) -> int:
-    """test --list の共通の入口：流せるテストの名前（そのまま test に渡せる）。流さない。"""
+def list_tests_like(project: str, configuration: str, profile: str, json_output: bool, *, command: str = "test") -> int:
+    """tests・test --list の共通の入口：流せるテストの名前（そのまま test に渡せる）。流さない。"""
 
     def action(inv):
         return inv.module.list_tests(project=project or None, configuration=configuration, profile=profile or None)
 
-    return run_command("test", action,
+    return run_command(command, action,
                        lambda r: "\n".join(t.name for t in r.tests) + f"\n（{len(r.tests)} 件）" if r.tests else "テストがありません",
                        json_output=json_output)
 

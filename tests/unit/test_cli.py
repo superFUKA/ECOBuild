@@ -176,6 +176,75 @@ def test_help_json_for_one_command(tmp_path, monkeypatch, capsys):
     assert code == 2 and document["error"]["code"] == "usage_error"
 
 
+def _run(capsys, *args):
+    from ecobuild_cli import main
+    with pytest.raises(SystemExit) as stop:
+        main(list(args))
+    captured = capsys.readouterr()
+    return stop.value.code, captured.out, captured.err
+
+
+def test_help_command_reads_the_same_as_the_help_option(tmp_path, monkeypatch, capsys):
+    """ecobuild help [コマンド…]：--help と同じものを、読むコマンドとして出す（--json なら --help --json と同じ）。"""
+    monkeypatch.chdir(tmp_path)
+    code, document = _catalog(capsys)
+    code, out, _ = _run(capsys, "help", "--json")
+    assert code == 0 and json.loads(out)["result"]["commands"] == document["result"]["commands"]
+    assert set(json.loads(out)["result"]["types"]) == {"cpp", "python", "generic"}
+    code, out, _ = _run(capsys, "help", "task", "close", "--json")
+    assert code == 0 and json.loads(out)["command"] == "help task close"
+    assert json.loads(out)["result"] == _catalog(capsys, "task", "close")[1]["result"]
+    code, out, _ = _run(capsys, "help", "task", "close")                      # 人向け：そのコマンドの使い方
+    assert code == 0 and "ecobuild task close" in out and "ISSUE" in out
+    code, out, _ = _run(capsys, "help")
+    assert code == 0 and "コマンド" in out and "task" in out and "help" in out
+    code, out, _ = _run(capsys, "help", "nosuch", "--json")
+    assert code == 2 and json.loads(out)["error"]["code"] == "usage_error"
+    code, out, err = _run(capsys, "help", "nosuch")
+    assert code == 2 and "不明なコマンド" in err
+    code, out, _ = _run(capsys, "help", "deps", "add", "--json")              # ほかの型のコマンド：どこで使えるか
+    assert code == 1 and json.loads(out)["error"]["code"] == "not_supported"
+    listed = {c["name"]: c for c in document["result"]["commands"]}["help"]
+    assert listed["effect"] == "read" and listed["arguments"][0]["multiple"]
+
+
+def test_tests_command_lists_the_tests_without_running(tmp_path, monkeypatch, capsys):
+    """ecobuild tests（型 python・cpp）：流せるテストの一覧を読む（test --list と同じ結果。重さは read）。"""
+    from ecobuild.results import TestEntry, TestList
+    from ecobuild_cli import _output
+    _module_file(tmp_path).write_text('format = 1\n\n[module]\nname = "M"\ntype = "python"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    asked = []
+
+    class Fake:
+        root = tmp_path
+
+        class repository:
+            notices = []
+
+        def list_tests(self, **options):
+            asked.append(options)
+            return TestList((TestEntry("tests/test_a.py::test_one", "tests/test_a.py", 3), TestEntry("tests/test_a.py::test_two")))
+
+    monkeypatch.setattr(_output.Module, "find", classmethod(lambda cls, cwd: Fake()))
+    code, out, _ = _run(capsys, "tests", "--json")
+    document = json.loads(out)
+    assert code == 0 and document["command"] == "tests"
+    assert document["result"]["tests"][0] == {"name": "tests/test_a.py::test_one", "file": "tests/test_a.py", "line": 3}
+    code, out, _ = _run(capsys, "tests", "--configuration", "Release")
+    assert code == 0 and "tests/test_a.py::test_two" in out and "2 件" in out
+    code, out, _ = _run(capsys, "test", "--list", "--json")                   # 今までの書き方も同じ結果
+    assert json.loads(out)["result"] == document["result"]
+    assert asked == [{"project": None, "configuration": "", "profile": None},
+                     {"project": None, "configuration": "Release", "profile": None},
+                     {"project": None, "configuration": "", "profile": None}]
+    code, document = _catalog(capsys, "tests")
+    assert document["result"]["effect"] == "read"
+    code, document = _catalog(capsys)
+    for kind, has in (("python", True), ("cpp", True), ("generic", False)):
+        assert ("tests" in {c["name"] for c in document["result"]["types"][kind]["commands"]}) is has
+
+
 def test_help_json_for_other_type_command_says_where(tmp_path, monkeypatch, capsys):
     """型のコマンドを、その型のモジュールの外で求めた：「不明なコマンド」ではなく、どこで使えるかを言う。"""
     monkeypatch.chdir(tmp_path)

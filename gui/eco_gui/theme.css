@@ -161,3 +161,58 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
 [data-gf-look="grow"] { flex: 1; min-width: 0; min-height: 0; }
 [data-gf-look="split"] { flex-wrap: nowrap; align-items: stretch; }
 [data-gf-look="split"] > * { flex: 1; min-width: 0; }
+[data-gf-look="side"] { flex: none; width: 260px; min-width: 0; }
+[data-gf-look="pane"] { padding: 14px 16px; background: var(--eco-panel); border: 1px solid var(--eco-line); border-radius: 10px; min-width: 0; }
+[data-gf-look="end"] { justify-content: flex-end; align-items: center; }
+[data-gf-look="center"] { align-items: center; }
+[data-gf-look="top"] { align-items: flex-start; }
+[data-gf-look="nowrap"] { flex-wrap: nowrap; }
+[data-gf-look="tight"] { gap: 4px; }
+[data-gf-look="scroll"] { overflow: auto; min-height: 0; }
+[data-gf-look="actions"] { justify-content: flex-end; align-items: center; gap: 10px; margin-top: 8px; padding-top: 14px; border-top: 1px solid #343c46; }
+
+/* ==========================================================================
+   ここから下は、画面の範囲ごとの節。自分の範囲の節の中だけに書く
+   （部品の中の見た目は、ここではなく parts/<名前>/part.css に書く）。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   節：ハブ（hub・hub_settings・hub_archive・doctor・operator・pc_agents・help_guide）
+   -------------------------------------------------------------------------- */
+
+/* （ハブの節の終わり） */
+
+
+/* --------------------------------------------------------------------------
+   節：タスク管理（tasks・task・board・schedule）
+   -------------------------------------------------------------------------- */
+
+/* （タスク管理の節の終わり） */
+
+
+/* --------------------------------------------------------------------------
+   節：提出・取り込み・衝突（submissions・submission・merge・conflicts）
+   -------------------------------------------------------------------------- */
+
+/* （提出・取り込み・衝突の節の終わり） */
+
+
+/* --------------------------------------------------------------------------
+   節：作業空間（workspace・files・build・stashes・blame・cpp）
+   -------------------------------------------------------------------------- */
+
+/* （作業空間の節の終わり） */
+
+
+/* --------------------------------------------------------------------------
+   節：モジュールのページ（overview・branches・history・ci・pipelines・members）
+   -------------------------------------------------------------------------- */
+
+/* （モジュールのページの節の終わり） */
+
+
+/* --------------------------------------------------------------------------
+   節：設定・エージェント・ヘルプ（settings・container・agents ほか・help）
+   -------------------------------------------------------------------------- */
+
+/* （設定・エージェント・ヘルプの節の終わり） */

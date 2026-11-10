@@ -16,9 +16,12 @@ SCREEN = {
         # 予定：開始予定〜終了予定の帯と、期限の印
         {"id": "timeline", "part": "timeline", "props": {"empty_text": "開いているタスクはありません。"}},
         # 次にやる：順番と理由は ecobuild が決める
-        {"id": "next", "part": "next-list", "props": {
-            "details": [{"key": "priority", "label": "優先度"}, {"key": "due", "label": "期限"}, {"key": "estimate", "label": "見積もり"},
-                        {"key": "sprint", "label": "スプリント"}, {"key": "assignees", "label": "担当"}],
+        {"id": "next", "part": "table", "props": {
+            "columns": [{"key": "task.number", "label": "#"}, {"key": "task.title", "label": "題名"}, {"key": "reasons", "label": "理由"},
+                        {"key": "task.priority", "label": "優先度"}, {"key": "task.due", "label": "期限"},
+                        {"key": "task.estimate", "label": "見積もり"}, {"key": "task.sprint", "label": "スプリント"},
+                        {"key": "task.assignees", "label": "担当"}],
+            "key": "task.number", "numbered": True, "actions": [{"name": "open", "label": "詳細"}],
             "empty_text": "着手できるタスクはありません。",
         }},
         # 期限：切れたものと、近いもの
@@ -71,7 +74,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task list", "args": {"module": {"arg": "module"}}, "to": "timeline.rows"},
-        {"read": "task next", "args": {"module": {"arg": "module"}, "count": 10}, "to": "next.items"},
+        {"read": "task next", "args": {"module": {"arg": "module"}, "count": 10}, "to": "next.rows"},
         {"read": "task overdue", "args": {"module": {"arg": "module"}, "days": 7}, "to": "overdue.rows", "from": "overdue"},
         {"read": "task overdue", "args": {"module": {"arg": "module"}, "days": 7}, "to": "soon.rows", "from": "soon"},
         {"read": "sprint list", "args": {"module": {"arg": "module"}}, "to": "sprints.rows"},
@@ -84,7 +87,7 @@ SCREEN = {
         {"on": "sprints.action", "set": {"sprint": {"payload": "id"}}},
         # どの並びからも、タスクの詳細を開ける
         {"on": "timeline.selected", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
-        {"on": "next.selected", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
+        {"on": "next.action", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
         {"on": "overdue.action", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
         {"on": "soon.action", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
         {"on": "sprint_tasks.action", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},

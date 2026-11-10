@@ -55,6 +55,30 @@ class EcobuildBackend(MachineBackend):
         module = args.get("module")
         return [*self.argv, "-C", str(module), *line[len(self.argv):]] if module else line
 
+    def dry_run(self, name: str, args: dict[str, Any]) -> str:
+        """確認に出す「前もっての確かめ」。人が `--dry-run` を付けて打ったときに出る文を、そのまま出す。
+
+        ecobuild の --dry-run の結果（JSON）は、コマンドごとに形の違う辞書で、文字の `preview` を持たない。
+        人向けの文は ecobuild が自分で組み立てる（--json なしの出力）ので、それを使う。できなかったときは、その理由の文。
+        """
+        import os
+        import subprocess
+
+        from guiframework import GuiFrameworkError
+
+        try:
+            line = self.command_line(name, args, ["dry_run"])
+            # 人が打つのと同じにする：機械向けの --json（オプションの後ろ、位置引数の「--」の前に1つだけ付く）を外す
+            at = next(index for index, word in enumerate(line)
+                      if word == "--json" and (index + 1 == len(line) or line[index + 1] == "--"))
+            env = {**os.environ, **self.extra_env}
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+            done = subprocess.run(line[:at] + line[at + 1:], stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8",
+                                  errors="replace", timeout=self.timeout, env=env)
+        except (OSError, subprocess.SubprocessError, StopIteration, GuiFrameworkError):
+            return ""
+        return (done.stdout if done.returncode == 0 else done.stderr or done.stdout).strip()
+
     def catalog(self) -> dict[str, Any]:
         data = self.ask(["--help", "--json"])
         result = data.get("result") or {}

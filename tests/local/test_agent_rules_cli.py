@@ -53,3 +53,37 @@ def test_module_settings_are_changed_on_a_task_branch_and_committed(module, cli)
     assert cli("agent", "registry", "remove", "reviewer", "--yes")["ok"]
     assert not (module.root / registry.MODULE_FOLDER / "reviewer").exists()
     assert cli("agent", "preset", "remove", "my-reviewer", "--yes")["ok"]
+
+
+def test_tools_have_areas_and_fit_tells_what_a_choice_of_tools_comes_to(module, cli):
+    tools = {t["name"]: t for t in cli("agent", "registry", "tools")["result"]}
+    assert tools["task_commit"]["area"] == "タスク" and tools["status"]["area"] == "状態・履歴を見る"
+    assert all(t["area"] for t in tools.values())
+
+    now = cli("agent", "registry", "fit", "lead")["result"]             # 書かなければ、今の並び（見本の lead は *）
+    assert (now["tools"], now["count"], now["total"]) == (["*"], len(tools), len(tools))
+    assert now["owner"] > 0 and now["too_many"] == (len(tools) > now["limit"]) and now["stronger"] == []
+    narrow = cli("agent", "registry", "fit", "lead", "--tools", "status,diff")["result"]
+    assert (narrow["count"], narrow["owner"], narrow["too_many"]) == (2, 0, False)
+    assert {"manager", "worker"} <= set(narrow["stronger"])            # 子より弱くなる（その子は選べない）
+    child = cli("agent", "registry", "fit", "worker", "--tools", "*")["result"]
+    assert isinstance(child["parents"], list)
+    none = cli("agent", "registry", "fit", "lead", "--tools", "")["result"]
+    assert (none["tools"], none["count"]) == ([], 0)
+    assert cli("agent", "registry", "fit", "nobody")["ok"] is False
+
+
+def test_add_can_set_the_title_who_starts_it_and_leave_out_the_owner_tools(module, cli):
+    module.repository.create_task("役").start(name="役")
+    added = cli("agent", "registry", "add", "reviewer", "--from-preset", "worker", "--title", "レビュー役", "--human-start",
+                "--no-owner-tools")
+    assert added["ok"], added["error"]
+    added = added["result"]
+    marks = {t["name"]: t["mark"] for t in cli("agent", "registry", "tools")["result"]}
+    assert (added["title"], added["human_start"], bool(added["committed"])) == ("レビュー役", True, True)
+    assert added["tools"] and all(marks[name] != "owner" for name in added["tools"])
+    assert added["children"] == []                                      # 写した元の子（すべてのツールを持つ）は、強くなるので外れる
+    assert git(module.root, "status", "--porcelain").strip() == ""
+    plain = cli("agent", "registry", "add", "helper", "--from-preset", "worker")["result"]      # 書かなければ、写した元のまま
+    worker = next(r for r in cli("agent", "preset", "list")["result"] if r["name"] == "worker")
+    assert (plain["title"], plain["human_start"], plain["tools"]) == (worker["title"], worker["human_start"], worker["tools"])

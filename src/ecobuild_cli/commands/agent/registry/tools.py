@@ -13,14 +13,14 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
 
     ECOBuild のコマンドのうちエージェントに許すもの（印：read・change・owner。owner はタスクの持ち主だけ）と、
     子のエージェントを扱うツール（children）です。モジュールの中では、その型のコマンドも入ります（外では、
-    すべての型のコマンド：プリセットを直すとき）。
+    すべての型のコマンド：プリセットを直すとき）。area は、何についてのツールか（タスク・ファイル・ビルド・試験 等）です。
     """
     def action(inv):
         try:
             root = inv.module.root
         except EcoBuildError:       # モジュールの外
             root = None
-        return [AgentTool(*t) for t in _rules.tool_list(root, (sys.executable, "-m", "ecobuild_cli"))]
+        return [AgentTool(*t, area=_rules.tool_area(t[0])) for t in _rules.tool_list(root, (sys.executable, "-m", "ecobuild_cli"))]
 
     return run_command("agent registry tools", action,
                        lambda r: "\n".join(f"{t.name}（{t.mark}）：{t.summary}" for t in r), json_output=json)

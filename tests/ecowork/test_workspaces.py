@@ -298,6 +298,26 @@ def test_stash_does_not_pop_another_workspaces_changes(repository, tmp_path):
     assert code_of(first.repository.stash_pop) == ErrorCode.UNFINISHED_WORK
 
 
+def test_stash_chosen_by_number_must_be_this_branchs(repository, tmp_path):
+    """番号で選ぶ（stash pop <番号>）：選べるのは、省略したときに選ばれうるもの（このブランチのもの）だけ。"""
+    _, first = started(repository, tmp_path / "1")
+    _, second = started(repository, tmp_path / "2", title="u")
+    for name in ("a", "b"):
+        write(tmp_path / "1" / f"{name}.txt", "1\n")
+        first.repository.stash()
+    write(tmp_path / "2" / "two.txt", "2\n")
+    second.repository.stash()                          # 0：2 のもの、1：b、2：a
+    assert code_of(lambda: first.repository.stash_pop(0)) == ErrorCode.UNFINISHED_WORK
+    assert code_of(lambda: first.repository.stash_drop(0)) == ErrorCode.UNFINISHED_WORK
+    assert code_of(lambda: first.repository.stash_pop(3)) == ErrorCode.NO_STASH
+    first.repository.stash_pop(2)                      # 古いほう（a）を選んで戻す
+    assert (tmp_path / "1" / "a.txt").exists() and not (tmp_path / "1" / "b.txt").exists()
+    assert len(first.repository.stash_drop(1).entries) == 1     # b を捨てる。残るのは 2 のもの
+    assert not (tmp_path / "1" / "b.txt").exists() and not (tmp_path / "1" / "two.txt").exists()
+    second.repository.stash_pop(0)
+    assert (tmp_path / "2" / "two.txt").exists()
+
+
 # 依存先の clone（作業空間を持たない clone）は今どおりその場で切り替える -------------------------------
 
 def test_a_dependency_clone_still_switches_in_place(repository, remote_and_clone, tmp_path):

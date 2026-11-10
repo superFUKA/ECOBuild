@@ -1298,9 +1298,10 @@ class Module:
         self._reload()
         return result
 
-    def stash_pop(self) -> wm.StashResult:
+    def stash_pop(self, index: int | None = None) -> wm.StashResult:
+        """index：戻すものの番号（stash list の番号。省略すると、このブランチで最後に退避したもの）。"""
         try:
-            return self.repository.stash_pop()
+            return self.repository.stash_pop(index)
         finally:
             self._reload()
 

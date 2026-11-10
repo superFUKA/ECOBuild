@@ -929,8 +929,13 @@ def test_team_commands(cli, module):
     protected = as_json(cli("module", "protect", "--approvals", "1", "--yes", "--json"))
     assert protected["result"]["approvals"] == 1 and "require_approval" in " ".join(protected["notices"])
     assert "承認 1 人" in cli("module", "protect", "--show").stdout
+    shown = as_json(cli("module", "protection", "--json"))                 # 読むコマンド（protect --show と同じ結果）
+    assert shown["command"] == "module protection" and shown["result"]["approvals"] == 1
+    assert shown["result"] == as_json(cli("module", "protect", "--show", "--json"))["result"]
+    assert "承認 1 人" in cli("module", "protection").stdout
     assert cli("module", "protect", "--show", "--off").exit_code == 2
     assert "外しました" in cli("module", "protect", "--off", "--yes").stdout
+    assert as_json(cli("module", "protection", "--json"))["result"] is None
     github.free_private = True
     assert as_json(cli("module", "protect", "--yes", "--json"))["error"]["code"] == "plan_required"
 
@@ -1111,3 +1116,23 @@ def test_apply_partial_in_the_workspace_keeps_it(cli, module):
     assert work.exists() and git(work, "branch", "--show-current") == "task/1-途中"
     assert git(work, "rev-parse", "HEAD") == git(module.root, "rev-parse", "origin/main")
     assert as_json(cli("status", "--json"))["result"]["task"] == 1
+
+
+def test_stash_pop_and_drop_take_the_number_of_the_list(cli, module):
+    """stash pop・stash drop [番号]：stash list の番号で選ぶ（省略すると、今までどおり最後に退避したもの）。"""
+    for name in ("one", "two", "three"):
+        write(module.root / f"{name}.txt", name)
+        assert as_json(cli("stash", "--json"))["result"]["stashed"]
+    assert len(as_json(cli("stash", "list", "--json"))["result"]) == 3
+    assert cli("stash", "list").stdout.splitlines()[0].startswith("0: ")     # 番号つき（0 が最後に退避したもの）
+    assert cli("stash", "pop", "1").exit_code == 0                            # 2番目（two）を戻す
+    assert (module.root / "two.txt").exists() and not (module.root / "three.txt").exists()
+    assert len(as_json(cli("stash", "list", "--json"))["result"]) == 2
+    assert as_json(cli("stash", "drop", "--index", "1", "--json"))["ok"]      # 残りの2番目（one）を捨てる
+    assert len(as_json(cli("stash", "list", "--json"))["result"]) == 1
+    assert as_json(cli("stash", "pop", "5", "--json"))["error"]["code"] == "no_stash"
+    assert as_json(cli("stash", "drop", "5", "--json"))["error"]["code"] == "no_stash"
+    assert cli("stash", "pop", "0", "1").exit_code == 2                       # 番号は1つだけ
+    assert cli("stash", "pop").exit_code == 0                                 # 省略：最後に退避したもの（three）
+    assert (module.root / "three.txt").exists() and not (module.root / "one.txt").exists()
+    assert as_json(cli("stash", "list", "--json"))["result"] == []

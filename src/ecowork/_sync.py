@@ -185,8 +185,9 @@ class Syncing:
         stashed = self.git.stash_push()
         return wm.StashResult(stashed, self._stash_messages())
 
-    def _own_stash(self) -> int:
-        """このブランチで退避した、いちばん新しい変更の番号（stash@{n}）。
+    def _own_stash(self, index: int | None = None) -> int:
+        """このブランチで退避した、いちばん新しい変更の番号（stash@{n}）。index を渡したら、その番号のもの
+        （ここで戻してよいものでなければ止める。選べるのは、省略したときに選ばれうるものと同じ）。
 
         退避（refs/stash）は作業空間どうしで共有なので、別のタスクブランチ（ほかの作業空間）で退避したものは選ばない
         （変更が別のIssueの作業に混ざるのを防ぐ。task start と同じ考え方）。元の clone 等（その場で切り替える所）では、
@@ -204,11 +205,29 @@ class Syncing:
             others = {branch for branch, path in self.git.checked_out_branches().items()
                       if not _git.same_path(path, self.root)}
             detached_elsewhere = len(self.git.worktrees()) > 1
-        for entry in entries:
+
+        def own(entry) -> bool:
             source = _stash_branch(entry.message)
-            if source == current or (carry and (
-                    not detached_elsewhere if source is None
-                    else not wm.is_task_branch(source) and source not in others)):
+            return source == current or (carry and (
+                not detached_elsewhere if source is None
+                else not wm.is_task_branch(source) and source not in others))
+
+        if index is not None:
+            chosen = next((entry for entry in entries if entry.index == index), None)
+            if chosen is None:
+                raise WorkError(ErrorCode.NO_STASH, f"番号 {index} の退避した変更はありません。",
+                                hint=f"{self._op('stash list')} で番号を確かめてください。")
+            if own(chosen):
+                return index
+            source = _stash_branch(chosen.message)
+            raise WorkError(
+                ErrorCode.UNFINISHED_WORK,
+                f"番号 {index} の退避した変更は {source or '切り離された状態'} のものです（今は {current or '切り離された状態'}）。",
+                hint=f"{self._op('task start')} {wm.task_number(source)} で戻ってから、そこで戻す・捨てるをしてください。"
+                if source is not None and wm.is_task_branch(source) else "退避した場所（作業空間）で戻す・捨てるをしてください。",
+            )
+        for entry in entries:
+            if own(entry):
                 return entry.index
         source = _stash_branch(entries[0].message)
         if source is not None and wm.is_task_branch(source):
@@ -220,9 +239,10 @@ class Syncing:
             )
         raise WorkError(ErrorCode.NO_STASH, f"{current or 'ここ'} で退避した変更はありません（ほかのブランチのものだけです）。")
 
-    def stash_pop(self) -> wm.StashResult:
-        """このブランチで最後に退避した変更を戻す（ほかのタスクブランチのものは戻さない：_own_stash）。"""
-        index = self._own_stash()
+    def stash_pop(self, index: int | None = None) -> wm.StashResult:
+        """このブランチで最後に退避した変更を戻す（ほかのタスクブランチのものは戻さない：_own_stash）。
+        index：戻すものの番号（stashes の並びの位置。0 が最後に退避したもの）。"""
+        index = self._own_stash(index)
         outcome = self.git.stash_pop(index)
         if not outcome.merged:
             # sync continue が直したファイルの登録を外して解決済みにする（タスクブランチでないブランチでも）
@@ -232,9 +252,10 @@ class Syncing:
                             details=list(outcome.conflicted))
         return wm.StashResult(True, self._stash_messages())
 
-    def stash_drop(self) -> wm.StashResult:
-        """このブランチで最後に退避した変更を捨てる（ほかのタスクブランチのものは捨てない：_own_stash）。"""
-        index = self._own_stash()
+    def stash_drop(self, index: int | None = None) -> wm.StashResult:
+        """このブランチで最後に退避した変更を捨てる（ほかのタスクブランチのものは捨てない：_own_stash）。
+        index：捨てるものの番号（stashes の並びの位置）。"""
+        index = self._own_stash(index)
         self.git.run("stash", "drop", "--quiet", f"stash@{{{index}}}")
         return wm.StashResult(False, self._stash_messages())
 

@@ -94,3 +94,23 @@ def test_source_installs_have_no_versions(monkeypatch):
     with pytest.raises(EcoBuildError) as error:
         _self_update.versions()
     assert error.value.code == ErrorCode.NOT_UPDATABLE
+
+
+def test_installer_check_command_only_compares(monkeypatch):
+    """ecobuild installer check：新しい版があるかを読むだけ（installer update --check と同じ結果。入れ直さない）。"""
+    import json
+
+    from click.testing import CliRunner
+
+    from ecobuild_cli import _effects, build_cli
+    monkeypatch.setattr(_self_update, "installed", lambda: _self_update.Installed("https://example.invalid/E", "main", OLD))
+    monkeypatch.setattr(_self_update, "_remote_commit", lambda url, ref: NEW)
+    monkeypatch.setattr(_self_update, "update", lambda ref=None: pytest.fail("入れ直してはいけない"))
+    runner = CliRunner()
+    checked = json.loads(runner.invoke(build_cli(None), ["installer", "check", "--json"]).stdout)
+    assert checked["command"] == "installer check"
+    assert (checked["result"]["up_to_date"], checked["result"]["latest"], checked["result"]["started"]) == (False, NEW, False)
+    assert checked["result"] == json.loads(runner.invoke(build_cli(None), ["installer", "update", "--check", "--json"]).stdout)["result"]
+    assert "新しい版があります" in runner.invoke(build_cli(None), ["installer", "check"]).stdout
+    assert json.loads(runner.invoke(build_cli(None), ["installer", "check", "--ref", OLD, "--json"]).stdout)["result"]["up_to_date"]
+    assert _effects.effect("installer check") == "read" and _effects.effect("installer update") == "human"

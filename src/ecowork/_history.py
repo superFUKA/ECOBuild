@@ -73,6 +73,11 @@ class History:
                             hint="--gui を付けずに実行してください（文字で表示します）。")
         return parent, sha
 
+    def files(self) -> list[str]:
+        """管理しているファイルと、まだ管理していない新しいファイル（.gitignore の対象は除く）。パスの順。"""
+        listed = self.git.output("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+        return sorted({name for name in listed.split("\0") if name})
+
     def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
         """未コミットの変更の差分。staged：ステージ済みだけ。base：タスクブランチの作成元との差分（PRの差分）。"""
         args = ["diff"]

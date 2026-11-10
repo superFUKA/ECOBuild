@@ -1,6 +1,6 @@
 """組み立て。バックエンドは `ecobuild -C <モジュールのフォルダー>`。
 
-    python -m eco_gui.app serve --screen members      # gui/ のフォルダーで。中継地点を起こし、画面を開く
+    python -m eco_gui.app serve --screen overview     # gui/ のフォルダーで。中継地点を起こし、モジュールの窓を開く
     python -m eco_gui.app tree                        # 別の端末から：今の表示を読む
 
 モジュールのフォルダーは環境変数 ECOBUILD_GUI_MODULE（なければ今のフォルダー）。

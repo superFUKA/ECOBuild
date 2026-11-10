@@ -35,7 +35,10 @@ class PolishEcobuild(FakeEcobuild):
             "build": spec("change", **build), "rebuild": spec("change", **build), "clean": spec("change", **build),
             "run": spec("change", argv=many, arguments=text, **build),
             "test": spec("change", tests=many, filter=text, last_failed=flag, list=flag, **build),
-            "stash list": spec("read"), "stash drop": spec("confirm"),
+            "stash list": spec("read"), "stash": spec("change"),
+            "stash pop": spec("change", number={"type": "integer"}, index={"type": "integer"}),
+            "stash drop": spec("confirm", number={"type": "integer"}, index={"type": "integer"}),
+            "tests": spec("read", project=text, **build),
             "restore": spec("confirm", paths=many, staged=flag, source=text),
             "task add": spec("change", paths=many, all=flag),
             "ignore": spec("change", patterns=many),
@@ -66,7 +69,12 @@ class PolishEcobuild(FakeEcobuild):
         if name == "stash list":
             return {"ok": True, "result": list(self.stashes)}
         if name in ("stash pop", "stash drop"):
-            self.stashes = self.stashes[1:]
+            del self.stashes[args.get("index", 0)]  # 番号を省けば、最後に退避したもの
+        if name == "tests":
+            return {"ok": True, "result": {"tests": [
+                {"name": "tests/test_app.py::test_add", "file": "tests/test_app.py", "line": 4},
+                {"name": "tests/test_app.py::test_sub", "file": "tests/test_app.py", "line": 9},
+                {"name": "tests/test_login.py::test_login", "file": "tests/test_login.py", "line": 3}]}}
         if name == "test":
             on_event({"event": "output", "message": "2 passed\n"})
         if name == "blame":

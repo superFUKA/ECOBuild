@@ -22,6 +22,7 @@ def test_prepare_installs_once_per_requirements(tmp_path, monkeypatch):
     eco_gui_setup.prepare(venv)
     assert [c[1:3] for c in calls] == [["-m", "venv"], ["-m", "pip"]]
     assert "--force-reinstall" in calls[1]  # 版の番号が同じでも、コミットが違えば入れ直す
+    assert "-r" not in calls[1] and any(word.startswith("GUIFrameWork @ git+") for word in calls[1])  # pip にファイルを読ませない
     eco_gui_setup.prepare(venv)
     assert len(calls) == 2  # requirements.txt が同じなら、入れ直さない
     (venv / "eco_gui-requirements.txt").write_text("古い版", encoding="utf-8")

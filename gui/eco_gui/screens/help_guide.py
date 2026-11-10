@@ -1,4 +1,4 @@
-"""ヘルプ（使い方）：作業の流れと用語。モジュールの外の画面（ハブから開く）。モジュールの窓では、画面 help がこれを中に置く。"""
+"""ヘルプ：作業の流れ・用語と、コマンドの一覧（ecobuild help）。モジュールの外の画面（ハブから開く）。モジュールの窓では、画面 help がこれを中に置く。"""
 
 SCREEN = {
     "root": "page",
@@ -6,8 +6,8 @@ SCREEN = {
     "nodes": [
         {"id": "page", "layout": "column", "children": ["title", "intro", "tabs"]},
         {"id": "title", "part": "note", "props": {"text": "ヘルプ", "heading": True}},
-        {"id": "intro", "part": "note", "props": {"text": "ECOBuild の作業は、タスク（GitHub の Issue）ごとに進めます。GUI のボタンは、ecobuild のコマンドを実行しています。コマンドの使い方は、端末で ecobuild <コマンド> --help で見られます。"}},
-        {"id": "tabs", "layout": "tabs", "props": {"labels": ["使い方", "用語"]}, "children": ["guide", "terms"]},
+        {"id": "intro", "part": "note", "props": {"text": "ECOBuild の作業は、タスク（GitHub の Issue）ごとに進めます。GUI のボタンは、ecobuild のコマンドを実行しています。コマンドの使い方は「コマンド」のタブで探せます（端末では ecobuild help <コマンド>）。"}},
+        {"id": "tabs", "layout": "tabs", "props": {"labels": ["使い方", "用語", "コマンド"]}, "children": ["guide", "terms", "commands"]},
         {"id": "guide", "layout": "column", "children": ["step1_title", "step1", "step2_title", "step2", "step3_title", "step3",
                                                           "step4_title", "step4", "step5_title", "step5", "step6_title", "step6"]},
         {"id": "step1_title", "part": "note", "props": {"text": "1. モジュールを用意する", "heading": True}},
@@ -36,6 +36,11 @@ SCREEN = {
                 "profile": "名前を付けたビルドの設定（構成・並列数と、型ごとの項目）。",
             },
         }},
+        # コマンドの一覧と、選んだコマンドの使い方（ecobuild help --json）。探す・型で絞る・選ぶのは、部品の中
+        {"id": "commands", "part": "command-list", "props": {
+            "first": "task start", "type_labels": {"cpp": "C++", "python": "Python", "generic": "汎用"}}},
     ],
-    "bindings": [],
+    "bindings": [
+        {"read": "help", "to": "commands.catalog"},
+    ],
 }

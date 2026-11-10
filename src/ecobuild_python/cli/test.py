@@ -11,7 +11,7 @@ def command(
     *tests: Annotated[str, "流すテスト（ファイル・フォルダ・tests/x.py::test_a。省略すると全部）"],
     filter: Annotated[str, "名前で選ぶ式（pytest の -k。例：\"add and not slow\"）"] = "",
     last_failed: Annotated[bool, "前回失敗したテストだけ流す（pytest の --last-failed。前回の失敗がなければ全部）"] = False,
-    list: Annotated[bool, "流せるテストの一覧を出す（流さない。名前はそのまま ecobuild test に渡せる）"] = False,
+    list: Annotated[bool, "流せるテストの一覧を出す（流さない。ecobuild tests と同じ）"] = False,
     configuration: Annotated[str, "構成（Debug／Release。既定：ビルド設定の構成、なければDebug）"] = "",
     profile: Annotated[str, "名前付きビルド設定（既定：ecobuild profile use で選んだもの）"] = "",
     json: Annotated[bool, "結果をJSONで出力する（テストごとの結果は result.cases。失敗のときは error.details の counts・cases）"] = False,

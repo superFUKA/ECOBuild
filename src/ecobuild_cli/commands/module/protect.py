@@ -18,7 +18,7 @@ def render_protection(p) -> str:
 def command(
     approvals: Annotated[int, "取り込みに要る承認の数（既定：[task] require_approval なら1、なければ0）"] = -1,
     require_ci: Annotated[bool, "作成元の最新のコミットの CI の項目が通っていることも必須にする"] = False,
-    show: Annotated[bool, "今の設定を表示するだけにする"] = False,
+    show: Annotated[bool, "今の設定を表示するだけにする（ecobuild module protection と同じ）"] = False,
     off: Annotated[bool, "ブランチの保護を外す"] = False,
     yes: Annotated[bool, "確認せずに実行する"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,

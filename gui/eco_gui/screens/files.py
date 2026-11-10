@@ -1,4 +1,6 @@
-"""モジュール › ファイル：ファイルの木と、選んだファイルのまだコミットしていない変更。足す・動かす・消す・変更を捨てる。"""
+"""モジュール › ファイル：ファイルの木と、選んだファイルのまだコミットしていない変更。足す・動かす・消す・変更を捨てる。
+
+C++ のモジュールでだけ使えるもの（サブプロジェクトの画面・試験を作る・テンプレート）は、モジュールの型が cpp のときだけ出す。"""
 
 ARGS = {"module": "."}  # モジュールのフォルダー
 
@@ -33,8 +35,10 @@ SCREEN = {
         {"id": "restore_checked", "part": "button", "props": {"label": "まとめて変更を捨てる"}},
         {"id": "uncheck", "part": "button", "props": {"label": "チェックを外す"}},
         # 足す
-        {"id": "add", "layout": "row", "children": ["new_path", "do_add"]},
+        {"id": "add", "layout": "row", "children": ["new_path", "template", "do_add"]},
         {"id": "new_path", "part": "text-input", "props": {"title": "新しいファイル（フォルダーごと書くと、フォルダーも作る）", "placeholder": "例：src/util/text.py"}},
+        {"id": "template", "part": "text-input", "props": {
+            "title": "テンプレート（C++。空なら拡張子で選ぶ）", "placeholder": "例：header（C++ のサブプロジェクト › テンプレート）"}},
         {"id": "do_add", "part": "button", "props": {"label": "＋ 足す", "primary": True}},
         {"id": "ignore", "layout": "row", "children": ["pattern", "do_ignore"]},
         {"id": "pattern", "part": "text-input", "props": {"title": "無視するパターン（.gitignore に足す）", "placeholder": "例：*.log"}},
@@ -44,26 +48,35 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "tree.paths", "from": "files"},
+        # モジュールの型（ecobuild module show の type）で、C++ だけの部品を出し分ける
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "into": "module_type", "from": "type"},
+        {"show": "to_cpp", "when": {"module_type": "cpp"}},
+        {"show": "make_test", "when": {"module_type": "cpp"}},
+        {"show": "template", "when": {"module_type": "cpp"}},
         {"on": "reload.pressed", "refresh": True},
         {"on": "tree.selected", "set": {"file": {"payload": "path"}}},
         {"value": "file", "to": "tree.selected"},
         {"value": "file", "to": "selected.text"},
         {"on": "tree.changed", "set": {"files_checked": {"payload": "paths"}}},
         {"value": "files_checked", "to": "tree.checked"},
-        {"on": "uncheck.pressed", "set": {"files_checked": []}},
-        # 足す・動かす・消す（ecobuild file add <パス>・file move <元> <先>・file remove <パス…>。型が管理ファイルも合わせる）
+        {"on": "uncheck.pressed", "set": {"files_checked": None}},
+        # 足す・動かす・消す（ecobuild file add <パス> [--template <名前>]・file move <元> <先>・file remove <パス…>。
+        # 型が管理ファイルも合わせる）。チェックが1つもなければ、「まとめて…」は押せない（require）
         {"on": "new_path.changed", "set": {"new_path": {"payload": "text"}}},
-        {"on": "do_add.pressed", "run": "file add", "args": {"module": {"arg": "module"}, "paths": [{"value": "new_path"}]}},
+        {"on": "template.changed", "set": {"new_template": {"payload": "text"}}},
+        {"on": "do_add.pressed", "run": "file add",
+         "args": {"module": {"arg": "module"}, "paths": [{"value": "new_path"}], "template": {"value": "new_template"}}},
         {"on": "destination.changed", "set": {"destination": {"payload": "text"}}},
         {"on": "move.pressed", "run": "file move",
          "args": {"module": {"arg": "module"}, "source": {"value": "file"}, "destination": {"value": "destination"}}, "set": {"file": None}},
         {"on": "remove.pressed", "run": "file remove", "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}]}, "set": {"file": None}},
         {"on": "remove_checked.pressed", "run": "file remove",
-         "args": {"module": {"arg": "module"}, "paths": {"value": "files_checked"}}, "set": {"files_checked": [], "file": None}},
+         "args": {"module": {"arg": "module"}, "paths": {"value": "files_checked"}}, "require": ["paths"],
+         "set": {"files_checked": None, "file": None}},
         # 変更を捨てる・無視に足す（ecobuild restore <パス…>・ecobuild ignore <パターン…>）
         {"on": "restore.pressed", "run": "restore", "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}]}},
         {"on": "restore_checked.pressed", "run": "restore",
-         "args": {"module": {"arg": "module"}, "paths": {"value": "files_checked"}}, "set": {"files_checked": []}},
+         "args": {"module": {"arg": "module"}, "paths": {"value": "files_checked"}}, "require": ["paths"], "set": {"files_checked": None}},
         {"on": "ignore_file.pressed", "run": "ignore", "args": {"module": {"arg": "module"}, "patterns": [{"value": "file"}]}},
         {"on": "pattern.changed", "set": {"ignore_pattern": {"payload": "text"}}},
         {"on": "do_ignore.pressed", "run": "ignore", "args": {"module": {"arg": "module"}, "patterns": [{"value": "ignore_pattern"}]}},

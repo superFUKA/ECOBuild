@@ -8,10 +8,11 @@ def part(
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
     empty_text: Annotated[str, "変更がないときの文"] = "変更はありません。",
+    none_when_empty: Annotated[bool, "チェックが1つもないとき、changed で null を出す（まだ選んでいない、にする）"] = False,
 ) -> None: ...
 
 
-def on_changed(paths: Annotated[list[str], "チェックを付けたファイル"]) -> None: ...
+def on_changed(paths: Annotated[list[str] | None, "チェックを付けたファイル（none_when_empty なら、1つもないとき null）"]) -> None: ...
 
 
 def on_selected(path: Annotated[str, "名前を押したファイル（差分を見る）"]) -> None:

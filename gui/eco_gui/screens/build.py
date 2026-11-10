@@ -1,4 +1,6 @@
-"""作業空間 › ビルドと試験：ビルド設定を選ぶ。構成・引数を決めて、ビルド・試験・実行をする。"""
+"""作業空間 › ビルドと試験：ビルド設定を選ぶ・足す。構成・引数を決めて、ビルド・試験・実行をする。結果（成果物・試験の数・終了コード）を見せる。
+
+C++ のモジュールでだけ使えるもの（対象のサブプロジェクト・共有ライブラリ）は、モジュールの型が cpp のときだけ出す。"""
 
 ARGS = {"module": "."}  # 作業空間のフォルダー
 
@@ -7,7 +9,7 @@ SCREEN = {
     "window": {"title": "ビルドと試験", "width": 820, "height": 800},
     "nodes": [
         {"id": "page", "layout": "column", "children": [
-            "head", "profile_title", "profiles", "no_profile", "options", "tools",
+            "head", "profile_title", "profiles", "no_profile", "profile_new", "options", "tools", "results",
             "test_title", "test_pick", "test_filter", "out"]},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "module"}, "prefix": "ビルドと試験：", "heading": True}},
@@ -19,11 +21,23 @@ SCREEN = {
             "name_label": "ビルド設定", "current_mark": "使用中",
             "actions": [{"name": "use", "label": "使う"}, {"name": "remove", "label": "消す"}],
             "labels": {"shared": {"true": "はい", "false": ""}},
-            "empty_text": "ビルド設定はありません（ecobuild profile add で足せます）。",
+            "empty_text": "ビルド設定はありません（下の欄で足せます）。",
         }},
         {"id": "no_profile", "part": "button", "props": {"label": "ビルド設定を使わない", "hint": "ecobuild profile use none"}},
-        # 構成と、実行に渡す引数
-        {"id": "options", "layout": "row", "children": ["configuration", "run_arguments"]},
+        # ビルド設定を足す（ecobuild profile add <名前> [--configuration <構成>] [--parallel <数>] [--shared]。同じ名前なら上書き。
+        # どの型にもある項目と、並列の数・共有ライブラリだけ。型ごとの細かい項目は CLI で）
+        {"id": "profile_new", "layout": "row", "children": ["profile_name", "profile_configuration", "profile_parallel", "profile_shared", "do_profile_add"]},
+        {"id": "profile_name", "part": "text-input", "props": {"title": "足すビルド設定の名前（同じ名前なら上書き）", "placeholder": "例：fast"}},
+        {"id": "profile_configuration", "part": "select", "props": {"title": "構成", "options": [
+            {"value": "", "label": "（既定：Debug）"}, {"value": "Debug", "label": "Debug"}, {"value": "Release", "label": "Release"},
+            {"value": "RelWithDebInfo", "label": "RelWithDebInfo（C++）"}, {"value": "MinSizeRel", "label": "MinSizeRel（C++）"}]}},
+        {"id": "profile_parallel", "part": "text-input", "props": {"title": "並列の数（空なら 1）", "placeholder": "例：8"}},
+        {"id": "profile_shared", "part": "toggle", "props": {"label": "共有ライブラリにする（C++）", "hint": "ライブラリ（依存先を含む）を共有ライブラリにする"}},
+        {"id": "do_profile_add", "part": "button", "props": {"label": "＋ 足す"}},
+        # 構成と、実行に渡す引数（C++ は、対象のサブプロジェクトも）
+        {"id": "options", "layout": "row", "children": ["configuration", "project", "run_arguments"]},
+        {"id": "project", "part": "text-input", "props": {
+            "title": "対象のサブプロジェクト（C++。空なら全体）", "placeholder": "例：Calc（ビルド・クリーン・実行・試験（全部）に効く）"}},
         {"id": "configuration", "part": "select", "props": {"title": "構成", "options": [
             {"value": "", "label": "ビルド設定のまま"}, {"value": "Debug", "label": "Debug"}, {"value": "Release", "label": "Release"},
             {"value": "RelWithDebInfo", "label": "RelWithDebInfo（C++）"}, {"value": "MinSizeRel", "label": "MinSizeRel（C++）"}]}},
@@ -34,6 +48,18 @@ SCREEN = {
         {"id": "clean", "part": "button", "props": {"label": "クリーン", "hint": "ビルドで作ったものを消す"}},
         {"id": "run", "part": "button", "props": {"label": "実行"}},
         {"id": "test", "part": "button", "props": {"label": "試験（全部）"}},
+        # 最後にうまくいった実行の結果（実行の結果を、共有の値 build_result・test_result・run_result へ入れて見せる）
+        {"id": "results", "layout": "row", "children": ["build_facts", "artifacts", "test_facts", "run_facts"]},
+        {"id": "build_facts", "part": "facts", "props": {"items": [
+            {"key": "action", "label": "したこと"}, {"key": "project", "label": "対象"}, {"key": "configuration", "label": "構成"},
+            {"key": "profile", "label": "ビルド設定"}],
+            "labels": {"action": {"build": "ビルド", "rebuild": "リビルド", "clean": "クリーン"}}}},
+        {"id": "artifacts", "part": "string-list", "props": {"empty_text": "成果物はありません。"}},
+        {"id": "test_facts", "part": "facts", "props": {"items": [
+            {"key": "passed", "label": "成功した試験"}, {"key": "failed", "label": "失敗した試験"}, {"key": "skipped", "label": "飛ばした試験"},
+            {"key": "configuration", "label": "構成"}]}},
+        {"id": "run_facts", "part": "facts", "props": {"items": [
+            {"key": "returncode", "label": "終了コード"}, {"key": "project", "label": "実行したもの"}, {"key": "configuration", "label": "構成"}]}},
         # 試験を選ぶ（ecobuild test <試験> ／ ecobuild test --filter <式> --last-failed）
         {"id": "test_title", "part": "note", "props": {"text": "試験を選んで流す"}},
         {"id": "test_pick", "layout": "row", "children": ["test_name", "test_one"]},
@@ -53,28 +79,53 @@ SCREEN = {
         {"on": "profiles.action", "when": {"action": "use"}, "run": "profile use", "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}},
         {"on": "profiles.action", "when": {"action": "remove"}, "run": "profile remove", "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}},
         {"on": "no_profile.pressed", "run": "profile use", "args": {"module": {"arg": "module"}, "name": "none"}},
+        {"on": "profile_name.changed", "set": {"profile_name": {"payload": "text"}}},
+        {"on": "profile_configuration.changed", "set": {"profile_configuration": {"payload": "value"}}},
+        {"value": "profile_configuration", "to": "profile_configuration.value"},
+        {"on": "profile_parallel.changed", "set": {"profile_parallel": {"payload": "text"}}},
+        {"on": "profile_shared.changed", "set": {"profile_shared": {"payload": "on"}}},
+        {"value": "profile_shared", "to": "profile_shared.on"},
+        {"on": "do_profile_add.pressed", "run": "profile add", "args": {
+            "module": {"arg": "module"}, "name": {"value": "profile_name"}, "configuration": {"value": "profile_configuration"},
+            "parallel": {"value": "profile_parallel"}, "shared": {"value": "profile_shared"}}},
+        # モジュールの型（ecobuild module show の type）で、型だけの部品を出し分ける
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "into": "module_type", "from": "type"},
+        {"show": "project", "when": {"module_type": "cpp"}},
+        {"show": "profile_shared", "when": {"module_type": "cpp"}},
+        {"show": "profile_parallel", "when": {"module_type": ["cpp", "python"]}},
+        # 結果は、最後にうまくいった実行のものだけを出す
+        {"show": "build_facts", "when": {"last_run": "build"}},
+        {"show": "artifacts", "when": {"last_run": "build"}},
+        {"show": "test_facts", "when": {"last_run": "test"}},
+        {"show": "run_facts", "when": {"last_run": "run"}},
+        {"value": "build_result", "to": "build_facts.data"},
+        {"value": "build_result", "to": "artifacts.items", "from": "artifacts"},
+        {"value": "test_result", "to": "test_facts.data"},
+        {"value": "run_result", "to": "run_facts.data"},
         # 選ぶ・書く
         {"on": "configuration.changed", "set": {"build_configuration": {"payload": "value"}}},
         {"value": "build_configuration", "to": "configuration.value"},
         {"on": "run_arguments.changed", "set": {"run_arguments": {"payload": "text"}}},
+        {"on": "project.changed", "set": {"build_project": {"payload": "text"}}},
         {"on": "test_name.changed", "set": {"test_name": {"payload": "text"}}},
         {"on": "filter.changed", "set": {"test_filter": {"payload": "text"}}},
         {"on": "last_failed.changed", "set": {"test_last_failed": {"payload": "on"}}},
         {"value": "test_last_failed", "to": "last_failed.on"},
-        # 動かす：道具の出力を、続けて出す
-        {"on": "build.pressed", "run": "build", "output": "out.lines",
-         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}}},
-        {"on": "rebuild.pressed", "run": "rebuild", "output": "out.lines",
-         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}}},
-        {"on": "clean.pressed", "run": "clean", "output": "out.lines",
-         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}}},
-        {"on": "run.pressed", "run": "run", "output": "out.lines",
-         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "arguments": {"value": "run_arguments"}}},
-        {"on": "test.pressed", "run": "test", "output": "out.lines",
-         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}}},
-        {"on": "test_one.pressed", "run": "test", "output": "out.lines",
+        # 動かす：道具の出力を、続けて出す。うまくいったら、結果を共有の値へ（上の結果の欄に出る）
+        {"on": "build.pressed", "run": "build", "output": "out.lines", "set": {"build_result": {"result": ""}, "last_run": "build"},
+         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "project": {"value": "build_project"}}},
+        {"on": "rebuild.pressed", "run": "rebuild", "output": "out.lines", "set": {"build_result": {"result": ""}, "last_run": "build"},
+         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "project": {"value": "build_project"}}},
+        {"on": "clean.pressed", "run": "clean", "output": "out.lines", "set": {"build_result": {"result": ""}, "last_run": "build"},
+         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "project": {"value": "build_project"}}},
+        {"on": "run.pressed", "run": "run", "output": "out.lines", "set": {"run_result": {"result": ""}, "last_run": "run"},
+         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "arguments": {"value": "run_arguments"},
+                  "project": {"value": "build_project"}}},
+        {"on": "test.pressed", "run": "test", "output": "out.lines", "set": {"test_result": {"result": ""}, "last_run": "test"},
+         "args": {"module": {"arg": "module"}, "configuration": {"value": "build_configuration"}, "project": {"value": "build_project"}}},
+        {"on": "test_one.pressed", "run": "test", "output": "out.lines", "set": {"test_result": {"result": ""}, "last_run": "test"},
          "args": {"module": {"arg": "module"}, "tests": [{"value": "test_name"}], "configuration": {"value": "build_configuration"}}},
-        {"on": "test_filtered.pressed", "run": "test", "output": "out.lines",
+        {"on": "test_filtered.pressed", "run": "test", "output": "out.lines", "set": {"test_result": {"result": ""}, "last_run": "test"},
          "args": {"module": {"arg": "module"}, "filter": {"value": "test_filter"}, "last_failed": {"value": "test_last_failed"},
                   "configuration": {"value": "build_configuration"}}},
     ],

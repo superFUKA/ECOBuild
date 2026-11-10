@@ -1,8 +1,9 @@
 """ダブルクリックで、GUIFrameWork の上の新しい GUI（eco_gui）のハブを開く（コマンドプロンプトを出さない）。
 
 中継地点を裏で起こし、ハブの窓を開く。もう動いていれば、ハブを前に出すだけ。
-GUIFrameWork が入っていない Python では、入れ方を知らせて終わる（eco_gui/requirements.txt）。
+開けなかったときは、理由を窓で知らせる（GUIFrameWork が入っていない・ecobuild の版が合わない 等）。
 """
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -10,19 +11,33 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
+def tell(message: str) -> None:
+    """理由を知らせる。Windows では窓で（コマンドプロンプトがないので）、ほかでは標準エラーへ。"""
+    if sys.platform == "win32":
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "ECOBuild GUI", 0x10)
+    else:
+        print(message, file=sys.stderr)
+
+
 def main() -> int:
     try:
         import guiframework  # noqa: F401
     except ImportError:
-        import ctypes
-
-        ctypes.windll.user32.MessageBoxW(
-            None, f"GUIFrameWork が入っていません。\n{sys.executable} -m pip install -r {HERE / 'eco_gui' / 'requirements.txt'}",
-            "ECOBuild GUI", 0x10)
+        tell(f"GUIFrameWork が入っていません。\n{sys.executable} -m pip install -r {HERE / 'eco_gui' / 'requirements.txt'}")
         return 1
     flags = 0x08000000 if sys.platform == "win32" else 0  # コマンドプロンプトの窓を出さない
-    return subprocess.run([sys.executable, "-m", "eco_gui.app", "serve", "--background", "--screen", "hub"],
-                          cwd=HERE, creationflags=flags).returncode
+    done = subprocess.run([sys.executable, "-m", "eco_gui.app", "serve", "--background", "--screen", "hub", "--json"],
+                          cwd=HERE, creationflags=flags, stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
+    if done.returncode != 0:
+        try:
+            error = json.loads(done.stdout.strip().splitlines()[-1])["error"]
+            message = error["message"] + (f"\n{error['hint']}" if error.get("hint") else "")
+        except (ValueError, IndexError, KeyError, TypeError):
+            message = (done.stderr or done.stdout or "").strip() or f"終了コード {done.returncode}"
+        tell(f"新しい GUI を開けませんでした。\n{message}")
+    return done.returncode
 
 
 if __name__ == "__main__":

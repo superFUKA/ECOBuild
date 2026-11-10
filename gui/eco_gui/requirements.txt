@@ -1,2 +1,2 @@
 # ECOBuild の GUI（eco_gui）を動かす Python に入れるもの
-GUIFrameWork @ git+https://github.com/superFUKA/GUIFrameWork.git@94a9f23
+GUIFrameWork @ git+https://github.com/superFUKA/GUIFrameWork.git@9b36d78

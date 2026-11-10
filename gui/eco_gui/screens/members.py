@@ -30,8 +30,8 @@ SCREEN = {
         {"read": "account show", "to": "me.text", "from": "login"},
         {"read": "module members", "to": "members.rows"},
         # 入力 → 共有の値
-        {"on": "user.changed", "value": "user", "from": "payload.text"},
-        {"on": "role.changed", "value": "role", "from": "payload.value"},
+        {"on": "user.changed", "set": {"user": {"payload": "text"}}},
+        {"on": "role.changed", "set": {"role": {"payload": "value"}}},
         # 入力 → ecobuild のコマンド（人が打つのと同じ：ecobuild module members add <user> [--role <role>]）
         {"on": "add.pressed", "run": "module members add", "args": {"user": {"value": "user"}, "role": {"value": "role"}}},
         {"on": "members.action", "run": "module members remove", "args": {"user": {"payload": "id"}}},

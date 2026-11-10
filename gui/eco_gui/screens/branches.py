@@ -1,4 +1,4 @@
-"""モジュール › ブランチ：ブランチの一覧。作る・消す。"""
+"""モジュール › ブランチ：ブランチの一覧。作る・消す。取り込み・提出の画面を開く。"""
 
 ARGS = {"module": "."}  # モジュールのフォルダー
 
@@ -17,7 +17,7 @@ SCREEN = {
             "key": "name",
             "labels": {"local": {"true": "ある", "false": ""}, "remote": {"true": "ある", "false": ""},
                        "merged": {"true": "済み", "false": ""}},
-            "actions": [{"name": "delete", "label": "消す"}],
+            "actions": [{"name": "merge", "label": "取り込み・提出…"}, {"name": "delete", "label": "消す"}],
             "empty_text": "ブランチはありません。",
         }},
         {"id": "form", "layout": "row", "children": ["name", "base", "create"]},
@@ -31,6 +31,9 @@ SCREEN = {
         {"on": "name.changed", "set": {"name": {"payload": "text"}}},
         {"on": "base.changed", "set": {"base": {"payload": "text"}}},
         {"on": "create.pressed", "run": "branch create", "args": {"module": {"arg": "module"}, "name": {"value": "name"}, "base": {"value": "base"}}},
+        # このブランチを別のブランチへ取り込む・提出する画面（同じ窓で切り替える）
+        {"on": "list.action", "when": {"action": "merge"}, "open": "merge",
+         "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}, "here": True},
         {"on": "list.action", "when": {"action": "delete"}, "run": "branch delete", "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}},
     ],
 }

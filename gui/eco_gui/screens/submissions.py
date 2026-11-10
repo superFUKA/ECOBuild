@@ -15,15 +15,21 @@ SCREEN = {
         {"id": "to_review_title", "part": "note", "props": {"text": "見るように頼まれている提出"}},
         {"id": "to_review", "part": "table", "props": {
             "columns": [{"key": "number", "label": "#"}, {"key": "title", "label": "題名"}, {"key": "assignees", "label": "担当"},
-                        {"key": "branch", "label": "タスクブランチ"}],
+                        {"key": "branch", "label": "タスクブランチ"}, {"key": "submission.base", "label": "取り込み先"},
+                        {"key": "submission.draft", "label": "下書き"}, {"key": "submission.partial", "label": "取り込んだら"}],
             "key": "number", "actions": [{"name": "open", "label": "開く"}],
+            "labels": {"submission.draft": {"true": "下書き", "false": ""},
+                       "submission.partial": {"true": "タスクを続ける", "false": "タスクを完了する"}},
             "empty_text": "見るように頼まれている提出はありません。",
         }},
         {"id": "submitted_title", "part": "note", "props": {"text": "提出中のタスク"}},
         {"id": "submitted", "part": "table", "props": {
             "columns": [{"key": "number", "label": "#"}, {"key": "title", "label": "題名"}, {"key": "assignees", "label": "担当"},
-                        {"key": "branch", "label": "タスクブランチ"}],
+                        {"key": "branch", "label": "タスクブランチ"}, {"key": "submission.base", "label": "取り込み先"},
+                        {"key": "submission.draft", "label": "下書き"}, {"key": "submission.partial", "label": "取り込んだら"}],
             "key": "number", "actions": [{"name": "open", "label": "開く"}],
+            "labels": {"submission.draft": {"true": "下書き", "false": ""},
+                       "submission.partial": {"true": "タスクを続ける", "false": "タスクを完了する"}},
             "empty_text": "提出中のタスクはありません。",
         }},
         {"id": "revert_title", "part": "note", "props": {"text": "完了したタスクの取り込みを取り消す"}},
@@ -41,8 +47,11 @@ SCREEN = {
          "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}},
         {"on": "submitted.action", "when": {"action": "open"}, "open": "submission",
          "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}},
-        # 取り消す（ecobuild task revert --task <番号>）
+        # 取り消す（ecobuild task revert --task <番号>）。番号を入れるまで押せない（省くと「今いるタスクブランチ」に効くため）。
+        # 取り消したら、欄は空に戻る
         {"on": "revert_task.changed", "set": {"revert_task": {"payload": "text"}}},
-        {"on": "do_revert.pressed", "run": "task revert", "args": {"module": {"arg": "module"}, "task": {"value": "revert_task"}}},
+        {"value": "revert_task", "to": "revert_task.text"},
+        {"on": "do_revert.pressed", "run": "task revert", "require": ["task"],
+         "args": {"module": {"arg": "module"}, "task": {"value": "revert_task"}}, "set": {"revert_task": None}},
     ],
 }

@@ -1,4 +1,7 @@
-"""モジュール › タスク › 詳細：題・本文・状態・計画の値・コメント。編集・コメント・始める・閉じる・開き直す。"""
+"""モジュール › タスク › 詳細：題・本文・状態・計画の値・コメント。編集・コメント・始める・再開する・閉じる・開き直す。
+
+始める・再開する・閉じる・開き直すは、タスクの状態（task status の state・task_branch・remote）に合うものだけを出す。
+"""
 
 ARGS = {"module": ".", "issue": 0}  # モジュールのフォルダーと、タスクの番号
 
@@ -7,8 +10,8 @@ SCREEN = {
     "window": {"title": "タスクの詳細", "width": 820, "height": 820},
     "nodes": [
         {"id": "page", "layout": "column", "children": [
-            "nav", "head", "state", "plan", "body", "actions", "edit_head", "edit_text", "edit_plan", "edit_people", "save",
-            "comments_title", "comments", "comment"]},
+            "nav", "head", "state", "plan", "body", "actions", "edit_head", "edit_text", "edit_body", "edit_plan", "edit_dates",
+            "edit_people", "edit_links", "edit_clears", "save", "comments_title", "comments", "comment"]},
         {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"heading": True}},
@@ -16,7 +19,8 @@ SCREEN = {
         {"id": "state", "part": "facts", "props": {
             "items": [{"key": "number", "label": "番号"}, {"key": "state", "label": "状態"}, {"key": "assignees", "label": "担当"},
                       {"key": "labels", "label": "ラベル"}, {"key": "milestone", "label": "マイルストーン"},
-                      {"key": "branch", "label": "タスクブランチ"}, {"key": "base", "label": "作成元"}],
+                      {"key": "branch", "label": "タスクブランチ"}, {"key": "base", "label": "作成元"},
+                      {"key": "workspace", "label": "手元の作業空間"}],
             "labels": {"state": {"open": "開いている", "closed": "閉じている"}},
         }},
         {"id": "plan", "part": "facts", "props": {
@@ -26,15 +30,17 @@ SCREEN = {
             "labels": {"stage": {"planned": "計画中", "todo": "未着手", "in_progress": "作業中", "in_review": "レビュー待ち", "done": "完了"}},
         }},
         {"id": "body", "part": "note"},
-        # 始める・閉じる・開き直す
-        {"id": "actions", "layout": "row", "children": ["start_name", "start", "close", "reopen"]},
+        # 始める・再開する・閉じる・開き直す（状態に合うものだけが出る）
+        {"id": "actions", "layout": "row", "children": ["start_name", "start", "resume", "close", "reopen"]},
         {"id": "start_name", "part": "text-input", "props": {"title": "「始める」で作るタスクブランチの名前", "placeholder": "例：login"}},
         {"id": "start", "part": "button", "props": {"label": "始める", "hint": "タスクブランチと作業空間を作る"}},
+        {"id": "resume", "part": "button", "props": {"label": "再開する", "hint": "GitHub にあるタスクブランチを、作業空間に取り出す"}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
         {"id": "reopen", "part": "button", "props": {"label": "開き直す"}},
-        # 編集：変えた欄だけが渡る（空のままの欄は変えない）
+        # 編集：入れた欄だけが渡る（空のままの欄は変えない）。保存したら、欄は空に戻る
         {"id": "edit_head", "part": "note", "props": {"text": "編集（変える欄だけ入れる）"}},
         {"id": "edit_text", "part": "text-input", "props": {"title": "題"}},
+        {"id": "edit_body", "part": "text-area", "props": {"title": "本文（今の本文を書き直す）", "rows": 6}},
         {"id": "edit_plan", "layout": "row", "children": ["edit_stage", "edit_priority", "edit_due", "edit_estimate"]},
         {"id": "edit_stage", "part": "select", "props": {"title": "段階（始める前だけ）", "options": [
             {"value": "", "label": "（変えない）"}, {"value": "planned", "label": "計画中"}, {"value": "todo", "label": "未着手"}]}},
@@ -43,12 +49,27 @@ SCREEN = {
             {"value": "Low", "label": "Low"}]}},
         {"id": "edit_due", "part": "text-input", "props": {"title": "期限", "placeholder": "YYYY-MM-DD"}},
         {"id": "edit_estimate", "part": "text-input", "props": {"title": "見積もり", "placeholder": "数"}},
-        {"id": "edit_people", "layout": "row", "children": ["edit_add_assignee", "edit_remove_assignee", "edit_clear"]},
+        {"id": "edit_dates", "layout": "row", "children": ["edit_planned_start", "edit_planned_end", "edit_sprint", "edit_milestone"]},
+        {"id": "edit_planned_start", "part": "text-input", "props": {"title": "開始予定", "placeholder": "YYYY-MM-DD"}},
+        {"id": "edit_planned_end", "part": "text-input", "props": {"title": "終了予定", "placeholder": "YYYY-MM-DD"}},
+        {"id": "edit_sprint", "part": "text-input", "props": {"title": "スプリント", "placeholder": "名前か current（今のスプリント）"}},
+        {"id": "edit_milestone", "part": "text-input", "props": {"title": "マイルストーン", "placeholder": "題名"}},
+        {"id": "edit_people", "layout": "row", "children": ["edit_add_assignee", "edit_remove_assignee", "edit_add_label", "edit_remove_label"]},
         {"id": "edit_add_assignee", "part": "text-input", "props": {"title": "加える担当", "placeholder": "例：octocat（@me は自分）"}},
         {"id": "edit_remove_assignee", "part": "text-input", "props": {"title": "外す担当", "placeholder": "例：octocat"}},
+        {"id": "edit_add_label", "part": "text-input", "props": {"title": "付けるラベル", "placeholder": "例：bug（カンマ区切り。なければ作る）"}},
+        {"id": "edit_remove_label", "part": "text-input", "props": {"title": "外すラベル", "placeholder": "例：bug"}},
+        {"id": "edit_links", "layout": "row", "children": ["edit_parent", "edit_add_blocked_by", "edit_remove_blocked_by"]},
+        {"id": "edit_parent", "part": "text-input", "props": {"title": "親タスク", "placeholder": "番号（例：10）"}},
+        {"id": "edit_add_blocked_by", "part": "text-input", "props": {"title": "先に終わるべきタスクを加える", "placeholder": "番号（カンマ区切り）"}},
+        {"id": "edit_remove_blocked_by", "part": "text-input", "props": {"title": "先に終わるべきタスクから外す", "placeholder": "番号（カンマ区切り）"}},
+        {"id": "edit_clears", "layout": "row", "children": ["edit_clear", "edit_clear_milestone", "edit_clear_parent"]},
         {"id": "edit_clear", "part": "select", "props": {"title": "消す値", "options": [
             {"value": "", "label": "（消さない）"}, {"value": "priority", "label": "優先度"}, {"value": "due", "label": "期限"},
-            {"value": "estimate", "label": "見積もり"}]}},
+            {"value": "estimate", "label": "見積もり"}, {"value": "sprint", "label": "スプリント"},
+            {"value": "planned_start", "label": "開始予定"}, {"value": "planned_end", "label": "終了予定"}]}},
+        {"id": "edit_clear_milestone", "part": "toggle", "props": {"label": "マイルストーンから外す"}},
+        {"id": "edit_clear_parent", "part": "toggle", "props": {"label": "親タスクから外す"}},
         {"id": "save", "part": "button", "props": {"label": "変更を保存", "primary": True}},
         # コメント
         {"id": "comments_title", "part": "note", "props": {"text": "コメント"}},
@@ -61,42 +82,93 @@ SCREEN = {
         {"id": "do_comment", "part": "button", "props": {"label": "コメント"}},
     ],
     "bindings": [
-        # 読む：task status <番号> --body は1回だけ実行され、いくつもの部品へ出る
+        # 読む：task status <番号> --body は1回だけ実行され、いくつもの部品と、出し分けに使う共有の値へ出る
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "title.text", "from": "title"},
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "state.data"},
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "plan.data", "from": "task"},
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "body.text", "from": "body"},
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "comments.rows", "from": "comments"},
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "edit_text.text", "from": "title"},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "edit_body.text", "from": "body"},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "into": "task_state", "from": "state"},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "into": "task_branch", "from": "task_branch"},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "into": "task_remote", "from": "remote"},
         {"on": "reload.pressed", "refresh": True},
-        # 始める・閉じる・開き直す（ecobuild task start <番号> --name <名前>・task close <番号>・task reopen <番号>）
+        # 状態に合うボタンだけを出す。開いていて、タスクブランチがまだどこにもない：始める（名前が要る）。GitHub にだけある：再開する。
+        # 開いている：閉じる。閉じている：開き直す
+        {"show": "start_name", "when": {"task_state": "open", "task_branch": False, "task_remote": False}},
+        {"show": "start", "when": {"task_state": "open", "task_branch": False, "task_remote": False}},
+        {"show": "resume", "when": {"task_state": "open", "task_branch": False, "task_remote": True}},
+        {"show": "close", "when": {"task_state": "open"}},
+        {"show": "reopen", "when": {"task_state": "closed"}},
+        # 始める・再開する・閉じる・開き直す（ecobuild task start <番号> [--name <名前>]・task close <番号>・task reopen <番号>）
         {"on": "start_name.changed", "set": {"start_name": {"payload": "text"}}},
-        {"on": "start.pressed", "run": "task start",
-         "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "name": {"value": "start_name"}}},
+        {"value": "start_name", "to": "start_name.text"},
+        {"on": "start.pressed", "run": "task start", "require": ["name"],
+         "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "name": {"value": "start_name"}}, "set": {"start_name": None}},
+        {"on": "resume.pressed", "run": "task start", "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}},
         {"on": "close.pressed", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}},
         {"on": "reopen.pressed", "run": "task reopen", "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}},
-        # 編集（ecobuild task edit <番号> --title … --stage … --priority … --due … --estimate … --add-assignee … --remove-assignee … --clear …）
+        # 編集（ecobuild task edit <番号> --title … --body … --stage … --priority … --due … --estimate … --planned-start … --planned-end …
+        # --sprint … --milestone … --add-assignee … --add-label … --parent … --add-blocked-by … --clear … --clear-milestone --clear-parent）
         {"on": "edit_text.changed", "set": {"edit_title": {"payload": "text"}}},
+        {"on": "edit_body.changed", "set": {"edit_body": {"payload": "text"}}},
         {"on": "edit_stage.changed", "set": {"edit_stage": {"payload": "value"}}},
         {"on": "edit_priority.changed", "set": {"edit_priority": {"payload": "value"}}},
+        {"on": "edit_clear.changed", "set": {"edit_clear": {"payload": "value"}}},
         {"on": "edit_due.changed", "set": {"edit_due": {"payload": "text"}}},
         {"on": "edit_estimate.changed", "set": {"edit_estimate": {"payload": "text"}}},
+        {"on": "edit_planned_start.changed", "set": {"edit_planned_start": {"payload": "text"}}},
+        {"on": "edit_planned_end.changed", "set": {"edit_planned_end": {"payload": "text"}}},
+        {"on": "edit_sprint.changed", "set": {"edit_sprint": {"payload": "text"}}},
+        {"on": "edit_milestone.changed", "set": {"edit_milestone": {"payload": "text"}}},
         {"on": "edit_add_assignee.changed", "set": {"edit_add_assignee": {"payload": "text"}}},
         {"on": "edit_remove_assignee.changed", "set": {"edit_remove_assignee": {"payload": "text"}}},
-        {"on": "edit_clear.changed", "set": {"edit_clear": {"payload": "value"}}},
+        {"on": "edit_add_label.changed", "set": {"edit_add_label": {"payload": "text"}}},
+        {"on": "edit_remove_label.changed", "set": {"edit_remove_label": {"payload": "text"}}},
+        {"on": "edit_parent.changed", "set": {"edit_parent": {"payload": "text"}}},
+        {"on": "edit_add_blocked_by.changed", "set": {"edit_add_blocked_by": {"payload": "text"}}},
+        {"on": "edit_remove_blocked_by.changed", "set": {"edit_remove_blocked_by": {"payload": "text"}}},
+        {"on": "edit_clear_milestone.changed", "set": {"edit_clear_milestone": {"payload": "on"}}},
+        {"on": "edit_clear_parent.changed", "set": {"edit_clear_parent": {"payload": "on"}}},
+        # 欄には共有の値を出す：保存の後に共有の値を空にすると、欄も空に戻る（題と本文は、読み直した今の中身に戻る）
         {"value": "edit_stage", "to": "edit_stage.value"},
         {"value": "edit_priority", "to": "edit_priority.value"},
         {"value": "edit_clear", "to": "edit_clear.value"},
+        {"value": "edit_due", "to": "edit_due.text"},
+        {"value": "edit_estimate", "to": "edit_estimate.text"},
+        {"value": "edit_planned_start", "to": "edit_planned_start.text"},
+        {"value": "edit_planned_end", "to": "edit_planned_end.text"},
+        {"value": "edit_sprint", "to": "edit_sprint.text"},
+        {"value": "edit_milestone", "to": "edit_milestone.text"},
+        {"value": "edit_add_assignee", "to": "edit_add_assignee.text"},
+        {"value": "edit_remove_assignee", "to": "edit_remove_assignee.text"},
+        {"value": "edit_add_label", "to": "edit_add_label.text"},
+        {"value": "edit_remove_label", "to": "edit_remove_label.text"},
+        {"value": "edit_parent", "to": "edit_parent.text"},
+        {"value": "edit_add_blocked_by", "to": "edit_add_blocked_by.text"},
+        {"value": "edit_remove_blocked_by", "to": "edit_remove_blocked_by.text"},
+        {"value": "edit_clear_milestone", "to": "edit_clear_milestone.on"},
+        {"value": "edit_clear_parent", "to": "edit_clear_parent.on"},
         {"on": "save.pressed", "run": "task edit",
-         "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "title": {"value": "edit_title"}, "stage": {"value": "edit_stage"},
-                  "priority": {"value": "edit_priority"}, "due": {"value": "edit_due"}, "estimate": {"value": "edit_estimate"},
+         "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "title": {"value": "edit_title"}, "body": {"value": "edit_body"},
+                  "stage": {"value": "edit_stage"}, "priority": {"value": "edit_priority"}, "due": {"value": "edit_due"},
+                  "estimate": {"value": "edit_estimate"}, "planned_start": {"value": "edit_planned_start"},
+                  "planned_end": {"value": "edit_planned_end"}, "sprint": {"value": "edit_sprint"}, "milestone": {"value": "edit_milestone"},
                   "add_assignee": {"value": "edit_add_assignee"}, "remove_assignee": {"value": "edit_remove_assignee"},
-                  "clear": {"value": "edit_clear"}},
-         "set": {"edit_title": None, "edit_stage": None, "edit_priority": None, "edit_due": None, "edit_estimate": None,
-                 "edit_add_assignee": None, "edit_remove_assignee": None, "edit_clear": None}},
-        # コメント（ecobuild task comment <番号> --message <文>）
+                  "add_label": {"value": "edit_add_label"}, "remove_label": {"value": "edit_remove_label"},
+                  "parent": {"value": "edit_parent"}, "add_blocked_by": {"value": "edit_add_blocked_by"},
+                  "remove_blocked_by": {"value": "edit_remove_blocked_by"}, "clear": {"value": "edit_clear"},
+                  "clear_milestone": {"value": "edit_clear_milestone"}, "clear_parent": {"value": "edit_clear_parent"}},
+         "set": {"edit_title": None, "edit_body": None, "edit_stage": None, "edit_priority": None, "edit_due": None, "edit_estimate": None,
+                 "edit_planned_start": None, "edit_planned_end": None, "edit_sprint": None, "edit_milestone": None,
+                 "edit_add_assignee": None, "edit_remove_assignee": None, "edit_add_label": None, "edit_remove_label": None,
+                 "edit_parent": None, "edit_add_blocked_by": None, "edit_remove_blocked_by": None, "edit_clear": None,
+                 "edit_clear_milestone": None, "edit_clear_parent": None}},
+        # コメント（ecobuild task comment <番号> --message <文>）。文を書くまで押せない。コメントしたら、欄は空に戻る
         {"on": "message.changed", "set": {"message": {"payload": "text"}}},
-        {"on": "do_comment.pressed", "run": "task comment",
+        {"value": "message", "to": "message.text"},
+        {"on": "do_comment.pressed", "run": "task comment", "require": ["message"],
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "message": {"value": "message"}}, "set": {"message": None}},
     ],
 }

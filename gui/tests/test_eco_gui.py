@@ -35,7 +35,17 @@ class FakeEcobuild:
             "workspace list": {"description": "モジュールの一覧", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             "account show": {"description": "アカウント", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"}
-               for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status", "files")},
+               for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status", "files", "branch list")},
+            "show": {"description": "コミット", "weight": "read", "args": {"type": "object", "required": [], "properties": {"commit": text}}},
+            "task new": {"description": "タスクを作ります", "weight": "change", "args": {"type": "object", "required": ["title"], "properties": {"title": text}}},
+            "task start": {"description": "タスクを始めます", "weight": "change", "args": {"type": "object", "required": ["issue"], "properties": {
+                "issue": {"type": "integer"}, "name": text}}},
+            "task close": {"description": "タスクを閉じます", "weight": "confirm", "args": {"type": "object", "required": ["issue"], "properties": {
+                "issue": {"type": "integer"}}}},
+            "branch create": {"description": "ブランチを作ります", "weight": "change", "args": {"type": "object", "required": ["name"], "properties": {
+                "name": text, "base": text}}},
+            "branch delete": {"description": "ブランチを消します", "weight": "confirm", "args": {"type": "object", "required": ["name"], "properties": {"name": text}}},
+            **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "change"} for name in ("stash", "stash pop")},
             "diff": {"description": "差分", "weight": "read", "args": {"type": "object", "required": [], "properties": {
                 "paths": {"type": "array", "items": text}}}},
             "log": {"description": "履歴", "args": {"type": "object", "properties": {"count": {"type": "integer"}}, "required": []}, "weight": "read"},
@@ -77,6 +87,10 @@ class FakeEcobuild:
         if name == "build":
             for line in ("構成しています…\n", "ビルドしています…\n"):
                 on_event({"event": "output", "message": line})
+        if name == "branch list":
+            return {"ok": True, "result": [{"name": "dev", "base": "main", "local": True, "remote": True, "merged": False}]}
+        if name == "show":
+            return {"ok": True, "result": f"commit {args['commit']}\n+中身"}
         if name == "files":
             return {"ok": True, "result": {"files": ["README.md", "src/app.py", "src/util/text.py"]}}
         if name == "diff":
@@ -249,13 +263,50 @@ def test_files_screen_shows_the_tree_and_the_diff_of_the_selected_file(relay):
     assert view["diff"]["props"]["text"].startswith("diff --git a/src/app.py") and ("diff", {"paths": ["src/app.py"]}) in relay.backend.calls
 
 
+def test_task_rows_start_and_close_with_the_number_as_an_integer(relay):
+    window = relay.execute({"command": "open", "screen": "tasks", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    relay.input(window, "start_name", "changed", {"text": "ログイン画面"}, human=True)
+    relay.input(window, "tasks", "action", {"id": "12", "action": "start"}, human=True)  # 表は ID を文字で出す
+    relay.idle()
+    assert ("task start", {"issue": 12, "name": "ログイン画面"}) in relay.backend.calls  # コマンドの型（数）で渡る
+    relay.input(window, "tasks", "action", {"id": "12", "action": "close"}, human=True)
+    answer(relay, window, True)  # 閉じるのは、確かめてから
+    assert ("task close", {"issue": 12}) in relay.backend.calls
+    relay.input(window, "new_title", "changed", {"text": "ログを残す"}, human=True)
+    relay.idle()
+    relay.input(window, "new", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task new", {"title": "ログを残す"}) in relay.backend.calls
+
+
+def test_branches_and_history_screens(relay):
+    window = relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    assert nodes(relay, window)["list"]["props"]["rows"][0]["name"] == "dev"
+    relay.input(window, "name", "changed", {"text": "release"}, human=True)
+    relay.idle()
+    relay.input(window, "create", "pressed", {}, human=True)
+    relay.idle()
+    assert ("branch create", {"name": "release"}) in relay.backend.calls  # 作成元（任意）は、決めなければ渡さない
+    relay.input(window, "list", "action", {"id": "dev", "action": "delete"}, human=True)
+    answer(relay, window, False)
+    assert ("branch delete", {"name": "dev"}) not in relay.backend.calls
+    relay.input(window, "nav", "selected", {"id": "history"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["log"]["props"]["rows"][0]["sha"] == "abc"
+    relay.input(window, "log", "action", {"id": "abc", "action": "show"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["detail"]["props"]["text"].startswith("commit abc")
+
+
 def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     window = relay.execute({"command": "open", "screen": "overview"})["window"]
     relay.idle()
     assert nodes(relay, window)["info"]["props"]["data"]["name"] == "Calc"
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
-    for screen in ("files", "tasks", "members", "pipelines", "ci", "overview"):
+    for screen in ("files", "tasks", "branches", "history", "members", "pipelines", "ci", "overview"):
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
         relay.idle()
         tree = relay.display.tree(window)

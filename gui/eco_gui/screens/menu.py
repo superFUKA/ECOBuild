@@ -9,6 +9,8 @@ SCREEN = {
             {"id": "overview", "label": "概要"},
             {"id": "files", "label": "ファイル"},
             {"id": "tasks", "label": "タスク"},
+            {"id": "branches", "label": "ブランチ"},
+            {"id": "history", "label": "履歴"},
             {"id": "members", "label": "メンバー"},
             {"id": "pipelines", "label": "パイプライン"},
             {"id": "ci", "label": "CI"},

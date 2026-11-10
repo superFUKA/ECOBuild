@@ -53,6 +53,39 @@ class FakeEcobuild:
         return False
 
 
+def test_ecobuild_catalog_is_converted_to_the_form_guiframework_reads():
+    from eco_gui.backend import EcobuildBackend
+
+    def option(param, name, flag=False, negative=None):
+        return {"names": [name], "param": param, "help": param, "flag": flag, "type": "bool" if flag else "str",
+                "negative": negative, "required": False, "multiple": False}
+
+    catalog = {"ok": True, "result": {"type": "python", "commands": [
+        {"name": "module", "path": "module", "summary": "モジュール", "help": "モジュール", "runnable": False, "commands": [
+            {"name": "members", "path": "module members", "summary": "共同作業者", "help": "共同作業者", "runnable": True,
+             "effect": "read", "arguments": [], "options": [option("json", "--json", True)], "commands": [
+                 {"name": "remove", "path": "module members remove", "summary": "外します", "help": "外します", "runnable": True,
+                  "effect": "confirm", "options": [option("yes", "--yes", True), option("json", "--json", True)],
+                  "arguments": [{"name": "USER", "param": "user", "help": "外す人", "required": True, "multiple": False, "type": "str"}]}]}]},
+        {"name": "doctor", "path": "doctor", "summary": "環境を確かめる", "help": "", "runnable": True, "effect": "human",
+         "arguments": [], "options": []},
+    ], "types": {"python": {"commands": [
+        {"name": "build", "path": "build", "summary": "ビルド", "help": "", "runnable": True, "effect": "change",
+         "arguments": [{"name": "TARGETS", "param": "targets", "help": "対象", "required": False, "multiple": True, "type": "str"}],
+         "options": [option("clean", "--clean", True, "--no-clean")]}]}, "cpp": {"commands": [{"name": "vs", "path": "vs", "runnable": True, "effect": "change"}]}}}}
+    backend = EcobuildBackend(["ecobuild", "-C", "."])
+    backend.ask = lambda argv: catalog
+    specs = backend.commands()
+    assert set(specs) == {"module members", "module members remove", "doctor", "build"}  # 今の型（python）のコマンドだけ足す
+    assert specs["doctor"]["weight"] == "confirm"  # 「人がする」は、窓の前の人に確かめてから
+    assert specs["module members remove"]["args"] == {"type": "object", "required": ["user"],
+                                                      "properties": {"user": {"type": "string", "description": "外す人"}}}
+    assert backend.command_line("module members remove", {"user": "octocat"}, ["yes"]) == [
+        "ecobuild", "-C", ".", "module", "members", "remove", "--yes", "--json", "--", "octocat"]
+    assert backend.command_line("build", {"targets": ["a", "b"], "clean": False}) == [
+        "ecobuild", "-C", ".", "build", "--no-clean", "--json", "--", "a", "b"]
+
+
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")

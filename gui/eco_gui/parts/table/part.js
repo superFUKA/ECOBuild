@@ -7,7 +7,6 @@ export default {
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     if (props.loading && props.rows.length === 0) return root.replaceChildren(h('p', { role: 'status' }, '読み込み中…'));
     if (props.rows.length === 0) return root.replaceChildren(h('p', { role: 'status' }, props.empty_text));
-    const cell = 'text-align:left;padding:.35rem .6rem;border-bottom:1px solid var(--gf-border)';
     const has = (value, name) => value !== null && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, name);
     const pick = (row, path) => {
       if (has(row, path)) return row[path];  // 名前そのものの項目が先
@@ -41,23 +40,32 @@ export default {
       }
       return named(value);
     };
-    const head = h('tr', {}, ...props.columns.map((column) => h('th', { style: cell }, column.label)));
-    if (props.numbered) head.prepend(h('th', { style: cell }, '順'));
-    if (props.actions.length) head.append(h('th', { style: cell }, ''));
+    // 色の印（tones）：値そのもの（真偽は true・false、ないものは空の文字）で色を引く。文字は言い換えた後のもの
+    const cellOf = (column, value) => {
+      const text = show(column, value);
+      const tones = props.tones[column.key];
+      const raw = value === null || value === undefined ? '' : typeof value === 'object' ? null : String(value);
+      const tone = tones && raw !== null && raw in tones ? tones[raw] : '';
+      if (!tone || text === '') return h('td', {}, text);
+      return h('td', {}, h('span', { class: tone === 'plain' ? 'pill' : 'pill ' + tone }, text));
+    };
+    const head = h('tr', {}, ...props.columns.map((column) => h('th', {}, column.label)));
+    if (props.numbered) head.prepend(h('th', {}, '順'));
+    if (props.actions.length) head.append(h('th', {}, ''));
     const body = h('tbody', {});
     props.rows.forEach((row, index) => {
-      const line = h('tr', {}, ...props.columns.map((column) => h('td', { style: cell }, show(column, pick(row, column.key)))));
-      if (props.numbered) line.prepend(h('td', { style: cell }, String(index + 1)));
+      const line = h('tr', {}, ...props.columns.map((column) => cellOf(column, pick(row, column.key))));
+      if (props.numbered) line.prepend(h('td', { class: 'dim' }, String(index + 1)));
       if (props.actions.length) {
         const buttons = props.actions.map((action) => {
-          const button = h('button', { type: 'button' }, action.label);
+          const button = h('button', { type: 'button', class: action.primary ? 'small primary' : action.danger ? 'small danger' : 'small' }, action.label);
           button.addEventListener('click', () => emit('action', { id: String(pick(row, props.key)), action: action.name }));
           return button;
         });
-        line.append(h('td', { style: cell }, h('div', { class: 'row' }, ...buttons)));
+        line.append(h('td', { class: 'actions' }, h('div', { class: 'row' }, ...buttons)));
       }
       body.append(line);
     });
-    root.replaceChildren(h('table', { style: 'border-collapse:collapse;width:100%' }, h('thead', {}, head), body));
+    root.replaceChildren(h('table', {}, h('thead', {}, head), body));
   },
 };

@@ -7,10 +7,10 @@ ARGS = {"module": ".", "issue": 0}  # モジュールのフォルダーと、タ
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "タスクの詳細", "width": 820, "height": 820},
+    "window": {"title": "タスクの詳細", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": [
-            "nav", "head", "state", "plan", "body", "actions", "edit_head", "edit_text", "edit_body", "edit_plan", "edit_dates",
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "state", "plan", "body", "actions", "edit_head", "edit_text", "edit_body", "edit_plan", "edit_dates",
             "edit_people", "edit_links", "edit_clears", "save", "comments_title", "comments", "comment"]},
         {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},

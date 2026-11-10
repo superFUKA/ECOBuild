@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー（メニューで戻
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "このPCのプリセット", "width": 980, "height": 820},
+    "window": {"title": "このPCのプリセット", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "sub", "body"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["sub", "body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "agents", "module": {"arg": "module"}}},
         {"id": "sub", "screen": "agents-menu", "args": {"current": "agent-presets", "module": {"arg": "module"}}},
         {"id": "body", "screen": "pc-agents"},

@@ -3,7 +3,7 @@ export default {
   render(root, props, { h, emit }) {
     const button = h('button', { type: 'button' }, props.label);
     if (props.hint) button.title = props.hint;
-    if (props.primary) button.style.cssText = 'background:var(--gf-accent);border-color:var(--gf-accent);color:var(--gf-bg)';
+    button.className = props.primary ? 'primary' : props.danger ? 'danger' : props.quiet ? 'quiet' : '';
     button.addEventListener('click', () => emit('pressed', {}));
     root.replaceChildren(button);
   },

@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "パイプライン", "width": 760, "height": 560},
+    "window": {"title": "パイプライン", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "title", "list", "form"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["title", "list", "form"]},
         {"id": "nav", "screen": "menu", "args": {"current": "pipelines", "module": {"arg": "module"}}},
         {"id": "title", "part": "note", "props": {"text": "パイプライン", "heading": True}},
         {"id": "list", "part": "table", "props": {

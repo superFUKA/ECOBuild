@@ -1,0 +1,4 @@
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.text.muted { color: var(--gf-muted); font-size: 13px; }
+h3 { margin-top: 6px; }
+.banner span { white-space: pre-wrap; }

@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "提出", "width": 900, "height": 680},
+    "window": {"title": "提出", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "head", "to_review_title", "to_review", "submitted_title", "submitted",
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "to_review_title", "to_review", "submitted_title", "submitted",
                                                         "revert_title", "revert"]},
         {"id": "nav", "screen": "menu", "args": {"current": "submissions", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},

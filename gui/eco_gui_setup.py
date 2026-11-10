@@ -41,9 +41,11 @@ def prepare(venv: Path) -> None:
     stamp = venv / "eco_gui-requirements.txt"  # 入れたときの requirements.txt の写し
     if stamp.is_file() and stamp.read_text(encoding="utf-8") == wanted:
         return
+    # 入れるものは、ここで読んで引数で渡す（pip に -r で読ませると、日本語の注釈を端末の文字コードで読もうとして失敗する）
+    wanted_lines = [line.strip() for line in wanted.splitlines() if line.strip() and not line.strip().startswith("#")]
     # 版の番号が同じでもコミットが違えば入れ直す（pip は、番号が同じだと入れ直さない）
     subprocess.run([str(python_of(venv)), "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
-                    "--force-reinstall", "-r", str(requirements)], check=True)
+                    "--force-reinstall", *wanted_lines], check=True)
     stamp.write_text(wanted, encoding="utf-8")
 
 

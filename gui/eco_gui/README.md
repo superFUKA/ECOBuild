@@ -1,0 +1,37 @@
+# ECOBuild の GUI（GUIFrameWork の上に載せる分）
+
+今の GUI（`gui/app.py`・`gui/static/`・`gui/electron/`）を、[GUIFrameWork](https://github.com/superFUKA/GUIFrameWork) の上に載せ替えていく作業の置き場です。今の GUI は、そのまま動きます。
+
+- 置くのは部品（`parts/`）と画面（`screens/`）だけです。処理は書きません。
+- 中継地点が、人が打つのと同じ `ecobuild -C <モジュール> <コマンド> --json` を呼びます。ECOBuild の CLI は変えていません。
+- 表示の CLI（`python -m eco_gui.app <命令>`）で、端末・スクリプト・AI から同じ表示を出せ、今の表示の状況を読めます。
+
+## 動かす
+
+GUIFrameWork を入れた Python で（版は `requirements.txt`）：
+
+```bat
+cd gui
+set ECOBUILD_GUI_MODULE=C:\path\to\module
+python -m eco_gui.app serve --screen members
+```
+
+別の端末から：
+
+```bat
+python -m eco_gui.app windows
+python -m eco_gui.app tree
+python -m eco_gui.app run "module members"
+```
+
+## 移した画面
+
+| 画面 | もとの場所 | 状態 |
+|---|---|---|
+| `members`（モジュール › メンバー） | `static/members.js` | 一覧・招待・外す。役割の変更と、管理者でないときの灰色の表示は、まだ |
+
+## まだ決まっていないこと
+
+- 管理者でないときに、ボタンを灰色にして理由を出す：ECOBuild の CLI に「今できるか」を答える口（`--can`）がない。今は、押すと CLI の誤りが知らせに出る。
+- 実行の後に入力欄を空にする・役割の変更（行ごとに選ぶ）：表示の命令・つなぎに、まだ口がない。
+- Electron の窓・インストーラーへの組み込み。

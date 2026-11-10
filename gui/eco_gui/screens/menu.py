@@ -1,6 +1,6 @@
 """モジュールの窓のメニュー（どの画面にも置く）。選ぶと、同じ窓でその画面に切り替わる。"""
 
-ARGS = {"current": ""}
+ARGS = {"current": "", "module": "."}
 
 SCREEN = {
     "root": "menu",
@@ -14,6 +14,6 @@ SCREEN = {
         ]}},
     ],
     "bindings": [
-        {"on": "menu.selected", "open": {"payload": "id"}, "here": True},
+        {"on": "menu.selected", "open": {"payload": "id"}, "args": {"module": {"arg": "module"}}, "here": True},
     ],
 }

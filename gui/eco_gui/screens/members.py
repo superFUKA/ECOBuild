@@ -1,11 +1,13 @@
 """モジュール › メンバー：共同作業者と招待中の人。招待する・外す。"""
 
+ARGS = {"module": "."}  # モジュールのフォルダー
+
 SCREEN = {
     "root": "page",
     "window": {"title": "メンバー", "width": 760, "height": 560},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["nav", "title", "me", "members", "invite"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "members"}},
+        {"id": "nav", "screen": "menu", "args": {"current": "members", "module": {"arg": "module"}}},
         {"id": "title", "part": "note", "props": {"text": "メンバー", "heading": True}},
         {"id": "me", "part": "note", "props": {"prefix": "あなた："}},
         {"id": "members", "part": "table", "props": {
@@ -13,7 +15,7 @@ SCREEN = {
             "key": "login",
             "actions": [{"name": "remove", "label": "外す"}],
             "labels": {
-                "role": {"read": "読む", "triage": "タスクの整理", "write": "書き込み", "maintain": "管理の一部", "admin": "管理者"},
+                "role": {"read": "読む", "args": {"module": {"arg": "module"}}, "triage": "タスクの整理", "write": "書き込み", "maintain": "管理の一部", "admin": "管理者"},
                 "invited": {"true": "招待中", "false": ""},
             },
             "empty_text": "共同作業者はまだいません。",
@@ -28,13 +30,13 @@ SCREEN = {
     ],
     "bindings": [
         # 読む
-        {"read": "account show", "to": "me.text", "from": "login"},
-        {"read": "module members", "to": "members.rows"},
+        {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "me.text", "from": "login"},
+        {"read": "module members", "args": {"module": {"arg": "module"}}, "to": "members.rows"},
         # 入力 → 共有の値
         {"on": "user.changed", "set": {"user": {"payload": "text"}}},
         {"on": "role.changed", "set": {"role": {"payload": "value"}}},
         # 入力 → ecobuild のコマンド（人が打つのと同じ：ecobuild module members add <user> [--role <role>]）
-        {"on": "add.pressed", "run": "module members add", "args": {"user": {"value": "user"}, "role": {"value": "role"}}},
-        {"on": "members.action", "run": "module members remove", "args": {"user": {"payload": "id"}}},
+        {"on": "add.pressed", "run": "module members add", "args": {"module": {"arg": "module"}, "user": {"value": "user"}, "role": {"value": "role"}}},
+        {"on": "members.action", "run": "module members remove", "args": {"module": {"arg": "module"}, "user": {"payload": "id"}}},
     ],
 }

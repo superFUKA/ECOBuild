@@ -1,9 +1,9 @@
-"""組み立て。バックエンドは `ecobuild -C <モジュールのフォルダー>`。
+"""組み立て。バックエンドは `ecobuild`。どのモジュールで実行するかは、画面の引数 module で決まる。
 
-    python -m eco_gui.app serve --screen overview     # gui/ のフォルダーで。中継地点を起こし、モジュールの窓を開く
-    python -m eco_gui.app tree                        # 別の端末から：今の表示を読む
+    python -m eco_gui.app serve --screen hub                 # gui/ のフォルダーで。中継地点を起こし、ハブを開く
+    python -m eco_gui.app open overview module=C:\\path\\to\\module   # 別の端末から：モジュールの窓を開く
+    python -m eco_gui.app tree                               # 今の表示を読む
 
-モジュールのフォルダーは環境変数 ECOBUILD_GUI_MODULE（なければ今のフォルダー）。
 ecobuild の場所は環境変数 ECOBUILD_GUI_ECOBUILD（なければ PATH の ecobuild）。
 """
 
@@ -18,8 +18,7 @@ from eco_gui.backend import EcobuildBackend
 
 def backend() -> EcobuildBackend:
     ecobuild = os.environ.get("ECOBUILD_GUI_ECOBUILD") or shutil.which("ecobuild") or "ecobuild"
-    module = os.environ.get("ECOBUILD_GUI_MODULE") or os.getcwd()
-    return EcobuildBackend([ecobuild, "-C", module])
+    return EcobuildBackend([ecobuild])
 
 
 app = create_app(eco_gui, name="ecobuild-gui-next", backend=backend(), roles={"confirm": "confirm-box"})

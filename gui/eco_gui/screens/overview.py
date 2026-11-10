@@ -1,11 +1,13 @@
 """モジュール › 概要：名前・型・リポジトリなど。"""
 
+ARGS = {"module": "."}  # モジュールのフォルダー
+
 SCREEN = {
     "root": "page",
     "window": {"title": "ECOBuild", "width": 760, "height": 560},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["nav", "title", "info"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "overview"}},
+        {"id": "nav", "screen": "menu", "args": {"current": "overview", "module": {"arg": "module"}}},
         {"id": "title", "part": "note", "props": {"text": "概要", "heading": True}},
         {"id": "info", "part": "facts", "props": {
             "items": [
@@ -17,6 +19,6 @@ SCREEN = {
         }},
     ],
     "bindings": [
-        {"read": "module show", "to": "info.data"},
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "info.data"},
     ],
 }

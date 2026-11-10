@@ -22,6 +22,7 @@ python -m eco_gui.app serve --screen members
 python -m eco_gui.app windows
 python -m eco_gui.app tree
 python -m eco_gui.app run "module members"
+python -m eco_gui.app samples                  :: 部品の見本を並べた画面
 ```
 
 ## 移した画面
@@ -33,5 +34,6 @@ python -m eco_gui.app run "module members"
 ## まだ決まっていないこと
 
 - 管理者でないときに、ボタンを灰色にして理由を出す：ECOBuild の CLI に「今できるか」を答える口（`--can`）がない。今は、押すと CLI の誤りが知らせに出る。
-- 実行の後に入力欄を空にする・役割の変更（行ごとに選ぶ）：表示の命令・つなぎに、まだ口がない。
+- 招待の後に入力欄を空にする・役割の変更（行ごとに選ぶ）：部品とつなぎの作り方を、まだ決めていない。
+- 読みが1つずつ順番で遅い（メンバーの画面で数秒）。
 - Electron の窓・インストーラーへの組み込み。

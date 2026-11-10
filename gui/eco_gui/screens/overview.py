@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ECOBuild", "width": 760, "height": 560},
+    "window": {"title": "ECOBuild", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "title", "info", "open_here", "spaces_title", "spaces"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["title", "info", "open_here", "spaces_title", "spaces"]},
         {"id": "nav", "screen": "menu", "args": {"current": "overview", "module": {"arg": "module"}}},
         {"id": "title", "part": "note", "props": {"text": "概要", "heading": True}},
         {"id": "info", "part": "facts", "props": {

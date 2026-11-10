@@ -7,9 +7,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ボード", "width": 1000, "height": 640},
+    "window": {"title": "ボード", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "head", "start_name", "board"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "start_name", "board"]},
         {"id": "nav", "screen": "menu", "args": {"current": "board", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "ボード", "heading": True}},

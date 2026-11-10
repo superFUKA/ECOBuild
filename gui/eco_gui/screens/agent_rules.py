@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー（保存するとき
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "全エージェント共通の文", "width": 900, "height": 760},
+    "window": {"title": "全エージェント共通の文", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "sub", "head", "where", "state", "common", "save"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["sub", "head", "where", "state", "common", "save"]},
         {"id": "nav", "screen": "menu", "args": {"current": "agents", "module": {"arg": "module"}}},
         {"id": "sub", "screen": "agents-menu", "args": {"current": "agent-rules", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},

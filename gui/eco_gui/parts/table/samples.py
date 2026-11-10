@@ -13,6 +13,12 @@ SAMPLES = [
                  {"task": {"number": 13, "title": "ログを残す", "assignees": []}, "reasons": [], "submission": None}],
         "key": "task.number", "numbered": True, "actions": [{"name": "open", "label": "詳細"}],
         "labels": {"submission.draft": {"true": "下書き", "false": ""}, "submission.base": {"": "（提出なし）"}}}},
+    {"name": "色の印", "props": {
+        "columns": [{"key": "name", "label": "実行"}, {"key": "result", "label": "結果"}],
+        "rows": [{"name": "build", "result": "success"}, {"name": "test", "result": "failure"}, {"name": "lint", "result": "running"}],
+        "key": "name", "actions": [{"name": "rerun", "label": "再実行", "primary": True}, {"name": "remove", "label": "削除…", "danger": True}],
+        "labels": {"result": {"success": "成功", "failure": "失敗", "running": "実行中"}},
+        "tones": {"result": {"success": "ok", "failure": "bad", "running": "warn"}}}},
     {"name": "空", "props": {"columns": [{"key": "login", "label": "アカウント"}], "rows": [], "empty_text": "共同作業者はまだいません。"}},
     {"name": "読み込み中", "props": {"columns": [{"key": "login", "label": "アカウント"}], "rows": [], "loading": True}},
     {"name": "誤り", "props": {"columns": [{"key": "login", "label": "アカウント"}], "rows": [], "error": "管理者だけが見られます"}},

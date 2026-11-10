@@ -4,9 +4,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー（メニューで戻
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ヘルプ", "width": 860, "height": 800},
+    "window": {"title": "ヘルプ", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "body"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "help", "module": {"arg": "module"}}},
         {"id": "body", "screen": "help-guide"},
     ],

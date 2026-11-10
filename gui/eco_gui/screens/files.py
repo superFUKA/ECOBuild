@@ -6,9 +6,10 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ファイル", "width": 940, "height": 820},
+    "window": {"title": "ファイル", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "head", "body", "selected", "ops", "one", "many", "add", "ignore", "about"]},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "body", "selected", "ops", "one", "many", "add", "ignore", "about"]},
         {"id": "nav", "screen": "menu", "args": {"current": "files", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload", "to_cpp"]},
         {"id": "title", "part": "note", "props": {"text": "ファイル", "heading": True}},

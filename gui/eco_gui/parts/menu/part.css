@@ -1,0 +1,31 @@
+/* 左のメニュー（今までの GUI の .module-nav と同じ見た目） */
+:host { height: 100%; }
+:host > div { height: 100%; }  /* 部品を描く先（本体が作る箱）も、高さいっぱいに */
+.side { display: flex; flex-direction: column; width: 176px; height: 100%; padding: 10px 6px; background: var(--eco-side); border-right: 1px solid var(--eco-line);
+  overflow: hidden auto; transition: width .15s; }
+.side.collapsed { width: 48px; }
+.top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; min-height: 30px; }
+.top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.toggle { flex: none; display: grid; place-items: center; padding: 6px 8px; border-color: transparent; background: transparent; color: var(--eco-dim); }
+.toggle:hover:not(:disabled) { color: var(--gf-fg); background: var(--gf-surface); border-color: transparent; }
+.icon { display: grid; flex: none; }
+.group { padding: 10px 10px 3px; color: var(--eco-dim); font-size: 11px; font-weight: 600; letter-spacing: .04em; white-space: nowrap; }
+.group:first-child { padding-top: 2px; }
+.item { display: flex; align-items: center; gap: 10px; width: 100%; margin-bottom: 2px; padding: 6px 10px; text-align: left; border-color: transparent; background: transparent;
+  color: var(--gf-muted); overflow: hidden; }
+.item:hover:not(:disabled) { background: #222930; color: var(--gf-fg); border-color: transparent; }
+.item[aria-current=page] { background: var(--eco-sel-bg); border-color: var(--eco-sel-line); color: var(--eco-sel-fg); }
+.item span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.bottom { margin-top: auto; padding-top: 8px; }
+.account { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: center; width: 100%; margin-top: 8px; padding: 12px 6px 4px;
+  border: 0; border-top: 1px solid var(--eco-line); border-radius: 0 0 8px 8px; background: transparent; color: var(--gf-muted); font-size: 13px; text-align: left; }
+.account:hover:not(:disabled) { color: var(--gf-fg); background: #ffffff0a; }
+.account .avatar { grid-row: span 2; width: 28px; height: 28px; font-size: 13px; }
+.account .name { overflow: hidden; text-overflow: ellipsis; }
+.account .role { justify-self: start; padding: 0 5px; border-radius: 8px; background: #2a323b; color: #cdd5df; font-size: 10px; line-height: 15px; }
+.collapsed .top { justify-content: center; }
+.collapsed .top strong, .collapsed .group, .collapsed .item span:last-child, .collapsed .account .name, .collapsed .account .role { display: none; }
+.collapsed .toggle svg { transform: rotate(180deg); }
+.collapsed .item { justify-content: center; padding: 8px 0; }
+.collapsed .account { display: flex; justify-content: center; padding: 12px 0 4px; }
+@media (prefers-reduced-motion: reduce) { .side { transition: none; } }

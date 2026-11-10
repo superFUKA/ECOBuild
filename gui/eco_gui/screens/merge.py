@@ -7,9 +7,10 @@ ARGS = {"module": ".", "name": ""}  # モジュールのフォルダー・取り
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ブランチの取り込み・提出", "width": 900, "height": 720},
+    "window": {"title": "ブランチの取り込み・提出", "width": 1280, "height": 820},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["nav", "head", "source", "own", "chosen", "direct", "submit_form",
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "source", "own", "chosen", "direct", "submit_form",
                                                         "targets_title", "targets"]},
         {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},

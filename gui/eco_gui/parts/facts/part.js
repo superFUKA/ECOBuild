@@ -9,9 +9,14 @@ export default {
       const names = props.labels[item.key] || {};
       return text in names ? names[text] : text;
     };
-    const list = h('dl', { style: 'display:grid;grid-template-columns:max-content 1fr;gap:.3rem 1rem;margin:0' });
+    const list = h('dl', {});
     for (const item of props.items) {
-      list.append(h('dt', { style: 'color:var(--gf-muted)' }, item.label), h('dd', { style: 'margin:0' }, show(item)));
+      const value = props.data[item.key];
+      const raw = value === null || value === undefined ? '' : typeof value === 'object' ? null : String(value);
+      const tones = props.tones[item.key];
+      const tone = tones && raw !== null && raw in tones ? tones[raw] : '';
+      const text = show(item);
+      list.append(h('dt', {}, item.label), h('dd', {}, tone && text !== '' ? h('span', { class: tone === 'plain' ? 'pill' : 'pill ' + tone }, text) : text));
     }
     root.replaceChildren(list);
   },

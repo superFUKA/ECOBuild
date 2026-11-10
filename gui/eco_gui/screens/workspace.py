@@ -67,7 +67,7 @@ SCREEN = {
         # ecobuild のコマンド（人が打つのと同じ：ecobuild task commit <ファイル…> --message <文> [--amend]）
         {"on": "do_commit.pressed", "run": "task commit",
          "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}, "message": {"value": "message"}, "amend": {"value": "amend"}},
-         "set": {"paths": [], "amend": None}},
+         "set": {"paths": None, "amend": None}},
         # チェックした変更に（1つもチェックしていなければ押せない：require）。restore [--staged] [--source <コミット>]
         {"on": "stage.pressed", "run": "task add", "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}}, "require": ["paths"]},
         {"on": "unstage.pressed", "run": "restore", "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}, "staged": True},

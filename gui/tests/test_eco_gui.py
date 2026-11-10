@@ -243,7 +243,7 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     relay.input(window, "do_commit", "pressed", {}, human=True)
     relay.idle()
     assert ("task commit", {"paths": ["a.py", "new.txt"], "message": "ログインを直す"}) in relay.backend.calls
-    assert relay.display.values(window)["paths"] == [] and nodes(relay, window)["changes"]["props"]["checked"] == []
+    assert relay.display.values(window)["paths"] is None and nodes(relay, window)["changes"]["props"]["checked"] == []
     relay.input(window, "submit", "pressed", {}, human=True)  # 提出は、確かめてから
     assert answer(relay, window, True)["part"] == "confirm-box"
     assert ("task submit", {}) in relay.backend.calls

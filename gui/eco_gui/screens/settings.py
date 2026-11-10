@@ -48,7 +48,10 @@ SCREEN = {
         {"id": "profile_add", "part": "button", "props": {"label": "＋ 保存", "primary": True}},
 
         # ブランチの保護（module protect）
-        {"id": "protect", "layout": "column", "children": ["protect_note", "protect_form", "unprotect"]},
+        {"id": "protect", "layout": "column", "children": ["protect_note", "protect_now", "protect_form", "unprotect"]},
+        {"id": "protect_now", "part": "facts", "props": {"items": [
+            {"key": "branch", "label": "保護しているブランチ"}, {"key": "approvals", "label": "要る承認の数"},
+            {"key": "checks", "label": "通っていること（CI）"}]}},
         {"id": "protect_note", "part": "note", "props": {
             "text": "作成元のブランチを、GitHub のブランチの保護で守ります（提出以外での変更・強制 push・削除を止める）。"}},
         {"id": "protect_form", "layout": "row", "children": ["approvals", "require_ci", "do_protect"]},
@@ -146,6 +149,7 @@ SCREEN = {
         {"on": "do_protect.pressed", "run": "module protect",
          "args": {"module": {"arg": "module"}, "approvals": {"value": "approvals"}, "require_ci": {"value": "require_ci"}}},
         {"on": "unprotect.pressed", "run": "module protect", "args": {"module": {"arg": "module"}, "off": True}},
+        {"read": "module protection", "args": {"module": {"arg": "module"}}, "to": "protect_now.data"},
         # 管理するファイル（ecobuild track add <パターン>・track remove <パターン>・ignore <パターン>）
         {"read": "track", "args": {"module": {"arg": "module"}}, "to": "patterns.rows", "from": "patterns"},
         {"on": "pattern.changed", "set": {"pattern": {"payload": "text"}}},

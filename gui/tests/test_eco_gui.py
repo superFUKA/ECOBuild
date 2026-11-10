@@ -37,6 +37,17 @@ class FakeEcobuild:
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"}
                for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status", "files", "branch list")},
             "show": {"description": "コミット", "weight": "read", "args": {"type": "object", "required": [], "properties": {"commit": text}}},
+            "doctor": {"description": "環境チェック", "weight": "read", "args": {"type": "object", "required": [], "properties": {}}},
+            **{name: {"description": name, "weight": "change", "args": {"type": "object", "required": [key], "properties": {key: text}}}
+               for name, key in (("workspace add", "path"), ("workspace forget", "path"), ("module clone", "repository"))},
+            "module new": {"description": "モジュールを作ります", "weight": "change", "args": {"type": "object", "required": ["name"], "properties": {
+                "name": text, "type": text}}},
+            "file add": {"description": "ファイルを足します", "weight": "change", "args": {"type": "object", "required": [], "properties": {
+                "paths": {"type": "array", "items": text}}}},
+            "file remove": {"description": "ファイルを消します", "weight": "confirm", "args": {"type": "object", "required": [], "properties": {
+                "paths": {"type": "array", "items": text}}}},
+            "file move": {"description": "ファイルを動かします", "weight": "change", "args": {"type": "object", "required": ["source", "destination"], "properties": {
+                "source": text, "destination": text}}},
             "task new": {"description": "タスクを作ります", "weight": "change", "args": {"type": "object", "required": ["title"], "properties": {"title": text}}},
             "task start": {"description": "タスクを始めます", "weight": "change", "args": {"type": "object", "required": ["issue"], "properties": {
                 "issue": {"type": "integer"}, "name": text}}},
@@ -87,6 +98,8 @@ class FakeEcobuild:
         if name == "build":
             for line in ("構成しています…\n", "ビルドしています…\n"):
                 on_event({"event": "output", "message": line})
+        if name == "doctor":
+            return {"ok": True, "result": {"items": [{"id": "git", "name": "git", "ok": True, "detail": "2.55", "hint": ""}]}}
         if name == "branch list":
             return {"ok": True, "result": [{"name": "dev", "base": "main", "local": True, "remote": True, "merged": False}]}
         if name == "show":
@@ -298,6 +311,52 @@ def test_branches_and_history_screens(relay):
     relay.input(window, "log", "action", {"id": "abc", "action": "show"}, human=True)
     relay.idle()
     assert nodes(relay, window)["detail"]["props"]["text"].startswith("commit abc")
+
+
+def test_hub_adds_modules_and_opens_the_environment_check(relay):
+    hub = relay.execute({"command": "open", "screen": "hub"})["window"]
+    relay.idle()
+    relay.input(hub, "path", "changed", {"text": "C:/work/New"}, human=True)
+    relay.input(hub, "repository", "changed", {"text": "octocat/hello"}, human=True)
+    relay.input(hub, "name", "changed", {"text": "Calc2"}, human=True)
+    relay.input(hub, "type", "changed", {"value": "python"}, human=True)
+    relay.idle()
+    for button in ("do_register", "do_clone", "do_create"):
+        relay.input(hub, button, "pressed", {}, human=True)
+        relay.idle()
+    relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "forget"}, human=True)
+    relay.idle()
+    for call in [("workspace add", {"path": "C:/work/New"}), ("module clone", {"repository": "octocat/hello"}),
+                 ("module new", {"name": "Calc2", "type": "python"}), ("workspace forget", {"path": "C:/work/Game"})]:
+        assert call in relay.backend.calls
+    relay.input(hub, "doctor", "pressed", {}, human=True)
+    relay.idle()
+    doctor = next(w["id"] for w in relay.display.windows() if w["screen"] == "doctor")
+    assert nodes(relay, doctor)["items"]["props"]["rows"][0]["name"] == "git"
+
+
+def test_files_screen_adds_moves_and_removes_files(relay):
+    window = relay.execute({"command": "open", "screen": "files", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    assert nodes(relay, window)["move"]["wrap"]["kind"] == "unavailable"  # まだ選んでいない
+    relay.input(window, "new_path", "changed", {"text": "src/util.py"}, human=True)
+    relay.idle()
+    relay.input(window, "do_add", "pressed", {}, human=True)
+    relay.idle()
+    assert ("file add", {"paths": ["src/util.py"]}) in relay.backend.calls
+    relay.input(window, "tree", "selected", {"path": "src/app.py"}, human=True)
+    relay.input(window, "destination", "changed", {"text": "src/main.py"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["selected"]["props"]["text"] == "src/app.py"
+    relay.input(window, "move", "pressed", {}, human=True)
+    relay.idle()
+    assert ("file move", {"source": "src/app.py", "destination": "src/main.py"}) in relay.backend.calls
+    assert relay.display.values(window)["file"] is None  # 動かしたら、選択を空に
+    relay.input(window, "tree", "selected", {"path": "README.md"}, human=True)
+    relay.idle()
+    relay.input(window, "remove", "pressed", {}, human=True)
+    answer(relay, window, True)  # 消すのは、確かめてから
+    assert ("file remove", {"paths": ["README.md"]}) in relay.backend.calls
 
 
 def test_the_menu_switches_screens_in_the_same_window(relay):

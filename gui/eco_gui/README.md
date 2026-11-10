@@ -36,6 +36,7 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `hub`（ハブ） | `static/hub.js` | モジュールの一覧と「開く」だけ。作る・取得・設定・並べ替えは、まだ |
 | `menu`（モジュールの窓のメニュー） | `static/module.js` の左のメニュー | 選ぶと、同じ窓で画面が切り替わる。どの画面にも置いてある |
 | `overview`（概要） | `static/modinfo.js` のホーム | 名前・型・リポジトリなど。README・ファイルの木は、まだ |
+| `workspace`（作業空間） | `static/workspace.js` | 状態・変更を選んでコミット・Push・取り込み・提出・最近のコミット。差分・退避・衝突・エクスプローラー・ビルドは、まだ |
 | `tasks`（タスク） | `static/tasks.js` | 開いているタスクの一覧だけ。ボード・日程・作る・始めるは、まだ |
 | `members`（メンバー） | `static/members.js` | 一覧・招待・外す。役割の変更と、管理者でないときの灰色の表示は、まだ |
 | `pipelines`（パイプライン） | `static/pipelines.js` | 一覧・足す・流す・消す。タスクの段階への割り当て（`pipeline on`）は、まだ |

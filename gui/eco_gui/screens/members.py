@@ -2,9 +2,10 @@
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "メンバー", "width": 680, "height": 520},
+    "window": {"title": "メンバー", "width": 760, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["title", "me", "members", "invite"]},
+        {"id": "page", "layout": "column", "children": ["nav", "title", "me", "members", "invite"]},
+        {"id": "nav", "screen": "menu", "args": {"current": "members"}},
         {"id": "title", "part": "note", "props": {"text": "メンバー", "heading": True}},
         {"id": "me", "part": "note", "props": {"prefix": "あなた："}},
         {"id": "members", "part": "table", "props": {

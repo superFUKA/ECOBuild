@@ -7,7 +7,7 @@ export default {
     const cell = 'text-align:left;padding:.35rem .6rem;border-bottom:1px solid var(--gf-border)';
     const show = (column, value) => {
       const names = props.labels[column.key] || {};
-      const text = value === null || value === undefined ? '' : String(value);
+      const text = value === null || value === undefined ? '' : Array.isArray(value) ? value.join('、') : String(value);
       return text in names ? names[text] : text;
     };
     const head = h('tr', {}, ...props.columns.map((column) => h('th', { style: cell }, column.label)));

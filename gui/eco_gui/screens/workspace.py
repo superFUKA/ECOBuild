@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "作業空間", "width": 820, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "diff", "commit", "actions", "tools", "out", "log_title", "log"]},
+        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "diff", "commit", "chosen", "actions", "tools", "more", "out", "log_title", "log"]},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "module"}, "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
@@ -19,6 +19,11 @@ SCREEN = {
         {"id": "commit", "layout": "row", "children": ["message", "do_commit"]},
         {"id": "message", "part": "text-input", "props": {"title": "コミットの文", "placeholder": "何を変えたか"}},
         {"id": "do_commit", "part": "button", "props": {"label": "選んだファイルをコミット", "primary": True}},
+        # チェックした変更に（ecobuild task add <ファイル…>・restore <ファイル…> --staged・restore <ファイル…>）
+        {"id": "chosen", "layout": "row", "children": ["stage", "unstage", "discard"]},
+        {"id": "stage", "part": "button", "props": {"label": "ステージ", "hint": "チェックした変更を、次のコミットに入れる印を付ける"}},
+        {"id": "unstage", "part": "button", "props": {"label": "ステージを取り消す", "hint": "チェックした変更のステージだけを取り消す（中身は残す）"}},
+        {"id": "discard", "part": "button", "props": {"label": "変更を捨てる", "hint": "チェックしたファイルを、最後のコミットの状態に戻す"}},
         {"id": "actions", "layout": "row", "children": ["push", "sync", "submit", "stash", "unstash"]},
         {"id": "stash", "part": "button", "props": {"label": "退避", "hint": "まだコミットしていない変更を、いったんよける"}},
         {"id": "unstash", "part": "button", "props": {"label": "退避を戻す"}},
@@ -29,6 +34,9 @@ SCREEN = {
         {"id": "build", "part": "button", "props": {"label": "ビルド"}},
         {"id": "test", "part": "button", "props": {"label": "試験"}},
         {"id": "clean", "part": "button", "props": {"label": "クリーン", "hint": "ビルドで作ったものを消す"}},
+        {"id": "more", "layout": "row", "children": ["open_build", "open_stashes"]},
+        {"id": "open_build", "part": "button", "props": {"label": "ビルド設定・試験を選ぶ…", "hint": "構成・ビルド設定・流す試験・実行の引数を決めて動かす"}},
+        {"id": "open_stashes", "part": "button", "props": {"label": "退避の一覧…"}},
         {"id": "out", "part": "output"},
         {"id": "log_title", "part": "note", "props": {"text": "最近のコミット"}},
         {"id": "log", "part": "table", "props": {
@@ -51,6 +59,9 @@ SCREEN = {
         # ecobuild のコマンド（人が打つのと同じ：ecobuild task commit <ファイル…> --message <文>）
         {"on": "do_commit.pressed", "run": "task commit",
          "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}, "message": {"value": "message"}}, "set": {"paths": []}},
+        {"on": "stage.pressed", "run": "task add", "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}}},
+        {"on": "unstage.pressed", "run": "restore", "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}, "staged": True}},
+        {"on": "discard.pressed", "run": "restore", "args": {"module": {"arg": "module"}, "paths": {"value": "paths"}}, "set": {"paths": []}},
         {"on": "push.pressed", "run": "task push", "args": {"module": {"arg": "module"}}},
         {"on": "sync.pressed", "run": "sync", "args": {"module": {"arg": "module"}}},
         {"on": "submit.pressed", "run": "task submit", "args": {"module": {"arg": "module"}}},
@@ -60,5 +71,8 @@ SCREEN = {
         {"on": "build.pressed", "run": "build", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
         {"on": "test.pressed", "run": "test", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
         {"on": "clean.pressed", "run": "clean", "args": {"module": {"arg": "module"}}, "output": "out.lines"},
+        # 細かく決めて動かす画面・退避の一覧（この作業空間の窓として開く）
+        {"on": "open_build.pressed", "open": "build", "args": {"module": {"arg": "module"}}},
+        {"on": "open_stashes.pressed", "open": "stashes", "args": {"module": {"arg": "module"}}},
     ],
 }

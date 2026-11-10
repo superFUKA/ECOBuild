@@ -36,6 +36,39 @@ def convert(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_HEAVIER = ("read", "change", "confirm")  # 重さの軽い順（型で違えば、重い方に合わせる）
+
+
+def merge(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """同じ名前（path）のコマンドを1つにまとめる（約束の形になった後の一覧で）。
+
+    型（cpp・python・generic）ごとに同じ名前のコマンドがあり、受ける引数が型で違う（C++ だけの `--project`・
+    `file add --template` 等）。まとめた1つは、どれかの型が受ける引数を全部受ける。そのモジュールの型が受けない
+    引数を渡したら、ecobuild が断る。必須なのは、どの型でも必須の引数だけ。
+    """
+    merged: dict[Any, dict[str, Any]] = {}
+    for node in nodes:
+        known = merged.get(node.get("path"))
+        if known is None:
+            merged[node.get("path")] = {**node, "parameters": [dict(item) for item in node["parameters"]],
+                                        "commands": list(node["commands"])}
+            continue
+        theirs = {item["name"]: item for item in node["parameters"]}
+        for item in known["parameters"]:  # 型によってはない・任意の引数は、任意
+            item["required"] = item["required"] and bool(theirs.get(item["name"], {}).get("required"))
+        names = {item["name"] for item in known["parameters"]}
+        known["parameters"] += [{**item, "required": False} for item in node["parameters"] if item["name"] not in names]
+        known["commands"] += node["commands"]
+        known["runnable"] = known["runnable"] or node["runnable"]
+        if known["effect"] in _HEAVIER and node["effect"] in _HEAVIER:
+            known["effect"] = max(known["effect"], node["effect"], key=_HEAVIER.index)
+        else:
+            known["effect"] = known["effect"] or node["effect"]
+    for node in merged.values():
+        node["commands"] = merge(node["commands"])
+    return list(merged.values())
+
+
 class EcobuildBackend(MachineBackend):
     """ecobuild とのつなぎ。どのコマンドも、引数 module（モジュールのフォルダー）を受ける。
 
@@ -60,8 +93,8 @@ class EcobuildBackend(MachineBackend):
         result = data.get("result") or {}
         commands = list(result.get("commands") or [])
         # 型ごとのコマンド（build・test・file 等）も足す。中継地点は1つでどの型のモジュールも扱うので、全部の型の分を足す
-        # （同じ名前のコマンドは1つとして扱われる。その型でないモジュールで呼べば、ecobuild が「使えない」と答える）
+        # （同じ名前のコマンドは1つにまとめ、引数は合わせる。その型でないモジュールで呼べば、ecobuild が「使えない」と答える）
         for kind in sorted(result.get("types") or {}):
             commands += result["types"][kind].get("commands") or []
         return {"name": "ecobuild", "path": "", "runnable": False, "effect": None, "parameters": [],
-                "commands": [convert(node) for node in commands]}
+                "commands": merge([convert(node) for node in commands])}

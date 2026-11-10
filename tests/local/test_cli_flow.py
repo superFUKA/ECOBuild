@@ -184,6 +184,18 @@ def test_sync_continue_and_abort_commands(cli):
     assert as_json(cli("sync", "--json"))["result"]["branch"] == "main"
 
 
+def test_sync_conflicts_and_resolve_commands(cli):
+    """衝突がないときの sync conflicts（読むだけ）と、sync resolve の使い方の誤り。"""
+    assert as_json(cli("sync", "conflicts", "--json"))["result"] == {
+        "stopped": None, "current": "今の側", "incoming": "入ってくる側", "ready": False, "files": []}
+    assert "衝突したファイルはありません" in cli("sync", "conflicts").stdout
+    assert cli("sync", "resolve", "README.md").exit_code == 2                                     # 側も中身もない
+    assert cli("sync", "resolve", "README.md", "--side", "left").exit_code == 2
+    assert cli("sync", "resolve", "README.md", "--side", "current", "--text", "x").exit_code == 2
+    assert cli("sync", "resolve", "README.md", "--side", "current", "--hunk", "a").exit_code == 2
+    assert as_json(cli("sync", "resolve", "README.md", "--side", "current", "--json"))["error"]["code"] == "no_sync_in_progress"
+
+
 def test_not_in_module(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(build_cli(), ["status", "--json"])

@@ -200,6 +200,108 @@ def test_take_side_resolves_with_one_side(repository, remote_and_clone, tmp_path
     assert code_of(lambda: repository.take_side((), incoming=False)) == ErrorCode.NO_SYNC_IN_PROGRESS
 
 
+def _two_conflicts(repository, remote, tmp_path):
+    """README.md の2箇所（2行目と11行目）が衝突して止まった作業空間。"""
+    lines = ["one", "two", *(f"line{n}" for n in range(3, 11)), "six", "seven"]
+    eol = "\n"
+
+    def text(changed):
+        return (eol.join(changed.get(line, line) for line in lines) + eol).encode()
+
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    git(other, "config", "core.autocrlf", "false")
+    git(repository.root, "config", "core.autocrlf", "false")
+    git(repository.root, "reset", "--quiet", "--hard")
+
+    def push(changed):
+        (other / "README.md").write_bytes(text(changed))
+        git(other, "add", "--all")
+        git(other, "commit", "--quiet", "-m", "README.md を変更")
+        git(other, "push", "--quiet", "origin", "main")
+
+    push({})
+    repository.sync()
+    task_branch = repository.create_task("t").start()
+    (repository.root / "README.md").write_bytes(text({"two": "TWO-local", "six": "SIX-local"}))
+    task_branch.record("手元の変更")
+    push({"two": "TWO-remote", "six": "SIX-remote"})
+    assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
+
+
+def test_conflicts_reads_the_hunks_of_the_conflicted_files(repository, remote_and_clone, tmp_path):
+    """衝突したファイルを、そのままの部分と衝突の箇所（今の側・入ってくる側・始まる行）に分けて読む。何も変えない。"""
+    remote, _ = remote_and_clone
+    assert repository.conflicts().files == () and not repository.conflicts().ready
+    _two_conflicts(repository, remote, tmp_path)
+    before = (repository.root / "README.md").read_bytes()
+    found = repository.conflicts()
+    assert (found.stopped, found.ready, [f.path for f in found.files]) == ("merge", False, ["README.md"])
+    file = found.files[0]
+    assert (file.remaining, file.reason) == (2, "")
+    assert "".join(piece.text for piece in file.pieces).encode() == before          # つなぐと、ファイルの中身
+    hunks = [piece for piece in file.pieces if piece.conflict]
+    assert [(h.line, h.current, h.incoming) for h in hunks] == [(2, "TWO-local\n", "TWO-remote\n"), (15, "SIX-local\n", "SIX-remote\n")]
+    assert (repository.root / "README.md").read_bytes() == before
+    assert code_of(lambda: repository.conflicts(("other.txt",))) == ErrorCode.INVALID_ARGUMENT
+
+
+def test_resolve_conflict_takes_a_side_per_hunk(repository, remote_and_clone, tmp_path):
+    """箇所ごとに、片方の側・両方にして書く。番号は、今残っている箇所を上から数える。全部直すと続けられる。"""
+    remote, _ = remote_and_clone
+    _two_conflicts(repository, remote, tmp_path)
+    assert code_of(lambda: repository.resolve_conflict("README.md", side="current", hunks=(3,))) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: repository.resolve_conflict("README.md", side="left")) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: repository.resolve_conflict("README.md")) == ErrorCode.INVALID_ARGUMENT
+    assert code_of(lambda: repository.resolve_conflict("other.txt", side="current")) == ErrorCode.INVALID_ARGUMENT
+    middle = "".join(f"line{n}\n" for n in range(3, 11)).encode()
+    assert repository.resolve_conflict("README.md", side="incoming", hunks=(1,)).remaining == 1
+    assert not repository.conflicts().ready
+    assert repository.resolve_conflict("README.md", side="both-incoming-first", hunks=(1,)).remaining == 0   # 残りの1つ目＝元の2つ目
+    assert (repository.root / "README.md").read_bytes() == b"one\nTWO-remote\n" + middle + b"SIX-remote\nSIX-local\nseven\n"
+    assert repository.conflicts().ready and repository.status().conflicted == ("README.md",)   # 登録はしない
+    assert code_of(lambda: repository.resolve_conflict("README.md", side="current")) == ErrorCode.INVALID_ARGUMENT   # もう箇所がない
+    repository.continue_sync()
+    assert repository.status().stopped is None
+
+
+def test_resolve_conflict_writes_the_fixed_text_with_the_line_endings_of_the_file(repository, remote_and_clone, tmp_path):
+    """手で直した中身に置き換える。今のファイルが CRLF なら、LF で届いた文も CRLF で書く（入力欄を通った文）。"""
+    remote, _ = remote_and_clone
+    _two_conflicts(repository, remote, tmp_path)
+    target = repository.root / "README.md"
+    target.write_bytes(target.read_bytes().replace(b"\n", b"\r\n"))
+    assert repository.resolve_conflict("README.md", side="current", hunks=(2,)).remaining == 1
+    assert b"SIX-local\r\n" in (repository.root / "README.md").read_bytes()
+    left = repository.resolve_conflict("README.md", text="one\n<<<<<<< x\na\n=======\nb\n>>>>>>> y\n")
+    assert left.remaining == 1 and not repository.conflicts().ready                    # 印が残っていれば、まだ
+    assert repository.resolve_conflict("README.md", text="one\ntwo\n").remaining == 0
+    assert (repository.root / "README.md").read_bytes() == b"one\r\ntwo\r\n"
+    assert repository.conflicts().ready
+
+
+def test_conflicts_tells_why_a_file_cannot_be_fixed_by_hunks(repository, remote_and_clone, tmp_path):
+    """バイナリ・UTF-8 でないファイルは、箇所に分けず、理由を返す（片方の側を採って直す）。"""
+    remote, _ = remote_and_clone
+    task_branch = repository.create_task("t").start()
+    (repository.root / "data.bin").write_bytes(b"\0local")
+    (repository.root / "sjis.txt").write_bytes("手元\n".encode("cp932"))
+    task_branch.record("手元の変更")
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    (other / "data.bin").write_bytes(b"\0remote")
+    (other / "sjis.txt").write_bytes("遠く\n".encode("cp932"))
+    git(other, "add", "--all")
+    git(other, "commit", "--quiet", "-m", "別の変更")
+    git(other, "push", "--quiet", "origin", "main")
+    assert code_of(repository.sync) == ErrorCode.MERGE_CONFLICT
+    found = repository.conflicts()
+    assert {f.path: f.reason for f in found.files} == {"data.bin": "binary", "sjis.txt": "not_utf8"} and not found.ready
+    assert code_of(lambda: repository.resolve_conflict("data.bin", side="current")) == ErrorCode.INVALID_ARGUMENT
+    repository.take_side((), incoming=True)
+    assert repository.conflicts().files == ()
+
+
 def test_take_side_removes_a_file_deleted_on_that_side(repository, remote_and_clone, tmp_path):
     remote, _ = remote_and_clone
     task_branch = repository.create_task("t").start()

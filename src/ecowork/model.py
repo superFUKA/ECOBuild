@@ -522,6 +522,37 @@ class SyncResult:
     extra: object = None             # Hooks.after_sync の戻り値
 
 
+# 衝突したファイルを、箇所ごとには直せない理由（ConflictFile.reason）
+CONFLICT_REASONS = {"missing": "片方の側で消えています", "binary": "バイナリのファイルです", "too_large": "大きすぎます",
+                    "not_utf8": "UTF-8 でない文字コード（Shift_JIS 等）です"}
+
+
+@dataclass(frozen=True)
+class ConflictPiece:
+    """衝突したファイルの一部分。そのままの部分か、衝突の箇所（conflict）。"""
+    text: str                          # ファイルのこの部分そのまま（衝突の箇所は、印ごと）
+    conflict: bool = False
+    line: int = 0                      # 衝突の箇所が始まる行
+    current: str = ""                  # 今の側の中身
+    incoming: str = ""                 # 入ってくる側の中身
+    base: str | None = None            # 共通の元（印に入っているとき）
+
+
+@dataclass(frozen=True)
+class ConflictFile:
+    path: str
+    remaining: int                     # 残っている衝突の箇所の数
+    reason: str = ""                   # 箇所ごとに直せない理由：missing・binary・too_large・not_utf8（直せるなら空）
+    pieces: tuple[ConflictPiece, ...] = ()
+
+
+@dataclass(frozen=True)
+class Conflicts:
+    stopped: str | None                # 止まっている操作（Git.stopped）
+    files: tuple[ConflictFile, ...]
+    ready: bool                        # 衝突したファイルを全部直してある（continue_sync で続けられる）
+
+
 @dataclass(frozen=True)
 class StashResult:
     stashed: bool

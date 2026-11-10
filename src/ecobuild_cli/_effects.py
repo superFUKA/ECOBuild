@@ -18,7 +18,7 @@ EFFECTS = {
         "config get", "config list", "files", "help", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer check", "installer show", "installer versions", "log", "milestone list", "milestone status", "module list", "module members", "module protection", "module settings",
         "module show", "module types", "pipeline list", "profile list", "project list", "project show", "release list", "show",
-        "sprint list", "sprint status", "stash list", "status", "task diff", "task list", "task next",
+        "sprint list", "sprint status", "stash list", "status", "sync conflicts", "task diff", "task list", "task next",
         "task overdue", "task status", "task workload", "template list", "tests", "track", "workspace list",
     ),
     CONFIRM: (

@@ -11,16 +11,15 @@ import os
 import shutil
 
 from guiframework import create_app
-from guiframework.backend import MachineBackend
 
 import eco_gui
+from eco_gui.backend import EcobuildBackend
 
 
-def backend() -> MachineBackend:
+def backend() -> EcobuildBackend:
     ecobuild = os.environ.get("ECOBUILD_GUI_ECOBUILD") or shutil.which("ecobuild") or "ecobuild"
     module = os.environ.get("ECOBUILD_GUI_MODULE") or os.getcwd()
-    # 「人がする」（human）の重さのコマンドは、窓の前の人に確かめてから実行する
-    return MachineBackend([ecobuild, "-C", module], effects={"human": "confirm"})
+    return EcobuildBackend([ecobuild, "-C", module])
 
 
 app = create_app(eco_gui, name="ecobuild-gui-next", backend=backend(), roles={"confirm": "confirm-box"})

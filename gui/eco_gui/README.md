@@ -3,7 +3,8 @@
 今の GUI（`gui/app.py`・`gui/static/`・`gui/electron/`）を、[GUIFrameWork](https://github.com/superFUKA/GUIFrameWork) の上に載せ替えていく作業の置き場です。今の GUI は、そのまま動きます。
 
 - 置くのは部品（`parts/`）と画面（`screens/`）だけです。処理は書きません。
-- 中継地点が、人が打つのと同じ `ecobuild -C <モジュール> <コマンド> --json` を呼びます。ECOBuild の CLI は変えていません。
+- 中継地点が、人が打つのと同じ `ecobuild -C <モジュール> <コマンド> --json` を呼びます。
+- ecobuild のコマンドの一覧は、今は自前の形で出るので、`backend.py` が GUIFrameWork の約束の形（CLIFrameWork の構造化出力の形）に直しています。フレームワークの側は ecobuild の形を知りません。
 - 表示の CLI（`python -m eco_gui.app <命令>`）で、端末・スクリプト・AI から同じ表示を出せ、今の表示の状況を読めます。
 
 ## 動かす
@@ -19,7 +20,7 @@ python -m eco_gui.app serve --screen members
 別の端末から：
 
 ```bat
-python -m eco_gui.app windows
+python -m eco_gui.app windows --json          :: --json で、機械向けの JSON を1つ
 python -m eco_gui.app tree
 python -m eco_gui.app run "module members"
 python -m eco_gui.app samples                  :: 部品の見本を並べた画面

@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "作業空間", "width": 820, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "commit", "actions", "tools", "out", "log_title", "log"]},
+        {"id": "page", "layout": "column", "children": ["head", "state", "changes", "diff", "commit", "actions", "tools", "out", "log_title", "log"]},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "module"}, "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
@@ -15,6 +15,7 @@ SCREEN = {
             {"key": "ahead", "label": "まだ送っていないコミット"}, {"key": "behind", "label": "まだ取り込んでいないコミット"},
         ]}},
         {"id": "changes", "part": "changes"},
+        {"id": "diff", "part": "text-view", "props": {"empty_text": "ファイルの名前を押すと、差分が出ます。"}},
         {"id": "commit", "layout": "row", "children": ["message", "do_commit"]},
         {"id": "message", "part": "text-input", "props": {"title": "コミットの文", "placeholder": "何を変えたか"}},
         {"id": "do_commit", "part": "button", "props": {"label": "選んだファイルをコミット", "primary": True}},
@@ -41,6 +42,8 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         # 選ぶ・文を書く
         {"on": "changes.changed", "set": {"paths": {"payload": "paths"}}},
+        {"on": "changes.selected", "set": {"file": {"payload": "path"}}},
+        {"read": "diff", "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}]}, "to": "diff.text"},
         {"value": "paths", "to": "changes.checked"},
         {"on": "message.changed", "set": {"message": {"payload": "text"}}},
         # ecobuild のコマンド（人が打つのと同じ：ecobuild task commit <ファイル…> --message <文>）

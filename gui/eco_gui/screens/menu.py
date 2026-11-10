@@ -7,6 +7,7 @@ SCREEN = {
     "nodes": [
         {"id": "menu", "part": "menu", "props": {"current": {"arg": "current"}, "items": [
             {"id": "overview", "label": "概要"},
+            {"id": "files", "label": "ファイル"},
             {"id": "tasks", "label": "タスク"},
             {"id": "members", "label": "メンバー"},
             {"id": "pipelines", "label": "パイプライン"},

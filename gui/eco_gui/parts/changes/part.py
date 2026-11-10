@@ -11,4 +11,9 @@ def part(
 ) -> None: ...
 
 
-def on_changed(paths: Annotated[list[str], "選んだファイル"]) -> None: ...
+def on_changed(paths: Annotated[list[str], "チェックを付けたファイル"]) -> None: ...
+
+
+def on_selected(path: Annotated[str, "名前を押したファイル（差分を見る）"]) -> None:
+    if not path:
+        raise ValueError("パスが空です")

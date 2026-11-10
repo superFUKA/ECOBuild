@@ -35,7 +35,9 @@ class FakeEcobuild:
             "workspace list": {"description": "モジュールの一覧", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             "account show": {"description": "アカウント", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"}
-               for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status")},
+               for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status", "files")},
+            "diff": {"description": "差分", "weight": "read", "args": {"type": "object", "required": [], "properties": {
+                "paths": {"type": "array", "items": text}}}},
             "log": {"description": "履歴", "args": {"type": "object", "properties": {"count": {"type": "integer"}}, "required": []}, "weight": "read"},
             "task commit": {"description": "コミットします", "weight": "change", "args": {"type": "object", "required": [], "properties": {
                 "paths": {"type": "array", "items": text}, "message": text}}},
@@ -75,6 +77,10 @@ class FakeEcobuild:
         if name == "build":
             for line in ("構成しています…\n", "ビルドしています…\n"):
                 on_event({"event": "output", "message": line})
+        if name == "files":
+            return {"ok": True, "result": {"files": ["README.md", "src/app.py", "src/util/text.py"]}}
+        if name == "diff":
+            return {"ok": True, "result": f"diff --git a/{args['paths'][0]} b/{args['paths'][0]}\n+新しい行"}
         if name == "log":
             return {"ok": True, "result": [{"sha": "abc", "subject": "最初", "author": "octocat", "date": "2026-11-01"}]}
         if name == "task list":
@@ -231,13 +237,25 @@ def test_commands_of_every_module_type_are_listed_once():
     assert sorted(backend.commands()) == ["build", "status", "test", "vs"]
 
 
+def test_files_screen_shows_the_tree_and_the_diff_of_the_selected_file(relay):
+    window = relay.execute({"command": "open", "screen": "files", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    assert nodes(relay, window)["tree"]["props"]["paths"] == ["README.md", "src/app.py", "src/util/text.py"]
+    assert not [call for call in relay.backend.calls if call[0] == "diff"]  # 選ぶまで、差分は読まない
+    relay.input(window, "tree", "selected", {"path": "src/app.py"}, human=True)
+    relay.idle()
+    view = nodes(relay, window)
+    assert view["tree"]["props"]["selected"] == "src/app.py"
+    assert view["diff"]["props"]["text"].startswith("diff --git a/src/app.py") and ("diff", {"paths": ["src/app.py"]}) in relay.backend.calls
+
+
 def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     window = relay.execute({"command": "open", "screen": "overview"})["window"]
     relay.idle()
     assert nodes(relay, window)["info"]["props"]["data"]["name"] == "Calc"
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
-    for screen in ("tasks", "members", "pipelines", "ci", "overview"):
+    for screen in ("files", "tasks", "members", "pipelines", "ci", "overview"):
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
         relay.idle()
         tree = relay.display.tree(window)

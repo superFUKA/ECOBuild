@@ -17,7 +17,9 @@ export default {
           if (input.checked) checked.add(path); else checked.delete(path);
           emit('changed', { paths: [...checked] });
         });
-        box.append(h('label', { style: 'display:flex;gap:.4rem;align-items:center' }, input, path));
+        const name = h('button', { type: 'button', title: '差分を見る', style: 'border:0;background:transparent;padding:.1rem .3rem' }, path);
+        name.addEventListener('click', () => emit('selected', { path }));
+        box.append(h('div', { style: 'display:flex;gap:.2rem;align-items:center' }, input, name));
       }
     }
     root.replaceChildren(box);

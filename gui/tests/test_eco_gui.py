@@ -35,7 +35,12 @@ class FakeEcobuild:
             "workspace list": {"description": "モジュールの一覧", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             "account show": {"description": "アカウント", "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"},
             **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": "read"}
-               for name in ("module show", "task list", "pipeline list", "ci show", "ci status")},
+               for name in ("module show", "task list", "pipeline list", "ci show", "ci status", "status")},
+            "log": {"description": "履歴", "args": {"type": "object", "properties": {"count": {"type": "integer"}}, "required": []}, "weight": "read"},
+            "task commit": {"description": "コミットします", "weight": "change", "args": {"type": "object", "required": [], "properties": {
+                "paths": {"type": "array", "items": text}, "message": text}}},
+            **{name: {"description": name, "args": {"type": "object", "properties": {}, "required": []}, "weight": weight}
+               for name, weight in (("task push", "change"), ("sync", "change"), ("task submit", "confirm"))},
             "ci run": {"description": "CI を流す", "args": {"type": "object", "properties": {}, "required": []}, "weight": "change"},
             **{f"pipeline {verb}": {"description": verb, "weight": "change",
                                     "args": {"type": "object", "properties": {"name": text, **({"steps": text} if verb == "add" else {})},
@@ -61,7 +66,13 @@ class FakeEcobuild:
         if name == "module members remove":
             self.members = [m for m in self.members if m["login"] != args["user"]]
         if name == "module show":
-            return {"ok": True, "result": {"name": "Calc", "type": "python", "private": True}}
+            return {"ok": True, "result": {"name": "Calc", "type": "python", "private": True, "workspaces": [
+                {"name": "12", "path": "C:/work/Calc/.ecobuild/w/12", "branch": "task/12-login", "task": 12}]}}
+        if name == "status":
+            return {"ok": True, "result": {"branch": "task/12-login", "task": 12, "ahead": 1, "behind": 0,
+                                           "staged": [], "unstaged": ["a.py", "b.py"], "untracked": ["new.txt"]}}
+        if name == "log":
+            return {"ok": True, "result": [{"sha": "abc", "subject": "最初", "author": "octocat", "date": "2026-11-01"}]}
         if name == "task list":
             return {"ok": True, "result": [{"number": 12, "title": "ログイン画面", "stage": "in_progress", "assignees": ["octocat"]}]}
         if name == "pipeline list":
@@ -165,6 +176,31 @@ def test_the_module_argument_becomes_ecobuild_dash_c():
     assert "module" in backend.commands()["status"]["args"]["properties"]
     assert backend.command_line("status", {"module": "C:/work/Calc", "fetch": True}) == ["ecobuild", "-C", "C:/work/Calc", "status", "--fetch", "--json"]
     assert backend.command_line("status", {}) == ["ecobuild", "status", "--json"]
+
+
+def test_workspace_commits_the_checked_files_with_the_same_command_a_person_types(relay):
+    overview = relay.execute({"command": "open", "screen": "overview", "args": {"module": "C:/work/Calc"}})["window"]
+    relay.idle()
+    relay.input(overview, "spaces", "action", {"id": "C:/work/Calc/.ecobuild/w/12", "action": "open"}, human=True)
+    relay.idle()
+    window = next(w["id"] for w in relay.display.windows() if w["screen"] == "workspace")
+    view = nodes(relay, window)
+    assert view["state"]["props"]["data"]["branch"] == "task/12-login"
+    assert view["changes"]["props"]["status"]["unstaged"] == ["a.py", "b.py"]
+    assert relay.backend.calls.count(("status", {})) == 1  # 2つの部品へ出しても、status は1回
+    assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
+
+    relay.input(window, "changes", "changed", {"paths": ["a.py", "new.txt"]}, human=True)
+    relay.input(window, "message", "changed", {"text": "ログインを直す"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["changes"]["props"]["checked"] == ["a.py", "new.txt"]
+    relay.input(window, "do_commit", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task commit", {"paths": ["a.py", "new.txt"], "message": "ログインを直す"}) in relay.backend.calls
+    assert relay.display.values(window)["paths"] == [] and nodes(relay, window)["changes"]["props"]["checked"] == []
+    relay.input(window, "submit", "pressed", {}, human=True)  # 提出は、確かめてから
+    assert answer(relay, window, True)["part"] == "confirm-box"
+    assert ("task submit", {}) in relay.backend.calls
 
 
 def test_the_menu_switches_screens_in_the_same_window(relay):

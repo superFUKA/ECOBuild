@@ -5,8 +5,10 @@ SCREEN = {
     "window": {"title": "ECOBuild", "width": 900, "height": 720},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["head", "modules", "add_title", "register", "clone", "create"]},
-        {"id": "head", "layout": "row", "children": ["title", "reload", "doctor"]},
+        {"id": "head", "layout": "row", "children": ["title", "reload", "doctor", "settings", "archive"]},
         {"id": "doctor", "part": "button", "props": {"label": "環境チェック"}},
+        {"id": "settings", "part": "button", "props": {"label": "設定", "hint": "アカウント・AI・コンテナのイメージ・ECOBuild の更新"}},
+        {"id": "archive", "part": "button", "props": {"label": "片付け", "hint": "モジュールをアーカイブ・削除する"}},
         {"id": "add_title", "part": "note", "props": {"text": "モジュールを足す"}},
         {"id": "register", "layout": "row", "children": ["path", "do_register"]},
         {"id": "path", "part": "text-input", "props": {"title": "この PC にあるモジュールのフォルダー", "placeholder": "例：C:\\work\\Calc"}},
@@ -36,6 +38,8 @@ SCREEN = {
         {"on": "modules.action", "when": {"action": "open"}, "open": "overview", "args": {"module": {"payload": "id"}}},
         {"on": "modules.action", "when": {"action": "forget"}, "run": "workspace forget", "args": {"path": {"payload": "id"}}},
         {"on": "doctor.pressed", "open": "doctor"},
+        {"on": "settings.pressed", "open": "hub-settings"},
+        {"on": "archive.pressed", "open": "hub-archive"},
         # 足す（ecobuild workspace add <フォルダー>・ecobuild module clone <リポジトリ>・ecobuild module new <名前> --type <型>）
         {"on": "path.changed", "set": {"path": {"payload": "text"}}},
         {"on": "do_register.pressed", "run": "workspace add", "args": {"path": {"value": "path"}}},

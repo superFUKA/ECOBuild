@@ -51,10 +51,10 @@ SCREEN = {
         {"id": "e_model", "part": "text-input", "props": {"title": "モデル（空なら Claude Code の既定）", "placeholder": "例：opus・sonnet・haiku"}},
         {"id": "e_human_start", "part": "select", "props": {"title": "人が手で起動", "options": [
             {"value": "", "label": "（変えない）"}, {"value": "true", "label": "できる"}, {"value": "false", "label": "できない"}]}},
-        {"id": "e_tools", "part": "check-list", "props": {"title": "渡すツール", "hint_key": "summary"}},
-        {"id": "e_skills", "part": "check-list", "props": {"title": "使えるスキル（このモジュールのスキル）", "hint_key": "description"}},
+        {"id": "e_tools", "part": "name-checks", "props": {"title": "渡すツール", "hint_key": "summary"}},
+        {"id": "e_skills", "part": "name-checks", "props": {"title": "使えるスキル（このモジュールのスキル）", "hint_key": "description"}},
         {"id": "edit_gives", "layout": "row", "children": ["e_children", "e_max_children"]},
-        {"id": "e_children", "part": "check-list", "props": {"title": "起動してよい子", "label_key": "title", "patterns": False}},
+        {"id": "e_children", "part": "name-checks", "props": {"title": "起動してよい子", "label_key": "title", "patterns": False}},
         {"id": "e_max_children", "part": "number-input", "props": {"title": "同時に持てる子の数", "placeholder": "例：3"}},
         {"id": "e_first_prompt", "part": "text-area", "props": {"title": "最初の発言", "rows": 2}},
         {"id": "edit_loop", "layout": "row", "children": ["e_evaluation", "e_lessons"]},

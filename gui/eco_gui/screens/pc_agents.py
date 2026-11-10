@@ -49,10 +49,10 @@ SCREEN = {
         {"id": "p_model", "part": "text-input", "props": {"title": "モデル（空なら Claude Code の既定）", "placeholder": "例：opus・sonnet・haiku"}},
         {"id": "p_human_start", "part": "select", "props": {"title": "人が手で起動", "options": [
             {"value": "", "label": "（変えない）"}, {"value": "true", "label": "できる"}, {"value": "false", "label": "できない"}]}},
-        {"id": "p_tools", "part": "check-list", "props": {"title": "渡すツール", "hint_key": "summary"}},
-        {"id": "p_skills", "part": "check-list", "props": {"title": "使えるスキル（一覧はこのPCのスキル。モジュールのスキルの名前は、パターンとして足せます）", "hint_key": "description"}},
+        {"id": "p_tools", "part": "name-checks", "props": {"title": "渡すツール", "hint_key": "summary"}},
+        {"id": "p_skills", "part": "name-checks", "props": {"title": "使えるスキル（一覧はこのPCのスキル。モジュールのスキルの名前は、パターンとして足せます）", "hint_key": "description"}},
         {"id": "p_edit_gives", "layout": "row", "children": ["p_children", "p_max_children"]},
-        {"id": "p_children", "part": "check-list", "props": {"title": "起動してよい子", "label_key": "title", "patterns": False}},
+        {"id": "p_children", "part": "name-checks", "props": {"title": "起動してよい子", "label_key": "title", "patterns": False}},
         {"id": "p_max_children", "part": "number-input", "props": {"title": "同時に持てる子の数", "placeholder": "例：3"}},
         {"id": "p_first_prompt", "part": "text-area", "props": {"title": "最初の発言", "rows": 2}},
         {"id": "p_edit_loop", "layout": "row", "children": ["p_evaluation", "p_lessons"]},

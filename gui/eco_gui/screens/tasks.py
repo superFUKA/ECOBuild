@@ -15,7 +15,7 @@ SCREEN = {
             "columns": [{"key": "number", "label": "#"}, {"key": "title", "label": "題名"}, {"key": "stage", "label": "段階"},
                         {"key": "assignees", "label": "担当"}],
             "key": "number",
-            "actions": [{"name": "start", "label": "始める"}, {"name": "close", "label": "閉じる"}],
+            "actions": [{"name": "open", "label": "詳細"}, {"name": "start", "label": "始める"}, {"name": "close", "label": "閉じる"}],
             "labels": {"stage": {"planned": "計画中", "todo": "未着手", "in_progress": "作業中", "in_review": "レビュー待ち", "done": "完了"}},
             "empty_text": "開いているタスクはありません。",
         }},
@@ -30,6 +30,9 @@ SCREEN = {
         {"on": "new_title.changed", "set": {"new_title": {"payload": "text"}}},
         {"on": "new.pressed", "run": "task new", "args": {"module": {"arg": "module"}, "title": {"value": "new_title"}}},
         {"on": "start_name.changed", "set": {"start_name": {"payload": "text"}}},
+        # 行の「詳細」：同じ窓で、そのタスクの詳細に切り替える
+        {"on": "tasks.action", "when": {"action": "open"}, "open": "task",
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
         # 行のボタン（ecobuild task start <番号> --name <名前>・ecobuild task close <番号>）
         {"on": "tasks.action", "when": {"action": "start"}, "run": "task start",
          "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "name": {"value": "start_name"}}},

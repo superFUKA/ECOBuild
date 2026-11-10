@@ -25,7 +25,7 @@ from . import _events, _log
 from ._module import PROGRAM
 from ._output import Invocation, execute, log_error
 
-COMMANDS = ("build", "test", "run", "clean", "rebuild", "check")
+COMMANDS = ("build", "test", "tests", "run", "clean", "rebuild", "check")
 
 
 def route(args: list[str], json_output: bool) -> int | None:

@@ -1,6 +1,7 @@
 // 部品「ファイルの木」（いくつも選べる）。パスからフォルダーの木を作る。
 // フォルダーの名前の横の「選ぶ」で、フォルダーそのものを選べる（動かす・消す相手にする）。
-// フォルダーのチェックは、中のファイル全部のチェック。フォルダーの開閉は、この部品の中だけの状態。
+// フォルダーのチェックは、中のファイル全部のチェック。チェックが1つもなければ、changed は null を出す。
+// フォルダーの開閉は、この部品の中だけの状態。
 const OPENED = new WeakMap();  // 描く先 → 人が開いたフォルダー
 
 function build(paths) {
@@ -37,7 +38,8 @@ export default {
       input.addEventListener('click', (event) => event.stopPropagation());  // フォルダーの開閉にしない
       input.addEventListener('change', () => {
         for (const path of paths) { if (input.checked) checked.add(path); else checked.delete(path); }
-        emit('changed', { paths: props.paths.filter((path) => checked.has(path)) });
+        const paths = props.paths.filter((path) => checked.has(path));
+        emit('changed', { paths: paths.length ? paths : null });  // 1つもなければ「まだ選んでいない」（ボタンが灰色になる）
       });
       return input;
     };

@@ -15,7 +15,7 @@ export default {
         const input = h('input', { type: 'checkbox', checked: checked.has(path) });
         input.addEventListener('change', () => {
           if (input.checked) checked.add(path); else checked.delete(path);
-          emit('changed', { paths: [...checked] });
+          emit('changed', { paths: checked.size === 0 && props.none_when_empty ? null : [...checked] });
         });
         const name = h('button', { type: 'button', title: '差分を見る', style: 'border:0;background:transparent;padding:.1rem .3rem' }, path);
         name.addEventListener('click', () => emit('selected', { path }));

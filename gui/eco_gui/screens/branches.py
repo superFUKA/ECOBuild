@@ -30,7 +30,10 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "name.changed", "set": {"name": {"payload": "text"}}},
         {"on": "base.changed", "set": {"base": {"payload": "text"}}},
-        {"on": "create.pressed", "run": "branch create", "args": {"module": {"arg": "module"}, "name": {"value": "name"}, "base": {"value": "base"}}},
+        {"value": "name", "to": "name.text"},  # 作ったら、欄は空に戻る
+        {"value": "base", "to": "base.text"},
+        {"on": "create.pressed", "run": "branch create", "args": {"module": {"arg": "module"}, "name": {"value": "name"}, "base": {"value": "base"}},
+         "set": {"name": None, "base": None}},
         # このブランチを別のブランチへ取り込む・提出する画面（同じ窓で切り替える）
         {"on": "list.action", "when": {"action": "merge"}, "open": "merge",
          "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}, "here": True},

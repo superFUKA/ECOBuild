@@ -23,6 +23,12 @@ TASKS = [
 class FakeTasks(FakeEcobuild):
     """タスクのコマンドを足した、ecobuild の代わり。"""
 
+    def __init__(self):
+        super().__init__()
+        # 12：手元で作業中。13：まだ始めていない。14：タスクブランチが GitHub にだけある。15：閉じている
+        self.states = {12: {"state": "open", "task_branch": True, "remote": True}, 13: {"state": "open", "task_branch": False, "remote": False},
+                       14: {"state": "open", "task_branch": False, "remote": True}, 15: {"state": "closed", "task_branch": False, "remote": False}}
+
     def _specs(self, text):
         number = {"type": "integer"}
         flag = {"type": "boolean"}
@@ -33,8 +39,9 @@ class FakeTasks(FakeEcobuild):
         return {
             **super()._specs(text),
             "task status": spec("read", {"number": number, "issue": number, "body": flag}),
-            "task edit": spec("change", {"issue": number, **{name: text for name in (
-                "title", "body", "stage", "priority", "due", "estimate", "sprint", "add_assignee", "remove_assignee", "clear")}}, ["issue"]),
+            "task edit": spec("change", {"issue": number, "parent": number, "clear_parent": flag, "clear_milestone": flag, **{name: text for name in (
+                "title", "body", "stage", "priority", "due", "estimate", "sprint", "planned_start", "planned_end", "milestone",
+                "add_assignee", "remove_assignee", "add_label", "remove_label", "add_blocked_by", "remove_blocked_by", "clear")}}, ["issue"]),
             "task comment": spec("change", {"number": number, "issue": number, "message": text}),
             "task reopen": spec("change", {"issue": number}, ["issue"]),
             "task next": spec("read", {"count": number, "mine": flag}),
@@ -52,11 +59,14 @@ class FakeTasks(FakeEcobuild):
             return {"ok": True, "result": [dict(task) for task in TASKS]}
         if name == "task status":
             super().run(name, args, context, on_event)
-            task = next(task for task in TASKS if task["number"] == given["number"])
+            task = next((task for task in TASKS if task["number"] == given["number"]), {**TASKS[1], "number": given["number"]})
             return {"ok": True, "result": {
-                "number": task["number"], "title": task["title"], "state": "open", "body": "本文です。\n- 1つ目", "assignees": task["assignees"],
+                "number": task["number"], "title": task["title"], "body": "本文です。\n- 1つ目", "assignees": task["assignees"],
                 "labels": ["bug"], "milestone": None, "branch": None, "base": None, "task": dict(task),
-                "comments": [{"author": "octocat", "body": "見ました"}]}}
+                "comments": [{"author": "octocat", "body": "見ました"}], **self.states[task["number"]]}}
+        if name in ("task close", "task reopen", "task start"):  # 状態が変わる（読み直しで、出るボタンが変わる）
+            self.states[given["issue"]].update({"task close": {"state": "closed"}, "task reopen": {"state": "open"},
+                                                "task start": {"task_branch": True, "remote": True}}[name])
         if name == "task next":
             super().run(name, args, context, on_event)
             return {"ok": True, "result": [{"task": dict(TASKS[1]), "reasons": ["着手できる"]}]}
@@ -113,7 +123,8 @@ def test_task_detail_shows_one_status_read_in_every_part(relay):
     assert view["body"]["props"]["text"].startswith("本文です。")
     assert view["comments"]["props"]["rows"] == [{"author": "octocat", "body": "見ました"}]
     assert view["edit_text"]["props"]["text"] == "ログイン画面"  # 題の欄には、今の題が入っている
-    assert relay.backend.calls.count(("task status", {"number": 12, "body": True})) == 1  # 6つの部品へ出しても、読むのは1回
+    assert view["edit_body"]["props"]["text"].startswith("本文です。")  # 本文の欄には、今の本文が入っている
+    assert relay.backend.calls.count(("task status", {"number": 12, "body": True})) == 1  # いくつもの部品と共有の値へ出しても、読むのは1回
     assert relay.backend.modules[-1] == "C:/work/Calc"
     assert notices(relay) == []
 
@@ -128,6 +139,7 @@ def test_task_detail_edits_only_the_changed_fields(relay):
     assert ("task edit", {"issue": 12, "priority": "Low", "due": "2026-12-01"}) in relay.backend.calls  # 入れていない欄は渡さない
     assert relay.display.values(window)["edit_priority"] is None and relay.display.values(window)["edit_due"] is None
     assert nodes(relay, window)["edit_priority"]["props"]["value"] is None  # 保存したら、選ぶ欄は「変えない」に戻る
+    assert nodes(relay, window)["edit_due"]["props"]["text"] == ""  # 入力欄も空に戻る
 
     for node, payload in (("edit_text", {"text": "ログインの画面"}), ("edit_stage", {"value": "planned"}), ("edit_estimate", {"text": "5"}),
                           ("edit_add_assignee", {"text": "@me"}), ("edit_remove_assignee", {"text": "octocat"}),
@@ -141,28 +153,94 @@ def test_task_detail_edits_only_the_changed_fields(relay):
     assert notices(relay) == []
 
 
-def test_task_detail_comments_starts_closes_and_reopens(relay):
+def test_task_detail_edits_the_plan_dates_labels_links_and_body(relay):
     window = open_screen(relay, "task", issue=12)
-    assert nodes(relay, window)["do_comment"]["wrap"] is None  # 文（任意の引数）は、押してから ecobuild が確かめる
+    for node, payload in (("edit_planned_start", {"text": "2026-11-16"}), ("edit_planned_end", {"text": "2026-11-20"}),
+                          ("edit_sprint", {"text": "current"}), ("edit_milestone", {"text": "v1"}), ("edit_add_label", {"text": "bug,ui"}),
+                          ("edit_remove_label", {"text": "wip"}), ("edit_parent", {"text": "10"}), ("edit_add_blocked_by", {"text": "7,8"}),
+                          ("edit_remove_blocked_by", {"text": "9"}), ("edit_body", {"text": "新しい本文\n2行目"})):
+        relay.input(window, node, "changed", payload, human=True)
+    relay.idle()
+    assert nodes(relay, window)["edit_sprint"]["props"]["text"] == "current"  # 欄には、打った文字（共有の値）が出ている
+    relay.input(window, "save", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task edit", {"issue": 12, "planned_start": "2026-11-16", "planned_end": "2026-11-20", "sprint": "current", "milestone": "v1",
+                          "add_label": "bug,ui", "remove_label": "wip", "parent": 10, "add_blocked_by": "7,8", "remove_blocked_by": "9",
+                          "body": "新しい本文\n2行目"}) in relay.backend.calls  # 親の番号は、コマンドの型（数）で渡る
+    view = nodes(relay, window)
+    assert [view[node]["props"]["text"] for node in ("edit_planned_start", "edit_sprint", "edit_add_label", "edit_parent")] == [""] * 4
+
+    for node, value in (("edit_clear", "planned_end"), ("edit_clear_milestone", True), ("edit_clear_parent", True)):
+        relay.input(window, node, "changed", {"value": value} if node == "edit_clear" else {"on": value}, human=True)
+    relay.idle()
+    relay.input(window, "save", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task edit", {"issue": 12, "clear": "planned_end", "clear_milestone": True, "clear_parent": True}) in relay.backend.calls
+    assert nodes(relay, window)["edit_clear_parent"]["props"]["on"] is None  # チェックも外れる
+    assert notices(relay) == []
+
+
+def test_task_detail_comments_only_after_something_is_written(relay):
+    window = open_screen(relay, "task", issue=12)
+    assert nodes(relay, window)["do_comment"]["wrap"]["kind"] == "unavailable"  # 文を書くまで押せない
     relay.input(window, "message", "changed", {"text": "あとは試験だけ"}, human=True)
     relay.idle()
+    assert nodes(relay, window)["do_comment"]["wrap"] is None
     relay.input(window, "do_comment", "pressed", {}, human=True)
     relay.idle()
     assert ("task comment", {"number": 12, "message": "あとは試験だけ"}) in relay.backend.calls
-    assert relay.display.values(window)["message"] is None
+    assert relay.display.values(window)["message"] is None and nodes(relay, window)["message"]["props"]["text"] == ""  # 欄は空に戻る
 
+
+def shown(relay, window):
+    """始める・再開する・閉じる・開き直すのうち、出ているもの。"""
+    view = nodes(relay, window)
+    return [node for node in ("start_name", "start", "resume", "close", "reopen") if (view[node]["wrap"] or {}).get("kind") != "hidden"]
+
+
+def test_task_detail_shows_the_actions_that_fit_the_state(relay):
+    assert shown(relay, open_screen(relay, "task", issue=12)) == ["close"]  # 手元で作業中：閉じるだけ
+    assert shown(relay, open_screen(relay, "task", issue=14)) == ["resume", "close"]  # GitHub にだけある：再開できる
+    assert shown(relay, open_screen(relay, "task", issue=15)) == ["reopen"]  # 閉じている：開き直すだけ
+
+    window = open_screen(relay, "task", issue=13)  # まだ始めていない
+    assert shown(relay, window) == ["start_name", "start", "close"]
+    assert nodes(relay, window)["start"]["wrap"]["kind"] == "unavailable"  # 名前を入れるまで押せない
+    with pytest.raises(Exception):
+        relay.input(window, "reopen", "pressed", {}, human=True)  # 隠れているボタンの入力は受けない
     relay.input(window, "start_name", "changed", {"text": "login"}, human=True)
     relay.idle()
     relay.input(window, "start", "pressed", {}, human=True)
     relay.idle()
-    assert ("task start", {"issue": 12, "name": "login"}) in relay.backend.calls
+    assert ("task start", {"issue": 13, "name": "login"}) in relay.backend.calls
+    assert shown(relay, window) == ["close"]  # 始めたら、読み直して「始める」は消える
+
     relay.input(window, "close", "pressed", {}, human=True)
     assert answer(relay, window, True)["part"] == "confirm-box"  # 閉じるのは、確かめてから
-    assert ("task close", {"issue": 12}) in relay.backend.calls
+    assert ("task close", {"issue": 13}) in relay.backend.calls and shown(relay, window) == ["reopen"]
     relay.input(window, "reopen", "pressed", {}, human=True)
     relay.idle()
-    assert ("task reopen", {"issue": 12}) in relay.backend.calls
-    assert relay.backend.calls.count(("task status", {"number": 12, "body": True})) >= 4  # 変えるたびに読み直す
+    assert ("task reopen", {"issue": 13}) in relay.backend.calls and shown(relay, window) == ["close"]
+
+    window = open_screen(relay, "task", issue=14)
+    relay.input(window, "resume", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task start", {"issue": 14}) in relay.backend.calls  # 再開は、名前なし
+    assert notices(relay) == []
+
+
+def test_tasks_clears_the_inputs_after_creating_and_starting(relay):
+    window = open_screen(relay, "tasks")
+    relay.input(window, "new_title", "changed", {"text": "検索"}, human=True)
+    relay.input(window, "start_name", "changed", {"text": "log"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["new_title"]["props"]["text"] == "検索"
+    relay.input(window, "new", "pressed", {}, human=True)
+    relay.idle()
+    assert ("task new", {"title": "検索"}) in relay.backend.calls and nodes(relay, window)["new_title"]["props"]["text"] == ""
+    relay.input(window, "tasks", "action", {"id": "13", "action": "start"}, human=True)
+    relay.idle()
+    assert ("task start", {"issue": 13, "name": "log"}) in relay.backend.calls and nodes(relay, window)["start_name"]["props"]["text"] == ""
 
 
 def test_tasks_row_opens_the_detail_in_the_same_window(relay):
@@ -195,11 +273,12 @@ def test_board_groups_tasks_by_stage_and_changes_the_stage(relay):
     window = open_screen(relay, "board")
     view = nodes(relay, window)
     assert [card["number"] for card in view["board"]["props"]["cards"]] == [12, 13]
-    assert view["board"]["props"]["moves"] == ["planned", "todo"] and view["board"]["wrap"] is None
+    assert view["board"]["props"]["moves"] == ["planned", "todo", "in_progress", "done"] and view["board"]["wrap"] is None
     relay.input(window, "board", "moved", {"id": "13", "to": "planned"}, human=True)
     relay.idle()
     assert ("task edit", {"issue": 13, "stage": "planned"}) in relay.backend.calls
     assert relay.backend.calls.count(("task list", {})) == 2  # 変えたら読み直す
+    assert [call[0] for call in relay.backend.calls if call[0].startswith("task ") and call[0] not in ("task list", "task edit")] == []
     relay.input(window, "board", "selected", {"id": "12"}, human=True)
     relay.idle()
     assert relay.display.tree(window)["screen"] == "task" and ("task status", {"number": 12, "body": True}) in relay.backend.calls
@@ -207,11 +286,32 @@ def test_board_groups_tasks_by_stage_and_changes_the_stage(relay):
         relay.input(window, "board", "moved", {"id": "12", "to": ""}, human=True)  # 移す先のない入力は断る
 
 
+def test_board_starts_a_task_moved_to_in_progress_and_closes_one_moved_to_done(relay):
+    window = open_screen(relay, "board")
+    relay.input(window, "start_name", "changed", {"text": "log"}, human=True)
+    relay.idle()
+    relay.input(window, "board", "moved", {"id": "13", "to": "in_progress"}, human=True)  # 作業中へ：始める
+    relay.idle()
+    assert ("task start", {"issue": 13, "name": "log"}) in relay.backend.calls
+    assert nodes(relay, window)["start_name"]["props"]["text"] == ""  # 始めたら、名前の欄は空に戻る
+    relay.input(window, "board", "moved", {"id": "14", "to": "in_progress"}, human=True)  # 名前なし（GitHub にあるものの再開）
+    relay.idle()
+    assert ("task start", {"issue": 14}) in relay.backend.calls
+
+    relay.input(window, "board", "moved", {"id": "12", "to": "done"}, human=True)  # 完了へ：閉じる（確かめてから）
+    assert answer(relay, window, False)["part"] == "confirm-box"
+    assert ("task close", {"issue": 12}) not in relay.backend.calls
+    relay.input(window, "board", "moved", {"id": "12", "to": "done"}, human=True)
+    answer(relay, window, True)
+    assert ("task close", {"issue": 12}) in relay.backend.calls
+    assert not [call for call in relay.backend.calls if call[0] == "task edit"]  # 段階を変えるコマンドは呼ばない
+
+
 def test_schedule_reads_each_command_once_and_opens_tasks(relay):
     window = open_screen(relay, "schedule")
     view = nodes(relay, window)
     assert [row["number"] for row in view["timeline"]["props"]["rows"]] == [12, 13]
-    assert view["next"]["props"]["items"][0]["reasons"] == ["着手できる"]
+    assert view["next"]["props"]["rows"][0]["reasons"] == ["着手できる"] and view["next"]["props"]["key"] == "task.number"
     assert [row["number"] for row in view["overdue"]["props"]["rows"]] == [12] and view["soon"]["props"]["rows"] == []
     assert [row["name"] for row in view["sprints"]["props"]["rows"]] == ["Sprint 1", "Sprint 2"]
     assert view["sprint_range"]["props"]["data"]["name"] == "Sprint 2" and view["sprint_state"]["props"]["data"]["days_left"] == 6
@@ -228,7 +328,7 @@ def test_schedule_reads_each_command_once_and_opens_tasks(relay):
     assert nodes(relay, window)["sprint_range"]["props"]["data"]["name"] == "Sprint 1"
     assert relay.backend.calls.count(("task list", {})) == 1  # スプリントを選んでも、ほかは読み直さない
 
-    relay.input(window, "next", "selected", {"id": "13"}, human=True)
+    relay.input(window, "next", "action", {"id": "13", "action": "open"}, human=True)  # 表は、入れ子の番号（task.number）を ID に出す
     relay.idle()
     assert relay.display.tree(window)["screen"] == "task" and nodes(relay, window)["title"]["props"]["text"] == "ログを残す"
 

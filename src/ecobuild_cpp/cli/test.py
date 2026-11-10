@@ -10,7 +10,7 @@ AGENT = "change"
 def command(
     *tests: Annotated[str, "流すテスト（<テスト用Project> か <テスト用Project>.<Suite>.<Test>。* ? が使える。省略すると全部）"],
     project: Annotated[str, "対象のProject（既定：Projectの中ならそのProject、それ以外は全体。テスト用なら、流すテストは <Suite>.<Test> でよい）"] = "",
-    list: Annotated[bool, "流せるテストの一覧を出す（流さない。名前はそのまま ecobuild test に渡せる）"] = False,
+    list: Annotated[bool, "流せるテストの一覧を出す（流さない。ecobuild tests と同じ）"] = False,
     configuration: Annotated[str, "構成（Debug／Release等。既定：ビルド設定の構成、なければDebug）"] = "",
     profile: Annotated[str, "名前付きビルド設定（既定：ecobuild profile use で選んだもの）"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,

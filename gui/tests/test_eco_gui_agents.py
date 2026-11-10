@@ -64,6 +64,7 @@ class FakeAgents(FakeEcobuild):
             "agent restart": spec("change", ["id"], id=text, resume={"type": "boolean"}),
             "agent close": spec("confirm", ["id"], id=text, force={"type": "boolean"}),
             "agent send": spec("change", ["id"], id=text, text={"type": "array", "items": text}, cancel=text, replace=text),
+            "help": spec("read", commands={"type": "array", "items": text}),
             "config get": spec("read", ["key"], key=text),
             "config set": spec("change", ["key", "value"], key=text, value=text),
             "config unset": spec("change", ["key"], key=text),
@@ -118,6 +119,13 @@ class FakeAgents(FakeEcobuild):
             return {"ok": True, "result": {"id": args["id"], "name": "lead", "members": [
                 {"id": "a-0000000002", "name": "worker", "title": "作業役", "branch": "task/13-log", "state": "stopped",
                  "reported": True, "last_reply": ""}]}}
+        if name == "help":
+            return {"ok": True, "result": {
+                "commands": [{"name": "status", "path": "status", "summary": "今の状態を表示します。", "help": "今の状態を表示します。",
+                              "runnable": True, "effect": "read", "arguments": [], "options": []}],
+                "types": {"python": {"description": "Python", "commands": [
+                    {"name": "tests", "path": "tests", "summary": "流せるテストの一覧を表示します。", "help": "流せるテストの一覧を表示します。",
+                     "runnable": True, "effect": "read", "arguments": [], "options": []}]}}}}
         if name == "config get":
             return {"ok": True, "result": {"key": args["key"], "value": self.style}}
         if name == "config set" and args["key"] == "operator_style":
@@ -528,8 +536,11 @@ def test_help_screens_show_the_guide_inside_and_outside_a_module_window(relay):
     alone = opened(relay, "help-guide")
     assert nodes(relay, alone)["step1_title"]["props"]["text"].startswith("1.")
     assert nodes(relay, alone)["terms"]["props"]["data"]["task"].startswith("GitHub の Issue")
-    assert [call for call in relay.backend.calls] == []  # 読むコマンドはない（決まった文だけ）
+    assert [call for call in relay.backend.calls] == [("help", {})]  # 読むのは、コマンドの一覧（ecobuild help）だけ
+    catalog = nodes(relay, alone)["commands"]["props"]["catalog"]
+    assert [c["path"] for c in catalog["commands"]] == ["status"] and list(catalog["types"]) == ["python"]
     window = opened(relay, "help", module="C:/work/Calc")
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "help" and view["body:step6_title"]["props"]["text"].startswith("6.")
+    assert view["body:commands"]["props"]["catalog"]["commands"][0]["path"] == "status"
     assert notices(relay) == []

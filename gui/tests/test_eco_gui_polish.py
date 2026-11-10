@@ -25,17 +25,31 @@ class PolishEcobuild(FakeEcobuild):
         super().__init__()
         self.stashes = ["On task/12-login: 途中の変更", "On main: 試し"]
         self.selected = "fast"
+        self.failing = False  # test を失敗させる
 
     def _specs(self, text):
         many, flag = {"type": "array", "items": text}, {"type": "boolean"}
-        build = {"configuration": text, "profile": text}
+        build = {"configuration": text, "profile": text, "project": text}
         return {
             **super()._specs(text),
+            "profile add": spec("change", ["name"], name=text, configuration=text, parallel={"type": "integer"}, shared=flag),
+            "file add": spec("change", paths=many, template=text, test=flag),
+            "task commit": spec("change", paths=many, message=text, all=flag, amend=flag),
+            "project show": spec("read", projects=text, project=text),
+            "project set": spec("change", projects=text, project=text, kind=text, add_define=text, remove_define=text,
+                                add_include=text, remove_include=text),
+            "project link": spec("change", library=many, project=text, type=text),
+            "project unlink": spec("change", ["link"], link=text, project=text),
+            "project pch": spec("change", projects=text, project=text, off=flag),
+            "deps tree": spec("read"), "deps versions": spec("change", ["name"], name=text, branch=text, count={"type": "integer"}),
             "profile list": spec("read"), "profile use": spec("change", ["name"], name=text), "profile remove": spec("change", ["name"], name=text),
             "build": spec("change", **build), "rebuild": spec("change", **build), "clean": spec("change", **build),
             "run": spec("change", argv=many, arguments=text, **build),
             "test": spec("change", tests=many, filter=text, last_failed=flag, list=flag, **build),
-            "stash list": spec("read"), "stash drop": spec("confirm"),
+            "stash list": spec("read"), "stash": spec("change"),
+            "stash pop": spec("change", number={"type": "integer"}, index={"type": "integer"}),
+            "stash drop": spec("confirm", number={"type": "integer"}, index={"type": "integer"}),
+            "tests": spec("read", **build),
             "restore": spec("confirm", paths=many, staged=flag, source=text),
             "task add": spec("change", paths=many, all=flag),
             "ignore": spec("change", patterns=many),
@@ -57,7 +71,29 @@ class PolishEcobuild(FakeEcobuild):
 
     def run(self, name, args, context, on_event):
         result = super().run(name, args, context, on_event)
+        module = str(args.get("module") or "")
         args = {key: value for key, value in args.items() if key != "module"}
+        if name == "module show" and module.startswith("C:/work/Game"):  # C++ のモジュール
+            return {"ok": True, "result": {**result["result"], "name": "Game", "type": "cpp"}}
+        if name in ("build", "rebuild", "clean"):
+            return {"ok": True, "result": {"project": args.get("project"), "configuration": args.get("configuration") or "Debug",
+                                           "artifacts": [] if name == "clean" else ["dist/calc-1.0-py3-none-any.whl"], "profile": None, "action": name}}
+        if name == "run":
+            return {"ok": True, "result": {"project": None, "configuration": "Debug", "returncode": 0, "output": "hello"}}
+        if name == "test" and self.failing:
+            return {"ok": False, "error": {"code": "test_failed", "message": "テストが失敗しました"}}
+        if name == "project show":
+            return {"ok": True, "result": {"name": args["project"], "kind": "static_library", "directory": args["project"], "main": True,
+                                           "source_directories": ["src"], "links": [{"id": "g-1", "kind": "library", "name": "Math", "as": "static"}]}}
+        if name == "deps tree":
+            return {"ok": True, "result": {"module": "Game", "direct": ["Math"], "nodes": [
+                {"name": "Math", "url": "https://example.invalid/Math", "revision": "abc", "present": True, "depends_on": ["Core"]},
+                {"name": "Core", "url": "https://example.invalid/Core", "revision": "def", "present": False, "depends_on": []}]}}
+        if name == "deps versions":
+            return {"ok": True, "result": {"name": args["name"], "url": "https://example.invalid/Math", "recorded": "abc", "default_branch": "main",
+                                           "branch": "main", "branches": ["main", "dev"], "tags": [{"name": "v1.2.0", "sha": "abc"}],
+                                           "commits": [{"sha": "fff", "date": "2026-11-02", "subject": "新しい", "tags": []},
+                                                       {"sha": "abc", "date": "2026-11-01", "subject": "最初", "tags": ["v1.2.0"]}]}}
         if name == "profile list":
             return {"ok": True, "result": {"selected": self.selected, "profiles": {
                 "fast": {"configuration": "Debug", "shared": False}, "ship": {"configuration": "Release", "shared": True}}}}
@@ -66,9 +102,15 @@ class PolishEcobuild(FakeEcobuild):
         if name == "stash list":
             return {"ok": True, "result": list(self.stashes)}
         if name in ("stash pop", "stash drop"):
-            self.stashes = self.stashes[1:]
+            del self.stashes[args.get("index", 0)]  # 番号を省けば、最後に退避したもの
+        if name == "tests":
+            return {"ok": True, "result": {"tests": [
+                {"name": "tests/test_app.py::test_add", "file": "tests/test_app.py", "line": 4},
+                {"name": "tests/test_app.py::test_sub", "file": "tests/test_app.py", "line": 9},
+                {"name": "tests/test_login.py::test_login", "file": "tests/test_login.py", "line": 3}]}}
         if name == "test":
             on_event({"event": "output", "message": "2 passed\n"})
+            return {"ok": True, "result": {"project": None, "configuration": "Debug", "passed": 2, "failed": 0, "skipped": 1, "cases": []}}
         if name == "blame":
             return {"ok": True, "result": f"abc12345 (octocat 2026-11-01  1) {args['path']} の1行目"}
         if name == "module settings":
@@ -180,7 +222,7 @@ def test_workspace_stages_unstages_and_discards_the_checked_changes(relay):
     relay.input(window, "discard", "pressed", {}, human=True)
     answer(relay, window, True)
     assert ("restore", {"paths": ["a.py", "new.txt"]}) in relay.backend.calls
-    assert relay.display.values(window)["paths"] == []  # 捨てたら、選択を空に
+    assert relay.display.values(window)["paths"] is None  # 捨てたら、選択を空に（まだ選んでいない）
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
 
 
@@ -234,7 +276,7 @@ def test_files_screen_works_on_a_folder_and_on_the_checked_files(relay):
 
 
 def test_files_screen_discards_ignores_and_makes_a_test_for_the_selected_file(relay):
-    window = opened(relay, "files")
+    window = opened(relay, "files", "C:/work/Game")  # 試験を作るのは、C++ のモジュールだけ
     view = nodes(relay, window)
     assert all(view[name]["wrap"]["kind"] == "unavailable" for name in ("restore", "ignore_file", "make_test", "do_ignore"))  # まだ選んでいない
     press(relay, window, "tree", "selected", path="src/app.py")
@@ -325,4 +367,259 @@ def test_cpp_screen_works_on_dependencies_and_templates(relay):
     assert ("template add", {"name": "panel", "source": "templates/panel.h"}) in relay.backend.calls
     press(relay, window, "templates", "action", id="widget", action="remove")
     assert ("template remove", {"name": "widget"}) in relay.backend.calls
+    assert notices(relay) == []
+
+
+# --- 仕上げ：型ごとの引数・型での出し分け・チェックが空のときの灰色・実行の結果 -----------------------------------
+
+def test_commands_of_every_module_type_accept_the_arguments_of_any_type():
+    from eco_gui.backend import EcobuildBackend
+
+    def option(param, flag=False):
+        return {"names": ["--" + param.replace("_", "-")], "param": param, "help": param, "flag": flag, "type": "bool" if flag else "str",
+                "negative": None, "required": False, "multiple": False}
+
+    def argument(param, required=False, multiple=False):
+        return {"name": param.upper(), "param": param, "help": param, "required": required, "multiple": multiple, "type": "str"}
+
+    def node(path, arguments=(), options=(), effect="change", commands=()):
+        return {"name": path.split()[-1], "path": path, "summary": path, "runnable": bool(effect), "effect": effect,
+                "arguments": list(arguments), "options": list(options), "commands": list(commands)}
+
+    common = [option("configuration"), option("json", True)]
+    catalog = {"ok": True, "result": {"type": "python", "commands": [node("status", effect="read")], "types": {
+        "cpp": {"commands": [
+            node("build", [argument("projects")], [option("project"), *common]),
+            node("run", [argument("projects")], [option("project"), option("arguments"), *common]),
+            node("file", effect=None, commands=[
+                node("file add", [argument("paths", multiple=True)], [option("test", True), option("template")]),
+                node("file remove", [argument("paths", multiple=True)], effect="human"),
+                node("file test", [argument("path", required=True)])]),
+            node("profile", effect=None, commands=[node("profile add", [argument("name", required=True)], [option("shared", True)])])]},
+        "generic": {"commands": [
+            node("build", [], common), node("run", [], [option("arguments"), *common]),
+            node("file", effect=None, commands=[node("file add", [argument("paths", multiple=True)]),
+                                                node("file remove", [argument("paths", multiple=True)], effect="change")]),
+            node("profile", effect=None, commands=[node("profile add", [argument("name", required=True)])])]},
+        "python": {"commands": [
+            node("build", [], common), node("run", [argument("argv", multiple=True)], [option("arguments"), option("stdin", True), *common]),
+            node("file", effect=None, commands=[node("file add", [argument("paths", multiple=True)], [option("test", True)])]),
+            node("profile", effect=None, commands=[node("profile add", [argument("name", required=True)], [option("parallel")])])]},
+    }}}
+    backend = EcobuildBackend(["ecobuild"])
+    backend.ask = lambda argv: catalog
+    specs = backend.commands()
+    assert sorted(specs) == ["build", "file add", "file remove", "file test", "profile add", "run", "status"]  # 同じ名前は1つ
+    # どれかの型が受ける引数は、書ける
+    assert sorted(specs["build"]["args"]["properties"]) == ["configuration", "module", "project", "projects"]
+    assert sorted(specs["run"]["args"]["properties"]) == ["arguments", "argv", "configuration", "module", "project", "projects", "stdin"]
+    assert sorted(specs["file add"]["args"]["properties"]) == ["module", "paths", "template", "test"]
+    assert sorted(specs["profile add"]["args"]["properties"]) == ["module", "name", "parallel", "shared"]
+    assert specs["profile add"]["args"]["required"] == ["name"]  # どの型でも必須のものだけが必須
+    assert specs["build"]["args"]["required"] == [] and specs["file test"]["args"]["required"] == ["path"]
+    assert specs["file remove"]["weight"] == "confirm"  # 重さが型で違えば、重い方
+    # C++ だけのオプションが、コマンドラインになる（受けない型のモジュールでは、ecobuild が断る）
+    assert backend.command_line("build", {"module": "C:/m", "project": "Calc", "configuration": "Release"}) == [
+        "ecobuild", "-C", "C:/m", "build", "--project", "Calc", "--configuration", "Release", "--json"]
+    assert backend.command_line("file add", {"paths": ["a.h"], "template": "header"}) == [
+        "ecobuild", "file", "add", "--template", "header", "--json", "--", "a.h"]
+    assert backend.command_line("run", {"argv": ["--port", "80"]}) == ["ecobuild", "run", "--json", "--", "--port", "80"]
+    assert backend.command_line("build", {}) == ["ecobuild", "build", "--json"]  # 渡さなければ、今までどおり
+
+
+def test_files_screen_shows_the_cpp_parts_only_in_a_cpp_module(relay):
+    python = opened(relay, "files", "C:/work/Calc")
+    view = nodes(relay, python)
+    assert relay.display.values(python)["module_type"] == "python"
+    assert all(view[name]["wrap"]["kind"] == "hidden" for name in ("to_cpp", "make_test", "template"))
+    with pytest.raises(Exception):  # 隠した部品は、入力も受けない
+        relay.input(python, "to_cpp", "pressed", {}, human=True)
+    press(relay, python, "new_path", "changed", text="src/util.py")
+    press(relay, python, "do_add")
+    assert last(relay) == ("file add", {"paths": ["src/util.py"]})
+
+    cpp = opened(relay, "files", "C:/work/Game")
+    view = nodes(relay, cpp)
+    assert relay.display.values(cpp)["module_type"] == "cpp"
+    assert all((view[name]["wrap"] or {}).get("kind") != "hidden" for name in ("to_cpp", "make_test", "template"))
+    press(relay, cpp, "new_path", "changed", text="Calc/include/Calc/Shape.h")
+    press(relay, cpp, "do_add")
+    assert last(relay) == ("file add", {"paths": ["Calc/include/Calc/Shape.h"]})  # テンプレートは、書かなければ渡さない
+    press(relay, cpp, "template", "changed", text="header")
+    press(relay, cpp, "do_add")
+    assert last(relay) == ("file add", {"paths": ["Calc/include/Calc/Shape.h"], "template": "header"})
+    assert relay.backend.modules[-1] == "C:/work/Game" and notices(relay) == []
+
+
+def test_files_screen_greys_the_buttons_for_the_checked_files_while_nothing_is_checked(relay):
+    window = opened(relay, "files")
+    many = ("remove_checked", "restore_checked")
+    assert all(nodes(relay, window)[name]["wrap"]["kind"] == "unavailable" for name in many)  # まだ1つもチェックしていない
+    press(relay, window, "tree", "changed", paths=["README.md"])
+    assert all(nodes(relay, window)[name]["wrap"] is None for name in many)
+    press(relay, window, "tree", "changed", paths=None)  # チェックを全部外すと、部品は null を出す
+    view = nodes(relay, window)
+    assert view["tree"]["props"]["checked"] == [] and all(view[name]["wrap"]["kind"] == "unavailable" for name in many)
+    press(relay, window, "tree", "changed", paths=["README.md"])
+    press(relay, window, "uncheck")
+    assert all(nodes(relay, window)[name]["wrap"]["kind"] == "unavailable" for name in many)
+    press(relay, window, "tree", "changed", paths=["README.md"])
+    relay.input(window, "remove_checked", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert last(relay) == ("file remove", {"paths": ["README.md"]})
+    assert all(nodes(relay, window)[name]["wrap"]["kind"] == "unavailable" for name in many)  # 済んだら、また灰色
+    assert not [call for call in relay.backend.calls if call[0] in ("file remove", "restore") and not call[1].get("paths")]
+
+
+def test_workspace_greys_the_buttons_for_the_checked_changes_while_nothing_is_checked(relay):
+    window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
+    chosen = ("stage", "unstage", "discard")
+    view = nodes(relay, window)
+    assert view["changes"]["props"]["none_when_empty"] is True
+    assert all(view[name]["wrap"]["kind"] == "unavailable" for name in chosen)  # まだ1つもチェックしていない
+    assert view["do_commit"]["wrap"] is None  # コミットは、ステージ済みのものだけでもできる
+    press(relay, window, "changes", "changed", paths=["a.py"])
+    assert all(nodes(relay, window)[name]["wrap"] is None for name in chosen)
+    press(relay, window, "changes", "changed", paths=None)  # チェックを全部外した
+    view = nodes(relay, window)
+    assert view["changes"]["props"]["checked"] == [] and all(view[name]["wrap"]["kind"] == "unavailable" for name in chosen)
+
+
+def test_workspace_amends_the_last_commit_and_restores_from_another_commit(relay):
+    window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
+    press(relay, window, "changes", "changed", paths=["a.py"])
+    press(relay, window, "message", "changed", text="直す")
+    press(relay, window, "amend", "changed", on=True)
+    assert nodes(relay, window)["amend"]["props"]["on"] is True
+    press(relay, window, "do_commit")
+    assert last(relay) == ("task commit", {"paths": ["a.py"], "message": "直す", "amend": True})
+    assert relay.display.values(window)["amend"] is None and nodes(relay, window)["amend"]["props"]["on"] is None  # 1回ごとに外す
+    press(relay, window, "changes", "changed", paths=["b.py"])
+    press(relay, window, "do_commit")
+    assert last(relay) == ("task commit", {"paths": ["b.py"], "message": "直す"})
+
+    press(relay, window, "changes", "changed", paths=["b.py"])
+    press(relay, window, "source", "changed", text="HEAD~1")
+    relay.input(window, "discard", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert last(relay) == ("restore", {"paths": ["b.py"], "source": "HEAD~1"})
+    press(relay, window, "changes", "changed", paths=["b.py"])
+    relay.input(window, "unstage", "pressed", {}, human=True)  # ステージの取り消しには、戻す先を渡さない
+    answer(relay, window, True)
+    assert last(relay) == ("restore", {"paths": ["b.py"], "staged": True})
+    assert notices(relay) == []
+
+
+def test_build_screen_shows_the_result_of_the_last_successful_run(relay):
+    window = opened(relay, "build")
+    results = ("build_facts", "artifacts", "test_facts", "run_facts")
+
+    def shown():
+        view = nodes(relay, window)
+        return [name for name in results if (view[name]["wrap"] or {}).get("kind") != "hidden"]
+
+    assert shown() == []  # まだ何も実行していない
+    press(relay, window, "build")
+    view = nodes(relay, window)
+    assert shown() == ["build_facts", "artifacts"]
+    assert view["artifacts"]["props"]["items"] == ["dist/calc-1.0-py3-none-any.whl"]  # ビルドの成果物
+    assert view["build_facts"]["props"]["data"]["action"] == "build" and view["build_facts"]["props"]["data"]["configuration"] == "Debug"
+    press(relay, window, "test")
+    view = nodes(relay, window)
+    assert shown() == ["test_facts"]
+    assert [view["test_facts"]["props"]["data"][key] for key in ("passed", "failed", "skipped")] == [2, 0, 1]  # 試験の成功・失敗の数
+    press(relay, window, "run")
+    assert shown() == ["run_facts"] and nodes(relay, window)["run_facts"]["props"]["data"]["returncode"] == 0  # 終了コード
+    press(relay, window, "clean")
+    view = nodes(relay, window)
+    assert shown() == ["build_facts", "artifacts"] and view["artifacts"]["props"]["items"] == [] and view["build_facts"]["props"]["data"]["action"] == "clean"
+    assert notices(relay) == []
+    relay.backend.failing = True  # 失敗したら、結果は変えない（失敗は知らせで出る）
+    press(relay, window, "test")
+    assert shown() == ["build_facts", "artifacts"] and notices(relay) == ["テストが失敗しました"]
+
+
+def test_build_screen_adds_a_profile_and_shows_the_cpp_fields_only_in_a_cpp_module(relay):
+    python = opened(relay, "build", "C:/work/Calc")
+    view = nodes(relay, python)
+    assert view["project"]["wrap"]["kind"] == "hidden" and view["profile_shared"]["wrap"]["kind"] == "hidden"
+    assert (view["profile_parallel"]["wrap"] or {}).get("kind") != "hidden"
+    assert view["do_profile_add"]["wrap"]["kind"] == "unavailable"  # 名前を、まだ書いていない
+    press(relay, python, "profile_name", "changed", text="ship")
+    press(relay, python, "do_profile_add")
+    assert last(relay) == ("profile add", {"name": "ship"})  # 決めていない項目は渡さない（CLI の既定）
+    press(relay, python, "profile_configuration", "changed", value="Release")
+    press(relay, python, "profile_parallel", "changed", text="8")
+    press(relay, python, "do_profile_add")
+    assert last(relay) == ("profile add", {"name": "ship", "configuration": "Release", "parallel": 8})  # 数は、コマンドの型で渡る
+    press(relay, python, "build")
+    assert last(relay) == ("build", {})
+
+    cpp = opened(relay, "build", "C:/work/Game")
+    view = nodes(relay, cpp)
+    assert all((view[name]["wrap"] or {}).get("kind") != "hidden" for name in ("project", "profile_shared", "profile_parallel"))
+    press(relay, cpp, "project", "changed", text="Calc")
+    for button in ("build", "rebuild", "clean", "run", "test"):
+        press(relay, cpp, button)
+        assert last(relay) == (button, {"project": "Calc"})
+    assert nodes(relay, cpp)["build_facts"]["props"]["data"]["project"] == "Calc"  # 結果にも、対象が出る
+    assert nodes(relay, python)["build_facts"]["props"]["data"]["project"] is None  # 結果は窓ごと
+    press(relay, cpp, "profile_name", "changed", text="dll")
+    press(relay, cpp, "profile_shared", "changed", on=True)
+    press(relay, cpp, "do_profile_add")
+    assert last(relay) == ("profile add", {"name": "dll", "shared": True})
+    assert relay.backend.modules[-1] == "C:/work/Game" and notices(relay) == []
+
+
+def test_cpp_screen_shows_and_changes_the_chosen_subproject(relay):
+    window = opened(relay, "cpp", "C:/work/Game")
+    buttons = ("do_link", "do_set_kind", "add_define", "remove_define", "add_include", "remove_include", "pch_on", "pch_off")
+    view = nodes(relay, window)
+    assert all(view[name]["wrap"]["kind"] == "unavailable" for name in buttons)  # まだ選んでいない
+    assert not [call for call in relay.backend.calls if call[0] == "project show"]  # 選ぶまで読まない
+    press(relay, window, "projects", "action", id="Calc", action="choose")
+    view = nodes(relay, window)
+    assert ("project show", {"project": "Calc"}) in relay.backend.calls
+    assert view["detail_chosen"]["props"]["text"] == "Calc" and view["details"]["props"]["data"]["kind"] == "static_library"
+    assert [row["name"] for row in view["links"]["props"]["rows"]] == ["Math"]
+    assert view["pch_on"]["wrap"] is None and view["do_set_kind"]["wrap"]["kind"] == "unavailable"  # 種類は、まだ選んでいない
+
+    press(relay, window, "links", "action", id="g-1", action="unlink")
+    assert last(relay) == ("project unlink", {"link": "g-1", "project": "Calc"})
+    press(relay, window, "link_library", "changed", text="Geometry")
+    press(relay, window, "do_link")
+    assert last(relay) == ("project link", {"library": ["Geometry"], "project": "Calc"})
+    press(relay, window, "set_kind", "changed", value="shared")
+    press(relay, window, "do_set_kind")
+    assert last(relay) == ("project set", {"project": "Calc", "kind": "shared"})
+    press(relay, window, "define", "changed", text="USE_FOO,LEVEL=2")
+    press(relay, window, "add_define")
+    assert last(relay) == ("project set", {"project": "Calc", "add_define": "USE_FOO,LEVEL=2"})
+    press(relay, window, "remove_define")
+    assert last(relay) == ("project set", {"project": "Calc", "remove_define": "USE_FOO,LEVEL=2"})
+    press(relay, window, "include", "changed", text="third_party/include")
+    press(relay, window, "add_include")
+    assert last(relay) == ("project set", {"project": "Calc", "add_include": "third_party/include"})
+    press(relay, window, "remove_include")
+    assert last(relay) == ("project set", {"project": "Calc", "remove_include": "third_party/include"})
+    press(relay, window, "pch_on")
+    assert last(relay) == ("project pch", {"project": "Calc"})
+    press(relay, window, "pch_off")
+    assert last(relay) == ("project pch", {"project": "Calc", "off": True})
+    assert relay.backend.modules[-1] == "C:/work/Game" and notices(relay) == []
+
+
+def test_cpp_screen_shows_the_dependency_tree_and_picks_a_version(relay):
+    window = opened(relay, "cpp", "C:/work/Game")
+    view = nodes(relay, window)
+    assert [(row["name"], row["depends_on"]) for row in view["dep_tree"]["props"]["rows"]] == [("Math", ["Core"]), ("Core", [])]
+    assert view["versions"]["props"]["rows"] == []
+    assert not [call for call in relay.backend.calls if call[0] == "deps versions"]  # 押すまで、GitHub から取り込まない
+    press(relay, window, "deps", "action", id="Math", action="versions")
+    view = nodes(relay, window)
+    assert ("deps versions", {"name": "Math"}) in relay.backend.calls
+    assert view["versions_title"]["props"]["text"] == "Math" and view["versions_info"]["props"]["data"]["recorded"] == "abc"
+    assert [row["sha"] for row in view["versions"]["props"]["rows"]] == ["fff", "abc"]
+    press(relay, window, "versions", "action", id="fff", action="use")
+    assert last(relay) == ("deps update", {"name": "Math", "at": "fff"})
     assert notices(relay) == []

@@ -28,14 +28,17 @@ SCREEN = {
         {"read": "task list", "args": {"module": {"arg": "module"}}, "to": "tasks.rows"},
         {"on": "reload.pressed", "refresh": True},
         {"on": "new_title.changed", "set": {"new_title": {"payload": "text"}}},
-        {"on": "new.pressed", "run": "task new", "args": {"module": {"arg": "module"}, "title": {"value": "new_title"}}},
+        {"value": "new_title", "to": "new_title.text"},  # 作ったら、欄は空に戻る
+        {"on": "new.pressed", "run": "task new", "args": {"module": {"arg": "module"}, "title": {"value": "new_title"}},
+         "set": {"new_title": None}},
         {"on": "start_name.changed", "set": {"start_name": {"payload": "text"}}},
+        {"value": "start_name", "to": "start_name.text"},
         # 行の「詳細」：同じ窓で、そのタスクの詳細に切り替える
         {"on": "tasks.action", "when": {"action": "open"}, "open": "task",
          "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "here": True},
         # 行のボタン（ecobuild task start <番号> --name <名前>・ecobuild task close <番号>）
         {"on": "tasks.action", "when": {"action": "start"}, "run": "task start",
-         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "name": {"value": "start_name"}}},
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "name": {"value": "start_name"}}, "set": {"start_name": None}},
         {"on": "tasks.action", "when": {"action": "close"}, "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
     ],
 }

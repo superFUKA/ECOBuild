@@ -5,7 +5,7 @@ from ..._output import lines, run_command
 
 
 def command(
-    check: Annotated[bool, "新しい版があるかを確かめるだけ（入れ直さない）"] = False,
+    check: Annotated[bool, "新しい版があるかを確かめるだけ（入れ直さない。ecobuild installer check と同じ）"] = False,
     ref: Annotated[str, "入れる版（ブランチ・タグ・コミット）。省略時は入れたときの版（ブランチなら、その最新）。候補は ecobuild installer versions"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -19,17 +19,19 @@ def command(
     def action(inv):
         return _self_update.check(ref or None) if check else _self_update.update(ref or None)
 
-    def render(r):
-        versions = f"{_short(r.current)} → {_short(r.latest)}（{r.ref}）"
-        if r.up_to_date:
-            return f"最新です：{_short(r.latest)}（{r.ref}）"
-        if not r.started:
-            return lines(f"新しい版があります：{versions}", "更新するには ecobuild installer update")
-        return lines(f"更新を始めました：{versions}",
-                     "別の窓でインストーラーが動きます。終わったら、新しい端末で ecobuild を使ってください。"
-                     + ("（GUI も入れ直すので、開いていれば閉じます）" if r.gui else ""))
+    return run_command("installer update", action, render_update, json_output=json)
 
-    return run_command("installer update", action, render, json_output=json)
+
+def render_update(r) -> str:
+    """installer update・installer check の、人向けの結果。"""
+    versions = f"{_short(r.current)} → {_short(r.latest)}（{r.ref}）"
+    if r.up_to_date:
+        return f"最新です：{_short(r.latest)}（{r.ref}）"
+    if not r.started:
+        return lines(f"新しい版があります：{versions}", "更新するには ecobuild installer update")
+    return lines(f"更新を始めました：{versions}",
+                 "別の窓でインストーラーが動きます。終わったら、新しい端末で ecobuild を使ってください。"
+                 + ("（GUI も入れ直すので、開いていれば閉じます）" if r.gui else ""))
 
 
 def _short(commit):

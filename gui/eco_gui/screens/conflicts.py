@@ -1,4 +1,7 @@
-"""作業空間 › 衝突を直す：衝突したファイルを、片方の側で解決する。直し終えたら続ける。やめて前に戻すこともできる。"""
+"""作業空間 › 衝突を直す：衝突したファイルを、片方の側で解決する。直し終えたら続ける。やめて前に戻すこともできる。
+
+解決のボタンは、止まっている操作があるとき（status の stopped）だけ出す。1つのファイルを採るボタンは、ファイルを選ぶまで押せない。
+"""
 
 ARGS = {"module": "."}  # 作業空間のフォルダー
 
@@ -37,19 +40,32 @@ SCREEN = {
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "state.data"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "files.paths", "from": "conflicted"},
         {"on": "reload.pressed", "refresh": True},
-        {"on": "files.selected", "set": {"file": {"payload": "path"}}},
+        # 選んだファイル。chosen は、コマンドの「ファイルの並び」の引数へそのまま渡す形（選んだ1つだけの並び）
+        {"on": "files.selected", "set": {"file": {"payload": "path"}, "chosen": [{"payload": "path"}]}},
         {"value": "file", "to": "files.selected"},
         {"value": "file", "to": "selected.text"},
         {"read": "diff", "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}]}, "to": "diff.text"},
-        # 片方の側を採る（ecobuild sync take <ファイル> --side current|incoming。ファイルを省くと全部）
-        {"on": "take_current.pressed", "run": "sync take",
-         "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}], "side": "current"}, "set": {"file": None}},
-        {"on": "take_incoming.pressed", "run": "sync take",
-         "args": {"module": {"arg": "module"}, "paths": [{"value": "file"}], "side": "incoming"}, "set": {"file": None}},
-        {"on": "all_current.pressed", "run": "sync take", "args": {"module": {"arg": "module"}, "side": "current"}, "set": {"file": None}},
-        {"on": "all_incoming.pressed", "run": "sync take", "args": {"module": {"arg": "module"}, "side": "incoming"}, "set": {"file": None}},
+        # 止まっている操作があるときだけ、解決のボタンを出す
+        {"read": "status", "args": {"module": {"arg": "module"}}, "into": "stopped", "from": "stopped"},
+        {"show": "take_current", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        {"show": "take_incoming", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        {"show": "all_current", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        {"show": "all_incoming", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        {"show": "abort", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        {"show": "continue", "when": {"stopped": ["merge", "rebase", "revert", "stash"]}},
+        # 片方の側を採る（ecobuild sync take <ファイル> --side current|incoming）。ファイルは、コマンドでは任意（省くと全部）でも、
+        # 選ぶまで実行しない
+        {"on": "take_current.pressed", "run": "sync take", "require": ["paths"],
+         "args": {"module": {"arg": "module"}, "paths": {"value": "chosen"}, "side": "current"}, "set": {"file": None, "chosen": None}},
+        {"on": "take_incoming.pressed", "run": "sync take", "require": ["paths"],
+         "args": {"module": {"arg": "module"}, "paths": {"value": "chosen"}, "side": "incoming"}, "set": {"file": None, "chosen": None}},
+        # 全部を片方の側に（ecobuild sync take --side current|incoming。ファイルを省くと、衝突したファイル全部）
+        {"on": "all_current.pressed", "run": "sync take", "args": {"module": {"arg": "module"}, "side": "current"},
+         "set": {"file": None, "chosen": None}},
+        {"on": "all_incoming.pressed", "run": "sync take", "args": {"module": {"arg": "module"}, "side": "incoming"},
+         "set": {"file": None, "chosen": None}},
         # 続ける・やめる（ecobuild sync continue・ecobuild sync abort）
-        {"on": "continue.pressed", "run": "sync continue", "args": {"module": {"arg": "module"}}, "set": {"file": None}},
-        {"on": "abort.pressed", "run": "sync abort", "args": {"module": {"arg": "module"}}, "set": {"file": None}},
+        {"on": "continue.pressed", "run": "sync continue", "args": {"module": {"arg": "module"}}, "set": {"file": None, "chosen": None}},
+        {"on": "abort.pressed", "run": "sync abort", "args": {"module": {"arg": "module"}}, "set": {"file": None, "chosen": None}},
     ],
 }

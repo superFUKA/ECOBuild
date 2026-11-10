@@ -1,0 +1,8 @@
+{
+  "name": "ecobuild-gui-next",
+  "productName": "ECOBuild GUI Next",
+  "version": "0.1.0",
+  "private": true,
+  "description": "新しい GUI（eco_gui）のアプリの窓。Electron 本体は gui/electron のものを使う。",
+  "main": "main.js"
+}

@@ -14,6 +14,7 @@ from guiframework import create_app
 
 import eco_gui
 from eco_gui.backend import EcobuildBackend
+from eco_gui.shell import open_window
 
 
 def backend() -> EcobuildBackend:
@@ -21,7 +22,7 @@ def backend() -> EcobuildBackend:
     return EcobuildBackend([ecobuild])
 
 
-app = create_app(eco_gui, name="ecobuild-gui-next", backend=backend(), roles={"confirm": "confirm-box"})
+app = create_app(eco_gui, name="ecobuild-gui-next", backend=backend(), roles={"confirm": "confirm-box"}, opener=open_window)
 cli = app.cli
 
 if __name__ == "__main__":

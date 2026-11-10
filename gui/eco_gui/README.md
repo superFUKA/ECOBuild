@@ -11,6 +11,10 @@
 
 インストーラー（`ecobuild installer update --ref gui-framework`、または `installer/install.ps1 -Ref gui-framework`）が、専用の venv（`%LOCALAPPDATA%\Programs\ECOBuild GUI Nextenv`）に GUIFrameWork を入れ、デスクトップとスタートメニューに「ECOBuild GUI（新）」を作ります（`gui/eco_gui_setup.py`）。今の「ECOBuild GUI」は、そのまま残ります。
 
+## 窓
+
+Electron が入っていれば（今の GUI のインストーラーが `gui/electron/node_modules` に入れる）、窓はアプリの窓で開きます（`eco_gui/shell.py` と `eco_gui/electron/main.js`。窓を出すだけで、画面も処理も中継地点が受け持つ）。なければ、Edge・Chrome のアドレスバーのない窓で開きます。エージェントと対話する窓は、今の GUI（`gui/electron`）のままです。
+
 ## 動かす（開発のとき）
 
 GUIFrameWork を入れた Python で（版は `requirements.txt`）：

@@ -26,7 +26,7 @@ SCREEN = {
         {"read": "agent rules show", "args": {"module": {"arg": "module"}}, "to": "state.data"},
         {"read": "agent rules show", "args": {"module": {"arg": "module"}}, "to": "common.text", "from": "common"},
         {"on": "reload.pressed", "refresh": True},
-        # 書き直した文 → 共有の値 → ecobuild agent rules set <文>
+        # 書き直した文 → 共有の値 → ecobuild agent rules set -（文は標準入力で渡る。長くても、コマンドの行の上限に掛からない）
         {"on": "common.changed", "set": {"rules_common": {"payload": "text"}}},
         {"on": "save.pressed", "run": "agent rules set", "args": {"module": {"arg": "module"}, "common": {"value": "rules_common"}},
          "set": {"rules_common": None}},

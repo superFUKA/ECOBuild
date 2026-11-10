@@ -50,7 +50,7 @@ SCREEN = {
 
         # AI：コンテナの中のエージェントがログインに使うトークン（値は見せない）と、Claude Code の版
         {"id": "ai", "layout": "column", "children": ["token_title", "token", "token_row", "token_note", "version_title", "channels",
-                                                       "version_status", "version_form", "version_unset"]},
+                                                       "version_status", "version_form", "version_now", "version_row"]},
         {"id": "token_title", "part": "note", "props": {"text": "エージェントのトークン"}},
         {"id": "token", "part": "facts", "props": {
             "items": [{"key": "saved", "label": "トークン"}, {"key": "path", "label": "置き場所"}],
@@ -66,8 +66,11 @@ SCREEN = {
             "items": [{"key": "stable", "label": "stable の今の版"}, {"key": "latest", "label": "latest の今の版"}]}},
         {"id": "version_status", "part": "facts", "props": {
             "items": [{"key": "setting", "label": "今の設定（空なら、イメージを作るときの最新）"}, {"key": "reason", "label": "補足"}]}},
-        {"id": "version_form", "layout": "row", "children": ["claude_version", "version_set"]},
-        {"id": "claude_version", "part": "text-input", "props": {"title": "入れる版", "placeholder": "例：2.1.302・stable・latest"}},
+        {"id": "version_form", "layout": "row", "children": ["version_pick", "claude_version"]},
+        {"id": "version_pick", "part": "select-text", "props": {"title": "版を選ぶ（新しい順）", "none_label": "（選ぶ）"}},
+        {"id": "claude_version", "part": "text-input", "props": {"title": "または、打って決める", "placeholder": "例：2.1.302・stable・latest"}},
+        {"id": "version_now", "part": "note", "props": {"prefix": "入れる版："}},
+        {"id": "version_row", "layout": "row", "children": ["version_set", "version_unset"]},
         {"id": "version_set", "part": "button", "props": {"label": "この版にする"}},
         {"id": "version_unset", "part": "button", "props": {"label": "既定に戻す", "hint": "イメージを作るときの最新"}},
 
@@ -91,7 +94,7 @@ SCREEN = {
         {"id": "images_out", "part": "output"},
 
         # ECOBuild：入っている版と、更新・版を選んで入れ直す（installer show・versions・update）
-        {"id": "ecobuild", "layout": "column", "children": ["installed", "update_note", "update", "ref_row", "versions_title", "versions"]},
+        {"id": "ecobuild", "layout": "column", "children": ["installed", "update_note", "update", "ref_row", "versions_title", "branch_row", "versions"]},
         {"id": "installed", "part": "facts", "props": {
             "items": [{"key": "version", "label": "版"}, {"key": "source", "label": "入れた元"}, {"key": "ref", "label": "ブランチ・タグ"},
                       {"key": "commit", "label": "コミット"}, {"key": "editable", "label": "入れ方"}, {"key": "python", "label": "Python"},
@@ -103,7 +106,10 @@ SCREEN = {
         {"id": "ref_row", "layout": "row", "children": ["ref", "update_ref"]},
         {"id": "ref", "part": "text-input", "props": {"title": "入れる版（ブランチ・タグ・コミット）", "placeholder": "例：main"}},
         {"id": "update_ref", "part": "button", "props": {"label": "この版に入れ直す"}},
-        {"id": "versions_title", "part": "note", "props": {"text": "入れたときのブランチの最近の版（新しい順）"}},
+        {"id": "versions_title", "part": "note", "props": {"text": "ブランチの最近の版（新しい順。ブランチを選ばなければ、入れたときのブランチ）"}},
+        {"id": "branch_row", "layout": "row", "children": ["branch", "update_branch"]},
+        {"id": "branch", "part": "select-text", "props": {"title": "ブランチ", "none_label": "（入れたときのブランチ）"}},
+        {"id": "update_branch", "part": "button", "props": {"label": "このブランチの最新に入れ直す"}},
         {"id": "versions", "part": "table", "props": {
             "columns": [{"key": "date", "label": "日時"}, {"key": "subject", "label": "何を"}, {"key": "current", "label": ""},
                         {"key": "latest", "label": ""}, {"key": "sha", "label": "コミット"}],
@@ -127,11 +133,17 @@ SCREEN = {
         {"on": "setup.pressed", "run": "setup", "args": {"name": {"value": "setup_name"}, "email": {"value": "setup_email"}}},
         # AI（ecobuild agent token login・agent token remove。トークンの値は、画面を通さない）
         {"read": "agent token status", "to": "token.data"},
+        {"read": "agent token status", "into": "token_saved", "from": "saved"},
+        {"show": "token_remove", "when": {"token_saved": True}},  # 消せるのは、保存してあるときだけ
         {"on": "token_login.pressed", "run": "agent token login"},
         {"on": "token_remove.pressed", "run": "agent token remove"},
         {"read": "agent version list", "to": "channels.data", "from": "channels"},
         {"read": "agent version status", "to": "version_status.data"},
+        # 版は、読んだ一覧から選ぶか、打つ（stable・latest も）。後から決めた方が入る
+        {"read": "agent version list", "to": "version_pick.options", "from": "versions"},
+        {"on": "version_pick.changed", "set": {"claude_version": {"payload": "value"}}},
         {"on": "claude_version.changed", "set": {"claude_version": {"payload": "text"}}},
+        {"value": "claude_version", "to": "version_now.text"},
         {"on": "version_set.pressed", "run": "config set", "args": {"key": "agent_claude_version", "value": {"value": "claude_version"}}},
         {"on": "version_unset.pressed", "run": "config unset", "args": {"key": "agent_claude_version"}},
         # コンテナ（ecobuild container image build・container image prune）
@@ -141,10 +153,15 @@ SCREEN = {
         {"on": "images_prune.pressed", "run": "container image prune"},
         # ECOBuild（ecobuild installer update [--ref <版>]）
         {"read": "installer show", "to": "installed.data"},
-        {"read": "installer versions", "to": "versions.rows", "from": "commits"},
+        # ブランチを選ぶと、そのブランチの版を読む（ecobuild installer versions --ref <ブランチ>）
+        {"read": "installer versions", "to": "branch.options", "from": "branches"},
+        {"on": "branch.changed", "set": {"versions_branch": {"payload": "value"}}},
+        {"value": "versions_branch", "to": "branch.value"},
+        {"read": "installer versions", "args": {"ref": {"value": "versions_branch"}}, "to": "versions.rows", "from": "commits"},
+        {"on": "update_branch.pressed", "run": "installer update", "require": ["ref"], "args": {"ref": {"value": "versions_branch"}}},
         {"on": "update.pressed", "run": "installer update"},
         {"on": "ref.changed", "set": {"ref": {"payload": "text"}}},
-        {"on": "update_ref.pressed", "run": "installer update", "args": {"ref": {"value": "ref"}}},
+        {"on": "update_ref.pressed", "run": "installer update", "require": ["ref"], "args": {"ref": {"value": "ref"}}},  # 版を入れるまで押せない
         {"on": "versions.action", "when": {"action": "install"}, "run": "installer update", "args": {"ref": {"payload": "id"}}},
     ],
 }

@@ -5,7 +5,7 @@
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "オペレーター", "width": 980, "height": 820},
+    "window": {"title": "オペレーター", "width": 1280, "height": 820},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["head", "tabs"]},
         {"id": "head", "layout": "row", "children": ["title", "reload"]},
@@ -15,10 +15,13 @@ SCREEN = {
 
         # --- このPCのエージェント（ecobuild agent list・status・children・stop・restart・close・send） ---
         {"id": "agents", "layout": "column", "children": ["list", "selected", "status", "children_title", "children", "send"]},
-        {"id": "list", "part": "table", "props": {
-            "columns": [{"key": "title", "label": "役"}, {"key": "name", "label": "名前"}, {"key": "branch", "label": "タスクブランチ"},
-                        {"key": "state", "label": "様子"}, {"key": "waiting", "label": "届いていない言付け"}, {"key": "id", "label": "ID"}],
-            "key": "id",
+        {"id": "list", "part": "pick-rows", "props": {
+            "columns": [{"key": "title", "label": "役"}, {"key": "name", "label": "名前"}, {"key": "task.number", "label": "タスク"},
+                        {"key": "branch", "label": "タスクブランチ"}, {"key": "state", "label": "様子"},
+                        {"key": "started_at", "label": "起動した時", "format": "time"},
+                        {"key": "replied_at", "label": "最後に返答した時", "format": "time"},
+                        {"key": "waiting", "label": "届いていない言付け"}, {"key": "id", "label": "ID"}],
+            "key": "id", "selectable": False,
             "actions": [{"name": "show", "label": "見る"}, {"name": "stop", "label": "止める"}, {"name": "restart", "label": "起こし直す"},
                         {"name": "resume", "label": "続きから起こす"}, {"name": "close", "label": "閉じる"}],
             "labels": {"state": {"working": "作業中", "idle": "待機中", "stopped": "止まっている", "starting": "起動中", "unknown": "分からない"},

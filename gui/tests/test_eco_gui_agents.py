@@ -4,6 +4,7 @@ ecobuild は呼ばない（偽のバックエンドで、正しいコマンド�
 """
 
 import importlib
+import sys
 
 import pytest
 
@@ -107,7 +108,7 @@ class FakeAgents(FakeEcobuild):
         if name == "agent list":
             return {"ok": True, "result": [
                 {"id": "a-0000000001", "name": "lead", "title": "進行役", "branch": "task/12-login", "task": {"number": 12},
-                 "state": "idle", "waiting": 0, "last_reply": "終わりました"},
+                 "state": "idle", "waiting": 0, "last_reply": "終わりました", "started_at": 1792754845.3, "replied_at": 1792758445.0},
                 {"id": "a-0000000002", "name": "worker", "title": "作業役", "branch": "task/13-log", "task": {"number": 13},
                  "state": "stopped", "waiting": 1, "last_reply": ""}]}
         if name == "agent status":
@@ -173,6 +174,12 @@ def test_agents_screen_lists_registrations_and_shows_the_chosen_one(relay):
     assert view["document"]["props"]["text"] == "## あなたの役：作業役"
     assert (view["e_title"]["props"]["text"], view["e_model"]["props"]["text"]) == ("作業役", "sonnet")  # 今の値が入っている
     assert view["e_first_prompt"]["props"]["text"] == "始めてください"
+    # 並び・数の今の値も欄に入っている。選べるものは、読んだ一覧（ツール・スキル・登録）
+    assert view["e_tools"]["props"]["items"] == ["status", "diff"] and view["e_children"]["props"]["items"] == []
+    assert [row["name"] for row in view["e_tools"]["props"]["rows"]] == ["status", "task_commit"]
+    assert [row["name"] for row in view["e_skills"]["props"]["rows"]] == ["release-notes"]
+    assert [row["name"] for row in view["e_children"]["props"]["rows"]] == ["lead", "worker"]
+    assert (view["e_max_children"]["props"]["value"], view["e_max_cost"]["props"]["value"]) == (0, 0.0)
     assert relay.backend.calls.count(("agent registry show", {"name": "worker"})) == 1  # いくつもの部品へ出しても、1回
     assert relay.backend.modules[-1] == "C:/work/Calc"
     assert notices(relay) == []
@@ -183,7 +190,7 @@ def test_agents_screen_saves_only_what_was_rewritten_after_a_confirmation(relay)
     relay.input(window, "list", "action", {"id": "worker", "action": "show"}, human=True)
     relay.input(window, "e_title", "changed", {"text": "実装役"}, human=True)
     relay.input(window, "e_human_start", "changed", {"value": "false"}, human=True)
-    relay.input(window, "e_tools", "changed", {"text": "status,diff,task_*"}, human=True)
+    relay.input(window, "e_tools", "changed", {"items": ["status", "diff", "task_*"], "text": "status,diff,task_*"}, human=True)
     relay.input(window, "e_max_children", "changed", {"text": "2"}, human=True)
     relay.input(window, "e_max_cost", "changed", {"text": "1.5"}, human=True)
     relay.idle()
@@ -195,6 +202,29 @@ def test_agents_screen_saves_only_what_was_rewritten_after_a_confirmation(relay)
     values = relay.display.values(window)
     assert values["reg_title"] is None and values["reg_tools"] is None  # 保存したら、書き直しの控えを空に
     assert nodes(relay, window)["e_title"]["props"]["text"] == "実装役"  # 変えたら読み直す
+
+
+def test_agents_screen_saves_the_rewritten_document_and_forgets_edits_when_another_is_chosen(relay):
+    window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
+    assert nodes(relay, window)["save_document"]["wrap"]["kind"] == "unavailable"  # 選んで、書き直すまで押せない
+    relay.input(window, "list", "action", {"id": "worker", "action": "show"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["save_document"]["wrap"]["kind"] == "unavailable"
+    relay.input(window, "document", "changed", {"text": "## あなたの役：実装役\n\n1. 読む\n2. 直す"}, human=True)
+    relay.idle()
+    relay.input(window, "save_document", "pressed", {}, human=True)
+    answer(relay, window, True)
+    # 画面からは本文の文字が渡る（本物のつなぎが、コマンドの行には - を書き、本文を標準入力へ渡す）
+    assert ("agent registry set", {"name": "worker", "document": "## あなたの役：実装役\n\n1. 読む\n2. 直す"}) in relay.backend.calls
+    assert relay.display.values(window)["reg_document"] is None
+
+    relay.input(window, "e_title", "changed", {"text": "実装役"}, human=True)
+    relay.input(window, "document", "changed", {"text": "書きかけ"}, human=True)
+    relay.input(window, "list", "action", {"id": "lead", "action": "show"}, human=True)  # 別の登録を選ぶ
+    relay.idle()
+    values = relay.display.values(window)
+    assert (values["registration"], values["reg_title"], values["reg_document"]) == ("lead", None, None)  # 前の書き直しは渡さない
+    assert nodes(relay, window)["e_tools"]["props"]["items"] == ["*"]
 
 
 def test_agents_screen_adds_removes_and_copies_to_a_preset(relay):
@@ -249,6 +279,22 @@ def test_skills_screen_shows_edits_adds_and_removes(relay):
     answer(relay, window, True)
     assert ("agent skill set", {"name": "release-notes", "description": "リリースノートを書く手順。\nリリースの前に使う。"}) in relay.backend.calls
 
+    assert nodes(relay, window)["save_document"]["wrap"]["kind"] == "unavailable"  # 本文を書き直すまで押せない
+    relay.input(window, "document", "changed", {"text": "# 手順\n1. 変更を集める\n2. 書く"}, human=True)
+    relay.idle()
+    relay.input(window, "save_document", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert ("agent skill set", {"name": "release-notes", "document": "# 手順\n1. 変更を集める\n2. 書く"}) in relay.backend.calls
+
+    relay.input(window, "new_name", "changed", {"text": "notes"}, human=True)
+    relay.input(window, "new_description", "changed", {"text": "メモの書き方"}, human=True)
+    relay.input(window, "new_document", "changed", {"text": "# メモ\n短く書く"}, human=True)
+    relay.idle()
+    relay.input(window, "do_add", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert ("agent skill add", {"name": "notes", "description": "メモの書き方", "document": "# メモ\n短く書く"}) in relay.backend.calls
+    relay.input(window, "new_description", "changed", {"text": ""}, human=True)
+    relay.input(window, "new_document", "changed", {"text": ""}, human=True)
     relay.input(window, "new_name", "changed", {"text": "pdf"}, human=True)
     relay.input(window, "new_dir", "changed", {"text": "C:/skills/pdf"}, human=True)
     relay.idle()
@@ -289,16 +335,24 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
     view = nodes(relay, window)
     assert [row["name"] for row in view["p_list"]["props"]["rows"]] == ["lead", "worker"]
     assert view["v_channels"]["props"]["data"] == {"stable": "2.1.311", "latest": "2.1.322"}
-    assert view["v_list"]["props"]["lines"] == ["2.1.322", "2.1.321"]
+    assert view["v_pick"]["props"]["options"] == ["2.1.322", "2.1.321"]  # 版は、読んだ一覧から選べる
     assert relay.backend.modules[-1] is None  # このPCのもの：モジュールを決めない
 
     relay.input(window, "p_list", "action", {"id": "lead", "action": "show"}, human=True)
     relay.input(window, "p_model", "changed", {"text": "opus"}, human=True)
     relay.idle()
-    assert nodes(relay, window)["p_document"]["props"]["text"] == "## あなたの役：進行役"
+    view = nodes(relay, window)
+    assert view["p_document"]["props"]["text"] == "## あなたの役：進行役"
+    assert view["p_tools"]["props"]["items"] == ["*"] and view["p_max_children"]["props"]["value"] == 6  # 今の値が入っている
+    assert [row["name"] for row in view["p_tools"]["props"]["rows"]] == ["status", "task_commit"]
     relay.input(window, "p_save", "pressed", {}, human=True)
     answer(relay, window, True)
     assert ("agent preset set", {"name": "lead", "model": "opus"}) in relay.backend.calls
+    relay.input(window, "p_document", "changed", {"text": "## あなたの役：進行役\n短く進める"}, human=True)
+    relay.idle()
+    relay.input(window, "p_save_document", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert ("agent preset set", {"name": "lead", "document": "## あなたの役：進行役\n短く進める"}) in relay.backend.calls
     relay.input(window, "p_new_name", "changed", {"text": "my-worker"}, human=True)
     relay.input(window, "p_new_from", "changed", {"value": "worker"}, human=True)
     relay.idle()
@@ -315,6 +369,11 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
     relay.input(window, "s_save", "pressed", {}, human=True)
     answer(relay, window, True)
     assert ("agent skill preset set", {"name": "release-notes", "description": "新しい説明"}) in relay.backend.calls
+    relay.input(window, "s_document", "changed", {"text": "# 手順\n書き直した"}, human=True)
+    relay.idle()
+    relay.input(window, "s_save_document", "pressed", {}, human=True)
+    answer(relay, window, True)
+    assert ("agent skill preset set", {"name": "release-notes", "document": "# 手順\n書き直した"}) in relay.backend.calls
     relay.input(window, "s_new_name", "changed", {"text": "notes"}, human=True)
     relay.input(window, "s_new_description", "changed", {"text": "メモの書き方"}, human=True)
     relay.idle()
@@ -333,6 +392,12 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
     relay.input(window, "v_unset", "pressed", {}, human=True)
     relay.idle()
     assert ("config unset", {"key": "agent_claude_version"}) in relay.backend.calls
+    relay.input(window, "v_pick", "changed", {"value": "2.1.321"}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["v_now"]["props"]["text"] == "2.1.321"
+    relay.input(window, "v_save", "pressed", {}, human=True)
+    relay.idle()
+    assert ("config set", {"key": "agent_claude_version", "value": "2.1.321"}) in relay.backend.calls
     assert notices(relay) == []
 
 
@@ -350,6 +415,9 @@ def test_operator_screen_lists_agents_and_stops_restarts_closes_and_sends(relay)
     window = opened(relay, "operator")
     view = nodes(relay, window)
     assert [row["id"] for row in view["list"]["props"]["rows"]] == ["a-0000000001", "a-0000000002"]
+    columns = {column["key"]: column.get("format") for column in view["list"]["props"]["columns"]}
+    assert "task.number" in columns and (columns["started_at"], columns["replied_at"]) == ("time", "time")  # タスク番号と時刻の列
+    assert view["list"]["props"]["rows"][0]["task"]["number"] == 12 and view["list"]["props"]["rows"][0]["started_at"] == 1792754845.3
     assert view["do_send"]["wrap"]["kind"] == "unavailable"  # だれに送るか、まだ決まっていない
     assert relay.backend.modules[-1] is None
 
@@ -395,6 +463,73 @@ def test_operator_screen_edits_the_way_the_operator_talks(relay):
     relay.idle()
     assert ("config unset", {"key": "operator_style"}) in relay.backend.calls
     assert notices(relay) == []
+
+
+COMMANDS_READING_STANDARD_INPUT = (
+    ("agent registry set", "document"), ("agent preset set", "document"), ("agent skill set", "document"), ("agent skill add", "document"),
+    ("agent skill preset set", "document"), ("agent skill preset add", "document"))
+
+
+def echo_backend(tmp_path):
+    """本物のつなぎ（EcobuildBackend）を、受けたコマンドの行と標準入力をそのまま答える小さなコマンドにつなぐ。"""
+    from eco_gui.backend import EcobuildBackend
+
+    script = tmp_path / "echo.py"
+    script.write_text(
+        "import json, sys\n"
+        "sys.stdout.reconfigure(encoding='utf-8')\n"
+        "sys.stdin.reconfigure(encoding='utf-8')\n"
+        "print(json.dumps({'ok': True, 'result': {'argv': sys.argv[1:], 'stdin': sys.stdin.read()}}))\n", encoding="utf-8")
+
+    def option(param):
+        return {"names": ["--" + param.replace("_", "-")], "param": param, "help": param, "type": "str", "negative": None}
+
+    def name_argument(param):
+        return {"name": param.upper(), "param": param, "help": param, "required": True, "multiple": False, "type": "str"}
+
+    def node(path, argument, *options):
+        return {"name": path.split()[-1], "path": path, "summary": path, "runnable": True, "effect": "human",
+                "arguments": [name_argument(argument)], "options": [option(o) for o in options]}
+
+    catalog = {"ok": True, "result": {"commands": [
+        *[node(path, "name", "description", key) for path, key in COMMANDS_READING_STANDARD_INPUT],
+        node("agent rules set", "common"), node("agent token set", "token"), node("config set", "key", "value")], "types": {}}}
+    backend = EcobuildBackend([sys.executable, str(script)])
+    backend.ask = lambda argv: catalog
+    backend.commands()
+    return backend
+
+
+def test_the_backend_passes_long_texts_through_standard_input_not_the_command_line(tmp_path):
+    backend = echo_backend(tmp_path)
+    text = "## あなたの役\n\n" + "1. 読む・直す・確かめる \"引用\" %PATH% & | <>\n" * 2000  # コマンドの行の上限（Windows は約 32,000 字）より長い
+    assert len(text) > 40000
+    for name, key in COMMANDS_READING_STANDARD_INPUT:
+        args = {"name": "worker", "description": "説明", key: text, "module": "C:/work/Calc"}
+        assert backend.standard_input(name, args) == text
+        line = backend.command_line(name, args, ["yes"])
+        assert line[2:] == ["-C", "C:/work/Calc", *name.split(), "--description", "説明", "--" + key, "-", "--json", "--", "worker"]
+        assert text not in line  # 本文は、コマンドの行に置かない
+    done = backend.run("agent registry set", {"name": "worker", "document": text}, {"run": None}, lambda event: None)
+    assert done == {"ok": True, "result": {"argv": ["agent", "registry", "set", "--document", "-", "--json", "--", "worker"], "stdin": text}}
+    # 共通の文（位置引数）も同じ道。空の文（消す）も、標準入力で空のまま渡る
+    done = backend.run("agent rules set", {"common": "決まり1\n決まり2"}, {"run": None}, lambda event: None)
+    assert done["result"] == {"argv": ["agent", "rules", "set", "--json", "--", "-"], "stdin": "決まり1\n決まり2"}
+    done = backend.run("agent rules set", {"common": ""}, {"run": None}, lambda event: None)
+    assert done["result"] == {"argv": ["agent", "rules", "set", "--json", "--", "-"], "stdin": ""}
+
+
+def test_the_backend_uses_standard_input_only_for_those_texts(tmp_path):
+    backend = echo_backend(tmp_path)
+    # 本文を書いていない保存：標準入力は使わない（- も付けない）
+    assert backend.standard_input("agent skill set", {"name": "pdf", "description": "説明"}) is None
+    assert backend.command_line("agent skill set", {"name": "pdf", "description": "説明"}) == [
+        *backend.argv, "agent", "skill", "set", "--description", "説明", "--json", "--", "pdf"]
+    # ほかのコマンドの値は、今までどおり（鍵・トークンを標準入力へ流す道は作らない：画面に入れないので、ここへは来ない）
+    assert backend.standard_input("config set", {"key": "operator_style", "value": "やさしく"}) is None
+    assert backend.standard_input("agent token set", {"token": "fake-value"}) is None
+    done = backend.run("config set", {"key": "owner", "value": "acme"}, {"run": None}, lambda event: None)
+    assert done["result"] == {"argv": ["config", "set", "--value", "acme", "--json", "--", "owner"], "stdin": ""}
 
 
 def test_help_screens_show_the_guide_inside_and_outside_a_module_window(relay):

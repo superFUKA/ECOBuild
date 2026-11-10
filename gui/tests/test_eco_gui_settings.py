@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+from guiframework.errors import RelayError  # noqa: E402
 
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 
@@ -19,7 +20,13 @@ def spec(weight, required=(), **properties):
 
 
 class FakeSettings(FakeEcobuild):
-    """設定の画面が使うコマンドを足した、ecobuild の代わり。"""
+    """設定の画面が使うコマンドを足した、ecobuild の代わり。片付け・コンテナ・トークンの状態は、コマンドで変わる。"""
+
+    def __init__(self):
+        super().__init__()
+        self.archived = {"acme/Calc": False, "acme/Old": True}
+        self.container = {"container": True, "state": "exited"}
+        self.token = False
 
     def _specs(self, text):
         flag, number, many = {"type": "boolean"}, {"type": "integer"}, {"type": "array", "items": text}
@@ -57,12 +64,22 @@ class FakeSettings(FakeEcobuild):
         }
 
     def run(self, name, args, context, on_event):
+        plain = {key: value for key, value in args.items() if key != "module"}
+        if name in ("module archive", "module unarchive"):
+            self.archived[plain["name"]] = name == "module archive"
+        changes = {"container on": {"container": True}, "container off": {"container": False}, "container start": {"state": "running"},
+                   "container stop": {"state": "exited"}, "container remove": {"state": "none"}}
+        self.container.update(changes.get(name, {}))
+        if name in ("agent token login", "agent token remove"):
+            self.token = name == "agent token login"
         answers = {
+            "module show": {"name": "Calc", "type": "python", "private": True, "repository": "acme/Calc",
+                            "archived": self.archived["acme/Calc"], "workspaces": []},
             "profile list": {"profiles": {"release": {"configuration": "Release", "parallel": 8, "shared": False}}, "selected": "release"},
             "track": {"patterns": [{"pattern": "*.md", "source": "type", "excluded": False},
                                    {"pattern": "data/**", "source": "module", "excluded": False}], "exclude": []},
             "release list": [{"tag": "v1.0.0", "name": "最初の版", "url": "https://example.invalid/r/v1.0.0", "latest": True}],
-            "container status": {"path": "C:/work/Calc", "container": True, "state": "exited", "outdated": True,
+            "container status": {"path": "C:/work/Calc", **self.container, "outdated": True,
                                  "custom_image": "", "deny": ["WebFetch"], "docker_ready": True},
             "container recipe": {"module": "calc", "environment": "ecobuild-env-calc:aaa", "image": "ecobuild-calc:bbb",
                                  "context": "", "dockerfile": "FROM ubuntu:24.04\n", "layer": "RUN echo layer\n"},
@@ -70,20 +87,20 @@ class FakeSettings(FakeEcobuild):
             "agent version list": {"channels": {"stable": "2.1.1", "latest": "2.1.9"}, "versions": ["2.1.9", "2.1.1"]},
             "account list": [{"login": "octocat", "active": True}, {"login": "hubot", "active": False}],
             "config list": {"owner": "acme"},
-            "agent token status": {"saved": False, "path": "C:/home/ecobuild/agents/container-token"},
+            "agent token status": {"saved": self.token, "path": "C:/home/ecobuild/agents/container-token"},
             "container image list": {"docker_ready": True, "docker_detail": "Docker 29", "missing": [], "images": [
                 {"name": "ecobuild-calc:bbb", "module": "calc", "size": "1GB", "created": "2 days ago", "current": True,
                  "used_by": [], "environment": False}]},
             "installer show": {"version": "0.1.0", "ref": "main", "commit": "abc", "editable": False},
-            "installer versions": {"ref": "main", "commits": [
+            "installer versions": {"ref": plain.get("ref", "main"), "branches": ["main", "dev"], "commits": [
                 {"sha": "abc", "date": "2026-11-01", "subject": "今の版", "current": True, "latest": True},
                 {"sha": "def", "date": "2026-10-01", "subject": "前の版", "current": False, "latest": False}]},
-            "module list": [{"repository": "acme/Calc", "type": "python", "private": True, "archived": False, "description": ""},
-                            {"repository": "acme/Old", "type": "cpp", "private": True, "archived": True, "description": "古い"}],
+            "module list": [{"repository": "acme/Calc", "type": "python", "private": True, "archived": self.archived["acme/Calc"], "description": ""},
+                            {"repository": "acme/Old", "type": "cpp", "private": True, "archived": self.archived["acme/Old"], "description": "古い"}],
         }
         if name in answers:
             self.modules.append(args.get("module"))
-            self.calls.append((name, {key: value for key, value in args.items() if key != "module"}))
+            self.calls.append((name, plain))
             return {"ok": True, "result": answers[name]}
         if name == "container image build":
             on_event({"event": "output", "message": "イメージを作っています…\n"})
@@ -108,6 +125,12 @@ def press(relay, window, node, confirm=None):
     if confirm is not None:
         answer(relay, window, confirm)
     relay.idle()
+
+
+def wraps(relay, window, *ids):
+    """部品の包み（None＝出ていて押せる／unavailable＝灰色／hidden＝出していない）。"""
+    view = nodes(relay, window)
+    return [(view[node]["wrap"] or {}).get("kind") for node in ids]
 
 
 def typed(relay, window, **texts):
@@ -198,24 +221,33 @@ def test_settings_releases_and_the_account_of_the_workspace(relay):
     assert ("account use", {"account": "hubot"}) in relay.backend.calls and ("account use", {"clear": True}) in relay.backend.calls
 
 
-def test_settings_puts_the_module_away_with_the_name_the_person_typed(relay):
+def test_settings_puts_the_module_away_without_typing_its_name(relay):
     window = opened(relay, "settings", module="C:/work/Calc")
-    view = nodes(relay, window)
-    assert {view[node]["wrap"]["kind"] for node in ("archive", "unarchive", "delete")} == {"unavailable"}  # 名前を入れるまで
-    typed(relay, window, away_name="acme/Calc")
+    assert nodes(relay, window)["away_now"]["props"]["data"]["repository"] == "acme/Calc"
+    assert relay.backend.calls.count(("module show", {})) == 1  # 表示にも共有の値にも使うが、読むのは1回
+    # アーカイブしていない：出るのは「アーカイブする」だけ（解除・削除は出さない）
+    assert wraps(relay, window, "archive", "unarchive", "delete_confirm", "remove_workspaces", "delete") == [None] + ["hidden"] * 4
+    with pytest.raises(RelayError):  # 隠した部品は、入力も受けない
+        relay.input(window, "delete", "pressed", {}, human=True)
     press(relay, window, "archive", confirm=True)
+    assert ("module archive", {"name": "acme/Calc"}) in relay.backend.calls  # 名前は、module show のリポジトリ（人は打たない）
+    # アーカイブ済み：解除と、削除の欄が出る。削除は、確かめの名前を打つまで押せない
+    assert wraps(relay, window, "archive", "unarchive", "delete_confirm", "remove_workspaces", "delete") == ["hidden", None, None, None, "unavailable"]
     press(relay, window, "unarchive", confirm=True)
+    assert ("module unarchive", {"name": "acme/Calc"}) in relay.backend.calls
+    assert wraps(relay, window, "archive", "unarchive", "delete") == [None, "hidden", "hidden"]
+    press(relay, window, "archive", confirm=True)
+    typed(relay, window, delete_confirm="acme/Calc")
+    assert wraps(relay, window, "delete") == [None]
     press(relay, window, "delete", confirm=False)
     assert not [call for call in relay.backend.calls if call[0] == "module delete"]
     relay.input(window, "remove_workspaces", "changed", {"value": "true"}, human=True)
     relay.idle()
     press(relay, window, "delete", confirm=True)
-    for call in [("module archive", {"name": "acme/Calc"}), ("module unarchive", {"name": "acme/Calc"}),
-                 ("module delete", {"name": "acme/Calc", "confirm": "acme/Calc", "remove_workspaces": True})]:
-        assert call in relay.backend.calls
+    assert ("module delete", {"name": "acme/Calc", "confirm": "acme/Calc", "remove_workspaces": True}) in relay.backend.calls
 
 
-def test_container_screen_shows_the_state_and_runs_the_container_commands(relay):
+def test_container_screen_shows_the_state_and_only_the_buttons_that_fit_it(relay):
     window = opened(relay, "container", module="C:/work/Calc/.ecobuild/w/12")
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "container"
@@ -224,16 +256,32 @@ def test_container_screen_shows_the_state_and_runs_the_container_commands(relay)
     assert view["claude"]["props"]["data"]["setting"] == "stable"
     assert view["dockerfile"]["props"]["text"].startswith("FROM ubuntu") and view["layer"]["props"]["text"].startswith("RUN echo")
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
-    for node in ("on", "start", "stop", "image_default", "deny_clear"):
-        press(relay, window, node)
-    press(relay, window, "off", confirm=True)
+    buttons = ("on", "off", "start", "stop", "remove")
+    assert wraps(relay, window, *buttons) == ["hidden", None, None, "hidden", None]  # コンテナにしてある・止まっている
+    press(relay, window, "start")
+    assert wraps(relay, window, *buttons) == ["hidden", None, "hidden", None, None]  # 動いている
+    press(relay, window, "stop")
     press(relay, window, "remove", confirm=True)
+    assert wraps(relay, window, *buttons) == ["hidden", None, None, "hidden", "hidden"]  # まだない：消すものがない
+    press(relay, window, "off", confirm=True)
+    assert wraps(relay, window, *buttons) == [None, "hidden", "hidden", "hidden", "hidden"]  # コンテナにしない
+    press(relay, window, "on")
+    for call in [("container start", {}), ("container stop", {}), ("container remove", {}), ("container off", {}), ("container on", {})]:
+        assert call in relay.backend.calls
+
+
+def test_container_screen_sets_the_image_and_what_agents_may_not_use(relay):
+    window = opened(relay, "container", module="C:/work/Calc/.ecobuild/w/12")
+    view = nodes(relay, window)
+    assert view["image"]["props"]["text"] == "" and view["deny"]["props"]["items"] == ["WebFetch"]  # 今の値が欄に入っている
+    assert wraps(relay, window, "image_set", "deny_set") == ["unavailable", "unavailable"]  # 書き直すまで押せない
+    for node in ("image_default", "deny_clear"):
+        press(relay, window, node)
     typed(relay, window, image="ubuntu:24.04", deny="WebFetch;Bash(curl:*)")
     press(relay, window, "image_set")
     press(relay, window, "deny_set")
     press(relay, window, "build")
-    for call in [("container on", {}), ("container start", {}), ("container stop", {}), ("container off", {}), ("container remove", {}),
-                 ("container set", {"default_image": True}), ("container set", {"no_deny": True}),
+    for call in [("container set", {"default_image": True}), ("container set", {"no_deny": True}),
                  ("container set", {"image": "ubuntu:24.04"}), ("container set", {"deny": "WebFetch;Bash(curl:*)"}),
                  ("container image build", {"workspace": "C:/work/Calc/.ecobuild/w/12"})]:
         assert call in relay.backend.calls
@@ -265,8 +313,15 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     press(relay, window, "config_set")
     press(relay, window, "config_unset")
     typed(relay, window, claude_version="stable")
+    assert nodes(relay, window)["version_now"]["props"]["text"] == "stable"
     press(relay, window, "version_set")
     press(relay, window, "version_unset")
+    # 版は、読んだ一覧から選んでも決められる
+    assert nodes(relay, window)["version_pick"]["props"]["options"] == ["2.1.9", "2.1.1"]
+    relay.input(window, "version_pick", "changed", {"value": "2.1.1"}, human=True)
+    relay.idle()
+    press(relay, window, "version_set")
+    assert ("config set", {"key": "agent_claude_version", "value": "2.1.1"}) in relay.backend.calls
     for call in [("config set", {"key": "owner", "value": "octo-org"}), ("config unset", {"key": "owner"}),
                  ("config set", {"key": "agent_claude_version", "value": "stable"}), ("config unset", {"key": "agent_claude_version"})]:
         assert call in relay.backend.calls
@@ -279,7 +334,9 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
 
 def test_hub_settings_token_images_and_update_ask_before_they_run(relay):
     window = opened(relay, "hub-settings")
+    assert wraps(relay, window, "token_login", "token_remove") == [None, "hidden"]  # トークンがない：消すボタンは出さない
     press(relay, window, "token_login", confirm=True)
+    assert wraps(relay, window, "token_remove") == [None]
     press(relay, window, "token_remove", confirm=False)
     assert ("agent token login", {}) in relay.backend.calls and ("agent token remove", {}) not in relay.backend.calls
     assert not [name for name, _ in relay.backend.calls if name == "agent token set"]  # 値を入れる口は、画面にない
@@ -293,6 +350,7 @@ def test_hub_settings_token_images_and_update_ask_before_they_run(relay):
     assert not [call for call in relay.backend.calls if call[0] == "installer update"]
     press(relay, window, "update", confirm=True)
     assert ("installer update", {}) in relay.backend.calls
+    assert wraps(relay, window, "update_ref", "update_branch") == ["unavailable", "unavailable"]  # 版・ブランチを決めるまで押せない
     typed(relay, window, ref="main")
     press(relay, window, "update_ref", confirm=True)
     relay.input(window, "versions", "action", {"id": "def", "action": "install"}, human=True)
@@ -300,17 +358,43 @@ def test_hub_settings_token_images_and_update_ask_before_they_run(relay):
     assert ("installer update", {"ref": "main"}) in relay.backend.calls and ("installer update", {"ref": "def"}) in relay.backend.calls
 
 
-def test_hub_archive_rows_archive_unarchive_and_delete_only_with_the_typed_name(relay):
+def test_hub_settings_picks_a_branch_from_the_list_and_reads_its_versions(relay):
+    window = opened(relay, "hub-settings")
+    assert nodes(relay, window)["branch"]["props"]["options"] == ["main", "dev"]
+    assert relay.backend.calls.count(("installer versions", {})) == 1  # 選ぶ前：入れたときのブランチ
+    relay.input(window, "branch", "changed", {"value": "dev"}, human=True)
+    relay.idle()
+    assert ("installer versions", {"ref": "dev"}) in relay.backend.calls  # 選んだブランチの版を読む
+    assert nodes(relay, window)["branch"]["props"]["value"] == "dev"
+    press(relay, window, "update_branch", confirm=True)
+    assert ("installer update", {"ref": "dev"}) in relay.backend.calls
+
+
+def test_hub_archive_shows_only_the_buttons_that_fit_the_chosen_module(relay):
     window = opened(relay, "hub-archive")
     assert [row["repository"] for row in nodes(relay, window)["modules"]["props"]["rows"]] == ["acme/Calc", "acme/Old"]
     assert ("module list", {"all": True}) in relay.backend.calls
-    relay.input(window, "modules", "action", {"id": "acme/Calc", "action": "archive"}, human=True)
-    answer(relay, window, True)
-    relay.input(window, "modules", "action", {"id": "acme/Old", "action": "unarchive"}, human=True)
-    answer(relay, window, True)
-    assert ("module archive", {"name": "acme/Calc"}) in relay.backend.calls and ("module unarchive", {"name": "acme/Old"}) in relay.backend.calls
-    assert not [call for call in relay.backend.calls if call[0] == "module delete"]
+    buttons = ("archive", "unarchive", "confirm", "remove_workspaces", "delete")
+    assert wraps(relay, window, *buttons) == ["hidden"] * 5  # 選ぶまで、どれも出ない
+    relay.input(window, "modules", "selected", {"id": "acme/Calc", "row": {"repository": "acme/Calc", "archived": False}}, human=True)
+    relay.idle()
+    view = nodes(relay, window)
+    assert view["modules"]["props"]["selected"] == "acme/Calc" and view["chosen"]["props"]["text"] == "acme/Calc"
+    assert wraps(relay, window, *buttons) == [None, "hidden", "hidden", "hidden", "hidden"]  # アーカイブしていない
+    press(relay, window, "archive", confirm=True)
+    assert ("module archive", {"name": "acme/Calc"}) in relay.backend.calls
+    assert wraps(relay, window, *buttons) == ["hidden", None, None, None, "unavailable"]  # アーカイブした：解除と削除の欄に入れ替わる
+    press(relay, window, "unarchive", confirm=True)
+    assert ("module unarchive", {"name": "acme/Calc"}) in relay.backend.calls
+    assert wraps(relay, window, "archive", "unarchive") == [None, "hidden"]
+
+    relay.input(window, "modules", "selected", {"id": "acme/Old", "row": {"repository": "acme/Old", "archived": True}}, human=True)
+    relay.idle()
+    assert wraps(relay, window, *buttons) == ["hidden", None, None, None, "unavailable"]  # 削除は、確かめの名前を打つまで押せない
     typed(relay, window, confirm="acme/Old")
-    relay.input(window, "modules", "action", {"id": "acme/Old", "action": "delete"}, human=True)
-    answer(relay, window, True)
+    press(relay, window, "delete", confirm=False)
+    assert not [call for call in relay.backend.calls if call[0] == "module delete"]
+    press(relay, window, "delete", confirm=True)
     assert ("module delete", {"name": "acme/Old", "confirm": "acme/Old"}) in relay.backend.calls
+    assert relay.display.values(window)["away_module"] is None  # 消したら、選択を空に
+    assert wraps(relay, window, *buttons) == ["hidden"] * 5

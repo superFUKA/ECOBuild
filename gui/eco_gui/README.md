@@ -62,11 +62,11 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `settings`（設定） | `static/modinfo.js` | 全般・ビルド設定・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
 | `container`（コンテナ） | `static/modinfo.js` | 状態・入・切・起こす・止める・イメージ・レシピ |
 | `hub-settings`・`hub-archive` | `static/hub.js` の設定 | アカウント・全体の設定・AI（ログイン・版）・コンテナのイメージ・ECOBuild の更新・アーカイブと削除 |
-| `agents`・`agent-skills`・`agent-rules`・`agent-presets`・`pc-agents` | `static/agenteditor.js`・`agentrules.js` | 登録・スキル・共通の文・プリセット・Claude Code の版。文書の本文の保存は、まだ（CLI が標準入力かファイルで受けるため） |
+| `agents`・`agent-skills`・`agent-rules`・`agent-presets`・`pc-agents` | `static/agenteditor.js`・`agentrules.js` | 登録・スキル・共通の文・プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
-| `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語。コマンドの一覧と検索は、まだ |
+| `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`） |
 | `build`（ビルドと試験） | `static/build.js` | ビルド設定を選ぶ・ビルド・試験（全部・1つ・絞る）・実行・クリーン |
-| `stashes`（退避） | `static/workspace.js` | 一覧・退避・戻す・捨てる（最後の1つ） |
+| `stashes`（退避） | `static/workspace.js` | 一覧・退避・選んで戻す・選んで捨てる |
 | `blame`（ファイルの記録） | `static/explorer.js` | ファイルの履歴と、行ごとの記録 |
 | `cpp`（C++） | `static/explorer.js`・`modinfo.js` | サブプロジェクト・依存先・テンプレート |
 

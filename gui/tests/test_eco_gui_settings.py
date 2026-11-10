@@ -29,6 +29,10 @@ class FakeSettings(FakeEcobuild):
         self.token = False
 
     def _specs(self, text):
+        return {**self._specs_before_protection(text), "module protection": {
+            "description": "保護の状態", "weight": "read", "args": {"type": "object", "required": [], "properties": {}}}}
+
+    def _specs_before_protection(self, text):
         flag, number, many = {"type": "boolean"}, {"type": "integer"}, {"type": "array", "items": text}
         return {
             **super()._specs(text),

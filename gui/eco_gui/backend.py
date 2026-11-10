@@ -90,6 +90,9 @@ class EcobuildBackend(MachineBackend):
         specs = super().commands()
         for spec in specs.values():
             spec["args"]["properties"]["module"] = {"type": "string", "description": "モジュールのフォルダー"}
+        for name, key in FROM_STANDARD_INPUT.items():  # 画面からは文そのものを受ける（「ファイルか -」ではない）
+            if name in specs and key in specs[name]["args"]["properties"]:
+                specs[name]["args"]["properties"][key] = {"type": "string", "description": "本文"}
         return specs
 
     def command_line(self, name: str, args: Any, extra: Any = ()) -> list[str]:

@@ -7,7 +7,11 @@
 - ecobuild のコマンドの一覧は、今は自前の形で出るので、`backend.py` が GUIFrameWork の約束の形（CLIFrameWork の構造化出力の形）に直しています。フレームワークの側は ecobuild の形を知りません。
 - 表示の CLI（`python -m eco_gui.app <命令>`）で、端末・スクリプト・AI から同じ表示を出せ、今の表示の状況を読めます。
 
-## 動かす
+## インストーラーで入れる
+
+インストーラー（`ecobuild installer update --ref gui-framework`、または `installer/install.ps1 -Ref gui-framework`）が、専用の venv（`%LOCALAPPDATA%\Programs\ECOBuild GUI Nextenv`）に GUIFrameWork を入れ、デスクトップとスタートメニューに「ECOBuild GUI（新）」を作ります（`gui/eco_gui_setup.py`）。今の「ECOBuild GUI」は、そのまま残ります。
+
+## 動かす（開発のとき）
 
 GUIFrameWork を入れた Python で（版は `requirements.txt`）：
 

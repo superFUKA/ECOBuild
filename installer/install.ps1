@@ -312,6 +312,16 @@ function Install-Gui {
     # ショートカット（デスクトップとスタートメニュー。スタートメニューのものはタスクバーにピン留めできる）
     Invoke-Python (Join-Path $script:GuiDir "app.py") --shortcut
     if ($LASTEXITCODE -ne 0) { Stop-Install "GUI のショートカットを作れませんでした。" }
+
+    # GUIFrameWork の上の新しい GUI（gui/eco_gui）：専用の venv に GUIFrameWork を入れ、ショートカット「ECOBuild GUI（新）」を作る。
+    # 今の GUI とそのショートカットは変えない。準備できなくても、今の GUI は使える
+    $setup = Join-Path $script:GuiDir "eco_gui_setup.py"
+    if (Test-Path $setup) {
+        Write-Host "    新しい GUI（GUIFrameWork）を準備します（初回は少し時間がかかります）"
+        Invoke-Python $setup
+        if ($LASTEXITCODE -eq 0) { Write-Done "新しい GUI：スタートメニュー・デスクトップの「ECOBuild GUI（新）」" }
+        else { Write-Host "    新しい GUI を準備できませんでした（今の GUI はそのまま使えます）。" -ForegroundColor Yellow }
+    }
 }
 if (-not $NoGui) { Install-Gui }
 

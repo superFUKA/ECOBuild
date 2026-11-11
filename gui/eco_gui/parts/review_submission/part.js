@@ -24,8 +24,7 @@ export default {
     const t = props.task, access = props.access;
     const b = props.branch || (props.name ? (props.branches || []).find((one) => one.name === props.name) : null) || null;
     if (!t && !b) {
-      return root.replaceChildren(props.loading ? h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込んでいます…')
-        : h('p', { role: 'status' }, '提出を選ぶと、ここに詳しく出ます。'));
+      return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込んでいます…'));
     }
     const row = (name, ...value) => [h('dt', {}, name), h('dd', {}, ...value)];
     // 処理できるか：取り込み先のブランチで引く。分からなければ（古い ecobuild・オフライン）灰色にしない（実行のときに ecobuild が確かめる）

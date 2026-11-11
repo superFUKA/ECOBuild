@@ -7,7 +7,7 @@ export default {
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const open = (s) => s && s.state === 'open';
     const tasks = (props.tasks || []).filter((t) => open(t.submission));
-    const branches = (props.branches || []).filter((b) => open(b.submission) && b.submitted_to);
+    const branches = (props.branches || []).filter((b) => !b.is_task_branch && open(b.submission) && b.submitted_to);  // タスクブランチの提出は、タスクの行に出る
     if (props.loading && !tasks.length && !branches.length) {
       return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込んでいます…'));
     }

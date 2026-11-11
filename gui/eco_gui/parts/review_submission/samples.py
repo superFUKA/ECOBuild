@@ -29,7 +29,6 @@ SAMPLES = [
         "branch": {"name": "develop", "submitted_to": "main",
                    "submission": {"number": 30, "url": "https://example.invalid/pull/30", "state": "open", "draft": False, "partial": False, "base": "main"}},
         "access": {"login": "hubot", "take_in": {"main": {"allowed": False, "owners": "管理者"}}, "take_in_other": {"allowed": False, "owners": "管理者"}}}},
-    {"name": "選んでいない", "props": {}},
     {"name": "読み込み中", "props": {"loading": True}},
     {"name": "誤り", "props": {"error": "タスク #99 はありません"}},
 ]

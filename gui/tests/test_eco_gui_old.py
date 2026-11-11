@@ -27,7 +27,25 @@ class OldEcobuild(PolishEcobuild):
         self.previews = []
 
     def _specs(self, text):
-        return {**super()._specs(text)}
+        flag, many = {"type": "boolean"}, {"type": "array", "items": text}
+        pairs = ("define", "public_define", "include", "source_dir", "system_lib", "compile_option", "link_option", "conditional_define",
+                 "build_event", "output_file")
+        return {
+            **super()._specs(text),
+            # 本物の一覧と同じ引数（C++ の型のコマンド）
+            "project set": spec("change", projects=text, project=text, kind=text, no_test=flag, type=text, export_all=text, entry_point=text, gui=text,
+                                compiler=text, configuration=text, warning_level=text, warnings_as_errors=text, event=text, folder=text, clear_folder=flag,
+                                **{f"{verb}_{name}": text for name in pairs for verb in ("add", "remove")}),
+            "project link": spec("change", library=many, project=text, type=text, package=text, cmake=text, target=text, directory=text,
+                                 file=text, implib=text, include=text),
+            "project pch": spec("change", projects=text, project=text, off=flag, header=text, system=text),
+            "module settings": spec("read", main=text, no_main=flag, projects_folder=text, linked_folder=text, external_folder=text, msvc_runtime=text),
+            "check": spec("read", build=flag, only=text, tests=text),
+            "run": spec("change", argv=many, projects=text, project=text, configuration=text, profile=text, arguments=text),
+            "branch resolve": spec("change", ["name"], name=text, into=text),
+            "branch submit": spec("confirm", ["name"], name=text, into=text, title=text),
+            "branch merge": {**spec("confirm", ["name"], name=text, into=text, ignore_checks=flag), "dry_run": True},
+        }
 
     def run(self, name, args, context, on_event):
         result = super().run(name, args, context, on_event)

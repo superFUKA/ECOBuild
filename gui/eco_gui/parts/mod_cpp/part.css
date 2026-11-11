@@ -1,0 +1,61 @@
+/* C++ のモジュールのページ（今までの GUI の modinfo.css の .mi-head・.mi-table・.mi-projects・.mi-tree と同じ値） */
+:host { display: block; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.head h3 { margin: 0 0 4px; font-size: 15px; color: var(--gf-fg); }
+.head h4 { margin: 0; font-size: 14px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.actions button.small, .row-actions button { min-height: 24px; padding: 1px 9px; font-size: 12px; }
+.actions button.primary { min-height: 24px; padding: 3px 12px; font-size: 12px; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover:not(:disabled) { border-color: #7a3b3b; background: #2b1a1d; }
+.empty { color: var(--gf-muted); font-size: 13px; padding: 12px 0; margin: 0; }
+.note { margin: 10px 0 0; font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; border: 1px solid var(--eco-line); border-radius: 10px; overflow: hidden; background: var(--eco-panel); }
+.table th { text-align: left; font-size: 11px; font-weight: 600; color: var(--gf-muted); padding: 8px 10px; border-bottom: 1px solid var(--eco-line); background: #191e24; }
+.table td { padding: 9px 10px; border-bottom: 1px solid #262c34; vertical-align: middle; }
+.table tr:last-child td, .table tr:last-child th { border-bottom: 0; }
+.table tbody tr:hover { background: none; }
+.sub { font-size: 11px; color: var(--gf-muted); margin-top: 2px; overflow-wrap: anywhere; }
+.mono { font-family: var(--eco-code); font-size: 12px; }
+.dimmed { font-size: 11px; color: var(--gf-muted); }
+td.row-actions { text-align: right; white-space: nowrap; }
+td.row-actions button + button { margin-left: 6px; }
+.pill { padding: 1px 8px; border-radius: 10px; border: 0; line-height: inherit; background: #2a3139; }
+.pill.ok { background: #213a33; color: #a8ead9; }
+/* Project の木 */
+.indent { display: inline-flex; align-items: center; gap: 6px; padding-left: calc(var(--depth) * 20px - 6px); }
+.indent[style*="--depth:0"] { padding-left: 0; }
+.line { color: #5d6875; font-family: var(--eco-code); }
+.projects tr.joined td { border-bottom-color: transparent; }
+.projects tr.joined:not(.attached) td { padding-bottom: 4px; }
+.projects tr.attached td { padding-top: 3px; padding-bottom: 5px; font-size: 12px; }
+.projects tr.attached td:first-child { color: #aeb7c2; }
+.projects tr.attached .pill.kind { background: transparent; border: 1px solid #343c46; color: var(--gf-muted); }
+.projects tr.attached .mono { color: #aeb7c2; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 0; font-size: 12px; color: var(--gf-muted); }
+/* 全般 */
+.settings th { width: 38%; background: transparent; font-size: 12px; font-weight: 500; color: var(--gf-muted); border-bottom: 1px solid #262c34; white-space: normal; }
+/* 依存関係の図 */
+.subhead { margin: 22px 0 4px; font-size: 14px; }
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 22px; padding-left: 16px; border-left: 1px solid #3a424c; }
+.tree li { position: relative; }
+.tree ul > li::before { content: ""; position: absolute; left: -16px; top: 21px; width: 14px; border-top: 1px solid #3a424c; }
+.branch { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0; padding: 8px 12px; border: 1px solid var(--eco-line); border-radius: 8px;
+  background: var(--eco-panel); font-size: 13px; }
+.branch.own { background: #1a2523; border-color: #2f4540; }
+.branch-name { font-family: var(--eco-code); font-weight: 700; }
+/* 版を選ぶ */
+.versions { margin-top: 18px; padding: 12px 14px 14px; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); }
+.versions .head { margin-bottom: 6px; align-items: center; }
+.versions .note { margin: 0 0 10px; max-width: none; }
+.branch select { font-size: 12px; padding: 3px 8px; }
+label.branch { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 0; border: 0; background: none; font-size: 12px; color: var(--gf-muted); }
+.commits { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--eco-line); max-height: 320px; overflow: auto; }
+.commits li { display: flex; align-items: center; gap: 10px; padding: 4px 2px; border-bottom: 1px solid #262c34; font-size: 12px; }
+.commits code { color: var(--gf-muted); }
+.commits .subject { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commits .when { font-size: 11px; color: var(--gf-muted); white-space: nowrap; }
+.commits button { min-height: 22px; padding: 0 8px; font-size: 11px; }
+.banner { margin: 0; }

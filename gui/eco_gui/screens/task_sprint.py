@@ -11,7 +11,7 @@ SCREEN = {
     "window": {"title": "スプリント", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "schedule", "module": {"arg": "module"}}},
+        {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
         {"id": "main", "layout": "column", "look": "tk-page", "children": ["head", "body"]},
         {"id": "head", "screen": "task-head", "args": {"module": {"arg": "module"}, "view": "task-sprint", "scope": "none",
                                                      "filter": {"arg": "filter"}, "all": {"arg": "all"}, "ready": {"arg": "ready"}}},

@@ -7,7 +7,8 @@ SCREEN = {
     "window": {"title": "ブランチ", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "body"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "body"]},
+        {"id": "section", "screen": "branch-tabs", "args": {"current": "branches", "module": {"arg": "module"}}},
         {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "tools"]},
         {"id": "title", "part": "note", "props": {"text": "ブランチ", "heading": True}},

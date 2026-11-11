@@ -1,4 +1,4 @@
-"""モジュール › 設定：モジュールの仕様・ビルド設定・ブランチの保護・管理するファイル・リリース・アカウント・片付け。"""
+"""設定：モジュールの仕様・ビルド設定・（C++ の設定・ファイルテンプレート）・ブランチの保護・管理するファイル・リリース・コンテナ・アカウント・片付け。"""
 
 ARGS = {"module": "."}  # モジュールのフォルダー
 
@@ -12,8 +12,13 @@ SCREEN = {
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "設定", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
-        {"id": "tabs", "layout": "tabs", "children": ["general", "profiles", "protect", "track", "releases", "account", "put_away"],
-         "props": {"labels": ["全般", "ビルド設定", "ブランチの保護", "管理するファイル", "リリース", "アカウント", "片付け"]}},
+        {"id": "tabs", "layout": "tabs", "children": ["general", "profiles", "cpp_general", "cpp_templates", "protect", "track", "releases", "container", "account", "put_away"],
+         "props": {"labels": ["全般", "ビルド設定", "C++ の設定", "ファイルテンプレート", "ブランチの保護", "管理するファイル", "リリース", "コンテナ", "アカウント",
+                              "片付け"]}},
+        # C++ のモジュールだけのタブ（中身は画面 cpp-general・cpp-templates）と、コンテナ（画面 container-body）
+        {"id": "cpp_general", "screen": "cpp-general", "args": {"module": {"arg": "module"}}},
+        {"id": "cpp_templates", "screen": "cpp-templates", "args": {"module": {"arg": "module"}}},
+        {"id": "container", "screen": "container-body", "args": {"module": {"arg": "module"}}},
 
         # 全般：モジュールの今の姿と、今の ECOBuild の仕様に合わせる（module upgrade）
         {"id": "general", "layout": "column", "children": ["info", "upgrade_note", "upgrade_row"]},
@@ -116,6 +121,9 @@ SCREEN = {
     ],
     "bindings": [
         {"on": "reload.pressed", "refresh": True},
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "into": "module_type", "from": "type"},
+        {"show": "cpp_general", "when": {"module_type": "cpp"}},
+        {"show": "cpp_templates", "when": {"module_type": "cpp"}},
         # 全般
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "info.data"},
         {"on": "upgrade_branch.changed", "set": {"upgrade_branch": {"payload": "text"}}},

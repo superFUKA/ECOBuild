@@ -219,23 +219,29 @@ def ran_in(relay, name):
 
 
 def test_cpp_page_gives_the_tables_what_they_draw(relay):
-    window = opened(relay, "cpp", GAME)
+    window = opened(relay, "cpp", GAME)  # モジュール › Project
     view = nodes(relay, window)
-    assert [view[node]["props"]["view"] for node in ("projects", "deps", "general", "templates")] == ["projects", "deps", "general", "templates"]
+    assert view["projects"]["props"]["view"] == "projects" and not {"deps", "general", "templates"} & set(view)
     assert [p["name"] for p in view["projects"]["props"]["projects"]] == ["Calc", "CalcTest"] and view["projects"]["props"]["settings"]["main_project"] == "Calc"
     assert view["projects"]["props"]["deps"][0]["name"] == "Math"  # リンクの印の色（依存先かどうか）に使う
-    assert view["deps"]["props"]["deps"][0]["state"] == "aligned" and view["deps"]["props"]["tree"]["direct"] == ["Math"]
-    assert view["deps"]["props"]["projects"][0]["name"] == "Calc"  # 使っている Project の列
-    assert view["general"]["props"]["settings"]["msvc_runtime"] == "dll" and "templates" in view["templates"]["props"]["settings"]
-    assert view["nav"]["props"]["current"] == "overview" and relay.backend.modules[-1] == GAME
-    assert ("deps list", {}) in relay.backend.calls and not called(relay, "deps versions")  # 開いただけでは、GitHub に聞かない
-
-    put(relay, window, "deps", "action", name="deps_fetch")  # GitHub と照らし合わせる：--fetch で読み直し、列を足す
-    assert ("deps list", {"fetch": True}) in relay.backend.calls and nodes(relay, window)["deps"]["props"]["fetched"] is True
+    assert (view["nav"]["props"]["current"], view["section"]["props"]["current"]) == ("overview", "cpp") and relay.backend.modules[-1] == GAME
+    assert view["section"]["props"]["kind"] == "cpp"  # C++ のモジュール：上のタブに Project・依存先が出る
     put(relay, window, "update")
     assert called(relay, "project update") == [{}]
-    put(relay, window, "back")
-    assert relay.display.tree(window)["screen"] == "overview"
+
+    put(relay, window, "section", "selected", id="cpp-deps")  # モジュール › 依存先（同じ窓で）
+    view = nodes(relay, window)
+    assert relay.display.tree(window)["screen"] == "cpp-deps" and (view["nav"]["props"]["current"], view["section"]["props"]["current"]) == ("overview", "cpp-deps")
+    assert view["deps"]["props"]["deps"][0]["state"] == "aligned" and view["deps"]["props"]["tree"]["direct"] == ["Math"]
+    assert view["deps"]["props"]["projects"][0]["name"] == "Calc"  # 使っている Project の列
+    assert ("deps list", {}) in relay.backend.calls and not called(relay, "deps versions")  # 開いただけでは、GitHub に聞かない
+    put(relay, window, "deps", "action", name="deps_fetch")  # GitHub と照らし合わせる：--fetch で読み直し、列を足す
+    assert ("deps list", {"fetch": True}) in relay.backend.calls and nodes(relay, window)["deps"]["props"]["fetched"] is True
+
+    window = opened(relay, "settings", GAME)  # 設定：C++ の設定・ファイルテンプレートのタブ
+    view = nodes(relay, window)
+    assert view["cpp_general"]["props"]["settings"]["msvc_runtime"] == "dll" and "templates" in view["cpp_templates"]["props"]["settings"]
+    assert view["cpp_general"].get("wrap") is None and view["cpp_templates"].get("wrap") is None  # C++ のモジュールでは出る
 
 
 def test_cpp_projects_are_added_changed_linked_moved_and_removed_in_a_workspace(relay):
@@ -286,7 +292,7 @@ def test_cpp_projects_are_added_changed_linked_moved_and_removed_in_a_workspace(
 
 
 def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
-    window = opened(relay, "cpp", GAME)
+    window = opened(relay, "cpp-deps", GAME)
     add = form(relay, window, "deps", "dep_add", "mod-cpp-dep-add")
     decide(relay, add, repository="acme/Net", project="", shared=True, at="v1.2.0")
     assert called(relay, "deps add") == [{"repository": "acme/Net", "shared": True, "at": "v1.2.0"}]
@@ -325,31 +331,31 @@ def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
 
 
 def test_cpp_settings_and_templates_are_changed_with_their_forms(relay):
-    window = opened(relay, "cpp", GAME)
-    settings = form(relay, window, "general", "module_settings", "mod-cpp-settings")
+    window = opened(relay, "settings", GAME)
+    settings = form(relay, window, "cpp_general", "module_settings", "mod-cpp-settings")
     props = nodes(relay, settings["id"])["form"]["props"]
     assert props["values"]["main_project"] == "Calc" and [row["name"] for row in props["rows"]] == ["Calc", "CalcTest"]  # 今の値と、選べる Project
     decide(relay, settings, main="Calc", no_main=False, msvc_runtime="static", projects_folder="", linked_folder="Linked", external_folder="")
     assert called(relay, "module settings")[-1] == {"main": "Calc", "no_main": False, "msvc_runtime": "static", "linked_folder": "Linked"}
 
-    add = form(relay, window, "templates", "template_add", "mod-cpp-template-add")
+    add = form(relay, window, "cpp_templates", "template_add", "mod-cpp-template-add")
     decide(relay, add, name="widget", source="templates/widget.h")
     assert called(relay, "template add") == [{"name": "widget", "source": "templates/widget.h"}]
-    replace = form(relay, window, "templates", "template_replace", "mod-cpp-template-add", target="header")
+    replace = form(relay, window, "cpp_templates", "template_replace", "mod-cpp-template-add", target="header")
     assert nodes(relay, replace["id"])["form"]["props"]["initial"]["name"] == "header"  # 差し替え：名前が入っている
     put(relay, replace["id"], "form", "cancelled")
-    remove = form(relay, window, "templates", "template_remove", "mod-cpp-template-remove", target="widget")
+    remove = form(relay, window, "cpp_templates", "template_remove", "mod-cpp-template-remove", target="widget")
     decide(relay, remove)
     assert called(relay, "template remove") == [{"name": "widget"}]
     with pytest.raises(Exception):
-        relay.input(window, "templates", "action", {"name": ""}, human=True)  # 操作の名前のない入力は断る
+        relay.input(window, "cpp_templates", "action", {"name": ""}, human=True)  # 操作の名前のない入力は断る
 
 
 def test_overview_opens_the_cpp_page_in_the_same_window(relay):
     window = opened(relay, "overview", GAME)
     put(relay, window, "about", "opened", page="deps")
     tree = relay.display.tree(window)
-    assert (tree["screen"], tree["args"]) == ("cpp", {"module": GAME})
+    assert (tree["screen"], tree["args"]) == ("cpp-deps", {"module": GAME})
 
 
 # --- ビルドと試験（build） ---------------------------------------------------------------------

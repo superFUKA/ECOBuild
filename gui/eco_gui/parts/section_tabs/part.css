@@ -1,0 +1,6 @@
+/* 配置のタブ（.gf-tabs-strip）と同じ見た目 */
+.strip { display: flex; gap: 4px; border-bottom: 1px solid var(--eco-line); }
+.strip > button { border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; background: transparent; color: #9eaab8;
+  padding: 6px 14px; cursor: pointer; font: inherit; }
+.strip > button:hover { color: var(--gf-fg); }
+.strip > button[aria-selected="true"] { color: #b0efdd; background: #232c32; border-color: #35443e; border-bottom-color: var(--gf-accent); }

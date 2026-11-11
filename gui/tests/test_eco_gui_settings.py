@@ -336,26 +336,26 @@ def test_settings_puts_the_module_away_without_typing_its_name(relay):
 def test_container_screen_shows_the_state_and_only_the_buttons_that_fit_it(relay):
     window = opened(relay, "container", module="C:/work/Calc/.ecobuild/w/12")
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "container"
-    assert view["status"]["props"]["data"]["state"] == "exited" and view["own_now"]["props"]["data"]["deny"] == ["WebFetch"]
+    assert view["nav"]["props"]["current"] == "settings"  # 左の印は「設定」
+    assert view["body:status"]["props"]["data"]["state"] == "exited" and view["body:own_now"]["props"]["data"]["deny"] == ["WebFetch"]
     assert relay.backend.calls.count(("container status", {})) == 1
-    assert view["claude"]["props"]["data"]["setting"] == "stable"
+    assert view["body:claude"]["props"]["data"]["setting"] == "stable"
     # 上の要約：作り方・この作業空間のコンテナ（古い／今の作り方の印は、読んだ outdated から）・この PC のイメージ
-    summary = view["summary"]["props"]
-    assert view["summary"]["part"] == "cfg-container" and summary["recipe"]["image"] == "ecobuild-calc:bbb"
+    summary = view["body:summary"]["props"]
+    assert view["body:summary"]["part"] == "cfg-container" and summary["recipe"]["image"] == "ecobuild-calc:bbb"
     assert summary["status"]["outdated"] is True and summary["images"]["images"][0]["current"] is True
-    assert view["dockerfile"]["props"]["text"].startswith("FROM ubuntu") and view["layer"]["props"]["text"].startswith("RUN echo")
+    assert view["body:dockerfile"]["props"]["text"].startswith("FROM ubuntu") and view["body:layer"]["props"]["text"].startswith("RUN echo")
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
-    buttons = ("on", "off", "start", "stop", "remove")
+    buttons = ("body:on", "body:off", "body:start", "body:stop", "body:remove")
     assert wraps(relay, window, *buttons) == ["hidden", None, None, "hidden", None]  # コンテナにしてある・止まっている
-    press(relay, window, "start")
+    press(relay, window, "body:start")
     assert wraps(relay, window, *buttons) == ["hidden", None, "hidden", None, None]  # 動いている
-    press(relay, window, "stop")
-    press(relay, window, "remove", confirm=True)
+    press(relay, window, "body:stop")
+    press(relay, window, "body:remove", confirm=True)
     assert wraps(relay, window, *buttons) == ["hidden", None, None, "hidden", "hidden"]  # まだない：消すものがない
-    press(relay, window, "off", confirm=True)
+    press(relay, window, "body:off", confirm=True)
     assert wraps(relay, window, *buttons) == [None, "hidden", "hidden", "hidden", "hidden"]  # コンテナにしない
-    press(relay, window, "on")
+    press(relay, window, "body:on")
     for call in [("container start", {}), ("container stop", {}), ("container remove", {}), ("container off", {}), ("container on", {})]:
         assert call in relay.backend.calls
 
@@ -363,19 +363,19 @@ def test_container_screen_shows_the_state_and_only_the_buttons_that_fit_it(relay
 def test_container_screen_sets_the_image_and_what_agents_may_not_use(relay):
     window = opened(relay, "container", module="C:/work/Calc/.ecobuild/w/12")
     view = nodes(relay, window)
-    assert view["image"]["props"]["text"] == "" and view["deny"]["props"]["items"] == ["WebFetch"]  # 今の値が欄に入っている
-    assert wraps(relay, window, "image_set", "deny_set") == ["unavailable", "unavailable"]  # 書き直すまで押せない
-    for node in ("image_default", "deny_clear"):
+    assert view["body:image"]["props"]["text"] == "" and view["body:deny"]["props"]["items"] == ["WebFetch"]  # 今の値が欄に入っている
+    assert wraps(relay, window, "body:image_set", "body:deny_set") == ["unavailable", "unavailable"]  # 書き直すまで押せない
+    for node in ("body:image_default", "body:deny_clear"):
         press(relay, window, node)
-    typed(relay, window, image="ubuntu:24.04", deny="WebFetch;Bash(curl:*)")
-    press(relay, window, "image_set")
-    press(relay, window, "deny_set")
-    press(relay, window, "build")
+    typed(relay, window, **{"body:image": "ubuntu:24.04", "body:deny": "WebFetch;Bash(curl:*)"})
+    press(relay, window, "body:image_set")
+    press(relay, window, "body:deny_set")
+    press(relay, window, "body:build")
     for call in [("container set", {"default_image": True}), ("container set", {"no_deny": True}),
                  ("container set", {"image": "ubuntu:24.04"}), ("container set", {"deny": "WebFetch;Bash(curl:*)"}),
                  ("container image build", {"workspace": "C:/work/Calc/.ecobuild/w/12"})]:
         assert call in relay.backend.calls
-    assert nodes(relay, window)["out"]["props"]["lines"] == ["イメージを作っています…"]
+    assert nodes(relay, window)["body:out"]["props"]["lines"] == ["イメージを作っています…"]
 
 
 def test_hub_opens_the_settings_from_the_menu_in_the_same_window(relay):

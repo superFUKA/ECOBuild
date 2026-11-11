@@ -1,4 +1,7 @@
-"""モジュールの窓の左のメニュー（どの画面にも置く）。選ぶと、同じ窓でその画面に切り替わる。"""
+"""モジュールの窓の左のメニュー（どの画面にも置く）。選ぶと、同じ窓でそのまとまりの最初の画面に切り替わる。
+
+まとまりの中の画面は、ページの上のタブで切り替える（モジュール：mod-tabs、タスク管理：task-head、ブランチ：branch-tabs、設定：設定の画面のタブ）。
+"""
 
 ARGS = {"current": "", "module": "."}
 
@@ -6,20 +9,11 @@ SCREEN = {
     "root": "menu",
     "nodes": [
         {"id": "menu", "part": "menu", "props": {"current": {"arg": "current"}, "items": [
-            {"id": "overview", "label": "概要", "icon": "module", "group": "モジュール"},
-            {"id": "frame-workspaces", "label": "作業空間", "icon": "folder", "group": "モジュール"},
-            {"id": "members", "label": "メンバー", "icon": "members", "group": "モジュール"},
-            {"id": "pipelines", "label": "パイプライン", "icon": "flow", "group": "モジュール"},
-            {"id": "ci", "label": "CI", "icon": "ci", "group": "モジュール"},
-            {"id": "agents", "label": "エージェント", "icon": "agent", "group": "モジュール"},
-            {"id": "tasks", "label": "タスク", "icon": "tasks", "group": "タスク管理"},
-            {"id": "board", "label": "ボード", "icon": "board", "group": "タスク管理"},
-            {"id": "schedule", "label": "日程", "icon": "calendar", "group": "タスク管理"},
-            {"id": "submissions", "label": "提出", "icon": "submit", "group": "タスク管理"},
-            {"id": "branches", "label": "ブランチ", "icon": "branch", "group": "ブランチ"},
-            {"id": "history", "label": "履歴", "icon": "history", "group": "ブランチ"},
+            {"id": "overview", "label": "モジュール", "icon": "module"},
+            {"id": "frame-workspaces", "label": "作業空間", "icon": "folder"},
+            {"id": "tasks", "label": "タスク管理", "icon": "tasks"},
+            {"id": "branches", "label": "ブランチ", "icon": "branch"},
             {"id": "settings", "label": "設定", "icon": "settings", "bottom": True},
-            {"id": "container", "label": "コンテナ", "icon": "container", "bottom": True},
             {"id": "help", "label": "ヘルプ", "icon": "help", "bottom": True},
         ]}},
     ],

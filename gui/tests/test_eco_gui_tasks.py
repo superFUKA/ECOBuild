@@ -247,7 +247,7 @@ def test_the_filter_is_kept_in_the_window_and_carried_to_the_next_view(relay):
     relay.idle()
     tree = relay.display.tree(window)
     assert tree["screen"] == "board" and tree["args"]["filter"]["assignee"] == "@me" and tree["args"]["all"] is True
-    assert nodes(relay, window)["board"]["props"]["start"]["search"] == "ログ" and nodes(relay, window)["nav"]["props"]["current"] == "board"
+    assert nodes(relay, window)["board"]["props"]["start"]["search"] == "ログ" and nodes(relay, window)["nav"]["props"]["current"] == "tasks"
     assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
     with pytest.raises(Exception):
         relay.input(window, "head:bar", "changed", {"filter": {"assignee": 3}}, human=True)  # 絞り込みの値は文字
@@ -395,7 +395,7 @@ def test_board_shows_the_recently_done_and_changes_the_stage(relay):
 def test_schedule_saves_the_dates_a_bar_was_dragged_to(relay):
     window = open_screen(relay, "schedule")
     view = nodes(relay, window)
-    assert [row["number"] for row in view["timeline"]["props"]["tasks"]] == [12, 13] and view["nav"]["props"]["current"] == "schedule"
+    assert [row["number"] for row in view["timeline"]["props"]["tasks"]] == [12, 13] and view["nav"]["props"]["current"] == "tasks"
     relay.input(window, "timeline", "edit", {"id": "12", "planned_start": "2026-11-10", "planned_end": "2026-11-14"}, human=True)
     relay.idle()
     assert calls(relay, "task edit") == [{"issue": 12, "planned_start": "2026-11-10", "planned_end": "2026-11-14"}]

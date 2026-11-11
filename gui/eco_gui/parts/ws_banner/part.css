@@ -1,0 +1,5 @@
+/* 帯。今までの GUI（common.css の .eco-banner）と同じ値。ボタンは文のすぐ後ろに並ぶ。 */
+.eco-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: #3d3324; color: #efc389; border: 1px solid #5c4b30; font-size: 13px; line-height: 1.6; }
+.eco-banner.bad { background: #43282b; color: #ffb4b4; border-color: #6a3a3f; }
+.eco-banner button { margin-left: 8px; padding: 5px 12px; font-size: 13px; }
+.eco-banner .files { font-family: var(--eco-code); font-size: 12px; }

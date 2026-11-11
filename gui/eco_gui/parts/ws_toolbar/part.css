@@ -1,0 +1,57 @@
+/* ツールバー。今までの GUI（module.css・workspace.css の .build-bar）と同じ値。 */
+.build-bar { display: flex; align-items: center; flex-wrap: nowrap; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #303640; background: #191e24; font-size: 12px; color: #a5aeba; }
+.bar-left, .bar-center, .bar-right { display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 0; }
+.bar-right { margin-left: auto; justify-content: flex-end; flex-shrink: 1; }
+.build-bar button { padding: 5px 14px; font-size: 12px; white-space: nowrap; }
+.build-bar button:disabled { opacity: .5; }
+.icon { display: inline-flex; }
+.icon svg { display: block; }
+.bar-separator { width: 1px; height: 20px; margin: 0 4px; background: #3a424c; }
+.build-bar .config-button { display: inline-flex; align-items: center; gap: 8px; min-width: 120px; justify-content: space-between; padding: 5px 8px 5px 11px; border: 1px solid #3a424c;
+  border-radius: 6px; background: #14171b; color: #edf1f5; font-size: 12px; }
+.build-bar .config-button:hover { border-color: #56616e; }
+.build-bar .config-button .icon { color: #9eaab8; }
+.build-bar .tool-button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
+.build-bar .tool-button:hover:not(:disabled) { background: #252d36; border-color: #3a424c; }
+.build-bar .tool-button .icon { color: #9eaab8; }
+.build-group { display: inline-flex; align-items: stretch; border: 1px solid #3a424c; border-radius: 7px; }
+.build-bar .build-group .tool-button { border: 0; border-radius: 6px 0 0 6px; }
+.build-bar .build-group .group-menu { display: grid; place-items: center; padding: 0 3px; border: 0; border-left: 1px solid #3a424c; border-radius: 0 6px 6px 0; background: transparent;
+  color: #9eaab8; font-size: 12px; }
+.build-bar .build-group .group-menu:hover { background: #252d36; color: #edf1f5; }
+.run-group { display: inline-flex; align-items: stretch; border: 1px solid #2f7a52; border-radius: 7px; overflow: hidden; }
+.build-bar .run-button { display: inline-flex; align-items: center; gap: 7px; padding: 5px 13px; border: 0; border-radius: 0; background: #1f4a35; color: #c8f5da; font-weight: 600; }
+.build-bar .run-button .icon { color: #5fd38d; }
+.build-bar .run-button:hover:not(:disabled) { background: #26603f; }
+.vs-group { display: inline-flex; align-items: stretch; }
+.build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.build-bar .vs-group .vs-more { display: grid; place-items: center; padding: 3px 3px; font-size: 14px; line-height: 1; border: 1px solid #3a424c; border-left: 1px solid #2a3038;
+  border-radius: 0 7px 7px 0; color: #a5aeba; }
+.build-bar .sync-group { min-width: 0; }
+.build-bar .sync-group .sync-button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 260px; padding: 5px 10px; border-color: #3a424c; color: #cdd5df; }
+.build-bar .sync-group .sync-button:hover:not(:disabled), .build-bar .sync-group .vs-more:hover { border-color: #56616e; }
+.build-bar .sync-group .icon { flex-shrink: 0; color: #9eaab8; }
+.sync-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-version { color: #8e99a6; font-family: Consolas, monospace; font-size: 11px; }
+.sync-count { flex-shrink: 0; min-width: 16px; padding: 1px 5px; border-radius: 8px; background: #4a3f22; color: #efc389; font-size: 11px; text-align: center; }
+.build-bar .sync-group.due .sync-button, .build-bar .sync-group.due .vs-more { border-color: #7a6532; }
+.build-bar .sync-group.due .sync-button .icon { color: #efc389; }
+.build-bar .sync-group.bad .sync-button, .build-bar .sync-group.bad .vs-more { border-color: #8a4646; }
+.build-bar .sync-group.bad .sync-count { background: #4a2626; color: #f3a5a5; }
+.build-bar .sync-group.bad .sync-button .icon { color: #f3a5a5; }
+.build-bar .container-button span { font-size: 12px; }
+.build-bar .container-button.on { border-color: #39584f; background: #1f302c; color: #a8ead9; }
+.build-bar .container-button.on .icon { color: #9ee4d3; }
+.build-bar .account-button.on { border-color: #3a5878; background: #1c2635; color: #b1cbef; }
+.build-bar .account-button.on .icon { color: #b1cbef; }
+/* 印の名前：ポインターを乗せるか、フォーカスで、すぐ下に出す */
+.build-bar [data-tip] { position: relative; }
+.build-bar [data-tip]:hover::after, .build-bar [data-tip]:focus-visible::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%;
+  transform: translateX(-50%); z-index: 40; padding: 4px 9px; border: 1px solid #46515e; border-radius: 5px; background: #252b33; color: #edf1f5;
+  font: 12px "Segoe UI", "Yu Gothic UI", sans-serif; font-weight: 400; white-space: normal; width: max-content; max-width: 340px; text-align: left; pointer-events: none;
+  box-shadow: 0 6px 18px #0007; }
+.build-bar .bar-right [data-tip]::after { left: auto; right: 0; transform: none; }
+.build-bar .bar-left [data-tip]::after { left: 0; transform: none; }
+@media (max-width: 1060px) { .build-bar .container-button span:not(.icon) { display: none; } }
+.build-bar .agent-group .agent-button { padding: 5px 12px; border-color: #3f7a6c; color: #b8eadb; }
+.build-bar .agent-group .agent-button:hover:not(:disabled) { border-color: #7fcdb8; }

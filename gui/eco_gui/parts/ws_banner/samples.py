@@ -1,0 +1,15 @@
+SAMPLES = [
+    {"name": "衝突で止まっている", "props": {"kind": "conflict", "status": {"merging": True, "stopped": "merge", "conflicted": ["src/app.py"]}}},
+    {"name": "提出の確認中", "props": {"kind": "review", "status": {"reviewing": 31, "reviewing_task": 12, "branch": "review/31"}}},
+    {"name": "タスクブランチではない", "props": {"kind": "notask", "status": {"branch": "main", "task": None}}},
+    {"name": "アーカイブ済み", "props": {"kind": "archived", "remote": {"archived": True}}},
+    {"name": "完了した", "props": {"kind": "gone", "status": {"task": 12, "branch": "task/12-login", "upstream_gone": True, "finished": True}}},
+    {"name": "上流が消えた", "props": {"kind": "gone", "status": {"task": 12, "branch": "task/12-login", "upstream_gone": True, "finished": False}}},
+    {"name": "最新を取り込んでいない（衝突する）", "props": {"kind": "behind", "status": {"task": 12, "base": "main"},
+                                                 "remote": {"base_behind": 3, "base_conflicts": ["src/app.py", "README.md"]}}},
+    {"name": "最新を取り込んでいない", "props": {"kind": "behind", "status": {"behind": 2}}},
+    {"name": "タスクブランチ以外に変更が残っている", "props": {"kind": "left", "status": {"branch": "main", "task": None, "unstaged": ["a.py"], "untracked": ["b.py"]}}},
+    {"name": "仕様が古い", "props": {"kind": "format", "status": {"format": 4, "latest_format": 5, "task": 12}}},
+    {"name": "状態を読めない", "props": {"kind": "unreadable", "error": "モジュールではありません"}},
+    {"name": "当てはまらない（何も出さない）", "props": {"kind": "conflict", "status": {"merging": False}}},
+]

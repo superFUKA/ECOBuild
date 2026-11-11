@@ -286,6 +286,45 @@ button.tk-sort span { font-size: 9px; color: var(--gf-accent); }
    節：作業空間（workspace・files・build・stashes・blame・cpp）
    -------------------------------------------------------------------------- */
 
+/* 作業空間の窓：上に見出しとツールバー、真ん中は分割（左エクスプローラー／右コミット・共有、その下に出力欄）、下端にステータスバー。
+   窓は自分ではスクロールしない（区画ごとにスクロールする）。 */
+#stage:has(> [data-gf-look="ws-window"]) { overflow: hidden; display: flex; }
+#stage > [data-gf-look="ws-window"] { flex: 1; min-width: 0; min-height: 0; padding: 0; gap: 0; }
+[data-gf-look="ws-window"] > .gf-split { flex: 1; min-height: 0; }
+[data-gf-look="ws-window"] .gf-split > .gf-split { min-height: 0; }
+[data-gf-look="ws-window"] .gf-pane > .gf-split { height: 100%; }
+[data-gf-look="ws-window"] .gf-split-bar { background: var(--eco-line); background-clip: content-box; padding: 0 3px; opacity: 1; }
+[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar { padding: 3px 0; }
+[data-gf-look="ws-window"] .gf-split-bar:hover, [data-gf-look="ws-window"] .gf-split-bar:focus-visible,
+[data-gf-look="ws-window"] .gf-split-bar[data-gf-dragging] { background-color: #5b8def; padding: 0 2px; }
+[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar:hover,
+[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar:focus-visible,
+[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar[data-gf-dragging] { padding: 2px 0; }
+[data-gf-look="ws-window"] .gf-pane:has(> [data-gf-look="ws-fill"]) { overflow: hidden; }
+body:has([data-gf-look="ws-window"]) #runs { bottom: 34px; }
+body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
+/* ws-fill：置いた区画の高さいっぱいに広げる部品（中で自分がスクロールする） */
+[data-gf-look="ws-fill"] { height: 100%; min-height: 0; }
+[data-gf-look="ws-fill"] > gf-part { display: block; height: 100%; }
+/* ws-work：右の「コミット・共有」。帯・タブ・今のタブのパネルを縦に並べる。パネルが残りの高さを使う */
+[data-gf-look="ws-work"] { min-height: 100%; padding: 0 14px 14px; gap: 0; }
+[data-gf-look="ws-banners"] { gap: 0; padding-top: 10px; }
+[data-gf-look="ws-banners"]:not(:has(gf-part)) { display: none; }
+[data-gf-look="ws-panel"] { padding: 14px 16px; background: var(--eco-panel); border: 1px solid #343c46; border-top: 0; border-radius: 0 0 10px 10px; gap: 10px; }
+[data-gf-look="ws-panel-fill"] { flex: 1 1 0; min-height: 320px; padding: 14px 16px; background: var(--eco-panel); border: 1px solid #343c46; border-top: 0;
+  border-radius: 0 0 10px 10px; gap: 0; }
+[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-fill"] { flex: 1 1 0; height: auto; display: flex; flex-direction: column; }
+[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-fill"] > gf-part { flex: 1 1 0; min-height: 0; height: auto; }
+[data-gf-look="ws-panel-fill"] > .gf-split { flex: 1 1 0; min-height: 0; }
+/* ws-log：ログ（左に一覧、右に選んだコミットの変更）。タブの中でも、自分の窓でも、高さいっぱいに使う */
+#stage:has(> [data-gf-look="ws-log"]) { overflow: hidden; display: flex; }
+#stage > [data-gf-look="ws-log"] { flex: 1; min-width: 0; min-height: 0; padding: 12px 16px 16px; }
+[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-log"] { flex: 1 1 0; min-height: 0; }
+[data-gf-look="ws-log"] > .gf-split { flex: 1 1 0; min-height: 0; gap: 6px; }
+[data-gf-look="ws-log"] .gf-pane:has(> [data-gf-look="ws-fill"]) { overflow: hidden; }
+/* ws-dialog：窓の中に重ねて開く入力の窓・差分 */
+[data-gf-look="ws-dialog"] { gap: 12px; }
+
 /* （作業空間の節の終わり） */
 
 

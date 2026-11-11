@@ -161,7 +161,7 @@ SCREEN = {
          "set": {"tab": "commit"}, "notify": "コミットを取り消しました。変更は「コミット」に残っています。"},
         {"on": "push_list.action", "when": {"name": "drop"}, "run": "task reset", "args": {"module": {"arg": "module"}, "commit": {"payload": "before"}},
          "notify": "コミットを捨てました。"},
-        {"on": "submit.pressed", "run": "task submit", "args": {"module": {"arg": "module"}}, "notify": "提出しました。"},
+        {"on": "submit.pressed", "open": "task-submit", "inside": True, "args": {"module": {"arg": "module"}}},  # 提出の窓（何が起きるか・題・下書き・見てもらう人）
         {"on": "submit_with.pressed", "open": "task-submit", "inside": True, "args": {"module": {"arg": "module"}}},
         {"on": "open_submission.pressed", "open": "submission", "args": {"module": {"arg": "module"}, "task": {"value": "task_number"}}},
 

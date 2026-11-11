@@ -1,6 +1,6 @@
 // 部品「モジュールを追加する窓の入力欄」。今までの GUI（static/hub.html の #add-form・hub.js の updateFields）と同じ欄と文言。
-// ここでするのは見せ方だけ：方法に合う欄を出す・型に合う「最初に作るもの」を並べる・作成先を見せる・候補を欄に入れる。
-// 作る・取得する・登録するは、画面のボタンが ecobuild を呼ぶ（この部品は、今の値を changed で出すだけ）。
+// ここでするのは、欄を組むことだけ：方法に合う欄を出す・型に合う「最初に作るもの」を並べる・作成先の文・候補。
+// 描くのは共有のコード（lib.js の form）。作る・取得する・登録するは、画面のボタンが ecobuild を呼ぶ（この部品は、今の値を changed で出すだけ）。
 const METHODS = [
   ['new', '新規作成', 'GitHub にリポジトリも作る'],
   ['clone', 'GitHubから取得', 'ECOBuild のモジュールを clone'],
@@ -16,6 +16,7 @@ const KIND_TEXT = {
   python: { app: 'app（実行できるパッケージ）', library: 'library（パッケージ）', none: 'none（パッケージを作らない）' },
 };
 const PARENT = 'parent';  // 前に使った保存先（この PC に覚える）
+const REDRAW = ['method', 'type', 'kind'];  // 変えると、出す欄が変わるもの
 const sameRepository = (a, b) => {
   if (!a || !b) return false;
   const full = a.includes('/') && b.includes('/');
@@ -23,152 +24,91 @@ const sameRepository = (a, b) => {
   return key(a) === key(b);
 };
 const day = (text) => { const d = new Date(text); return Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const folder = (text) => String(text || '').trim().replace(/[\\/]+$/, '');
 
 export default {
-  render(root, props, { h, emit, memory, state, redraw }) {
+  render(root, props, tools) {
+    const { emit, memory, state, redraw, lib } = tools;
+    const options = lib.form.options;
     const types = props.types && props.types.length ? props.types : FALLBACK_TYPES;
-    if (!state.v) {
-      const first = props.modules.find((m) => m.path);
-      state.v = { method: 'new', directory: memory.get(PARENT, '') || (first ? String(first.path).replace(/[\\/][^\\/]+$/, '') : ''),
-        name: '', type: types[0].name, kind: null, project: '', test: true, description: '', owner: '', public: false,
-        repository: '', folder: '', adopt_folder: '', adopt_type: types[0].name, more: false };
-    }
-    const v = state.v;
-    if (!v.directory && !state.touched) {  // この PC のモジュールの一覧が後から届いたら、その親フォルダを初めの値にする
-      const known = props.modules.find((m) => m.path);
-      if (known) v.directory = String(known.path).replace(/[\\/][^\\/]+$/, '');
-    }
-    const info = types.find((t) => t.name === v.type) || types[0];
+    state.touched = state.touched || {};
+    state.values = state.values || {};
+    // 今入っている値（打っていなければ、初めの値）
+    const now = (name, initial) => (state.touched[name] ? state.values[name] : initial);
+    const method = now('method', 'new'), type = now('type', types[0].name);
+    const info = types.find((t) => t.name === type) || types[0];
     const kinds = info.new_kinds || [];
-    if (!kinds.includes(v.kind)) v.kind = kinds.length ? (info.default_new_kind || kinds[0]) : '';
-    const named = kinds.length > 0 && v.kind !== 'none';
-    const library = kinds.length > 0 && LIBRARY_KINDS.includes(v.kind);
-    const send = () => {
-      if (v.directory && state.touched) memory.set(PARENT,v.directory.trim().replace(/[\\/]+$/, ''));
-      emit('changed', { method: v.method, directory: v.directory.trim().replace(/[\\/]+$/, ''), name: v.name.trim(), type: v.type, kind: v.kind || '',
-        project: named ? v.project.trim() : '', test: library ? v.test : null, description: v.description.trim(), owner: v.owner.trim(),
-        public: v.public ? true : null, repository: v.repository.trim(), folder: v.folder.trim(), adopt_folder: v.adopt_folder.trim(), adopt_type: v.adopt_type });
-    };
-    // 初めと、型の一覧が届いたとき：今の値（既定の型・最初に作るもの）を出しておく
-    const stamp = JSON.stringify([types.map((t) => t.name), v.method, v.type, v.kind, v.adopt_type, state.touched ? '' : v.directory]);
-    if (state.sent !== stamp) { state.sent = stamp; send(); }
+    const firstKind = kinds.length ? (info.default_new_kind || kinds[0]) : '';
+    if (!kinds.includes(now('kind', firstKind))) delete state.touched.kind;   // 型を変えたら、その型の既定に戻す
+    const kind = now('kind', firstKind);
+    const named = kinds.length > 0 && kind !== 'none';
+    const library = kinds.length > 0 && LIBRARY_KINDS.includes(kind);
+    // 保存先の初めの値：前に使ったもの。なければ、この PC のモジュールの親フォルダ（一覧が後から届いても、打つまでは合わせる）
+    const known = props.modules.find((m) => m.path);
+    const directory = memory.get(PARENT, '') || (known ? String(known.path).replace(/[\\/][^\\/]+$/, '') : '');
+    const typeOptions = options(types.map((t) => [t.name, TYPE_LABELS[t.name] || t.name]));
 
-    const form = h('div', { class: 'add' });
-    const methods = h('fieldset', { class: 'methods' }, h('legend', { class: 'sr-only' }, '追加方法'));
-    for (const [value, label, help] of METHODS) {
-      const radio = h('input', { type: 'radio', name: 'method', value });
-      radio.checked = v.method === value;
-      radio.addEventListener('change', () => { v.method = value; redraw(); });
-      methods.append(h('label', { class: v.method === value ? 'method on' : 'method' }, radio, h('span', {}, h('strong', {}, label), h('small', {}, help))));
-    }
-    form.append(methods);
-
-    const dest = h('p', { class: 'note' });
-    const showDestination = () => {
-      const parent = v.directory.trim().replace(/[\\/]+$/, '');
-      const name = v.method === 'new' ? v.name.trim() : (v.repository.trim().split('/').pop() || '');
-      dest.textContent = parent && name ? `作成先：${parent}/${name}` : '';
-    };
-    const input = (key, attrs, after) => {
-      const box = h(attrs.rows ? 'textarea' : 'input', attrs);
-      box.value = v[key];
-      box.addEventListener('input', () => { v[key] = box.value; if (key === 'directory') state.touched = true; showDestination(); if (after) after(); send(); });
-      return box;
-    };
-    const select = (key, options) => {
-      const box = h('select', {}, ...options.map(([value, label]) => h('option', { value }, label)));
-      box.value = v[key];
-      box.addEventListener('change', () => { v[key] = box.value; redraw(); });
-      return box;
-    };
-    const check = (key, label) => {
-      const box = h('input', { type: 'checkbox' });
-      box.checked = Boolean(v[key]);
-      box.addEventListener('change', () => { v[key] = box.checked; send(); });
-      return h('label', { class: 'check' }, box, ' ', label);
-    };
-    const field = (label, control) => h('label', { class: 'field' }, label, control);
-    const typeOptions = types.map((t) => [t.name, TYPE_LABELS[t.name] || t.name]);
-
-    if (v.method === 'new') {
-      const testLabel = h('span', {});
-      const showTest = () => {
-        testLabel.textContent = v.type === 'cpp' ? `テスト用のProject（${v.project.trim() || v.name.trim() || '名前'}Test）も作る` : 'テスト（tests/）も作る';
-      };
-      showTest();
-      form.append(h('div', { class: 'grid' }, field('モジュール名', input('name', { placeholder: '例：MathCore', title: '英字で始まる英数字・アンダースコア・ハイフン' }, showTest)),
-        field('型', select('type', typeOptions))));
-      if (kinds.length) {
-        const row = h('div', { class: 'grid' }, field('最初に作るもの', select('kind', kinds.map((k) => [k, (KIND_TEXT[v.type] || {})[k] || k]))));
-        if (named) {
-          row.append(field('名前（任意）', input('project', { placeholder: v.type === 'python' ? '省略時はモジュール名の小文字（パッケージ名）' : '省略時はモジュール名',
-            title: '英字で始まる英数字・アンダースコア' }, showTest)));
-        }
-        form.append(row);
+    const fields = [{ name: 'method', label: '追加方法', label_hidden: true, type: 'radio', columns: 2, strong: true, value: 'new', options: options(METHODS) }];
+    if (method === 'new') {
+      fields.push({ name: 'name', label: 'モジュール名', row: 'name', width: 2, placeholder: '例：MathCore', hint: '英字で始まる英数字・アンダースコア・ハイフン' },
+        { name: 'type', label: '型', type: 'select', row: 'name', value: types[0].name, options: typeOptions });
+      if (kinds.length) fields.push({ name: 'kind', label: '最初に作るもの', type: 'select', row: 'kind', width: 2, value: firstKind, options: options(kinds.map((k) => [k, (KIND_TEXT[type] || {})[k] || k])) });
+      if (named) {
+        fields.push({ name: 'project', label: '名前（任意）', row: 'kind', hint: '英字で始まる英数字・アンダースコア',
+          placeholder: type === 'python' ? '省略時はモジュール名の小文字（パッケージ名）' : '省略時はモジュール名' });
       }
       if (library) {
-        const box = h('input', { type: 'checkbox' });
-        box.checked = Boolean(v.test);
-        box.addEventListener('change', () => { v.test = box.checked; send(); });
-        form.append(h('label', { class: 'check' }, box, ' ', testLabel));
+        fields.push({ name: 'test', type: 'checkbox', value: true, label: (get) => (type === 'cpp'
+          ? `テスト用のProject（${String(get('project') || '').trim() || String(get('name') || '').trim() || '名前'}Test）も作る` : 'テスト（tests/）も作る') });
       }
     }
-    if (v.method === 'clone') {
-      const repository = input('repository', { placeholder: '所有者/名前 または 名前' });
-      form.append(field('GitHubリポジトリ', repository), candidates(repository));
+    if (method === 'clone') {
+      // GitHub にあって、まだ一覧にないモジュール（後から届く）：押すと、リポジトリの欄に入る
+      const rest = props.candidates && props.candidates.filter((g) => !g.archived && !props.modules.some((m) => sameRepository(g.repository, m.repository || '')));
+      fields.push({ name: 'repository', label: 'GitHubリポジトリ', placeholder: '所有者/名前 または 名前',
+        candidates: rest && rest.map((g) => ({ value: g.repository, label: g.repository,
+          help: [g.type, g.private ? '非公開' : '公開', g.updated ? '更新 ' + day(g.updated) : ''].filter(Boolean).join('・') + (g.description ? '　' + g.description : '') })),
+        candidates_title: 'GitHubにあるモジュール', candidates_loading: 'GitHubにあるモジュールを読み込んでいます…',
+        candidates_empty: props.candidates && props.candidates.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。' });
     }
-    if (v.method === 'new' || v.method === 'clone') {
-      form.append(field('保存先の親フォルダ', input('directory', { placeholder: '例：C:\\work' })), dest);
-      showDestination();
+    if (method === 'new' || method === 'clone') {
+      fields.push({ name: 'directory', label: '保存先の親フォルダ', value: directory, placeholder: '例：C:\\work' },
+        { type: 'note', label: (get) => {
+          const parent = folder(get('directory')), name = method === 'new' ? String(get('name') || '').trim() : (String(get('repository') || '').trim().split('/').pop() || '');
+          return parent && name ? `作成先：${parent}/${name}` : '';
+        } });
     }
-    if (v.method === 'new') {
-      const more = h('details', { class: 'more' }, h('summary', {}, '詳細設定 ', h('span', {}, '説明・所有者・公開範囲')),
-        field('説明（任意）', input('description', { rows: 2 })),
-        field('所有者（任意）', input('owner', { placeholder: props.owner ? `省略時は既定の所有者（${props.owner}）` : '省略時は既定の所有者（未設定ならログイン中のユーザー）' })),
-        check('public', '公開リポジトリにする'));
-      more.open = Boolean(v.more);
-      more.addEventListener('toggle', () => { v.more = more.open; });
-      form.append(more);
+    if (method === 'new') {
+      fields.push({ type: 'section', label: '詳細設定', note: '説明・所有者・公開範囲', collapsed: true },
+        { name: 'description', label: '説明（任意）', type: 'textarea', rows: 2 },
+        { name: 'owner', label: '所有者（任意）', placeholder: props.owner ? `省略時は既定の所有者（${props.owner}）` : '省略時は既定の所有者（未設定ならログイン中のユーザー）' },
+        { name: 'public', label: '公開リポジトリにする', type: 'checkbox' },
+        { type: 'section', end: true });
     }
-    if (v.method === 'register') {
-      form.append(field('モジュールのフォルダ', input('folder', { placeholder: '.ecobuild のあるフォルダ' })));
+    if (method === 'register') fields.push({ name: 'folder', label: 'モジュールのフォルダ', placeholder: '.ecobuild のあるフォルダ' });
+    if (method === 'adopt') {
+      fields.push({ name: 'adopt_folder', label: 'リポジトリのフォルダ', row: 'adopt', width: 3, placeholder: 'GitHub のリポジトリを clone したフォルダ' },
+        { name: 'adopt_type', label: '型', type: 'select', row: 'adopt', value: types[0].name, options: typeOptions },
+        { type: 'note', label: 'できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。置くファイルと push 先は、実行する前の確かめに出ます。' });
     }
-    if (v.method === 'adopt') {
-      form.append(h('div', { class: 'grid wide' }, field('リポジトリのフォルダ', input('adopt_folder', { placeholder: 'GitHub のリポジトリを clone したフォルダ' })),
-        field('型', select('adopt_type', typeOptions))),
-      h('p', { class: 'note' }, 'できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。置くファイルと push 先は、実行する前の確かめに出ます。'));
-    }
-    if (props.problem) form.append(h('p', { role: 'alert' }, props.problem));
-    root.replaceChildren(form);
 
-    // GitHub にあって、まだ一覧にないモジュール：押すと、リポジトリの欄に入る
-    function candidates(target) {
-      const box = h('div', { class: 'candidates', 'aria-live': 'polite' });
-      if (!props.candidates) {
-        box.append(h('p', { class: 'note' }, h('span', { class: 'spinner' }), ' GitHubにあるモジュールを読み込んでいます…'));
-        return box;
-      }
-      const rest = props.candidates.filter((g) => !g.archived && !props.modules.some((m) => sameRepository(g.repository, m.repository || '')));
-      if (!rest.length) {
-        box.append(h('p', { class: 'note' }, props.candidates.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。'));
-        return box;
-      }
-      const list = h('ul', {});
-      for (const g of rest) {
-        const facts = [g.type, g.private ? '非公開' : '公開', g.updated ? '更新 ' + day(g.updated) : ''].filter(Boolean).join('・');
-        const pick = h('button', { type: 'button', class: v.repository === g.repository ? 'selected' : '' },
-          h('strong', {}, g.repository), h('small', {}, facts + (g.description ? '　' + g.description : '')));
-        pick.addEventListener('click', () => {
-          v.repository = g.repository;
-          target.value = g.repository;
-          for (const other of list.querySelectorAll('button')) other.classList.toggle('selected', other === pick);
-          showDestination();
-          send();
-        });
-        list.append(h('li', {}, pick));
-      }
-      box.append(h('p', { class: 'note' }, 'GitHubにあるモジュール'), list);
-      return box;
-    }
+    // 今の値をまとめて出す（今は出していない欄の値も、打ったものは残っている）
+    const send = (raw) => {
+      const value = (name, initial) => (name in raw ? raw[name] : now(name, initial));
+      const text = (name) => String(value(name, '') || '').trim();
+      emit('changed', { method, directory: folder(value('directory', directory)), name: text('name'), type, kind: kind || '',
+        project: named ? text('project') : '', test: library ? value('test', true) === true : null, description: text('description'), owner: text('owner'),
+        public: value('public', false) === true ? true : null, repository: text('repository'), folder: text('folder'), adopt_folder: text('adopt_folder'),
+        adopt_type: value('adopt_type', types[0].name) });
+    };
+    const drawn = lib.form.render(root, { plain: true, bare: true, fields, problem: props.problem }, tools, {
+      changed: (name, raw) => {
+        if (name === 'directory' && folder(raw.directory)) memory.set(PARENT, folder(raw.directory));
+        if (REDRAW.includes(name)) redraw(); else send(raw);
+      },
+    });
+    // 初めと、型の一覧・保存先が届いたとき、出す欄が変わったとき：今の値（既定の型・最初に作るもの）を出しておく
+    const stamp = JSON.stringify([types.map((t) => t.name), method, type, kind, now('adopt_type', ''), state.touched.directory ? '' : directory]);
+    if (state.sent !== stamp) { state.sent = stamp; send(drawn.raw); }
   },
 };

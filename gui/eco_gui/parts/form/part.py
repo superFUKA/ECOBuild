@@ -12,8 +12,14 @@
   {"source": "rows" か "more", "value": 値にする項目, "label": 見せる項目, "note": かっこで添える項目（並びでもよい）,
    "note_labels": {値: 見せる言葉}, "where": {項目: 値}（合う行だけ）}
   select の none_label：いちばん上に置く「選ばない」。empty_text：選べるものがないときの文。
-- radio の inline：横に並べる。checkbox の strong：太字。
-- row：同じ名前の欄を、横に並べる。
+- radio の inline：横に並べる。columns：この数の列に並べる。strong：選ぶものの名前を太字に。label_hidden：題を見せない（読み上げにだけ出す）。
+  checkbox の strong：太字。
+- suggestions（text）：打つときの候補（[{value, label}]）。suggestions_from：読んだ一覧から（options_from と同じ書き方）。
+  読んだ一覧から選ぶ欄・候補のある欄は、一覧が届くまで「候補を読み込んでいます…」を欄の下に出す（窓は待たせない。届いたら足す）。
+- candidates（text）：欄の下に並べる候補（[{value, label, help}]。押すと欄に入る。null なら、まだ届いていない）。
+  candidates_title・candidates_empty・candidates_loading：その上の文・1つもないときの文・届くまでの文。
+- hint（text）：欄のツールチップ。
+- row：同じ名前の欄を、横に並べる。width：その行の中での幅の割合（既定は 1）。
 - multiple（text）：＋ で欄を足し、× で消す。値は入れたものの並び。
 - show_if・hide_if：{名前: 値}（値は並びでもよい）。名前は、ほかの欄か、読んだ値（vars・values）の道筋。合うときだけ出す／隠す
   （出ていない欄の値は出さない）。
@@ -23,10 +29,15 @@
 - section：ここから次の section までを節にまとめる（label が見出し、note が横の小さな文。collapsed を書けば畳める節で、真なら畳んでおく。
   open が真なら開けておく。{"type": "section", "end": True} で節を終える）。
 - note：label の文を出す。tone（bad・warn・info）で帯にする。list_from：下に並べる名前の並び（読んだ値の道筋）。
-  並びが空なら出さない（衝突するファイルがないときの警告など）。empty_text があれば、読み終えた後、代わりにその文を出す。
+  並びが空なら出さない（衝突するファイルがないときの警告など）。empty_text があれば、読み終えた後、代わりにその文を出す
+  （読んだ値に、その並びがないときは出さない）。list_as が "commits" なら、「sha 件名」の並びを、入るコミットの箱で出す。
 
 「何が起きるか」の表（outcome）は {label, text, show_if, hide_if} の並び（欄の値で、出る行が変わる）。
-題・説明・表・欄の文の中の {道筋} は、vars（画面が渡す値）か values（読んだ値）のその値に置き換わる（空なら、中身のないかっこごと消える）。
+決めるほかにできること（actions）は {name, label, hint, primary, show_if, hide_if} の並び。ボタンの行の左に置き、押すと名前と今の値を出す。
+題・説明・表・欄の文の中の {道筋} は、vars（画面が渡す値）・values（読んだ値）・also（もう1つの読んだ値）のその値に置き換わる
+（空なら、中身のないかっこごと消える。並びの数は {道筋.length}）。
+
+描く所は、共有のコード（gui/eco_gui/lib.js の form）にある。欄を読んだ情報から組む部品（task-form・hub-add-form）も、それを使う。
 """
 from typing import Annotated, Any
 
@@ -38,6 +49,7 @@ def part(
     intro: Annotated[str, "説明（題の下に出す文）"] = "",
     detail: Annotated[str, "説明の下に出す文（対象ごとに変わる説明。空なら出さない）"] = "",
     outcome: Annotated[list[dict], "「何が起きるか」の表（{label, text, show_if, hide_if}）"] = [],
+    actions: Annotated[list[dict], "決めるほかにできること（{name, label, hint, primary, show_if, hide_if}。ボタンの行の左に置く）"] = [],
     ok: Annotated[str, "決めるボタンの文字"] = "OK",
     danger: Annotated[bool, "決めるボタンを、戻せない操作として赤く見せる"] = False,
     sticky: Annotated[bool, "欄が長いとき、ボタンの行を見えたままにする"] = False,
@@ -45,6 +57,7 @@ def part(
     vars: Annotated[dict, "文の中の {名前} に入れる値・出し分けに使う値（画面が渡すもの）"] = {},
     values: Annotated[dict | None, "欄の今の値（読んだもの。欄の名前 → 値）"] = None,
     at: Annotated[list[str] | None, "values の中の、今の値のある場所（たどる名前の並び。空の名前があれば、今の値はないものとする）"] = None,
+    also: Annotated[dict | None, "読んだ値（もう1つ。values にない道筋は、ここから探す）"] = None,
     rows: Annotated[list[dict], "読んだ一覧（options_from の source が rows の欄の選べるもの）"] = [],
     more: Annotated[list[dict], "読んだ一覧（options_from の source が more の欄の選べるもの）"] = [],
     problem: Annotated[str, "実行できなかった理由（窓の中に出す。入れた値は残る）"] = "",
@@ -54,6 +67,9 @@ def part(
 
 
 def on_submitted(values: Annotated[dict[str, Any], "欄の名前 → 値（出ている欄だけ）"]) -> None: ...
+
+
+def on_action(name: Annotated[str, "押したボタン（actions の name）"], values: Annotated[dict[str, Any], "欄の名前 → 値（出ている欄だけ）"] = {}) -> None: ...
 
 
 def on_cancelled() -> None: ...

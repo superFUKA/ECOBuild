@@ -30,6 +30,7 @@ SCREEN = {
         {"on": "view.close", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "完了にしました。"},
         {"on": "view.remove", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "not_planned": True}, "notify": "削除しました。"},
         {"on": "view.reopen", "run": "task reopen", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "開き直しました。"},
-        {"on": "view.workspace", "open": "workspace", "args": {"module": {"payload": "path"}}},
+        # タスクブランチを開く：同じ窓の「作業空間」のタブで出す
+        {"on": "view.workspace", "open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"payload": "path"}}, "here": True},
     ],
 }

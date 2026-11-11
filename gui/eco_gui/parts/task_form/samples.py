@@ -16,5 +16,11 @@ SAMPLES = [
         "status": {"number": 13, "title": "ログを残す", "body": "本文です。", "parent": {"number": 12}, "blocked_by": [{"number": 11}]}}},
     {"name": "担当者を追加", "props": {"kind": "assign", "issue": 12, "account": {"login": "octocat"},
                                  "tasks": [{"number": 12, "title": "ログイン画面", "assignees": ["hubot"]}, {"number": 13, "title": "ログ", "assignees": ["mona"]}]}},
-    {"name": "読み込み中（タスクの状態を待つ）", "props": {"kind": "start", "issue": 13}},
+    {"name": "読み込み中（タスクの状態を待つ）", "props": {"kind": "start", "issue": 13, "loading": True}},
+    {"name": "候補を読み込み中（窓は待たせない）", "props": {"kind": "assign", "issue": 12, "account": {"login": "octocat"}, "loading": True,
+                                           "tasks": [{"number": 12, "title": "ログイン画面", "assignees": []}]}},
+    {"name": "GitHub のメンバーが届いた", "props": {"kind": "assign", "issue": 12, "account": {"login": "octocat"},
+                                          "tasks": [{"number": 12, "title": "ログイン画面", "assignees": ["hubot"]}],
+                                          "members": [{"login": "octocat", "role": "admin"}, {"login": "mona", "role": "write"}, {"login": "hubot", "role": "write"}]}},
+    {"name": "誤り", "props": {"kind": "assign", "issue": 12, "error": "タスクを読めません"}},
 ]

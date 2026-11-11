@@ -1,7 +1,9 @@
 """タスクの入力の窓のうち、欄を読んだ情報から組むもの：新しいタスク・作業を開始・編集・担当者を追加。
 
 担当者や親タスクの候補・作成元の既定・タスクブランチの名前は、読んだタスク・ブランチ・アカウントから組む（見せ方）。
-ほかの入力の窓は、共通の部品 form が描く。欄を描き、入れた値を出すだけ。何が起きるかは、つないだ ecobuild のコマンドが決める（入れていない欄は出さない）。
+ここでするのは、欄を組むことだけ。描くのは、共通の部品 form と同じ所（gui/eco_gui/lib.js の form）。
+入れた値を出すだけで、何が起きるかは、つないだ ecobuild のコマンドが決める（入れていない欄は出さない）。
+候補（担当者・作成元のブランチ）は、届くのを待たずに窓を出し、届いたら足す（待つ間は、欄の下に「候補を読み込んでいます…」）。
 """
 from typing import Annotated, Literal
 
@@ -17,6 +19,9 @@ def part(
     branches: Annotated[list[dict], "ブランチ（branch list の行。作成元の候補にする）"] = [],
     accounts: Annotated[list[dict], "この PC でログインしているアカウント（account list の行）"] = [],
     account: Annotated[dict, "自分のアカウント（account show の結果：login・default_base）"] = {},
+    members: Annotated[list[dict], "GitHub のメンバー（module members の行：login。担当者の候補に足す）"] = [],
+    loading: Annotated[bool, "読み込み中（候補がまだ届いていない）"] = False,
+    error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...
 
 

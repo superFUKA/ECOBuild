@@ -1,0 +1,18 @@
+/* アカウントの窓（今までの GUI の common.css の .eco-account と同じ見た目） */
+.head { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid #343c46; }
+.big-avatar { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #293447; color: #b1cbef; font-size: 20px; font-weight: 600; }
+.name { font-size: 16px; font-weight: 600; }
+.help { color: var(--gf-muted); font-size: 12px; line-height: 1.7; }
+section { padding: 4px 0 10px; border-bottom: 1px solid var(--eco-line-soft); }
+section:last-child { border-bottom: 0; }
+section h3 { margin: 12px 0 4px; }
+.rows { list-style: none; margin: 4px 0 0; padding: 0; }
+.rows li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; }
+.rows small { display: block; color: var(--eco-dim); font-size: 11px; margin-top: 2px; }
+.rows button { padding: 5px 12px; font-size: 12px; }
+.scopes { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+.ok { color: #9fe0a8; font-size: 12px; white-space: nowrap; }
+.no { color: var(--eco-dim); font-size: 12px; white-space: nowrap; }
+.edit { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.edit input { flex: 1; min-width: 0; padding: 6px 10px; }
+.edit button { padding: 5px 12px; font-size: 12px; }

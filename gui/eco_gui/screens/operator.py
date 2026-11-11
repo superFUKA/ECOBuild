@@ -1,16 +1,18 @@
 """オペレーター：話し方の設定と、このPCのエージェントの一覧（様子・止める・起こし直す・閉じる・言付け）。
 
-モジュールの外の画面（ハブから開く）。オペレーター・エージェントと対話する窓（端末・会話）は、今の窓のまま。
+モジュールの外の画面（ハブの窓の左のメニューから開く）。オペレーター・エージェントと対話する窓（端末・会話）は、今の窓のまま。
 """
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "オペレーター", "width": 1280, "height": 820},
+    "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "tabs"]},
-        {"id": "head", "layout": "row", "children": ["title", "reload"]},
-        {"id": "title", "part": "note", "props": {"text": "オペレーターとエージェント", "heading": True}},
-        {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
+        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "nav", "screen": "hub-menu", "args": {"current": "operator"}},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs"]},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "title", "part": "note", "props": {"text": "オペレーター", "heading": True}},
+        {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         {"id": "tabs", "layout": "tabs", "props": {"labels": ["エージェント", "オペレーターの話し方"]}, "children": ["agents", "style"]},
 
         # --- このPCのエージェント（ecobuild agent list・status・children・stop・restart・close・send） ---

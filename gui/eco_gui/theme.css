@@ -179,6 +179,19 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
 /* --------------------------------------------------------------------------
    節：ハブ（hub・hub_settings・hub_archive・doctor・operator・pc_agents・help_guide）
    -------------------------------------------------------------------------- */
+/* 設定のカードの中で、入力欄とボタンを1行に並べる（欄が残りの幅を使い、ボタンは欄の下端にそろう） */
+[data-gf-look="hub-inline"] { flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
+[data-gf-look="hub-inline"] > [data-gf-part="button"] { flex: none; max-width: 320px; margin-top: 25px; }
+[data-gf-look="hub-inline"] > [data-gf-part="button"] > small { white-space: normal; overflow-wrap: anywhere; }
+/* 設定のタブの中：カードを、読みやすい幅で縦に並べる（今までの GUI の .settings-card と同じ幅） */
+[data-gf-look="hub-settings"] .gf-tabs-body > .gf-column { max-width: 820px; gap: 16px; }
+[data-gf-look="hub-settings"] [data-gf-look="card"] { padding: 18px 22px; gap: 10px; }
+/* 窓の中に重ねた入力の窓（モジュールを追加・アカウント等）：中身が長いときは、ボタンの行を残して中だけスクロールする */
+body[data-gf-screen="hub-add"] #stage > .gf-column, body[data-gf-screen="hub-account"] #stage > .gf-column { height: 100%; }
+body[data-gf-screen="hub-add"] [data-gf-look="grow"], body[data-gf-screen="hub-account"] [data-gf-look="grow"] { overflow: auto; }
+/* その窓のボタンの行：押せない理由が下に出ても、ボタンの上端はそろえる */
+body[data-gf-screen="hub-add"] [data-gf-look="actions"], body[data-gf-screen="hub-delete"] [data-gf-look="actions"] { align-items: flex-start; flex-wrap: nowrap; }
+body[data-gf-screen="hub-add"] [data-gf-look="actions"] .gf-wrap > small { max-width: 260px; text-align: right; }
 
 /* （ハブの節の終わり） */
 

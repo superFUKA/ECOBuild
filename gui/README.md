@@ -142,6 +142,10 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 - `ecobuild gui …`：ecobuild の外部サブコマンド（`ecobuild-gui`。GUIのサーバーが起動のたびに ecobuild と同じフォルダに置く `ecobuild-gui.cmd` が `ecobuild_gui.py` を呼ぶ）。例：`ecobuild gui`（ハブ）、`ecobuild gui -C <場所> task start 12`、`ecobuild gui open ECOSTL --tab projects`、`ecobuild gui windows --json`、`ecobuild gui actions`。GUIが動いていなければ起動する（`ECOBUILD_GUI_HOME` の `server.json` に、動いているサーバーの場所がある）。
 - `ecobuild gui mcp`：MCP サーバー（標準入出力）。ツールは `ecobuild`（コマンドの実行）・`ecobuild_commands`（コマンドの一覧）・`gui_open` 等。`--operator` はオペレーター用（`ecobuild` の代わりに見るだけの `ecobuild_read`。`agent-send` なし）。Claude Code なら `claude mcp add ecobuild-gui -- ecobuild gui mcp`。
 - `ecobuild gui ask "…" --continue`・`ecobuild gui conversation`・`ecobuild gui conversation-new`：オペレーターとの会話の記録（このPCに1つ。`ECOBUILD_GUI_HOME` の `operator/conversation.json`）。`--continue` は記録の続きとして話し、発言・返答・実行したコマンドを記録に足す。`conversation` は記録と今の状態（待機中・考え中と、実行中のコマンド）。新しい GUI（`eco_gui`）のオペレーターの画面は、これで送り・読む。
+- どちらの GUI に頼むか（`ecobuild_gui.target()`）：① 環境変数 `ECOBUILD_GUI_TARGET`（`next`・`classic`）があればそれ。② 新しい GUI（`eco_gui`）の中から頼まれた（新しい GUI の画面が実行したコマンド・そこから話しかけたオペレーター。環境変数 `GUIFRAMEWORK_WINDOW`・`GUIFRAMEWORK_RUN` で分かる）なら新しい GUI。③ ほか（端末・今までの GUI のオペレーター）は動いている方。両方動いていれば今までの GUI。④ どちらも動いていなければ今までの GUI を起動する。
+- 新しい GUI には、表示の CLI（`python -m eco_gui.app <命令>`。`next_gui.py`）で頼む：`open`（`--screen` に新しい GUI の画面の名前。`--page` は同じ役目の画面に読み替える）・`windows`・`notify`・`folder`・`vs` と、新しい GUI だけの `screens`（画面の一覧）・`tree`（窓の今の表示を読む）・`emit`（人の代わりに入力を出す）。エージェントの窓の操作（`agents`・`agent-…`・`operator`）は今までの GUI だけ（ない理由と代わりを答える）。オペレーターには `emit` を渡さない（ボタンを押せば変える操作になる）。`run`（`ecobuild gui task start 12` 等）は ecobuild をそのまま実行し、窓に読み直しを頼む。
+- `ecobuild gui conversation` の状態は `idle`（待機中）・`starting`（エージェントを起動して最初の出力を待っている。`starting_for` 秒）・`thinking`（考え中。`doing` に実行中のコマンド）。
+- `ecobuild-gui`（入口）は、新しい GUI の準備（`eco_gui_setup.py`）と起動（`ECOBuildGUINext.pyw`）でも置く。動く入口がもうあれば触らない（今までの GUI が置いたものと取り合わない）。
 
 画面は、サーバーの `events` を待ち受けて（長いポーリング）、ほかの窓・エージェントが行ったことを表示し、移動・開くの頼みに応える。窓は今表示しているものを `window-state` で知らせる。
 

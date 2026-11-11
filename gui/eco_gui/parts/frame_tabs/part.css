@@ -1,0 +1,41 @@
+/* 作業空間のタブ。今までの GUI（shell.css の .workspace-tab-bar・.tabs・.workspace-picker・.empty-workspaces）と同じ値。 */
+.tab-bar { display: flex; align-items: stretch; min-width: 0; background: #191e24; border-bottom: 1px solid #303640; }
+.tabs { display: flex; flex: 1; min-width: 0; gap: 4px; overflow-x: auto; padding: 3px 8px 0; }
+.tab-group { display: flex; flex-shrink: 0; align-items: center; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; }
+.tab-group:hover { background: #1f262d; }
+.tab-group.on { background: #232c32; border-color: #35443e; border-bottom-color: #9ee4d3; }
+.tab-group > [role=tab] { flex-shrink: 0; border: 0; border-radius: 7px 7px 0 0; background: transparent; color: #9eaab8; padding: 3px 8px 3px 12px; font-size: 13px; }
+.tab-group > [role=tab]:hover:not(:disabled) { background: transparent; border: 0; }
+.tab-group.on > [role=tab] { color: #b0efdd; }
+.tabs small.where { margin-left: 10px; font-size: 12px; color: #84909e; }
+.close-tab { padding: 0 6px; margin-right: 6px; border: 0; border-radius: 4px; background: transparent; color: #a5aeba; font-size: 14px; }
+.close-tab:hover:not(:disabled) { background: #39424a; color: #fff; border: 0; }
+.tab-group:not(:hover):not(.on):not(:focus-within) .close-tab { visibility: hidden; }
+.add-tab { display: grid; place-items: center; flex-shrink: 0; width: 40px; border: 0; border-radius: 0; background: transparent; color: #a5aeba; }
+.add-tab:hover:not(:disabled) { color: #edf1f5; background: #252d36; border: 0; }
+button:focus-visible { outline: 2px solid #9ee4d3; outline-offset: -3px; }
+
+/* ▼：作業空間の一覧（窓の真ん中に重ねる） */
+.veil { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: #0009; }
+.picker { width: min(520px, calc(100% - 32px)); max-height: 80vh; overflow: auto; padding: 24px; background: #1c2128; color: #edf1f5; border: 1px solid #46515e;
+  border-radius: 12px; box-shadow: 0 24px 80px #0008; }
+.picker h2 { margin: 0 0 6px; font-size: 18px; }
+.picker .rows { display: grid; gap: 8px; margin: 20px 0; }
+.picker .help { margin: 0; color: #a5aeba; font-size: 13px; line-height: 1.7; }
+.picker-row { display: flex; gap: 6px; align-items: stretch; }
+.picker-row > .pick { flex: 1; min-width: 0; padding: 10px 14px; border: 1px solid #46515e; border-radius: 6px; background: #263630; color: #d8eee5; text-align: left; white-space: normal; }
+.picker small { display: block; margin-top: 2px; color: #84909e; font-size: 11px; overflow-wrap: anywhere; }
+.picker-shown { margin-left: 8px; padding: 0 7px; border-radius: 8px; background: #2a323b; color: #a5aeba; font-size: 11px; }
+.picker-remove { flex: none; padding: 10px 14px; background: transparent; border: 1px solid #5e3f45; border-radius: 6px; color: #ffb4b4; }
+.picker-remove:hover:not(:disabled) { background: #2b1a1d; border-color: #5e3f45; }
+.picker-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+
+/* 出しているタブがない：真ん中に短い案内 */
+.empty-workspaces { max-width: 520px; margin: 12vh auto 0; padding: 24px; text-align: center; color: #a5aeba; line-height: 1.8; }
+.empty-icon { color: #46515e; }
+.empty-workspaces h2 { margin: 8px 0 6px; font-size: 16px; color: #edf1f5; }
+.empty-workspaces p { margin: 0 0 8px; }
+.empty-actions { display: flex; gap: 8px; justify-content: center; margin: 14px 0 10px; }
+.empty-actions button { padding: 5px 14px; border-radius: 7px; }
+.waiting, .problem { margin: 0; padding: 24px; }
+.problem { color: var(--eco-bad); }

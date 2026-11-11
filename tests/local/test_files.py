@@ -39,7 +39,8 @@ def test_files_shows_tracked_and_new_files_but_not_ignored_ones(cli, module):
 
 def test_files_tells_the_files_that_are_gone_from_the_folder(cli, module):
     root = module.root
-    assert json.loads(cli("files", "--json").stdout)["result"]["missing"] == []
+    first = json.loads(cli("files", "--json").stdout)["result"]
+    assert first["missing"] == [] and first["generated"] == []   # この型には、道具が作り直すファイルがない
     (root / "README.md").unlink()                      # 消しただけ（まだコミットしていない）
     result = json.loads(cli("files", "--json").stdout)["result"]
     assert "README.md" in result["files"] and result["missing"] == ["README.md"]
@@ -59,3 +60,15 @@ def test_module_readme_shows_the_readme_at_the_top(cli, module):
     (root / "README.txt").unlink()
     assert json.loads(cli("module", "readme", "--json").stdout)["result"] is None
     assert "README はありません" in cli("module", "readme").output
+
+
+def test_files_tells_the_files_the_tool_makes_again(cli, module, monkeypatch):
+    """生成ファイル（道具が作り直すもの）は、型が決める。"""
+    monkeypatch.setattr(type(module.type), "is_generated", lambda self, path: path.endswith(".md"))
+    result = json.loads(cli("files", "--json").stdout)["result"]
+    assert result["generated"] == ["README.md"] and "README.md（生成）" in cli("files").output.split()
+
+
+def test_module_show_lists_the_kinds_of_the_projects(cli, module):
+    result = json.loads(cli("module", "show", "--json").stdout)["result"]
+    assert result["projects"] == [p["name"] for p in result["project_list"]]   # 名前の並びと、1件ずつの種類・場所

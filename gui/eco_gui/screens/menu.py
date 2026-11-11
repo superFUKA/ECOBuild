@@ -7,7 +7,7 @@ SCREEN = {
     "nodes": [
         {"id": "menu", "part": "menu", "props": {"current": {"arg": "current"}, "items": [
             {"id": "overview", "label": "概要", "icon": "module", "group": "モジュール"},
-            {"id": "files", "label": "ファイル", "icon": "folder", "group": "モジュール"},
+            {"id": "frame-workspaces", "label": "作業空間", "icon": "folder", "group": "モジュール"},
             {"id": "members", "label": "メンバー", "icon": "members", "group": "モジュール"},
             {"id": "pipelines", "label": "パイプライン", "icon": "flow", "group": "モジュール"},
             {"id": "ci", "label": "CI", "icon": "ci", "group": "モジュール"},

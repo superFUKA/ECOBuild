@@ -49,6 +49,7 @@ class ModuleInfo:
     workspaces: tuple["TaskWorkspace", ...] = ()   # このPCにある、このモジュールの作業空間（元の clone の .ecobuild/w/）
     format: int = 0                  # モジュールの仕様の版（ecobuild.toml の format）
     latest_format: int = 0           # この ECOBuild の版。format が小さければ module upgrade で上げられる
+    project_list: tuple["ProjectSummary", ...] = ()   # projects の1件ずつの、種類・場所・リンク（型が Project を持たなければ空）
 
 
 @dataclass(frozen=True)

@@ -17,3 +17,5 @@
 .log-more { align-self: flex-start; padding: 4px 10px; font-size: 12px; }
 .log-short { height: auto; }
 .log-short .log-entries { flex: none; max-height: 240px; }
+/* ログを見るブランチを選ぶ欄（絞り込みの上） */
+.log-branch { flex: none; width: 100%; padding: 5px 8px; font-size: 12px; }

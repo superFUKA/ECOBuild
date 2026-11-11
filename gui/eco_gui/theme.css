@@ -337,6 +337,19 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 /* ws-dialog：窓の中に重ねて開く入力の窓・差分 */
 [data-gf-look="ws-dialog"] { gap: 12px; }
 
+/* frame-main：モジュールの窓の「作業空間」。上に帯とタブ（frame-bar）、下に選んだ作業空間（ws-window）。自分ではスクロールしない。
+   作業空間の見出しは出さない（モジュールの名前は左のメニュー、今いる場所はタブが出している。今までの GUI と同じ） */
+[data-gf-look="frame-main"] { flex: 1; min-width: 0; min-height: 0; gap: 0; flex-wrap: nowrap; overflow: hidden; }
+[data-gf-look="frame-bar"] { flex: none; gap: 0; }
+[data-gf-look="frame-bar"]:only-child { flex: 1; min-height: 0; overflow: auto; }
+[data-gf-look="frame-main"] > [data-gf-look="ws-window"] { flex: 1; min-width: 0; min-height: 0; padding: 0; gap: 0; }
+[data-gf-look="frame-main"] [data-gf-node="ws:state"] { display: none; }
+
+/* ws-page：作業空間から別の窓で開くページ（ビルドと試験・退避・注釈履歴）。箱（card）を縦に並べる */
+[data-gf-look="ws-page"] { gap: 14px; }
+[data-gf-look="ws-page"] > [data-gf-look="card"] { gap: 10px; }
+[data-gf-look="ws-page"] > [data-gf-look="bar"] + [data-gf-part="note"] { margin-top: -12px; }
+
 /* （作業空間の節の終わり） */
 
 

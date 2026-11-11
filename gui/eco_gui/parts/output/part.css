@@ -31,3 +31,7 @@
 .out-text .line.muted { color: #7d8794; }
 .out-text .line.head { font-weight: 600; }
 .out-text mark { background: #6b5a1f; color: #fff3c4; border-radius: 2px; }
+/* 行の中の「ファイル(行)」のリンク（今までの GUI の .out-text a と同じ：下線、色は行のまま） */
+.out-text .file-link { display: inline; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline dotted;
+  text-underline-offset: 3px; cursor: pointer; white-space: inherit; }
+.out-text .file-link:hover:not(:disabled) { color: #9ee4d3; background: transparent; border: 0; }

@@ -1,4 +1,6 @@
 SAMPLES = [
+    {"name": "ブランチを選ぶ欄", "props": {"branches": [{"name": "main"}, {"name": "feature/login"}, {"name": "task/12-login"}], "branch": "feature/login",
+                                  "commits": [{"sha": "abc1234def", "subject": "ログインの画面", "author": "octocat", "date": "2026-11-01T10:00:00+09:00"}]}},
     {"name": "ログ（印・選んでいる行）", "props": {"selected": "b2c3d4e5f6a7", "commits": [
         {"sha": "a1b2c3d4e5f6", "subject": "ログイン画面：入力の検査を足す (#31)", "author": "octocat", "date": "2026-11-10T09:12:00+09:00", "pull_request": 31, "issue": 12},
         {"sha": "b2c3d4e5f6a7", "subject": "設定の読み込みを直す", "author": "hubot", "date": "2026-11-09T18:40:00+09:00", "pull_request": None, "issue": 9},

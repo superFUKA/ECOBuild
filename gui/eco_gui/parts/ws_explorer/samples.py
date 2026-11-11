@@ -9,6 +9,9 @@ SAMPLES = [
         "projects": [{"name": "Calc", "kind": "static_library", "directory": "Calc"}, {"name": "CalcTest", "kind": "test", "directory": "CalcTest"},
                      {"name": "CalcApp", "kind": "executable", "directory": "CalcApp"}],
         "status": {"unstaged": ["Calc/src/Add.cpp"]}}},
+    {"name": "生成ファイル（目の印で出したところ。ふだんは隠す）", "props": {
+        "files": ["README.md", "CMakeLists.txt", "src/app.cpp", "src/CMakeLists.txt"], "generated": ["CMakeLists.txt", "src/CMakeLists.txt"],
+        "status": {"unstaged": ["src/CMakeLists.txt"]}}},
     {"name": "空", "props": {"files": []}},
     {"name": "読み込み中", "props": {"loading": True}},
     {"name": "誤り", "props": {"error": "モジュールではありません"}},

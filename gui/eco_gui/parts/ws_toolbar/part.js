@@ -7,11 +7,12 @@ const ICONS = {
   sync: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
   account: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>',
   container: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
 };
 const ROLES = { admin: '管理者', maintain: '管理', write: '書き込み', triage: '整理', read: '読み取り' };
 
 export default {
-  render(root, props, { h, emit, menu }) {
+  render(root, props, { h, emit, menu, memory, state }) {
     const svg = (name, size = 15, width = 2) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -96,6 +97,26 @@ export default {
       });
       right.append(h('span', { class: 'vs-group sync-group' + (behind ? ' due' : '') + (clashes ? ' bad' : ''), role: 'group', 'aria-label': '取り込み' }, main, more));
     }
+
+    // フォルダーを開く・Visual Studio で開く（▾ は、使う版を選ぶだけ。選んだ版は、この PC に覚える）
+    const folder = h('button', { type: 'button', class: 'tool-button', 'aria-label': 'フォルダーを開く', 'data-tip': 'この作業空間のフォルダーを、エクスプローラーで開きます' }, svg('folder'));
+    folder.addEventListener('click', () => act('open_folder'));
+    right.append(folder);
+    const STUDIOS = [['2026', 'Visual Studio 2026'], ['2022', 'Visual Studio 2022']];
+    const usable = (version) => (props['vs' + version] || {}).can !== false;
+    const version = memory.get('vs', '2026');
+    if (props.vs_version !== version && state.told !== version) { state.told = version; act('vs_version', { value: version }); }  // ファイルを開くときも、この版で
+    const openVs = h('button', { type: 'button', class: 'vs-button', 'data-tip': usable(version)
+      ? `この作業空間を Visual Studio ${version} で開きます（ビルドで作られたソリューション。なければフォルダーとして）`
+      : (props['vs' + version] || {}).reason || `Visual Studio ${version} が、この PC にありません` }, `VS${version}`);
+    openVs.addEventListener('click', () => act('open_vs', { value: version }));
+    const chooseVs = h('button', { type: 'button', class: 'vs-more', 'aria-haspopup': 'menu', 'aria-label': '開く Visual Studio の版を選ぶ', 'data-tip': '開く Visual Studio の版を選ぶ' }, down());
+    chooseVs.addEventListener('click', async () => {
+      const id = await menu(under(chooseVs), STUDIOS.map(([v, name]) => ({ id: v, label: (v === version ? '✓ ' : '　') + name + (usable(v) ? '' : '（このPCにありません）'),
+        disabled: !usable(v), reason: (props['vs' + v] || {}).reason || '' })));
+      if (id) { memory.set('vs', id); state.told = id; act('vs_version', { value: id }); }
+    });
+    right.append(h('span', { class: 'vs-group editor-group', role: 'group', 'aria-label': 'エディター' }, openVs, chooseVs));
 
     // アカウント・コンテナ
     const account = props.account || {};

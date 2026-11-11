@@ -34,7 +34,7 @@ EFFECTS = {
     ),
 }
 # 上の表より細かい指定（短い名前が read でも、その下のコマンドは変える）
-OVERRIDES = {"track add": CHANGE, "track remove": CHANGE}
+OVERRIDES = {"track add": CHANGE, "track remove": CHANGE, "module settings set": CHANGE}
 # 一覧（--help）に出さないコマンド（エージェントを起動する ECOBuild が使う。人は使わない）
 HIDDEN = {"agent mcp": HUMAN}
 CONFIRM_OPTIONS = ("--yes", "-y", "--discard-local", "--force", "--remove-workspaces")
@@ -52,8 +52,6 @@ def effect(path: str, options: tuple[str, ...] = ()) -> str:
         if " ".join(words[:length]) in _TABLE:
             found = _TABLE[" ".join(words[:length])]
             break
-    if path == "module settings" and any(o.startswith("-") and o != "--json" for o in options):
-        found = CHANGE      # 値を渡すと設定を変える
     if path == "container dockerfile" and any(o.split("=")[0] == "--write" for o in options):
         found = CHANGE      # --write は環境の Dockerfile を書く
     if found in (READ, CHANGE) and any(o.split("=")[0] in CONFIRM_OPTIONS for o in options):

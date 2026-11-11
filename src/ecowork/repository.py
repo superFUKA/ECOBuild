@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import replace
@@ -33,8 +35,16 @@ from ._sync import Syncing
 from ._shared import _github_name, reusing_reads
 
 
+_FETCHING = threading.Lock()
+
+
 class Hooks:
     """作業の流れの途中に、利用側の処理を入れる口。既定は何もしない。"""
+
+    def keeps_workspace(self, repository: "Repository", path: Path) -> str | None:
+        """作業ツリー path を、タスクブランチの片付けで消さないなら、その理由（消してよければ None）。
+        利用側が作った作業空間でないもの（人が git worktree で作ったもの等）を守る口。下見（dry-run）でも確かめる。"""
+        return None
 
     def after_sync(self, repository: "Repository") -> object:
         """sync・sync continue で取り込みが終わった後（衝突で止まったときは呼ばない）。
@@ -591,6 +601,28 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             details=list(markers),
         )
 
+    @staticmethod
+    def _each(read, items) -> dict:
+        """items のそれぞれを read で調べる（項目 → 結果）。並べて調べる：GitHub に1つずつ聞いて待つと、ブランチの数だけ
+        秒がかかる。read は読むだけのもの（手元も GitHub も変えない）。"""
+        from concurrent.futures import ThreadPoolExecutor
+
+        items = list(dict.fromkeys(items))
+        if len(items) < 2:
+            return {item: read(item) for item in items}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return dict(zip(items, pool.map(read, items)))
+
+    def _issues(self, numbers) -> dict:
+        """タスクの番号 → Issue（読めなかったものは None）。"""
+        def read(number):
+            try:
+                return self.github.get_issue(self.root, number)
+            except WorkError:
+                return None
+
+        return self._each(read, sorted(set(numbers)))
+
     def _unsafe_to_remove(self, branch: str) -> str | None:
         """消すと失われるコミット（作成元にもマージ済みのPRにも入っていないもの）があれば理由を返す。
 
@@ -613,7 +645,8 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             if pull.state != "merged" or not pull.head_sha:
                 continue
             if self.git.rev_parse(pull.head_sha) is None:
-                self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{pull.number}/head", check=False)
+                with _FETCHING:     # 並べて調べているとき（_each）も、取得は1つずつ
+                    self.git.run("fetch", "--quiet", _git.REMOTE, f"pull/{pull.number}/head", check=False)
             if self.git.rev_parse(pull.head_sha) is not None:
                 heads.append(pull.head_sha)
         # 提出を通さずに反映した（task apply）版も、取り込み済み
@@ -700,6 +733,9 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             if not dry_run:
                 self._switch_to_latest(base)
             return wm.Released(True, switched_to=base)
+        kept = self.hooks.keeps_workspace(self, held)   # 下見でも、実際と同じ答えにする
+        if kept:
+            return wm.Released(False, kept=kept)
         if dry_run:
             return wm.Released(True, workspace_removed=held)
         try:

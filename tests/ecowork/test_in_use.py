@@ -142,7 +142,11 @@ def test_tidy_leaves_finished_branch_checked_out_in_another_git_worktree(reposit
     repository.github.close_issue(repository.root, 1)
     git(repository.root, "worktree", "add", str(tmp_path / "other"), "task/1")
     repository.git.fetch()
+    asked = []
+    read = repository.github.get_issue
+    repository.github.get_issue = lambda root, number: asked.append(number) or read(root, number)
     assert repository._tidy_finished() == ()
-    assert repository.git.has_local_branch("task/1") and any("残しました" in n for n in repository.notices)
+    # どのみち消せないので、GitHub に聞かずに残す（残っている数だけ待たせない）。知らせも出さない（片付けるのは task prune）
+    assert repository.git.has_local_branch("task/1") and asked == [] and not any("残しました" in n for n in repository.notices)
     git(repository.root, "worktree", "remove", str(tmp_path / "other"))
     assert repository._tidy_finished() == ("task/1",)

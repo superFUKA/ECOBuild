@@ -216,6 +216,20 @@ def test_prune_inside_the_workspace_removes_it(repository, tmp_path):
     assert not (tmp_path / "1").exists() and same_path(inside.root, repository.root)
 
 
+def test_prune_previews_what_it_would_really_do_with_a_work_tree_the_user_side_keeps(repository, tmp_path):
+    class Keeping(Hooks):
+        def keeps_workspace(self, repository, path):
+            return "人が作った作業ツリーです（消しません）"
+
+    _, first = started(repository, tmp_path / "1")
+    repository.github.close_issue(repository.root, 1)
+    repository.hooks = Keeping()
+    preview = repository.prune_task_branches(dry_run=True)    # 下見も、実際と同じ答え（消すと言って、消さないことがない）
+    assert preview.removed == () and [(s.branch, s.reason) for s in preview.skipped] == [("task/1", "人が作った作業ツリーです（消しません）")]
+    result = repository.prune_task_branches()
+    assert result.removed == () and (tmp_path / "1").exists() and repository.git.has_local_branch("task/1")
+
+
 def test_a_branch_held_by_a_workspace_cannot_be_deleted_as_a_branch(repository, tmp_path):
     develop = repository.create_branch("develop")
     repository.git.worktree_add(tmp_path / "d", "develop")

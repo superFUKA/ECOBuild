@@ -650,7 +650,7 @@ def change_kind(root: Path, name: str, kind: str, *, test: bool = True, command:
                             f"{name} は他のモジュールからリンクされるProject（main）なので、種類を変えられません。",
                             hint=("種類を変えると作り直しになり、他のモジュールからのリンクが切れます。"
                                   if library and to_library else "") +
-                                 f"先に {operation(command, 'module settings')} --no-main で main をなしにしてください"
+                                 f"先に {operation(command, 'module settings set')} --no-main で main をなしにしてください"
                                  + ("（ビルドごとに静的・共有を切り替えるなら profile の type か project link --as で足ります）。"
                                     if library and to_library else "。"))
     fresh = deepcopy(data)

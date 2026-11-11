@@ -1,4 +1,4 @@
-"""モジュール › 全般 › 変更：入力の窓。モジュールの設定を変える（ecobuild module settings [--main <Project>] [--no-main]
+"""モジュール › 全般 › 変更：入力の窓。モジュールの設定を変える（ecobuild module settings set [--main <Project>] [--no-main]
 [--msvc-runtime <dll|static>] [--projects-folder …] [--linked-folder …] [--external-folder …]）。
 """
 
@@ -36,11 +36,11 @@ SCREEN = {
         {"read": "module settings", "args": {"module": {"arg": "module"}}, "to": "form.values"},
         {"read": "project list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.more", "from": "workspaces"},
-        {"on": "form.submitted", "run": "module settings", "require": ["module"],
+        {"on": "form.submitted", "run": "module settings set", "require": ["module"],
          "args": {"module": {"payload": "values.place"}, "main": {"payload": "values.main"}, "no_main": {"payload": "values.no_main"},
                   "msvc_runtime": {"payload": "values.msvc_runtime"}, "projects_folder": {"payload": "values.projects_folder"},
                   "linked_folder": {"payload": "values.linked_folder"}, "external_folder": {"payload": "values.external_folder"}},
-         "notify": "モジュールの設定を保存しました（表は「読み直す」で新しくなります）。", "close": True},
+         "notify": "モジュールの設定を保存しました。", "close": True},
         {"on": "form.cancelled", "close": True},
     ],
 }

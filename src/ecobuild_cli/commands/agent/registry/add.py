@@ -48,6 +48,11 @@ def command(name: Annotated[str, "登録の名前（英小文字・数字・-・
                 known = {r.name: r for r in _registry.list_registrations(module.root)}
                 fields["children"] = tuple(child for child in added.children
                                            if child not in known or not _registry.stronger(known[child], narrowed))
+                dropped = [child for child in added.children if child not in fields["children"]]
+                if dropped:     # 黙って外さない
+                    inv.notices.append(f"起動してよい子から {'・'.join(dropped)} を外しました（コミット・push・提出のツールを持つので、"
+                                       f"この登録より強くなります）。子として使うなら、その登録のツールも狭めてから "
+                                       f"ecobuild agent registry set {name} --children で足してください。")
             if not fields:
                 return added
             try:

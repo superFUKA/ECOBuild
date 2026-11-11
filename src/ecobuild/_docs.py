@@ -118,7 +118,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
               "違うと思う指摘は `ecobuild task comment` で理由を返します。見直しは承認ではありません。\n"
               if config.extra.get(CI_TABLE, {}).get("review") is True else "")
     hand_edit = (f"- {generated}は手で編集しません（`ecobuild file`・`ecobuild project`・`ecobuild deps add` 等で変えます）。\n"
-                 "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`（モジュール全体）・"
+                 "- 設定は `ecobuild project show／set／link`（Projectごと）・`ecobuild module settings`／`module settings set`（モジュール全体）・"
                  "`ecobuild template`（ファイルテンプレート）・`ecobuild profile`（ビルドのたびに選ぶもの）で見て変えます。\n"
                  if generated and issubclass(module_type, HasProjects) else
                  f"- {generated}は手で編集しません（ECOBuild のコマンドで変えます）。\n" if generated else "")

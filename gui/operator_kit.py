@@ -112,7 +112,7 @@ def read_command(args: list[str], found: dict) -> str:
         raise Failure("not_allowed", f"ecobuild {' '.join(words[:2])} は見るだけのコマンドではないので、オペレーターは使えません。",
                       "コマンドの名前は ecobuild_commands で確かめられます。")
     effect = table[path][0]
-    raised = [o for o in options if o in RAISING_OPTIONS] or ([o for o in options if o != "--json"] if path == "module settings" else [])
+    raised = [o for o in options if o in RAISING_OPTIONS]
     if effect != "read" or raised:
         raise Failure("not_allowed", f"ecobuild {path}{' ' + ' '.join(raised) if raised else ''} は ECOBuild を変える操作なので、"
                                      "オペレーターは実行しません。",

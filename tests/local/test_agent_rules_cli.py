@@ -78,12 +78,15 @@ def test_add_can_set_the_title_who_starts_it_and_leave_out_the_owner_tools(modul
     added = cli("agent", "registry", "add", "reviewer", "--from-preset", "worker", "--title", "レビュー役", "--human-start",
                 "--no-owner-tools")
     assert added["ok"], added["error"]
+    assert any("外しました" in notice and "強くなります" in notice for notice in added["notices"])     # 外した子は知らせる
     added = added["result"]
     marks = {t["name"]: t["mark"] for t in cli("agent", "registry", "tools")["result"]}
     assert (added["title"], added["human_start"], bool(added["committed"])) == ("レビュー役", True, True)
     assert added["tools"] and all(marks[name] != "owner" for name in added["tools"])
     assert added["children"] == []                                      # 写した元の子（すべてのツールを持つ）は、強くなるので外れる
     assert git(module.root, "status", "--porcelain").strip() == ""
-    plain = cli("agent", "registry", "add", "helper", "--from-preset", "worker")["result"]      # 書かなければ、写した元のまま
+    plain = cli("agent", "registry", "add", "helper", "--from-preset", "worker")      # 書かなければ、写した元のまま
+    assert not any("外しました" in notice for notice in plain["notices"])
+    plain = plain["result"]
     worker = next(r for r in cli("agent", "preset", "list")["result"] if r["name"] == "worker")
     assert (plain["title"], plain["human_start"], plain["tools"]) == (worker["title"], worker["human_start"], worker["tools"])

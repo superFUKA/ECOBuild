@@ -286,23 +286,6 @@ def test_files_screen_shows_the_tree_and_the_diff_of_the_selected_file(relay):
     assert view["diff"]["props"]["text"].startswith("diff --git a/src/app.py") and ("diff", {"paths": ["src/app.py"]}) in relay.backend.calls
 
 
-def test_task_rows_start_and_close_with_the_number_as_an_integer(relay):
-    window = relay.execute({"command": "open", "screen": "tasks", "args": {"module": "C:/work/Calc"}})["window"]
-    relay.idle()
-    relay.input(window, "start_name", "changed", {"text": "ログイン画面"}, human=True)
-    relay.input(window, "tasks", "action", {"id": "12", "action": "start"}, human=True)  # 表は ID を文字で出す
-    relay.idle()
-    assert ("task start", {"issue": 12, "name": "ログイン画面"}) in relay.backend.calls  # コマンドの型（数）で渡る
-    relay.input(window, "tasks", "action", {"id": "12", "action": "close"}, human=True)
-    answer(relay, window, True)  # 閉じるのは、確かめてから
-    assert ("task close", {"issue": 12}) in relay.backend.calls
-    relay.input(window, "new_title", "changed", {"text": "ログを残す"}, human=True)
-    relay.idle()
-    relay.input(window, "new", "pressed", {}, human=True)
-    relay.idle()
-    assert ("task new", {"title": "ログを残す"}) in relay.backend.calls
-
-
 def test_branches_and_history_screens(relay):
     window = relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()

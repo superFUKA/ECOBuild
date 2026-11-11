@@ -145,7 +145,8 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
 .gf-tabs-body { padding-top: 14px; }
 .gf-row { align-items: flex-end; flex-wrap: wrap; }
 .gf-loading { color: var(--gf-muted); font-size: 13px; }
-.gf-wrap > small { display: block; margin-top: 3px; color: var(--eco-dim); font-size: 11px; }
+/* 押せない理由は、ツールチップで出す（包みの title。ボタンの下に長い文を出すと行が崩れる。今までの GUI と同じ） */
+.gf-wrap > small { display: none; }
 
 /* --- 窓の作り（look） ---
    shell：左のメニュー＋右のページ（モジュールの窓・ハブ）。page：ページ（縦に並べ、自分でスクロールする）。

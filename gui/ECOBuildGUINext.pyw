@@ -36,8 +36,12 @@ def main() -> int:
         eco_gui_setup.place_command(shutil.which("ecobuild"))
     except Exception:
         pass
-    flags = 0x08000000 if sys.platform == "win32" else 0  # コマンドプロンプトの窓を出さない
-    done = subprocess.run([sys.executable, "-m", "eco_gui.app", "serve", "--background", "--screen", "hub", "--json"],
+    from guiframework.procs import console_python
+
+    # 窓のない pythonw のままでは、ecobuild を呼ぶたびにコマンドプロンプトの窓が出る。隣の python を、窓のないコンソールで起こす
+    # （その先の中継地点・ecobuild は、この見えないコンソールを受け継ぐ）
+    flags = 0x08000000 if sys.platform == "win32" else 0
+    done = subprocess.run([console_python(sys.executable), "-m", "eco_gui.app", "serve", "--background", "--screen", "hub", "--json"],
                           cwd=HERE, creationflags=flags, stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
     if done.returncode != 0:
         try:

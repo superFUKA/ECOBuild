@@ -4,6 +4,7 @@ from ecobuild.errors import EcoBuildError, ErrorCode
 
 from ..._output import lines, optional_argument, run_command
 from ..workspace.close import leave, render_removed
+from ._show import can_answer, render_can
 
 
 def render_finish(r) -> str:
@@ -42,6 +43,7 @@ def command(
     complete: Annotated[bool, "取り込んでタスクを閉じる（中間提出も最後の提出に切り替える）"] = False,
     timeout: Annotated[int, "CIを待つ時間の上限（秒）"] = 1800,
     pipelines: Annotated[bool, "取り込みの前のパイプラインを走らせる（ecobuild pipeline。--no-pipelines で省く）"] = True,
+    can: Annotated[bool, "実行せずに、今できるかを答える（できなければ、その理由）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """タスクを完了します：CIを待って取り込み、タスクを閉じ、タスクブランチと作業空間を片付けます。
@@ -50,8 +52,16 @@ def command(
     --partial の中間提出なら、取り込んだ後にタスクブランチを作り直して続ける）で、--complete／--partial で変えられます。
     中間提出が取り込まれた後、新しい変更がなければ、取り込むものなしでタスクを閉じます。途中で止まったら、もう一度
     実行すると続きから行います。完了済みのタスクでは何もせずに終わります（JSON の already_done が true）。
+    --can を付けると、取り込まずに、今できるか（下書き・権限・作成元との衝突）だけを答えます。
     """
     task = optional_argument(number, task, "--task", json)
+    if can:
+        def answer(inv):
+            repository = inv.module.repository
+            chosen = task or repository.require_task_branch("番号を省略したタスクの完了").number
+            return can_answer(repository.submission_block(chosen, "finish"))
+
+        return run_command("task finish", answer, render_can, json_output=json)
 
     def action(inv):
         if partial and complete:

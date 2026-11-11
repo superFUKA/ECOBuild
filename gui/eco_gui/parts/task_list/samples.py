@@ -8,7 +8,7 @@ SAMPLES = [
             {"number": 13, "title": "ログを残す", "state": "open", "stage": "todo", "assignees": [], "priority": "Middle", "due": "2099-12-01", "estimate": None,
              "sprint": "Sprint 1", "blocked_by": 2, "subtasks": 0},
             {"number": 14, "title": "提出を見てもらう", "state": "open", "stage": "in_review", "assignees": ["octocat", "review-bot"], "priority": "Low", "remote": True},
-            {"number": 15, "title": "段階の記録がないタスク", "state": "open", "stage": None, "assignees": ["hubot"]},
+            {"number": 15, "title": "担当の決まったタスク", "state": "open", "stage": "todo", "assignees": ["hubot"]},
             {"number": 16, "title": "まだ詰めている", "state": "open", "stage": "planned", "assignees": []},
             {"number": 9, "title": "終わったタスク", "state": "closed", "closed_reason": "completed", "stage": "done", "assignees": ["octocat"]},
             {"number": 8, "title": "やめたタスク", "state": "closed", "closed_reason": "not_planned", "stage": "done", "assignees": []}]}},

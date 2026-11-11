@@ -1,38 +1,29 @@
-"""タスクの詳細（タスク管理の表示の右に置く。選んだタスク＝共有の値 selected）。
+"""タスクの詳細（部品 task-detail と、そのつなぎ）。タスク管理の表示の右に置く・窓いっぱいに出す（画面 task）。
 
-その場で変える（task edit）・コメント（task comment）・開き直す・完了にする・削除・提出の取り下げ・手元で確認・取り込みの取り消し。
-欄の多い操作（開始・編集・完了・作業を捨てる ほか）は、入力の窓（task-start ほか）を中に重ねて開く。
+どのタスクを出すかは引数 number：一覧で選んだもの（共有の値 selected。既定）か、決まった番号。
+その場で変える・完了・削除・開き直す・入力の窓は、タスクを描くほかの部品と同じ（task-view）。ここで足すのは、コメント（task comment）、
+提出の取り下げ・手元で確認・取り込みの取り消し、差分（提出の画面）、提出のボタンの灰色と理由（task approve・reject・finish の --can）。
 """
 
-ARGS = {"module": "."}  # モジュールのフォルダー
+ARGS = {"module": ".", "number": {"value": "selected"}, "look": "tk-detail", "closable": True}
+# モジュールのフォルダー・出すタスクの番号（共有の値への参照か、番号）・見た目の名前・× で閉じられるか
 
 SCREEN = {
     "root": "detail",
     "nodes": [
-        {"id": "detail", "part": "task-detail", "look": "tk-detail"},
+        {"id": "detail", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "task-detail", "look": {"arg": "look"},
+                                                         "props": {"closable": {"arg": "closable"}}}},
     ],
     "bindings": [
         {"value": "selected", "to": "detail.number"},
         {"on": "detail.closed", "set": {"selected": None, "detail": None}},
         # 読む：タスクの状態と、その場の欄の選択肢
-        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"value": "selected"}, "body": True}, "require": ["number"], "to": "detail.status"},
-        {"read": "sprint list", "args": {"module": {"arg": "module"}}, "to": "detail.sprints"},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "number"}, "body": True}, "require": ["number"], "to": "detail.status"},
         {"read": "milestone list", "args": {"module": {"arg": "module"}}, "to": "detail.milestones"},
-        {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "detail.account"},
-        {"on": "detail.selected", "set": {"selected": {"payload": "id"}, "detail": "open"}},  # つながりのタスクへ
-        {"on": "detail.dialog", "open": {"payload": "screen"}, "inside": True,
-         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "text": {"payload": "text"}}},
-        # その場で変える（ecobuild task edit <番号> --priority … ほか。入れた値だけが渡る）
-        {"on": "detail.edit", "run": "task edit", "notify": "保存しました。",
-         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"},
-                  "priority": {"payload": "priority"}, "sprint": {"payload": "sprint"}, "stage": {"payload": "stage"}, "estimate": {"payload": "estimate"},
-                  "due": {"payload": "due"}, "planned_start": {"payload": "planned_start"}, "planned_end": {"payload": "planned_end"}, "milestone": {"payload": "milestone"},
-                  "clear_milestone": {"payload": "clear_milestone"}, "add_assignee": {"payload": "add_assignee"}, "remove_assignee": {"payload": "remove_assignee"}, "add_label": {"payload": "add_label"},
-                  "remove_label": {"payload": "remove_label"}, "clear": {"payload": "clear"}}},
-        {"on": "detail.close", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "完了にしました。"},
-        {"on": "detail.remove", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "not_planned": True}, "notify": "削除しました。"},
-        {"on": "detail.reopen", "run": "task reopen", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "開き直しました。"},
-        {"on": "detail.workspace", "open": "workspace", "args": {"module": {"payload": "path"}}},
+        # 提出を処理できるか・できない理由（ボタンの灰色とツールチップ）
+        {"can": "task approve", "args": {"module": {"arg": "module"}, "task": {"arg": "number"}}, "require": ["task"], "to": "detail.can_approve"},
+        {"can": "task reject", "args": {"module": {"arg": "module"}, "task": {"arg": "number"}}, "require": ["task"], "to": "detail.can_reject"},
+        {"can": "task finish", "args": {"module": {"arg": "module"}, "number": {"arg": "number"}}, "require": ["number"], "to": "detail.can_finish"},
         {"on": "detail.comment", "run": "task comment", "notify": "コメントしました。",
          "args": {"module": {"arg": "module"}, "number": {"payload": "id"}, "message": {"payload": "message"}}},
         # 提出：取り下げる（確かめてから）・手元で確認・取り込みを取り消す（確かめてから）。差分は提出の画面で

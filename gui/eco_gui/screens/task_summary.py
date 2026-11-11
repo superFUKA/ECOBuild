@@ -1,71 +1,36 @@
 """モジュール › タスク管理 › 概要：開いているタスクの数・段階・今のスプリント・自分の次のタスク・期限・マイルストーン・担当者ごとの量・提出・最近の完了。
 
-上の帯（表示のタブと絞り込み）・右の詳細は、タスク管理のどの表示でも同じ（tasks・board・schedule・task-next・task-sprint・task-summary）。
-絞り込みは画面の引数で受け、表示を切り替えるときに次の画面へ渡す。
+上の部分（見出し・表示のタブ・絞り込み）は画面 task-head、表示の部品のつなぎは task-view、右の詳細は task-pane（どの表示でも同じ）。
 """
 
-ARGS = {"module": ".", "search": "", "assignee": "", "sprint": "", "milestone": "", "ready": False, "closed": False, "deleted": False,
-        "all": False}  # モジュールのフォルダーと、絞り込み（all：閉じたタスクも読む＝完了か削除を出すとき）
+ARGS = {"module": ".", "filter": {}, "all": False, "ready": False}
+# モジュールのフォルダー・開いたときの絞り込み（上の帯が出した値）・読むときの印（閉じたタスクも＝完了か削除を出すとき・着手できるものだけ）
 
 SCREEN = {
     "root": "page",
     "window": {"title": "タスク管理の概要", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "tk-page", "children": ["top", "bar", "body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
-        {"id": "top", "layout": "row", "look": "tk-top", "children": ["title", "reload", "new"]},
-        {"id": "title", "part": "note", "props": {"text": "タスク管理", "heading": True}},
-        {"id": "reload", "part": "button", "props": {"label": "更新"}},
-        {"id": "new", "part": "button", "props": {"label": "＋ 新しいタスク", "primary": True}},
-        {"id": "bar", "part": "task-bar", "props": {"view": "task-summary", "scope": "none", "start": {
-            "search": {"arg": "search"}, "assignee": {"arg": "assignee"}, "sprint": {"arg": "sprint"}, "milestone": {"arg": "milestone"},
-            "ready": {"arg": "ready"}, "closed": {"arg": "closed"}, "deleted": {"arg": "deleted"}}}},
+        {"id": "main", "layout": "column", "look": "tk-page", "children": ["head", "body"]},
+        {"id": "head", "screen": "task-head", "args": {"module": {"arg": "module"}, "view": "task-summary", "scope": "none",
+                                                     "filter": {"arg": "filter"}, "all": {"arg": "all"}, "ready": {"arg": "ready"}}},
         # 左に表示、右に選んだタスクの詳細（選ぶまでは出ない。境目は動かせる）
         {"id": "body", "layout": "split", "look": "tk-body", "props": {"direction": "row", "sizes": [None, 380]}, "children": ["summary", "pane"]},
-        {"id": "summary", "part": "task-summary", "look": "tk-main"},
+        {"id": "summary", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "task-summary", "props": {}}},
         {"id": "pane", "screen": "task-pane", "args": {"module": {"arg": "module"}}},
     ],
     "bindings": [
         {"read": "task list", "args": {"module": {"arg": "module"}, "all": True}, "to": "summary.tasks"},
-        {"read": "sprint list", "args": {"module": {"arg": "module"}}, "to": "summary.sprints"},
         {"read": "sprint status", "args": {"module": {"arg": "module"}}, "to": "summary.sprint"},
         {"read": "task workload", "args": {"module": {"arg": "module"}}, "to": "summary.workload"},
         {"read": "milestone status", "args": {"module": {"arg": "module"}}, "to": "summary.milestones"},
         {"read": "task next", "args": {"module": {"arg": "module"}, "count": 5, "mine": True}, "to": "summary.next"},
         {"read": "task overdue", "args": {"module": {"arg": "module"}, "days": 7}, "to": "summary.overdue"},
         {"read": "task list", "args": {"module": {"arg": "module"}, "to_review": True}, "to": "summary.reviews"},
-        {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "summary.me", "from": "login"},
         {"value": "selected", "to": "summary.selected"},
         # 数のタイル・カードの「開く」・マイルストーン・担当なし：その表示へ（絞り込み付きで）切り替える
-        {"on": "summary.go", "open": {"payload": "screen"}, "here": True,
-         "args": {"module": {"arg": "module"}, "assignee": {"payload": "assignee"}, "milestone": {"payload": "milestone"}}},
-        {"on": "reload.pressed", "refresh": True},
-        {"on": "new.pressed", "open": "task-new", "args": {"module": {"arg": "module"}}, "inside": True},
-        # 上の帯：表示を切り替える（絞り込みを持って行く）・絞り込む（見せ方だけ）・読み直しの要る印は、この画面を開き直す
-        {"on": "bar.view", "open": {"payload": "id"}, "here": True,
-         "args": {"module": {"arg": "module"},
-                  "search": {"payload": "search"}, "assignee": {"payload": "assignee"}, "sprint": {"payload": "sprint"}, "milestone": {"payload": "milestone"},
-                  "ready": {"payload": "ready"}, "closed": {"payload": "closed"}, "deleted": {"payload": "deleted"}, "all": {"payload": "all"}}},
-        {"on": "bar.changed", "set": {"filter": {"payload": ""}}},
-        {"on": "bar.reload", "open": "task-summary", "here": True,
-         "args": {"module": {"arg": "module"},
-                  "search": {"payload": "search"}, "assignee": {"payload": "assignee"}, "sprint": {"payload": "sprint"}, "milestone": {"payload": "milestone"},
-                  "ready": {"payload": "ready"}, "closed": {"payload": "closed"}, "deleted": {"payload": "deleted"}, "all": {"payload": "all"}}},
+        {"on": "summary.go", "open": {"payload": "screen"}, "here": True, "args": {"module": {"arg": "module"}, "filter": {"payload": "filter"}}},
         {"show": "pane", "when": {"detail": "open"}},
-        # summary：選ぶと右に詳細、入力の窓は中に重ねて開く、その場の変更は task edit
-        {"on": "summary.selected", "set": {"selected": {"payload": "id"}, "detail": "open"}},
-        {"on": "summary.dialog", "open": {"payload": "screen"}, "inside": True,
-         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "text": {"payload": "text"}}},
-        {"on": "summary.edit", "run": "task edit", "notify": "保存しました。",
-         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"},
-                  "priority": {"payload": "priority"}, "sprint": {"payload": "sprint"}, "stage": {"payload": "stage"}, "estimate": {"payload": "estimate"},
-                  "due": {"payload": "due"}, "planned_start": {"payload": "planned_start"}, "planned_end": {"payload": "planned_end"}, "milestone": {"payload": "milestone"},
-                  "clear_milestone": {"payload": "clear_milestone"}, "add_assignee": {"payload": "add_assignee"}, "remove_assignee": {"payload": "remove_assignee"}, "add_label": {"payload": "add_label"},
-                  "remove_label": {"payload": "remove_label"}, "clear": {"payload": "clear"}}},
-        {"on": "summary.close", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "完了にしました。"},
-        {"on": "summary.remove", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "not_planned": True}, "notify": "削除しました。"},
-        {"on": "summary.reopen", "run": "task reopen", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "開き直しました。"},
-        {"on": "summary.workspace", "open": "workspace", "args": {"module": {"payload": "path"}}},
     ],
 }

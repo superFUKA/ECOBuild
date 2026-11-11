@@ -1203,3 +1203,46 @@ def test_stash_pop_and_drop_take_the_number_of_the_list(cli, module):
     assert cli("stash", "pop").exit_code == 0                                 # 省略：最後に退避したもの（three）
     assert (module.root / "three.txt").exists() and not (module.root / "one.txt").exists()
     assert as_json(cli("stash", "list", "--json"))["result"] == []
+
+
+def test_can_answers_whether_a_submission_can_be_handled_without_doing_it(cli, module):
+    """--can：実行せずに、今できるか・できない理由だけを答える（画面のボタンの灰色と理由にも使う）。何も変えない。"""
+    from dataclasses import replace
+    work = start(cli, "task", "new", "見てもらう", "--start", "--name", "作業")
+    none = as_json(cli("task", "approve", "1", "--can", "--json"))["result"]
+    assert none["can"] is False and "提出はありません" in none["reason"]
+    assert as_json(cli("task", "finish", "--can", "--json"))["result"] == {"can": True, "reason": ""}   # 提出がなければ、提出してから取り込む
+    write(work / "a.cpp", "a\n")
+    cli("task", "commit", "--message", "a")
+    cli("task", "submit", "--no-check")
+    own = as_json(cli("task", "approve", "1", "--can", "--json"))["result"]
+    assert own["can"] is False and "自分の提出" in own["reason"] and "task finish 1" in own["reason"]
+    assert as_json(cli("task", "reject", "1", "--can", "--json"))["result"]["can"] is False   # --message がなくても答える
+    assert as_json(cli("task", "finish", "1", "--can", "--json"))["result"] == {"can": True, "reason": ""}
+    github = module.repository.github
+    number = module.repository.submission(1).number
+    github.pulls[number] = replace(github.pulls[number], author="someone")
+    assert "できます" in cli("task", "approve", "1", "--can").stdout
+    assert as_json(cli("task", "reject", "1", "--can", "--json"))["result"]["can"] is True
+    github.pulls[number] = replace(github.pulls[number], draft=True)
+    draft = cli("task", "approve", "1", "--can")
+    assert draft.exit_code == 0 and "できません：" in draft.stdout and "下書き" in draft.stdout
+    assert "下書き" in as_json(cli("task", "finish", "1", "--can", "--json"))["result"]["reason"]
+    assert as_json(cli("task", "reject", "1", "--can", "--json"))["result"]["can"] is True    # 下書きでも差し戻せる
+    assert module.repository.submission(1) is not None and as_json(cli("task", "status", "1", "--json"))["result"]["state"] == "open"
+
+
+def test_a_task_without_a_recorded_stage_is_shown_by_its_task_branch():
+    """段階の記録がない開いたタスク：タスクブランチ（手元か GitHub）があれば作業中、なければ未着手として出す。"""
+    from ecowork.model import TaskSummary
+    from ecobuild_cli.commands.task._show import shown_stage, with_stage
+
+    def task(**values):
+        return TaskSummary(**{"number": 1, "title": "t", "state": "open", "url": "", "task_branch": False, "current": False, **values})
+
+    assert shown_stage(task()) == "todo" and shown_stage(task(task_branch=True)) == "in_progress"
+    assert shown_stage(task(remote=True)) == "in_progress" and shown_stage(task(current=True)) == "in_progress"
+    assert shown_stage(task(stage="planned", task_branch=True)) == "planned"      # 記録があれば、そのまま
+    assert shown_stage(task(state="closed")) is None                               # 閉じたタスクには補わない
+    recorded = task(stage="in_review")
+    assert with_stage(recorded) is recorded and with_stage(task(remote=True)).stage == "in_progress"

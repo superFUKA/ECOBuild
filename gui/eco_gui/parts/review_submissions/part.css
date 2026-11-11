@@ -1,0 +1,18 @@
+/* 届いている提出の一覧。今までの GUI（branches.css の .br-section・.br-count・.br-list）と同じ値 */
+:host { display: block; }
+.none { color: var(--gf-muted); font-size: 13px; }
+section + section { margin-top: 18px; }
+h3 { margin: 0 0 8px; font-size: 13px; color: #cdd5df; display: flex; align-items: center; gap: 8px; }
+h3 .to { color: var(--eco-dim); }
+h3 .mono { font-size: 13px; color: #b0efdd; }
+.count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #3a3156; color: #e3d9ff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 600; }
+.note { margin: 0 0 8px; font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }
+.list { display: flex; flex-direction: column; gap: 4px; }
+.list button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 12px; border: 1px solid var(--eco-line); border-radius: 8px;
+  background: var(--eco-panel); color: #edf1f5; white-space: normal; }
+.list button[aria-selected=true] { border-color: var(--gf-accent); background: #1f2a2a; }
+.what { min-width: 0; overflow-wrap: anywhere; }
+.what .pill { margin-left: 6px; }
+.what .pill:first-child { margin-left: 0; }
+.number { color: var(--gf-muted); }
+.state { margin-left: auto; font-size: 11px; color: #a5aeba; white-space: nowrap; }

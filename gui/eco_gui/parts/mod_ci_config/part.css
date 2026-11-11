@@ -1,0 +1,12 @@
+/* CI の設定のカード（今までの GUI の .ci-card・.ci-settings と同じ見た目） */
+:host { display: block; }
+.ci-card { border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); padding: 12px 14px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.head strong { font-size: 13px; margin-right: 6px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions button { padding: 4px 12px; font-size: 13px; border-radius: 6px; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover { border-color: #7a3b3b; background: #2b1a1d; }
+.settings { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; margin: 10px 0 0; font-size: 12px; }
+.settings dt { color: #a5aeba; }
+.note { font-size: 12px; color: var(--gf-muted); }

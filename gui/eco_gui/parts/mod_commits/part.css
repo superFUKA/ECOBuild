@@ -1,0 +1,16 @@
+/* コミットの一覧 */
+:host { display: block; min-width: 0; }
+.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.bar select { max-width: 260px; height: 26px; padding: 0 6px; font-size: 12px; }
+.count { margin-left: auto; }
+.commits { display: flex; flex-direction: column; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); overflow: hidden; }
+.commit { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; width: 100%; text-align: left; padding: 7px 12px;
+  border: 0; border-left: 2px solid transparent; border-bottom: 1px solid #262c34; border-radius: 0; background: transparent; white-space: normal; }
+.commit:last-child { border-bottom: 0; }
+.commit:hover { background: #1d232a; }
+.commit[aria-selected=true] { background: #232c32; border-left-color: var(--gf-accent); }
+.subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.marks { display: inline-flex; gap: 4px; }
+.meta { grid-column: 1 / -1; font-size: 11px; color: var(--gf-muted); }
+.meta code { color: #a5aeba; font-size: 11px; }
+.note { font-size: 12px; color: var(--gf-muted); }

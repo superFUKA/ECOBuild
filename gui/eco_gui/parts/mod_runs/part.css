@@ -1,0 +1,22 @@
+/* CI の実行の表（今までの GUI の .ci-section-row・.mi-table.ci-runs と同じ見た目） */
+:host { display: block; }
+.section-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
+.section-row select { max-width: 260px; height: 24px; padding: 0 6px; font-size: 12px; }
+.end { display: flex; gap: 6px; margin-left: auto; align-items: center; }
+a.button { display: inline-block; padding: 3px 10px; font-size: 12px; color: var(--gf-fg); background: var(--gf-surface); border: 1px solid var(--gf-border);
+  border-radius: var(--gf-radius); text-decoration: none; white-space: nowrap; }
+a.button:hover { border-color: var(--gf-accent); }
+.runs { border: 1px solid var(--eco-line); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; background: var(--eco-panel); }
+.runs th { font-size: 11px; color: var(--gf-muted); padding: 8px 10px; background: #191e24; }
+.runs td { padding: 7px 10px; border-bottom: 1px solid #262c34; }
+.runs tr:last-child td { border-bottom: 0; }
+.runs tbody tr { cursor: default; }
+.runs tbody tr:hover td { background: #1d232a; }
+.runs tbody tr.selected td { background: #1f2a2a; }
+.branch { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions button, .row-actions a { margin-left: 4px; }
+button[aria-disabled=true] { opacity: .45; cursor: not-allowed; }
+.note { font-size: 12px; color: var(--gf-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 760px) { .runs th:nth-child(4), .runs td:nth-child(4) { display: none; } }

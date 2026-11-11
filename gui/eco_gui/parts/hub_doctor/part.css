@@ -1,0 +1,12 @@
+/* 環境チェック（今までの GUI の hub.css の .diagnostics と同じ見た目） */
+.summary { margin: 0; color: var(--gf-muted); font-size: 13px; line-height: 1.7; }
+.summary.todo { color: #f1c78e; }
+.diagnostics { list-style: none; padding: 0; margin: 12px 0 0; }
+.diagnostics li { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid #343c46; padding: 12px 0; font-size: 13px; }
+.diagnostics li > div { min-width: 0; }
+.diagnostics small { display: block; color: var(--gf-muted); margin-top: 6px; line-height: 1.6; overflow-wrap: anywhere; }
+.diagnostics .hint { display: block; }
+.item-name { font-weight: 600; }
+.ok { color: #9ee4d3; white-space: nowrap; }
+.todo { color: #f1c78e; white-space: nowrap; }
+.optional { color: var(--eco-dim); white-space: nowrap; }

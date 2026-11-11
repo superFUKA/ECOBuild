@@ -1293,6 +1293,14 @@ class Module:
         finally:
             self._reload()
 
+    def resolve_conflict(self, path: str, *, side: str = "", hunks: tuple[int, ...] = (),
+                         text: str | None = None) -> wm.ConflictFile:
+        """衝突したファイルの衝突の箇所を直して書く（ecowork の Repository.resolve_conflict）。続きは continue_sync。"""
+        try:
+            return self.repository.resolve_conflict(path, side=side, hunks=hunks, text=text)
+        finally:
+            self._reload()
+
     def stash(self) -> wm.StashResult:
         result = self.repository.stash()
         self._reload()

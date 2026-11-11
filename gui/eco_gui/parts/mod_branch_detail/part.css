@@ -1,0 +1,19 @@
+/* ブランチの詳細（今までの GUI の .br-head・.br-facts・.br-task-branches と同じ見た目） */
+:host { display: block; }
+.banner { margin-bottom: 12px; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--eco-line); }
+.head h3 { margin: 0 0 6px; font-size: 16px; color: var(--gf-fg); }
+.note { font-size: 12px; color: var(--gf-muted); line-height: 1.8; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover { border-color: #7a3b3b; background: #2b1a1d; }
+button.link { background: none; border: 0; border-radius: 0; padding: 0 2px; color: var(--gf-accent); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+button.link:hover { color: #c8f3e6; }
+.facts { display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 13px; }
+.facts dt { color: #a5aeba; font-size: 13px; }
+.task-branches { margin-top: 22px; font-size: 12px; color: #cdd5df; }
+.task-branches summary { cursor: pointer; color: var(--gf-muted); }
+.task-branches ul { margin: 8px 0 0; padding-left: 18px; line-height: 2.2; }
+.branch-name { font-family: var(--eco-code); font-weight: 700; }
+.where { font-size: 11px; color: var(--gf-muted); }
+.task-branches button { padding: 1px 9px; margin-left: 6px; font-size: 12px; line-height: 1.5; }

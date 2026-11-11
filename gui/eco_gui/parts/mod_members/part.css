@@ -1,0 +1,21 @@
+/* メンバーの表（今までの GUI の .mi-head・.mi-table.members-table と同じ見た目） */
+:host { display: block; }
+.head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+.note { font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }
+.note strong { color: var(--gf-fg); }
+.note.after { margin-top: 10px; }
+.actions { display: flex; gap: 6px; }
+.members { border: 1px solid var(--eco-line); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; background: var(--eco-panel); }
+.members th { font-size: 11px; color: var(--gf-muted); padding: 8px 10px; background: #191e24; }
+.members td { padding: 9px 10px; border-bottom: 1px solid #262c34; }
+.members tr:last-child td { border-bottom: 0; }
+.sub, .self { font-size: 11px; color: var(--gf-muted); }
+.self { margin-left: 2px; font-size: 12px; }
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions button + button { margin-left: 6px; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover { border-color: #7a3b3b; background: #2b1a1d; }
+button[aria-disabled=true] { opacity: .45; cursor: not-allowed; }
+button.primary[aria-disabled=true] { background: #2f4d46; border-color: #2f4d46; color: #9fb7b0; opacity: 1; }
+.banner { margin-top: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

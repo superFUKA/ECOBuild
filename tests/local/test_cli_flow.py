@@ -184,6 +184,63 @@ def test_sync_continue_and_abort_commands(cli):
     assert as_json(cli("sync", "--json"))["result"]["branch"] == "main"
 
 
+def test_sync_conflicts_and_resolve_commands(cli):
+    """衝突がないときの sync conflicts（読むだけ）と、sync resolve の使い方の誤り。"""
+    assert as_json(cli("sync", "conflicts", "--json"))["result"] == {
+        "stopped": None, "current": "今の側", "incoming": "入ってくる側", "ready": False, "files": []}
+    assert "衝突したファイルはありません" in cli("sync", "conflicts").stdout
+    assert cli("sync", "resolve", "README.md").exit_code == 2                                     # 側も中身もない
+    assert cli("sync", "resolve", "README.md", "--side", "left").exit_code == 2
+    assert cli("sync", "resolve", "README.md", "--side", "current", "--text", "x").exit_code == 2
+    assert cli("sync", "resolve", "README.md", "--side", "current", "--hunk", "a").exit_code == 2
+    assert as_json(cli("sync", "resolve", "README.md", "--side", "current", "--json"))["error"]["code"] == "no_sync_in_progress"
+
+
+def test_sync_conflicts_shows_the_hunks_and_resolve_fixes_them(cli, remote_and_clone, tmp_path):
+    """衝突で止まった作業空間：sync conflicts が箇所を出し、sync resolve で直す（側で・標準入力の中身で）と、sync continue で続けられる。"""
+    remote, _ = remote_and_clone
+    place = start(cli, "task", "new", "衝突", "--start", "--name", "conflict", "--no-pipelines")
+    write(place / "README.md", "local\n")
+    assert cli("task", "commit", "README.md", "--message", "手元の変更", "--json").exit_code == 0
+    other = tmp_path / "other"
+    git(tmp_path, "clone", "--quiet", str(remote), str(other))
+    write(other / "README.md", "remote\n")
+    git(other, "add", "--all")
+    git(other, "commit", "--quiet", "-m", "別の変更")
+    git(other, "push", "--quiet", "origin", "main")
+    assert as_json(cli("sync", "--no-pipelines", "--json"))["error"]["code"] == "merge_conflict"
+
+    found = as_json(cli("sync", "conflicts", "--json"))["result"]
+    assert (found["stopped"], found["current"], found["incoming"], found["ready"]) == ("merge", "このタスクブランチの側", "取り込む側", False)
+    piece = {key: value.replace("\r", "") if isinstance(value, str) else value          # 手元の改行は、git の設定による
+             for key, value in found["files"][0]["pieces"][0].items()}
+    assert found["files"][0]["path"] == "README.md" and found["files"][0]["remaining"] == 1
+    assert (piece["conflict"], piece["line"], piece["current"], piece["incoming"]) == (True, 1, "local\n", "remote\n")
+    assert (piece["both"], piece["both_incoming_first"]) == ("local\nremote\n", "remote\nlocal\n")
+    shown = cli("sync", "conflicts").stdout
+    assert "箇所 1（1 行目）" in shown and "取り込む側" in shown and "remote" in shown
+
+    kept = CliRunner().invoke(build_cli(), ["sync", "resolve", "README.md", "--text", "-", "--json"], input="<<<<<<< a\nx\n=======\ny\n>>>>>>> b\n")
+    assert json.loads(kept.stdout)["result"]["remaining"] == 1                      # 印が残っている中身も書ける（まだ続けられない）
+    assert as_json(cli("sync", "resolve", "README.md", "--side", "both", "--hunk", "1", "--json"))["result"]["remaining"] == 0
+    assert (place / "README.md").read_text(encoding="utf-8") == "x\ny\n"
+    fixed = CliRunner().invoke(build_cli(), ["sync", "resolve", "README.md", "--text", "-", "--json"], input="resolved\n")
+    assert json.loads(fixed.stdout)["result"]["remaining"] == 0
+    assert as_json(cli("sync", "conflicts", "--json"))["result"]["ready"] is True
+    assert as_json(cli("sync", "continue", "--no-pipelines", "--json"))["ok"]
+    assert (place / "README.md").read_text(encoding="utf-8") == "resolved\n"
+
+
+def test_account_show_tells_who_handles_the_submissions_of_each_branch(cli, module):
+    """account show は、取り込み先のブランチごとに、提出を処理できるか・できる人を答える（画面は自分で判定しない）。"""
+    module.repository.github.branch_creators_.update({"develop": "alice", "task/3-x": "bob"})
+    result = as_json(cli("account", "show", "--json"))["result"]
+    assert set(result["take_in"]) == {"main", "develop"}                      # タスクブランチは入れない
+    assert result["take_in"]["develop"]["owners"] == "develop を作った alice と管理者"
+    assert result["take_in"]["main"]["owners"] == "管理者" and result["take_in_other"]["owners"] == "管理者"
+    assert result["take_in"]["main"]["allowed"] == result["admin"] == result["take_in_other"]["allowed"]
+
+
 def test_not_in_module(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(build_cli(), ["status", "--json"])

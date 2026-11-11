@@ -1,0 +1,21 @@
+/* コミットの中身：説明と、ファイルごとに畳める差分 */
+:host { display: block; min-width: 0; }
+.head { margin-bottom: 10px; background: var(--eco-panel); border-color: var(--eco-line); font-size: 12px; }
+.sum { margin: 0 0 8px; font-size: 12px; color: var(--gf-muted); }
+.file { margin-bottom: 6px; border: 1px solid var(--eco-line); border-radius: 8px; background: var(--eco-panel); overflow: hidden; }
+.file > summary { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px; list-style: none; }
+.file > summary::-webkit-details-marker { display: none; }
+.file > summary::before { content: '▸'; color: var(--gf-accent); font-size: 10px; width: 10px; }
+.file[open] > summary::before { content: '▾'; }
+.file[open] > summary { border-bottom: 1px solid var(--eco-line); }
+.path { font-family: var(--eco-code); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.counts { margin-left: auto; font-family: var(--eco-code); white-space: nowrap; }
+.add { color: var(--eco-ok); }
+.del { color: var(--eco-bad); }
+.diff { margin: 0; padding: 8px 0; border: 0; border-radius: 0; background: var(--eco-sunk); white-space: pre; overflow: auto; max-height: 520px; font-size: 12px; line-height: 1.5; }
+.line { display: inline-block; min-width: 100%; padding: 0 12px; }
+.line.add { background: #1d3327; color: #b8ecc0; }
+.line.del { background: #3a2226; color: #ffc4c4; }
+.line.hunk { color: var(--eco-info); background: #1c2430; }
+.note { font-size: 12px; color: var(--gf-muted); }
+.note.inner { padding: 8px 12px; }

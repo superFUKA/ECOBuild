@@ -27,8 +27,8 @@ class FakeEcobuild:
         text = {"type": "string"}
         specs = {}
         # どの試験でも全部の画面のつなぎが確かめられるよう、ほかの試験のファイルが足したコマンドも一覧に入れる
-        for module in ("tasks", "review", "settings", "agents", "polish"):
-            importlib.import_module(f"test_eco_gui_{module}")
+        for file in sorted(Path(__file__).parent.glob("test_eco_gui_*.py")):  # 足し忘れないよう、ファイルから集める
+            importlib.import_module(file.stem)
         fakes = [fake() for fake in FakeEcobuild.__subclasses__() if not isinstance(self, fake)]
         for name, spec in [pair for fake in fakes for pair in fake._specs(text).items()] + list(self._specs(text).items()):
             known = specs.get(name)
@@ -305,43 +305,16 @@ def test_task_rows_start_and_close_with_the_number_as_an_integer(relay):
 def test_branches_and_history_screens(relay):
     window = relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()
-    assert nodes(relay, window)["list"]["props"]["rows"][0]["name"] == "dev"
-    relay.input(window, "name", "changed", {"text": "release"}, human=True)
-    relay.idle()
-    relay.input(window, "create", "pressed", {}, human=True)
-    relay.idle()
-    assert ("branch create", {"name": "release"}) in relay.backend.calls  # 作成元（任意）は、決めなければ渡さない
-    relay.input(window, "list", "action", {"id": "dev", "action": "delete"}, human=True)
+    assert nodes(relay, window)["tree"]["props"]["branches"][0]["name"] == "dev"
+    relay.input(window, "detail", "action", {"action": "delete", "name": "dev"}, human=True)
     answer(relay, window, False)
     assert ("branch delete", {"name": "dev"}) not in relay.backend.calls
     relay.input(window, "nav", "selected", {"id": "history"}, human=True)
     relay.idle()
     assert nodes(relay, window)["log"]["props"]["rows"][0]["sha"] == "abc"
-    relay.input(window, "log", "action", {"id": "abc", "action": "show"}, human=True)
+    relay.input(window, "log", "selected", {"sha": "abc"}, human=True)
     relay.idle()
     assert nodes(relay, window)["detail"]["props"]["text"].startswith("commit abc")
-
-
-def test_hub_adds_modules_and_opens_the_environment_check(relay):
-    hub = relay.execute({"command": "open", "screen": "hub"})["window"]
-    relay.idle()
-    relay.input(hub, "path", "changed", {"text": "C:/work/New"}, human=True)
-    relay.input(hub, "repository", "changed", {"text": "octocat/hello"}, human=True)
-    relay.input(hub, "name", "changed", {"text": "Calc2"}, human=True)
-    relay.input(hub, "type", "changed", {"value": "python"}, human=True)
-    relay.idle()
-    for button in ("do_register", "do_clone", "do_create"):
-        relay.input(hub, button, "pressed", {}, human=True)
-        relay.idle()
-    relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "forget"}, human=True)
-    relay.idle()
-    for call in [("workspace add", {"path": "C:/work/New"}), ("module clone", {"repository": "octocat/hello"}),
-                 ("module new", {"name": "Calc2", "type": "python"}), ("workspace forget", {"path": "C:/work/Game"})]:
-        assert call in relay.backend.calls
-    relay.input(hub, "doctor", "pressed", {}, human=True)
-    relay.idle()
-    doctor = next(w["id"] for w in relay.display.windows() if w["screen"] == "doctor")
-    assert nodes(relay, doctor)["items"]["props"]["rows"][0]["name"] == "git"
 
 
 def test_files_screen_adds_moves_and_removes_files(relay):
@@ -372,7 +345,7 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     window = relay.execute({"command": "open", "screen": "overview"})["window"]
     relay.idle()
-    assert nodes(relay, window)["info"]["props"]["data"]["name"] == "Calc"
+    assert nodes(relay, window)["about"]["props"]["data"]["name"] == "Calc"
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
     menu = [item["id"] for item in nodes(relay, window)["nav"]["props"]["items"]]
     assert set(menu) >= {"board", "schedule", "submissions", "agents", "settings", "container", "help"}
@@ -393,18 +366,21 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
 def test_row_buttons_call_different_commands(relay):
     window = relay.execute({"command": "open", "screen": "pipelines"})["window"]
     relay.idle()
-    assert nodes(relay, window)["list"]["props"]["rows"][0]["name"] == "check"
-    relay.input(window, "list", "action", {"id": "check", "action": "run"}, human=True)
+    assert nodes(relay, window)["list"]["props"]["data"]["pipelines"][0]["name"] == "check"
+    relay.input(window, "list", "action", {"action": "run", "name": "check"}, human=True)
     relay.idle()
     assert ("pipeline run", {"name": "check"}) in relay.backend.calls
     assert ("pipeline remove", {"name": "check"}) not in relay.backend.calls  # 押したボタンのコマンドだけ
-    relay.input(window, "list", "action", {"id": "check", "action": "remove"}, human=True)
+    relay.input(window, "list", "action", {"action": "remove", "name": "check", "used": ""}, human=True)  # 消すのは、入力の窓で確かめてから
+    relay.idle()
+    form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-pipeline-remove")
+    relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()
     assert ("pipeline remove", {"name": "check"}) in relay.backend.calls
-    relay.input(window, "name", "changed", {"text": "nightly"}, human=True)
-    relay.input(window, "steps", "changed", {"text": "build,test"}, human=True)
+    relay.input(window, "list", "action", {"action": "add"}, human=True)
     relay.idle()
-    relay.input(window, "add", "pressed", {}, human=True)
+    form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-pipeline-edit")
+    relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12", "name": "nightly", "steps": "build,test", "tests": ""}}, human=True)
     relay.idle()
     assert ("pipeline add", {"name": "nightly", "steps": "build,test"}) in relay.backend.calls
 
@@ -414,27 +390,27 @@ def test_members_screen_reads_and_runs_the_same_commands_a_person_types(relay):
     relay.idle()
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "members"
-    assert view["me"]["props"]["text"] == "superFUKA"
-    assert [row["login"] for row in view["members"]["props"]["rows"]] == ["octocat", "hubot"]
-    assert view["add"]["wrap"]["kind"] == "unavailable"  # だれを招待するか、まだ決まっていない
+    assert view["members"]["props"]["account"]["login"] == "superFUKA"
+    assert [row["login"] for row in view["members"]["props"]["members"]] == ["octocat", "hubot"]
 
-    relay.input(window, "user", "changed", {"text": "newbie"}, human=True)
+    relay.input(window, "members", "action", {"action": "invite"}, human=True)  # 招待は、入力の窓で
     relay.idle()
-    assert nodes(relay, window)["add"]["wrap"] is None  # 役割（任意）は決めなくてよい
-    relay.input(window, "add", "pressed", {}, human=True)
-    assert answer(relay, window, True)["part"] == "confirm-box"  # 変える前に、窓の前の人に確かめる
-    assert ("module members add", {"user": "newbie"}) in relay.backend.calls
+    form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-member-invite")
+    relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": ""}}, human=True)
+    assert answer(relay, form, True)["part"] == "confirm-box"  # 変える前に、窓の前の人に確かめる
+    assert ("module members add", {"user": "newbie"}) in relay.backend.calls  # 役割（任意）は決めなくてよい
 
-    relay.input(window, "role", "changed", {"value": "admin"}, human=True)
+    relay.input(window, "members", "action", {"action": "invite"}, human=True)
     relay.idle()
-    relay.input(window, "add", "pressed", {}, human=True)
-    answer(relay, window, True)
+    form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-member-invite")
+    relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": "admin"}}, human=True)
+    answer(relay, form, True)
     assert ("module members add", {"user": "newbie", "role": "admin"}) in relay.backend.calls
 
-    relay.input(window, "members", "action", {"id": "octocat", "action": "remove"}, human=True)
-    answer(relay, window, False)  # いいえ：実行しない
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
+    answer(relay, window, False)
     assert ("module members remove", {"user": "octocat"}) not in relay.backend.calls
-    relay.input(window, "members", "action", {"id": "octocat", "action": "remove"}, human=True)
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
     answer(relay, window, True)
     assert ("module members remove", {"user": "octocat"}) in relay.backend.calls
-    assert [row["login"] for row in nodes(relay, window)["members"]["props"]["rows"]] == ["hubot"]  # 変えたら読み直す
+    assert [row["login"] for row in nodes(relay, window)["members"]["props"]["members"]] == ["hubot"]  # 変えたら読み直す

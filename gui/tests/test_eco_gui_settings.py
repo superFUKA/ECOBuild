@@ -368,11 +368,11 @@ def test_container_screen_sets_the_image_and_what_agents_may_not_use(relay):
     assert nodes(relay, window)["out"]["props"]["lines"] == ["イメージを作っています…"]
 
 
-def test_hub_opens_the_settings_and_the_put_away_screens(relay):
+def test_hub_opens_the_settings_from_the_menu_in_the_same_window(relay):
     hub = opened(relay, "hub")
-    press(relay, hub, "settings")
-    press(relay, hub, "archive")
-    assert {w["screen"] for w in relay.display.windows()} == {"hub", "hub-settings", "hub-archive"}
+    relay.input(hub, "nav", "selected", {"id": "hub-settings"}, human=True)  # 左のメニューの「設定」
+    relay.idle()
+    assert {w["screen"] for w in relay.display.windows()} == {"hub-settings"}
 
 
 def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
@@ -382,7 +382,8 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     assert view["config"]["props"]["data"] == {"owner": "acme"}
     assert view["token"]["props"]["data"]["saved"] is False
     assert view["channels"]["props"]["data"] == {"stable": "2.1.1", "latest": "2.1.9"}
-    assert view["images"]["props"]["rows"][0]["name"] == "ecobuild-calc:bbb" and view["docker"]["props"]["data"]["docker_ready"] is True
+    images = view["images"]["props"]["data"]  # モジュールごとにまとめるのは、部品（hub-images）
+    assert images["images"][0]["name"] == "ecobuild-calc:bbb" and images["docker_ready"] is True
     assert view["installed"]["props"]["data"]["ref"] == "main"
     assert [row["sha"] for row in view["versions"]["props"]["rows"]] == ["abc", "def"]
     assert set(relay.backend.modules) == {None}  # モジュールの外：-C を付けない
@@ -408,8 +409,7 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     typed(relay, window, setup_name="Octo Cat")
     press(relay, window, "setup", confirm=True)
     assert ("setup", {"name": "Octo Cat"}) in relay.backend.calls
-    press(relay, window, "doctor")
-    assert "doctor" in {w["screen"] for w in relay.display.windows()}
+    assert nodes(relay, window)["doctor"]["props"]["items"][0]["name"] == "git"  # 環境チェックは、設定の中に出す
 
 
 def test_hub_settings_token_images_and_update_ask_before_they_run(relay):

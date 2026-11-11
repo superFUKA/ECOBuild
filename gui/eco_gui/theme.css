@@ -291,6 +291,15 @@ button.tk-sort span { font-size: 9px; color: var(--gf-accent); }
    節：提出・取り込み・衝突（submissions・submission・merge・conflicts）
    -------------------------------------------------------------------------- */
 
+/* review-merge-card：ブランチ同士の取り込みのカード（今までの GUI の .br-merge）。見出しと行（部品）・事前確認・ボタンを1つの箱に */
+[data-gf-look="review-merge-card"] { gap: 0; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); }
+:host-context([data-gf-look="review-merge-card"]) .plan { border: 0; border-radius: 0; background: none; padding: 0 14px 14px; }
+[data-gf-look="review-merge-go"] { justify-content: flex-end; align-items: center; gap: 12px; padding: 0 14px 14px; }
+[data-gf-look="review-merge-go"]:not(:has(gf-part)) { display: none; }
+/* review-merge-own：このブランチの提出（左に説明、右にボタン） */
+[data-gf-look="review-merge-own"] { align-items: center; gap: 10px; flex-wrap: nowrap; }
+[data-gf-look="review-merge-own"] > :first-child { flex: 1; min-width: 0; }
+
 /* （提出・取り込み・衝突の節の終わり） */
 
 

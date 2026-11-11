@@ -1,0 +1,20 @@
+/* ブランチ同士の取り込み：見出しと、向き・相手の行（今までの GUI の branches.css の .br-merge と同じ値） */
+:host { display: block; }
+header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; }
+.fold { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; border-radius: 4px; background: none; color: inherit; text-align: left; }
+button.fold { cursor: pointer; }
+.caret { color: var(--gf-accent); }
+h4 { margin: 0; font-size: 14px; font-weight: 600; white-space: normal; }
+h4 .dim { font-weight: 400; font-size: 12px; margin-left: 4px; }
+.sum { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: end; gap: 8px; padding: 0 14px 12px; }
+.pick { display: flex; flex-direction: column; gap: 3px; min-width: 0; font-size: 11px; color: var(--gf-muted); }
+.pick select { width: 100%; min-width: 0; font-size: 13px; padding: 6px 10px; }
+.fixed { display: block; padding: 6px 0; border: 1px solid transparent; color: #b0efdd; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arrow { min-width: 34px; padding: 2px 8px; font-size: 16px; line-height: 1.4; color: var(--gf-accent); background: transparent; border: 1px solid #3a4250; border-radius: 6px; }
+.arrow:hover, .arrow:focus-visible { border-color: var(--gf-accent); background: rgba(158, 228, 211, .08); }
+button.link { min-height: 0; background: none; border: 0; border-radius: 0; padding: 0 2px 7px; color: var(--gf-accent); font-size: 12px; text-decoration: underline;
+  text-underline-offset: 2px; white-space: nowrap; }
+button.link:hover { color: #c8f3e6; }
+.note { margin: 0; padding: 0 14px 12px; font-size: 12px; color: var(--gf-muted); line-height: 1.6; }
+.banner { margin: 0 14px 12px; }

@@ -370,72 +370,11 @@ def test_branches_opens_the_merge_screen_for_the_branch_in_the_same_window(relay
     assert (tree["screen"], tree["args"]) == ("merge", {"module": "C:/work/Calc", "name": "dev"})
     assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
     view = nodes(relay, window)
-    assert view["source"]["props"]["text"] == "dev" and view["nav"]["props"]["current"] == "branches"
-    assert view["targets"]["props"]["rows"][0]["name"] == "dev"
+    assert view["title"]["props"]["text"] == "dev" and view["nav"]["props"]["current"] == "branches"
+    assert view["card:pick"]["props"]["branches"][0]["name"] == "dev"  # 取り込みのカード（試験は test_eco_gui_old.py）
     relay.input(window, "nav", "selected", {"id": "branches"}, human=True)  # メニューで、ブランチの一覧に戻る
     relay.idle()
     assert relay.display.tree(window)["screen"] == "branches"
-
-
-def merge(relay):
-    window = relay.execute({"command": "open", "screen": "merge", "args": {"module": "C:/work/Calc", "name": "dev"}})["window"]
-    relay.idle()
-    return window
-
-
-def test_merge_takes_a_branch_into_another_after_showing_what_it_does(relay):
-    window = merge(relay)
-    view = nodes(relay, window)
-    assert view["submit"]["wrap"]["kind"] == "unavailable"  # 取り込み先を選ぶまで押せない
-    assert [view[button]["wrap"]["kind"] for button in ("merge", "resolve")] == ["hidden"] * 2  # 取り込む・衝突を直すは、下見の方式が決まるまで出さない
-    assert view["plan"]["props"].get("plan") is None and relay.backend.plans == []  # 選ぶまで、下見も読まない
-    with pytest.raises(Exception):
-        relay.input(window, "merge", "pressed", {}, human=True)
-    relay.input(window, "targets", "action", {"id": "main", "action": "choose"}, human=True)
-    relay.idle()
-    view = nodes(relay, window)
-    assert view["chosen"]["props"]["text"] == "main" and [view[button]["wrap"] for button in ("merge", "submit")] == [None] * 2
-    # 取り込む前の確かめ：下見（--dry-run）の結果がカードに出る。早送りなら「直接取り込む」だけ（衝突を直すは出ない）
-    plan = view["plan"]["props"]["plan"]
-    assert (plan["method"], plan["commit_count"], plan["file_count"], plan["conflicts"]) == ("fast-forward", 2, 3, [])
-    assert ("branch merge", {"name": "dev", "into": "main"}) in relay.backend.plans and view["resolve"]["wrap"]["kind"] == "hidden"
-    assert not [call for call in relay.backend.calls if call[0] == "branch merge"]  # 下見は、何も変えない
-
-    shown = press(relay, window, "merge", yes=False)
-    assert shown["props"]["preview"].startswith("dev → main：早送り")  # 確認に、入るコミット等（--dry-run の結果）が出る
-    assert relay.backend.previews == [("branch merge", {"name": "dev", "into": "main"})]
-    assert not [call for call in relay.backend.calls if call[0] == "branch merge"]
-    assert relay.display.values(window)["merge_into"] == "main"  # やめたら、選んだ取り込み先はそのまま
-    press(relay, window, "merge", yes=True)
-    assert ("branch merge", {"name": "dev", "into": "main"}) in relay.backend.calls
-    assert relay.display.values(window)["merge_into"] is None  # 取り込んだら、選び直す
-    assert nodes(relay, window)["merge"]["wrap"]["kind"] == "hidden" and nodes(relay, window)["plan"]["props"].get("plan") is None
-
-
-def test_merge_submits_resolves_and_takes_in_the_submission(relay):
-    window = merge(relay)
-    relay.input(window, "targets", "action", {"id": "main", "action": "choose"}, human=True)
-    relay.idle()
-    press(relay, window, "submit", yes=True)
-    assert ("branch submit", {"name": "dev", "into": "main"}) in relay.backend.calls  # 題名（任意）は、書かなければ渡さない
-    relay.input(window, "submit_title", "changed", {"text": "11月の分"}, human=True)
-    relay.input(window, "targets", "action", {"id": "release", "action": "choose"}, human=True)
-    relay.idle()
-    press(relay, window, "submit", yes=True)
-    assert ("branch submit", {"name": "dev", "into": "release", "title": "11月の分"}) in relay.backend.calls
-    assert nodes(relay, window)["submit_title"]["props"]["text"] == ""  # 提出したら、題名の欄は空に戻る
-
-    # release へは衝突する：カードに衝突するファイル、ボタンは「衝突を直すタスクを作る」だけ
-    view = nodes(relay, window)
-    assert view["plan"]["props"]["plan"]["conflicts"] == ["src/app.py"] and view["merge"]["wrap"]["kind"] == "hidden" and view["resolve"]["wrap"] is None
-    press(relay, window, "resolve")
-    assert ("branch resolve", {"name": "dev", "into": "release"}) in relay.backend.calls
-
-    press(relay, window, "merge_submission")  # 作ってある提出の取り込み：入力の窓（CI が失敗していても取り込むか）を重ねて開く
-    opened = inside(relay, "review-merge")
-    assert opened["args"] == {"module": "C:/work/Calc", "name": "dev"} and nodes(relay, opened["id"])["form"]["props"]["vars"] == {"name": "dev"}
-    submit(relay, opened, yes=True, ignore_checks=False)
-    assert last(relay, "branch merge") in ({"name": "dev"}, {"name": "dev", "ignore_checks": False})
 
 
 def conflicts(relay):

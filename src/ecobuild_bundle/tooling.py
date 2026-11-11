@@ -284,6 +284,14 @@ def gh_accounts() -> list[dict]:
     return accounts
 
 
+def gh_scopes() -> list[str]:
+    """ghの使用中のアカウントのトークンが持つ権限（repo・project・workflow・delete_repo 等）。ログインしていなければ空。"""
+    lines = _run(["gh", "auth", "status", "--hostname", "github.com"]).output.splitlines()
+    active = next((index for index, line in enumerate(lines) if "Active account: true" in line), 0)
+    scopes = next((line.split(":", 1)[1] for line in lines[active:] if "Token scopes" in line), "")
+    return sorted(re.findall(r"'([^']+)'", scopes))
+
+
 def gh_has_scope(scope: str) -> bool:
     """ghのログインのトークンに、権限 scope があるか。"""
     status = _run(["gh", "auth", "status"])

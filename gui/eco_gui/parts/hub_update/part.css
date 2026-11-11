@@ -1,0 +1,9 @@
+/* 今までの GUI の .setup-banner.update-banner と同じ */
+.update { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; border: 1px solid #3a5a7a; border-radius: 10px; background: #18222c; }
+.update strong { display: block; color: #9ccaf5; font-weight: 600; }
+.update small { display: block; margin-top: 4px; color: var(--gf-muted); }
+.update button { flex-shrink: 0; background: transparent; border-color: #3a5a7a; color: #9ccaf5; font-size: 13px; }
+.update button:hover:not(:disabled) { background: #ffffff0d; border-color: #3a5a7a; }
+.line { display: flex; align-items: center; gap: 12px; color: var(--gf-muted); font-size: 13px; }
+.line:empty { display: none; }
+.line.newer span { color: #9ccaf5; }

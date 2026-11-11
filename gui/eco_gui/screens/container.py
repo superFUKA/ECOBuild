@@ -7,11 +7,13 @@ SCREEN = {
     "window": {"title": "コンテナ", "width": 1280, "height": 820},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "summary", "tabs"]},
         {"id": "nav", "screen": "menu", "args": {"current": "container", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "children": ["title", "reload"]},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "コンテナ", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
+        # 要約：環境の作り方・イメージ・この作業空間のコンテナ（古い／今の作り方）・この PC のイメージ・しくみ
+        {"id": "summary", "part": "cfg-container"},
         {"id": "tabs", "layout": "tabs", "children": ["state", "own", "recipe"],
          "props": {"labels": ["状態", "この作業空間だけの設定", "イメージの作り方"]}},
 
@@ -74,6 +76,10 @@ SCREEN = {
     ],
     "bindings": [
         {"on": "reload.pressed", "refresh": True},
+        # 要約（container recipe・container status・container image list）
+        {"read": "container recipe", "args": {"module": {"arg": "module"}}, "to": "summary.recipe"},
+        {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "summary.status"},
+        {"read": "container image list", "args": {"module": {"arg": "module"}}, "to": "summary.images"},
         # 状態（container status は1回だけ実行され、2つの部品へ出る）
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "status.data"},
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "own_now.data"},

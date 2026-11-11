@@ -1,12 +1,24 @@
 SAMPLES = [
-    {"name": "ふつう", "props": {
-        "columns": [{"key": "planned", "label": "計画中"}, {"key": "todo", "label": "未着手"}, {"key": "in_progress", "label": "作業中"}],
-        "moves": ["planned", "todo"],
-        "details": [{"key": "assignees", "label": "担当"}, {"key": "due", "label": "期限"}],
-        "cards": [{"number": 12, "title": "ログイン画面", "stage": "in_progress", "assignees": ["octocat"], "due": "2026-11-20"},
-                  {"number": 13, "title": "ログを残す", "stage": "todo", "assignees": [], "due": None},
-                  {"number": 14, "title": "段階のないタスク", "stage": None, "assignees": []}]}},
-    {"name": "空", "props": {"columns": [{"key": "todo", "label": "未着手"}], "cards": [], "empty_text": "開いているタスクはありません。"}},
-    {"name": "読み込み中", "props": {"columns": [{"key": "todo", "label": "未着手"}], "cards": [], "loading": True}},
-    {"name": "誤り", "props": {"columns": [{"key": "todo", "label": "未着手"}], "cards": [], "error": "モジュールではありません"}},
+    {"name": "ふつう（完了は最近のもの）", "props": {
+        "me": "octocat", "selected": "13",
+        "sprints": [{"name": "Sprint 2", "start": "2026-11-02", "end": "2099-11-16"}],
+        "tasks": [
+            {"number": 12, "title": "ログイン画面", "state": "open", "stage": "in_progress", "assignees": ["octocat"], "priority": "High", "due": "2026-01-20",
+             "estimate": 3, "sprint": "Sprint 2", "task_branch": True, "remote": True, "blocked_by": 0, "subtasks": 3, "subtasks_done": 1},
+            {"number": 13, "title": "ログを残す", "state": "open", "stage": "todo", "assignees": [], "priority": "Middle", "due": "2099-12-01", "blocked_by": 2},
+            {"number": 14, "title": "提出を見てもらう", "state": "open", "stage": "in_review", "assignees": ["review-bot"], "priority": "Low", "remote": True},
+            {"number": 15, "title": "段階の記録がないタスク（タスクブランチがなければ未着手）", "state": "open", "stage": None, "assignees": ["hubot"]},
+            {"number": 16, "title": "まだ詰めている", "state": "open", "stage": "planned", "assignees": []}],
+        "recent": [
+            {"number": 9, "title": "終わったタスク", "state": "closed", "closed_reason": "completed", "stage": "done", "assignees": ["octocat"], "finished": "2026-11-01"},
+            {"number": 10, "title": "後で終わったタスク", "state": "closed", "closed_reason": "completed", "stage": "done", "assignees": [], "finished": "2026-11-05"},
+            {"number": 8, "title": "やめたタスク", "state": "closed", "closed_reason": "not_planned", "stage": "done", "assignees": []}]}},
+    {"name": "削除したタスクも表示", "props": {
+        "filter": {"deleted": True},
+        "tasks": [{"number": 13, "title": "ログを残す", "state": "open", "stage": "todo", "assignees": []},
+                  {"number": 9, "title": "終わったタスク", "state": "closed", "closed_reason": "completed", "assignees": []},
+                  {"number": 8, "title": "やめたタスク", "state": "closed", "closed_reason": "not_planned", "assignees": []}]}},
+    {"name": "空", "props": {"tasks": []}},
+    {"name": "読み込み中", "props": {"tasks": [], "loading": True}},
+    {"name": "誤り", "props": {"tasks": [], "error": "モジュールではありません"}},
 ]

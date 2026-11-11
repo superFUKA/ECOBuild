@@ -1,0 +1,8 @@
+/* コンテナのイメージ（今までの GUI の hub.css の .image-types と同じ見た目） */
+.status { margin: 0; color: var(--gf-muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.image-types { list-style: none; padding: 0; margin: 12px 0 0; }
+.image-types:empty { display: none; }
+.image-types > li { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; gap: 4px 16px; align-items: baseline; padding: 12px 0; border-top: 1px solid #343c46; font-size: 13px; }
+.type { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.img-tag { font: 12px Consolas, monospace; color: #cdd5df; overflow: hidden; text-overflow: ellipsis; }
+.image-types small { grid-column: 2 / 4; color: var(--gf-muted); overflow-wrap: anywhere; }

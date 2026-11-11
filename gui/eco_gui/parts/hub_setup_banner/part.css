@@ -1,0 +1,6 @@
+/* 今までの GUI の .setup-banner と同じ */
+.setup { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px; border: 1px solid #6b5a3a; border-radius: 10px; background: #2a2418; }
+.setup strong { display: block; color: #f1c78e; font-weight: 600; }
+.setup small { display: block; margin-top: 4px; color: var(--gf-muted); }
+.setup button { flex-shrink: 0; background: transparent; border-color: #8a7347; color: #f1c78e; font-size: 13px; }
+.setup button:hover:not(:disabled) { background: #ffffff0d; border-color: #8a7347; }

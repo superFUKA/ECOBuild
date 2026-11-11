@@ -27,6 +27,7 @@ class FakeSettings(FakeEcobuild):
         self.archived = {"acme/Calc": False, "acme/Old": True}
         self.container = {"container": True, "state": "exited"}
         self.token = False
+        self.kind = "python"
 
     def _specs(self, text):
         return {**self._specs_before_protection(text), "module protection": {
@@ -49,7 +50,12 @@ class FakeSettings(FakeEcobuild):
             "module delete": spec("confirm", ["name"], name=text, owner=text, confirm=text, remove_workspaces=flag, discard_local=flag),
             "profile use": spec("change", ["name"], name=text),
             "profile remove": spec("change", ["name"], name=text),
-            "profile add": spec("change", ["name"], name=text, configuration=text, parallel=number),
+            "profile add": spec("change", ["name"], name=text, configuration=text, parallel=number, shared=flag, architecture=text,
+                                cpp_standard=number, generator=text, toolset=text, c_compiler=text, cxx_compiler=text, toolchain_file=text,
+                                windows_sdk=text, test_parallel=number, stop_on_test_failure=flag, googletest_archive=text, no_fetch=flag),
+            "profile project": spec("change", ["name", "project"], name=text, project=text, type=text, cpp_standard=number,
+                                    artifact_directory=text, test_parallel=number, googletest_archive=text, clear=flag),
+            "project list": spec("read"),
             "track add": spec("change", patterns=many),
             "track remove": spec("change", patterns=many),
             "ignore": spec("change", patterns=many),
@@ -77,9 +83,12 @@ class FakeSettings(FakeEcobuild):
         if name in ("agent token login", "agent token remove"):
             self.token = name == "agent token login"
         answers = {
-            "module show": {"name": "Calc", "type": "python", "private": True, "repository": "acme/Calc",
+            "module show": {"name": "Calc", "type": self.kind, "private": True, "repository": "acme/Calc",
                             "archived": self.archived["acme/Calc"], "workspaces": []},
-            "profile list": {"profiles": {"release": {"configuration": "Release", "parallel": 8, "shared": False}}, "selected": "release"},
+            "profile list": {"profiles": {"release": {"configuration": "Release", "parallel": 8, "shared": False,
+                                                      "options": {"cpp_standard": 23, "fetch_git": False},
+                                                      "projects": {"Core": {"type": "static"}}}}, "selected": "release"},
+            "project list": [{"name": "Core", "kind": "static_library"}, {"name": "App", "kind": "executable"}],
             "track": {"patterns": [{"pattern": "*.md", "source": "type", "excluded": False},
                                    {"pattern": "data/**", "source": "module", "excluded": False}], "exclude": []},
             "release list": [{"tag": "v1.0.0", "name": "最初の版", "url": "https://example.invalid/r/v1.0.0", "latest": True}],
@@ -124,6 +133,10 @@ def opened(relay, screen, **args):
     return window
 
 
+def notices(relay):
+    return [event["message"] for event in relay.display.events_after(0) if event["command"] == "notify"]
+
+
 def press(relay, window, node, confirm=None):
     relay.input(window, node, "pressed", {}, human=True)
     if confirm is not None:
@@ -160,25 +173,84 @@ def test_settings_shows_the_module_and_upgrades_it(relay):
     assert ("module upgrade", {"branch": "main"}) in relay.backend.calls
 
 
-def test_settings_build_profiles_are_listed_by_name_and_used_added_removed(relay):
+def inside(relay, window, screen):
+    """window の中に重ねて開いた窓（入力の窓）。"""
+    found = [w["id"] for w in relay.display.windows() if w.get("parent") == window and w["screen"] == screen]
+    assert found, [(w["id"], w["screen"], w.get("parent")) for w in relay.display.windows()]
+    return found[-1]
+
+
+def test_settings_build_profiles_are_a_table_with_the_one_used_on_this_pc(relay):
     window = opened(relay, "settings", module="C:/work/Calc")
-    view = nodes(relay, window)
-    assert view["profile_selected"]["props"]["data"]["selected"] == "release"
-    assert list(view["profile_list"]["props"]["data"]) == ["release"]
-    assert relay.backend.calls.count(("profile list", {})) == 1  # 2つの部品へ出しても、読むのは1回
-    relay.input(window, "profile_list", "action", {"id": "release", "action": "use"}, human=True)
+    table = nodes(relay, window)["profile_table"]
+    assert table["part"] == "cfg-profiles" and table["props"]["kind"] == "python"  # 列は、モジュールの型で変わる
+    assert table["props"]["data"]["selected"] == "release" and list(table["props"]["data"]["profiles"]) == ["release"]
+    assert relay.backend.calls.count(("profile list", {})) == 1
+    relay.input(window, "profile_table", "use", {"name": "release"}, human=True)  # ラジオで選ぶ
+    relay.input(window, "profile_table", "use", {"name": "none"}, human=True)     # 使わない
     relay.idle()
-    assert ("profile use", {"name": "release"}) in relay.backend.calls
-    assert ("profile remove", {"name": "release"}) not in relay.backend.calls  # 押したボタンのコマンドだけ
-    relay.input(window, "profile_list", "action", {"id": "release", "action": "remove"}, human=True)
+    assert ("profile use", {"name": "release"}) in relay.backend.calls and ("profile use", {"name": "none"}) in relay.backend.calls
+    relay.input(window, "profile_table", "remove", {"name": "release"}, human=True)
     relay.idle()
     assert ("profile remove", {"name": "release"}) in relay.backend.calls
-    press(relay, window, "profile_none")
-    assert ("profile use", {"name": "none"}) in relay.backend.calls
-    assert view["profile_add"]["wrap"]["kind"] == "unavailable"  # 名前がまだ
-    typed(relay, window, profile_name="debug", profile_configuration="Debug", profile_parallel="4")
-    press(relay, window, "profile_add")
-    assert ("profile add", {"name": "debug", "configuration": "Debug", "parallel": 4}) in relay.backend.calls  # 数は数で渡る
+
+    # 追加・編集：型に合う入力の窓を、この窓の中に重ねて開く（Python は 名前・構成・並列の数）
+    relay.input(window, "profile_table", "add", {"kind": "python"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-edit-python")
+    assert relay.display.tree(form)["args"] == {"module": "C:/work/Calc", "name": ""}
+    relay.input(form, "form", "submitted", {"values": {"name": "debug", "configuration": "Debug", "parallel": 4}}, human=True)
+    relay.idle()
+    assert ("profile add", {"name": "debug", "configuration": "Debug", "parallel": 4}) in relay.backend.calls
+    assert form not in [w["id"] for w in relay.display.windows()]  # うまくいったら閉じる
+    relay.input(window, "profile_table", "edit", {"name": "release", "kind": "python"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-edit-python")
+    props = nodes(relay, form)["form"]["props"]
+    assert props["at"] == ["release"] and props["values"]["release"]["configuration"] == "Release"  # 今の値が入っている
+    assert props["fields"][0]["value"] == "release"
+    relay.input(form, "form", "cancelled", {}, human=True)
+    relay.idle()
+    relay.input(window, "profile_table", "add", {"kind": "generic"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-edit")
+    relay.input(form, "form", "submitted", {"values": {"name": "ci", "configuration": "Release"}}, human=True)
+    relay.idle()
+    assert ("profile add", {"name": "ci", "configuration": "Release"}) in relay.backend.calls
+    assert notices(relay)[-1] == "ビルド設定を保存しました。"
+
+
+def test_settings_cpp_build_profiles_have_options_and_overrides_for_projects(relay):
+    relay.backend.kind = "cpp"
+    window = opened(relay, "settings", module="C:/work/Calc")
+    assert nodes(relay, window)["profile_table"]["props"]["kind"] == "cpp"
+    relay.input(window, "profile_table", "edit", {"name": "release", "kind": "cpp"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-edit-cpp")
+    labels = [field.get("label") for field in nodes(relay, form)["form"]["props"]["fields"] if field.get("type") == "section"]
+    assert labels == ["C++・コンパイラ（空なら既定）", "テスト・依存先（空なら既定）"]  # 畳める節
+    relay.input(form, "form", "submitted", {"values": {
+        "name": "release", "configuration": "Release", "parallel": 8, "shared": True, "cpp_standard": "23", "architecture": "",
+        "generator": "Ninja Multi-Config", "toolset": "", "c_compiler": "", "cxx_compiler": "", "toolchain_file": "", "windows_sdk": "",
+        "test_parallel": "", "stop_on_test_failure": False, "googletest_archive": "", "no_fetch": True}}, human=True)
+    relay.idle()
+    # 空の欄は渡さない（既定）。数は数で渡る
+    assert ("profile add", {"name": "release", "configuration": "Release", "parallel": 8, "shared": True, "cpp_standard": 23,
+                            "generator": "Ninja Multi-Config", "stop_on_test_failure": False, "no_fetch": True}) in relay.backend.calls
+
+    # Project ごとの上書き：変える・足す（Project は読んだ一覧から選ぶ）・外す
+    relay.input(window, "profile_table", "project", {"name": "release", "project": "Core"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-project")
+    props = nodes(relay, form)["form"]["props"]
+    assert props["at"] == ["release", "projects", "Core"] and [row["name"] for row in props["rows"]] == ["Core", "App"]
+    relay.input(form, "form", "submitted", {"values": {"project": "Core", "type": "shared", "cpp_standard": "", "artifact_directory": "",
+                                                        "test_parallel": "", "googletest_archive": ""}}, human=True)
+    relay.idle()
+    assert ("profile project", {"name": "release", "project": "Core", "type": "shared"}) in relay.backend.calls
+    relay.input(window, "profile_table", "project_clear", {"name": "release", "project": "Core"}, human=True)
+    relay.idle()
+    assert ("profile project", {"name": "release", "project": "Core", "clear": True}) in relay.backend.calls
 
 
 def test_settings_protects_the_base_branch_after_asking(relay):
@@ -258,6 +330,10 @@ def test_container_screen_shows_the_state_and_only_the_buttons_that_fit_it(relay
     assert view["status"]["props"]["data"]["state"] == "exited" and view["own_now"]["props"]["data"]["deny"] == ["WebFetch"]
     assert relay.backend.calls.count(("container status", {})) == 1
     assert view["claude"]["props"]["data"]["setting"] == "stable"
+    # 上の要約：作り方・この作業空間のコンテナ（古い／今の作り方の印は、読んだ outdated から）・この PC のイメージ
+    summary = view["summary"]["props"]
+    assert view["summary"]["part"] == "cfg-container" and summary["recipe"]["image"] == "ecobuild-calc:bbb"
+    assert summary["status"]["outdated"] is True and summary["images"]["images"][0]["current"] is True
     assert view["dockerfile"]["props"]["text"].startswith("FROM ubuntu") and view["layer"]["props"]["text"].startswith("RUN echo")
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
     buttons = ("on", "off", "start", "stop", "remove")
@@ -292,11 +368,11 @@ def test_container_screen_sets_the_image_and_what_agents_may_not_use(relay):
     assert nodes(relay, window)["out"]["props"]["lines"] == ["イメージを作っています…"]
 
 
-def test_hub_opens_the_settings_and_the_put_away_screens(relay):
+def test_hub_opens_the_settings_from_the_menu_in_the_same_window(relay):
     hub = opened(relay, "hub")
-    press(relay, hub, "settings")
-    press(relay, hub, "archive")
-    assert {w["screen"] for w in relay.display.windows()} == {"hub", "hub-settings", "hub-archive"}
+    relay.input(hub, "nav", "selected", {"id": "hub-settings"}, human=True)  # 左のメニューの「設定」
+    relay.idle()
+    assert {w["screen"] for w in relay.display.windows()} == {"hub-settings"}
 
 
 def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
@@ -306,7 +382,8 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     assert view["config"]["props"]["data"] == {"owner": "acme"}
     assert view["token"]["props"]["data"]["saved"] is False
     assert view["channels"]["props"]["data"] == {"stable": "2.1.1", "latest": "2.1.9"}
-    assert view["images"]["props"]["rows"][0]["name"] == "ecobuild-calc:bbb" and view["docker"]["props"]["data"]["docker_ready"] is True
+    images = view["images"]["props"]["data"]  # モジュールごとにまとめるのは、部品（hub-images）
+    assert images["images"][0]["name"] == "ecobuild-calc:bbb" and images["docker_ready"] is True
     assert view["installed"]["props"]["data"]["ref"] == "main"
     assert [row["sha"] for row in view["versions"]["props"]["rows"]] == ["abc", "def"]
     assert set(relay.backend.modules) == {None}  # モジュールの外：-C を付けない
@@ -332,8 +409,7 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     typed(relay, window, setup_name="Octo Cat")
     press(relay, window, "setup", confirm=True)
     assert ("setup", {"name": "Octo Cat"}) in relay.backend.calls
-    press(relay, window, "doctor")
-    assert "doctor" in {w["screen"] for w in relay.display.windows()}
+    assert nodes(relay, window)["doctor"]["props"]["items"][0]["name"] == "git"  # 環境チェックは、設定の中に出す
 
 
 def test_hub_settings_token_images_and_update_ask_before_they_run(relay):

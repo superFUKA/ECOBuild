@@ -44,3 +44,18 @@ def test_files_tells_the_files_that_are_gone_from_the_folder(cli, module):
     result = json.loads(cli("files", "--json").stdout)["result"]
     assert "README.md" in result["files"] and result["missing"] == ["README.md"]
     assert "README.md（削除）" in cli("files").output.split()
+
+
+def test_module_readme_shows_the_readme_at_the_top(cli, module):
+    root = module.root
+    write(root / "README.md", "# 題\n\n本文\n")
+    write(root / "docs" / "README.md", "別の README\n")  # 下のフォルダーのものは見ない
+    result = json.loads(cli("module", "readme", "--json").stdout)["result"]
+    assert result == {"path": "README.md", "text": "# 題\n\n本文\n", "truncated": False}
+    assert "本文" in cli("module", "readme").output
+    (root / "README.md").unlink()
+    write(root / "README.txt", "文字だけ\n")           # README.md がなければ、ほかの README
+    assert json.loads(cli("module", "readme", "--json").stdout)["result"]["path"] == "README.txt"
+    (root / "README.txt").unlink()
+    assert json.loads(cli("module", "readme", "--json").stdout)["result"] is None
+    assert "README はありません" in cli("module", "readme").output

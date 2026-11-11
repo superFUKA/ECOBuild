@@ -1,24 +1,36 @@
-"""モジュール › 履歴：コミットの一覧と、選んだコミットの中身。"""
+"""モジュール › 履歴：左にコミットの一覧（ブランチを選べる）、右に選んだコミットの中身（変更をファイルごとに畳む）。"""
 
 ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "履歴", "width": 1280, "height": 820},
+    "window": {"title": "履歴", "width": 1280, "height": 820, "refresh": {"focus": True}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["title", "log", "detail"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "history", "module": {"arg": "module"}}},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "tools"]},
         {"id": "title", "part": "note", "props": {"text": "履歴", "heading": True}},
-        {"id": "log", "part": "table", "props": {
-            "columns": [{"key": "date", "label": "日時"}, {"key": "author", "label": "だれが"}, {"key": "subject", "label": "何を"}],
-            "key": "sha", "actions": [{"name": "show", "label": "見る"}], "empty_text": "コミットはまだありません。",
-        }},
-        {"id": "detail", "part": "text-view", "props": {"empty_text": "「見る」で、コミットの中身が出ます。"}},
+        {"id": "tools", "layout": "row", "look": "tools", "children": ["graph", "reload"]},
+        {"id": "graph", "part": "button", "props": {"label": "ログ", "quiet": True, "hint": "すべてのブランチの履歴を、ログの画面で開く"}},
+        {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
+        {"id": "body", "layout": "split", "look": "mod-branches", "props": {"direction": "row", "sizes": [440, None]}, "children": ["log", "side"]},
+        {"id": "log", "part": "mod-commits"},
+        {"id": "side", "layout": "column", "look": "mod-branch-side", "children": ["detail"]},
+        {"id": "detail", "part": "mod-commit-files"},
     ],
     "bindings": [
-        {"read": "log", "args": {"module": {"arg": "module"}, "count": 30}, "to": "log.rows"},
-        {"on": "log.action", "when": {"action": "show"}, "set": {"commit": {"payload": "id"}}},
-        {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"value": "commit"}}, "to": "detail.text"},
+        # 人が打つのと同じ：ecobuild log --count 50 [--branch <ブランチ>]・ecobuild show <コミット>
+        {"read": "log", "args": {"module": {"arg": "module"}, "count": 50, "branch": {"value": "log_branch"}}, "to": "log.rows"},
+        {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "log.branches"},
+        {"on": "log.branch", "set": {"log_branch": {"payload": "name"}, "commit": None}},
+        {"value": "log_branch", "to": "log.branch"},
+        {"on": "log.selected", "set": {"commit": {"payload": "sha"}}},
+        {"value": "commit", "to": "log.selected"},
+        {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"value": "commit"}}, "require": ["commit"], "to": "detail.text"},
+        {"on": "reload.pressed", "refresh": True},
+        {"on": "log.reload", "refresh": True},
+        {"on": "detail.reload", "refresh": True},
+        {"on": "graph.pressed", "run": "log", "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
     ],
 }

@@ -281,3 +281,29 @@ def test_set_home_back_to_default_removes_the_variable(machine):
     tooling.set_home(tmp_path / "default")
     assert calls["environment"] == [("ECOBUILD_HOME", None)] and settings.home() == tmp_path / "default"
     assert (tmp_path / "default" / "config.toml").is_file()
+
+
+GH_STATUS = """github.com
+  ✓ Logged in to github.com account hubot (keyring)
+  - Active account: false
+  - Token scopes: 'repo'
+  ✓ Logged in to github.com account octocat (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token scopes: 'gist', 'project', 'repo', 'workflow'
+"""
+
+
+def test_account_show_outside_a_module_tells_the_login_and_its_scopes(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(tooling, "_run", lambda args: tooling._process.Completed(tuple(args), 0, GH_STATUS, ""))
+    assert tooling.gh_scopes() == ["gist", "project", "repo", "workflow"]  # 使用中のアカウントのもの
+    monkeypatch.chdir(tmp_path)
+    code, out = run_main(["account", "show", "--json"], capsys)
+    result = json.loads(out.out)["result"]
+    assert code == 0 and result["login"] == "octocat" and result["role"] is None
+    assert result["scopes"] == ["gist", "project", "repo", "workflow"]
+    code, out = run_main(["account", "show"], capsys)
+    assert code == 0 and "octocat" in out.out and "リポジトリの削除（delete_repo）＝ありません" in out.out
+    monkeypatch.setattr(tooling, "_run", lambda args: tooling._process.Completed(tuple(args), 1, "", "not logged in"))
+    code, out = run_main(["account", "show"], capsys)
+    assert code == 0 and "ログインしていません" in out.out

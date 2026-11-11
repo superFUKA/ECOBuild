@@ -1,0 +1,24 @@
+/* 共有ブランチの木（今までの GUI の .br-side と同じ見た目） */
+:host { display: block; height: 100%; }
+.side { display: flex; flex-direction: column; gap: 2px; height: 100%; min-height: 0; overflow: auto; padding: 10px 8px; background: #171c22;
+  border: 1px solid var(--eco-line); border-radius: 10px; }
+.side button { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; min-height: 0; text-align: left; font-size: 13px;
+  padding: 5px 8px 5px calc(8px + var(--depth, 0) * 14px); border: 0; border-left: 2px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; }
+.side button:hover { background: #222932; }
+.side button[aria-selected=true] { background: #232c32; border-left-color: var(--gf-accent); color: #b0efdd; }
+.name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.sub { flex-basis: 100%; color: var(--gf-muted); font-size: 11px; }
+.side .pill { font-size: 10px; padding: 0 5px; line-height: 16px; }
+.side .folder { color: #a5aeba; }
+.folder .name { font-weight: 500; }
+.caret { display: inline-block; width: 12px; margin-right: 2px; color: var(--gf-muted); font-size: 10px; }
+.folder-count { color: var(--gf-muted); font-size: 11px; }
+.side .folder.holds { border-left-color: var(--gf-accent); }
+.branch.other .name { color: #7d8794; font-weight: 500; }
+.branch.done .name { color: #626b76; }
+.branch[aria-selected=true] .name { color: #b0efdd; }
+.where { display: inline-flex; color: #7d8794; }
+.where svg { width: 14px; height: 14px; }
+.count { display: inline-block; min-width: 18px; padding: 0 6px; border-radius: 9px; background: #3a3156; color: #e3d9ff; font-size: 11px; line-height: 18px;
+  text-align: center; font-weight: 600; }
+p[role=status] { padding: 10px; }

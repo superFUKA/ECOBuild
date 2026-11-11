@@ -17,6 +17,10 @@ def command(
     due: Annotated[str, "期限（YYYY-MM-DD）"] = "",
     planned_start: Annotated[str, "開始予定日（YYYY-MM-DD）"] = "",
     planned_end: Annotated[str, "終了予定日（YYYY-MM-DD）"] = "",
+    priority: Annotated[str, "優先度（High・Middle・Low）"] = "",
+    estimate: Annotated[str, "見積もり（数値）"] = "",
+    sprint: Annotated[str, "スプリント（名前か current）"] = "",
+    stage: Annotated[str, "作業を始める前の段階（planned：計画中。省略時は未着手）"] = "",
     start: Annotated[bool, "続けてタスクブランチを作り、作業空間に取り出す（task start と同じ。--name が必要）"] = False,
     name: Annotated[str, "--start時のタスクブランチの名前（task/<番号>-<名前>。日本語も使えます。題名をそのまま使うなら同じ文字列）"] = "",
     base: Annotated[str, "--start時の作成元のブランチ（既定はecobuild.tomlのdefault_base。子タスクは親のタスクブランチに決まる）"] = "",
@@ -33,6 +37,9 @@ def command(
                                       parent=parent or None, blocked_by=blockers, milestone=milestone or None,
                                       plan={"due": due or None, "planned_start": planned_start or None,
                                             "planned_end": planned_end or None})
+        if priority or estimate or sprint or stage:   # 計画の値（task edit と同じ道）
+            inv.module.repository.plan_task(task.number, priority=priority or None, estimate=estimate or None,
+                                            sprint=sprint or None, clear=(), stage=stage or None)
         if not start:
             return {"task": task, "task_branch": None}
         module = inv.module.start_task(task.number, base=base or None, name=name, progress=inv.info,

@@ -1,0 +1,22 @@
+/* README（今までの GUI の .mi-readme と同じ見た目） */
+:host { display: block; min-width: 0; }
+.title { margin: 0 0 8px; font-size: 13px; color: var(--gf-muted); font-weight: 600; }
+.readme { padding: 6px 22px 14px; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); color: #cdd5df;
+  font: 14px/1.75 var(--eco-font); overflow-wrap: anywhere; }
+.readme h2, .readme h3, .readme h4, .readme h5, .readme h6 { margin: 18px 0 8px; color: #edf1f5; font-weight: 600; }
+.readme h2 { font-size: 22px; padding-bottom: 6px; border-bottom: 1px solid var(--eco-line); }
+.readme h3 { font-size: 17px; padding-bottom: 4px; border-bottom: 1px solid #2a3139; }
+.readme h4, .readme h5, .readme h6 { font-size: 15px; }
+.readme p, .readme ul, .readme ol, .readme blockquote { margin: 0 0 12px; line-height: 1.75; }
+.readme ul, .readme ol { padding-left: 26px; }
+.readme ul { list-style: disc; }
+.readme ol { list-style: decimal; }
+.readme li { display: list-item; }
+.inner-link { color: #dfe5eb; border-bottom: 1px dotted #5d6875; }
+.readme code { padding: 1px 5px; border-radius: 4px; background: #262c33; font: 12.5px Consolas, monospace; }
+.readme pre { margin: 0 0 12px; padding: 12px 14px; border: 0; border-radius: 8px; background: #14171b; overflow: auto; white-space: pre; font-size: 12.5px; }
+.readme pre code { padding: 0; background: none; }
+.readme blockquote { padding: 0 12px; border-left: 3px solid #46515e; color: var(--gf-muted); }
+.readme a { color: var(--gf-accent); }
+.readme hr { border: 0; border-top: 1px solid var(--eco-line); margin: 16px 0; }
+.note { font-size: 12px; color: var(--gf-muted); }

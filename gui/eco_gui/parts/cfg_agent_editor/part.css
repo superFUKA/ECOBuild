@@ -1,0 +1,70 @@
+/* エージェントの設定（今までの GUI の agenteditor.css と同じ見た目）。左に一覧、右に選んだもの。 */
+:host { display: block; height: 100%; min-height: 0; }
+:host > div { height: 100%; min-height: 0; }
+.ae { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 0; height: 100%; min-height: 420px; border: 1px solid var(--eco-line);
+  border-radius: 10px; overflow: hidden; background: var(--eco-panel); }
+.side { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; background: #171c22; border-right: 1px solid var(--eco-line); overflow: auto; min-height: 0; }
+.side-head { margin: 12px 8px 4px; font-size: 11px; color: var(--gf-muted); }
+.item { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; width: 100%; text-align: left; padding: 6px 8px; white-space: normal;
+  border: 0; border-left: 2px solid transparent; border-radius: 6px; background: transparent; color: #cdd5df; cursor: pointer; }
+.item:hover:not(:disabled) { background: #222932; }
+.item[aria-current=true] { background: #232c32; border-left-color: var(--gf-accent); color: #b0efdd; }
+.item-title { font-weight: 600; }
+.item-name { color: var(--gf-muted); font-size: 11px; font-weight: 400; font-family: ui-monospace, Consolas, monospace; }
+.item.top .item-name, .item .item-name:only-child { font-family: inherit; }
+.badges { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+.badges:empty { display: none; }
+.badge { font-size: 10px; line-height: 16px; padding: 0 6px; border-radius: 8px; border: 1px solid #3a4250; color: #c4ccd6; white-space: nowrap; font-weight: 400; }
+.badge.top { border-color: #3f6b60; color: #9ee4d3; }
+.badge.warn { border-color: #6b5838; color: var(--gf-warn); }
+.badge.quiet { color: var(--gf-muted); }
+.add { margin-top: 10px; text-align: left; flex: none; }
+.main { padding: 16px 20px 24px; overflow: auto; min-width: 0; min-height: 0; }
+.guard { margin-bottom: 10px; }
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+  position: sticky; top: -16px; padding: 8px 0; background: var(--eco-panel); z-index: 1; }
+.head h3 { margin: 0 0 4px; font-size: 16px; color: var(--gf-fg); }
+.head .note { margin-top: 6px; }
+.actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.danger-text { color: #f3a5a5; }
+.danger-text:hover:not(:disabled) { border-color: #7a3b3b; background: #2b1a1d; }
+.note { margin: 0; font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }
+.sec { margin-top: 18px; padding-top: 14px; border-top: 1px solid #262c34; }
+.sec h4 { margin: 0 0 6px; font-size: 13px; }
+.sec .note { margin-bottom: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 16px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--gf-muted); }
+.field input, .field select { font-size: 13px; }
+.narrow { max-width: 200px; margin-top: 10px; }
+.check { display: flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
+textarea { width: 100%; font-size: 13px; line-height: 1.6; }
+textarea.doc { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.radio { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+.radio label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; font-size: 12px; color: var(--gf-muted); }
+.quick button { font-size: 11px; padding: 1px 8px; }
+.count { margin-left: auto; color: #cdd5df; }
+.count.count-warn { color: var(--gf-warn); }
+.group { border: 1px solid #262c34; border-radius: 8px; margin: 8px 0 0; padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.group legend { font-size: 12px; font-weight: 600; color: #cdd5df; padding: 0 4px; display: flex; align-items: center; gap: 8px; }
+.group-count { font-weight: 400; font-size: 11px; color: var(--gf-muted); }
+.group-actions { display: inline-flex; gap: 4px; }
+.group-actions button { font-size: 10px; padding: 0 6px; line-height: 16px; }
+.tool { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 4px; border-radius: 4px; }
+.tool:hover { background: #222932; }
+.tool-text { flex: 1; min-width: 0; color: #cdd5df; }
+.tool code { font-size: 11px; color: var(--gf-muted); }
+.tool input:disabled + .tool-text { color: var(--gf-muted); }
+.more { margin-top: 10px; font-size: 12px; }
+.more summary { cursor: pointer; color: var(--gf-muted); }
+.more .field { margin-top: 6px; max-width: 460px; }
+.children { display: flex; flex-direction: column; gap: 4px; max-width: 640px; }
+.child { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #262c34; border-radius: 6px; font-size: 13px; }
+.child-main { flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-width: 0; }
+.child-info { flex-basis: 100%; font-size: 11px; color: var(--gf-muted); }
+.child.off { opacity: .65; }
+@media (max-width: 720px) {
+  .ae { grid-template-columns: 1fr; }
+  .side { border-right: 0; border-bottom: 1px solid var(--eco-line); flex-direction: row; flex-wrap: wrap; }
+  .item { width: auto; }
+}

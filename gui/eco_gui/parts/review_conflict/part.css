@@ -1,0 +1,48 @@
+/* 衝突を直す：左に衝突したファイル、右に選んだファイルの箇所（左右の比較）と結果。今までの GUI（workspace.css の .conflicts）と同じ値 */
+:host { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
+.banner .small { flex: none; }
+.none { color: var(--gf-muted); font-size: 13px; }
+.cf { margin: 12px 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 14px; min-height: 420px; flex: 1; }
+.files { display: flex; flex-direction: column; gap: 2px; border-right: 1px solid #333c47; padding-right: 10px; overflow: auto; max-height: 70vh; }
+.files button { display: grid; gap: 1px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; white-space: normal; }
+.files button:hover { background: #232a32; }
+.files button.on { background: #263446; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir { color: #8792a0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dir:empty { display: none; }
+.note { font-size: 12px; color: #a5aeba; }
+.note.ok { color: #9ee4d3; }
+.note.warn { color: #efc389; }
+.note.bad { color: #ffb4b4; }
+.main { min-width: 0; overflow: auto; max-height: 70vh; padding-right: 4px; }
+.path { margin: 0 0 8px; font-size: 14px; font-weight: 600; word-break: break-all; color: var(--gf-fg); }
+.intro { color: var(--gf-muted); font-size: 13px; }
+.all, .take, .save { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; font-size: 13px; }
+.save { justify-content: flex-end; }
+.take { color: var(--gf-muted); }
+.hunk { margin: 10px 0; border: 1px solid #6a3a3f; border-radius: 8px; overflow: hidden; }
+.hunk.chosen { border-color: #39584f; }
+.hunk-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding: 6px 10px; background: #20262d; font-size: 13px; }
+.choose { display: flex; flex-wrap: wrap; gap: 4px; }
+.choose button { padding: 3px 8px; font-size: 12px; }
+.choose button[aria-pressed="true"] { border-color: #39584f; background: #1f302c; color: #a8ead9; }
+.sides { display: grid; grid-template-columns: 1fr 1fr; }
+.side { min-width: 0; }
+.side + .side { border-left: 1px solid #333c47; }
+.side-title { padding: 4px 10px; font-size: 12px; color: #b4bec9; }
+.side.current .side-title { background: #1c2635; }
+.side.incoming .side-title { background: #2b2433; }
+.side pre, .base pre { margin: 0; padding: 6px 10px; max-height: 280px; overflow: auto; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; white-space: pre; tab-size: 4;
+  background: transparent; border: 0; border-radius: 0; color: var(--gf-fg); }
+.empty { color: #8792a0; }
+.base { border-top: 1px solid #333c47; }
+.base summary { padding: 4px 10px; cursor: pointer; font-size: 12px; color: #b4bec9; }
+.result-label { display: grid; gap: 6px; margin-top: 12px; font-size: 13px; }
+.left.bad { color: #ffb4b4; }
+.left.ok { color: #9ee4d3; }
+.result { width: 100%; min-height: 240px; font: 12px/1.6 Consolas, "Yu Gothic UI", monospace; white-space: pre; tab-size: 4; resize: vertical; }
+.foot { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid #343c46; }
+.foot .all { margin: 0; color: var(--gf-muted); }
+.foot .why { margin-left: auto; color: var(--eco-dim); font-size: 12px; }
+.foot .primary { padding: 6px 22px; }
+@media (max-width: 760px) { .cf { grid-template-columns: 1fr; } .files { border-right: 0; max-height: 160px; } .sides { grid-template-columns: 1fr; } }

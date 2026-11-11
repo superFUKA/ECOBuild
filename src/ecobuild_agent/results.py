@@ -73,6 +73,21 @@ class AgentTool:
     name: str
     mark: str
     summary: str
+    area: str = ""                  # 何についてのツールか（選ぶ画面のまとまり：タスク・ファイル・ビルド・試験 等）
+
+
+@dataclass(frozen=True)
+class AgentToolFit:
+    """ecobuild agent registry fit：登録に渡すツールをこう選ぶと、どうなるか（保存する前の確かめ）。"""
+    name: str
+    tools: tuple[str, ...]          # 確かめた並び（名前の fnmatch）
+    count: int                      # 渡るツールの数（今あるツールのうち）
+    total: int                      # 今あるツールの数
+    owner: int                      # そのうち、ブランチを変える（コミット・push・提出）ツールの数
+    limit: int                      # これを超えると多すぎる
+    too_many: bool                  # 多すぎる（ツールが多いと、選び方が落ちやすい）
+    stronger: tuple[str, ...]       # この並びにすると、この登録より強くなる登録（子にできない）
+    parents: tuple[str, ...]        # この並びにすると、この登録を子に持つのに、この登録より弱くなる登録（保存できない）
 
 
 @dataclass(frozen=True)

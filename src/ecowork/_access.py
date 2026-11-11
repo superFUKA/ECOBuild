@@ -78,9 +78,13 @@ class Permissions:
 
     def branch_creator(self, name: str) -> str | None:
         """ブランチを作った人（GitHub の活動の記録。残っていなければ None）。"""
+        return self.branch_creators().get(name)
+
+    def branch_creators(self) -> dict[str, str]:
+        """ブランチ → 作った人（GitHub の活動の記録に残っているものだけ）。1回読んだら覚える。"""
         if getattr(self, "_creators", None) is None:
             self._creators = self.github.branch_creators(self.root)
-        return self._creators.get(name)
+        return self._creators
 
     def can_take_in(self, base: str) -> bool:
         """base への提出を処理（承認・差し戻し・取り込み）できるか：管理者か、base を作った人（既定のブランチは管理者だけ）。"""

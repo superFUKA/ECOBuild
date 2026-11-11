@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from ecobuild import config as _config
@@ -52,6 +53,50 @@ def write(root: Path | str, common: str) -> list[str]:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(body, encoding="utf-8", newline="\n")
     return [COMMON_FILE]
+
+
+# ツールのまとまり（何についてのツールか。名前の始まりで分ける。どれにも合わなければ「そのほか」）
+TOOL_AREAS = (
+    ("状態・履歴を見る", ("status", "diff", "log", "show", "blame", "branch_", "stash_", "module_")),
+    ("タスク", ("task_",)),
+    ("ファイル", ("file_",)),
+    ("ビルド・試験", ("build", "clean", "rebuild", "run", "test", "check", "profile_")),
+    ("取り込み（GitHub の最新）", ("sync",)),
+    ("CI", ("ci_",)),
+    ("子のエージェント・親への報告", ("children_", "report_to_parent")),
+)
+OTHER_AREA = "そのほか"
+TOO_MANY_TOOLS = 30     # ツールの定義がこれを超えると、エージェントのツールの選び方が落ちやすい
+
+
+def tool_area(name: str) -> str:
+    """ツールが何についてのものか（選ぶ画面のまとまりの名前）。"""
+    return next((label for label, starts in TOOL_AREAS if name.startswith(starts)), OTHER_AREA)
+
+
+def tool_fit(root: Path | str, name: str, tools: tuple[str, ...] | None, all_tools: list[tuple[str, str, str]]) -> dict:
+    """登録 name に渡すツールを tools にすると、どうなるか（tools が None なら今の並び）。何も変えない。
+    count・total・owner：渡るツールの数・今あるツールの数・そのうちブランチを変えるツールの数。
+    stronger：この登録より強くなる（子にできない）登録。parents：この登録を子に持つのに、弱くなる登録。"""
+    from dataclasses import replace
+
+    current = registry.load(name, root)
+    new = current if tools is None else replace(current, tools=tuple(tools))
+    given = [(tool, mark) for tool, mark, _ in all_tools if registry.allows_tool(new, tool)]
+    others = [r for r in registry.list_registrations(root) if r.name != name]
+    return {
+        "name": name, "tools": new.tools, "count": len(given), "total": len(all_tools),
+        "owner": sum(1 for _, mark in given if mark == "owner"),
+        "limit": TOO_MANY_TOOLS, "too_many": len(given) > TOO_MANY_TOOLS,
+        "stronger": tuple(r.name for r in others if registry.stronger(r, new)),
+        "parents": tuple(r.name for r in others if name in r.children and registry.stronger(new, r)),
+    }
+
+
+def tools_without_owner(patterns: tuple[str, ...], all_tools: list[tuple[str, str, str]]) -> tuple[str, ...]:
+    """patterns で渡るツールから、ブランチを変える（コミット・push・提出）ツールを除いた名前の並び。"""
+    return tuple(tool for tool, mark, _ in all_tools
+                 if mark != "owner" and any(fnmatch.fnmatchcase(tool, pattern) for pattern in patterns))
 
 
 def tool_list(root: Path | str | None, program) -> list[tuple[str, str, str]]:

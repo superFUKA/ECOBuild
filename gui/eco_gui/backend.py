@@ -19,6 +19,7 @@ FROM_STANDARD_INPUT = {
     "agent skill set": "document", "agent skill add": "document",
     "agent skill preset set": "document", "agent skill preset add": "document",
     "agent rules set": "common",
+    "sync resolve": "text",  # 衝突を直した、ファイルの中身
 }
 
 

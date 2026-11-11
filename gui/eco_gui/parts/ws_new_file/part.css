@@ -1,0 +1,14 @@
+/* 新しいファイルの入力。今までの GUI のフォーム（common.css の .eco-dialog）と同じ並び。 */
+.new-file { display: grid; gap: 14px; }
+.where { display: flex; gap: 12px; align-items: flex-start; }
+.where label { min-width: 0; }
+.where label.grow { flex: 1; }
+.where select { max-width: 220px; }
+.names { display: grid; gap: 6px; }
+.name { display: flex; gap: 6px; }
+.name input { flex: 1; min-width: 0; }
+.name button { padding: 5px 10px; }
+label.check { display: flex; grid-template-columns: none; align-items: center; gap: 6px; }
+.new-file-preview { min-height: 1.7em; color: var(--gf-muted); font-size: 12px; overflow-wrap: anywhere; }
+.new-file-preview.bad { color: var(--eco-bad); }
+.actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 14px; border-top: 1px solid #343c46; }

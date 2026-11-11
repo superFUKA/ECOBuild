@@ -1,0 +1,52 @@
+/* エクスプローラー。今までの GUI（module.css・workspace.css の #file-tree）と同じ値。 */
+:host { height: 100%; }
+:host > div { height: 100%; }
+.explorer { display: flex; flex-direction: column; height: 100%; padding: 14px 10px 0; background: #171c22; overflow-wrap: anywhere; }
+.explorer-heading { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; padding: 0 6px; }
+.explorer-heading h2 { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; font-weight: 600; color: #a5aeba; }
+.explorer-tools { display: flex; gap: 2px; flex-shrink: 0; white-space: nowrap; }
+.explorer-tools button { display: inline-grid; place-items: center; height: 22px; padding: 0 4px; border: 0; background: transparent; color: #a5aeba; border-radius: 4px; }
+.explorer-tools button:hover:not(:disabled) { color: #edf1f5; background: #2a323b; }
+.icon { display: inline-flex; }
+.icon svg, .tree-icon svg { display: block; }
+.tree { flex: 1; min-height: 0; overflow: auto; padding-bottom: 14px; font-size: 12px; line-height: 22px; }
+.tree .muted { margin: 0 6px; font-size: 12px; }
+details { padding-left: 12px; }
+.tree > details { padding-left: 2px; }
+summary { display: flex; align-items: center; gap: 3px; min-height: 22px; padding: 0 3px; line-height: 22px; font-size: 12px; white-space: nowrap; overflow: hidden;
+  color: #cdd5df; cursor: default; list-style: none; border-radius: 3px; }
+summary::-webkit-details-marker { display: none; }
+summary:hover { background: #232d32; }
+.tree-caret { display: inline-block; width: 12px; margin: 0 1px 0 -3px; text-align: center; border-radius: 3px; color: #a5aeba; font-size: 13px; line-height: 1; flex: none;
+  cursor: pointer; transition: transform .1s; }
+details[open] > summary .tree-caret { transform: rotate(90deg); }
+.tree-caret:hover { background: #2b333c; color: #edf1f5; }
+.tree-icon { width: 14px; text-align: center; color: #84909e; font-size: 10px; flex: none; }
+.tree-icon.folder { color: #c8a96a; }
+.tree-icon.project { color: #9ee4d3; font-size: 11px; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+summary.project { font-weight: 600; color: #e6fff7; }
+summary.has-changes { color: #efc389; }
+summary.project.has-changes .tree-name { color: #efc389; }
+summary.deleted { color: #f3a5a5; }
+summary.deleted .tree-name { text-decoration: line-through; }
+.tree-sub { color: #84909e; font-size: 11px; font-weight: 400; }
+.tree-kind { margin-left: auto; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; line-height: 16px; background: #213a33; color: #a8ead9; white-space: nowrap; flex: none; }
+.tree-kind.executable { background: #22344a; color: #9ccaf5; }
+.tree-kind.test { background: #3a2f4f; color: #d6c3f7; }
+.tree-kind.benchmark { background: #3d3324; color: #efc389; }
+.file { display: block; width: 100%; min-height: 22px; height: 22px; margin: 0; padding: 0 5px 0 16px; border: 0; border-radius: 3px; background: transparent; color: #b6c3cf;
+  font-size: 12px; line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.file:hover:not(:disabled) { background: #232d32; }
+.file .tree-icon { display: inline-block; width: 14px; margin-right: 3px; vertical-align: -2px; color: #84909e; }
+.file.modified { color: #efc389; }
+.file.untracked { color: #9fe0a8; }
+.file.staged { color: #8fb7ef; }
+.file.deleted { color: #f3a5a5; text-decoration: line-through; }
+.file.conflicted { color: #ff8f8f; font-weight: 700; }
+.file.chosen, summary.chosen { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
+.file:focus-visible, summary:focus-visible { outline-offset: -2px; }
+.inline-name { padding: 1px 0 1px 16px; }
+.inline-name input { width: 100%; padding: 1px 5px; height: 22px; line-height: 18px; font-size: 12px; border-radius: 3px; }
+.inline-name small { display: block; color: #ffb4b4; font-size: 11px; margin-top: 4px; }
+.inline-name small:empty { display: none; }

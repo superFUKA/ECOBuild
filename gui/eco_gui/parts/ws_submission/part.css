@@ -1,0 +1,16 @@
+/* 提出の見出し。今までの GUI（workspace.css の .pr-*）と同じ値。 */
+.pr-head { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; }
+.pr-title { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; }
+.pr-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-state { flex-shrink: 0; padding: 1px 8px; border-radius: 999px; font-size: 11px; background: #2a323b; color: #cdd5df; border: 1px solid #3a424c; }
+.pr-state.open { background: #1f3a30; color: #9fe0c4; border-color: #2f5a4a; }
+.pr-state.draft { background: #2a2f37; color: #b9c2cc; }
+.pr-state.merged { background: #2b2540; color: #cbb8f5; border-color: #4a3d6e; }
+.pr-state.closed { background: #3a2427; color: #f3a5a5; border-color: #6a3a3f; }
+.pr-meta-row { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; margin-top: 4px; padding-bottom: 8px; border-bottom: 1px solid #303640; }
+.pr-meta { flex: 1; min-width: 0; font-size: 12px; color: #a5aeba; overflow-wrap: anywhere; }
+.pr-meta .sep { color: #56616e; margin: 0 6px; }
+.pr-note { margin: 8px 0 0; font-size: 12px; color: #efc389; }
+.link-button { background: none; border: none; padding: 0 4px; color: #8fb8ff; font-size: 12px; cursor: pointer; }
+.link-button:hover { text-decoration: underline; border: none; }
+.muted { font-size: 13px; }

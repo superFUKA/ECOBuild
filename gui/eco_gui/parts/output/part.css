@@ -1,0 +1,33 @@
+/* 出力。今までの GUI（panels.css の .output-view・.out-*・.build-state）と同じ値。 */
+:host-context([data-gf-look="ws-fill"]) { height: 100%; }
+:host-context([data-gf-look="ws-fill"]) > div { height: 100%; }
+.output-view { display: flex; flex-direction: column; min-height: 0; background: #11141a; border: 1px solid var(--eco-line-soft); border-radius: 6px; }
+.output-view.fill { height: 100%; border: 0; border-radius: 0; }
+.out-head { flex: none; display: flex; align-items: center; gap: 10px; padding: 5px 10px 5px 14px; font-size: 12px; border-bottom: 1px solid #262c34; flex-wrap: wrap; }
+.out-head strong { white-space: nowrap; }
+.out-time, .out-shown { color: #84909e; font-size: 11px; white-space: nowrap; }
+.out-counts { display: inline-flex; gap: 8px; padding: 1px 8px; border: 1px solid #3a424c; border-radius: 10px; background: transparent; font-size: 11px; cursor: pointer; }
+.out-counts:hover { border-color: #56616e; }
+.out-counts .bad { color: #ffb4b4; }
+.out-counts .warn { color: #efc389; }
+.out-tools { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.out-tools input { width: 150px; padding: 3px 8px; font-size: 12px; border-radius: 5px; }
+.out-tools button { padding: 2px 8px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #a5aeba; font-size: 12px; cursor: pointer; }
+.out-tools button:hover { color: #edf1f5; background: #222930; border-color: transparent; }
+.out-tools button[aria-pressed=true] { color: #9ee4d3; border-color: #2f5a50; background: #1b2a26; }
+.build-state { padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.build-state.ok { background: #213a33; color: #a8ead9; }
+.build-state.bad { background: #43282b; color: #ffb4b4; }
+.build-state.run { background: #22344a; color: #9ccaf5; }
+.out-text { flex: 1; min-height: 0; max-height: 22rem; margin: 0; padding: 6px 0; overflow: auto; border: 0; border-radius: 0; background: transparent;
+  font: 12px/1.55 Consolas, "Yu Gothic UI", monospace; color: #cdd5df; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fill .out-text { max-height: none; }
+.out-text.nowrap { white-space: pre; overflow-wrap: normal; }
+.out-text .line { display: block; padding: 0 14px; border-left: 3px solid transparent; }
+.out-text .line:hover { background: #181d23; }
+.out-text .line.bad { color: #f3a5a5; background: #2a1a1d; border-left-color: #e0868c; }
+.out-text .line.warn { color: #efc389; background: #2a2418; border-left-color: #c9a35a; }
+.out-text .line.ok { color: #9fe0a8; }
+.out-text .line.muted { color: #7d8794; }
+.out-text .line.head { font-weight: 600; }
+.out-text mark { background: #6b5a1f; color: #fff3c4; border-radius: 2px; }

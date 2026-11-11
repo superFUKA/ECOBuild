@@ -54,7 +54,15 @@ class PolishEcobuild(FakeEcobuild):
             "task add": spec("change", paths=many, all=flag),
             "ignore": spec("change", patterns=many),
             "blame": spec("read", ["path"], path=text, gui=flag),
-            "log": spec("read", paths=many, count={"type": "integer"}, branch=text),
+            "log": spec("read", paths=many, count={"type": "integer"}, branch=text, unpushed=flag),
+            # 作業空間の窓が呼ぶもの
+            "status": spec("read", fetch=flag), "files": spec("read"), "check": spec("read"),
+            "sync": spec("change", from_branch=text, at=text),
+            "task reset": spec("confirm", ["commit"], commit=text, keep=flag),
+            "task prune": spec("change", number={"type": "integer"}),
+            "task push": spec("change", force=flag),
+            "show": spec("read", commit=text, gui=flag),
+            "diff": spec("read", paths=many, staged=flag, base=flag, gui=flag),
             "file test": spec("change", ["path"], path=text, to=text),
             "module settings": spec("read", main=text),
             "project list": spec("read"), "project update": spec("change"),
@@ -211,15 +219,15 @@ def test_build_screen_runs_all_one_or_filtered_tests(relay):
 def test_workspace_stages_unstages_and_discards_the_checked_changes(relay):
     window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
     press(relay, window, "changes", "changed", paths=["a.py", "new.txt"])
-    press(relay, window, "stage")
+    press(relay, window, "changes", "action", name="stage", paths=["a.py", "new.txt"])
     assert ("task add", {"paths": ["a.py", "new.txt"]}) in relay.backend.calls
-    relay.input(window, "unstage", "pressed", {}, human=True)
+    relay.input(window, "changes", "action", {"name": "unstage", "paths": ["a.py", "new.txt"]}, human=True)
     answer(relay, window, True)  # restore は、確かめてから
     assert ("restore", {"paths": ["a.py", "new.txt"], "staged": True}) in relay.backend.calls
-    relay.input(window, "discard", "pressed", {}, human=True)
+    relay.input(window, "changes", "action", {"name": "discard", "paths": ["a.py", "new.txt"]}, human=True)
     answer(relay, window, False)  # いいえ：捨てない
     assert ("restore", {"paths": ["a.py", "new.txt"]}) not in relay.backend.calls
-    relay.input(window, "discard", "pressed", {}, human=True)
+    relay.input(window, "changes", "action", {"name": "discard", "paths": ["a.py", "new.txt"]}, human=True)
     answer(relay, window, True)
     assert ("restore", {"paths": ["a.py", "new.txt"]}) in relay.backend.calls
     assert relay.display.values(window)["paths"] is None  # 捨てたら、選択を空に（まだ選んでいない）
@@ -228,8 +236,8 @@ def test_workspace_stages_unstages_and_discards_the_checked_changes(relay):
 
 def test_workspace_opens_the_build_and_the_stash_screens_for_the_same_place(relay):
     window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
-    press(relay, window, "open_build")
-    press(relay, window, "open_stashes")
+    press(relay, window, "toolbar", "action", name="build_settings")
+    press(relay, window, "changes", "action", name="stash_list")
     others = {w["screen"]: w for w in relay.display.windows() if w["id"] != window}
     assert sorted(others) == ["build", "stashes"]
     assert all(w["args"] == {"module": "C:/work/Calc/.ecobuild/w/12"} for w in others.values())
@@ -471,43 +479,41 @@ def test_files_screen_greys_the_buttons_for_the_checked_files_while_nothing_is_c
     assert not [call for call in relay.backend.calls if call[0] in ("file remove", "restore") and not call[1].get("paths")]
 
 
-def test_workspace_greys_the_buttons_for_the_checked_changes_while_nothing_is_checked(relay):
+def test_workspace_tells_the_parts_what_is_checked(relay):
+    """チェックしたファイルは、変更の一覧とコミットの欄へ出る（ボタンを押せるかは、その部品が見せる）。"""
     window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
-    chosen = ("stage", "unstage", "discard")
     view = nodes(relay, window)
-    assert view["changes"]["props"]["none_when_empty"] is True
-    assert all(view[name]["wrap"]["kind"] == "unavailable" for name in chosen)  # まだ1つもチェックしていない
-    assert view["do_commit"]["wrap"] is None  # コミットは、ステージ済みのものだけでもできる
+    assert view["changes"]["props"]["none_when_empty"] is True and view["changes"]["props"]["tools"] is True
+    assert view["changes"]["props"]["checked"] == [] and view["commit_box"]["props"]["checked"] is None
     press(relay, window, "changes", "changed", paths=["a.py"])
-    assert all(nodes(relay, window)[name]["wrap"] is None for name in chosen)
+    view = nodes(relay, window)
+    assert view["changes"]["props"]["checked"] == ["a.py"] and view["commit_box"]["props"]["checked"] == ["a.py"]
     press(relay, window, "changes", "changed", paths=None)  # チェックを全部外した
     view = nodes(relay, window)
-    assert view["changes"]["props"]["checked"] == [] and all(view[name]["wrap"]["kind"] == "unavailable" for name in chosen)
+    assert view["changes"]["props"]["checked"] == [] and view["commit_box"]["props"]["checked"] is None
 
 
 def test_workspace_amends_the_last_commit_and_restores_from_another_commit(relay):
     window = opened(relay, "workspace", "C:/work/Calc/.ecobuild/w/12")
     press(relay, window, "changes", "changed", paths=["a.py"])
-    press(relay, window, "message", "changed", text="直す")
-    press(relay, window, "amend", "changed", on=True)
-    assert nodes(relay, window)["amend"]["props"]["on"] is True
-    press(relay, window, "do_commit")
+    press(relay, window, "commit_box", "changed", text="直す")
+    press(relay, window, "commit_box", "amend", on=True)
+    assert nodes(relay, window)["commit_box"]["props"]["amend"] is True
+    press(relay, window, "commit_box", "commit")
     assert last(relay) == ("task commit", {"paths": ["a.py"], "message": "直す", "amend": True})
-    assert relay.display.values(window)["amend"] is None and nodes(relay, window)["amend"]["props"]["on"] is None  # 1回ごとに外す
+    values = relay.display.values(window)
+    assert values["amend"] is None and values["message"] is None  # 1回ごとに外す。メッセージも空に戻す
+    assert nodes(relay, window)["commit_box"]["props"]["amend"] is None and nodes(relay, window)["commit_box"]["props"]["text"] is None
     press(relay, window, "changes", "changed", paths=["b.py"])
-    press(relay, window, "do_commit")
-    assert last(relay) == ("task commit", {"paths": ["b.py"], "message": "直す"})
-
-    press(relay, window, "changes", "changed", paths=["b.py"])
-    press(relay, window, "source", "changed", text="HEAD~1")
-    relay.input(window, "discard", "pressed", {}, human=True)
+    press(relay, window, "commit_box", "changed", text="もう1つ直す")
+    press(relay, window, "commit_box", "commit")
+    assert last(relay) == ("task commit", {"paths": ["b.py"], "message": "もう1つ直す"})
+    # 別のコミットの状態へ戻す（ecobuild restore --source <コミット>）は、ログのコミットのメニューから
+    press(relay, window, "tabs", "selected", tab="log")
+    relay.input(window, "log:list", "action", {"name": "restore", "sha": "abc"}, human=True)
     answer(relay, window, True)
-    assert last(relay) == ("restore", {"paths": ["b.py"], "source": "HEAD~1"})
-    press(relay, window, "changes", "changed", paths=["b.py"])
-    relay.input(window, "unstage", "pressed", {}, human=True)  # ステージの取り消しには、戻す先を渡さない
-    answer(relay, window, True)
-    assert last(relay) == ("restore", {"paths": ["b.py"], "staged": True})
-    assert notices(relay) == []
+    relay.idle()
+    assert last(relay) == ("restore", {"source": "abc"})
 
 
 def test_build_screen_shows_the_result_of_the_last_successful_run(relay):

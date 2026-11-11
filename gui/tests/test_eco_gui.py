@@ -237,13 +237,14 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
 
     relay.input(window, "changes", "changed", {"paths": ["a.py", "new.txt"]}, human=True)
-    relay.input(window, "message", "changed", {"text": "ログインを直す"}, human=True)
+    relay.input(window, "commit_box", "changed", {"text": "ログインを直す"}, human=True)
     relay.idle()
     assert nodes(relay, window)["changes"]["props"]["checked"] == ["a.py", "new.txt"]
-    relay.input(window, "do_commit", "pressed", {}, human=True)
+    relay.input(window, "commit_box", "commit", {}, human=True)
     relay.idle()
     assert ("task commit", {"paths": ["a.py", "new.txt"], "message": "ログインを直す"}) in relay.backend.calls
     assert relay.display.values(window)["paths"] is None and nodes(relay, window)["changes"]["props"]["checked"] == []
+    relay.input(window, "tabs", "selected", {"tab": "submit"}, human=True)  # 「提出」のタブへ
     relay.input(window, "submit", "pressed", {}, human=True)  # 提出は、確かめてから
     assert answer(relay, window, True)["part"] == "confirm-box"
     assert ("task submit", {}) in relay.backend.calls
@@ -252,11 +253,11 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
 def test_build_output_is_shown_as_it_arrives(relay):
     window = relay.execute({"command": "open", "screen": "workspace", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()
-    relay.input(window, "build", "pressed", {}, human=True)
+    relay.input(window, "toolbar", "action", {"name": "build"}, human=True)
     relay.idle()
     assert ("build", {}) in relay.backend.calls and relay.backend.modules[-1] == "C:/work/Calc"
     assert nodes(relay, window)["out"]["props"]["lines"] == ["構成しています…", "ビルドしています…"]
-    relay.input(window, "clean", "pressed", {}, human=True)
+    relay.input(window, "toolbar", "action", {"name": "clean"}, human=True)
     relay.idle()
     assert nodes(relay, window)["out"]["props"]["lines"] == []  # 次の実行が始まると、前の出力は消える
 

@@ -1,0 +1,5 @@
+/* コミットの欄。今までの GUI（workspace.css の .commit-panel textarea・.actions）と同じ値。 */
+textarea { display: block; width: 100%; padding: 12px; background: #14171b; border: 1px solid #46515e; border-radius: 7px; }
+.actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0 14px; }
+.actions label { display: flex; grid-template-columns: none; align-items: center; gap: 6px; font-size: 13px; }
+.actions button { padding: 5px 12px; font-size: 13px; }

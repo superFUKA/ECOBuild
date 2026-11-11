@@ -1,0 +1,19 @@
+/* ログの一覧。今までの GUI（logview.css の .log-side・.log-entries）と同じ値。 */
+:host-context([data-gf-look="ws-fill"]) { height: 100%; }
+:host-context([data-gf-look="ws-fill"]) > div { height: 100%; }
+.log-side { display: flex; flex-direction: column; gap: 6px; min-height: 0; height: 100%; }
+.log-side input.log-search { width: 100%; padding: 5px 9px; font-size: 12px; }
+.log-entries { display: block; flex: 1; min-height: 0; max-height: 60vh; overflow: auto; list-style: none; margin: 0; padding: 0; border: 1px solid #2a3038; border-radius: 6px; outline: none; }
+:host-context([data-gf-look="ws-fill"]) .log-entries { max-height: none; }
+.log-entries:focus-visible { border-color: #9ee4d3; }
+.log-entries li[role=option] { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; padding: 6px 8px; border-bottom: 1px solid #20262d; cursor: pointer; font-size: 12px; }
+.log-entries li[role=option]:hover { background: #20262d; }
+.log-entries li[aria-selected=true] { background: #263c37; box-shadow: inset 2px 0 0 #9ee4d3; }
+.log-entries li.muted { padding: 10px; font-size: 12px; }
+.log-entries code { color: #9ee4d3; font: 12px Consolas, monospace; }
+.log-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-entries small { grid-column: 2; color: #84909e; font-size: 11px; }
+.log-merge { border: 1px solid #2f5a4c; border-radius: 4px; padding: 0 5px; color: #8fd3b8; }
+.log-more { align-self: flex-start; padding: 4px 10px; font-size: 12px; }
+.log-short { height: auto; }
+.log-short .log-entries { flex: none; max-height: 240px; }

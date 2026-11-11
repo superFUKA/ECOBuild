@@ -35,3 +35,12 @@ def test_files_shows_tracked_and_new_files_but_not_ignored_ones(cli, module):
     files = json.loads(cli("files", "--json").stdout)["result"]["files"]
     assert "docs/新しい.md" in files and "README.md" in files and "build.log" not in files
     assert "docs/新しい.md" in cli("files").output.split()
+
+
+def test_files_tells_the_files_that_are_gone_from_the_folder(cli, module):
+    root = module.root
+    assert json.loads(cli("files", "--json").stdout)["result"]["missing"] == []
+    (root / "README.md").unlink()                      # 消しただけ（まだコミットしていない）
+    result = json.loads(cli("files", "--json").stdout)["result"]
+    assert "README.md" in result["files"] and result["missing"] == ["README.md"]
+    assert "README.md（削除）" in cli("files").output.split()

@@ -1,0 +1,6 @@
+/* 窓の見出し。今までの GUI（module.css の header）と同じ色と字。高さは、ツールバーと並ぶので低くする。 */
+header { display: flex; align-items: center; gap: 14px; min-height: 44px; padding: 8px 18px; border-bottom: 1px solid #303640; background: #191e24; }
+h1 { margin: 0; font-size: 17px; white-space: nowrap; }
+strong { white-space: nowrap; }
+.divider { color: #a5aeba; }
+.workspace { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #a8dfd0; font-size: 12px; }

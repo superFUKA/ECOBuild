@@ -4,10 +4,14 @@ const VIEWS = [['board', 'ボード'], ['tasks', '一覧'], ['task-next', '次�
 
 export default {
   render(root, props, { h, emit, state }) {
-    if (!state.f) {
+    // 開いたときの値（start）が変わったら、それに合わせ直す（概要から、絞り込み付きで一覧へ来たとき等）
+    const startKey = JSON.stringify(props.start || {});
+    if (!state.f || state.startKey !== startKey) {
       const s = props.start || {};
+      state.startKey = startKey;
       state.f = { search: s.search || '', assignee: s.assignee || '', sprint: s.sprint || '', milestone: s.milestone || '',
         ready: s.ready === true, closed: s.closed === true, deleted: s.deleted === true };
+      if (state.search) state.search.value = state.f.search;
     }
     const f = state.f;
     const out = () => ({ ...f, all: f.closed || f.deleted });

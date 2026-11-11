@@ -143,7 +143,7 @@ export default {
         const row = h('tr', { tabindex: '0', class: marks.open(t) ? '' : 'closed' },
           h('td', { class: 'tk-num-cell' }, marks.num(t)), h('td', { class: 'tk-title-cell' }, t.title, ' ', ...marks.flags(t)),
           h('td', {}, marks.stageBadge(t)), h('td', {}, marks.prio(t)), h('td', {}, marks.due(t)), h('td', {}, marks.est(t)), h('td', {}, marks.sprintTag(t)));
-        if (props.assignee) row.append(h('td', {}, ...marks.avatars(t)));
+        if (props.assignee) row.append(h('td', { class: 'tk-people' }, ...marks.avatars(t)));
         row.setAttribute('aria-selected', String(String(t.number) === String(props.selected || '')));
         body.append(marks.pick(row, t));
       }

@@ -7,7 +7,7 @@ ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダ
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "作業を開始", "width": 600, "height": 680},
+    "window": {"title": "作業を開始", "width": 600, "height": 620},
     "nodes": [
         {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "task-form", "props": {"kind": "start", "issue": {"arg": "issue"}, "text": {"arg": "text"}}},

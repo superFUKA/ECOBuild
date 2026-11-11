@@ -41,7 +41,7 @@ class FakeForms(FakeEcobuild):
             "task comment": _spec("change", number=number, issue=number, message=text),
             "task apply": _spec("confirm", number=number, task=number, subject=text, partial=flag),
             "task drop": _spec("confirm", number=number, close=flag),
-            "task prune": _spec("change", number=number),
+            "task prune": {**_spec("change", number=number), "dry_run": True},
             "task edit": _spec("change", ["issue"], issue=number, add_label=text),
             "task submit": _spec("confirm", title=text, draft=flag, reviewer=text, partial=flag, complete=flag, check=flag),
             "branch merge": {**_spec("confirm", ["name"], name=text, into=text, ignore_checks=flag), "dry_run": True},
@@ -108,7 +108,7 @@ def test_every_input_window_is_drawn_by_the_one_form_part(relay):
     kinds = {field.get("type", "text") for props in samples.values() for field in props["fields"]}
     assert {"text", "number", "date", "textarea", "select", "radio", "checkbox", "checks", "section", "note"} <= kinds  # 欄の種類が、見本にそろっている
     forms = sorted(name for name, screen in relay.screens.items() if any(node.get("part") == "form" for node in screen.data["nodes"]))
-    assert len(forms) >= 31 and {"task-finish", "task-submit", "mod-upgrade", "mod-branch-new", "cfg-agent-add", "review-merge"} <= set(forms)
+    assert len(forms) >= 30 and {"task-finish", "task-submit", "mod-upgrade", "mod-branch-new", "cfg-agent-add", "review-merge"} <= set(forms)
     assert parts["task-form"].inputs["properties"]["kind"]["enum"] == ["new", "start", "edit", "assign"]
 
 
@@ -122,7 +122,6 @@ def test_every_input_window_is_drawn_by_the_one_form_part(relay):
     ("task-apply", {"subject": "", "complete": True, "partial": False}, "task apply", {"task": 12, "partial": False}, True),
     ("task-drop", {"close": True}, "task drop", {"number": 12, "close": True}, True),
     ("task-prune", {}, "task prune", {"number": 12}, False),
-    ("task-clean", {}, "task prune", {}, False),
     ("task-label", {"label": "bug,ui"}, "task edit", {"issue": 12, "add_label": "bug,ui"}, False),
 ])
 def test_each_task_window_runs_its_command_with_what_was_entered(relay, screen, values, command, expected, confirm):

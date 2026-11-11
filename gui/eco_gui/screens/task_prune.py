@@ -17,7 +17,7 @@ SCREEN = {
             "fields": []}},
     ],
     "bindings": [
-        {"on": "form.submitted", "run": "task prune", "notify": "このPCのタスクブランチを片付けました。", "close": True,
+        {"on": "form.submitted", "run": "task prune", "notify": "手元のタスクブランチ {branch} を削除しました。", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}},
         {"on": "form.cancelled", "close": True},
     ],

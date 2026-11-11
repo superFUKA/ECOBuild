@@ -3,7 +3,7 @@ from dataclasses import replace
 from typing import Annotated
 
 from ..._output import lines, optional_argument, run_command
-from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
+from ._show import STAGE_NAMES, dates_text, elsewhere, plan_text, submission_text, with_stage, with_worker, worker_text, workers
 
 AGENT = "read"
 
@@ -106,7 +106,9 @@ def command(
         here.append(inv.module.root)
         found = workers(inv.module.root)
         result = with_worker(inv.module.task_status(issue or None), found)
-        children = tuple(with_worker(t, found) for t in result.children)
-        return replace(result, children=children)
+        children = tuple(with_stage(with_worker(t, found)) for t in result.children)
+        # 段階の記録がなければ、タスクブランチがあれば作業中・なければ未着手（task list と同じ）
+        task = None if result.task is None else with_stage(result.task)
+        return replace(result, children=children, task=task)
 
     return run_command("task status", status, render, json_output=json)

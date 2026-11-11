@@ -9,6 +9,9 @@ const toolLines = (text) => String(text || '').replace(/\r/g, '').replace(/\n+$/
 const LABEL = { build: 'ビルド', rebuild: 'リビルド', clean: 'クリーン', test: 'テスト', run: '実行', check: '提出前の確認' };
 const CHECK = { generated: '生成ファイルが最新', conflict_markers: '衝突の印がない', build: 'ビルド', test: 'テスト', dependencies: '依存先が記録の版' };
 const STATE_TEXT = { ok: '成功', run: '実行中…', bad: '失敗' };
+// コンパイラー・Python の知らせの中の、ファイルと行：C:\…\a.cpp(12,5)・src/a.cpp:12:5・File "…\a.py", line 12
+const SOURCE = 'c|cc|cpp|cxx|c\\+\\+|h|hh|hpp|hxx|inl|ixx|ipp|py|pyi|cmake|txt|toml|json|cs|rs|js|ts';
+const FILE_AT = new RegExp(`File "([^"]+)", line (\\d+)|((?:[A-Za-z]:)?[\\w.\\-\\\\/]*\\.(?:${SOURCE}))(?:\\((\\d+)(?:,\\d+)?\\)|:(\\d+)(?::\\d+)?)`, 'gi');
 
 // 終わった実行の結果を、行にする
 function resultLines(kind, r) {
@@ -84,7 +87,20 @@ export default {
       out.push(line.slice(at));
       return out;
     };
-    for (const l of visible) text.append(h('span', { class: `line ${l.kind || ''}${l.head ? ' head' : ''}` }, ...mark(l.text)));
+    // 行の中の「ファイル(行)」は、押すと開けるリンクにする（コンパイラー・Python の知らせ）
+    const linked = (line) => {
+      const out = [];
+      let at = 0;
+      for (const m of line.matchAll(FILE_AT)) {
+        const path = m[1] || m[3], number = Number(m[2] || m[4] || m[5]);
+        const link = h('button', { type: 'button', class: 'file-link', title: `${path} を開く（${number} 行目）` }, ...mark(m[0]));
+        link.addEventListener('click', () => emit('opened', { path, line: number }));
+        out.push(...(m.index > at ? mark(line.slice(at, m.index)) : []), link);
+        at = m.index + m[0].length;
+      }
+      return at ? [...out, ...(at < line.length ? mark(line.slice(at)) : [])] : mark(line);
+    };
+    for (const l of visible) text.append(h('span', { class: `line ${l.kind || ''}${l.head ? ' head' : ''}` }, ...linked(l.text)));
     if (!visible.length) {
       text.append(h('span', { class: 'line muted' }, state.problems ? 'エラー・警告はありません。' : q ? '一致する行はありません。' : run.state === 'run' ? '実行しています…' : props.empty_text));
     }

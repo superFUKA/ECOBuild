@@ -13,6 +13,15 @@ export default {
     const box = h('div', { class: 'log-side' + (props.short ? ' log-short' : '') });
     const search = h('input', { type: 'search', class: 'log-search', placeholder: '件名・作成者・SHA・#タスクで絞り込み', 'aria-label': 'ログを絞り込む', value: state.query });
     search.addEventListener('input', () => { state.query = search.value; state.typing = true; redraw(); });
+    // どのブランチのログを見るか（取り出さずに読む。今のブランチが既定）
+    if (props.branches && props.branches.length) {
+      const pick = h('select', { class: 'log-branch', 'aria-label': 'ログを見るブランチ', title: 'ログを見るブランチ（取り出さずに読みます）' },
+        h('option', { value: '' }, '今のブランチ'));
+      for (const b of props.branches) pick.append(h('option', { value: b.name }, b.name));
+      pick.value = props.branch || '';
+      pick.addEventListener('change', () => emit('branch', { name: pick.value }));
+      box.append(pick);
+    }
     if (props.search) box.append(search);
     const list = h('ul', { class: 'log-entries', role: 'listbox', tabindex: '0', 'aria-label': 'コミット' });
     box.append(list);

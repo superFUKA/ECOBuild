@@ -20,7 +20,28 @@ FROM_STANDARD_INPUT = {
     "agent skill preset set": "document", "agent skill preset add": "document",
     "agent rules set": "common",
     "sync resolve": "text",  # 衝突を直した、ファイルの中身
+    "gui ask": "text",  # オペレーターに話しかける文
 }
+
+# 拡張コマンド（ecobuild-<名前>。ecobuild の一覧には名前しか出ない）のうち、画面から呼ぶもの：オペレーターとの会話。
+# ECOBuild GUI が置く `ecobuild gui`（gui/ecobuild_gui.py の COMMANDS と同じ。試験で比べる）。ecobuild-gui が PATH にない PC でも
+# 画面の定義は読めるように、一覧の extensions に名前がなくても足す（呼べば、ecobuild が「そのコマンドはありません」と答える）。
+EXTENSION_COMMANDS = [
+    {"name": "gui", "path": "gui", "runnable": False, "effect": None, "commands": [
+        {"name": "ask", "path": "gui ask", "runnable": True, "effect": "change",
+         "summary": "オペレーターに画面を開かずに話しかけ、返答を待ちます。",
+         "arguments": [{"param": "text", "type": "str", "required": False, "multiple": False,
+                        "help": "話しかける文（省くか - で標準入力）"}],
+         "options": [{"param": "session", "names": ["--session"], "type": "str", "help": "続ける会話（前の返答の session）"},
+                     {"param": "continue", "names": ["--continue"], "type": "bool",
+                      "help": "このPCの会話の記録の続きとして話し、発言と返答を記録に足す"},
+                     {"param": "agent", "names": ["--agent"], "type": "str", "help": "エージェントのコマンド（既定は claude）"}]},
+        {"name": "conversation", "path": "gui conversation", "runnable": True, "effect": "read",
+         "summary": "オペレーターとの会話の記録と、今の状態（待機中・考え中）を表示します。", "arguments": [], "options": []},
+        {"name": "conversation-new", "path": "gui conversation-new", "runnable": True, "effect": "change",
+         "summary": "オペレーターとの会話の記録を空にします（次の ask --continue から新しい会話）。", "arguments": [], "options": []},
+    ]},
+]
 
 
 def convert(node: dict[str, Any]) -> dict[str, Any]:
@@ -141,5 +162,7 @@ class EcobuildBackend(MachineBackend):
         # （同じ名前のコマンドは1つにまとめ、引数は合わせる。その型でないモジュールで呼べば、ecobuild が「使えない」と答える）
         for kind in sorted(result.get("types") or {}):
             commands += result["types"][kind].get("commands") or []
+        if "extensions" in result:  # 拡張コマンド（ecobuild-<名前>）を受ける ecobuild：画面から呼ぶ拡張コマンドも足す
+            commands += EXTENSION_COMMANDS
         return {"name": "ecobuild", "path": "", "runnable": False, "effect": None, "parameters": [],
                 "commands": merge([convert(node) for node in commands])}

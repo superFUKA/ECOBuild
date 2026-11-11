@@ -531,10 +531,14 @@ class Module:
         except EcoBuildError as error:   # 管理ファイルが壊れている等。他の情報は出す
             dependencies = ()
             self.repository.notices.append(f"依存先を読めませんでした（{error.message}）。")
+        try:
+            projects = self.projects()
+        except EcoBuildError:   # 型が Project を持たない・読めない
+            projects = ()
         return ModuleInfo(self.name, self.config.type, self.root, repository, url, private, archived,
-                          self.config.default_base, self.project_names, dependencies,
+                          self.config.default_base, tuple(p.name for p in projects), dependencies,
                           tuple(_workspaces.task_workspaces(self.workspace_root)),
-                          self.config.format, _config.FORMAT)
+                          self.config.format, _config.FORMAT, projects)
 
     @classmethod
     def archive(cls, name: str, *, archived: bool = True, github: _github.GitHub | None = None) -> ModuleArchived:

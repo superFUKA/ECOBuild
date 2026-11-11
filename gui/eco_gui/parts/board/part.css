@@ -20,3 +20,6 @@
 .kcard-meta .tk-num { margin-right: 0; }
 .kcard-meta .tk-est, .kcard-meta .tk-sprint { margin-left: 6px; }
 .kcard-foot > .tk-person-link, .kcard-foot > .tk-avatar { margin-left: auto; flex-shrink: 0; }
+/* 落としても移らなかったときの説明（今までの GUI の知らせの代わり） */
+.moved { margin: 0 0 10px; }
+.moved[hidden] { display: none; }

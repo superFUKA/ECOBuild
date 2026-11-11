@@ -7,7 +7,10 @@ AGENT = "read"
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """今いるモジュールの情報（型・場所・GitHubのリポジトリ・Project・依存先・このPCにある作業空間）を表示します。"""
+    """今いるモジュールの情報（型・場所・GitHubのリポジトリ・Project・依存先・このPCにある作業空間）を表示します。
+
+    JSON の projects は Project の名前、project_list はその1件ずつの種類（kind）・場所（directory）・リンク（links）。
+    """
 
     def render(r):
         notes = [label for label, on in (("非公開", r.private is True), ("公開", r.private is False),

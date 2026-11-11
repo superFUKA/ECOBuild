@@ -8,6 +8,8 @@ const FILE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14"><path d="M3.5
 const TOOL_ICONS = {
   new_file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/>',
   reload: '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>',
+  eye_on: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eye_off: '<path d="M17.9 17.9A10 10 0 0 1 12 19c-6.5 0-10-7-10-7a18 18 0 0 1 4.1-5M9.9 5.2A9 9 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2M2 2l20 20"/>',
 };
 const PROJECT_KINDS = { static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定' };
 const STATE_LABEL = { deleted: '削除', conflicted: '衝突', untracked: '未追跡', modified: '変更', staged: 'ステージ済み' };
@@ -33,8 +35,18 @@ export default {
       button.addEventListener('click', () => emit('action', { name, path: state.directory || '', paths: [] }));
       return button;
     };
-    const head = h('div', { class: 'explorer-heading' }, h('h2', {}, 'エクスプローラー'),
-      h('span', { class: 'explorer-tools' }, tool('new_file', '新しいファイル'), tool('reload', '読み直す')));
+    // 生成ファイル（道具が作り直すもの）は、ふだんは隠す。目の印で出す（この PC に覚える）
+    const generated = new Set(props.generated || []);
+    const showGenerated = memory.get('generated', false) === true;
+    const tools = h('span', { class: 'explorer-tools' }, tool('new_file', '新しいファイル'));
+    if (generated.size) {
+      const title = showGenerated ? '生成ファイル（CMakeLists.txt 等）を隠す' : '生成ファイル（CMakeLists.txt 等）も表示';
+      const eye = h('button', { type: 'button', title, 'aria-label': '生成ファイルの表示', 'aria-pressed': String(showGenerated) }, svg(TOOL_ICONS[showGenerated ? 'eye_on' : 'eye_off']));
+      eye.addEventListener('click', () => { memory.set('generated', !showGenerated); redraw(); });
+      tools.append(eye);
+    }
+    tools.append(tool('reload', '読み直す'));
+    const head = h('div', { class: 'explorer-heading' }, h('h2', {}, 'エクスプローラー'), tools);
     const tree = h('div', { class: 'tree', role: 'tree' });
     const box = h('div', { class: 'explorer' }, head, tree);
     const finish = () => root.replaceChildren(box);
@@ -77,7 +89,7 @@ export default {
       return at;
     };
     const all = new Set([...props.files, ...[...kinds.keys()].filter((path) => !path.endsWith('/'))]);
-    for (const path of all) if (shown(path)) nodeFor(dirOf(path)).files.push(path);
+    for (const path of all) if (shown(path) && (showGenerated || !generated.has(path))) nodeFor(dirOf(path)).files.push(path);
     const changedDirs = new Set();
     for (const path of kinds.keys()) path.split('/').slice(0, -1).forEach((_, i, names) => changedDirs.add(names.slice(0, i + 1).join('/')));
     const goneDirs = new Set();
@@ -142,6 +154,8 @@ export default {
       const of = kinds.get(path) || [], tracked = !of.includes('untracked'), exists = !missing.has(path), conflicted = of.includes('conflicted');
       const gone = exists ? {} : { disabled: true, reason: 'このファイルは、もうフォルダーにありません。' };
       const id = await menu(event, [
+        { id: 'open_vs', label: 'Visual Studio で開く', ...gone }, { id: 'open_default', label: '既定のアプリで開く', ...gone },
+        { id: 'reveal', label: 'エクスプローラーで表示', ...gone }, { separator: true },
         ...(isReadme(path) ? [] : [
           { id: 'rename', label: '名前の変更', hint: 'F2', ...gone }, { id: 'move', label: '移動先を指定…', ...gone },
           { id: 'remove', label: '削除', hint: 'Delete', danger: true, ...gone }, { separator: true }]),
@@ -165,7 +179,7 @@ export default {
         ...(isTest(dir, true) ? [{ id: 'run_test', label: 'テストを実行' }, { separator: true }] : []),
         { id: 'new_file', label: '新しいファイル' },
         ...(dir && !project ? [{ id: 'rename', label: '名前の変更', hint: 'F2' }, { id: 'remove', label: '削除', hint: 'Delete', danger: true }] : []),
-        { separator: true }, { id: 'log', label: 'ログ' },
+        { separator: true }, { id: 'reveal', label: 'エクスプローラーで開く' }, { id: 'log', label: 'ログ' },
         ...(dir ? [{ id: 'ignore', label: '除外パターンに追加' }, { id: 'copy', label: 'パスをコピー' }] : []),
         { separator: true }, { id: 'reload', label: '読み直す' },
       ]);
@@ -263,7 +277,9 @@ export default {
         const mark = cls === 'untracked' ? '+ ' : cls === 'staged' ? '✓ ' : cls ? '• ' : '';
         const icon = h('span', { class: 'tree-icon', 'aria-hidden': 'true' });
         icon.innerHTML = FILE_ICON;
-        const row = h('button', { type: 'button', class: 'file ' + cls, title: path + (cls ? '（' + STATE_LABEL[cls] + '）' : '') }, icon, mark + baseOf(path));
+        const made = generated.has(path);
+        const row = h('button', { type: 'button', class: 'file ' + cls + (made ? ' generated' : ''),
+          title: path + (cls ? '（' + STATE_LABEL[cls] + '）' : '') + (made ? '　生成ファイル：道具が作り直します（手で編集しません）' : '') }, icon, mark + baseOf(path));
         order.push(key); rows.set(key, row);
         row.addEventListener('click', (event) => {
           slowRename(key, event);
@@ -271,7 +287,8 @@ export default {
           choose(key, event); paint();
           if (!(event.ctrlKey || event.metaKey || event.shiftKey) && props.selected !== path) { state.followed = path; emit('selected', { path }); }
         });
-        row.addEventListener('dblclick', () => { clearTimeout(state.timer); if (kinds.has(path)) act('diff', path); });
+        // ダブルクリック：開く（開発の道具で。もうフォルダーにないファイルは、差分）
+        row.addEventListener('dblclick', () => { clearTimeout(state.timer); if (!missing.has(path)) act('open', path); else if (kinds.has(path)) act('diff', path); });
         row.addEventListener('contextmenu', (event) => openMenu(key, event));
         row.addEventListener('keydown', keys(key, row));
         parent.append(row);

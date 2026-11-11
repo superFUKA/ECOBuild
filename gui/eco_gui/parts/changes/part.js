@@ -113,6 +113,7 @@ export default {
       const kind = h('small', { class: 'kind ' + (gone ? 'deleted' : kinds[0]) },
         (gone ? '削除' : '') + (gone && kinds[0] !== 'staged' ? '' : (gone ? ' · ' : '') + kinds.map((k) => KIND_LABEL[k]).join(' · ')));
       const line = h('div', { class: 'change' + (props.selected === path ? ' focused' : ''), style: `padding-left:${depth * 14}px` }, input, name);
+      if ((props.generated || []).includes(path)) line.append(h('span', { class: 'tag', title: '道具が作り直すファイル（サブプロジェクトやファイルを足す・消すと変わります）。一緒にコミットします。' }, '生成'));
       if (eol.has(path)) line.append(h('span', { class: 'tag', title: '改行コード（CRLF／LF）だけが変わっています。まとめて選んでもコミットに含めません（含めるならこのファイルに印を付けます）。' }, '改行のみ'));
       if (excluded.has(path)) line.append(h('span', { class: 'tag', title: '管理するファイル（ecobuild track）の対象外です。印を付ければコミットに含めます。' }, '管理外'));
       line.append(kind);

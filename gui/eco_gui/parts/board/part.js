@@ -1,136 +1,33 @@
 // 部品「ボード」。段階ごとの列に分けるのは見せ方だけ。カードを別の列へ落とすと、その列に合う入力を出す：
 // 計画中・未着手＝段階を変える（edit）、作業中＝開始の窓、完了＝完了の窓（タスクブランチがなければ close）、削除済み＝削除（remove）。
-// 落としても何も起きない列（レビュー待ち・今と同じ列・タスクブランチのあるタスクの未着手 等）は、落とす先にならない。
-// <<タスクの印（タスクを描く部品で同じもの。部品はほかのファイルを読めないので、それぞれに同じ文を置く）
-const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
-const STAGE = Object.fromEntries(STAGES.map((s) => [s[0], s]));
-const PRIORITIES = ['High', 'Middle', 'Low'];
-// 印を作る道具。sprints：スプリントの一覧（今のスプリントを色で分ける）。me：自分のアカウント。
-function taskMarks(h, emit, menu, sprints, me) {
-  const clock = new Date();
-  const today = new Date(clock.getTime() - clock.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const md = (d) => (d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : '');
-  const open = (t) => (t.state || 'open') === 'open';
-  const deleted = (t) => !open(t) && t.closed_reason === 'not_planned';
-  // 画面に出す段階：閉じていれば完了（か削除済み）。段階の記録がなければ、タスクブランチがあれば作業中、なければ未着手
-  const stageOf = (t) => (deleted(t) ? 'deleted' : !open(t) ? 'done' : STAGE[t.stage] ? t.stage : (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo'));
-  const sprintName = (t) => (typeof t.sprint === 'string' ? t.sprint : (t.sprint && t.sprint.name) || '');
-  const currentSprint = ((sprints || []).find((s) => s.start <= today && today < s.end) || {}).name || '';
-  const isAgent = (who) => /agent|bot/i.test(who);
-  const span = (cls, text, title) => h('span', title ? { class: cls, title } : { class: cls }, text);
-  const stageMark = (key, text) => span('tk-stage ' + (key === 'deleted' ? 'not_planned' : STAGE[key][2]), text || (key === 'deleted' ? '削除済み' : STAGE[key][1]));
-  const avatarMark = (who) => (!who ? span('tk-avatar none', '', '担当なし') : span('tk-avatar' + (isAgent(who) ? ' agent' : ''), isAgent(who) ? 'AI' : who[0].toUpperCase(), who));
-  const avatar = (who) => {
-    if (!who) return avatarMark('');
-    const button = h('button', { type: 'button', class: 'tk-person-link', title: who + ' の画面' }, avatarMark(who));
-    button.addEventListener('click', (event) => { event.stopPropagation(); emit('dialog', { screen: 'task-person', id: '0', text: who }); });
-    return button;
-  };
-  const marks = {
-    today, md, open, deleted, stageOf, sprintName, currentSprint, span, stageMark, avatarMark, avatar,
-    stageBadge: (t) => (open(t) ? stageMark(stageOf(t)) : stageMark(deleted(t) ? 'deleted' : 'done')),
-    prio: (t) => (t.priority ? span('tk-prio ' + t.priority, t.priority) : ''),
-    due: (t) => (t.due ? span('tk-due' + (open(t) && t.due < today ? ' overdue' : ''), md(t.due)) : ''),
-    est: (t) => (t.estimate !== null && t.estimate !== undefined ? span('tk-est', String(t.estimate), '見積もり') : ''),
-    sprintTag: (t) => (sprintName(t) ? span('tk-sprint' + (sprintName(t) === currentSprint ? ' now' : ''), sprintName(t), 'スプリント') : ''),
-    num: (t) => span('tk-num', '#' + t.number),
-    flags: (t) => [
-      t.blocked_by && open(t) ? span('tk-flag blocked', '待ち ' + t.blocked_by) : '',
-      t.subtasks ? span('tk-flag', '子 ' + t.subtasks_done + '/' + t.subtasks) : '',
-      t.current || t.task_branch ? span('tk-flag', 'タスクブランチ') : t.remote ? span('tk-flag', 'GitHubにタスクブランチ') : '',
-    ].filter(Boolean),
-    avatars: (t) => ((t.assignees || []).length ? t.assignees.map(avatar) : [avatar('')]),
-    submissionPill: (s) => (s ? span('tk-pill', s.draft ? '下書き' : s.partial ? '中間提出' : '提出中') : ''),
-    loading: (text) => h('p', { class: 'tk-empty', role: 'status' }, h('span', { class: 'spinner' }), ' ' + (text || '読み込んでいます…')),
-    failed: (text) => h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, text)),
-    // 行・カードを選べるようにする（押す・Enter・Space）。右クリックでメニュー
-    pick: (node, t) => {
-      node.addEventListener('click', (event) => { if (!event.target.closest('button, select, input, textarea, a')) emit('selected', { id: String(t.number) }); });
-      node.addEventListener('keydown', (event) => {
-        if ((event.key === 'Enter' || event.key === ' ') && event.target === node) { event.preventDefault(); emit('selected', { id: String(t.number) }); }
-      });
-      node.addEventListener('contextmenu', (event) => { event.preventDefault(); marks.menu(event, t); });
-      return node;
-    },
-    // 右クリックのメニュー。選んだものを出すだけ（何が起きるかは、つないだコマンドと、開く入力の窓が決める）
-    menu: async (event, t) => {
-      const id = String(t.number), isOpen = open(t), hasWorkspace = Boolean(t.task_branch || t.current), stage = stageOf(t);
-      const mine = Boolean(me) && (t.assignees || []).includes(me);
-      const sep = { separator: true };
-      const items = [{ id: 'show', label: '詳細を見る' }];
-      if (isOpen && hasWorkspace && t.workspace) items.push({ id: 'workspace', label: 'タスクブランチを開く' });
-      if (isOpen && !hasWorkspace) items.push({ id: 'start', label: t.remote ? '作業を再開…' : '作業を開始…' });
-      items.push(sep, { id: 'assign', label: '担当者を追加…' });
-      if (me) items.push(mine ? { id: 'unassign-me', label: '自分を担当から外す' } : { id: 'assign-me', label: '自分を担当にする' });
-      if (isOpen) {
-        items.push(sep, { heading: '優先度' }, ...PRIORITIES.map((p) => ({ id: 'priority:' + p, label: (t.priority === p ? '✓ ' : '　 ') + p, disabled: t.priority === p, reason: '今の優先度です' })));
-        if (t.priority) items.push({ id: 'clear:priority', label: '　 優先度を消す' });
-        const sprint = [];
-        if (currentSprint) sprint.push({ id: 'sprint-in', label: '今のスプリント（' + currentSprint + '）に入れる', disabled: sprintName(t) === currentSprint, reason: '今のスプリントに入っています' });
-        if (sprintName(t)) sprint.push({ id: 'clear:sprint', label: 'スプリントから外す' });
-        if (sprint.length) items.push(sep, ...sprint);
-        if (!hasWorkspace && !t.remote && (stage === 'planned' || stage === 'todo')) items.push(stage === 'planned' ? { id: 'stage:todo', label: '未着手にする' } : { id: 'stage:planned', label: '計画中に戻す' });
-      }
-      items.push(sep, { id: 'child', label: '子タスクを作る…', disabled: !isOpen, reason: '閉じたタスクです' }, { id: 'edit', label: '編集…' });
-      items.push(isOpen ? { id: 'complete', label: '完了にする…' } : { id: 'reopen', label: deleted(t) ? '元に戻す' : '開き直す' });
-      if (hasWorkspace) items.push(sep, { id: 'prune', label: 'このPCから片付ける（GitHubには残す）…' });
-      if (hasWorkspace || t.remote || isOpen) items.push(sep);
-      if (hasWorkspace || t.remote) items.push({ id: 'drop', label: '作業を捨てる（GitHubからも消す）…', danger: true });
-      if (isOpen) items.push({ id: 'delete', label: '削除…', danger: true });
-      const chosen = await menu(event, items);
-      if (!chosen) return;
-      const dialog = (screen, text) => emit('dialog', { screen, id, text: text || '' });
-      const [kind, value] = chosen.split(':');
-      if (chosen === 'show') emit('selected', { id });
-      else if (chosen === 'workspace') emit('workspace', { path: t.workspace });
-      else if (chosen === 'start') dialog('task-start');
-      else if (chosen === 'assign') dialog('task-assign');
-      else if (chosen === 'assign-me') emit('edit', { id, add_assignee: '@me' });
-      else if (chosen === 'unassign-me') emit('edit', { id, remove_assignee: '@me' });
-      else if (kind === 'priority') emit('edit', { id, priority: value });
-      else if (kind === 'clear') emit('edit', { id, clear: value });
-      else if (chosen === 'sprint-in') emit('edit', { id, sprint: currentSprint });
-      else if (kind === 'stage') emit('edit', { id, stage: value });
-      else if (chosen === 'child') dialog('task-new', id);
-      else if (chosen === 'edit') dialog('task-edit');
-      else if (chosen === 'complete') { if (hasWorkspace || t.remote) dialog('task-complete'); else emit('close', { id }); }
-      else if (chosen === 'reopen') emit('reopen', { id });
-      else if (chosen === 'prune') dialog('task-prune');
-      else if (chosen === 'drop') dialog('task-drop');
-      else if (chosen === 'delete') emit('remove', { id });
-    },
-  };
-  return marks;
-}
-// 絞り込み（task-bar の出す値）に合うタスクだけにする。見せ方だけ
-function taskFilter(tasks, f, marks, me) {
-  const search = String(f.search || '').trim().toLowerCase();
-  const who = f.assignee || '', sprint = f.sprint || '', milestone = f.milestone || '';
-  return tasks.filter((t) => (marks.open(t) || (marks.deleted(t) ? f.deleted === true : f.closed === true))
-    && (who === '' || (who === '-' ? !(t.assignees || []).length : (t.assignees || []).includes(who === '@me' ? me : who)))
-    && (sprint === '' || (sprint === '-' ? !marks.sprintName(t) : marks.sprintName(t) === (sprint === 'current' ? marks.currentSprint : sprint)))
-    && (milestone === '' || (milestone === '-' ? !t.milestone : t.milestone === milestone))
-    && (!search || String(t.title || '').toLowerCase().includes(search) || '#' + t.number === search));
-}
-// タスクの印>>
+// 落としても移らない列（レビュー待ち・タスクブランチのあるタスクの未着手 等）では、移らないわけを上に出す（次に何かするまで）。
 const RECENT_DONE = 15;
 
 export default {
-  render(root, props, { h, emit, menu, state }) {
-    const marks = taskMarks(h, emit, menu, props.sprints, props.me);
+  render(root, props, { h, lib, emit, menu, state, redraw }) {
+    const { STAGES } = lib.task;
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('タスクを読み込んでいます…'));
     const f = props.filter || props.start || {};
-    const visible = taskFilter(props.tasks, f, marks, props.me);
+    const visible = lib.task.filter(props.tasks, f, marks, props.me);
     const newestDone = (a, b) => String(b.finished || '').localeCompare(String(a.finished || '')) || b.number - a.number;
     // 完了の列：「完了したタスクも表示」でなければ、最近完了したものだけ（task list --all から）
     let closed = null;
     if (f.closed !== true) {
       const source = f.deleted === true ? props.tasks : props.recent;
-      closed = taskFilter(source.filter((t) => !marks.open(t) && !marks.deleted(t)), { ...f, closed: true }, marks, props.me).sort(newestDone).slice(0, RECENT_DONE);
+      closed = lib.task.filter(source.filter((t) => !marks.open(t) && !marks.deleted(t)), { ...f, closed: true }, marks, props.me).sort(newestDone).slice(0, RECENT_DONE);
     }
     const byNumber = (n) => props.tasks.find((t) => String(t.number) === n) || props.recent.find((t) => String(t.number) === n);
-    // カードをその列へ落としたときに出す入力（なければ、落とす先にならない）
+    // その列へ落としても移らないわけ（今までの GUI の知らせと同じ文）。移るかどうかを決めるのは、出力を受けるコマンド
+    const whyNot = (t, stage, label) => {
+      const has = Boolean(t.task_branch || t.current);
+      if (!marks.open(t)) return stage === 'done' || stage === 'deleted' ? '閉じたタスクは、開き直してから' + label + 'に移してください。' : '閉じたタスクは、開き直して未着手か計画中に戻してから開始してください。';
+      if (stage === 'in_progress') return 'タスクブランチがあるタスクは、すでに作業中です。';
+      if (stage === 'in_review') return 'タスクブランチで提出すると、レビュー待ちに移ります。';
+      return 'タスクブランチがあるタスクです。「作業を捨てる」と未着手に戻ります。';
+    };
+    // カードをその列へ落としたときに出す入力（なければ、移らない）
     const dropOf = (t, stage) => {
       const id = String(t.number), has = Boolean(t.task_branch || t.current), now = marks.stageOf(t);
       if (now === stage) return null;
@@ -143,6 +40,8 @@ export default {
     };
     const columns = [...STAGES.map((s) => [s[0], s[1]]), ...(f.deleted === true ? [['deleted', '削除済み']] : [])];
     const board = h('div', { class: f.deleted === true ? 'kanban with-deleted' : 'kanban' });
+    const note = h('div', { class: 'banner info moved', role: 'status' }, h('span', {}, state.note || ''));
+    note.hidden = !state.note;
     for (const [key, label] of columns) {
       const cards = key === 'done' && closed ? closed : visible.filter((t) => marks.stageOf(t) === key);
       if (key === 'done') cards.sort(newestDone);
@@ -152,7 +51,7 @@ export default {
       column.dataset.stage = key;
       column.addEventListener('dragover', (event) => {
         const t = state.dragged && byNumber(state.dragged);
-        if (!t || !dropOf(t, key)) return;
+        if (!t || marks.stageOf(t) === key) return;
         event.preventDefault();
         column.classList.add('drop');
       });
@@ -162,9 +61,11 @@ export default {
         const t = state.dragged && byNumber(state.dragged);
         const out = t && dropOf(t, key);
         state.dragged = null;
-        if (!out) return;
+        if (!t || marks.stageOf(t) === key) return;
         event.preventDefault();
-        emit(out[0], out[1]);
+        if (out) return emit(out[0], out[1]);
+        state.note = '#' + t.number + '：' + whyNot(t, key, label);
+        redraw();
       });
       for (const t of cards) {
         const card = h('article', { class: 'kcard', draggable: 'true', tabindex: '0' },
@@ -175,6 +76,7 @@ export default {
         card.setAttribute('aria-selected', String(String(t.number) === String(props.selected || '')));
         card.addEventListener('dragstart', (event) => {
           state.dragged = String(t.number);
+          if (state.note) { state.note = ''; note.hidden = true; }
           event.dataTransfer.effectAllowed = 'move';
           event.dataTransfer.setData('text/plain', '#' + t.number);
           card.classList.add('dragging');
@@ -184,6 +86,6 @@ export default {
       }
       board.append(column);
     }
-    root.replaceChildren(board);
+    root.replaceChildren(note, board);
   },
 };

@@ -7,7 +7,7 @@ SAMPLES = [
              "estimate": 3, "sprint": "Sprint 2", "task_branch": True, "remote": True, "blocked_by": 0, "subtasks": 3, "subtasks_done": 1},
             {"number": 13, "title": "ログを残す", "state": "open", "stage": "todo", "assignees": [], "priority": "Middle", "due": "2099-12-01", "blocked_by": 2},
             {"number": 14, "title": "提出を見てもらう", "state": "open", "stage": "in_review", "assignees": ["review-bot"], "priority": "Low", "remote": True},
-            {"number": 15, "title": "段階の記録がないタスク（タスクブランチがなければ未着手）", "state": "open", "stage": None, "assignees": ["hubot"]},
+            {"number": 15, "title": "担当の決まったタスク", "state": "open", "stage": "todo", "assignees": ["hubot"]},
             {"number": 16, "title": "まだ詰めている", "state": "open", "stage": "planned", "assignees": []}],
         "recent": [
             {"number": 9, "title": "終わったタスク", "state": "closed", "closed_reason": "completed", "stage": "done", "assignees": ["octocat"], "finished": "2026-11-01"},

@@ -9,7 +9,8 @@ agent-send は除く）だけ。ECOBuild の状態を変える操作・シェル
 作業ディレクトリは GUI の置き場所（gui_home）の operator。起動のたびに、今のコマンドの一覧（ecobuild --help --json）と
 GUI の操作の一覧から、指示（CLAUDE.md）・許可（.claude/settings.json）・MCP の設定（mcp.json）を作り直す。
 使い方は3つ：run（この端末で動かして待つ。Electron の窓が裏で常駐させる）、start（新しい画面）、ask（画面を開かず1回話しかける。
-Edge の窓の会話）。GUI は ecobuild を import しない（コマンドを呼ぶだけ）ので、ここも ecobuild のコマンドだけを使う。
+Edge の窓の会話）。converse は、このPCの会話の記録（conversation.json）の続きとして ask する
+（ecobuild gui ask --continue。記録は ecobuild gui conversation で読む）。GUI は ecobuild を import しない（コマンドを呼ぶだけ）ので、ここも ecobuild のコマンドだけを使う。
 """
 
 from __future__ import annotations
@@ -360,25 +361,185 @@ def start(command: tuple[str, ...] = DEFAULT_COMMAND) -> dict:
 
 
 def ask(text: str, *, session: str | None = None, command: tuple[str, ...] = DEFAULT_COMMAND,
-        timeout: float | None = None) -> dict:
-    """画面を開かずに1回話しかけて返答を待つ。{session, text, ok, actions:[{tool, command, ok, output}]}。"""
+        timeout: float | None = None, on_action=None) -> dict:
+    """画面を開かずに1回話しかけて返答を待つ。{session, text, ok, actions:[{tool, command, ok, output}]}。
+
+    on_action：返答の途中で道具を使い始めるたびに、その1行（describe）で呼ぶ（「実行中：…」を見せるため）。
+    """
     if not text.strip():
         raise Failure("usage_error", "話しかける文が空です。", exit_code=2)
     folder = prepare()
     args = [*_command(command), "-p", "--output-format", "stream-json", "--verbose", "--settings", str(folder / SETTINGS)]
     if session:
         args += ["--resume", session]
+
+    def started(line: str) -> None:
+        for name in _started(line):
+            if on_action is not None and name:
+                on_action(name)
+
+    output, errors = _stream(args, folder, text, timeout, started)
+    reply = parse(output)
+    if reply is None:
+        tail = (errors or output).strip().splitlines()[-5:]
+        raise Failure("ask_failed", "オペレーターから返答がありませんでした。" + ("\n" + "\n".join(tail) if tail else ""))
+    return reply
+
+
+def _stream(args: list[str], folder: Path, text: str, timeout: float | None, on_line) -> tuple[str, str]:
+    """エージェントを1回動かし、標準出力を1行ずつ on_line に渡しながら、終わりまで待つ。（標準出力, 標準エラー）。"""
+    import threading
+
     try:
-        done = subprocess.run(args, cwd=folder, input=text, capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise Failure("timeout", f"オペレーターの返答が {timeout:g} 秒で終わりませんでした。") from None
+        process = subprocess.Popen(args, cwd=folder, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, encoding="utf-8", errors="replace")
     except OSError as error:
         raise Failure("launch_failed", f"エージェントを起動できませんでした：{error}") from None
-    reply = parse(done.stdout)
-    if reply is None:
-        tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
-        raise Failure("ask_failed", "オペレーターから返答がありませんでした。" + ("\n" + "\n".join(tail) if tail else ""))
+    errors: list[str] = []
+    reader = threading.Thread(target=lambda: errors.append(process.stderr.read()), daemon=True)
+    reader.start()
+    expired = threading.Event()
+    timer = threading.Timer(timeout, lambda: (expired.set(), process.kill())) if timeout else None
+    if timer is not None:
+        timer.start()
+    lines: list[str] = []
+    try:
+        try:
+            process.stdin.write(text)
+            process.stdin.close()
+        except OSError:
+            pass   # 読まずに終わった（返答がなければ、呼んだ側で誤りにする）
+        for line in process.stdout:
+            lines.append(line)
+            on_line(line)
+        process.wait()
+    except KeyboardInterrupt:
+        process.kill()
+        raise
+    finally:
+        if timer is not None:
+            timer.cancel()
+    reader.join(2)
+    if expired.is_set():
+        raise Failure("timeout", f"オペレーターの返答が {timeout:g} 秒で終わりませんでした。")
+    return "".join(lines), "".join(errors)
+
+
+def _started(line: str) -> list[str]:
+    """stream-json の1行で使い始めた道具（describe の1行）。道具の行でなければ空。"""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return []
+    message = event.get("message") if isinstance(event, dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(event, dict) or event.get("type") != "assistant" or not isinstance(content, list):
+        return []
+    return [describe(block.get("name", ""), block.get("input") or {})
+            for block in content if isinstance(block, dict) and block.get("type") == "tool_use"]
+
+
+# 会話の記録（このPCに1つ。ecobuild gui ask --continue が続け、ecobuild gui conversation で読む） ------------------------
+CONVERSATION = "conversation.json"
+KEEP = 100    # 覚えておく発言の数（古いものから捨てる。会話そのものはエージェントの側にある）
+
+
+def _record() -> dict:
+    try:
+        data = json.loads((directory() / CONVERSATION).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = None
+    if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+        data = {}
+    asking = data.get("asking")
+    return {"session": data.get("session") if isinstance(data.get("session"), str) else None,
+            "messages": [m for m in data.get("messages") or [] if isinstance(m, dict)],
+            "asking": asking if isinstance(asking, dict) and _running(asking.get("pid")) else None}
+
+
+def _keep(record: dict) -> None:
+    record["messages"] = record["messages"][-KEEP:]
+    path = directory() / CONVERSATION
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8", newline="\n")
+    os.replace(temporary, path)
+
+
+def _running(pid) -> bool:
+    """その番号のプロセスが動いているか（返答を待っている ask が、まだいるか）。"""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        alive = bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259   # STILL_ACTIVE
+        kernel32.CloseHandle(handle)
+        return alive
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def conversation() -> dict:
+    """会話の記録：{session, messages:[{role: user|agent, text, ok, actions:[{command, ok}], at}], state, doing}。
+
+    state は idle（待機中）か thinking（ask が返答を待っている）。doing は、そのとき実行中の道具の1行。
+    """
+    record = _record()
+    asking = record["asking"]
+    return {"session": record["session"], "messages": record["messages"],
+            "state": "thinking" if asking else "idle", "doing": (asking or {}).get("doing")}
+
+
+def forget() -> dict:
+    """会話の記録を空にする（次の ask --continue から新しい会話）。"""
+    if _record()["asking"]:
+        raise Failure("in_use", "オペレーターは、前の頼みに答えているところです。", "返答を待ってから、新しい会話を始めてください。")
+    _keep({"session": None, "messages": [], "asking": None})
+    return conversation()
+
+
+def converse(text: str, *, command: tuple[str, ...] = DEFAULT_COMMAND, timeout: float | None = None, on_action=None) -> dict:
+    """会話の記録の続きとして話しかける（ask と同じ返答）。発言・返答・誤りを記録に足す。"""
+    if not text.strip():
+        raise Failure("usage_error", "話しかける文が空です。", exit_code=2)
+    record = _record()
+    if record["asking"]:
+        raise Failure("in_use", "オペレーターは、前の頼みに答えているところです。", "返答を待ってから送ってください。")
+    record["messages"].append({"role": "user", "text": text, "at": time.time()})
+    record["asking"] = {"pid": os.getpid(), "at": time.time(), "doing": None}
+    _keep(record)
+
+    def doing(name: str) -> None:
+        record["asking"]["doing"] = name
+        _keep(record)
+        if on_action is not None:
+            on_action(name)
+
+    try:
+        reply = ask(text, session=record["session"], command=command, timeout=timeout, on_action=doing)
+        record["session"] = reply.get("session") or record["session"]
+        record["messages"].append({"role": "agent", "text": reply.get("text") or "", "ok": bool(reply.get("ok")), "at": time.time(),
+                                   "actions": [{"command": a["command"], "ok": a.get("ok")}
+                                               for a in reply.get("actions") or [] if a.get("command")]})
+    except Failure as failure:
+        record["messages"].append({"role": "agent", "ok": False, "at": time.time(), "actions": [],
+                                   "text": "\n".join(t for t in (failure.message, failure.hint) if t)})
+        raise
+    finally:
+        record["asking"] = None
+        _keep(record)
     return reply
 
 

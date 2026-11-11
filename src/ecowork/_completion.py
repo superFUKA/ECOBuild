@@ -70,6 +70,31 @@ class Completion:
         result = self.finish(number, **finish_options)
         return replace(result, approved=True, review_removed=removed or result.review_removed)
 
+    def submission_block(self, number: int, action: str) -> str:
+        """タスクの提出を今、処理できない理由（できるなら ""）。action：approve（承認）・reject（差し戻し）・finish（取り込み）。
+
+        何も変えない（fetch もしない。手元にある GitHub の写しで確かめる）。実行の前の確かめ・表示（ボタンの灰色と理由）用で、
+        実行のとき（approve・reject・finish）は、それぞれが最新の状態で確かめ直す。
+        """
+        name = {"approve": "承認", "reject": "差し戻し", "finish": "取り込み"}[action]
+        pr = self.submission(number)
+        if pr is None:   # 完了（finish）は、提出がなければ提出してから取り込む
+            return "" if action == "finish" else f"タスク #{number} の提出はありません。"
+        if pr.draft and action != "reject":
+            return (f"タスク #{number} の提出は下書きです（{name}できません。タスクブランチで "
+                    f"{self._op('task submit')} を実行して下書きを解除します）。")
+        if not self.can_take_in(pr.base):
+            return f"{pr.base} への提出の{name}は、{self.take_in_owners(pr.base)}だけが行えます。"
+        if action != "finish" and pr.author and pr.author.casefold() == self.access().login.casefold():
+            return (f"自分の提出は承認・差し戻しできません（GitHubの制限）。自分で完了するなら "
+                    f"{self._op('task finish')} {number}、やめるなら {self._op('task withdraw')} {number}。")
+        if action != "reject":
+            conflicts = self._base_conflicts(f"{_git.REMOTE}/{pr.head}", f"{_git.REMOTE}/{pr.base}")
+            if conflicts:
+                error = self._take_in_conflict(pr, conflicts)
+                return f"{pr.base} と衝突しているため、取り込めません。{error.hint}"
+        return ""
+
     @reusing_reads
     def finish(self, number: int | None = None, *, wait: bool = True, ignore_checks: bool = False,
                subject: str | None = None, partial: bool | None = None, timeout: float = 1800,

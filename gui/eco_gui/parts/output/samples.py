@@ -12,6 +12,9 @@ SAMPLES = [
     {"name": "ビルドの結果（成果物）", "props": {"title": "ビルド", "state": "ok", "kind": "build", "fill": True, "lines": ["ビルドしています…"], "result": {
         "configuration": "Release", "artifacts": ["dist/calc-1.0-py3-none-any.whl", "dist/calc-1.0.tar.gz"]}}},
     {"name": "実行の結果（終了コード）", "props": {"title": "実行", "state": "ok", "kind": "run", "lines": [], "result": {"returncode": 3, "output": "引数が足りません\n"}}},
+    {"name": "ファイルと行のリンク", "props": {"title": "ビルド", "state": "bad", "kind": "build", "lines": [
+        "C:\\work\\Calc\\src\\Add.cpp(12,5): error C2065: 'x': 定義されていない識別子です。",
+        "src/app.py:7:1: warning: unused import", '  File "tests/test_app.py", line 31, in test_add']}},
     {"name": "提出前の確認", "props": {"title": "提出前の確認", "state": "ok", "kind": "check", "result": {"items": [
         {"name": "generated", "ok": True, "detail": ""}, {"name": "build", "ok": True, "detail": ""}, {"name": "test", "ok": False, "detail": "1 failed, 12 passed"}]}}},
 ]

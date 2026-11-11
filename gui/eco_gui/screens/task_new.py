@@ -17,7 +17,8 @@ SCREEN = {
         {"read": "sprint list", "args": {"module": {"arg": "module"}}, "to": "form.sprints"},
         {"read": "milestone list", "args": {"module": {"arg": "module"}}, "to": "form.milestones"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "form.account"},
-        {"on": "form.new", "run": "task new", "notify": "タスクを作成しました。", "close": True,
+        {"on": "form.new", "run": "task new", "notify": "タスク #{task.number} を作成しました。", "close": True,
+         "parent": {"selected": {"result": "task.number"}, "detail": "open"},  # 作ったタスクを、外の一覧で選ぶ（右に詳細が出る）
          "args": {"module": {"arg": "module"}, "title": {"payload": "title"}, "body": {"payload": "body"}, "stage": {"payload": "stage"}, "assignee": {"payload": "assignee"}, "priority": {"payload": "priority"}, "estimate": {"payload": "estimate"}, "sprint": {"payload": "sprint"}, "planned_start": {"payload": "planned_start"}, "planned_end": {"payload": "planned_end"}, "due": {"payload": "due"},
                   "label": {"payload": "label"}, "milestone": {"payload": "milestone"}, "parent": {"payload": "parent"}, "blocked_by": {"payload": "blocked_by"}, "start": {"payload": "start"}, "name": {"payload": "name"}}},
         {"on": "form.cancel", "close": True},

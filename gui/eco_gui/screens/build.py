@@ -66,8 +66,8 @@ SCREEN = {
         # （Python は pytest が集めるので時間がかかり、コンテナの作業空間ではコンテナを動かす。画面を開くたびには読まない）
         {"id": "tests_bar", "layout": "row", "children": ["tests_load", "test_checked"]},
         {"id": "tests_load", "part": "button", "props": {"label": "試験の一覧を読む", "hint": "流さずに、流せる試験を集める（ecobuild tests）"}},
-        {"id": "tests", "part": "check-list", "props": {
-            "note_key": "file", "placeholder": "試験の名前・ファイルで絞る",
+        # 木で選ぶ（C++：サブプロジェクト › Suite › Test／Python：フォルダー › ファイル › クラス › 試験。前に流した結果の ✗ ✓ - つき）
+        {"id": "tests", "part": "ws-test-tree", "props": {
             "empty_text": "「試験の一覧を読む」を押すと、流せる試験が出ます（C++・Python）。"}},
         {"id": "test_checked", "part": "button", "props": {"label": "選んだ試験を流す", "hint": "1つも選ばなければ、全部を流す"}},
         {"id": "test_pick", "layout": "row", "children": ["test_name", "test_one"]},
@@ -120,6 +120,7 @@ SCREEN = {
         {"value": "tests_found", "to": "tests.rows"},
         {"on": "tests.changed", "set": {"tests_checked": {"payload": "values"}}},
         {"value": "tests_checked", "to": "tests.checked"},
+        {"value": "test_result", "to": "tests.last"},
         {"on": "test_name.changed", "set": {"test_name": {"payload": "text"}}},
         {"on": "filter.changed", "set": {"test_filter": {"payload": "text"}}},
         {"on": "last_failed.changed", "set": {"test_last_failed": {"payload": "on"}}},

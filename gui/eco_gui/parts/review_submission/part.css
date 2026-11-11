@@ -1,0 +1,27 @@
+/* 提出の詳細。今までの GUI（branches.css の .br-detail・.br-tools、common.css の .sub-commits）と同じ値 */
+:host { display: block; font-size: 13px; line-height: 1.7; }
+dl { display: grid; grid-template-columns: 110px 1fr; gap: 4px 12px; margin: 8px 0; font-size: 12px; }
+dt { color: #a5aeba; }
+dd { margin: 0; overflow-wrap: anywhere; }
+dd strong { font-size: 14px; }
+.url { color: var(--gf-muted); user-select: all; }
+.check.ok, .merge.ok { color: #9fe0a8; }
+.check.bad, .merge.bad { color: #f3a5a5; }
+.check.wait { color: #efc389; }
+.merge { color: var(--gf-muted); }
+.commits { margin: 8px 0 10px; padding: 8px 10px; border: 1px solid #333b45; border-radius: 7px; background: #1b2027; }
+.commits-head { font-size: 12px; color: #a5aeba; }
+.commits ul { margin: 6px 0 0; padding-left: 18px; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.7; }
+.commits code { color: #8fb8ff; margin-right: 6px; }
+.commits-none { margin: 8px 0; font-size: 12px; color: #a5aeba; }
+.entry { border-top: 1px solid #303640; padding: 6px 0; font-size: 12px; }
+.entry b { color: #cdd5df; }
+.entry .mark { color: var(--gf-muted); }
+.entry .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note { margin: 10px 0 0; font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }
+.tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 10px; border-top: 1px solid #303640; }
+.look { display: flex; gap: 2px; flex-wrap: wrap; }
+.act { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.act button { padding: 5px 14px; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover:not(:disabled) { border-color: #7a3b3b; background: transparent; color: #f3a5a5; }

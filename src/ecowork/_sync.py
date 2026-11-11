@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from . import _conflicts
 from . import git as _git
 from . import model as wm
 from .errors import ErrorCode, WorkError
@@ -180,6 +181,62 @@ class Syncing:
         if stash:
             self.git.run("reset", "--quiet", "--", *chosen)
         return chosen
+
+    def conflicts(self, paths: tuple[str, ...] = ()) -> wm.Conflicts:
+        """衝突したファイル（paths なしは全部）を、衝突の箇所（今の側・入ってくる側・共通の元）に分けて読む。何も変えない。"""
+        conflicted = self.git.working_tree().conflicted
+        self._only_conflicted(paths, conflicted)
+        every = tuple(_conflicts.read(self.root, p) for p in conflicted)
+        stopped = self.git.stopped()
+        ready = stopped is not None and all(not f.reason and not f.remaining for f in every)
+        return wm.Conflicts(stopped, tuple(f for f in every if not paths or f.path in paths), ready)
+
+    def resolve_conflict(self, path: str, *, side: str = "", hunks: tuple[int, ...] = (),
+                         text: str | None = None) -> wm.ConflictFile:
+        """衝突したファイル path の衝突の箇所を直して、ファイルに書く（登録はしない。続きは continue_sync）。
+
+        side：箇所を、今の側（current）・入ってくる側（incoming）・両方（both：今の側が先／both-incoming-first）にする。
+        hunks は、直す箇所の番号（今残っている箇所を上から 1, 2, …。なしは全部）。
+        text：ファイルの中身を、直した中身に置き換える（改行は今のファイルに合わせる）。
+        直した後のファイル（残りの箇所）を返す。
+        """
+        self._only_conflicted((path,), self.git.working_tree().conflicted)
+        if (text is None) == (not side):
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "採る側（side）か、直した中身（text）のどちらか1つを指定してください。")
+        target = self.root / path
+        if text is not None:
+            if not target.is_file():
+                raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{path} は片方の側で消えています。",
+                                hint=f"{self._op('sync take')} {path} --side current|incoming でどちらかの側にしてください。")
+            target.write_bytes(_conflicts.like(text, target.read_bytes()).encode("utf-8"))
+            return _conflicts.read(self.root, path)
+        if side not in _conflicts.SIDES:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"採る側が正しくありません：{side}",
+                            hint=f"選べるのは {'・'.join(_conflicts.SIDES)} です。")
+        file = _conflicts.read(self.root, path)
+        if file.reason:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, f"{path} は、箇所ごとには直せません（{wm.CONFLICT_REASONS[file.reason]}）。",
+                            hint=f"{self._op('sync take')} {path} --side current|incoming でファイル全体をどちらかの側にしてください。")
+        count = sum(1 for piece in file.pieces if piece.conflict)
+        wrong = [n for n in hunks if not 1 <= n <= count]
+        if wrong or not count:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT,
+                            f"{path} に、" + ("その番号の" if wrong else "") + f"衝突の箇所はありません（残り {count} 箇所）。", details=wrong)
+        out, number = [], 0
+        for piece in file.pieces:
+            if piece.conflict:
+                number += 1
+            out.append(_conflicts.chosen(piece, side) if piece.conflict and (not hunks or number in hunks) else piece.text)
+        target.write_bytes("".join(out).encode("utf-8"))
+        return _conflicts.read(self.root, path)
+
+    def _only_conflicted(self, paths: tuple[str, ...], conflicted: tuple[str, ...]) -> None:
+        if paths and not conflicted:
+            raise WorkError(ErrorCode.NO_SYNC_IN_PROGRESS, "衝突しているファイルはありません。")
+        others = [p for p in paths if p not in conflicted]
+        if others:
+            raise WorkError(ErrorCode.INVALID_ARGUMENT, "衝突していないファイルがあります。", details=others,
+                            hint=f"衝突しているファイル：{'、'.join(conflicted)}")
 
     def stash(self) -> wm.StashResult:
         stashed = self.git.stash_push()

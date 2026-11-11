@@ -7,7 +7,9 @@
 - type：text（既定）・number・date・textarea・select・radio・checkbox・checks（いくつか選ぶ）・section・note（文だけ）
 - placeholder・help（下に小さく出す文）・required（題に * が付き、空では決められない）・rows（textarea）・min・step（number）
 - value：初めの値。initial（名前 → 値）にあれば、そちら。読んだ今の値（values）があれば、それがいちばん先。
-  value_from：読んだ値（vars・values）の中の道筋（a.b）。checkbox の on_value／off_value：読んだ値がこれと同じなら、印を付ける／外す。
+  value_from：読んだ値（vars・values）の中の道筋（a.b。「*」は、その下のどれにも共通の値）。
+  edit（{add, remove}）：並びを直接直す欄。読んだ今の値との差を、足すもの・外すものとして、その名前で出す（欄の名前では出さない）。
+  changed_only：触っていなければ出さない（読んだ今の値を、そのまま送り直さない）。checkbox の on_value／off_value：読んだ値がこれと同じなら、印を付ける／外す。
 - select・radio・checks の選べるもの：options（[{value, label, help}]）か、options_from（読んだ一覧から）：
   {"source": "rows" か "more", "value": 値にする項目, "label": 見せる項目, "note": かっこで添える項目（並びでもよい）,
    "note_labels": {値: 見せる言葉}, "where": {項目: 値}（合う行だけ）}

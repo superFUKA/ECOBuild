@@ -1,7 +1,9 @@
 """モジュール › Project › 設定：入力の窓。Project の設定を変える（ecobuild project set --project <名前> …）。
 
-上に、今の設定（ecobuild project show）。並びの設定（定義・インクルード・ソースディレクトリ等）は、足すものと外すものを書く
-（コマンドと同じ：--add-…・--remove-…）。空の欄は変えない。
+並びの設定（ソースディレクトリ・定義・インクルード・OSのライブラリ・コピーするファイル）は、今の値（ecobuild project show）が
+欄に入っていて、直接直す（今の GUI と同じ）。保存のときに、今の値との差を --add-…・--remove-… として渡す。
+条件の付くもの（コンパイル・リンクのオプション、条件付きの定義、ビルドイベント）と、ライブラリの形式ごとに違う値は、
+足すもの・外すものを書く。変えていない欄は渡さない。
 """
 
 ARGS = {"module": ".", "name": ""}  # モジュールのフォルダー・設定する Project
@@ -13,8 +15,8 @@ SCREEN = {
         {"id": "page", "layout": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "Projectの設定", "subject": {"arg": "name"}, "ok": "保存", "sticky": True, "initial": {"place": {"arg": "module"}},
-            "intro": "書いた項目だけを変えます（空の欄は変えません）。値をいくつも書くときは、カンマで区切ります。",
-            "detail": "今の設定：{kind}・{directory}/　ソース {source_directories}　OSのライブラリ {system_libraries}　入口 {entry_point}",
+            "intro": "今の設定が入っています。変えた所だけを保存します。値をいくつも書くときは、カンマで区切ります。",
+            "detail": "{kind}・{directory}/",
             "fields": [
                 {"name": "kind", "label": "種類を変える", "type": "select", "value": "", "options": [
                     {"value": "", "label": "変えない"}, {"value": "app", "label": "実行ファイル"}, {"value": "library", "label": "ライブラリ（静的）"},
@@ -22,21 +24,29 @@ SCREEN = {
                  "help": "変えると、ソース・設定・リンクはそのままで作り直します（ほかの設定は、その後で変えてください）。"},
                 {"name": "no_test", "label": "組のテスト用Project（名前Test）を作らない", "type": "checkbox", "show_if": {"kind": ["library", "shared"]}},
                 {"type": "section", "label": "ソース・定義・インクルード", "note": "Project からの相対"},
-                {"name": "add_source_dir", "label": "足すソースディレクトリ（中のファイルがビルドに入る）", "row": "src"},
-                {"name": "remove_source_dir", "label": "外すソースディレクトリ", "row": "src"},
-                {"name": "add_define", "label": "足す定義（このProjectだけ。例：USE_FOO, LEVEL=2）", "row": "def"},
-                {"name": "remove_define", "label": "外す定義", "row": "def"},
-                {"name": "add_public_define", "label": "足す公開の定義（使う側にも伝わる）", "row": "pub"},
-                {"name": "remove_public_define", "label": "外す公開の定義", "row": "pub"},
-                {"name": "add_include", "label": "足すインクルードディレクトリ", "row": "inc"},
-                {"name": "remove_include", "label": "外すインクルードディレクトリ", "row": "inc"},
-                {"name": "type", "label": "ライブラリの形式ごとに変えるとき（static・shared・interface。空なら全部）", "placeholder": "例：shared"},
+                {"name": "sources", "label": "ソースディレクトリ（中のファイルがビルドに入る）", "value_from": "source_directories",
+                 "edit": {"add": "add_source_dir", "remove": "remove_source_dir"}},
+                {"name": "type", "label": "ライブラリの形式ごとに変えるとき（static・shared・interface。空なら、全部の形式）", "placeholder": "例：shared",
+                 "help": "空のときは、どの形式にも入っている今の値を直接直します。形式を書くと、その形式だけに、足す・外すを書きます。"},
+                {"name": "defines", "label": "定義（このProjectだけ。例：USE_FOO, LEVEL=2）", "value_from": "types.*.defines",
+                 "edit": {"add": "add_define", "remove": "remove_define"}, "show_if": {"type": ""}},
+                {"name": "public_defines", "label": "公開する定義（使う側にも伝わる）", "value_from": "types.*.public_defines",
+                 "edit": {"add": "add_public_define", "remove": "remove_public_define"}, "show_if": {"type": ""}},
+                {"name": "includes", "label": "インクルードディレクトリ", "value_from": "types.*.include_directories",
+                 "edit": {"add": "add_include", "remove": "remove_include"}, "show_if": {"type": ""}},
+                {"name": "add_define", "label": "足す定義", "row": "def", "hide_if": {"type": ""}},
+                {"name": "remove_define", "label": "外す定義", "row": "def", "hide_if": {"type": ""}},
+                {"name": "add_public_define", "label": "足す公開の定義", "row": "pub", "hide_if": {"type": ""}},
+                {"name": "remove_public_define", "label": "外す公開の定義", "row": "pub", "hide_if": {"type": ""}},
+                {"name": "add_include", "label": "足すインクルードディレクトリ", "row": "inc", "hide_if": {"type": ""}},
+                {"name": "remove_include", "label": "外すインクルードディレクトリ", "row": "inc", "hide_if": {"type": ""}},
                 {"type": "section", "label": "実行ファイル・ライブラリ・ソリューション", "collapsed": True},
-                {"name": "entry_point", "label": "入口の関数（実行ファイル）", "row": "entry", "placeholder": "main・wmain・WinMain・wWinMain か、関数名"},
+                {"name": "entry_point", "label": "入口の関数（実行ファイル）", "row": "entry", "value_from": "entry_point", "changed_only": True,
+                 "placeholder": "main・wmain・WinMain・wWinMain か、関数名"},
                 {"name": "gui", "label": "GUIアプリにする（コンソールを出さない）", "type": "select", "row": "entry", "value": "", "options": [
                     {"value": "", "label": "変えない"}, {"value": "on", "label": "する"}, {"value": "off", "label": "しない"}]},
-                {"name": "add_system_lib", "label": "足すOSのライブラリ（例：ws2_32, d3d11）", "row": "sys"},
-                {"name": "remove_system_lib", "label": "外すOSのライブラリ", "row": "sys"},
+                {"name": "system_libs", "label": "OSのライブラリ（名前。例：ws2_32, d3d11）", "value_from": "system_libraries",
+                 "edit": {"add": "add_system_lib", "remove": "remove_system_lib"}},
                 {"name": "export_all", "label": "Windowsで共有ライブラリのすべての関数を書き出す（dllexport を書かなくてよい）", "type": "select", "value": "", "options": [
                     {"value": "", "label": "変えない"}, {"value": "on", "label": "書き出す"}, {"value": "off", "label": "書き出さない"}]},
                 {"name": "folder", "label": "Visual Studio のソリューションフォルダー（/ 区切り）", "row": "folder", "placeholder": "例：Projects/Tools"},
@@ -61,8 +71,8 @@ SCREEN = {
                     {"value": "post_build", "label": "ビルドの後"}]},
                 {"name": "add_build_event", "label": "足すコマンド", "row": "event"},
                 {"name": "remove_build_event", "label": "外すコマンド", "row": "event"},
-                {"name": "add_output_file", "label": "足す、できたファイルの横へコピーするファイル・フォルダー", "row": "outfile", "placeholder": "例：assets, config.ini"},
-                {"name": "remove_output_file", "label": "外すファイル・フォルダー", "row": "outfile"},
+                {"name": "output_files", "label": "できたファイルの横へコピーするファイル・フォルダー", "value_from": "output_files",
+                 "placeholder": "例：assets, config.ini", "edit": {"add": "add_output_file", "remove": "remove_output_file"}},
                 {"type": "section", "end": True},
                 {"name": "place", "label": "変更するタスクブランチ（作業空間）", "type": "select", "required": True,
                  "options_from": {"source": "more", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},

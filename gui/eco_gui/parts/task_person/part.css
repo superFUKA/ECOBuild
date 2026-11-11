@@ -1,0 +1,15 @@
+/* 人の画面（今までの GUI の .tk-pf* と同じ値）。タイル・印の見た目は theme.css の「タスクの印」 */
+.pf-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.pf-head .tk-avatar { width: 52px; height: 52px; font-size: 20px; }
+.pf-name { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; }
+button.d-close { margin-left: auto; align-self: flex-start; padding: 0 8px; border: 0; background: transparent; color: var(--gf-muted); font-size: 18px; line-height: 24px; }
+button.d-close:hover { color: #fff; background: #39424a; }
+.pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pf-section { border: 1px solid var(--eco-line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.pf-section h4, .pf-tasks { margin: 0 0 6px; font-size: 12px; color: var(--gf-muted); font-weight: 600; }
+.pf-tasks { margin: 16px 0 0; }
+.pf-section p { margin: 4px 0; font-size: 12px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #262c34; cursor: pointer; font-size: 13px; border-radius: 4px; }
+.row:last-child { border-bottom: 0; } .row:hover { background: #232a32; }
+.row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) { .pf-grid { grid-template-columns: 1fr; } .tk-pf-stats { grid-template-columns: repeat(2, 1fr); } }

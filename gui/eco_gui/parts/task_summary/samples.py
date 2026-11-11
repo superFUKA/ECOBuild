@@ -1,0 +1,26 @@
+SAMPLES = [
+    {"name": "ふつう", "props": {
+        "me": "octocat", "sprints": [{"name": "Sprint 2", "start": "2026-11-02", "end": "2099-11-16"}],
+        "tasks": [
+            {"number": 12, "title": "ログイン画面", "state": "open", "stage": "in_progress", "assignees": ["octocat"], "submission": {"draft": False, "partial": False}},
+            {"number": 13, "title": "ログを残す", "state": "open", "stage": "todo", "assignees": [], "priority": "High", "due": "2026-01-20"},
+            {"number": 14, "title": "提出を見てもらう", "state": "open", "stage": "in_review", "assignees": ["review-bot"], "submission": {"draft": True}},
+            {"number": 16, "title": "まだ詰めている", "state": "open", "stage": "planned", "assignees": []},
+            {"number": 9, "title": "終わったタスク", "state": "closed", "closed_reason": "completed", "assignees": ["octocat"], "finished": "2099-11-01"},
+            {"number": 8, "title": "やめたタスク", "state": "closed", "closed_reason": "not_planned", "assignees": [], "finished": "2026-11-01"}],
+        "sprint": {"sprint": {"name": "Sprint 2", "start": "2026-11-02", "end": "2099-11-16"}, "current": True, "days_left": 5, "total": 4, "done": 1,
+                   "estimate_total": 8, "estimate_done": 3, "estimate_remaining": 5, "unestimated": [13], "carried_over": [12]},
+        "workload": [{"assignee": "octocat", "open": 3, "in_progress": 1, "estimate_remaining": 5, "overdue": 1},
+                     {"assignee": "review-bot", "open": 1, "in_progress": 1, "estimate_remaining": 0, "overdue": 0},
+                     {"assignee": "", "open": 2, "in_progress": 0, "estimate_remaining": 0, "overdue": 0}],
+        "milestones": [{"title": "v1", "due": "2026-01-01", "late": True, "done": 1, "total": 4, "overdue_tasks": [13]},
+                       {"title": "v2", "due": None, "late": False, "done": 0, "total": 2, "overdue_tasks": []}],
+        "next": [{"task": {"number": 13, "title": "ログを残す", "state": "open", "priority": "High", "due": "2026-01-20", "assignees": ["octocat"]},
+                  "reasons": ["期限切れ（3日）", "優先度 High", "3つ目は出さない"]}],
+        "overdue": {"overdue": [{"number": 13, "title": "ログを残す", "state": "open", "due": "2026-01-20", "assignees": []}],
+                    "soon": [{"number": 15, "title": "公開の準備", "state": "open", "due": "2099-11-14", "assignees": []}]},
+        "reviews": [{"number": 14, "title": "提出を見てもらう", "state": "open", "assignees": ["review-bot"], "submission": {"draft": False}}]}},
+    {"name": "空", "props": {"tasks": []}},
+    {"name": "読み込み中", "props": {"tasks": [], "loading": True}},
+    {"name": "誤り", "props": {"tasks": [], "error": "モジュールではありません"}},
+]

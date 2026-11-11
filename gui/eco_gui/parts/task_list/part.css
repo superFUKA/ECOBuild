@@ -1,0 +1,2 @@
+/* タスクの一覧。表と印の見た目は theme.css の「タスクの印」（どの部品でも同じ）。ここは、この部品だけのもの */
+.foot { display: flex; justify-content: flex-end; margin-top: 10px; }

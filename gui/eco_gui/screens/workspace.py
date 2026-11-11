@@ -95,6 +95,9 @@ SCREEN = {
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "toolbar.container"},
         {"read": "stash list", "args": {"module": {"arg": "module"}}, "to": "changes.stashes"},
         {"read": "log", "args": {"module": {"arg": "module"}, "unpushed": True, "count": {"value": "push_count"}}, "to": "push_list.commits"},
+        # Visual Studio の版ごとに、開けるか（入っていない版は、ツールバーの ▾ で灰色と理由）
+        {"can": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": "2026"}, "to": "toolbar.vs2026"},
+        {"can": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": "2022"}, "to": "toolbar.vs2022"},
         {"value": "push_count", "to": "push_list.count"},
 
         # --- タブ：今のタブのパネルだけを出す ---
@@ -219,6 +222,12 @@ SCREEN = {
         {"on": "toolbar.action", "when": {"name": "account"}, "open": "ws-account", "args": {"module": {"arg": "module"}}, "inside": True},
         {"on": "toolbar.action", "when": {"name": "container"}, "open": "container", "args": {"module": {"arg": "module"}}},
         {"on": "toolbar.action", "when": {"name": "agents"}, "open": "agents", "args": {"module": {"arg": "module"}}},
+        # この PC の道具で開く（ecobuild open）。Visual Studio の版は、ツールバーで選んだもの（ファイルを開くときも同じ版）
+        {"on": "toolbar.action", "when": {"name": "open_folder"}, "run": "open", "args": {"module": {"arg": "module"}, "app": "explorer"}},
+        {"on": "toolbar.action", "when": {"name": "open_vs"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"payload": "value"}}, "notify": "Visual Studio で開きました。"},
+        {"on": "toolbar.action", "when": {"name": "vs_version"}, "set": {"vs_version": {"payload": "value"}}},
+        {"value": "vs_version", "to": "toolbar.vs_version"},
 
         # --- エクスプローラーの操作（ecobuild file move・file remove・restore・ignore・file test・test・sync take） ---
         {"on": "explorer.action", "when": {"name": "reload"}, "refresh": True},
@@ -248,6 +257,18 @@ SCREEN = {
         {"on": "explorer.action", "when": {"name": "new_file"}, "open": "ws-new-file",
          "args": {"module": {"arg": "module"}, "folder": {"payload": "path"}}, "inside": True},
         {"on": "explorer.action", "when": {"name": "move"}, "open": "ws-move", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}, "inside": True},
+        # 開く：ダブルクリックは開発の道具で（Visual Studio が使えればそれで、なければ既定のアプリで）。メニューからは道具を選べる
+        {"on": "explorer.action", "when": {"name": "open"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "editor", "vs_version": {"value": "vs_version"}}},
+        {"on": "explorer.action", "when": {"name": "open_vs"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "vs", "vs_version": {"value": "vs_version"}}},
+        {"on": "explorer.action", "when": {"name": "open_default"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "default"}},
+        {"on": "explorer.action", "when": {"name": "reveal"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "explorer"}},
+        # 出力の「ファイル(行)」のリンク
+        {"on": "out.opened", "run": "open", "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "editor",
+                                                      "line": {"payload": "line"}, "vs_version": {"value": "vs_version"}}},
 
         # --- ステータスバー ---
         {"on": "foot.action", "when": {"name": "fetch"}, "refresh": True},

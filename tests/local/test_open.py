@@ -108,3 +108,14 @@ def test_visual_studio_is_only_on_windows(cli, started, studio, monkeypatch):
     monkeypatch.setattr(_open, "_windows", lambda: False)
     can = result(cli("open", "--app", "vs", "--can", "--json"))["result"]
     assert can["can"] is False and "Windows" in can["reason"]
+
+
+def test_the_editor_is_visual_studio_or_else_the_default_app(cli, module, started, studio, monkeypatch):
+    target = str((Path(module.root) / "README.md").resolve())
+    done = result(cli("open", "README.md", "--app", "editor", "--line", "3", "--json"))["result"]
+    assert done["app"] == "vs" and started == [[studio, "/edit", target, "/command", "Edit.GoTo 3"]]
+    started.clear()
+    monkeypatch.setattr(_open, "visual_studio", lambda version: None)   # Visual Studio がない PC：既定のアプリで
+    done = result(cli("open", "README.md", "--app", "editor", "--line", "3", "--json"))["result"]
+    assert done["app"] == "default" and started == [["startfile", target]]
+    assert result(cli("open", "README.md", "--app", "editor", "--can", "--json"))["result"]["can"] is True

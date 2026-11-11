@@ -2,6 +2,7 @@
 
 - explorer：フォルダーをファイルの管理の道具（Windows はエクスプローラー）で開く。ファイルなら、そのファイルを選んだ状態で開く。
 - default：既定のアプリで開く（フォルダーなら、ファイルの管理の道具）。
+- editor：開発の道具で開く（Visual Studio が使えればそれで、なければ既定のアプリで）。
 - vs：Visual Studio で開く（Windows だけ）。フォルダーなら、その中のソリューション（ビルドで作られたもの。なければ
   フォルダーとして）。ファイルなら、そのフォルダーを開いている Visual Studio の窓で（なければ、ファイルだけを開く）。
 """
@@ -16,7 +17,7 @@ from pathlib import Path
 
 from ecobuild.errors import EcoBuildError, ErrorCode
 
-APPS = ("default", "explorer", "vs")
+APPS = ("default", "explorer", "editor", "vs")
 VISUAL_STUDIO = {"2026": "[18.0,19.0)", "2022": "[17.0,18.0)"}  # 版の名前 → vswhere のバージョンの範囲（新しい順）
 
 
@@ -86,6 +87,8 @@ def unavailable(app: str, target: Path, vs_version: str = "") -> str:
 
 def open_with(app: str, target: Path, *, root: Path | None = None, vs_version: str = "", line: int = 0) -> dict:
     """開く（終わるのを待たない）。root：Visual Studio で開くときの、ソリューションを探す場所（モジュールのフォルダー）。"""
+    if app == "editor" and target.exists():  # Visual Studio が使えればそれで、なければ既定のアプリで
+        app = "default" if unavailable("vs", target, vs_version) else "vs"
     reason = unavailable(app, target, vs_version)
     if reason:
         if not target.exists():

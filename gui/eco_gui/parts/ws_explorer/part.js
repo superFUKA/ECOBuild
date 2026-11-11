@@ -142,6 +142,8 @@ export default {
       const of = kinds.get(path) || [], tracked = !of.includes('untracked'), exists = !missing.has(path), conflicted = of.includes('conflicted');
       const gone = exists ? {} : { disabled: true, reason: 'このファイルは、もうフォルダーにありません。' };
       const id = await menu(event, [
+        { id: 'open_vs', label: 'Visual Studio で開く', ...gone }, { id: 'open_default', label: '既定のアプリで開く', ...gone },
+        { id: 'reveal', label: 'エクスプローラーで表示', ...gone }, { separator: true },
         ...(isReadme(path) ? [] : [
           { id: 'rename', label: '名前の変更', hint: 'F2', ...gone }, { id: 'move', label: '移動先を指定…', ...gone },
           { id: 'remove', label: '削除', hint: 'Delete', danger: true, ...gone }, { separator: true }]),
@@ -165,7 +167,7 @@ export default {
         ...(isTest(dir, true) ? [{ id: 'run_test', label: 'テストを実行' }, { separator: true }] : []),
         { id: 'new_file', label: '新しいファイル' },
         ...(dir && !project ? [{ id: 'rename', label: '名前の変更', hint: 'F2' }, { id: 'remove', label: '削除', hint: 'Delete', danger: true }] : []),
-        { separator: true }, { id: 'log', label: 'ログ' },
+        { separator: true }, { id: 'reveal', label: 'エクスプローラーで開く' }, { id: 'log', label: 'ログ' },
         ...(dir ? [{ id: 'ignore', label: '除外パターンに追加' }, { id: 'copy', label: 'パスをコピー' }] : []),
         { separator: true }, { id: 'reload', label: '読み直す' },
       ]);
@@ -271,7 +273,8 @@ export default {
           choose(key, event); paint();
           if (!(event.ctrlKey || event.metaKey || event.shiftKey) && props.selected !== path) { state.followed = path; emit('selected', { path }); }
         });
-        row.addEventListener('dblclick', () => { clearTimeout(state.timer); if (kinds.has(path)) act('diff', path); });
+        // ダブルクリック：開く（開発の道具で。もうフォルダーにないファイルは、差分）
+        row.addEventListener('dblclick', () => { clearTimeout(state.timer); if (!missing.has(path)) act('open', path); else if (kinds.has(path)) act('diff', path); });
         row.addEventListener('contextmenu', (event) => openMenu(key, event));
         row.addEventListener('keydown', keys(key, row));
         parent.append(row);

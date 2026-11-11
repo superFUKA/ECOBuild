@@ -27,6 +27,10 @@
 .build-bar .vs-group .vs-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .build-bar .vs-group .vs-more { display: grid; place-items: center; padding: 3px 3px; font-size: 14px; line-height: 1; border: 1px solid #3a424c; border-left: 1px solid #2a3038;
   border-radius: 0 7px 7px 0; color: #a5aeba; }
+.build-bar .editor-group .vs-button { padding: 5px 10px; border-color: #6c5a9c; color: #d6c9f7; }
+.build-bar .editor-group .vs-button:hover:not(:disabled) { border-color: #b39ddb; }
+.build-bar .editor-group .vs-more { border-color: #6c5a9c; border-left-color: #3c3354; color: #d6c9f7; }
+.build-bar .editor-group .vs-more:hover { border-color: #b39ddb; }
 .build-bar .sync-group { min-width: 0; }
 .build-bar .sync-group .sync-button { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 260px; padding: 5px 10px; border-color: #3a424c; color: #cdd5df; }
 .build-bar .sync-group .sync-button:hover:not(:disabled), .build-bar .sync-group .vs-more:hover { border-color: #56616e; }

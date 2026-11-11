@@ -1,6 +1,7 @@
 """作業空間のエクスプローラー。ファイルの木に、変更の状態を色と印で出す（+ 新しい・• 変更・✓ ステージ済み・衝突は赤・削除は取り消し線）。
 
-クリック（Ctrl・Shift でいくつも）で選び、右クリックのメニュー・F2（その場で名前を変える）・Delete で操作を出す。
+クリック（Ctrl・Shift でいくつも）で選び、右クリックのメニュー・F2（その場で名前を変える）・Delete で操作を出す。ダブルクリックで開く
+（open：開発の道具で）。メニューから Visual Studio・既定のアプリ・エクスプローラーでも開ける。
 することは出力（action）で出すだけ。実行は画面のつなぎが ecobuild のコマンドでする。"""
 from typing import Annotated
 
@@ -24,7 +25,7 @@ def on_selected(path: Annotated[str, "選んだファイル"]) -> None:
 
 def on_action(
     name: Annotated[str, "操作の名前（rename・remove・restore・ignore・diff・log・blame・new_file・move・run_test・make_test・"
-                         "resolve・take_current・take_incoming・commit・reload）"],
+                         "resolve・take_current・take_incoming・commit・reload・open・open_vs・open_default・reveal）"],
     path: Annotated[str, "相手のファイル・フォルダー（1つのとき）"] = "",
     paths: Annotated[list[str], "相手のファイル・フォルダー（いくつものとき。1つのときも入る）"] = [],
     to: Annotated[str, "rename：新しいパス"] = "",

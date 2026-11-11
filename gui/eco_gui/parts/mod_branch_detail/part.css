@@ -16,4 +16,4 @@ button.link:hover { color: #c8f3e6; }
 .task-branches ul { margin: 8px 0 0; padding-left: 18px; line-height: 2.2; }
 .branch-name { font-family: var(--eco-code); font-weight: 700; }
 .where { font-size: 11px; color: var(--gf-muted); }
-button.small { padding: 1px 9px; margin-left: 6px; }
+.task-branches button { padding: 1px 9px; margin-left: 6px; font-size: 12px; line-height: 1.5; }

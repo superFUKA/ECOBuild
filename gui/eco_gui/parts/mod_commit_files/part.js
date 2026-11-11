@@ -25,6 +25,8 @@ function split(text) {
       file.lines.push(line);
     }
   }
+  const stat = head.indexOf('---');  // 説明の後ろの、ファイルごとの数（--stat）は出さない（下に、ファイルごとに出す）
+  if (stat >= 0) head.length = stat;
   while (head.length && !head[head.length - 1].trim()) head.pop();
   return { head, files };
 }

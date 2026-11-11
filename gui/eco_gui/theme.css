@@ -291,6 +291,15 @@ button.tk-sort span { font-size: 9px; color: var(--gf-accent); }
    節：提出・取り込み・衝突（submissions・submission・merge・conflicts）
    -------------------------------------------------------------------------- */
 
+/* review-merge-card：ブランチ同士の取り込みのカード（今までの GUI の .br-merge）。見出しと行（部品）・事前確認・ボタンを1つの箱に */
+[data-gf-look="review-merge-card"] { gap: 0; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); }
+:host-context([data-gf-look="review-merge-card"]) .plan { border: 0; border-radius: 0; background: none; padding: 0 14px 14px; }
+[data-gf-look="review-merge-go"] { justify-content: flex-end; align-items: center; gap: 12px; padding: 0 14px 14px; }
+[data-gf-look="review-merge-go"]:not(:has(gf-part)) { display: none; }
+/* review-merge-own：このブランチの提出（左に説明、右にボタン） */
+[data-gf-look="review-merge-own"] { align-items: center; gap: 10px; flex-wrap: nowrap; }
+[data-gf-look="review-merge-own"] > :first-child { flex: 1; min-width: 0; }
+
 /* （提出・取り込み・衝突の節の終わり） */
 
 
@@ -349,6 +358,15 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 [data-gf-look="ws-page"] { gap: 14px; }
 [data-gf-look="ws-page"] > [data-gf-look="card"] { gap: 10px; }
 [data-gf-look="ws-page"] > [data-gf-look="bar"] + [data-gf-part="note"] { margin-top: -12px; }
+
+/* ビルドと試験の窓：動かすボタンの並び（構成・ビルド設定の下に線で区切る）・名前で指定する行（欄が残りの幅を使う） */
+[data-gf-look="ws-build-tools"] { align-items: center; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--eco-line); }
+[data-gf-look="ws-build-named"] { align-items: flex-end; gap: 10px; }
+[data-gf-look="ws-build-named"] > [data-gf-part="text-input"] { flex: 1; min-width: 220px; }
+/* 退避・注釈履歴の窓：一覧・本文が、残りの高さを使う */
+#stage:has(> [data-gf-look="ws-fill-page"]) { overflow: hidden; display: flex; }
+#stage > [data-gf-look="ws-fill-page"] { flex: 1; min-width: 0; min-height: 0; gap: 12px; flex-wrap: nowrap; }
+[data-gf-look="ws-fill-page"] > [data-gf-look="ws-fill"] { flex: 1 1 0; min-height: 0; height: auto; }
 
 /* （作業空間の節の終わり） */
 

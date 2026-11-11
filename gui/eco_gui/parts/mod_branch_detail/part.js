@@ -45,7 +45,7 @@ export default {
     if (b.unusable) fact('作業', b.unusable + '。タスクブランチの作成元にはできません');
     if (b.format != null && b.latest_format != null && b.format < b.latest_format) {
       fact('仕様', '以前の ECOBuild の仕様（版 ' + b.format + '。今の版は ' + b.latest_format + '）',
-        h('span', { class: 'dim' }, '　最新にするには：ecobuild module upgrade --branch ' + b.name));
+        '　', button('upgrade', '最新の仕様にする…', 'link', 'GitHub のこのブランチを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットして push します（変えるファイルを、先に確かめます）'));
     }
     if (isDefault) {
       const p = props.protection;

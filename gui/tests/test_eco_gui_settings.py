@@ -43,7 +43,7 @@ class FakeSettings(FakeEcobuild):
             "agent version list": spec("read", limit=number),
             "installer versions": spec("read", ref=text, count=number),
             "module list": spec("read", owner=text, archived=flag, all=flag),
-            "module upgrade": spec("change", branch=text),
+            "module upgrade": {**spec("change", branch=text), "dry_run": True},
             "module protect": spec("confirm", approvals=number, require_ci=flag, show=flag, off=flag),
             "module archive": spec("confirm", ["name"], name=text, owner=text),
             "module unarchive": spec("confirm", ["name"], name=text, owner=text),
@@ -166,10 +166,20 @@ def test_settings_shows_the_module_and_upgrades_it(relay):
     assert view["nav"]["props"]["current"] == "settings"
     assert view["info"]["props"]["data"]["name"] == "Calc"
     assert relay.backend.modules[-1] == "C:/work/Calc"  # そのモジュールで読む
+    # 今の仕様に合わせる：入力の窓が、下見（変えるファイル）を見せてから実行する
+    relay.backend.preview = lambda name, args: {"ok": True, "result": {"format": 4, "latest_format": 5, "paths": ["ecobuild.toml"], "skipped": []}}
     press(relay, window, "upgrade")
-    assert ("module upgrade", {}) in relay.backend.calls  # ブランチ（任意）は、決めなければ渡さない
+    form = inside(relay, window, "mod-upgrade")
+    assert nodes(relay, form)["form"]["props"]["values"]["paths"] == ["ecobuild.toml"]
+    relay.input(form, "form", "submitted", {"values": {}}, human=True)
+    relay.idle()
+    assert ("module upgrade", {"branch": ""}) in relay.backend.calls  # ブランチを決めなければ空（今いるブランチ）
     typed(relay, window, upgrade_branch="main")
     press(relay, window, "upgrade")
+    form = inside(relay, window, "mod-upgrade")
+    assert nodes(relay, form)["form"]["props"]["subject"] == "main"
+    relay.input(form, "form", "submitted", {"values": {}}, human=True)
+    relay.idle()
     assert ("module upgrade", {"branch": "main"}) in relay.backend.calls
 
 

@@ -3,18 +3,22 @@
 タスク管理の画面の中に重ねて開く。うまくいったら閉じる（Esc・キャンセルでも閉じる）。
 """
 
-ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（新しいタスク：親タスクの番号）
+ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（使わない）
 
 SCREEN = {
     "root": "page",
     "window": {"title": "このPCから片付ける", "width": 560, "height": 320},
     "nodes": [
         {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
-        {"id": "form", "part": "task-form", "props": {"kind": "prune", "issue": {"arg": "issue"}, "text": {"arg": "text"}}},
+        {"id": "form", "part": "form", "props": {
+            "title": "このPCから片付ける：#{issue}", "ok": "消す", "danger": True, "vars": {"issue": {"arg": "issue"}},
+            "intro": "このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残るので、「作業を再開」でPushしたところから続けられます。\n"
+                     "未コミット・未Pushの変更があるときは消しません。",
+            "fields": []}},
     ],
     "bindings": [
-        {"on": "form.prune", "run": "task prune", "notify": "手元のタスクブランチ {branch} を削除しました。", "close": True,
-         "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}},
-        {"on": "form.cancel", "close": True},
+        {"on": "form.submitted", "run": "task prune", "notify": "手元のタスクブランチ {branch} を削除しました。", "close": True,
+         "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}},
+        {"on": "form.cancelled", "close": True},
     ],
 }

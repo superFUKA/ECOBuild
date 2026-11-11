@@ -20,7 +20,7 @@ SCREEN = {
         {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "detail.branches"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "detail.access"},
         {"on": "close.pressed", "close": True},
-        {"on": "detail.action", "when": {"action": "merge"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "merge", "id": {"payload": "id"}, "base": {"payload": "base"}}},
+        {"on": "detail.action", "when": {"action": "merge"}, "open": "review-merge", "inside": True,
+         "args": {"module": {"arg": "module"}, "name": {"payload": "id"}}},
     ],
 }

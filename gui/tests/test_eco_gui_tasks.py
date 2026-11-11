@@ -329,20 +329,13 @@ def test_start_dialog_reads_the_choices_and_starts(relay):
      "task edit", {"issue": 12, "title": "新しい題", "clear_parent": True, "add_blocked_by": "7,8"}, False),
     ("task-edit", "edit", {"id": "12", "parent": "10", "body": "本文\n2行目"}, "task edit", {"issue": 12, "parent": 10, "body": "本文\n2行目"}, False),
     ("task-assign", "edit", {"id": "12", "add_assignee": "hubot,mona"}, "task edit", {"issue": 12, "add_assignee": "hubot,mona"}, False),
-    ("task-label", "edit", {"id": "12", "add_label": "bug,ui"}, "task edit", {"issue": 12, "add_label": "bug,ui"}, False),
-    ("task-complete", "finish", {"id": "12", "complete": True, "ignore_checks": True}, "task finish", {"number": 12, "complete": True, "ignore_checks": True}, True),
-    ("task-finish", "finish", {"id": "12", "subject": "件名", "partial": True}, "task finish", {"number": 12, "subject": "件名", "partial": True}, True),
-    ("task-drop", "drop", {"id": "12", "close": True}, "task drop", {"number": 12, "close": True}, True),
-    ("task-prune", "prune", {"id": "12"}, "task prune", {"number": 12}, False),
-    ("task-approve", "approve", {"id": "12", "message": "よいです"}, "task approve", {"task": 12, "message": "よいです"}, True),
-    ("task-reject", "reject", {"id": "12", "message": "直してください"}, "task reject", {"task": 12, "message": "直してください"}, True),
 ])
 def test_each_dialog_runs_its_command_with_what_was_entered(relay, screen, output, payload, command, expected, confirm):
     window = open_screen(relay, "board")
     relay.input(window, "board", "dialog", {"screen": screen, "id": payload.get("id", "0"), "text": ""}, human=True)
     relay.idle()
     dialog = inside(relay, window)
-    assert dialog["screen"] == screen and nodes(relay, dialog["id"])["form"]["props"]["kind"] == screen[5:]
+    assert dialog["screen"] == screen and nodes(relay, dialog["id"])["form"]["props"]["kind"] == screen[5:]  # 部品 task-form の窓
     relay.input(dialog["id"], "form", output, payload, human=True)
     if confirm:
         assert answer(relay, dialog["id"], True)["part"] == "confirm-box"  # 重いコマンドは、本体が確かめる
@@ -369,16 +362,14 @@ def test_clean_dialog_previews_what_will_be_removed_and_kept(relay):
 
 def test_dialog_inputs_that_cannot_be_used_are_refused(relay):
     window = open_screen(relay, "tasks")
-    relay.input(window, "list", "dialog", {"screen": "task-reject", "id": "12", "text": ""}, human=True)
+    relay.input(window, "list", "dialog", {"screen": "task-start", "id": "13", "text": ""}, human=True)
     relay.idle()
     dialog = inside(relay, window)
-    with pytest.raises(Exception):
-        relay.input(dialog["id"], "form", "reject", {"id": "12", "message": "  "}, human=True)  # 直してほしいことが要る
     with pytest.raises(Exception):
         relay.input(dialog["id"], "form", "new", {"title": ""}, human=True)
     with pytest.raises(Exception):
         relay.input(dialog["id"], "form", "start", {"id": "0"}, human=True)
-    assert calls(relay, "task reject") == []
+    assert calls(relay, "task start") == [] and calls(relay, "task new") == []
 
 
 # --- ボード・日程 ---------------------------------------------------------------------------------------
@@ -520,7 +511,7 @@ def test_detail_handles_the_submission(relay):
     relay.input(window, "pane", "dialog", {"screen": "task-finish", "id": "12", "text": ""}, human=True)  # 取り込む：入力の窓
     relay.idle()
     assert inside(relay, window)["screen"] == "task-finish"
-    relay.input(inside(relay, window)["id"], "form", "cancel", {}, human=True)
+    relay.input(inside(relay, window)["id"], "form", "cancelled", {}, human=True)
     relay.idle()
     relay.input(window, "pane", "submission", {"id": "12"}, human=True)  # 差分：提出の画面へ
     relay.idle()

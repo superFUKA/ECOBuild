@@ -10,13 +10,13 @@ SCREEN = {
     "window": {"title": "このPCで足すパイプライン", "width": 600, "height": 460},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "このPCで足すパイプライン", "subject": {"arg": "label"}, "ok": "決める",
             "intro": "モジュールの当て方に足すだけで、外せません。コミットせず、この PC のこの場所だけに効きます。"
                      "1つも選ばなければ、この PC で足したものをなくします。",
             "initial": {"names": {"arg": "names"}},
             "fields": [
-                {"name": "names", "label": "パイプライン", "type": "checks", "source": "rows", "note_key": "steps", "join": ",", "empty": "none",
+                {"name": "names", "label": "パイプライン", "type": "checks", "options_from": {"source": "rows", "note": "steps"}, "join": ",", "empty": "none",
                  "empty_text": "パイプラインがありません。"},
             ]}},
     ],

@@ -7,12 +7,12 @@ SCREEN = {
     "window": {"title": "CIをやめる", "width": 560, "height": 320},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "CIをやめる", "ok": "消す", "danger": True,
             "intro": "ワークフロー（.github/workflows/ecobuild.yml）を消します。コミットして提出し、取り込むと反映されます。",
             "fields": [
-                {"name": "place", "label": "タスクブランチ（作業空間）", "type": "select", "source": "rows", "value_key": "path",
-                 "label_key": "branch", "note_key": "path", "where": {"review": None}, "required": True,
+                {"name": "place", "label": "タスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "rows", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
             ]}},
     ],

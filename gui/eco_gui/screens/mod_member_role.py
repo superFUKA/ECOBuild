@@ -7,7 +7,7 @@ SCREEN = {
     "window": {"title": "役割", "width": 520, "height": 320},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "役割を変える", "subject": {"arg": "user"}, "ok": "変える", "initial": {"role": {"arg": "role"}},
             "fields": [
                 {"name": "role", "label": "役割", "type": "select",

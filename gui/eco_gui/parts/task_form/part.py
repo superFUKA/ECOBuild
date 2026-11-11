@@ -1,12 +1,13 @@
-"""タスクの入力の窓の中身。新しいタスク・作業を開始・編集・完了にする・取り込む・作業を捨てる・片付ける・担当者を追加・ラベル・承認・差し戻し。
+"""タスクの入力の窓のうち、欄を読んだ情報から組むもの：新しいタスク・作業を開始・編集・担当者を追加。
 
-欄を描き、入れた値を出すだけ。何が起きるかは、つないだ ecobuild のコマンドが決める（入れていない欄は出さない）。
+担当者や親タスクの候補・作成元の既定・タスクブランチの名前は、読んだタスク・ブランチ・アカウントから組む（見せ方）。
+ほかの入力の窓は、共通の部品 form が描く。欄を描き、入れた値を出すだけ。何が起きるかは、つないだ ecobuild のコマンドが決める（入れていない欄は出さない）。
 """
 from typing import Annotated, Literal
 
 
 def part(
-    kind: Annotated[Literal["new", "start", "edit", "complete", "finish", "drop", "prune", "clean", "assign", "label", "approve", "reject"], "どの入力の窓か"],
+    kind: Annotated[Literal["new", "start", "edit", "assign"], "どの入力の窓か"],
     issue: Annotated[int, "タスクの番号（新しいタスク・まとめて片付けるときは 0）"] = 0,
     text: Annotated[str, "窓へ渡された文字（新しいタスク：親タスクの番号）"] = "",
     status: Annotated[dict | None, "タスクの状態（task status の結果。タスクの窓で使う）"] = None,
@@ -53,36 +54,6 @@ def on_edit(
     add_assignee: Annotated[str, "加える担当者"] = "", add_label: Annotated[str, "付けるラベル"] = "",
 ) -> None:
     _number(id)
-
-
-def on_finish(
-    id: Annotated[str, "タスクの番号"], subject: Annotated[str, "取り込むコミットの件名"] = "",
-    ignore_checks: Annotated[bool, "CI が失敗していても取り込む"] = False,
-    complete: Annotated[bool, "タスクを完了する"] = False, partial: Annotated[bool, "タスクを閉じずに続ける"] = False,
-) -> None:
-    _number(id)
-
-
-def on_drop(id: Annotated[str, "タスクの番号"], close: Annotated[bool, "タスクも削除する"] = False) -> None:
-    _number(id)
-
-
-def on_prune(id: Annotated[str, "タスクの番号"]) -> None:
-    _number(id)
-
-
-def on_clean() -> None:
-    pass
-
-
-def on_approve(id: Annotated[str, "タスクの番号"], message: Annotated[str, "コメント"] = "") -> None:
-    _number(id)
-
-
-def on_reject(id: Annotated[str, "タスクの番号"], message: Annotated[str, "直してほしいこと"]) -> None:
-    _number(id)
-    if not message.strip():
-        raise ValueError("直してほしいことを書いてください")
 
 
 def on_cancel() -> None:

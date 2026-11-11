@@ -44,6 +44,9 @@ SCREEN = {
          "args": {"module": {"arg": "module"}, "name": {"payload": "name"}}, "here": True},
         {"on": "detail.action", "when": {"action": "delete"}, "run": "branch delete",
          "args": {"module": {"arg": "module"}, "name": {"payload": "name"}}, "set": {"branch": None}, "notify": "ブランチを削除しました。"},
+        # 最新の仕様にする：入力の窓（下見で、変えるファイルを先に見せる）
+        {"on": "detail.action", "when": {"action": "upgrade"}, "open": "mod-upgrade", "inside": True,
+         "args": {"module": {"arg": "module"}, "branch": {"payload": "name"}}},
         {"on": "detail.action", "when": {"action": "protect"}, "open": "settings", "args": {"module": {"arg": "module"}}, "here": True},
         {"on": "detail.action", "when": {"action": "unprotect"}, "run": "module protect", "args": {"module": {"arg": "module"}, "off": True},
          "notify": "保護を外しました。"},

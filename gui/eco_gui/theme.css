@@ -186,6 +186,74 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
 /* --------------------------------------------------------------------------
    節：タスク管理（tasks・task・board・schedule）
    -------------------------------------------------------------------------- */
+/* 窓の作り：上に題とボタン（tk-top）、表示のタブと絞り込み（部品 task-bar）、下に表示（tk-main）と右の詳細（tk-detail）。
+   今までの GUI（gui/static/tasks.css）と同じ値。 */
+[data-gf-look="tk-page"] { flex: 1; min-width: 0; min-height: 0; gap: 0; overflow: hidden; }
+[data-gf-look="tk-top"] { flex: none; align-items: center; flex-wrap: nowrap; gap: 12px; padding: 10px 16px 6px; }
+[data-gf-look="tk-top"] > :first-child { flex: 1; min-width: 0; }
+[data-gf-look="tk-page"] > [data-gf-part="task-bar"] { flex: none; }
+[data-gf-look="tk-body"] { flex: 1; min-height: 0; min-width: 0; }
+[data-gf-look="tk-body"] > * { min-height: 0; }
+[data-gf-look="tk-main"] { min-height: 100%; min-width: 0; padding: 16px 20px 28px; }
+[data-gf-look="tk-detail"] { min-height: 100%; border-left: 1px solid var(--eco-line); background: #171c22; padding: 18px 18px 56px; }
+/* 入力の窓（中に重ねた画面）：部品 task-form が題・欄・ボタンを描く */
+[data-gf-look="tk-dialog"] { gap: 0; }
+
+/* タスクの印：タスクを描くどの部品でも同じ（段階・優先度・期限・見積もり・スプリント・フラグ・担当の丸・番号） */
+.tk-muted { color: var(--gf-muted); font-size: 12px; }
+.tk-num { color: var(--gf-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.tk-prio { font-size: 11px; font-weight: 600; } .tk-prio.High { color: var(--eco-bad); } .tk-prio.Middle { color: var(--gf-warn); } .tk-prio.Low { color: var(--gf-muted); }
+.tk-stage { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.tk-stage::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.tk-stage.backlog { color: #8b96a3; } .tk-stage.todo { color: #c9d1db; } .tk-stage.in_progress { color: #7cc4f8; } .tk-stage.in_review { color: #c9a6f5; }
+.tk-stage.done { color: #8fdcae; } .tk-stage.not_planned { color: #8b96a3; }
+.tk-label { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; background: #27303a; color: #b6c3cf; margin-left: 4px; }
+.tk-avatar { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-size: 10px; font-weight: 700; background: #2f4b44; color: #b6f0de;
+  flex-shrink: 0; line-height: 1; }
+.tk-avatar.agent { background: #3b3554; color: #d6c9f7; } .tk-avatar.none { background: transparent; border: 1px dashed #56616e; }
+.tk-avatar + .tk-avatar, .tk-person-link + .tk-person-link { margin-left: -4px; }
+button.tk-person-link { padding: 0; border: 0; background: none; border-radius: 50%; line-height: 0; vertical-align: middle; }
+button.tk-person-link:hover .tk-avatar { box-shadow: 0 0 0 2px var(--gf-accent); }
+.tk-due { white-space: nowrap; } .tk-due.overdue { color: var(--eco-bad); }
+.tk-flag { font-size: 11px; color: var(--gf-muted); white-space: nowrap; } .tk-flag.blocked { color: var(--eco-bad); }
+.tk-est { font-size: 11px; color: #cdd5df; font-variant-numeric: tabular-nums; } .tk-est::before { content: "≈"; color: var(--gf-muted); margin-right: 1px; }
+.tk-sprint { font-size: 11px; color: var(--gf-muted); white-space: nowrap; } .tk-sprint.now { color: var(--gf-accent); }
+.tk-pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: #2a3139; color: #cdd5df; white-space: nowrap; }
+.tk-pill.ok { background: #213a33; color: #a8ead9; }
+.tk-rank { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #213a33; color: #a8ead9; font-size: 11px; font-weight: 700; }
+.tk-reason { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: #3d3324; color: var(--gf-warn); white-space: nowrap; }
+.tk-reason.bad { background: #43282b; color: var(--eco-bad); }
+.tk-grow { flex: 1; min-width: 160px; }
+.tk-empty { color: var(--gf-muted); padding: 40px 10px; text-align: center; }
+.tk-note { font-size: 12px; color: var(--gf-muted); margin: 10px 2px 0; }
+button.tk-link { border: 0; background: transparent; color: var(--gf-accent); padding: 2px 4px; font-size: 12px; }
+.tk-card { border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); padding: 14px 16px; margin-bottom: 16px; }
+.tk-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0 10px; }
+.tk-section-head h3 { margin: 0; font-size: 14px; color: var(--gf-fg); }
+.tk-section-head .tk-muted { margin-left: 8px; font-weight: normal; }
+.tk-next-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid #262c34; cursor: pointer; font-size: 13px; flex-wrap: wrap; }
+.tk-next-row:hover { background: #1a2027; } .tk-next-row[aria-selected=true] { background: #1f302b; } .tk-next-row:last-child { border-bottom: 0; }
+.tk-progress { height: 8px; border-radius: 4px; background: #2a3139; overflow: hidden; margin: 12px 0 4px; } .tk-progress span { display: block; height: 100%; background: var(--gf-accent); }
+.tk-stagekeys { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; }
+.tk-pf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tk-pf-stat { border: 1px solid var(--eco-line); border-radius: 10px; padding: 10px 12px; background: #171c22; }
+.tk-pf-stat b { display: block; font-size: 22px; } .tk-pf-stat span { font-size: 12px; color: var(--gf-muted); }
+.tk-pf-stat.bad b { color: var(--eco-bad); } .tk-pf-stat.warn b { color: var(--gf-warn); }
+/* 一覧の表（部品 task-list・人の画面） */
+table.tk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tk-table th { text-align: left; font-weight: 600; font-size: 11px; color: var(--gf-muted); padding: 6px 8px; border-bottom: 1px solid var(--eco-line); white-space: nowrap;
+  position: sticky; top: -16px; background: var(--gf-bg); }
+.tk-table td { padding: 7px 8px; border-bottom: 1px solid #262c34; vertical-align: middle; }
+.tk-table tbody tr { cursor: pointer; } .tk-table tbody tr:hover { background: #1a2027; } .tk-table tbody tr[aria-selected=true] { background: #1f302b; }
+.tk-table tr.closed td { color: #7d8894; }
+.tk-table .tk-title-cell { min-width: 220px; }
+.tk-table th:not(:nth-child(2)) { width: 1%; white-space: nowrap; }
+.tk-table .tk-title-cell .tk-flag { margin-left: 8px; }
+.tk-table tbody tr:focus-visible { outline: 2px solid var(--gf-accent); outline-offset: -2px; }
+.tk-table .tk-num-cell { width: 44px; }
+button.tk-sort { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; display: inline-flex; gap: 3px; align-items: center; }
+button.tk-sort:hover, button.tk-sort.on { color: var(--gf-fg); border: 0; }
+button.tk-sort span { font-size: 9px; color: var(--gf-accent); }
 
 /* （タスク管理の節の終わり） */
 

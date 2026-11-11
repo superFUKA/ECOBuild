@@ -1,0 +1,46 @@
+/* タスクの詳細（今までの GUI の .tk-d-* と同じ値）。印の見た目は theme.css の「タスクの印」 */
+button { padding: 6px 12px; border-radius: 6px; font-size: 13px; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+input:not([type=checkbox]), select, textarea { padding: 5px 8px; border-radius: 5px; font-size: 13px; }
+.d-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; min-height: 24px; }
+.d-link { font-size: 12px; color: var(--gf-muted); text-decoration: none; } .d-link:hover { color: var(--gf-accent); }
+button.d-close { margin-left: auto; padding: 0 8px; border: 0; background: transparent; color: var(--gf-muted); font-size: 18px; line-height: 24px; }
+button.d-close:hover { color: #fff; background: #39424a; }
+.d-title { font-size: 17px; line-height: 1.4; margin: 6px 0 12px; color: var(--gf-fg); font-weight: 600; }
+.d-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+button.more { padding: 6px 10px; }
+.d-section { border-top: 1px solid var(--eco-line); padding: 12px 0; }
+.d-section > h4 { margin: 0 0 10px; font-size: 11px; letter-spacing: .06em; color: #cdd5df; font-weight: 600; }
+.kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 13px; align-items: start; }
+.kv dt { color: var(--gf-muted); font-size: 12px; padding-top: 5px; }
+.kv:not(.controls) dt { padding-top: 2px; }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.kv.controls dd > select, .kv.controls dd > input { width: 100%; max-width: 240px; box-sizing: border-box; }
+/* 計画と日付は、値として読める。欄は、ポインターを乗せたとき・フォーカスのときに出る */
+.kv.controls select, .kv.controls input { background: transparent; border-color: transparent; padding: 3px 6px; }
+.kv.controls select:hover:not(:disabled), .kv.controls input:hover:not(:disabled), .kv.controls :focus { border-color: var(--gf-border); background: var(--gf-bg); }
+.kv.controls :disabled { color: var(--gf-muted); opacity: 1; }
+.kv.controls select option { background: var(--gf-bg); }
+.kv input.empty { color: var(--gf-muted); }
+.kv.controls dd:not(:has(select, input)) { padding-top: 5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 4px 1px 7px; border-radius: 10px; background: #27303a; font-size: 12px; }
+.chip button.x { color: var(--gf-muted); padding: 0 4px; border: 0; background: none; font-size: 12px; }
+button.add { padding: 1px 6px; border: 1px dashed #56616e; border-radius: 10px; background: transparent; font-size: 11px; color: var(--gf-muted); }
+button.person-name { padding: 0; border: 0; background: none; font-size: 12px; color: #cdd5df; }
+button.person-name:hover { color: var(--gf-accent); text-decoration: underline; }
+.rel { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+.rel:hover { color: var(--gf-accent); }
+.rel .tk-grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-body { white-space: pre-wrap; line-height: 1.7; color: #c6d0da; font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+.d-body:not(.open) { max-height: 220px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 170px, transparent 220px); }
+button.d-more { margin-top: 4px; padding: 2px 0; }
+.sub-actions { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-top: 10px; }
+.sub-actions > div { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+button.quiet-danger { border-color: transparent; background: transparent; color: #f3a5a5; }
+button.quiet-danger:hover { border-color: #7a3b3b; }
+.comment { border: 1px solid var(--eco-line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--eco-panel); }
+.comment header { font-size: 12px; color: var(--gf-muted); margin-bottom: 4px; }
+.comment p { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-box textarea { width: 100%; min-height: 64px; resize: vertical; }
+.comment-box div { display: flex; justify-content: flex-end; margin-top: 6px; }

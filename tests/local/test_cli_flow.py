@@ -376,6 +376,16 @@ def test_planning_from_cli(cli, module):
     assert as_json(cli("task", "status", "1", "--json"))["result"]["task"]["priority"] is None
 
 
+def test_task_new_takes_the_plan_values(cli, module):
+    """作るときに、計画の値（優先度・見積もり・スプリント）と、始める前の段階も決められる（task edit と同じ値）。"""
+    assert cli("task", "new", "計画つき", "--priority", "High", "--estimate", "2", "--sprint", "current", "--stage", "planned").exit_code == 0
+    task = as_json(cli("task", "status", "1", "--json"))["result"]["task"]
+    assert (task["priority"], task["estimate"], task["sprint"], task["stage"]) == ("High", 2.0, "Sprint 1", "planned")
+    assert cli("task", "new", "ふつう").exit_code == 0
+    assert as_json(cli("task", "status", "2", "--json"))["result"]["task"]["stage"] == "todo"
+    assert as_json(cli("task", "new", "だめ", "--priority", "最高", "--json"))["error"]["code"] == "invalid_argument"
+
+
 def test_task_dates_from_cli(cli, module):
     """追加した日・開始日・終了日は自動で記録し、期限・開始予定日・終了予定日は作成時と更新で設定する。"""
     import datetime

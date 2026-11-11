@@ -1,26 +1,68 @@
-"""ボード。カードを、項目の値ごとの列に並べる。カードを選べ、別の列へ移せる。"""
+"""ボード。タスクを段階ごとの列（計画中・未着手・作業中・レビュー待ち・完了、削除済み）にカードで並べる。カードを選べ、別の列へドラッグできる（右クリックでメニュー）。
+
+完了の列は、最近完了した 15 件（recent）。「完了したタスクも表示」のときは、全部を出す。
+"""
 from typing import Annotated
 
 
 def part(
-    columns: Annotated[list[dict], "列（{key, label}）"],
-    cards: Annotated[list[dict], "カード（項目の名前 → 値）"],
-    group: Annotated[str, "どの項目の値で列に分けるか"] = "stage",
-    key: Annotated[str, "カードの ID にする項目"] = "number",
-    title: Annotated[str, "カードの題にする項目"] = "title",
-    details: Annotated[list[dict], "題の下に小さく見せる項目（{key, label}）"] = [],
-    moves: Annotated[list[str], "カードを移せる列（列の key）"] = [],
+    tasks: Annotated[list[dict], "タスク（task list の行）"] = [],
+    recent: Annotated[list[dict], "閉じたものも入ったタスク（task list --all の行。完了の列に、最近のものを出す）"] = [],
+    sprints: Annotated[list[dict], "スプリント（{name, start, end}）"] = [],
+    me: Annotated[str, "自分のアカウント"] = "",
+    filter: Annotated[dict | None, "絞り込み（task-bar が出した値。なければ start）"] = None,
+    start: Annotated[dict, "開いたときの絞り込み"] = {},
+    selected: Annotated[str | None, "選んでいるタスクの番号"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
-    empty_text: Annotated[str, "空のときの文"] = "ありません",
 ) -> None: ...
 
 
-def on_selected(id: Annotated[str, "選んだカードの ID"]) -> None:
+# <<タスクの出力（タスクを描く部品で同じもの）
+def on_selected(id: Annotated[str, "選んだタスクの番号"]) -> None:
     if not id:
-        raise ValueError("カードの ID が要ります")
+        raise ValueError("タスクの番号が要ります")
 
 
-def on_moved(id: Annotated[str, "移すカードの ID"], to: Annotated[str, "移す先の列の key"]) -> None:
-    if not id or not to:
-        raise ValueError("カードと、移す先の列が要ります")
+def on_dialog(
+    screen: Annotated[str, "開く入力の窓（画面の名前：task-start・task-edit・task-complete・task-drop・task-prune・task-assign・task-new・task-person ほか）"],
+    id: Annotated[str, "タスクの番号（タスクによらない窓は 0）"] = "0",
+    text: Annotated[str, "窓へ渡す文字（人の画面：アカウント、新しいタスク：親タスクの番号）"] = "",
+) -> None:
+    if not screen.startswith("task-"):
+        raise ValueError("開けるのは、タスクの入力の窓だけです")
+
+
+def on_edit(
+    id: Annotated[str, "タスクの番号"],
+    priority: Annotated[str, "優先度"] = "", sprint: Annotated[str, "スプリント"] = "", stage: Annotated[str, "段階（planned・todo）"] = "",
+    estimate: Annotated[str, "見積もり"] = "", due: Annotated[str, "期限"] = "",
+    planned_start: Annotated[str, "開始予定"] = "", planned_end: Annotated[str, "終了予定"] = "",
+    milestone: Annotated[str, "マイルストーン"] = "", clear_milestone: Annotated[bool, "マイルストーンから外す"] = False,
+    add_assignee: Annotated[str, "加える担当者"] = "", remove_assignee: Annotated[str, "外す担当者"] = "",
+    add_label: Annotated[str, "付けるラベル"] = "", remove_label: Annotated[str, "外すラベル"] = "",
+    clear: Annotated[str, "消す計画の値"] = "",
+) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_close(id: Annotated[str, "完了にするタスクの番号（タスクブランチのないもの）"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_remove(id: Annotated[str, "削除するタスクの番号（あとで元に戻せる）"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_reopen(id: Annotated[str, "開き直すタスクの番号"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_workspace(path: Annotated[str, "開く作業空間のフォルダー"]) -> None:
+    if not path:
+        raise ValueError("作業空間のフォルダーが要ります")
+# タスクの出力>>

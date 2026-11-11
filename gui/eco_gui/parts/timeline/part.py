@@ -1,20 +1,67 @@
-"""日程の帯。行ごとに、始まりから終わりまでの帯と、期限の印を、日付の軸の上に見せる。行を選べる。"""
+"""日程。タスクの開始予定〜終了予定を、横の帯か、月のカレンダーで見せる（期限は ◆）。帯は段階の色で、終了予定を過ぎたものは赤い枠。
+
+横の帯では、帯をドラッグして予定を動かす・右端で終了予定を変える・予定のない行をドラッグして予定を付ける（edit を出す）。
+"""
 from typing import Annotated
 
 
 def part(
-    rows: Annotated[list[dict], "行（項目の名前 → 値。日付は YYYY-MM-DD）"],
-    key: Annotated[str, "行の ID にする項目"] = "number",
-    title: Annotated[str, "行の題にする項目"] = "title",
-    start: Annotated[str, "帯の始まりの日付の項目"] = "planned_start",
-    end: Annotated[str, "帯の終わりの日付の項目"] = "planned_end",
-    due: Annotated[str, "期限の日付の項目"] = "due",
+    tasks: Annotated[list[dict], "タスク（task list の行。日付は YYYY-MM-DD）"] = [],
+    sprints: Annotated[list[dict], "スプリント（{name, start, end}）"] = [],
+    me: Annotated[str, "自分のアカウント"] = "",
+    filter: Annotated[dict | None, "絞り込み（task-bar が出した値。なければ start）"] = None,
+    start: Annotated[dict, "開いたときの絞り込み"] = {},
+    selected: Annotated[str | None, "選んでいるタスクの番号"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
-    empty_text: Annotated[str, "空のときの文"] = "ありません",
 ) -> None: ...
 
 
-def on_selected(id: Annotated[str, "選んだ行の ID"]) -> None:
+# <<タスクの出力（タスクを描く部品で同じもの）
+def on_selected(id: Annotated[str, "選んだタスクの番号"]) -> None:
     if not id:
-        raise ValueError("行の ID が要ります")
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_dialog(
+    screen: Annotated[str, "開く入力の窓（画面の名前：task-start・task-edit・task-complete・task-drop・task-prune・task-assign・task-new・task-person ほか）"],
+    id: Annotated[str, "タスクの番号（タスクによらない窓は 0）"] = "0",
+    text: Annotated[str, "窓へ渡す文字（人の画面：アカウント、新しいタスク：親タスクの番号）"] = "",
+) -> None:
+    if not screen.startswith("task-"):
+        raise ValueError("開けるのは、タスクの入力の窓だけです")
+
+
+def on_edit(
+    id: Annotated[str, "タスクの番号"],
+    priority: Annotated[str, "優先度"] = "", sprint: Annotated[str, "スプリント"] = "", stage: Annotated[str, "段階（planned・todo）"] = "",
+    estimate: Annotated[str, "見積もり"] = "", due: Annotated[str, "期限"] = "",
+    planned_start: Annotated[str, "開始予定"] = "", planned_end: Annotated[str, "終了予定"] = "",
+    milestone: Annotated[str, "マイルストーン"] = "", clear_milestone: Annotated[bool, "マイルストーンから外す"] = False,
+    add_assignee: Annotated[str, "加える担当者"] = "", remove_assignee: Annotated[str, "外す担当者"] = "",
+    add_label: Annotated[str, "付けるラベル"] = "", remove_label: Annotated[str, "外すラベル"] = "",
+    clear: Annotated[str, "消す計画の値"] = "",
+) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_close(id: Annotated[str, "完了にするタスクの番号（タスクブランチのないもの）"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_remove(id: Annotated[str, "削除するタスクの番号（あとで元に戻せる）"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_reopen(id: Annotated[str, "開き直すタスクの番号"]) -> None:
+    if not id:
+        raise ValueError("タスクの番号が要ります")
+
+
+def on_workspace(path: Annotated[str, "開く作業空間のフォルダー"]) -> None:
+    if not path:
+        raise ValueError("作業空間のフォルダーが要ります")
+# タスクの出力>>

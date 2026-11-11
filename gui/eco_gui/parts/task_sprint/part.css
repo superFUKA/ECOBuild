@@ -1,0 +1,7 @@
+/* スプリントの進み具合。カード・タイル・バーの見た目は theme.css の「タスクの印」 */
+.pick { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #cdd5df; white-space: nowrap; }
+.pick select { padding: 5px 8px; border-radius: 5px; font-size: 13px; }
+.bar { margin-bottom: 12px; }
+.stages { margin: 0 0 12px; }
+button.tag { display: inline-block; padding: 0 6px; border: 0; border-radius: 4px; font-size: 11px; background: #27303a; color: #b6c3cf; margin-left: 4px; line-height: 18px; }
+button.tag:hover { color: var(--gf-accent); }

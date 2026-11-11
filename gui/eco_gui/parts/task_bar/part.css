@@ -1,0 +1,10 @@
+/* タスク管理の上の帯：表示のタブと、絞り込み（今までの GUI の .tk-views・.tk-filter と同じ値） */
+.views { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--eco-line); overflow-x: auto; }
+.views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--gf-muted); padding: 6px 12px; flex-shrink: 0; font-size: 13px; }
+.views button:hover { color: var(--gf-fg); }
+.views button[aria-selected=true] { color: #b0efdd; border-bottom-color: var(--gf-accent); }
+.filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 20px; border-bottom: 1px solid var(--eco-line); background: #171c22; margin: 0; }
+.filter input:not([type=checkbox]), .filter select { padding: 5px 8px; border-radius: 5px; font-size: 13px; }
+.filter .search { flex: 0 1 220px; min-width: 120px; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #cdd5df; white-space: nowrap; }
+.filter > label.check:first-of-type { margin-left: auto; }

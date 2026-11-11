@@ -34,11 +34,11 @@ def test_help_reads_the_commands_once_with_the_help_command():
     window = relay.execute({"command": "open", "screen": "help-guide"})["window"]
     relay.idle()
     view = nodes(relay, window)
-    assert view["tabs"]["props"]["labels"] == ["使い方", "用語", "コマンド"]
+    assert view["guide"]["part"] == "cfg-help"
     assert relay.backend.calls == [("help", {})] and relay.backend.modules == [None]  # モジュールの外：-C なしで読む
-    catalog = view["commands"]["props"]["catalog"]
+    catalog = view["guide"]["props"]["catalog"]
     assert catalog["commands"][0]["path"] == "status" and catalog["types"]["python"]["commands"][0]["path"] == "tests"
-    assert view["commands"]["props"]["first"] == "task start" and view["commands"]["props"]["type_labels"]["cpp"] == "C++"
+    assert view["guide"]["props"]["first"] == "task start" and view["guide"]["props"]["type_labels"]["cpp"] == "C++"
     assert notices(relay) == []
 
 

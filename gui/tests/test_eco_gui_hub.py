@@ -316,7 +316,14 @@ def test_doctor_operator_and_help_screens(relay):
     assert [item["name"] for item in nodes(relay, doctor)["items"]["props"]["items"]][:2] == ["git", "gh の認証"]
     assert nodes(relay, opened(relay, "operator"))["nav"]["props"]["current"] == "operator"
     view = nodes(relay, opened(relay, "hub-help"))
-    assert view["nav"]["props"]["current"] == "hub-help" and "guide:commands" in view
+    # モジュールの窓のヘルプと同じ部品（cfg-help）・同じ中身
+    assert view["nav"]["props"]["current"] == "hub-help" and view["main"]["look"] == "cfg-fill-page"
+    guide = view["guide"]
+    assert guide["part"] == "cfg-help" and guide["look"] == "cfg-fill" and ("help", {}) in relay.backend.calls
+    assert [step["title"] for step in guide["props"]["steps"]][:2] == ["モジュールを用意する", "タスクを作る"]
+    module_help = importlib.import_module("eco_gui.screens.help").SCREEN["nodes"]
+    same = next(node for node in module_help if node.get("part") == "cfg-help")["props"]
+    assert {key: guide["props"][key] for key in same} == same
 
 
 def test_operator_talks_through_the_conversation_commands(relay):

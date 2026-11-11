@@ -44,9 +44,7 @@ SCREEN = {
         # 提出
         {"id": "submit_panel", "layout": "column", "look": "ws-panel", "children": ["pull_request", "submit_row"]},
         {"id": "pull_request", "part": "ws-submission"},
-        {"id": "submit_row", "layout": "row", "look": "end", "children": ["open_submission", "submit_with", "submit"]},
-        {"id": "submit_with", "part": "button", "props": {
-            "label": "内容を決めて提出…", "hint": "題名・下書き・見てもらう人を決める。作成元と衝突するファイルがあれば、先に知らせます"}},
+        {"id": "submit_row", "layout": "row", "look": "end", "children": ["open_submission", "submit"]},
         {"id": "open_submission", "part": "button", "props": {"label": "提出を開く…", "hint": "提出の状態・差分・レビューを見る。承認・差し戻し・取り込みもここから"}},
         {"id": "submit", "part": "button", "props": {"label": "提出", "primary": True, "hint": "作成元への取り込みを頼む（ecobuild task submit）"}},
         # ログ
@@ -162,7 +160,6 @@ SCREEN = {
         {"on": "push_list.action", "when": {"name": "drop"}, "run": "task reset", "args": {"module": {"arg": "module"}, "commit": {"payload": "before"}},
          "notify": "コミットを捨てました。"},
         {"on": "submit.pressed", "open": "task-submit", "inside": True, "args": {"module": {"arg": "module"}}},  # 提出の窓（何が起きるか・題・下書き・見てもらう人）
-        {"on": "submit_with.pressed", "open": "task-submit", "inside": True, "args": {"module": {"arg": "module"}}},
         {"on": "open_submission.pressed", "open": "submission", "args": {"module": {"arg": "module"}, "task": {"value": "task_number"}}},
 
         # --- 帯のボタン ---

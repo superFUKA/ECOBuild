@@ -18,7 +18,9 @@ SCREEN = {
         # 左：共有ブランチの木（幅は変えられる）。右：選んだブランチ
         {"id": "body", "layout": "split", "look": "mod-branches", "props": {"direction": "row", "sizes": [240, None]}, "children": ["tree", "side"]},
         {"id": "tree", "part": "mod-branch-tree"},
-        {"id": "side", "layout": "column", "look": "mod-branch-side", "children": ["detail"]},
+        {"id": "side", "layout": "column", "look": "mod-branch-side", "children": ["detail", "merge"]},
+        # ブランチ同士の取り込み（選んだブランチの。選んでいなければ既定のブランチ）
+        {"id": "merge", "screen": "review-branch-merge", "args": {"module": {"arg": "module"}}},
         {"id": "detail", "part": "mod-branch-detail"},
     ],
     "bindings": [
@@ -33,6 +35,7 @@ SCREEN = {
         {"on": "tree.selected", "set": {"branch": {"payload": "name"}}},
         {"value": "branch", "to": "tree.selected"},
         {"value": "branch", "to": "detail.selected"},
+        {"value": "branch", "to": "merge:pick.name"},
         {"on": "reload.pressed", "refresh": True},
         {"on": "tree.reload", "refresh": True},
         {"on": "detail.reload", "refresh": True},

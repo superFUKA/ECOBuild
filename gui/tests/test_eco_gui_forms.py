@@ -167,8 +167,8 @@ def test_what_happens_follows_the_task_that_was_read(relay):
 def test_submit_window_warns_about_conflicts_with_the_base_before_submitting(relay):
     """提出の窓：GitHub の最新を見て（status --fetch）、作成元と衝突するファイルを赤い帯で知らせる。提出は、その作業空間で。"""
     workspace = opened(relay, "workspace", module=PLACE)
-    relay.input(workspace, "tabs", "selected", {"tab": "submit"}, human=True)  # 「提出」のタブの「内容を決めて提出…」
-    relay.input(workspace, "submit_with", "pressed", {}, human=True)
+    relay.input(workspace, "tabs", "selected", {"tab": "submit"}, human=True)  # 「提出」のタブの「提出」
+    relay.input(workspace, "submit", "pressed", {}, human=True)
     relay.idle()
     window = next(w["id"] for w in relay.display.windows() if w["screen"] == "task-submit" and w.get("parent") == workspace)
     props = nodes(relay, window)["form"]["props"]

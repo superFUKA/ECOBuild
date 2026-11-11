@@ -25,6 +25,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "menu.title", "from": "name"},
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "from": "name", "title": "{} — ECOBuild"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "menu.account"},
         {"on": "menu.selected", "open": {"payload": "id"}, "args": {"module": {"arg": "module"}}, "here": True},
         {"on": "menu.account", "open": "settings", "args": {"module": {"arg": "module"}}, "here": True},

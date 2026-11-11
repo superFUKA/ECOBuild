@@ -29,11 +29,19 @@ class FakeEcobuild:
         # どの試験でも全部の画面のつなぎが確かめられるよう、ほかの試験のファイルが足したコマンドも一覧に入れる
         for file in sorted(Path(__file__).parent.glob("test_eco_gui_*.py")):  # 足し忘れないよう、ファイルから集める
             importlib.import_module(file.stem)
-        fakes = [fake() for fake in FakeEcobuild.__subclasses__() if not isinstance(self, fake)]
+        def below(base):  # 子クラスと、その先（孫）も
+            for fake in base.__subclasses__():
+                yield fake
+                yield from below(fake)
+
+        fakes = [fake() for fake in dict.fromkeys(below(FakeEcobuild)) if not isinstance(self, fake)]
         for name, spec in [pair for fake in fakes for pair in fake._specs(text).items()] + list(self._specs(text).items()):
             known = specs.get(name)
             if known is not None:  # 同じコマンドをいくつかのファイルが書いている：引数は合わせたもの、ほかは後のもの
                 spec = {**spec, "args": {**spec["args"], "properties": {**known["args"]["properties"], **spec["args"]["properties"]}}}
+                for flag in ("can", "dry_run"):  # どれかが宣言していれば真（流すファイルの順で変わらないように）
+                    if known.get(flag) or spec.get(flag):
+                        spec[flag] = True
             specs[name] = spec
         for spec in specs.values():  # 本物と同じく、どのコマンドも module を受ける
             spec["args"]["properties"]["module"] = text

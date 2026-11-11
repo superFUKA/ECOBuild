@@ -19,7 +19,7 @@ SCREEN = {
         {"read": "module types", "to": "form.types"},
         {"read": "workspace list", "to": "form.modules", "from": "modules"},
         {"read": "config list", "to": "form.owner", "from": "owner"},
-        {"read": "module list", "args": {"all": True}, "to": "form.candidates"},
+        {"read": "module list", "args": {"all": True}, "lazy": True, "to": "form.candidates"},
         {"on": "form.changed", "set": {
             "add_method": {"payload": "method"}, "add_directory": {"payload": "directory"}, "add_name": {"payload": "name"},
             "add_type": {"payload": "type"}, "add_kind": {"payload": "kind"}, "add_project": {"payload": "project"}, "add_test": {"payload": "test"},

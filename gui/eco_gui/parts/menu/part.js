@@ -30,12 +30,12 @@ export default {
         + (ICONS[name] || ICONS.module) + '</svg>';
       return box;
     };
-    const collapsed = memory.get('collapsed', false) === true;
+    const collapsed = memory.shared.get('collapsed', false) === true;  // どの画面でも同じ（部品の種類ごとに覚える）
     const nav = h('nav', { class: collapsed ? 'side collapsed' : 'side', 'aria-label': 'メニュー' });
 
     const toggle = h('button', { type: 'button', class: 'toggle', title: collapsed ? 'メニューを広げる' : 'メニューを折りたたむ' }, icon('collapse'));
     toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.addEventListener('click', () => { memory.set('collapsed', !collapsed); redraw(); });
+    toggle.addEventListener('click', () => { memory.shared.set('collapsed', !collapsed); redraw(); });
     const top = h('div', { class: 'top' }, toggle);
     if (props.title) top.append(h('strong', { title: props.title }, props.title));
     nav.append(top);

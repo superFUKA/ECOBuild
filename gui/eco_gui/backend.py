@@ -23,25 +23,24 @@ FROM_STANDARD_INPUT = {
     "gui ask": "text",  # オペレーターに話しかける文
 }
 
-# 拡張コマンド（ecobuild-<名前>。ecobuild の一覧には名前しか出ない）のうち、画面から呼ぶもの：オペレーターとの会話。
-# ECOBuild GUI が置く `ecobuild gui`（gui/ecobuild_gui.py の COMMANDS と同じ。試験で比べる）。ecobuild-gui が PATH にない PC でも
-# 画面の定義は読めるように、一覧の extensions に名前がなくても足す（呼べば、ecobuild が「そのコマンドはありません」と答える）。
-EXTENSION_COMMANDS = [
-    {"name": "gui", "path": "gui", "runnable": False, "effect": None, "commands": [
-        {"name": "ask", "path": "gui ask", "runnable": True, "effect": "change",
-         "summary": "オペレーターに画面を開かずに話しかけ、返答を待ちます。",
-         "arguments": [{"param": "text", "type": "str", "required": False, "multiple": False,
-                        "help": "話しかける文（省くか - で標準入力）"}],
-         "options": [{"param": "session", "names": ["--session"], "type": "str", "help": "続ける会話（前の返答の session）"},
-                     {"param": "continue", "names": ["--continue"], "type": "bool",
-                      "help": "このPCの会話の記録の続きとして話し、発言と返答を記録に足す"},
-                     {"param": "agent", "names": ["--agent"], "type": "str", "help": "エージェントのコマンド（既定は claude）"}]},
-        {"name": "conversation", "path": "gui conversation", "runnable": True, "effect": "read",
-         "summary": "オペレーターとの会話の記録と、今の状態（待機中・考え中）を表示します。", "arguments": [], "options": []},
-        {"name": "conversation-new", "path": "gui conversation-new", "runnable": True, "effect": "change",
-         "summary": "オペレーターとの会話の記録を空にします（次の ask --continue から新しい会話）。", "arguments": [], "options": []},
-    ]},
-]
+def extension_commands(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """拡張コマンド（ecobuild-<名前>）の中のコマンド。形は、拡張コマンドが自分で答えたもの（一覧の extensions の commands）。
+
+    オペレーターとの会話（ecobuild gui …）は、この GUI が置く拡張コマンド。拡張コマンドを受ける ecobuild（一覧に extensions が
+    ある）なのに、その形が一覧にないとき（入口がまだ置かれていない・形を一覧に出さない版の ecobuild）は、同じ GUI の
+    gui/ecobuild_gui.py にじかに聞く（画面の定義は読めるように。呼べば、ecobuild が「そのコマンドはありません」と答える）。
+    """
+    if "extensions" not in result:
+        return []
+    groups = [{"name": item["name"], "path": item["name"], "runnable": False, "effect": None, "commands": item["commands"]}
+              for item in result.get("extensions") or [] if isinstance(item, dict) and item.get("commands")]
+    if not any(group["name"] == "gui" for group in groups):
+        try:
+            import ecobuild_gui  # gui/ のフォルダー（eco_gui の隣）
+            groups.append({"name": "gui", "path": "gui", "runnable": False, "effect": None, "commands": ecobuild_gui.COMMANDS})
+        except Exception:  # GUI の口が読めなくても、ほかの画面は動く
+            pass
+    return groups
 
 
 def convert(node: dict[str, Any]) -> dict[str, Any]:
@@ -162,7 +161,6 @@ class EcobuildBackend(MachineBackend):
         # （同じ名前のコマンドは1つにまとめ、引数は合わせる。その型でないモジュールで呼べば、ecobuild が「使えない」と答える）
         for kind in sorted(result.get("types") or {}):
             commands += result["types"][kind].get("commands") or []
-        if "extensions" in result:  # 拡張コマンド（ecobuild-<名前>）を受ける ecobuild：画面から呼ぶ拡張コマンドも足す
-            commands += EXTENSION_COMMANDS
+        commands += extension_commands(result)
         return {"name": "ecobuild", "path": "", "runnable": False, "effect": None, "parameters": [],
                 "commands": merge([convert(node) for node in commands])}

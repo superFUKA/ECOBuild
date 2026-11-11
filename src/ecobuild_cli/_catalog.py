@@ -70,7 +70,8 @@ def catalog(build_cli: Callable[..., click.Command], sections: dict[tuple[str, .
                        "commands": _children(cli, typed_ctx, (), sections, routes, common)}
     from . import _extensions
     names = {c["name"] for c in _children(common, ctx, (), {})}
-    extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json"}
+    # 拡張コマンド：名前と場所。自分の形を答えるもの（_extensions.describe）は、中のコマンド（引数・重さ）も
+    extensions = [{"name": n, "path": path, "help": f"ecobuild {n} --help --json", **_extensions.describe(n, path)}
                   for n, path in sorted(_extensions.available().items()) if n not in names]
     return {"commands": _children(common, ctx, (), sections), "types": types, "extensions": extensions,
             "errors": _errors.codes(), "type": _types.current(Path.cwd()), "output": OUTPUT_KEYS,

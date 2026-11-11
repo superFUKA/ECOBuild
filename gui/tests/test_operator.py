@@ -139,7 +139,7 @@ def test_the_reply_lists_the_tools_used():
 def test_operator_launches_or_shows_the_tab(monkeypatch):
     """gui operator：--state show／hide は GUI の操作（タブで開く・裏に戻す）、それ以外はオペレーターの起動。"""
     ran, acted = [], []
-    monkeypatch.setattr(operator_kit, "run", lambda command: ran.append(command) or 0)
+    monkeypatch.setattr(operator_kit, "run", lambda command, gui=None: ran.append(command) or 0)
     monkeypatch.setattr(ecobuild_gui, "act", lambda name, params: acted.append((name, params)) or {})
     assert ecobuild_gui.main(["operator", "--here", "--agent", "claude --model sonnet"]) == 0
     assert ran == [("claude", "--model", "sonnet")]

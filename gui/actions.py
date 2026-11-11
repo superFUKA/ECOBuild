@@ -111,11 +111,13 @@ ACTIONS: dict[str, Action] = {a.name: a for a in (
 )}
 
 
-def check(name: str, params: dict) -> dict:
-    """名前と引数を確かめ、型をそろえた引数を返す。誤りなら ValueError（メッセージは日本語）。"""
-    action = ACTIONS.get(name)
+def check(name: str, params: dict, table: dict[str, Action] | None = None) -> dict:
+    """名前と引数を確かめ、型をそろえた引数を返す。誤りなら ValueError（メッセージは日本語）。
+    table：操作の一覧（省くと、今の GUI の ACTIONS。新しい GUI は next_gui.ACTIONS）。"""
+    table = ACTIONS if table is None else table
+    action = table.get(name)
     if action is None:
-        raise ValueError(f"GUIの操作 {name!r} はありません（{'・'.join(ACTIONS)}）。")
+        raise ValueError(f"GUIの操作 {name!r} はありません（{'・'.join(table)}）。")
     known = {p.name: p for p in action.params}
     unknown = set(params) - set(known)
     if unknown:

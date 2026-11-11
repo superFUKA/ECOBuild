@@ -8,6 +8,8 @@ agent-send は除く）だけ。ECOBuild の状態を変える操作・シェル
 
 作業ディレクトリは GUI の置き場所（gui_home）の operator。起動のたびに、今のコマンドの一覧（ecobuild --help --json）と
 GUI の操作の一覧から、指示（CLAUDE.md）・許可（.claude/settings.json）・MCP の設定（mcp.json）を作り直す。
+GUI の操作の頼み先（今までの GUI か、新しい GUI：ecobuild_gui.target()）は、起動・話しかけるときに決まる（gui）。
+新しい GUI なら、その操作（画面を開く・窓の今の表示を読む）の一覧で指示を作り、MCP の設定（mcp-next.json）で頼み先を固定する。
 使い方は3つ：run（この端末で動かして待つ。Electron の窓が裏で常駐させる）、start（新しい画面）、ask（画面を開かず1回話しかける。
 Edge の窓の会話）。converse は、このPCの会話の記録（conversation.json）の続きとして ask する
 （ecobuild gui ask --continue。記録は ecobuild gui conversation で読む）。GUI は ecobuild を import しない（コマンドを呼ぶだけ）ので、ここも ecobuild のコマンドだけを使う。
@@ -25,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import actions  # noqa: E402
+import next_gui  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 PROGRAM = "ecobuild"
@@ -35,9 +38,9 @@ MCP_CONFIG = "mcp.json"
 DEFAULT_COMMAND = ("claude",)
 # 許さない道具：シェル（ecobuild の変える操作・git・gh に届く）とファイルの編集。道具は MCP だけ
 DENY = ("Bash", "PowerShell", "Edit", "Write", "NotebookEdit")
-# GUI の操作のうち、オペレーターに渡さないもの：何でも実行できる run と、ほかのエージェントに頼む（変える操作を人の指示として
-# させる）agent-send
-HIDDEN_ACTIONS = ("run",)
+# GUI の操作のうち、オペレーターに渡さないもの：何でも実行できる run、人の代わりに入力を出す emit（ボタンを押せば変える操作に
+# なる。押すのはユーザー）と、ほかのエージェントに頼む（変える操作を人の指示としてさせる）agent-send
+HIDDEN_ACTIONS = ("run", "emit")
 HIDDEN_EFFECTS = ("requested",)
 # 付けると重さが上がるオプション（CLI の _effects と同じ。見るだけのコマンドでも、これが付けば断る）
 RAISING_OPTIONS = ("--yes", "-y", "--discard-local", "--force", "--remove-workspaces", "--write")
@@ -175,14 +178,36 @@ EXAMPLES = (
 )
 
 
-def instructions(found: dict, examples=None, style_text: str = "") -> str:
-    """指示書：決まり・話し言葉の例・使える GUI の操作と、見るだけのコマンドの一覧（コマンドの一覧 found から作る）。"""
+NEXT_RULES = """## この GUI での操作（新しい GUI）
+
+- 画面を開くのは `gui_open`（module に場所、screen に画面の名前）。画面の名前と引数は `gui_screens` で分かる。
+- 人が今見ているものは、`gui_windows`（looking: true の窓）と `gui_tree`（その窓の表示：部品・値・押せない理由）で読める。
+  どこを押せばよいかは、tree に出ているボタンの名前（label）で案内する。タブ・選ぶ行は開けないので、言葉で案内する。
+- エージェントの窓（タブ）の操作はない。エージェントの様子は `ecobuild_read` の `agent list`・`agent status` で読む。
+"""
+
+
+def spoken_examples(known: dict | None = None) -> tuple:
+    """話し言葉の例のうち、その GUI の操作（known。省くと今までの GUI）だけでできるもの。"""
+    import re
+
+    known = actions.ACTIONS if known is None else known
+    usable = tuple((say, do) for say, do in actions.EXAMPLES
+                   if all(name in known for name in re.findall(r"ecobuild gui ([a-z][a-z-]*)", do)))
+    return usable + (next_gui.EXAMPLES if known is next_gui.ACTIONS else ())
+
+
+def instructions(found: dict, examples=None, style_text: str = "", known: dict | None = None) -> str:
+    """指示書：決まり・話し言葉の例・使える GUI の操作と、見るだけのコマンドの一覧（コマンドの一覧 found から作る）。
+    known：頼み先の GUI の操作の一覧（省くと今までの GUI）。"""
     lines = [RULES]
+    if known is next_gui.ACTIONS:
+        lines += [NEXT_RULES]
     if style_text.strip():
         lines += ["## 話し方（ユーザーの指定）", "", style_text.strip(), "", f"（{STYLE_NOTE}）", ""]
     lines += ["## 例（言われたこと → すること）", ""]
     lines += [f"- {say} → {do}" for say, do in EXAMPLES]
-    for say, do in examples if examples is not None else actions.EXAMPLES:
+    for say, do in examples if examples is not None else spoken_examples(known):
         if not any(f"gui {name}" in do for name in hidden_actions()):
             lines.append(f"- {say} → {do.replace('ecobuild gui ', 'gui_')}")
     # GUI の操作（gui_<操作>）は MCP の道具の説明に同じものがあるので、ここには並べない（二重に書かない）
@@ -192,7 +217,9 @@ def instructions(found: dict, examples=None, style_text: str = "") -> str:
 
 
 def hidden_actions() -> tuple[str, ...]:
-    return tuple(a.name for a in actions.ACTIONS.values() if a.name in HIDDEN_ACTIONS or a.effect in HIDDEN_EFFECTS)
+    """オペレーターに渡さない GUI の操作の名前（どちらの GUI のものも）。"""
+    return tuple(a.name for a in {**next_gui.ACTIONS, **actions.ACTIONS}.values()
+                 if a.name in HIDDEN_ACTIONS or a.effect in HIDDEN_EFFECTS)
 
 
 def operator_actions() -> list[actions.Action]:
@@ -209,18 +236,27 @@ def script() -> str:
     return (HERE / "ecobuild_gui.py").as_posix()
 
 
-def prepare(found: dict | None = None, style_text: str | None = None) -> Path:
-    """一式を置いて、その場所を返す（毎回作り直す。古い指示が残らないように）。"""
+def mcp_config(gui: str | None = None) -> str:
+    """MCP の設定のファイルの名前。新しい GUI に頼むときは、頼み先を固定した別のファイル（今までの GUI の分と取り合わない）。"""
+    return "mcp-next.json" if gui == next_gui.NEXT else MCP_CONFIG
+
+
+def prepare(found: dict | None = None, style_text: str | None = None, gui: str | None = None) -> Path:
+    """一式を置いて、その場所を返す（毎回作り直す。古い指示が残らないように）。gui：GUI の操作の頼み先（next なら新しい GUI）。"""
     folder = directory()
     (folder / SETTINGS).parent.mkdir(parents=True, exist_ok=True)
-    text = instructions(catalog() if found is None else found, style_text=style() if style_text is None else style_text)
+    text = instructions(catalog() if found is None else found, style_text=style() if style_text is None else style_text,
+                        known=next_gui.ACTIONS if gui == next_gui.NEXT else None)
     settings = {"permissions": {"allow": [f"mcp__{SERVER}"], "deny": list(DENY)},
                 "hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command",
                                                            "command": f'"{python()}" "{script()}" operator-context'}]}]}}
-    servers = {"mcpServers": {SERVER: {"command": python(), "args": [script(), "mcp", "--operator"]}}}
+    server = {"command": python(), "args": [script(), "mcp", "--operator"]}
+    if gui == next_gui.NEXT:   # 話しかけられた GUI で開く（オペレーターの道具は、この会話のあいだ新しい GUI に頼む）
+        server["env"] = {next_gui.TARGET_ENV: next_gui.NEXT}
+    servers = {"mcpServers": {SERVER: server}}
     _write(folder / INSTRUCTIONS, text)
     _write(folder / SETTINGS, json.dumps(settings, ensure_ascii=False, indent=2) + "\n")
-    _write(folder / MCP_CONFIG, json.dumps(servers, ensure_ascii=False, indent=2) + "\n")
+    _write(folder / mcp_config(gui), json.dumps(servers, ensure_ascii=False, indent=2) + "\n")
     return folder
 
 
@@ -229,7 +265,7 @@ def _write(path: Path, text: str) -> None:
         path.write_text(text, encoding="utf-8", newline="\n")
 
 
-def _command(command: tuple[str, ...]) -> list[str]:
+def _command(command: tuple[str, ...], gui: str | None = None) -> list[str]:
     """起動するコマンド。Claude Code なら、考える量を少なく（--effort low）、道具は一式の MCP だけ。"""
     command = tuple(command) or DEFAULT_COMMAND
     program = shutil.which(command[0])
@@ -240,7 +276,7 @@ def _command(command: tuple[str, ...]) -> list[str]:
     if Path(command[0]).stem.lower() == "claude":
         if "--effort" not in command:
             args += ["--effort", "low"]
-        args += ["--mcp-config", str(directory() / MCP_CONFIG), "--strict-mcp-config"]
+        args += ["--mcp-config", str(directory() / mcp_config(gui)), "--strict-mcp-config"]
     return args
 
 
@@ -321,10 +357,10 @@ def status_settings(folder: Path) -> Path:
 
 
 # 起動・話しかける -------------------------------------------------------------------------------------------------
-def run(command: tuple[str, ...] = DEFAULT_COMMAND) -> int:
+def run(command: tuple[str, ...] = DEFAULT_COMMAND, gui: str | None = None) -> int:
     """この端末で動かして待つ（Electron の窓が、自分の端末の中で常駐させる）。終了コードを返す。"""
-    folder = prepare()
-    args = _command(command)
+    folder = prepare(gui=gui)
+    args = _command(command, gui)
     if Path(args[0]).stem.lower() == "claude":
         status = status_folder()
         if sys.stdout.isatty():
@@ -339,10 +375,10 @@ def run(command: tuple[str, ...] = DEFAULT_COMMAND) -> int:
         return 130
 
 
-def start(command: tuple[str, ...] = DEFAULT_COMMAND) -> dict:
+def start(command: tuple[str, ...] = DEFAULT_COMMAND, gui: str | None = None) -> dict:
     """新しい端末の画面で起動して、待たずに戻る。"""
-    folder = prepare()
-    args = _command(command)
+    folder = prepare(gui=gui)
+    args = _command(command, gui)
     if Path(args[0]).stem.lower() == "claude":
         args += ["--settings", str(folder / SETTINGS)]
     try:
@@ -361,19 +397,25 @@ def start(command: tuple[str, ...] = DEFAULT_COMMAND) -> dict:
 
 
 def ask(text: str, *, session: str | None = None, command: tuple[str, ...] = DEFAULT_COMMAND,
-        timeout: float | None = None, on_action=None) -> dict:
+        timeout: float | None = None, on_action=None, on_ready=None, gui: str | None = None) -> dict:
     """画面を開かずに1回話しかけて返答を待つ。{session, text, ok, actions:[{tool, command, ok, output}]}。
 
     on_action：返答の途中で道具を使い始めるたびに、その1行（describe）で呼ぶ（「実行中：…」を見せるため）。
+    on_ready：エージェントが起動して、最初の出力が届いたときに1回呼ぶ（それまでは「起動中」）。
+    gui：GUI の操作の頼み先（next なら新しい GUI）。
     """
     if not text.strip():
         raise Failure("usage_error", "話しかける文が空です。", exit_code=2)
-    folder = prepare()
-    args = [*_command(command), "-p", "--output-format", "stream-json", "--verbose", "--settings", str(folder / SETTINGS)]
+    folder = prepare(gui=gui)
+    args = [*_command(command, gui), "-p", "--output-format", "stream-json", "--verbose", "--settings", str(folder / SETTINGS)]
     if session:
         args += ["--resume", session]
+    ready = [on_ready]
 
     def started(line: str) -> None:
+        if ready[0] is not None:
+            ready.pop()()
+            ready.append(None)
         for name in _started(line):
             if on_action is not None and name:
                 on_action(name)
@@ -492,14 +534,18 @@ def _running(pid) -> bool:
 
 
 def conversation() -> dict:
-    """会話の記録：{session, messages:[{role: user|agent, text, ok, actions:[{command, ok}], at}], state, doing}。
+    """会話の記録：{session, messages:[{role: user|agent, text, ok, actions:[{command, ok}], at}], state, doing, starting_for}。
 
-    state は idle（待機中）か thinking（ask が返答を待っている）。doing は、そのとき実行中の道具の1行。
+    state は idle（待機中）・starting（ask がエージェントを起動して、最初の出力を待っている）・thinking（返答を待っている）。
+    doing は、そのとき実行中の道具の1行。starting_for は、起動を待っている秒数（起動中のときだけ）。
+    選択肢を出す・裏で実行を続けるのは、端末に常駐するオペレーター（今までの GUI の窓の中）だけなので、ここの状態にはない。
     """
     record = _record()
     asking = record["asking"]
-    return {"session": record["session"], "messages": record["messages"],
-            "state": "thinking" if asking else "idle", "doing": (asking or {}).get("doing")}
+    state = "idle" if not asking else "thinking" if asking.get("ready") else "starting"
+    waited = time.time() - asking["at"] if state == "starting" and isinstance(asking.get("at"), (int, float)) else None
+    return {"session": record["session"], "messages": record["messages"], "state": state, "doing": (asking or {}).get("doing"),
+            "starting_for": round(max(waited, 0.0), 1) if waited is not None else None}
 
 
 def forget() -> dict:
@@ -510,7 +556,8 @@ def forget() -> dict:
     return conversation()
 
 
-def converse(text: str, *, command: tuple[str, ...] = DEFAULT_COMMAND, timeout: float | None = None, on_action=None) -> dict:
+def converse(text: str, *, command: tuple[str, ...] = DEFAULT_COMMAND, timeout: float | None = None, on_action=None,
+             gui: str | None = None) -> dict:
     """会話の記録の続きとして話しかける（ask と同じ返答）。発言・返答・誤りを記録に足す。"""
     if not text.strip():
         raise Failure("usage_error", "話しかける文が空です。", exit_code=2)
@@ -518,8 +565,12 @@ def converse(text: str, *, command: tuple[str, ...] = DEFAULT_COMMAND, timeout: 
     if record["asking"]:
         raise Failure("in_use", "オペレーターは、前の頼みに答えているところです。", "返答を待ってから送ってください。")
     record["messages"].append({"role": "user", "text": text, "at": time.time()})
-    record["asking"] = {"pid": os.getpid(), "at": time.time(), "doing": None}
+    record["asking"] = {"pid": os.getpid(), "at": time.time(), "doing": None, "ready": False}
     _keep(record)
+
+    def ready() -> None:
+        record["asking"]["ready"] = True
+        _keep(record)
 
     def doing(name: str) -> None:
         record["asking"]["doing"] = name
@@ -528,7 +579,7 @@ def converse(text: str, *, command: tuple[str, ...] = DEFAULT_COMMAND, timeout: 
             on_action(name)
 
     try:
-        reply = ask(text, session=record["session"], command=command, timeout=timeout, on_action=doing)
+        reply = ask(text, session=record["session"], command=command, timeout=timeout, on_action=doing, on_ready=ready, gui=gui)
         record["session"] = reply.get("session") or record["session"]
         record["messages"].append({"role": "agent", "text": reply.get("text") or "", "ok": bool(reply.get("ok")), "at": time.time(),
                                    "actions": [{"command": a["command"], "ok": a.get("ok")}

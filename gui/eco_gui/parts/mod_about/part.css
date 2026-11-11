@@ -1,0 +1,17 @@
+/* 「このモジュール」の欄（今までの GUI の .mi-about と同じ見た目） */
+:host { display: block; min-width: 0; }
+h3 { margin: 4px 0 12px; font-size: 15px; color: var(--gf-fg); }
+.about-list { margin: 0; display: grid; gap: 14px; }
+.about-list dt { margin-bottom: 4px; color: var(--gf-muted); font-size: 11px; font-weight: 600; }
+.about-list dd { margin: 0; font-size: 13px; line-height: 1.9; overflow-wrap: anywhere; }
+.about-list a { color: var(--gf-accent); }
+.sub { font-size: 11px; color: var(--gf-muted); }
+.note { font-size: 12px; color: var(--gf-muted); }
+button.link { background: none; border: 0; border-radius: 0; padding: 0 2px; color: var(--gf-accent); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+button.link:hover { color: #c8f3e6; }
+.place { margin-top: 18px; flex-wrap: wrap; background: #1b2531; color: #c4d4ec; border-color: #33465c; font-size: 12px; }
+@media (max-width: 900px) {
+  h3 { margin: 0 0 8px; }
+  .about-list { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px 16px; }
+  .about-list dd { line-height: 1.5; }
+}

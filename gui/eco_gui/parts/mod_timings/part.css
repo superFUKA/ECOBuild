@@ -1,0 +1,16 @@
+/* タイミングの表（今までの GUI の .mi-table.pl-timings と同じ見た目） */
+:host { display: block; }
+.section-row { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+.timings { border: 1px solid var(--eco-line); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; background: var(--eco-panel); }
+.timings th { font-size: 11px; color: var(--gf-muted); padding: 8px 10px; background: #191e24; }
+.timings td { padding: 8px 10px; border-bottom: 1px solid #262c34; vertical-align: middle; }
+.timings tr:last-child td { border-bottom: 0; }
+.timings tbody tr:hover { background: transparent; }
+.timings td small { margin-left: 4px; }
+.timings .pill { margin: 1px 0; }
+.sub { font-size: 11px; color: var(--gf-muted); }
+.row-actions { text-align: right; white-space: nowrap; }
+.row-actions button { margin-left: 4px; }
+button[aria-disabled=true] { opacity: .45; cursor: not-allowed; }
+.note { font-size: 12px; color: var(--gf-muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

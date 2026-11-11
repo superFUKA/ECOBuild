@@ -208,6 +208,20 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
    節：モジュールのページ（overview・branches・history・ci・pipelines・members）
    -------------------------------------------------------------------------- */
 
+/* ブランチ：左の木と右の詳細（split）。高さいっぱいに使い、それぞれが自分でスクロールする */
+[data-gf-look="mod-branches"] { flex: 1; min-height: 320px; }
+[data-gf-look="mod-branches"] > .gf-pane { min-width: 0; min-height: 0; overflow: auto; }
+[data-gf-look="mod-branches"] > .gf-pane:first-child > * { height: 100%; }
+[data-gf-look="mod-branch-side"] { padding: 2px 4px 20px 16px; gap: 18px; }
+/* 節の見出しの行（左に見出し・絞り込み、右にボタン）と、幅を抑えたページ */
+[data-gf-look="mod-section"] { align-items: center; flex-wrap: nowrap; gap: 10px; margin-top: 8px; }
+[data-gf-look="mod-section"] > :first-child { flex: 1; min-width: 0; }
+[data-gf-look="mod-narrow"] > * { max-width: 960px; }
+/* 概要：左に README、右に「このモジュール」 */
+[data-gf-look="mod-home"] { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: start; }
+@media (max-width: 900px) { [data-gf-look="mod-home"] { grid-template-columns: minmax(0, 1fr); gap: 12px; } [data-gf-look="mod-home"] > :last-child { order: -1; } }
+/* 入力の窓（中に重ねた画面）：部品が自分で余白を持つ */
+
 /* （モジュールのページの節の終わり） */
 
 

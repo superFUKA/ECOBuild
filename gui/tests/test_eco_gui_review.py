@@ -366,7 +366,7 @@ def test_forms_submit_and_merge_a_branch_submission(relay):
 def test_branches_opens_the_merge_screen_for_the_branch_in_the_same_window(relay):
     window = relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()
-    relay.input(window, "list", "action", {"id": "dev", "action": "merge"}, human=True)
+    relay.input(window, "detail", "action", {"action": "merge", "name": "dev"}, human=True)
     relay.idle()
     tree = relay.display.tree(window)
     assert (tree["screen"], tree["args"]) == ("merge", {"module": "C:/work/Calc", "name": "dev"})

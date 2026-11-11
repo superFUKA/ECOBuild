@@ -41,6 +41,10 @@ def hub_specs(text):
         "workspace close": spec("confirm", path=text, at=text, discard_local=flag, dry_run=flag),
         "module adopt": spec("confirm", type=text, dry_run=flag),
         "module new": spec("change", ["name"], name=text, type=text, kind=text, project=text, test=flag, description=text, owner=text, public=flag),
+        # オペレーターとの会話（拡張コマンド ecobuild gui）
+        "gui conversation": spec("read"),
+        "gui ask": spec("change", text=text, session=text, agent=text, **{"continue": flag}),
+        "gui conversation-new": spec("change"),
     }
 
 
@@ -59,6 +63,24 @@ class FakeHub(FakeSettings):
 
     def run(self, name, args, context, on_event):
         plain = {key: value for key, value in args.items() if key != "module"}
+        talk = self.__dict__.setdefault("talk", [])  # オペレーターとの会話の記録
+        if name == "gui conversation":
+            self.calls.append((name, plain))
+            return {"ok": True, "result": {"session": "s1" if talk else None, "messages": list(talk), "state": "idle", "doing": None}}
+        if name == "gui conversation-new":
+            self.calls.append((name, plain))
+            talk.clear()
+            return {"ok": True, "result": {"session": None, "messages": [], "state": "idle", "doing": None}}
+        if name == "gui ask":
+            self.calls.append((name, plain))
+            if plain["text"] == "つながらない":   # 記録に何も残らない失敗（ecobuild gui が入っていない等）
+                return {"ok": False, "error": {"code": "usage_error", "message": "gui というコマンドはありません。"}}
+            talk.append({"role": "user", "text": plain["text"], "at": len(talk)})
+            on_event({"event": "output", "message": "ecobuild workspace list"})
+            on_event({"event": "output", "message": "ecobuild gui open --page tasks"})
+            talk.append({"role": "agent", "ok": True, "text": "開きました", "at": len(talk),
+                         "actions": [{"command": "ecobuild workspace list", "ok": True}, {"command": "ecobuild gui open --page tasks", "ok": True}]})
+            return {"ok": True, "result": {"session": "s1", "text": "開きました", "ok": True, "actions": []}}
         answers = {
             "workspace list": {"modules": MODULES, "legacy": LEGACY},
             "doctor": {"items": DOCTOR},
@@ -73,6 +95,9 @@ class FakeHub(FakeSettings):
         if name == "module new" and plain.get("name") == "Taken":
             self.calls.append((name, plain))
             return {"ok": False, "error": {"code": "repository_exists", "message": "GitHub に acme/Taken は既にあります。"}}
+        if name == "module delete" and plain.get("confirm") == "acme/NoScope":
+            self.calls.append((name, plain))
+            return {"ok": False, "error": {"code": "github_permission", "message": "リポジトリを削除する権限（delete_repo）がありません。"}}
         if name == "module delete" and not plain.get("confirm"):
             self.calls.append((name, plain))
             return {"ok": False, "error": {"code": "confirmation_required", "message": "確認が必要です：開いている Issue が 2 件あります。"}}
@@ -127,6 +152,17 @@ def test_hub_shows_the_menu_the_cards_and_the_banners(relay):
     assert set(relay.backend.modules) == {None}  # モジュールの外：-C を付けない
 
 
+def test_hub_asks_github_only_when_opened_changed_or_asked(relay):
+    """GitHub に聞く読み（module list --all・installer check）は、窓が前に来るたびには読み直さない。「読み直す」で読む。"""
+    hub = opened(relay, "hub")
+    assert "refresh" not in importlib.import_module("eco_gui.screens.hub").SCREEN["window"]
+    assert not relay.display.tree(hub).get("refresh")
+    asked = lambda: [name for name, _ in relay.backend.calls if name in ("module list", "installer check")]  # noqa: E731
+    assert sorted(asked()) == ["installer check", "module list"]
+    press(relay, hub, "reload")
+    assert sorted(asked()) == ["installer check", "installer check", "module list", "module list"]
+
+
 def test_hub_menu_switches_the_screen_in_the_same_window(relay):
     hub = opened(relay, "hub")
     for screen in ("operator", "hub-settings", "hub-help", "hub"):
@@ -169,6 +205,10 @@ def test_hub_archived_modules_are_unarchived_or_deleted_by_name(relay):
     # 名前を打たずに押す：ecobuild は消さず、開いている Issue の数を答える。それを窓の中に出す
     press(relay, window, "delete", confirm=True)
     assert nodes(relay, window)["problem"]["props"]["text"] == "確認が必要です：開いている Issue が 2 件あります。"
+    assert wraps(relay, window, "permission") == ["hidden"]
+    typed(relay, window, confirm="acme/NoScope")  # 権限（delete_repo）が足りない：足し方の案内を出す
+    press(relay, window, "delete", confirm=True)
+    assert wraps(relay, window, "permission") == [None] and "delete_repo" in nodes(relay, window)["permission"]["props"]["text"]
     emit(relay, window, "remove_workspaces", "changed", on=True)
     assert wraps(relay, window, "discard_local") == [None]
     emit(relay, window, "discard_local", "changed", on=True)
@@ -281,10 +321,13 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     press(relay, window, "owner_save")
     press(relay, window, "owner_reset")
     assert ("config set", {"key": "owner", "value": "octo-org"}) in relay.backend.calls and ("config unset", {"key": "owner"}) in relay.backend.calls
-    emit(relay, window, "setup_install", "changed", on=True)
+    # 環境の準備：欄には今の名前・メールを薄く出す（環境チェックの項目を渡す）。結果は、したこと・足りないもの・コマンド
+    assert [item["id"] for item in view["setup_fields"]["props"]["items"]][2] == "git_identity" and view["setup_fields"]["props"]["result"] is None
+    emit(relay, window, "setup_fields", "changed", name="", email="", install=True)
     press(relay, window, "setup", confirm=True)
     assert ("setup", {"install": True}) in relay.backend.calls
-    assert nodes(relay, window)["setup_done"]["props"]["lines"] == ["git が gh の認証を使うようにしました"]  # したことを出す
+    assert nodes(relay, window)["setup_fields"]["props"]["result"] == {
+        "done": ["git が gh の認証を使うようにしました"], "remaining": [], "commands": []}
     press(relay, window, "update_status", confirm=True)
     assert ("installer update", {}) in relay.backend.calls
 
@@ -294,4 +337,52 @@ def test_doctor_operator_and_help_screens(relay):
     assert [item["name"] for item in nodes(relay, doctor)["items"]["props"]["items"]][:2] == ["git", "gh の認証"]
     assert nodes(relay, opened(relay, "operator"))["nav"]["props"]["current"] == "operator"
     view = nodes(relay, opened(relay, "hub-help"))
-    assert view["nav"]["props"]["current"] == "hub-help" and "guide:commands" in view
+    # モジュールの窓のヘルプと同じ部品（cfg-help）・同じ中身
+    assert view["nav"]["props"]["current"] == "hub-help" and view["main"]["look"] == "cfg-fill-page"
+    guide = view["guide"]
+    assert guide["part"] == "cfg-help" and guide["look"] == "cfg-fill" and ("help", {}) in relay.backend.calls
+    assert [step["title"] for step in guide["props"]["steps"]][:2] == ["モジュールを用意する", "タスクを作る"]
+    module_help = importlib.import_module("eco_gui.screens.help").SCREEN["nodes"]
+    same = next(node for node in module_help if node.get("part") == "cfg-help")["props"]
+    assert {key: guide["props"][key] for key in same} == same
+
+
+def test_operator_talks_through_the_conversation_commands(relay):
+    """会話：ecobuild gui conversation で読み、送ると gui ask --continue（文と「続き」）。途中の道具は会話へ続けて届く。"""
+    window = opened(relay, "operator")
+    view = nodes(relay, window)
+    assert view["main"]["look"] == "hub-fill-page" and view["tabs"]["props"]["labels"] == ["会話", "エージェント", "話し方"]
+    assert view["chat"]["props"]["conversation"]["messages"] == [] and view["chat"]["props"]["intro"].startswith("AI はコードを書かず")
+    assert ("gui conversation", {}) in relay.backend.calls
+    emit(relay, window, "input", "sent", text="タスクを見せて\n2行目")
+    assert ("gui ask", {"text": "タスクを見せて\n2行目", "continue": True}) in relay.backend.calls
+    chat = nodes(relay, window)["chat"]["props"]
+    assert [(m["role"], m["text"]) for m in chat["conversation"]["messages"]] == [("user", "タスクを見せて\n2行目"), ("agent", "開きました")]
+    assert chat["doing"] == ["ecobuild workspace list", "ecobuild gui open --page tasks"]  # 続いて届いた、実行中のコマンド
+    assert chat["asked"] is None and chat["failed"] is None  # 返答が記録に入ったら、待っている文は消える
+    with pytest.raises(Exception):  # 空の文は送れない（部品が断る）
+        relay.input(window, "input", "sent", {"text": "  "}, human=True)
+    # 新しい会話
+    press(relay, window, "new")
+    assert ("gui conversation-new", {}) in relay.backend.calls
+    assert nodes(relay, window)["chat"]["props"]["conversation"]["messages"] == []
+
+
+def test_operator_shows_why_a_message_could_not_be_sent(relay):
+    window = opened(relay, "operator")
+    emit(relay, window, "input", "sent", text="つながらない")
+    chat = nodes(relay, window)["chat"]["props"]
+    assert chat["asked"] is None and chat["failed"] == "gui というコマンドはありません。"
+    emit(relay, window, "input", "sent", text="もう一度")  # 次に送ると、前の失敗は消える
+    assert nodes(relay, window)["chat"]["props"]["failed"] is None
+
+
+def test_operator_chat_parts_have_every_state_sample():
+    samples = importlib.import_module("eco_gui.parts.hub_operator_chat.samples").SAMPLES
+    states = {sample["props"].get("conversation", {}).get("state") for sample in samples}
+    assert {"idle", "starting", "waiting", "choice", "exited"} <= states
+    assert any(sample["props"].get("asked") for sample in samples) and any(sample["props"].get("failed") for sample in samples)
+    part = importlib.import_module("eco_gui.parts.hub_operator_input.part")
+    part.on_sent("頼む")
+    with pytest.raises(ValueError):
+        part.on_sent(" ")

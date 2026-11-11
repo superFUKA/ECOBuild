@@ -560,10 +560,11 @@ def test_the_backend_uses_standard_input_only_for_those_texts(tmp_path):
 
 def test_help_screens_show_the_guide_inside_and_outside_a_module_window(relay):
     alone = opened(relay, "help-guide")
-    assert nodes(relay, alone)["step1_title"]["props"]["text"].startswith("1.")
-    assert nodes(relay, alone)["terms"]["props"]["data"]["task"].startswith("GitHub の Issue")
+    guide = nodes(relay, alone)["guide"]["props"]  # モジュールの窓と同じ部品（cfg-help）
+    assert guide["steps"][0]["title"] == "モジュールを用意する"
+    assert [term["text"] for term in guide["terms"] if term["term"] == "タスク"][0].startswith("GitHub の Issue")
     assert [call for call in relay.backend.calls] == [("help", {})]  # 読むのは、コマンドの一覧（ecobuild help）だけ
-    catalog = nodes(relay, alone)["commands"]["props"]["catalog"]
+    catalog = guide["catalog"]
     assert [c["path"] for c in catalog["commands"]] == ["status"] and list(catalog["types"]) == ["python"]
     assert notices(relay) == []
 

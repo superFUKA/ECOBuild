@@ -141,6 +141,7 @@ npm run dist                 # dist\ECOBuild-GUI-Setup-<版>.exe
 
 - `ecobuild gui …`：ecobuild の外部サブコマンド（`ecobuild-gui`。GUIのサーバーが起動のたびに ecobuild と同じフォルダに置く `ecobuild-gui.cmd` が `ecobuild_gui.py` を呼ぶ）。例：`ecobuild gui`（ハブ）、`ecobuild gui -C <場所> task start 12`、`ecobuild gui open ECOSTL --tab projects`、`ecobuild gui windows --json`、`ecobuild gui actions`。GUIが動いていなければ起動する（`ECOBUILD_GUI_HOME` の `server.json` に、動いているサーバーの場所がある）。
 - `ecobuild gui mcp`：MCP サーバー（標準入出力）。ツールは `ecobuild`（コマンドの実行）・`ecobuild_commands`（コマンドの一覧）・`gui_open` 等。`--operator` はオペレーター用（`ecobuild` の代わりに見るだけの `ecobuild_read`。`agent-send` なし）。Claude Code なら `claude mcp add ecobuild-gui -- ecobuild gui mcp`。
+- `ecobuild gui ask "…" --continue`・`ecobuild gui conversation`・`ecobuild gui conversation-new`：オペレーターとの会話の記録（このPCに1つ。`ECOBUILD_GUI_HOME` の `operator/conversation.json`）。`--continue` は記録の続きとして話し、発言・返答・実行したコマンドを記録に足す。`conversation` は記録と今の状態（待機中・考え中と、実行中のコマンド）。新しい GUI（`eco_gui`）のオペレーターの画面は、これで送り・読む。
 
 画面は、サーバーの `events` を待ち受けて（長いポーリング）、ほかの窓・エージェントが行ったことを表示し、移動・開くの頼みに応える。窓は今表示しているものを `window-state` で知らせる。
 

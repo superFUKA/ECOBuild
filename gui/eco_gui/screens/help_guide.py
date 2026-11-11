@@ -1,46 +1,57 @@
-"""ヘルプ：作業の流れ・用語と、コマンドの一覧（ecobuild help）。モジュールの外の画面（ハブから開く）。モジュールの窓では、画面 help がこれを中に置く。"""
+"""ヘルプ：使い方（手順・用語）と、コマンドの一覧（ecobuild help）。モジュールの外の画面（ハブ › ヘルプが中に置く）。
+
+モジュールの窓のヘルプ（画面 help）と同じ部品（cfg-help）・同じ中身：手順のコマンドを押すと、コマンド一覧のそのコマンドへ飛ぶ。
+"""
 
 SCREEN = {
-    "root": "page",
-    "window": {"title": "ヘルプ", "width": 860, "height": 800},
+    "root": "guide",
+    "window": {"title": "ヘルプ", "width": 1000, "height": 800},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["title", "intro", "tabs"]},
-        {"id": "title", "part": "note", "props": {"text": "ヘルプ", "heading": True}},
-        {"id": "intro", "part": "note", "props": {"text": "ECOBuild の作業は、タスク（GitHub の Issue）ごとに進めます。GUI のボタンは、ecobuild のコマンドを実行しています。コマンドの使い方は「コマンド」のタブで探せます（端末では ecobuild help <コマンド>）。"}},
-        {"id": "tabs", "layout": "tabs", "props": {"labels": ["使い方", "用語", "コマンド"]}, "children": ["guide", "terms", "commands"]},
-        {"id": "guide", "layout": "column", "children": ["step1_title", "step1", "step2_title", "step2", "step3_title", "step3",
-                                                          "step4_title", "step4", "step5_title", "step5", "step6_title", "step6"]},
-        {"id": "step1_title", "part": "note", "props": {"text": "1. モジュールを用意する", "heading": True}},
-        {"id": "step1", "part": "note", "props": {"text": "ハブ › モジュールを足す\n新しく作るか、GitHub から取得するか、手元のフォルダを登録します。ECOBuild を使っていないリポジトリは、モジュールとして取り込めます（自分のリポジトリだけ）。\nコマンド：module new・module clone・workspace add"}},
-        {"id": "step2_title", "part": "note", "props": {"text": "2. タスクを作る", "heading": True}},
-        {"id": "step2", "part": "note", "props": {"text": "モジュール › タスク › ＋ 作る\nやることをタスク（Issue）にします。担当者・期限・見積もり・スプリントも付けられます。\nコマンド：task new・task list・task next"}},
-        {"id": "step3_title", "part": "note", "props": {"text": "3. 作業を開始する", "heading": True}},
-        {"id": "step3", "part": "note", "props": {"text": "タスク › 始める\nタスクブランチ（task/番号-名前。名前は入力します。日本語も使えます）を作り、作業空間（このPCで作業する場所）を開きます。\nコマンド：task start・status"}},
-        {"id": "step4_title", "part": "note", "props": {"text": "4. 作って、確かめて、コミットする", "heading": True}},
-        {"id": "step4", "part": "note", "props": {"text": "作業空間\nファイルを編集し、ビルド・テストして、変更をコミットします。AI を起動して手伝わせることもできます。\nコマンド：build・test・run・task commit・agent start"}},
-        {"id": "step5_title", "part": "note", "props": {"text": "5. 提出して、レビューを受ける", "heading": True}},
-        {"id": "step5", "part": "note", "props": {"text": "作業空間 › 提出\n作成元へ提出（PR）します。作成元を自分が管理している（作った・管理者）なら、提出せずに入れて完了できます（次の手順は要りません）。提出の前にパイプライン（モジュール › パイプライン）を当てていれば、それが通ってから出します。\nコマンド：pipeline run・task submit・task review・task approve"}},
-        {"id": "step6_title", "part": "note", "props": {"text": "6. 完了する", "heading": True}},
-        {"id": "step6", "part": "note", "props": {"text": "作業空間 › 提出 › 完了する\n提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。\nコマンド：task finish・task apply・sync"}},
-        {"id": "terms", "part": "facts", "props": {
-            "items": [{"key": "module", "label": "モジュール"}, {"key": "type", "label": "型"}, {"key": "task", "label": "タスク"},
-                      {"key": "task_branch", "label": "タスクブランチ"}, {"key": "workspace", "label": "作業空間"},
-                      {"key": "submission", "label": "提出"}, {"key": "profile", "label": "ビルド設定（プロファイル）"}],
-            "data": {
-                "module": "GitHub のリポジトリ1つ。制作・リンクの単位です。",
-                "type": "モジュールの種類（C++・Python・汎用）。ビルドやファイルの扱いと、使えるコマンドが型で変わります。",
-                "task": "GitHub の Issue。やることの単位です。",
-                "task_branch": "タスクの作業をするブランチ（task/番号-名前）。変更はここでコミットし、提出で作成元に入ります。",
-                "workspace": "このPCでモジュールの作業をする場所（clone）。",
-                "submission": "タスクブランチの変更を取り込んでもらうための PR。レビューで承認されると完了できます。",
-                "profile": "名前を付けたビルドの設定（構成・並列数と、型ごとの項目）。",
-            },
+        {"id": "guide", "part": "cfg-help", "look": "cfg-fill", "props": {
+            "intro": "ECOBuild の作業は、タスク（GitHub の Issue）ごとに進めます。GUI のボタンは、ecobuild のコマンドを実行しています。",
+            "steps": [
+                {"title": "モジュールを用意する", "where": "ハブ › モジュールを足す",
+                 "text": "新しく作るか、GitHub から取得するか、手元のフォルダを登録します。ECOBuild を使っていないリポジトリは、モジュールとして取り込めます（自分のリポジトリだけ）。",
+                 "commands": ["module new", "module clone", "workspace add"]},
+                {"title": "タスクを作る", "where": "モジュール › タスク › ＋ 作る",
+                 "text": "やることをタスク（Issue）にします。担当者・期限・見積もり・スプリントも付けられます。",
+                 "commands": ["task new", "task list", "task next"]},
+                {"title": "作業を開始する", "where": "タスク › 始める",
+                 "text": "タスクブランチ（task/番号-名前。名前は入力します。日本語も使えます）を作り、作業空間（このPCで作業する場所）を開きます。",
+                 "commands": ["task start", "status"]},
+                {"title": "作って、確かめて、コミットする", "where": "作業空間",
+                 "text": "ファイルを編集し、ビルド・テストして、変更をコミットします。AI を起動して手伝わせることもできます。",
+                 "commands": ["build", "test", "run", "task commit", "agent start"]},
+                {"title": "提出して、レビューを受ける", "where": "作業空間 › 提出",
+                 "text": "作成元へ提出（PR）します。作成元を自分が管理している（作った・管理者）なら、提出せずに入れて完了できます（次の手順は要りません）。提出の前にパイプライン（モジュール › パイプライン）を当てていれば、それが通ってから出します。",
+                 "commands": ["pipeline run", "task submit", "task review", "task approve"]},
+                {"title": "完了する", "where": "作業空間 › 提出 › 完了する",
+                 "text": "提出を取り込み、タスクを閉じます。ほかの人の変更は同期で取り込みます。",
+                 "commands": ["task finish", "task apply", "sync"]},
+            ],
+            "terms": [
+                {"term": "モジュール", "text": "GitHub のリポジトリ1つ。制作・リンクの単位です。"},
+                {"term": "型", "text": "モジュールの種類（C++・Python・汎用）。ビルドやファイルの扱いと、使えるコマンドが型で変わります。"},
+                {"term": "タスク", "text": "GitHub の Issue。やることの単位です。"},
+                {"term": "タスクブランチ", "text": "タスクの作業をするブランチ（task/番号-名前）。変更はここでコミットし、提出で作成元に入ります。"},
+                {"term": "作業空間", "text": "このPCでモジュールの作業をする場所（clone）。"},
+                {"term": "提出", "text": "タスクブランチの変更を取り込んでもらうための PR。レビューで承認されると完了できます。"},
+                {"term": "ビルド設定（プロファイル）", "text": "名前を付けたビルドの設定（構成・並列数と、型ごとの項目）。"},
+            ],
+            # コマンド一覧の見出し（用途ごと。ここにないコマンドは「その他」に出る）
+            "categories": [
+                {"title": "タスクと作業", "commands": ["task", "status", "check", "pipeline", "diff", "log", "show", "blame", "restore", "stash", "track", "ignore"]},
+                {"title": "ビルドと開発", "commands": ["build", "test", "tests", "run", "clean", "rebuild", "file", "files", "project", "template", "deps", "profile"]},
+                {"title": "GitHubとの同期", "commands": ["sync", "branch", "ci", "release"]},
+                {"title": "計画", "commands": ["milestone", "sprint"]},
+                {"title": "モジュール", "commands": ["module", "workspace"]},
+                {"title": "AI", "commands": ["agent"]},
+                {"title": "環境と設定", "commands": ["init", "setup", "doctor", "config", "account", "container", "installer", "help"]},
+            ],
+            "first": "task start", "type_labels": {"cpp": "C++", "python": "Python", "generic": "汎用"},
         }},
-        # コマンドの一覧と、選んだコマンドの使い方（ecobuild help --json）。探す・型で絞る・選ぶのは、部品の中
-        {"id": "commands", "part": "command-list", "props": {
-            "first": "task start", "type_labels": {"cpp": "C++", "python": "Python", "generic": "汎用"}}},
     ],
     "bindings": [
-        {"read": "help", "to": "commands.catalog"},
+        {"read": "help", "to": "guide.catalog"},
     ],
 }

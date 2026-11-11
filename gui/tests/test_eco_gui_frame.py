@@ -29,6 +29,8 @@ class FrameCommands(FakeEcobuild):
             **super()._specs(text),
             "open": {**spec("change", path={"type": "array", "items": text}, app=text, vs_version=text, line={"type": "integer"}), "can": True},
             "workspace close": spec("confirm", at=text, discard_local={"type": "boolean"}),
+            "task push": spec("change", force={"type": "boolean"}, pipelines={"type": "boolean"}),
+            "log": spec("read", paths={"type": "array", "items": text}, count={"type": "integer"}, branch=text, unpushed={"type": "boolean"}),
         }
 
 
@@ -161,3 +163,25 @@ def test_the_workspace_opens_files_with_the_tools_of_this_pc(relay):
     press(relay, window, "out", "opened", path="src/app.py", line=12)
     assert last(relay) == ("open", {"path": ["src/app.py"], "app": "editor", "line": 12, "vs_version": "2026"})
     assert all(module == PLACE for module in relay.backend.modules if module)
+
+
+def test_the_push_tab_force_pushes_after_reading_what_happens(relay):
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "tabs", "selected", tab="push")
+    press(relay, window, "force_push")
+    dialog = next(w["id"] for w in relay.display.windows() if w["screen"] == "ws-force-push" and w.get("parent") == window)
+    assert "task push" not in [call[0] for call in relay.backend.calls]  # 開いただけでは、何もしない
+    press(relay, dialog, "push")
+    assert last(relay) == ("task push", {"force": True})
+    assert not [w for w in relay.display.windows() if w["screen"] == "ws-force-push"]  # うまくいったら閉じる
+
+
+def test_the_log_shows_the_branch_that_is_chosen(relay):
+    window = opened(relay, "ws-log", PLACE)
+    view = nodes(relay, window)
+    assert view["list"]["props"]["branches"][0]["name"] == "dev" and not view["list"]["props"]["branch"]
+    assert ("log", {"paths": []}) in relay.backend.calls  # 選ぶまでは、今のブランチ
+    press(relay, window, "list", "branch", name="dev")
+    assert ("log", {"paths": [], "branch": "dev"}) in relay.backend.calls and nodes(relay, window)["list"]["props"]["branch"] == "dev"
+    press(relay, window, "list", "branch", name="")
+    assert relay.backend.calls[-1] == ("log", {"paths": []}) or ("log", {"paths": []}) in relay.backend.calls[-3:]

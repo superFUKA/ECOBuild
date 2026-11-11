@@ -14,7 +14,12 @@ SCREEN = {
         {"id": "detail", "part": "ws-diff", "look": "ws-fill", "props": {"fill": True, "empty_text": "コミットを選ぶと、その変更が出ます。"}},
     ],
     "bindings": [
-        {"read": "log", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "count": {"value": "log_count"}}, "to": "list.commits"},
+        {"read": "log", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "count": {"value": "log_count"},
+                                 "branch": {"value": "log_branch"}}, "to": "list.commits"},
+        # どのブランチのログを見るか（選ばなければ、今のブランチ。取り出さずに読む：ecobuild log --branch）
+        {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "list.branches"},
+        {"on": "list.branch", "set": {"log_branch": {"payload": "name"}, "log_commit": None}},
+        {"value": "log_branch", "to": "list.branch"},
         {"value": "log_count", "to": "list.count"},
         {"on": "list.more", "set": {"log_count": {"payload": "count"}}},
         {"on": "list.selected", "set": {"log_commit": {"payload": "sha"}}},

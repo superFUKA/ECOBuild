@@ -37,7 +37,9 @@ SCREEN = {
         {"id": "push_panel", "layout": "column", "look": "ws-panel", "children": ["push_state", "push_list", "push_row"]},
         {"id": "push_state", "part": "facts", "props": {"items": [{"key": "ahead", "label": "未Pushのコミット"}], "labels": {"ahead": {"0": "すべてPush済み"}}}},
         {"id": "push_list", "part": "ws-log", "props": {"mode": "push", "search": False, "short": True, "empty_text": "Pushするコミットはありません。"}},
-        {"id": "push_row", "layout": "row", "look": "end", "children": ["push"]},
+        {"id": "push_row", "layout": "row", "look": "end", "children": ["force_push", "push"]},
+        {"id": "force_push", "part": "button", "props": {"label": "強制Push…", "quiet": True,
+                                                         "hint": "Push 済みのコミットを直した（修正・取り消し）ときに、GitHub の側を上書きします"}},
         {"id": "push", "part": "button", "props": {"label": "Push", "primary": True, "hint": "コミットを GitHub へ送る（ecobuild task push）"}},
         # 提出
         {"id": "submit_panel", "layout": "column", "look": "ws-panel", "children": ["pull_request", "submit_row"]},
@@ -148,6 +150,7 @@ SCREEN = {
 
         # --- Push・提出 ---
         {"on": "push.pressed", "run": "task push", "args": {"module": {"arg": "module"}}, "set": {"tab": "submit"}, "notify": "Pushしました。"},
+        {"on": "force_push.pressed", "open": "ws-force-push", "args": {"module": {"arg": "module"}}, "inside": True},
         {"on": "push_list.more", "set": {"push_count": {"payload": "count"}}},
         {"on": "push_list.action", "when": {"name": "show"}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True},
         # まだ送っていないコミットは取り消せる：1つ前まで戻す（--keep：変更は残す／なし：変更も捨てる。捨てる方は確かめてから）

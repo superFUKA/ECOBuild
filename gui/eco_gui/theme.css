@@ -6,7 +6,7 @@
 :root, :host {
   color-scheme: dark;
   --gf-bg: #14171b; --gf-fg: #edf1f5; --gf-muted: #a5aeba; --gf-surface: #252d36; --gf-border: #46515e;
-  --gf-accent: #9ee4d3; --gf-danger: #ffb4b4; --gf-warn: #efc389; --gf-radius: 7px; --gf-gap: 12px; --gf-pad: 5px 14px;
+  --gf-accent: #9ee4d3; --gf-danger: #ffb4b4; --gf-warn: #efc389; --gf-radius: 7px; --gf-gap: 12px; --gf-pad: 5px 12px;
   --eco-panel: #1c2128;      /* カード・窓の中の箱 */
   --eco-side: #181d23;       /* 左のメニュー・見出しの帯 */
   --eco-sunk: #11141a;       /* 出力・差分など、へこんだ所 */
@@ -28,7 +28,7 @@
 
 /* --- 部品の中の、どこでも同じ要素 --- */
 :host { font: 14px var(--eco-font); color: var(--gf-fg); }
-button { font: inherit; padding: var(--gf-pad); color: var(--gf-fg); background: var(--gf-surface); border: 1px solid var(--gf-border);
+button { font: inherit; font-size: 13px; padding: var(--gf-pad); color: var(--gf-fg); background: var(--gf-surface); border: 1px solid var(--gf-border);
   border-radius: var(--gf-radius); cursor: pointer; white-space: nowrap; }
 button:hover:not(:disabled) { border-color: var(--gf-accent); }
 button:disabled { opacity: .55; cursor: default; }
@@ -98,6 +98,14 @@ dd { margin: 0; }
 /* --- 窓の枠（部品の外） --- */
 html { height: 100%; }
 body { height: 100vh; margin: 0; padding: 0; background: var(--gf-bg); color: var(--gf-fg); font: 14px var(--eco-font); display: flex; flex-direction: column; }
+/* アプリの窓（Electron）：OS の題の帯の代わりに、ページの上に帯を描く（今の GUI と同じ。つかんで窓を動かせる）。
+   印 eco-frameless と題 data-eco-title は、窓の側（electron/main.js）が付ける。右の 150px は、閉じる等のボタンの場所 */
+html.eco-frameless body::before { content: attr(data-eco-title); flex: none; box-sizing: border-box; height: 40px; padding: 0 150px 0 40px;
+  display: flex; align-items: center; overflow: hidden; white-space: nowrap; font-size: 13px; font-weight: 600; color: var(--gf-fg);
+  background: #14171b url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Cdefs%3E%3ClinearGradient id=%22b%22 x1=%220%22 y1=%220%22 x2=%220%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%233a3228%22/%3E%3Cstop offset=%221%22 stop-color=%22%231b1712%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x=%222%22 y=%222%22 width=%2260%22 height=%2260%22 rx=%2214%22 fill=%22url%28%23b%29%22 stroke=%22%235e5446%22 stroke-width=%222%22/%3E%3Crect x=%2214%22 y=%2213%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%23ffd9a0%22/%3E%3Crect x=%2214%22 y=%2227%22 width=%2227%22 height=%2210%22 rx=%223%22 fill=%22%23f5b961%22/%3E%3Crect x=%2214%22 y=%2240%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%23dc8f35%22/%3E%3C/svg%3E") 14px center / 16px 16px no-repeat; border-bottom: 1px solid #303640;
+  -webkit-app-region: drag; user-select: none; }
+html.eco-frameless body[data-gf-screen^="hub"]::before, html.eco-frameless body[data-gf-screen="operator"]::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Cdefs%3E%3ClinearGradient id=%22b%22 x1=%220%22 y1=%220%22 x2=%220%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%232a343c%22/%3E%3Cstop offset=%221%22 stop-color=%22%2314171b%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x=%222%22 y=%222%22 width=%2260%22 height=%2260%22 rx=%2214%22 fill=%22url%28%23b%29%22 stroke=%22%2346515e%22 stroke-width=%222%22/%3E%3Crect x=%2214%22 y=%2213%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%23a8ead9%22/%3E%3Crect x=%2214%22 y=%2227%22 width=%2227%22 height=%2210%22 rx=%223%22 fill=%22%238bd7c2%22/%3E%3Crect x=%2214%22 y=%2240%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%235fb8a0%22/%3E%3C/svg%3E"); }
 #frame { flex: none; padding: 0 14px; color: var(--eco-dim); font-size: 11px; min-height: 0; }
 #frame:not(:empty) { padding: 3px 14px; background: var(--eco-side); border-bottom: 1px solid var(--eco-line); }
 #stage { flex: 1; min-height: 0; overflow: auto; }
@@ -137,11 +145,11 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
 .gf-menu > div { padding: 6px 10px 2px; color: var(--eco-dim); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
 .gf-menu > hr { border-top-color: #3a424c; margin: 4px 0; }
 /* 配置：タブ */
-.gf-tabs-strip { gap: 4px; border-bottom: 1px solid var(--eco-line); }
-.gf-tabs-strip > button { border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; background: transparent; color: #9eaab8;
-  padding: 6px 14px; cursor: pointer; }
+.gf-tabs-strip { gap: 2px; border-bottom: 1px solid var(--eco-line); }
+.gf-tabs-strip > button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--gf-muted);
+  padding: 6px 12px; font-size: 13px; cursor: pointer; }
 .gf-tabs-strip > button:hover { color: var(--gf-fg); }
-.gf-tabs-strip > button[aria-selected="true"] { color: #b0efdd; background: #232c32; border-color: #35443e; border-bottom-color: var(--gf-accent); }
+.gf-tabs-strip > button[aria-selected="true"] { color: #b0efdd; border-bottom-color: var(--gf-accent); }
 .gf-tabs-body { padding-top: 14px; }
 .gf-row { align-items: flex-end; flex-wrap: wrap; }
 .gf-loading { color: var(--gf-muted); font-size: 13px; }

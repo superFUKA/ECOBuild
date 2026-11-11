@@ -59,12 +59,12 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `submissions`・`submission`（提出） | `static/submissions.js`・`prs.js` | 届いている提出・自分の提出。差分・手元で確認・承認・差し戻し・取り下げ・取り込む・反映・取り消し |
 | `merge`（取り込み・提出） | `static/branches.js` | ブランチを直接取り込む・提出する・衝突を直すタスクを作る |
 | `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
-| `settings`（設定） | `static/modinfo.js` | 全般・ビルド設定・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
-| `container`（コンテナ） | `static/modinfo.js` | 状態・入・切・起こす・止める・イメージ・レシピ |
+| `settings`（設定。入力の窓は `cfg-profile-edit`・`cfg-profile-edit-python`・`cfg-profile-edit-cpp`・`cfg-profile-project`） | `static/modinfo.js` | 全般・ビルド設定（部品 `cfg-profiles`：この PC で使うラジオ・型で変わる列・C++ のオプション・Project ごとの上書き）・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
+| `container`（コンテナ） | `static/modinfo.js` | 要約（部品 `cfg-container`：作り方・古い／今の作り方の印・この PC のイメージ・しくみ）・状態・入・切・起こす・止める・イメージ・レシピ |
 | `hub-settings`・`hub-archive` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す）。`hub-archive`（表から選んでアーカイブ・削除）は、ハブのカードのメニューと「アーカイブ済み」に移したので、入口がない |
-| `agents`・`agent-skills`・`agent-rules`・`agent-presets`・`pc-agents` | `static/agenteditor.js`・`agentrules.js` | 登録・スキル・共通の文・プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
+| `agents`・`agent-presets`・`pc-agents`（入力の窓は `cfg-agent-add`・`cfg-agent-to-preset`・`cfg-skill-add`・`cfg-skill-to-preset`） | `static/agenteditor.js`・`agentrules.js` | 左に一覧（全エージェント共通 → 役 → スキル）、右に選んだものをその場で直す（部品 `cfg-agent-editor`）。選んだツールの確かめは `ecobuild agent registry fit`。プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
-| `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`） |
+| `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`）。モジュールの窓の `help` は部品 `cfg-help`（手順のコマンドからコマンド一覧へ飛ぶ・用途ごとの見出し・探した文字の印・パンくず・使い方の行のコピー） |
 | `build`（ビルドと試験） | `static/build.js` | ビルド設定を選ぶ・ビルド・試験（全部・1つ・絞る）・実行・クリーン |
 | `stashes`（退避） | `static/workspace.js` | 一覧・退避・選んで戻す・選んで捨てる |
 | `blame`（ファイルの記録） | `static/explorer.js` | ファイルの履歴と、行ごとの記録 |

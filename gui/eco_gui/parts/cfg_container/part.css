@@ -1,0 +1,15 @@
+/* コンテナの要約（今までの GUI の .mi-table.mi-settings・.mi-recipe と同じ見た目） */
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; border: 1px solid var(--eco-line); border-radius: 10px; overflow: hidden; background: var(--eco-panel); }
+.table th { width: 38%; text-align: left; font-size: 12px; font-weight: 500; color: var(--gf-muted); padding: 9px 10px; border-bottom: 1px solid #262c34; background: transparent;
+  vertical-align: top; white-space: normal; }
+.table td { padding: 9px 10px; border-bottom: 1px solid #262c34; vertical-align: middle; overflow-wrap: anywhere; }
+.table tr:last-child td, .table tr:last-child th { border-bottom: 0; }
+.table tbody tr:hover { background: transparent; }
+.mono { font-family: Consolas, monospace; font-size: 12px; }
+.sub { font-size: 11px; color: var(--gf-muted); }
+div.sub { margin-top: 2px; }
+.image { margin: 1px 0; }
+.pill { padding: 1px 8px; border: 0; border-radius: 10px; line-height: inherit; }
+.recipe { margin-top: 12px; font-size: 13px; }
+.recipe summary { cursor: pointer; color: #aeb7c2; }
+.note { margin: 6px 0 0; font-size: 12px; color: var(--gf-muted); max-width: 640px; line-height: 1.6; }

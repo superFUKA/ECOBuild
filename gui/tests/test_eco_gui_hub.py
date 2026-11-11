@@ -41,6 +41,10 @@ def hub_specs(text):
         "workspace close": spec("confirm", path=text, at=text, discard_local=flag, dry_run=flag),
         "module adopt": spec("confirm", type=text, dry_run=flag),
         "module new": spec("change", ["name"], name=text, type=text, kind=text, project=text, test=flag, description=text, owner=text, public=flag),
+        # オペレーターとの会話（拡張コマンド ecobuild gui）
+        "gui conversation": spec("read"),
+        "gui ask": spec("change", text=text, session=text, agent=text, **{"continue": flag}),
+        "gui conversation-new": spec("change"),
     }
 
 
@@ -59,6 +63,24 @@ class FakeHub(FakeSettings):
 
     def run(self, name, args, context, on_event):
         plain = {key: value for key, value in args.items() if key != "module"}
+        talk = self.__dict__.setdefault("talk", [])  # オペレーターとの会話の記録
+        if name == "gui conversation":
+            self.calls.append((name, plain))
+            return {"ok": True, "result": {"session": "s1" if talk else None, "messages": list(talk), "state": "idle", "doing": None}}
+        if name == "gui conversation-new":
+            self.calls.append((name, plain))
+            talk.clear()
+            return {"ok": True, "result": {"session": None, "messages": [], "state": "idle", "doing": None}}
+        if name == "gui ask":
+            self.calls.append((name, plain))
+            if plain["text"] == "つながらない":   # 記録に何も残らない失敗（ecobuild gui が入っていない等）
+                return {"ok": False, "error": {"code": "usage_error", "message": "gui というコマンドはありません。"}}
+            talk.append({"role": "user", "text": plain["text"], "at": len(talk)})
+            on_event({"event": "output", "message": "ecobuild workspace list"})
+            on_event({"event": "output", "message": "ecobuild gui open --page tasks"})
+            talk.append({"role": "agent", "ok": True, "text": "開きました", "at": len(talk),
+                         "actions": [{"command": "ecobuild workspace list", "ok": True}, {"command": "ecobuild gui open --page tasks", "ok": True}]})
+            return {"ok": True, "result": {"session": "s1", "text": "開きました", "ok": True, "actions": []}}
         answers = {
             "workspace list": {"modules": MODULES, "legacy": LEGACY},
             "doctor": {"items": DOCTOR},
@@ -295,3 +317,44 @@ def test_doctor_operator_and_help_screens(relay):
     assert nodes(relay, opened(relay, "operator"))["nav"]["props"]["current"] == "operator"
     view = nodes(relay, opened(relay, "hub-help"))
     assert view["nav"]["props"]["current"] == "hub-help" and "guide:commands" in view
+
+
+def test_operator_talks_through_the_conversation_commands(relay):
+    """会話：ecobuild gui conversation で読み、送ると gui ask --continue（文と「続き」）。途中の道具は会話へ続けて届く。"""
+    window = opened(relay, "operator")
+    view = nodes(relay, window)
+    assert view["main"]["look"] == "hub-fill-page" and view["tabs"]["props"]["labels"] == ["会話", "エージェント", "話し方"]
+    assert view["chat"]["props"]["conversation"]["messages"] == [] and view["chat"]["props"]["intro"].startswith("AI はコードを書かず")
+    assert ("gui conversation", {}) in relay.backend.calls
+    emit(relay, window, "input", "sent", text="タスクを見せて\n2行目")
+    assert ("gui ask", {"text": "タスクを見せて\n2行目", "continue": True}) in relay.backend.calls
+    chat = nodes(relay, window)["chat"]["props"]
+    assert [(m["role"], m["text"]) for m in chat["conversation"]["messages"]] == [("user", "タスクを見せて\n2行目"), ("agent", "開きました")]
+    assert chat["doing"] == ["ecobuild workspace list", "ecobuild gui open --page tasks"]  # 続いて届いた、実行中のコマンド
+    assert chat["asked"] is None and chat["failed"] is None  # 返答が記録に入ったら、待っている文は消える
+    with pytest.raises(Exception):  # 空の文は送れない（部品が断る）
+        relay.input(window, "input", "sent", {"text": "  "}, human=True)
+    # 新しい会話
+    press(relay, window, "new")
+    assert ("gui conversation-new", {}) in relay.backend.calls
+    assert nodes(relay, window)["chat"]["props"]["conversation"]["messages"] == []
+
+
+def test_operator_shows_why_a_message_could_not_be_sent(relay):
+    window = opened(relay, "operator")
+    emit(relay, window, "input", "sent", text="つながらない")
+    chat = nodes(relay, window)["chat"]["props"]
+    assert chat["asked"] is None and chat["failed"] == "gui というコマンドはありません。"
+    emit(relay, window, "input", "sent", text="もう一度")  # 次に送ると、前の失敗は消える
+    assert nodes(relay, window)["chat"]["props"]["failed"] is None
+
+
+def test_operator_chat_parts_have_every_state_sample():
+    samples = importlib.import_module("eco_gui.parts.hub_operator_chat.samples").SAMPLES
+    states = {sample["props"].get("conversation", {}).get("state") for sample in samples}
+    assert {"idle", "starting", "waiting", "choice", "exited"} <= states
+    assert any(sample["props"].get("asked") for sample in samples) and any(sample["props"].get("failed") for sample in samples)
+    part = importlib.import_module("eco_gui.parts.hub_operator_input.part")
+    part.on_sent("頼む")
+    with pytest.raises(ValueError):
+        part.on_sent(" ")

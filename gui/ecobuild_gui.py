@@ -14,7 +14,11 @@
   ecobuild gui operator [--here] [--agent "claude …"]
                                        オペレーター（GUI の案内・操作係のエージェント）を新しい画面で起動
                                        （--here：この端末で動かして待つ。Electron の窓が裏で常駐させる）
-  ecobuild gui ask "…" [--session S]   オペレーターに画面を開かずに話しかけ、返答を待つ（文は省くと標準入力）
+  ecobuild gui ask "…" [--session S | --continue]
+                                       オペレーターに画面を開かずに話しかけ、返答を待つ（文は省くか - で標準入力）
+                                       （--continue：このPCの会話の記録の続きとして話し、発言と返答を記録に足す）
+  ecobuild gui conversation            会話の記録（発言・返答・実行したコマンド）と、今の状態（待機中・考え中）
+  ecobuild gui conversation-new        会話の記録を空にする（次の ask --continue から新しい会話）
 
 結果は --json で ecobuild と同じ形の JSON（ok・result・error）。終了コードも ecobuild と同じ（0 成功・1 失敗・2 誤り）。
 """
@@ -157,9 +161,26 @@ def _print(document: dict, json_output: bool) -> int:
     return 0 if document.get("ok") else (document.get("exit_code") or 1)
 
 
+# オペレーターとの会話のコマンド（ecobuild --help --json のコマンドと同じ形。画面はこの形から呼ぶ引数を知る）
+COMMANDS = [
+    {"name": "ask", "path": "gui ask", "runnable": True, "effect": "change",
+     "summary": "オペレーターに画面を開かずに話しかけ、返答を待ちます。",
+     "arguments": [{"param": "text", "type": "str", "required": False, "multiple": False,
+                    "help": "話しかける文（省くか - で標準入力）"}],
+     "options": [{"param": "session", "names": ["--session"], "type": "str", "help": "続ける会話（前の返答の session）"},
+                 {"param": "continue", "names": ["--continue"], "type": "bool",
+                  "help": "このPCの会話の記録の続きとして話し、発言と返答を記録に足す"},
+                 {"param": "agent", "names": ["--agent"], "type": "str", "help": "エージェントのコマンド（既定は claude）"}]},
+    {"name": "conversation", "path": "gui conversation", "runnable": True, "effect": "read",
+     "summary": "オペレーターとの会話の記録と、今の状態（待機中・考え中）を表示します。", "arguments": [], "options": []},
+    {"name": "conversation-new", "path": "gui conversation-new", "runnable": True, "effect": "change",
+     "summary": "オペレーターとの会話の記録を空にします（次の ask --continue から新しい会話）。", "arguments": [], "options": []},
+]
+
+
 def help_document() -> dict:
     return {"name": "gui", "summary": "ECOBuild GUI を外（端末・AIエージェント）から操作します。",
-            "help": (__doc__ or "").strip(), "actions": actions.catalog(),
+            "help": (__doc__ or "").strip(), "actions": actions.catalog(), "commands": COMMANDS,
             "examples": [{"say": say, "do": do} for say, do in actions.EXAMPLES]}
 
 
@@ -184,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         return operator_command([w for w in words[1:] if w != "--json"], json_output)
     if words[0] == "ask":
         return ask_command([w for w in words[1:] if w != "--json"], json_output)
+    if words[0] in ("conversation", "conversation-new"):
+        return conversation_command(words[0], [w for w in words[1:] if w != "--json"], json_output)
     if words[0] == "operator-context":   # オペレーターのフック（話しかけられるたびに今の作業空間を渡す）
         text = operator_kit.context()
         if text:
@@ -269,12 +292,29 @@ def operator_command(words: list[str], json_output: bool) -> int:
 
 
 def ask_command(words: list[str], json_output: bool) -> int:
-    """ecobuild gui ask "…" [--session S] [--agent "claude …"]：オペレーターに1回話しかける（文は省くと標準入力）。"""
+    """ecobuild gui ask "…" [--session S | --continue] [--agent "claude …"]：オペレーターに1回話しかける。
+
+    文は省くか - で標準入力。--json のときは、途中で使い始めた道具を、標準エラーに1行ずつ出す（ecobuild のイベントと同じ形の
+    kind: output。画面の「実行中：…」）。
+    """
+    def started(name: str) -> None:
+        if json_output:
+            print(json.dumps({"kind": "output", "text": name, "stream": "stdout", "source": "tool"}, ensure_ascii=False),
+                  file=sys.stderr, flush=True)
+
     try:
-        values, rest = _options(words, {"session": False, "agent": False})
-        message = " ".join(rest) or (sys.stdin.read() if not sys.stdin.isatty() else "")
+        cut = words.index("--") if "--" in words else len(words)   # 「--」の後ろは、- で始まっても文
+        values, rest = _options(words[:cut], {"session": False, "agent": False, "continue": True})
+        rest += words[cut + 1:]
+        if values.get("continue") and values.get("session"):
+            raise Failure("usage_error", "--continue と --session は一緒に指定できません。", exit_code=2)
+        message = "" if rest == ["-"] else " ".join(rest)
+        message = message or (sys.stdin.read() if not sys.stdin.isatty() else "")
         command = tuple(str(values.get("agent", "")).split()) or operator_kit.DEFAULT_COMMAND
-        reply = operator_kit.ask(message, session=values.get("session") or None, command=command)
+        if values.get("continue"):
+            reply = operator_kit.converse(message, command=command, on_action=started)
+        else:
+            reply = operator_kit.ask(message, session=values.get("session") or None, command=command, on_action=started)
     except Failure as failure:
         return _print(_failed("gui ask", failure), json_output)
     if not json_output:
@@ -282,6 +322,29 @@ def ask_command(words: list[str], json_output: bool) -> int:
         print("\n".join([*done, reply["text"], f"（会話：{reply['session']}）" if reply["session"] else ""]).strip())
         return 0
     return _print({"ok": True, "command": "gui ask", "result": reply, "error": None}, json_output)
+
+
+def conversation_command(name: str, words: list[str], json_output: bool) -> int:
+    """ecobuild gui conversation：会話の記録と今の状態。ecobuild gui conversation-new：記録を空にする。"""
+    try:
+        if words:
+            raise Failure("usage_error", f"{name} に引数はありません：{words[0]}", exit_code=2)
+        found = operator_kit.forget() if name == "conversation-new" else operator_kit.conversation()
+    except Failure as failure:
+        return _print(_failed(f"gui {name}", failure), json_output)
+    if json_output:
+        return _print({"ok": True, "command": f"gui {name}", "result": found, "error": None}, json_output)
+    if name == "conversation-new":
+        print("会話の記録を空にしました。")
+        return 0
+    for message in found["messages"]:
+        who = "自分" if message.get("role") == "user" else "オペレーター" + ("（失敗）" if message.get("ok") is False else "")
+        print(f"{who}：{message.get('text') or ''}")
+        for action in message.get("actions") or []:
+            print(f"  $ {action.get('command')}" + ("（失敗）" if action.get("ok") is False else ""))
+    print("（考え中…" + (f" 実行中：{found['doing']}" if found.get("doing") else "") + "）" if found["state"] == "thinking"
+          else "（会話はまだありません）" if not found["messages"] else "（待機中）")
+    return 0
 
 
 def run_action(name: str, params: dict, json_output: bool) -> int:

@@ -282,18 +282,6 @@ def test_commands_of_every_module_type_are_listed_once():
     assert sorted(backend.commands()) == ["build", "status", "test", "vs"]
 
 
-def test_files_screen_shows_the_tree_and_the_diff_of_the_selected_file(relay):
-    window = relay.execute({"command": "open", "screen": "files", "args": {"module": "C:/work/Calc"}})["window"]
-    relay.idle()
-    assert nodes(relay, window)["tree"]["props"]["paths"] == ["README.md", "src/app.py", "src/util/text.py"]
-    assert not [call for call in relay.backend.calls if call[0] == "diff"]  # 選ぶまで、差分は読まない
-    relay.input(window, "tree", "selected", {"path": "src/app.py"}, human=True)
-    relay.idle()
-    view = nodes(relay, window)
-    assert view["tree"]["props"]["selected"] == "src/app.py"
-    assert view["diff"]["props"]["text"].startswith("diff --git a/src/app.py") and ("diff", {"paths": ["src/app.py"]}) in relay.backend.calls
-
-
 def test_branches_and_history_screens(relay):
     window = relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()
@@ -309,30 +297,6 @@ def test_branches_and_history_screens(relay):
     assert nodes(relay, window)["detail"]["props"]["text"].startswith("commit abc")
 
 
-def test_files_screen_adds_moves_and_removes_files(relay):
-    window = relay.execute({"command": "open", "screen": "files", "args": {"module": "C:/work/Calc"}})["window"]
-    relay.idle()
-    assert nodes(relay, window)["move"]["wrap"]["kind"] == "unavailable"  # まだ選んでいない
-    relay.input(window, "new_path", "changed", {"text": "src/util.py"}, human=True)
-    relay.idle()
-    relay.input(window, "do_add", "pressed", {}, human=True)
-    relay.idle()
-    assert ("file add", {"paths": ["src/util.py"]}) in relay.backend.calls
-    relay.input(window, "tree", "selected", {"path": "src/app.py"}, human=True)
-    relay.input(window, "destination", "changed", {"text": "src/main.py"}, human=True)
-    relay.idle()
-    assert nodes(relay, window)["selected"]["props"]["text"] == "src/app.py"
-    relay.input(window, "move", "pressed", {}, human=True)
-    relay.idle()
-    assert ("file move", {"source": "src/app.py", "destination": "src/main.py"}) in relay.backend.calls
-    assert relay.display.values(window)["file"] is None  # 動かしたら、選択を空に
-    relay.input(window, "tree", "selected", {"path": "README.md"}, human=True)
-    relay.idle()
-    relay.input(window, "remove", "pressed", {}, human=True)
-    answer(relay, window, True)  # 消すのは、確かめてから
-    assert ("file remove", {"paths": ["README.md"]}) in relay.backend.calls
-
-
 def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     window = relay.execute({"command": "open", "screen": "overview"})["window"]
@@ -341,7 +305,7 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
     menu = [item["id"] for item in nodes(relay, window)["nav"]["props"]["items"]]
     assert set(menu) >= {"board", "schedule", "submissions", "agents", "settings", "container", "help"}
-    known = ("files", "tasks", "branches", "history", "members", "pipelines", "ci", "overview")
+    known = ("tasks", "branches", "history", "members", "pipelines", "ci", "overview")
     for screen in known:
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
         relay.idle()

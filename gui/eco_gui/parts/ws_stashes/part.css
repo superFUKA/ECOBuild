@@ -1,0 +1,20 @@
+/* 退避の一覧（今までの GUI の、行の並び：ログの一覧と同じ線・字の大きさ） */
+:host { display: block; }
+.stashes { display: grid; gap: 12px; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+h3 { margin: 0 0 4px; font-size: 15px; color: var(--gf-fg); font-family: var(--eco-code); }
+h3 .pill { font-family: var(--eco-font); }
+.note { margin: 0; font-size: 12px; color: var(--gf-muted); line-height: 1.6; }
+.empty { margin: 0; padding: 12px 0; color: var(--gf-muted); font-size: 13px; }
+.list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--eco-line); border-radius: 10px; background: var(--eco-panel); overflow: hidden; }
+.list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid #262c34; font-size: 13px; }
+.list li:last-child { border-bottom: 0; }
+.number { flex: none; min-width: 22px; text-align: right; color: var(--eco-dim); font-family: var(--eco-code); font-size: 12px; }
+.what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+li.other .what { color: var(--gf-muted); }
+.row-actions { display: inline-flex; gap: 6px; flex: none; }
+.row-actions button { min-height: 24px; padding: 1px 9px; font-size: 12px; }
+button.danger-text { color: #f3a5a5; }
+button.danger-text:hover:not(:disabled) { border-color: #7a3b3b; background: #2b1a1d; }
+.others summary { cursor: pointer; color: var(--gf-muted); font-size: 12px; margin-bottom: 8px; }
+.banner { margin: 0; }

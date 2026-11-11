@@ -195,3 +195,276 @@ def test_merge_page_holds_the_card_and_the_forms_of_the_submission(relay):
 
     put(relay, window, "back")  # ブランチの一覧へ戻る（同じ窓）
     assert relay.display.tree(window)["screen"] == "branches"
+
+
+# --- C++：Project・依存先・全般・テンプレート（cpp と、入力の窓 mod-cpp-…） -------------------------
+
+PLACE = "C:/work/Calc/.ecobuild/w/12"  # タスクブランチの作業空間（偽の module show が答えるもの）
+
+
+def form(relay, window, node, name, screen, target="", value=""):
+    """表の操作から、入力の窓を開く。"""
+    put(relay, window, node, "action", name=name, target=target, value=value)
+    return inside(relay, screen)
+
+
+def decide(relay, opened_form, yes=None, **values):
+    """入力の窓で、変更する作業空間を選んで決める。"""
+    put(relay, opened_form["id"], "form", "submitted", yes=yes, values={"place": PLACE, **values})
+
+
+def ran_in(relay, name):
+    """そのコマンドを実行した場所（最後のもの）。"""
+    return [module for module, call in zip(relay.backend.modules, relay.backend.calls) if call[0] == name][-1]
+
+
+def test_cpp_page_gives_the_tables_what_they_draw(relay):
+    window = opened(relay, "cpp", GAME)
+    view = nodes(relay, window)
+    assert [view[node]["props"]["view"] for node in ("projects", "deps", "general", "templates")] == ["projects", "deps", "general", "templates"]
+    assert [p["name"] for p in view["projects"]["props"]["projects"]] == ["Calc", "CalcTest"] and view["projects"]["props"]["settings"]["main_project"] == "Calc"
+    assert view["projects"]["props"]["deps"][0]["name"] == "Math"  # リンクの印の色（依存先かどうか）に使う
+    assert view["deps"]["props"]["deps"][0]["state"] == "aligned" and view["deps"]["props"]["tree"]["direct"] == ["Math"]
+    assert view["deps"]["props"]["projects"][0]["name"] == "Calc"  # 使っている Project の列
+    assert view["general"]["props"]["settings"]["msvc_runtime"] == "dll" and "templates" in view["templates"]["props"]["settings"]
+    assert view["nav"]["props"]["current"] == "overview" and relay.backend.modules[-1] == GAME
+    assert ("deps list", {}) in relay.backend.calls and not called(relay, "deps versions")  # 開いただけでは、GitHub に聞かない
+
+    put(relay, window, "deps", "action", name="deps_fetch")  # GitHub と照らし合わせる：--fetch で読み直し、列を足す
+    assert ("deps list", {"fetch": True}) in relay.backend.calls and nodes(relay, window)["deps"]["props"]["fetched"] is True
+    put(relay, window, "update")
+    assert called(relay, "project update") == [{}]
+    put(relay, window, "back")
+    assert relay.display.tree(window)["screen"] == "overview"
+
+
+def test_cpp_projects_are_added_changed_linked_moved_and_removed_in_a_workspace(relay):
+    window = opened(relay, "cpp", GAME)
+    added = form(relay, window, "projects", "project_add", "mod-cpp-project-add")
+    props = nodes(relay, added["id"])["form"]["props"]
+    assert [row["name"] for row in props["rows"]] == ["Calc", "CalcTest"] and props["more"][0]["path"] == PLACE  # リンクするライブラリ・変更する作業空間
+    decide(relay, added, name="Math", kind="library", test=False, no_test=True)
+    assert called(relay, "project add")[-1] == {"name": "Math", "kind": "library", "no_test": True} and ran_in(relay, "project add") == PLACE  # 作業空間で実行
+
+    settings = form(relay, window, "projects", "project_settings", "mod-cpp-project-settings", target="Calc")
+    assert settings["args"] == {"module": GAME, "name": "Calc"}
+    assert nodes(relay, settings["id"])["form"]["props"]["vars"]["source_directories"] == ["src"]  # 今の設定（project show）を上に出す
+    assert ("project show", {"project": "Calc"}) in relay.backend.calls
+    decide(relay, settings, kind="", add_define="USE_FOO,LEVEL=2", remove_include="old", warning_level="4", entry_point="")
+    assert called(relay, "project set")[-1] == {"project": "Calc", "add_define": "USE_FOO,LEVEL=2", "remove_include": "old", "warning_level": "4"}  # 空の欄は渡さない
+
+    link = form(relay, window, "projects", "project_link", "mod-cpp-project-link", target="CalcTest")
+    decide(relay, link, what="project", library=["Calc"], type="static")
+    assert called(relay, "project link")[-1] == {"project": "CalcTest", "library": ["Calc"], "type": "static"}
+    link = form(relay, window, "projects", "project_link", "mod-cpp-project-link", target="Calc")
+    decide(relay, link, what="package", package="fmt", directory="third_party/fmt", target="fmt::fmt")
+    assert called(relay, "project link")[-1] == {"project": "Calc", "package": "fmt", "directory": "third_party/fmt", "target": "fmt::fmt"}
+
+    unlink = form(relay, window, "projects", "project_unlink", "mod-cpp-project-unlink", target="Calc")
+    assert nodes(relay, unlink["id"])["form"]["props"]["rows"] == [{"id": "g-1", "kind": "library", "name": "Math", "as": "static"}]  # 今のリンクから選ぶ
+    decide(relay, unlink, link="g-1")
+    assert called(relay, "project unlink") == [{"link": "g-1", "project": "Calc"}]
+
+    pch = form(relay, window, "projects", "project_pch", "mod-cpp-project-pch", target="Calc")
+    decide(relay, pch, off=False, header="", system="vector, string")
+    assert called(relay, "project pch")[-1] == {"project": "Calc", "off": False, "system": "vector, string"}
+    pch = form(relay, window, "projects", "project_pch", "mod-cpp-project-pch", target="Calc")
+    decide(relay, pch, off=True)
+    assert called(relay, "project pch")[-1] == {"project": "Calc", "off": True}
+
+    move = form(relay, window, "projects", "project_move", "mod-cpp-project-move", target="Calc")
+    decide(relay, move, destination="libs/Calc")
+    assert called(relay, "project move") == [{"name": "Calc", "destination": "libs/Calc"}]
+
+    remove = form(relay, window, "projects", "project_remove", "mod-cpp-project-remove", target="CalcTest")
+    assert nodes(relay, remove["id"])["form"]["props"]["danger"] is True
+    decide(relay, remove, yes=True)  # 削除は、本体が確かめてから
+    assert called(relay, "project remove") == [{"name": "CalcTest"}]
+    for name in ("project set", "project link", "project unlink", "project pch", "project move", "project remove"):
+        assert ran_in(relay, name) == PLACE
+    assert not [w for w in relay.display.windows() if w.get("parent")]  # うまくいった窓は閉じている
+
+
+def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
+    window = opened(relay, "cpp", GAME)
+    add = form(relay, window, "deps", "dep_add", "mod-cpp-dep-add")
+    decide(relay, add, repository="acme/Net", project="", shared=True, at="v1.2.0")
+    assert called(relay, "deps add") == [{"repository": "acme/Net", "shared": True, "at": "v1.2.0"}]
+
+    update = form(relay, window, "deps", "dep_update", "mod-cpp-dep-update", target="Math")
+    assert nodes(relay, update["id"])["form"]["props"]["initial"] == {"place": GAME, "name": "Math", "at": ""}
+    decide(relay, update, name="Math", at="")
+    assert called(relay, "deps update")[-1] == {"name": "Math"}
+    update = form(relay, window, "deps", "deps_update", "mod-cpp-dep-update")  # すべて更新：名前なし
+    decide(relay, update, name="", at="")
+    assert called(relay, "deps update")[-1] == {}
+
+    # 版を選ぶ：押したときに読む（GitHub から取り込み直す）。ブランチを変えると、そのブランチで読み直す
+    put(relay, window, "deps", "action", name="dep_versions", target="Math", value="")
+    assert called(relay, "deps versions") == [{"name": "Math"}]
+    versions = nodes(relay, window)["deps"]["props"]["versions"]
+    assert versions["name"] == "Math" and [c["sha"] for c in versions["commits"]] == ["fff", "abc"] and versions["branches"] == ["main", "dev"]
+    put(relay, window, "deps", "action", name="dep_versions", target="Math", value="dev")
+    assert called(relay, "deps versions")[-1] == {"name": "Math", "branch": "dev"}
+    pick = form(relay, window, "deps", "dep_use", "mod-cpp-dep-update", target="Math", value="fff")  # この版にする：確かめの窓に、名前と版が入っている
+    assert pick["args"] == {"module": GAME, "name": "Math", "at": "fff"}
+    decide(relay, pick, name="Math", at="fff")
+    assert called(relay, "deps update")[-1] == {"name": "Math", "at": "fff"}
+    assert nodes(relay, window)["deps"]["props"].get("versions") is None  # 記録したら、版を選ぶ所を閉じる
+    put(relay, window, "deps", "action", name="dep_versions", target="Math", value="")
+    put(relay, window, "deps", "action", name="dep_versions_close", target="Math")
+    assert nodes(relay, window)["deps"]["props"].get("versions") is None
+
+    sync = form(relay, window, "deps", "deps_sync", "mod-cpp-dep-sync")
+    put(relay, sync["id"], "form", "submitted", values={})
+    assert called(relay, "deps sync") == [{}] and ran_in(relay, "deps sync") == GAME  # 手元を合わせるだけ：モジュールの場所で
+
+    remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")
+    decide(relay, remove)
+    assert called(relay, "deps remove") == [{"name": "Math"}]
+
+
+def test_cpp_settings_and_templates_are_changed_with_their_forms(relay):
+    window = opened(relay, "cpp", GAME)
+    settings = form(relay, window, "general", "module_settings", "mod-cpp-settings")
+    props = nodes(relay, settings["id"])["form"]["props"]
+    assert props["values"]["main_project"] == "Calc" and [row["name"] for row in props["rows"]] == ["Calc", "CalcTest"]  # 今の値と、選べる Project
+    decide(relay, settings, main="Calc", no_main=False, msvc_runtime="static", projects_folder="", linked_folder="Linked", external_folder="")
+    assert called(relay, "module settings")[-1] == {"main": "Calc", "no_main": False, "msvc_runtime": "static", "linked_folder": "Linked"}
+
+    add = form(relay, window, "templates", "template_add", "mod-cpp-template-add")
+    decide(relay, add, name="widget", source="templates/widget.h")
+    assert called(relay, "template add") == [{"name": "widget", "source": "templates/widget.h"}]
+    replace = form(relay, window, "templates", "template_replace", "mod-cpp-template-add", target="header")
+    assert nodes(relay, replace["id"])["form"]["props"]["initial"]["name"] == "header"  # 差し替え：名前が入っている
+    put(relay, replace["id"], "form", "cancelled")
+    remove = form(relay, window, "templates", "template_remove", "mod-cpp-template-remove", target="widget")
+    decide(relay, remove)
+    assert called(relay, "template remove") == [{"name": "widget"}]
+    with pytest.raises(Exception):
+        relay.input(window, "templates", "action", {"name": ""}, human=True)  # 操作の名前のない入力は断る
+
+
+def test_overview_opens_the_cpp_page_in_the_same_window(relay):
+    window = opened(relay, "overview", GAME)
+    put(relay, window, "about", "opened", page="deps")
+    tree = relay.display.tree(window)
+    assert (tree["screen"], tree["args"]) == ("cpp", {"module": GAME})
+
+
+# --- ビルドと試験（build） ---------------------------------------------------------------------
+
+def test_build_window_chooses_the_configuration_the_profile_the_target_and_the_arguments(relay):
+    window = opened(relay, "build", GAME)
+    setting = nodes(relay, window)["setting"]["props"]
+    assert setting["profiles"]["selected"] == "fast" and setting["module_type"] == "cpp"
+    put(relay, window, "setting", "profile", name="ship")  # この PC で使うビルド設定（ecobuild profile use）
+    assert called(relay, "profile use") == [{"name": "ship"}] and nodes(relay, window)["setting"]["props"]["profiles"]["selected"] == "ship"
+    put(relay, window, "setting", "profile", name="none")
+    assert called(relay, "profile use")[-1] == {"name": "none"}
+    with pytest.raises(Exception):
+        relay.input(window, "setting", "profile", {"name": ""}, human=True)
+
+    put(relay, window, "setting", "configuration", value="Release")
+    put(relay, window, "setting", "target", project="Calc")
+    put(relay, window, "setting", "arguments", text="--size 3")
+    setting = nodes(relay, window)["setting"]["props"]
+    assert (setting["configuration"], setting["target"], setting["arguments"]) == ("Release", "Calc", "--size 3")
+    put(relay, window, "build")
+    assert called(relay, "build") == [{"configuration": "Release", "project": "Calc"}] and ran_in(relay, "build") == GAME
+    out = nodes(relay, window)["out"]["props"]
+    assert (out["title"], out["kind"], out["state"]) == ("ビルド", "build", "ok") and out["result"]["artifacts"] == ["dist/calc-1.0-py3-none-any.whl"]
+    put(relay, window, "run")
+    assert called(relay, "run") == [{"configuration": "Release", "arguments": "--size 3", "project": "Calc"}]
+    out = nodes(relay, window)["out"]["props"]
+    assert (out["title"], out["kind"], out["result"]["returncode"]) == ("実行", "run", 0)
+    for button in ("rebuild", "clean"):
+        put(relay, window, button)
+        assert called(relay, button) == [{"configuration": "Release", "project": "Calc"}]
+    put(relay, window, "check")
+    assert called(relay, "check")[-1] == {} and nodes(relay, window)["out"]["props"]["title"] == "提出前の確認"
+
+    put(relay, window, "setting", "configuration", value="")  # ビルド設定のまま：構成を渡さない
+    put(relay, window, "setting", "target", project="")
+    put(relay, window, "build")
+    assert called(relay, "build")[-1] == {}
+    put(relay, window, "setting", "settings")  # ビルド設定の追加・編集は、モジュールの「設定」
+    assert [w["screen"] for w in relay.display.windows() if w["id"] != window] == ["settings"]
+
+
+def test_build_window_runs_the_checked_and_the_named_tests_and_shows_the_result(relay):
+    window = opened(relay, "build")
+    assert not called(relay, "tests") and nodes(relay, window)["tests"]["props"]["rows"] == []  # 開いただけでは集めない
+    put(relay, window, "tests_load")
+    assert called(relay, "tests") == [{}] and len(nodes(relay, window)["tests"]["props"]["rows"]) == 3
+    put(relay, window, "tests", "changed", values=["tests/test_app.py"])
+    put(relay, window, "test_checked")
+    assert called(relay, "test")[-1] == {"tests": ["tests/test_app.py"]}
+    view = nodes(relay, window)
+    assert (view["out"]["props"]["title"], view["out"]["props"]["state"], view["out"]["props"]["result"]["passed"]) == ("テスト（選んだもの）", "ok", 2)
+    assert view["tests"]["props"]["last"]["skipped"] == 1 and "2 passed" in "".join(view["out"]["props"]["lines"])  # 木に前の結果、出力欄に道具の出力
+
+    assert wrap(relay, window, "test_named") == "unavailable"  # 名前を書くまで押せない
+    put(relay, window, "test_name", "changed", text="tests/test_login.py")
+    put(relay, window, "test_named")
+    assert called(relay, "test")[-1] == {"tests": ["tests/test_login.py"]} and nodes(relay, window)["out"]["props"]["title"] == "テスト（名前で指定）"
+    put(relay, window, "filter", "changed", text="login and not slow")
+    put(relay, window, "last_failed", "changed", on=True)
+    put(relay, window, "test_filtered")
+    assert called(relay, "test")[-1] == {"filter": "login and not slow", "last_failed": True}
+    put(relay, window, "test")
+    assert called(relay, "test")[-1] == {}
+
+    relay.backend.failing = True  # 失敗：出力欄の印が「失敗」になる
+    put(relay, window, "test")
+    assert nodes(relay, window)["out"]["props"]["state"] == "bad"
+
+
+# --- 退避の一覧・注釈履歴（stashes・blame） -------------------------------------------------------
+
+def test_stashes_window_stashes_pops_and_drops_by_number(relay):
+    relay.backend.stashes = ["On task/12-login: 3つ目", "On main: 試し", "On task/12-login: 1つ目"]
+    window = opened(relay, "stashes", PLACE)
+    props = nodes(relay, window)["list"]["props"]
+    assert props["stashes"] == relay.backend.stashes and props["status"]["branch"] == "task/12-login"  # このブランチのものを分けるのは、部品
+    put(relay, window, "list", "action", name="pop", index=2)
+    assert called(relay, "stash pop") == [{"index": 2}] and ran_in(relay, "stash pop") == PLACE
+    assert nodes(relay, window)["list"]["props"]["stashes"] == ["On task/12-login: 3つ目", "On main: 試し"]  # 変えたら読み直す
+    shown = put(relay, window, "list", "action", name="drop", index=0, yes=False)  # 削除は、確かめてから
+    assert shown["part"] == "confirm-box" and not called(relay, "stash drop")
+    put(relay, window, "list", "action", name="drop", index=0, yes=True)
+    assert called(relay, "stash drop") == [{"index": 0}]
+    put(relay, window, "list", "action", name="stash")
+    assert called(relay, "stash") == [{}]
+    for bad in ({"name": "pop"}, {"name": "clear", "index": 0}):
+        with pytest.raises(Exception):
+            relay.input(window, "list", "action", bad, human=True)  # 番号のない戻す・知らない操作は断る
+
+
+def test_blame_window_marks_a_commit_and_opens_its_change_and_the_log(relay):
+    window = opened(relay, "blame", PLACE, path="src/app.py")
+    view = nodes(relay, window)
+    assert view["lines"]["props"]["text"].startswith("abc12345 (octocat 2026-11-01  1)") and view["title"]["props"]["text"] == "src/app.py"
+    assert ("blame", {"path": "src/app.py"}) in relay.backend.calls
+    put(relay, window, "lines", "selected", commit="abc12345")
+    assert nodes(relay, window)["lines"]["props"]["selected"] == "abc12345"
+    put(relay, window, "lines", "opened", commit="abc12345")  # もう一度押す：そのコミットの変更を、窓の中に重ねて開く
+    assert inside(relay, "ws-show")["args"] == {"module": PLACE, "commit": "abc12345"}
+    put(relay, window, "log")  # このファイルのログ（別の窓）
+    log = [w for w in relay.display.windows() if w["screen"] == "ws-log"][-1]
+    assert log["args"]["paths"] == ["src/app.py"] and log["args"]["module"] == PLACE
+    put(relay, window, "external")
+    assert ("blame", {"path": "src/app.py", "gui": True}) in relay.backend.calls
+
+
+def test_the_removed_screens_are_gone_and_the_new_parts_declare_their_outputs():
+    app = create_app(importlib.import_module("eco_gui"), backend=OldEcobuild(), roles={"confirm": "confirm-box"})
+    described = app.describe()
+    screens = {screen["name"] for screen in described["screens"]}
+    assert not {"files", "hub-archive"} & screens  # 入口のなくなった画面（役目は、作業空間のエクスプローラーとハブのカードのメニュー）
+    assert {"merge", "review-branch-merge", "cpp", "build", "stashes", "blame"} <= screens
+    parts = {part["name"]: part for part in described["parts"]}
+    assert set(parts["review-merge-pick"]["outputs"]) == {"changed", "toggled", "reload"}
+    assert set(parts["mod-cpp"]["outputs"]) == {"action", "reload"}
+    assert set(parts["ws-build-setting"]["outputs"]) == {"configuration", "profile", "target", "arguments", "settings"}
+    assert set(parts["ws-stashes"]["outputs"]) == {"action", "reload"} and set(parts["ws-blame"]["outputs"]) == {"selected", "opened"}

@@ -46,7 +46,6 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `menu`（モジュールの窓のメニュー） | `static/module.js` の左のメニュー | 選ぶと、同じ窓で画面が切り替わる。どの画面にも置いてある |
 | `overview`（概要） | `static/modinfo.js` のホーム | 名前・型・リポジトリなど。README・ファイルの木は、まだ |
 | `workspace`（作業空間） | `static/workspace.js` | 状態・変更を選んでコミット・差分・Push・取り込み・提出・退避と戻す・最近のコミット・ビルド・試験・クリーン（出力を続けて表示）。衝突を直す・構成の選択・退避の一覧は、まだ |
-| `files`（ファイル） | `static/explorer.js` | ファイルの木と、選んだファイルのまだコミットしていない変更。足す・動かす（名前を変える）・消す。フォルダーの操作・ドラッグ・複数選択・その場での名前変更は、まだ。一覧は、新しく足した CLI のコマンド `ecobuild files` から読む（今までは GUI のサーバーだけが作っていた） |
 | `tasks`（タスク管理：一覧） | `static/tasks.js` | 全部の列の表（並べ替え・右クリックのメニュー）、上の帯（表示のタブ・絞り込み）、右に選んだタスクの詳細。表示は6つ：`board`・`tasks`・`task_next`（次にやる）・`schedule`・`task_sprint`（スプリント）・`task_summary`（概要）。入力の窓は `task_new`・`task_start`・`task_edit`・`task_complete`・`task_finish`・`task_drop`・`task_prune`・`task_clean`・`task_assign`・`task_label`・`task_approve`・`task_reject`、人の画面は `task_person` |
 | `branches`（ブランチ） | `static/branches.js` | 一覧・作る・消す。直接の取り込み・保護・届いている提出は、まだ |
 | `history`（履歴） | `static/logview.js` | コミットの一覧と、選んだコミットの中身 |
@@ -57,18 +56,18 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `board`（ボード） | `static/tasks.js` | 段階ごとの列（完了は最近の 15 件、削除済みの列）。カードを別の列へ落として、段階を変える・始める・完了にする |
 | `schedule`（日程） | `static/tasks.js` | 横の帯（段階の色・遅れ・土日・今日・日程なし。ドラッグで予定を変える・付ける）と、月のカレンダー |
 | `submissions`・`submission`（提出） | `static/submissions.js`・`prs.js` | 届いている提出・自分の提出。差分・手元で確認・承認・差し戻し・取り下げ・取り込む・反映・取り消し |
-| `merge`（取り込み・提出） | `static/branches.js` | ブランチを直接取り込む・提出する・衝突を直すタスクを作る |
+| `merge`（取り込み・提出。カードは `review-branch-merge`、入力の窓は `review-branch-submit`・`review-branch-resolve`・`review-merge`） | `static/branches.js` | ブランチ同士の取り込みのカード（向きの入れ替え・相手のセレクト・確かめ直す・事前確認）・提出する・衝突を直すタスクを作る |
 | `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
 | `settings`（設定。入力の窓は `cfg-profile-edit`・`cfg-profile-edit-python`・`cfg-profile-edit-cpp`・`cfg-profile-project`） | `static/modinfo.js` | 全般・ビルド設定（部品 `cfg-profiles`：この PC で使うラジオ・型で変わる列・C++ のオプション・Project ごとの上書き）・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
 | `container`（コンテナ） | `static/modinfo.js` | 要約（部品 `cfg-container`：作り方・古い／今の作り方の印・この PC のイメージ・しくみ）・状態・入・切・起こす・止める・イメージ・レシピ |
-| `hub-settings`・`hub-archive` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す）。`hub-archive`（表から選んでアーカイブ・削除）は、ハブのカードのメニューと「アーカイブ済み」に移したので、入口がない |
+| `hub-settings` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す）。は、ハブのカードのメニューと「アーカイブ済み」に移したので、入口がない |
 | `agents`・`agent-presets`・`pc-agents`（入力の窓は `cfg-agent-add`・`cfg-agent-to-preset`・`cfg-skill-add`・`cfg-skill-to-preset`） | `static/agenteditor.js`・`agentrules.js` | 左に一覧（全エージェント共通 → 役 → スキル）、右に選んだものをその場で直す（部品 `cfg-agent-editor`）。選んだツールの確かめは `ecobuild agent registry fit`。プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
 | `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`）。モジュールの窓の `help` は部品 `cfg-help`（手順のコマンドからコマンド一覧へ飛ぶ・用途ごとの見出し・探した文字の印・パンくず・使い方の行のコピー） |
-| `build`（ビルドと試験） | `static/build.js` | ビルド設定を選ぶ・ビルド・試験（全部・1つ・絞る）・実行・クリーン |
-| `stashes`（退避） | `static/workspace.js` | 一覧・退避・選んで戻す・選んで捨てる |
-| `blame`（ファイルの記録） | `static/explorer.js` | ファイルの履歴と、行ごとの記録 |
-| `cpp`（C++） | `static/explorer.js`・`modinfo.js` | サブプロジェクト・依存先・テンプレート |
+| `build`（ビルドと試験） | `static/build.js` | 構成・ビルド設定・実行の対象と引数（部品 `ws-build-setting`）、ビルド・リビルド・クリーン・提出前の確認・実行・テスト、テストを選ぶ木、結果の要約つきの出力 |
+| `stashes`（退避の一覧） | `static/workspace.js` | このブランチの退避（番号ごとに戻す・削除）と、ほかのブランチの退避の数（部品 `ws-stashes`） |
+| `blame`（注釈履歴） | `static/explorer.js` | 行ごとの、最後に変えたコミット（部品 `ws-blame`）。コミットの変更・ファイルのログを開く |
+| `cpp`（Project・依存先。入力の窓は `mod-cpp-…`） | `static/modinfo.js` | Project の木・依存先の状態と依存関係の図・全般・ファイルテンプレート（部品 `mod-cpp`） |
 
 ## まだ決まっていないこと
 

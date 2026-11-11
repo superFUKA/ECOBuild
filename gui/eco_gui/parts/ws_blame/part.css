@@ -1,0 +1,26 @@
+/* 注釈履歴（出力の窓と同じ、へこんだ地・等幅の字。左に、コミットごとの色の帯） */
+:host { display: block; height: 100%; min-height: 0; }
+.blame { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.bar { display: flex; align-items: center; gap: 10px; flex: none; }
+.bar input { flex: 1; min-width: 0; font-size: 12px; padding: 5px 10px; }
+.count { color: var(--eco-dim); font-size: 12px; white-space: nowrap; }
+.empty { margin: 0; padding: 12px 0; color: var(--gf-muted); font-size: 13px; }
+.lines { flex: 1; min-height: 0; overflow: auto; background: var(--eco-sunk); border: 1px solid var(--eco-line-soft); border-radius: 6px; }
+table { width: max-content; min-width: 100%; border-collapse: collapse; font-family: var(--eco-code); font-size: 12px; line-height: 1.55; }
+td { padding: 0 8px; border: 0; vertical-align: top; white-space: pre; }
+tbody tr:hover { background: #ffffff08; }
+tr.first td { border-top: 1px solid #232932; }
+tr:first-child td { border-top: 0; }
+.who { width: 1%; padding-left: 0; color: var(--eco-dim); border-left: 3px solid transparent; position: sticky; left: 0; background: #151a21; }
+.who > * { margin-left: 8px; }
+.sha { padding: 0; border: 0; border-radius: 3px; background: none; color: var(--gf-accent); font: inherit; }
+.sha:hover { text-decoration: underline; }
+.author { color: #cdd5df; }
+.number { width: 1%; text-align: right; color: #5d6875; user-select: none; }
+.code { color: #dbe3eb; }
+tr.tone0 .who { border-left-color: #5fd3bc; } tr.tone1 .who { border-left-color: #8fb7ef; } tr.tone2 .who { border-left-color: #c9b3f5; }
+tr.tone3 .who { border-left-color: #efc389; } tr.tone4 .who { border-left-color: #9fe0a8; } tr.tone5 .who { border-left-color: #e0868c; }
+tr.on td { background: var(--eco-sel-bg); }
+tr.on .who { background: var(--eco-sel-bg); }
+tr.on .code { color: #fff; }
+.banner { margin: 0; }

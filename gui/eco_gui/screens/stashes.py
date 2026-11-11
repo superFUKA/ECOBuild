@@ -1,32 +1,32 @@
-"""作業空間 › 退避：退避した変更の一覧。退避する・選んで戻す・選んで捨てる。"""
+"""作業空間 › 退避の一覧：このブランチで退避した変更の一覧。退避する・選んで戻す・選んで削除する。
+
+変更の一覧の「退避 ▾」の「退避の一覧…」から開く。退避はモジュールの作業空間すべてで共有なので、ほかのブランチの退避は、数と一覧だけ
+（それぞれの作業空間で扱う）。
+"""
 
 ARGS = {"module": "."}  # 作業空間のフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "退避した変更", "width": 640, "height": 480},
+    "window": {"title": "退避の一覧", "width": 720, "height": 520, "refresh": {"focus": True}},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-page", "children": ["head", "place", "card", "about"]},
+        {"id": "page", "layout": "column", "look": "ws-page", "children": ["head", "place", "list"]},
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
-        {"id": "title", "part": "note", "props": {"text": "退避した変更", "heading": True}},
+        {"id": "title", "part": "note", "props": {"text": "退避の一覧", "heading": True}},
         {"id": "place", "part": "note", "props": {"text": {"arg": "module"}, "tone": "muted"}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
-        {"id": "card", "layout": "column", "look": "card", "children": ["list", "actions"]},
-        {"id": "list", "part": "pick-list", "props": {"numbered": True, "empty_text": "退避した変更はありません。"}},
-        {"id": "actions", "layout": "row", "look": "actions", "children": ["stash", "drop", "pop"]},
-        {"id": "stash", "part": "button", "props": {"label": "今の変更を退避", "hint": "まだコミットしていない変更を、いったんよける"}},
-        {"id": "pop", "part": "button", "props": {"label": "戻す", "primary": True, "hint": "選んだ退避を戻す（選ばなければ、このブランチで最後に退避したもの）"}},
-        {"id": "drop", "part": "button", "props": {"label": "捨てる…", "danger": True, "hint": "選んだ退避を捨てる（選ばなければ、このブランチで最後に退避したもの）"}},
-        {"id": "about", "part": "note", "props": {"text": "行を選ぶと、その退避を戻す・捨てる（ecobuild stash pop <番号>・stash drop <番号>）。選ばなければ、このブランチで最後に退避したもの。ほかのタスクブランチで退避したものは、ここでは戻せません。", "tone": "muted"}},
+        {"id": "list", "part": "ws-stashes"},
     ],
     "bindings": [
-        {"read": "stash list", "args": {"module": {"arg": "module"}}, "to": "list.items"},
+        {"read": "stash list", "args": {"module": {"arg": "module"}}, "to": "list.stashes"},
+        {"read": "status", "args": {"module": {"arg": "module"}}, "to": "list.status"},
         {"on": "reload.pressed", "refresh": True},
-        {"on": "stash.pressed", "run": "stash", "args": {"module": {"arg": "module"}}},
-        {"on": "list.selected", "set": {"stash": {"payload": "index"}}},
-        {"value": "stash", "to": "list.selected"},
-        # 戻す・捨てると番号がずれるので、選択は外す
-        {"on": "pop.pressed", "run": "stash pop", "args": {"module": {"arg": "module"}, "index": {"value": "stash"}}, "set": {"stash": None}},
-        {"on": "drop.pressed", "run": "stash drop", "args": {"module": {"arg": "module"}, "index": {"value": "stash"}}, "set": {"stash": None}},
+        {"on": "list.reload", "refresh": True},
+        # ecobuild stash・stash pop <番号>・stash drop <番号>（削除は、本体が確かめてから）
+        {"on": "list.action", "when": {"name": "stash"}, "run": "stash", "args": {"module": {"arg": "module"}}, "notify": "変更を退避しました。"},
+        {"on": "list.action", "when": {"name": "pop"}, "run": "stash pop", "args": {"module": {"arg": "module"}, "index": {"payload": "index"}},
+         "notify": "退避した変更を戻しました。"},
+        {"on": "list.action", "when": {"name": "drop"}, "run": "stash drop", "args": {"module": {"arg": "module"}, "index": {"payload": "index"}},
+         "notify": "退避した変更を削除しました。"},
     ],
 }

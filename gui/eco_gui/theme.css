@@ -359,6 +359,15 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 [data-gf-look="ws-page"] > [data-gf-look="card"] { gap: 10px; }
 [data-gf-look="ws-page"] > [data-gf-look="bar"] + [data-gf-part="note"] { margin-top: -12px; }
 
+/* ビルドと試験の窓：動かすボタンの並び（構成・ビルド設定の下に線で区切る）・名前で指定する行（欄が残りの幅を使う） */
+[data-gf-look="ws-build-tools"] { align-items: center; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--eco-line); }
+[data-gf-look="ws-build-named"] { align-items: flex-end; gap: 10px; }
+[data-gf-look="ws-build-named"] > [data-gf-part="text-input"] { flex: 1; min-width: 220px; }
+/* 退避・注釈履歴の窓：一覧・本文が、残りの高さを使う */
+#stage:has(> [data-gf-look="ws-fill-page"]) { overflow: hidden; display: flex; }
+#stage > [data-gf-look="ws-fill-page"] { flex: 1; min-width: 0; min-height: 0; gap: 12px; flex-wrap: nowrap; }
+[data-gf-look="ws-fill-page"] > [data-gf-look="ws-fill"] { flex: 1 1 0; min-height: 0; height: auto; }
+
 /* （作業空間の節の終わり） */
 
 

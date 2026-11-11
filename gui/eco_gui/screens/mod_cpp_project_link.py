@@ -17,7 +17,7 @@ SCREEN = {
                     {"value": "package", "label": "CMakeのパッケージ", "help": "find_package で見つけるもの（<名前>Config.cmake）"},
                     {"value": "cmake", "label": "CMakeのソース", "help": "add_subdirectory するフォルダー"},
                     {"value": "file", "label": "ビルド済みのファイル", "help": ".lib・.dll 等"}]},
-                {"name": "library", "label": "ライブラリ", "type": "select", "show_if": {"what": "project"}, "none_label": "（選んでください）",
+                {"name": "library", "label": "ライブラリ（いくつでも）", "type": "checks", "show_if": {"what": "project"},
                  "options_from": {"source": "rows", "value": "name", "label": "name", "note": "kind", "note_labels": {
                      "static_library": "ライブラリ", "shared_library": "共有ライブラリ", "library": "ライブラリ", "executable": "実行ファイル",
                      "test": "テスト", "benchmark": "性能測定", "bench": "性能測定"}}},
@@ -45,7 +45,7 @@ SCREEN = {
         # 人が打つのと同じ：（作業空間で）ecobuild project link --project <名前> [<ライブラリ> --type <形式>]
         # [--package <名前> --directory <場所> --target <ターゲット>] [--cmake <場所> --target …] [--type <形式> --file … --implib … --include …]
         {"on": "form.submitted", "run": "project link", "require": ["module"],
-         "args": {"module": {"payload": "values.place"}, "project": {"arg": "name"}, "library": [{"payload": "values.library"}],
+         "args": {"module": {"payload": "values.place"}, "project": {"arg": "name"}, "library": {"payload": "values.library"},
                   "type": {"payload": "values.type"},
                   "package": {"payload": "values.package"}, "directory": {"payload": "values.directory"}, "cmake": {"payload": "values.cmake"},
                   "target": {"payload": "values.target"}, "file": {"payload": "values.file"}, "implib": {"payload": "values.implib"},

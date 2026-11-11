@@ -1,4 +1,4 @@
-"""eco_gui の設定の画面（settings・container・hub_settings・hub_archive）：正しいコマンドと引数で ecobuild を呼ぶこと。
+"""eco_gui の設定の画面（settings・container・hub_settings）：正しいコマンドと引数で ecobuild を呼ぶこと。
 
 GUIFrameWork が入っていない Python では飛ばす。ecobuild は呼ばない（偽のバックエンドで確かめる）。
 """
@@ -461,31 +461,3 @@ def test_hub_settings_picks_a_branch_from_the_list_and_reads_its_versions(relay)
     assert ("installer update", {"ref": "dev"}) in relay.backend.calls
 
 
-def test_hub_archive_shows_only_the_buttons_that_fit_the_chosen_module(relay):
-    window = opened(relay, "hub-archive")
-    assert [row["repository"] for row in nodes(relay, window)["modules"]["props"]["rows"]] == ["acme/Calc", "acme/Old"]
-    assert ("module list", {"all": True}) in relay.backend.calls
-    buttons = ("archive", "unarchive", "confirm", "remove_workspaces", "delete")
-    assert wraps(relay, window, *buttons) == ["hidden"] * 5  # 選ぶまで、どれも出ない
-    relay.input(window, "modules", "selected", {"id": "acme/Calc", "row": {"repository": "acme/Calc", "archived": False}}, human=True)
-    relay.idle()
-    view = nodes(relay, window)
-    assert view["modules"]["props"]["selected"] == "acme/Calc" and view["chosen"]["props"]["text"] == "acme/Calc"
-    assert wraps(relay, window, *buttons) == [None, "hidden", "hidden", "hidden", "hidden"]  # アーカイブしていない
-    press(relay, window, "archive", confirm=True)
-    assert ("module archive", {"name": "acme/Calc"}) in relay.backend.calls
-    assert wraps(relay, window, *buttons) == ["hidden", None, None, None, "unavailable"]  # アーカイブした：解除と削除の欄に入れ替わる
-    press(relay, window, "unarchive", confirm=True)
-    assert ("module unarchive", {"name": "acme/Calc"}) in relay.backend.calls
-    assert wraps(relay, window, "archive", "unarchive") == [None, "hidden"]
-
-    relay.input(window, "modules", "selected", {"id": "acme/Old", "row": {"repository": "acme/Old", "archived": True}}, human=True)
-    relay.idle()
-    assert wraps(relay, window, *buttons) == ["hidden", None, None, None, "unavailable"]  # 削除は、確かめの名前を打つまで押せない
-    typed(relay, window, confirm="acme/Old")
-    press(relay, window, "delete", confirm=False)
-    assert not [call for call in relay.backend.calls if call[0] == "module delete"]
-    press(relay, window, "delete", confirm=True)
-    assert ("module delete", {"name": "acme/Old", "confirm": "acme/Old"}) in relay.backend.calls
-    assert relay.display.values(window)["away_module"] is None  # 消したら、選択を空に
-    assert wraps(relay, window, *buttons) == ["hidden"] * 5

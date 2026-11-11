@@ -1,25 +1,31 @@
-"""ファイルの記録：このファイルを変えたコミットと、行ごとの記録（どの行を、どのコミットで変えたか）。"""
+"""作業空間 › 注釈履歴：ファイルの各行を、最後に変えたコミット（SHA・だれが・いつ）と並べて見せる（ecobuild blame <ファイル>）。
 
-ARGS = {"module": ".", "path": ""}  # モジュールのフォルダー・見るファイル
+エクスプローラー・変更の一覧の右クリックの「注釈履歴」から開く。コミットを押すと、その行を強調し、もう一度押す（か「変更を見る」）と、
+そのコミットの変更を窓の中に重ねて開く。「ログ」は、このファイルを変えたコミットの一覧（ログの窓）。
+"""
+
+ARGS = {"module": ".", "path": ""}  # 作業空間のフォルダー・見るファイル
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ファイルの記録", "width": 980, "height": 760},
+    "window": {"title": "注釈履歴", "width": 1100, "height": 780},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-page", "children": ["title", "lines_card", "log_card"]},
+        {"id": "page", "layout": "column", "look": "ws-fill-page", "children": ["head", "lines"]},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "tools"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "path"}, "prefix": "注釈履歴：", "heading": True}},
-        {"id": "lines_card", "layout": "column", "look": "card", "children": ["lines_title", "lines"]},
-        {"id": "log_card", "layout": "column", "look": "card", "children": ["log_title", "log"]},
-        {"id": "log_title", "part": "note", "props": {"text": "このファイルを変えたコミット", "tone": "section"}},
-        {"id": "log", "part": "table", "props": {
-            "columns": [{"key": "date", "label": "日時"}, {"key": "author", "label": "だれが"}, {"key": "subject", "label": "何を"}],
-            "key": "sha", "empty_text": "コミットはまだありません。",
-        }},
-        {"id": "lines_title", "part": "note", "props": {"text": "行ごとの記録（どの行を、どのコミットで変えたか）", "tone": "section"}},
-        {"id": "lines", "part": "text-view", "props": {"empty_text": "まだコミットしていないファイルには、記録がありません。"}},
+        {"id": "tools", "layout": "row", "look": "tools", "children": ["log", "external", "reload"]},
+        {"id": "log", "part": "button", "props": {"label": "ログ", "quiet": True, "hint": "このファイルを変えたコミットの一覧を、ログの窓で開く"}},
+        {"id": "external", "part": "button", "props": {"label": "TortoiseGit で表示", "quiet": True, "hint": "ecobuild blame --gui（TortoiseGit が要ります）"}},
+        {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
+        {"id": "lines", "part": "ws-blame", "look": "ws-fill"},
     ],
     "bindings": [
-        {"read": "log", "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}], "count": 30}, "to": "log.rows"},
-        {"read": "blame", "args": {"module": {"arg": "module"}, "path": {"arg": "path"}}, "to": "lines.text"},
+        {"read": "blame", "args": {"module": {"arg": "module"}, "path": {"arg": "path"}}, "require": ["path"], "to": "lines.text"},
+        {"on": "reload.pressed", "refresh": True},
+        {"on": "lines.selected", "set": {"blame_commit": {"payload": "commit"}}},
+        {"value": "blame_commit", "to": "lines.selected"},
+        {"on": "lines.opened", "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "commit"}}, "inside": True},
+        {"on": "log.pressed", "open": "ws-log", "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}]}},
+        {"on": "external.pressed", "run": "blame", "args": {"module": {"arg": "module"}, "path": {"arg": "path"}, "gui": True}},
     ],
 }

@@ -139,6 +139,7 @@ class EcobuildBackend(MachineBackend):
         import subprocess
 
         from guiframework import GuiFrameworkError
+        from guiframework.procs import hidden
 
         try:
             line = self.command_line(name, args, ["dry_run"])
@@ -148,7 +149,7 @@ class EcobuildBackend(MachineBackend):
             env = {**os.environ, **self.extra_env}
             env.setdefault("PYTHONIOENCODING", "utf-8")
             done = subprocess.run(line[:at] + line[at + 1:], stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8",
-                                  errors="replace", timeout=self.timeout, env=env)
+                                  errors="replace", timeout=self.timeout, env=env, **hidden())
         except (OSError, subprocess.SubprocessError, StopIteration, GuiFrameworkError):
             return ""
         return (done.stdout if done.returncode == 0 else done.stderr or done.stdout).strip()

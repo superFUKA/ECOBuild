@@ -237,11 +237,17 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     relay.idle()
     relay.input(overview, "spaces", "action", {"id": "C:/work/Calc/.ecobuild/w/12", "action": "open"}, human=True)
     relay.idle()
-    window = next(w["id"] for w in relay.display.windows() if w["screen"] == "workspace")
+    # 作業空間は、同じ窓の「作業空間」のタブで出る（別の窓は開かない）
+    tree = relay.display.tree(overview)
+    assert (tree["screen"], tree["args"]["module"], tree["args"]["space"]) == ("frame-workspace", "C:/work/Calc", "C:/work/Calc/.ecobuild/w/12")
+    assert [w["id"] for w in relay.display.windows()] == [overview]
+    before = relay.backend.calls.count(("status", {}))
+    window = relay.execute({"command": "open", "screen": "workspace", "args": {"module": "C:/work/Calc/.ecobuild/w/12"}})["window"]
+    relay.idle()
     view = nodes(relay, window)
     assert view["state"]["props"]["data"]["branch"] == "task/12-login"
     assert view["changes"]["props"]["status"]["unstaged"] == ["a.py", "b.py"]
-    assert relay.backend.calls.count(("status", {})) == 1  # 2つの部品へ出しても、status は1回
+    assert relay.backend.calls.count(("status", {})) == before + 1  # 2つの部品へ出しても、status は1回
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
 
     relay.input(window, "changes", "changed", {"paths": ["a.py", "new.txt"]}, human=True)
@@ -253,9 +259,14 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     assert ("task commit", {"paths": ["a.py", "new.txt"], "message": "ログインを直す"}) in relay.backend.calls
     assert relay.display.values(window)["paths"] is None and nodes(relay, window)["changes"]["props"]["checked"] == []
     relay.input(window, "tabs", "selected", {"tab": "submit"}, human=True)  # 「提出」のタブへ
-    relay.input(window, "submit", "pressed", {}, human=True)  # 提出は、確かめてから
-    assert answer(relay, window, True)["part"] == "confirm-box"
-    assert ("task submit", {}) in relay.backend.calls
+    relay.input(window, "submit", "pressed", {}, human=True)  # 「提出」：提出の窓を重ねて開く（何が起きるか・題・下書き・見てもらう人）
+    relay.idle()
+    dialog = next(w["id"] for w in relay.display.windows() if w["screen"] == "task-submit" and w.get("parent") == window)
+    assert ("task submit", {}) not in relay.backend.calls  # 押しただけでは、提出しない
+    relay.input(dialog, "form", "submitted", {"values": {"title": "", "draft": False, "reviewer": "", "complete": True, "partial": False, "check": True}}, human=True)
+    assert answer(relay, dialog, True)["part"] == "confirm-box"  # 提出は、確かめてから
+    relay.idle()
+    assert [args for name, args in relay.backend.calls if name == "task submit"] == [{"draft": False, "partial": False, "complete": True, "check": True}]
 
 
 def test_build_output_is_shown_as_it_arrives(relay):

@@ -16,6 +16,8 @@ SCREEN = {
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "form.status"},
         {"read": "task list", "args": {"module": {"arg": "module"}, "all": True}, "to": "form.tasks"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "form.account"},
+        # GitHub のメンバー（担当者の候補に足す。届くのを待たずに窓を出す）
+        {"read": "module members", "args": {"module": {"arg": "module"}}, "lazy": True, "to": "form.members"},
         {"on": "form.edit", "run": "task edit", "notify": "保存しました。", "close": True,
          "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "title": {"payload": "title"}, "body": {"payload": "body"}, "parent": {"payload": "parent"}, "clear_parent": {"payload": "clear_parent"}, "add_blocked_by": {"payload": "add_blocked_by"}, "remove_blocked_by": {"payload": "remove_blocked_by"},
                   "add_assignee": {"payload": "add_assignee"}, "add_label": {"payload": "add_label"}}},

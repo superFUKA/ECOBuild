@@ -221,8 +221,9 @@ def test_the_menu_of_a_row_changes_only_what_was_chosen(relay):
     assert calls(relay, "task close")[-1] == {"issue": 13, "not_planned": True}
     relay.input(window, "list", "workspace", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # タスクブランチを開く
     relay.idle()
-    opened = [w for w in relay.display.windows() if w["screen"] == "workspace"]
-    assert len(opened) == 1 and opened[0]["args"]["module"] == "C:/work/Calc/.ecobuild/w/12"
+    tree = relay.display.tree(window)  # 同じ窓の「作業空間」のタブで出る（別の窓は開かない）
+    assert (tree["screen"], tree["args"]["module"], tree["args"]["space"]) == ("frame-workspace", "C:/work/Calc", "C:/work/Calc/.ecobuild/w/12")
+    assert not [w for w in relay.display.windows() if w["screen"] == "workspace"]
 
 
 def test_the_filter_is_kept_in_the_window_and_carried_to_the_next_view(relay):

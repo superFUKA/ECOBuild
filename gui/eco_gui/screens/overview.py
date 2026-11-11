@@ -33,9 +33,10 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "readme.reload", "refresh": True},
         {"on": "about.reload", "refresh": True},
-        # 作業空間の窓を開く（場所ごとに1つ）
-        {"on": "open_here.pressed", "open": "workspace", "args": {"module": {"arg": "module"}}},
-        {"on": "spaces.action", "when": {"action": "open"}, "open": "workspace", "args": {"module": {"payload": "id"}}},
+        # 作業空間を開く：同じ窓の「作業空間」のタブで出す
+        {"on": "open_here.pressed", "open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"arg": "module"}}, "here": True},
+        {"on": "spaces.action", "when": {"action": "open"}, "open": "frame-workspace",
+         "args": {"module": {"arg": "module"}, "space": {"payload": "id"}}, "here": True},
         # 「このモジュール」から：依存関係（C++ の画面）・タスク管理（同じ窓で切り替える）
         {"on": "about.opened", "when": {"page": "deps"}, "open": "cpp", "args": {"module": {"arg": "module"}}, "here": True},
         {"on": "about.opened", "when": {"page": "tasks"}, "open": "tasks", "args": {"module": {"arg": "module"}}, "here": True},

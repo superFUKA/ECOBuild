@@ -11,6 +11,8 @@ SAMPLES = [
         "projects": [{"name": "Calc", "kind": "static_library", "directory": "Calc"}, {"name": "CalcTest", "kind": "test", "directory": "CalcTest"}],
         "status": {"unstaged": ["Calc/src/Add.cpp", "Calc/include/Calc/Add.h", "CalcTest/src/AddTest.cpp", "ecobuild.toml"], "untracked": ["Calc/src/Sub.cpp"]},
         "checked": ["Calc/src/Add.cpp"]}},
+    {"name": "生成ファイルの印", "props": {"generated": ["Calc/CMakeLists.txt"],
+                              "status": {"staged": [], "unstaged": ["Calc/CMakeLists.txt", "Calc/src/Add.cpp"], "untracked": []}}},
     {"name": "変更なし", "props": {"status": {"staged": [], "unstaged": [], "untracked": []}}},
     {"name": "変更なし（見出しの行つき）", "props": {"tools": True, "status": {"staged": [], "unstaged": [], "untracked": []}}},
     {"name": "読み込み中", "props": {"loading": True}},

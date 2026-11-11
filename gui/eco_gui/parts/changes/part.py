@@ -1,6 +1,6 @@
 """変更のあるファイルを、フォルダーの木（サブプロジェクトがあれば、そのまとまり）で並べ、チェックで選ぶ。
 
-種類は右に色で出す（衝突＝赤・ステージ済み＝青・変更＝橙・追加＝緑・削除＝薄い赤）。「改行のみ」「管理外」の印も出す。
+種類は右に色で出す（衝突＝赤・ステージ済み＝青・変更＝橙・追加＝緑・削除＝薄い赤）。「生成」「改行のみ」「管理外」の印も出す。
 まとまり（全部・サブプロジェクト・フォルダー）のチェックで、中をまとめて選べる。見出しの行のボタンと右クリックのメニューは、出力（action）で出す。"""
 from typing import Annotated
 
@@ -10,6 +10,7 @@ def part(
     checked: Annotated[list[str], "選んでいるファイル"] = [],
     selected: Annotated[str | None, "名前を押したファイル（強調する）"] = None,
     missing: Annotated[list[str] | None, "今はフォルダーにないファイル（「削除」と出す）"] = None,
+    generated: Annotated[list[str] | None, "生成ファイル（道具が作り直すもの。ecobuild files の generated）。「生成」の印を出す"] = None,
     projects: Annotated[list | None, "サブプロジェクト（名前か {name, kind, directory}）。あれば、そのまとまりで分ける"] = None,
     stashes: Annotated[list[str], "退避した変更（ecobuild stash list）。「退避」のメニューに数と理由を出す"] = [],
     tools: Annotated[bool, "見出しの行（全部選ぶ・件数・差分・元に戻す・退避）を出す"] = False,

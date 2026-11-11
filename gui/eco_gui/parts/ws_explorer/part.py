@@ -9,6 +9,7 @@ from typing import Annotated
 def part(
     files: Annotated[list[str], "ファイルのパス（/ で区切る）"] = [],
     missing: Annotated[list[str] | None, "今はフォルダーにないファイル（消した・動かした）。取り消し線で出す"] = None,
+    generated: Annotated[list[str] | None, "生成ファイル（道具が作り直すもの。ecobuild files の generated）。ふだんは隠し、見出しの目の印で出す（灰色の斜体）"] = None,
     status: Annotated[dict, "状態（ecobuild status：staged・unstaged・untracked・conflicted の並び）"] = {},
     projects: Annotated[list | None, "サブプロジェクト（名前か {name, kind, directory}）。あれば、そのフォルダーだけを出し、◆ と種類を付ける"] = None,
     selected: Annotated[str | None, "選んでいるファイル（変更の一覧と合わせる）"] = None,

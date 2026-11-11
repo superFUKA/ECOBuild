@@ -13,13 +13,13 @@ SCREEN = {
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "source", "own", "chosen", "direct", "submit_form",
                                                         "targets_title", "targets"]},
         {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "children": ["title", "reload"]},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "ブランチの取り込み・提出", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
         {"id": "source", "part": "note", "props": {"prefix": "取り込む（提出する）ブランチ：", "text": {"arg": "name"}}},
         {"id": "own", "layout": "row", "children": ["merge_submission"]},
         {"id": "merge_submission", "part": "button", "props": {
-            "label": "このブランチの提出を取り込む", "hint": "もう作ってある提出（branch submit）を、マージコミットで取り込む"}},
+            "label": "このブランチの提出を取り込む…", "hint": "もう作ってある提出（branch submit）を、マージコミットで取り込む"}},
         {"id": "targets_title", "part": "note", "props": {"text": "取り込み先を選ぶ"}},
         {"id": "targets", "part": "table", "props": {
             "columns": [{"key": "name", "label": "名前"}, {"key": "base", "label": "作成元"}, {"key": "remote", "label": "GitHub"},
@@ -47,8 +47,9 @@ SCREEN = {
         {"value": "merge_into", "to": "chosen.text"},
         {"on": "submit_title.changed", "set": {"submit_title": {"payload": "text"}}},
         {"value": "submit_title", "to": "submit_title.text"},
-        # 提出を取り込む（ecobuild branch merge <ブランチ>）
-        {"on": "merge_submission.pressed", "run": "branch merge", "args": {"module": {"arg": "module"}, "name": {"arg": "name"}}},
+        # 提出を取り込む（ecobuild branch merge <ブランチ> [--ignore-checks]）：入力の窓（CI が失敗していても取り込むか）を重ねて開く
+        {"on": "merge_submission.pressed", "open": "review-form", "inside": True,
+         "args": {"module": {"arg": "module"}, "kind": "merge", "id": {"arg": "name"}}},
         # 選んだ取り込み先へ（ecobuild branch merge <ブランチ> --into <先>・branch resolve <ブランチ> --into <先>・
         # branch submit <ブランチ> --into <先> [--title <題名>]）。取り込み先は、コマンドでは任意でも、選ぶまで実行しない
         # （省くと、branch merge は「提出を取り込む」になるため）

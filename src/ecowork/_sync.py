@@ -187,8 +187,9 @@ class Syncing:
         conflicted = self.git.working_tree().conflicted
         self._only_conflicted(paths, conflicted)
         every = tuple(_conflicts.read(self.root, p) for p in conflicted)
-        ready = bool(every) and all(not f.reason and not f.remaining for f in every)
-        return wm.Conflicts(self.git.stopped(), tuple(f for f in every if not paths or f.path in paths), ready)
+        stopped = self.git.stopped()
+        ready = stopped is not None and all(not f.reason and not f.remaining for f in every)
+        return wm.Conflicts(stopped, tuple(f for f in every if not paths or f.path in paths), ready)
 
     def resolve_conflict(self, path: str, *, side: str = "", hunks: tuple[int, ...] = (),
                          text: str | None = None) -> wm.ConflictFile:

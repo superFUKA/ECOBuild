@@ -196,6 +196,16 @@ def test_sync_conflicts_and_resolve_commands(cli):
     assert as_json(cli("sync", "resolve", "README.md", "--side", "current", "--json"))["error"]["code"] == "no_sync_in_progress"
 
 
+def test_account_show_tells_who_handles_the_submissions_of_each_branch(cli, module):
+    """account show は、取り込み先のブランチごとに、提出を処理できるか・できる人を答える（画面は自分で判定しない）。"""
+    module.repository.github.branch_creators_.update({"develop": "alice", "task/3-x": "bob"})
+    result = as_json(cli("account", "show", "--json"))["result"]
+    assert set(result["take_in"]) == {"main", "develop"}                      # タスクブランチは入れない
+    assert result["take_in"]["develop"]["owners"] == "develop を作った alice と管理者"
+    assert result["take_in"]["main"]["owners"] == "管理者" and result["take_in_other"]["owners"] == "管理者"
+    assert result["take_in"]["main"]["allowed"] == result["admin"] == result["take_in_other"]["allowed"]
+
+
 def test_not_in_module(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(build_cli(), ["status", "--json"])

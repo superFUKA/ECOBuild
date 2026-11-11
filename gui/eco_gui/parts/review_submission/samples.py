@@ -1,0 +1,35 @@
+SAMPLES = [
+    {"name": "ほかの人の提出（処理できる）", "props": {
+        "task": {"number": 20, "title": "検索を足す", "state": "open", "assignees": ["octocat"], "branch": "task/20-search", "base": "main",
+                 "task_branch": False, "commits": ["abc1234 検索を足す", "def5678 試験を足す"],
+                 "pull_request": {"number": 21, "url": "https://example.invalid/pull/21", "state": "open", "draft": False, "partial": False, "base": "main"},
+                 "activity": {"mergeable": "MERGEABLE",
+                              "checks": [{"name": "test (windows)", "status": "completed", "conclusion": "success"},
+                                         {"name": "test (linux)", "status": "in_progress", "conclusion": ""},
+                                         {"name": "lint", "status": "completed", "conclusion": "failure"}],
+                              "reviews": [{"author": "hubot", "state": "CHANGES_REQUESTED", "body": "名前を直してください"}],
+                              "comments": [{"author": "octocat", "body": "直しました"}]},
+                 "comments": [{"author": "superFUKA", "body": "来週までに見ます"}]},
+        "access": {"login": "superFUKA", "take_in": {"main": {"allowed": True, "owners": "管理者"}}, "take_in_other": {"allowed": True, "owners": "管理者"}}}},
+    {"name": "ほかの人の提出（処理できない人・確認中の作業空間がある）", "props": {
+        "task": {"number": 20, "title": "検索を足す", "state": "open", "assignees": ["octocat"], "branch": "task/20-search", "base": "develop",
+                 "task_branch": False, "commits": ["abc1234 検索を足す"],
+                 "pull_request": {"number": 21, "url": "https://example.invalid/pull/21", "state": "open", "draft": False, "partial": True, "base": "develop"},
+                 "activity": {"mergeable": "UNKNOWN", "checks": [], "reviews": [], "comments": []}, "comments": []},
+        "access": {"login": "hubot", "take_in": {"develop": {"allowed": False, "owners": "develop を作った alice と管理者"}},
+                   "take_in_other": {"allowed": False, "owners": "管理者"}},
+        "spaces": [{"name": "r21", "path": "C:/work/Calc/.ecobuild/w/r21", "branch": None, "task": None, "review": 21}]}},
+    {"name": "自分の提出（衝突がある）", "props": {
+        "task": {"number": 12, "title": "ログイン画面", "state": "open", "assignees": ["superFUKA"], "branch": "task/12-login", "base": "main",
+                 "task_branch": True, "commits": [],
+                 "pull_request": {"number": 13, "url": "https://example.invalid/pull/13", "state": "open", "draft": False, "partial": False, "base": "main"},
+                 "activity": {"mergeable": "CONFLICTING", "checks": [], "reviews": [], "comments": []}, "comments": []},
+        "access": {"login": "superFUKA", "take_in": {"main": {"allowed": True, "owners": "管理者"}}, "take_in_other": {"allowed": True, "owners": "管理者"}}}},
+    {"name": "ブランチ同士の提出", "props": {
+        "branch": {"name": "develop", "submitted_to": "main",
+                   "submission": {"number": 30, "url": "https://example.invalid/pull/30", "state": "open", "draft": False, "partial": False, "base": "main"}},
+        "access": {"login": "hubot", "take_in": {"main": {"allowed": False, "owners": "管理者"}}, "take_in_other": {"allowed": False, "owners": "管理者"}}}},
+    {"name": "選んでいない", "props": {}},
+    {"name": "読み込み中", "props": {"loading": True}},
+    {"name": "誤り", "props": {"error": "タスク #99 はありません"}},
+]

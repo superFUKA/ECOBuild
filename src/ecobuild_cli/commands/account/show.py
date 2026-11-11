@@ -13,12 +13,17 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
     def action(inv):
         repository = inv.module.repository
         access = repository.access()
-        creators = repository.github.branch_creators(repository.root)
+        creators = repository.branch_creators()
+        bases = sorted({repository.default_base, *(name for name in creators if not name.startswith("task/"))})
         return {"login": access.login, "role": access.role, "owner": access.owner, "owner_type": access.owner_type,
                 "workspace_account": repository.account,
                 "admin": repository.is_admin(), "default_base": repository.default_base,
                 # タスクブランチも入れる（子タスクの作成元。親のタスクブランチを作った人が子タスクを反映できる）
-                "creators": creators}
+                "creators": creators,
+                # 提出を処理（承認・差し戻し・取り込み）できるか・できる人。取り込み先のブランチごと（画面が、灰色と理由に使う）。
+                # take_in_other は、作った人の記録がないブランチ
+                "take_in": {name: {"allowed": repository.can_take_in(name), "owners": repository.take_in_owners(name)} for name in bases},
+                "take_in_other": {"allowed": repository.is_admin(), "owners": "管理者"}}
 
     def render(r):
         own = sorted(name for name, who in r["creators"].items()

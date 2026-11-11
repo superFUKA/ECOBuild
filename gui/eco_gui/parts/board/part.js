@@ -1,10 +1,10 @@
 // 部品「ボード」。段階ごとの列に分けるのは見せ方だけ。カードを別の列へ落とすと、その列に合う入力を出す：
 // 計画中・未着手＝段階を変える（edit）、作業中＝開始の窓、完了＝完了の窓（タスクブランチがなければ close）、削除済み＝削除（remove）。
-// 落としても何も起きない列（レビュー待ち・今と同じ列・タスクブランチのあるタスクの未着手 等）は、落とす先にならない。
+// 落としても移らない列（レビュー待ち・タスクブランチのあるタスクの未着手 等）では、移らないわけを上に出す（次に何かするまで）。
 const RECENT_DONE = 15;
 
 export default {
-  render(root, props, { h, lib, emit, menu, state }) {
+  render(root, props, { h, lib, emit, menu, state, redraw }) {
     const { STAGES } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
     if (props.error) return root.replaceChildren(marks.failed(props.error));
@@ -19,7 +19,15 @@ export default {
       closed = lib.task.filter(source.filter((t) => !marks.open(t) && !marks.deleted(t)), { ...f, closed: true }, marks, props.me).sort(newestDone).slice(0, RECENT_DONE);
     }
     const byNumber = (n) => props.tasks.find((t) => String(t.number) === n) || props.recent.find((t) => String(t.number) === n);
-    // カードをその列へ落としたときに出す入力（なければ、落とす先にならない）
+    // その列へ落としても移らないわけ（今までの GUI の知らせと同じ文）。移るかどうかを決めるのは、出力を受けるコマンド
+    const whyNot = (t, stage, label) => {
+      const has = Boolean(t.task_branch || t.current);
+      if (!marks.open(t)) return stage === 'done' || stage === 'deleted' ? '閉じたタスクは、開き直してから' + label + 'に移してください。' : '閉じたタスクは、開き直して未着手か計画中に戻してから開始してください。';
+      if (stage === 'in_progress') return 'タスクブランチがあるタスクは、すでに作業中です。';
+      if (stage === 'in_review') return 'タスクブランチで提出すると、レビュー待ちに移ります。';
+      return 'タスクブランチがあるタスクです。「作業を捨てる」と未着手に戻ります。';
+    };
+    // カードをその列へ落としたときに出す入力（なければ、移らない）
     const dropOf = (t, stage) => {
       const id = String(t.number), has = Boolean(t.task_branch || t.current), now = marks.stageOf(t);
       if (now === stage) return null;
@@ -32,6 +40,8 @@ export default {
     };
     const columns = [...STAGES.map((s) => [s[0], s[1]]), ...(f.deleted === true ? [['deleted', '削除済み']] : [])];
     const board = h('div', { class: f.deleted === true ? 'kanban with-deleted' : 'kanban' });
+    const note = h('div', { class: 'banner info moved', role: 'status' }, h('span', {}, state.note || ''));
+    note.hidden = !state.note;
     for (const [key, label] of columns) {
       const cards = key === 'done' && closed ? closed : visible.filter((t) => marks.stageOf(t) === key);
       if (key === 'done') cards.sort(newestDone);
@@ -41,7 +51,7 @@ export default {
       column.dataset.stage = key;
       column.addEventListener('dragover', (event) => {
         const t = state.dragged && byNumber(state.dragged);
-        if (!t || !dropOf(t, key)) return;
+        if (!t || marks.stageOf(t) === key) return;
         event.preventDefault();
         column.classList.add('drop');
       });
@@ -51,9 +61,11 @@ export default {
         const t = state.dragged && byNumber(state.dragged);
         const out = t && dropOf(t, key);
         state.dragged = null;
-        if (!out) return;
+        if (!t || marks.stageOf(t) === key) return;
         event.preventDefault();
-        emit(out[0], out[1]);
+        if (out) return emit(out[0], out[1]);
+        state.note = '#' + t.number + '：' + whyNot(t, key, label);
+        redraw();
       });
       for (const t of cards) {
         const card = h('article', { class: 'kcard', draggable: 'true', tabindex: '0' },
@@ -64,6 +76,7 @@ export default {
         card.setAttribute('aria-selected', String(String(t.number) === String(props.selected || '')));
         card.addEventListener('dragstart', (event) => {
           state.dragged = String(t.number);
+          if (state.note) { state.note = ''; note.hidden = true; }
           event.dataTransfer.effectAllowed = 'move';
           event.dataTransfer.setData('text/plain', '#' + t.number);
           card.classList.add('dragging');
@@ -73,6 +86,6 @@ export default {
       }
       board.append(column);
     }
-    root.replaceChildren(board);
+    root.replaceChildren(note, board);
   },
 };

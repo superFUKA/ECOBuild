@@ -114,6 +114,9 @@ class FakeTasks(FakeEcobuild):
         if name == "task new":
             super().run(name, args, context, on_event)
             return {"ok": True, "result": {"task": {"number": 21, "title": given["title"]}, "task_branch": None}}
+        if name == "task prune" and given.get("number"):
+            super().run(name, args, context, on_event)
+            return {"ok": True, "result": {"number": given["number"], "branch": "task/%d-login" % given["number"], "remote": True}}
         if name in ("task close", "task reopen", "task start"):  # 状態が変わる（読み直しで、出るボタンが変わる）
             self.states[given["issue"]].update({"task close": {"state": "closed"}, "task reopen": {"state": "open"},
                                                 "task start": {"task_branch": True, "remote": True}}[name])
@@ -346,6 +349,8 @@ def test_each_dialog_runs_its_command_with_what_was_entered(relay, screen, outpu
     relay.idle()
     assert calls(relay, command) == [expected]
     assert [w["id"] for w in relay.display.windows()] == [window] and notices(relay, "error") == []
+    if screen == "task-prune":
+        assert "手元のタスクブランチ task/12-login を削除しました。" in notices(relay)  # 知らせに、結果の値
 
 
 def test_clean_dialog_previews_what_will_be_removed_and_kept(relay):
@@ -464,6 +469,12 @@ def test_person_dialog_shows_the_account(relay):
     relay.input(dialog["id"], "list", "edit", {"id": "12", "priority": "Low"}, human=True)  # 担当タスクの表の右クリック：一覧と同じ
     relay.idle()
     assert calls(relay, "task edit") == [{"issue": 12, "priority": "Low"}]
+    relay.input(dialog["id"], "list", "dialog", {"screen": "task-edit", "id": "12", "text": ""}, human=True)  # 「編集…」：入力の窓を、さらに中に重ねる
+    relay.idle()
+    nested = inside(relay, dialog["id"])
+    assert nested["screen"] == "task-edit" and nodes(relay, nested["id"])["form"]["props"]["status"]["number"] == 12
+    relay.input(nested["id"], "form", "cancel", {}, human=True)
+    relay.idle()
     relay.input(dialog["id"], "person", "closed", {}, human=True)
     relay.idle()
     assert [w["id"] for w in relay.display.windows()] == [window]

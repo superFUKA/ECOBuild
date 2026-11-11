@@ -13,7 +13,7 @@ SCREEN = {
         {"id": "form", "part": "task-form", "props": {"kind": "prune", "issue": {"arg": "issue"}, "text": {"arg": "text"}}},
     ],
     "bindings": [
-        {"on": "form.prune", "run": "task prune", "notify": "このPCのタスクブランチを片付けました。", "close": True,
+        {"on": "form.prune", "run": "task prune", "notify": "手元のタスクブランチ {branch} を削除しました。", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}},
         {"on": "form.cancel", "close": True},
     ],

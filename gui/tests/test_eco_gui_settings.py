@@ -406,9 +406,10 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     for call in [("config set", {"key": "owner", "value": "octo-org"}), ("config unset", {"key": "owner"}),
                  ("config set", {"key": "agent_claude_version", "value": "stable"}), ("config unset", {"key": "agent_claude_version"})]:
         assert call in relay.backend.calls
-    typed(relay, window, setup_name="Octo Cat")
+    relay.input(window, "setup_fields", "changed", {"name": "Octo Cat", "email": "", "install": False}, human=True)
+    relay.idle()
     press(relay, window, "setup", confirm=True)
-    assert ("setup", {"name": "Octo Cat"}) in relay.backend.calls
+    assert ("setup", {"name": "Octo Cat", "install": False}) in relay.backend.calls
     assert nodes(relay, window)["doctor"]["props"]["items"][0]["name"] == "git"  # 環境チェックは、設定の中に出す
 
 

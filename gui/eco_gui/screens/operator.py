@@ -6,7 +6,7 @@ ecobuild gui conversation で読む。返答を待っている間に届く「実
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720, "refresh": {"focus": True}},
+    "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "operator"}},

@@ -8,8 +8,8 @@ from typing import Annotated
 def part(
     branches: Annotated[list[dict], "ブランチ（branch list の行。タスクブランチも）"] = [],
     selected: Annotated[str | None, "選んでいるブランチ"] = None,
-    default_base: Annotated[str, "既定のブランチ（タスクブランチの作成元）"] = "",
-    creators: Annotated[dict, "ブランチを作った人（名前 → アカウント。account show の creators）"] = {},
+    default_base: Annotated[str | None, "既定のブランチ（タスクブランチの作成元）"] = None,
+    creators: Annotated[dict | None, "ブランチを作った人（名前 → アカウント。account show の creators）"] = None,
     protection: Annotated[dict | None, "既定のブランチの保護（module protection。なければ null）"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",

@@ -39,8 +39,9 @@ export default {
     };
 
     const form = h('form', { class: 'form' });
-    if (props.title) form.append(h('h2', {}, props.title));
+    if (props.title) form.append(h('h2', {}, props.title + (props.subject ? '：' + props.subject : '')));
     if (props.intro) form.append(h('p', { class: 'intro' }, props.intro));
+    if (props.detail) form.append(h('p', { class: 'intro' }, props.detail));
     if (props.error) form.append(h('p', { role: 'alert' }, props.error));
     for (const f of props.fields) {
       if (f.type === 'note') {

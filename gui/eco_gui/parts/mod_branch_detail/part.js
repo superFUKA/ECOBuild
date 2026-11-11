@@ -10,14 +10,14 @@ export default {
       again.addEventListener('click', () => emit('reload', {}));
       out.push(h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, props.error), again));
     }
-    const def = props.default_base;
+    const def = props.default_base || '';
     const b = shared.find((x) => x.name === props.selected) || shared.find((x) => x.name === def) || shared[0];
     if (!b) {
       if (!props.error) out.push(h('p', { role: 'status' }, props.loading ? '読み込み中…' : 'ブランチを選んでください。'));
       return root.replaceChildren(...out);
     }
     const isDefault = b.name === def;
-    const creator = props.creators[b.name] || '';
+    const creator = (props.creators || {})[b.name] || '';
     const button = (action, label, cls, title, more) => {
       const item = h('button', { type: 'button', class: cls || '' }, label);
       if (title) item.title = title;

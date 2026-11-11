@@ -18,7 +18,7 @@ export default {
     if (props.loading && shared.length === 0) return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込み中…'));
     if (shared.length === 0) return root.replaceChildren(h('p', { role: 'status' }, '共有ブランチはありません。'));
 
-    const def = props.default_base;
+    const def = props.default_base || '';
     const selected = shared.some((b) => b.name === props.selected) ? props.selected
       : (shared.find((b) => b.name === def) || shared[0]).name;
     // 届いている提出：タスクの提出（作成元がそのブランチ）と、ブランチの提出（提出先がそのブランチ）

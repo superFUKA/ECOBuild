@@ -11,7 +11,7 @@ def part(
     branch_rows: Annotated[list[dict], "選んだブランチの実行（ci status --branch）"] = [],
     branch: Annotated[str | None, "絞っているブランチ（なければ、すべて）"] = None,
     branches: Annotated[list[dict], "ブランチ（branch list の行。GitHub にあるものを選べる）"] = [],
-    url: Annotated[str, "GitHub のリポジトリの URL（「GitHub で見る」の先）"] = "",
+    url: Annotated[str | None, "GitHub のリポジトリの URL（「GitHub で見る」の先。なければ出さない）"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...

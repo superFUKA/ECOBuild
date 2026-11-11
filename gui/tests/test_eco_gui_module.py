@@ -241,3 +241,140 @@ def test_ci_is_set_up_and_removed_in_the_chosen_workspace(relay):
     relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     answer(relay, form, True)
     assert relay.backend.modules[relay.backend.calls.index(("ci remove", {}))] == "C:/work/Calc/.ecobuild/w/12"
+
+
+# --- 概要 -------------------------------------------------------------------
+def test_overview_shows_the_readme_and_what_the_module_is(relay):
+    window = open_screen(relay, "overview")
+    view = nodes(relay, window)
+    assert view["readme"]["props"]["readme"] == {"path": "README.md", "text": "# Calc\n\n足し算をします。\n", "truncated": False}
+    assert ("module readme", {}) in relay.backend.calls and relay.backend.modules[-1] == "C:/work/Calc"
+    assert view["about"]["props"]["data"]["repository"] == "octocat/Calc" and view["about"]["props"]["data"]["private"] is True
+    assert [row["task"] for row in view["spaces"]["props"]["rows"]] == [12]
+    relay.backend.readme = None  # README のないモジュール
+    relay.input(window, "reload", "pressed", {}, human=True)
+    relay.idle()
+    assert nodes(relay, window)["readme"]["props"]["readme"] is None
+    relay.input(window, "about", "opened", {"page": "tasks"}, human=True)  # 「タスク管理を開く」：同じ窓で切り替える
+    relay.idle()
+    assert relay.display.tree(window)["screen"] == "tasks" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc"}
+
+
+# --- パイプライン -----------------------------------------------------------
+def test_pipelines_show_the_cards_and_the_timings_and_run_one(relay):
+    window = open_screen(relay, "pipelines")
+    view = nodes(relay, window)
+    assert [p["name"] for p in view["list"]["props"]["data"]["pipelines"]] == ["check", "quick"]
+    assert view["timings"]["props"]["data"]["triggers"] == {"before-submit": ["check"]} and view["timings"]["props"]["data"]["local"] == {"before-commit": ["quick"]}
+    relay.input(window, "list", "action", {"action": "run", "name": "check"}, human=True)
+    relay.idle()
+    assert ("pipeline run", {"name": "check"}) in relay.backend.calls
+    assert not [call for call in relay.backend.calls if call[0] in ("pipeline remove", "pipeline add")]  # 押したボタンのコマンドだけ
+
+
+def test_pipelines_are_made_changed_and_removed_in_the_chosen_workspace(relay):
+    window = open_screen(relay, "pipelines")
+    place = "C:/work/Calc/.ecobuild/w/12"
+    relay.input(window, "list", "action", {"action": "edit", "name": "check", "steps": "generated,build,test", "tests": "tests/unit"}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-pipeline-edit")
+    assert nodes(relay, form)["form"]["props"]["initial"] == {"name": "check", "steps": "generated,build,test", "tests": "tests/unit"}
+    relay.input(form, "form", "submitted", {"values": {"place": place, "name": "check", "steps": "build,test", "tests": ""}}, human=True)
+    relay.idle()
+    call = ("pipeline add", {"name": "check", "steps": "build,test"})  # 空の試験は渡さない
+    assert relay.backend.modules[relay.backend.calls.index(call)] == place
+    relay.input(window, "list", "action", {"action": "add"}, human=True)  # 作る：空から
+    relay.idle()
+    form = inside(relay, "mod-pipeline-edit")
+    assert nodes(relay, form)["form"]["props"]["initial"] == {"name": "", "steps": "", "tests": ""}
+    relay.input(form, "form", "cancelled", {}, human=True)
+    relay.idle()
+    assert not [w for w in relay.display.windows() if w["screen"] == "mod-pipeline-edit"]
+    relay.input(window, "list", "action", {"action": "remove", "name": "check", "used": "今、当てているタイミング：提出の前"}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-pipeline-remove")
+    assert nodes(relay, form)["form"]["props"]["subject"] == "check" and "提出の前" in nodes(relay, form)["form"]["props"]["detail"]
+    relay.input(form, "form", "submitted", {"values": {"place": place}}, human=True)
+    relay.idle()
+    assert relay.backend.modules[relay.backend.calls.index(("pipeline remove", {"name": "check"}))] == place
+
+
+def test_pipeline_timings_are_changed_for_the_module_or_only_on_this_pc(relay):
+    window = open_screen(relay, "pipelines")
+    place = "C:/work/Calc/.ecobuild/w/12"
+    relay.input(window, "timings", "changed", {"timing": "before-submit", "local": False, "names": "check", "label": "提出の前"}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-pipeline-timing")
+    view = nodes(relay, form)["form"]["props"]
+    assert view["subject"] == "提出の前" and view["initial"] == {"names": "check"} and [p["name"] for p in view["more"]] == ["check", "quick"]
+    relay.input(form, "form", "submitted", {"values": {"place": place, "names": "check,quick"}}, human=True)
+    relay.idle()
+    call = ("pipeline on", {"timing": "before-submit", "names": "check,quick"})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == place  # モジュールの当て方は、タスクブランチの作業空間で
+    relay.input(window, "timings", "changed", {"timing": "before-commit", "local": True, "names": "quick", "label": "コミットの前"}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-pipeline-local")
+    relay.input(form, "form", "submitted", {"values": {"names": "none"}}, human=True)  # 1つも選ばない：外す
+    relay.idle()
+    call = ("pipeline on", {"timing": "before-commit", "names": "none", "local": True})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc"  # この PC だけの分は、その場で
+
+
+# --- メンバー ---------------------------------------------------------------
+def test_members_show_the_account_and_invite_change_and_remove(relay):
+    window = open_screen(relay, "members")
+    view = nodes(relay, window)
+    assert view["members"]["props"]["account"]["login"] == "superFUKA" and view["members"]["props"]["account"]["role"] == "admin"
+    assert [m["login"] for m in view["members"]["props"]["members"]] == ["octocat", "hubot"]
+    relay.input(window, "members", "action", {"action": "invite", "organization": False}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-member-invite")
+    relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": ""}}, human=True)
+    answer(relay, form, True)  # 招待は、確かめてから（ほかの人に届く）
+    assert ("module members add", {"user": "newbie"}) in relay.backend.calls  # 役割を選ばなければ、渡さない
+    relay.input(window, "members", "action", {"action": "role", "login": "octocat", "role": "write", "organization": True}, human=True)
+    relay.idle()
+    form = inside(relay, "mod-member-role")
+    assert nodes(relay, form)["form"]["props"]["subject"] == "octocat" and nodes(relay, form)["form"]["props"]["initial"] == {"role": "write"}
+    relay.input(form, "form", "submitted", {"values": {"role": "admin"}}, human=True)
+    answer(relay, form, True)
+    assert ("module members add", {"user": "octocat", "role": "admin"}) in relay.backend.calls
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
+    answer(relay, window, False)
+    assert ("module members remove", {"user": "octocat"}) not in relay.backend.calls
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
+    answer(relay, window, True)
+    assert ("module members remove", {"user": "octocat"}) in relay.backend.calls
+    assert [m["login"] for m in nodes(relay, window)["members"]["props"]["members"]] == ["hubot"]  # 変えたら読み直す
+
+
+# --- 履歴 -------------------------------------------------------------------
+def test_history_lists_the_commits_of_a_branch_and_shows_the_selected_one(relay):
+    window = open_screen(relay, "history")
+    view = nodes(relay, window)
+    assert view["log"]["props"]["rows"][0]["sha"] == "abc1234def" and ("log", {"count": 50}) in relay.backend.calls
+    assert not [call for call in relay.backend.calls if call[0] == "show"] and view["detail"]["props"]["text"] == ""  # 選ぶまで、読まない
+    relay.input(window, "log", "selected", {"sha": "abc1234def"}, human=True)
+    relay.idle()
+    view = nodes(relay, window)
+    assert view["log"]["props"]["selected"] == "abc1234def" and view["detail"]["props"]["text"].startswith("commit abc1234def")
+    relay.input(window, "log", "branch", {"name": "feature/mvp"}, human=True)  # ブランチを変える：選択は空に戻る
+    relay.idle()
+    view = nodes(relay, window)
+    assert ("log", {"count": 50, "branch": "feature/mvp"}) in relay.backend.calls
+    assert view["log"]["props"]["branch"] == "feature/mvp" and view["log"]["props"]["selected"] is None and view["detail"]["props"]["text"] == ""
+    relay.input(window, "graph", "pressed", {}, human=True)
+    relay.idle()
+    assert ("log", {"all": True, "gui": True}) in relay.backend.calls
+
+
+# --- 部品 -------------------------------------------------------------------
+def test_the_parts_of_the_module_pages_are_defined_with_samples():
+    eco_gui = importlib.import_module("eco_gui")
+    app = create_app(eco_gui, backend=FakeModule(), roles={"confirm": "confirm-box"})
+    parts = app.relay(threaded=True).parts
+    for name in ("mod-branch-tree", "mod-branch-detail", "mod-form", "mod-ci-config", "mod-runs", "mod-secrets", "mod-readme", "mod-about",
+                 "mod-pipeline-cards", "mod-timings", "mod-members", "mod-commits", "mod-commit-files"):
+        assert name in parts and parts[name].samples
+    # シークレットの値を入れる欄は作らない（登録は端末で）
+    assert "value" not in parts["mod-secrets"].inputs["properties"] and list(parts["mod-secrets"].outputs) == ["removed"]

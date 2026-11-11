@@ -15,6 +15,8 @@ from typing import Annotated
 def part(
     fields: Annotated[list[dict], "欄の並び"],
     title: Annotated[str, "題"] = "",
+    subject: Annotated[str, "題の後ろに「：」で続ける、何についてか（名前など）"] = "",
+    detail: Annotated[str, "説明の下に出す文（対象ごとに変わる説明。空なら出さない）"] = "",
     intro: Annotated[str, "説明"] = "",
     initial: Annotated[dict, "初めの値（名前 → 値）"] = {},
     rows: Annotated[list[dict], "読んだ一覧（source が rows の欄の選べるもの）"] = [],

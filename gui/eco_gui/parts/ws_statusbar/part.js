@@ -16,8 +16,12 @@ export default {
     const hidden = Boolean(props.output_hidden);
 
     const output = h('button', { type: 'button', class: 'status-item', 'aria-pressed': String(!hidden), title: '出力を出す・しまう' }, svg(OUTPUT_ICON), h('span', {}, '出力'));
-    const run = RUN_STATE[props.run || ''];
-    if (run) output.append(h('span', { class: 'status-run ' + props.run, title: `最後の実行：${run[1]}` }, run[0]));
+    // 試験の失敗・0 でない終了コード・通らなかった確認は、コマンドが成功でも「失敗」と出す（出力欄と同じ）
+    const r = props.result || {};
+    const failed = props.run === 'ok' && ((props.kind === 'test' && r.failed) || (props.kind === 'run' && r.returncode) || (props.kind === 'check' && (r.items || []).some((i) => !i.ok)));
+    const ran = failed ? 'bad' : props.run || '';
+    const run = RUN_STATE[ran];
+    if (run) output.append(h('span', { class: 'status-run ' + ran, title: `最後の実行：${run[1]}` }, run[0]));
     output.addEventListener('click', () => emit('action', { name: hidden ? 'show_output' : 'hide_output' }));
 
     const right = h('div', { class: 'status-right' });

@@ -191,6 +191,7 @@ def test_the_toolbar_runs_and_the_output_shows_the_title_the_state_and_the_resul
     relay.backend.failing = True  # コマンドが失敗した：状態は「失敗」
     press(relay, window, "toolbar", "action", name="test")
     assert nodes(relay, window)["out"]["props"]["state"] == "bad" and nodes(relay, window)["foot"]["props"]["run"] == "bad"
+    assert nodes(relay, window)["foot"]["props"]["kind"] == "test"  # ステータスバーも、結果から失敗を読める
 
 
 def test_the_toolbar_takes_in_and_opens_the_dialogs(relay):
@@ -222,6 +223,8 @@ def test_the_toolbar_takes_in_and_opens_the_dialogs(relay):
     assert last(relay) == ("account use", {"clear": True})
     press(relay, window, "toolbar", "action", name="container")
     assert [w["args"] for w in relay.display.windows() if w["screen"] == "container"] == [{"module": PLACE}]
+    press(relay, window, "toolbar", "action", name="agents")
+    assert [w["args"] for w in relay.display.windows() if w["screen"] == "agents"] == [{"module": PLACE}]
 
 
 def test_the_explorer_renames_removes_and_runs_with_the_file_commands(relay):
@@ -337,3 +340,18 @@ def test_the_parts_refuse_inputs_they_do_not_declare(relay):
                                   ("foot", "action", {"name": "delete"}), ("explorer", "selected", {"path": ""})):
         with pytest.raises(RelayError):
             relay.input(window, node, output, payload, human=True)
+
+
+def test_the_scripts_of_the_parts_are_valid_modules():
+    """部品の JS が、モジュールとして読めること（node があるときだけ）。"""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node がありません")
+    parts = Path(__file__).resolve().parent.parent / "eco_gui" / "parts"
+    for script in sorted(parts.glob("ws_*/part.js")) + [parts / "changes" / "part.js", parts / "output" / "part.js"]:
+        done = subprocess.run([node, "--check", "--input-type=module"], input=script.read_bytes(), capture_output=True)
+        assert done.returncode == 0, f"{script}: {done.stderr.decode('utf-8', 'replace')}"

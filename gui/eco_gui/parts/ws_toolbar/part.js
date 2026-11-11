@@ -116,6 +116,11 @@ export default {
       right.append(button);
     }
 
+    // エージェント（この作業空間のエージェントの画面を開く）
+    const agent = h('button', { type: 'button', class: 'vs-button agent-button', 'data-tip': 'この作業空間のエージェント（起動・会話・設定）の画面を開きます' }, 'エージェント');
+    agent.addEventListener('click', () => act('agents'));
+    right.append(h('span', { class: 'agent-group', role: 'group', 'aria-label': 'AI' }, agent));
+
     root.replaceChildren(h('div', { class: 'build-bar', role: 'toolbar', 'aria-label': 'ビルド・テスト・実行' },
       h('div', { class: 'bar-left' }, config, h('span', { class: 'bar-separator', 'aria-hidden': 'true' }), build, test),
       h('div', { class: 'bar-center' }, h('span', { class: 'run-group', role: 'group', 'aria-label': '実行' }, run)), right));

@@ -19,6 +19,10 @@ export default {
     }
     const strip = h('div', { class: 'work-tabs', role: 'tablist', 'aria-label': 'コミット・Push・提出' });
     const pick = (tab) => { memory.set('tab', tab); emit('selected', { tab }); };
+    // コミットして変更がなくなったら、Push のタブへ（今までの GUI と同じ流れ。Push の後に提出へ移るのは、画面のつなぎ）
+    const before = state.before;
+    state.before = { changes, ahead: s.ahead || 0 };
+    if (before && current === 'commit' && before.changes > 0 && changes === 0 && (s.ahead || 0) > before.ahead && tabs.includes('push')) { current = 'push'; pick('push'); }
     for (const tab of tabs) {
       const on = tab === current;
       const button = h('button', { type: 'button', role: 'tab', 'aria-selected': String(on), tabindex: on ? '0' : '-1' }, LABELS[tab]);

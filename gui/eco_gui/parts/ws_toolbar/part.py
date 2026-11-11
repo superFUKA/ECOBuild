@@ -1,7 +1,7 @@
 """作業空間の窓のツールバー。左に構成・ビルド設定、ビルド（▾ リビルド・クリーン・提出前の確認）、テスト（▾）、▶ 実行。
 
 右に「取り込む」（作成元の名前・取り込み済みの版・遅れの数。遅れは黄、衝突の見込みは赤。▾ で選んで取り込む・最新を確認）、
-アカウント（この作業空間だけのアカウントなら色が付く）、コンテナ（コンテナ／このPC）。押したものは action で出す。"""
+アカウント（この作業空間だけのアカウントなら色が付く）、コンテナ（コンテナ／このPC）、エージェント。押したものは action で出す。"""
 from typing import Annotated
 
 
@@ -19,7 +19,7 @@ def part(
 
 def on_action(
     name: Annotated[str, "押したもの（build・rebuild・clean・check・test・test_failed・test_pick・run・sync・sync_pick・fetch・"
-                         "configuration・profile・build_settings・account・container）"],
+                         "configuration・profile・build_settings・account・container・agents）"],
     value: Annotated[str, "configuration：構成の名前（空ならビルド設定のまま）／profile：ビルド設定の名前（none なら使わない）"] = "",
     tests: Annotated[list[str], "test_failed：流す試験"] = [],
 ) -> None:

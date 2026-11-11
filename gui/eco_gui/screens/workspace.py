@@ -179,6 +179,8 @@ SCREEN = {
         {"value": "run_state", "to": "out.state"},
         {"value": "run_result", "to": "out.result"},
         {"value": "run_state", "to": "foot.run"},
+        {"value": "run_kind", "to": "foot.kind"},
+        {"value": "run_result", "to": "foot.result"},
         {"on": "toolbar.action", "when": {"name": "configuration"}, "set": {"build_configuration": {"payload": "value"}}},
         {"on": "toolbar.action", "when": {"name": "profile"}, "run": "profile use", "args": {"module": {"arg": "module"}, "name": {"payload": "value"}}},
         {"on": "toolbar.action", "when": {"name": "build_settings"}, "open": "build", "args": {"module": {"arg": "module"}}},
@@ -216,6 +218,7 @@ SCREEN = {
         {"on": "toolbar.action", "when": {"name": "fetch"}, "refresh": True},
         {"on": "toolbar.action", "when": {"name": "account"}, "open": "ws-account", "args": {"module": {"arg": "module"}}, "inside": True},
         {"on": "toolbar.action", "when": {"name": "container"}, "open": "container", "args": {"module": {"arg": "module"}}},
+        {"on": "toolbar.action", "when": {"name": "agents"}, "open": "agents", "args": {"module": {"arg": "module"}}},
 
         # --- エクスプローラーの操作（ecobuild file move・file remove・restore・ignore・file test・test・sync take） ---
         {"on": "explorer.action", "when": {"name": "reload"}, "refresh": True},

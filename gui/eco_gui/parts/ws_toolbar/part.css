@@ -53,3 +53,5 @@
 .build-bar .bar-right [data-tip]::after { left: auto; right: 0; transform: none; }
 .build-bar .bar-left [data-tip]::after { left: 0; transform: none; }
 @media (max-width: 1060px) { .build-bar .container-button span:not(.icon) { display: none; } }
+.build-bar .agent-group .agent-button { padding: 5px 12px; border-color: #3f7a6c; color: #b8eadb; }
+.build-bar .agent-group .agent-button:hover:not(:disabled) { border-color: #7fcdb8; }

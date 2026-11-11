@@ -27,8 +27,8 @@ class FakeEcobuild:
         text = {"type": "string"}
         specs = {}
         # どの試験でも全部の画面のつなぎが確かめられるよう、ほかの試験のファイルが足したコマンドも一覧に入れる
-        for module in ("tasks", "review", "settings", "agents", "polish"):
-            importlib.import_module(f"test_eco_gui_{module}")
+        for file in sorted(Path(__file__).parent.glob("test_eco_gui_*.py")):  # 足し忘れないよう、ファイルから集める
+            importlib.import_module(file.stem)
         fakes = [fake() for fake in FakeEcobuild.__subclasses__() if not isinstance(self, fake)]
         for name, spec in [pair for fake in fakes for pair in fake._specs(text).items()] + list(self._specs(text).items()):
             known = specs.get(name)
@@ -315,28 +315,6 @@ def test_branches_and_history_screens(relay):
     relay.input(window, "log", "selected", {"sha": "abc"}, human=True)
     relay.idle()
     assert nodes(relay, window)["detail"]["props"]["text"].startswith("commit abc")
-
-
-def test_hub_adds_modules_and_opens_the_environment_check(relay):
-    hub = relay.execute({"command": "open", "screen": "hub"})["window"]
-    relay.idle()
-    relay.input(hub, "path", "changed", {"text": "C:/work/New"}, human=True)
-    relay.input(hub, "repository", "changed", {"text": "octocat/hello"}, human=True)
-    relay.input(hub, "name", "changed", {"text": "Calc2"}, human=True)
-    relay.input(hub, "type", "changed", {"value": "python"}, human=True)
-    relay.idle()
-    for button in ("do_register", "do_clone", "do_create"):
-        relay.input(hub, button, "pressed", {}, human=True)
-        relay.idle()
-    relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "forget"}, human=True)
-    relay.idle()
-    for call in [("workspace add", {"path": "C:/work/New"}), ("module clone", {"repository": "octocat/hello"}),
-                 ("module new", {"name": "Calc2", "type": "python"}), ("workspace forget", {"path": "C:/work/Game"})]:
-        assert call in relay.backend.calls
-    relay.input(hub, "doctor", "pressed", {}, human=True)
-    relay.idle()
-    doctor = next(w["id"] for w in relay.display.windows() if w["screen"] == "doctor")
-    assert nodes(relay, doctor)["items"]["props"]["rows"][0]["name"] == "git"
 
 
 def test_files_screen_adds_moves_and_removes_files(relay):

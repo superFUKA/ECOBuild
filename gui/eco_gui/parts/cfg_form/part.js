@@ -19,15 +19,26 @@ export default {
         return { value: String(row[key] ?? ''), label: from.note && notes.length ? `${label}（${notes.join('・')}）` : label, help: '' };
       });
     };
+    // 今の値のある場所：at がなければ values そのもの。あれば、その名前（名前の並び）をたどった先（なければ、今の値はない）
+    const at = props.at === null || props.at === undefined ? [] : [].concat(props.at);
+    const base = at.some((key) => key === '') ? undefined
+      : at.reduce((data, key) => (data === null || data === undefined ? undefined : data[key]), props.values);
     const initial = (f) => {
-      const read = props.values ? (f.value_from ? lookup(props.values, f.value_from) : props.values[f.name]) : undefined;
+      const read = base && typeof base === 'object' ? (f.value_from ? lookup(base, f.value_from) : base[f.name]) : undefined;
+      if (f.type === 'checkbox' && f.on_value !== undefined) return read === f.on_value;
       if (read !== undefined && read !== null) return Array.isArray(read) ? read.join(f.join || ', ') : read;
       if (f.value !== undefined && f.value !== null) return f.value;
       if (f.type === 'checkbox') return false;
       if (f.type === 'select' || f.type === 'radio') { const first = optionsOf(f)[0]; return first ? first.value : ''; }
       return '';
     };
-    const valueOf = (f) => (state.touched[f.name] ? state.values[f.name] : initial(f));
+    const valueOf = (f) => {
+      if (state.touched[f.name]) return state.values[f.name];
+      const value = initial(f);
+      if (f.type !== 'select' || !f.options_from) return value;
+      const options = optionsOf(f);   // 読んだ一覧から選ぶ欄：初めの値が空なら、先頭のもの（見えているものと同じ）
+      return String(value ?? '') === '' && options.length ? options[0].value : value;
+    };
     const named = fields.filter((f) => f.name && f.type !== 'section' && f.type !== 'note');
     const byName = Object.fromEntries(named.map((f) => [f.name, f]));
     const visible = (f) => !f.show_if || Object.entries(f.show_if).every(([name, want]) => {
@@ -69,7 +80,9 @@ export default {
       }
       let input;
       if (f.type === 'select') {
-        input = h('select', {}, ...optionsOf(f).map((option) => h('option', { value: option.value }, option.label)));
+        const options = optionsOf(f);
+        if (String(now ?? '') !== '' && !options.some((option) => option.value === String(now))) options.push({ value: String(now), label: String(now) });   // 今の値が選択肢になくても、見せる
+        input = h('select', {}, ...options.map((option) => h('option', { value: option.value }, option.label)));
         input.value = String(now ?? '');
         input.addEventListener('change', () => set(f, input.value));
       } else if (f.type === 'textarea') {

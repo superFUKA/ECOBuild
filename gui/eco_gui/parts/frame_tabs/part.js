@@ -153,6 +153,8 @@ export default {
       }
     }
     root.replaceChildren(box);
+    const on = box.querySelector('.tab-group.on');  // タブが多いとき：今のタブを、見える所まで寄せる
+    if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     if (state.list) { const first = box.querySelector('.picker button'); if (first) first.focus(); }
   },
 };

@@ -565,8 +565,23 @@ def test_help_screens_show_the_guide_inside_and_outside_a_module_window(relay):
     assert [call for call in relay.backend.calls] == [("help", {})]  # 読むのは、コマンドの一覧（ecobuild help）だけ
     catalog = nodes(relay, alone)["commands"]["props"]["catalog"]
     assert [c["path"] for c in catalog["commands"]] == ["status"] and list(catalog["types"]) == ["python"]
+    assert notices(relay) == []
+
+
+def test_the_help_of_a_module_window_shows_the_steps_with_commands_to_jump_to(relay):
     window = opened(relay, "help", module="C:/work/Calc")
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "help" and view["body:step6_title"]["props"]["text"].startswith("6.")
-    assert view["body:commands"]["props"]["catalog"]["commands"][0]["path"] == "status"
+    body = view["body"]["props"]
+    assert view["nav"]["props"]["current"] == "help" and view["body"]["part"] == "cfg-help"
+    assert [call for call in relay.backend.calls if call[0] == "help"] == [("help", {})]  # 読むのは、コマンドの一覧（ecobuild help）だけ
+    assert body["catalog"]["commands"][0]["path"] == "status" and list(body["catalog"]["types"]) == ["python"]
+    # 使い方：6つの手順。それぞれに場所と、コマンド一覧へ飛ぶコマンドの名前
+    assert len(body["steps"]) == 6 and body["steps"][2]["commands"] == ["task start", "status"]
+    assert all(step["title"] and step["where"] and step["text"] and step["commands"] for step in body["steps"])
+    assert [term["term"] for term in body["terms"]][:3] == ["モジュール", "型", "タスク"]
+    # コマンド一覧の見出し：用途ごと。一番上のコマンドは、どれか1つの見出しにだけ入る
+    titles = [category["title"] for category in body["categories"]]
+    assert titles[:2] == ["タスクと作業", "ビルドと開発"] and "AI" in titles
+    names = [name for category in body["categories"] for name in category["commands"]]
+    assert len(names) == len(set(names)) and {"task", "build", "sync", "agent", "module"} <= set(names)
     assert notices(relay) == []

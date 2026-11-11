@@ -53,7 +53,7 @@ def changes(**values) -> tuple[dict, str | None]:
     def given(option):
         return context.get_parameter_source(option) not in (ParameterSource.DEFAULT, ParameterSource.DEFAULT_MAP)
 
-    converters = {"model": str.strip, "tools": split_list, "skills": split_list, "children": split_list, "evaluation": str.strip,
+    converters = {"model": str.strip, "tools": split_list, "skills": split_list, "children": split_list, "first_prompt": str.strip, "evaluation": str.strip,
                   "lessons": str.strip}
     fields = {key: converters.get(key, lambda v: v)(value) for key, value in values.items()
               if key != "document" and given(key)}

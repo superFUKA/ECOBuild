@@ -215,4 +215,8 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
    節：設定・エージェント・ヘルプ（settings・container・agents ほか・help）
    -------------------------------------------------------------------------- */
 
+/* cfg-fill-page：ページ自身はスクロールせず、中の1つ（look cfg-fill）が残りの高さを使って自分でスクロールする（エージェント） */
+[data-gf-look="cfg-fill-page"] { flex: 1; min-width: 0; min-height: 0; padding: 20px 24px 20px; overflow: hidden; flex-wrap: nowrap; }
+[data-gf-look="cfg-fill"] { flex: 1; min-height: 0; }
+
 /* （設定・エージェント・ヘルプの節の終わり） */

@@ -17,11 +17,11 @@ def part(
 
 
 def on_action(
-    action: Annotated[str, "押した操作：merge（取り込み・提出…）・delete（削除…）・protect（保護の設定…）・unprotect（保護を外す）・task（タスクを開く）"],
+    action: Annotated[str, "押した操作：merge（取り込み・提出…）・delete（削除…）・upgrade（最新の仕様にする…）・protect（保護の設定…）・unprotect（保護を外す）・task（タスクを開く）"],
     name: Annotated[str, "ブランチの名前"],
     task: Annotated[int, "タスクの番号（task のとき）"] = 0,
 ) -> None:
-    if action not in ("merge", "delete", "protect", "unprotect", "task"):
+    if action not in ("merge", "delete", "upgrade", "protect", "unprotect", "task"):
         raise ValueError(f"知らない操作です：{action}")
 
 

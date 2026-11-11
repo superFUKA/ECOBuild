@@ -10,13 +10,13 @@ SCREEN = {
     "window": {"title": "パイプライン", "width": 620, "height": 620},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "パイプラインを作る・変える", "ok": "決める",
             "intro": "選んだ手順を、上から順に行います。作っただけでは走りません（「▶ 実行」か、タイミングに当てて走らせます）。",
             "initial": {"name": {"arg": "name"}, "steps": {"arg": "steps"}, "tests": {"arg": "tests"}},
             "fields": [
-                {"name": "place", "label": "変えるタスクブランチ（作業空間）", "type": "select", "source": "rows", "value_key": "path",
-                 "label_key": "branch", "note_key": "path", "where": {"review": None}, "required": True,
+                {"name": "place", "label": "変えるタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "rows", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
                 {"name": "name", "label": "名前（例：quick、full。同じ名前があれば、その中身を変えます）", "type": "text", "required": True},
                 {"name": "steps", "label": "手順", "type": "checks", "join": ",", "required": True, "options": [

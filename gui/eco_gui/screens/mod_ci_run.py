@@ -7,11 +7,11 @@ SCREEN = {
     "window": {"title": "CIを手動で実行", "width": 560, "height": 320},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "CIを手動で実行", "ok": "実行", "initial": {"branch": {"arg": "branch"}},
             "intro": "GitHub にあるブランチの内容で CI を動かします（手元の未Pushのコミットは入りません）。",
             "fields": [
-                {"name": "branch", "label": "ブランチ", "type": "select", "source": "rows", "where": {"remote": True},
+                {"name": "branch", "label": "ブランチ", "type": "select", "options_from": {"source": "rows", "where": {"remote": True}},
                  "none_label": "作成元のブランチ（既定）"},
             ]}},
     ],

@@ -3,8 +3,6 @@
 h2 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
 p { margin: 8px 0; line-height: 1.7; }
 .intro { color: var(--gf-muted); font-size: 13px; white-space: pre-wrap; }
-.outcome { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 4px 0 10px; padding: 8px 12px; border: 1px solid var(--eco-line); border-radius: 7px; background: #1b2128; }
-.outcome dt { color: #8d98a6; font-size: 12px; } .outcome dd { margin: 0; color: var(--gf-fg); font-size: 13px; }
 form { margin: 0; }
 [hidden] { display: none !important; }
 label.field { display: grid; gap: 6px; margin: 12px 0; font-size: 13px; }

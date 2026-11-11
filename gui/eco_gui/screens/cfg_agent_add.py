@@ -7,7 +7,7 @@ SCREEN = {
     "window": {"title": "エージェントを追加", "width": 560, "height": 640},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "cfg-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "エージェントを追加", "ok": "追加",
             "intro": "このモジュールのエージェント（役）を足します。保存するとリポジトリにコミットし、提出して取り込まれると起動できます。",
             "fields": [
@@ -15,7 +15,7 @@ SCREEN = {
                     {"value": "preset", "label": "プリセットから作成", "help": "プリセットを写して、名前を付けて足します"},
                     {"value": "new", "label": "新規作成", "help": "空の役を作ります（文書・ツールは後で）"}]},
                 {"name": "from_preset", "label": "元にするプリセット", "type": "select", "show_if": {"how": "preset"},
-                 "options_from": {"value": "name", "label": "title", "note": "source",
+                 "options_from": {"value": "name", "label": "title", "note": ["name", "source"],
                                   "note_labels": {"sample": "見本", "preset": "このPCのプリセット", "module": "モジュールの登録"}}},
                 {"name": "name", "label": "名前（英小文字・数字・-・_）", "placeholder": "例：reviewer", "required": True,
                  "help": "プリセットから作るときは、空ならプリセットと同じ名前", "empty_uses": "from_preset"},

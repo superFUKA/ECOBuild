@@ -1,7 +1,7 @@
 """提出：1つのタスクの提出。状態・CI・入るコミット・やりとりを見て、確認・承認・差し戻し・取り下げ・取り込みをする。
 
 どのボタンを出すか・押せるかは、部品が、読んだ答えのとおりに出す：自分の提出か（担当者が自分）、処理できるか（account show の
-take_in）、確認中の作業空間があるか（module show の workspaces の review）。入力の要る操作は、入力の窓（review_form）を重ねて開く。
+take_in）、確認中の作業空間があるか（module show の workspaces の review）。入力の要る操作は、入力の窓（task_approve・task_finish 等。部品 form）を重ねて開く。
 """
 
 ARGS = {"module": ".", "task": ""}  # モジュールのフォルダー・タスクの番号（表の行の ID のまま、文字で受ける。コマンドへは数で渡る）
@@ -37,15 +37,15 @@ SCREEN = {
         {"on": "detail.action", "when": {"action": "withdraw"}, "run": "task withdraw",
          "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "notify": "提出を取り下げました。"},
         # 入力の要る操作：入力の窓を重ねて開く（何が起きるかの表つき）
-        {"on": "detail.action", "when": {"action": "comment"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "comment", "id": {"payload": "id"}}},
-        {"on": "detail.action", "when": {"action": "reject"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "reject", "id": {"payload": "id"}}},
-        {"on": "detail.action", "when": {"action": "approve"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "approve", "id": {"payload": "id"}, "base": {"payload": "base"}, "partial": {"payload": "partial"}}},
-        {"on": "detail.action", "when": {"action": "finish"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "finish", "id": {"payload": "id"}, "base": {"payload": "base"}, "partial": {"payload": "partial"}}},
-        {"on": "detail.action", "when": {"action": "apply"}, "open": "review-form", "inside": True,
-         "args": {"module": {"arg": "module"}, "kind": "apply", "id": {"payload": "id"}, "base": {"payload": "base"}}},
+        {"on": "detail.action", "when": {"action": "comment"}, "open": "task-comment", "inside": True,
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        {"on": "detail.action", "when": {"action": "reject"}, "open": "task-reject", "inside": True,
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        {"on": "detail.action", "when": {"action": "approve"}, "open": "task-approve", "inside": True,
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        {"on": "detail.action", "when": {"action": "finish"}, "open": "task-finish", "inside": True,
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        {"on": "detail.action", "when": {"action": "apply"}, "open": "task-apply", "inside": True,
+         "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
     ],
 }

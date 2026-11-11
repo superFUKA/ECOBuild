@@ -42,7 +42,9 @@ SCREEN = {
         # 提出
         {"id": "submit_panel", "layout": "column", "look": "ws-panel", "children": ["pull_request", "submit_row"]},
         {"id": "pull_request", "part": "ws-submission"},
-        {"id": "submit_row", "layout": "row", "look": "end", "children": ["open_submission", "submit"]},
+        {"id": "submit_row", "layout": "row", "look": "end", "children": ["open_submission", "submit_with", "submit"]},
+        {"id": "submit_with", "part": "button", "props": {
+            "label": "内容を決めて提出…", "hint": "題名・下書き・見てもらう人を決める。作成元と衝突するファイルがあれば、先に知らせます"}},
         {"id": "open_submission", "part": "button", "props": {"label": "提出を開く…", "hint": "提出の状態・差分・レビューを見る。承認・差し戻し・取り込みもここから"}},
         {"id": "submit", "part": "button", "props": {"label": "提出", "primary": True, "hint": "作成元への取り込みを頼む（ecobuild task submit）"}},
         # ログ
@@ -151,6 +153,7 @@ SCREEN = {
         {"on": "push_list.action", "when": {"name": "drop"}, "run": "task reset", "args": {"module": {"arg": "module"}, "commit": {"payload": "before"}},
          "notify": "コミットを捨てました。"},
         {"on": "submit.pressed", "run": "task submit", "args": {"module": {"arg": "module"}}, "notify": "提出しました。"},
+        {"on": "submit_with.pressed", "open": "task-submit", "inside": True, "args": {"module": {"arg": "module"}}},
         {"on": "open_submission.pressed", "open": "submission", "args": {"module": {"arg": "module"}, "task": {"value": "task_number"}}},
 
         # --- 帯のボタン ---
@@ -169,7 +172,8 @@ SCREEN = {
         {"on": "b_behind.action", "when": {"name": "sync"}, "run": "sync", "args": {"module": {"arg": "module"}}, "notify": "取り込みました。"},
         {"on": "b_left.action", "when": {"name": "discard_left"}, "run": "restore", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}},
          "require": ["paths"], "notify": "変更を捨てました。"},
-        {"on": "b_format.action", "when": {"name": "upgrade"}, "run": "module upgrade", "args": {"module": {"arg": "module"}}, "notify": "最新の仕様にしました。"},
+        # 最新の仕様にする：入力の窓（下見で、変えるファイルを先に見せる。実行は、その窓から）
+        {"on": "b_format.action", "when": {"name": "upgrade"}, "open": "mod-upgrade", "inside": True, "args": {"module": {"arg": "module"}}},
 
         # --- ツールバー：ビルド・テスト・実行（動かした道具の出力を、下の出力欄へ続けて出す。結果は共有の値へ） ---
         {"value": "build_configuration", "to": "toolbar.configuration"},

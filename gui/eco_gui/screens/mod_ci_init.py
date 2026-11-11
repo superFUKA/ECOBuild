@@ -10,22 +10,22 @@ SCREEN = {
     "window": {"title": "CIの設定", "width": 620, "height": 640},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "CIの設定", "ok": "作る（作り直す）",
             "intro": "ワークフロー（.github/workflows/ecobuild.yml）を、この設定で作り直します。設定は ecobuild.toml の [ci] に残ります。"
                      "コミットして提出し、取り込むと反映されます。",
             "initial": {"os": {"arg": "os"}, "configuration": {"arg": "configuration"}, "shared": {"arg": "shared"}, "branches": {"arg": "branches"}},
             "fields": [
-                {"name": "place", "label": "作り直すタスクブランチ（作業空間）", "type": "select", "source": "rows", "value_key": "path",
-                 "label_key": "branch", "note_key": "path", "where": {"review": None}, "required": True,
+                {"name": "place", "label": "作り直すタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "rows", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
                 {"name": "os", "label": "動かすOS（どれも選ばなければ、今の設定のまま。初めは型の既定）", "type": "checks", "join": ",",
                  "options": [{"value": "windows", "label": "Windows"}, {"value": "linux", "label": "Linux"}]},
                 {"name": "configuration", "label": "ビルドする構成（カンマ区切り）", "type": "text", "required": True, "placeholder": "例：Debug,Release"},
-                {"name": "shared", "label": "ライブラリを共有ライブラリにした構成でもビルド・テストする（C++）", "type": "toggle", "on": "on", "off": "off"},
+                {"name": "shared", "label": "ライブラリを共有ライブラリにした構成でもビルド・テストする（C++）", "type": "checkbox", "on": "on", "off": "off"},
                 {"name": "branches", "label": "push で動かすブランチ（カンマ区切り。空欄なら今の設定のまま。初めは作成元のブランチ）", "type": "text",
                  "placeholder": "例：main,develop"},
-                {"name": "force", "label": "手で編集したワークフローでも上書きする（編集した内容は失われます）", "type": "toggle"},
+                {"name": "force", "label": "手で編集したワークフローでも上書きする（編集した内容は失われます）", "type": "checkbox"},
             ]}},
     ],
     "bindings": [

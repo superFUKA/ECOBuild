@@ -7,11 +7,11 @@ SCREEN = {
     "window": {"title": "ブランチを作成", "width": 560, "height": 360},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "ブランチを作成", "ok": "作成", "initial": {"base": {"arg": "base"}},
             "fields": [
                 {"name": "name", "label": "ブランチ名（task/ で始まる名前はタスクブランチ専用）", "type": "text", "required": True, "placeholder": "例：develop"},
-                {"name": "base", "label": "作成元", "type": "select", "source": "rows", "where": {"is_task_branch": False},
+                {"name": "base", "label": "作成元", "type": "select", "options_from": {"source": "rows", "where": {"is_task_branch": False}},
                  "none_label": "既定（default_base）"},
             ]}},
     ],

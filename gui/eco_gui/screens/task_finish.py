@@ -1,21 +1,35 @@
 """入力の窓：提出を取り込む（ecobuild task finish <番号> [--subject …] [--ignore-checks] --complete か --partial）。
 
-タスク管理の画面の中に重ねて開く。うまくいったら閉じる（Esc・キャンセルでも閉じる）。
+タスク管理・提出の画面の中に重ねて開く。上に「何が起きるか」の表（「タスクを完了する」の印で、タスクの行が変わる）。
+中間提出なら、初めは「タスクを完了する」が外れている。うまくいったら閉じる（Esc・キャンセルでも閉じる）。
 """
 
-ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（新しいタスク：親タスクの番号）
+ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（使わない）
 
 SCREEN = {
     "root": "page",
     "window": {"title": "取り込む", "width": 560, "height": 460},
     "nodes": [
         {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
-        {"id": "form", "part": "task-form", "props": {"kind": "finish", "issue": {"arg": "issue"}, "text": {"arg": "text"}}},
+        {"id": "form", "part": "form", "props": {
+            "title": "取り込む：#{issue}", "ok": "取り込む", "vars": {"issue": {"arg": "issue"}},
+            "outcome": [
+                {"label": "取り込み", "text": "CI を待って、提出を作成元（{base}）へ取り込みます"},
+                {"label": "タスク", "text": "閉じて、タスクブランチを片付けます", "show_if": {"complete": True}},
+                {"label": "タスク", "text": "閉じずに続けます（タスクブランチを作成元の最新から作り直します）", "show_if": {"complete": False}},
+            ],
+            "fields": [
+                {"name": "subject", "label": "取り込むコミットの件名（空ならタスクの題名）"},
+                {"name": "ignore_checks", "label": "CIが失敗していても取り込む", "type": "checkbox"},
+                {"name": "complete", "label": "タスクを完了する", "type": "checkbox", "value_from": "pull_request.partial", "off_value": True,
+                 "inverse": "partial"},
+            ]}},
     ],
     "bindings": [
-        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "body": True}, "to": "form.status"},
-        {"on": "form.finish", "run": "task finish", "notify": "取り込みました。", "close": True,
-         "args": {"module": {"arg": "module"}, "number": {"payload": "id"}, "subject": {"payload": "subject"}, "ignore_checks": {"payload": "ignore_checks"}, "complete": {"payload": "complete"}, "partial": {"payload": "partial"}}},
-        {"on": "form.cancel", "close": True},
+        {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
+        {"on": "form.submitted", "run": "task finish", "notify": "取り込みました。", "close": True,
+         "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "subject": {"payload": "values.subject"},
+                  "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}}},
+        {"on": "form.cancelled", "close": True},
     ],
 }

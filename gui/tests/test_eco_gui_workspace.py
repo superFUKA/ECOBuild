@@ -150,8 +150,14 @@ def test_the_other_banners_run_the_commands_of_their_buttons(relay):
     window = opened(relay, "workspace", PLACE)
     press(relay, window, "b_behind", "action", name="sync")
     assert last(relay) == ("sync", {})
+    # 最新の仕様にする：入力の窓が、下見（変えるファイル）を見せてから実行する
+    relay.backend.preview = lambda name, args: {"ok": True, "result": {"format": 4, "latest_format": 5, "paths": ["ecobuild.toml"], "skipped": []}}
     press(relay, window, "b_format", "action", name="upgrade")
-    assert last(relay) == ("module upgrade", {})
+    form = inside(relay, window, "mod-upgrade")
+    assert nodes(relay, form)["form"]["props"]["values"]["paths"] == ["ecobuild.toml"]
+    relay.input(form, "form", "submitted", {"values": {}}, human=True)
+    relay.idle()
+    assert last(relay)[0] == "module upgrade" and relay.backend.modules[-1] == PLACE
     relay.input(window, "b_left", "action", {"name": "discard_left", "paths": ["a.py", "new.txt"]}, human=True)
     answer(relay, window, True)
     relay.idle()

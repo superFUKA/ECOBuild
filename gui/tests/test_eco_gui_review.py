@@ -26,6 +26,7 @@ class FakeReview(FakeEcobuild):
         self.stopped = "merge"  # 止まっている操作（続ける・やめるまで）
         self.resolved = set()  # 直して保存した、衝突したファイル
         self.previews = []
+        self.plans = []  # 下見を読んだコマンド
         self.submitted = {12: "open", 20: "open", 30: None}  # タスク → 提出の状態（30 は、まだ提出していない）
 
     def _specs(self, text):
@@ -33,7 +34,7 @@ class FakeReview(FakeEcobuild):
         numbers = {"type": "array", "items": number}
         specs = super()._specs(text)
         specs["task list"] = _spec("read", submitted=flag, to_review=flag)
-        specs["task status"] = _spec("read", number=numbers, issue=number)
+        specs["task status"] = _spec("read", number=number, issue=number)
         specs["task diff"] = _spec("read", number=numbers, task=number)
         specs["task review"] = _spec("change", number=numbers, task=number, done=flag)
         specs["task approve"] = _spec("confirm", ["task"], task=number, message=text, subject=text, ignore_checks=flag)
@@ -41,15 +42,16 @@ class FakeReview(FakeEcobuild):
         specs["task comment"] = _spec("change", number=number, issue=number, message=text)
         for name in ("task withdraw", "task revert"):
             specs[name] = _spec("confirm", number=numbers, task=number)
-        specs["task finish"] = _spec("confirm", number=numbers, task=number, subject=text, ignore_checks=flag, partial=flag, complete=flag)
-        specs["task apply"] = _spec("confirm", number=numbers, task=number, subject=text, partial=flag)
+        specs["task finish"] = _spec("confirm", number=number, task=number, subject=text, ignore_checks=flag, partial=flag, complete=flag)
+        specs["task apply"] = _spec("confirm", number=number, task=number, subject=text, partial=flag)
         specs["branch merge"] = {**_spec("confirm", ["name"], name=text, into=text, ignore_checks=flag), "dry_run": True}
         specs["branch submit"] = _spec("confirm", ["name"], name=text, into=text, title=text)
         specs["branch resolve"] = _spec("change", ["name"], name=text, into=text)
         specs["sync take"] = _spec("change", paths={"type": "array", "items": text}, side=text)
         specs["sync conflicts"] = _spec("read", paths={"type": "array", "items": text})
         specs["sync resolve"] = _spec("change", ["path"], path=text, side=text, hunk=text, text=text)
-        specs["task submit"] = _spec("confirm", title=text, draft=flag, reviewer=text, partial=flag, complete=flag)
+        specs["task submit"] = _spec("confirm", title=text, draft=flag, reviewer=text, partial=flag, complete=flag, check=flag)
+        specs["status"] = _spec("read", fetch=flag)
         specs["sync continue"] = _spec("change")
         specs["sync abort"] = _spec("confirm")
         return specs
@@ -65,13 +67,14 @@ class FakeReview(FakeEcobuild):
             return {"ok": True, "result": [theirs] if given.get("to_review") else [mine, theirs]}
         if name == "task status":
             super().run(name, args, context, on_event)
-            state = self.submitted[given["issue"]]
+            issue = given.get("issue") or given.get("number")  # 提出の画面は --issue、入力の窓は番号で読む
+            state = self.submitted[issue]
             return {"ok": True, "result": {
-                "number": given["issue"], "title": "検索", "assignees": ["octocat"], "branch": "task/20-search", "base": "main",
+                "number": issue, "title": "検索", "assignees": ["octocat"], "branch": "task/20-search", "base": "main",
                 "workspace": None, "commits": ["abc 検索を足す"],
-                "task_branch": given["issue"] != 20,  # 20 はほかの人の提出（手元にタスクブランチがない）。ほかは、この PC で作業している
+                "task_branch": issue != 20,  # 20 はほかの人の提出（手元にタスクブランチがない）。ほかは、この PC で作業している
                 "pull_request": None if state is None else {
-                    "number": 21, "url": "https://example.invalid/pull/21", "state": state, "draft": False, "partial": False, "base": "main"},
+                    "number": 21, "url": "https://example.invalid/pull/21", "state": state, "draft": False, "partial": issue == 20, "base": "main"},
                 "activity": None if state is None else {
                     "reviews": [{"author": "hubot", "state": "COMMENTED", "body": "名前を直して"}], "comments": [{"author": "octocat", "body": "直しました"}],
                     "checks": [{"name": "test", "status": "completed", "conclusion": "success"}], "mergeable": "MERGEABLE"}}}
@@ -121,6 +124,15 @@ class FakeReview(FakeEcobuild):
     def dry_run(self, name, args):
         self.previews.append((name, {key: value for key, value in args.items() if key != "module"}))
         return "dev → main：早送り（入るコミット 2 件・変わるファイル 3 件）"
+
+    def preview(self, name, args):
+        """下見（--dry-run --json の結果）：release へは衝突する。ほかは早送り。"""
+        self.plans.append((name, {key: value for key, value in args.items() if key != "module"}))
+        clash = args.get("into") == "release"
+        return {"ok": True, "result": {
+            "name": args["name"], "into": args.get("into"), "method": "conflict" if clash else "fast-forward",
+            "commits": [{"sha": "abc1234def", "subject": "検索を足す", "author": "octocat", "date": "2026-11-10T09:00:00+09:00"}], "commit_count": 2,
+            "files": ["src/app.py"], "file_count": 3, "conflicts": ["src/app.py"] if clash else [], "resolved": [], "allowed": True, "owners": ""}}
 
 
 @pytest.fixture
@@ -267,17 +279,19 @@ def test_submission_checks_here_and_withdraws(relay):
         relay.input(mine, "detail", "action", {"action": "delete", "id": "12"}, human=True)  # 決まったボタンだけ
 
 
+FORMS = {"approve": "task-approve", "reject": "task-reject", "comment": "task-comment", "finish": "task-finish", "apply": "task-apply",
+         "merge": "review-merge"}
+
+
 def form(relay, window, action, task=20, **more):
-    """提出の詳細のボタンから、入力の窓を開く。"""
+    """提出の詳細のボタンから、入力の窓（共通の部品 form の画面）を開く。"""
     act(relay, window, action, task, **more)
-    return inside(relay, "review-form")
+    return inside(relay, FORMS[action])
 
 
 def submit(relay, opened, yes=None, **values):
     """入力の窓で実行を押す。yes を渡すと、出てきた確認に答える。"""
-    props = nodes(relay, opened["id"])["form"]["props"]
-    blank = {"message": "", "subject": "", "title": "", "reviewer": "", "ignore_checks": False, "draft": False, "complete": False, "partial": False}
-    relay.input(opened["id"], "form", "submitted", {"kind": props["kind"], "id": props["id"], **blank, **values}, human=True)
+    relay.input(opened["id"], "form", "submitted", {"values": values}, human=True)
     if yes is not None:
         answer(relay, opened["id"], yes)
     relay.idle()
@@ -285,15 +299,18 @@ def submit(relay, opened, yes=None, **values):
 
 def test_submission_opens_the_forms_with_what_they_need(relay):
     window = submission(relay)
-    opened = form(relay, window, "approve", partial=True)
-    assert opened["parent"] == window
-    assert nodes(relay, opened["id"])["form"]["props"] == {"kind": "approve", "id": "20", "base": "main", "partial": True, "submitted": False}
+    opened = form(relay, window, "approve")
+    assert opened["parent"] == window and opened["args"] == {"module": "C:/work/Calc", "issue": 20}
+    props = nodes(relay, opened["id"])["form"]["props"]
+    # 何が起きるかの表は、読んだタスクの状態から（作成元・中間提出か）
+    assert props["vars"] == {"issue": 20} and props["values"]["base"] == "main" and props["values"]["pull_request"]["partial"] is True
+    assert [row["label"] for row in props["outcome"]] == ["取り込み", "タスク", "タスク"]
     relay.input(opened["id"], "form", "cancelled", {}, human=True)  # キャンセルは、何もせずに閉じる
     relay.idle()
     assert opened["id"] not in [w["id"] for w in relay.display.windows()] and last(relay, "task approve") is None
-    for action, kind in (("reject", "reject"), ("comment", "comment"), ("finish", "finish"), ("apply", "apply")):
+    for action in ("reject", "comment", "finish", "apply"):
         opened = form(relay, window, action)
-        assert nodes(relay, opened["id"])["form"]["props"]["kind"] == kind
+        assert nodes(relay, opened["id"])["form"]["part"] == "form"
         relay.input(opened["id"], "form", "cancelled", {}, human=True)
         relay.idle()
 
@@ -309,12 +326,10 @@ def test_forms_approve_reject_and_comment(relay):
     assert notices(relay)[-1] == "承認して取り込みました。"
 
     opened = form(relay, window, "approve")
-    submit(relay, opened, yes=True)
+    submit(relay, opened, yes=True, message="", subject="", ignore_checks=False)
     assert last(relay, "task approve") in ({"task": 20}, {"task": 20, "ignore_checks": False})  # 書かなかった欄は渡さない
 
     opened = form(relay, window, "reject")
-    with pytest.raises(Exception):
-        relay.input(opened["id"], "form", "submitted", {"kind": "reject", "id": "20", "message": " "}, human=True)  # 直してほしいことが要る
     submit(relay, opened, yes=True, message="試験を足してください")
     assert last(relay, "task reject") == {"task": 20, "message": "試験を足してください"}
 
@@ -324,38 +339,21 @@ def test_forms_approve_reject_and_comment(relay):
     assert opened["id"] not in [w["id"] for w in relay.display.windows()]
 
 
-def test_forms_finish_complete_and_apply(relay):
+def test_forms_finish_and_apply(relay):
     window = submission(relay, 12)
     opened = form(relay, window, "finish", 12)
     submit(relay, opened, yes=True, subject="ログイン画面を足す", ignore_checks=True, complete=False, partial=True)
-    assert last(relay, "task finish") == {"task": 12, "subject": "ログイン画面を足す", "ignore_checks": True, "partial": True, "complete": False}
+    assert last(relay, "task finish") == {"number": 12, "subject": "ログイン画面を足す", "ignore_checks": True, "partial": True, "complete": False}
     opened = form(relay, window, "finish", 12)
-    submit(relay, opened, yes=True, complete=True, partial=False)
-    assert last(relay, "task finish") == {"task": 12, "ignore_checks": False, "partial": False, "complete": True}
+    submit(relay, opened, yes=True, subject="", ignore_checks=False, complete=True, partial=False)
+    assert last(relay, "task finish") == {"number": 12, "ignore_checks": False, "partial": False, "complete": True}
 
     opened = form(relay, window, "apply", 12)
-    submit(relay, opened, yes=True, complete=False, partial=True)
+    submit(relay, opened, yes=True, subject="", complete=False, partial=True)
     assert last(relay, "task apply") == {"task": 12, "partial": True}
 
-    done = relay.execute({"command": "open", "screen": "review-form", "inside": window,
-                          "args": {"module": "C:/work/Calc", "kind": "complete", "id": "12", "base": "main", "submitted": True}})["window"]
-    relay.idle()
-    assert nodes(relay, done)["form"]["props"]["submitted"] is True
-    relay.input(done, "form", "submitted", {"kind": "complete", "id": "12", "ignore_checks": True, "complete": True}, human=True)
-    answer(relay, done, True)
-    assert last(relay, "task finish") == {"task": 12, "ignore_checks": True, "complete": True}  # 完了にする：いつも --complete
 
-
-def test_forms_submit_and_merge_a_branch_submission(relay):
-    window = relay.execute({"command": "open", "screen": "review-form",
-                            "args": {"module": "C:/work/Calc/.ecobuild/w/12", "kind": "submit", "base": "main"}})["window"]
-    relay.idle()
-    relay.input(window, "form", "submitted", {"kind": "submit", "id": "", "title": "ログイン画面", "draft": True, "reviewer": "octocat",
-                                              "complete": False, "partial": True}, human=True)
-    answer(relay, window, True)
-    assert last(relay, "task submit") == {"title": "ログイン画面", "draft": True, "reviewer": "octocat", "partial": True, "complete": False}
-    assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"  # 提出は、その作業空間で
-
+def test_forms_merge_a_branch_submission(relay):
     detail = relay.execute({"command": "open", "screen": "review-branch", "args": {"module": "C:/work/Calc", "branch": "dev"}})["window"]
     relay.idle()
     opened = form(relay, detail, "merge", "dev")
@@ -388,13 +386,20 @@ def merge(relay):
 def test_merge_takes_a_branch_into_another_after_showing_what_it_does(relay):
     window = merge(relay)
     view = nodes(relay, window)
-    assert [view[button]["wrap"]["kind"] for button in ("merge", "resolve", "submit")] == ["unavailable"] * 3  # 取り込み先を選ぶまで押せない
+    assert view["submit"]["wrap"]["kind"] == "unavailable"  # 取り込み先を選ぶまで押せない
+    assert [view[button]["wrap"]["kind"] for button in ("merge", "resolve")] == ["hidden"] * 2  # 取り込む・衝突を直すは、下見の方式が決まるまで出さない
+    assert view["plan"]["props"].get("plan") is None and relay.backend.plans == []  # 選ぶまで、下見も読まない
     with pytest.raises(Exception):
         relay.input(window, "merge", "pressed", {}, human=True)
     relay.input(window, "targets", "action", {"id": "main", "action": "choose"}, human=True)
     relay.idle()
     view = nodes(relay, window)
-    assert view["chosen"]["props"]["text"] == "main" and [view[button]["wrap"] for button in ("merge", "resolve", "submit")] == [None] * 3
+    assert view["chosen"]["props"]["text"] == "main" and [view[button]["wrap"] for button in ("merge", "submit")] == [None] * 2
+    # 取り込む前の確かめ：下見（--dry-run）の結果がカードに出る。早送りなら「直接取り込む」だけ（衝突を直すは出ない）
+    plan = view["plan"]["props"]["plan"]
+    assert (plan["method"], plan["commit_count"], plan["file_count"], plan["conflicts"]) == ("fast-forward", 2, 3, [])
+    assert ("branch merge", {"name": "dev", "into": "main"}) in relay.backend.plans and view["resolve"]["wrap"]["kind"] == "hidden"
+    assert not [call for call in relay.backend.calls if call[0] == "branch merge"]  # 下見は、何も変えない
 
     shown = press(relay, window, "merge", yes=False)
     assert shown["props"]["preview"].startswith("dev → main：早送り")  # 確認に、入るコミット等（--dry-run の結果）が出る
@@ -404,7 +409,7 @@ def test_merge_takes_a_branch_into_another_after_showing_what_it_does(relay):
     press(relay, window, "merge", yes=True)
     assert ("branch merge", {"name": "dev", "into": "main"}) in relay.backend.calls
     assert relay.display.values(window)["merge_into"] is None  # 取り込んだら、選び直す
-    assert nodes(relay, window)["merge"]["wrap"]["kind"] == "unavailable"
+    assert nodes(relay, window)["merge"]["wrap"]["kind"] == "hidden" and nodes(relay, window)["plan"]["props"].get("plan") is None
 
 
 def test_merge_submits_resolves_and_takes_in_the_submission(relay):
@@ -420,13 +425,16 @@ def test_merge_submits_resolves_and_takes_in_the_submission(relay):
     assert ("branch submit", {"name": "dev", "into": "release", "title": "11月の分"}) in relay.backend.calls
     assert nodes(relay, window)["submit_title"]["props"]["text"] == ""  # 提出したら、題名の欄は空に戻る
 
+    # release へは衝突する：カードに衝突するファイル、ボタンは「衝突を直すタスクを作る」だけ
+    view = nodes(relay, window)
+    assert view["plan"]["props"]["plan"]["conflicts"] == ["src/app.py"] and view["merge"]["wrap"]["kind"] == "hidden" and view["resolve"]["wrap"] is None
     press(relay, window, "resolve")
     assert ("branch resolve", {"name": "dev", "into": "release"}) in relay.backend.calls
 
     press(relay, window, "merge_submission")  # 作ってある提出の取り込み：入力の窓（CI が失敗していても取り込むか）を重ねて開く
-    opened = inside(relay, "review-form")
-    assert nodes(relay, opened["id"])["form"]["props"]["kind"] == "merge" and nodes(relay, opened["id"])["form"]["props"]["id"] == "dev"
-    submit(relay, opened, yes=True)
+    opened = inside(relay, "review-merge")
+    assert opened["args"] == {"module": "C:/work/Calc", "name": "dev"} and nodes(relay, opened["id"])["form"]["props"]["vars"] == {"name": "dev"}
+    submit(relay, opened, yes=True, ignore_checks=False)
     assert last(relay, "branch merge") in ({"name": "dev"}, {"name": "dev", "ignore_checks": False})
 
 

@@ -7,12 +7,12 @@ SCREEN = {
     "window": {"title": "パイプラインを削除", "width": 560, "height": 360},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "パイプラインを削除", "subject": {"arg": "name"}, "ok": "削除する", "danger": True,
             "intro": "このパイプラインを消します。当てているタイミングからも外れます。", "detail": {"arg": "used"},
             "fields": [
-                {"name": "place", "label": "消すタスクブランチ（作業空間）", "type": "select", "source": "rows", "value_key": "path",
-                 "label_key": "branch", "note_key": "path", "where": {"review": None}, "required": True,
+                {"name": "place", "label": "消すタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "rows", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
             ]}},
     ],

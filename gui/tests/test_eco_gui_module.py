@@ -373,7 +373,7 @@ def test_the_parts_of_the_module_pages_are_defined_with_samples():
     eco_gui = importlib.import_module("eco_gui")
     app = create_app(eco_gui, backend=FakeModule(), roles={"confirm": "confirm-box"})
     parts = app.relay(threaded=True).parts
-    for name in ("mod-branch-tree", "mod-branch-detail", "mod-form", "mod-ci-config", "mod-runs", "mod-secrets", "mod-readme", "mod-about",
+    for name in ("mod-branch-tree", "mod-branch-detail", "form", "mod-ci-config", "mod-runs", "mod-secrets", "mod-readme", "mod-about",
                  "mod-pipeline-cards", "mod-timings", "mod-members", "mod-commits", "mod-commit-files"):
         assert name in parts and parts[name].samples
     # シークレットの値を入れる欄は作らない（登録は端末で）

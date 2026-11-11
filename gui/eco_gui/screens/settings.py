@@ -30,7 +30,7 @@ SCREEN = {
             "text": "仕様の版が古いときは、今の ECOBuild の仕様に合わせます（「ECOBuild の更新」としてコミット。タスクブランチでなければ GitHub へ push も）。"}},
         {"id": "upgrade_row", "layout": "row", "children": ["upgrade_branch", "upgrade"]},
         {"id": "upgrade_branch", "part": "text-input", "props": {"title": "合わせるブランチ（空なら今いるブランチ）", "placeholder": "例：main"}},
-        {"id": "upgrade", "part": "button", "props": {"label": "今の仕様に合わせる"}},
+        {"id": "upgrade", "part": "button", "props": {"label": "今の仕様に合わせる…", "hint": "変えるファイルを確かめてから合わせます"}},
 
         # ビルド設定（profile list・use・add・project・remove）。追加・編集・Project ごとの上書きは、入力の窓（cfg-profile-…）
         {"id": "profiles", "layout": "column", "children": ["profile_table"]},
@@ -119,7 +119,8 @@ SCREEN = {
         # 全般
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "info.data"},
         {"on": "upgrade_branch.changed", "set": {"upgrade_branch": {"payload": "text"}}},
-        {"on": "upgrade.pressed", "run": "module upgrade", "args": {"module": {"arg": "module"}, "branch": {"value": "upgrade_branch"}}},
+        # 入力の窓（下見で、変えるファイルを先に見せる。実行は、その窓から）
+        {"on": "upgrade.pressed", "open": "mod-upgrade", "inside": True, "args": {"module": {"arg": "module"}, "branch": {"value": "upgrade_branch"}}},
         # ビルド設定（ecobuild profile use <名前>・profile remove <名前>・profile project <名前> <Project> --clear）
         # 表の列と、追加・編集の窓は、モジュールの型（module show の type）で変わる
         {"read": "profile list", "args": {"module": {"arg": "module"}}, "to": "profile_table.data"},

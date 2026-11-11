@@ -10,16 +10,16 @@ SCREEN = {
     "window": {"title": "走らせるパイプライン", "width": 600, "height": 520},
     "nodes": [
         {"id": "page", "layout": "column", "children": ["form"]},
-        {"id": "form", "part": "mod-form", "props": {
+        {"id": "form", "part": "form", "props": {
             "title": "走らせるパイプライン", "subject": {"arg": "label"}, "ok": "決める",
             "intro": "選んだものを、並んでいる順に走らせます。「前」のタイミングは、どれかが失敗したら、その操作を止めます。"
                      "「後」は、失敗しても操作は止めず、知らせるだけです。1つも選ばなければ、何も走らせません。",
             "initial": {"names": {"arg": "names"}},
             "fields": [
-                {"name": "place", "label": "変えるタスクブランチ（作業空間）", "type": "select", "source": "rows", "value_key": "path",
-                 "label_key": "branch", "note_key": "path", "where": {"review": None}, "required": True,
+                {"name": "place", "label": "変えるタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "rows", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
-                {"name": "names", "label": "パイプライン", "type": "checks", "source": "more", "note_key": "steps", "join": ",", "empty": "none",
+                {"name": "names", "label": "パイプライン", "type": "checks", "options_from": {"source": "more", "note": "steps"}, "join": ",", "empty": "none",
                  "empty_text": "パイプラインがありません。"},
             ]}},
     ],

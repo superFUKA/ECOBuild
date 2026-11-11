@@ -1,8 +1,6 @@
 // 部品「タスクの入力の窓」。欄を描き、入れた値を出力するだけ（入れていない欄は出さない。コマンドは、つなぎが呼ぶ）。
 // 入れている途中の値は、この部品が持つ（state）。欄の出し分け（「作ったら始める」で名前の欄が出る 等）は見せ方。
 const PRIORITIES = ['High', 'Middle', 'Low'];
-const CLOSE_TEXT = '閉じて、タスクブランチを片付けます';
-const KEEP_TEXT = '閉じずに続けます（タスクブランチを作成元の最新から作り直します）';
 const commaList = (text) => String(text || '').split(',').map((s) => s.trim()).filter(Boolean);
 // タスクブランチの名前（task/<番号>-<名前>）。日本語はそのまま。git と Windows が受けない字は - にする（ecobuild と同じ直し方）
 const branchLabel = (title) => {
@@ -16,7 +14,7 @@ const taskOfBranch = (name) => { const m = /^task\/(\d+)(?:-.+)?$/.exec(name || 
 const md = (d) => (d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : '');
 const BRANCH_HELP = '日本語も使えます（空白と ~ ^ : ? * [ ] \\ / " < > | は使えません）。';
 
-// 窓ごとの欄。v：今入っている値。返すもの：{title, intro, outcome, fields, ok, danger, wait, submit(v) → 誤りの文 か [出力, 中身]}
+// 窓ごとの欄。v：今入っている値。返すもの：{title, intro, fields, ok, danger, wait, submit(v) → 誤りの文 か [出力, 中身]}
 function specOf(props, v) {
   const id = String(props.issue), d = props.status, me = (props.account && props.account.login) || '';
   const today = (() => { const c = new Date(); return new Date(c.getTime() - c.getTimezoneOffset() * 60000).toISOString().slice(0, 10); })();
@@ -29,7 +27,6 @@ function specOf(props, v) {
   const parentOptions = (self, current) => [['', 'なし'], ...props.tasks.filter((t) => t.number !== self && ((t.state || 'open') === 'open' || t.number === current))
     .sort((a, b) => a.number - b.number).map((t) => [String(t.number), '#' + t.number + ' ' + t.title]),
   ...(current && !byNumber(current) ? [[String(current), '#' + current]] : [])];
-  const into = (base) => '作成元' + (base ? '（' + base + '）' : '');
   const some = (payload) => Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== '' && value !== false && value !== null && value !== undefined));
   const needStatus = { wait: true, title: '#' + id, fields: [], ok: '', submit: () => '' };
 
@@ -129,65 +126,19 @@ function specOf(props, v) {
     } };
   }
 
-  if (props.kind === 'complete') {
-    if (!d) return needStatus;
-    const submitted = Boolean(d.pull_request && d.pull_request.state === 'open');
-    return { title: '完了にする：#' + id, ok: '完了にする', outcome: [
-      ['取り込み', submitted ? '出している提出を、CI を待って' + into(d.base) + 'へ取り込みます' : 'まだ取り込んでいない変更があれば、提出して' + into(d.base) + 'へ取り込みます（なければ取り込みません）'],
-      ['タスク', CLOSE_TEXT]],
-    fields: [{ name: 'ignore', label: 'CIが失敗していても完了する', type: 'checkbox' }],
-    submit: (x) => ['finish', some({ id, complete: true, ignore_checks: x.ignore })] };
-  }
-
-  if (props.kind === 'finish') {
-    if (!d) return needStatus;
-    const partial = Boolean(d.pull_request && d.pull_request.partial);
-    const complete = v.complete === undefined ? !partial : v.complete;
-    return { title: '取り込む：#' + id, ok: '取り込む', outcome: [['取り込み', 'CI を待って、提出を' + into(d.base) + 'へ取り込みます'], ['タスク', complete ? CLOSE_TEXT : KEEP_TEXT]],
-      fields: [{ name: 'subject', label: '取り込むコミットの件名（空ならタスクの題名）' }, { name: 'ignore', label: 'CIが失敗していても取り込む', type: 'checkbox' },
-        { name: 'complete', label: 'タスクを完了する', type: 'checkbox', value: !partial, redraw: true }],
-      submit: (x) => ['finish', some({ id, subject: x.subject, ignore_checks: x.ignore, complete: x.complete, partial: !x.complete })] };
-  }
-
-  if (props.kind === 'drop') {
-    return { title: '作業を捨てる：#' + id, ok: '作業を捨てる', danger: true,
-      intro: '作業を取り込まずに捨てます。提出を閉じ、タスクブランチをこのPCとGitHubから消して、その作業空間も消します。捨てた作業は戻せません。',
-      fields: [{ name: 'close', label: 'タスクも削除する', type: 'checkbox' }], submit: (x) => ['drop', some({ id, close: x.close })] };
-  }
-  if (props.kind === 'prune') {
-    return { title: 'このPCから片付ける：#' + id, ok: '消す', danger: true,
-      intro: 'このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残るので、「作業を再開」でPushしたところから続けられます。\n未コミット・未Pushの変更があるときは消しません。',
-      fields: [], submit: () => ['prune', { id }] };
-  }
-  if (props.kind === 'clean') {
-    return { title: '完了したタスクブランチを片付ける', ok: '片付ける',
-      intro: '閉じたタスクのタスクブランチと、その作業空間を消します。取り込んでいないコミットがあるものは残します（残したものと理由は、結果に出ます）。',
-      fields: [], submit: () => ['clean', {}] };
-  }
-  if (props.kind === 'assign') {
-    const already = (d && d.assignees) || (byNumber(props.issue) || {}).assignees || [];
-    return { title: '担当者を追加：#' + id, ok: '追加', fields: [
-      { name: 'who', label: '担当者', type: 'checks', options: memberOptions(members.filter((m) => !already.includes(m))), empty: '候補者はすべて担当済みです（下の欄に入力できます）' },
-      { name: 'other', label: '候補にいない担当者（GitHubのアカウント、カンマ区切り。任意）' }],
-    submit: (x) => {
-      const who = [...new Set([...x.who, ...commaList(x.other)])];
-      return who.length ? ['edit', { id, add_assignee: who.join(',') }] : '担当者を選んでください。';
-    } };
-  }
-  if (props.kind === 'label') {
-    return { title: 'ラベルを付ける：#' + id, ok: '付ける', fields: [{ name: 'label', label: 'ラベル（カンマ区切り。なければ作ります）', required: true }],
-      submit: (x) => ['edit', { id, add_label: x.label.trim() }] };
-  }
-  if (props.kind === 'approve') {
-    return { title: '承認して取り込む：#' + id, ok: '承認して取り込む', intro: 'CIが終わるのを待ちます。タスクは提出のとおり閉じるか続けます。',
-      fields: [{ name: 'message', label: 'コメント（任意）', type: 'textarea' }], submit: (x) => ['approve', some({ id, message: x.message })] };
-  }
-  return { title: '差し戻す：#' + id, ok: '差し戻す', danger: true, intro: 'タスクは作業中に戻ります。',
-    fields: [{ name: 'message', label: '直してほしいこと', type: 'textarea', required: true }], submit: (x) => ['reject', { id, message: x.message.trim() }] };
+  // 担当者を追加
+  const already = (d && d.assignees) || (byNumber(props.issue) || {}).assignees || [];
+  return { title: '担当者を追加：#' + id, ok: '追加', fields: [
+    { name: 'who', label: '担当者', type: 'checks', options: memberOptions(members.filter((m) => !already.includes(m))), empty: '候補者はすべて担当済みです（下の欄に入力できます）' },
+    { name: 'other', label: '候補にいない担当者（GitHubのアカウント、カンマ区切り。任意）' }],
+  submit: (x) => {
+    const who = [...new Set([...x.who, ...commaList(x.other)])];
+    return who.length ? ['edit', { id, add_assignee: who.join(',') }] : '担当者を選んでください。';
+  } };
 }
 
 export default {
-  render(root, props, { h, emit, state, redraw }) {
+  render(root, props, { h, emit, state }) {
     const v = state.v || (state.v = {});
     const spec = specOf(props, v);
     const cancel = h('button', { type: 'button' }, 'キャンセル');
@@ -202,7 +153,7 @@ export default {
     const inputs = {};
     const wraps = [];
     const sync = () => { for (const [f, node] of wraps) node.hidden = Boolean(f.showIf) && !f.showIf(v); };
-    const changed = (f) => { if (f.redraw) redraw(); else sync(); };
+    const changed = () => sync();
     const help = (f) => (f.help ? [h('small', { class: 'help' }, f.help)] : []);
     const field = (f) => {
       if (f.type === 'checkbox') {
@@ -299,7 +250,6 @@ export default {
     form.append(error, h('div', { class: spec.sticky ? 'actions sticky' : 'actions' }, cancel, ok));
     const top = [h('h2', {}, spec.title)];
     if (spec.intro) top.push(h('p', { class: 'intro' }, spec.intro));
-    if (spec.outcome) top.push(h('dl', { class: 'outcome' }, ...spec.outcome.flatMap(([k, text]) => [h('dt', {}, k), h('dd', {}, text)])));
     root.replaceChildren(...top, form);
   },
 };

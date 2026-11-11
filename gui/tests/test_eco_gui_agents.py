@@ -350,10 +350,10 @@ def test_the_agents_screen_goes_to_this_pcs_presets_and_back_in_the_same_window(
 
 def test_the_form_and_the_editor_have_samples_for_what_they_show(relay):
     parts = relay.parts
-    assert {"cfg-agent-editor", "cfg-form"} <= set(parts)
+    assert {"cfg-agent-editor", "form"} <= set(parts)
     editor = {sample["name"]: sample["props"] for sample in parts["cfg-agent-editor"].samples}
     assert editor["役（選んだツール・強い子の警告）"]["fit"]["stronger"] == ["lead", "manager"]
-    assert any(sample["props"].get("error") for sample in parts["cfg-form"].samples)
+    assert any(sample["props"].get("error") for sample in parts["form"].samples)
 
 
 def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(relay):

@@ -205,12 +205,13 @@ body[data-gf-screen="hub-add"] [data-gf-look="actions"] .gf-wrap > small { max-w
 [data-gf-look="tk-page"] { flex: 1; min-width: 0; min-height: 0; gap: 0; overflow: hidden; }
 [data-gf-look="tk-top"] { flex: none; align-items: center; flex-wrap: nowrap; gap: 12px; padding: 10px 16px 6px; }
 [data-gf-look="tk-top"] > :first-child { flex: 1; min-width: 0; }
-[data-gf-look="tk-page"] > [data-gf-part="task-bar"] { flex: none; }
+[data-gf-look="tk-head"] { flex: none; gap: 0; }  /* 上の部分（画面 task-head）：題とボタン、その下に表示のタブと絞り込み */
 [data-gf-look="tk-body"] { flex: 1; min-height: 0; min-width: 0; }
 [data-gf-look="tk-body"] > * { min-height: 0; }
 [data-gf-look="tk-main"] { min-height: 100%; min-width: 0; padding: 16px 20px 28px; }
 [data-gf-look="tk-detail"] { min-height: 100%; border-left: 1px solid var(--eco-line); background: #171c22; padding: 18px 18px 56px; }
 /* 入力の窓（中に重ねた画面）：部品 task-form が題・欄・ボタンを描く */
+/* tk-part：ほかの配置（tk-main・tk-single・tk-dialog）の中に置く部品（余白は外の配置が持つ） */
 /* タスクの詳細を、窓いっぱいに出すとき（画面 task） */
 [data-gf-look="tk-single"] { flex: 1; min-height: 0; overflow: auto; padding: 14px 24px 56px; }
 [data-gf-look="tk-single"] > * { max-width: 760px; }

@@ -2,7 +2,7 @@
 
 数は ecobuild の結果のまま（sprint status・task workload・milestone status・task next・task overdue・task list）。押すと、その表示へ（go）。
 """
-from typing import Annotated
+from typing import Annotated, Any
 
 from eco_gui.outputs import (  # タスクを描く部品で同じ出力
     task_selected as on_selected, task_dialog as on_dialog, task_edit as on_edit, task_close as on_close,
@@ -20,7 +20,7 @@ def part(
     overdue: Annotated[dict, "期限（task overdue の結果：{overdue, soon}）"] = {},
     reviews: Annotated[list[dict], "見るように頼まれた提出（task list --to-review の行）"] = [],
     me: Annotated[str, "自分のアカウント"] = "",
-    selected: Annotated[str | None, "選んでいるタスクの番号"] = None,
+    selected: Annotated[Any, "選んでいるタスクの番号（文字でも数でも）"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...
@@ -28,8 +28,7 @@ def part(
 
 def on_go(
     screen: Annotated[str, "切り替える表示（画面の名前：tasks・board・task-next・task-sprint）"],
-    assignee: Annotated[str, "担当者で絞る（- は担当なし）"] = "",
-    milestone: Annotated[str, "マイルストーンで絞る"] = "",
+    filter: Annotated[dict, "その表示に付ける絞り込み（{assignee（- は担当なし）, milestone}）"] = {},
 ) -> None:
     if screen not in ("tasks", "board", "task-next", "task-sprint", "schedule"):
         raise ValueError("切り替えられるのは、タスク管理の表示だけです")

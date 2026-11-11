@@ -6,7 +6,7 @@ export default {
   render(root, props, { h, lib, emit, menu, state, redraw }) {
     const { PRIORITIES } = lib.task;
     const d = props.status;
-    const me = (props.account && props.account.login) || '';
+    const me = props.me || '';
     const marks = lib.task.marks(h, emit, menu, props.sprints, me);
     const closeButton = () => {
       const button = h('button', { type: 'button', class: 'd-close', title: '詳細を閉じる', 'aria-label': '詳細を閉じる' }, '×');
@@ -30,15 +30,9 @@ export default {
     const section = (title, ...children) => h('section', { class: 'd-section' }, ...(title ? [h('h4', {}, title)] : []), ...children);
     const kv = (cls, rows) => h('dl', { class: cls }, ...rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, ...(Array.isArray(v) ? v : [v]))]));
 
-    // 提出を処理できるか（作成元を作った人と管理者。分からなければ灰色にしない：コマンドが必ず確かめる）
-    const a = props.account || {};
-    const creator = d.base && d.base !== a.default_base ? (a.creators || {})[d.base] || '' : '';
-    const canTakeIn = !a.login || a.admin === true || (creator !== '' && creator.toLowerCase() === String(a.login).toLowerCase());
-    const why = canTakeIn ? '' : (d.base || '取り込み先') + ' への提出を処理できるのは、' + (creator ? (d.base + ' を作った ' + creator + ' と') : '') + '管理者だけです';
+    // 提出を処理できるか・できない理由は、ecobuild の答え（--can）のまま。届くまでは灰色にしない（コマンドが必ず確かめる）
+    const block = (answer) => (answer && answer.can === false ? answer.reason || '今はできません' : '');
     const own = Boolean(me) && (d.assignees || []).includes(me);
-    const conflicting = Boolean(d.activity && d.activity.mergeable === 'CONFLICTING');
-    const conflictNote = (mine) => (mine ? '作成元と衝突しています。タスクブランチの作業空間で最新を取り込んで直し、Push してから取り込みます'
-      : '作成元と衝突しています。差し戻して、作業者に最新を取り込んで直してもらいます');
 
     // --- 見出しとボタン ---
     const head = h('div', { class: 'd-head' }, marks.num(d), marks.stageBadge(view));
@@ -59,7 +53,7 @@ export default {
       const sep = { separator: true };
       const groups = [
         [!isOpen && pr && pr.state === 'merged' ? { id: 'revert', label: '取り込みを取り消す…' } : null,
-          others && !pr.draft ? { id: 'finish', label: '承認せずに取り込む…', disabled: Boolean(why || conflicting), reason: why || conflictNote(false) } : null,
+          others && !pr.draft ? { id: 'finish', label: '承認せずに取り込む…', disabled: Boolean(block(props.can_finish)), reason: block(props.can_finish) } : null,
           others ? { id: 'withdraw', label: '提出を取り下げる…' } : null],
         [hasWorkspace ? { id: 'prune', label: 'このPCから片付ける…' } : null],
         [hasWorkspace || d.remote ? { id: 'drop', label: '作業を捨てる…', danger: true } : null, isOpen ? { id: 'delete', label: '削除…', danger: true } : null],
@@ -153,15 +147,14 @@ export default {
     const submitted = Boolean(pr && pr.state === 'open');
     if (isOpen && (submitted || hasWorkspace)) {
       const off = (b, reason) => { if (reason) { b.disabled = true; b.title = reason; } return b; };
-      const draft = submitted && pr.draft === true;
       const act = !submitted ? []
         : own ? [button('提出を取り下げる', 'quiet-danger', () => emit('withdraw', { id }), '取り下げ：提出をやめて作業中に戻します（タスクブランチはそのまま。もう一度提出できます）。'),
           off(button('取り込む', 'primary', () => dialog('task-finish'), '取り込む：CIの結果を待って、提出（PR）を作成元へ取り込みます。'),
-            draft ? '下書きの提出は取り込めません。タスクブランチの作業空間で下書きを解除します' : why || (conflicting ? conflictNote(true) : ''))]
+            block(props.can_finish))]
           : [button('手元で確認', '', () => emit('review', { id }), '手元で確認：提出された変更を手元に取り出し、ビルド・テスト・実行で確かめます（確かめたら承認か差し戻し）。'),
-            off(button('差し戻す', '', () => dialog('task-reject'), '差し戻し：直してほしいことを書いて、担当者へ戻します（タスクは作業中に戻ります）。'), why),
+            off(button('差し戻す', '', () => dialog('task-reject'), '差し戻し：直してほしいことを書いて、担当者へ戻します（タスクは作業中に戻ります）。'), block(props.can_reject)),
             off(button('承認して取り込む', 'primary', () => dialog('task-approve'), '承認して取り込む：提出を承認し、そのまま作成元へ取り込みます。'),
-              draft ? '下書きの提出は承認できません' : why || (conflicting ? conflictNote(false) : ''))];
+              block(props.can_approve))];
       work.push(h('div', { class: 'sub-actions' }, h('div', {}, button('差分', '', () => emit('submission', { id }))), h('div', {}, ...act)));
     }
 

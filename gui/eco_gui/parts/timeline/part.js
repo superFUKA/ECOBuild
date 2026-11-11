@@ -17,6 +17,9 @@ export default {
     const mode = memory.get('mode', 'bars') === 'calendar' ? 'calendar' : 'bars';
     const isSelected = (t) => String(t.number) === String(props.selected || '');
     const at = (node, style) => { node.setAttribute('style', style); return node; };
+    // 帯の色と名前：段階のもの（削除済みは完了と同じ色。段階が届いていなければ、色なし）
+    const stageKey = (t) => STAGE[marks.stageOf(t) === 'deleted' ? 'done' : marks.stageOf(t)] || null;
+    const stageClass = (t) => (stageKey(t) ? stageKey(t)[2] : '');
 
     // 上の道具：左に月の移動（カレンダー）、右に表示の切り替え
     const tools = (...left) => {
@@ -49,7 +52,7 @@ export default {
             if (lane < 0) { lane = lanes.length; lanes.push([]); }
             lanes[lane].push([from, to]);
             const late = open(t) && dayOf(t.planned_end) < now;
-            const bar = at(h('div', { class: 'cal-bar ' + STAGE[marks.stageOf(t) === 'deleted' ? 'done' : marks.stageOf(t)][2] + (late ? ' late' : '') + (from > dayOf(t.planned_start) ? ' cut-start' : '')
+            const bar = at(h('div', { class: 'cal-bar ' + stageClass(t) + (late ? ' late' : '') + (from > dayOf(t.planned_start) ? ' cut-start' : '')
               + (to < dayOf(t.planned_end) ? ' cut-end' : ''), tabindex: '0', title: '#' + t.number + ' ' + t.title + '（' + md(t.planned_start) + '〜' + md(t.planned_end) + '）' },
             marks.num(t), ' ' + t.title), 'grid-column:' + (from - w + 1) + ' / ' + (to - w + 2) + ';grid-row:' + (lane + 2));
             bar.setAttribute('aria-selected', String(isSelected(t)));
@@ -111,11 +114,11 @@ export default {
     const dueMark = (t, r) => (t.due ? [at(h('div', { class: open(t) && t.due < today ? 'due overdue' : 'due', title: '期限 ' + md(t.due) }, '◆'), 'grid-row:' + r + ';grid-column:' + col(dayOf(t.due)))] : []);
     const save = (t, start, end) => emit('edit', { id: String(t.number), planned_start: start, planned_end: end });
     dated.forEach((t, i) => {
-      const r = i + 2, late = open(t) && dayOf(t.planned_end) < now, key = marks.stageOf(t) === 'deleted' ? 'done' : marks.stageOf(t);
+      const r = i + 2, late = open(t) && dayOf(t.planned_end) < now, stage = stageKey(t);
       const from = col(dayOf(t.planned_start)), to = col(dayOf(t.planned_end)) + 1;
       const grip = h('span', { class: 'grip', 'aria-hidden': 'true' });
-      const bar = at(h('div', { class: 'bar ' + STAGE[key][2] + (late ? ' late' : '') + (isSelected(t) ? ' sel' : '') + (open(t) ? ' movable' : ''),
-        title: md(t.planned_start) + '〜' + md(t.planned_end) + (open(t) ? '（ドラッグで移動、右端のドラッグで終了予定を変更）' : '') }, STAGE[key][1], grip), 'grid-row:' + r + ';grid-column:' + from + ' / ' + to);
+      const bar = at(h('div', { class: 'bar ' + stageClass(t) + (late ? ' late' : '') + (isSelected(t) ? ' sel' : '') + (open(t) ? ' movable' : ''),
+        title: md(t.planned_start) + '〜' + md(t.planned_end) + (open(t) ? '（ドラッグで移動、右端のドラッグで終了予定を変更）' : '') }, stage ? stage[1] : '', grip), 'grid-row:' + r + ';grid-column:' + from + ' / ' + to);
       // ドラッグで動かす（右端は終了予定だけ）。動かさずに放したら、選ぶ
       bar.addEventListener('pointerdown', (event) => {
         if (event.button !== 0) return;

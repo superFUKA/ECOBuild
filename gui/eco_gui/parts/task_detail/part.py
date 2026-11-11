@@ -1,6 +1,6 @@
 """タスクの詳細。番号と段階、状態に合った主ボタンと ⋯ メニュー、本文（長ければ折りたたむ）、担当者・ラベルのチップ、
 その場で変えられる計画の値（優先度・見積もり・スプリント・マイルストーン・日付）、つながり、作業と提出、コメント。"""
-from typing import Annotated
+from typing import Annotated, Any
 
 from eco_gui.outputs import (  # タスクを描く部品で同じ出力
     task_selected as on_selected, task_dialog as on_dialog, task_edit as on_edit, task_close as on_close,
@@ -10,10 +10,13 @@ from eco_gui.outputs import (  # タスクを描く部品で同じ出力
 
 def part(
     status: Annotated[dict | None, "タスクの状態（task status の結果）"] = None,
-    number: Annotated[str | None, "選んでいるタスクの番号（status がまだ前のタスクのあいだは、読み込み中を出す）"] = None,
+    number: Annotated[Any, "選んでいるタスクの番号（文字でも数でも。status がまだ前のタスクのあいだは、読み込み中を出す）"] = None,
     sprints: Annotated[list[dict], "スプリント（{name, start, end}）"] = [],
     milestones: Annotated[list[dict], "マイルストーン（{title}）"] = [],
-    account: Annotated[dict, "自分のアカウント（account show の結果：login・admin・default_base・creators）"] = {},
+    me: Annotated[str, "自分のアカウント"] = "",
+    can_approve: Annotated[dict, "提出を承認できるか・できない理由（{can, reason}。task approve --can の答え）"] = {},
+    can_reject: Annotated[dict, "提出を差し戻せるか・できない理由（{can, reason}。task reject --can の答え）"] = {},
+    can_finish: Annotated[dict, "提出を取り込めるか・できない理由（{can, reason}。task finish --can の答え）"] = {},
     closable: Annotated[bool, "× で閉じられる（一覧の右に出しているとき）"] = True,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",

@@ -59,7 +59,7 @@ class PolishEcobuild(FakeEcobuild):
             "status": spec("read", fetch=flag), "files": spec("read"), "check": spec("read"),
             "sync": spec("change", from_branch=text, at=text),
             "task reset": spec("confirm", ["commit"], commit=text, keep=flag),
-            "task prune": spec("change", number={"type": "integer"}),
+            "task prune": {**spec("change", number={"type": "integer"}), "dry_run": True},  # 本物と同じく、下見（--dry-run）ができる
             "task push": spec("change", force=flag),
             "show": spec("read", commit=text, gui=flag),
             "diff": spec("read", paths=many, staged=flag, base=flag, gui=flag),

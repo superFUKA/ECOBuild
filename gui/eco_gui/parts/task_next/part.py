@@ -1,6 +1,6 @@
 """次にやるタスク。順位の番号・理由の印・優先度・期限・見積もり・スプリント・担当を並べる（順番と理由は ecobuild が決める）。
 期限切れ・期限が近いタスクは、あるときだけカードで出す。担当者を「自分」に絞ると、自分の担当だけの並び（mine）を出す。"""
-from typing import Annotated
+from typing import Annotated, Any
 
 from eco_gui.outputs import (  # タスクを描く部品で同じ出力
     task_selected as on_selected, task_dialog as on_dialog, task_edit as on_edit, task_close as on_close,
@@ -16,7 +16,7 @@ def part(
     me: Annotated[str, "自分のアカウント"] = "",
     filter: Annotated[dict | None, "絞り込み（task-bar が出した値。なければ start）"] = None,
     start: Annotated[dict, "開いたときの絞り込み"] = {},
-    selected: Annotated[str | None, "選んでいるタスクの番号"] = None,
+    selected: Annotated[Any, "選んでいるタスクの番号（文字でも数でも）"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...

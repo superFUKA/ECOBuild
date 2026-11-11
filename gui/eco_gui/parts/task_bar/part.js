@@ -3,7 +3,7 @@
 const VIEWS = [['board', 'ボード'], ['tasks', '一覧'], ['task-next', '次にやる'], ['schedule', '日程'], ['task-sprint', 'スプリント'], ['task-summary', '概要']];
 
 export default {
-  render(root, props, { h, emit, state }) {
+  render(root, props, { h, lib, emit, state }) {
     // 開いたときの値（start）が変わったら、それに合わせ直す（概要から、絞り込み付きで一覧へ来たとき等）
     const startKey = JSON.stringify(props.start || {});
     if (!state.f || state.startKey !== startKey) {
@@ -14,10 +14,9 @@ export default {
       if (state.search) state.search.value = state.f.search;
     }
     const f = state.f;
-    const out = () => ({ ...f, all: f.closed || f.deleted });
-    const now = new Date();
-    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    const md = (d) => (d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : '');
+    // 表示を開く（切り替える・読み直しの要る印を変えた）ときに出す値：絞り込みと、読むときの印
+    const out = () => ({ filter: { ...state.f }, all: state.f.closed || state.f.deleted, ready: state.f.ready });
+    const { md } = lib.task;
 
     const tabs = h('nav', { class: 'views', role: 'tablist', 'aria-label': '表示' });
     for (const [id, label] of VIEWS) {
@@ -37,7 +36,7 @@ export default {
           box.append(option);
         }
         if (!options.some((o) => o[0] === f[name])) f[name] = '';
-        box.addEventListener('change', () => { f[name] = box.value; emit('changed', out()); });
+        box.addEventListener('change', () => { f[name] = box.value; emit('changed', { filter: { ...f } }); });
         return box;
       };
       const accounts = [...new Set(props.tasks.flatMap((t) => t.assignees || []))].sort();
@@ -50,9 +49,9 @@ export default {
         if (!state.search) {
           state.search = h('input', { type: 'search', placeholder: '題名で絞り込む', 'aria-label': '検索', class: 'search' });
           state.search.value = f.search;
-          state.search.addEventListener('input', () => { state.f.search = state.search.value; emit('changed', { ...state.f, all: state.f.closed || state.f.deleted }); });
+          state.search.addEventListener('input', () => { state.f.search = state.search.value; emit('changed', { filter: { ...state.f } }); });
         }
-        const current = (props.sprints.find((s) => s.start <= today && today < s.end) || {}).name || '';
+        const current = lib.task.currentSprint(props.sprints);
         const sprint = select('sprint', 'スプリント', [['', 'スプリント：すべて'], ...(current ? [['current', '今のスプリント（' + current + '）']] : []),
           ...props.sprints.map((s) => [s.name, s.name + '（' + md(s.start) + '〜）']), ['-', 'スプリントなし']]);
         const names = [...new Set([...props.milestones.map((m) => m.title), ...props.tasks.map((t) => t.milestone).filter(Boolean)])];
@@ -60,7 +59,7 @@ export default {
         const check = (name, label, title) => {
           const box = h('input', { type: 'checkbox' });
           box.checked = f[name];
-          box.addEventListener('change', () => { f[name] = box.checked; emit('reload', out()); });
+          box.addEventListener('change', () => { f[name] = box.checked; emit('view', { id: props.view, ...out() }); });
           const line = h('label', { class: 'check' }, box, ' ' + label);
           if (title) line.title = title;
           return line;

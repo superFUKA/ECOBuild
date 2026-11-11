@@ -6,20 +6,29 @@
 const STAGES = [['planned', '計画中', 'backlog'], ['todo', '未着手', 'todo'], ['in_progress', '作業中', 'in_progress'], ['in_review', 'レビュー待ち', 'in_review'], ['done', '完了', 'done']];
 const STAGE = Object.fromEntries(STAGES.map((s) => [s[0], s]));
 const PRIORITIES = ['High', 'Middle', 'Low'];
+// 今日（この PC の時計で YYYY-MM-DD）・日付の短い書き方（M/D）・今日を含むスプリントの名前
+function taskToday() {
+  const clock = new Date();
+  return new Date(clock.getTime() - clock.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+const taskMd = (d) => (d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : '');
+function taskCurrentSprint(sprints) {
+  const today = taskToday();
+  return ((sprints || []).find((s) => s.start <= today && today < s.end) || {}).name || '';
+}
 // 印を作る道具。sprints：スプリントの一覧（今のスプリントを色で分ける）。me：自分のアカウント。
 function taskMarks(h, emit, menu, sprints, me) {
-  const clock = new Date();
-  const today = new Date(clock.getTime() - clock.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  const md = (d) => (d ? Number(d.slice(5, 7)) + '/' + Number(d.slice(8, 10)) : '');
+  const today = taskToday(), md = taskMd;
   const open = (t) => (t.state || 'open') === 'open';
   const deleted = (t) => !open(t) && t.closed_reason === 'not_planned';
-  // 画面に出す段階：閉じていれば完了（か削除済み）。段階の記録がなければ、タスクブランチがあれば作業中、なければ未着手
-  const stageOf = (t) => (deleted(t) ? 'deleted' : !open(t) ? 'done' : STAGE[t.stage] ? t.stage : (t.task_branch || t.remote || t.current ? 'in_progress' : 'todo'));
+  // 画面に出す段階：閉じていれば完了（か削除済み）。開いていれば、届いた段階のまま（記録がないときにどうみなすかは、ecobuild が
+  // 決めて入れる）。届いていなければ ''（印を出さない）
+  const stageOf = (t) => (deleted(t) ? 'deleted' : !open(t) ? 'done' : STAGE[t.stage] ? t.stage : '');
   const sprintName = (t) => (typeof t.sprint === 'string' ? t.sprint : (t.sprint && t.sprint.name) || '');
-  const currentSprint = ((sprints || []).find((s) => s.start <= today && today < s.end) || {}).name || '';
+  const currentSprint = taskCurrentSprint(sprints);
   const isAgent = (who) => /agent|bot/i.test(who);
   const span = (cls, text, title) => h('span', title ? { class: cls, title } : { class: cls }, text);
-  const stageMark = (key, text) => span('tk-stage ' + (key === 'deleted' ? 'not_planned' : STAGE[key][2]), text || (key === 'deleted' ? '削除済み' : STAGE[key][1]));
+  const stageMark = (key, text) => (key === 'deleted' ? span('tk-stage not_planned', text || '削除済み') : STAGE[key] ? span('tk-stage ' + STAGE[key][2], text || STAGE[key][1]) : '');
   const avatarMark = (who) => (!who ? span('tk-avatar none', '', '担当なし') : span('tk-avatar' + (isAgent(who) ? ' agent' : ''), isAgent(who) ? 'AI' : who[0].toUpperCase(), who));
   const avatar = (who) => {
     if (!who) return avatarMark('');
@@ -115,5 +124,5 @@ function taskFilter(tasks, f, marks, me) {
 }
 
 export default {
-  task: { STAGES, STAGE, PRIORITIES, marks: taskMarks, filter: taskFilter },
+  task: { STAGES, STAGE, PRIORITIES, marks: taskMarks, filter: taskFilter, today: taskToday, md: taskMd, currentSprint: taskCurrentSprint },
 };

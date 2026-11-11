@@ -6,7 +6,7 @@ export default {
     const { md, open, deleted } = marks;
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('集計しています…'));
-    const go = (screen, more) => () => emit('go', { screen, ...(more || {}) });
+    const go = (screen, filter) => () => emit('go', { screen, filter: filter || {} });
     const opened = props.tasks.filter(open), count = (stage) => opened.filter((t) => marks.stageOf(t) === stage).length;
     const late = props.overdue.overdue || [], soon = props.overdue.soon || [];
     const clock = new Date(Date.now() - 7 * 86400000);

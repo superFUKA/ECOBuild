@@ -3,9 +3,10 @@
 ARGS = {"module": ".", "name": ""}  # モジュールのフォルダー・このPCのスキルにするスキルの名前
 
 SCREEN = {
-    "root": "form",
+    "root": "page",
     "window": {"title": "このPCのスキルにする", "width": 560, "height": 320},
     "nodes": [
+        {"id": "page", "layout": "column", "children": ["form"]},
         {"id": "form", "part": "cfg-form", "props": {
             "title": "このPCのスキルにする", "ok": "保存",
             "intro": "このスキルを、このPCのスキルとして保存します（「このPCのプリセット」に入り、ほかのモジュールに写せます）。保存していない変更は入りません。",

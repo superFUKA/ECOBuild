@@ -3,9 +3,10 @@
 ARGS = {"module": ".", "name": ""}  # モジュールのフォルダー・編集するビルド設定の名前（追加なら空）
 
 SCREEN = {
-    "root": "form",
+    "root": "page",
     "window": {"title": "ビルド設定", "width": 560, "height": 480},
     "nodes": [
+        {"id": "page", "layout": "column", "children": ["form"]},
         {"id": "form", "part": "cfg-form", "props": {
             "title": "ビルド設定", "ok": "保存",
             "intro": "同じ名前のビルド設定があれば置き換えます。ecobuild.toml が変わるので、タスクブランチでコミットしてください。",

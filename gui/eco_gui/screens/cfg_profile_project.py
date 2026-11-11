@@ -3,9 +3,10 @@
 ARGS = {"module": ".", "name": "", "project": ""}  # モジュールのフォルダー・ビルド設定の名前・変える Project（新しく足すなら空）
 
 SCREEN = {
-    "root": "form",
+    "root": "page",
     "window": {"title": "Projectごとの上書き", "width": 640, "height": 640},
     "nodes": [
+        {"id": "page", "layout": "column", "children": ["form"]},
         {"id": "form", "part": "cfg-form", "props": {
             "title": "Projectごとの上書き", "ok": "保存",
             "intro": "指定した項目で置き換えます（空にした項目は上書きしません）。構成・生成器・アーキテクチャはモジュール全体で1つです。",

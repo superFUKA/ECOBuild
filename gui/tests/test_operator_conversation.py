@@ -34,7 +34,7 @@ def _reply(text, session="s1", tools=()):
 def agent(home, monkeypatch):
     """claude の代わり：受けた引数と文を覚え、決めた返答（stream-json）を1行ずつ返す。"""
     asked = []
-    monkeypatch.setattr(operator_kit, "_command", lambda command: ["claude"])
+    monkeypatch.setattr(operator_kit, "_command", lambda command, gui=None: ["claude"])
 
     def stream(args, folder, text, timeout, on_line):
         asked.append((args, text))
@@ -51,7 +51,8 @@ def agent(home, monkeypatch):
 def test_ask_continue_keeps_the_conversation(agent, monkeypatch, capsys):
     """--continue：このPCの会話の記録の続きとして話す。発言・返答・実行したコマンドが記録に残り、次は同じ会話で続く。"""
     assert ecobuild_gui.main(["conversation", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["result"] == {"session": None, "messages": [], "state": "idle", "doing": None}
+    assert json.loads(capsys.readouterr().out)["result"] == {"session": None, "messages": [], "state": "idle", "doing": None,
+                                                             "starting_for": None}
     monkeypatch.setattr(sys, "stdin", io.StringIO("タスクを見せて"))
     assert ecobuild_gui.main(["ask", "--continue", "--json", "--", "-"]) == 0      # 画面からの呼び方（文は標準入力）
     captured = capsys.readouterr()
@@ -117,6 +118,7 @@ def test_the_conversation_tells_when_an_ask_is_waiting(agent, monkeypatch):
     monkeypatch.setattr(operator_kit, "_stream", stream)
     operator_kit.converse("状態は？")
     assert seen[0]["state"] == "thinking" and seen[0]["doing"] == "ecobuild status" and seen[1] == "in_use"
+    assert seen[0]["starting_for"] is None
     assert seen[0]["messages"][-1]["role"] == "user" and seen[0]["messages"][-1]["text"] == "状態は？"
     done = operator_kit.conversation()
     assert done["state"] == "idle" and [m["text"] for m in done["messages"]] == ["状態は？", "終わり"]
@@ -124,6 +126,27 @@ def test_the_conversation_tells_when_an_ask_is_waiting(agent, monkeypatch):
     record = operator_kit._record()
     record["asking"] = {"pid": 2 ** 22 + 12344, "at": 0, "doing": None}
     operator_kit._keep(record)
+    assert operator_kit.conversation()["state"] == "idle"
+
+
+def test_the_conversation_is_starting_until_the_agent_answers(agent, monkeypatch, capsys):
+    """エージェントを起動して、最初の出力が届くまでは starting（起動を待っている秒数付き）。届いたら thinking。"""
+    seen = []
+
+    def stream(args, folder, text, timeout, on_line):
+        seen.append(operator_kit.conversation())
+        assert ecobuild_gui.main(["conversation"]) == 0
+        seen.append(capsys.readouterr().out)
+        lines = _reply("起きました")
+        on_line(lines[0])
+        seen.append(operator_kit.conversation())
+        return "".join(lines), ""
+
+    monkeypatch.setattr(operator_kit, "_stream", stream)
+    operator_kit.converse("起きて")
+    assert seen[0]["state"] == "starting" and 0 <= seen[0]["starting_for"] < 60 and seen[0]["doing"] is None
+    assert "（起動中…）" in seen[1]
+    assert seen[2]["state"] == "thinking" and seen[2]["starting_for"] is None
     assert operator_kit.conversation()["state"] == "idle"
 
 
@@ -144,16 +167,27 @@ def test_the_stream_reads_line_by_line(home, tmp_path):
     assert lines == ["a:hi\n", "b\n"] and output == "a:hi\nb\n" and errors == "err"
 
 
-def test_the_screen_side_knows_the_same_commands():
-    """新しい GUI（eco_gui）のつなぎが持つ拡張コマンドの形は、ecobuild gui が名乗る形（--help --json の commands）と同じ。"""
+def test_the_screen_side_reads_the_commands_from_the_catalog():
+    """新しい GUI（eco_gui）のつなぎは、拡張コマンドの形を ecobuild の一覧（extensions の commands：拡張コマンドが
+    自分で答えた形）から読む。一覧にないとき（まだ置かれていない・古い ecobuild）は、同じ GUI の ecobuild_gui.py に聞く。"""
     pytest.importorskip("guiframework")
-    from eco_gui.backend import EXTENSION_COMMANDS, EcobuildBackend, convert, merge
+    from eco_gui.backend import EcobuildBackend, extension_commands
 
-    assert EXTENSION_COMMANDS[0]["commands"] == ecobuild_gui.COMMANDS == ecobuild_gui.help_document()["commands"]
+    assert ecobuild_gui.COMMANDS == ecobuild_gui.help_document()["commands"]
+    other = {"name": "other", "path": "C:/bin/ecobuild-other.cmd", "summary": "", "commands": [
+        {"name": "say", "path": "other say", "runnable": True, "effect": "read", "summary": "", "arguments": [], "options": [], "commands": []}]}
+    listed = {"name": "gui", "path": "C:/bin/ecobuild-gui.cmd", "summary": "", "commands": [
+        {"name": "conversation", "path": "gui conversation", "runnable": True, "effect": "read", "arguments": [], "options": []}]}
+    assert [g["name"] for g in extension_commands({"extensions": [other, listed, {"name": "plain", "commands": []}]})] == ["other", "gui"]
+    assert extension_commands({"extensions": [listed]})[0]["commands"] == listed["commands"]      # 一覧にあれば、一覧のもの
+    assert extension_commands({"extensions": []}) == [{"name": "gui", "path": "gui", "runnable": False, "effect": None,
+                                                       "commands": ecobuild_gui.COMMANDS}]              # なければ、GUI の口に聞く
+    assert extension_commands({}) == []                                                            # 拡張コマンドを受けない ecobuild
     backend = EcobuildBackend(["ecobuild"])
-    backend.catalog = lambda: {"name": "ecobuild", "path": "", "runnable": False, "effect": None, "parameters": [],
-                               "commands": merge([convert(node) for node in EXTENSION_COMMANDS])}
+    backend.ask = lambda argv: {"ok": True, "result": {"commands": [], "types": {}, "extensions": [
+        other, {"name": "gui", "path": "C:/bin/ecobuild-gui.cmd", "summary": "", "commands": ecobuild_gui.COMMANDS}]}}
     specs = backend.commands()
+    assert specs["other say"]["weight"] == "read"
     assert specs["gui ask"]["weight"] == "change" and specs["gui conversation"]["weight"] == "read"
     args = {"text": "1行目\n2行目", "continue": True}
     assert backend.command_line("gui ask", args, ["yes"]) == ["ecobuild", "gui", "ask", "--continue", "--json", "--", "-"]

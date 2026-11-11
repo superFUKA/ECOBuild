@@ -293,6 +293,35 @@ def test_unknown_command_runs_the_external_one(tmp_path, monkeypatch, capfd):
     assert "拡張コマンド" in result.output and "hello" in result.output
 
 
+def test_the_catalog_lists_what_an_external_command_describes(tmp_path, monkeypatch, capsys):
+    """拡張コマンドが自分の形（--help --json の commands）を答えたら、一覧の extensions に中のコマンド（引数・重さ）が出る。
+    答えない・壊れた答えの拡張コマンドは、名前だけ。"""
+    import os
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    answer = {"ok": True, "result": {"summary": "あいさつします。", "commands": [
+        {"name": "say", "path": "よそ say", "runnable": True, "effect": "read", "summary": "言う",
+         "arguments": [{"param": "text", "type": "str", "required": True}], "options": [{"param": "loud", "names": ["--loud"], "type": "bool"}]},
+        {"name": "set", "runnable": True, "effect": "何か"}, {"name": "group", "commands": [{"name": "inner", "runnable": True}]},
+        {"name": "Bad Name", "runnable": True}, "文字"]}}
+    _external_command(bin_dir, "hello", f"import json, sys; print('前置き'); print(json.dumps({answer!r}))")
+    _external_command(bin_dir, "quiet", "print('形は答えない')")
+    _external_command(bin_dir, "broken", "import json; print(json.dumps({'ok': True, 'result': {'commands': 'x', 'summary': 3}}))")
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.chdir(tmp_path)
+    code, document = _catalog(capsys)
+    found = {e["name"]: e for e in document["result"]["extensions"]}
+    hello = found["hello"]
+    assert code == 0 and hello["summary"] == "あいさつします。" and hello["help"] == "ecobuild hello --help --json"
+    assert [(c["path"], c["runnable"], c["effect"]) for c in hello["commands"]] == [
+        ("hello say", True, "read"), ("hello set", True, "change"), ("hello group", False, None)]   # path は拡張コマンドの名前から
+    assert hello["commands"][0]["arguments"] == [{"param": "text", "type": "str", "required": True}]
+    assert hello["commands"][0]["options"][0]["names"] == ["--loud"]
+    assert hello["commands"][2]["commands"][0]["path"] == "hello group inner"
+    for name in ("quiet", "broken"):
+        assert found[name]["commands"] == [] and found[name]["summary"] == ""
+
+
 def test_builtin_commands_win_over_external_ones(tmp_path, monkeypatch):
     import os
     from ecobuild_cli import _external

@@ -3,12 +3,22 @@
 画面のボタンと同じ「GUIの操作」（actions.py）を、動いているGUIのサーバーに頼む。人が画面を見ていれば、操作はそこに
 反映される（エージェントが実行したこと・開いた画面）。GUIが動いていなければ起動する。
 
+GUI は2つある（今までの GUI と、GUIFrameWork の上の新しい GUI：gui/eco_gui）。どちらに頼むかの決まり（target）：
+  1. 環境変数 ECOBUILD_GUI_TARGET（next・classic）があれば、それ。
+  2. 新しい GUI の中から頼まれた（新しい GUI の画面が実行したコマンド・そこから話しかけたオペレーター）なら、新しい GUI。
+  3. ほか（端末・今までの GUI のオペレーター）は、動いている方。両方動いていれば、今までの GUI（今までどおり）。
+  4. どちらも動いていなければ、今までの GUI を起動する（今までどおり）。
+新しい GUI には、表示の CLI（next_gui.py）で頼む：open・windows・notify・folder・vs と、新しい GUI だけの
+screens（画面の一覧）・tree（今の表示を読む）・emit（人の代わりに入力を出す）。エージェントの窓の操作は、今までの GUI だけ。
+
   ecobuild gui                         ハブを開く
   ecobuild gui task start 12           ecobuild のコマンドを、GUIを通して実行（-C <場所> で場所を指定）
   ecobuild gui open [モジュール] [--page …] [--tab …] [--task N] [--command "task start"]
   ecobuild gui folder <場所> [--path …] / vs <場所> [--path …] / notify "…"
   ecobuild gui windows / activity     開いている窓と表示しているもの・最近の操作（エージェント向け）
-  ecobuild gui actions [--json]        GUIの操作の一覧（--help --json と同じ）
+  ecobuild gui screens / tree [--window W] / emit <窓>/<部品> <出力> [--payload 名前=値 …]
+                                       新しい GUI だけ：画面の一覧／窓の今の表示を読む／人の代わりに入力を出す
+  ecobuild gui actions [--json]        GUIの操作の一覧（--help --json と同じ。頼み先の GUI のもの）
   ecobuild gui mcp [--operator]        MCP サーバー（標準入出力）。エージェントのツールとして登録する
                                        （--operator：オペレーター用。GUI の操作と、見るだけの ecobuild のコマンドだけ）
   ecobuild gui operator [--here] [--agent "claude …"]
@@ -36,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import actions  # noqa: E402
+import next_gui  # noqa: E402
 import operator_kit  # noqa: E402
 from operator_kit import Failure  # noqa: E402,F401（誤りは GUI の口で共通）
 
@@ -96,8 +107,51 @@ def server(start: bool = True) -> dict:
     raise Failure("gui_not_started", "ECOBuild GUI を起動できませんでした。", f"記録：{_home() / 'gui.log'}")
 
 
+_decided: list = []   # [決めた時刻, 頼み先]。1つの頼みの中で、動いているかを何度も調べない（数秒だけ覚える）
+
+
+def target() -> str:
+    """どちらの GUI に頼むか（next：新しい GUI、classic：今までの GUI）。決まりは、このファイルの先頭。"""
+    chosen = next_gui.chosen()
+    if chosen:
+        return chosen
+    if _decided and time.monotonic() - _decided[0] < 3:
+        return _decided[1]
+    where = next_gui.CLASSIC if _alive(_state()) or not next_gui.running() else next_gui.NEXT
+    _decided[:] = [time.monotonic(), where]
+    return where
+
+
+def table(where: str | None = None) -> dict[str, actions.Action]:
+    """頼み先の GUI の操作の一覧。"""
+    return next_gui.ACTIONS if (where or target()) == next_gui.NEXT else actions.ACTIONS
+
+
+REQUESTER: str | None = None   # 新しい GUI の窓の枠に出す依頼元（MCP なら「オペレーター」「エージェント」）
+
+
+def _ecobuild(args: list[str], directory: str | None = None, stdin: str | None = None) -> dict:
+    """ecobuild [-C 場所] <引数> --json の文書（新しい GUI での run。画面も同じ ecobuild を呼ぶ）。"""
+    command = [operator_kit.PROGRAM, *(["-C", directory] if directory else []), *args, "--json"]
+    try:
+        done = subprocess.run(command, input=stdin, stdin=None if stdin is not None else subprocess.DEVNULL, capture_output=True,
+                              encoding="utf-8", errors="replace")
+        lines = done.stdout.strip().splitlines()
+        return json.loads(lines[-1]) if lines else {"ok": False, "error": {"code": "no_output", "message": (done.stderr or "").strip()}}
+    except (OSError, ValueError) as error:
+        return {"ok": False, "error": {"code": "gui_error", "message": f"ecobuild を実行できませんでした：{error}"}}
+
+
 def act(name: str, params: dict) -> object:
-    """GUIの操作を頼む（画面のボタンと同じ道）。"""
+    """GUIの操作を頼む（画面のボタンと同じ道）。頼み先は target()。"""
+    if target() == next_gui.NEXT:
+        try:
+            return next_gui.act(name, params, ecobuild=_ecobuild, by=REQUESTER)
+        except ValueError as error:
+            raise Failure("usage_error", str(error), "ecobuild gui actions で一覧を確かめてください。", 2) from None
+        except next_gui.Refused as refused:
+            hint = "新しい GUI（ECOBuild GUI（新））を起動してください。" if refused.code == "no_display" and not refused.hint else refused.hint
+            raise Failure(refused.code, refused.message, hint) from None
     try:
         clean = actions.check(name, params)
     except ValueError as error:
@@ -109,14 +163,9 @@ def act(name: str, params: dict) -> object:
 
 
 # Command line ----------------------------------------------------------------------------------------------------
-OPTIONS = {   # 操作の引数（--名前 値。boolean は値なし）
-    a.name: {p.name: p for p in a.params} for a in actions.ACTIONS.values()
-}
-
-
-def _parse(name: str, words: list[str]) -> dict:
-    """ecobuild gui <操作> の残り：位置引数は必須の引数に順に、--名前 値 はその引数に。"""
-    known = OPTIONS[name]
+def _parse(name: str, words: list[str], known_actions: dict[str, actions.Action] | None = None) -> dict:
+    """ecobuild gui <操作> の残り：位置引数は必須の引数に順に、--名前 値 はその引数に（boolean は値なし。並びは何度でも）。"""
+    known = {p.name: p for p in (actions.ACTIONS if known_actions is None else known_actions)[name].params}
     positional = [p for p in known.values() if p.required and p.kind != "array"]
     values: dict = {}
     i = 0
@@ -133,7 +182,10 @@ def _parse(name: str, words: list[str]) -> dict:
                 i += 1
                 if i >= len(words):
                     raise Failure("usage_error", f"--{key} に値を指定してください。", exit_code=2)
-                values[key] = words[i]
+                if known[key].kind == "array":
+                    values.setdefault(key, []).append(words[i])
+                else:
+                    values[key] = words[i]
         elif positional:
             values[positional.pop(0).name] = word
         elif name == "open" and "module" not in values:
@@ -178,10 +230,13 @@ COMMANDS = [
 ]
 
 
-def help_document() -> dict:
+def help_document(where: str | None = None) -> dict:
+    """ecobuild gui --help --json の result。commands は、ecobuild の一覧（extensions）に入る形（頼み先によらず同じ）。
+    actions は、頼み先（where。省くと今までの GUI）の GUIの操作。"""
+    known = table(where or next_gui.CLASSIC)
     return {"name": "gui", "summary": "ECOBuild GUI を外（端末・AIエージェント）から操作します。",
-            "help": (__doc__ or "").strip(), "actions": actions.catalog(), "commands": COMMANDS,
-            "examples": [{"say": say, "do": do} for say, do in actions.EXAMPLES]}
+            "help": (__doc__ or "").strip(), "actions": [a.describe() for a in known.values()], "commands": COMMANDS,
+            "examples": [{"say": say, "do": do} for say, do in operator_kit.spoken_examples(known)]}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -190,10 +245,12 @@ def main(argv: list[str] | None = None) -> int:
     if not words or words == ["--json"]:
         return run_action("open", {}, json_output)
     if words[0] in ("--help", "-h", "help", "actions"):
+        # --help は ecobuild の一覧からも呼ばれる（速く答える：どちらが動いているかは調べない）。actions は頼み先の GUI のもの
+        where = target() if words[0] == "actions" else next_gui.chosen()
         if json_output:
-            print(json.dumps({"ok": True, "command": "gui actions", "result": help_document(), "error": None}, ensure_ascii=False))
+            print(json.dumps({"ok": True, "command": "gui actions", "result": help_document(where), "error": None}, ensure_ascii=False))
         elif words[0] == "actions":
-            for a in actions.ACTIONS.values():
+            for a in table(where).values():
                 params = " ".join(("<" if p.required else "[--") + p.name + (">" if p.required else "]") for p in a.params)
                 print(f"{a.name:9} {params}\n          {a.summary}")
         else:
@@ -212,10 +269,13 @@ def main(argv: list[str] | None = None) -> int:
         if text:
             print(text)
         return 0
-    if words[0] in actions.ACTIONS and words[0] != "run":
+    if (words[0] in actions.ACTIONS or words[0] in next_gui.ACTIONS) and words[0] != "run":
         name = words[0]
+        where = target()
+        if name not in table(where):   # 頼み先の GUI にない操作：その GUI が、ない理由と代わりを答える
+            return run_action(name, {}, json_output)
         try:
-            params = _parse(name, [w for w in words[1:] if w != "--json"])
+            params = _parse(name, [w for w in words[1:] if w != "--json"], table(where))
         except Failure as failure:
             return _print({"ok": False, "error": {"code": failure.code, "message": failure.message, "hint": failure.hint},
                            "exit_code": failure.exit_code}, json_output)
@@ -280,9 +340,10 @@ def operator_command(words: list[str], json_output: bool) -> int:
         if rest:
             raise Failure("usage_error", f"operator の引数が多すぎます：{rest[0]}", exit_code=2)
         command = tuple(str(values.get("agent", "")).split()) or operator_kit.DEFAULT_COMMAND
+        where = {"gui": next_gui.NEXT} if target() == next_gui.NEXT else {}   # GUI の操作の頼み先（今までの GUI なら今までどおり）
         if values.get("here"):
-            return operator_kit.run(command)
-        started = operator_kit.start(command)
+            return operator_kit.run(command, **where)
+        started = operator_kit.start(command, **where)
     except Failure as failure:
         return _print(_failed("gui operator", failure), json_output)
     if not json_output:
@@ -311,10 +372,11 @@ def ask_command(words: list[str], json_output: bool) -> int:
         message = "" if rest == ["-"] else " ".join(rest)
         message = message or (sys.stdin.read() if not sys.stdin.isatty() else "")
         command = tuple(str(values.get("agent", "")).split()) or operator_kit.DEFAULT_COMMAND
+        where = target()   # オペレーターの GUI の操作の頼み先（新しい GUI から話しかけたら、新しい GUI）
         if values.get("continue"):
-            reply = operator_kit.converse(message, command=command, on_action=started)
+            reply = operator_kit.converse(message, command=command, on_action=started, gui=where)
         else:
-            reply = operator_kit.ask(message, session=values.get("session") or None, command=command, on_action=started)
+            reply = operator_kit.ask(message, session=values.get("session") or None, command=command, on_action=started, gui=where)
     except Failure as failure:
         return _print(_failed("gui ask", failure), json_output)
     if not json_output:
@@ -342,7 +404,8 @@ def conversation_command(name: str, words: list[str], json_output: bool) -> int:
         print(f"{who}：{message.get('text') or ''}")
         for action in message.get("actions") or []:
             print(f"  $ {action.get('command')}" + ("（失敗）" if action.get("ok") is False else ""))
-    print("（考え中…" + (f" 実行中：{found['doing']}" if found.get("doing") else "") + "）" if found["state"] == "thinking"
+    print("（起動中…）" if found["state"] == "starting"
+          else "（考え中…" + (f" 実行中：{found['doing']}" if found.get("doing") else "") + "）" if found["state"] == "thinking"
           else "（会話はまだありません）" if not found["messages"] else "（待機中）")
     return 0
 
@@ -368,8 +431,9 @@ OPERATOR_INSTRUCTIONS = ("ECOBuild GUI を、人が画面を見ている前で�
                          "（使い方は ecobuild_commands）。ECOBuild を変える操作はできません。")
 
 
-def mcp_tools(operator: bool = False) -> list[dict]:
-    """MCP のツール。operator：オペレーター用（何でも実行できる ecobuild と agent-send を外し、見るだけの ecobuild_read を足す）。"""
+def mcp_tools(operator: bool = False, where: str | None = None) -> list[dict]:
+    """MCP のツール：頼み先の GUI（where。省くと target()）の GUIの操作と、ecobuild のコマンドの一覧。
+    operator：オペレーター用（何でも実行できる ecobuild・入力を出す emit・agent-send を外し、見るだけの ecobuild_read を足す）。"""
     def schema(action: actions.Action) -> dict:
         properties = {}
         for p in action.params:
@@ -383,7 +447,7 @@ def mcp_tools(operator: bool = False) -> list[dict]:
         return {"type": "object", "properties": properties, "required": [p.name for p in action.params if p.required]}
 
     tools = []
-    for a in actions.ACTIONS.values():
+    for a in table(where).values():
         if operator and a.name in operator_kit.hidden_actions():
             continue
         name = "ecobuild" if a.name == "run" else TOOL_PREFIX + a.name
@@ -420,21 +484,28 @@ def mcp_call(name: str, arguments: dict, operator: bool = False) -> tuple[object
     if operator and name == "ecobuild_read":
         args = [str(a) for a in arguments.get("args") or [] if str(a) != "--json"]
         operator_kit.read_command(args, operator_kit.catalog())
-        result = act("run", {"args": args, "dir": arguments.get("dir") or str(Path.cwd())})
+        where = arguments.get("dir") or str(Path.cwd())
+        if target() == next_gui.NEXT:   # 読むだけなので、窓に読み直しを頼まない（新しい GUI の画面も、同じ ecobuild を呼ぶ）
+            result = _ecobuild(args, where)
+        else:
+            result = act("run", {"args": args, "dir": where})
         return result, not (isinstance(result, dict) and result.get("ok"))
     action = "run" if name == "ecobuild" else name[len(TOOL_PREFIX):] if name.startswith(TOOL_PREFIX) else ""
-    if action not in actions.ACTIONS or (operator and action in operator_kit.hidden_actions()):
+    if not (action in actions.ACTIONS or action in next_gui.ACTIONS) or (operator and action in operator_kit.hidden_actions()):
         raise Failure("usage_error", f"ツール {name} はありません。", exit_code=2)
     params = dict(arguments)
     if action == "run" and not params.get("dir"):
         params["dir"] = str(Path.cwd())
-    result = act(action, params)
+    result = act(action, params)   # 頼み先の GUI にない操作は、その GUI が、ない理由と代わりを答える
     if action == "run":
         return result, not (isinstance(result, dict) and result.get("ok"))
     return result, False
 
 
 def mcp(operator: bool = False) -> int:
+    global REQUESTER
+    REQUESTER = "オペレーター" if operator else "エージェント"
+
     def send(message: dict) -> None:
         sys.stdout.write(json.dumps(message, ensure_ascii=False) + "\n")
         sys.stdout.flush()

@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from ..._output import run_command
-from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text, with_worker, worker_text, workers
+from ._show import STAGE_NAMES, elsewhere, plan_text, submission_text, with_stage, with_worker, worker_text, workers
 
 AGENT = "read"
 
@@ -27,13 +27,14 @@ def command(
 
     作業空間（.ecobuild/w/<番号>）等、ほかの場所にいるタスクブランチは、その場所も出します。
     子のエージェント（子タスクの持ち主）が作業中のタスクは、そのエージェントと場所を出します（JSON の worker）。
+    段階（〈作業中〉等）の記録がない開いたタスクは、タスクブランチ（手元か GitHub）があれば作業中、なければ未着手として出します。
     """
     here = []
 
     def tasks(inv):
         here.append(inv.module.root)
         found = workers(inv.module.root)
-        return [with_worker(t, found) for t in inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
+        return [with_stage(with_worker(t, found)) for t in inv.module.tasks(closed=all, label=label or None, assignee="@me" if mine else (assignee or None),
                                 search=search or None, milestone=milestone or None, ready=ready,
                                 sort=sort or None, sprint=sprint or None, submitted=submitted, to_review=to_review)]
 

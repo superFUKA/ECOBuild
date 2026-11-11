@@ -80,3 +80,25 @@ def with_worker(task, found: dict[int, dict]):
 
 def worker_text(worker) -> str:
     return f"エージェント {worker['name']}（{worker.get('id')}・登録 {worker.get('registration')}）が作業中（{worker['path']}）"
+
+
+def can_answer(reason: str) -> dict:
+    """--can の答え：今できるか・できない理由（reason が空ならできる）。JSON は {"can", "reason"}。"""
+    return {"can": not reason, "reason": reason}
+
+
+def render_can(answer: dict) -> str:
+    return "できます" if answer["can"] else f"できません：{answer['reason']}"
+
+
+def shown_stage(task) -> str | None:
+    """表示に使う段階。段階の記録がない開いたタスクは、タスクブランチ（手元か GitHub）があれば作業中、なければ未着手とみなす。"""
+    if task.stage or task.state != "open":
+        return task.stage
+    return "in_progress" if task.task_branch or task.current or task.remote else "todo"
+
+
+def with_stage(task):
+    """task（TaskSummary）の段階を、表示に使う段階にする（記録があればそのまま）。"""
+    stage = shown_stage(task)
+    return task if stage == task.stage else replace(task, stage=stage)

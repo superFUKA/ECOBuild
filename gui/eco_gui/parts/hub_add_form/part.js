@@ -34,19 +34,23 @@ export default {
         repository: '', folder: '', adopt_folder: '', adopt_type: types[0].name, more: false };
     }
     const v = state.v;
+    if (!v.directory && !state.touched) {  // この PC のモジュールの一覧が後から届いたら、その親フォルダを初めの値にする
+      const known = props.modules.find((m) => m.path);
+      if (known) v.directory = String(known.path).replace(/[\\/][^\\/]+$/, '');
+    }
     const info = types.find((t) => t.name === v.type) || types[0];
     const kinds = info.new_kinds || [];
     if (!kinds.includes(v.kind)) v.kind = kinds.length ? (info.default_new_kind || kinds[0]) : '';
     const named = kinds.length > 0 && v.kind !== 'none';
     const library = kinds.length > 0 && LIBRARY_KINDS.includes(v.kind);
     const send = () => {
-      if (v.directory) memory.set(PARENT, v.directory.trim().replace(/[\\/]+$/, ''));
+      if (v.directory && state.touched) memory.set(PARENT,v.directory.trim().replace(/[\\/]+$/, ''));
       emit('changed', { method: v.method, directory: v.directory.trim().replace(/[\\/]+$/, ''), name: v.name.trim(), type: v.type, kind: v.kind || '',
         project: named ? v.project.trim() : '', test: library ? v.test : null, description: v.description.trim(), owner: v.owner.trim(),
         public: v.public ? true : null, repository: v.repository.trim(), folder: v.folder.trim(), adopt_folder: v.adopt_folder.trim(), adopt_type: v.adopt_type });
     };
     // 初めと、型の一覧が届いたとき：今の値（既定の型・最初に作るもの）を出しておく
-    const stamp = JSON.stringify([types.map((t) => t.name), v.method, v.type, v.kind, v.adopt_type]);
+    const stamp = JSON.stringify([types.map((t) => t.name), v.method, v.type, v.kind, v.adopt_type, state.touched ? '' : v.directory]);
     if (state.sent !== stamp) { state.sent = stamp; send(); }
 
     const form = h('div', { class: 'add' });
@@ -68,7 +72,7 @@ export default {
     const input = (key, attrs, after) => {
       const box = h(attrs.rows ? 'textarea' : 'input', attrs);
       box.value = v[key];
-      box.addEventListener('input', () => { v[key] = box.value; showDestination(); if (after) after(); send(); });
+      box.addEventListener('input', () => { v[key] = box.value; if (key === 'directory') state.touched = true; showDestination(); if (after) after(); send(); });
       return box;
     };
     const select = (key, options) => {

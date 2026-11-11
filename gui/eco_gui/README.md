@@ -41,8 +41,8 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 
 | 画面 | もとの場所 | 状態 |
 |---|---|---|
-| `hub`（ハブ） | `static/hub.js` | モジュールの一覧・開く・一覧から外す・一覧に足す・取得・作る・環境チェックを開く。設定（AI・コンテナ・更新）・並べ替え・アーカイブと削除は、まだ |
-| `doctor`（環境チェック） | `static/hub.js` の設定 | 道具がそろっているかの一覧。足りないものを入れるボタンは、まだ |
+| `hub`（ハブ）・`hub-menu`・`hub-add`・`hub-forget`・`hub-delete`・`hub-account`・`hub-help` | `static/hub.html`・`hub.js`・`common.js` のアカウントの窓 | 左のメニュー（モジュール・オペレーター・設定・ヘルプ、下にアカウント）。モジュールのカード（型ごとの見出し・頭文字・リポジトリ・状態の印・⋯ と右クリックのメニュー・ドラッグで並べ替え）、アーカイブ済み・前の作業空間の折りたたみ、上の帯（環境が足りない・新しい版）、モジュール追加の窓（4つの方法）、アカウントの窓。フォルダを開く・Visual Studio・ショートカット・参照…・ログインと権限の追加（端末を開くもの）は、ecobuild にコマンドがないので、まだ |
+| `doctor`（環境チェック） | `static/hub.js` の設定 | 確認済み・要対応・任意の3段階と、足りないものの直し方。直すボタン（ログイン・権限を追加）は、まだ |
 | `menu`（モジュールの窓のメニュー） | `static/module.js` の左のメニュー | 選ぶと、同じ窓で画面が切り替わる。どの画面にも置いてある |
 | `overview`（概要） | `static/modinfo.js` のホーム | 名前・型・リポジトリなど。README・ファイルの木は、まだ |
 | `workspace`（作業空間） | `static/workspace.js` | 状態・変更を選んでコミット・差分・Push・取り込み・提出・退避と戻す・最近のコミット・ビルド・試験・クリーン（出力を続けて表示）。衝突を直す・構成の選択・退避の一覧は、まだ |
@@ -61,7 +61,7 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
 | `settings`（設定） | `static/modinfo.js` | 全般・ビルド設定・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
 | `container`（コンテナ） | `static/modinfo.js` | 状態・入・切・起こす・止める・イメージ・レシピ |
-| `hub-settings`・`hub-archive` | `static/hub.js` の設定 | アカウント・全体の設定・AI（ログイン・版）・コンテナのイメージ・ECOBuild の更新・アーカイブと削除 |
+| `hub-settings`・`hub-archive` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す）。`hub-archive`（表から選んでアーカイブ・削除）は、ハブのカードのメニューと「アーカイブ済み」に移したので、入口がない |
 | `agents`・`agent-skills`・`agent-rules`・`agent-presets`・`pc-agents` | `static/agenteditor.js`・`agentrules.js` | 登録・スキル・共通の文・プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
 | `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`） |

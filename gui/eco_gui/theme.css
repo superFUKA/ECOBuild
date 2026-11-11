@@ -125,7 +125,7 @@ dialog::backdrop { background: #0009; }
 dialog > small { color: var(--eco-dim); font-size: 11px; }
 dialog.gf-inside { padding: 0; background: var(--eco-panel); }
 body[data-gf-framed] { background: var(--eco-panel); }
-body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; }
+body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
 /* メニュー（右クリック・⋯） */
 .gf-menu { min-width: 210px; max-width: 320px; padding: 6px; border: 1px solid var(--gf-border); border-radius: 8px; background: #252b33; box-shadow: 0 12px 32px #0008;
   font-size: 13px; }

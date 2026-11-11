@@ -25,8 +25,8 @@ SCREEN = {
         {"read": "workspace list", "to": "modules.legacy", "from": "legacy"},
         {"read": "doctor", "to": "setup.items", "from": "items"},
         # GitHub に聞くもの（遅い）は後から：アーカイブ済みか・型、新しい版があるか
-        {"read": "module list", "args": {"all": True}, "to": "modules.known"},
-        {"read": "installer check", "to": "update.check"},
+        {"read": "module list", "args": {"all": True}, "lazy": True, "to": "modules.known"},
+        {"read": "installer check", "lazy": True, "to": "update.check"},
         {"on": "reload.pressed", "refresh": True},
         {"on": "setup.pressed", "open": "hub-settings", "here": True},
         {"on": "update.pressed", "run": "installer update"},

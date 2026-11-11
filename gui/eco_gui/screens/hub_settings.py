@@ -196,7 +196,7 @@ SCREEN = {
          "notify": "既定（イメージを作るときの最新）に戻しました。"},
         # ECOBuild（ecobuild installer check・installer update [--ref <版>]）
         {"read": "installer show", "to": "installed.data"},
-        {"read": "installer check", "to": "update_status.check"},
+        {"read": "installer check", "lazy": True, "to": "update_status.check"},
         {"on": "check_update.pressed", "refresh": True},
         {"on": "update_status.pressed", "run": "installer update"},
         {"on": "update.pressed", "run": "installer update"},

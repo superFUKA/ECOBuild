@@ -175,7 +175,7 @@ def test_submissions_lists_what_comes_into_each_branch_and_opens_the_detail_insi
     window = relay.execute({"command": "open", "screen": "submissions", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "submissions"
+    assert (view["nav"]["props"]["current"], view["section"]["props"]["current"]) == ("branches", "submissions")
     props = view["list"]["props"]
     assert [row["number"] for row in props["tasks"]] == [12, 20] and [row["number"] for row in props["to_review"]] == [20]
     assert [row["name"] for row in props["branches"]] == ["dev", "main"]  # ブランチ同士の提出も、同じ一覧に出す

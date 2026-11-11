@@ -178,7 +178,7 @@ def test_agents_screen_puts_the_list_and_the_chosen_one_in_one_editor(relay):
     window = opened(relay, "agents", module="C:/work/Calc")
     view = nodes(relay, window)
     editor = view["editor"]["props"]
-    assert view["nav"]["props"]["current"] == "agents" and view["editor"]["part"] == "cfg-agent-editor"
+    assert (view["nav"]["props"]["current"], view["section"]["props"]["current"]) == ("overview", "agents") and view["editor"]["part"] == "cfg-agent-editor"
     assert [row["name"] for row in editor["agents"]] == ["lead", "worker"]
     assert [row["name"] for row in editor["skills"]] == ["release-notes"]
     assert [(row["name"], row["area"]) for row in editor["tools"]] == [("status", "状態・履歴を見る"), ("task_commit", "タスク")]
@@ -430,7 +430,7 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
 def test_agent_presets_screen_puts_the_pc_settings_inside_the_module_window(relay):
     window = opened(relay, "agent-presets", module="C:/work/Calc")
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "agents" and view["back"]["props"]["label"].startswith("←")
+    assert (view["nav"]["props"]["current"], view["section"]["props"]["current"]) == ("overview", "agents") and view["back"]["props"]["label"].startswith("←")
     assert [row["name"] for row in view["body:p_list"]["props"]["rows"]] == ["lead", "worker"]
     relay.input(window, "body:p_list", "action", {"id": "lead", "action": "show"}, human=True)
     relay.idle()

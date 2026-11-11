@@ -7,8 +7,9 @@ SCREEN = {
     "window": {"title": "このPCのプリセット", "width": 1280, "height": 820},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["back_row", "body"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "agents", "module": {"arg": "module"}}},
+        {"id": "main", "layout": "column", "look": "page", "children": ["back_row", "section", "body"]},
+        {"id": "section", "screen": "mod-tabs", "args": {"current": "agents", "module": {"arg": "module"}}},
+        {"id": "nav", "screen": "menu", "args": {"current": "overview", "module": {"arg": "module"}}},
         {"id": "back_row", "layout": "row", "look": "tools", "children": ["back"]},
         {"id": "back", "part": "button", "props": {"label": "← モジュールのエージェントへ戻る", "quiet": True}},
         {"id": "body", "screen": "pc-agents"},

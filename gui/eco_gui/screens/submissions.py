@@ -10,10 +10,11 @@ SCREEN = {
     "window": {"title": "提出", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "list", "revert_box"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "submissions", "module": {"arg": "module"}}},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "list", "revert_box"]},
+        {"id": "section", "screen": "branch-tabs", "args": {"current": "submissions", "module": {"arg": "module"}}},
+        {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
-        {"id": "title", "part": "note", "props": {"text": "届いている提出", "heading": True}},
+        {"id": "title", "part": "note", "props": {"text": "ブランチ", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
         {"id": "list", "part": "review-submissions"},
         # 完了したタスクの取り込みを取り消す

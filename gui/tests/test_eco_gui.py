@@ -314,19 +314,30 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
     relay.idle()
     assert nodes(relay, window)["about"]["props"]["data"]["name"] == "Calc"
     assert nodes(relay, window)["nav"]["props"]["current"] == "overview"
-    menu = [item["id"] for item in nodes(relay, window)["nav"]["props"]["items"]]
-    assert set(menu) >= {"board", "schedule", "submissions", "agents", "settings", "container", "help"}
-    known = ("tasks", "branches", "history", "members", "pipelines", "ci", "overview")
-    for screen in known:
+    # 左は、今の GUI と同じ6つ（モジュール・作業空間・タスク管理・ブランチ／設定・ヘルプ）。まとまりの見出しはない
+    items = nodes(relay, window)["nav"]["props"]["items"]
+    assert [(item["id"], item["label"]) for item in items] == [
+        ("overview", "モジュール"), ("frame-workspaces", "作業空間"), ("tasks", "タスク管理"), ("branches", "ブランチ"), ("settings", "設定"), ("help", "ヘルプ")]
+    assert not [item for item in items if item.get("group")]
+    for screen in [item["id"] for item in items]:
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
         relay.idle()
         tree = relay.display.tree(window)
         assert (tree["screen"], nodes(relay, window)["nav"]["props"]["current"]) == (screen, screen)
     assert [e["message"] for e in relay.display.events_after(0) if e["command"] == "notify"] == []
-    for screen in [item for item in menu if item not in known]:  # ほかの項目も、同じ窓で開ける（中身は、それぞれの試験で）
-        relay.input(window, "nav", "selected", {"id": screen}, human=True)
+    # まとまりの中は、ページの上のタブで切り替える。左の印は、まとまりのまま
+    for section, start, tabs in (("overview", "overview", ["overview", "members", "pipelines", "ci", "agents"]),
+                                 ("branches", "branches", ["branches", "submissions", "history"])):
+        relay.input(window, "nav", "selected", {"id": start}, human=True)
         relay.idle()
-        assert relay.display.tree(window)["screen"] == screen
+        shown = nodes(relay, window)["section"]["props"]
+        assert [item["id"] for item in shown["items"] if not item.get("only")] == tabs
+        for screen in tabs[1:] + tabs[:1]:
+            relay.input(window, "section", "selected", {"id": screen}, human=True)
+            relay.idle()
+            view = nodes(relay, window)
+            assert (relay.display.tree(window)["screen"], view["section"]["props"]["current"], view["nav"]["props"]["current"]) == (screen, screen, section)
+    assert nodes(relay, window)["section"]["props"]["items"] and [w["id"] for w in relay.display.windows()] == [window]
     assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
 
 
@@ -356,7 +367,7 @@ def test_members_screen_reads_and_runs_the_same_commands_a_person_types(relay):
     window = relay.execute({"command": "open", "screen": "members"})["window"]
     relay.idle()
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "members"
+    assert view["nav"]["props"]["current"] == "overview" and view["section"]["props"]["current"] == "members"
     assert view["members"]["props"]["account"]["login"] == "superFUKA"
     assert [row["login"] for row in view["members"]["props"]["members"]] == ["octocat", "hubot"]
 

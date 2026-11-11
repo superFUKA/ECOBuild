@@ -174,6 +174,13 @@ class _TypeHooks(Hooks):
                 continue
         return [f"{path}：{text}" for path, texts in zip(here, _usage.reasons_of(here)) for text in texts]
 
+    def keeps_workspace(self, repository: Repository, path: Path) -> str | None:
+        # ECOBuild の置き場所（.ecobuild/ の中）の作業空間でなければ（人が git worktree で作ったもの等）触らない：ブランチも残る
+        if _workspaces.is_managed(path):
+            return None
+        return (f"ECOBuild が作った作業空間ではない作業ツリー {path} が取り出しています（消しません。"
+                f"git worktree remove \"{path}\" で外すと、片付けられます）")
+
     def remove_workspace(self, repository: Repository, path: Path, *, discard: bool) -> bool:
         # タスクブランチを消す前に、それを取り出している作業空間を消す（ecowork が、失われるコミット・コミットしていない
         # 変更を確かめた後）。新しいファイル（未追跡で .gitignore で除外していないもの。管理するファイルの対象外も）が

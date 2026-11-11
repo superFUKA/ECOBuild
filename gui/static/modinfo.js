@@ -650,11 +650,11 @@
           {name: 'projects', label: '自分のProject', row: 'f1', value: f.projects}, {name: 'linked', label: 'リンク先のモジュール', row: 'f1', value: f.linked_projects},
           {name: 'external', label: 'CMake・GoogleTest 等', row: 'f2', value: f.external}, {type: 'section', end: true}] : [])], '保存',
         v => {
-          const args = ['module', 'settings'];
+          const args = ['module', 'settings', 'set'];
           if (v.main !== (m.main_project || '')) args.push(...(v.main ? ['--main', v.main] : ['--no-main']));
           if (v.runtime && v.runtime !== (m.msvc_runtime || '')) args.push('--msvc-runtime', v.runtime);
           if (f) for (const [key, option, before] of [['projects', '--projects-folder', f.projects], ['linked', '--linked-folder', f.linked_projects], ['external', '--external-folder', f.external]]) if (v[key].trim() && v[key].trim() !== before) args.push(option, v[key].trim());
-          return args.length > 2 ? args : '変更はありません。';
+          return args.length > 3 ? args : '変更はありません。';
         }, {success: 'モジュールの設定を保存しました。'});
     },
     'template-add': name => inWorkspace(name ? `テンプレートを差し替え：${name}` : 'テンプレートを追加', [

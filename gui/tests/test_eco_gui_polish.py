@@ -64,7 +64,7 @@ class PolishEcobuild(FakeEcobuild):
             "show": spec("read", commit=text, gui=flag),
             "diff": spec("read", paths=many, staged=flag, base=flag, gui=flag),
             "file test": spec("change", ["path"], path=text, to=text),
-            "module settings": spec("read", main=text),
+            "module settings": spec("read"),
             "project list": spec("read"), "project update": spec("change"),
             "project add": spec("change", ["name"], name=text, kind=text, link=text, no_test=flag),
             "project move": spec("change", ["name", "destination"], name=text, destination=text),

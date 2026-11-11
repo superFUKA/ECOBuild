@@ -542,6 +542,8 @@ class Completion:
         ほかの作業ツリー（元の clone・作業空間）が取り出しているものは除く。
 
         fetch の後に呼ぶ。失われるコミットがあれば残す（task prune と同じ）。
+        ほかの作業ツリーが取り出しているブランチは、どのみち git が消させないので、GitHub に聞かずに残す（知らせもしない：
+        作業空間ごと片付けるのは task prune。ほかのコマンドのついでに、残っている数だけ GitHub に聞いて待たせない）。
         """
         try:
             self.git.forget_missing_worktrees()   # 先に、フォルダーがなくなった作業空間の記録を片付ける（git の worktree lock のものも）
@@ -551,17 +553,22 @@ class Completion:
         remote = set(self.git.remote_branches())
         checked_out = self.git.checked_out_branches()   # ほかの git worktree が使っているブランチは git が消させない
         removed, kept = [], []
+        candidates = {}
         for branch in self.git.local_branches():
             number = wm.task_number(branch)
-            if number is None or branch == current or branch in remote \
+            if number is None or branch == current or branch in remote or branch in checked_out \
                     or self.git.get_config(f"branch.{branch}.merge") is None:   # GitHubへ送ったことがないもの
                 continue
+            candidates[branch] = number
+        issues = self._issues(candidates.values())
+        for branch, number in candidates.items():
+            issue = issues[number]
             try:
-                if self.github.get_issue(self.root, number).state != "closed" or self._unsafe_to_remove(branch):
+                if issue is None or issue.state != "closed" or self._unsafe_to_remove(branch):
                     continue
             except WorkError:
                 continue
-            if branch in checked_out or self.hooks.branch_in_use(self, branch):   # ほかの作業空間が使っている：残す（次の機会に片付く）
+            if self.hooks.branch_in_use(self, branch):   # 前の版の作業空間（別の clone）が使っている：残す（次の機会に片付く）
                 kept.append(branch)
                 continue
             self.git.delete_branch(branch, force=True)
@@ -571,7 +578,7 @@ class Completion:
             self.notices.append(f"完了したタスクの手元のタスクブランチを片付けました：{', '.join(removed)}")
         if kept:
             self.notices.append(f"完了したタスクの手元のタスクブランチ {', '.join(kept)} は、ほかの作業空間が使用中"
-                                "（取り出し中・作業中）のため残しました。")
+                                "のため残しました。")
         return tuple(removed)
 
     def task_diff(self, number: int | None = None) -> str:

@@ -39,7 +39,8 @@ class OldEcobuild(PolishEcobuild):
             "project link": spec("change", library=many, project=text, type=text, package=text, cmake=text, target=text, directory=text,
                                  file=text, implib=text, include=text),
             "project pch": spec("change", projects=text, project=text, off=flag, header=text, system=text),
-            "module settings": spec("read", main=text, no_main=flag, projects_folder=text, linked_folder=text, external_folder=text, msvc_runtime=text),
+            "module settings": spec("read"),
+            "module settings set": spec("change", main=text, no_main=flag, projects_folder=text, linked_folder=text, external_folder=text, msvc_runtime=text),
             "check": spec("read", build=flag, only=text, tests=text),
             "run": spec("change", argv=many, projects=text, project=text, configuration=text, profile=text, arguments=text),
             "branch resolve": spec("change", ["name"], name=text, into=text),
@@ -336,7 +337,7 @@ def test_cpp_settings_and_templates_are_changed_with_their_forms(relay):
     props = nodes(relay, settings["id"])["form"]["props"]
     assert props["values"]["main_project"] == "Calc" and [row["name"] for row in props["rows"]] == ["Calc", "CalcTest"]  # 今の値と、選べる Project
     decide(relay, settings, main="Calc", no_main=False, msvc_runtime="static", projects_folder="", linked_folder="Linked", external_folder="")
-    assert called(relay, "module settings")[-1] == {"main": "Calc", "no_main": False, "msvc_runtime": "static", "linked_folder": "Linked"}
+    assert called(relay, "module settings set")[-1] == {"main": "Calc", "no_main": False, "msvc_runtime": "static", "linked_folder": "Linked"}
 
     add = form(relay, window, "cpp_templates", "template_add", "mod-cpp-template-add")
     decide(relay, add, name="widget", source="templates/widget.h")

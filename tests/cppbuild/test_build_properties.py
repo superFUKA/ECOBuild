@@ -182,9 +182,9 @@ def test_properties_cli(module, monkeypatch, capsys):
     assert code == 0 and out["result"]["compile_options"] == [] and out["result"]["build_events"]["pre_build"] == []
     code, out = run("project", "set", "--warning-level", "high")
     assert code != 0 and out["error"]["code"] == "invalid_argument"
-    code, out = run("module", "settings", "--msvc-runtime", "static")
+    code, out = run("module", "settings", "set", "--msvc-runtime", "static")
     assert code == 0 and out["result"]["msvc_runtime"] == "static"
-    code, out = run("module", "settings", "--msvc-runtime", "dll")
+    code, out = run("module", "settings", "set", "--msvc-runtime", "dll")
     assert code == 0 and out["result"]["msvc_runtime"] == "dll"
     code, out = run("profile", "add", "sdk", "--windows-sdk", "10.0.22621.0")
     assert code == 0 and out["result"]["profiles"]["sdk"]["options"] == {"windows_sdk": "10.0.22621.0"}

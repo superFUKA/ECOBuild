@@ -206,8 +206,20 @@ div.intro ul, .banner ul { margin: 4px 0 0; padding-left: 20px; line-height: 1.7
 @media (max-width: 600px) { .row { grid-template-columns: 1fr; } }
 }
 `;
-const formLookup = (data, path) => String(path || '').split('.').filter(Boolean)
-  .reduce((at, key) => (at === null || at === undefined ? undefined : at[key]), data);
+// 道筋の値。「*」は、その下のどれにも共通の値（並びなら、すべてに入っているものだけ。例：types.*.defines）
+const formLookup = (data, path) => {
+  const keys = String(path || '').split('.').filter(Boolean);
+  const walk = (at, index) => {
+    if (at === null || at === undefined || index === keys.length) return at;
+    if (keys[index] !== '*') return walk(at[keys[index]], index + 1);
+    if (typeof at !== 'object') return undefined;
+    const found = Object.values(at).map((below) => walk(below, index + 1));
+    if (!found.length) return undefined;
+    if (found.every(Array.isArray)) return found[0].filter((item) => found.every((list) => list.includes(item)));
+    return found.every((value) => value === found[0]) ? found[0] : undefined;
+  };
+  return walk(data, 0);
+};
 const formBlank = (value) => value === undefined || value === null || value === '';
 const formSame = (a, b) => (a ?? null) === (b ?? null);
 const FORM_LAYOUT = new Set(['section', 'note']);
@@ -519,6 +531,13 @@ function formRender(root, props, { h, emit, state }, extra = {}) {
     for (const f of named) {
       if (!visible(f)) continue;
       let value = valueOf(f);
+      if (f.edit) {   // 並びを直接直す欄：読んだ今の値との差を、足すもの・外すものとして出す（コマンドは --add-…・--remove-…）
+        const before = listOf(f, first(f)), after = [...new Set(listOf(f, value))];
+        values[f.edit.add] = after.filter((item) => !before.includes(item)).join(f.join || ',');
+        values[f.edit.remove] = before.filter((item) => !after.includes(item)).join(f.join || ',');
+        continue;
+      }
+      if (f.changed_only && !state.touched[f.name]) continue;   // 触っていなければ出さない（今の値をそのまま送り直さない）
       if (f.type === 'checkbox') {
         if (f.inverse) values[f.inverse] = !value;
         if (f.on !== undefined) value = value ? f.on : f.off;

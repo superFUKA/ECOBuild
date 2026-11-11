@@ -295,21 +295,27 @@ class Reviewing:
         current = self.git.current_branch()
         removed, skipped, workspaces = [], [], []
         switched_to = here_removed = here_kept = None
-        for branch in self.git.local_branches():
-            number = wm.task_number(branch)
-            if number is None or (only is not None and number != only):
-                continue
-            try:
-                issue = self.github.get_issue(self.root, number)
-            except WorkError:
+        branches = {branch: wm.task_number(branch) for branch in self.git.local_branches()}
+        branches = {branch: number for branch, number in branches.items()
+                    if number is not None and (only is None or number == only)}
+        issues = self._issues(branches.values())    # GitHub へは並べて聞く
+        closed = [branch for branch, number in branches.items() if issues[number] is not None and issues[number].state == "closed"]
+        unsafe = self._each(self._unsafe_to_remove, closed)   # 失われるコミットがあるか（マージ済みの PR を GitHub に聞く）も並べて
+        action = "タスクブランチを片付けること"
+        # 下見は読むだけなので、作業ツリーの様子（取り出している場所・変更・使用中か）も並べて調べる
+        previews = self._each(lambda branch: self._release_branch(branch, action=action, dry_run=True),
+                              [branch for branch in closed if unsafe[branch] is None]) if dry_run else {}
+        for branch, number in branches.items():
+            issue = issues[number]
+            if issue is None:
                 skipped.append(wm.SkippedBranch(branch, "Issueを取得できません"))
                 continue
             if issue.state != "closed":
                 continue
-            reason = self._unsafe_to_remove(branch)
+            reason = unsafe[branch]
             released = None
             if reason is None:
-                released = self._release_branch(branch, action="タスクブランチを片付けること", dry_run=dry_run)
+                released = previews[branch] if dry_run else self._release_branch(branch, action=action)
                 if released.in_use and only is not None:
                     raise self._in_use_error("タスクブランチを片付けること", list(released.in_use))
                 if not released.released:

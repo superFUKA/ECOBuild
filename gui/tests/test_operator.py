@@ -19,6 +19,7 @@ CATALOG = {
             {"path": "task start", "runnable": True, "effect": "change", "summary": "タスクを始める"},
             {"path": "task finish", "runnable": True, "effect": "confirm", "summary": "タスクを終える"}]},
         {"path": "module settings", "runnable": True, "effect": "read", "summary": "モジュールの設定"},
+        {"path": "module settings set", "runnable": True, "effect": "change", "summary": "モジュールの設定を変える"},
         {"path": "container dockerfile", "runnable": True, "effect": "read", "summary": "Dockerfile"},
     ],
     "types": {"cpp": {"description": "C++", "commands": [{"path": "build", "runnable": True, "effect": "change", "summary": "ビルド"}]}},
@@ -41,7 +42,7 @@ def home(tmp_path, monkeypatch):
     (["build"], False),                         # 型のコマンド（変える）
     (["task", "list", "--yes"], False),         # 重さを上げるオプション
     (["module", "settings", "--json"], True),
-    (["module", "settings", "--name", "x"], False),   # 値を渡すと設定を変える
+    (["module", "settings", "set", "--main", "x"], False),   # 変えるのは module settings set（見るだけではない）
     (["container", "dockerfile", "--write", "-"], False),
     (["-C", "C:/Calc", "status"], False),       # 場所は dir で
     (["gui", "open"], False),                   # 一覧にない（拡張・知らないもの）

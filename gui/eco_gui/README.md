@@ -9,7 +9,7 @@
 
 ## インストーラーで入れる
 
-インストーラー（`ecobuild installer update --ref gui-framework`、または `installer/install.ps1 -Ref gui-framework`）が、専用の venv（`%LOCALAPPDATA%\Programs\ECOBuild GUI Nextenv`）に GUIFrameWork を入れ、デスクトップとスタートメニューに「ECOBuild GUI（新）」を作ります（`gui/eco_gui_setup.py`）。今の「ECOBuild GUI」は、そのまま残ります。
+インストーラー（`ecobuild installer update --ref gui-framework`、または `installer/install.ps1 -Ref gui-framework`）が、専用の venv（`%LOCALAPPDATA%\Programs\ECOBuild GUI Nextenv`）に GUIFrameWork を入れ、デスクトップとスタートメニューに「ECOBuild GUI」を作ります（`gui/eco_gui_setup.py`）。今までの GUI は「ECOBuild GUI（旧）」で開けます。
 
 ## 窓
 

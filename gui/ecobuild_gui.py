@@ -6,8 +6,8 @@
 GUI は2つある（今までの GUI と、GUIFrameWork の上の新しい GUI：gui/eco_gui）。どちらに頼むかの決まり（target）：
   1. 環境変数 ECOBUILD_GUI_TARGET（next・classic）があれば、それ。
   2. 新しい GUI の中から頼まれた（新しい GUI の画面が実行したコマンド・そこから話しかけたオペレーター）なら、新しい GUI。
-  3. ほか（端末・今までの GUI のオペレーター）は、動いている方。両方動いていれば、今までの GUI（今までどおり）。
-  4. どちらも動いていなければ、今までの GUI を起動する（今までどおり）。
+  3. ほか（端末・今までの GUI のオペレーター）は、動いている方。両方動いていれば、新しい GUI（主にする方）。
+  4. どちらも動いていなければ、新しい GUI を起動する（準備されていなければ、今までの GUI）。
 新しい GUI には、表示の CLI（next_gui.py）で頼む：open・windows・notify・folder・vs と、新しい GUI だけの
 screens（画面の一覧）・tree（今の表示を読む）・emit（人の代わりに入力を出す）。エージェントの窓の操作は、今までの GUI だけ。
 
@@ -117,7 +117,12 @@ def target() -> str:
         return chosen
     if _decided and time.monotonic() - _decided[0] < 3:
         return _decided[1]
-    where = next_gui.CLASSIC if _alive(_state()) or not next_gui.running() else next_gui.NEXT
+    if next_gui.running():
+        where = next_gui.NEXT
+    elif _alive(_state()) or next_gui.python() is None:   # 今までの GUI だけが動いている・新しい GUI が準備されていない
+        where = next_gui.CLASSIC
+    else:
+        where = next_gui.NEXT   # どちらも動いていない：新しい GUI を起動する（next_gui.act）
     _decided[:] = [time.monotonic(), where]
     return where
 
@@ -150,7 +155,7 @@ def act(name: str, params: dict) -> object:
         except ValueError as error:
             raise Failure("usage_error", str(error), "ecobuild gui actions で一覧を確かめてください。", 2) from None
         except next_gui.Refused as refused:
-            hint = "新しい GUI（ECOBuild GUI（新））を起動してください。" if refused.code == "no_display" and not refused.hint else refused.hint
+            hint = "ECOBuild GUI を起動してください。" if refused.code == "no_display" and not refused.hint else refused.hint
             raise Failure(refused.code, refused.message, hint) from None
     try:
         clean = actions.check(name, params)

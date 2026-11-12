@@ -1672,16 +1672,20 @@ def _write_shortcut(link: Path, arguments: list[str], icon: str, app_id: str, de
         raise GuiError(f"ショートカットを作成できませんでした：{link}\n{completed.stderr.strip()}")
 
 
+SHORTCUT_NAME = "ECOBuild GUI（旧）"
+
+
 def make_shortcuts(places: list[Path] | None = None) -> list[str]:
-    """デスクトップとスタートメニューに「ECOBuild GUI」のショートカット（アイコン付き）を作る。Windowsだけ。"""
+    """デスクトップとスタートメニューに、この GUI（今までの GUI）のショートカット「ECOBuild GUI（旧）」（アイコン付き）を作る。
+    Windowsだけ。「ECOBuild GUI」は、新しい GUI（eco_gui_setup.py が作る）。"""
     if os.name != "nt":
         raise GuiError("ショートカットは Windows でのみ作成できます。")
     places = _shortcut_places() if places is None else places
     made = []
     for place in places:
         if place.is_dir():
-            _write_shortcut(place / "ECOBuild GUI.lnk", [], "icon.ico", APP_ID, "ECOBuild GUI")
-            made.append(str(place / "ECOBuild GUI.lnk"))
+            _write_shortcut(place / f"{SHORTCUT_NAME}.lnk", [], "icon.ico", APP_ID, "ECOBuild GUI（今までの GUI）")
+            made.append(str(place / f"{SHORTCUT_NAME}.lnk"))
     return made
 
 

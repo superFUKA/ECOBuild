@@ -46,8 +46,8 @@ def sent(monkeypatch):
 
 
 def test_which_gui_is_asked(undecided, monkeypatch):
-    """決まり：はっきり決めてあればそれ／新しい GUI の中から頼まれたら新しい GUI／ほかは動いている方（両方なら今までの GUI）／
-    どちらも動いていなければ今までの GUI。"""
+    """決まり：はっきり決めてあればそれ／新しい GUI の中から頼まれたら新しい GUI／ほかは動いている方（両方なら新しい GUI）／
+    どちらも動いていなければ新しい GUI（準備されていなければ今までの GUI）。"""
     alive = {"classic": False, "next": False}
     monkeypatch.setattr(ecobuild_gui, "_alive", lambda state: alive["classic"])
     monkeypatch.setattr(next_gui, "running", lambda: alive["next"])
@@ -57,12 +57,16 @@ def test_which_gui_is_asked(undecided, monkeypatch):
         ecobuild_gui._decided.clear()
         return ecobuild_gui.target()
 
-    assert asked(False, False) == "classic" and asked(True, False) == "classic"
+    monkeypatch.setattr(next_gui, "python", lambda: "python")   # 新しい GUI は準備されている
+    assert asked(False, False) == "next"                       # どちらも動いていなければ、新しい GUI（頼むときに起こす）
+    assert asked(True, False) == "classic" and ecobuild_gui.table() is actions.ACTIONS   # 今までの GUI だけが動いている
     assert asked(False, True) == "next"
-    assert asked(True, True) == "classic"                      # 両方動いていれば、今までどおり
-    assert ecobuild_gui.table() is actions.ACTIONS
+    assert asked(True, True) == "next" and ecobuild_gui.table() is next_gui.ACTIONS      # 両方動いていれば、新しい GUI
+    monkeypatch.setattr(next_gui, "python", lambda: None)      # 新しい GUI が準備されていない PC：今までの GUI
+    assert asked(False, False) == "classic"
+    monkeypatch.setattr(next_gui, "python", lambda: "python")
     monkeypatch.setenv("GUIFRAMEWORK_WINDOW", "w1")            # 新しい GUI の画面が実行したコマンドの中
-    assert asked(True, True) == "next" and ecobuild_gui.table() is next_gui.ACTIONS
+    assert asked(True, False) == "next" and ecobuild_gui.table() is next_gui.ACTIONS
     monkeypatch.setenv("ECOBUILD_GUI_TARGET", "classic")       # はっきり決めてあれば、それ
     assert asked(False, True) == "classic"
     monkeypatch.setenv("ECOBUILD_GUI_TARGET", "next")
@@ -262,3 +266,23 @@ def test_the_display_cli_of_a_running_relay(tmp_path, monkeypatch):
     finally:
         server.shutdown()
     assert next_gui.running() is False
+
+
+def test_the_new_gui_is_started_when_it_is_asked_and_not_running(monkeypatch):
+    sent = []
+
+    def display(command, *words, options=(), by=None, timeout=120):
+        sent.append((command, *words, *options))
+        if command == "open" and ("serve", "--background") not in sent:
+            raise next_gui.Refused("no_display", "表示（中継地点）が動いていません。")
+        return {"window": "w1"} if command == "open" else None
+
+    monkeypatch.setattr(next_gui, "display", display)
+    monkeypatch.setattr(next_gui, "python", lambda: "python")
+    assert next_gui.act("open", {}, ecobuild=None)["window"] == "w1"
+    assert sent == [("open", "hub"), ("serve", "--background"), ("open", "hub")]    # 起こしてから、もう一度頼む
+    sent.clear()
+    monkeypatch.setattr(next_gui, "python", lambda: None)      # 準備されていなければ、起こせない（わけをそのまま返す）
+    with pytest.raises(next_gui.Refused):
+        next_gui.act("open", {}, ecobuild=None)
+    assert sent == [("open", "hub")]

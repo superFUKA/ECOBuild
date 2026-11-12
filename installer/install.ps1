@@ -227,10 +227,14 @@ Set-Content -Path $Installing -Value $PID -Encoding ascii
 # 入れた GUI（Electron）を止める。動いている GUI は、止めた ECOBuild の係（agent serve）をすぐ起動し直し、入れ替えを
 # ふさぎ続ける（GUI はこのあと入れ替えるので、どのみち止める）
 $InstalledGui = Join-Path $env:LOCALAPPDATA "Programs\ECOBuild GUI"
-function Stop-Gui {
-    Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($InstalledGui, [StringComparison]::OrdinalIgnoreCase) } |
-        Stop-Process -Force -ErrorAction SilentlyContinue
+function Get-GuiProcess {
+    Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($InstalledGui, [StringComparison]::OrdinalIgnoreCase) }
 }
+function Stop-Gui {
+    Get-GuiProcess | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+# 入れ替えの前に GUI（今までのもの・新しいもの）が動いていたか：動いていたら、終わった後に新しい GUI を開き直す
+$GuiWasRunning = @(Get-GuiProcess).Count -gt 0
 
 function Install-Ecobuild {
     Stop-Gui
@@ -313,15 +317,15 @@ function Install-Gui {
     Invoke-Python (Join-Path $script:GuiDir "app.py") --shortcut
     if ($LASTEXITCODE -ne 0) { Stop-Install "GUI のショートカットを作れませんでした。" }
 
-    # GUIFrameWork の上の新しい GUI（gui/eco_gui）：専用の venv に GUIFrameWork を入れ、ショートカット「ECOBuild GUI（新）」を作り、
+    # 主の GUI（GUIFrameWork の上の新しい GUI：gui/eco_gui）：専用の venv に GUIFrameWork を入れ、ショートカット「ECOBuild GUI」を作り、
     # 拡張コマンド ecobuild gui の入口（ecobuild-gui。動くものがもうあれば触らない）を ecobuild の隣に置く。
-    # 今の GUI とそのショートカットは変えない。準備できなくても、今の GUI は使える
+    # 今までの GUI は「ECOBuild GUI（旧）」で開ける（上で作ったショートカット）。準備できなくても、今までの GUI は使える
     $setup = Join-Path $script:GuiDir "eco_gui_setup.py"
     if (Test-Path $setup) {
-        Write-Host "    新しい GUI（GUIFrameWork）を準備します（初回は少し時間がかかります）"
+        Write-Host "    ECOBuild GUI を準備します（初回は少し時間がかかります）"
         Invoke-Python $setup --ecobuild $ecobuild
-        if ($LASTEXITCODE -eq 0) { Write-Done "新しい GUI：スタートメニュー・デスクトップの「ECOBuild GUI（新）」" }
-        else { Write-Host "    新しい GUI を準備できませんでした（今の GUI はそのまま使えます）。" -ForegroundColor Yellow }
+        if ($LASTEXITCODE -eq 0) { $script:GuiReady = $true; Write-Done "ECOBuild GUI：スタートメニュー・デスクトップの「ECOBuild GUI」（今までの GUI は「ECOBuild GUI（旧）」）" }
+        else { Write-Host "    ECOBuild GUI を準備できませんでした（今までの GUI「ECOBuild GUI（旧）」はそのまま使えます）。" -ForegroundColor Yellow }
     }
 }
 if (-not $NoGui) { Install-Gui }
@@ -339,6 +343,15 @@ Write-Host ""
 Write-Host "完了しました。新しく開いた端末では、どのディレクトリからでも ecobuild が使えます（ecobuild --help）。" -ForegroundColor Green
 if (-not $NoGui) {
     Write-Host "GUI：スタートメニューまたはデスクトップの「ECOBuild GUI」（スタートメニューで右クリック →「タスク バーにピン留めする」）。" -ForegroundColor Green
+}
+if ($GuiWasRunning -and $script:GuiReady) {
+    # 入れ替えの前に GUI が動いていた：新しい GUI を開き直す（窓のない Python で。コマンドプロンプトは出ない）
+    $guiPython = Join-Path $env:LOCALAPPDATA "Programs\ECOBuild GUI Next\venv\Scripts\pythonw.exe"
+    $guiStart = Join-Path $script:GuiDir "ECOBuildGUINext.pyw"
+    if ((Test-Path $guiPython) -and (Test-Path $guiStart)) {
+        Start-Process -FilePath $guiPython -ArgumentList "`"$guiStart`"" -WorkingDirectory $script:GuiDir
+        Write-Host "ECOBuild GUI を開き直しました。" -ForegroundColor Green
+    }
 }
 Write-Host "更新：ecobuild installer update（またはこのインストーラーをもう一度実行。ECOBuild も GUI も入れ替わります）。"
 Write-Host "入っているもの：ecobuild installer show。あとから入れる：ecobuild installer add docker（Docker）・tools（足りないツール）。"

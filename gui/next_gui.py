@@ -165,8 +165,24 @@ def module_folder(given: str, ecobuild) -> str:
     raise Refused("not_found", f"モジュール {given} が見つかりません。", "場所は ecobuild workspace list で確かめられます。")
 
 
+def start() -> None:
+    """新しい GUI（の中継地点）を裏で起こす。窓は、この後の頼み（open 等）が開く。"""
+    display("serve", options=("--background",), timeout=60)
+
+
 def act(name: str, params: dict, *, ecobuild, by: str | None = None) -> object:
-    """GUIの操作を、新しい GUI に頼む。ecobuild は、ecobuild <引数> --json の文書を返す関数（引数・場所・標準入力）。"""
+    """GUIの操作を、新しい GUI に頼む。動いていなければ起こしてから頼む。
+    ecobuild は、ecobuild <引数> --json の文書を返す関数（引数・場所・標準入力）。"""
+    try:
+        return _act(name, params, ecobuild=ecobuild, by=by)
+    except Refused as refused:
+        if refused.code != "no_display" or python() is None:   # 準備されていない（venv がない）なら、起こせない
+            raise
+    start()
+    return _act(name, params, ecobuild=ecobuild, by=by)
+
+
+def _act(name: str, params: dict, *, ecobuild, by: str | None = None) -> object:
     p = check(name, params)
     if name == "open":
         module = module_folder(p["module"], ecobuild) if p.get("module") else None

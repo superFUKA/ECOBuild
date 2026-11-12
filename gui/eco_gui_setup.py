@@ -21,7 +21,8 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-NAME = "ECOBuild GUI（新）"
+NAME = "ECOBuild GUI"             # 主の GUI。今までの GUI のショートカットは「ECOBuild GUI（旧）」（app.py）
+FORMER_NAMES = ("ECOBuild GUI（新）",)  # 前の名前のショートカット（あれば消す）
 
 
 def default_venv() -> Path:
@@ -98,12 +99,17 @@ def shortcut_places() -> list[Path]:
 def make_shortcut(place: Path, venv: Path) -> Path:
     """「その venv の pythonw で ECOBuildGUINext.pyw」を開くショートカット（.lnk）。値は環境変数で渡す（引用符の扱いを避ける）。"""
     link = place / f"{NAME}.lnk"
+    for former in FORMER_NAMES:
+        try:
+            (place / f"{former}.lnk").unlink()
+        except OSError:
+            pass
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
               "$s.Arguments = $env:EG_ARGS; $s.WorkingDirectory = $env:EG_DIR; $s.IconLocation = $env:EG_ICON + ',0'; "
               "$s.Description = $env:EG_DESCRIPTION; $s.Save()")
     env = dict(os.environ, EG_LINK=str(link), EG_TARGET=str(python_of(venv, windowless=True)),
                EG_ARGS=subprocess.list2cmdline([str(HERE / "ECOBuildGUINext.pyw")]), EG_DIR=str(HERE),
-               EG_ICON=str(HERE / "icon.ico"), EG_DESCRIPTION="ECOBuild GUI（GUIFrameWork の上の新しい GUI）")
+               EG_ICON=str(HERE / "icon.ico"), EG_DESCRIPTION="ECOBuild GUI")
     done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
     if done.returncode != 0 or not link.is_file():

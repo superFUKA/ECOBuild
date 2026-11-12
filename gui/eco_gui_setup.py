@@ -23,6 +23,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 NAME = "ECOBuild GUI"             # 主の GUI。今までの GUI のショートカットは「ECOBuild GUI（旧）」（app.py）
 FORMER_NAMES = ("ECOBuild GUI（新）",)  # 前の名前のショートカット（あれば消す）
+APP_ID = "ECOBuild.GUI.Next"       # 窓（eco_gui/electron/main.js の setAppUserModelId）と同じ印。ショートカットにも書く
 
 
 def default_venv() -> Path:
@@ -97,7 +98,12 @@ def shortcut_places() -> list[Path]:
 
 
 def make_shortcut(place: Path, venv: Path) -> Path:
-    """「その venv の pythonw で ECOBuildGUINext.pyw」を開くショートカット（.lnk）。値は環境変数で渡す（引用符の扱いを避ける）。"""
+    """「その venv の pythonw で ECOBuildGUINext.pyw」を開くショートカット（.lnk）。値は環境変数で渡す（引用符の扱いを避ける）。
+
+    窓と同じ AppUserModelID を書く：タスクバーで窓がこのショートカットとまとまり、ピン留めすると「ECOBuild GUI」になる
+    （書かないと、ピン留めが Electron の実行ファイルになる）。書き方は、今までの GUI のショートカットと同じ（app.py）。"""
+    from app import _SET_APP_ID
+
     link = place / f"{NAME}.lnk"
     for former in FORMER_NAMES:
         try:
@@ -106,10 +112,11 @@ def make_shortcut(place: Path, venv: Path) -> Path:
             pass
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
               "$s.Arguments = $env:EG_ARGS; $s.WorkingDirectory = $env:EG_DIR; $s.IconLocation = $env:EG_ICON + ',0'; "
-              "$s.Description = $env:EG_DESCRIPTION; $s.Save()")
+              "$s.Description = $env:EG_DESCRIPTION; $s.Save(); "
+              "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
     env = dict(os.environ, EG_LINK=str(link), EG_TARGET=str(python_of(venv, windowless=True)),
                EG_ARGS=subprocess.list2cmdline([str(HERE / "ECOBuildGUINext.pyw")]), EG_DIR=str(HERE),
-               EG_ICON=str(HERE / "icon.ico"), EG_DESCRIPTION="ECOBuild GUI")
+               EG_ICON=str(HERE / "icon.ico"), EG_DESCRIPTION="ECOBuild GUI", EG_CS=_SET_APP_ID, EG_APPID=APP_ID)
     done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
     if done.returncode != 0 or not link.is_file():

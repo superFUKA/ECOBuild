@@ -1,8 +1,12 @@
 """eco_gui_setup：新しい GUI の venv の準備（pip は呼ばず、呼び方だけ確かめる）。"""
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import pytest  # noqa: E402
 
 import eco_gui_setup  # noqa: E402
 
@@ -76,3 +80,20 @@ def test_setup_places_the_command_next_to_ecobuild(tmp_path, monkeypatch, capsys
     assert eco_gui_setup.main(["--venv", str(venv), "--no-shortcuts", "--ecobuild", "C:/bin/ecobuild.exe"]) == 0
     assert placed == [("C:/bin/ecobuild.exe", eco_gui_setup.python_of(venv))] and "置けませんでした" in capsys.readouterr().out
     assert eco_gui_setup.main(["--venv", str(venv), "--no-shortcuts", "--no-command"]) == 0 and len(placed) == 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="ショートカットは Windows だけ")
+def test_the_shortcut_carries_the_windows_app_id_and_replaces_the_former_one(tmp_path):
+    place = tmp_path / "デスクトップ"
+    place.mkdir()
+    (place / "ECOBuild GUI（新）.lnk").write_bytes(b"")     # 前の名前のショートカット
+    link = eco_gui_setup.make_shortcut(place, tmp_path / "venv")
+    assert link == place / "ECOBuild GUI.lnk" and not (place / "ECOBuild GUI（新）.lnk").exists()
+    # タスクバーで窓とまとまり、ピン留めがこのショートカットになるように、窓（Electron）と同じ AppUserModelID が付いている
+    read = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                           "(New-Object -ComObject Shell.Application).NameSpace($env:EG_DIR).ParseName('ECOBuild GUI.lnk')"
+                           ".ExtendedProperty('System.AppUserModel.ID')"],
+                          env=dict(os.environ, EG_DIR=str(place)), capture_output=True, text=True)
+    assert read.stdout.strip() == eco_gui_setup.APP_ID
+    main = (Path(eco_gui_setup.__file__).parent / "eco_gui" / "electron" / "main.js").read_text(encoding="utf-8")
+    assert f"setAppUserModelId('{eco_gui_setup.APP_ID}')" in main

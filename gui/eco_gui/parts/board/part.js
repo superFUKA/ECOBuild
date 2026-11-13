@@ -1,12 +1,12 @@
 // 部品「ボード」。段階ごとの列に分けるのは見せ方だけ。カードを別の列へ落とすと、その列に合う入力を出す：
-// 計画中・未着手＝段階を変える（edit）、作業中＝開始の窓、完了＝完了の窓（タスクブランチがなければ close）、削除済み＝削除（remove）。
+// 計画中・未着手＝段階を変える（edit。閉じたタスクは、開き直す入力の窓）、作業中＝開始の窓、完了＝完了の窓（タスクブランチがなければ close）、削除済み＝削除（remove）。
 // 落としても移らない列（レビュー待ち・タスクブランチのあるタスクの未着手 等）では、移らないわけを上に出す（次に何かするまで）。
 const RECENT_DONE = 15;
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw }) {
+  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
     const { STAGES } = lib.task;
-    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('タスクを読み込んでいます…'));
     const f = props.filter || props.start || {};
@@ -31,7 +31,8 @@ export default {
     const dropOf = (t, stage) => {
       const id = String(t.number), has = Boolean(t.task_branch || t.current), now = marks.stageOf(t);
       if (now === stage) return null;
-      if (!marks.open(t)) return stage === 'todo' || stage === 'planned' ? ['reopen', { id }] : null;
+      // 閉じたタスク：開き直して、落とした列（計画中・未着手）にする。確かめてから（入力の窓）
+      if (!marks.open(t)) return stage === 'todo' || stage === 'planned' ? ['dialog', { screen: 'task-reopen', id, text: stage }] : null;
       if (stage === 'done') return has || t.remote ? ['dialog', { screen: 'task-complete', id, text: '' }] : ['close', { id }];
       if (stage === 'deleted') return ['remove', { id }];
       if (stage === 'in_progress') return has ? null : ['dialog', { screen: 'task-start', id, text: '' }];

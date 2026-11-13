@@ -178,7 +178,8 @@ def test_merge_page_holds_the_card_and_the_forms_of_the_submission(relay):
     put(relay, window, "card:pick", "toggled", open=True)
     assert nodes(relay, window)["card:plan"]["props"]["plan"]["into"] == "main"
 
-    put(relay, window, "submit")  # 提出する…：取り込み先（初めは、カードで選んでいるもの）と題名の入力の窓
+    assert view["own"]["props"]["name"] == "dev" and view["own"]["props"]["access"] is not None  # 出すボタンは、部品が提出の有無で決める
+    put(relay, window, "own", "action", action="submit")  # 提出する…：取り込み先（初めは、カードで選んでいるもの）と題名の入力の窓
     form = inside(relay, "review-branch-submit")
     assert form["args"] == {"module": CALC, "name": "dev", "into": "main"}
     props = nodes(relay, form["id"])["form"]["props"]
@@ -186,7 +187,7 @@ def test_merge_page_holds_the_card_and_the_forms_of_the_submission(relay):
     put(relay, form["id"], "form", "submitted", values={"into": "release", "title": "11月の分"})  # 入力の窓が確認を兼ねる
     assert called(relay, "branch submit") == [{"name": "dev", "into": "release", "title": "11月の分"}]
 
-    put(relay, window, "merge_submission")  # 作ってある提出の取り込み：入力の窓（CI が失敗していても取り込むか）
+    put(relay, window, "own", "action", action="merge")  # 作ってある提出の取り込み：入力の窓（CI が失敗していても取り込むか）
     form = inside(relay, "review-merge")
     assert form["args"] == {"module": CALC, "name": "dev"}
     put(relay, form["id"], "form", "submitted", values={"ignore_checks": True})  # 入力の窓が確認を兼ねる

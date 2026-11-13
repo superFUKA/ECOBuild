@@ -139,6 +139,8 @@ def test_editing_relations(repository):
     assert code_of(lambda: repository.edit_task(three.number, parent=two.number)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: repository.edit_task(three.number, parent=three.number)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: repository.edit_task(three.number, milestone="ない")) == ErrorCode.MILESTONE_NOT_FOUND
+    repository.edit_task(three.number, clear_parent=True, parent=two.number)  # 外す＋付ける＝付け替え（1回で）
+    assert repository.task_status(three.number).parent.number == two.number
     repository.edit_task(three.number, clear_parent=True, remove_blocked_by=(two.number,))
     status = repository.task_status(three.number)
     assert (status.parent, status.blocked_by) == (None, ())

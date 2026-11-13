@@ -141,8 +141,6 @@ class Tracker:
                             hint="題名・本文・ラベル・担当者・親・依存・マイルストーン・計画の値のどれかを指定してください。")
         if plan or clear_plan:
             self.store.prepare(plan, clear_plan, self.task(number))   # 他を変える前に確かめる
-        if parent is not None and clear_parent:
-            raise TaskError(ErrorCode.INVALID_ARGUMENT, "親の指定と解除は同時にできません。")
         if milestone is not None and clear_milestone:
             raise TaskError(ErrorCode.INVALID_ARGUMENT, "マイルストーンの指定と解除は同時にできません。")
         if title is not None or body is not None or add_labels or remove_labels or add_assignees or remove_assignees:
@@ -158,18 +156,20 @@ class Tracker:
     def set_relations(self, number: int, *, parent: int | None = None, clear_parent: bool = False,
                       add_blocked_by: tuple[int, ...] = (), remove_blocked_by: tuple[int, ...] = (),
                       milestone: str | None = None, clear_milestone: bool = False) -> None:
-        """親子・依存・マイルストーンを設定する。別の親からの付け替えは暗黙に行わない。"""
+        """親子・依存・マイルストーンを設定する。別の親からの付け替えは暗黙に行わない（parent と clear_parent を
+        一緒に指定したときだけ、今の親から外して parent に付ける）。"""
         for other in (parent, *add_blocked_by):
             if other == number:
                 raise TaskError(ErrorCode.INVALID_ARGUMENT, f"#{number} 自身は指定できません。")
         if parent is not None or clear_parent:
             current = self.github.issue_relation(self.root, number).parent
-            if parent is not None and current not in (None, parent):
+            if parent is not None and not clear_parent and current not in (None, parent):
                 raise TaskError(ErrorCode.INVALID_ARGUMENT, f"#{number} には既に親 #{current} があります。",
-                                hint=f"付け替えるなら、先に {self._op('task edit')} {number} --clear-parent で外してください。")
-            if clear_parent and current is not None:
+                                hint=f"付け替えるなら、{self._op('task edit')} {number} --clear-parent --parent {parent} で"
+                                     f"（今の親から外して付けます）。")
+            if clear_parent and current is not None and current != parent:
                 self.github.remove_sub_issue(self.root, current, number)
-            if parent is not None and current is None:
+            if parent is not None and current != parent:
                 self.github.add_sub_issue(self.root, parent, number)
         for other in add_blocked_by:
             self.github.add_blocked_by(self.root, number, other)

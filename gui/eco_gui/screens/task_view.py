@@ -1,7 +1,7 @@
 """タスクを描く部品を1つ置き、どの表示でも同じつなぎを付ける（一覧・ボード・日程・次にやる・スプリント・概要・右の詳細）。
 
 選ぶと右の詳細に出す（共有の値 selected・detail）。入力の窓（開始・編集・完了・人の画面 ほか）は中に重ねて開く。
-右クリックのメニュー・その場の欄・ドラッグでの変更は ecobuild task edit、完了・削除は task close、開き直すは task reopen。
+右クリックのメニュー・その場の欄・ドラッグでの変更は ecobuild task edit、完了は task close、削除は入力の窓（task-delete）、開き直すは task reopen。
 """
 
 ARGS = {"module": ".", "part": "task-list", "look": "tk-main", "props": {}}
@@ -28,7 +28,8 @@ SCREEN = {
                   "add_assignee": {"payload": "add_assignee"}, "remove_assignee": {"payload": "remove_assignee"},
                   "add_label": {"payload": "add_label"}, "remove_label": {"payload": "remove_label"}, "clear": {"payload": "clear"}}},
         {"on": "view.close", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "完了にしました。"},
-        {"on": "view.remove", "run": "task close", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}, "not_planned": True}, "notify": "削除しました。"},
+        # 削除：専用の入力の窓で確かめる（タスクは戻せる・タスクブランチの作業は戻せない）
+        {"on": "view.remove", "open": "task-delete", "inside": True, "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
         {"on": "view.reopen", "run": "task reopen", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}, "notify": "開き直しました。"},
         # タスクブランチを開く：同じ窓の「作業空間」のタブで出す
         {"on": "view.workspace", "open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"payload": "path"}}, "here": True},

@@ -7,9 +7,9 @@ const weekday = (n) => new Date(n * DAY).getUTCDay();
 const dateOf = (n) => new Date(n * DAY).toISOString().slice(0, 10);
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, memory, redraw }) {
+  render(root, props, { h, lib, emit, menu, state, memory, redraw, open_url }) {
     const { STAGE } = lib.task;
-    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('タスクを読み込んでいます…'));
     const { md, today, open } = marks;

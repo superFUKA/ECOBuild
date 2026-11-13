@@ -17,7 +17,8 @@ function taskCurrentSprint(sprints) {
   return ((sprints || []).find((s) => s.start <= today && today < s.end) || {}).name || '';
 }
 // 印を作る道具。sprints：スプリントの一覧（今のスプリントを色で分ける）。me：自分のアカウント。
-function taskMarks(h, emit, menu, sprints, me) {
+// openUrl：部品の道具 open_url（右クリックの「GitHubで開く」。なければ出さない）。
+function taskMarks(h, emit, menu, sprints, me, openUrl) {
   const today = taskToday(), md = taskMd;
   const open = (t) => (t.state || 'open') === 'open';
   const deleted = (t) => !open(t) && t.closed_reason === 'not_planned';
@@ -83,6 +84,7 @@ function taskMarks(h, emit, menu, sprints, me) {
       }
       items.push(sep, { id: 'child', label: '子タスクを作る…', disabled: !isOpen, reason: '閉じたタスクです' }, { id: 'edit', label: '編集…' });
       items.push(isOpen ? { id: 'complete', label: '完了にする…' } : { id: 'reopen', label: deleted(t) ? '元に戻す' : '開き直す' });
+      if (openUrl && t.url) items.push({ id: 'github', label: 'GitHubで開く' });
       if (hasWorkspace) items.push(sep, { id: 'prune', label: 'このPCから片付ける（GitHubには残す）…' });
       if (hasWorkspace || t.remote || isOpen) items.push(sep);
       if (hasWorkspace || t.remote) items.push({ id: 'drop', label: '作業を捨てる（GitHubからも消す）…', danger: true });
@@ -105,6 +107,7 @@ function taskMarks(h, emit, menu, sprints, me) {
       else if (chosen === 'edit') dialog('task-edit');
       else if (chosen === 'complete') { if (hasWorkspace || t.remote) dialog('task-complete'); else emit('close', { id }); }
       else if (chosen === 'reopen') emit('reopen', { id });
+      else if (chosen === 'github') openUrl(t.url);
       else if (chosen === 'prune') dialog('task-prune');
       else if (chosen === 'drop') dialog('task-drop');
       else if (chosen === 'delete') emit('remove', { id });

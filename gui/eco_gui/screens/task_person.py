@@ -1,6 +1,6 @@
 """人の画面：その人の担当・作業中・残りの見積もり・期限切れ・提出中の数、作業中・提出・見るように頼まれた提出、担当タスクの表。
 
-タスク管理の画面の中に重ねて開く（担当の丸・名前を押す）。行を選ぶと、そのタスクの詳細を別の窓で開く。
+タスク管理の画面の中に重ねて開く（担当の丸・名前を押す）。行を選ぶと、モジュールの窓のタスク管理で、そのタスクを選んで右に詳細を出す。
 担当タスクの表のつなぎ（右クリックのメニュー・入力の窓）は、一覧と同じ（task-view）。
 """
 
@@ -24,8 +24,10 @@ SCREEN = {
         {"read": "task list", "args": {"module": {"arg": "module"}, "to_review": True}, "to": "person.reviews"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "person.me", "from": "login"},
         {"on": "person.closed", "close": True},
-        # タスクを選ぶ：その詳細を、別の窓で開く
-        {"on": "person.selected", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
-        {"on": "list.selected", "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        # タスクを選ぶ：モジュールの窓のタスク管理で、そのタスクを選んで右に詳細（この窓は閉じる）
+        {"on": "person.selected", "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},
+        {"on": "person.selected", "close": True},
+        {"on": "list.selected", "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},
+        {"on": "list.selected", "close": True},
     ],
 }

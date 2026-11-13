@@ -488,6 +488,11 @@ def test_legacy_board_setting_is_taken_over(cli, module):
     assert {t["title"]: t["stage"] for t in as_json(cli("task", "list", "--json"))["result"]} == \
         {"以前から": "in_progress", "引き継ぐ": "todo"}
     assert cli("task", "edit", "2", "--stage", "planned").exit_code == 0
+    # 閉じたタスクを開き直して、計画中にする（ボードで、閉じたタスクを計画中の列へ落としたとき）
+    assert cli("task", "close", "2", "--not-planned").exit_code == 0
+    reopened = cli("task", "reopen", "2", "--stage", "planned")
+    assert reopened.exit_code == 0 and "〈計画中〉" in reopened.output
+    assert {t["title"]: t["stage"] for t in as_json(cli("task", "list", "--json"))["result"]}["引き継ぐ"] == "planned"
 
 
 def test_subtasks_from_cli(cli, module):

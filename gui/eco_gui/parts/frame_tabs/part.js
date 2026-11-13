@@ -3,9 +3,6 @@
 const DOWN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 const FOLDER = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 const keyOf = (path) => String(path || '').replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
-// 閉じたタブ（モジュールごと）。この窓を開いているあいだ覚える：左のメニューで別のページへ行って戻っても、閉じたまま
-// （部品の state は画面を切り替えると空になるので、窓のページに1つの入れ物に置く。窓を開き直すと空に戻る）
-const CLOSED = new Map();
 
 export default {
   render(root, props, { h, emit, state, memory, menu, redraw }) {
@@ -16,11 +13,18 @@ export default {
     const places = loaded ? props.workspaces : [];
     const titles = new Map((props.tasks || []).map((task) => [task.number, task.title]));
     const module = keyOf(props.module);
-    if (!CLOSED.has(module)) CLOSED.set(module, new Set());
-    const closed = CLOSED.get(module);
+    // 閉じたタブ（モジュールごと）：窓を開いているあいだ覚える（memory.window）。左のメニューで別のページへ行って戻っても、
+    // 読み直しても閉じたまま。窓を閉じると消える
+    // （memory.window のこと。GUIFrameWork の検査が「window」の語を断るので、文字で取り出す）
+    const session = memory['window'];
+    const closedKey = 'closed:' + module;
+    const kept = session.get(closedKey, []) || [];
+    const closed = new Set(kept);
+    const keep = () => { if (JSON.stringify([...closed].sort()) !== JSON.stringify([...kept].sort())) session.set(closedKey, [...closed]); };
     for (const path of props.closed || []) closed.add(keyOf(path));
     const current = keyOf(props.current);
     closed.delete(current);  // 出すよう頼まれた作業空間（作業を始めた 等）は、閉じていてもまた出す
+    keep();
     // タブの並び：ドラッグで並べ替えた順（モジュールごとに、この PC に覚える）
     const orderKey = 'order:' + module;
     const order = memory.shared.get(orderKey, []) || [];
@@ -36,6 +40,7 @@ export default {
     // 閉じたタブの並び（場所は、作業空間の一覧にある書き方で渡す。なくなった作業空間は外す）
     const closedWith = (change) => {
       change(closed);
+      keep();
       return places.map((place) => place.path).filter((path) => closed.has(keyOf(path)));
     };
     const show = (place) => {

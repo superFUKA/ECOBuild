@@ -96,6 +96,32 @@ def test_subtasks_branch_from_the_parent_workspace(repository):
     assert all((repository.root / name).exists() for name in ("a.txt", "b.txt", "p.txt"))
 
 
+def test_subtask_is_not_started_without_the_parents_unpushed_commits(repository):
+    """子のタスクブランチは GitHub の親から作るので、手元の親に GitHub にないコミットがあれば、黙って抜かさずに止める。
+    親を push すれば、そのコミットを含めて作る。GitHub にある子のタスクブランチから再開するときは止めない。"""
+    parent = repository.create_task("親")
+    child = repository.create_task("子", parent=parent.number)
+    parent_branch = repository.task(parent.number).start()
+    write(repository.root / "p.txt", "p\n")
+    parent_branch.stage("p.txt")
+    parent_branch.commit("p")                                  # まだ push していない
+    with pytest.raises(WorkError) as error:
+        repository.task(child.number).start()
+    assert error.value.code == ErrorCode.UNFINISHED_WORK and "1 件" in error.value.message
+    assert "task push" in error.value.hint
+    assert not repository.git.has_local_branch(f"task/{child.number}-子")   # 何も作っていない
+    parent_branch.push()
+    started = repository.task(child.number).start()
+    assert started.base == parent_branch.branch and (repository.root / "p.txt").exists()   # 親のコミットが入る
+
+    repository.task(parent.number).start()                   # 親にまた GitHub にないコミット
+    write(repository.root / "q.txt", "q\n")
+    parent_branch.stage("q.txt")
+    parent_branch.commit("q")
+    repository.prune_task_branch(child.number)                # 子の手元を消し、GitHub から再開する
+    assert repository.task(child.number).start().base == parent_branch.branch
+
+
 def test_parent_without_code_is_closed_after_subtasks(repository):
     """コードを変えない親（タスクブランチなし）は、子が終わってから task close で閉じる。"""
     parent = repository.create_task("親")

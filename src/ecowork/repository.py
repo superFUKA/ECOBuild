@@ -1036,6 +1036,19 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         self.notices.append(f"親タスク #{number} のタスクブランチ {branch} をGitHubに作りました（作成元 {base}）。"
                             f"親の作業は {self._op('task start')} {number} で始められます。")
 
+    def _check_parent_pushed(self, number: int, parent_branch: str) -> None:
+        """子タスク number のタスクブランチは GitHub の親（origin/<親>）から作る。手元の親に GitHub にないコミットがあれば、
+        それが子に入らないまま作られてしまうので、黙って作らずに止める（親を push してから作る）。"""
+        if not (self.git.has_local_branch(parent_branch) and self.git.has_remote_branch(parent_branch)):
+            return
+        ahead = self.git.count(f"{_git.REMOTE}/{parent_branch}..{parent_branch}")
+        if ahead:
+            parent = wm.task_number(parent_branch)
+            raise WorkError(ErrorCode.UNFINISHED_WORK,
+                            f"親のタスクブランチ {parent_branch} に、GitHub にないコミットが {ahead} 件あります。子タスク #{number} の"
+                            "タスクブランチは GitHub の親から作るので、そのままではそれらが入りません（何も作っていません）。",
+                            hint=f"親の作業空間で {self._op('task push')} してから（親 #{parent}）、もう一度実行してください。")
+
     def _base_start_point(self, base: str | None, *, task_branch: str | None = None) -> str:
         """作成元のブランチを確かめ、GitHubの最新を起点として返す。
 
@@ -1167,6 +1180,8 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         start = self._base_start_point(base, task_branch=parent_branch)
         if remote:
             start = f"{_git.REMOTE}/{branch}"
+        elif parent_branch is not None and base == parent_branch:
+            self._check_parent_pushed(task.number, parent_branch)
         base = base or self.default_base
         self._check_usable(start, branch if remote else base)
         self.git.create_branch(branch, start, switch=False)

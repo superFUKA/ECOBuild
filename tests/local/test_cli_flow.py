@@ -711,6 +711,17 @@ def test_close_workspace(cli, module, parallel, monkeypatch):
     assert refused["error"]["code"] == "invalid_argument" and module.root.exists()
 
 
+def test_agent_area_is_not_seen_by_git(cli, module, parallel, monkeypatch):
+    """作業空間の中のエージェント用の置き場所（.ecobuild/ai/）に AI が手でメモを置いても、git には見えず、提出が
+    「未コミットの変更」で止まらない（エージェントを起動していなくても）。"""
+    write(parallel / ".ecobuild" / "ai" / "memo.md", "メモ\n")
+    write(parallel / "a.txt", "a\n")
+    monkeypatch.chdir(parallel)
+    assert git(parallel, "status", "--porcelain").strip() == "?? a.txt"
+    assert cli("task", "commit", "--message", "a", "a.txt").exit_code == 0
+    assert as_json(cli("task", "submit", "--no-check", "--json"))["ok"]
+
+
 def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
     """他のプログラムが使っていて動かせなければ、何も消さずに断る（git の記録が残るので、途中まで消さない）。"""
     real = Path.rename

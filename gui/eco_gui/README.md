@@ -41,8 +41,8 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 
 | 画面 | もとの場所 | 状態 |
 |---|---|---|
-| `hub`（ハブ）・`hub-menu`・`hub-add`・`hub-forget`・`hub-delete`・`hub-account`・`hub-help` | `static/hub.html`・`hub.js`・`common.js` のアカウントの窓 | 左のメニュー（モジュール・オペレーター・設定・ヘルプ、下にアカウント）。モジュールのカード（型ごとの見出し・頭文字・リポジトリ・状態の印・⋯ と右クリックのメニュー・ドラッグで並べ替え）、アーカイブ済み・前の作業空間の折りたたみ、上の帯（環境が足りない・新しい版）、モジュール追加の窓（4つの方法）、アカウントの窓。フォルダを開く・Visual Studio・ショートカット・参照…・ログインと権限の追加（端末を開くもの）は、ecobuild にコマンドがないので、まだ |
-| `doctor`（環境チェック） | `static/hub.js` の設定 | 確認済み・要対応・任意の3段階と、足りないものの直し方。直すボタン（ログイン・権限を追加）は、まだ |
+| `hub`（ハブ）・`hub-menu`・`hub-add`・`hub-forget`・`hub-unusable`・`hub-delete`・`hub-account`・`hub-help` | `static/hub.html`・`hub.js`・`common.js` のアカウントの窓 | 左のメニュー（モジュール・オペレーター・設定・ヘルプ、下にアカウント）。モジュールのカード（型ごとの見出し・頭文字・リポジトリ・状態の印・⋯ と右クリックのメニュー・ドラッグで並べ替え）、アーカイブ済み・前の作業空間の折りたたみ、上の帯（環境が足りない・新しい版）、モジュール追加の窓（4つの方法）、アカウントの窓（GitHub で開く・ログイン・切り替え・権限を追加。モジュールの窓の左下からも）。カードのメニューのエクスプローラー・Visual Studio（`ecobuild open`。ソリューションがなければ `frame-vs-build` でビルドしてから）・ショートカット、アーカイブ済み・前の作業空間・使えないモジュールの「フォルダを開く」、追加の窓の「参照…」、登録したフォルダがモジュールでなければ「モジュールにする」を勧める。窓の外のこと（端末・フォルダを選ぶ窓・ショートカット・終了・更新の後の起動し直し）は、この GUI の拡張コマンド `ecobuild gui login・scope・pick-folder・shortcut・quit・update`（`gui/next_commands.py`） |
+| `doctor`（環境チェック） | `static/hub.js` の設定 | 確認済み・要対応・任意の3段階と、足りないものの直し方。ハブの設定では、直すボタン（ログイン・権限を追加：`ecobuild gui login`・`gui scope`） |
 | `menu`（モジュールの窓のメニュー） | `static/module.js` の左のメニュー | 選ぶと、同じ窓で画面が切り替わる。どの画面にも置いてある |
 | `overview`（概要） | `static/modinfo.js` のホーム | 名前・型・リポジトリなど。README・ファイルの木は、まだ |
 | `workspace`（作業空間） | `static/workspace.js` | 状態・変更を選んでコミット・差分・Push・取り込み・提出・退避と戻す・最近のコミット・ビルド・試験・クリーン（出力を続けて表示）。衝突を直す・構成の選択・退避の一覧は、まだ |
@@ -60,7 +60,7 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
 | `settings`（設定。入力の窓は `cfg-profile-edit`・`cfg-profile-edit-python`・`cfg-profile-edit-cpp`・`cfg-profile-project`） | `static/modinfo.js` | 全般・ビルド設定（部品 `cfg-profiles`：この PC で使うラジオ・型で変わる列・C++ のオプション・Project ごとの上書き）・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
 | `container`（コンテナ） | `static/modinfo.js` | 要約（部品 `cfg-container`：作り方・古い／今の作り方の印・この PC のイメージ・しくみ）・状態・入・切・起こす・止める・イメージ・レシピ |
-| `hub-settings` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す）。は、ハブのカードのメニューと「アーカイブ済み」に移したので、入口がない |
+| `hub-settings` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す・この GUI のショートカットと終了）。最後に見ていたタブを覚える。更新は新しい版があるときだけ出し、入れ直した後に GUI を起動し直す（`ecobuild gui update`） |
 | `agents`・`agent-presets`・`pc-agents`（入力の窓は `cfg-agent-add`・`cfg-agent-to-preset`・`cfg-skill-add`・`cfg-skill-to-preset`） | `static/agenteditor.js`・`agentrules.js` | 左に一覧（全エージェント共通 → 役 → スキル）、右に選んだものをその場で直す（部品 `cfg-agent-editor`）。選んだツールの確かめは `ecobuild agent registry fit`。プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
 | `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`）。モジュールの窓の `help` は部品 `cfg-help`（手順のコマンドからコマンド一覧へ飛ぶ・用途ごとの見出し・探した文字の印・パンくず・使い方の行のコピー） |

@@ -4,7 +4,14 @@ const folder = (path) => String(path).split(/[\\/]/).filter(Boolean).pop() || St
 const tag = (name) => String(name).split(':')[1] || '';
 
 export default {
-  render(root, props, { h }) {
+  render(root, props, { h, notice, state }) {
+    // 作った・消した結果が届いた：数を知らせる（同じ結果は1回だけ）
+    const done = props.done;
+    if (done && state.told !== JSON.stringify(done)) {
+      state.told = JSON.stringify(done);
+      if (Array.isArray(done.built)) notice(done.built.length ? `${done.built.length} 個のイメージを作りました。` : '今の作り方のイメージはすべてあります。');
+      else if (Array.isArray(done.removed)) notice(done.removed.length ? `${done.removed.length} 個のイメージを消しました。` : '消す古いイメージはありません。');
+    }
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const r = props.data;
     if (!r) return root.replaceChildren(h('p', { class: 'status', role: 'status' }, '読み込んでいます…'));

@@ -106,7 +106,7 @@ def open_with(app: str, target: Path, *, root: Path | None = None, vs_version: s
         _start(["open", "-R", str(target)] if reveal else ["open", str(target)])
     else:
         _start(["xdg-open", str(target.parent if reveal else target)])
-    return {"app": app, "path": target.as_posix(), "opened": "reveal" if reveal else "folder" if target.is_dir() else "file"}
+    return {"app": app, "path": target.as_posix(), "opened": "reveal" if reveal else "folder" if target.is_dir() else "file", "name": target.name}
 
 
 def _open_in_visual_studio(target: Path, root: Path, version: str, line: int) -> dict:
@@ -118,11 +118,11 @@ def _open_in_visual_studio(target: Path, root: Path, version: str, line: int) ->
               "solution": None if place.is_dir() else place.as_posix(), "folder": place.as_posix() if place.is_dir() else None}
     if target.is_dir():
         _start([devenv, str(place)], place if place.is_dir() else place.parent)
-        return {**result, "opened": "folder" if place.is_dir() else "solution"}
+        return {**result, "opened": "folder" if place.is_dir() else "solution", "name": place.name}
     # ファイル：そのソリューション・フォルダーを開いている窓があれば、そこで開く。なければ /edit（最後に使った窓か、新しい窓）
     if not _open_in_window(_processes(place), target, line):
         _start([devenv, "/edit", str(target), *(["/command", f"Edit.GoTo {line}"] if line > 0 else [])], target.parent)
-    return {**result, "opened": "file", "line": line or None}
+    return {**result, "opened": "file", "line": line or None, "name": target.name}
 
 
 def _processes(opened: Path) -> list[int]:

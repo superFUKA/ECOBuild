@@ -231,9 +231,9 @@ def test_hub_closes_or_forgets_the_workspaces_of_the_previous_version(relay):
 def test_hub_update_banner_updates_after_asking(relay):
     hub = opened(relay, "hub")
     press(relay, hub, "update", confirm=False)
-    assert not [call for call in relay.backend.calls if call[0] == "installer update"]
+    assert not [call for call in relay.backend.calls if call[0] == "gui update"]
     press(relay, hub, "update", confirm=True)
-    assert ("installer update", {}) in relay.backend.calls
+    assert ("gui update", {}) in relay.backend.calls  # installer update の後、GUI を起動し直す（ecobuild gui update）
 
 
 FORM = {"method": "new", "directory": "C:/work", "name": "", "type": "cpp", "kind": "app", "project": "", "test": None, "description": "",
@@ -313,7 +313,7 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     window = opened(relay, "hub-settings")
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "hub-settings"
-    assert view["tabs"]["props"]["labels"] == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
+    assert [item["label"] for item in view["tabs"]["props"]["items"]] == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
     assert view["owner"]["props"]["text"] == "acme"  # 今の値が欄に入っている
     assert [item["id"] for item in view["doctor"]["props"]["items"]] == ["git", "gh_auth", "git_identity", "docker"]
     assert view["images"]["props"]["data"]["images"][0]["name"] == "ecobuild-calc:bbb"
@@ -329,8 +329,10 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     assert ("setup", {"install": True}) in relay.backend.calls
     assert nodes(relay, window)["setup_fields"]["props"]["result"] == {
         "done": ["git が gh の認証を使うようにしました"], "remaining": [], "commands": []}
+    relay.input(window, "tabs", "selected", {"id": "ecobuild"}, human=True)
+    relay.idle()
     press(relay, window, "update_status", confirm=True)
-    assert ("installer update", {}) in relay.backend.calls
+    assert ("gui update", {}) in relay.backend.calls
 
 
 def test_doctor_operator_and_help_screens(relay):

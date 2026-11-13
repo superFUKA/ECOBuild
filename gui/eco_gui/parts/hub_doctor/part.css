@@ -10,3 +10,4 @@
 .ok { color: #9ee4d3; white-space: nowrap; }
 .todo { color: #f1c78e; white-space: nowrap; }
 .optional { color: var(--eco-dim); white-space: nowrap; }
+.fix { margin-left: 10px; padding: 3px 10px; font-size: 12px; }

@@ -1,11 +1,13 @@
 // 部品「アカウントの窓の中身」。今までの GUI（static/common.js の accountSettings）と同じ並び。
 // 見せるだけ：ログイン・権限は ecobuild account show、作成者は ecobuild doctor、所有者は ecobuild config list の答え。
 // 書き直した作成者・所有者は、出力（author・owner・owner_reset）で出す（保存するのは ecobuild setup・config）。
-const SCOPES = [['repo', 'リポジトリの読み書き'], ['project', 'タスク管理（GitHub Projects）'],
-  ['workflow', 'CI のワークフローの変更'], ['delete_repo', 'リポジトリの削除']];
+// ログイン・切り替え・権限の追加は、端末の窓で続ける（出力 login・scope。開くのは ecobuild gui login・gui scope）。
+// [権限, 説明, 画面から足せるか]（repo はログインに付いている）
+const SCOPES = [['repo', 'リポジトリの読み書き', false], ['project', 'タスク管理（GitHub Projects）', true],
+  ['workflow', 'CI のワークフローの変更', true], ['delete_repo', 'リポジトリの削除', true]];
 
 export default {
-  render(root, props, { h, emit, state, redraw }) {
+  render(root, props, { h, emit, state, redraw, open_url }) {
     if (!props.account) {
       return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' アカウントの情報を読み込んでいます…'));
     }
@@ -22,19 +24,38 @@ export default {
     const box = h('div', { class: 'account' });
     const who = h('div', {}, h('div', { class: 'name' }, me || 'ログインしていません'));
     if (!me) who.append(h('div', { class: 'help' }, 'GitHub CLI（gh）にログインしてください'));
-    box.append(h('div', { class: 'head' }, h('span', { class: 'big-avatar', 'aria-hidden': 'true' }, (me[0] || '?').toUpperCase()), who));
+    const head = h('div', { class: 'head' }, h('span', { class: 'big-avatar', 'aria-hidden': 'true' }, (me[0] || '?').toUpperCase()), who);
+    if (me) {
+      const profile = h('button', { type: 'button', class: 'profile', title: `https://github.com/${me}` }, 'GitHub で開く');
+      profile.addEventListener('click', () => open_url(`https://github.com/${encodeURIComponent(me)}`));
+      head.append(profile);
+    }
+    box.append(head);
 
+    // ログイン：端末の窓が開き、ブラウザーで承認する（gh auth login・gh auth switch）
+    const signIn = h('button', { type: 'button' }, me ? '別のアカウントでログイン' : 'ログイン');
+    signIn.addEventListener('click', () => emit('login', { switch: false }));
+    const buttons = h('div', { class: 'buttons' }, signIn);
+    if (me) {
+      const change = h('button', { type: 'button' }, 'ログイン済みのアカウントに切り替える');
+      change.addEventListener('click', () => emit('login', { switch: true }));
+      buttons.append(change);
+    }
     box.append(h('section', {}, h('h3', {}, 'GitHub のログイン'),
-      h('p', { class: 'help' }, me
-        ? '別のアカウントでログインするには、端末で gh auth login（ブラウザで承認します）。ログイン済みのアカウントに切り替えるには gh auth switch。終わったら「読み直す」を押してください。'
-        : ((login && login.hint) || '端末で gh auth login を実行してください（ブラウザでログインします）。') + ' 終わったら「読み直す」を押してください。')));
+      h('p', { class: 'help' }, me ? 'ターミナルが開き、ブラウザで承認します。終わったら「読み直す」を押してください。'
+        : ((login && login.hint) || 'GitHub CLI（gh）にログインしてください。') + ' ターミナルが開き、ブラウザで承認します。'),
+      buttons));
 
     if (me) {
       const list = h('ul', { class: 'rows scopes' });
-      for (const [scope, text] of SCOPES) {
+      for (const [scope, text, addable] of SCOPES) {
         const has = scopes.has(scope);
-        list.append(h('li', {}, h('span', {}, text, h('small', {}, has || scope === 'repo' ? scope : `${scope}（足すには、端末で gh auth refresh -s ${scope}）`)),
-          h('span', { class: has ? 'ok' : 'no' }, has ? 'あります' : 'ありません')));
+        let mark = h('span', { class: has ? 'ok' : 'no' }, has ? 'あります' : 'ありません');
+        if (!has && addable) {
+          mark = h('button', { type: 'button', title: `ターミナルで gh auth refresh -s ${scope} を開きます（ブラウザで承認します）` }, '権限を追加');
+          mark.addEventListener('click', () => emit('scope', { scope }));
+        }
+        list.append(h('li', {}, h('span', {}, text, h('small', {}, scope)), mark));
       }
       box.append(h('section', {}, h('h3', {}, '権限'), list));
     }

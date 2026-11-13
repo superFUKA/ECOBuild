@@ -1,5 +1,5 @@
-"""アカウントの窓の中身。ログイン中の GitHub のアカウント（頭文字の丸と名前）、そのログインが持つ権限、コミットの作成者、
-新しいモジュールの所有者。作成者と所有者は、その場で書き直せる。"""
+"""アカウントの窓の中身。ログイン中の GitHub のアカウント（頭文字の丸と名前・GitHub で開く）、ログインし直す・切り替える、
+そのログインが持つ権限（足りないものは「権限を追加」）、コミットの作成者、新しいモジュールの所有者。作成者と所有者は、その場で書き直せる。"""
 from typing import Annotated
 
 
@@ -21,3 +21,11 @@ def on_owner(owner: Annotated[str, "GitHub のユーザー名・組織名"]) -> 
 
 
 def on_owner_reset() -> None: ...
+
+
+def on_login(switch: Annotated[bool, "ログイン済みのアカウントに切り替える（偽なら、別のアカウントでログイン）"] = False) -> None: ...
+
+
+def on_scope(scope: Annotated[str, "足す権限（project・workflow・delete_repo）"]) -> None:
+    if scope not in ("project", "workflow", "delete_repo"):
+        raise ValueError("足せる権限は project・workflow・delete_repo です")

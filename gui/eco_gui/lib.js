@@ -172,6 +172,9 @@ fieldset.checks input { margin: 0; }
 .multi { display: grid; gap: 6px; }
 .multi-item { display: flex; gap: 6px; }
 .multi-item button { flex: none; width: 34px; padding: 0; font-size: 15px; }
+.browse-row { display: flex; gap: 6px; align-items: stretch; }
+.browse-row > input { flex: 1; min-width: 0; }
+.browse-row > .browse { flex: none; padding: 5px 12px; }
 .candidates { margin: -4px 0 12px; }
 .candidates > p { margin: 0; color: var(--gf-muted); font-size: 13px; line-height: 1.8; }
 .candidates ul { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid #2c333c; border-radius: 8px; }
@@ -237,6 +240,7 @@ const formOptions = (pairs) => (pairs || []).map(([value, label, help]) => ({ va
 // - extra.submit(今の値)：決めたとき。文字を返せば、誤りとして窓の中に出す（返さなければ、部品が自分の出力を出している）。
 //   なければ、出ている欄の値を submitted で出す。extra.cancel()：やめたとき（なければ cancelled を出す）。
 // - extra.changed(欄の名前, 今の値)：欄の値が変わるたび。
+// - extra.browse(欄の名前, 今の文字)：欄の browse が真なら、欄の横に「参照…」を出し、押されたら呼ぶ（フォルダを選ぶ窓は画面が出す）。
 // - props.plain：文の中の {道筋} を置き換えない（読んだ題名などを、そのまま出す）。props.bare：題とボタンの行を出さない。
 //   props.waiting：決めるボタンを出さない（要る情報を待っている）。
 // - 欄の derive(get)：手で変えるまで、ほかの欄の値から決まる値。欄・ボタンの label／ok に関数(get)：ほかの欄の値で変わる文。
@@ -437,6 +441,12 @@ function formRender(root, props, { h, emit, state }, extra = {}) {
         const id = 'suggest-' + f.name;
         input.setAttribute('list', id);
         extras = [h('datalist', { id }, ...suggestions.map((s) => h('option', s.label !== s.value ? { value: s.value, label: s.label } : { value: s.value })))];
+      }
+      if (f.browse && extra.browse) {   // 「参照…」：欄の横のボタン（選んだ場所は、部品が欄に入れる）
+        const field = input;
+        const browse = h('button', { type: 'button', class: 'browse' }, '参照…');
+        browse.addEventListener('click', (event) => { event.preventDefault(); extra.browse(f.name, field.value); });
+        return h('label', { class: 'f field' + (more ? ' more' : '') }, title, h('span', { class: 'browse-row' }, field, browse), ...extras, help);
       }
     }
     return h('label', { class: 'f field' + (f.type !== 'textarea' && more ? ' more' : '') }, title, input, ...extras, help);

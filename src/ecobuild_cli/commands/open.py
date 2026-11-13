@@ -3,7 +3,7 @@ from typing import Annotated
 
 import click
 
-from ecobuild.errors import EcoBuildError
+from ecobuild.errors import EcoBuildError, ErrorCode
 
 from .. import _open
 from .._output import optional_argument, run_command, usage_error
@@ -15,6 +15,8 @@ def command(
                           "editor（Visual Studio が使えればそれで、なければ既定のアプリで）"] = "default",
     vs_version: Annotated[str, "--app vs・editor：Visual Studio の版（2026・2022。既定は、この PC にあるいちばん新しい版）"] = "",
     line: Annotated[int, "--app vs・editor：ファイルを開いて、この行へ移る（Visual Studio で開くとき）"] = 0,
+    solution: Annotated[bool, "--app vs：ソリューションで開く。ソリューションを作る型でまだないときは、開かずに誤り（no_solution。"
+                              "ビルドすると作られる）で答える"] = False,
     can: Annotated[bool, "開かずに、今その道具で開けるかを答える（JSON は can・reason）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
@@ -25,6 +27,7 @@ def command(
       ecobuild open src/main.cpp            既定のアプリで開く
       ecobuild open src/main.cpp --app explorer    エクスプローラーで、そのファイルを選んだ状態で開く
       ecobuild open --app vs                Visual Studio で開く（ビルドで作られたソリューション。なければフォルダーとして）
+      ecobuild open --app vs --solution     ソリューションで開く（ソリューションを作る型で、まだなければ開かない：先にビルドする）
       ecobuild open src/main.cpp --app vs --line 42    Visual Studio で、そのファイルの 42 行目を開く
 
     --app editor は、Visual Studio が使えればそれで、なければ既定のアプリで開きます（どの PC でも開けます）。
@@ -35,6 +38,7 @@ def command(
                else f"--vs-version は {'・'.join(_open.VISUAL_STUDIO)} のどれかです：{vs_version}"
                if vs_version and vs_version not in _open.VISUAL_STUDIO
                else "--vs-version・--line は --app vs・editor のときだけ指定できます。" if app not in ("vs", "editor") and (vs_version or line)
+               else "--solution は --app vs のときだけ指定できます。" if solution and app != "vs"
                else "--line は 1 以上の行の番号です。" if line < 0 else "")
     if problem:
         raise click.exceptions.Exit(usage_error(problem, json))
@@ -44,6 +48,9 @@ def command(
         if can:
             reason = _open.unavailable(app, place, vs_version)
             return {"can": not reason, "reason": reason}
+        if solution and place.is_dir() and _open.find_solution(_root(inv)) is None and _makes_solution(inv):
+            raise EcoBuildError(ErrorCode.NO_SOLUTION, "ソリューション（.sln／.slnx）がまだありません（ビルドすると作られます）。",
+                                hint="ecobuild build でビルドしてから開いてください（--solution を外すと、フォルダーとして開きます）。")
         return _open.open_with(app, place, root=_root(inv) if app in ("vs", "editor") else None, vs_version=vs_version, line=line)
 
     def render(r):
@@ -56,6 +63,14 @@ def command(
             "（ソリューションがまだないので、フォルダーとして開きました）" if r["opened"] == "folder" else "")
 
     return run_command("open", action, render, json_output=json)
+
+
+def _makes_solution(inv) -> bool:
+    """今いるモジュールの型が、Visual Studio のソリューションを作るか（構成を合わせる update_solution を持つ型。C++）。"""
+    try:
+        return callable(getattr(inv.module.type, "update_solution", None))
+    except EcoBuildError:
+        return False
 
 
 def _root(inv) -> Path:

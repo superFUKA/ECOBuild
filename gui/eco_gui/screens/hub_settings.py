@@ -1,4 +1,6 @@
-"""ハブ › 設定：この PC の ECOBuild の設定（全モジュール共通）。全般・AI・エージェント・コンテナ・ECOBuild のタブ。"""
+"""ハブ › 設定：この PC の ECOBuild の設定（全モジュール共通）。全般・AI・エージェント・コンテナ・ECOBuild のタブ。
+
+最後に見ていたタブを、この PC に覚える（タブの部品 section-tabs の remember。開き直すと、そのタブから）。"""
 
 SCREEN = {
     "root": "page",
@@ -6,12 +8,14 @@ SCREEN = {
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "hub-settings"}},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs", "groups"]},
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "設定", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
-        {"id": "tabs", "layout": "tabs", "look": "hub-settings", "children": ["general", "ai", "agents_tab", "images_tab", "ecobuild"],
-         "props": {"labels": ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]}},
+        {"id": "tabs", "part": "section-tabs", "props": {"remember": True, "items": [
+            {"id": "general", "label": "全般"}, {"id": "ai", "label": "AI"}, {"id": "agents", "label": "エージェント"},
+            {"id": "images", "label": "コンテナ"}, {"id": "ecobuild", "label": "ECOBuild"}]}},
+        {"id": "groups", "layout": "column", "look": "hub-settings", "children": ["general", "ai", "agents_tab", "images_tab", "ecobuild"]},
 
         # --- 全般：既定の所有者・環境チェック・環境の準備・GitHub のアカウント・そのほかの設定 ---
         {"id": "general", "layout": "column", "children": ["owner_card", "doctor_card", "setup_card", "accounts_card", "config_card"]},
@@ -116,7 +120,7 @@ SCREEN = {
         {"id": "version_unset", "part": "button", "props": {"label": "既定に戻す", "hint": "イメージを作るときの最新"}},
 
         # --- ECOBuild：入っている版と、更新・版を選んで入れ直す（installer show・check・versions・update） ---
-        {"id": "ecobuild", "layout": "column", "children": ["about_card", "pick_card"]},
+        {"id": "ecobuild", "layout": "column", "children": ["about_card", "pick_card", "gui_card"]},
         {"id": "about_card", "layout": "column", "look": "card", "children": ["about_head", "installed", "update_status", "update_note"]},
         {"id": "about_head", "layout": "row", "look": "bar", "children": ["about_title", "check_update", "update"]},
         {"id": "about_title", "part": "note", "props": {"text": "ECOBuild", "tone": "section"}},
@@ -129,7 +133,7 @@ SCREEN = {
             "labels": {"editable": {"true": "手元のソース（更新はできません）", "false": "インストーラー"}}}},
         {"id": "update_status", "part": "hub-update", "props": {"look": "status"}},
         {"id": "update_note", "part": "note", "props": {"tone": "muted",
-            "text": "更新は、別の窓のインストーラーが入れ直します。GUI も入れ直すときは、開いている窓を閉じます（インストーラーの窓が閉じたら、GUI を起動し直してください）。"}},
+            "text": "更新は、別の窓のインストーラーが入れ直します。GUI はいったんすべての窓を閉じ（ビルド・実行中のものも止まります）、インストーラーの窓が閉じたら起動し直します。"}},
 
         {"id": "pick_card", "layout": "column", "look": "card", "children": ["versions_title", "versions_note", "branch_row", "versions", "ref_row"]},
         {"id": "versions_title", "part": "note", "props": {"text": "版を選んで入れ直す", "tone": "section"}},
@@ -149,9 +153,24 @@ SCREEN = {
         {"id": "ref_row", "layout": "row", "look": "hub-inline", "children": ["ref", "update_ref"]},
         {"id": "ref", "part": "text-input", "look": "grow", "props": {"title": "または、版を打って決める（ブランチ・タグ・コミット）", "placeholder": "例：main"}},
         {"id": "update_ref", "part": "button", "props": {"label": "この版に入れ直す"}},
+
+        {"id": "gui_card", "layout": "column", "look": "card", "children": ["gui_head", "gui_note"]},
+        {"id": "gui_head", "layout": "row", "look": "bar", "children": ["gui_title", "make_shortcut", "quit_gui"]},
+        {"id": "gui_title", "part": "note", "props": {"text": "この GUI", "tone": "section"}},
+        {"id": "make_shortcut", "part": "button", "props": {"label": "ショートカットを作る", "hint": "アイコン付きのショートカットを、デスクトップとスタートメニューに作る"}},
+        {"id": "quit_gui", "part": "button", "props": {"label": "GUIを終了", "danger": True}},
+        {"id": "gui_note", "part": "note", "props": {"tone": "muted", "text": "ウィンドウをすべて閉じると、しばらくして自動で終了します（裏で動いています）。"}},
     ],
     "bindings": [
         {"on": "reload.pressed", "refresh": True},
+        # タブ：選んだものだけを出す（最初は全般。覚えたタブがあれば、タブの部品がそれを選び直す）
+        {"on": "tabs.selected", "set": {"settings_tab": {"payload": "id"}}},
+        {"value": "settings_tab", "to": "tabs.current"},
+        {"show": "general", "when": {"settings_tab": ["general", None]}},
+        {"show": "ai", "when": {"settings_tab": "ai"}},
+        {"show": "agents_tab", "when": {"settings_tab": "agents"}},
+        {"show": "images_tab", "when": {"settings_tab": "images"}},
+        {"show": "ecobuild", "when": {"settings_tab": "ecobuild"}},
         # 全般（ecobuild config set owner <所有者>・config unset owner・doctor・setup [--name …] [--email …] [--install]）
         {"read": "config list", "to": "owner.text", "from": "owner"},
         {"on": "owner.changed", "set": {"owner": {"payload": "text"}}},
@@ -160,6 +179,11 @@ SCREEN = {
         {"on": "owner_reset.pressed", "run": "config unset", "args": {"key": "owner"}, "notify": "既定に戻しました。ログイン中のユーザーを使います。"},
         {"read": "doctor", "to": "doctor.items", "from": "items"},
         {"on": "run_doctor.pressed", "refresh": True},
+        # 足りない項目を直す：ログイン（ecobuild gui login）・権限を追加（ecobuild gui scope <権限>）。端末の窓で続ける
+        {"on": "doctor.fix", "when": {"fix": "login"}, "run": "gui login",
+         "notify": "ターミナルで続けてください。終わったら「チェックする」で確かめられます。"},
+        {"on": "doctor.fix", "when": {"fix": "scope"}, "run": "gui scope", "args": {"scope": {"payload": "scope"}},
+         "notify": "ターミナルで続けてください。終わったら「チェックする」で確かめられます。"},
         {"read": "doctor", "to": "setup_fields.items", "from": "items"},
         {"on": "setup_fields.changed", "set": {"setup_name": {"payload": "name"}, "setup_email": {"payload": "email"},
                                                "setup_install": {"payload": "install"}}},
@@ -181,8 +205,9 @@ SCREEN = {
         {"on": "token_remove.pressed", "run": "agent token remove", "notify": "トークンを消しました。"},
         # コンテナ（ecobuild container image build・container image prune）
         {"read": "container image list", "to": "images.data"},
-        {"on": "images_build.pressed", "run": "container image build", "output": "images_out.lines"},
-        {"on": "images_prune.pressed", "run": "container image prune"},
+        {"on": "images_build.pressed", "run": "container image build", "output": "images_out.lines", "set": {"images_done": {"result": ""}}},
+        {"on": "images_prune.pressed", "run": "container image prune", "set": {"images_done": {"result": ""}}},
+        {"value": "images_done", "to": "images.done"},  # 「N 個作りました」「N 個消しました」を知らせる
         {"read": "agent version list", "to": "channels.data", "from": "channels"},
         {"read": "agent version status", "to": "version_status.data"},
         # 版は、読んだ一覧から選ぶか、打つ（stable・latest も）。後から決めた方が入る
@@ -197,17 +222,25 @@ SCREEN = {
         # ECOBuild（ecobuild installer check・installer update [--ref <版>]）
         {"read": "installer show", "to": "installed.data"},
         {"read": "installer check", "lazy": True, "to": "update_status.check"},
+        # 「最新に更新する」は新しい版があるときだけ。確かめられない入れ方（手元のソース等）なら「版を選んで入れ直す」も出さない
+        {"read": "installer check", "lazy": True, "into": "update_latest", "from": "up_to_date"},
+        {"show": "update", "when": {"update_latest": False}},
+        {"show": "pick_card", "when": {"update_latest": [True, False]}},
         {"on": "check_update.pressed", "refresh": True},
-        {"on": "update_status.pressed", "run": "installer update"},
-        {"on": "update.pressed", "run": "installer update"},
+        # 入れ直す（ecobuild gui update [--ref <版>]：installer update の後、GUI を起動し直す）
+        {"on": "update_status.pressed", "run": "gui update", "notify": "{message}"},
+        {"on": "update.pressed", "run": "gui update", "notify": "{message}"},
         # ブランチを選ぶと、そのブランチの版を読む（ecobuild installer versions --ref <ブランチ>）
         {"read": "installer versions", "to": "branch.options", "from": "branches"},
         {"on": "branch.changed", "set": {"versions_branch": {"payload": "value"}}},
         {"value": "versions_branch", "to": "branch.value"},
         {"read": "installer versions", "args": {"ref": {"value": "versions_branch"}}, "to": "versions.rows", "from": "commits"},
-        {"on": "update_branch.pressed", "run": "installer update", "require": ["ref"], "args": {"ref": {"value": "versions_branch"}}},
+        {"on": "update_branch.pressed", "run": "gui update", "require": ["ref"], "args": {"ref": {"value": "versions_branch"}}, "notify": "{message}"},
         {"on": "ref.changed", "set": {"ref": {"payload": "text"}}},
-        {"on": "update_ref.pressed", "run": "installer update", "require": ["ref"], "args": {"ref": {"value": "ref"}}},  # 版を入れるまで押せない
-        {"on": "versions.action", "when": {"action": "install"}, "run": "installer update", "args": {"ref": {"payload": "id"}}},
+        {"on": "update_ref.pressed", "run": "gui update", "require": ["ref"], "args": {"ref": {"value": "ref"}}, "notify": "{message}"},  # 版を入れるまで押せない
+        {"on": "versions.action", "when": {"action": "install"}, "run": "gui update", "args": {"ref": {"payload": "id"}}, "notify": "{message}"},
+        # この GUI（ecobuild gui shortcut・gui quit）
+        {"on": "make_shortcut.pressed", "run": "gui shortcut", "notify": "{message}"},
+        {"on": "quit_gui.pressed", "run": "gui quit"},
     ],
 }

@@ -29,6 +29,8 @@ screens（画面の一覧）・tree（今の表示を読む）・emit（人の�
                                        （--continue：このPCの会話の記録の続きとして話し、発言と返答を記録に足す）
   ecobuild gui conversation            会話の記録（発言・返答・実行したコマンド）と、今の状態（待機中・考え中）
   ecobuild gui conversation-new        会話の記録を空にする（次の ask --continue から新しい会話）
+  ecobuild gui login / scope / pick-folder / shortcut / quit / update
+                                       新しい GUI の画面が呼ぶ、この PC の窓まわり（next_commands.py）
 
 結果は --json で ecobuild と同じ形の JSON（ok・result・error）。終了コードも ecobuild と同じ（0 成功・1 失敗・2 誤り）。
 """
@@ -46,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import actions  # noqa: E402
+import next_commands  # noqa: E402
 import next_gui  # noqa: E402
 import operator_kit  # noqa: E402
 from operator_kit import Failure  # noqa: E402,F401（誤りは GUI の口で共通）
@@ -232,6 +235,7 @@ COMMANDS = [
      "summary": "オペレーターとの会話の記録と、今の状態（待機中・考え中）を表示します。", "arguments": [], "options": []},
     {"name": "conversation-new", "path": "gui conversation-new", "runnable": True, "effect": "change",
      "summary": "オペレーターとの会話の記録を空にします（次の ask --continue から新しい会話）。", "arguments": [], "options": []},
+    *next_commands.COMMANDS,   # 新しい GUI の画面が呼ぶ、この PC の窓まわり（ログインの端末・フォルダを選ぶ・ショートカット・終了・更新）
 ]
 
 
@@ -269,6 +273,14 @@ def main(argv: list[str] | None = None) -> int:
         return ask_command([w for w in words[1:] if w != "--json"], json_output)
     if words[0] in ("conversation", "conversation-new"):
         return conversation_command(words[0], [w for w in words[1:] if w != "--json"], json_output)
+    if words[0] in next_commands.NAMES:
+        name = words[0]
+        try:
+            result = next_commands.run(name, [w for w in words[1:] if w != "--json"])
+            document = {"ok": True, "command": f"gui {name}", "result": result, "error": None}
+        except Failure as failure:
+            document = _failed(f"gui {name}", failure)
+        return _print(document, json_output)
     if words[0] == "operator-context":   # オペレーターのフック（話しかけられるたびに今の作業空間を渡す）
         text = operator_kit.context()
         if text:

@@ -52,3 +52,6 @@ summary.deleted .tree-name { text-decoration: line-through; }
 .inline-name input { width: 100%; padding: 1px 5px; height: 22px; line-height: 18px; font-size: 12px; border-radius: 3px; }
 .inline-name small { display: block; color: #ffb4b4; font-size: 11px; margin-top: 4px; }
 .inline-name small:empty { display: none; }
+.explorer-tools .sln { width: auto; padding: 0 5px; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+summary.pending .tree-name { font-style: italic; color: #a5aeba; }
+.drop-target, .tree.drop-target { background: #263c37; box-shadow: inset 0 0 0 1px #9ee4d3; border-radius: 3px; }

@@ -4,6 +4,7 @@
 直したところがあるときだけ「保存」「元に戻す」を押せる。保存は、変えた項目だけを出す（何を変えるかは、この部品は
 知らない。受けた側がコマンドに渡す）。渡すツールを選ぶたびに、その並びを出す（tools_changed）。多すぎないか・
 この役より強い子はどれかは、届いた確かめ（fit）のとおりに見せる（この部品では決めない）。
+保存・削除はコミットするタスクブランチ（place）で行う。まだ選んでいなければ出さずに、選ぶよう知らせる。
 """
 from typing import Annotated, Literal
 
@@ -18,6 +19,7 @@ def part(
     skill: Annotated[dict | None, "選んだスキルの中身（{name, description, document, used_by, files, folder, pending}）"] = None,
     fit: Annotated[dict | None, "選んだツールの確かめ（{name, tools, count, total, owner, limit, too_many, stronger, parents}）"] = None,
     select: Annotated[dict | None, "選ぶもの（{kind: common・role・skill, name}。変わって届いたときに、それを選ぶ）"] = None,
+    place: Annotated[str | None, "保存・削除をコミットするタスクブランチの作業空間（まだ選んでいなければ null）"] = None,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...
 

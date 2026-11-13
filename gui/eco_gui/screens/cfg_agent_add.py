@@ -1,6 +1,6 @@
 """エージェントを追加（入力の窓）：プリセットから作るか、新しく作る。エージェントの画面から、窓の中に重ねて開く。"""
 
-ARGS = {"module": "."}  # モジュールのフォルダー（タスクブランチの作業空間）
+ARGS = {"module": ".", "place": ""}  # モジュールのフォルダー・コミットするタスクブランチの作業空間（初めの値）
 
 SCREEN = {
     "root": "page",
@@ -10,6 +10,7 @@ SCREEN = {
         {"id": "form", "part": "form", "props": {
             "title": "エージェントを追加", "ok": "追加",
             "intro": "このモジュールのエージェント（役）を足します。保存するとリポジトリにコミットし、提出して取り込まれると起動できます。",
+            "initial": {"place": {"arg": "place"}},
             "fields": [
                 {"name": "how", "label": "作り方", "type": "radio", "value": "preset", "options": [
                     {"value": "preset", "label": "プリセットから作成", "help": "プリセットを写して、名前を付けて足します"},
@@ -23,15 +24,19 @@ SCREEN = {
                 {"name": "human_start", "label": "人が手で起動できる（作業空間の「エージェント」の ＋ に出る）", "type": "checkbox", "value": True},
                 {"name": "no_owner_tools", "label": "コミット・push・提出はさせない（変えたファイルは人が見て、人がコミット・提出する）",
                  "type": "checkbox", "value": True},
+                {"name": "place", "label": "コミットするタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "more", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
+                 "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
             ],
         }},
     ],
     "bindings": [
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.more", "from": "workspaces"},
         {"read": "agent preset list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
         {"on": "form.cancelled", "close": True},
         # ecobuild agent registry add <名前> [--from-preset <プリセット>] [--title …] --human-start/--no-human-start [--no-owner-tools]
-        {"on": "form.submitted", "run": "agent registry add", "confirmed": True,
-         "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
+        {"on": "form.submitted", "run": "agent registry add", "confirmed": True, "require": ["module"],
+         "args": {"module": {"payload": "values.place"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
                   "title": {"payload": "values.title"}, "human_start": {"payload": "values.human_start"},
                   "no_owner_tools": {"payload": "values.no_owner_tools"}},
          "notify": "エージェントを追加してコミットしました。提出して取り込まれると起動できます。", "close": True},

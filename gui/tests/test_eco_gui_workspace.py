@@ -35,7 +35,8 @@ class WorkspaceEcobuild(PolishEcobuild):
         if name == "status":
             return {"ok": True, "result": {**self.status, **(self.remote if args.get("fetch") else {"base_behind": None, "base_conflicts": []})}}
         if name == "task status":
-            return {"ok": True, "result": {"number": args.get("number"), "title": "ログイン画面を作る", "state": "open"}}
+            return {"ok": True, "result": {"number": args.get("number") or args.get("issue"), "title": "ログイン画面を作る", "state": "open",
+                                           "base": "main", "commits": ["bbb222 2つ目", "aaa111 1つ目"], "assignees": ["octocat"]}}
         if name == "files":
             return {"ok": True, "result": {"files": ["README.md", "a.py", "b.py", "gone.py", "new.txt", "tests/test_a.py"], "missing": ["gone.py"]}}
         if name == "log":
@@ -104,9 +105,24 @@ def test_the_tabs_show_one_panel_and_push_moves_to_the_submission(relay):
     press(relay, window, "push")
     assert last(relay) == ("task push", {}) and relay.display.values(window)["tab"] == "submit"  # Push の後は、提出へ
     assert shown(relay, window, "submit_panel") and not shown(relay, window, "push_panel")
-    press(relay, window, "open_submission")
-    other = next(w for w in relay.display.windows() if w["screen"] == "submission")
-    assert other["args"] == {"module": PLACE, "task": 12}
+    # 提出のタブ：このタスクの提出（task status）・アカウント（処理できるか）・提出に入るコミット（作成元にないもの）
+    view = nodes(relay, window)
+    assert view["pull_request"]["props"]["task"]["number"] == 12 and view["pull_request"]["props"]["access"]["login"] == "superFUKA"
+    assert view["tabs"]["props"]["task"]["commits"] == ["bbb222 2つ目", "aaa111 1つ目"]  # タブの数は、提出に入るコミットの数
+    assert ("log", {"not_in": "main"}) in relay.backend.calls and view["pr_commits"]["props"]["mode"] == "log"
+    # すること：提出・反映・コメントは入力の窓、下書きの解除・取り下げはその場で（取り下げは確かめてから）
+    press(relay, window, "pull_request", "action", action="submit", id="12")
+    assert inside(relay, window, "task-submit")
+    press(relay, window, "pull_request", "action", action="apply", id="12")
+    assert inside(relay, window, "task-apply") and [w["args"]["issue"] for w in relay.display.windows() if w["screen"] == "task-apply"] == [12]
+    press(relay, window, "pull_request", "action", action="ready", id="12")
+    assert last(relay) == ("task submit", {"check": False})
+    relay.input(window, "pull_request", "action", {"action": "withdraw", "id": "12"}, human=True)
+    answer(relay, window, True)
+    relay.idle()
+    assert last(relay) == ("task withdraw", {"task": 12})
+    press(relay, window, "pull_request", "action", action="full_log", id="12")  # すべてのログは、別の窓
+    assert [w["args"] for w in relay.display.windows() if w["screen"] == "ws-log"] == [{"module": PLACE}]
 
 
 def test_unpushed_commits_are_undone_with_task_reset(relay):
@@ -243,18 +259,27 @@ def test_the_explorer_renames_removes_and_runs_with_the_file_commands(relay):
     assert view["explorer"]["props"]["selected"] == "a.py" and view["changes"]["props"]["selected"] == "a.py"  # 変更の一覧でも同じファイルを強調
     press(relay, window, "explorer", "action", name="rename", path="a.py", paths=["a.py"], to="src/c.py")  # その場で名前を変える
     assert last(relay) == ("file move", {"source": "a.py", "destination": "src/c.py"})
-    relay.input(window, "explorer", "action", {"name": "remove", "path": "", "paths": ["a.py", "tests"]}, human=True)
-    answer(relay, window, True)  # 消すのは、確かめてから
-    relay.idle()
-    assert last(relay) == ("file remove", {"paths": ["a.py", "tests"]})
+    # 削除：入力の窓（対応するテストも削除するか。窓が確認を兼ねる）
+    press(relay, window, "explorer", "action", name="remove", path="", paths=["a.py", "tests"])
+    dialog = inside(relay, window, "ws-remove")
+    assert nodes(relay, dialog)["targets"]["props"]["items"] == ["a.py", "tests"]
+    press(relay, dialog, "test", "changed", on=False)
+    press(relay, dialog, "remove")
+    assert last(relay) == ("file remove", {"paths": ["a.py", "tests"], "test": False})
+    assert not [w for w in relay.display.windows() if w["screen"] == "ws-remove"]
     relay.input(window, "explorer", "action", {"name": "restore", "path": "b.py", "paths": ["b.py"]}, human=True)
     answer(relay, window, True)
     relay.idle()
     assert last(relay) == ("restore", {"paths": ["b.py"]})
     press(relay, window, "explorer", "action", name="ignore", path="build/", paths=["build/"])
     assert last(relay) == ("ignore", {"patterns": ["build/"]})
-    press(relay, window, "explorer", "action", name="make_test", path="src/app.py", paths=["src/app.py"])
-    assert last(relay) == ("file test", {"path": "src/app.py"})
+    # テストを作成：入力の窓（--dry-run の場所と名前を見せる）。作ったら、木で選んで開く
+    relay.backend.preview = lambda name, args: {"ok": True, "result": {"paths": ["CalcTest/src/AddTest.cpp"]}}
+    press(relay, window, "explorer", "action", name="make_test", path="Calc/src/Add.cpp", paths=["Calc/src/Add.cpp"])
+    dialog = inside(relay, window, "ws-file-test")
+    assert nodes(relay, dialog)["form"]["props"]["plan"] == {"paths": ["CalcTest/src/AddTest.cpp"]}
+    press(relay, dialog, "form", "make", to="CalcTest/src/parse/AddTest.cpp")
+    assert last(relay) == ("file test", {"path": "Calc/src/Add.cpp", "to": "CalcTest/src/parse/AddTest.cpp"})
     press(relay, window, "explorer", "action", name="take_incoming", path="a.py", paths=["a.py"])
     assert last(relay) == ("sync take", {"paths": ["a.py"], "side": "incoming"})
     press(relay, window, "explorer", "action", name="run_test", path="tests/test_a.py", paths=["tests/test_a.py"])
@@ -346,6 +371,118 @@ def test_the_output_starts_hidden_and_a_run_shows_it(relay):
     assert not shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_shown"] is None
     press(relay, window, "toolbar", "action", name="build")  # 動かすと出る
     assert shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_shown"] is True
+
+
+def test_a_new_file_shows_its_content_instead_of_a_diff(relay):
+    """まだ git の管理に入っていないファイル：TortoiseGit の差分には送らず、中身をこの GUI で見せる（前の GUI と同じ）。"""
+    window = opened(relay, "workspace", PLACE)
+    for node in ("changes", "explorer"):
+        press(relay, window, node, "action", name="view_new", path="new.txt", paths=["new.txt"])
+        dialog = inside(relay, window, "ws-untracked")
+        assert nodes(relay, dialog)["target"]["props"]["items"] == ["new.txt"] and ("diff", {"paths": ["new.txt"]}) in relay.backend.calls
+        press(relay, dialog, "close")
+    assert ("diff", {"paths": ["new.txt"], "gui": True}) not in relay.backend.calls
+
+
+def test_amending_without_files_asks_first_and_a_pushed_amend_tells_to_force_push(relay):
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "commit_box", "changed", text="直す")
+    press(relay, window, "commit_box", "amend", on=True)
+    # ファイルを選ばずに修正：すべての変更を含めてよいか、入力の窓で確かめる（まだ実行しない）
+    before = len(relay.backend.calls)
+    press(relay, window, "commit_box", "commit", amend=True, all=True, pushed=True)
+    dialog = inside(relay, window, "ws-amend-all")
+    assert not [call for call in relay.backend.calls[before:] if call[0] == "task commit"]
+    assert "強制Push" in nodes(relay, dialog)["hint"]["props"]["text"]
+    press(relay, dialog, "amend")
+    assert last(relay) == ("task commit", {"message": "直す", "amend": True})
+    assert relay.display.values(window)["amend"] is None and relay.display.values(window)["message"] is None
+    # Push 済みのコミットを修正：強制Push の案内と、Push のタブへ
+    press(relay, window, "changes", "changed", paths=["a.py"])
+    press(relay, window, "commit_box", "changed", text="もう一度")
+    press(relay, window, "commit_box", "amend", on=True)
+    press(relay, window, "commit_box", "commit", amend=True, all=False, pushed=True)
+    assert last(relay) == ("task commit", {"paths": ["a.py"], "message": "もう一度", "amend": True})
+    assert any("強制Push" in text for text in notices(relay)) and relay.display.values(window)["tab"] == "push"
+
+
+def test_the_review_banner_opens_the_approve_and_reject_dialogs_here(relay):
+    relay.backend.status.update(task=None, reviewing=31, reviewing_task=12, branch="review/31")
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "b_review", "action", name="approve")
+    assert [w["args"]["issue"] for w in relay.display.windows() if w["screen"] == "task-approve"] == [12]
+    press(relay, window, "b_review", "action", name="reject")
+    assert [w["args"]["issue"] for w in relay.display.windows() if w["screen"] == "task-reject"] == [12]
+    assert not [w for w in relay.display.windows() if w["screen"] == "submission"]  # 別の窓には行かない
+    assert nodes(relay, window)["pull_request"]["props"]["review"]["number"] == 12  # 提出のタブは、確認している提出
+
+
+def test_made_and_moved_files_are_chosen_in_the_explorer(relay):
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "explorer", "action", name="new_file", path="tests", paths=["tests"])
+    dialog = inside(relay, window, "ws-new-file")
+    press(relay, dialog, "form", "add", paths=["tests/test_b.py"], test=True)
+    assert nodes(relay, window)["explorer"]["props"]["made"] == ["tests/test_b.py"]  # 木で選んで、開発の道具で開く
+    press(relay, window, "explorer", "action", name="revealed", path="tests/test_b.py", paths=["tests/test_b.py"])
+    assert nodes(relay, window)["explorer"]["props"]["made"] is None
+    # 移動：対応するテストも動かすかを選ぶ。動かした先を、木で選ぶ
+    press(relay, window, "explorer", "action", name="move", path="a.py", paths=["a.py"])
+    dialog = inside(relay, window, "ws-move")
+    press(relay, dialog, "destination", "changed", text="src/a.py")
+    press(relay, dialog, "test", "changed", on=False)
+    press(relay, dialog, "move")
+    assert last(relay) == ("file move", {"source": "a.py", "destination": "src/a.py", "test": False})
+    assert nodes(relay, window)["explorer"]["props"]["moved"] == "src/a.py"
+    # ドラッグで、別のフォルダーへ
+    press(relay, window, "explorer", "action", name="drop_move", path="b.py", paths=["b.py"], to="tests/b.py")
+    assert last(relay) == ("file move", {"source": "b.py", "destination": "tests/b.py"})
+    assert nodes(relay, window)["explorer"]["props"]["moved"] == "tests/b.py"
+    # 一緒に開く・選んだものを開く（ecobuild open にいくつものパス）
+    press(relay, window, "explorer", "action", name="open_all", path="", paths=["a.py", "tests/test_a.py"])
+    assert last(relay) == ("open", {"path": ["a.py", "tests/test_a.py"], "app": "vs"})
+    press(relay, window, "changes", "action", name="open_default", path="a.py", paths=["a.py"])
+    assert last(relay) == ("open", {"path": ["a.py"], "app": "default"})
+
+
+def test_the_project_menu_and_the_run_target(relay):
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "explorer", "action", name="project_build", path="Calc", paths=["Calc"], project="Calc")
+    assert last(relay) == ("build", {"project": "Calc"})
+    press(relay, window, "explorer", "action", name="project_test", path="CalcTest", paths=["CalcTest"], project="CalcTest")
+    assert last(relay) == ("test", {"project": "CalcTest"}) and nodes(relay, window)["out"]["props"]["kind"] == "test"
+    # ▶ の対象にする（ツールバーの ▾ でも選べる）・実行時の引数
+    press(relay, window, "explorer", "action", name="run_target", path="CalcApp", paths=["CalcApp"], project="CalcApp")
+    press(relay, window, "toolbar", "action", name="run_args", value="--size 3")
+    toolbar = nodes(relay, window)["toolbar"]["props"]
+    assert toolbar["run_project"] == "CalcApp" and toolbar["run_args"] == "--size 3"
+    press(relay, window, "toolbar", "action", name="run")
+    assert last(relay) == ("run", {"project": "CalcApp", "arguments": "--size 3"})
+    press(relay, window, "toolbar", "action", name="build")
+    assert last(relay) == ("build", {"project": "CalcApp"})
+    press(relay, window, "toolbar", "action", name="run_target", value="")  # すべての Project に戻す
+    press(relay, window, "toolbar", "action", name="build")
+    assert last(relay) == ("build", {})
+    for name, screen in (("project_move", "mod-cpp-project-move"), ("project_remove", "mod-cpp-project-remove"),
+                         ("project_settings", "mod-cpp-project-settings")):
+        press(relay, window, "explorer", "action", name=name, path="Calc", paths=["Calc"], project="Calc")
+        assert [w["args"]["name"] for w in relay.display.windows() if w["screen"] == screen] == ["Calc"]
+    press(relay, window, "explorer", "action", name="sln", path="", paths=[])
+    assert last(relay) == ("project update", {})
+
+
+def test_the_conflicts_screen_starts_from_the_file_and_opens_tortoisegit(relay):
+    window = opened(relay, "workspace", PLACE)
+    press(relay, window, "explorer", "action", name="resolve", path="a.py", paths=["a.py"])
+    conflicts = next(w for w in relay.display.windows() if w["screen"] == "conflicts")
+    assert conflicts["args"] == {"module": PLACE, "path": "a.py"} and nodes(relay, conflicts["id"])["conflict"]["props"]["first"] == "a.py"
+    press(relay, conflicts["id"], "conflict", "tortoise", path="a.py")
+    assert relay.backend.calls[-1] == ("diff", {"paths": ["a.py"], "gui": True})
+
+
+def test_the_log_menu_greys_going_back_off_a_task_branch(relay):
+    relay.backend.status.update(task=None, branch="main")
+    window = opened(relay, "workspace", PLACE)
+    assert nodes(relay, window)["log:list"]["props"]["status"]["branch"] == "main"  # 戻す操作は、部品が灰色と理由にする
 
 
 def test_the_parts_refuse_inputs_they_do_not_declare(relay):

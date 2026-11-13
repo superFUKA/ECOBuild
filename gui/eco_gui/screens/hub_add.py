@@ -31,6 +31,13 @@ SCREEN = {
         {"show": "register", "when": {"add_method": "register"}},
         {"show": "adopt", "when": {"add_method": "adopt"}},
         {"value": "add_problem", "to": "form.problem"},
+        {"value": "add_failed", "to": "form.failed"},
+        # 「参照…」：フォルダを選ぶ窓（ecobuild gui pick-folder）。選んだ場所を、押した欄に入れる
+        {"on": "form.browse", "set": {"add_pick_for": {"payload": "field"}}},
+        {"on": "form.browse", "run": "gui pick-folder", "args": {"title": "フォルダを選ぶ", "initial": {"payload": "initial"}},
+         "set": {"add_picked": {"result": "path"}}},
+        {"value": "add_picked", "to": "form.picked"},
+        {"value": "add_pick_for", "to": "form.picked_for"},
         {"on": "cancel.pressed", "close": True},
         # 新規作成：保存先の親フォルダで ecobuild module new <名前> --type <型> [--kind …] [--project …] [--no-test] [--description …] [--owner …] [--public]
         {"on": "create.pressed", "run": "module new", "require": ["module", "name"], "args": {
@@ -43,8 +50,10 @@ SCREEN = {
             "module": {"value": "add_directory"}, "repository": {"value": "add_repository"}},
          "set": {"add_problem": None}, "failed": {"add_problem": {"error": "message"}}, "notify": "モジュールを取得しました。", "close": True},
         # 登録：ecobuild workspace add <フォルダー>
+        # モジュールでなかった（not_in_module）：入力の窓が、同じフォルダで「リポジトリをモジュールに」を勧める
         {"on": "register.pressed", "run": "workspace add", "args": {"path": {"value": "add_folder"}},
-         "set": {"add_problem": None}, "failed": {"add_problem": {"error": "message"}}, "notify": "一覧に登録しました。", "close": True},
+         "set": {"add_problem": None, "add_failed": None}, "failed": {"add_problem": {"error": "message"}, "add_failed": {"error": "code"}},
+         "notify": "一覧に登録しました。", "close": True},
         # モジュールにする：そのフォルダで ecobuild module adopt --type <型>（置くファイルと push 先は、実行する前の確かめに出る）
         {"on": "adopt.pressed", "run": "module adopt", "require": ["module"], "args": {
             "module": {"value": "add_adopt_folder"}, "type": {"value": "add_adopt_type"}},

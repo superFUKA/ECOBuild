@@ -4,7 +4,7 @@
 ecobuild sync resolve <ファイル> --text（標準入力）に渡す。「続ける」は、全部のファイルを直して保存するまで押せない。
 """
 
-ARGS = {"module": "."}  # 作業空間のフォルダー
+ARGS = {"module": ".", "path": ""}  # 作業空間のフォルダー・初めに出すファイル（右クリックしたファイル。空なら先頭）
 
 SCREEN = {
     "root": "page",
@@ -14,7 +14,7 @@ SCREEN = {
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "衝突を直す", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "hint": "ファイルを読み直す（エディターで直した後に）"}},
-        {"id": "conflict", "part": "review-conflict"},
+        {"id": "conflict", "part": "review-conflict", "props": {"first": {"arg": "path"}}},
     ],
     "bindings": [
         # 読む（ecobuild sync conflicts・ecobuild status）
@@ -27,6 +27,8 @@ SCREEN = {
         # ファイル全体を片方の側に（ecobuild sync take <ファイル> --side current|incoming。ファイルが空の並びなら、衝突したファイル全部）
         {"on": "conflict.taken", "run": "sync take",
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "side": {"payload": "side"}}},
+        # TortoiseGit で直す（ecobuild diff <ファイル> --gui：衝突したファイルは TortoiseGitMerge の直す画面）
+        {"on": "conflict.tortoise", "run": "diff", "args": {"module": {"arg": "module"}, "paths": [{"payload": "path"}], "gui": True}},
         # 続ける・やめる（ecobuild sync continue・ecobuild sync abort）。終わったら、この窓を閉じる
         {"on": "conflict.continued", "run": "sync continue", "args": {"module": {"arg": "module"}},
          "notify": "止まっていた操作を完了しました。", "close": True},

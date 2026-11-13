@@ -4,7 +4,7 @@ ARGS = {"module": ".", "issue": 0}  # モジュールのフォルダーと、タ
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "タスクの詳細", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
+    "window": {"one_per": "module", "title": "タスクの詳細", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "tk-page", "children": ["top", "scroll"]},

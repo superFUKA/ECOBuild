@@ -1,6 +1,10 @@
 /* アカウントの窓（今までの GUI の common.css の .eco-account と同じ見た目） */
 .head { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid #343c46; }
 .big-avatar { flex: none; display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #293447; color: #b1cbef; font-size: 20px; font-weight: 600; }
+.head > div { flex: 1; min-width: 0; }
+.head .profile { padding: 5px 12px; font-size: 12px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.buttons button { padding: 5px 12px; font-size: 12px; }
 .name { font-size: 16px; font-weight: 600; }
 .help { color: var(--gf-muted); font-size: 12px; line-height: 1.7; }
 section { padding: 4px 0 10px; border-bottom: 1px solid var(--eco-line-soft); }

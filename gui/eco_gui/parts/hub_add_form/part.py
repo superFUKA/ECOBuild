@@ -9,7 +9,18 @@ def part(
     modules: Annotated[list[dict], "この PC のモジュール（{path, repository}）。取得の候補から除く・保存先の初めの値に使う"] = [],
     owner: Annotated[str, "既定の所有者（所有者の欄の案内に出す）"] = "",
     problem: Annotated[str, "実行できなかった理由（窓の中に出す。入力した値は残る）"] = "",
+    failed: Annotated[str, "実行できなかった理由の符号（登録したフォルダがモジュールでない not_in_module なら、「モジュールにする」を勧める）"] = "",
+    picked: Annotated[str, "「参照…」で選んだフォルダ（届いたら、参照を押した欄に入れる）"] = "",
+    picked_for: Annotated[str, "「参照…」を押した欄の名前"] = "",
 ) -> None: ...
+
+
+def on_browse(
+    field: Annotated[str, "「参照…」を押した欄（directory・folder・adopt_folder）"],
+    initial: Annotated[str, "その欄の今の文字（選ぶ窓を、そこから開く）"] = "",
+) -> None:
+    if field not in ("directory", "folder", "adopt_folder"):
+        raise ValueError("参照できる欄は directory・folder・adopt_folder です")
 
 
 def on_changed(

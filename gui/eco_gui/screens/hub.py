@@ -29,12 +29,23 @@ SCREEN = {
         {"read": "installer check", "lazy": True, "to": "update.check"},
         {"on": "reload.pressed", "refresh": True},
         {"on": "setup.pressed", "open": "hub-settings", "here": True},
-        {"on": "update.pressed", "run": "installer update"},
+        {"on": "update.pressed", "run": "gui update", "notify": "{message}"},  # installer update の後、GUI を起動し直す
         # 足す：窓の中に、入力の窓を重ねる
         {"on": "add.pressed", "open": "hub-add", "inside": True},
         {"on": "modules.add", "open": "hub-add", "inside": True},
         # 選んだモジュールの窓を開く（最初は作業空間。モジュールごとに1つ。開いていれば、今のページのまま前に出る）
         {"on": "modules.action", "when": {"action": "open"}, "open": "frame-workspaces", "args": {"module": {"payload": "id"}}, "keep": True},
+        # カードのメニュー：エクスプローラー（ecobuild open --app explorer）・Visual Studio（open --app vs --solution。
+        # ソリューションがまだなければ「ビルドしてから開きますか？」）・ショートカット（ecobuild gui shortcut --module … --pick）
+        {"on": "modules.action", "when": {"action": "explorer"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "explorer"}},
+        {"on": "modules.action", "when": {"action": "vs"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "vs", "solution": True},
+         "notify": "Visual Studio {version} で開きます：{name}",
+         "instead": {"when": {"code": "no_solution"}, "open": "frame-vs-build", "inside": True, "args": {"module": {"payload": "id"}, "version": ""}}},
+        {"on": "modules.action", "when": {"action": "shortcut"}, "run": "gui shortcut", "args": {"module": {"payload": "id"}, "pick": True},
+         "notify": "{message}"},
+        # 使えない（clone でなくなった等）：理由と、フォルダを開く・一覧から外す
+        {"on": "modules.action", "when": {"action": "unusable"}, "open": "hub-unusable", "inside": True,
+         "args": {"path": {"payload": "id"}, "name": {"payload": "name"}, "reason": {"payload": "reason"}}},
         # 一覧から外す：理由（フォルダがない等）と、残るものを見せてから（ecobuild workspace forget <フォルダー>）
         {"on": "modules.action", "when": {"action": "forget"}, "open": "hub-forget", "inside": True,
          "args": {"path": {"payload": "id"}, "name": {"payload": "name"}, "reason": {"payload": "reason"}}},
@@ -43,9 +54,11 @@ SCREEN = {
          "notify": "アーカイブしました（読み取り専用）。「アーカイブ済み」に移動しました。"},
         {"on": "modules.archived", "when": {"action": "unarchive"}, "run": "module unarchive", "args": {"name": {"payload": "repository"}},
          "notify": "アーカイブを解除しました。"},
+        {"on": "modules.archived", "when": {"action": "folder"}, "run": "open", "args": {"module": {"payload": "folder"}, "app": "explorer"}},
         {"on": "modules.archived", "when": {"action": "delete"}, "open": "hub-delete", "inside": True,
          "args": {"repository": {"payload": "repository"}, "local": {"payload": "local"}}},
         # 前の版の作業空間（ecobuild workspace close <フォルダー>・workspace forget <フォルダー>）
+        {"on": "modules.legacy", "when": {"action": "folder"}, "run": "open", "args": {"module": {"payload": "path"}, "app": "explorer"}},
         {"on": "modules.legacy", "when": {"action": "close"}, "run": "workspace close", "args": {"path": {"payload": "path"}},
          "notify": "前の作業空間を閉じました。"},
         {"on": "modules.legacy", "when": {"action": "forget"}, "run": "workspace forget", "args": {"path": {"payload": "path"}},

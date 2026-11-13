@@ -12,6 +12,7 @@ def part(
     branches: Annotated[list[dict] | None, "選べるブランチ（ecobuild branch list：name）。あれば、ブランチを選ぶ欄を出す"] = None,
     branch: Annotated[str | None, "ログを見ているブランチ（空なら、今のブランチ）"] = "",
     mode: Annotated[Literal["log", "push", "plain"], "メニューの種類（log：戻す操作／push：取り消す・捨てる／plain：見るだけ）"] = "log",
+    status: Annotated[dict | None, "作業空間の状態（ecobuild status：task・reviewing）。タスクブランチでなければ、戻す操作を灰色と理由にする"] = None,
     search: Annotated[bool, "絞り込みの欄を出す"] = True,
     short: Annotated[bool, "中身の高さに合わせる（パネルの中の短い一覧）"] = False,
     loading: Annotated[bool, "読み込み中"] = False,

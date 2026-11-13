@@ -4,7 +4,7 @@ ARGS = {"module": "."}  # モジュール（作業空間）のフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "コンテナ", "width": 1280, "height": 820},
+    "window": {"one_per": "module", "title": "コンテナ", "width": 1360, "height": 880},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "body"]},

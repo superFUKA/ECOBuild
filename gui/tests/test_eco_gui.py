@@ -276,7 +276,7 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     assert ("task commit", {"paths": ["a.py", "new.txt"], "message": "ログインを直す"}) in relay.backend.calls
     assert relay.display.values(window)["paths"] is None and nodes(relay, window)["changes"]["props"]["checked"] == []
     relay.input(window, "tabs", "selected", {"tab": "submit"}, human=True)  # 「提出」のタブへ
-    relay.input(window, "submit", "pressed", {}, human=True)  # 「提出」：提出の窓を重ねて開く（何が起きるか・題・下書き・見てもらう人）
+    relay.input(window, "pull_request", "action", {"action": "submit", "id": "12"}, human=True)  # 「提出」：提出の窓を重ねて開く（何が起きるか・題・下書き・見てもらう人）
     relay.idle()
     dialog = next(w["id"] for w in relay.display.windows() if w["screen"] == "task-submit" and w.get("parent") == window)
     assert ("task submit", {}) not in relay.backend.calls  # 押しただけでは、提出しない

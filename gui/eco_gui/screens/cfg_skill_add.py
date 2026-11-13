@@ -1,6 +1,6 @@
 """スキルを追加（入力の窓）：新しく作る・このPCのスキルから写す・フォルダーから取り込む。"""
 
-ARGS = {"module": "."}  # モジュールのフォルダー（タスクブランチの作業空間）
+ARGS = {"module": ".", "place": ""}  # モジュールのフォルダー・コミットするタスクブランチの作業空間（初めの値）
 
 SCREEN = {
     "root": "page",
@@ -10,6 +10,7 @@ SCREEN = {
         {"id": "form", "part": "form", "props": {
             "title": "スキルを追加", "ok": "追加",
             "intro": "このモジュールのスキルを足します。保存するとリポジトリにコミットし、提出して取り込まれるとエージェントに渡ります（役の「使えるスキル」に合うもの）。",
+            "initial": {"place": {"arg": "place"}},
             "fields": [
                 {"name": "how", "label": "作り方", "type": "radio", "value": "new", "options": [
                     {"value": "new", "label": "新規作成", "help": "説明と本文を書いて作ります"},
@@ -23,15 +24,19 @@ SCREEN = {
                  "help": "このPCのスキルを写すときは、空なら元と同じ名前", "empty_uses": "from_preset"},
                 {"name": "description", "label": "説明（何をするか・いつ使うか）", "type": "textarea", "show_if": {"how": "new"},
                  "help": "本文は、足した後に左の一覧から選んで書きます"},
+                {"name": "place", "label": "コミットするタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "more", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
+                 "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）"},
             ],
         }},
     ],
     "bindings": [
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.more", "from": "workspaces"},
         {"read": "agent skill preset list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
         {"on": "form.cancelled", "close": True},
         # ecobuild agent skill add <名前> --description … ／ --from-preset … ／ --from-dir …
-        {"on": "form.submitted", "run": "agent skill add", "confirmed": True,
-         "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
+        {"on": "form.submitted", "run": "agent skill add", "confirmed": True, "require": ["module"],
+         "args": {"module": {"payload": "values.place"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
                   "from_dir": {"payload": "values.from_dir"}, "description": {"payload": "values.description"}},
          "notify": "スキルを追加してコミットしました。提出して取り込まれると渡ります。", "close": True},
     ],

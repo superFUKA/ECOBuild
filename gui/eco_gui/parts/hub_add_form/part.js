@@ -29,10 +29,30 @@ const folder = (text) => String(text || '').trim().replace(/[\\/]+$/, '');
 export default {
   render(root, props, tools) {
     const { emit, memory, state, redraw, lib } = tools;
-    const options = lib.form.options;
-    const types = props.types && props.types.length ? props.types : FALLBACK_TYPES;
     state.touched = state.touched || {};
     state.values = state.values || {};
+    // 「参照…」で選んだフォルダが届いた：押した欄に入れる
+    if (props.picked && props.picked !== state.picked && props.picked_for) {
+      state.picked = props.picked;
+      state.touched[props.picked_for] = true;
+      state.values[props.picked_for] = props.picked;
+      if (props.picked_for === 'directory') memory.set(PARENT, folder(props.picked));
+      state.sent = '';   // 今の値を出し直す
+    }
+    // 手元のフォルダを登録したら、モジュールではなかった：同じフォルダで「リポジトリをモジュールに」を勧める
+    let advice = '';
+    if (props.failed === 'not_in_module' && state.values.method !== 'adopt' && state.adopted !== props.problem) {
+      state.adopted = props.problem;
+      state.touched.method = true;
+      state.values.method = 'adopt';
+      state.touched.adopt_folder = true;
+      state.values.adopt_folder = state.values.folder || '';
+      state.advice = true;
+      state.sent = '';
+    }
+    if (state.advice && state.values.method === 'adopt') advice = 'このフォルダは ECOBuild のモジュールではありません。GitHub のリポジトリの clone なら、型を選んでモジュールにできます。';
+    const options = lib.form.options;
+    const types = props.types && props.types.length ? props.types : FALLBACK_TYPES;
     // 今入っている値（打っていなければ、初めの値）
     const now = (name, initial) => (state.touched[name] ? state.values[name] : initial);
     const method = now('method', 'new'), type = now('type', types[0].name);
@@ -72,7 +92,7 @@ export default {
         candidates_empty: props.candidates && props.candidates.length ? 'GitHubのモジュールは、すべて一覧に登録済みです。' : 'GitHubにモジュールが見つかりませんでした。' });
     }
     if (method === 'new' || method === 'clone') {
-      fields.push({ name: 'directory', label: '保存先の親フォルダ', value: directory, placeholder: '例：C:\\work' },
+      fields.push({ name: 'directory', label: '保存先の親フォルダ', value: directory, placeholder: '例：C:\\work', browse: true },
         { type: 'note', label: (get) => {
           const parent = folder(get('directory')), name = method === 'new' ? String(get('name') || '').trim() : (String(get('repository') || '').trim().split('/').pop() || '');
           return parent && name ? `作成先：${parent}/${name}` : '';
@@ -85,9 +105,9 @@ export default {
         { name: 'public', label: '公開リポジトリにする', type: 'checkbox' },
         { type: 'section', end: true });
     }
-    if (method === 'register') fields.push({ name: 'folder', label: 'モジュールのフォルダ', placeholder: '.ecobuild のあるフォルダ' });
+    if (method === 'register') fields.push({ name: 'folder', label: 'モジュールのフォルダ', placeholder: '.ecobuild のあるフォルダ', browse: true });
     if (method === 'adopt') {
-      fields.push({ name: 'adopt_folder', label: 'リポジトリのフォルダ', row: 'adopt', width: 3, placeholder: 'GitHub のリポジトリを clone したフォルダ' },
+      fields.push({ name: 'adopt_folder', label: 'リポジトリのフォルダ', row: 'adopt', width: 3, placeholder: 'GitHub のリポジトリを clone したフォルダ', browse: true },
         { name: 'adopt_type', label: '型', type: 'select', row: 'adopt', value: types[0].name, options: typeOptions },
         { type: 'note', label: 'できるのはリポジトリの管理者だけです（個人のリポジトリなら持ち主）。置くファイルと push 先は、実行する前の確かめに出ます。' });
     }
@@ -101,8 +121,10 @@ export default {
         public: value('public', false) === true ? true : null, repository: text('repository'), folder: text('folder'), adopt_folder: text('adopt_folder'),
         adopt_type: value('adopt_type', types[0].name) });
     };
-    const drawn = lib.form.render(root, { plain: true, bare: true, fields, problem: props.problem }, tools, {
+    const drawn = lib.form.render(root, { plain: true, bare: true, fields, problem: advice || props.problem }, tools, {
+      browse: (name, text) => emit('browse', { field: name, initial: text }),
       changed: (name, raw) => {
+        if (name === 'method') state.advice = false;
         if (name === 'directory' && folder(raw.directory)) memory.set(PARENT, folder(raw.directory));
         if (REDRAW.includes(name)) redraw(); else send(raw);
       },

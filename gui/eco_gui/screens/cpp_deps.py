@@ -8,7 +8,7 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "モジュール", "width": 1280, "height": 820, "refresh": {"focus": True}},
+    "window": {"one_per": "module", "title": "モジュール", "width": 1360, "height": 880, "refresh": {"focus": True}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "deps"]},
@@ -25,6 +25,9 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "update.pressed", "run": "project update", "args": {"module": {"arg": "module"}}, "notify": "構成を、今のファイルに合わせました。"},
         {"on": "deps.reload", "refresh": True},
+        # 作業空間がなければ、変える操作は灰色と「今は見るだけ」の帯（そこから、タスク管理を開く）
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "deps.workspaces", "from": "workspaces"},
+        {"on": "deps.action", "when": {"name": "open_tasks"}, "open": "tasks", "args": {"module": {"arg": "module"}}, "here": True},
         {"read": "project list", "args": {"module": {"arg": "module"}}, "to": "deps.projects"},
         {"read": "deps list", "args": {"module": {"arg": "module"}, "fetch": {"value": "cpp_fetch"}}, "to": "deps.deps"},
         {"read": "deps tree", "args": {"module": {"arg": "module"}}, "to": "deps.tree"},

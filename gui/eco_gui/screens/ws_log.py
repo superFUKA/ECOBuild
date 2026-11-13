@@ -18,6 +18,8 @@ SCREEN = {
                                  "branch": {"value": "log_branch"}}, "to": "list.commits"},
         # どのブランチのログを見るか（選ばなければ、今のブランチ。取り出さずに読む：ecobuild log --branch）
         {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "list.branches"},
+        # 戻す操作（この版の状態に戻す・ここまで戻す）は、タスクブランチでだけ（ほかでは灰色と理由）
+        {"read": "status", "args": {"module": {"arg": "module"}}, "to": "list.status"},
         {"on": "list.branch", "set": {"log_branch": {"payload": "name"}, "log_commit": None}},
         {"value": "log_branch", "to": "list.branch"},
         {"value": "log_count", "to": "list.count"},
@@ -26,7 +28,7 @@ SCREEN = {
         {"value": "log_commit", "to": "list.selected"},
         {"value": "log_commit", "to": "detail.sha"},
         {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"value": "log_commit"}}, "require": ["commit"], "to": "detail.text"},
-        # コミットの操作：変更を別に開く／ファイルをその版の状態に戻す（restore --source）／タスクブランチをそこまで戻す（task reset）。
+        # コミットの操作：変更を別に開く／ファイルをその版の状態に戻す（restore --source）／タスクブランチをそこまで戻す（task reset。タスクブランチで）。
         # 戻す操作は、確かめてから（ecobuild の重さのとおり）
         {"on": "list.action", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},

@@ -2,6 +2,9 @@
 
 上に、ブランチで絞る欄・「GitHub で見る」・「▶ 手動で実行」。行の右クリックで、同じ操作と「このブランチの実行だけを表示」。
 ブランチを選んでいるあいだは、そのブランチの実行（branch_rows）を見せる。
+失敗した実行のダブルクリックでログ、ほかは GitHub で開く。管理者でない人（admin が偽）には、手動で実行・再実行を灰色と理由。
+ワークフローがない（ready が偽）ときは「▶ 手動で実行」を灰色と理由。再実行・手動で実行の後は、少しして一覧を読み直す
+（GitHub の一覧に出るまで少しかかる）。
 """
 from typing import Annotated
 
@@ -12,6 +15,9 @@ def part(
     branch: Annotated[str | None, "絞っているブランチ（なければ、すべて）"] = None,
     branches: Annotated[list[dict], "ブランチ（branch list の行。GitHub にあるものを選べる）"] = [],
     url: Annotated[str | None, "GitHub のリポジトリの URL（「GitHub で見る」の先。なければ出さない）"] = None,
+    admin: Annotated[bool | None, "このモジュールの管理者か（account show の admin。分からないあいだは null）"] = None,
+    ready: Annotated[bool | None, "CI のワークフローがあるか（ci show の exists。分からないあいだは null）"] = None,
+    dispatched: Annotated[bool | None, "手動で実行した（真になったら、少しして読み直す）"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...

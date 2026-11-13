@@ -10,6 +10,7 @@ SCREEN = {
         {"id": "form", "part": "form", "props": {
             "title": "ビルド設定", "ok": "保存",
             "intro": "同じ名前のビルド設定があれば置き換えます。ecobuild.toml が変わるので、タスクブランチでコミットしてください。",
+            "initial": {"place": {"arg": "module"}},
             "at": [{"arg": "name"}],
             "fields": [
                 {"name": "name", "label": "名前", "required": True, "value": {"arg": "name"}, "placeholder": "例：release"},
@@ -17,15 +18,21 @@ SCREEN = {
                     {"value": "Debug", "label": "Debug（開発用：.venv に編集可能で入れる）"},
                     {"value": "Release", "label": "Release（配布用：wheel・sdist も作る）"}]},
                 {"name": "parallel", "label": "並列の数", "type": "number", "min": 1, "value": 1},
+                {"name": "place", "label": "変更するタスクブランチ（作業空間）", "type": "select", "required": True,
+                 "options_from": {"source": "more", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
+                 "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）",
+                 "help": "管理ファイルが変わります。タスクブランチでコミットし、PRで反映してください。"},
             ],
         }},
     ],
     "bindings": [
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.more", "from": "workspaces"},
         {"read": "profile list", "args": {"module": {"arg": "module"}}, "to": "form.values", "from": "profiles"},
         {"on": "form.cancelled", "close": True},
         # ecobuild profile add <名前> --configuration <構成> --parallel <数>
         {"on": "form.submitted", "run": "profile add",
-         "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "configuration": {"payload": "values.configuration"},
+         "require": ["module"],
+         "args": {"module": {"payload": "values.place"}, "name": {"payload": "values.name"}, "configuration": {"payload": "values.configuration"},
                   "parallel": {"payload": "values.parallel"}},
          "notify": "ビルド設定を保存しました。", "close": True},
     ],

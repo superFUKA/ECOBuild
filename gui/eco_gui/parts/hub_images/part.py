@@ -7,4 +7,5 @@ def part(
     data: Annotated[dict | None, "イメージの一覧（{images: [{name, module, size, created, current, used_by, environment}], docker_ready, docker_detail, missing}）。まだなら null"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
+    done: Annotated[dict | None, "今作った・消した結果（container image build の {built}・prune の {removed}）。届いたら、その数を知らせる"] = None,
 ) -> None: ...

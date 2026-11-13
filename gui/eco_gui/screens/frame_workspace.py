@@ -6,7 +6,7 @@ ARGS = {"module": ".", "space": "", "closed": []}  # モジュールのフォル
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "ECOBuild", "width": 1280, "height": 860, "refresh": {"focus": True, "every": 180}},
+    "window": {"one_per": "module", "title": "ECOBuild", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "frame-workspaces", "module": {"arg": "module"}}},

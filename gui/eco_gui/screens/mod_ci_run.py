@@ -19,7 +19,7 @@ SCREEN = {
         {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
         # 人が打つのと同じ：ecobuild ci run [--branch <ブランチ>]
         {"on": "form.submitted", "run": "ci run", "args": {"module": {"arg": "module"}, "branch": {"payload": "values.branch"}},
-         "notify": "CI を実行しました。少しすると一覧に出ます。", "close": True},
+         "notify": "CI を実行しました。少しすると一覧に出ます。", "parent": {"ci_dispatched": True}, "close": True},
         {"on": "form.cancelled", "close": True},
     ],
 }

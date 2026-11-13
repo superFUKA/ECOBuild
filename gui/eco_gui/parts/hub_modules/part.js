@@ -105,8 +105,8 @@ export default {
         h('span', { class: 'module-icon c' + hueOf(m.name), 'aria-hidden': 'true' }, initialsOf(m.name, modules)),
         h('span', { class: 'module-text' }, name, h('span', { class: 'module-path' }, m.repository || m.path)),
         h('span', { class: 'module-go', 'aria-hidden': 'true' }, '↗'));
-      // 開けないモジュール（フォルダがない・clone でない）は、理由と一緒に「一覧から外す」を出す
-      open.addEventListener('click', () => (reasonOf(m) ? act(m, 'forget', reasonOf(m)) : act(m, 'open')));
+      // 開けないモジュール（フォルダがない・clone でない）は、理由と一緒に「一覧から外す」を出す（フォルダがあれば「フォルダを開く」も）
+      open.addEventListener('click', () => (reasonOf(m) ? act(m, m.exists ? 'unusable' : 'forget', reasonOf(m)) : act(m, 'open')));
       const more = h('button', { type: 'button', class: 'module-menu', title: '操作', 'aria-label': m.name + ' の操作' }, '⋯');
       more.addEventListener('click', (event) => showMenu(event, m));
       const item = h('li', { class: m.exists ? 'mod' : 'mod missing', title: m.path, draggable: 'true' }, open, more);
@@ -143,6 +143,10 @@ export default {
         : !m.github ? 'GitHub のリポジトリがありません（origin が GitHub ではありません）' : '';
       const chosen = await menu(event, [
         { id: 'open', label: '開発環境を開く', disabled: Boolean(reasonOf(m)), reason: gone || reasonOf(m) },
+        { id: 'explorer', label: 'エクスプローラーでフォルダを開く', disabled: !m.exists, reason: gone },
+        // ソリューションを作る型（C++）だけ。型が分からないものにも出す（開けなければ、ecobuild open が理由を答える）
+        ...(!m.type || m.type === 'cpp' ? [{ id: 'vs', label: 'Visual Studio で開く', disabled: !m.exists, reason: gone }] : []),
+        { id: 'shortcut', label: 'ショートカットを作る…', disabled: !m.exists, reason: gone },
         { separator: true },
         { id: 'forget', label: '一覧から外す…' },
         { id: 'away', label: '片付ける（アーカイブ）…', danger: true, disabled: Boolean(noAway), reason: noAway },
@@ -161,11 +165,18 @@ export default {
         const text = h('div', {}, h('strong', {}, m.repository));
         if (m.description) text.append(h('small', {}, m.description));
         for (const path of m.clones) text.append(h('small', {}, 'このPC：' + path));
+        const actions = h('span', { class: 'fold-actions' });
+        if (m.clones.length) {
+          const open = h('button', { type: 'button' }, 'フォルダを開く');
+          open.addEventListener('click', () => emit('archived', { repository: m.repository, action: 'folder', local: m.clones.join('、'), folder: m.clones[0] }));
+          actions.append(open);
+        }
         const undo = h('button', { type: 'button' }, '解除');
         undo.addEventListener('click', () => emit('archived', { repository: m.repository, action: 'unarchive', local: m.clones.join('、') }));
         const remove = h('button', { type: 'button', class: 'danger-text' }, '削除…');
         remove.addEventListener('click', () => emit('archived', { repository: m.repository, action: 'delete', local: m.clones.join('、') }));
-        list.append(h('li', {}, text, h('span', { class: 'fold-actions' }, undo, remove)));
+        actions.append(undo, remove);
+        list.append(h('li', {}, text, actions));
       }
       return fold('archived-open', 'アーカイブ済み', archived.length, list);
     }
@@ -178,6 +189,9 @@ export default {
           h('small', { class: 'mono' }, c.path + (c.task !== null && c.task !== undefined && c.branch ? `（${c.branch}）` : '')));
         const actions = h('span', { class: 'fold-actions' });
         if (exists) {
+          const open = h('button', { type: 'button' }, 'フォルダを開く');
+          open.addEventListener('click', () => emit('legacy', { path: c.path, action: 'folder' }));
+          actions.append(open);
           const close = h('button', { type: 'button', class: 'danger-text' }, '閉じる…');
           close.addEventListener('click', () => emit('legacy', { path: c.path, action: 'close' }));
           actions.append(close);

@@ -39,7 +39,11 @@ export default {
       const index = props.commits.findIndex((e) => e.sha === c.sha), before = c.sha + '~1';
       const later = index === 0 ? 'このコミット' : `このコミットから後（${index + 1}件）`;
       const items = [{ id: 'show', label: '変更を見る' }, { id: 'copy', label: 'SHAをコピー' }];
-      if (props.mode === 'log') items.push({ separator: true }, { id: 'restore', label: 'この版の状態に戻す…' }, { id: 'reset', label: 'ここまで戻す…', danger: true });
+      // 戻す操作は、タスクブランチでだけ（ほかでは灰色と理由。前の GUI と同じ）
+      const st = props.status || {}, known = 'branch' in st || 'task' in st, onTask = !known || Boolean(st.task && !st.reviewing);
+      const off = onTask ? {} : { disabled: true, reason: 'タスクブランチでだけ使えます' };
+      if (props.mode === 'log') items.push({ separator: true }, { id: 'restore', label: 'この版の状態に戻す…', ...off },
+        { id: 'reset', label: 'ここまで戻す…', danger: true, ...off });
       if (props.mode === 'push') items.push({ separator: true }, { id: 'undo', label: `${later}を取り消す（変更は残す）` }, { id: 'drop', label: `${later}を捨てる…`, danger: true });
       const id = await menu(event, items);
       if (id === 'copy') return copy(c.sha);

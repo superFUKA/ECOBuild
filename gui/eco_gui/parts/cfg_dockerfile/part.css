@@ -1,0 +1,15 @@
+/* Dockerfile のエディター（今までの GUI の .image-editor と同じ並び） */
+:host { display: block; }
+.intro { margin: 0 0 8px; font-size: 12px; color: var(--gf-muted); }
+.notes { margin: 0 0 8px; padding-left: 18px; font-size: 12px; color: var(--gf-muted); line-height: 1.6; }
+.notes li.ok { color: #a8ead9; }
+.notes li.warn { color: var(--gf-warn); }
+textarea { width: 100%; box-sizing: border-box; min-height: 300px; font-family: var(--eco-code, Consolas, monospace); font-size: 12px; tab-size: 4; resize: vertical; }
+textarea[readonly] { opacity: .8; }
+.reason { margin: 6px 0 0; font-size: 12px; color: var(--gf-muted); min-height: 1em; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.ask { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.ask > span { flex: 1; }
+details { margin-top: 12px; font-size: 12px; }
+details summary { cursor: pointer; color: #aeb7c2; }
+details pre { margin: 6px 0 0; padding: 8px; border: 1px solid var(--eco-line); border-radius: 6px; overflow: auto; max-height: 240px; font-size: 12px; }

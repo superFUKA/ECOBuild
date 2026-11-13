@@ -12,6 +12,10 @@ const localTime = (iso) => {
   if (!iso || isNaN(d)) return String(iso || '').slice(0, 16).replace('T', ' ');
   return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) + ' ' + two(d.getHours()) + ':' + two(d.getMinutes());
 };
+// 管理ファイル（ecobuild.toml・CMake）を変える操作（作業空間がないあいだは灰色）
+const MANAGED = ['project_add', 'project_settings', 'project_link', 'project_unlink', 'project_pch', 'project_move', 'project_remove',
+  'deps_update', 'dep_update', 'dep_versions', 'dep_use', 'dep_add', 'dep_remove', 'module_settings', 'template_add', 'template_replace', 'template_remove'];
+const NO_WS = 'タスクブランチの作業空間がありません（タスク管理で「作業を開始」してください）';
 // Project のリンクは「<依存先>/<Project>」か、名前だけ
 const linksTo = (link, dep) => link === dep || String(link).startsWith(dep + '/');
 
@@ -43,15 +47,36 @@ export default {
     const act = (name, target, value) => emit('action', { name, target: target || '', value: value || '' });
     const pill = (text, tone) => h('span', { class: tone ? 'pill ' + tone : 'pill' }, text);
     const sub = (...kids) => h('div', { class: 'sub' }, ...kids);
+    // 管理ファイルを変える操作は、タスクブランチの作業空間で行う（作業空間を読んで、1つもなければ灰色と理由）
+    const spaces = props.workspaces;
+    const readOnly = Array.isArray(spaces) && !spaces.some((w) => w.task != null && w.review == null);
+    const locked = (name) => readOnly && MANAGED.includes(name);
     const button = (label, name, target, cls, title) => {
-      const b = h('button', { type: 'button', class: cls || 'small', ...(title ? { title } : {}) }, label);
+      const off = locked(name);
+      const b = h('button', { type: 'button', class: cls || 'small', ...(off ? { title: NO_WS } : title ? { title } : {}) }, label);
+      if (off) b.disabled = true;
       b.addEventListener('click', () => act(name, target));
       return b;
+    };
+    // 行の右クリック：その行のボタンと ⋯ の項目（[{id, label, danger}] か {separator}）
+    const rowMenu = (row, target, items) => {
+      row.addEventListener('contextmenu', async (event) => {
+        event.preventDefault();
+        const id = await menu(event, items.map((i) => (i.separator ? i : { ...i, ...(locked(i.id) ? { disabled: true, reason: NO_WS } : {}) })));
+        if (id) act(id, target);
+      });
+      return row;
+    };
+    const banner = () => {
+      if (!readOnly) return '';
+      const open = h('button', { type: 'button', class: 'small' }, 'タスク管理を開く');
+      open.addEventListener('click', () => act('open_tasks'));
+      return h('div', { class: 'banner info' }, h('span', {}, '変更はタスクブランチの作業空間で行います。作業空間がないので、今は見るだけです。'), open);
     };
     const head = (title, ...actions) => h('div', { class: 'head' }, h('h3', {}, title), h('div', { class: 'actions' }, ...actions));
     const table = (cls, columns, rows) => h('table', { class: cls },
       columns ? h('thead', {}, h('tr', {}, ...columns.map((c) => h('th', {}, c)))) : '', h('tbody', {}, ...rows));
-    const out = [];
+    const out = readOnly ? [banner()] : [];
     const failed = () => {
       const again = h('button', { type: 'button', class: 'small' }, '読み直す');
       again.addEventListener('click', () => emit('reload', {}));
@@ -74,15 +99,18 @@ export default {
           const links = h('td', {});
           for (const l of (p.links || []).filter((x) => x !== parent)) links.append(pill('→ ' + l, deps.some((d) => linksTo(l, d.name)) ? 'ok' : ''), ' ');
           const more = h('button', { type: 'button', class: 'small more', 'aria-label': p.name + ' のほかの操作', title: 'ほかの操作', 'aria-haspopup': 'menu' }, '⋯');
+          const others = [{ id: 'project_link', label: 'リンクを足す…' }, { id: 'project_unlink', label: 'リンクを外す…' }, { id: 'project_pch', label: 'PCH…' }, { id: 'project_move', label: '移動…' },
+            { separator: true }, { id: 'project_remove', label: '削除…', danger: true }];
+          const lockedItems = others.map((i) => (i.separator ? i : { ...i, ...(locked(i.id) ? { disabled: true, reason: NO_WS } : {}) }));
           more.addEventListener('click', async (event) => {
-            const id = await menu(event, [{ id: 'project_link', label: 'リンクを足す…' }, { id: 'project_unlink', label: 'リンクを外す…' }, { id: 'project_pch', label: 'PCH…' }, { id: 'project_move', label: '移動…' },
-              { separator: true }, { id: 'project_remove', label: '削除…', danger: true }]);
+            const id = await menu(event, lockedItems);
             if (id) act(id, p.name);
           });
           const joined = rows[i + 1] && rows[i + 1].parent;
-          return h('tr', { class: (parent ? 'attached' : '') + (joined ? ' joined' : '') },
+          return rowMenu(h('tr', { class: (parent ? 'attached' : '') + (joined ? ' joined' : '') },
             h('td', {}, name), h('td', {}, parent ? '' : pill(KIND[p.kind] || p.kind)), h('td', { class: 'mono' }, (p.directory || '') + '/'), links,
-            h('td', { class: 'row-actions' }, button('設定…', 'project_settings', p.name), more));
+            h('td', { class: 'row-actions' }, button('設定…', 'project_settings', p.name), more)),
+          p.name, [{ id: 'project_settings', label: '設定…' }, { separator: true }, ...others]);
         })));
         out.push(h('p', { class: 'legend' }, h('span', {}, pill('→ 依存先', 'ok'), ' 他のモジュール'), h('span', {}, pill('→ Project'), ' このモジュール内'),
           h('span', {}, pill('main', 'ok'), ' 他のモジュールからリンクされる（全般）')));
@@ -117,7 +145,8 @@ export default {
           const remove = button('リンクを外す…', 'dep_remove', d.name, 'small danger-text');
           cells.push(users, h('td', { class: 'row-actions' }, button('更新', 'dep_update', d.name, 'small', 'GitHub の既定のブランチの最新にします'),
             button('版を選ぶ…', 'dep_versions', d.name, 'small', 'ブランチ・タグ・コミットから選んで記録します（前の版に戻すのにも）'), remove));
-          return h('tr', {}, ...cells);
+          return rowMenu(h('tr', {}, ...cells), d.name, [{ id: 'dep_update', label: '更新' }, { id: 'dep_versions', label: '版を選ぶ…' },
+            { id: 'dep_remove', label: 'リンクを外す…', danger: true }]);
         })));
       }
       // 版を選ぶ（押した依存先の、タグと、ブランチのコミットの新しい順）
@@ -186,8 +215,9 @@ export default {
       else {
         out.push(table('table', ['名前', 'ファイル', h('span', { class: 'sr' }, '操作')], Object.keys(templates).map((name) => {
           const t = templates[name] || {};
-          return h('tr', {}, h('td', {}, h('strong', {}, name), t.builtin ? ' ' : '', t.builtin ? pill('既定') : ''), h('td', { class: 'mono' }, t.path || ''),
-            h('td', { class: 'row-actions' }, button('差し替え…', 'template_replace', name), t.builtin ? '' : button('削除…', 'template_remove', name, 'small danger-text')));
+          return rowMenu(h('tr', {}, h('td', {}, h('strong', {}, name), t.builtin ? ' ' : '', t.builtin ? pill('既定') : ''), h('td', { class: 'mono' }, t.path || ''),
+            h('td', { class: 'row-actions' }, button('差し替え…', 'template_replace', name), t.builtin ? '' : button('削除…', 'template_remove', name, 'small danger-text'))),
+          name, [{ id: 'template_replace', label: '差し替え…' }, ...(t.builtin ? [] : [{ id: 'template_remove', label: '削除…', danger: true }])]);
         })));
         out.push(h('p', { class: 'note' }, 'ファイルの中の {{header}}・{{name}}・{{suite}}・{{project}} は、作るときに置き換わります。'));
       }

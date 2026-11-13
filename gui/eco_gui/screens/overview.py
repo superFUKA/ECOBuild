@@ -1,4 +1,7 @@
-"""モジュール › 概要：README と、横に「このモジュール」（GitHub・型・Project・依存先）。下に、タスクの作業空間。"""
+"""モジュール › 概要：ファイルの木と README、横に「このモジュール」（GitHub・型・Project・依存先）。下に、タスクの作業空間。
+
+ファイルは既定のアプリで開く（ecobuild open <ファイル>）。README の「✎ 編集」も同じ。
+"""
 
 ARGS = {"module": "."}  # モジュールのフォルダー
 
@@ -17,7 +20,8 @@ SCREEN = {
         {"id": "open_here", "part": "button", "props": {"label": "この場所の作業空間を開く"}},
         # 左：README と作業空間。右：このモジュール
         {"id": "home", "layout": "row", "look": "mod-home", "children": ["left", "about"]},
-        {"id": "left", "layout": "column", "children": ["readme", "spaces_title", "spaces"]},
+        {"id": "left", "layout": "column", "children": ["files", "readme", "spaces_title", "spaces"]},
+        {"id": "files", "part": "mod-files"},
         {"id": "readme", "part": "mod-readme"},
         {"id": "about", "part": "mod-about"},
         {"id": "spaces_title", "part": "note", "props": {"text": "タスクの作業空間", "tone": "section"}},
@@ -29,6 +33,12 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "module readme", "args": {"module": {"arg": "module"}}, "to": "readme.readme"},
+        # ファイルの木（ecobuild files：git のファイルと新しいファイル・生成ファイル・今はないもの）
+        {"read": "files", "args": {"module": {"arg": "module"}}, "to": "files.files", "from": "files"},
+        {"read": "files", "args": {"module": {"arg": "module"}}, "to": "files.generated", "from": "generated"},
+        {"read": "files", "args": {"module": {"arg": "module"}}, "to": "files.missing", "from": "missing"},
+        {"on": "files.opened", "run": "open", "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}]}},
+        {"on": "readme.edit", "run": "open", "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}]}},
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "about.data"},
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "spaces.rows", "from": "workspaces"},
         {"on": "reload.pressed", "refresh": True},

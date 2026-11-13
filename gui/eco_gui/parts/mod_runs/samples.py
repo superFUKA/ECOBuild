@@ -16,6 +16,9 @@ SAMPLES = [
                                        "rows": [], "branch_rows": [
         {"id": 903, "workflow": "ecobuild", "branch": "develop", "event": "workflow_dispatch", "status": "completed", "conclusion": "failure",
          "created": "2026-11-09T18:02:00+09:00", "url": "https://github.com/octocat/Calc/actions/runs/903"}]}},
+    {"name": "管理者でない・ワークフローがない（手動で実行・再実行は灰色）", "props": {"admin": False, "ready": False, "rows": [
+        {"id": 904, "workflow": "ecobuild", "branch": "main", "event": "push", "status": "completed", "conclusion": "success",
+         "created": "2026-11-10T09:30:00+09:00", "url": "https://github.com/octocat/Calc/actions/runs/904"}]}},
     {"name": "空", "props": {"rows": []}},
     {"name": "読み込み中", "props": {"rows": [], "loading": True}},
     {"name": "誤り", "props": {"rows": [], "error": "GitHub に問い合わせられません"}},

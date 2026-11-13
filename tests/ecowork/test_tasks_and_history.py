@@ -122,6 +122,11 @@ def test_log_revert_ignore_release(repository):
     assert repository.ignore("*.log", "out/", "*.log") == ("*.log", "out/")
     assert repository.ignore("*.log") == ()
     assert (root / ".gitignore").read_text(encoding="utf-8").splitlines()[-2:] == ["*.log", "out/"]
+    # 名指しした新しいファイルは、中身を足した行として出す（名指ししなければ、git diff のとおり出さない）
+    (root / "memo.txt").write_text("一行目\n二行目\n", encoding="utf-8")
+    assert "+一行目\n+二行目" in repository.diff(("memo.txt",)) and "memo.txt" not in repository.diff()
+    assert repository.diff(("memo.txt",), staged=True) == ""
+    (root / "memo.txt").unlink()
     finish(repository, task_branch, "b.txt", "b\n", "除外")
 
     release = repository.create_release("v1.0.0", title="最初", notes="")

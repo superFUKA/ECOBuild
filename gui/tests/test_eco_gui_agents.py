@@ -112,6 +112,11 @@ class FakeAgents(FakeEcobuild):
                                            "changed": [], "committed": ""}}
         if name == "agent rules set":
             self.rules = args["common"]
+        if name == "module show":
+            return {"ok": True, "result": {"name": "Calc", "type": "python", "workspaces": [
+                {"path": "C:/work/Calc/.ecobuild/w/12", "branch": "task/12-login", "task": 12, "review": None}]}}
+        if name == "task new":
+            return {"ok": True, "result": {"task": {"number": 30}, "task_branch": {"workspace": "C:/work/Calc/.ecobuild/w/30"}}}
         if name == "agent version status":
             return {"ok": True, "result": {"setting": "", "key": "agent_claude_version", "installed": None, "reason": "コンテナが動いていません"}}
         if name == "agent version list":
@@ -226,6 +231,8 @@ def test_agents_screen_asks_the_cli_what_a_choice_of_tools_comes_to(relay):
 
 def test_agents_screen_saves_only_what_was_changed_after_a_confirmation(relay):
     window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
+    relay.input(window, "place", "changed", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # コミットするタスクブランチ
+    relay.idle()
     relay.input(window, "editor", "selected", {"kind": "role", "name": "worker"}, human=True)
     relay.idle()
     relay.input(window, "editor", "save", {"name": "worker", "title": "実装役", "human_start": False, "tools": "status,diff,task_*",
@@ -244,6 +251,8 @@ def test_agents_screen_saves_only_what_was_changed_after_a_confirmation(relay):
 
 def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
+    relay.input(window, "place", "changed", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # コミットするタスクブランチ
+    relay.idle()
     relay.input(window, "editor", "selected", {"kind": "role", "name": "worker"}, human=True)
     relay.idle()
     relay.input(window, "editor", "remove", {"name": "worker"}, human=True)
@@ -260,7 +269,7 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     form = inside(relay, window, "cfg-agent-add")
     assert [row["name"] for row in nodes(relay, form)["form"]["props"]["rows"]] == ["lead", "worker"]  # 元にするプリセットは、読んだ一覧から
     relay.input(form, "form", "submitted", {"values": {"how": "preset", "from_preset": "worker", "name": "reviewer", "human_start": True,
-                                                        "no_owner_tools": True}}, human=True)
+                                                        "no_owner_tools": True, "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry add", {"name": "reviewer", "from_preset": "worker", "human_start": True, "no_owner_tools": True}) in relay.backend.calls
     assert form not in [w["id"] for w in relay.display.windows()]  # うまくいったら閉じる
@@ -268,7 +277,7 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     relay.idle()
     form = inside(relay, window, "cfg-agent-add")
     relay.input(form, "form", "submitted", {"values": {"how": "new", "name": "checker", "title": "確かめ役", "human_start": False,
-                                                        "no_owner_tools": False}}, human=True)
+                                                        "no_owner_tools": False, "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry add", {"name": "checker", "title": "確かめ役", "human_start": False, "no_owner_tools": False}) in relay.backend.calls
     relay.input(window, "editor", "add", {}, human=True)
@@ -290,6 +299,8 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
 
 def test_agents_screen_edits_adds_and_removes_skills(relay):
     window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
+    relay.input(window, "place", "changed", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # コミットするタスクブランチ
+    relay.idle()
     relay.input(window, "editor", "selected", {"kind": "skill", "name": "release-notes"}, human=True)
     relay.idle()
     relay.input(window, "editor", "save_skill", {"name": "release-notes", "description": "リリースノートを書く手順。\nリリースの前に使う。"}, human=True)
@@ -302,13 +313,13 @@ def test_agents_screen_edits_adds_and_removes_skills(relay):
     relay.input(window, "editor", "add_skill", {}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-skill-add")
-    relay.input(form, "form", "submitted", {"values": {"how": "new", "name": "notes", "description": "メモの書き方"}}, human=True)
+    relay.input(form, "form", "submitted", {"values": {"how": "new", "name": "notes", "description": "メモの書き方", "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill add", {"name": "notes", "description": "メモの書き方"}) in relay.backend.calls
     relay.input(window, "editor", "add_skill", {}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-skill-add")
-    relay.input(form, "form", "submitted", {"values": {"how": "dir", "name": "pdf", "from_dir": "C:/skills/pdf"}}, human=True)
+    relay.input(form, "form", "submitted", {"values": {"how": "dir", "name": "pdf", "from_dir": "C:/skills/pdf", "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill add", {"name": "pdf", "from_dir": "C:/skills/pdf"}) in relay.backend.calls
 
@@ -324,8 +335,29 @@ def test_agents_screen_edits_adds_and_removes_skills(relay):
     assert relay.display.values(window)["skill"] is None  # 消したら、選択を空に
 
 
+def test_agents_screen_commits_in_the_task_branch_chosen_or_made_for_it(relay):
+    window = opened(relay, "agents", module="C:/work/Calc")
+    view = nodes(relay, window)
+    assert [w["path"] for w in view["place"]["props"]["workspaces"]] == ["C:/work/Calc/.ecobuild/w/12"]
+    assert view["editor"]["props"]["place"] is None  # 選ぶまでは、部品が保存を出さない（選ぶよう知らせる）
+    relay.input(window, "place", "new_task", {}, human=True)  # 新しいタスクを作る…
+    relay.idle()
+    form = inside(relay, window, "cfg-agent-task")
+    relay.input(form, "form", "submitted", {"values": {"title": "エージェントの設定を変える", "name": "エージェントの設定"}}, human=True)
+    relay.idle()
+    assert ("task new", {"title": "エージェントの設定を変える", "start": True, "name": "エージェントの設定"}) in relay.backend.calls
+    assert relay.display.values(window)["agent_place"] == "C:/work/Calc/.ecobuild/w/30"  # 作った作業空間を、コミットする場所に
+    assert nodes(relay, window)["editor"]["props"]["place"] == "C:/work/Calc/.ecobuild/w/30"
+    relay.input(window, "editor", "save_rules", {"common": "決まり"}, human=True)
+    relay.idle()
+    call = ("agent rules set", {"common": "決まり"})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc/.ecobuild/w/30"  # 選んだタスクブランチで
+
+
 def test_agents_screen_saves_the_text_for_every_agent(relay):
     window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
+    relay.input(window, "place", "changed", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # コミットするタスクブランチ
+    relay.idle()
     relay.input(window, "editor", "save_rules", {"common": "決まり1\n決まり2"}, human=True)
     relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent rules set", {"common": "決まり1\n決まり2"}) in relay.backend.calls

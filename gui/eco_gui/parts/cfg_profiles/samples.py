@@ -9,6 +9,8 @@ SAMPLES = [
         "release": {"configuration": "Release", "parallel": 4}}}}},
     {"name": "そのほかの型", "props": {"kind": "generic", "data": {"selected": "ci", "profiles": {"ci": {"configuration": "Release"}}}}},
     {"name": "まだない", "props": {"kind": "cpp", "data": {"selected": None, "profiles": {}}}},
+    {"name": "作業空間がない（今は見るだけ・使うものは選べる）", "props": {"kind": "generic", "workspaces": [],
+                                                       "data": {"selected": "ci", "profiles": {"ci": {"configuration": "Release"}}}}},
     {"name": "読み込み中", "props": {"loading": True}},
     {"name": "誤り", "props": {"error": "ecobuild.toml を読めません"}},
 ]

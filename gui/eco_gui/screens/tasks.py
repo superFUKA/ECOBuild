@@ -3,8 +3,9 @@
 上の部分（見出し・表示のタブ・絞り込み）は画面 task-head、表示の部品のつなぎは task-view、右の詳細は task-pane（どの表示でも同じ）。
 """
 
-ARGS = {"module": ".", "filter": {}, "all": False, "ready": False}
-# モジュールのフォルダー・開いたときの絞り込み（上の帯が出した値）・読むときの印（閉じたタスクも＝完了か削除を出すとき・着手できるものだけ）
+ARGS = {"module": ".", "filter": {}, "all": False, "ready": False, "pick": 0}
+# モジュールのフォルダー・開いたときの絞り込み（上の帯が出した値）・読むときの印（閉じたタスクも＝完了か削除を出すとき・着手できるものだけ）・
+# 開いたときに選んで右に詳細を出すタスク（提出・人の画面の「タスク」から。0 なら選ばない）
 
 SCREEN = {
     "root": "page",
@@ -17,7 +18,7 @@ SCREEN = {
                                                      "filter": {"arg": "filter"}, "all": {"arg": "all"}, "ready": {"arg": "ready"}}},
         # 左に表示、右に選んだタスクの詳細（選ぶまでは出ない。境目は動かせる）
         {"id": "body", "layout": "split", "look": "tk-body", "props": {"direction": "row", "sizes": [None, 380]}, "children": ["list", "pane"]},
-        {"id": "list", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "task-list", "props": {"foot": True, "start": {"arg": "filter"}}}},
+        {"id": "list", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "task-list", "props": {"foot": True, "start": {"arg": "filter"}, "pick": {"arg": "pick"}}}},
         {"id": "pane", "screen": "task-pane", "args": {"module": {"arg": "module"}}},
     ],
     "bindings": [

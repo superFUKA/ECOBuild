@@ -1,9 +1,14 @@
 // 部品「スプリントの進み具合」。数は届いたまま（数えるのは ecobuild）。バーの幅・色は見せ方だけ。
 export default {
-  render(root, props, { h, lib, emit, menu }) {
+  render(root, props, { h, lib, emit, menu, state, open_url }) {
     const { STAGES } = lib.task;
-    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     const { md } = marks;
+    // 今日を含むスプリントがなければ、先頭のスプリントを出す（窓を開いて最初の1回だけ。選び直せる）
+    if (!state.first && props.sprints.length && !marks.currentSprint && !(props.status && props.status.sprint)) {
+      state.first = props.sprints[0].name;
+      Promise.resolve().then(() => emit('chosen', { name: state.first }));
+    }
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     const s = props.status;
     if (!s && props.loading) return root.replaceChildren(marks.loading('スプリントを確認しています…'));

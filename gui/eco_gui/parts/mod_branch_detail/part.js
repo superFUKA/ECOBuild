@@ -18,9 +18,13 @@ export default {
     }
     const isDefault = b.name === def;
     const creator = (props.creators || {})[b.name] || '';
-    const button = (action, label, cls, title, more) => {
+    // 管理（削除）は管理者だけ。できない人には灰色と理由（account show の答え。守りは ecobuild）
+    const access = props.access;
+    const admin = !access || access.admin !== false;
+    const button = (action, label, cls, title, more, off) => {
       const item = h('button', { type: 'button', class: cls || '' }, label);
-      if (title) item.title = title;
+      if (title || off) item.title = [title, off ? '（' + off + '）' : ''].filter(Boolean).join('\n');
+      if (off) item.disabled = true;
       item.addEventListener('click', () => emit('action', { action, name: b.name, ...(more || {}) }));
       return item;
     };
@@ -36,7 +40,7 @@ export default {
     if (creator && !isDefault) line.append('　作った人：' + creator);
     if (isOpen(b.submission)) line.append('　', h('span', { class: 'pill purple' }, (b.submission.draft ? '下書きの' : '') + '提出 → ' + b.submitted_to));
     const actions = h('div', { class: 'actions' }, button('merge', '取り込み・提出…', '', 'このブランチを、別のブランチへ取り込む・提出する'));
-    if (!isDefault) actions.append(button('delete', '削除…', 'danger-text', 'このブランチを、手元と GitHub から削除します（タスクブランチの作成元・今いるブランチは消せません）。'));
+    if (!isDefault) actions.append(button('delete', '削除…', 'danger-text', 'このブランチを、手元と GitHub から削除します（タスクブランチの作成元・今いるブランチは消せません）。', null, admin ? '' : '管理者だけが行えます'));
     out.push(h('div', { class: 'head' }, h('div', {}, h('h3', {}, b.name), line), actions));
 
     // 事実の並び：作業・仕様・保護
@@ -47,6 +51,7 @@ export default {
       fact('仕様', '以前の ECOBuild の仕様（版 ' + b.format + '。今の版は ' + b.latest_format + '）',
         '　', button('upgrade', '最新の仕様にする…', 'link', 'GitHub のこのブランチを今の ECOBuild の仕様に合わせ、「ECOBuild の更新」としてコミットして push します（変えるファイルを、先に確かめます）'));
     }
+    fact('提出を処理できる人', isDefault ? '管理者' : creator ? creator + '（作った人）と管理者' : '管理者');
     if (isDefault) {
       const p = props.protection;
       const set = button('protect', '設定…', 'link', '設定の画面の「ブランチの保護」を開きます');
@@ -67,7 +72,7 @@ export default {
         const item = h('li', {}, h('span', { class: 'branch-name' }, t.name), ' ', h('span', { class: 'pill ok' }, 'タスクブランチ'), ' ',
           h('span', { class: 'where' }, [t.local ? '手元' : '', t.remote ? 'GitHub' : ''].filter(Boolean).join('・')));
         if (isOpen(t.submission)) item.append(' ', h('span', { class: 'pill purple' }, '提出中'));
-        if (number) item.append(' ', button('task', 'タスクを開く', 'small', '', { task: Number(number) }));
+        if (number) item.append(' ', button('task', 'タスクブランチを開く', 'small', 'このタスクブランチの作業空間を開きます（手元になければ GitHub から取り出します）', { task: Number(number) }));
         list.append(item);
       }
       const box = h('details', { class: 'task-branches' }, h('summary', {}, 'このブランチから作ったタスクブランチ（' + tasks.length + '）'), list);

@@ -488,6 +488,11 @@ def test_legacy_board_setting_is_taken_over(cli, module):
     assert {t["title"]: t["stage"] for t in as_json(cli("task", "list", "--json"))["result"]} == \
         {"以前から": "in_progress", "引き継ぐ": "todo"}
     assert cli("task", "edit", "2", "--stage", "planned").exit_code == 0
+    # 閉じたタスクを開き直して、計画中にする（ボードで、閉じたタスクを計画中の列へ落としたとき）
+    assert cli("task", "close", "2", "--not-planned").exit_code == 0
+    reopened = cli("task", "reopen", "2", "--stage", "planned")
+    assert reopened.exit_code == 0 and "〈計画中〉" in reopened.output
+    assert {t["title"]: t["stage"] for t in as_json(cli("task", "list", "--json"))["result"]}["引き継ぐ"] == "planned"
 
 
 def test_subtasks_from_cli(cli, module):
@@ -1126,6 +1131,12 @@ def test_pipelines_are_made_and_put_with_the_cli(cli, module):
     assert as_json(cli("pipeline", "run", "gen", "--json"))["result"]["ok"]
     removed = as_json(cli("pipeline", "remove", "quick", "--json"))["result"]
     assert removed["triggers"] == {} and removed["local"] == {}   # このPCの当て方も、なくなったものは出さない
+    # --everywhere：元の clone にも入る（後から作る作業空間も受け継ぐ）。--local なしでは使えない
+    assert as_json(cli("pipeline", "on", "before-push", "gen", "--everywhere", "--json"))["error"]["code"] == "invalid_argument"
+    everywhere = as_json(cli("pipeline", "on", "before-push", "gen", "--local", "--everywhere", "--json"))
+    assert everywhere["result"]["local"] == {"before-push": ["gen"]}
+    # 元の clone（既定のブランチ）には、まだ gen がない：入れずに知らせる
+    assert any(str(module.root) in n and "入れませんでした" in n for n in everywhere["notices"])
 
 
 def test_workspace_names_stay_inside(module):

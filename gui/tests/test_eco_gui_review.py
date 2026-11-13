@@ -182,21 +182,28 @@ def test_submissions_lists_what_comes_into_each_branch_and_opens_the_detail_insi
     assert props["access"]["take_in"]["main"] == {"allowed": False, "owners": "管理者"}  # だれが処理できるかは、ecobuild の答え
     assert ("task list", {"to_review": True}) in relay.backend.calls and ("task list", {"submitted": True}) in relay.backend.calls
 
-    relay.input(window, "list", "selected", {"kind": "task", "id": "20"}, human=True)
+    assert view["detail"]["wrap"]["kind"] == "hidden"  # 選ぶまで、右の詳細は出ない（部品が先頭を選ぶ）
+    relay.input(window, "list", "selected", {"kind": "task", "id": "20", "task": "20", "branch": ""}, human=True)
     relay.idle()
-    opened = inside(relay, "submission")
-    assert opened["parent"] == window and opened["args"] == {"module": "C:/work/Calc", "task": "20"}
-    assert nodes(relay, opened["id"])["detail"]["props"]["task"]["number"] == 20
-    relay.input(opened["id"], "close", "pressed", {}, human=True)
-    relay.idle()
+    view = nodes(relay, window)  # 選んだ提出の詳細は、同じ窓の右に出す（重ねて開かない）
+    assert view["detail"]["wrap"] is None and view["detail"]["props"]["task"]["number"] == 20
+    assert view["list"]["props"]["selected_task"] == "20" and not [w for w in relay.display.windows() if w.get("parent")]
+    assert ("task status", {"issue": 20}) in relay.backend.calls
 
-    relay.input(window, "list", "selected", {"kind": "branch", "id": "dev"}, human=True)
+    relay.input(window, "list", "selected", {"kind": "branch", "id": "dev", "task": "", "branch": "dev"}, human=True)
     relay.idle()
-    opened = inside(relay, "review-branch")
-    assert opened["args"] == {"module": "C:/work/Calc", "branch": "dev"}
-    view = nodes(relay, opened["id"])
-    assert view["detail"]["props"]["name"] == "dev" and [row["name"] for row in view["detail"]["props"]["branches"]] == ["dev", "main"]
+    view = nodes(relay, window)
+    assert view["detail"]["props"]["name"] == "dev" and view["detail"]["props"]["task"] is None  # タスクの提出は外す
+    assert [row["name"] for row in view["detail"]["props"]["branches"]] == ["dev", "main"]
     assert not [call for call in relay.backend.calls if call == ("task status", {})]  # タスクは読まない（今いる場所のタスクを読まない）
+
+    # 行の右クリック：詳細のボタンと同じ操作
+    relay.input(window, "list", "action", {"action": "approve", "id": "20", "base": "main"}, human=True)
+    relay.idle()
+    assert inside(relay, "task-approve")["args"] == {"module": "C:/work/Calc", "issue": 20}
+    relay.input(window, "list", "action", {"action": "merge", "id": "dev", "base": "main"}, human=True)
+    relay.idle()
+    assert inside(relay, "review-merge")["args"] == {"module": "C:/work/Calc", "name": "dev"}
     with pytest.raises(Exception):
         relay.input(window, "list", "selected", {"kind": "pr", "id": "1"}, human=True)
     assert notices(relay) == []
@@ -253,8 +260,8 @@ def test_submission_looks_at_the_diff_the_task_and_the_review_workspace(relay):
     relay.idle()
     assert opened["id"] not in [w["id"] for w in relay.display.windows()]
 
-    act(relay, window, "task")
-    assert [w["args"] for w in relay.display.windows() if w["screen"] == "task"] == [{"module": "C:/work/Calc", "issue": 20}]
+    act(relay, window, "task")  # タスク：タスク管理で、そのタスクを選んで右に詳細
+    assert [w["args"] for w in relay.display.windows() if w["screen"] == "tasks"] == [{"module": "C:/work/Calc", "pick": 20}]
     act(relay, window, "open_review", workspace="C:/work/Calc/.ecobuild/w/r21")
     assert [w["args"] for w in relay.display.windows() if w["screen"] == "workspace"] == [{"module": "C:/work/Calc/.ecobuild/w/r21"}]
     before = relay.backend.calls.count(("task status", {"issue": 20}))

@@ -10,6 +10,9 @@ SAMPLES = [
         "deps": [{"name": "Math", "url": "https://github.com/acme/Math.git", "recorded": "abc12345", "local": "abc12345", "state": "aligned"}],
         "settings": {"main_project": "Engine", "msvc_runtime": "dll", "folders": None, "templates": {}}}},
     {"name": "Project（なし）", "props": {"view": "projects", "projects": []}},
+    {"name": "Project（作業空間がない：今は見るだけ・変える操作は灰色）", "props": {
+        "view": "projects", "workspaces": [{"path": "C:/m/.ecobuild/w/r5", "branch": None, "task": None, "review": 5}],
+        "projects": [{"name": "Engine", "kind": "static_library", "directory": "libs/Engine", "links": []}]}},
     {"name": "依存先（状態の色・使っている Project・依存関係の図）", "props": {
         "view": "deps",
         "projects": [{"name": "Game", "kind": "executable", "directory": "Game", "links": ["Math", "Net/Http"]}],

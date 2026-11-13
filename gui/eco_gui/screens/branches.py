@@ -31,6 +31,9 @@ SCREEN = {
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "tree.default_base", "from": "default_base"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "detail.default_base", "from": "default_base"},
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "detail.creators", "from": "creators"},
+        {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "detail.access"},
+        # ＋ ブランチ：管理者でなければ灰色と理由（account show の manage）
+        {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "create.answer", "from": "manage"},
         {"read": "module protection", "args": {"module": {"arg": "module"}}, "to": "detail.protection"},
         # 選ぶ
         {"on": "tree.selected", "set": {"branch": {"payload": "name"}}},
@@ -54,6 +57,8 @@ SCREEN = {
         {"on": "detail.action", "when": {"action": "protect"}, "open": "settings", "args": {"module": {"arg": "module"}}, "here": True},
         {"on": "detail.action", "when": {"action": "unprotect"}, "run": "module protect", "args": {"module": {"arg": "module"}, "off": True},
          "notify": "保護を外しました。"},
-        {"on": "detail.action", "when": {"action": "task"}, "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "task"}}},
+        # このブランチから作ったタスクブランチを開く：その作業空間（手元になければ GitHub から取り出す：ecobuild task start <番号>）
+        {"on": "detail.action", "when": {"action": "task"}, "run": "task start", "args": {"module": {"arg": "module"}, "issue": {"payload": "task"}},
+         "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "workspace"}}}},
     ],
 }

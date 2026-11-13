@@ -20,7 +20,7 @@ SCREEN = {
         # 人が打つのと同じ：ecobuild branch create <名前> [--base <作成元>]
         {"on": "form.submitted", "run": "branch create",
          "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "base": {"payload": "values.base"}},
-         "notify": "ブランチを作成しました。", "close": True},
+         "notify": "ブランチを作成しました。", "close": True, "parent": {"branch": {"payload": "values.name"}}},  # 作ったブランチを選ぶ
         {"on": "form.cancelled", "close": True},
     ],
 }

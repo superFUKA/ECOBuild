@@ -63,7 +63,7 @@ class FakeModule(FakeEcobuild):
             "ci secret list": spec("read"),
             "ci secret remove": spec("confirm", {"name": text}, ["name"]),
             "pipeline add": spec("change", {"name": text, "steps": text, "tests": text}, ["name"]),
-            "pipeline on": spec("change", {"timing": text, "names": text, "local": flag}, ["timing", "names"]),
+            "pipeline on": spec("change", {"timing": text, "names": text, "local": flag, "everywhere": flag}, ["timing", "names"]),
             "module members add": spec("confirm", {"user": text, "role": text}, ["user"]),
         }
 
@@ -73,7 +73,7 @@ class FakeModule(FakeEcobuild):
             "branch list": [dict(branch) for branch in BRANCHES],
             "task list": [{"number": 12, "title": "ログイン画面", "submission": {"number": 40, "state": "open", "draft": False, "base": "feature/mvp"}}],
             "account show": {"login": "superFUKA", "role": "admin", "admin": True, "owner": "superFUKA", "owner_type": "User",
-                             "default_base": "main", "creators": {"feature/mvp": "octocat"}},
+                             "default_base": "main", "creators": {"feature/mvp": "octocat"}, "manage": {"can": True, "reason": ""}},
             "module protection": {"branch": "main", "approvals": 1, "checks": ["build"]},
             "module readme": self.readme,
             "module show": {"name": "Calc", "type": "python", "root": "C:/work/Calc", "repository": "octocat/Calc",
@@ -84,6 +84,8 @@ class FakeModule(FakeEcobuild):
                         "os": ["linux"], "configurations": ["Debug", "Release"], "shared": False, "branches": None, "default_base": "main"},
             "ci status": [run for run in RUNS if not given.get("branch") or run["branch"] == given["branch"]],
             "ci logs": {"log": "失敗した手順の出力"},
+            "ci init": {"path": ".github/workflows/ecobuild.yml", "private_dependencies": ["Secret"]},
+            "files": {"files": ["README.md", "src/app.py"], "missing": [], "generated": []},
             "ci secret list": list(self.secrets),
             "pipeline list": {"pipelines": [{"name": "check", "steps": ["generated", "build", "test"], "tests": ["tests/unit"]},
                                             {"name": "quick", "steps": ["conflict_markers"], "tests": []}],
@@ -132,6 +134,8 @@ def test_branches_show_the_tree_and_the_detail_of_the_selected_branch(relay):
     relay.idle()
     view = nodes(relay, window)
     assert view["tree"]["props"]["selected"] == "feature/mvp" and view["detail"]["props"]["selected"] == "feature/mvp"
+    # できること（管理者か）は account show の答え：詳細の「削除…」と「＋ ブランチ」の灰色と理由
+    assert view["detail"]["props"]["access"]["admin"] is True and view["create"]["props"]["answer"] == {"can": True, "reason": ""}
 
 
 def test_branch_actions_run_the_same_commands_a_person_types(relay):
@@ -150,8 +154,8 @@ def test_branch_actions_run_the_same_commands_a_person_types(relay):
     assert ("log", {"all": True, "gui": True}) in relay.backend.calls
     relay.input(window, "detail", "action", {"action": "task", "name": "feature/mvp", "task": 12}, human=True)
     relay.idle()
-    # タスクは、同じモジュールの窓で開く（モジュールごとに窓は1つ）
-    assert relay.display.tree(window)["screen"] == "task" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc", "issue": 12}
+    # このブランチから作ったタスクブランチを開く：その作業空間を、同じモジュールの窓で（手元になければ task start で取り出す）
+    assert ("task start", {"issue": 12}) in relay.backend.calls and relay.display.tree(window)["screen"] == "frame-workspace"
     relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}, "window": window})
     relay.idle()
     relay.input(window, "detail", "action", {"action": "merge", "name": "feature/mvp"}, human=True)  # 取り込み・提出の画面へ（同じ窓）
@@ -172,6 +176,7 @@ def test_a_branch_is_created_from_the_form_with_the_selected_branch_as_the_base(
     relay.idle()
     assert ("branch create", {"name": "release", "base": "feature/mvp"}) in relay.backend.calls
     assert not [w for w in relay.display.windows() if w["screen"] == "mod-branch-new"]  # うまくいったら閉じる
+    assert nodes(relay, window)["tree"]["props"]["selected"] == "release"  # 作ったブランチを選ぶ
     relay.input(window, "create", "pressed", {}, human=True)
     relay.idle()
     form = inside(relay, "mod-branch-new")
@@ -188,6 +193,9 @@ def test_ci_shows_the_settings_the_runs_and_the_secrets(relay):
     assert [run["id"] for run in view["runs"]["props"]["rows"]] == [901, 902] and ("ci status", {"all": True, "count": 30}) in relay.backend.calls
     assert view["runs"]["props"]["url"] == "https://github.com/octocat/Calc" and view["runs"]["props"]["branch_rows"] == []
     assert view["secrets"]["props"]["names"] == ["ECOBUILD_DEPS_TOKEN"]
+    # 管理者か（灰色にするか）・ワークフローがあるか（手動で実行）を、部品へ
+    assert view["runs"]["props"]["admin"] is True and view["config"]["props"]["admin"] is True and view["secrets"]["props"]["admin"] is True
+    assert view["runs"]["props"]["ready"] is True
     assert not [call for call in relay.backend.calls if call[0] == "ci status" and "branch" in call[1]]  # 絞るまで、ブランチの実行は読まない
     relay.input(window, "runs", "branch", {"name": "main"}, human=True)  # ブランチで絞る
     relay.idle()
@@ -217,9 +225,11 @@ def test_ci_rows_open_the_log_and_run_again(relay):
     relay.idle()
     form = inside(relay, "mod-ci-run")
     assert nodes(relay, form)["form"]["props"]["initial"] == {"branch": "main"}
+    assert nodes(relay, window)["runs"]["props"]["dispatched"] is None
     relay.input(form, "form", "submitted", {"values": {"branch": "feature/mvp"}}, human=True)
     relay.idle()
     assert ("ci run", {"branch": "feature/mvp"}) in relay.backend.calls
+    assert nodes(relay, window)["runs"]["props"]["dispatched"] is True  # 部品が、少しして読み直す
     relay.input(window, "secrets", "removed", {"name": "ECOBUILD_DEPS_TOKEN"}, human=True)
     answer(relay, window, True)  # 消すのは、確かめてから
     assert ("ci secret remove", {"name": "ECOBUILD_DEPS_TOKEN"}) in relay.backend.calls and nodes(relay, window)["secrets"]["props"]["names"] == []
@@ -227,17 +237,20 @@ def test_ci_rows_open_the_log_and_run_again(relay):
 
 def test_ci_is_set_up_and_removed_in_the_chosen_workspace(relay):
     window = open_screen(relay, "ci")
-    relay.input(window, "config", "action", {"action": "init", "os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": ""}, human=True)
+    relay.input(window, "config", "action", {"action": "init", "os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": "",
+                                             "edited": False}, human=True)
     relay.idle()
     form = inside(relay, "mod-ci-init")
     view = nodes(relay, form)["form"]["props"]
     assert view["initial"] == {"os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": ""}
+    assert view["vars"] == {"edited": False}  # 「上書きする」の欄は、手で編集されているときだけ
     assert [row["path"] for row in view["rows"]] == ["C:/work/Calc/.ecobuild/w/12"]  # 作り直す場所は、タスクブランチの作業空間から選ぶ
     relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12", "os": "windows,linux", "configuration": "Release",
                                                        "shared": "on", "branches": "", "force": False}}, human=True)
     relay.idle()
     call = ("ci init", {"os": "windows,linux", "configuration": "Release", "shared": "on", "force": False})
     assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc/.ecobuild/w/12"  # 選んだ作業空間で実行する
+    assert nodes(relay, window)["config"]["props"]["private"] == ["Secret"]  # 非公開の依存先は、CI のページで知らせる
     relay.input(window, "config", "action", {"action": "remove"}, human=True)
     relay.idle()
     form = inside(relay, "mod-ci-remove")
@@ -261,6 +274,18 @@ def test_overview_shows_the_readme_and_what_the_module_is(relay):
     relay.input(window, "about", "opened", {"page": "tasks"}, human=True)  # 「タスク管理を開く」：同じ窓で切り替える
     relay.idle()
     assert relay.display.tree(window)["screen"] == "tasks" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc"}
+
+
+def test_overview_files_and_the_readme_open_with_the_default_app(relay):
+    window = open_screen(relay, "overview")
+    view = nodes(relay, window)
+    assert view["files"]["part"] == "mod-files" and view["files"]["props"]["files"] == ["README.md", "src/app.py"]
+    relay.input(window, "files", "opened", {"path": "src/app.py"}, human=True)  # ダブルクリック・Enter・「開く」
+    relay.idle()
+    assert ("open", {"path": ["src/app.py"]}) in relay.backend.calls
+    relay.input(window, "readme", "edit", {"path": "README.md"}, human=True)  # README の「✎ 編集」
+    relay.idle()
+    assert ("open", {"path": ["README.md"]}) in relay.backend.calls
 
 
 # --- パイプライン -----------------------------------------------------------
@@ -319,8 +344,8 @@ def test_pipeline_timings_are_changed_for_the_module_or_only_on_this_pc(relay):
     form = inside(relay, "mod-pipeline-local")
     relay.input(form, "form", "submitted", {"values": {"names": "none"}}, human=True)  # 1つも選ばない：外す
     relay.idle()
-    call = ("pipeline on", {"timing": "before-commit", "names": "none", "local": True})
-    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc"  # この PC だけの分は、その場で
+    call = ("pipeline on", {"timing": "before-commit", "names": "none", "local": True, "everywhere": True})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc"  # この PC だけの分は、元の clone とすべての作業空間に
 
 
 # --- メンバー ---------------------------------------------------------------

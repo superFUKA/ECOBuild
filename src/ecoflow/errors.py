@@ -9,6 +9,7 @@ class ErrorCode:
     RUN_NOT_FOUND = "flow_run_not_found"
     RUN_LOCKED = "flow_run_locked"      # ほかのプロセスが動かしている
     INVALID_STATE = "flow_run_state"    # 今の状態ではできない操作（待っていない実行の approve 等）
+    RUN_BROKEN = "flow_run_broken"      # 実行の記録（state.json）が壊れている
 
 
 class FlowError(Exception):

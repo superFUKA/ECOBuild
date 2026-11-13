@@ -15,7 +15,7 @@ from functools import lru_cache
 
 TABLE = "files"
 
-# ECOBuild が作り、常に管理するファイル（流れの定義 .ecobuild/flows/*.toml は人が書くが、ECOBuild が読む共有の設定）
+# 常に管理するファイル：ECOBuild が作るものと、人が書いて ECOBuild が読む共有の設定（流れの定義 .ecobuild/flows/*.toml）
 BUILT_IN = ("/.ecobuild/ecobuild.toml", "/.ecobuild/.gitignore", "/.ecobuild/.gitattributes", "/.ecobuild/README.md", "/README.md",
             "/AGENTS.md", "/CLAUDE.md", "/.gitignore", "/.ecobuild/flows/*.toml",
             "/.gitattributes", "/.github/workflows/*.yml", "/.github/workflows/*.yaml")

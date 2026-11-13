@@ -1,26 +1,42 @@
 """`${…}` の展開と、when・pass_if・until の条件（eval は使わない）。
 
-名前：`${inputs.x}`・`${vars.x}`・`${steps.<id>.message}`・`${steps.<id>.out.x}`・`${out.x}`・`${run.id}`・`${run.dir}`。
-ない名前は空文字。`$${` は `${` そのもの。
-条件：`a == b`・`a != b`・`>=`・`<=`・`>`・`<`（両方が数として読めれば数で比べる）・`!x`・`x`（空・0・false・no でなければ真）・
-`&&`・`||`・かっこ。値は `${…}`・引用符の文字（'…'・"…"）・そのままの語。
+名前：`${inputs.x}`・`${vars.x}`・`${steps.<id>.message}`・`${steps.<id>.out.x}`・`${steps.<id>.prev_out.x}`（前の回）・
+`${out.x}`・`${run.id}`・`${run.dir}`・`${run.flow}`。ない名前は空文字。`$${` は `${` そのもの。
+条件：
+- `a == b`・`a != b`：両方が数として読めれば数で、そうでなければ文字で比べる。
+- `>=`・`<=`・`>`・`<`：両方が数のときだけ比べる（片方でも数でなければ偽）。数は 10・-1.5・1e3 の形だけ
+  （1_0・inf・nan は数にしない）。
+- `x`：空・0・false・no・空の配列・空の表でなければ真。`!x`：その逆。
+- `&&`・`||`・かっこ。強さは 比べ ＞ `!` ＞ `&&` ＞ `||`（`!a == b` は `!(a == b)`）。
+- 値は `${…}`・引用符の文字（'…'・"…"。中の `${…}` は展開しないので書けない）・そのままの語。
+- 長さは LIMIT 字、入れ子は DEPTH まで。
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
 
 ROOTS = ("inputs", "vars", "steps", "out", "run")
+RUN_NAMES = ("id", "dir", "flow")
 _REFERENCE = re.compile(r"\$\$\{|\$\{([^{}]*)\}")
 _FALSE = ("", "0", "false", "no")
+_NUMBER = re.compile(r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$")
+LIMIT = 2000
+DEPTH = 64
 
 
 def references(text: str) -> list[str]:
     """文の中の `${…}` の名前（中の空白は除く）。"""
     return [match.group(1).strip() for match in _REFERENCE.finditer(text) if match.group(1) is not None]
+
+
+def unclosed(text: str) -> bool:
+    """閉じていない `${` があるか。"""
+    return "${" in _REFERENCE.sub("", text)
 
 
 def lookup(scope: dict, name: str) -> Any:
@@ -77,23 +93,23 @@ def strings(value: Any) -> list[str]:
 
 
 def truthy(value: Any) -> bool:
-    """値が真か（空・0・false・no でなければ真）。"""
-    number = _number(value)
+    """値が真か（空・0・false・no・空の配列・空の表でなければ真）。"""
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    number = number_of(value)
     if number is not None:
         return number != 0
     return text_of(value).strip().lower() not in _FALSE
 
 
-def _number(value: Any) -> float | None:
+def number_of(value: Any) -> float | None:
+    """数として読めればその数（真偽・inf・nan・1_0 等は数にしない）。"""
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str) and value.strip():
-        try:
-            return float(value.strip())
-        except ValueError:
-            return None
+        return float(value) if math.isfinite(value) else None
+    if isinstance(value, str) and _NUMBER.match(value.strip()):
+        return float(value.strip())
     return None
 
 
@@ -120,8 +136,11 @@ class Condition:
 
     def __init__(self, text: str):
         self.text = text
+        if len(text) > LIMIT:
+            raise ValueError(f"条件が長すぎます（{LIMIT} 字まで）。")
         self._tokens = _tokens(text)
         self._at = 0
+        self._depth = 0
         if not self._tokens:
             raise ValueError("条件が空です。")
         self._root = self._or()
@@ -133,7 +152,7 @@ class Condition:
         return references(self.text)
 
     def evaluate(self, scope: dict) -> bool:
-        return truthy(self._value(self._root, scope)) if self._root.op == "value" else bool(self._value(self._root, scope))
+        return self._truth(self._root, scope)
 
     # 読み方：or := and ('||' and)*、and := not ('&&' not)*、not := '!' not | cmp、cmp := atom (比べ方 atom)?
     def _peek(self) -> tuple[str, str] | None:
@@ -146,11 +165,18 @@ class Condition:
         self._at += 1
         return token
 
+    def _deeper(self) -> None:
+        self._depth += 1
+        if self._depth > DEPTH:
+            raise ValueError(f"条件の入れ子が深すぎます（{DEPTH} まで）。")
+
     def _or(self) -> _Node:
+        self._deeper()
         items = [self._and()]
         while self._peek() == ("op", "||"):
             self._take()
             items.append(self._and())
+        self._depth -= 1
         return items[0] if len(items) == 1 else _Node("or", tuple(items))
 
     def _and(self) -> _Node:
@@ -163,7 +189,10 @@ class Condition:
     def _not(self) -> _Node:
         if self._peek() == ("op", "!"):
             self._take()
-            return _Node("not", (self._not(),))
+            self._deeper()
+            inner = self._not()
+            self._depth -= 1
+            return _Node("not", (inner,))
         return self._comparison()
 
     def _comparison(self) -> _Node:
@@ -186,7 +215,11 @@ class Condition:
         if kind == "ref":
             return _Node("value", (_Operand("ref", text[2:-1].strip()),))
         if kind == "quoted":
+            if "${" in text:
+                raise ValueError(f"条件「{self.text}」：引用符の中の ${{…}} は展開しません（引用符の外に書きます）。")
             return _Node("value", (_Operand("text", text[1:-1]),))
+        if "${" in text:
+            raise ValueError(f"条件「{self.text}」の「{text}」が読めません（${{…}} は閉じて、語と分けて書きます）。")
         return _Node("value", (_Operand("text", text),))
 
     def _value(self, node: _Node, scope: dict) -> Any:
@@ -222,8 +255,10 @@ def _tokens(text: str) -> list[tuple[str, str]]:
 
 
 def _compare(op: str, left: Any, right: Any) -> bool:
-    a, b = _number(left), _number(right)
+    a, b = number_of(left), number_of(right)
     if a is None or b is None:
+        if op not in ("==", "!="):
+            return False   # 大小は数どうしだけ
         a, b = text_of(left), text_of(right)
     return {"==": a == b, "!=": a != b, ">=": a >= b, "<=": a <= b, ">": a > b, "<": a < b}[op]
 

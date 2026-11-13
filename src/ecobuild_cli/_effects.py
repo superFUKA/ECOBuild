@@ -29,7 +29,7 @@ EFFECTS = {
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent guard", "agent registry add", "agent registry set", "agent preset add", "agent preset set", "agent skill add", "agent skill set", "agent skill preset add", "agent skill preset set", "agent rules set", "agent serve", "agent handback", "agent takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent guard", "agent registry add", "agent registry set", "agent preset add", "agent preset set", "agent skill add", "agent skill set", "agent skill preset add", "agent skill preset set", "agent rules set", "agent serve", "agent handback", "agent takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "flow approve", "flow reject", "init", "installer add",
         "installer update", "setup",
     ),
 }

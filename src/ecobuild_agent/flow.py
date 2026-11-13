@@ -8,9 +8,10 @@ start_agent(app=True)）、起動の後の返答の終わりを待つ。終わ�
     prompt = "…"              # 展開してから渡す
     timeout = 3600            # 秒（既定 3600）
 
-結果：`${run.dir}/<工程>.json`（エージェントが書く JSON の表）があれば out に（ok: false なら失敗）。なければ out は空で、
-message は最後の返答。pass_if は ecoflow が見る。起動したエージェントの ID・置き場所は工程の覚え書き（data）に残し、
-中断から続けるときは、同じエージェントを待ち直す。
+結果：作業空間の `${run.dir}/<工程>.json`（エージェントが書く JSON の表）があれば out に（ok: false なら失敗）。なければ
+out は空で、message は最後の返答。pass_if は ecoflow が見る。起動したエージェントの ID・置き場所は、記録を作った直後
+（係に起動を頼む前）に工程の覚え書き（data）に残し、中断から続けるときは同じエージェントを待ち直す（時間切れは待ち直した
+時刻から数える）。中断した実行を取り消すときは、そのエージェントを止める（Kind.cancel）。
 """
 
 from __future__ import annotations
@@ -32,7 +33,12 @@ STOPPED_GRACE = 60.0   # 起動の後、返答なしに止まっていたら失�
 
 def kind(module) -> ecoflow.Kind:
     return ecoflow.Kind(lambda step, ctx: run(module, step, ctx), settings=("agent", "prompt"), required=("agent", "prompt"),
-                        check=_check, description="登録したエージェントを画面なしで動かし、返答の終わりを待つ")
+                        check=_check, cancel=_cancel, description="登録したエージェントを画面なしで動かし、返答の終わりを待つ")
+
+
+def _cancel(step, ctx) -> None:
+    if ctx.data.get("agent"):
+        _stop(ctx.data["agent"], ctx)
 
 
 def _check(settings: dict) -> list[str]:
@@ -43,8 +49,9 @@ def _check(settings: dict) -> list[str]:
     return []
 
 
-def result_path(ctx, step) -> Path:
-    return ctx.folder / f"{step.id}.json"
+def result_path(module, ctx, step) -> Path:
+    """エージェントが結果を書く所（作業空間の ${run.dir} の中）。"""
+    return Path(module.root) / ctx.dir / f"{step.id}.json"
 
 
 def _prompt(ctx, step) -> str:
@@ -60,27 +67,37 @@ def _prompt(ctx, step) -> str:
 def run(module, step, ctx, *, sleep=time.sleep, clock=time.time) -> ecoflow.Outcome:
     data = ctx.data
     if not (ctx.resumed and data.get("agent")):
-        result_path(ctx, step).unlink(missing_ok=True)   # 前の回の結果を読まない
+        path = result_path(module, ctx, step)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)   # 前の回の結果を読まない
         name = ctx.setting("agent")
+        started = clock()   # 待ちの起点は起動の前（起動の間に返答が終わっても取りこぼさない）
+
+        def recorded(record) -> None:   # 係に頼む前に残す（Ctrl+C で止まっても、続けるときに2体目を起動しない）
+            data.update(agent=record.id, folder=str(record.folder), started=started)
+            ctx.save()
+
         try:
-            record = module.start_agent(name, app=True, prompt=_prompt(ctx, step), progress=ctx.progress)
+            record = module.start_agent(name, app=True, prompt=_prompt(ctx, step), progress=ctx.progress,
+                                        recorded=recorded)
         except WorkError as error:
             ctx.log(f"起動できません：{error.message}" + (f"\nヒント：{error.hint}" if error.hint else ""))
             return ecoflow.Outcome(ecoflow.FAILED, f"エージェント「{name}」を起動できません：{error.message}",
                                    out={"error": {"code": error.code, "message": error.message, "hint": error.hint}})
-        data.update(agent=record.id, folder=str(record.folder), started=clock())
-        ctx.save()
+        if data.get("agent") != record.id:
+            recorded(record)
         ctx.log(f"エージェント「{record.name}」（{record.id}）を起動しました")
         ctx.progress(f"エージェント「{record.name}」（{record.id}）を起動しました。返答の終わりを待ちます")
     else:
         ctx.progress(f"エージェント {data['agent']} の返答の終わりを待ち直します")
-    outcome, reply = _wait(ctx, Path(data["folder"]), float(data["started"]), sleep=sleep, clock=clock)
+    outcome, reply = _wait(ctx, Path(data["folder"]), float(data["started"]), clock(), sleep=sleep, clock=clock)
     _stop(data["agent"], ctx)
-    return outcome or _result(ctx, step, reply)
+    return outcome or _result(module, ctx, step, reply)
 
 
-def _wait(ctx, folder: Path, started: float, *, sleep, clock) -> tuple[ecoflow.Outcome | None, str]:
-    """返答の終わり（起動より後の replied_at で、待機中か止まっている）まで待つ。(失敗の Outcome か None, 最後の返答)。"""
+def _wait(ctx, folder: Path, started: float, since: float, *, sleep, clock) -> tuple[ecoflow.Outcome | None, str]:
+    """返答の終わり（起動より後の replied_at で、待機中か止まっている）まで待つ。(失敗の Outcome か None, 最後の返答)。
+    時間切れ・返答なしの停止は、待ち始めた時刻 since から数える（中断から続けたときは待ち直した時刻）。"""
     limit = ctx.timeout or DEFAULT_TIMEOUT
     told, told_at = None, clock()
     while True:
@@ -91,7 +108,7 @@ def _wait(ctx, folder: Path, started: float, *, sleep, clock) -> tuple[ecoflow.O
         answered = isinstance(replied, (int, float)) and replied > started
         if answered and state in (status.IDLE, status.STOPPED):
             return None, str(now.get("last_reply") or "")
-        waited = clock() - started
+        waited = clock() - since
         if state == status.STOPPED and not answered and waited > STOPPED_GRACE:
             reason = str(now.get("error") or "")
             return ecoflow.Outcome(ecoflow.FAILED, "エージェントが返答せずに止まりました" + (f"：{reason}" if reason else "。")), ""
@@ -116,8 +133,8 @@ def _stop(agent_id: str, ctx) -> None:
         ctx.progress(f"注意：エージェント {agent_id} を止められませんでした：{error.message}")
 
 
-def _result(ctx, step, reply: str) -> ecoflow.Outcome:
-    path = result_path(ctx, step)
+def _result(module, ctx, step, reply: str) -> ecoflow.Outcome:
+    path = result_path(module, ctx, step)
     if not path.is_file():
         return ecoflow.Outcome(ecoflow.DONE, reply)
     try:

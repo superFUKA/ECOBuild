@@ -10,8 +10,8 @@ def command(name: Annotated[str, "流れの名前（.ecobuild/flows/<名前>.tom
     """流れを実行します。人の答え待ち（approval）か、終わり・失敗まで進めて戻ります（それまで待ちます。進み具合は標準エラー）。
 
     実行は作業空間の .ecobuild/flows/runs/<実行>/ に残ります。人の答え待ちなら ecobuild flow approve／reject、失敗なら
-    ecobuild flow retry、途中で止めた（Ctrl+C 等）なら ecobuild flow resume で続けます。工程が失敗して止まっても
-    終了コードは 0 です（結果の status で見ます）。
+    ecobuild flow retry、途中で止めた（Ctrl+C 等）なら ecobuild flow resume で続けます。失敗・取り消しで止まったら
+    flow_failed の誤り（終了コード 1）です。人の答え待ちで止まったときは成功（0）です。
 
     例：
       ecobuild flow run fix-until-green goal="0除算で落ちる"

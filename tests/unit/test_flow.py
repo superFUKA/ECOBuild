@@ -1,11 +1,14 @@
 """ecoflow：定義の確かめ・展開と条件・状態機械（偽の工程の種類で）。"""
 
 import json
-import os
 import subprocess
 import sys
+import time
+from pathlib import Path
 
 import pytest
+
+import ecoflow
 
 from ecoflow import (CANCELLED, DONE, FAILED, INTERRUPTED, RUNNING, WAITING, Engine, FlowError, Kind, Outcome, Store,
                      check, condition, evaluate, expand, load)
@@ -94,18 +97,25 @@ def test_expand():
 
 @pytest.mark.parametrize("text, expected", [
     ("${out.score} >= 80", True), ("${out.score} > 90", False), ("${out.score} == 85.0", True),
-    ("${out.name} == 'abc'", True), ('${out.name} != "abc"', False), ("${out.name} < abd", True),
+    ("${out.name} == 'abc'", True), ('${out.name} != "abc"', False), ("${out.name} < abd", False),
     ("${out.flag}", False), ("!${out.flag}", True), ("${out.empty}", False), ("${out.missing}", False),
     ("${out.no}", False), ("${out.zero}", False), ("${out.name}", True),
     ("${out.score} >= 80 && ${out.flag}", False), ("${out.score} >= 80 || ${out.flag}", True),
     ("!(${out.score} < 80 || ${out.flag}) && ${out.name}", True), ("${out.score}>=80", True),
+    # 大小は数どうしだけ（片方が数でなければ偽）
+    ("${out.name} >= 80", False), ("${out.empty} < 1", False), ("${out.missing} < 1", False),
+    ("${out.under} > 5", False), ("${out.inf} > 1", False), ("${out.nan} != 1", True), ("${out.text_num} > 9", True),
+    # 空の配列・表は偽。! は比べより弱い（!a == b は !(a == b)）
+    ("${out.list}", False), ("${out.map}", False), ("${out.full}", True), ("!${out.score} == 85", False),
 ])
 def test_conditions(text, expected):
-    scope = {"out": {"score": 85, "name": "abc", "flag": False, "empty": "", "no": "No", "zero": "0"}}
+    scope = {"out": {"score": 85, "name": "abc", "flag": False, "empty": "", "no": "No", "zero": "0", "under": "1_0",
+                     "inf": "inf", "nan": "nan", "text_num": " 10 ", "list": [], "map": {}, "full": [0]}}
     assert evaluate(text, scope) is expected
 
 
-@pytest.mark.parametrize("text", ["", "${a} ==", "&& x", "(a == b", "a == b )", "a = b", "a & b"])
+@pytest.mark.parametrize("text", ["", "${a} ==", "&& x", "(a == b", "a == b )", "a = b", "a & b", "'${out.a}' == x",
+                                  "${out.a", "x${out.a}", "(" * 70 + "a" + ")" * 70, "!" * 70 + "a", "a == " + "b" * 2100])
 def test_condition_syntax_errors(text):
     with pytest.raises(ValueError):
         condition(text)
@@ -130,7 +140,7 @@ def test_steps_run_in_order_with_when_and_expansion(tmp_path):
     saved = json.loads((tmp_path / "r1" / "state.json").read_text(encoding="utf-8"))
     assert saved["status"] == "done" and saved["definition"]["steps"][0]["id"] == "a"
     assert [e["event"] for e in saved["history"]][:3] == ["created", "started", "done"]
-    assert any("飛ばします" in e for e in events) and not (tmp_path / "r1" / LOCK_FILE).exists()
+    assert any("飛ばします" in e for e in events) and not run.locked()
 
 
 def test_pass_if_and_failure_stop_the_run(tmp_path):
@@ -256,17 +266,43 @@ def test_cancel_request_stops_a_running_run_at_the_next_step(tmp_path):
     assert not (run.folder / "cancel").exists()
 
 
-def test_cancel_while_another_process_holds_the_lock_leaves_a_request(tmp_path):
+def test_cancel_while_another_process_holds_the_lock_leaves_a_request(tmp_path, holder):
     engine, flow, _, _ = make([{"id": "ok", "type": "approval"}])
     store = Store(tmp_path)
     run = engine.start(store, flow, run_id="r")
-    _hold(run, os.getppid())
+    child = holder(run)
     assert engine.cancel(store.get("r")).cancel_requested()
     assert store.get("r").status == WAITING
+    child.kill()
+    child.wait()
+    run = engine.approve(store.get("r"), "よし")   # 持ち主がいなくなった後の印は古いもの：消して進める
+    assert run.status == DONE and not run.cancel_requested()
 
 
-def _hold(run, pid):
-    (run.folder / LOCK_FILE).write_text(json.dumps({"pid": pid, "at": None}), encoding="utf-8")
+@pytest.fixture
+def holder(tmp_path):
+    """実行のロックを持って眠る子のプロセス（生きている持ち主）。"""
+    children = []
+
+    def hold(run):
+        ready = tmp_path / f"ready-{len(children)}"
+        source = str(Path(ecoflow.__file__).resolve().parent.parent)
+        code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ecoflow.run import Run, lock\n"
+                "with lock(Run.load(sys.argv[2])):\n open(sys.argv[3], 'w').close(); time.sleep(60)")
+        # venv の python.exe（Windows）は本物の Python を子として起こすので、本物を直接（止めればロックが外れる）
+        python = getattr(sys, "_base_executable", sys.executable)
+        child = subprocess.Popen([python, "-c", code, source, str(run.folder), str(ready)])
+        children.append(child)
+        until = time.monotonic() + 30
+        while not ready.exists():
+            assert child.poll() is None and time.monotonic() < until
+            time.sleep(0.05)
+        return child
+
+    yield hold
+    for child in children:
+        child.kill()
+        child.wait()
 
 
 def test_interrupted_run_resumes_from_the_running_step(tmp_path):
@@ -296,17 +332,17 @@ def test_interrupted_run_resumes_from_the_running_step(tmp_path):
     assert [e["event"] for e in run.state["history"]].count("resumed") == 1
 
 
-def test_lock_refuses_a_live_holder_and_takes_over_a_dead_one(tmp_path):
+def test_lock_refuses_a_live_holder_and_is_free_after_it_ends(tmp_path, holder):
     engine, flow, _, _ = make([{"id": "a", "type": "fake"}])
     store = Store(tmp_path)
     run = store.create(flow, run_id="r")
-    _hold(run, os.getppid())                         # 生きているプロセス
+    child = holder(run)                              # 生きているプロセスが持っている
     assert run.locked() and run.shown_status == RUNNING
     with pytest.raises(FlowError) as refused:
         engine.resume(run)
-    assert refused.value.code == "flow_run_locked"
-    dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True)
-    _hold(run, int(dead.stdout))                     # 終わったプロセス：中断とみなして続けられる
+    assert refused.value.code == "flow_run_locked" and refused.value.details == {"pid": child.pid}
+    child.kill()                                     # 止まったプロセスのロックは OS が外す：中断とみなして続けられる
+    child.wait()
     assert not run.locked() and run.shown_status == INTERRUPTED
     assert engine.resume(run).status == DONE
     with lock(run):
@@ -314,7 +350,7 @@ def test_lock_refuses_a_live_holder_and_takes_over_a_dead_one(tmp_path):
         with pytest.raises(FlowError):
             with lock(run):
                 pass
-    assert not (run.folder / LOCK_FILE).exists()
+    assert not run.locked() and (run.folder / LOCK_FILE).exists()
 
 
 def test_kind_errors_become_step_failures_and_logs(tmp_path):
@@ -343,3 +379,135 @@ def test_store_lists_runs_and_makes_unique_ids(tmp_path):
     with pytest.raises(FlowError) as missing:
         store.get("../x")
     assert missing.value.code == "flow_run_not_found"
+    for bad in ("../x", "a/b", "", ".hidden", "a..b"):
+        with pytest.raises(FlowError):
+            store.create(flow, run_id=bad)
+    (tmp_path / f"{first.id}-3").mkdir()                    # 同じ秒にほかが先に作った名前は飛ばす
+    assert store.create(flow).id == f"{first.id}-4"
+
+
+# ---- 見直しで足したもの -------------------------------------------------------------------------------------
+def test_more_definition_errors():
+    kinds = {"fake": Kind(run=lambda s, c: Outcome("done")),
+             "approval": Kind(run=lambda s, c: Outcome("waiting"), forbid=("pass_if", "retries", "on_fail"))}
+    _, problems = check({"inputs": {"goal": "目的"}, "steps": [
+        {"id": "a", "type": "fake", "say": "${inputs.goal} ${inputs.other}"},   # 定義にない入力
+        {"id": "b", "type": "fake", "say": "${run.id} ${run.secret} ${run}"},     # run の名前
+        {"id": "c", "type": "fake", "say": "閉じない ${out.x"},                   # 閉じていない ${
+        {"id": "d", "type": "fake", "when": "'${out.x}' == 1"},                   # 引用符の中の ${…}
+        {"id": "e", "type": "approval", "pass_if": "x", "retries": 1, "on_fail": {"to": "e", "max": 1}},
+    ]}, "bad", kinds)
+    text = "\n".join(problems)
+    for expected in ("入力 other は定義にありません", "${run.secret}", "${run}", "閉じていない ${", "引用符の中の",
+                     "工程 e（approval）には pass_if, retries, on_fail を書けません"):
+        assert expected in text, expected
+    assert "入力 goal" not in text and "${run.id}" not in text
+
+
+def test_skipped_and_restarted_steps_do_not_keep_old_values(tmp_path):
+    """飛ばした工程・始め直した工程の前の回の out・message は、今の値として読まれない（前の回は prev_out・prev_message）。"""
+    engine, flow, script, _ = make([
+        {"id": "a", "type": "fake"},
+        {"id": "b", "type": "fake", "when": "${steps.a.out.go}"},
+        {"id": "c", "type": "fake", "say": "[${steps.b.message}|${steps.b.out.x}|${steps.b.prev_message}]",
+         "loop": {"to": "a", "max": 1}},
+    ], a=[("done", "", {"go": True}), ("done", "", {"go": False})], b=[("done", "前の b", {"x": 1})])
+    run = engine.start(Store(tmp_path), flow)
+    assert run.status == DONE and statuses(run)["b"] == "skipped"
+    assert [c for c in script.calls if c[0] == "c"] == [("c", "[前の b|1|]"), ("c", "[||前の b]")]
+    assert run.steps["b"]["out"] == {} and run.steps["b"]["prev_out"] == {"x": 1}
+
+
+def test_inner_counts_restart_on_each_outer_round(tmp_path):
+    """外側の工程が前へ戻ると、間の工程の戻りの回数は 0 から（周回ごとの上限）。外側の max が全体を抑える。"""
+    engine, flow, script, _ = make([
+        {"id": "impl", "type": "fake"},
+        {"id": "verify", "type": "fake", "on_fail": {"to": "impl", "max": 1}},
+        {"id": "review", "type": "fake", "on_fail": {"to": "impl", "max": 2}},
+    ], verify=[("failed", "v1"), ("done", ""), ("failed", "v2"), ("done", ""), ("failed", "v3"), ("done", "")],
+       review=[("failed", "r")] * 3)
+    run = engine.start(Store(tmp_path), flow)
+    assert run.status == FAILED and run.state["current"] == "review"
+    assert run.steps["review"]["backs"] == 2 and run.steps["verify"]["backs"] == 1
+    assert [c[0] for c in script.calls].count("verify") == 6
+
+
+def test_reject_to_itself_and_retry_after_on_fail_is_used_up(tmp_path):
+    engine, flow, script, _ = make([
+        {"id": "impl", "type": "fake", "say": "${vars.feedback}"},
+        {"id": "verify", "type": "fake", "on_fail": {"to": "impl", "max": 1}},
+        {"id": "ok", "type": "approval", "message": "見て"},
+    ], verify=[("failed", "1"), ("failed", "2"), ("done", "")])
+    store = Store(tmp_path)
+    run = engine.start(store, flow, run_id="r")
+    assert run.status == FAILED and run.steps["verify"]["backs"] == 1
+    run = engine.retry(store.get("r"))                       # 使い切った後の retry は、その工程だけをもう一度
+    assert run.status == WAITING and [c[0] for c in script.calls] == ["impl", "verify", "impl", "verify", "verify"]
+    run = engine.reject(store.get("r"), "ok", "もう一度見せて")   # 待っている工程そのものへ
+    assert run.status == WAITING and run.steps["ok"]["attempts"] == 2 and run.vars["feedback"] == "もう一度見せて"
+
+
+def test_retries_and_loop_together(tmp_path):
+    engine, flow, script, _ = make([
+        {"id": "a", "type": "fake", "retries": 1, "loop": {"to": "a", "max": 1}},
+    ], a=[("failed", "1"), ("done", ""), ("failed", "2"), ("done", "")])
+    run = engine.start(Store(tmp_path), flow)
+    assert run.status == DONE and run.steps["a"]["attempts"] == 4 and run.steps["a"]["loops"] == 1
+
+
+def test_cancel_failed_and_interrupted_runs_cleans_up_the_kind(tmp_path):
+    cleaned = []
+
+    def slow(step, ctx):
+        ctx.data["agent"] = "a-1"
+        ctx.save()
+        raise KeyboardInterrupt
+
+    engine = Engine({"slow": Kind(run=slow, cancel=lambda step, ctx: cleaned.append(ctx.data["agent"])),
+                     "fake": Script(b=[("failed", "x")])})
+    store = Store(tmp_path)
+    flow = load({"steps": [{"id": "a", "type": "slow"}]}, "s", engine.kinds)
+    with pytest.raises(KeyboardInterrupt):
+        engine.start(store, flow, run_id="r")
+    run = engine.cancel(store.get("r"))
+    assert run.status == CANCELLED and run.steps["a"]["status"] == "cancelled" and cleaned == ["a-1"]
+    flow = load({"steps": [{"id": "b", "type": "fake"}]}, "s", engine.kinds)
+    run = engine.cancel(engine.start(store, flow, run_id="f"))
+    assert run.status == CANCELLED and run.steps["b"]["status"] == "cancelled" and cleaned == ["a-1"]
+
+
+def test_cancel_during_a_step_keeps_a_finished_step_as_done(tmp_path):
+    def first(step, ctx):
+        (ctx.folder / "cancel").write_text("x")
+        return Outcome("done", "終わった", out={"n": 1})
+
+    engine = Engine({"fake": first})
+    flow = load({"steps": [{"id": "a", "type": "fake"}, {"id": "b", "type": "fake"}]}, "s", engine.kinds)
+    run = engine.start(Store(tmp_path), flow)
+    assert run.status == CANCELLED and run.steps["a"]["status"] == "done" and run.steps["a"]["out"] == {"n": 1}
+    assert run.state["current"] == "b"
+
+
+def test_cancel_mark_is_dropped_when_the_run_stops(tmp_path):
+    engine, flow, _, _ = make([{"id": "ok", "type": "approval"}, {"id": "b", "type": "fake"}])
+    store = Store(tmp_path)
+    run = engine.start(store, flow, run_id="r")
+    (run.folder / "cancel").write_text("古い印")              # 前の取り消しの残り
+    assert engine.approve(store.get("r")).status == DONE
+
+
+def test_broken_state_is_reported(tmp_path):
+    engine, flow, _, _ = make([{"id": "a", "type": "approval"}])
+    store = Store(tmp_path)
+    run = engine.start(store, flow, run_id="r")
+    state = json.loads((run.folder / "state.json").read_text(encoding="utf-8"))
+    for broken in ({**state, "steps": "x"}, {**state, "current": "zzz"}, {**state, "status": "odd"},
+                   {k: v for k, v in state.items() if k != "vars"}, [1, 2]):
+        (run.folder / "state.json").write_text(json.dumps(broken), encoding="utf-8")
+        with pytest.raises(FlowError) as raised:
+            store.get("r")
+        assert raised.value.code == "flow_run_broken"
+    (run.folder / "state.json").write_text("{", encoding="utf-8")
+    with pytest.raises(FlowError) as raised:
+        store.get("r")
+    assert raised.value.code == "flow_run_broken" and store.runs() == []

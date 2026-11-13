@@ -341,6 +341,7 @@ class CheckItem:
     name: str                        # generated / conflict_markers / build / test
     ok: bool
     detail: str = ""
+    output: str = ""                 # 失敗したビルド・テストの出力の末尾（なければ空）
 
 
 @dataclass(frozen=True)

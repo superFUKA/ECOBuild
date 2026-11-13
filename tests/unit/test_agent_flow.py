@@ -17,17 +17,23 @@ from ecoflow import DONE, FAILED, RUNNING, Engine, Outcome, Store, check, load
 class FakeModule:
     """start_agent(app=True) の代わり：起動した（登録の名前・プロンプト）を覚え、記録のようなものを返す。"""
 
-    def __init__(self, folder, error=None):
+    def __init__(self, root, folder, error=None, interrupt=False):
+        self.root = root
         self.folder = folder
         self.started = []
         self.error = error
+        self.interrupt = interrupt   # 記録を作った後、係に頼む前に止まる（Ctrl+C）
 
-    def start_agent(self, name, *, app, prompt, progress):
+    def start_agent(self, name, *, app, prompt, progress, recorded=None):
         assert app is True
         if self.error is not None:
             raise self.error
         self.started.append((name, prompt))
-        return SimpleNamespace(id=f"a-{len(self.started):010d}", name=name, folder=self.folder)
+        record = SimpleNamespace(id=f"a-{len(self.started):010d}", name=name, folder=self.folder)
+        recorded(record)
+        if self.interrupt:
+            raise KeyboardInterrupt
+        return record
 
 
 class FakeAgent:
@@ -63,18 +69,18 @@ def agent(monkeypatch, tmp_path):
 
 
 def setup(tmp_path, agent, steps, module=None):
-    module = module or FakeModule(tmp_path / "status")
+    module = module or FakeModule(tmp_path / "work", tmp_path / "status")
     events = []
     engine = Engine({"agent": agent_flow.kind(module), "fake": lambda step, ctx: Outcome(DONE)},
                     progress=events.append)
     flow = load({"steps": steps, "inputs": {"goal": "目的"}}, "f", engine.kinds)
-    store = Store(tmp_path / "runs", display=lambda folder: f"runs/{folder.name}")
+    store = Store(tmp_path / "state", display=lambda folder: f"runs/{folder.name}")   # 状態は作業空間の外
     agent.result_path = None
     original = store.create
 
     def create(*args, **kwargs):   # 実行の置き場所が決まったら、エージェントが書く結果のファイルの場所を覚える
         run = original(*args, **kwargs)
-        agent.result_path = run.folder / "impl.json"
+        agent.result_path = module.root / run.state["dir"] / "impl.json"   # 作業空間の ${run.dir}
         return run
 
     store.create = create
@@ -117,7 +123,7 @@ def test_ok_false_fails_and_on_fail_sends_the_feedback(tmp_path, agent):
 
 def test_start_failure_is_a_failed_step(tmp_path, agent):
     error = EcoBuildError(ErrorCode.NOT_ON_TASK_BRANCH, "タスクブランチではありません。", hint="task start で")
-    module = FakeModule(tmp_path / "status", error=error)
+    module = FakeModule(tmp_path / "work", tmp_path / "status", error=error)
     engine, flow, store, _, _ = setup(tmp_path, agent, [{"id": "impl", "type": "agent", "agent": "w", "prompt": "p"}],
                                       module)
     run = engine.start(store, flow, run_id="r")
@@ -167,6 +173,38 @@ def test_a_stop_failure_only_notes_it(tmp_path, agent, monkeypatch):
     engine, flow, store, _, events = setup(tmp_path, agent, [{"id": "impl", "type": "agent", "agent": "w", "prompt": "p"}])
     run = engine.start(store, flow, run_id="r")
     assert run.status == DONE and any("止められませんでした" in e for e in events)
+
+
+def test_interrupted_while_starting_does_not_start_a_second_agent(tmp_path, agent, monkeypatch):
+    """係に頼んでいる途中で止めても、記録の ID は残っている：続けると同じエージェントを待ち、取り消すと止める。"""
+    module = FakeModule(tmp_path / "work", tmp_path / "status", interrupt=True)
+    engine, flow, store, _, _ = setup(tmp_path, agent, [{"id": "impl", "type": "agent", "agent": "w", "prompt": "p"}],
+                                      module)
+    with pytest.raises(KeyboardInterrupt):
+        engine.start(store, flow, run_id="r")
+    assert store.get("r").steps["impl"]["data"]["agent"] == "a-0000000001"
+    run = engine.cancel(store.get("r"))
+    assert run.status == "cancelled" and agent.stopped == ["a-0000000001"] and len(module.started) == 1
+    with pytest.raises(KeyboardInterrupt):
+        engine.start(store, flow, run_id="r2")
+    module.interrupt = False
+    agent.replies = {1: ("済み", None)}
+    run = engine.resume(store.get("r2"))
+    assert run.status == DONE and len(module.started) == 2   # r2 で起動した1体だけ（2体目を起動しない）
+
+
+def test_resume_counts_the_timeout_from_the_new_wait(tmp_path, agent, monkeypatch):
+    engine, flow, store, module, _ = setup(tmp_path, agent, [
+        {"id": "impl", "type": "agent", "agent": "w", "prompt": "p", "timeout": 5}])
+    module.interrupt = True
+    with pytest.raises(KeyboardInterrupt):
+        engine.start(store, flow, run_id="r")
+    run = store.get("r")
+    run.steps["impl"]["data"]["started"] -= 3600   # 1時間前に起動した
+    run.save()
+    module.interrupt = False
+    agent.replies = {2: ("済み", None)}
+    assert engine.resume(store.get("r")).status == DONE
 
 
 def test_agent_settings_are_checked():

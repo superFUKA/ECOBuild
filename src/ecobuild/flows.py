@@ -1,23 +1,33 @@
-"""流れ（ecobuild flow）：モジュールの `.ecobuild/flows/<名前>.toml` の定義を、作業空間の `.ecobuild/flows/runs/<実行>/`
-で実行する（順番・判定・差し戻し・繰り返し・人の答え待ち・再開）。
+"""流れ（ecobuild flow）：モジュールの `.ecobuild/flows/<名前>.toml` の定義を、作業空間で実行する（順番・判定・差し戻し・
+繰り返し・人の答え待ち・再開）。
 
 状態機械・展開・条件・状態の保存は ecoflow（ECOBuild を知らない）。ここは置き場所と ECOBuild の工程の種類：
-- command：コマンドを実行する（run＝シェルの1行か args＝引数の配列。cwd・json）。終了コード 0 で済み。
-- ecobuild：ecobuild のコマンド（args。--json で呼び、ok で判定。result を out に）。
-- check：ecobuild check（only・tests）。
-- pipeline：パイプラインを1つ走らせる（name）。
-- approval：人の答えを待つ（message）。ecobuild flow approve／reject で続ける。
+- command：このPCでコマンドを実行する（args＝引数の配列か run＝シェルの1行。cwd・json）。終了コード 0 で済み。
+  run に展開してよいのは ${inputs.…}・${run.…} だけ（AI の値をシェルに入れない）。args の先頭に .bat・.cmd は使えない
+  （cmd.exe が引数をシェルとして読むため）。
+- ecobuild：ecobuild のコマンド（args。--json で呼び、ok で判定。result を out に）。作業空間を消す操作は書けない
+  （flow run の間は作業空間が使用中）。
+- check：ecobuild check（only・tests）。pipeline：パイプラインを1つ走らせる（name）。失敗の出力の末尾を文に入れる。
+- approval：人の答えを待つ（message）。ecobuild flow approve／reject で続ける（人がする）。
 拡張は Module.flow_kinds を広げて種類を足す（agent は ecobuild_agent）。
 
-定義はモジュールで共有する（管理するファイル。変えるのはタスクブランチで）。実行の置き場所は git に見せない
-（workspaces.exclude_area）。操作のタイミング（パイプラインの当て方）には当てない：流れは人が flow run で動かすもの。
+置き場所：
+- 定義はモジュールで共有する（管理するファイル。変えるのはタスクブランチで）。定義はコードと同じ：エージェントが変えた
+  ものは、人が見てから動かす。
+- 実行の状態（state.json・ロック・取り消しの印・工程のログ）は作業空間の外（ECOBuild のホームの flows/<作業空間ごとの
+  名前>/）。コンテナの中のエージェントが書き換えられないように。
+- 作業空間の `.ecobuild/flows/runs/<実行>/` は ${run.dir}：工程（エージェント）が結果の JSON を書く所だけ（git に見せない）。
+操作のタイミング（パイプラインの当て方）には当てない：流れは人が flow run で動かすもの。
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import locale
+import os
 import re
+import shutil
 import subprocess
 import tomllib
 from collections.abc import Callable
@@ -26,19 +36,32 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ecoflow
+from ecoflow import template as _template
 
 from . import config as _config
+from . import settings as _settings
 from . import workspaces as _workspaces
 from .errors import EcoBuildError, ErrorCode
+from .fsutil import kill_tree
 
 if TYPE_CHECKING:
     from .module import Module
 
 FLOWS_DIR = f"{_config.DIRECTORY}/flows"
-RUNS_DIR = _workspaces.FLOW_RUNS   # 実行の置き場所（git に見せない）
+RUNS_DIR = _workspaces.FLOW_RUNS   # 作業空間の中の ${run.dir}（git に見せない）
+STATE_HOME = "flows"               # ECOBuild のホームの下：実行の状態の置き場所
 SUFFIX = ".toml"
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 MESSAGE_LENGTH = 500   # 工程の文（message）に残す長さ
+OUTPUT_IN_MESSAGE = 1500   # 失敗の文に入れる出力の末尾の長さ
+OUTPUT_IN_LOG = 2000       # 工程のログに書く出力の末尾の長さ
+KILL_WAIT = 10.0           # 時間切れで止めた後、出力を読み切るのを待つ秒数
+SHELL_ROOTS = ("inputs", "run")   # run（シェルの1行）に展開してよい名前
+BATCH = (".bat", ".cmd")
+# 流れの中では呼べない ecobuild のコマンド（作業空間を消す。flow run の間は作業空間が使用中で、必ず止まる）
+CLOSING = (("task", "finish"), ("task", "drop"), ("task", "prune"), ("task", "close"), ("task", "approve"),
+           ("workspace", "close"))
+STOPPED = ("failed", "cancelled")
 
 
 @dataclass(frozen=True)
@@ -69,6 +92,26 @@ class FlowShown:
     kinds: tuple[str, ...]
 
 
+def state_folder(root: Path) -> Path:
+    """作業空間 root の実行の状態の置き場所（ECOBuild のホームの下。作業空間の場所ごとの名前）。"""
+    digest = hashlib.sha1(_workspaces.key(root).encode("utf-8")).hexdigest()[:12]
+    name = re.sub(r"[^A-Za-z0-9_-]", "_", Path(root).name)[:40] or "workspace"
+    return _settings.home() / STATE_HOME / f"{name}-{digest}"
+
+
+class _Store(ecoflow.Store):
+    """状態は作業空間の外、${run.dir} は作業空間の中（作っておく）。"""
+
+    def __init__(self, root: Path):
+        super().__init__(state_folder(root), display=lambda folder: f"{RUNS_DIR}/{folder.name}")
+        self.root = Path(root)
+
+    def create(self, flow, values=None, run_id=None):
+        run = super().create(flow, values, run_id)
+        (self.root / run.state["dir"]).mkdir(parents=True, exist_ok=True)
+        return run
+
+
 class Flows:
     """モジュール（作業空間）の流れ。program：ecobuild の工程で呼ぶ ecobuild（既定は Module.command）。progress：進み具合。"""
 
@@ -76,8 +119,7 @@ class Flows:
         self.module = module
         self.program = tuple(program) or (module.command or "ecobuild",)
         self.engine = ecoflow.Engine(module.flow_kinds(self.program), progress=progress)
-        root = module.root
-        self.store = ecoflow.Store(root / RUNS_DIR, display=lambda folder: folder.relative_to(root).as_posix())
+        self.store = _Store(module.root)
 
     @property
     def folder(self) -> Path:
@@ -137,25 +179,25 @@ class Flows:
 
     # ---- 実行 -------------------------------------------------------------------------------------------
     def run(self, name: str, values: dict[str, Any] | None = None) -> dict:
-        """実行を作り、人の答え待ちか終わり・失敗まで進める（ブロックする）。"""
+        """実行を作り、人の答え待ちか終わりまで進める（ブロックする）。失敗・取り消しで止まれば flow_failed。"""
         flow = self.load(name)
-        return self._do(lambda: self.engine.start(self.store, flow, values or {}))
+        return self._do(lambda: self.engine.start(self.store, flow, values or {}), final=True)
 
     def status(self, run_id: str = "") -> dict:
         """実行の様子（省けば、いちばん新しい実行）。"""
         return self._get(run_id).summary()
 
     def resume(self, run_id: str) -> dict:
-        return self._do(lambda: self.engine.resume(self._get(run_id)))
+        return self._do(lambda: self.engine.resume(self._get(run_id)), final=True)
 
     def approve(self, run_id: str, message: str = "") -> dict:
-        return self._do(lambda: self.engine.approve(self._get(run_id), message))
+        return self._do(lambda: self.engine.approve(self._get(run_id), message), final=True)
 
     def reject(self, run_id: str, to: str, message: str) -> dict:
-        return self._do(lambda: self.engine.reject(self._get(run_id), to, message))
+        return self._do(lambda: self.engine.reject(self._get(run_id), to, message), final=True)
 
     def retry(self, run_id: str) -> dict:
-        return self._do(lambda: self.engine.retry(self._get(run_id)))
+        return self._do(lambda: self.engine.retry(self._get(run_id)), final=True)
 
     def cancel(self, run_id: str) -> dict:
         return self._do(lambda: self.engine.cancel(self._get(run_id)))
@@ -172,11 +214,32 @@ class Flows:
         except ecoflow.FlowError as error:
             raise self._error(error) from error
 
-    def _do(self, action: Callable[[], ecoflow.Run]) -> dict:
+    def _do(self, action: Callable[[], ecoflow.Run], *, final: bool = False) -> dict:
         try:
-            return action().summary()
+            summary = action().summary()
         except ecoflow.FlowError as error:
             raise self._error(error) from error
+        if final and summary["status"] in STOPPED:
+            raise self._stopped(summary)
+        return summary
+
+    def _stopped(self, summary: dict) -> EcoBuildError:
+        """失敗・取り消しで止まった実行の誤り（終了コード 1）。"""
+        op, run_id = self.module.op, summary["id"]
+        current = summary.get("current")
+        step = next((s for s in summary["steps"] if s["id"] == current), None)
+        where = f"工程 {current} " if current else "最後"
+        text = " ".join(str(step.get("message") or "").split())[:MESSAGE_LENGTH] if step else ""
+        if summary["status"] == "cancelled":
+            message = f"流れ {summary['flow']} の実行 {run_id} は{where}で取り消されました。"
+            hint = f"様子は {op('flow status')} {run_id}。もう一度なら {op('flow run')} {summary['flow']}。"
+        else:
+            message = f"流れ {summary['flow']} の実行 {run_id} は{where}で失敗しました" + (f"：{text}" if text else "。")
+            hint = (f"様子は {op('flow status')} {run_id}（工程のログも）。直してから {op('flow retry')} {run_id} で"
+                    f"失敗した工程からやり直します。")
+        details = {**_brief(summary), "steps": [{"id": s["id"], "status": s["status"], "message": s["message"]}
+                                                for s in summary["steps"]]}
+        return EcoBuildError(ErrorCode.FLOW_FAILED, message, hint=hint, details=details)
 
     def _list_hint(self) -> str:
         return f"{self.module.op('flow list')} で定義を見られます（定義は {FLOWS_DIR}/<名前>{SUFFIX}）。"
@@ -189,9 +252,13 @@ class Flows:
                                  hint=f"定義（{FLOWS_DIR}/<名前>{SUFFIX}）を直してください（{op('flow show')} <名前> で確かめられます）。")
         if error.code == ecoflow.ErrorCode.INVALID_INPUT:
             return EcoBuildError(ErrorCode.INVALID_ARGUMENT, error.message, details=error.details,
-                                 hint=f"入力は --set <名前>=<値> で渡します（入力の一覧は {op('flow show')} <名前>）。")
+                                 hint=f"入力は {op('flow run')} <名前> <入力の名前>=<値> で渡します（入力の一覧は "
+                                      f"{op('flow show')} <名前>）。")
         if error.code == ecoflow.ErrorCode.RUN_NOT_FOUND:
             return EcoBuildError(ErrorCode.FLOW_RUN_NOT_FOUND, error.message, hint=f"{op('flow list')} で実行を見られます。")
+        if error.code == ecoflow.ErrorCode.RUN_BROKEN:
+            return EcoBuildError(ErrorCode.FLOW_RUN_BROKEN, error.message, details=error.details,
+                                 hint=f"その実行は続けられません。{op('flow run')} <名前> で始め直してください。")
         if error.code == ecoflow.ErrorCode.RUN_LOCKED:
             return EcoBuildError(ErrorCode.FLOW_RUN_LOCKED, error.message, details=error.details,
                                  hint=f"動いている実行が終わるのを待つか、{op('flow cancel')} <実行> で止めてください。")
@@ -209,14 +276,15 @@ def _brief(summary: dict) -> dict:
 def kinds(module: "Module", program: tuple[str, ...]) -> dict[str, ecoflow.Kind]:
     return {
         "command": ecoflow.Kind(lambda step, ctx: _command(module, step, ctx), settings=("run", "args", "cwd", "json"),
-                                check=_check_command, description="コマンドを実行する（終了コード 0 で済み）"),
+                                check=_check_command, description="このPCでコマンドを実行する（終了コード 0 で済み）"),
         "ecobuild": ecoflow.Kind(lambda step, ctx: _ecobuild(module, program, step, ctx), settings=("args",),
                                  required=("args",), check=_check_args, description="ecobuild のコマンド（--json の ok で判定）"),
         "check": ecoflow.Kind(lambda step, ctx: _check(module, step, ctx), settings=("only", "tests"),
                               check=_check_check, description="ecobuild check（only・tests）"),
         "pipeline": ecoflow.Kind(lambda step, ctx: _pipeline(module, step, ctx), settings=("name",), required=("name",),
                                  description="パイプラインを走らせる"),
-        "approval": ecoflow.Kind(_approval, settings=("message",), description="人の答えを待つ（flow approve・reject）"),
+        "approval": ecoflow.Kind(_approval, settings=("message",), forbid=("pass_if", "retries", "on_fail"),
+                                 description="人の答えを待つ（人が flow approve・reject）"),
     }
 
 
@@ -224,19 +292,52 @@ def _strings(value) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _batch(program: str) -> bool:
+    """先頭が .bat・.cmd（PATH で見つかるものも）か。cmd.exe が引数をシェルとして読むので、AI の値を渡せない。"""
+    found = shutil.which(program) or program
+    return Path(found).suffix.lower() in BATCH or Path(program).suffix.lower() in BATCH
+
+
 def _check_command(settings: dict) -> list[str]:
     has_run, has_args = "run" in settings, "args" in settings
     if has_run == has_args:
         return ["run（シェルの1行）か args（引数の配列）の、どちらか1つを書きます。"]
-    if has_run and not isinstance(settings["run"], str):
-        return ["run は文字列です。"]
-    if has_args and (not _strings(settings["args"]) or not settings["args"]):
+    if has_run:
+        if not isinstance(settings["run"], str):
+            return ["run は文字列です。"]
+        bad = [name for name in _template.references(settings["run"]) if name.split(".")[0] not in SHELL_ROOTS]
+        if bad:
+            return [f"run（シェルの1行）に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(bad)}）。"
+                    "工程・エージェントの値はシェルに入れません：args（引数の配列）を使います。"]
+        return []
+    if not _strings(settings["args"]) or not settings["args"]:
         return ["args は文字列の配列です。"]
+    first = settings["args"][0]
+    if "${" not in first and _batch(first):
+        return [f"args の先頭に .bat・.cmd（{first}）は使えません（引数がシェルとして読まれます）。"]
     return []
 
 
+def _words(args: list[str]) -> tuple[str, ...]:
+    """コマンドの名前（頭の2語。オプションと -C <パス> の値は除く）。"""
+    words, skip = [], False
+    for arg in args:
+        if skip:
+            skip = False
+        elif arg in ("-C", "--directory"):
+            skip = True
+        elif not arg.startswith("-"):
+            words.append(arg)
+    return tuple(words[:2])
+
+
 def _check_args(settings: dict) -> list[str]:
-    return [] if _strings(settings.get("args")) and settings["args"] else ["args は文字列の配列です（例：[\"task\", \"status\"]）。"]
+    if not _strings(settings.get("args")) or not settings["args"]:
+        return ["args は文字列の配列です（例：[\"task\", \"status\"]）。"]
+    if _words(settings["args"]) in CLOSING:
+        return [f"流れの中では作業空間を消す操作（ecobuild {' '.join(_words(settings['args']))}）はできません"
+                "（流れの間は作業空間が使用中です。流れが終わってから人がします）。"]
+    return []
 
 
 def _check_check(settings: dict) -> list[str]:
@@ -268,22 +369,6 @@ def _json_line(text: str):
         return None
 
 
-def _execute(command, ctx, *, cwd: Path, shell: bool = False) -> subprocess.CompletedProcess | ecoflow.Outcome:
-    """コマンドを実行し、出力をその工程のログに書く。始められない・時間切れなら失敗の Outcome。"""
-    ctx.log(f"$ {command if isinstance(command, str) else ' '.join(command)}")
-    try:
-        done = subprocess.run(command, shell=shell, cwd=cwd, capture_output=True, timeout=ctx.timeout,
-                              stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired as expired:
-        ctx.log(_text(expired.stdout) + _text(expired.stderr))
-        return ecoflow.Outcome(ecoflow.FAILED, f"{int(ctx.timeout or 0)} 秒で終わりませんでした。")
-    except OSError as error:
-        return ecoflow.Outcome(ecoflow.FAILED, f"コマンドを実行できません：{error}")
-    done = subprocess.CompletedProcess(done.args, done.returncode, _text(done.stdout), _text(done.stderr))
-    ctx.log(done.stdout + done.stderr + f"（終了コード {done.returncode}）")
-    return done
-
-
 def _text(value) -> str:
     """出力を文に（UTF-8 で読めなければ、このPCの既定の文字コード。Windows の多くのコマンドは cp932）。"""
     if not isinstance(value, bytes):
@@ -294,9 +379,55 @@ def _text(value) -> str:
         return value.decode(locale.getpreferredencoding(False), "replace")
 
 
+def _kill_group(process: subprocess.Popen) -> None:
+    """プロセスを子・孫ごと止める（Windows は taskkill /T、ほかはプロセスグループ）。"""
+    if os.name == "nt":
+        kill_tree(process.pid)
+        return
+    import signal
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _execute(command, ctx, *, cwd: Path, shell: bool = False) -> subprocess.CompletedProcess | ecoflow.Outcome:
+    """コマンドを実行し、出力をその工程のログに書く。時間切れ・中断（Ctrl+C）なら子・孫ごと止める。
+    始められない・時間切れなら失敗の Outcome。"""
+    ctx.log(f"$ {command if isinstance(command, str) else ' '.join(command)}")
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True})
+    try:
+        process = subprocess.Popen(command, shell=shell, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, **group)
+    except OSError as error:
+        return ecoflow.Outcome(ecoflow.FAILED, f"コマンドを実行できません：{error}")
+    try:
+        stdout, stderr = process.communicate(timeout=ctx.timeout)
+    except subprocess.TimeoutExpired:
+        _kill_group(process)
+        try:
+            stdout, stderr = process.communicate(timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = b"", b""
+        ctx.log(_text(stdout) + _text(stderr) + "（時間切れで止めました）")
+        return ecoflow.Outcome(ecoflow.FAILED, f"{int(ctx.timeout or 0)} 秒で終わりませんでした。")
+    except BaseException:
+        _kill_group(process)
+        raise
+    done = subprocess.CompletedProcess(command, process.returncode, _text(stdout), _text(stderr))
+    ctx.log(done.stdout + done.stderr + f"（終了コード {done.returncode}）")
+    return done
+
+
 def _command(module: "Module", step, ctx) -> ecoflow.Outcome:
     shell_line = ctx.setting("run")
-    command = shell_line if shell_line is not None else [str(a) for a in ctx.setting("args")]
+    if shell_line is not None:
+        command = shell_line
+    else:
+        command = [str(a) for a in ctx.setting("args")]
+        if _batch(command[0]):
+            return ecoflow.Outcome(ecoflow.FAILED, f"args の先頭に .bat・.cmd（{command[0]}）は使えません。")
     done = _execute(command, ctx, cwd=module.root / str(ctx.setting("cwd", ".")), shell=shell_line is not None)
     if isinstance(done, ecoflow.Outcome):
         return done
@@ -315,42 +446,60 @@ def _command(module: "Module", step, ctx) -> ecoflow.Outcome:
 
 def _ecobuild(module: "Module", program: tuple[str, ...], step, ctx) -> ecoflow.Outcome:
     args = [str(a) for a in ctx.setting("args")]
-    command = [*program, *args, *([] if "--json" in args else ["--json"])]
-    done = _execute(command, ctx, cwd=module.root)
+    if _words(args) in CLOSING:
+        return ecoflow.Outcome(ecoflow.FAILED, f"流れの中では ecobuild {' '.join(_words(args))} はできません。")
+    if "--json" not in args:   # -- より後ろは引数（--json はその前に）
+        at = args.index("--") if "--" in args else len(args)
+        args = [*args[:at], "--json", *args[at:]]
+    done = _execute([*program, *args], ctx, cwd=module.root)
+    shown = " ".join(a for a in args if a != "--json")
     if isinstance(done, ecoflow.Outcome):
         return done
     document = _json_line(done.stdout or "")
     if not isinstance(document, dict):
-        return ecoflow.Outcome(ecoflow.FAILED, f"ecobuild {' '.join(args)} の結果（JSON）が読めません（終了コード {done.returncode}）。")
+        return ecoflow.Outcome(ecoflow.FAILED, f"ecobuild {shown} の結果（JSON）が読めません（終了コード {done.returncode}）。")
     if document.get("ok"):
         result = document.get("result")
-        return ecoflow.Outcome(ecoflow.DONE, f"ecobuild {' '.join(args)} が通りました",
+        return ecoflow.Outcome(ecoflow.DONE, f"ecobuild {shown} が通りました",
                                out=result if isinstance(result, dict) else {"result": result})
     error = document.get("error") if isinstance(document.get("error"), dict) else {}
-    return ecoflow.Outcome(ecoflow.FAILED, _short(str(error.get("message") or f"ecobuild {' '.join(args)} が失敗しました。")),
+    return ecoflow.Outcome(ecoflow.FAILED, _short(str(error.get("message") or f"ecobuild {shown} が失敗しました。")),
                            out={"error": error})
 
 
-def _check(module: "Module", step, ctx) -> ecoflow.Outcome:
+def _items_outcome(items: list[dict], ctx, failed_head: str, done_message: str) -> ecoflow.Outcome:
+    """確認の項目から結果を作る。失敗した項目の出力の末尾をログと文に入れる（直す側が読めるように）。"""
     from .module import CHECK_NAMES
+    tails = []
+    for item in items:
+        ctx.log(f"{'OK' if item['ok'] else 'NG'} {CHECK_NAMES.get(item['name'], item['name'])} {item.get('detail') or ''}")
+        if not item["ok"] and item.get("output"):
+            ctx.log(f"--- {item['name']} の出力の末尾 ---\n{item['output'][-OUTPUT_IN_LOG:]}")
+            tails.append(item["output"])
+    out = {"items": [{k: v for k, v in item.items() if k != "output"} for item in items]}
+    failed = [i for i in items if not i["ok"]]
+    if not failed:
+        return ecoflow.Outcome(ecoflow.DONE, done_message, out=out)
+    summary = _short(failed_head + "、".join(
+        CHECK_NAMES.get(i["name"], i["name"]) + (f"：{i['detail']}" if i.get("detail") else "") for i in failed))
+    message = summary + f"（ログ：{ctx.log_path}）"
+    if tails:
+        message += "\n出力の末尾：\n" + "\n".join(tails)[-OUTPUT_IN_MESSAGE:]
+    return ecoflow.Outcome(ecoflow.FAILED, message, out=out)
+
+
+def _check(module: "Module", step, ctx) -> ecoflow.Outcome:
     only = ctx.setting("only")
     tests = tuple(ctx.setting("tests", []) or ())
     try:
-        items = [{"name": i.name, "ok": i.ok, "detail": i.detail}
+        items = [{"name": i.name, "ok": i.ok, "detail": i.detail, "output": i.output}
                  for i in module.check(only=tuple(only) if only is not None else None, tests=tests).items]
     except EcoBuildError as error:
         if error.code != ErrorCode.CHECK_FAILED or not isinstance(error.details, list):
             ctx.log(error.message)
             return ecoflow.Outcome(ecoflow.FAILED, _short(error.message))
         items = [dict(item) for item in error.details]
-    for item in items:
-        ctx.log(f"{'OK' if item['ok'] else 'NG'} {CHECK_NAMES.get(item['name'], item['name'])} {item.get('detail') or ''}")
-    failed = [i for i in items if not i["ok"]]
-    if failed:
-        return ecoflow.Outcome(ecoflow.FAILED, _short("、".join(
-            CHECK_NAMES.get(i["name"], i["name"]) + (f"：{i['detail']}" if i.get("detail") else "") for i in failed)),
-            out={"items": items})
-    return ecoflow.Outcome(ecoflow.DONE, "確認が通りました", out={"items": items})
+    return _items_outcome(items, ctx, "", "確認が通りました")
 
 
 def _pipeline(module: "Module", step, ctx) -> ecoflow.Outcome:
@@ -359,12 +508,8 @@ def _pipeline(module: "Module", step, ctx) -> ecoflow.Outcome:
         run = module.run_pipeline(name, progress=ctx.progress)
     except EcoBuildError as error:
         return ecoflow.Outcome(ecoflow.FAILED, _short(error.message))
-    items = [{"name": i.name, "ok": i.ok, "detail": i.detail} for i in run.items]
-    failed = [i for i in items if not i["ok"]]
-    if failed:
-        return ecoflow.Outcome(ecoflow.FAILED, _short(f"パイプライン {name} が失敗しました：" + "、".join(
-            i["name"] + (f"（{i['detail']}）" if i["detail"] else "") for i in failed)), out={"items": items})
-    return ecoflow.Outcome(ecoflow.DONE, f"パイプライン {name} が通りました", out={"items": items})
+    items = [{"name": i.name, "ok": i.ok, "detail": i.detail, "output": i.output} for i in run.items]
+    return _items_outcome(items, ctx, f"パイプライン {name} が失敗しました：", f"パイプライン {name} が通りました")
 
 
 def _approval(step, ctx) -> ecoflow.Outcome:

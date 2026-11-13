@@ -1,6 +1,8 @@
 """流れのコマンドの共通（Flows の作り方と表示）。"""
 
 import datetime
+import sys
+from pathlib import Path
 
 from ecoflow import NAMES
 
@@ -14,9 +16,12 @@ _NEXT = {
 
 
 def program() -> tuple[str, ...]:
-    """ecobuild の工程で呼ぶ ecobuild（このコマンドを動かしているもの）。"""
-    from ..._module import program_path
-    return (program_path(),)
+    """ecobuild の工程で呼ぶ ecobuild（このコマンドを動かしているもの。ecobuild として起動していなければ、この Python で
+    python -m ecobuild_cli）。"""
+    from ..._module import PROGRAM, program_path
+    if sys.argv and Path(sys.argv[0]).stem.lower() == PROGRAM:
+        return (program_path(),)
+    return (sys.executable, "-m", "ecobuild_cli")
 
 
 def flows(inv):
@@ -49,4 +54,5 @@ def render_run(r: dict) -> str:
     following = _NEXT.get(status)
     return lines(head, "\n".join(step_line(s, r.get("current")) for s in r["steps"]),
                  f"  最後の差し戻しの文：{feedback}" if feedback and status != "done" else None,
-                 following and "次に：" + following.format(id=r["id"]), f"置き場所：{r['dir']}")
+                 following and "次に：" + following.format(id=r["id"]),
+                 f"結果の置き場所：{r['dir']}（実行の記録：{r['folder']}）")

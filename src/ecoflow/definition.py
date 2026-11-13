@@ -8,11 +8,14 @@
     type = "agent"         # 工程の種類（利用側が登録する）
     when = "…"             # 条件が偽なら飛ばす
     pass_if = "…"          # 終わった後の判定（偽なら失敗）
-    on_fail = { to = "impl", max = 3, message = "…" }   # 失敗したら to へ戻る（max 回まで。message は ${vars.feedback}）
-    loop = { to = "impl", max = 3, until = "…" }        # 終わった後、until が偽なら to へ戻る（max 回まで）
+    on_fail = { to = "impl", max = 3, message = "…" }   # 失敗したら to へ戻る（message は ${vars.feedback}）
+    loop = { to = "impl", max = 3, until = "…" }        # 終わった後、until が偽なら to へ戻る
     retries = 1            # 失敗したら、同じ工程をそのままやり直す回数（既定 0）
     timeout = 600          # 秒（種類が使う）
     …                      # ほかは種類の設定
+
+max は「戻る回数」（その工程は最大 max+1 回動く）。外側の工程が前へ戻ったときは、戻り先から外側の工程の手前までの
+工程の戻り・繰り返しの回数を 0 に戻す（入れ子の回数は周回ごと。外側の max が全体を抑える）。
 """
 
 from __future__ import annotations
@@ -96,12 +99,14 @@ class Outcome:
 @dataclass(frozen=True)
 class Kind:
     """工程の種類。run(step, ctx) → Outcome。settings：書ける設定の名前（None なら確かめない）。required：必須の設定。
-    check(settings) → 誤りの文の一覧（任意）。"""
+    check(settings) → 誤りの文の一覧（任意）。forbid：書けない共通の項目。cancel：取り消しの片付け。"""
     run: Callable[..., Outcome]
     settings: tuple[str, ...] | None = None
     required: tuple[str, ...] = ()
     check: Callable[[dict], list[str]] | None = None
     description: str = ""
+    forbid: tuple[str, ...] = ()          # この種類では書けない共通の項目（approval の pass_if 等）
+    cancel: Callable[..., None] | None = None   # 中断した実行を取り消すときの片付け(step, ctx)（任意）
 
 
 def as_kind(value) -> Kind:
@@ -147,7 +152,7 @@ def check(data: Mapping, name: str, kinds: Mapping | None = None) -> tuple[Flow 
         for label, back in (("on_fail", step.on_fail), ("loop", step.loop)):
             if back is not None and back.to not in ids[:position + 1]:
                 problems.append(f"工程 {step.id} の {label}.to「{back.to}」は、自分か前の工程ではありません。")
-        _check_references(step, ids, problems)
+        _check_references(step, ids, {i.name for i in inputs}, problems)
     if problems:
         return None, problems
     return Flow(name, description, tuple(inputs), tuple(steps), dict(data)), []
@@ -207,6 +212,9 @@ def _step(raw, number: int, seen: set[str], kinds: Mapping | None, problems: lis
             missing = [key for key in kind.required if key not in settings]
             if missing:
                 problems.append(f"{where}（{kind_name}）に {', '.join(missing)} がありません。")
+            forbidden = [key for key in kind.forbid if key in raw]
+            if forbidden:
+                problems.append(f"{where}（{kind_name}）には {', '.join(forbidden)} を書けません。")
             if kind.check is not None and not missing:
                 problems += [f"{where}：{text}" for text in kind.check(settings)]
     conditions = {}
@@ -264,15 +272,22 @@ def _check_condition(text: str, where: str, problems: list[str]) -> None:
         problems.append(f"{where}：{error}")
 
 
-def _check_references(step: Step, ids: list[str], problems: list[str]) -> None:
-    """`${…}` の名前：知らない頭（inputs・vars・steps・out・run 以外）と、定義にない steps.<id> を誤りに。"""
+def _check_references(step: Step, ids: list[str], inputs: set[str], problems: list[str]) -> None:
+    """`${…}` の名前：知らない頭（inputs・vars・steps・out・run 以外）・定義にない steps.<id>・inputs.<名前>・run.<名前>・
+    閉じていない `${` を誤りに。"""
     texts = [step.when, step.pass_if, *_expand.strings(step.settings)]
     texts += [step.on_fail.message] if step.on_fail else []
     texts += [step.loop.until] if step.loop else []
     for text in texts:
+        if _expand.unclosed(text):
+            problems.append(f"工程 {step.id} の「{text[:40]}」に閉じていない ${{ があります。")
         for name in _expand.references(text):
             parts = name.split(".")
             if parts[0] not in _expand.ROOTS:
                 problems.append(f"工程 {step.id} の「${{{name}}}」：頭は {'・'.join(_expand.ROOTS)} のどれかです。")
             elif parts[0] == "steps" and (len(parts) < 2 or parts[1] not in ids):
                 problems.append(f"工程 {step.id} の「${{{name}}}」：工程 {parts[1] if len(parts) > 1 else ''} は定義にありません。")
+            elif parts[0] == "inputs" and (len(parts) < 2 or parts[1] not in inputs):
+                problems.append(f"工程 {step.id} の「${{{name}}}」：入力 {parts[1] if len(parts) > 1 else ''} は定義にありません。")
+            elif parts[0] == "run" and (len(parts) != 2 or parts[1] not in _expand.RUN_NAMES):
+                problems.append(f"工程 {step.id} の「${{{name}}}」：run の名前は {'・'.join(_expand.RUN_NAMES)} のどれかです。")

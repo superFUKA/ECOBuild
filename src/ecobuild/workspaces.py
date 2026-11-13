@@ -219,7 +219,7 @@ def area(root: Path | str) -> Path:
     return Path(root) / AREA
 
 
-FLOW_RUNS = f"{_config.DIRECTORY}/flows/runs"   # 流れの実行の置き場所（コミットしない。ecobuild.flows）
+FLOW_RUNS = f"{_config.DIRECTORY}/flows/runs"   # 流れの工程が結果を書く置き場所（${run.dir}。コミットしない。ecobuild.flows）
 AI_AREA = f"{_config.DIRECTORY}/ai"   # エージェント用の置き場所（メモ・下書き。コミットしない。agent guide が案内する）
 
 

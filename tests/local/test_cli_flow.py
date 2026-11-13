@@ -733,6 +733,8 @@ def test_agent_area_is_excluded_in_an_older_workspace(cli, module, parallel, mon
     monkeypatch.chdir(parallel)
     assert cli("status", "--json").exit_code == 0
     assert git(parallel, "status", "--porcelain").strip() == ""
+    exclude.write_bytes("# 日本語\n".encode("cp932"))   # UTF-8 でない除外のファイルでも、コマンドは止まらない
+    assert cli("status", "--json").exit_code == 0
 
 
 def test_close_workspace_in_use(cli, module, parallel, monkeypatch):

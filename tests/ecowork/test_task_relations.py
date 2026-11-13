@@ -135,6 +135,7 @@ def test_grandchild_is_not_started_without_the_grandparents_unpushed_commits(rep
     with pytest.raises(WorkError) as error:
         repository.task(child.number).start()
     assert error.value.code == ErrorCode.UNFINISHED_WORK and grand_branch.branch in error.value.message
+    assert f"task start {child.number}" in error.value.hint and f"#{child.number} を始めるために" in error.value.message
     assert not repository.git.has_remote_branch(f"task/{parent.number}-親")   # 親も作っていない
 
     repository.git.run("commit", "--quiet", "--allow-empty", "-m", "GitHub だけの変更")   # 分かれた状態を作る

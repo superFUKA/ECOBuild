@@ -240,7 +240,7 @@ def exclude(root: Path, *wanted: str) -> None:
         if missing:
             path.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n",
                                encoding="utf-8", newline="\n")
-    except OSError:
+    except (OSError, ValueError):   # 読めない（UTF-8 でない 等）・書けない：除外は足さない（コマンドは止めない）
         pass
 
 

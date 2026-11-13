@@ -254,7 +254,7 @@ class Module:
         root = _config.find_root(Path(path), command=cls.command)
         module = cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
         # 作業空間・エージェント用の置き場所を git に見せない（前からある作業空間にも。行があれば何もしない）
-        _workspaces.exclude_area(module.workspace_root)
+        _workspaces.exclude_area(module.root)   # 共通の info/exclude（git を呼ばずに .git から見つける）
         return module
 
     def _open_workspace(self, root: Path) -> "Module":

@@ -1006,18 +1006,20 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         return (self._existing_task_branch(parent) or wm.issue_branch(info.body)
                 or wm.task_branch_name(parent, wm.branch_label(info.title) or None))
 
-    def _child_base(self, number: int, base: str | None, parent_branch: str | None) -> str | None:
-        """新しいタスクブランチの作成元。子タスクなら親のタスクブランチ（GitHubになければ作る）で、他は指定できない。"""
+    def _child_base(self, number: int, base: str | None, parent_branch: str | None, *,
+                    requested: int | None = None) -> str | None:
+        """新しいタスクブランチの作成元。子タスクなら親のタスクブランチ（GitHubになければ作る）で、他は指定できない。
+        requested：始めようとしているタスク（孫を始めるために親を作るとき、案内に書く番号。既定は number）。"""
         if parent_branch is None:
             return base
         if base is not None and base != parent_branch:
             raise WorkError(ErrorCode.INVALID_BASE,
                             f"#{number} は子タスクなので、作成元は親のタスクブランチ {parent_branch} です（{base} は指定できません）。",
                             hint=f"親子をやめるなら {self._op('task edit')} {number} --clear-parent。")
-        self._ensure_task_branch(parent_branch)
+        self._ensure_task_branch(parent_branch, requested=requested or number)
         return parent_branch
 
-    def _ensure_task_branch(self, branch: str) -> None:
+    def _ensure_task_branch(self, branch: str, *, requested: int | None = None) -> None:
         """タスクのタスクブランチのブランチがGitHubになければ作る（手元には作らない）。親の親も同じ。
 
         子タスクを始めるとき、まだ始めていない親のタスクブランチを用意するために使う。作成元は、親があれば親のタスクブランチ、
@@ -1028,9 +1030,9 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
             return
         parent_branch = self._parent_task_branch(number)
         recorded = wm.issue_base(self.github.get_issue(self.root, number).body)
-        base = self._child_base(number, None, parent_branch) or recorded or self.default_base
+        base = self._child_base(number, None, parent_branch, requested=requested) or recorded or self.default_base
         if parent_branch is not None and base == parent_branch:
-            self._check_parent_pushed(number, parent_branch)
+            self._check_parent_pushed(number, parent_branch, requested=requested)
         self.git.run("push", "--quiet", _git.REMOTE,
                      f"{self._base_start_point(base, task_branch=parent_branch)}:refs/heads/{branch}")
         self.git.fetch()
@@ -1038,9 +1040,10 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         self.notices.append(f"親タスク #{number} のタスクブランチ {branch} をGitHubに作りました（作成元 {base}）。"
                             f"親の作業は {self._op('task start')} {number} で始められます。")
 
-    def _check_parent_pushed(self, number: int, parent_branch: str) -> None:
+    def _check_parent_pushed(self, number: int, parent_branch: str, *, requested: int | None = None) -> None:
         """子タスク number のタスクブランチは GitHub の親（origin/<親>）から作る。手元の親に GitHub にないコミットがあれば、
-        それが子に入らないまま作られてしまうので、黙って作らずに止める（親を push してから作る）。"""
+        それが子に入らないまま作られてしまうので、黙って作らずに止める（親を push してから作る）。
+        requested：始めようとしているタスク（孫を始めるために、その親 number のタスクブランチを作るとき）。"""
         if not (self.git.has_local_branch(parent_branch) and self.git.has_remote_branch(parent_branch)):
             return
         ahead = self.git.count(f"{_git.REMOTE}/{parent_branch}..{parent_branch}")
@@ -1050,7 +1053,9 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         message = (f"親のタスクブランチ {parent_branch}（#{parent}）の手元に、GitHub にないコミットが {ahead} 件あります。子タスク "
                    f"#{number} のタスクブランチは GitHub の親から作るので、そのままではそれらが入りません（タスクブランチは"
                    "作っていません）。")
-        start = f"{self._op('task start')} {number}"   # Issue は作ってあることがある（task new --start）。作り直さない
+        if requested and requested != number:
+            message += f"（#{requested} を始めるために、その親 #{number} のタスクブランチを作るところでした）"
+        start = f"{self._op('task start')} {requested or number}"   # Issue は作ってあることがある（task new --start）。作り直さない
         if not self.git.is_ancestor(f"{_git.REMOTE}/{parent_branch}", parent_branch):   # 手元と GitHub が分かれている
             raise WorkError(ErrorCode.UNFINISHED_WORK, message + "手元の親と GitHub の親は分かれています。",
                             hint=f"親の作業空間（#{parent}。エージェントなら今の作業空間）で {self._op('sync')} して GitHub の親を"

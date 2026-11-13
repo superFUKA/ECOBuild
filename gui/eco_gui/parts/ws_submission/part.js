@@ -2,7 +2,7 @@
 const STATES = { open: '提出中', merged: '取り込み済み', closed: '閉じた' };
 
 export default {
-  render(root, props, { h, emit }) {
+  render(root, props, { h, emit, notice }) {
     const s = props.status || {}, pr = s.pull_request;
     const box = h('div', { class: 'pr' });
     if (!('branch' in s) && !('task' in s)) { box.append(h('p', { class: 'muted' }, '読み込んでいます…')); return root.replaceChildren(box); }
@@ -18,7 +18,7 @@ export default {
     const row = h('div', { class: 'pr-meta-row' }, meta);
     if (pr.url) {
       const copy = h('button', { type: 'button', class: 'link-button', title: 'URL をコピー' }, pr.url);
-      copy.addEventListener('click', () => { try { navigator.clipboard.writeText(pr.url); } catch { /* 写せない環境 */ } emit('copied', { url: pr.url }); });
+      copy.addEventListener('click', () => { try { navigator.clipboard.writeText(pr.url).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ } emit('copied', { url: pr.url }); });
       row.append(copy);
     }
     box.append(row);

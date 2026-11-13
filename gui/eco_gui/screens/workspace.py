@@ -19,7 +19,8 @@ SCREEN = {
         {"id": "work", "layout": "column", "look": "ws-work", "children": ["banners", "tabs", "commit_panel", "push_panel", "submit_panel", "log_panel"]},
         # 帯：状況の知らせと、そこでできる操作
         {"id": "banners", "layout": "column", "look": "ws-banners", "children": [
-            "b_conflict", "b_review", "b_notask", "b_archived", "b_gone", "b_behind", "b_left", "b_format"]},
+            "b_unreadable", "b_conflict", "b_review", "b_notask", "b_archived", "b_gone", "b_behind", "b_left", "b_format"]},
+        {"id": "b_unreadable", "part": "ws-banner", "props": {"kind": "unreadable"}},  # 状態を読めなかった（理由は読みの error）
         {"id": "b_conflict", "part": "ws-banner", "props": {"kind": "conflict"}},
         {"id": "b_review", "part": "ws-banner", "props": {"kind": "review"}},
         {"id": "b_notask", "part": "ws-banner", "props": {"kind": "notask"}},
@@ -60,10 +61,12 @@ SCREEN = {
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "toolbar.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "tabs.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "changes.status"},
+        {"read": "status", "args": {"module": {"arg": "module"}}, "to": "commit_box.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "explorer.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "foot.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "push_state.data"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "pull_request.status"},
+        {"read": "status", "args": {"module": {"arg": "module"}}, "to": "b_unreadable.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "b_conflict.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "b_review.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "b_notask.status"},
@@ -130,7 +133,7 @@ SCREEN = {
          "set": {"paths": None, "amend": None, "message": None}, "notify": "コミットしました。"},
         # 変更の一覧の見出しのボタン・右クリックのメニュー
         {"on": "changes.action", "when": {"name": "stage"}, "run": "task add", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
-        {"on": "changes.action", "when": {"name": "unstage"}, "run": "restore",
+        {"on": "changes.action", "when": {"name": "unstage"}, "run": "restore", "confirmed": True,
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "staged": True}},
         {"on": "changes.action", "when": {"name": "discard"}, "run": "restore", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}},
          "set": {"paths": None}, "notify": "変更を元に戻しました。"},
@@ -140,7 +143,8 @@ SCREEN = {
          "notify": ".gitignore に追加しました。"},
         {"on": "changes.action", "when": {"name": "diff"}, "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True}},
-        {"on": "changes.action", "when": {"name": "diff_dialog"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True},
+        {"on": "changes.action", "when": {"name": "diff_dialog"}, "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
+         "instead": {"when": {"code": "tool_missing"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True}},
         {"on": "changes.action", "when": {"name": "log"}, "open": "ws-log", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
         {"on": "changes.action", "when": {"name": "blame"}, "run": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}}},
@@ -157,7 +161,7 @@ SCREEN = {
         {"on": "push_list.action", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},
         # まだ送っていないコミットは取り消せる：1つ前まで戻す（--keep：変更は残す／なし：変更も捨てる。捨てる方は確かめてから）
-        {"on": "push_list.action", "when": {"name": "undo"}, "run": "task reset",
+        {"on": "push_list.action", "when": {"name": "undo"}, "run": "task reset", "confirmed": True,
          "args": {"module": {"arg": "module"}, "commit": {"payload": "before"}, "keep": True},
          "set": {"tab": "commit"}, "notify": "コミットを取り消しました。変更は「コミット」に残っています。"},
         {"on": "push_list.action", "when": {"name": "drop"}, "run": "task reset", "args": {"module": {"arg": "module"}, "commit": {"payload": "before"}},

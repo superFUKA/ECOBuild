@@ -4,11 +4,11 @@ ARGS = {"module": ".", "issue": 0}  # モジュールのフォルダーと、タ
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "タスクの詳細", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
+    "window": {"one_per": "module", "title": "タスクの詳細", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "tk-page", "children": ["top", "scroll"]},
-        {"id": "nav", "screen": "menu", "args": {"current": "tasks", "module": {"arg": "module"}}},
+        {"id": "nav", "screen": "menu", "args": {"current": "board", "module": {"arg": "module"}}},
         {"id": "top", "layout": "row", "look": "tk-top", "children": ["title", "back", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "タスク管理", "heading": True}},
         {"id": "back", "part": "button", "props": {"label": "‹ 一覧へ"}},

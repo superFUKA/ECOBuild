@@ -21,7 +21,7 @@ SCREEN = {
     ],
     "bindings": [
         # 人が打つのと同じ：ecobuild module members add <user> [--role <role>]
-        {"on": "form.submitted", "run": "module members add",
+        {"on": "form.submitted", "run": "module members add", "confirmed": True,
          "args": {"module": {"arg": "module"}, "user": {"payload": "values.user"}, "role": {"payload": "values.role"}},
          "notify": "招待しました。", "close": True},
         {"on": "form.cancelled", "close": True},

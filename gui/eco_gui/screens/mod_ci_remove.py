@@ -19,7 +19,7 @@ SCREEN = {
     "bindings": [
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.rows", "from": "workspaces"},
         # 人が打つのと同じ：（作業空間で）ecobuild ci remove
-        {"on": "form.submitted", "run": "ci remove", "args": {"module": {"payload": "values.place"}}, "require": ["module"],
+        {"on": "form.submitted", "run": "ci remove", "confirmed": True, "args": {"module": {"payload": "values.place"}}, "require": ["module"],
          "notify": "ワークフローを消しました。コミットして提出すると反映されます。", "close": True},
         {"on": "form.cancelled", "close": True},
     ],

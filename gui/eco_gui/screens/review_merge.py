@@ -18,7 +18,7 @@ SCREEN = {
             ]}},
     ],
     "bindings": [
-        {"on": "form.submitted", "run": "branch merge", "notify": "ブランチの提出を取り込みました。", "close": True,
+        {"on": "form.submitted", "run": "branch merge", "confirmed": True, "notify": "ブランチの提出を取り込みました。", "close": True,
          "args": {"module": {"arg": "module"}, "name": {"arg": "name"}, "ignore_checks": {"payload": "values.ignore_checks"}}},
         {"on": "form.cancelled", "close": True},
     ],

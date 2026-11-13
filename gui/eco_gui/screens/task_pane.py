@@ -28,8 +28,11 @@ SCREEN = {
          "args": {"module": {"arg": "module"}, "number": {"payload": "id"}, "message": {"payload": "message"}}},
         # 提出：取り下げる（確かめてから）・手元で確認・取り込みを取り消す（確かめてから）。差分は提出の画面で
         {"on": "detail.withdraw", "run": "task withdraw", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "提出を取り下げました。"},
-        {"on": "detail.review", "run": "task review", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "提出を、確認用の作業空間に取り出しました。"},
+        {"on": "detail.review", "run": "task review", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "提出を、確認用の作業空間に取り出しました。",
+         "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "workspace"}}}},
         {"on": "detail.revert", "run": "task revert", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "取り込みを取り消すタスクを作りました。"},
-        {"on": "detail.submission", "open": "submission", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "here": True},
+        # 差分：TortoiseGit で（前の GUI と同じ）。なければ、窓の中に文字で
+        {"on": "detail.submission", "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+         "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
     ],
 }

@@ -20,7 +20,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "form.more", "from": "workspaces"},
-        {"on": "form.submitted", "run": "project remove", "require": ["module"],
+        {"on": "form.submitted", "run": "project remove", "confirmed": True, "require": ["module"],
          "args": {"module": {"payload": "values.place"}, "name": {"arg": "name"}}, "notify": "Projectを削除しました。", "close": True},
         {"on": "form.cancelled", "close": True},
     ],

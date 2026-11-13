@@ -27,7 +27,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task finish", "notify": "取り込みました。", "close": True,
+        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "subject": {"payload": "values.subject"},
                   "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}}},
         {"on": "form.cancelled", "close": True},

@@ -23,22 +23,28 @@ const validName = (name) => name && !BAD_NAME.test(name) && !/[. ]$/.test(name);
 const isTest = (path, folder) => (path === 'tests' || path.startsWith('tests/')) && (folder || /(^|\/)test_[^/]*\.py$|_test\.py$/.test(path));
 
 export default {
-  render(root, props, { h, emit, state, redraw, memory, menu }) {
+  render(root, props, { h, emit, state, redraw, memory, menu, notice }) {
     const svg = (inner, size = 15) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = inner.startsWith('<svg') ? inner
         : `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
       return box;
     };
-    const tool = (name, title) => {
-      const button = h('button', { type: 'button', title, 'aria-label': title }, svg(TOOL_ICONS[name]));
+    // ファイルを変える操作は、タスクブランチで（提出の確認中は変えない）。ほかでは灰色と理由（前の GUI と同じ）
+    const st = props.status || {};
+    const lockReason = st.task && !st.reviewing ? '' : st.reviewing ? '提出を確認している間は変えられません。'
+      : 'ファイルを変える操作はタスクブランチで行います（タスク管理で「作業を開始」）。';
+    const locked = lockReason ? { disabled: true, reason: lockReason } : {};
+    const tool = (name, title, lockable = false) => {
+      const button = h('button', { type: 'button', title: lockable && lockReason ? lockReason : title, 'aria-label': title }, svg(TOOL_ICONS[name]));
+      if (lockable && lockReason) button.disabled = true;
       button.addEventListener('click', () => emit('action', { name, path: state.directory || '', paths: [] }));
       return button;
     };
     // 生成ファイル（道具が作り直すもの）は、ふだんは隠す。目の印で出す（この PC に覚える）
     const generated = new Set(props.generated || []);
     const showGenerated = memory.get('generated', false) === true;
-    const tools = h('span', { class: 'explorer-tools' }, tool('new_file', '新しいファイル'));
+    const tools = h('span', { class: 'explorer-tools' }, tool('new_file', '新しいファイル', true));
     if (generated.size) {
       const title = showGenerated ? '生成ファイル（CMakeLists.txt 等）を隠す' : '生成ファイル（CMakeLists.txt 等）も表示';
       const eye = h('button', { type: 'button', title, 'aria-label': '生成ファイルの表示', 'aria-pressed': String(showGenerated) }, svg(TOOL_ICONS[showGenerated ? 'eye_on' : 'eye_off']));
@@ -119,7 +125,7 @@ export default {
     };
     const changesIn = (paths) => [...kinds.keys()].filter((path) => paths.some((at) => path === at || path.startsWith(at + '/')));
     const act = (name, path, more = {}) => emit('action', { name, path: path || '', paths: path ? [path] : [], ...more });
-    const copy = (text) => { try { navigator.clipboard.writeText(text); } catch { /* 写せない環境 */ } };
+    const copy = (text) => { try { navigator.clipboard.writeText(text).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ } };
 
     // その場で名前を変える欄
     const nameBox = (path) => {
@@ -145,7 +151,7 @@ export default {
     const startRename = (key) => { state.renaming = key; redraw(); };
     const slowRename = (key, event) => {  // 選んでいる1つをもう一度クリック：少し待って名前を変える（エクスプローラーと同じ）
       clearTimeout(state.timer);
-      const again = state.chosen.size === 1 && state.chosen.has(key) && event.detail === 1 && !(event.ctrlKey || event.metaKey || event.shiftKey);
+      const again = !lockReason && state.chosen.size === 1 && state.chosen.has(key) && event.detail === 1 && !(event.ctrlKey || event.metaKey || event.shiftKey);
       if (again) state.timer = setTimeout(() => startRename(key), 500);
     };
 
@@ -153,17 +159,18 @@ export default {
     const fileMenu = async (path, event) => {
       const of = kinds.get(path) || [], tracked = !of.includes('untracked'), exists = !missing.has(path), conflicted = of.includes('conflicted');
       const gone = exists ? {} : { disabled: true, reason: 'このファイルは、もうフォルダーにありません。' };
+      const change = exists ? locked : gone;  // ファイルを変える操作
       const id = await menu(event, [
         { id: 'open_vs', label: 'Visual Studio で開く', ...gone }, { id: 'open_default', label: '既定のアプリで開く', ...gone },
         { id: 'reveal', label: 'エクスプローラーで表示', ...gone }, { separator: true },
         ...(isReadme(path) ? [] : [
-          { id: 'rename', label: '名前の変更', hint: 'F2', ...gone }, { id: 'move', label: '移動先を指定…', ...gone },
-          { id: 'remove', label: '削除', hint: 'Delete', danger: true, ...gone }, { separator: true }]),
+          { id: 'rename', label: '名前の変更', hint: 'F2', ...change }, { id: 'move', label: '移動先を指定…', ...change },
+          { id: 'remove', label: '削除', hint: 'Delete', danger: true, ...change }, { separator: true }]),
         ...(isTest(path, false) ? [{ id: 'run_test', label: 'テストを実行', ...gone }] : []),
-        ...(/^src\/.+\.py$|\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i.test(path) ? [{ id: 'make_test', label: 'テストを作成…', ...gone }] : []),
+        ...(/^src\/.+\.py$|\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i.test(path) ? [{ id: 'make_test', label: 'テストを作成…', ...change }] : []),
         ...(conflicted ? [{ id: 'resolve', label: '衝突を直す…' }, { id: 'take_current', label: '今の側を採る' }, { id: 'take_incoming', label: '入ってくる側を採る' }, { separator: true }] : []),
-        { id: 'restore', label: '変更を元に戻す', disabled: !tracked || of.length === 0 || conflicted, reason: conflicted ? '衝突は「衝突を直す」で直します。' : '変更がありません。' },
-        { id: 'ignore', label: '除外パターンに追加' }, { separator: true },
+        { id: 'restore', label: '変更を元に戻す', disabled: !tracked || of.length === 0 || conflicted, reason: conflicted ? '衝突は「衝突を直す」で直します。' : '変更がありません。', ...locked },
+        { id: 'ignore', label: '除外パターンに追加', ...locked }, { separator: true },
         { id: 'diff', label: '差分', disabled: of.length === 0, reason: '変更がありません。' },
         { id: 'log', label: 'ログ', disabled: !tracked, reason: 'まだ git の管理に入っていないファイルです。' },
         { id: 'blame', label: '注釈履歴', disabled: !tracked || !exists, reason: 'まだ git の管理に入っていないファイルです。' },
@@ -177,10 +184,10 @@ export default {
       const project = projects.get(dir);
       const id = await menu(event, [
         ...(isTest(dir, true) ? [{ id: 'run_test', label: 'テストを実行' }, { separator: true }] : []),
-        { id: 'new_file', label: '新しいファイル' },
-        ...(dir && !project ? [{ id: 'rename', label: '名前の変更', hint: 'F2' }, { id: 'remove', label: '削除', hint: 'Delete', danger: true }] : []),
+        { id: 'new_file', label: '新しいファイル', ...locked },
+        ...(dir && !project ? [{ id: 'rename', label: '名前の変更', hint: 'F2', ...locked }, { id: 'remove', label: '削除', hint: 'Delete', danger: true, ...locked }] : []),
         { separator: true }, { id: 'reveal', label: 'エクスプローラーで開く' }, { id: 'log', label: 'ログ' },
-        ...(dir ? [{ id: 'ignore', label: '除外パターンに追加' }, { id: 'copy', label: 'パスをコピー' }] : []),
+        ...(dir ? [{ id: 'ignore', label: '除外パターンに追加', ...locked }, { id: 'copy', label: 'パスをコピー' }] : []),
         { separator: true }, { id: 'reload', label: '読み直す' },
       ]);
       if (id === 'rename') return startRename('d:' + dir);
@@ -192,10 +199,10 @@ export default {
       const paths = chosenPaths(), changed = changesIn(paths);
       const restorable = changed.filter((path) => !(kinds.get(path) || []).includes('untracked'));
       const id = await menu(event, [
-        { id: 'remove', label: `選んだ ${state.chosen.size} 件を削除`, hint: 'Delete', danger: true },
-        { id: 'restore', label: `変更を元に戻す（${restorable.length} 件）…`, disabled: restorable.length === 0, reason: '変更がありません。' },
+        { id: 'remove', label: `選んだ ${state.chosen.size} 件を削除`, hint: 'Delete', danger: true, ...locked },
+        { id: 'restore', label: `変更を元に戻す（${restorable.length} 件）…`, disabled: restorable.length === 0, reason: '変更がありません。', ...locked },
         { separator: true },
-        { id: 'commit', label: `コミットの対象にする（${changed.length} 件）`, disabled: changed.length === 0, reason: '変更がありません。' },
+        { id: 'commit', label: `コミットの対象にする（${changed.length} 件）`, disabled: changed.length === 0, reason: '変更がありません。', ...locked },
         { id: 'copy', label: 'パスをコピー' },
       ]);
       if (id === 'copy') return copy(paths.join('\n'));
@@ -213,13 +220,14 @@ export default {
     const keys = (key, element) => (event) => {
       if (event.target.matches && event.target.matches('input')) return;
       const path = key.slice(2), file = key.startsWith('f:');
-      if (event.key === 'F2' && path && !(file && isReadme(path)) && !projects.has(path)) { event.preventDefault(); startRename(key); }
-      if (event.key === 'Delete' && path) {
+      if (event.key === 'F2' && path && !lockReason && !(file && isReadme(path)) && !projects.has(path)) { event.preventDefault(); startRename(key); }
+      if (event.key === 'Delete' && path && !lockReason) {
         event.preventDefault();
         if (state.chosen.size > 1 && state.chosen.has(key)) emit('action', { name: 'remove', path: '', paths: chosenPaths() });
         else if (!(file && isReadme(path)) && !projects.has(path)) act('remove', path);
       }
-      if (event.key === 'Enter' && file) { event.preventDefault(); if (kinds.has(path)) act('diff', path); }
+      // Enter：ダブルクリックと同じ（開発の道具で開く。もうフォルダーにないファイルは、差分）
+      if (event.key === 'Enter' && file) { event.preventDefault(); if (!missing.has(path)) act('open', path); else if (kinds.has(path)) act('diff', path); }
       if (event.key === 'Escape') { state.chosen = new Set(); state.anchor = ''; paint(); }
       if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(key, { ...below(element), preventDefault() {}, stopPropagation() {} });
     };

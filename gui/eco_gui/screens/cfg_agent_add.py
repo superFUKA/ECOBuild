@@ -30,7 +30,7 @@ SCREEN = {
         {"read": "agent preset list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
         {"on": "form.cancelled", "close": True},
         # ecobuild agent registry add <名前> [--from-preset <プリセット>] [--title …] --human-start/--no-human-start [--no-owner-tools]
-        {"on": "form.submitted", "run": "agent registry add",
+        {"on": "form.submitted", "run": "agent registry add", "confirmed": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
                   "title": {"payload": "values.title"}, "human_start": {"payload": "values.human_start"},
                   "no_owner_tools": {"payload": "values.no_owner_tools"}},

@@ -5,7 +5,7 @@ const FETCH_ICON = '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/>';
 const RUN_STATE = { run: ['実行中', '実行中'], ok: ['✓', '成功'], bad: ['✗', '失敗'] };
 
 export default {
-  render(root, props, { h, emit, state }) {
+  render(root, props, { h, emit, state, keys }) {
     const svg = (inner) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -15,7 +15,9 @@ export default {
     const onTask = Boolean(s.task && !s.reviewing);
     const hidden = !props.output_shown;
 
-    const output = h('button', { type: 'button', class: 'status-item', 'aria-pressed': String(!hidden), title: '出力を出す・しまう' }, svg(OUTPUT_ICON), h('span', {}, '出力'));
+    const output = h('button', { type: 'button', class: 'status-item', 'aria-pressed': String(!hidden), title: '出力を出す・しまう（Ctrl+J）' }, svg(OUTPUT_ICON), h('span', {}, '出力'));
+    // Ctrl+J：出力を出す・しまう（VS Code のパネルと同じ。前の GUI と同じ）。窓のどこにフォーカスがあっても
+    keys('Ctrl+J', () => emit('action', { name: hidden ? 'show_output' : 'hide_output' }));
     // 試験の失敗・0 でない終了コード・通らなかった確認は、コマンドが成功でも「失敗」と出す（出力欄と同じ）
     const r = props.result || {};
     const failed = props.run === 'ok' && ((props.kind === 'test' && r.failed) || (props.kind === 'run' && r.returncode) || (props.kind === 'check' && (r.items || []).some((i) => !i.ok)));

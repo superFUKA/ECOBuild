@@ -230,7 +230,7 @@ def test_agents_screen_saves_only_what_was_changed_after_a_confirmation(relay):
     relay.idle()
     relay.input(window, "editor", "save", {"name": "worker", "title": "実装役", "human_start": False, "tools": "status,diff,task_*",
                                            "max_children": 2, "max_cost": 1.5, "document": "## あなたの役：実装役\n"}, human=True)
-    assert answer(relay, window, True)["part"] == "confirm-box"  # 人がする（human）のコマンドは、確かめてから
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry set", {"name": "worker", "title": "実装役", "human_start": False, "tools": "status,diff,task_*",
                                    "max_children": 2, "max_cost": 1.5, "document": "## あなたの役：実装役\n"}) in relay.backend.calls
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
@@ -238,7 +238,7 @@ def test_agents_screen_saves_only_what_was_changed_after_a_confirmation(relay):
     assert "保存してコミットしました。提出して取り込まれると効きます。" in notices(relay)
     # 空にする値：並びは「,」、文字は空白1つ（空の文字は「変えない」と同じに扱われるので）
     relay.input(window, "editor", "save", {"name": "worker", "model": " ", "children": ",", "skills": ","}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry set", {"name": "worker", "model": " ", "children": ",", "skills": ","}) in relay.backend.calls
 
 
@@ -261,7 +261,7 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     assert [row["name"] for row in nodes(relay, form)["form"]["props"]["rows"]] == ["lead", "worker"]  # 元にするプリセットは、読んだ一覧から
     relay.input(form, "form", "submitted", {"values": {"how": "preset", "from_preset": "worker", "name": "reviewer", "human_start": True,
                                                         "no_owner_tools": True}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry add", {"name": "reviewer", "from_preset": "worker", "human_start": True, "no_owner_tools": True}) in relay.backend.calls
     assert form not in [w["id"] for w in relay.display.windows()]  # うまくいったら閉じる
     relay.input(window, "editor", "add", {}, human=True)
@@ -269,7 +269,7 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     form = inside(relay, window, "cfg-agent-add")
     relay.input(form, "form", "submitted", {"values": {"how": "new", "name": "checker", "title": "確かめ役", "human_start": False,
                                                         "no_owner_tools": False}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent registry add", {"name": "checker", "title": "確かめ役", "human_start": False, "no_owner_tools": False}) in relay.backend.calls
     relay.input(window, "editor", "add", {}, human=True)
     relay.idle()
@@ -284,7 +284,7 @@ def test_agents_screen_removes_and_opens_the_forms_inside_the_window(relay):
     form = inside(relay, window, "cfg-agent-to-preset")
     assert nodes(relay, form)["form"]["props"]["values"] == {"name": "lead"}
     relay.input(form, "form", "submitted", {"values": {"name": "my-lead"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent preset add", {"name": "my-lead", "from_module": "lead"}) in relay.backend.calls
 
 
@@ -293,30 +293,30 @@ def test_agents_screen_edits_adds_and_removes_skills(relay):
     relay.input(window, "editor", "selected", {"kind": "skill", "name": "release-notes"}, human=True)
     relay.idle()
     relay.input(window, "editor", "save_skill", {"name": "release-notes", "description": "リリースノートを書く手順。\nリリースの前に使う。"}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill set", {"name": "release-notes", "description": "リリースノートを書く手順。\nリリースの前に使う。"}) in relay.backend.calls
     relay.input(window, "editor", "save_skill", {"name": "release-notes", "document": "# 手順\n1. 変更を集める\n2. 書く\n"}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill set", {"name": "release-notes", "document": "# 手順\n1. 変更を集める\n2. 書く\n"}) in relay.backend.calls
 
     relay.input(window, "editor", "add_skill", {}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-skill-add")
     relay.input(form, "form", "submitted", {"values": {"how": "new", "name": "notes", "description": "メモの書き方"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill add", {"name": "notes", "description": "メモの書き方"}) in relay.backend.calls
     relay.input(window, "editor", "add_skill", {}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-skill-add")
     relay.input(form, "form", "submitted", {"values": {"how": "dir", "name": "pdf", "from_dir": "C:/skills/pdf"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill add", {"name": "pdf", "from_dir": "C:/skills/pdf"}) in relay.backend.calls
 
     relay.input(window, "editor", "skill_to_preset", {"name": "release-notes"}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-skill-to-preset")
     relay.input(form, "form", "submitted", {"values": {"name": "release-notes"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill preset add", {"name": "release-notes", "from_module": "release-notes"}) in relay.backend.calls
     relay.input(window, "editor", "remove_skill", {"name": "release-notes"}, human=True)
     answer(relay, window, True)
@@ -327,12 +327,12 @@ def test_agents_screen_edits_adds_and_removes_skills(relay):
 def test_agents_screen_saves_the_text_for_every_agent(relay):
     window = opened(relay, "agents", module="C:/work/Calc/.ecobuild/w/12")
     relay.input(window, "editor", "save_rules", {"common": "決まり1\n決まり2"}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent rules set", {"common": "決まり1\n決まり2"}) in relay.backend.calls
     assert relay.backend.modules[-1] == "C:/work/Calc/.ecobuild/w/12"
     assert nodes(relay, window)["editor"]["props"]["rules"]["common"] == "決まり1\n決まり2"  # 変えたら読み直す
     relay.input(window, "editor", "save_rules", {"common": ""}, human=True)  # 空にして保存すると、消す
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent rules set", {"common": ""}) in relay.backend.calls
 
 
@@ -372,18 +372,18 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
     assert view["p_tools"]["props"]["items"] == ["*"] and view["p_max_children"]["props"]["value"] == 6  # 今の値が入っている
     assert [row["name"] for row in view["p_tools"]["props"]["rows"]] == ["status", "task_commit"]
     relay.input(window, "p_save", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent preset set", {"name": "lead", "model": "opus"}) in relay.backend.calls
     relay.input(window, "p_document", "changed", {"text": "## あなたの役：進行役\n短く進める"}, human=True)
     relay.idle()
     relay.input(window, "p_save_document", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent preset set", {"name": "lead", "document": "## あなたの役：進行役\n短く進める"}) in relay.backend.calls
     relay.input(window, "p_new_name", "changed", {"text": "my-worker"}, human=True)
     relay.input(window, "p_new_from", "changed", {"value": "worker"}, human=True)
     relay.idle()
     relay.input(window, "p_do_add", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent preset add", {"name": "my-worker", "from_preset": "worker"}) in relay.backend.calls
     relay.input(window, "p_list", "action", {"id": "worker", "action": "remove"}, human=True)
     answer(relay, window, True)
@@ -393,18 +393,18 @@ def test_pc_agents_screen_handles_presets_pc_skills_and_the_claude_code_version(
     relay.input(window, "s_description", "changed", {"text": "新しい説明"}, human=True)
     relay.idle()
     relay.input(window, "s_save", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill preset set", {"name": "release-notes", "description": "新しい説明"}) in relay.backend.calls
     relay.input(window, "s_document", "changed", {"text": "# 手順\n書き直した"}, human=True)
     relay.idle()
     relay.input(window, "s_save_document", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill preset set", {"name": "release-notes", "document": "# 手順\n書き直した"}) in relay.backend.calls
     relay.input(window, "s_new_name", "changed", {"text": "notes"}, human=True)
     relay.input(window, "s_new_description", "changed", {"text": "メモの書き方"}, human=True)
     relay.idle()
     relay.input(window, "s_do_add", "pressed", {}, human=True)
-    answer(relay, window, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("agent skill preset add", {"name": "notes", "description": "メモの書き方"}) in relay.backend.calls
     relay.input(window, "s_list", "action", {"id": "release-notes", "action": "remove"}, human=True)
     answer(relay, window, True)

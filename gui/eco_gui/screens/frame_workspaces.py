@@ -6,7 +6,7 @@ ARGS = {"module": ".", "closed": []}  # モジュールのフォルダー・閉�
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ECOBuild", "width": 1280, "height": 860, "refresh": {"focus": True}},
+    "window": {"one_per": "module", "title": "ECOBuild", "width": 1280, "height": 860, "refresh": {"focus": True}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "frame-workspaces", "module": {"arg": "module"}}},

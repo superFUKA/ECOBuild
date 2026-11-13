@@ -155,8 +155,9 @@ def test_hub_shows_the_menu_the_cards_and_the_banners(relay):
 def test_hub_asks_github_only_when_opened_changed_or_asked(relay):
     """GitHub に聞く読み（module list --all・installer check）は、窓が前に来るたびには読み直さない。「読み直す」で読む。"""
     hub = opened(relay, "hub")
-    assert "refresh" not in importlib.import_module("eco_gui.screens.hub").SCREEN["window"]
-    assert not relay.display.tree(hub).get("refresh")
+    assert importlib.import_module("eco_gui.screens.hub").SCREEN["window"]["refresh"] == {"focus": True}  # 戻ってきたら一覧を読み直す
+    assert all(row.get("lazy") for row in importlib.import_module("eco_gui.screens.hub").SCREEN["bindings"]
+               if row.get("read") in ("module list", "installer check", "doctor"))  # 遅い・GitHub に聞く読みは、そのたびには読まない
     asked = lambda: [name for name, _ in relay.backend.calls if name in ("module list", "installer check")]  # noqa: E731
     assert sorted(asked()) == ["installer check", "module list"]
     press(relay, hub, "reload")
@@ -176,7 +177,7 @@ def test_hub_menu_switches_the_screen_in_the_same_window(relay):
 def test_hub_cards_open_forget_and_put_away(relay):
     hub = opened(relay, "hub")
     emit(relay, hub, "modules", "action", id="C:/work/Game", action="open", name="Game", repository="acme/Game")
-    assert [w["args"] for w in relay.display.windows() if w["screen"] == "overview"] == [{"module": "C:/work/Game"}]
+    assert [w["args"] for w in relay.display.windows() if w["screen"] == "frame-workspaces"] == [{"module": "C:/work/Game"}]
     # 開けないモジュール：理由と一緒に「一覧から外す」の窓が、ハブの中に開く
     emit(relay, hub, "modules", "action", id="C:/work/Gone", action="forget", name="Gone", repository="acme/Gone", reason="フォルダが見つかりません")
     forget = inside(relay, "hub-forget")

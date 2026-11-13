@@ -4,7 +4,7 @@ ARGS = {"module": "."}  # モジュールのフォルダー（メニューで戻
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ヘルプ", "width": 1280, "height": 820},
+    "window": {"one_per": "module", "title": "ヘルプ", "width": 1280, "height": 820},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "cfg-fill-page", "children": ["body"]},

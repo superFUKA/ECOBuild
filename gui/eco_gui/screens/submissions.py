@@ -7,7 +7,7 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "提出", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
+    "window": {"one_per": "module", "title": "提出", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "list", "revert_box"]},

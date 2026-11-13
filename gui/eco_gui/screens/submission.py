@@ -29,7 +29,7 @@ SCREEN = {
         {"on": "detail.action", "when": {"action": "task"}, "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
         {"on": "detail.action", "when": {"action": "open_review"}, "open": "workspace", "args": {"module": {"payload": "workspace"}}},
         # 手元で確認（ecobuild task review --task <番号> [--done]）・取り下げ（ecobuild task withdraw --task <番号>。確かめてから）
-        {"on": "detail.action", "when": {"action": "review"}, "run": "task review",
+        {"on": "detail.action", "when": {"action": "review"}, "run": "task review", "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "workspace"}}},
          "args": {"module": {"arg": "module"}, "task": {"payload": "id"}},
          "notify": "提出を、確認用の作業空間に取り出しました。そこでビルド・テスト・実行して確かめ、ここで承認か差し戻しをします。"},
         {"on": "detail.action", "when": {"action": "review_done"}, "run": "task review",

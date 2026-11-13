@@ -45,15 +45,19 @@ export default {
         return item;
       };
       const tools = h('span', { class: 'change-tools' });
+      // 変える操作は、タスクブランチで（提出の確認中は変えない）。退避は、確認中・衝突の途中は使わない（前の GUI と同じ）
+      const locked = s.task && !s.reviewing ? '' : s.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います。';
+      const stashLocked = s.reviewing ? '提出を確認している間は使えません。' : s.merging ? '取り込みの途中です（衝突を直すか、やめてから）。' : '';
       // ステージは、衝突で止まった操作を終えるときだけ要る（コミットは、チェックしたものをステージする）
       if (s.merging || (s.conflicted || []).length) {
-        tools.append(button('stage', 'ステージ', '衝突を直したファイルを、直したものとして記録します', checked.size === 0),
-          button('unstage', 'ステージを取り消す', '', checked.size === 0));
+        tools.append(button('stage', 'ステージ', locked || '衝突を直したファイルを、直したものとして記録します', Boolean(locked) || checked.size === 0),
+          button('unstage', 'ステージを取り消す', locked, Boolean(locked) || checked.size === 0));
       }
       const diff = h('button', { type: 'button' }, '差分');
       if (all.size === 0) diff.disabled = true;
       diff.addEventListener('click', () => emit('action', { name: 'diff_dialog', path: props.selected || '', paths: props.selected ? [props.selected] : [] }));
-      const stash = h('button', { type: 'button', title: '未コミットの変更を一時的にしまう・戻す', 'aria-haspopup': 'menu' }, '退避');
+      const stash = h('button', { type: 'button', title: stashLocked || '未コミットの変更を一時的にしまう・戻す', 'aria-haspopup': 'menu' }, '退避');
+      if (stashLocked) stash.disabled = true;
       stash.addEventListener('click', async (event) => {
         const own = (props.stashes || []).filter((entry) => { const m = /^(?:WIP )?[Oo]n (.+?): /.exec(entry); return m && m[1] === s.branch; });
         const others = (props.stashes || []).length - own.length;
@@ -67,7 +71,7 @@ export default {
         ]);
         if (id) emit('action', { name: id, path: '', paths: [] });
       });
-      tools.append(diff, button('discard', '元に戻す…', 'チェックしたファイルの変更を捨てて、最後のコミットの状態に戻します（追加したファイルは消えます）', checked.size === 0), stash);
+      tools.append(diff, button('discard', '元に戻す…', locked || 'チェックしたファイルの変更を捨てて、最後のコミットの状態に戻します（追加したファイルは消えます）', Boolean(locked) || checked.size === 0), stash);
       const allBox = groupBox([...all.keys()], '全部選ぶ');
       box.append(h('div', { class: 'change-head' },
         h('label', { class: 'select-all' }, allBox, ' 変更ファイル', h('span', { class: 'count' }, String(all.size))), tools));

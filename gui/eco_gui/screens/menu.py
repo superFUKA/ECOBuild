@@ -11,7 +11,7 @@ SCREEN = {
         {"id": "menu", "part": "menu", "props": {"current": {"arg": "current"}, "items": [
             {"id": "overview", "label": "モジュール", "icon": "module"},
             {"id": "frame-workspaces", "label": "作業空間", "icon": "folder"},
-            {"id": "tasks", "label": "タスク管理", "icon": "tasks"},
+            {"id": "board", "label": "タスク管理", "icon": "tasks"},  # 最初はボード（前の GUI と同じ）
             {"id": "branches", "label": "ブランチ", "icon": "branch"},
             {"id": "settings", "label": "設定", "icon": "settings", "bottom": True},
             {"id": "help", "label": "ヘルプ", "icon": "help", "bottom": True},

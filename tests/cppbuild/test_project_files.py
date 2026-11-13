@@ -258,7 +258,7 @@ def test_docs_ci_and_check(module):
     root = module.root
     git(root, "add", "--all")
     git(root, "commit", "--quiet", "--allow-empty", "-m", "前の試験の変更")  # 生成ファイルをコミット済みにする
-    assert not (root / "AGENTS.md").exists()          # module new では作らない
+    assert (root / "AGENTS.md").exists() and "@AGENTS.md" in (root / "CLAUDE.md").read_text(encoding="utf-8")   # module new で置く
     assert "ecobuild task new" in module.agent_guide().text
     assert "cmake -S .ecobuild/.cppbuild -B build" in (root / "README.md").read_text(encoding="utf-8")
     assert module.write_agents().paths == ("AGENTS.md",)

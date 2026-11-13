@@ -20,7 +20,9 @@ LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild
 # 1：最初の版。2：module upgrade ができた版（中身の変更なし）。3：拡張が置くファイル（Module.environment_files。コンテナの環境 .ecobuild/container/Dockerfile）。
 # 4：作業空間が元の clone の中の worktree（.ecobuild/w/）になり、AGENTS.md・.ecobuild/README.md がそれと、ECOBuild が起動したエージェントのツール（MCP）を案内する。
 # 5：AGENTS.md に「文書とコードが食い違うときはコードに従い、食い違いを報告に書く」（古い指示ファイルが動くコードを書き換えさせないため）。
-FORMAT = 5
+# 6：CLAUDE.md（AGENTS.md を読み込むだけ。Claude Code は AGENTS.md を自動では読まない）を置き、AGENTS.md もなければ置く。
+#    AGENTS.md に、元の clone では作業しないこと・作業空間を消す操作は作業空間の外から行うこと。
+FORMAT = 6
 
 
 @dataclass(frozen=True)

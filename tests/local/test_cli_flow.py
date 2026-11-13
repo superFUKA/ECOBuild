@@ -723,6 +723,32 @@ def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
     refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))
     assert refused["error"]["code"] == "in_use" and (parallel / ".git").is_file()
     assert "locked" in git(module.root, "worktree", "list", "--porcelain")   # ロックも戻した
+    assert "呼んだシェル" not in refused["error"]["message"]
+
+
+def test_close_workspace_held_by_the_calling_shell(cli, module, parallel, monkeypatch):
+    """呼んだシェルの今のフォルダーが作業空間の中なら、それが消せないわけと言い、元の clone へ移るよう案内する
+    （AI のシェルが作業空間の中から finish 等を呼ぶことが多い）。"""
+    from ecobuild import workspaces
+    real = Path.rename
+
+    def held(self, target):
+        if self == parallel:
+            raise PermissionError("使用中")
+        return real(self, target)
+    monkeypatch.setattr(Path, "rename", held)
+    monkeypatch.setattr(workspaces, "caller_directory", parallel / "src")   # 呼んだシェルは作業空間の中の場所
+    refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))["error"]
+    assert refused["code"] == "in_use" and "呼んだシェル" in refused["message"]
+    assert f'cd "{module.root}"' in refused["hint"] and "ecobuild task prune --task" in refused["hint"]
+
+
+def test_guide_in_the_original_clone_lists_the_workspaces(cli, module, parallel, monkeypatch):
+    """元の clone で読む agent guide は、今ある作業空間と「ここでは作業しない」を添える。作業空間の中では添えない。"""
+    here = as_json(cli("agent", "guide", "--json"))["result"]["text"]
+    assert "今いる場所：元の clone" in here and f"#1：`{parallel}`" in here
+    monkeypatch.chdir(parallel)
+    assert "今いる場所：元の clone" not in as_json(cli("agent", "guide", "--json"))["result"]["text"]
 
 
 def test_finish_removes_the_workspace(cli, module, parallel, monkeypatch):
@@ -764,6 +790,41 @@ def test_finish_tells_how_to_remove_a_kept_workspace(cli, module, parallel, monk
     finished = cli("task", "finish", "1", "--no-wait")
     assert finished.exit_code == 0 and "作業空間を残しました" in finished.stdout and parallel.exists()
     assert "注意：手元のタスクブランチ" in finished.output and "ecobuild task prune --task 1" in finished.output  # 注意（標準エラー）で
+
+
+def test_finish_from_inside_the_workspace_names_the_calling_shell(cli, module, parallel, monkeypatch):
+    """作業空間の中のシェルから finish して消せなかったら、残したわけに「呼んだシェル」と移る先（元の clone）を書く
+    （finish は残したわけの文だけを伝えるので、案内も文に入る）。"""
+    from ecobuild import workspaces
+    real = Path.rename
+
+    def held(self, target):
+        if self == parallel:
+            raise PermissionError("使用中")
+        return real(self, target)
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    monkeypatch.setattr(Path, "rename", held)
+    monkeypatch.setattr(workspaces, "caller_directory", parallel)
+    finished = cli("task", "finish", "1", "--no-wait")
+    assert finished.exit_code == 0 and parallel.exists()
+    assert "呼んだシェル" in finished.output and f"元の clone（{module.root}）へ移して" in finished.output
+    assert "ecobuild task prune --task 1" in finished.output
+
+
+def test_main_records_the_calling_shell_before_moving_with_C(module, parallel, monkeypatch):
+    """ecobuild の入口は、-C で移る前の場所（呼んだシェルの今のフォルダー）を覚える。"""
+    import ecobuild_cli
+    from ecobuild import workspaces
+    monkeypatch.setattr(workspaces, "caller_directory", None)
+    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
+    monkeypatch.chdir(parallel)
+    with pytest.raises(SystemExit):
+        ecobuild_cli.main(["-C", str(module.root), "status", "--json"])
+    assert workspaces.caller_directory == parallel and workspaces.caller_inside(parallel)
+    assert not workspaces.caller_inside(module.root / ".ecobuild" / "w" / "other")
 
 
 def _dependency_with_local_work(workspace: Path) -> Path:

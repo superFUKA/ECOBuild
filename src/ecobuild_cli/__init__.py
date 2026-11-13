@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 from cli_framework import create_cli
+from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError
 
 from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _types, commands
@@ -166,6 +167,7 @@ def _main(args: list[str]) -> None:
     json_output = "--json" in args
     _output.json_requested = json_output
     _output.attempted = None
+    _workspaces.caller_directory = Path.cwd()   # 呼んだシェルの今のフォルダー（-C で移る前。作業空間を消せないわけに使う）
     while args[:1] and args[0] in ("-C", "--directory", *GLOBAL_FLAGS):
         if args[0] in GLOBAL_FLAGS:
             args = [*args[1:], args[0]]

@@ -314,6 +314,37 @@ def split_list(text: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in text.split(",") if part.strip())
 
 
+REPEATED = "\0"   # 何度でも書けるオプション（_repeat.REPEATABLE）の値の区切り（環境変数・引数に入らない文字）
+
+
+def split_repeated(text: str) -> tuple[str, ...]:
+    """何度でも書けるオプション（--env 等）の値を、書いた順に（_repeat.merge が REPEATED を頭に付けてつないだもの。
+    書いたが空の値〔--env ""〕も1つと数える）。書いていなければ空。"""
+    if text.startswith(REPEATED):
+        return tuple(text[len(REPEATED):].split(REPEATED))
+    return tuple(text.split(REPEATED)) if text else ()
+
+
+def split_environment(text: str, json_output: bool) -> dict[str, str]:
+    """--env K=V（何度でも）を辞書に（同じ名前は後に書いたものが勝つ）。= がない・名前が空なら用法エラー。"""
+    environment = {}
+    for value in split_repeated(text):
+        name, sep, rest = value.partition("=")
+        if not sep or not name.strip():
+            message = (f"--env {value}：環境変数の名前が空です。" if sep else
+                       f"--env {value}：名前=値 の形で書いてください（例：--env LOG_LEVEL=debug）。")
+            raise click.exceptions.Exit(usage_error(message, json_output))
+        environment[name] = rest
+    return environment
+
+
+def check_repeat(repeat: int, json_output: bool) -> int:
+    """--repeat N の N（1以上）。誤りは用法エラー。"""
+    if repeat < 1:
+        raise click.exceptions.Exit(usage_error(f"--repeat {repeat}：1以上の回数を書いてください。", json_output))
+    return repeat
+
+
 def split_semicolons(text: str) -> tuple[str, ...]:
     """セミコロン区切りの値（コンパイルオプション等。値にカンマを含められる。CMakeの引数のリストの区切りでもある）。"""
     return tuple(part.strip() for part in text.split(";") if part.strip())

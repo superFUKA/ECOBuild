@@ -210,8 +210,9 @@ test = { windows = "test.cmd", linux = "./test.sh" }
                  arguments: str = "") -> subprocess.CompletedProcess:
         command = self._command(operation).replace("{configuration}", options.configuration) \
             .replace("{arguments}", arguments)
+        # 環境は明示して渡す（Windows では test・run の --env A=〔空〕を os.environ に入れても、渡さなければ届かない）
         completed = subprocess.run(command, shell=True, cwd=self.root, capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace")
+                                   encoding="utf-8", errors="replace", env=dict(os.environ))
         if completed.returncode != 0:
             output = "\n".join(part for part in (completed.stdout.strip(), completed.stderr.strip()) if part)
             raise EcoBuildError(code, f"{message}（{operation}：終了コード {completed.returncode}）",

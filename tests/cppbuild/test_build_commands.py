@@ -125,3 +125,24 @@ def test_failing_test_is_reported(module):
         assert "Fails" in error.value.message
     finally:
         write(path, original)
+
+
+def test_env_and_repeat(module):
+    """test の env はテストの実行ファイルに届き（終われば戻す）、repeat は回ごとの結果を返す。"""
+    import os
+    path = module.root / "CalcTest/src/CalcTest.cpp"
+    original = path.read_text(encoding="utf-8")
+    write(path, original + '\n#include <cstdlib>\n#include <string>\n'
+                           'TEST(Calc, Env) { const char* v = std::getenv("ECOBUILD_CALC_ENV"); '
+                           'ASSERT_TRUE(v != nullptr && std::string(v) == "on"); }\n')
+    try:
+        result = module.test(project="CalcTest", env={"ECOBUILD_CALC_ENV": "on"}, repeat=2)
+        assert result.failed == 0 and [(r.number, r.ok) for r in result.runs] == [(1, True), (2, True)]
+        assert "ECOBUILD_CALC_ENV" not in os.environ
+        with pytest.raises(EcoBuildError) as error:
+            module.test(project="CalcTest", repeat=2)
+        runs = error.value.details["runs"]
+        assert error.value.code == ErrorCode.TEST_FAILED and [r.ok for r in runs] == [False, False]
+        assert runs[0].failed_cases == ("CalcTest.Calc.Env",)
+    finally:
+        write(path, original)

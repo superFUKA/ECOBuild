@@ -28,6 +28,7 @@ from ecowork.git import CLONE_CONFIG as _CLONE_CONFIG, Git as _Git, REMOTE as _R
 
 from . import _docs
 from . import ci_review as _ci_review
+from . import execution as _execution
 from . import config as _config
 from . import usage as _usage
 from . import module_type as _module_type
@@ -1384,9 +1385,14 @@ class Module:
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
-             tests: tuple[str, ...] = ()) -> TestResult:
+             tests: tuple[str, ...] = (), env: dict[str, str] | None = None, repeat: int = 1,
+             on_run=None) -> TestResult:
+        """env：テスト（とその前のビルド）の環境に足す環境変数。repeat：流す回数（2以上なら result.runs に回ごとの結果。
+        1回でも失敗したら TEST_FAILED。execution.repeat_tests）。on_run(何回目, repeat)：各回の前に（進み具合の表示）。"""
         options, _ = self.build_options(configuration, profile)
-        return self._builds("テスト").test(project, options, tuple(tests))
+        builds = self._builds("テスト")
+        with _execution.added_environment(env):
+            return _execution.repeat_tests(lambda: builds.test(project, options, tuple(tests)), repeat, on_run)
 
     def list_tests(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestList:
         """流せるテストの一覧（test --list。名前はそのまま test に渡せる）。"""
@@ -1394,9 +1400,12 @@ class Module:
         return TestList(tuple(self._builds("テストの一覧").list_tests(project, options)))
 
     def run(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
-            arguments: str = "") -> RunResult:
+            arguments: str = "", env: dict[str, str] | None = None) -> RunResult:
+        """env：実行するプログラム（とその前のビルド）の環境に足す環境変数。"""
         options, _ = self.build_options(configuration, profile)
-        return self._builds("実行").run(project, options, arguments)
+        builds = self._builds("実行")
+        with _execution.added_environment(env):
+            return builds.run(project, options, arguments)
 
     # 名前付きビルド設定 ---------------------------------------------------------
 

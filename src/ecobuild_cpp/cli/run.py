@@ -12,6 +12,7 @@ def command(
     configuration: Annotated[str, "構成（Debug／Release等。既定：ビルド設定の構成、なければDebug）"] = "",
     profile: Annotated[str, "名前付きビルド設定（既定：ecobuild profile use で選んだもの）"] = "",
     arguments: Annotated[str, "プログラムへ渡す引数（1つの文字列）"] = "",
+    env: Annotated[str, "プログラムの環境に足す環境変数（名前=値。何度でも書ける：--env A=1 --env B=2。その前のビルドにも効く）"] = "",
     json: Annotated[bool, "結果をJSONで出力する（プログラムの出力はresult.outputに入る）"] = False,
 ) -> int:
     """実行ファイルのProjectを実行します。
@@ -22,4 +23,4 @@ def command(
     # 人向けはプログラムの出力だけ（stdout は標準出力・stderr は標準エラーへ。ビルドの出力は、今までどおり失敗したときに
     # 誤りの詳細で）
     with CppType.program_output(ProgramOutput(json).line, tools=json):
-        return run_like(project, configuration, profile, arguments, json, streamed=True)
+        return run_like(project, configuration, profile, arguments, json, streamed=True, env=env)

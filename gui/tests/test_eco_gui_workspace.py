@@ -326,16 +326,15 @@ def test_the_changes_menu_and_the_stash_menu_run_their_commands(relay):
     assert nodes(relay, dialog)["target"]["props"]["items"] == [] and ("diff", {"paths": [], "staged": True}) in relay.backend.calls
 
 
-def test_the_status_bar_hides_the_output_and_a_run_shows_it_again(relay):
+def test_the_output_starts_hidden_and_a_run_shows_it(relay):
     window = opened(relay, "workspace", PLACE)
-    assert shown(relay, window, "out")
-    press(relay, window, "foot", "action", name="hide_output")
-    assert not shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_hidden"] is True
-    press(relay, window, "toolbar", "action", name="build")  # 動かすと、また出る
-    assert shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_hidden"] is None
-    press(relay, window, "foot", "action", name="hide_output")
+    assert not shown(relay, window, "out")  # 最初はしまっておく（前の GUI と同じ）
     press(relay, window, "foot", "action", name="show_output")
-    assert shown(relay, window, "out")
+    assert shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_shown"] is True
+    press(relay, window, "foot", "action", name="hide_output")
+    assert not shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_shown"] is None
+    press(relay, window, "toolbar", "action", name="build")  # 動かすと出る
+    assert shown(relay, window, "out") and nodes(relay, window)["foot"]["props"]["output_shown"] is True
 
 
 def test_the_parts_refuse_inputs_they_do_not_declare(relay):

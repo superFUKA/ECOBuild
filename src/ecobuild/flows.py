@@ -78,6 +78,9 @@ REFUSED = ("open",)   # 流れの中では呼べない ecobuild のコマンド�
 # AI の値（steps・vars・out）を入れてよい、文を渡すだけのオプション（ecobuild の CLI の message・note・title・body・
 # description・subject・text の引数。ほかのオプションの値と位置引数は inputs・run だけ）
 TEXT_OPTIONS = ("--message", "-m", "--note", "--title", "--body", "--description", "--subject", "--text")
+# 値を取らないと分かっているオプション（この直後の文のオプションは、そのまま文のオプションとして読む。ほかのオプションの
+# 直後なら、そのオプションの値かもしれないので、安全な側に読む）
+FLAG_OPTIONS = ("--json", "--yes", "-y", "--no-check", "--draft", "--partial", "--complete", "--start", "--fetch")
 STOPPED = ("failed", "cancelled")
 
 
@@ -416,18 +419,21 @@ def _words(args: list[str]) -> tuple[str, ...]:
 
 def _unsafe_args(args: list[str]) -> list[str]:
     """AI の値を入れてはいけない所にある AI の値の名前。許すのは文のオプション（TEXT_OPTIONS）の値だけ
-    （--message 値・--message=値）。ほか（位置引数・オプションの名前・ほかのオプションの値）はすべて inputs・run だけ。"""
-    bad, at = [], 0
+    （--message 値・--message=値）。ほか（位置引数・オプションの名前・ほかのオプションの値）はすべて inputs・run だけ。
+    `--` の後ろは全部が引数（inputs・run だけ）。文のオプションの名前でも、直前が値を取るかもしれないオプション
+    （FLAG_OPTIONS にない名前）なら、その値かもしれないので文のオプションとして読まない。"""
+    bad, at, after_option = [], 0, False
     while at < len(args):
         arg = args[at]
-        if arg in TEXT_OPTIONS:
-            at += 2   # 次は文の値
-            continue
+        if arg == "--":
+            bad += [name for rest in args[at + 1:] for name in _unsafe(rest)]
+            break
         name, sep, _ = arg.partition("=")
-        if sep and name in TEXT_OPTIONS and name.startswith("--"):
-            at += 1
+        if not after_option and (arg in TEXT_OPTIONS or (sep and name.startswith("--") and name in TEXT_OPTIONS)):
+            at += 1 if sep else 2   # 次（か = の後ろ）は文の値
             continue
         bad += _unsafe(arg)
+        after_option = arg.startswith("-") and not sep and arg not in FLAG_OPTIONS
         at += 1
     return bad
 

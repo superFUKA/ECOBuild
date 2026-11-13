@@ -71,3 +71,12 @@ def test_empty_check_output_is_not_shown_in_json():
     from ecobuild_cli._output import to_data
     assert to_data(CheckItem("build", True)) == {"name": "build", "ok": True, "detail": ""}
     assert to_data(CheckItem("test", False, "失敗", "出力"))["output"] == "出力"
+
+
+def test_text_options_are_only_text_where_they_cannot_be_a_value():
+    for args in (["run", "--", "--message", "${steps.impl.message}"], ["run", "--", "${vars.x}"],
+                 ["task", "edit", "3", "--replace", "--message", "${out.x}"], ["task", "x", "-C", "--note", "${vars.y}"]):
+        assert "文を渡すオプション" in flows._check_args({"args": args})[0], args
+    for args in (["task", "submit", "--no-check", "--note", "${steps.impl.message}"],
+                 ["task", "comment", "--json", "-m", "${vars.feedback}"], ["run", "--", "${inputs.a}"]):
+        assert flows._check_args({"args": args}) == [], args

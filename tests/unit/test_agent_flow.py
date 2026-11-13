@@ -213,5 +213,8 @@ def test_agent_settings_are_checked():
         {"id": "a", "type": "agent", "agent": "w"},
         {"id": "b", "type": "agent", "agent": 3, "prompt": "p"},
         {"id": "c", "type": "agent", "agent": "w", "prompt": "p", "model": "x"},
-    ]}, "f", kinds)
-    assert len(problems) == 3 and "prompt がありません" in problems[0] and "agent は登録の名前" in problems[1]
+        {"id": "d", "type": "agent", "agent": "${steps.a.out.who}", "prompt": "p"},
+        {"id": "e", "type": "agent", "agent": "${inputs.who}", "prompt": "${vars.feedback}"},
+    ], "inputs": {"who": "登録"}}, "f", kinds)
+    assert len(problems) == 4 and "agent（登録の名前）に展開してよいのは" in problems[3]
+    assert len(problems) == 4 and "prompt がありません" in problems[0] and "agent は登録の名前" in problems[1]

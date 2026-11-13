@@ -44,6 +44,10 @@ def _cancel(step, ctx) -> None:
 def _check(settings: dict) -> list[str]:
     if not isinstance(settings.get("agent"), str) or not settings["agent"]:
         return ["agent は登録の名前（文字列）です。"]
+    from ecoflow.template import references
+    bad = [name for name in references(settings["agent"]) if name.split(".")[0] not in ("inputs", "run")]
+    if bad:
+        return [f"agent（登録の名前）に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(bad)}）。"]
     if not isinstance(settings.get("prompt"), str) or not settings["prompt"].strip():
         return ["prompt は文字列です。"]
     return []

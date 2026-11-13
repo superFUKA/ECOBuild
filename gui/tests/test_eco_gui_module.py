@@ -85,6 +85,7 @@ class FakeModule(FakeEcobuild):
             "ci status": [run for run in RUNS if not given.get("branch") or run["branch"] == given["branch"]],
             "ci logs": {"log": "失敗した手順の出力"},
             "ci init": {"path": ".github/workflows/ecobuild.yml", "private_dependencies": ["Secret"]},
+            "files": {"files": ["README.md", "src/app.py"], "missing": [], "generated": []},
             "ci secret list": list(self.secrets),
             "pipeline list": {"pipelines": [{"name": "check", "steps": ["generated", "build", "test"], "tests": ["tests/unit"]},
                                             {"name": "quick", "steps": ["conflict_markers"], "tests": []}],
@@ -270,6 +271,18 @@ def test_overview_shows_the_readme_and_what_the_module_is(relay):
     relay.input(window, "about", "opened", {"page": "tasks"}, human=True)  # 「タスク管理を開く」：同じ窓で切り替える
     relay.idle()
     assert relay.display.tree(window)["screen"] == "tasks" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc"}
+
+
+def test_overview_files_and_the_readme_open_with_the_default_app(relay):
+    window = open_screen(relay, "overview")
+    view = nodes(relay, window)
+    assert view["files"]["part"] == "mod-files" and view["files"]["props"]["files"] == ["README.md", "src/app.py"]
+    relay.input(window, "files", "opened", {"path": "src/app.py"}, human=True)  # ダブルクリック・Enter・「開く」
+    relay.idle()
+    assert ("open", {"path": ["src/app.py"]}) in relay.backend.calls
+    relay.input(window, "readme", "edit", {"path": "README.md"}, human=True)  # README の「✎ 編集」
+    relay.idle()
+    assert ("open", {"path": ["README.md"]}) in relay.backend.calls
 
 
 # --- パイプライン -----------------------------------------------------------

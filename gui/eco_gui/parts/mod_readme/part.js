@@ -71,6 +71,8 @@ export default {
     if (/\.(md|markdown)$/i.test(readme.path || '')) body.append(...markdown(h, readme.text || ''));
     else body.append(h('pre', {}, readme.text || ''));
     if (readme.truncated) body.append(h('p', {}, '…'));
-    root.replaceChildren(h('h3', { class: 'title' }, readme.path || 'README'), body);
+    const edit = h('button', { type: 'button', class: 'small', title: '既定のアプリで開きます（変えたらタスクブランチでコミット）' }, '✎ 編集');
+    edit.addEventListener('click', () => emit('edit', { path: readme.path || 'README.md' }));
+    root.replaceChildren(h('div', { class: 'head' }, h('h3', { class: 'title' }, readme.path || 'README'), edit), body);
   },
 };

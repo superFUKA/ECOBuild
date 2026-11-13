@@ -20,3 +20,5 @@
 .readme a { color: var(--gf-accent); }
 .readme hr { border: 0; border-top: 1px solid var(--eco-line); margin: 16px 0; }
 .note { font-size: 12px; color: var(--gf-muted); }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
+.head .title { margin: 0; }

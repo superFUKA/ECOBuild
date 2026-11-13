@@ -24,8 +24,8 @@ SCREEN = {
         {"on": "close.pressed", "close": True},
         # 見る
         {"on": "detail.action", "when": {"action": "refresh"}, "refresh": True},
-        {"on": "detail.action", "when": {"action": "diff"}, "open": "review-diff", "inside": True,
-         "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}},
+        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+         "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
         {"on": "detail.action", "when": {"action": "task"}, "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
         {"on": "detail.action", "when": {"action": "open_review"}, "open": "workspace", "args": {"module": {"payload": "workspace"}}},
         # 手元で確認（ecobuild task review --task <番号> [--done]）・取り下げ（ecobuild task withdraw --task <番号>。確かめてから）

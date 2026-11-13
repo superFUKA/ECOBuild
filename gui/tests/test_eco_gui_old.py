@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
-from test_eco_gui import answer, nodes  # noqa: E402
+from test_eco_gui import answer, nodes, without_tortoisegit  # noqa: E402
 from test_eco_gui_polish import PolishEcobuild, spec  # noqa: E402
 from test_eco_gui_review import FakeReview  # noqa: E402
 
@@ -455,11 +455,15 @@ def test_blame_window_marks_a_commit_and_opens_its_change_and_the_log(relay):
     assert ("blame", {"path": "src/app.py"}) in relay.backend.calls
     put(relay, window, "lines", "selected", commit="abc12345")
     assert nodes(relay, window)["lines"]["props"]["selected"] == "abc12345"
-    put(relay, window, "lines", "opened", commit="abc12345")  # もう一度押す：そのコミットの変更を、窓の中に重ねて開く
+    put(relay, window, "lines", "opened", commit="abc12345")  # もう一度押す：そのコミットの変更を TortoiseGit で
+    assert ("show", {"commit": "abc12345", "gui": True}) in relay.backend.calls
+    without_tortoisegit(relay)  # なければ、窓の中に重ねて開く
+    put(relay, window, "lines", "opened", commit="abc12345")
     assert inside(relay, "ws-show")["args"] == {"module": PLACE, "commit": "abc12345"}
     put(relay, window, "log")  # このファイルのログ（別の窓）
     log = [w for w in relay.display.windows() if w["screen"] == "ws-log"][-1]
     assert log["args"]["paths"] == ["src/app.py"] and log["args"]["module"] == PLACE
+    relay.backend.run = type(relay.backend).run.__get__(relay.backend)  # TortoiseGit のある PC に戻す
     put(relay, window, "external")
     assert ("blame", {"path": "src/app.py", "gui": True}) in relay.backend.calls
 

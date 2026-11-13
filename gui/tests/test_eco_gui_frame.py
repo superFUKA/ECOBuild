@@ -160,6 +160,7 @@ def test_the_workspace_opens_files_with_the_tools_of_this_pc(relay):
     press(relay, window, "explorer", "action", name="reveal", path="src", paths=["src"])
     assert last(relay) == ("open", {"path": ["src"], "app": "explorer"})
     # 出力の「ファイル(行)」のリンク：その行を開く
+    press(relay, window, "foot", "action", name="show_output")  # 出力欄は、最初はしまってある
     press(relay, window, "out", "opened", path="src/app.py", line=12)
     assert last(relay) == ("open", {"path": ["src/app.py"], "app": "editor", "line": 12, "vs_version": "2026"})
     assert all(module == PLACE for module in relay.backend.modules if module)

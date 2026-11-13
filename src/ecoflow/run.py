@@ -4,7 +4,9 @@
 - state.json：{flow, definition（実行を作ったときの定義の写し）, inputs, vars, status, current,
   steps: {id: {status, attempts, retried, backs, loops, message, out, prev_message, prev_out, started, ended, data}},
   history: [出来事]}。一時ファイルに書いてから置き換える。読むときに形を確かめる（壊れていれば RUN_BROKEN）。
-- lock：OS のファイルロック（動かしているプロセスが持つ。プロセスが終われば OS が外す）。owner.json：持ち主の pid（表示用）。
+- lock・held：OS のファイルロック（動かしているプロセスが両方を持つ。プロセスが終われば OS が外す）。操作どうしの
+  取り合いは lock、「動いているか」を見る（status 等）のは held だけを試す（見るだけで操作の取り合いに割り込まない）。
+  owner.json：持ち主の pid（表示用）。
 - cancel：止めてほしい印（動かしているプロセスが、工程の区切りで見る。種類も ctx.cancelled() で見られる）。止まる側が
   終わり・失敗・待ちに移るときと、ロックを取って操作を始めるときに消す（残った印で後の操作を止めない）。
 - <工程>.log：工程ごとのログ（種類が書く）。
@@ -38,6 +40,9 @@ RUN_STATES = (RUNNING, WAITING, DONE, FAILED, CANCELLED)
 STEP_STATES = (PENDING, RUNNING, DONE, FAILED, WAITING, SKIPPED, CANCELLED)
 STATE_FILE = "state.json"
 LOCK_FILE = "lock"
+HELD_FILE = "held"
+LOCK_TRIES = 10       # ロックを取り直す回数（間 LOCK_PAUSE 秒。ほかが一瞬持っているだけなら待つ）
+LOCK_PAUSE = 0.05
 OWNER_FILE = "owner.json"
 CANCEL_FILE = "cancel"
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
@@ -141,8 +146,8 @@ class Run:
         return INTERRUPTED if self.status == RUNNING and not self.locked() else self.status
 
     def locked(self) -> bool:
-        """動かしているプロセスがいるか（ロックを取れるかを試す）。"""
-        path = self.folder / LOCK_FILE
+        """動かしているプロセスがいるか（held を取れるかを試す。lock には触らない）。"""
+        path = self.folder / HELD_FILE
         if not path.exists():
             return False
         try:
@@ -233,12 +238,27 @@ def _unlock(file) -> None:
         pass
 
 
+def _take(path: Path, tries: int):
+    """path のロックを、短く取り直しながら取る（取れたら開いたファイル、取れなければ None）。"""
+    file = open(path, "a+")
+    for attempt in range(tries):
+        if _try_lock(file):
+            return file
+        if attempt + 1 < tries:
+            time.sleep(LOCK_PAUSE)
+    file.close()
+    return None
+
+
 @contextmanager
-def lock(run: Run) -> Iterator[None]:
-    """実行のロック（OS のファイルロック）を持つ間だけ、中を実行する。ほかが持っていれば RUN_LOCKED。"""
-    file = open(run.folder / LOCK_FILE, "a+")
-    if not _try_lock(file):
-        file.close()
+def lock(run: Run, *, tries: int = LOCK_TRIES) -> Iterator[None]:
+    """実行のロック（OS のファイルロック。lock と held）を持つ間だけ、中を実行する。ほかが持っていれば RUN_LOCKED。"""
+    first = _take(run.folder / LOCK_FILE, tries)
+    held = _take(run.folder / HELD_FILE, LOCK_TRIES * 4) if first is not None else None   # held は見る側が一瞬持つだけ
+    if held is None:
+        if first is not None:
+            _unlock(first)
+            first.close()
         pid = run.owner()
         raise FlowError(ErrorCode.RUN_LOCKED,
                         f"実行 {run.id} は、ほかのプロセス{f'（pid {pid}）' if pid else ''}が動かしています。",
@@ -251,8 +271,9 @@ def lock(run: Run) -> Iterator[None]:
             (run.folder / OWNER_FILE).unlink(missing_ok=True)
         except OSError:
             pass
-        _unlock(file)
-        file.close()
+        for file in (held, first):
+            _unlock(file)
+            file.close()
 
 
 def inputs_for(flow: Flow, values: Mapping[str, Any]) -> dict:
@@ -418,8 +439,15 @@ class Engine:
             self.progress(message)
 
     def definition(self, run: Run) -> Flow:
-        """実行を作ったときの定義の写し（今の種類で確かめる）。"""
-        return load(run.state.get("definition") or {}, run.flow, self.kinds)
+        """実行を作ったときの定義の写し（今の種類で確かめる）。工程の記録と合わなければ RUN_BROKEN。"""
+        try:
+            flow = load(run.state.get("definition") or {}, run.flow, self.kinds)
+        except FlowError as error:
+            raise _broken(run.folder, f"定義の写しが読めません（{error.message}）") from error
+        missing = [s.id for s in flow.steps if s.id not in run.steps]
+        if missing:
+            raise _broken(run.folder, f"工程 {', '.join(missing)} の記録がありません")
+        return flow
 
     # ---- 操作 -------------------------------------------------------------------------------------------
     def start(self, store: Store, flow: Flow, values: Mapping[str, Any] | None = None, run_id: str | None = None) -> Run:
@@ -508,6 +536,19 @@ class Engine:
             if error.code != ErrorCode.RUN_LOCKED:
                 raise
             (run.folder / CANCEL_FILE).write_text(str(self.clock()), encoding="utf-8")
+            # 印を置く間に持ち主が止まった（待ち・失敗に移って印を消した）なら、ここで取り消す
+            try:
+                with lock(run):
+                    run.reload()
+                    if run.status in (RUNNING, WAITING, FAILED):
+                        self._clean_up(run)
+                        self._cancelled(run)
+                    else:
+                        run.forget_cancel()
+                    return run
+            except FlowError as again:
+                if again.code != ErrorCode.RUN_LOCKED:
+                    raise
             self.say(f"実行 {run.id} は動いているので、止めてほしい印を置きました（工程の区切りで止まります）")
         return run
 
@@ -563,10 +604,10 @@ class Engine:
 
     def _advance(self, run: Run, flow: Flow) -> None:
         while True:
-            if run.cancel_requested():
+            current = run.state.get("current")
+            if run.cancel_requested() and current is not None:
                 self._cancelled(run)
                 return
-            current = run.state.get("current")
             if current is None:
                 self._stop(run, DONE)
                 run.event("finished", clock=self.clock)
@@ -624,6 +665,12 @@ class Engine:
             entry["status"] = DONE
             run.event("done", step.id, outcome.message or "", clock=self.clock)
             run.state["current"] = flow.after(step.id)
+            if run.state["current"] is None:   # 全部済んだ：取り消しではなく終わり
+                self._stop(run, DONE)
+                run.event("finished", clock=self.clock)
+                run.save(self.clock)
+                self.say(f"実行 {run.id} が終わりました")
+                return
         self._cancelled(run)
 
     def _settle(self, run: Run, flow: Flow, step: Step, outcome: Outcome) -> None:

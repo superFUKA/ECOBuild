@@ -189,6 +189,19 @@ class ContainerModule:
                             error.get("message") or "コンテナの中の確認が失敗しました。",
                             hint=error.get("hint"), details=error.get("details"))
 
+    def flow_command(self, command, *, cwd: Path, shell: bool, progress=lambda message: None):
+        """流れの command の工程：コンテナにした作業空間なら中で動かす（docker exec。シェルの1行は中の sh -c）。中の
+        プロセスには印を付け、時間切れ・中断で止められるようにする。秘密（credentials）は渡さない。"""
+        if os.environ.get(INSIDE) or not enabled(self.root):
+            return super().flow_command(command, cwd=cwd, shell=shell, progress=progress)
+        start(self.root, command=self.command, source=self.container_source(), progress=progress)
+        prefix = docker_command(None, self.command)
+        tag = uuid.uuid4().hex[:16]
+        args = ["sh", "-c", command] if shell else list(command)
+        argv = exec_command(self.root, prefix, args, (), directory=inside_path(self.root, cwd), tag=tag)
+        root, program = self.root, self.command
+        return argv, environment(prefix, {}), False, lambda: stop_tagged(root, tag, command=program)
+
     @classmethod
     def environment_files(cls, type_class) -> dict[str, str]:
         return {**super().environment_files(type_class), DOCKERFILE: dockerfile(type_class)}

@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple, Protocol
 
@@ -341,7 +341,7 @@ class CheckItem:
     name: str                        # generated / conflict_markers / build / test
     ok: bool
     detail: str = ""
-    output: str = ""                 # 失敗したビルド・テストの出力の末尾（なければ空）
+    output: str = field(default="", metadata={"omit_empty": True})   # 失敗したビルド・テストの出力の末尾（空なら出さない）
 
 
 @dataclass(frozen=True)

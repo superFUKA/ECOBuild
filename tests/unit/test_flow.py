@@ -284,14 +284,14 @@ def holder(tmp_path):
     """実行のロックを持って眠る子のプロセス（生きている持ち主）。"""
     children = []
 
-    def hold(run):
+    def hold(run, seconds=60.0, code=None):
         ready = tmp_path / f"ready-{len(children)}"
         source = str(Path(ecoflow.__file__).resolve().parent.parent)
-        code = ("import sys, time; sys.path.insert(0, sys.argv[1]); from ecoflow.run import Run, lock\n"
-                "with lock(Run.load(sys.argv[2])):\n open(sys.argv[3], 'w').close(); time.sleep(60)")
+        code = code or ("import sys, time; sys.path.insert(0, sys.argv[1]); from ecoflow.run import Run, lock\n"
+                        "with lock(Run.load(sys.argv[2])):\n open(sys.argv[3], 'w').close(); time.sleep(float(sys.argv[4]))")
         # venv の python.exe（Windows）は本物の Python を子として起こすので、本物を直接（止めればロックが外れる）
         python = getattr(sys, "_base_executable", sys.executable)
-        child = subprocess.Popen([python, "-c", code, source, str(run.folder), str(ready)])
+        child = subprocess.Popen([python, "-c", code, source, str(run.folder), str(ready), str(seconds)])
         children.append(child)
         until = time.monotonic() + 30
         while not ready.exists():
@@ -474,6 +474,56 @@ def test_cancel_failed_and_interrupted_runs_cleans_up_the_kind(tmp_path):
     flow = load({"steps": [{"id": "b", "type": "fake"}]}, "s", engine.kinds)
     run = engine.cancel(engine.start(store, flow, run_id="f"))
     assert run.status == CANCELLED and run.steps["b"]["status"] == "cancelled" and cleaned == ["a-1"]
+
+
+def test_status_checks_do_not_block_operations(tmp_path, holder):
+    """ほかのプロセスが様子（locked）を見続けていても、操作のロックは取れる（見る側は held だけを試す）。"""
+    engine, flow, _, _ = make([{"id": "a", "type": "fake"}])
+    store = Store(tmp_path / "runs")
+    run = store.create(flow, run_id="r")
+    watcher = ("import sys, time, pathlib; sys.path.insert(0, sys.argv[1]); from ecoflow.run import Run\n"
+               "run = Run.load(sys.argv[2]); open(sys.argv[3], 'w').close()\n"
+               "while not pathlib.Path(sys.argv[3] + '.stop').exists(): run.locked()")
+    child = holder(run, code=watcher)
+    stop = Path(str(tmp_path / "ready-0") + ".stop")
+    try:
+        for _ in range(100):
+            with lock(run):
+                pass
+    finally:
+        stop.write_text("x")
+        child.wait(timeout=30)
+
+
+def test_cancel_retakes_the_lock_when_the_holder_stops_right_away(tmp_path, holder):
+    """印を置く間に持ち主が止まったら、その場で取り消す（印が持ち主に消されて残らない）。"""
+    engine, flow, _, _ = make([{"id": "ok", "type": "approval"}])
+    store = Store(tmp_path / "runs")
+    run = engine.start(store, flow, run_id="r")
+    holder(run, seconds=0.75)
+    run = engine.cancel(store.get("r"))
+    assert run.status == CANCELLED and not run.cancel_requested()
+
+
+def test_definition_and_step_records_must_match(tmp_path):
+    engine, flow, _, _ = make([{"id": "a", "type": "fake"}, {"id": "ok", "type": "approval"}])
+    store = Store(tmp_path)
+    run = engine.start(store, flow, run_id="r")
+    del run.state["steps"]["a"]
+    run.save()
+    with pytest.raises(FlowError) as raised:
+        engine.approve(store.get("r"))
+    assert raised.value.code == "flow_run_broken" and "工程 a の記録がありません" in raised.value.message
+
+
+def test_cancel_during_the_last_step_ends_as_done(tmp_path):
+    def last(step, ctx):
+        (ctx.folder / "cancel").write_text("x")
+        return Outcome("done")
+
+    engine = Engine({"fake": last})
+    run = engine.start(Store(tmp_path), load({"steps": [{"id": "a", "type": "fake"}]}, "s", engine.kinds))
+    assert run.status == DONE and not run.cancel_requested()
 
 
 def test_cancel_during_a_step_keeps_a_finished_step_as_done(tmp_path):

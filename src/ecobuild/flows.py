@@ -2,11 +2,14 @@
 繰り返し・人の答え待ち・再開）。
 
 状態機械・展開・条件・状態の保存は ecoflow（ECOBuild を知らない）。ここは置き場所と ECOBuild の工程の種類：
-- command：このPCでコマンドを実行する（args＝引数の配列か run＝シェルの1行。cwd・json）。終了コード 0 で済み。
-  run に展開してよいのは ${inputs.…}・${run.…} だけ（AI の値をシェルに入れない）。args の先頭に .bat・.cmd は使えない
-  （cmd.exe が引数をシェルとして読むため）。
+- command：コマンドを実行する（args＝引数の配列か run＝シェルの1行。cwd・json・host）。終了コード 0 で済み。
+  コンテナにした作業空間ではコンテナの中で動かす（Module.flow_command。拡張が中へ渡す）。このPCで動かすのは host = true
+  のときだけ（AI が変えたファイルを、人が見ないままこのPCで動かさないため）。
+  AI の値（${steps…}・${vars…}・${out…}）の入れ方を絞る：run・args の先頭・cwd には ${inputs.…}・${run.…} だけ。args の
+  先頭がシェル・インタープリター（sh・python 等）なら、ほかの要素にも AI の値を入れない。cwd は作業空間の中だけ。
+  args の先頭に .bat・.cmd は使えない（cmd.exe が引数をシェルとして読むため）。
 - ecobuild：ecobuild のコマンド（args。--json で呼び、ok で判定。result を out に）。作業空間を消す操作は書けない
-  （flow run の間は作業空間が使用中）。
+  （flow run の間は作業空間が使用中）。コマンドの名前の部分と -C の値には ${inputs.…}・${run.…} だけ。
 - check：ecobuild check（only・tests）。pipeline：パイプラインを1つ走らせる（name）。失敗の出力の末尾を文に入れる。
 - approval：人の答えを待つ（message）。ecobuild flow approve／reject で続ける（人がする）。
 拡張は Module.flow_kinds を広げて種類を足す（agent は ecobuild_agent）。
@@ -15,7 +18,9 @@
 - 定義はモジュールで共有する（管理するファイル。変えるのはタスクブランチで）。定義はコードと同じ：エージェントが変えた
   ものは、人が見てから動かす。
 - 実行の状態（state.json・ロック・取り消しの印・工程のログ）は作業空間の外（ECOBuild のホームの flows/<作業空間ごとの
-  名前>/）。コンテナの中のエージェントが書き換えられないように。
+  名前>/）。コンテナの中のエージェントが書き換えられないように。名前は作業空間の場所と、作業空間に置いた印
+  （${run.dir} の親の .id。作業空間を作り直すと変わる）から作る：同じ場所に作り直した作業空間に前の実行を出さない。
+- 失敗した確認の出力は ${run.dir}/<工程>.log にも写す（文には作業空間からの相対の場所。コンテナの中から読める）。
 - 作業空間の `.ecobuild/flows/runs/<実行>/` は ${run.dir}：工程（エージェント）が結果の JSON を書く所だけ（git に見せない）。
 操作のタイミング（パイプラインの当て方）には当てない：流れは人が flow run で動かすもの。
 """
@@ -29,7 +34,9 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import tomllib
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,7 +63,11 @@ MESSAGE_LENGTH = 500   # 工程の文（message）に残す長さ
 OUTPUT_IN_MESSAGE = 1500   # 失敗の文に入れる出力の末尾の長さ
 OUTPUT_IN_LOG = 2000       # 工程のログに書く出力の末尾の長さ
 KILL_WAIT = 10.0           # 時間切れで止めた後、出力を読み切るのを待つ秒数
-SHELL_ROOTS = ("inputs", "run")   # run（シェルの1行）に展開してよい名前
+SAFE_ROOTS = ("inputs", "run")   # run（シェルの1行）・args の先頭・cwd 等に展開してよい名前（人が渡す・ECOBuild が決める）
+# args の先頭がこれなら、ほかの要素も AI の値を入れない（引数を中身として読む）
+INTERPRETERS = ("cmd", "powershell", "pwsh", "sh", "bash", "zsh", "dash", "fish", "python", "python3", "py", "node",
+                "deno", "bun", "perl", "ruby", "php", "wsl", "env", "osascript", "cscript", "wscript")
+WORKSPACE_ID = ".id"   # ${run.dir} の親（作業空間の .ecobuild/flows/runs/）に置く印
 BATCH = (".bat", ".cmd")
 # 流れの中では呼べない ecobuild のコマンド（作業空間を消す。flow run の間は作業空間が使用中で、必ず止まる）
 CLOSING = (("task", "finish"), ("task", "drop"), ("task", "prune"), ("task", "close"), ("task", "approve"),
@@ -92,11 +103,26 @@ class FlowShown:
     kinds: tuple[str, ...]
 
 
+def workspace_id(root: Path) -> str:
+    """作業空間の印（なければ作る）。作業空間を作り直すと消えるので、前の実行と分けられる。"""
+    path = Path(root) / RUNS_DIR / WORKSPACE_ID
+    try:
+        text = path.read_text(encoding="ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{12}", text):
+            return text
+    except (OSError, UnicodeDecodeError):
+        pass
+    text = uuid.uuid4().hex[:12]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text + "\n", encoding="ascii")
+    return text
+
+
 def state_folder(root: Path) -> Path:
-    """作業空間 root の実行の状態の置き場所（ECOBuild のホームの下。作業空間の場所ごとの名前）。"""
+    """作業空間 root の実行の状態の置き場所（ECOBuild のホームの下。作業空間の場所と印ごとの名前）。"""
     digest = hashlib.sha1(_workspaces.key(root).encode("utf-8")).hexdigest()[:12]
     name = re.sub(r"[^A-Za-z0-9_-]", "_", Path(root).name)[:40] or "workspace"
-    return _settings.home() / STATE_HOME / f"{name}-{digest}"
+    return _settings.home() / STATE_HOME / f"{name}-{digest}-{workspace_id(root)}"
 
 
 class _Store(ecoflow.Store):
@@ -275,8 +301,9 @@ def _brief(summary: dict) -> dict:
 # ---- ECOBuild の工程の種類 -------------------------------------------------------------------------------
 def kinds(module: "Module", program: tuple[str, ...]) -> dict[str, ecoflow.Kind]:
     return {
-        "command": ecoflow.Kind(lambda step, ctx: _command(module, step, ctx), settings=("run", "args", "cwd", "json"),
-                                check=_check_command, description="このPCでコマンドを実行する（終了コード 0 で済み）"),
+        "command": ecoflow.Kind(lambda step, ctx: _command(module, step, ctx),
+                                settings=("run", "args", "cwd", "json", "host"), check=_check_command,
+                                description="コマンドを実行する（コンテナの作業空間では中で。host = true ならこのPCで）"),
         "ecobuild": ecoflow.Kind(lambda step, ctx: _ecobuild(module, program, step, ctx), settings=("args",),
                                  required=("args",), check=_check_args, description="ecobuild のコマンド（--json の ok で判定）"),
         "check": ecoflow.Kind(lambda step, ctx: _check(module, step, ctx), settings=("only", "tests"),
@@ -298,46 +325,87 @@ def _batch(program: str) -> bool:
     return Path(found).suffix.lower() in BATCH or Path(program).suffix.lower() in BATCH
 
 
+def _unsafe(text: str) -> list[str]:
+    """文の中の、AI の値（inputs・run 以外）の名前。"""
+    return [name for name in _template.references(text) if name.split(".")[0] not in SAFE_ROOTS]
+
+
+def _program_name(program: str) -> str:
+    name = Path(program.replace("\\", "/")).name.lower()
+    for suffix in (".exe", ".com"):
+        name = name.removesuffix(suffix)
+    return re.sub(r"[0-9.]+$", "", name) if name.startswith("python") else name
+
+
 def _check_command(settings: dict) -> list[str]:
     has_run, has_args = "run" in settings, "args" in settings
     if has_run == has_args:
         return ["run（シェルの1行）か args（引数の配列）の、どちらか1つを書きます。"]
+    problems = []
+    if "host" in settings and not isinstance(settings["host"], bool):
+        problems.append("host は真偽です（true でこのPCで動かします）。")
+    if "cwd" in settings:
+        if not isinstance(settings["cwd"], str):
+            problems.append("cwd は文字列です。")
+        elif _unsafe(settings["cwd"]):
+            problems.append(f"cwd に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(_unsafe(settings['cwd']))}）。")
     if has_run:
         if not isinstance(settings["run"], str):
-            return ["run は文字列です。"]
-        bad = [name for name in _template.references(settings["run"]) if name.split(".")[0] not in SHELL_ROOTS]
-        if bad:
-            return [f"run（シェルの1行）に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(bad)}）。"
-                    "工程・エージェントの値はシェルに入れません：args（引数の配列）を使います。"]
-        return []
+            return [*problems, "run は文字列です。"]
+        if _unsafe(settings["run"]):
+            problems.append(f"run（シェルの1行）に展開してよいのは ${{inputs.…}}・${{run.…}} だけです"
+                            f"（{'・'.join(_unsafe(settings['run']))}）。工程・エージェントの値はシェルに入れません：args（引数の配列）を使います。")
+        return problems
     if not _strings(settings["args"]) or not settings["args"]:
-        return ["args は文字列の配列です。"]
-    first = settings["args"][0]
-    if "${" not in first and _batch(first):
-        return [f"args の先頭に .bat・.cmd（{first}）は使えません（引数がシェルとして読まれます）。"]
-    return []
+        return [*problems, "args は文字列の配列です。"]
+    first, rest = settings["args"][0], settings["args"][1:]
+    if _unsafe(first):
+        problems.append(f"args の先頭（実行するもの）に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(_unsafe(first))}）。")
+    elif "${" not in first and _batch(first):
+        problems.append(f"args の先頭に .bat・.cmd（{first}）は使えません（引数がシェルとして読まれます）。")
+    elif _program_name(first) in INTERPRETERS:
+        bad = [name for text in rest for name in _unsafe(text)]
+        if bad:
+            problems.append(f"args の先頭が {first}（シェル・インタープリター）なので、ほかの要素にも工程・エージェントの値"
+                            f"（{'・'.join(bad)}）は入れられません（中身として動いてしまいます）。値はファイル（${{run.dir}}）で渡します。")
+    return problems
+
+
+def _head(args: list[str]) -> tuple[list[str], list[str]]:
+    """(コマンドの名前の部分, -C・--directory の値)。名前は頭のオプションでない語（コマンドの前のオプションは飛ばし、
+    名前の後のオプションで終わる）。"""
+    words, places, at = [], [], 0
+    while at < len(args):
+        arg = args[at]
+        if arg in ("-C", "--directory"):
+            places.append(args[at + 1] if at + 1 < len(args) else "")
+            at += 2
+            continue
+        if arg.startswith("-"):
+            if words:
+                break
+        else:
+            words.append(arg)
+        at += 1
+    return words, places
 
 
 def _words(args: list[str]) -> tuple[str, ...]:
-    """コマンドの名前（頭の2語。オプションと -C <パス> の値は除く）。"""
-    words, skip = [], False
-    for arg in args:
-        if skip:
-            skip = False
-        elif arg in ("-C", "--directory"):
-            skip = True
-        elif not arg.startswith("-"):
-            words.append(arg)
-    return tuple(words[:2])
+    return tuple(_head(args)[0][:2])
 
 
 def _check_args(settings: dict) -> list[str]:
     if not _strings(settings.get("args")) or not settings["args"]:
         return ["args は文字列の配列です（例：[\"task\", \"status\"]）。"]
+    problems = []
+    words, places = _head(settings["args"])
+    bad = [name for text in (*words, *places) for name in _unsafe(text)]
+    if bad:
+        problems.append(f"コマンドの名前の部分と -C の値に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(bad)}）。")
     if _words(settings["args"]) in CLOSING:
-        return [f"流れの中では作業空間を消す操作（ecobuild {' '.join(_words(settings['args']))}）はできません"
-                "（流れの間は作業空間が使用中です。流れが終わってから人がします）。"]
-    return []
+        problems.append(f"流れの中では作業空間を消す操作（ecobuild {' '.join(_words(settings['args']))}）はできません"
+                        "（流れの間は作業空間が使用中です。流れが終わってから人がします）。")
+    return problems
 
 
 def _check_check(settings: dict) -> list[str]:
@@ -391,44 +459,74 @@ def _kill_group(process: subprocess.Popen) -> None:
         pass
 
 
-def _execute(command, ctx, *, cwd: Path, shell: bool = False) -> subprocess.CompletedProcess | ecoflow.Outcome:
-    """コマンドを実行し、出力をその工程のログに書く。時間切れ・中断（Ctrl+C）なら子・孫ごと止める。
-    始められない・時間切れなら失敗の Outcome。"""
-    ctx.log(f"$ {command if isinstance(command, str) else ' '.join(command)}")
+def _execute(command, ctx, *, cwd: Path, shell: bool = False, env: dict | None = None,
+             stop: Callable[[], None] | None = None) -> subprocess.CompletedProcess | ecoflow.Outcome:
+    """コマンドを実行し、出力をその工程のログに書く。出力は一時ファイルに受ける（残った孫がパイプを持っていても、親が
+    終われば戻る）。時間切れ・中断（Ctrl+C）なら子・孫ごと止め（stop：コンテナの中のプロセスも止める口）、終わった後も
+    プロセスグループを片付ける。始められない・時間切れなら失敗の Outcome。"""
+    shown = command if isinstance(command, str) else " ".join(command)
+    ctx.log(f"$ {shown}")
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True})
-    try:
-        process = subprocess.Popen(command, shell=shell, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, **group)
-    except OSError as error:
-        return ecoflow.Outcome(ecoflow.FAILED, f"コマンドを実行できません：{error}")
-    try:
-        stdout, stderr = process.communicate(timeout=ctx.timeout)
-    except subprocess.TimeoutExpired:
-        _kill_group(process)
+    with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
         try:
-            stdout, stderr = process.communicate(timeout=KILL_WAIT)
+            process = subprocess.Popen(command, shell=shell, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=out_file,
+                                       stderr=err_file, **group)
+        except OSError as error:
+            return ecoflow.Outcome(ecoflow.FAILED, f"コマンドを実行できません：{error}")
+        timed_out = False
+        try:
+            process.wait(timeout=ctx.timeout)
         except subprocess.TimeoutExpired:
-            process.kill()
-            stdout, stderr = b"", b""
-        ctx.log(_text(stdout) + _text(stderr) + "（時間切れで止めました）")
+            timed_out = True
+            _stop_all(process, stop)
+            try:
+                process.wait(timeout=KILL_WAIT)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        except BaseException:
+            _stop_all(process, stop)
+            raise
+        if not timed_out and os.name != "nt":
+            _kill_group(process)   # 親が終わった後に残った孫
+        stdout, stderr = (_read_back(f) for f in (out_file, err_file))
+    if timed_out:
+        ctx.log(stdout + stderr + "（時間切れで止めました）")
         return ecoflow.Outcome(ecoflow.FAILED, f"{int(ctx.timeout or 0)} 秒で終わりませんでした。")
-    except BaseException:
-        _kill_group(process)
-        raise
-    done = subprocess.CompletedProcess(command, process.returncode, _text(stdout), _text(stderr))
+    done = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     ctx.log(done.stdout + done.stderr + f"（終了コード {done.returncode}）")
     return done
 
 
+def _read_back(file) -> str:
+    file.seek(0)
+    return _text(file.read())
+
+
+def _stop_all(process: subprocess.Popen, stop: Callable[[], None] | None) -> None:
+    _kill_group(process)
+    if stop is not None:
+        try:
+            stop()
+        except Exception:   # 中のプロセスを止められなくても、このPCの側は止めた
+            pass
+
+
 def _command(module: "Module", step, ctx) -> ecoflow.Outcome:
     shell_line = ctx.setting("run")
+    host = ctx.setting("host", False) is True
     if shell_line is not None:
         command = shell_line
     else:
         command = [str(a) for a in ctx.setting("args")]
         if _batch(command[0]):
             return ecoflow.Outcome(ecoflow.FAILED, f"args の先頭に .bat・.cmd（{command[0]}）は使えません。")
-    done = _execute(command, ctx, cwd=module.root / str(ctx.setting("cwd", ".")), shell=shell_line is not None)
+    cwd = (Path(module.root) / str(ctx.setting("cwd", "."))).resolve()
+    if cwd != Path(module.root).resolve() and Path(module.root).resolve() not in cwd.parents:
+        return ecoflow.Outcome(ecoflow.FAILED, f"cwd（{ctx.setting('cwd')}）が作業空間の外です。")
+    shell, env, stop = shell_line is not None, None, None
+    if not host:   # コンテナにした作業空間なら中で（拡張が渡す）
+        command, env, shell, stop = module.flow_command(command, cwd=cwd, shell=shell, progress=ctx.progress)
+    done = _execute(command, ctx, cwd=cwd, shell=shell, env=env, stop=stop)
     if isinstance(done, ecoflow.Outcome):
         return done
     out: dict = {"exit_code": done.returncode}
@@ -446,6 +544,8 @@ def _command(module: "Module", step, ctx) -> ecoflow.Outcome:
 
 def _ecobuild(module: "Module", program: tuple[str, ...], step, ctx) -> ecoflow.Outcome:
     args = [str(a) for a in ctx.setting("args")]
+    if args and _batch(program[0]):
+        return ecoflow.Outcome(ecoflow.FAILED, f"ecobuild（{program[0]}）が .bat・.cmd なので、流れからは呼べません。")
     if _words(args) in CLOSING:
         return ecoflow.Outcome(ecoflow.FAILED, f"流れの中では ecobuild {' '.join(_words(args))} はできません。")
     if "--json" not in args:   # -- より後ろは引数（--json はその前に）
@@ -467,22 +567,33 @@ def _ecobuild(module: "Module", program: tuple[str, ...], step, ctx) -> ecoflow.
                            out={"error": error})
 
 
-def _items_outcome(items: list[dict], ctx, failed_head: str, done_message: str) -> ecoflow.Outcome:
-    """確認の項目から結果を作る。失敗した項目の出力の末尾をログと文に入れる（直す側が読めるように）。"""
+def _items_outcome(items: list[dict], ctx, failed_head: str, done_message: str,
+                   root: Path | None = None) -> ecoflow.Outcome:
+    """確認の項目から結果を作る。失敗した項目の出力の末尾を、工程のログと作業空間の ${run.dir}/<工程>.log（コンテナの
+    中から読める）に書き、文には末尾と作業空間からの相対の場所を入れる（直す側が読めるように）。"""
     from .module import CHECK_NAMES
-    tails = []
+    tails, copied = [], []
     for item in items:
         ctx.log(f"{'OK' if item['ok'] else 'NG'} {CHECK_NAMES.get(item['name'], item['name'])} {item.get('detail') or ''}")
         if not item["ok"] and item.get("output"):
-            ctx.log(f"--- {item['name']} の出力の末尾 ---\n{item['output'][-OUTPUT_IN_LOG:]}")
+            text = f"--- {item['name']} の出力の末尾 ---\n{item['output'][-OUTPUT_IN_LOG:]}"
+            ctx.log(text)
+            copied.append(text)
             tails.append(item["output"])
+    where = f"{ctx.dir}/{ctx.step.id}.log"
+    if copied and root is not None:
+        try:
+            (Path(root) / where).parent.mkdir(parents=True, exist_ok=True)
+            (Path(root) / where).write_text("\n".join(copied) + "\n", encoding="utf-8")
+        except OSError:
+            copied = []
     out = {"items": [{k: v for k, v in item.items() if k != "output"} for item in items]}
     failed = [i for i in items if not i["ok"]]
     if not failed:
         return ecoflow.Outcome(ecoflow.DONE, done_message, out=out)
     summary = _short(failed_head + "、".join(
         CHECK_NAMES.get(i["name"], i["name"]) + (f"：{i['detail']}" if i.get("detail") else "") for i in failed))
-    message = summary + f"（ログ：{ctx.log_path}）"
+    message = summary + (f"（出力：{where}）" if copied and root is not None else "")
     if tails:
         message += "\n出力の末尾：\n" + "\n".join(tails)[-OUTPUT_IN_MESSAGE:]
     return ecoflow.Outcome(ecoflow.FAILED, message, out=out)
@@ -499,7 +610,7 @@ def _check(module: "Module", step, ctx) -> ecoflow.Outcome:
             ctx.log(error.message)
             return ecoflow.Outcome(ecoflow.FAILED, _short(error.message))
         items = [dict(item) for item in error.details]
-    return _items_outcome(items, ctx, "", "確認が通りました")
+    return _items_outcome(items, ctx, "", "確認が通りました", module.root)
 
 
 def _pipeline(module: "Module", step, ctx) -> ecoflow.Outcome:
@@ -509,7 +620,8 @@ def _pipeline(module: "Module", step, ctx) -> ecoflow.Outcome:
     except EcoBuildError as error:
         return ecoflow.Outcome(ecoflow.FAILED, _short(error.message))
     items = [{"name": i.name, "ok": i.ok, "detail": i.detail, "output": i.output} for i in run.items]
-    return _items_outcome(items, ctx, f"パイプライン {name} が失敗しました：", f"パイプライン {name} が通りました")
+    return _items_outcome(items, ctx, f"パイプライン {name} が失敗しました：", f"パイプライン {name} が通りました",
+                          module.root)
 
 
 def _approval(step, ctx) -> ecoflow.Outcome:

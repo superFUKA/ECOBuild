@@ -2094,6 +2094,11 @@ class Module:
         from . import flows as _flows
         return _flows.kinds(self, program)
 
+    def flow_command(self, command, *, cwd: Path, shell: bool, progress: Callable[[str], None] = lambda message: None):
+        """流れの command の工程を動かすしかた：(コマンド, 環境〔None ならこのまま〕, shell, 止める口〔なければ None〕)。
+        本体はこのPCでそのまま。拡張（コンテナ）は、コンテナにした作業空間なら中で動かすものに替える。"""
+        return command, None, shell, None
+
     def flows(self, *, program: tuple[str, ...] = (), progress: Callable[[str], None] | None = None):
         """このモジュール（作業空間）の流れ（ecobuild.flows.Flows）。"""
         from . import flows as _flows

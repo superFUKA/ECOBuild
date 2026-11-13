@@ -394,9 +394,10 @@ def _item_text(item: Any) -> str:
 
 
 def to_data(value: Any) -> Any:
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):   # metadata の omit_empty：空なら出さない
         return {field.name: to_data(getattr(value, field.name))
-                for field in dataclasses.fields(value) if not field.name.startswith("_")}
+                for field in dataclasses.fields(value) if not field.name.startswith("_")
+                and not (field.metadata.get("omit_empty") and not getattr(value, field.name))}
     if isinstance(value, enum.Enum):
         return value.value
     if isinstance(value, Path):

@@ -132,8 +132,8 @@ def test_failed_check_stops_then_retry_and_on_fail_feedback(cli, module):
     write_flow(module.root, "fix", steps=[
         {"id": "impl", "type": "command",
          "args": python("import sys, pathlib; p = pathlib.Path(sys.argv[1]); n = int(p.read_text()) + 1 if p.exists() else 1; "
-                        "p.write_text(str(n)); print('fb=' + sys.argv[2]); sys.exit(0 if n >= 2 else 3)")
-                 + [str(counter), "${vars.feedback}"],
+                        "p.write_text(str(n)); print('回 ' + str(n)); sys.exit(0 if n >= 2 else 3)")
+                 + [str(counter)],
          "on_fail": {"to": "impl", "max": 2, "message": "もう一度：${out.exit_code}"}},
         {"id": "verify", "type": "check", "only": ["conflict_markers"]},
     ])
@@ -144,9 +144,9 @@ def test_failed_check_stops_then_retry_and_on_fail_feedback(cli, module):
     run = as_json(cli("flow", "status", failed["details"]["id"], "--json"))["result"]
     steps = {s["id"]: s for s in run["steps"]}
     assert run["status"] == "failed" and run["current"] == "verify"
-    assert steps["impl"]["attempts"] == 2 and steps["impl"]["backs"] == 1 and steps["impl"]["message"] == "fb=もう一度：3"
+    assert steps["impl"]["attempts"] == 2 and steps["impl"]["backs"] == 1 and steps["impl"]["message"] == "回 2"
+    assert run["vars"]["feedback"] == "もう一度：3"
     assert "衝突の印" in steps["verify"]["message"] and "a.txt" in steps["verify"]["message"]
-    assert "ログ：" in steps["verify"]["message"]
     text = cli("flow", "status", run["id"]).stdout
     assert "失敗" in text and f"ecobuild flow retry {run['id']}" in text
 
@@ -160,15 +160,15 @@ def test_failed_check_stops_then_retry_and_on_fail_feedback(cli, module):
 
 def test_reject_goes_back_and_cancel(cli, module):
     write_flow(module.root, "review", steps=[
-        {"id": "impl", "type": "command", "args": python("import sys; print(sys.argv[1])") + ["[${vars.feedback}]"]},
-        {"id": "ok", "type": "approval"},
+        {"id": "impl", "type": "command", "args": python("print('作った')")},
+        {"id": "ok", "type": "approval", "message": "[${vars.feedback}]"},
     ])
     run = as_json(cli("flow", "run", "review", "--json"))["result"]
     assert run["status"] == "waiting"
     assert as_json(cli("flow", "reject", run["id"], "--json"))["error"]["code"] == "usage_error"   # --to・-m は必須
     again = as_json(cli("flow", "reject", run["id"], "--to", "impl", "--message", "名前を直して", "--json"))["result"]
     steps = {s["id"]: s for s in again["steps"]}
-    assert again["status"] == "waiting" and steps["impl"]["message"] == "[名前を直して]" and steps["impl"]["attempts"] == 2
+    assert again["status"] == "waiting" and steps["ok"]["message"] == "[名前を直して]" and steps["impl"]["attempts"] == 2
     cancelled = cli("flow", "cancel", run["id"], "--json")
     assert cancelled.exit_code == 0 and as_json(cancelled)["result"]["status"] == "cancelled"
     late = as_json(cli("flow", "approve", run["id"], "--json"))
@@ -250,3 +250,43 @@ def test_approval_commands_are_for_people():
     from ecobuild_cli import _effects
     assert _effects.effect("flow approve") == "human" and _effects.effect("flow reject") == "human"
     assert _effects.effect("flow status") == "read" and _effects.effect("flow cancel") == "confirm"
+
+
+def test_commands_run_inside_the_container_unless_host(cli, module, monkeypatch):
+    """コンテナにした作業空間では command の工程を中で動かす（docker exec。印を付けて止められる）。host = true だけこのPCで。"""
+    import ecobuild_container
+    calls = []
+    monkeypatch.setattr(ecobuild_container, "enabled", lambda root: True)
+    monkeypatch.setattr(ecobuild_container, "start", lambda root, **options: None)
+    monkeypatch.setattr(ecobuild_container, "docker_command", lambda runner, command: ("docker",))
+
+    def exec_command(root, prefix, args, names=(), *, directory=None, tag=""):
+        calls.append({"args": list(args), "directory": directory, "tag": tag, "names": names})
+        return [PYTHON, "-c", "print('中で')"]
+
+    monkeypatch.setattr(ecobuild_container, "exec_command", exec_command)
+    write_flow(module.root, "boxed", steps=[
+        {"id": "inside", "type": "command", "args": ["make", "test"], "cwd": "sub"},
+        {"id": "shell", "type": "command", "run": "echo ${inputs.who}"},
+        {"id": "outside", "type": "command", "args": python("print('外')"), "host": True},
+    ], inputs={"who": "名前"})
+    (module.root / "sub").mkdir()
+    run = as_json(cli("flow", "run", "boxed", "who=山田", "--json"))["result"]
+    steps = {s["id"]: s for s in run["steps"]}
+    assert steps["inside"]["message"] == "中で" and steps["shell"]["message"] == "中で" and steps["outside"]["message"] == "外"
+    assert calls[0]["args"] == ["make", "test"] and calls[0]["directory"].endswith("/sub") and calls[0]["tag"]
+    assert calls[1]["args"] == ["sh", "-c", "echo 山田"] and calls[0]["names"] == ()   # 秘密は渡さない
+    write_flow(module.root, "escape", steps=[{"id": "a", "type": "command", "args": ["git"], "cwd": "${inputs.place}"}],
+               inputs={"place": "場所"})
+    failed = as_json(cli("flow", "run", "escape", "place=..", "--json"))["error"]
+    assert failed["code"] == "flow_failed" and "作業空間の外" in failed["message"]
+
+
+def test_a_recreated_workspace_does_not_show_old_runs(cli, module):
+    write_flow(module.root, "one", steps=[{"id": "a", "type": "approval"}])
+    run = as_json(cli("flow", "run", "one", "--json"))["result"]
+    marker = module.root / ".ecobuild" / "flows" / "runs" / ".id"
+    assert marker.read_text(encoding="ascii").strip() in Path(run["folder"]).parent.name
+    assert len(as_json(cli("flow", "list", "--json"))["result"]["runs"]) == 1
+    marker.unlink()                                   # 作業空間を作り直した（印がなくなった）
+    assert as_json(cli("flow", "list", "--json"))["result"]["runs"] == []

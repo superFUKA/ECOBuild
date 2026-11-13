@@ -13,7 +13,8 @@ ecotask.TaskError。層ごとにエラーの種類〔ErrorCode〕だけを足す
 from .errors import ErrorCode, WorkError
 from .repository import Hooks, Repository
 from .model import Branch, PullRequest, Task, TaskRef, TaskBranch
+from ._conflicts import chosen  # 衝突の箇所の、選んだ側の中身（sync resolve）
 
 __version__ = "0.1.0"
 
-__all__ = ["Branch", "ErrorCode", "Hooks", "PullRequest", "Repository", "Task", "TaskRef", "WorkError", "TaskBranch"]
+__all__ = ["Branch", "ErrorCode", "Hooks", "PullRequest", "Repository", "Task", "TaskRef", "WorkError", "TaskBranch", "chosen"]

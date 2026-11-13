@@ -13,10 +13,9 @@ export default {
     const places = loaded ? props.workspaces : [];
     const titles = new Map((props.tasks || []).map((task) => [task.number, task.title]));
     const module = keyOf(props.module);
-    // 閉じたタブ（モジュールごと）：窓を開いているあいだ覚える（memory.window）。左のメニューで別のページへ行って戻っても、
+    // 閉じたタブ（モジュールごと）：窓を開いているあいだ覚える（memory.session）。左のメニューで別のページへ行って戻っても、
     // 読み直しても閉じたまま。窓を閉じると消える
-    // （memory.window のこと。GUIFrameWork の検査が「window」の語を断るので、文字で取り出す）
-    const session = memory['window'];
+    const session = memory.session;  // 窓を開いている間だけ覚える
     const closedKey = 'closed:' + module;
     const kept = session.get(closedKey, []) || [];
     const closed = new Set(kept);

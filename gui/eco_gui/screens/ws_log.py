@@ -28,7 +28,8 @@ SCREEN = {
         {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"value": "log_commit"}}, "require": ["commit"], "to": "detail.text"},
         # コミットの操作：変更を別に開く／ファイルをその版の状態に戻す（restore --source）／タスクブランチをそこまで戻す（task reset）。
         # 戻す操作は、確かめてから（ecobuild の重さのとおり）
-        {"on": "list.action", "when": {"name": "show"}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True},
+        {"on": "list.action", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
+         "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},
         {"on": "list.action", "when": {"name": "restore"}, "run": "restore", "args": {"module": {"arg": "module"}, "source": {"payload": "sha"}},
          "notify": "その版の状態に戻しました。内容を確かめてコミットしてください。"},
         {"on": "list.action", "when": {"name": "reset"}, "run": "task reset", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}},

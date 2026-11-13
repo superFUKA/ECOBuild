@@ -191,6 +191,19 @@ def nodes(relay, window):
     return {node["id"]: node for node in relay.display.tree(window)["nodes"]}
 
 
+def without_tortoisegit(relay):
+    """TortoiseGit のない PC：--gui で見ようとすると、ecobuild は tool_missing で答える。"""
+    run = relay.backend.run
+
+    def no_tool(name, args, context, on_event):
+        if not args.get("gui"):
+            return run(name, args, context, on_event)
+        relay.backend.calls.append((name, {key: value for key, value in args.items() if key != "module"}))
+        return {"ok": False, "error": {"code": "tool_missing", "message": "TortoiseGit が見つかりません。"}}
+
+    relay.backend.run = no_tool
+
+
 def answer(relay, window, yes):
     import time
     for _ in range(200):

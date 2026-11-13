@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
-from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
+from test_eco_gui import FakeEcobuild, answer, nodes, without_tortoisegit  # noqa: E402
 
 
 def _spec(weight, required=(), **properties):
@@ -35,7 +35,7 @@ class FakeReview(FakeEcobuild):
         specs = super()._specs(text)
         specs["task list"] = _spec("read", submitted=flag, to_review=flag)
         specs["task status"] = _spec("read", number=number, issue=number)
-        specs["task diff"] = _spec("read", number=numbers, task=number)
+        specs["task diff"] = _spec("read", number=numbers, task=number, gui=flag)
         specs["task review"] = _spec("change", number=numbers, task=number, done=flag)
         specs["task approve"] = _spec("confirm", ["task"], task=number, message=text, subject=text, ignore_checks=flag)
         specs["task reject"] = _spec("confirm", ["task"], task=number, message=text)
@@ -242,6 +242,9 @@ def test_submission_gives_the_part_the_status_the_account_and_the_workspaces(rel
 
 def test_submission_looks_at_the_diff_the_task_and_the_review_workspace(relay):
     window = submission(relay)
+    act(relay, window, "diff")  # 提出の差分：TortoiseGit で
+    assert ("task diff", {"task": 20, "gui": True}) in relay.backend.calls
+    without_tortoisegit(relay)  # なければ、窓の中に重ねて開く
     act(relay, window, "diff")
     opened = inside(relay, "review-diff")
     assert opened["args"] == {"module": "C:/work/Calc", "task": "20"}

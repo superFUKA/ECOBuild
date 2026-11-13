@@ -12,7 +12,7 @@ pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
 
-from test_eco_gui import answer, nodes  # noqa: E402
+from test_eco_gui import answer, nodes, without_tortoisegit  # noqa: E402
 from test_eco_gui_polish import PolishEcobuild, last, notices, opened, press  # noqa: E402
 
 PLACE = "C:/work/Calc/.ecobuild/w/12"
@@ -120,7 +120,10 @@ def test_unpushed_commits_are_undone_with_task_reset(relay):
     relay.input(window, "push_list", "action", {"name": "drop", "sha": "aaa111", "before": "aaa111~1"}, human=True)
     answer(relay, window, False)
     assert ("task reset", {"commit": "aaa111~1"}) not in relay.backend.calls
-    press(relay, window, "push_list", "action", name="show", sha="aaa111", before="aaa111~1")  # 変更を見る：窓の中に重ねて開く
+    press(relay, window, "push_list", "action", name="show", sha="aaa111", before="aaa111~1")  # 変更を見る：TortoiseGit で
+    assert relay.backend.calls[-1] == ("show", {"commit": "aaa111", "gui": True})
+    without_tortoisegit(relay)  # なければ、窓の中に重ねて開く
+    press(relay, window, "push_list", "action", name="show", sha="aaa111", before="aaa111~1")
     dialog = inside(relay, window, "ws-show")
     assert nodes(relay, dialog)["detail"]["props"]["text"].startswith("commit aaa111") and ("show", {"commit": "aaa111"}) in relay.backend.calls
     press(relay, window, "push_list", "more", count=60)
@@ -276,14 +279,19 @@ def test_the_explorer_opens_the_new_file_the_diff_the_log_and_the_move_dialogs(r
     press(relay, dialog, "destination", "changed", text="src/a.py")
     press(relay, dialog, "move")
     assert last(relay) == ("file move", {"source": "a.py", "destination": "src/a.py"})
-    # 差分：比べ方ごと（ステージしていない／ステージ済み／作成元との差分）
+    # 差分・注釈履歴：TortoiseGit で開く（前の GUI と同じ）
+    told = len(notices(relay))
+    press(relay, window, "explorer", "action", name="diff", path="a.py", paths=["a.py"])
+    press(relay, window, "explorer", "action", name="blame", path="a.py", paths=["a.py"])
+    assert relay.backend.calls[-2:] == [("diff", {"paths": ["a.py"], "gui": True}), ("blame", {"path": "a.py", "gui": True})]
+    assert not [w for w in relay.display.windows() if w["screen"] in ("ws-file-diff", "blame")] and len(notices(relay)) == told
+    # TortoiseGit がなければ、GUI の中で：差分は比べ方ごと（ステージしていない／ステージ済み／作成元との差分）
+    without_tortoisegit(relay)
     press(relay, window, "explorer", "action", name="diff", path="a.py", paths=["a.py"])
     dialog = inside(relay, window, "ws-file-diff")
     assert nodes(relay, dialog)["unstaged"]["props"]["text"].startswith("diff --git a/a.py")
     for args in ({"paths": ["a.py"]}, {"paths": ["a.py"], "staged": True}, {"paths": ["a.py"], "base": True}):
         assert ("diff", args) in relay.backend.calls
-    press(relay, dialog, "external")  # この PC の道具で見る（ecobuild diff --gui）
-    assert relay.backend.calls[-1] == ("diff", {"paths": ["a.py"], "gui": True})
     # ログ・注釈履歴は、別の窓
     press(relay, window, "explorer", "action", name="log", path="tests", paths=["tests"])
     log = next(w for w in relay.display.windows() if w["screen"] == "ws-log")

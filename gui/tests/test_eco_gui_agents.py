@@ -339,7 +339,14 @@ def test_agents_screen_commits_in_the_task_branch_chosen_or_made_for_it(relay):
     window = opened(relay, "agents", module="C:/work/Calc")
     view = nodes(relay, window)
     assert [w["path"] for w in view["place"]["props"]["workspaces"]] == ["C:/work/Calc/.ecobuild/w/12"]
-    assert view["editor"]["props"]["place"] is None  # 選ぶまでは、部品が保存を出さない（選ぶよう知らせる）
+    relay.input(window, "editor", "save_rules", {"common": "決まり"}, human=True)  # まだ決まっていない：実行しない
+    relay.idle()
+    assert ("agent rules set", {"common": "決まり"}) not in relay.backend.calls
+    calls = len(relay.backend.calls)
+    relay.input(window, "shown", "changed", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # 「表示」：作業空間の中身で見る
+    relay.idle()
+    assert relay.backend.modules[calls:].count("C:/work/Calc/.ecobuild/w/12") >= 5  # 一覧・共通の文などを、その場所で読み直す
+    assert relay.display.values(window)["agent_place"] == "C:/work/Calc/.ecobuild/w/12"  # 表示しているタスクブランチでコミット
     relay.input(window, "place", "new_task", {}, human=True)  # 新しいタスクを作る…
     relay.idle()
     form = inside(relay, window, "cfg-agent-task")
@@ -347,11 +354,11 @@ def test_agents_screen_commits_in_the_task_branch_chosen_or_made_for_it(relay):
     relay.idle()
     assert ("task new", {"title": "エージェントの設定を変える", "start": True, "name": "エージェントの設定"}) in relay.backend.calls
     assert relay.display.values(window)["agent_place"] == "C:/work/Calc/.ecobuild/w/30"  # 作った作業空間を、コミットする場所に
-    assert nodes(relay, window)["editor"]["props"]["place"] == "C:/work/Calc/.ecobuild/w/30"
     relay.input(window, "editor", "save_rules", {"common": "決まり"}, human=True)
     relay.idle()
     call = ("agent rules set", {"common": "決まり"})
     assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc/.ecobuild/w/30"  # 選んだタスクブランチで
+    assert relay.display.values(window)["place"] == "C:/work/Calc/.ecobuild/w/30"  # 保存した場所を見せる
 
 
 def test_agents_screen_saves_the_text_for_every_agent(relay):

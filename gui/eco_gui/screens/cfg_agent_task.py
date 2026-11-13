@@ -23,7 +23,7 @@ SCREEN = {
         {"on": "form.submitted", "run": "task new", "require": ["title", "name"],
          "args": {"module": {"arg": "module"}, "title": {"payload": "values.title"}, "start": True, "name": {"payload": "values.name"}},
          "notify": "タスク #{task.number} の作業空間を作りました。", "close": True,
-         "parent": {"agent_place": {"result": "task_branch.workspace"}}},
+         "parent": {"agent_place": {"result": "task_branch.workspace"}, "place": {"result": "task_branch.workspace"}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

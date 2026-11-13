@@ -406,6 +406,12 @@ def test_container_summary_edits_the_dockerfile_opens_its_place_and_puts_the_tem
     relay.input(editor, "editor", "build", {}, human=True)  # 試しに作る
     relay.idle()
     assert ("container image build", {"workspace": "C:/work/Calc/.ecobuild/w/12"}) in relay.backend.calls
+    calls = len(relay.backend.calls)
+    relay.input(editor, "editor", "build", {"text": "FROM ubuntu:24.04\nRUN false\n", "dirty": True}, human=True)  # 書きかけ：保存してから作る
+    relay.idle()
+    after = relay.backend.calls[calls:]
+    assert [c[0] for c in after if c[0] in ("container dockerfile", "container image build")][:2] == ["container dockerfile", "container image build"]
+    assert ("container dockerfile", {"write": "FROM ubuntu:24.04\nRUN false\n"}) in after
     relay.input(editor, "editor", "close", {}, human=True)
     relay.idle()
     assert editor not in [w["id"] for w in relay.display.windows()]

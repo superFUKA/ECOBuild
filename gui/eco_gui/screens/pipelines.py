@@ -10,8 +10,9 @@ SCREEN = {
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "body"]},
         {"id": "section", "screen": "mod-tabs", "args": {"current": "pipelines", "module": {"arg": "module"}}},
         {"id": "nav", "screen": "menu", "args": {"current": "overview", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "shown", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "モジュール", "heading": True}},
+        {"id": "shown", "part": "mod-shown-place"},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         {"id": "body", "layout": "column", "look": "mod-narrow", "children": ["place_note", "list", "timings", "skip_note"]},
         {"id": "place_note", "part": "note", "props": {"tone": "muted", "text":
@@ -23,22 +24,26 @@ SCREEN = {
             "走らせずに進めたいときは、コマンドに --no-pipelines（提出は --no-check）を付けます。GitHub の CI は「CI」のページです。"}},
     ],
     "bindings": [
-        {"read": "pipeline list", "args": {"module": {"arg": "module"}}, "to": "list.data"},
-        {"read": "pipeline list", "args": {"module": {"arg": "module"}}, "to": "timings.data"},
+        # 「表示」：どの場所の中身で見るか（モジュールのフォルダー＝既定のブランチ／作業空間）。選んだ場所は共有の値 place
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "shown.workspaces", "from": "workspaces"},
+        {"value": "place", "to": "shown.value"},
+        {"on": "shown.changed", "set": {"place": {"payload": "path"}}},
+        {"read": "pipeline list", "args": {"module": {"value": "place", "else": {"arg": "module"}}}, "to": "list.data"},
+        {"read": "pipeline list", "args": {"module": {"value": "place", "else": {"arg": "module"}}}, "to": "timings.data"},
         {"on": "reload.pressed", "refresh": True},
         {"on": "list.reload", "refresh": True},
         # カードのボタン：流す（ここで）。作る・変える・消すは、入力の窓（今の中身が初めの値）
-        {"on": "list.action", "when": {"action": "run"}, "run": "pipeline run", "args": {"module": {"arg": "module"}, "name": {"payload": "name"}},
+        {"on": "list.action", "when": {"action": "run"}, "run": "pipeline run", "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "name"}},
          "notify": "パイプラインが通りました。"},
-        {"on": "list.action", "when": {"action": "add"}, "open": "mod-pipeline-edit", "inside": True, "args": {"module": {"arg": "module"}}},
+        {"on": "list.action", "when": {"action": "add"}, "open": "mod-pipeline-edit", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}}},
         {"on": "list.action", "when": {"action": "edit"}, "open": "mod-pipeline-edit", "inside": True, "args": {
-            "module": {"arg": "module"}, "name": {"payload": "name"}, "steps": {"payload": "steps"}, "tests": {"payload": "tests"}}},
+            "module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "name"}, "steps": {"payload": "steps"}, "tests": {"payload": "tests"}}},
         {"on": "list.action", "when": {"action": "remove"}, "open": "mod-pipeline-remove", "inside": True, "args": {
-            "module": {"arg": "module"}, "name": {"payload": "name"}, "used": {"payload": "used"}}},
+            "module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "name"}, "used": {"payload": "used"}}},
         # タイミングの行：モジュールの当て方を変える（タスクブランチで）・この PC だけで足す
         {"on": "timings.changed", "when": {"local": False}, "open": "mod-pipeline-timing", "inside": True, "args": {
-            "module": {"arg": "module"}, "timing": {"payload": "timing"}, "names": {"payload": "names"}, "label": {"payload": "label"}}},
+            "module": {"value": "place", "else": {"arg": "module"}}, "timing": {"payload": "timing"}, "names": {"payload": "names"}, "label": {"payload": "label"}}},
         {"on": "timings.changed", "when": {"local": True}, "open": "mod-pipeline-local", "inside": True, "args": {
-            "module": {"arg": "module"}, "timing": {"payload": "timing"}, "names": {"payload": "names"}, "label": {"payload": "label"}}},
+            "module": {"value": "place", "else": {"arg": "module"}}, "timing": {"payload": "timing"}, "names": {"payload": "names"}, "label": {"payload": "label"}}},
     ],
 }

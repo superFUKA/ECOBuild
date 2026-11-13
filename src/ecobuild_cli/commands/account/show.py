@@ -27,19 +27,23 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             login = next((a["login"] for a in gh_accounts() if a["active"]), "")
             return {"login": login, "role": None, "owner": None, "owner_type": None, "workspace_account": None,
                     "admin": False, "default_base": None, "creators": {}, "take_in": {},
-                    "take_in_other": {"allowed": False, "owners": ""}, "scopes": gh_scopes() if login else []}
+                    "take_in_other": {"allowed": False, "owners": ""},
+                    "manage": {"can": False, "reason": "モジュールの中で行います"}, "scopes": gh_scopes() if login else []}
         access = repository.access()
         creators = repository.branch_creators()
         bases = sorted({repository.default_base, *(name for name in creators if not name.startswith("task/"))})
+        admin = repository.is_admin()
         return {"login": access.login, "role": access.role, "owner": access.owner, "owner_type": access.owner_type,
                 "workspace_account": repository.account,
-                "admin": repository.is_admin(), "default_base": repository.default_base,
+                "admin": admin, "default_base": repository.default_base,
                 # タスクブランチも入れる（子タスクの作成元。親のタスクブランチを作った人が子タスクを反映できる）
                 "creators": creators,
                 # 提出を処理（承認・差し戻し・取り込み）できるか・できる人。取り込み先のブランチごと（画面が、灰色と理由に使う）。
                 # take_in_other は、作った人の記録がないブランチ
                 "take_in": {name: {"allowed": repository.can_take_in(name), "owners": repository.take_in_owners(name)} for name in bases},
-                "take_in_other": {"allowed": repository.is_admin(), "owners": "管理者"},
+                "take_in_other": {"allowed": admin, "owners": "管理者"},
+                # 管理（ブランチ・メンバー・保護）ができるか・できないわけ（--can の答えと同じ形。画面が、灰色と理由に使う）
+                "manage": {"can": admin, "reason": "" if admin else "管理者だけが行えます"},
                 # gh の使用中のアカウントのログインが持つ権限（作業空間に結び付けたアカウントのものではない）
                 "scopes": gh_scopes()}
 

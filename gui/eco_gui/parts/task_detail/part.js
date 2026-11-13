@@ -3,11 +3,11 @@
 const BODY_FOLD = 220;  // 本文を折りたたむ高さ（part.css と同じ）
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw }) {
+  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
     const { PRIORITIES } = lib.task;
     const d = props.status;
     const me = props.me || '';
-    const marks = lib.task.marks(h, emit, menu, props.sprints, me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, me, open_url);
     const closeButton = () => {
       const button = h('button', { type: 'button', class: 'd-close', title: '詳細を閉じる', 'aria-label': '詳細を閉じる' }, '×');
       button.addEventListener('click', () => emit('closed', {}));
@@ -36,7 +36,11 @@ export default {
 
     // --- 見出しとボタン ---
     const head = h('div', { class: 'd-head' }, marks.num(d), marks.stageBadge(view));
-    if (d.url) head.append(h('a', { class: 'd-link', href: d.url, target: '_blank', rel: 'noopener', title: 'GitHubで開く' }, 'GitHub ↗'));
+    if (d.url) {  // いつものブラウザーで開く（窓の中には開かない）
+      const link = h('a', { class: 'd-link', href: d.url, rel: 'noopener', title: 'GitHubで開く' }, 'GitHub ↗');
+      link.addEventListener('click', (event) => { event.preventDefault(); open_url(d.url); });
+      head.append(link);
+    }
     head.append(closeButton());
     const actions = h('div', { class: 'd-actions' });
     if (!isOpen) actions.append(button(marks.deleted(view) ? '元に戻す' : '開き直す', '', () => emit('reopen', { id })));

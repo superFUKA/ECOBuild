@@ -124,10 +124,10 @@ function specOf(props, lib) {
       END,
     ], submit: (x) => {
       const parent = Number(x.parent) || 0;
-      // 別の親へ移す：ecobuild は、今の親から外してからでないと付けない（2回に分ける）
-      if (parent && current && parent !== current) return '親タスクを変えるには、先に「なし」にして保存し、もう一度開いて新しい親を選んでください。';
+      // 別の親へ移す：今の親から外して付ける（ecobuild task edit --clear-parent --parent <番号> の1回で）
+      const moved = parent !== current;
       const payload = some({ title: x.title !== (d.title || '') ? x.title : '', body: x.body !== (d.body || '') ? x.body : '',
-        parent: parent && !current ? String(parent) : '', clear_parent: !parent && Boolean(current), add_blocked_by: x.addBlocked, remove_blocked_by: x.removeBlocked });
+        parent: moved && parent ? String(parent) : '', clear_parent: moved && Boolean(current), add_blocked_by: x.addBlocked, remove_blocked_by: x.removeBlocked });
       if (!Object.keys(payload).length) return '変更する内容がありません。';
       return ['edit', { id, ...payload }];
     } };

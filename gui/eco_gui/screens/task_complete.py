@@ -26,7 +26,9 @@ SCREEN = {
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
         {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "完了にしました。", "close": True,
-         "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "ignore_checks": {"payload": "values.ignore_checks"}, "complete": True}},
+         "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "ignore_checks": {"payload": "values.ignore_checks"}, "complete": True},
+         "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
+                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

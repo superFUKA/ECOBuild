@@ -1385,13 +1385,14 @@ class Module:
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
-             tests: tuple[str, ...] = (), env: dict[str, str] | None = None, repeat: int = 1) -> TestResult:
+             tests: tuple[str, ...] = (), env: dict[str, str] | None = None, repeat: int = 1,
+             on_run=None) -> TestResult:
         """env：テスト（とその前のビルド）の環境に足す環境変数。repeat：流す回数（2以上なら result.runs に回ごとの結果。
-        1回でも失敗したら TEST_FAILED。execution.repeat_tests）。"""
+        1回でも失敗したら TEST_FAILED。execution.repeat_tests）。on_run(何回目, repeat)：各回の前に（進み具合の表示）。"""
         options, _ = self.build_options(configuration, profile)
         builds = self._builds("テスト")
         with _execution.added_environment(env):
-            return _execution.repeat_tests(lambda: builds.test(project, options, tuple(tests)), repeat)
+            return _execution.repeat_tests(lambda: builds.test(project, options, tuple(tests)), repeat, on_run)
 
     def list_tests(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestList:
         """流せるテストの一覧（test --list。名前はそのまま test に渡せる）。"""

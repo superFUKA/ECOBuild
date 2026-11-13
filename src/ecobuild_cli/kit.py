@@ -65,7 +65,7 @@ def test_like(project: str, configuration: str, profile: str, json_output: bool,
         inv.info(f"テスト中：{chosen or '全体'}（{options.configuration}" + (f"、{name}" if name else "")
                  + (f"、{repeat} 回" if repeat > 1 else "") + "）")
         return module.test(project=target, configuration=configuration, profile=profile or None, tests=selected,
-                           env=environment, repeat=repeat)
+                           env=environment, repeat=repeat, on_run=lambda n, total: inv.info(f"（{n}/{total} 回目）"))
 
     return run_command("test", action,
                        lambda r: render_tests(r) if r.passed + r.failed + r.skipped or project else

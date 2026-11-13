@@ -318,7 +318,10 @@ REPEATED = "\0"   # 何度でも書けるオプション（_repeat.REPEATABLE）
 
 
 def split_repeated(text: str) -> tuple[str, ...]:
-    """何度でも書けるオプション（--env 等）の値を、書いた順に（_repeat.merge が REPEATED でつないだもの）。空なら空。"""
+    """何度でも書けるオプション（--env 等）の値を、書いた順に（_repeat.merge が REPEATED を頭に付けてつないだもの。
+    書いたが空の値〔--env ""〕も1つと数える）。書いていなければ空。"""
+    if text.startswith(REPEATED):
+        return tuple(text[len(REPEATED):].split(REPEATED))
     return tuple(text.split(REPEATED)) if text else ()
 
 

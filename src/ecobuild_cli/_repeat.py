@@ -17,7 +17,7 @@ REPEATABLE = ("--env",)   # 何度でも書けるオプション（値は1つの
 
 def merge(args: list[str], find) -> list[str]:
     """-- より前の、何度も書いた REPEATABLE のオプション（--env A=1 --env B=2・--env=A=1）を、最初の位置に1つにまとめる
-    （--env A=1<REPEATED>B=2）。値を取るオプションの値としての --env（--arguments --env）は数えない。
+    （--env <REPEATED>A=1<REPEATED>B=2）。値を取るオプションの値としての --env（--arguments --env）は数えない。
     find(道筋) → click のコマンド。打ったコマンドがそのオプションを持たない・読めなければ、そのまま。"""
     asked = [name for name in REPEATABLE if any(arg == name or arg.startswith(name + "=") for arg in args)]
     if not asked:
@@ -55,5 +55,5 @@ def merge(args: list[str], find) -> list[str]:
             result.append(args[index])
             index += 1
     for name, position in place.items():
-        result[position + 1] = REPEATED.join(values[name])
+        result[position + 1] = REPEATED + REPEATED.join(values[name])   # 頭にも付ける（空の値を書いたことも分かるように）
     return result

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
+from ecobuild.errors import EcoBuildError
 from ecobuild.execution import added_environment, repeat_tests
 from ecobuild_cli.kit import check_repeat, list_tests_like, render_tests, run_command, split_environment
 
@@ -36,9 +37,10 @@ def command(
         chosen = [*selected, *([f"-k {filter}"] if filter else []), *(["前回の失敗"] if last_failed else [])]
         inv.info(f"テスト中：{'、'.join(chosen) or '全体'}（{options.configuration}" + (f"、{name}" if name else "")
                  + (f"、{repeat} 回" if repeat > 1 else "") + "）")
+        once = rerun_same(lambda chosen, lf: module.type.test(None, options, chosen, filter=filter or None, last_failed=lf),
+                          selected, last_failed)
         with added_environment(environment):
-            return repeat_tests(lambda: module.type.test(None, options, selected, filter=filter or None,
-                                                         last_failed=last_failed), repeat)
+            return repeat_tests(once, repeat, lambda n, total: inv.info(f"（{n}/{total} 回目）"))
 
     narrowed = bool(tests or filter or last_failed)
     return run_command("test", action,
@@ -46,6 +48,30 @@ def command(
                        "当てはまるテストがありません" if narrowed else
                        "テストがありません（ecobuild file add src/<パッケージ>/<名前>.py で、tests/ にテストも作れます）",
                        json_output=json)
+
+
+def rerun_same(test, tests: tuple[str, ...], last_failed: bool):
+    """1回のテスト（--repeat の各回）。test(tests, last_failed) → TestResult。
+
+    --last-failed は、1回目に流したケース（nodeid）を2回目からそのまま流す（pytest の前回の失敗の記録は回ごとに
+    書き換わり、1回目で全部通ると2回目から全部を流してしまう）。1回目にケースがなければ、2回目からも同じ指定。"""
+    chosen = {"tests": tuple(tests), "last_failed": last_failed}
+
+    def narrow(cases) -> None:
+        names = tuple(getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else None) for c in cases or ())
+        if chosen["last_failed"] and names and all(names):
+            chosen.update(tests=names, last_failed=False)
+
+    def once():
+        try:
+            result = test(chosen["tests"], chosen["last_failed"])
+        except EcoBuildError as error:
+            narrow(error.details.get("cases") if isinstance(error.details, dict) else None)
+            raise
+        narrow(result.cases)
+        return result
+
+    return once
 
 
 def _from_root(cwd: Path, root: Path, test: str) -> str:

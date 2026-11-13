@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ecobuild.errors import EcoBuildError
+from ecobuild.execution import added_variables
 from ecobuild.fsutil import remove_tree
 from ecobuild.results import TestCaseResult
 
@@ -41,8 +42,9 @@ NO_TESTS = 5            # pytest の終了コード：テストが1件も集ま�
 
 
 def _environment() -> dict[str, str]:
-    # 出力はUTF-8（Windows の既定 cp932 での文字化けを避ける）。pip の更新の案内は出さない
-    return {**os.environ, "PYTHONUTF8": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    # 出力はUTF-8（Windows の既定 cp932 での文字化けを避ける）。pip の更新の案内は出さない。利用者が --env で書いた
+    # もの（execution.added_variables）は、こちらの決まった値で上書きしない
+    return {**os.environ, "PYTHONUTF8": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1", **added_variables()}
 
 
 def run(args: list[str], root: Path, code: str, message: str) -> subprocess.CompletedProcess:

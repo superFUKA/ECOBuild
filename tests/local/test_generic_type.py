@@ -396,7 +396,7 @@ def test_env_and_repeat_through_the_cli(tmp_path, monkeypatch, capsys):
     test = python("import os, sys, pathlib; p = pathlib.Path('" + counter + "'); n = int(p.read_text()) + 1 if p.exists() else 1; "
                   "p.write_text(str(n)); ok = os.environ.get('A') == '2' and os.environ.get('B') == 'x=y'; "
                   "sys.exit(0 if ok and n != 2 else 3)")
-    commands = {"build": python("print(1)"), "test": test, "run": python("import os; print(os.environ.get('GREETING'))")}
+    commands = {"build": python("print(1)"), "test": test, "run": python("import os; print(repr(os.environ.get('GREETING')))")}
     module._save_config(config.ModuleConfig(**{**module.config.__dict__, "extra": {"commands": commands}}))
     monkeypatch.chdir(module.root)
 
@@ -407,8 +407,11 @@ def test_env_and_repeat_through_the_cli(tmp_path, monkeypatch, capsys):
         return exited.value.code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
 
     code, out = run("run", "--env", "GREETING=hello world")
-    assert code == 0 and out["result"]["output"].strip() == "hello world"
+    assert code == 0 and out["result"]["output"].strip() == "'hello world'"
     assert "GREETING" not in os.environ
+    monkeypatch.setenv("GREETING", "before")
+    code, out = run("run", "--env", "GREETING=")                       # 空の値も届く（Windows でも消えない）
+    assert code == 0 and out["result"]["output"].strip() == "''" and os.environ["GREETING"] == "before"
 
     code, out = run("test", "--env", "A=1", "--env=B=x=y", "--env", "A=2", "--repeat", "3")
     assert code == 1 and out["error"]["code"] == "test_failed" and "3 回のうち 1 回" in out["error"]["message"]
@@ -421,7 +424,7 @@ def test_env_and_repeat_through_the_cli(tmp_path, monkeypatch, capsys):
     code, out = run("test", "--env", "A=2", "--env", "B=x=y")
     assert code == 0 and out["result"]["runs"] == []                    # 1回なら今までどおり
 
-    for wrong in (["--env", "A"], ["--env", "=1"], ["--repeat", "0"]):
+    for wrong in (["--env", "A"], ["--env", "=1"], ["--env="], ["--env", ""], ["--repeat", "0"]):
         code, out = run("test", *wrong)
         assert code == 2 and out["error"]["code"] == "usage_error", wrong
     assert run("run", "--env", "NOVALUE")[0] == 2

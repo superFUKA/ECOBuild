@@ -161,14 +161,13 @@ class _Unavailable(click.Command):
 
     def invoke(self, ctx: click.Context):
         command = " ".join(self.route)
+        from . import _output, _suggest
+        typed = [*self.route, *_suggest.words_of(ctx.args)[:1]]   # どの型にもない名前（file list 等）なら、もしかして
+        guess = _suggest.suggestion(typed)
+        if guess:   # ほかの引数の誤りと同じ形・終了コード（2）
+            ctx.exit(_output.usage_error(f"不明なコマンドです: '{' '.join(typed)}'", "--json" in ctx.args, hint=guess))
 
         def action(inv):
-            from . import _suggest
-            typed = [*self.route, *_suggest.words_of(ctx.args)[:1]]   # どの型にもない名前（file list 等）なら、もしかして
-            guess = _suggest.suggestion(typed)
-            if guess:
-                from ._errors import ErrorCode as CliCode
-                raise EcoBuildError(CliCode.USAGE_ERROR, f"不明なコマンドです: '{' '.join(typed)}'", hint=guess)
             module = inv.module      # モジュールの外・ecobuild.toml を読めない・型が登録されていない：その理由で止まる
             raise EcoBuildError(
                 ErrorCode.NOT_SUPPORTED,

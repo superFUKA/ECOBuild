@@ -68,7 +68,7 @@ def test_type_commands_that_no_type_has(tmp_path, monkeypatch, capsys):
     """file list（どの型にもない）は、モジュールの外でも、もしかして。project add x --help --json は位置引数を外す。"""
     monkeypatch.chdir(tmp_path)
     code, document, _ = _run(capsys, "file", "list", "--json")
-    assert document["error"]["hint"] == "もしかして：ecobuild files"
+    assert code == 2 and document["error"]["code"] == "usage_error" and document["error"]["hint"] == "もしかして：ecobuild files"
     code, document, _ = _run(capsys, "file", "list", "--help", "--json")
     assert code == 2 and document["error"]["hint"] == "もしかして：ecobuild files"
     code, document, _ = _run(capsys, "project", "add", "x", "--help", "--json")
@@ -77,6 +77,8 @@ def test_type_commands_that_no_type_has(tmp_path, monkeypatch, capsys):
 
 def test_guess_keeps_the_typed_arguments(tmp_path, monkeypatch, capsys):
     assert _suggest.suggestion(["task", "show", "252"]) == "もしかして：ecobuild task status 252"
+    assert _suggest.suggestion(["push", "origin", "main"]) == "もしかして：ecobuild task push"   # git の慣れの引数は付けない
+    assert _suggest.suggestion(["checkout", "main"]) == "もしかして：ecobuild task start"
 
 
 def test_help_json_with_positional_arguments(tmp_path, monkeypatch, capsys):

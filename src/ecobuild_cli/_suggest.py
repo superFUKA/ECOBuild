@@ -65,12 +65,15 @@ def suggestion(args: list[str]) -> str | None:
         return None
     tried = tuple(words[:length + 1])
     guessed = GUESSES.get(tried)
-    if guessed is not None:   # 案内先が末端のコマンドなら、打った位置引数も付ける（task show 252 → task status 252）
+    if guessed is not None:
         if guessed.startswith("…"):
             return guessed[1:]
+        # グループの中の言い換え（task show 252 → task status 252）で、案内先が末端のコマンドなら、打った位置引数も付ける。
+        # 先頭の1語の推測（push origin main・checkout main 等。git の慣れ）は、引数の意味が違うので付けない
         target = tuple(guessed.split())
         leaf = not any(len(route) > len(target) and route[:len(target)] == target for route in routes)
-        return f"もしかして：ecobuild {' '.join([guessed, *(words[length + 1:] if leaf else ())])}"
+        carried = words[length + 1:] if leaf and length >= 1 else []
+        return f"もしかして：ecobuild {' '.join([guessed, *carried])}"
     siblings = sorted({route[length] for route in routes if len(route) > length and route[:length] == tried[:-1]})
     close = difflib.get_close_matches(tried[-1], siblings, n=3, cutoff=0.6)
     if not close:

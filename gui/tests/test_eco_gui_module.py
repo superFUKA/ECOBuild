@@ -84,6 +84,7 @@ class FakeModule(FakeEcobuild):
                         "os": ["linux"], "configurations": ["Debug", "Release"], "shared": False, "branches": None, "default_base": "main"},
             "ci status": [run for run in RUNS if not given.get("branch") or run["branch"] == given["branch"]],
             "ci logs": {"log": "失敗した手順の出力"},
+            "ci init": {"path": ".github/workflows/ecobuild.yml", "private_dependencies": ["Secret"]},
             "ci secret list": list(self.secrets),
             "pipeline list": {"pipelines": [{"name": "check", "steps": ["generated", "build", "test"], "tests": ["tests/unit"]},
                                             {"name": "quick", "steps": ["conflict_markers"], "tests": []}],
@@ -188,6 +189,9 @@ def test_ci_shows_the_settings_the_runs_and_the_secrets(relay):
     assert [run["id"] for run in view["runs"]["props"]["rows"]] == [901, 902] and ("ci status", {"all": True, "count": 30}) in relay.backend.calls
     assert view["runs"]["props"]["url"] == "https://github.com/octocat/Calc" and view["runs"]["props"]["branch_rows"] == []
     assert view["secrets"]["props"]["names"] == ["ECOBUILD_DEPS_TOKEN"]
+    # 管理者か（灰色にするか）・ワークフローがあるか（手動で実行）を、部品へ
+    assert view["runs"]["props"]["admin"] is True and view["config"]["props"]["admin"] is True and view["secrets"]["props"]["admin"] is True
+    assert view["runs"]["props"]["ready"] is True
     assert not [call for call in relay.backend.calls if call[0] == "ci status" and "branch" in call[1]]  # 絞るまで、ブランチの実行は読まない
     relay.input(window, "runs", "branch", {"name": "main"}, human=True)  # ブランチで絞る
     relay.idle()
@@ -217,9 +221,11 @@ def test_ci_rows_open_the_log_and_run_again(relay):
     relay.idle()
     form = inside(relay, "mod-ci-run")
     assert nodes(relay, form)["form"]["props"]["initial"] == {"branch": "main"}
+    assert nodes(relay, window)["runs"]["props"]["dispatched"] is None
     relay.input(form, "form", "submitted", {"values": {"branch": "feature/mvp"}}, human=True)
     relay.idle()
     assert ("ci run", {"branch": "feature/mvp"}) in relay.backend.calls
+    assert nodes(relay, window)["runs"]["props"]["dispatched"] is True  # 部品が、少しして読み直す
     relay.input(window, "secrets", "removed", {"name": "ECOBUILD_DEPS_TOKEN"}, human=True)
     answer(relay, window, True)  # 消すのは、確かめてから
     assert ("ci secret remove", {"name": "ECOBUILD_DEPS_TOKEN"}) in relay.backend.calls and nodes(relay, window)["secrets"]["props"]["names"] == []
@@ -227,17 +233,20 @@ def test_ci_rows_open_the_log_and_run_again(relay):
 
 def test_ci_is_set_up_and_removed_in_the_chosen_workspace(relay):
     window = open_screen(relay, "ci")
-    relay.input(window, "config", "action", {"action": "init", "os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": ""}, human=True)
+    relay.input(window, "config", "action", {"action": "init", "os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": "",
+                                             "edited": False}, human=True)
     relay.idle()
     form = inside(relay, "mod-ci-init")
     view = nodes(relay, form)["form"]["props"]
     assert view["initial"] == {"os": "linux", "configuration": "Debug,Release", "shared": "off", "branches": ""}
+    assert view["vars"] == {"edited": False}  # 「上書きする」の欄は、手で編集されているときだけ
     assert [row["path"] for row in view["rows"]] == ["C:/work/Calc/.ecobuild/w/12"]  # 作り直す場所は、タスクブランチの作業空間から選ぶ
     relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12", "os": "windows,linux", "configuration": "Release",
                                                        "shared": "on", "branches": "", "force": False}}, human=True)
     relay.idle()
     call = ("ci init", {"os": "windows,linux", "configuration": "Release", "shared": "on", "force": False})
     assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc/.ecobuild/w/12"  # 選んだ作業空間で実行する
+    assert nodes(relay, window)["config"]["props"]["private"] == ["Secret"]  # 非公開の依存先は、CI のページで知らせる
     relay.input(window, "config", "action", {"action": "remove"}, human=True)
     relay.idle()
     form = inside(relay, "mod-ci-remove")

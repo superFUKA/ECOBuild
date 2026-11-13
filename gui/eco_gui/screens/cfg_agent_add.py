@@ -36,6 +36,7 @@ SCREEN = {
         {"on": "form.cancelled", "close": True},
         # ecobuild agent registry add <名前> [--from-preset <プリセット>] [--title …] --human-start/--no-human-start [--no-owner-tools]
         {"on": "form.submitted", "run": "agent registry add", "confirmed": True, "require": ["module"],
+         "parent": {"place": {"payload": "values.place"}},  # 外の窓は、コミットした場所を見せる
          "args": {"module": {"payload": "values.place"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
                   "title": {"payload": "values.title"}, "human_start": {"payload": "values.human_start"},
                   "no_owner_tools": {"payload": "values.no_owner_tools"}},

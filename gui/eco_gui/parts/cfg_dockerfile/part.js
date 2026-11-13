@@ -43,11 +43,12 @@ export default {
       const saveReason = !r ? '読み込んでいます' : !r.editable ? (r.reason || 'タスクブランチでだけ書き換えられます') : !dirty() ? '変更はありません' : '';
       const buildReason = !r ? '読み込んでいます'
         : !r.docker_ready ? `Docker が使えません（${r.docker_detail || '状態が分かりません'}）。ecobuild setup --docker で導入できます`
-          : dirty() ? '保存してから試せます（Ctrl+S）' : '';
+          : dirty() && !r.editable ? '保存できないので、書きかけのまま試せません' : '';
       save.disabled = !!saveReason;
       save.title = saveReason || `${FILE} に書きます（ecobuild container dockerfile --write）`;
       build.disabled = !!buildReason;
-      build.title = buildReason || 'この Dockerfile でイメージを作ります（container image build。数分かかります）';
+      build.title = buildReason || (dirty() ? '保存してから、この Dockerfile でイメージを作ります（container image build）'
+        : 'この Dockerfile でイメージを作ります（container image build。数分かかります）');
       reason.textContent = r && !r.editable ? `保存できません：${saveReason}` : r && r.editable && !r.docker_ready ? `試しに作れません：${buildReason}` : '';
     };
     const doSave = () => { if (!save.disabled) emit('save', { text: state.text }); };
@@ -64,7 +65,7 @@ export default {
       update();
     });
     close.addEventListener('click', doClose);
-    build.addEventListener('click', () => { if (!build.disabled) emit('build', {}); });
+    build.addEventListener('click', () => { if (!build.disabled) emit('build', { text: state.text, dirty: dirty() }); });
     save.addEventListener('click', doSave);
     keys('Ctrl+S', doSave);
     keys('Escape', doClose);  // Esc も「閉じる」と同じ（保存していない変更があれば確かめる）

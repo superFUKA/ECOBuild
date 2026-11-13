@@ -3,7 +3,8 @@
 上に分かっていること（リポジトリにあるか・材料のハッシュ・イメージがこの PC にあるか・コンテナが古いか）、真ん中に中身、
 下に「閉じる」「試しに作る」「保存」と、ECOBuild が重ねる層（読むだけ）。Ctrl+S で保存、Tab で空白4つ。
 書けるか（タスクブランチか）・試せるか（Docker が使えるか）は届いた答え（editable・reason・docker_ready）のとおりに、
-できないボタンは灰色と理由。保存していない変更があるうちは、閉じる（Esc も）前に確かめる。試すのは保存してから。
+できないボタンは灰色と理由。保存していない変更があるうちは、閉じる（Esc も）前に確かめる。書きかけで「試しに作る」と、
+保存してから作る（build に中身と dirty）。
 """
 from typing import Annotated
 
@@ -23,7 +24,8 @@ def on_save(text: Annotated[str, "書く中身"]) -> None:
         raise ValueError("中身が空です")
 
 
-def on_build() -> None: ...
+def on_build(text: Annotated[str, "今の中身（書きかけなら、先に保存する）"] = "",
+             dirty: Annotated[bool, "保存していない変更がある（保存してから作る）"] = False) -> None: ...
 
 
 def on_close() -> None: ...

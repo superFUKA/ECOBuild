@@ -19,14 +19,7 @@ const orBlank = (text) => text || ' ';                 // 空にするときは�
 const keyOf = (sel) => `${sel.kind}:${sel.name}`;
 
 export default {
-  render(root, props, kit) {
-    const { h, state, redraw, notice } = kit;
-    // 保存・削除は、選んだタスクブランチでコミットする。まだ選んでいなければ出さない（どこで実行するかが決まらない）
-    const CHANGES = ['save', 'remove', 'save_skill', 'remove_skill', 'save_rules'];
-    const emit = (name, payload) => {
-      if (CHANGES.includes(name) && !props.place) { notice('保存してコミットするタスクブランチを、上で選んでください。', 'warn'); return; }
-      kit.emit(name, payload);
-    };
+  render(root, props, { h, emit, state, redraw }) {
     if (props.error) return root.replaceChildren(h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, `読めませんでした：${props.error}`)));
     const agents = props.agents || [], skills = props.skills || [], tools = props.tools || [];
     if (!state.selected) state.selected = { kind: 'common', name: '' };

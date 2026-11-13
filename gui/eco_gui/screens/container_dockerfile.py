@@ -21,7 +21,12 @@ SCREEN = {
         {"on": "editor.save", "run": "container dockerfile", "require": ["write"],
          "args": {"module": {"arg": "module"}, "write": {"payload": "text"}},
          "set": {"dockerfile_saved": {"result": ""}}, "notify": ".ecobuild/container/Dockerfile を保存しました（コミットは作業空間の「コミット」で）。"},
-        {"on": "editor.build", "run": "container image build", "args": {"module": {"arg": "module"}, "workspace": {"arg": "module"}},
+        # 試しに作る：書きかけなら、保存してから続けて作る（after の run）
+        {"on": "editor.build", "when": {"dirty": True}, "run": "container dockerfile", "require": ["write"],
+         "args": {"module": {"arg": "module"}, "write": {"payload": "text"}}, "set": {"dockerfile_saved": {"result": ""}},
+         "after": {"run": "container image build", "args": {"module": {"arg": "module"}, "workspace": {"arg": "module"}},
+                   "notify": "保存して、この Dockerfile のイメージを作りました（もうあれば、作り直しません）。"}},
+        {"on": "editor.build", "when": {"dirty": [False, None]}, "run": "container image build", "args": {"module": {"arg": "module"}, "workspace": {"arg": "module"}},
          "output": "out.lines", "notify": "この Dockerfile のイメージを作りました（もうあれば、作り直しません）。"},
         {"on": "editor.close", "close": True},
     ],

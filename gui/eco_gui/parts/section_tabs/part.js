@@ -1,14 +1,9 @@
 // 部品「ページの上のタブ」。左のメニューで選んだまとまりの中を、画面ごとに切り替える（今のタブに印）。
 export default {
-  render(root, props, { h, emit, memory, state }) {
+  render(root, props, { h, emit }) {
     const strip = h('div', { class: 'strip', role: 'tablist' });
     const shown = (props.items || []).filter((item) => !item.only || item.only === props.kind);
-    if (props.remember) {
-      const kept = memory.get('tab', '');
-      if (props.current && props.current !== kept) memory.set('tab', props.current);
-      else if (!props.current && kept && !state.restored && shown.some((item) => item.id === kept)) { state.restored = true; emit('selected', { id: kept }); }
-    }
-    const current = props.current || (props.remember ? (shown[0] || {}).id : '');  // 覚えるタブ：まだ決まっていなければ先頭
+    const current = props.current;
     for (const item of shown) {
       const on = item.id === current;
       const button = h('button', { type: 'button', role: 'tab' }, item.label);

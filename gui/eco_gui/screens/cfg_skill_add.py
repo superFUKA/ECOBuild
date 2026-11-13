@@ -36,6 +36,7 @@ SCREEN = {
         {"on": "form.cancelled", "close": True},
         # ecobuild agent skill add <名前> --description … ／ --from-preset … ／ --from-dir …
         {"on": "form.submitted", "run": "agent skill add", "confirmed": True, "require": ["module"],
+         "parent": {"place": {"payload": "values.place"}},  # 外の窓は、コミットした場所を見せる
          "args": {"module": {"payload": "values.place"}, "name": {"payload": "values.name"}, "from_preset": {"payload": "values.from_preset"},
                   "from_dir": {"payload": "values.from_dir"}, "description": {"payload": "values.description"}},
          "notify": "スキルを追加してコミットしました。提出して取り込まれると渡ります。", "close": True},

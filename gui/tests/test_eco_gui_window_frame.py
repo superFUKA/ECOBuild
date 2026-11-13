@@ -96,6 +96,8 @@ class WindowFrame(FrameEcobuild):
         if name == "open" and plain.get("solution"):
             self.modules.append(args.get("module"))
             self.calls.append((name, plain))
+            if getattr(self, "built", False):
+                return {"ok": True, "result": {"app": "vs", "version": "2026", "opened": "solution", "name": "Calc.slnx"}}
             return {"ok": False, "error": {"code": "no_solution", "message": "ソリューション（.sln／.slnx）がまだありません。"}}
         return super().run(name, args, context, on_event)
 
@@ -146,10 +148,14 @@ def test_visual_studio_from_a_tab_offers_to_build_when_there_is_no_solution(fram
     build = inside(frame, "frame-vs-build")   # 「ビルドしてから開きますか？」
     assert frame.display.tree(build)["args"] == {"module": PLACE, "version": "2026"}
     assert [n for n, v in nodes(frame, build).items() if (v.get("wrap") or {}).get("kind") == "hidden"] == ["built", "open"]
+    frame.backend.built = True   # ビルドするとソリューションができる
     emit(frame, build, "build", "pressed")
-    assert ("build", {}, PLACE) in frame.backend.done   # その作業空間でビルド
+    # 1回の押下で：その作業空間でビルドし、うまくいったら続けて開く（ecobuild open --app vs --solution）
+    done = [(name, args, module) for name, args, module in frame.backend.done if name in ("build", "open")]
+    assert done[-2:] == [("build", {}, PLACE), ("open", {"app": "vs", "vs_version": "2026", "solution": True}, PLACE)]
+    assert "Visual Studio 2026 で開きます：Calc.slnx" in notices(frame)
     view = nodes(frame, build)
-    assert view["out"]["props"]["lines"] and not view["open"]["wrap"] and (view["build"]["wrap"] or {}).get("kind") == "hidden"
+    assert view["out"]["props"]["lines"] and not view["open"]["wrap"]   # 開き直すボタンも出る
 
 
 def test_the_tab_menu_has_one_visual_studio_the_version_chosen_on_this_pc(frame):
@@ -163,15 +169,19 @@ def test_the_tab_menu_has_one_visual_studio_the_version_chosen_on_this_pc(frame)
 def test_closed_tabs_stay_closed_while_the_window_is_open():
     """閉じたタブは、左のメニューで別のページへ行って戻っても閉じたまま（窓のページの入れ物に、モジュールごとに覚える）。"""
     js = (GUI / "eco_gui" / "parts" / "frame_tabs" / "part.js").read_text(encoding="utf-8")
-    assert "const CLOSED = new Map();" in js and "CLOSED.get(module)" in js
+    assert "memory['window']" in js and "session.get(closedKey" in js and "session.set(closedKey" in js
     assert "closed.delete(current)" in js   # 出すよう頼まれた作業空間は、また出す
 
 
-def test_the_module_window_is_as_large_as_before_and_rereads_the_tabs_every_20_seconds():
+def test_the_module_window_is_as_large_as_before_and_rereads_the_tabs_every_20_seconds(frame):
     for name in ("frame_workspace", "frame_workspaces", "overview", "board", "settings"):
         window = screen_data(name)["window"]
         assert (window["width"], window["height"]) == (1360, 880), name
-    assert screen_data("frame_workspaces")["window"]["refresh"]["every"] == 20
+    # タブの状態（手元の module show）だけを 20 秒ごとに。GitHub に聞く task list は、その間隔では読まない
+    reads = [row for row in screen_data("frame_bar")["bindings"] if "read" in row]
+    assert [row["read"] for row in reads if row.get("every") == 20] == ["module show"]
+    window = opened(frame, "frame-workspace", module=MODULE, space=PLACE)
+    assert 20 in frame.display.tree(window)["refresh"]["reads"]
 
 
 # ハブ ------------------------------------------------------------------------------------------------------------------
@@ -210,7 +220,6 @@ def test_the_environment_check_fixes_the_login_and_the_permission(hub):
 
 def test_update_is_offered_only_when_newer_and_relaunches_the_gui(hub):
     window = opened(hub, "hub-settings")
-    emit(hub, window, "tabs", "selected", id="ecobuild")
     view = nodes(hub, window)
     assert not view["update"]["wrap"] and not view["pick_card"]["wrap"]   # 新しい版がある
     press_and_confirm(hub, window, "update")
@@ -236,11 +245,7 @@ def press_and_confirm(relay, window, node):
 
 def test_settings_remember_the_tab_and_tell_how_many_images_were_made(hub):
     window = opened(hub, "hub-settings")
-    view = nodes(hub, window)
-    assert view["tabs"]["props"]["remember"] is True and (view["ai"]["wrap"] or {}).get("kind") == "hidden"
-    emit(hub, window, "tabs", "selected", id="images")
-    view = nodes(hub, window)
-    assert not view["images_tab"]["wrap"] and (view["general"]["wrap"] or {}).get("kind") == "hidden"
+    assert nodes(hub, window)["tabs"]["layout"] == "tabs"   # 最後に見ていたタブは、配置 tabs が覚える
     emit(hub, window, "images_build", "pressed")
     assert nodes(hub, window)["images"]["props"]["done"] == {"built": ["ecobuild-calc:1", "ecobuild-game:2"]}
     js = (GUI / "eco_gui" / "parts" / "hub_images" / "part.js").read_text(encoding="utf-8")
@@ -249,7 +254,6 @@ def test_settings_remember_the_tab_and_tell_how_many_images_were_made(hub):
 
 def test_this_gui_makes_shortcuts_and_quits(hub):
     window = opened(hub, "hub-settings")
-    emit(hub, window, "tabs", "selected", id="ecobuild")
     emit(hub, window, "make_shortcut", "pressed")
     press_and_confirm(hub, window, "quit_gui")
     assert ("gui shortcut", {}) in hub.backend.calls and ("gui quit", {}) in hub.backend.calls
@@ -314,7 +318,7 @@ def test_electron_gets_how_to_reopen_a_module_and_the_type_icons(monkeypatch, tm
 
 def test_the_start_script_opens_a_module_window_with_module():
     text = (GUI / "ECOBuildGUINext.pyw").read_text(encoding="utf-8")
-    assert '"--module"' in text and '"keep": True' in text and '"frame-workspaces"' in text
+    assert '"--module"' in text and '"--keep"' in text and '"frame-workspaces"' in text   # 表示の CLI の open --keep
 
 
 def test_a_module_shortcut_opens_its_window_with_its_app_id(tmp_path):

@@ -38,10 +38,19 @@ def module_of(given: str) -> str:
 
 
 def open_module(root: str) -> None:
-    """モジュールの窓を開く（そのモジュールの窓が開いていれば、切り替えずに前に出す：ハブの一覧から開くのと同じ）。"""
-    from guiframework import client
+    """モジュールの窓を開く（そのモジュールの窓が開いていれば、切り替えずに前に出す：ハブの一覧から開くのと同じ。表示の CLI の open --keep）。"""
+    from guiframework.procs import console_python
 
-    client.send("ecobuild-gui-next", {"command": "open", "screen": "frame-workspaces", "args": {"module": root}, "keep": True})
+    done = subprocess.run([console_python(sys.executable), "-m", "eco_gui.app", "open", "--keep", "--json", "--", "frame-workspaces",
+                           f"module={root}"], cwd=HERE, creationflags=0x08000000 if sys.platform == "win32" else 0,
+                          stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
+    if done.returncode != 0:
+        try:
+            error = json.loads(done.stdout.strip().splitlines()[-1])["error"]
+            message = error["message"]
+        except (ValueError, IndexError, KeyError, TypeError):
+            message = (done.stderr or done.stdout or "").strip() or f"終了コード {done.returncode}"
+        raise RuntimeError(message)
 
 
 def main(argv: list[str] | None = None) -> int:

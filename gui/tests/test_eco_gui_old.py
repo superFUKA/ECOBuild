@@ -228,6 +228,16 @@ def test_cpp_page_gives_the_tables_what_they_draw(relay):
     assert view["section"]["props"]["kind"] == "cpp"  # C++ のモジュール：上のタブに Project・依存先が出る
     put(relay, window, "update")
     assert called(relay, "project update") == [{}]
+    # 「表示」：作業空間を選ぶと、その場所の中身で読み直す（同じ窓で依存先へ移っても、部品が覚えた場所に戻す）
+    place = GAME + "/.ecobuild/w/12"
+    calls = len(relay.backend.calls)
+    put(relay, window, "shown", "changed", path=place)
+    read = [(call[0], module) for call, module in zip(relay.backend.calls[calls:], relay.backend.modules[calls:])]
+    assert ("project list", place) in read and ("deps list", place) in read and ("module settings", place) in read
+    put(relay, window, "update")
+    assert relay.backend.modules[relay.backend.calls.index(("project update", {}), calls)] == place  # 構成を合わせるのも、その場所で
+    put(relay, window, "shown", "changed", path="")  # モジュールのフォルダー（既定のブランチ）に戻す
+    assert relay.backend.modules[-1] == GAME
 
     put(relay, window, "section", "selected", id="cpp-deps")  # モジュール › 依存先（同じ窓で）
     view = nodes(relay, window)

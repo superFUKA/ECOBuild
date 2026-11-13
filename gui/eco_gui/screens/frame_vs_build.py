@@ -1,9 +1,8 @@
 """Visual Studio で開く › ソリューションがまだない：ビルドしてから開くかを尋ねる（窓の中に重ねて開く）。
 
-ソリューションはビルドで作られる（C++）。「ビルドする」でビルドし（ecobuild build）、できたら「Visual Studio で開く」
+ソリューションはビルドで作られる（C++）。「ビルドして開く」でビルドし（ecobuild build）、うまくいったら続けて Visual Studio で開く
 （ecobuild open --app vs --solution）。作業空間のタブの右クリック・ハブのカードの「Visual Studio で開く」が、
-ソリューションがないとき（no_solution）にこれを開く。
-ビルドと開くは2つのボタン（ビルドが終わってから開く。GUIFrameWork のつなぎは、実行の後に続けて実行できないため）。"""
+ソリューションがないとき（no_solution）にこれを開く。"""
 
 ARGS = {"module": ".", "version": ""}  # 開く場所（作業空間・モジュールのフォルダー）・Visual Studio の版（空なら、この PC のいちばん新しい版）
 
@@ -18,18 +17,20 @@ SCREEN = {
         {"id": "out", "part": "output", "props": {"empty_text": "ビルドの出力が、ここに出ます。"}},
         {"id": "built", "part": "note", "props": {"text": "ビルドしました。ソリューションを開けます。"}},
         {"id": "foot", "layout": "row", "look": "actions", "children": ["cancel", "build", "open"]},
-        {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
-        {"id": "build", "part": "button", "props": {"label": "ビルドする", "primary": True}},
-        {"id": "open", "part": "button", "props": {"label": "Visual Studio で開く", "primary": True}},
+        {"id": "cancel", "part": "button", "props": {"label": "閉じる"}},
+        {"id": "build", "part": "button", "props": {"label": "ビルドして開く", "primary": True}},
+        {"id": "open", "part": "button", "props": {"label": "Visual Studio で開く", "primary": True}},  # ビルドした後、開き直すとき
     ],
     "bindings": [
         {"on": "cancel.pressed", "close": True},
-        # ecobuild build（そのフォルダーで。出力はここに続けて出す）。できたら、開くボタンに替わる
-        {"on": "build.pressed", "run": "build", "args": {"module": {"arg": "module"}}, "output": "out.lines", "set": {"vs_built": True}},
+        # ecobuild build（そのフォルダーで。出力はここに続けて出す）。うまくいったら続けて開く（ecobuild open --app vs --solution）
+        {"on": "build.pressed", "run": "build", "args": {"module": {"arg": "module"}}, "output": "out.lines", "set": {"vs_built": True},
+         "after": {"run": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"arg": "version"}, "solution": True},
+                   "notify": "Visual Studio[ {version}] で開きます[：{name}]"}},
         {"show": "build", "when": {"vs_built": [None, False]}},
         {"show": "built", "when": {"vs_built": True}},
         {"show": "open", "when": {"vs_built": True}},
         {"on": "open.pressed", "run": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"arg": "version"}, "solution": True},
-         "notify": "Visual Studio {version} で開きます：{name}", "close": True},
+         "notify": "Visual Studio[ {version}] で開きます[：{name}]", "close": True},
     ],
 }

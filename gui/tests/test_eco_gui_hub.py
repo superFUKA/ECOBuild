@@ -313,7 +313,7 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     window = opened(relay, "hub-settings")
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "hub-settings"
-    assert [item["label"] for item in view["tabs"]["props"]["items"]] == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
+    assert view["tabs"]["props"]["labels"] == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
     assert view["owner"]["props"]["text"] == "acme"  # 今の値が欄に入っている
     assert [item["id"] for item in view["doctor"]["props"]["items"]] == ["git", "gh_auth", "git_identity", "docker"]
     assert view["images"]["props"]["data"]["images"][0]["name"] == "ecobuild-calc:bbb"
@@ -329,8 +329,6 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     assert ("setup", {"install": True}) in relay.backend.calls
     assert nodes(relay, window)["setup_fields"]["props"]["result"] == {
         "done": ["git が gh の認証を使うようにしました"], "remaining": [], "commands": []}
-    relay.input(window, "tabs", "selected", {"id": "ecobuild"}, human=True)
-    relay.idle()
     press(relay, window, "update_status", confirm=True)
     assert ("gui update", {}) in relay.backend.calls
 

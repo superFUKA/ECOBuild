@@ -39,7 +39,7 @@ SCREEN = {
         # ソリューションがまだなければ「ビルドしてから開きますか？」）・ショートカット（ecobuild gui shortcut --module … --pick）
         {"on": "modules.action", "when": {"action": "explorer"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "explorer"}},
         {"on": "modules.action", "when": {"action": "vs"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "vs", "solution": True},
-         "notify": "Visual Studio {version} で開きます：{name}",
+         "notify": "Visual Studio[ {version}] で開きます[：{name}]",
          "instead": {"when": {"code": "no_solution"}, "open": "frame-vs-build", "inside": True, "args": {"module": {"payload": "id"}, "version": ""}}},
         {"on": "modules.action", "when": {"action": "shortcut"}, "run": "gui shortcut", "args": {"module": {"payload": "id"}, "pick": True},
          "notify": "{message}"},

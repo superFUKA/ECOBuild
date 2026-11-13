@@ -14,7 +14,9 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "workspace list", "to": "band.modules", "from": "modules"},
-        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "tabs.workspaces", "from": "workspaces"},
+        # 作業空間のタブ：見えているあいだ 20 秒ごとに読み直す（ほかの窓・端末・エージェントが作った・消した作業空間。前の GUI と同じ）。
+        # 手元の git だけを読む。GitHub に聞く task list は、この間隔では読まない
+        {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "tabs.workspaces", "from": "workspaces", "every": 20},
         {"read": "task list", "args": {"module": {"arg": "module"}}, "to": "tabs.tasks"},
         # Visual Studio の版ごとに、開けるか（入っていない版は、メニューで灰色と理由）
         {"can": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": "2026"}, "to": "tabs.vs2026"},
@@ -30,7 +32,7 @@ SCREEN = {
         # Visual Studio：ソリューションで開く（ecobuild open --app vs --solution）。まだなければ「ビルドしてから開きますか？」
         {"on": "tabs.action", "when": {"name": "vs"}, "run": "open",
          "args": {"module": {"payload": "path"}, "app": "vs", "vs_version": {"payload": "version"}, "solution": True},
-         "notify": "Visual Studio {version} で開きます：{name}",
+         "notify": "Visual Studio[ {version}] で開きます[：{name}]",
          "instead": {"when": {"code": "no_solution"}, "open": "frame-vs-build", "inside": True,
                      "args": {"module": {"payload": "path"}, "version": {"payload": "version"}}}},
         {"on": "tabs.action", "when": {"name": "reload"}, "refresh": True},

@@ -1,6 +1,6 @@
 """ハブ › 設定：この PC の ECOBuild の設定（全モジュール共通）。全般・AI・エージェント・コンテナ・ECOBuild のタブ。
 
-最後に見ていたタブを、この PC に覚える（タブの部品 section-tabs の remember。開き直すと、そのタブから）。"""
+最後に見ていたタブを、この PC に覚える（配置 tabs が覚える。開き直すと、そのタブから）。"""
 
 SCREEN = {
     "root": "page",
@@ -8,14 +8,12 @@ SCREEN = {
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "hub-settings"}},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs", "groups"]},
+        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs"]},
         {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "設定", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
-        {"id": "tabs", "part": "section-tabs", "props": {"remember": True, "items": [
-            {"id": "general", "label": "全般"}, {"id": "ai", "label": "AI"}, {"id": "agents", "label": "エージェント"},
-            {"id": "images", "label": "コンテナ"}, {"id": "ecobuild", "label": "ECOBuild"}]}},
-        {"id": "groups", "layout": "column", "look": "hub-settings", "children": ["general", "ai", "agents_tab", "images_tab", "ecobuild"]},
+        {"id": "tabs", "layout": "tabs", "look": "hub-settings", "children": ["general", "ai", "agents_tab", "images_tab", "ecobuild"],
+         "props": {"labels": ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]}},
 
         # --- 全般：既定の所有者・環境チェック・環境の準備・GitHub のアカウント・そのほかの設定 ---
         {"id": "general", "layout": "column", "children": ["owner_card", "doctor_card", "setup_card", "accounts_card", "config_card"]},
@@ -163,14 +161,6 @@ SCREEN = {
     ],
     "bindings": [
         {"on": "reload.pressed", "refresh": True},
-        # タブ：選んだものだけを出す（最初は全般。覚えたタブがあれば、タブの部品がそれを選び直す）
-        {"on": "tabs.selected", "set": {"settings_tab": {"payload": "id"}}},
-        {"value": "settings_tab", "to": "tabs.current"},
-        {"show": "general", "when": {"settings_tab": ["general", None]}},
-        {"show": "ai", "when": {"settings_tab": "ai"}},
-        {"show": "agents_tab", "when": {"settings_tab": "agents"}},
-        {"show": "images_tab", "when": {"settings_tab": "images"}},
-        {"show": "ecobuild", "when": {"settings_tab": "ecobuild"}},
         # 全般（ecobuild config set owner <所有者>・config unset owner・doctor・setup [--name …] [--email …] [--install]）
         {"read": "config list", "to": "owner.text", "from": "owner"},
         {"on": "owner.changed", "set": {"owner": {"payload": "text"}}},

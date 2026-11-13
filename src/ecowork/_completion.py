@@ -455,15 +455,21 @@ class Completion:
             return False, wm.Released(False)
         reason = self._unsafe_to_remove(branch)
         if reason is not None:
-            self.notices.append(f"手元のタスクブランチ {branch} は残しました（{reason}）。")
+            self.notices.append(f"注意：手元のタスクブランチ {branch} は残しました（{reason}）。{self._later_prune(branch)}")
             return False, wm.Released(False, kept=reason)
         released = self._release_branch(branch, action="完了したタスクブランチの片付け")
         if not released.released:
-            self.notices.append(f"手元のタスクブランチ {branch} は残しました（{released.kept}）。")
+            self.notices.append(f"注意：手元のタスクブランチ {branch} は残しました（{released.kept}）。{self._later_prune(branch)}")
             return False, released
         self.git.delete_branch(branch, force=True)
         self.git.unset_config(wm.base_key(branch))
         return True, released
+
+    def _later_prune(self, branch: str) -> str:
+        """残したタスクブランチ（と作業空間）を、後で片付ける方法。"""
+        number = wm.task_number(branch)
+        return (f"残したわけ（使っているシェル・エディター等）を片付けてから、{self._op('task prune')} --task {number} で片付けられます。"
+                if number is not None else "")
 
     def _advance_base(self, base: str) -> None:
         """取り込んだ後、手元の作成元のブランチ base を GitHub の最新へ早送りする（元の clone の main 等が古いままだと、
@@ -533,7 +539,7 @@ class Completion:
         try:
             return self._end_review_at(pull_request, place).workspace
         except WorkError as error:   # 消せればよいだけ（判定は出した後）：わけ（使用中・変更あり・他のプログラムが使用中等）を知らせて進む
-            self.notices.append(f"確認用の作業空間 {place} は残しました（{error.message}）。"
+            self.notices.append(f"注意：確認用の作業空間 {place} は残しました（{error.message}）。"
                                 f"{self._op('task review')} --done で消せます。")
             return None
 

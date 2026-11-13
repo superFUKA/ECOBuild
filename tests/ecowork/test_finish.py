@@ -406,6 +406,8 @@ def test_revert_conflict_continues_with_sync_continue(repository):
     with pytest.raises(WorkError) as error:
         repository.revert_task(first.number)
     assert error.value.code == ErrorCode.MERGE_CONFLICT and "sync continue" in error.value.hint
+    details = error.value.details  # どこで止まったか（画面が、その作業空間を開く）と、衝突したファイル
+    assert details["files"] == ["a.txt"] and details["workspace"] == str(repository.root) and details["branch"].startswith("task/")
     assert repository.status().stopped == "revert"
     head = git(repository.root, "rev-parse", "HEAD")
     repository.take_side(("a.txt",), incoming=True)                   # 取り消す側（先の変更をなくす）

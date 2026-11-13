@@ -65,7 +65,7 @@ export default {
       if (!groups.length) groups.push([{ id: 'none', label: 'ほかの操作はありません', disabled: true }]);
       const chosen = await menu(event, groups.flatMap((g, i) => (i ? [sep, ...g] : g)));
       if (chosen === 'revert') emit('revert', { id });
-      else if (chosen === 'finish') dialog('task-finish');
+      else if (chosen === 'finish') dialog('task-finish', 'other');  // 他人の提出：衝突したら、差し戻しの案内に
       else if (chosen === 'withdraw') emit('withdraw', { id });
       else if (chosen === 'prune') dialog('task-prune');
       else if (chosen === 'drop') dialog('task-drop');

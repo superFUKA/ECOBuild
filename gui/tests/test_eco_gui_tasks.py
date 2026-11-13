@@ -574,3 +574,26 @@ def test_task_screen_shows_one_task_in_the_whole_window(relay):
     relay.input(window, "back", "pressed", {}, human=True)
     relay.idle()
     assert relay.display.tree(window)["screen"] == "tasks" and notices(relay, "error") == []
+
+
+def test_a_revert_stopped_on_a_conflict_opens_the_workspace_where_it_stopped(relay):
+    """取り込みの取り消しが衝突で止まったら、誤りの中身（details.workspace）の作業空間を、同じ窓で開く（失敗の知らせは出さない）。"""
+    run = relay.backend.run
+
+    def stopped(name, args, context, on_event):
+        if name != "task revert":
+            return run(name, args, context, on_event)
+        relay.backend.calls.append((name, {key: value for key, value in args.items() if key != "module"}))
+        return {"ok": False, "error": {"code": "merge_conflict", "message": "取り消しで衝突しました。", "details": {
+            "files": ["a.txt"], "workspace": "C:/work/Calc", "branch": "task/30-revert", "task": 30}}}
+
+    relay.backend.run = stopped
+    window = open_screen(relay, "tasks")
+    relay.input(window, "list", "selected", {"id": "12"}, human=True)
+    relay.idle()
+    relay.input(window, "pane", "revert", {"id": "12"}, human=True)
+    answer(relay, window, True)
+    relay.idle()
+    tree = relay.display.tree(window)
+    assert calls(relay, "task revert") == [{"number": 12}] and not [n for n in notices(relay, "error") if "衝突" in n]
+    assert (tree["screen"], tree["args"]["space"]) == ("frame-workspace", "C:/work/Calc")

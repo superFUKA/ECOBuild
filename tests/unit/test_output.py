@@ -194,3 +194,21 @@ def test_serve_reads_the_events_of_the_command(tmp_path):
     assert done == {"ok": True, "result": 1} and seen == ["ビルド中", "失敗しました"]
     done, _ = wait("")
     assert not done["ok"] and "cl.exe" not in done["error"]["message"] and "失敗しました" in done["error"]["message"]
+
+
+def test_notices_that_ask_for_a_look_are_warnings(tmp_path, capsys):
+    """知らせのうち、頭が「注意：」のもの（残した作業空間等）は warning のイベント。ほかは notice。どちらも結果の notices に入る。"""
+    invocation = Invocation(json_output=True, cwd=tmp_path)
+
+    def action(inv):
+        inv.notices.extend(["閉じました", "注意：作業空間を残しました"])
+        return {}
+
+    assert execute("sample", invocation, action, None) == SUCCESS
+    shown = capsys.readouterr()
+    assert json.loads(shown.out)["notices"] == ["閉じました", "注意：作業空間を残しました"]
+    kinds = [(e["kind"], e["text"]) for e in map(json.loads, shown.err.splitlines()) if e["kind"] in ("notice", "warning")]
+    assert kinds == [("notice", "閉じました"), ("warning", "注意：作業空間を残しました")]
+    assert execute("sample", Invocation(json_output=False, cwd=tmp_path), action, None) == SUCCESS
+    err = capsys.readouterr().err
+    assert "お知らせ：閉じました" in err and "\n注意：作業空間を残しました" in err  # 注意は、頭の言葉を付けずにそのまま

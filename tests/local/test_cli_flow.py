@@ -763,7 +763,7 @@ def test_finish_tells_how_to_remove_a_kept_workspace(cli, module, parallel, monk
     git(parallel, "push", "--quiet")
     finished = cli("task", "finish", "1", "--no-wait")
     assert finished.exit_code == 0 and "作業空間を残しました" in finished.stdout and parallel.exists()
-    assert "ecobuild task prune --task 1" in finished.stdout
+    assert "注意：手元のタスクブランチ" in finished.output and "ecobuild task prune --task 1" in finished.output  # 注意（標準エラー）で
 
 
 def _dependency_with_local_work(workspace: Path) -> Path:

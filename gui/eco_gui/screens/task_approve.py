@@ -27,11 +27,11 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task approve", "confirmed": True, "notify": "承認して取り込みました。", "close": True,
+        {"on": "form.submitted", "run": "task approve", "confirmed": True, "notify": "承認して取り込みました。[次の候補：#{next.number} {next.title}]", "close": True,
          "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "message": {"payload": "values.message"},
                   "subject": {"payload": "values.subject"}, "ignore_checks": {"payload": "values.ignore_checks"}},
          "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-reject", "here": True,
-                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}}},
+                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "files": {"error": "details"}}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

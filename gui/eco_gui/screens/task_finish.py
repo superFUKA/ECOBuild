@@ -4,7 +4,7 @@
 中間提出なら、初めは「タスクを完了する」が外れている。うまくいったら閉じる（Esc・キャンセルでも閉じる）。
 """
 
-ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（使わない）
+ARGS = {"module": ".", "issue": 0, "text": ""}  # モジュールのフォルダー・タスクの番号・窓へ渡す文字（other：他人の提出を、承認せずに取り込む）
 
 SCREEN = {
     "root": "page",
@@ -12,7 +12,7 @@ SCREEN = {
     "nodes": [
         {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
-            "title": "取り込む：#{issue}", "ok": "取り込む", "vars": {"issue": {"arg": "issue"}},
+            "title": "取り込む：#{issue}", "ok": "取り込む", "vars": {"issue": {"arg": "issue"}}, "tag": {"arg": "text"},
             "outcome": [
                 {"label": "取り込み", "text": "CI を待って、提出を作成元（{base}）へ取り込みます"},
                 {"label": "タスク", "text": "閉じて、タスクブランチを片付けます", "show_if": {"complete": True}},
@@ -27,11 +27,14 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。", "close": True,
+        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。[次の候補：#{next.number} {next.title}]", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "subject": {"payload": "values.subject"},
                   "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}},
-         "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
-                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}}},
+         # 作成元と衝突して止まった：自分の提出は「取り込んで直す」、他人の提出（承認せずに取り込む）は「差し戻す」の案内に
+         "instead": [{"when": {"code": "pull_request_conflict"}, "input": {"tag": "other"}, "open": "task-conflict-reject", "here": True,
+                      "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "files": {"error": "details"}}},
+                     {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
+                      "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "files": {"error": "details"}}}]},
         {"on": "form.cancelled", "close": True},
     ],
 }

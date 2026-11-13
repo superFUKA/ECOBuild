@@ -659,7 +659,7 @@ class Module:
         if dry_run:
             return WorkspaceClosed(root, done=False)
         if linked:
-            return cls._remove_worktree(root)
+            return cls._remove_worktree(root, command=cls.command)
         try:
             aside = _set_aside([root])
         except EcoBuildError:   # 使われていて動かせない：その場で、消せるものだけを消す
@@ -680,7 +680,7 @@ class Module:
         return WorkspaceClosed(root)
 
     @staticmethod
-    def _remove_worktree(root: Path) -> WorkspaceClosed:
+    def _remove_worktree(root: Path, *, command: str = "") -> WorkspaceClosed:
         """作業空間（git worktree）root を消す：脇へ移してから（使用中なら動かせないので、何も消さずに断る）、git の記録を
         外して中身を消す。"""
         git = _Git(_Git(root).common_root())
@@ -689,7 +689,7 @@ class Module:
             aside = _set_aside([root])
         except EcoBuildError as error:   # 使用中：何も変えずに断る
             git.run("worktree", "lock", "--reason", _LOCK_REASON, str(root), check=False)
-            raise _in_use(root, error.details) from None
+            raise _in_use(root, error.details, command=command) from None
         moved = aside[0][1]
         try:
             remove_tree(moved)
@@ -697,7 +697,7 @@ class Module:
             if _remove_contents(moved):   # 移した後で他のプログラムが使い始めた（まれ）。元の場所に戻して断る
                 _put_back(aside)
                 git.run("worktree", "lock", "--reason", _LOCK_REASON, str(root), check=False)
-                raise _in_use(root, caller=False)
+                raise _in_use(root, caller=False, command=command)
             with contextlib.suppress(OSError):
                 moved.rmdir()
         git.run("worktree", "prune", check=False)   # フォルダーがなくなった記録を片付ける
@@ -2307,18 +2307,18 @@ def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:
     return ("archived" if info.archived else "ok"), None
 
 
-def _in_use(root: Path, details=None, *, caller: bool = True) -> EcoBuildError:
+def _in_use(root: Path, details=None, *, caller: bool = True, command: str = "") -> EcoBuildError:
     """作業空間 root を、他のプログラムが使っていて消せない。呼んだシェルの今のフォルダーがその中なら、それが理由と言い、
     移る先を文そのものに書く（AI のシェルが作業空間の中から finish 等を呼ぶことが多く、「エディター・端末を閉じて」では
     自分のことと気づかない。finish・drop・prune は残したわけとして文だけを伝えるので、案内も文に入れる）。
-    caller：呼んだシェルを理由にしてよいか（一度脇へ移せた後なら、シェルは理由ではない）。"""
+    caller：呼んだシェルを理由にしてよいか（一度脇へ移せた後なら、シェルは理由ではない）。command：案内に書くコマンドの名前。"""
     if caller and _workspaces.caller_inside(root):
         original = _workspaces.original_of(root)
         return EcoBuildError(ErrorCode.IN_USE,
                              f"作業空間 {root} は、このコマンドを呼んだシェルの今のフォルダーがその中にあるため消せません。"
-                             f"シェルを元の clone（{original}）へ移してから、そこで片付けてください",
-                             hint=f"cd \"{original}\" してから、タスクの作業空間なら {operation(Module.command, 'task prune')} --task "
-                                  f"<番号>、ほかは {operation(Module.command, 'workspace close')} \"{root}\"（ほかにエディター・"
+                             f"シェルを元の clone（{original}）へ移してから、そこで片付けてください。",
+                             hint=f"cd \"{original}\" してから、タスクの作業空間なら {operation(command, 'task prune')} --task "
+                                  f"<番号>、ほかは {operation(command, 'workspace close')} \"{root}\"（ほかにエディター・"
                                   "エクスプローラー等で開いていれば、それも閉じます）。", details=details)
     return EcoBuildError(ErrorCode.IN_USE, f"作業空間 {root} は、他のプログラムが使っているため消せません。",
                          hint="エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、もう一度"

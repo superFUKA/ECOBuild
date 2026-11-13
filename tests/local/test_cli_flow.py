@@ -740,7 +740,7 @@ def test_close_workspace_held_by_the_calling_shell(cli, module, parallel, monkey
     monkeypatch.setattr(workspaces, "caller_directory", parallel / "src")   # 呼んだシェルは作業空間の中の場所
     refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))["error"]
     assert refused["code"] == "in_use" and "呼んだシェル" in refused["message"]
-    assert f'cd "{module.root}"' in refused["hint"]
+    assert f'cd "{module.root}"' in refused["hint"] and "ecobuild task prune --task" in refused["hint"]
 
 
 def test_guide_in_the_original_clone_lists_the_workspaces(cli, module, parallel, monkeypatch):

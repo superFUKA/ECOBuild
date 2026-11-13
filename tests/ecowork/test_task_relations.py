@@ -108,7 +108,7 @@ def test_subtask_is_not_started_without_the_parents_unpushed_commits(repository)
     with pytest.raises(WorkError) as error:
         repository.task(child.number).start()
     assert error.value.code == ErrorCode.UNFINISHED_WORK and "1 件" in error.value.message
-    assert "task push" in error.value.hint
+    assert "task push" in error.value.hint and f"task start {child.number}" in error.value.hint
     assert not repository.git.has_local_branch(f"task/{child.number}-子")   # 何も作っていない
     parent_branch.push()
     started = repository.task(child.number).start()
@@ -120,6 +120,33 @@ def test_subtask_is_not_started_without_the_parents_unpushed_commits(repository)
     parent_branch.commit("q")
     repository.prune_task_branch(child.number)                # 子の手元を消し、GitHub から再開する
     assert repository.task(child.number).start().base == parent_branch.branch
+
+
+def test_grandchild_is_not_started_without_the_grandparents_unpushed_commits(repository):
+    """孫を始めるとき、GitHub にない親のタスクブランチを祖父から作る。手元の祖父に GitHub にないコミットがあれば止める。
+    手元と GitHub が分かれていれば、それを言って sync を案内する。"""
+    grand = repository.create_task("祖父")
+    parent = repository.create_task("親", parent=grand.number)
+    child = repository.create_task("孫", parent=parent.number)
+    grand_branch = repository.task(grand.number).start()
+    write(repository.root / "g.txt", "g\n")
+    grand_branch.stage("g.txt")
+    grand_branch.commit("g")
+    with pytest.raises(WorkError) as error:
+        repository.task(child.number).start()
+    assert error.value.code == ErrorCode.UNFINISHED_WORK and grand_branch.branch in error.value.message
+    assert not repository.git.has_remote_branch(f"task/{parent.number}-親")   # 親も作っていない
+
+    repository.git.run("commit", "--quiet", "--allow-empty", "-m", "GitHub だけの変更")   # 分かれた状態を作る
+    repository.git.run("push", "--quiet", "origin", f"HEAD:refs/heads/{grand_branch.branch}")
+    repository.git.run("reset", "--quiet", "--hard", "HEAD~1")
+    write(repository.root / "h.txt", "h\n")
+    grand_branch.stage("h.txt")
+    grand_branch.commit("h")
+    repository.git.fetch()
+    with pytest.raises(WorkError) as error:
+        repository.task(child.number).start()
+    assert "分かれています" in error.value.message and "sync" in error.value.hint
 
 
 def test_parent_without_code_is_closed_after_subtasks(repository):

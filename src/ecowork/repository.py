@@ -1029,6 +1029,8 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         parent_branch = self._parent_task_branch(number)
         recorded = wm.issue_base(self.github.get_issue(self.root, number).body)
         base = self._child_base(number, None, parent_branch) or recorded or self.default_base
+        if parent_branch is not None and base == parent_branch:
+            self._check_parent_pushed(number, parent_branch)
         self.git.run("push", "--quiet", _git.REMOTE,
                      f"{self._base_start_point(base, task_branch=parent_branch)}:refs/heads/{branch}")
         self.git.fetch()
@@ -1042,12 +1044,20 @@ class Repository(InUse, TaskManagement, Reviewing, History, Ci, Completion, Memb
         if not (self.git.has_local_branch(parent_branch) and self.git.has_remote_branch(parent_branch)):
             return
         ahead = self.git.count(f"{_git.REMOTE}/{parent_branch}..{parent_branch}")
-        if ahead:
-            parent = wm.task_number(parent_branch)
-            raise WorkError(ErrorCode.UNFINISHED_WORK,
-                            f"親のタスクブランチ {parent_branch} に、GitHub にないコミットが {ahead} 件あります。子タスク #{number} の"
-                            "タスクブランチは GitHub の親から作るので、そのままではそれらが入りません（何も作っていません）。",
-                            hint=f"親の作業空間で {self._op('task push')} してから（親 #{parent}）、もう一度実行してください。")
+        if not ahead:
+            return
+        parent = wm.task_number(parent_branch)
+        message = (f"親のタスクブランチ {parent_branch}（#{parent}）の手元に、GitHub にないコミットが {ahead} 件あります。子タスク "
+                   f"#{number} のタスクブランチは GitHub の親から作るので、そのままではそれらが入りません（タスクブランチは"
+                   "作っていません）。")
+        start = f"{self._op('task start')} {number}"   # Issue は作ってあることがある（task new --start）。作り直さない
+        if not self.git.is_ancestor(f"{_git.REMOTE}/{parent_branch}", parent_branch):   # 手元と GitHub が分かれている
+            raise WorkError(ErrorCode.UNFINISHED_WORK, message + "手元の親と GitHub の親は分かれています。",
+                            hint=f"親の作業空間（#{parent}。エージェントなら今の作業空間）で {self._op('sync')} して GitHub の親を"
+                                 f"取り込み、{self._op('task push')} してから、{start} で子を始めてください。")
+        raise WorkError(ErrorCode.UNFINISHED_WORK, message,
+                        hint=f"親の作業空間（#{parent}。エージェントなら今の作業空間）で {self._op('task push')} してから、"
+                             f"{start} で子を始めてください（子の Issue を作り直さない）。")
 
     def _base_start_point(self, base: str | None, *, task_branch: str | None = None) -> str:
         """作成元のブランチを確かめ、GitHubの最新を起点として返す。

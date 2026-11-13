@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from ecowork._conflicts import chosen
+from ecowork import chosen
 from ecowork.model import CONFLICT_REASONS
 
 from ..._output import lines, run_command

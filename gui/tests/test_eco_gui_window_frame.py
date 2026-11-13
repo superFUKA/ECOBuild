@@ -169,7 +169,7 @@ def test_the_tab_menu_has_one_visual_studio_the_version_chosen_on_this_pc(frame)
 def test_closed_tabs_stay_closed_while_the_window_is_open():
     """閉じたタブは、左のメニューで別のページへ行って戻っても閉じたまま（窓のページの入れ物に、モジュールごとに覚える）。"""
     js = (GUI / "eco_gui" / "parts" / "frame_tabs" / "part.js").read_text(encoding="utf-8")
-    assert "memory['window']" in js and "session.get(closedKey" in js and "session.set(closedKey" in js
+    assert "memory.session" in js and "session.get(closedKey" in js and "session.set(closedKey" in js
     assert "closed.delete(current)" in js   # 出すよう頼まれた作業空間は、また出す
 
 

@@ -2,7 +2,7 @@
 // 選んだ場所は窓の間だけ覚え、ページを移っても同じ場所を見せる（届いた値が覚えたものと違えば、changed で戻す）。
 export default {
   render(root, props, { h, emit, memory }) {
-    const mine = memory['window'];  // 窓を開いている間だけ覚える（memory.window。名前で書くのは、部品の検査が「window」の語を断るため）
+    const mine = memory.session;  // 窓を開いている間だけ覚える
     const spaces = props.workspaces || [];
     const now = props.value || '';
     const known = (path) => !path || spaces.some((w) => w.path === path);

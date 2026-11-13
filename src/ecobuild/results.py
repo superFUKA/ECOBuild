@@ -409,6 +409,19 @@ class TestCaseResult:
 
 
 @dataclass(frozen=True)
+class TestRun:
+    """何度も流したとき（test --repeat）の1回分。number：何回目（1から）。failed_cases：失敗したケースの名前。
+    message：失敗したときの誤りの文（成功なら None）。"""
+    number: int
+    ok: bool
+    passed: int
+    failed: int
+    skipped: int
+    failed_cases: tuple[str, ...] = ()
+    message: str | None = None
+
+
+@dataclass(frozen=True)
 class TestResult:
     project: str | None
     configuration: str
@@ -416,6 +429,7 @@ class TestResult:
     failed: int
     skipped: int
     cases: tuple[TestCaseResult, ...]
+    runs: tuple[TestRun, ...] = ()      # 何度も流したとき（test --repeat）の回ごとの結果（1回なら空）。件数・cases は最後の回
 
 
 @dataclass(frozen=True)

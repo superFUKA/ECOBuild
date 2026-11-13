@@ -2,7 +2,8 @@ import signal
 from typing import Annotated
 
 from ecobuild.errors import EcoBuildError
-from ecobuild_cli.kit import ProgramOutput, run_command, usage_error
+from ecobuild.execution import added_environment
+from ecobuild_cli.kit import ProgramOutput, run_command, split_environment, usage_error
 from ecobuild_python import _python
 
 AGENT = "change"
@@ -17,6 +18,7 @@ def command(
     stdin: Annotated[bool, "--json でも標準入力をプログラムに渡す（--json なしでは、いつも渡す）"] = False,
     input_file: Annotated[str, "標準入力の代わりに、このファイルの中身をプログラムに渡す"] = "",
     propagate_exit: Annotated[bool, "ecobuild の終了コードを、プログラムの終了コードにする（止めたら 128＋シグナルの番号）"] = False,
+    env: Annotated[str, "プログラムの環境に足す環境変数（名前=値。何度でも書ける：--env A=1 --env B=2）"] = "",
     json: Annotated[bool, "結果をJSONで出力する（出力は result の stdout・stderr〔output は stdout〕、終了コードは"
                           "returncode。失敗・中断のときは error.details に同じ欄）"] = False,
 ) -> int:
@@ -30,6 +32,7 @@ def command(
         return usage_error("--arguments と -- の後ろの引数は、どちらか1つにしてください。", json)
     if stdin and input_file:
         return usage_error("--stdin と --input-file は、どちらか1つにしてください。", json)
+    environment = split_environment(env, json)
     ran = {}
 
     def action(inv):
@@ -38,9 +41,10 @@ def command(
         values = list(argv) if argv else _python.split_arguments(arguments)
         source = str(inv.cwd / input_file) if input_file else "inherit" if stdin or not json else None
         try:
-            result = module.type.run_program(options, values, stream=not json, stdin=source,
-                                             echo=ProgramOutput(True) if json else False,
-                                             on_start=lambda shown, pid: inv.info(f"実行中（PID {pid}）：{shown}"))
+            with added_environment(environment):
+                result = module.type.run_program(options, values, stream=not json, stdin=source,
+                                                 echo=ProgramOutput(True) if json else False,
+                                                 on_start=lambda shown, pid: inv.info(f"実行中（PID {pid}）：{shown}"))
         except EcoBuildError as error:
             details = error.details if isinstance(error.details, dict) else {}
             if "signal" in details:

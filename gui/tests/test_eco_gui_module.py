@@ -63,7 +63,7 @@ class FakeModule(FakeEcobuild):
             "ci secret list": spec("read"),
             "ci secret remove": spec("confirm", {"name": text}, ["name"]),
             "pipeline add": spec("change", {"name": text, "steps": text, "tests": text}, ["name"]),
-            "pipeline on": spec("change", {"timing": text, "names": text, "local": flag}, ["timing", "names"]),
+            "pipeline on": spec("change", {"timing": text, "names": text, "local": flag, "everywhere": flag}, ["timing", "names"]),
             "module members add": spec("confirm", {"user": text, "role": text}, ["user"]),
         }
 
@@ -319,8 +319,8 @@ def test_pipeline_timings_are_changed_for_the_module_or_only_on_this_pc(relay):
     form = inside(relay, "mod-pipeline-local")
     relay.input(form, "form", "submitted", {"values": {"names": "none"}}, human=True)  # 1つも選ばない：外す
     relay.idle()
-    call = ("pipeline on", {"timing": "before-commit", "names": "none", "local": True})
-    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc"  # この PC だけの分は、その場で
+    call = ("pipeline on", {"timing": "before-commit", "names": "none", "local": True, "everywhere": True})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc"  # この PC だけの分は、元の clone とすべての作業空間に
 
 
 # --- メンバー ---------------------------------------------------------------

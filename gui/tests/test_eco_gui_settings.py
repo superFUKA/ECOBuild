@@ -89,6 +89,7 @@ class FakeSettings(FakeEcobuild):
                                                       "options": {"cpp_standard": 23, "fetch_git": False},
                                                       "projects": {"Core": {"type": "static"}}}}, "selected": "release"},
             "project list": [{"name": "Core", "kind": "static_library"}, {"name": "App", "kind": "executable"}],
+            "profile use": {"profiles": {}, "selected": None if plain.get("name") == "none" else plain.get("name")},
             "track": {"patterns": [{"pattern": "*.md", "source": "type", "excluded": False},
                                    {"pattern": "data/**", "source": "module", "excluded": False}], "exclude": []},
             "release list": [{"tag": "v1.0.0", "name": "最初の版", "url": "https://example.invalid/r/v1.0.0", "latest": True}],
@@ -196,22 +197,37 @@ def test_settings_build_profiles_are_a_table_with_the_one_used_on_this_pc(relay)
     assert table["part"] == "cfg-profiles" and table["props"]["kind"] == "python"  # 列は、モジュールの型で変わる
     assert table["props"]["data"]["selected"] == "release" and list(table["props"]["data"]["profiles"]) == ["release"]
     assert relay.backend.calls.count(("profile list", {})) == 1
-    relay.input(window, "profile_table", "use", {"name": "release"}, human=True)  # ラジオで選ぶ
-    relay.input(window, "profile_table", "use", {"name": "none"}, human=True)     # 使わない
+    place = "C:/work/Calc/.ecobuild/w/12"  # 変える操作は、窓の中で選んだタスクブランチの作業空間で
+    assert table["props"]["workspaces"] == []  # 作業空間がない：部品が変える操作を灰色にし、「今は見るだけ」の帯を出す
+    relay.input(window, "profile_table", "use", {"name": "release", "stop": False}, human=True)  # ラジオで選ぶ
     relay.idle()
+    assert notices(relay)[-1] == "このPCではビルド設定 release を使います。"
+    relay.input(window, "profile_table", "use", {"name": "none", "stop": True}, human=True)     # 使わない
+    relay.idle()
+    assert notices(relay)[-1] == "ビルド設定の使用をやめました。"
     assert ("profile use", {"name": "release"}) in relay.backend.calls and ("profile use", {"name": "none"}) in relay.backend.calls
-    relay.input(window, "profile_table", "remove", {"name": "release"}, human=True)
+    relay.input(window, "profile_table", "remove", {"name": "release"}, human=True)  # 削除：場所を選ぶ窓（危険の色）
     relay.idle()
-    assert ("profile remove", {"name": "release"}) in relay.backend.calls
+    form = inside(relay, window, "cfg-profile-remove")
+    assert nodes(relay, form)["form"]["props"]["danger"] is True
+    relay.input(form, "form", "submitted", {"values": {"place": place}}, human=True)
+    relay.idle()
+    call = ("profile remove", {"name": "release"})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == place
+    relay.input(window, "profile_table", "open_tasks", {}, human=True)  # 「タスク管理を開く」
+    relay.idle()
+    assert relay.display.tree(window)["screen"] == "tasks"
+    window = opened(relay, "settings", module="C:/work/Calc")
 
     # 追加・編集：型に合う入力の窓を、この窓の中に重ねて開く（Python は 名前・構成・並列の数）
     relay.input(window, "profile_table", "add", {"kind": "python"}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-profile-edit-python")
     assert relay.display.tree(form)["args"] == {"module": "C:/work/Calc", "name": ""}
-    relay.input(form, "form", "submitted", {"values": {"name": "debug", "configuration": "Debug", "parallel": 4}}, human=True)
+    relay.input(form, "form", "submitted", {"values": {"name": "debug", "configuration": "Debug", "parallel": 4, "place": place}}, human=True)
     relay.idle()
-    assert ("profile add", {"name": "debug", "configuration": "Debug", "parallel": 4}) in relay.backend.calls
+    call = ("profile add", {"name": "debug", "configuration": "Debug", "parallel": 4})
+    assert relay.backend.modules[relay.backend.calls.index(call)] == place
     assert form not in [w["id"] for w in relay.display.windows()]  # うまくいったら閉じる
     relay.input(window, "profile_table", "edit", {"name": "release", "kind": "python"}, human=True)
     relay.idle()
@@ -224,7 +240,7 @@ def test_settings_build_profiles_are_a_table_with_the_one_used_on_this_pc(relay)
     relay.input(window, "profile_table", "add", {"kind": "generic"}, human=True)
     relay.idle()
     form = inside(relay, window, "cfg-profile-edit")
-    relay.input(form, "form", "submitted", {"values": {"name": "ci", "configuration": "Release"}}, human=True)
+    relay.input(form, "form", "submitted", {"values": {"name": "ci", "configuration": "Release", "place": place}}, human=True)
     relay.idle()
     assert ("profile add", {"name": "ci", "configuration": "Release"}) in relay.backend.calls
     assert notices(relay)[-1] == "ビルド設定を保存しました。"
@@ -242,7 +258,7 @@ def test_settings_cpp_build_profiles_have_options_and_overrides_for_projects(rel
     relay.input(form, "form", "submitted", {"values": {
         "name": "release", "configuration": "Release", "parallel": 8, "shared": True, "cpp_standard": "23", "architecture": "",
         "generator": "Ninja Multi-Config", "toolset": "", "c_compiler": "", "cxx_compiler": "", "toolchain_file": "", "windows_sdk": "",
-        "test_parallel": "", "stop_on_test_failure": False, "googletest_archive": "", "no_fetch": True}}, human=True)
+        "test_parallel": "", "stop_on_test_failure": False, "googletest_archive": "", "no_fetch": True, "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()
     # 空の欄は渡さない（既定）。数は数で渡る
     assert ("profile add", {"name": "release", "configuration": "Release", "parallel": 8, "shared": True, "cpp_standard": 23,
@@ -255,10 +271,13 @@ def test_settings_cpp_build_profiles_have_options_and_overrides_for_projects(rel
     props = nodes(relay, form)["form"]["props"]
     assert props["at"] == ["release", "projects", "Core"] and [row["name"] for row in props["rows"]] == ["Core", "App"]
     relay.input(form, "form", "submitted", {"values": {"project": "Core", "type": "shared", "cpp_standard": "", "artifact_directory": "",
-                                                        "test_parallel": "", "googletest_archive": ""}}, human=True)
+                                                        "test_parallel": "", "googletest_archive": "", "place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()
     assert ("profile project", {"name": "release", "project": "Core", "type": "shared"}) in relay.backend.calls
     relay.input(window, "profile_table", "project_clear", {"name": "release", "project": "Core"}, human=True)
+    relay.idle()
+    form = inside(relay, window, "cfg-profile-project-clear")
+    relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
     relay.idle()
     assert ("profile project", {"name": "release", "project": "Core", "clear": True}) in relay.backend.calls
 

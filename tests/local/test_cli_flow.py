@@ -1126,6 +1126,12 @@ def test_pipelines_are_made_and_put_with_the_cli(cli, module):
     assert as_json(cli("pipeline", "run", "gen", "--json"))["result"]["ok"]
     removed = as_json(cli("pipeline", "remove", "quick", "--json"))["result"]
     assert removed["triggers"] == {} and removed["local"] == {}   # このPCの当て方も、なくなったものは出さない
+    # --everywhere：元の clone にも入る（後から作る作業空間も受け継ぐ）。--local なしでは使えない
+    assert as_json(cli("pipeline", "on", "before-push", "gen", "--everywhere", "--json"))["error"]["code"] == "invalid_argument"
+    everywhere = as_json(cli("pipeline", "on", "before-push", "gen", "--local", "--everywhere", "--json"))
+    assert everywhere["result"]["local"] == {"before-push": ["gen"]}
+    # 元の clone（既定のブランチ）には、まだ gen がない：入れずに知らせる
+    assert any(str(module.root) in n and "入れませんでした" in n for n in everywhere["notices"])
 
 
 def test_workspace_names_stay_inside(module):

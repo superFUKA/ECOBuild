@@ -1,0 +1,5 @@
+:host { display: block; }
+.place { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.place label { display: flex; align-items: center; gap: 8px; }
+.place select { max-width: 420px; }
+.note { font-size: 12px; color: var(--gf-muted); }

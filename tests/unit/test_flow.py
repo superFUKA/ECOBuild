@@ -561,3 +561,19 @@ def test_broken_state_is_reported(tmp_path):
     with pytest.raises(FlowError) as raised:
         store.get("r")
     assert raised.value.code == "flow_run_broken" and store.runs() == []
+
+
+def test_a_missing_kind_is_a_definition_error_not_a_broken_record(tmp_path):
+    engine, flow, _, _ = make([{"id": "ok", "type": "approval"}])
+    store = Store(tmp_path)
+    engine.start(store, flow, run_id="r")
+    fewer = Engine({"fake": Script()})                          # 種類が登録されていない（拡張がない ECOBuild 等）
+    with pytest.raises(FlowError) as raised:
+        fewer.approve(store.get("r"))
+    assert raised.value.code == "invalid_flow" and "type「approval」はありません" in raised.value.message
+    run = store.get("r")
+    run.state["definition"] = {"steps": "壊れた"}
+    run.save()
+    with pytest.raises(FlowError) as broken:
+        engine.approve(store.get("r"))
+    assert broken.value.code == "flow_run_broken"

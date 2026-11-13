@@ -43,10 +43,23 @@ def test_command_and_ecobuild_settings():
     assert "cwd" in flows._check_command({"args": ["git"], "cwd": "${out.dir}"})[0]
     assert "host は真偽" in flows._check_command({"args": ["git"], "host": "yes"})[0]
     for args in (["${vars.x}", "status"], ["task", "${steps.a.message}"], ["-C", "${out.place}", "status"],
-                 ["--directory", "${vars.d}", "track"]):
-        assert "コマンドの名前の部分と -C の値" in flows._check_args({"args": args})[0], args
-    assert flows._check_args({"args": ["task", "submit", "--note", "${steps.impl.message}"]}) == []
-    assert flows._check_args({"args": ["-C", "${inputs.place}", "status"]}) == []
+                 ["--directory", "${vars.d}", "track"], ["-C${out.place}", "status"], ["--directory=${vars.d}", "track"],
+                 ["task", "status", "--fetch", "${out.n}"],                       # オプションの後ろの位置引数
+                 ["task", "edit", "3", "--label=${out.label}"], ["task", "new", "${steps.a.message}", "--start"]):
+        assert "文を渡すオプション" in flows._check_args({"args": args})[0], args
+    for args in (["task", "submit", "--note", "${steps.impl.message}"], ["task", "comment", "-m", "${vars.feedback}"],
+                 ["task", "new", "x", "--title=${out.title}", "--body", "${steps.a.message}"],
+                 ["-C", "${inputs.place}", "status"], ["-C${run.dir}", "status"]):
+        assert flows._check_args({"args": args}) == [], args
+    assert "ecobuild open" in flows._check_args({"args": ["open", "--app", "default", "${steps.impl.out.file}"]})[-1]
+    assert "ecobuild open" in flows._check_args({"args": ["--json", "open", "x"]})[0]
+    assert "workspace close" in flows._check_args({"args": ["-C.", "workspace", "close"]})[0]
+    # host = true：どこにも AI の値を入れない（インタープリターでなくても）
+    for settings in ({"args": ["make", "-f", "${out.file}"], "host": True}, {"args": ["git", "log", "--output=${vars.x}"], "host": True},
+                     {"args": ["npm", "test"], "cwd": "${steps.a.out.dir}", "host": True}, {"run": "echo ${out.x}", "host": True}):
+        assert "${run.dir} のファイルで渡します" in flows._check_command(settings)[-1], settings
+    assert flows._check_command({"args": ["make", "-f", "${out.file}"]}) == []           # コンテナの中なら書ける
+    assert flows._check_command({"args": ["make", "${inputs.target}"], "host": True}) == []
     assert ".bat・.cmd" in flows._check_command({"args": ["x.BAT"]})[0]
     assert flows._check_args({"args": ["task", "status"]}) == []
     for closing in (["task", "drop"], ["-C", "x", "task", "prune"], ["workspace", "close", "--yes"], ["task", "approve", "3"]):

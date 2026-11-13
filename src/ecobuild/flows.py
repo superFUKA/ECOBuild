@@ -8,8 +8,10 @@
   AI の値（${steps…}・${vars…}・${out…}）の入れ方を絞る：run・args の先頭・cwd には ${inputs.…}・${run.…} だけ。args の
   先頭がシェル・インタープリター（sh・python 等）なら、ほかの要素にも AI の値を入れない。cwd は作業空間の中だけ。
   args の先頭に .bat・.cmd は使えない（cmd.exe が引数をシェルとして読むため）。
-- ecobuild：ecobuild のコマンド（args。--json で呼び、ok で判定。result を out に）。作業空間を消す操作は書けない
-  （flow run の間は作業空間が使用中）。コマンドの名前の部分と -C の値には ${inputs.…}・${run.…} だけ。
+- ecobuild：ecobuild のコマンド（args。--json で呼び、ok で判定。result を out に）。作業空間を消す操作と open は書けない
+  （flow run の間は作業空間が使用中。open はこのPCで開く）。AI の値を入れてよいのは文を渡すだけのオプション（TEXT_OPTIONS）
+  の値だけ。位置引数・ほかのオプションの値（--x=値・-C値 の形も）は ${inputs.…}・${run.…} だけ。
+  host = true の command は、どこにも AI の値を入れられない（ツールは引数1つで別のものを動かせるため）。
 - check：ecobuild check（only・tests）。pipeline：パイプラインを1つ走らせる（name）。失敗の出力の末尾を文に入れる。
 - approval：人の答えを待つ（message）。ecobuild flow approve／reject で続ける（人がする）。
 拡張は Module.flow_kinds を広げて種類を足す（agent は ecobuild_agent）。
@@ -72,6 +74,10 @@ BATCH = (".bat", ".cmd")
 # 流れの中では呼べない ecobuild のコマンド（作業空間を消す。flow run の間は作業空間が使用中で、必ず止まる）
 CLOSING = (("task", "finish"), ("task", "drop"), ("task", "prune"), ("task", "close"), ("task", "approve"),
            ("workspace", "close"))
+REFUSED = ("open",)   # 流れの中では呼べない ecobuild のコマンド（このPCでファイル・アプリを開く）
+# AI の値（steps・vars・out）を入れてよい、文を渡すだけのオプション（ecobuild の CLI の message・note・title・body・
+# description・subject・text の引数。ほかのオプションの値と位置引数は inputs・run だけ）
+TEXT_OPTIONS = ("--message", "-m", "--note", "--title", "--body", "--description", "--subject", "--text")
 STOPPED = ("failed", "cancelled")
 
 
@@ -330,6 +336,11 @@ def _unsafe(text: str) -> list[str]:
     return [name for name in _template.references(text) if name.split(".")[0] not in SAFE_ROOTS]
 
 
+def _template_strings(settings: dict) -> list[str]:
+    from ecoflow.template import strings
+    return strings({key: settings[key] for key in ("run", "args", "cwd") if key in settings})
+
+
 def _program_name(program: str) -> str:
     name = Path(program.replace("\\", "/")).name.lower()
     for suffix in (".exe", ".com"):
@@ -349,6 +360,11 @@ def _check_command(settings: dict) -> list[str]:
             problems.append("cwd は文字列です。")
         elif _unsafe(settings["cwd"]):
             problems.append(f"cwd に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(_unsafe(settings['cwd']))}）。")
+    if settings.get("host") is True:   # このPCで動かすものは、どこにも AI の値を入れない
+        bad = [name for text in _template_strings(settings) for name in _unsafe(text)]
+        if bad:
+            return [*problems, f"host = true（このPCで動かす）の工程には、工程・エージェントの値（{'・'.join(bad)}）を"
+                               "入れられません（ツールは引数1つで別のものを動かせます）。値は ${run.dir} のファイルで渡します。"]
     if has_run:
         if not isinstance(settings["run"], str):
             return [*problems, "run は文字列です。"]
@@ -381,6 +397,10 @@ def _head(args: list[str]) -> tuple[list[str], list[str]]:
             places.append(args[at + 1] if at + 1 < len(args) else "")
             at += 2
             continue
+        if arg.startswith("--directory=") or (arg.startswith("-C") and not arg.startswith("--") and len(arg) > 2):
+            places.append(arg.split("=", 1)[1] if arg.startswith("--") else arg[2:])
+            at += 1
+            continue
         if arg.startswith("-"):
             if words:
                 break
@@ -394,17 +414,45 @@ def _words(args: list[str]) -> tuple[str, ...]:
     return tuple(_head(args)[0][:2])
 
 
+def _unsafe_args(args: list[str]) -> list[str]:
+    """AI の値を入れてはいけない所にある AI の値の名前。許すのは文のオプション（TEXT_OPTIONS）の値だけ
+    （--message 値・--message=値）。ほか（位置引数・オプションの名前・ほかのオプションの値）はすべて inputs・run だけ。"""
+    bad, at = [], 0
+    while at < len(args):
+        arg = args[at]
+        if arg in TEXT_OPTIONS:
+            at += 2   # 次は文の値
+            continue
+        name, sep, _ = arg.partition("=")
+        if sep and name in TEXT_OPTIONS and name.startswith("--"):
+            at += 1
+            continue
+        bad += _unsafe(arg)
+        at += 1
+    return bad
+
+
+def _refusal(args: list[str]) -> str | None:
+    words = _words(args)
+    if words in CLOSING:
+        return (f"流れの中では作業空間を消す操作（ecobuild {' '.join(words)}）はできません"
+                "（流れの間は作業空間が使用中です。流れが終わってから人がします）。")
+    if words[:1] and words[0] in REFUSED:
+        return f"流れの中では ecobuild {words[0]} はできません（このPCでファイル・アプリを開くため）。"
+    return None
+
+
 def _check_args(settings: dict) -> list[str]:
     if not _strings(settings.get("args")) or not settings["args"]:
         return ["args は文字列の配列です（例：[\"task\", \"status\"]）。"]
     problems = []
-    words, places = _head(settings["args"])
-    bad = [name for text in (*words, *places) for name in _unsafe(text)]
+    bad = _unsafe_args(settings["args"])
     if bad:
-        problems.append(f"コマンドの名前の部分と -C の値に展開してよいのは ${{inputs.…}}・${{run.…}} だけです（{'・'.join(bad)}）。")
-    if _words(settings["args"]) in CLOSING:
-        problems.append(f"流れの中では作業空間を消す操作（ecobuild {' '.join(_words(settings['args']))}）はできません"
-                        "（流れの間は作業空間が使用中です。流れが終わってから人がします）。")
+        problems.append(f"工程・エージェントの値（{'・'.join(bad)}）を入れてよいのは、文を渡すオプション（"
+                        f"{'・'.join(TEXT_OPTIONS)}）の値だけです。位置引数・ほかのオプションの値は ${{inputs.…}}・${{run.…}} だけです。")
+    refusal = _refusal(settings["args"])
+    if refusal:
+        problems.append(refusal)
     return problems
 
 
@@ -486,8 +534,14 @@ def _execute(command, ctx, *, cwd: Path, shell: bool = False, env: dict | None =
         except BaseException:
             _stop_all(process, stop)
             raise
-        if not timed_out and os.name != "nt":
-            _kill_group(process)   # 親が終わった後に残った孫
+        if not timed_out:   # 親が終わった後に残った孫（POSIX はプロセスグループ、コンテナは印の付いた中のプロセス）
+            if os.name != "nt":
+                _kill_group(process)
+            if stop is not None:
+                try:
+                    stop()
+                except Exception:
+                    pass
         stdout, stderr = (_read_back(f) for f in (out_file, err_file))
     if timed_out:
         ctx.log(stdout + stderr + "（時間切れで止めました）")
@@ -546,8 +600,8 @@ def _ecobuild(module: "Module", program: tuple[str, ...], step, ctx) -> ecoflow.
     args = [str(a) for a in ctx.setting("args")]
     if args and _batch(program[0]):
         return ecoflow.Outcome(ecoflow.FAILED, f"ecobuild（{program[0]}）が .bat・.cmd なので、流れからは呼べません。")
-    if _words(args) in CLOSING:
-        return ecoflow.Outcome(ecoflow.FAILED, f"流れの中では ecobuild {' '.join(_words(args))} はできません。")
+    if _refusal(args):
+        return ecoflow.Outcome(ecoflow.FAILED, _refusal(args))
     if "--json" not in args:   # -- より後ろは引数（--json はその前に）
         at = args.index("--") if "--" in args else len(args)
         args = [*args[:at], "--json", *args[at:]]

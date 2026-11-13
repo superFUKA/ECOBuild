@@ -254,7 +254,12 @@ def _take(path: Path, tries: int):
 def lock(run: Run, *, tries: int = LOCK_TRIES) -> Iterator[None]:
     """実行のロック（OS のファイルロック。lock と held）を持つ間だけ、中を実行する。ほかが持っていれば RUN_LOCKED。"""
     first = _take(run.folder / LOCK_FILE, tries)
-    held = _take(run.folder / HELD_FILE, LOCK_TRIES * 4) if first is not None else None   # held は見る側が一瞬持つだけ
+    held = None
+    if first is not None:
+        try:
+            held = _take(run.folder / HELD_FILE, LOCK_TRIES * 4)   # held は見る側が一瞬持つだけ
+        except OSError:
+            held = None
     if held is None:
         if first is not None:
             _unlock(first)
@@ -440,10 +445,11 @@ class Engine:
 
     def definition(self, run: Run) -> Flow:
         """実行を作ったときの定義の写し（今の種類で確かめる）。工程の記録と合わなければ RUN_BROKEN。"""
-        try:
-            flow = load(run.state.get("definition") or {}, run.flow, self.kinds)
+        try:   # 種類を見ずに読めなければ記録が壊れている。種類がないだけなら定義の誤り（INVALID_FLOW）
+            load(run.state.get("definition") or {}, run.flow)
         except FlowError as error:
             raise _broken(run.folder, f"定義の写しが読めません（{error.message}）") from error
+        flow = load(run.state.get("definition") or {}, run.flow, self.kinds)
         missing = [s.id for s in flow.steps if s.id not in run.steps]
         if missing:
             raise _broken(run.folder, f"工程 {', '.join(missing)} の記録がありません")

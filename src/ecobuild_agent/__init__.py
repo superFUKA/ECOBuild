@@ -8,6 +8,7 @@
   （AI が起動したもの。claude -p の stream-json）。status：エージェントごとの状態の置き場所（画面を持つアプリへ知らせる）。
   inside：コンテナの中のエージェント（コンテナに足すもの FEATURE）。
   tokens：中のエージェントのログイン。
+- flow：流れ（ecobuild flow）の agent の工程（画面なしで動かし、返答の終わりを待つ）。
 - 作業空間のコンテナ（ecobuild_container）は公開の口だけを使う（向きはエージェント → コンテナ。コンテナはエージェントを知らない）。
 """
 
@@ -87,6 +88,20 @@ def resumed_session(command: tuple[str, ...], latest) -> str | None:
     return None
 
 
+def stop_agent(agent_id: str, progress=lambda message: None) -> dict:
+    """エージェントを止める（ID で）。係が画面なしで動かしているもの（アプリ用の起動）は係に頼み、人の画面で動いている
+    ものはそのプロセスを止める。動いていなければ agent_error。"""
+    record = agents.load(agent_id)
+    folder = record.folder
+    if status.running_mode(folder) == status.APP:
+        return children.ask_serve(record, ["agent", "stop", record.id], progress) or {"id": record.id, "stopped": True}
+    pid = status.running_pid(folder)
+    if pid is None:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント「{record.name}」（{record.id}）は動いていません。")
+    status.stop(pid)
+    return {"id": record.id, "path": record.workspace, "stopped": True}
+
+
 class AgentModule:
     """作業空間のエージェント。いつもコンテナの中で確認なしに起動する（コンテナにしていない作業空間は、起動の前に自動で
     コンテナにする。使わせないものは設定 agent_deny）。1つの作業空間に、タスクの持ち主と手伝いが何人もいてよい
@@ -97,6 +112,12 @@ class AgentModule:
         if not container.enabled(self.root):
             progress("エージェントはコンテナの中で動かすので、この作業空間をコンテナにします（container on）")
             container.choose(self.root, True, command=self.command)
+
+    def flow_kinds(self, program: tuple[str, ...]) -> dict:
+        """流れの工程の種類（本体のものに agent を足す。ecobuild_agent.flow）。"""
+        from . import flow
+        found = dict(super().flow_kinds(program)) if hasattr(super(), "flow_kinds") else {}
+        return {**found, "agent": flow.kind(self)}
 
     # ---- 起動 ---------------------------------------------------------------------------------------------
     def start_agent(self, registration: str = "", *, task: int | None = None, parent: str | None = None,

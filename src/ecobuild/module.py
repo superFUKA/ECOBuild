@@ -2085,6 +2085,19 @@ class Module:
                                 hint=f"{self.op('pipeline list')} で一覧を見られます。")
         return pipeline
 
+    # 流れ（ecobuild flow）：.ecobuild/flows/<名前>.toml の定義を、作業空間で実行する（ecobuild.flows）。
+    # 操作のタイミングには当てない（人が flow run で動かす）。
+
+    def flow_kinds(self, program: tuple[str, ...]) -> dict:
+        """流れの工程の種類（名前 → ecoflow.Kind）。拡張は広げて足す（super() の結果に）。program：ecobuild の工程で呼ぶもの。"""
+        from . import flows as _flows
+        return _flows.kinds(self, program)
+
+    def flows(self, *, program: tuple[str, ...] = (), progress: Callable[[str], None] | None = None):
+        """このモジュール（作業空間）の流れ（ecobuild.flows.Flows）。"""
+        from . import flows as _flows
+        return _flows.Flows(self, program=program, progress=progress)
+
     def _check_generated(self) -> list[CheckItem]:
         try:
             self.type.refresh()

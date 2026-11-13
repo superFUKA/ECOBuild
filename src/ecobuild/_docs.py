@@ -210,6 +210,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - タスクブランチの本体はGitHub（Issue・ブランチ・PR）にあり、手元はその写しです。`ecobuild task push` しておけば、手元は `ecobuild task prune <番号>` で消してよく、`ecobuild task start <番号>` でpushした所から同じ作成元で再開できます（別の作業空間でも同じ）。
 - 作業空間を消す操作・そのタスクブランチを消す操作（task drop／prune／finish／close、workspace close 等）は、その作業空間が使用中（エージェントが動いている・build／test／run／check の実行中）なら `workspace_in_use` で止まります。止まったら、使っているものが終わるのを待つか、ユーザーに伝えてください。
 {workspace}
+- 流れ（決まった手順の順番・判定・ループ）：定義は `.ecobuild/flows/<名前>.toml`（`ecobuild flow list`・`flow show <名前>`）、使うときは `ecobuild flow run <名前>`、書く・直すときはそのファイルをタスクブランチで変えて提出します（実行の記録 `.ecobuild/flows/runs/` はコミットしません）。
 - 取り込み（`ecobuild sync`）で衝突したら、ファイルを直して `ecobuild sync continue`（直したファイルは自動で登録されます。やめるなら `ecobuild sync abort`）。{regenerate}
 {hand_edit}- 失敗したら `error.code` と `error.hint` を読み、案内に従ってください。状態は `ecobuild status --fetch`・`ecobuild task status` で確認できます。
 - ソースはUTF-8で書きます。

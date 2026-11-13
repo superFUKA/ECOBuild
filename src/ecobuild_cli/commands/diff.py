@@ -18,6 +18,8 @@ def command(
 ) -> int:
     """差分を表示します（既定：未コミットでステージしていない変更）。
 
+    ステージしていない変更では、名指しした新しいファイル（まだ git の管理に入っていないもの）の中身も、足した行として出します。
+
     --stat・--name-only では、ファイルの一覧（JSON は files：path・status・added・deleted・eol_only。task diff と同じ形）を出します。
     """
     if gui and (stat or name_only):

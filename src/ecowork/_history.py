@@ -79,7 +79,10 @@ class History:
         return sorted({name for name in listed.split("\0") if name})
 
     def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
-        """未コミットの変更の差分。staged：ステージ済みだけ。base：タスクブランチの作成元との差分（PRの差分）。"""
+        """未コミットの変更の差分。staged：ステージ済みだけ。base：タスクブランチの作成元との差分（PRの差分）。
+
+        ステージしていない変更では、名指しした新しいファイル（まだ管理していないもの）も、中身を足した行として出す
+        （git diff は出さない。ファイルを選んで差分を見たときに、何もないと分からない）。"""
         args = ["diff"]
         if base:
             task_branch = self.require_task_branch("作成元との差分")
@@ -87,7 +90,15 @@ class History:
             args.append(f"{_git.REMOTE}/{task_branch.base}...HEAD")
         elif staged:
             args.append("--cached")
-        return self.git.output(*args, "--", *paths)
+        text = self.git.output(*args, "--", *paths)
+        if base or staged or not paths:
+            return text
+        named = {path.replace("\\", "/").strip("/") for path in paths}
+        listed = self.git.output("ls-files", "-z", "--others", "--exclude-standard", "--", *paths)
+        new = [name for name in listed.split("\0") if name and name in named]
+        # 中身との差分（/dev/null と比べる。差があると終了コード 1 なので、確かめずに読む）
+        added = [self.git.run("diff", "--no-index", "--", "/dev/null", name, check=False).stdout.strip() for name in new]
+        return "\n".join(part for part in [text, *added] if part)
 
     def diff_files(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> tuple[wm.DiffFile, ...]:
         """diff の変わったファイル（パス・種類・足した行・消した行・改行コードだけの差か。パスの順）。"""

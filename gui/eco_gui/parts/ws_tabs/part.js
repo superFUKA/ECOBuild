@@ -6,9 +6,12 @@ export default {
     const s = props.status || {};
     const loaded = 'branch' in s || 'task' in s;
     const working = Boolean(s.task || s.reviewing);
-    const tabs = !loaded ? ['commit', 'push', 'submit', 'log'] : working ? ['commit', ...(s.reviewing ? [] : ['push']), 'submit', 'log'] : [...(s.merging ? ['commit'] : []), 'log'];
+    // タスクブランチでは、ログのタブを出さない（提出のタブに入るコミット、全部はエクスプローラーの「ログ」。前の GUI と同じ）
+    const tabs = !loaded ? ['commit', 'push', 'submit'] : working ? ['commit', ...(s.reviewing ? [] : ['push']), 'submit'] : [...(s.merging ? ['commit'] : []), 'log'];
     const changes = new Set([...(s.conflicted || []), ...(s.staged || []), ...(s.unstaged || []), ...(s.untracked || [])]).size;
-    const counts = { commit: changes, push: s.task && !s.reviewing ? s.ahead || 0 : 0, submit: s.pull_request ? 1 : 0 };
+    // 提出：提出に入るコミットの数（task status の commits。前の GUI と同じ）
+    const t = props.task || null;
+    const counts = { commit: changes, push: s.task && !s.reviewing ? s.ahead || 0 : 0, submit: t && Array.isArray(t.commits) ? t.commits.length : 0 };
     let current = props.selected || 'commit';
     // 開いたとき・今いる場所にないタブのとき：覚えていたタブ（なければ先頭）を出す
     if (loaded && (!props.selected || !tabs.includes(props.selected))) {

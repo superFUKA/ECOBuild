@@ -88,7 +88,7 @@ def test_workspace_submit_opens_the_submit_window(relay):
     """作業空間の「提出」：すぐには提出せず、提出の窓（何が起きるか・題・下書き・見てもらう人・衝突の警告）を重ねて開く。"""
     workspace = opened(relay, "workspace", module=PLACE)
     relay.input(workspace, "tabs", "selected", {"tab": "submit"}, human=True)
-    relay.input(workspace, "submit", "pressed", {}, human=True)
+    relay.input(workspace, "pull_request", "action", {"action": "submit", "id": "12"}, human=True)
     relay.idle()
     window = next(w["id"] for w in relay.display.windows() if w["screen"] == "task-submit" and w.get("parent") == workspace)
     assert calls(relay, "task submit") == []

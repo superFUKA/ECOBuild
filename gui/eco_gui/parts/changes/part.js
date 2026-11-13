@@ -7,7 +7,7 @@ const PROJECT_KINDS = { static_library: '静的ライブラリ', shared_library:
 const FOLDER_ICON = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 3.5h4.2l1.5 1.5h7.3v8.5h-13z" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-linejoin="round"/></svg>';
 
 export default {
-  render(root, props, { h, emit, state, menu }) {
+  render(root, props, { h, emit, state, menu, notice, lib }) {
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const s = props.status || {};
     const all = new Map();  // パス → 種類（出す順）
@@ -17,6 +17,13 @@ export default {
     if (all.size === 0 && !props.tools) return root.replaceChildren(h('p', { role: 'status' }, props.empty_text));
 
     const checked = new Set(props.checked.filter((path) => all.has(path)));
+    // 別の道具（git・TortoiseGit）でステージしたファイルは、初めから選んでおく（見えたときに1回だけ。前の GUI と同じ）
+    if ('branch' in s || 'task' in s) {
+      const seen = state.seen || new Set();
+      const staged = (s.staged || []).filter((path) => !seen.has(path) && !checked.has(path));
+      state.seen = new Set(all.keys());
+      if (staged.length) { for (const path of staged) checked.add(path); state.pick = true; }
+    }
     const missing = new Set(props.missing || []);
     const eol = new Set(s.eol_only || []), excluded = new Set(s.excluded || []);
     // まとめて選ぶとき、改行だけが変わったファイルは入れない（task commit と同じ。そのファイルのチェックでは入る）
@@ -35,7 +42,10 @@ export default {
       return input;
     };
     const act = (name, path = '') => emit('action', { name, path, paths: path ? [path] : [...checked] });
+    // 変える操作は、タスクブランチで（提出の確認中は変えない）
+    const locked = s.task && !s.reviewing ? '' : s.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います。';
 
+    if (state.pick) { state.pick = false; send(); }
     const box = h('div', { class: 'changes' });
     if (props.tools) {
       const button = (name, label, title, off) => {
@@ -45,8 +55,7 @@ export default {
         return item;
       };
       const tools = h('span', { class: 'change-tools' });
-      // 変える操作は、タスクブランチで（提出の確認中は変えない）。退避は、確認中・衝突の途中は使わない（前の GUI と同じ）
-      const locked = s.task && !s.reviewing ? '' : s.reviewing ? '提出を確認している間は変えられません。' : 'ファイルを変える操作はタスクブランチで行います。';
+      // 退避は、確認中・衝突の途中は使わない（前の GUI と同じ）
       const stashLocked = s.reviewing ? '提出を確認している間は使えません。' : s.merging ? '取り込みの途中です（衝突を直すか、やめてから）。' : '';
       // ステージは、衝突で止まった操作を終えるときだけ要る（コミットは、チェックしたものをステージする）
       if (s.merging || (s.conflicted || []).length) {
@@ -112,7 +121,8 @@ export default {
       input.addEventListener('change', () => { if (input.checked) checked.add(path); else checked.delete(path); send(); });
       const name = h('button', { type: 'button', class: 'name', title: (shown !== path ? path + '\n' : '') + 'ダブルクリックで差分（ほかの操作は右クリック）' }, shown);
       name.addEventListener('click', () => { clearTimeout(state.timer); state.timer = setTimeout(() => { if (props.selected !== path) emit('selected', { path }); }, 220); });
-      name.addEventListener('dblclick', () => { clearTimeout(state.timer); act('diff', path); });
+      // 新しいファイル（まだ git の管理に入っていない）には差分がない：中身を見る（前の GUI と同じ）
+      name.addEventListener('dblclick', () => { clearTimeout(state.timer); act(kinds.every((k) => k === 'untracked') ? 'view_new' : 'diff', path); });
       const gone = missing.has(path);
       const kind = h('small', { class: 'kind ' + (gone ? 'deleted' : kinds[0]) },
         (gone ? '削除' : '') + (gone && kinds[0] !== 'staged' ? '' : (gone ? ' · ' : '') + kinds.map((k) => KIND_LABEL[k]).join(' · ')));
@@ -123,16 +133,12 @@ export default {
       line.append(kind);
       line.addEventListener('contextmenu', async (event) => {
         event.preventDefault();
-        const tracked = !kinds.includes('untracked'), conflicted = kinds.includes('conflicted');
-        const id = await menu(event, [
-          { id: 'diff', label: '差分' },
-          ...(conflicted ? [{ id: 'resolve', label: '衝突を直す…' }] : []),
-          { id: 'restore', label: '変更を元に戻す', disabled: !tracked || conflicted, reason: conflicted ? '衝突は「衝突を直す」で直します。' : 'まだ git の管理に入っていないファイルです（消すなら「削除」）。' },
-          { id: 'ignore', label: '除外パターンに追加' }, { separator: true },
-          { id: 'log', label: 'ログ', disabled: !tracked, reason: 'まだ git の管理に入っていないファイルです。' },
-          { id: 'blame', label: '注釈履歴', disabled: !tracked || gone, reason: 'まだ git の管理に入っていないファイルです。' },
-        ]);
-        if (id) act(id, path);
+        // エクスプローラーと同じファイルのメニュー（前の GUI と同じ）。名前の変更は、移動の窓で
+        const ctx = { kinds, exists: !gone, locked: locked ? { disabled: true, reason: locked } : {}, projects: lib.ws.projects(props.projects),
+          files: props.files || [], vs: props.vs_version || '' };
+        const id = await menu(event, lib.ws.fileMenu(path, ctx));
+        if (id === 'copy') { try { navigator.clipboard.writeText(path).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ } return; }
+        lib.ws.fileAction(id === 'rename' ? 'move' : id, path, ctx, emit);
       });
       return line;
     };

@@ -1,0 +1,12 @@
+/* テストを作成の入力。新しいファイルの入力（ws-new-file）と同じ並び。 */
+.file-test { display: grid; gap: 14px; }
+.file-test h2 { margin: 0; }
+.subject { margin: 0; color: var(--gf-muted); font-size: 12px; overflow-wrap: anywhere; }
+.where { display: flex; gap: 12px; align-items: flex-start; }
+.where label { min-width: 0; }
+.where label.grow { flex: 1; }
+.where select { max-width: 280px; }
+.where input { width: 100%; }
+.preview { min-height: 1.7em; margin: 0; color: var(--gf-muted); font-size: 12px; overflow-wrap: anywhere; }
+.preview.bad { color: var(--eco-bad); }
+.actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 14px; border-top: 1px solid #343c46; }

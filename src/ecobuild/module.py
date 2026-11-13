@@ -697,7 +697,7 @@ class Module:
             if _remove_contents(moved):   # 移した後で他のプログラムが使い始めた（まれ）。元の場所に戻して断る
                 _put_back(aside)
                 git.run("worktree", "lock", "--reason", _LOCK_REASON, str(root), check=False)
-                raise _in_use(root)
+                raise _in_use(root, caller=False)
             with contextlib.suppress(OSError):
                 moved.rmdir()
         git.run("worktree", "prune", check=False)   # フォルダーがなくなった記録を片付ける
@@ -1647,8 +1647,8 @@ class Module:
 
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
-        .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md・CIのワークフロー（あれば作り直す。
-        手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md（なければ置き、あれば作り直す）・CLAUDE.md（なければ
+        置く。あればモジュールのもの）・CIのワークフロー（あれば作り直す。手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
         この作業空間の git の設定も、clone するときと同じにする（改行コードの扱い〔ecowork の CLONE_CONFIG〕。コミットしない。
         以前に clone した作業空間で、改行コードだけの差が出ないように）。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
@@ -1827,12 +1827,12 @@ class Module:
         元の clone で読んだら、今ある作業空間を添える（元の clone で始めた AI が、そこで作業したり、続きの作業の場所を
         取り違えたりしないように）。"""
         text = _docs.agent_guide(self.config, type(self.type))
-        if not self.repository.git.is_linked_worktree() and not _workspaces.is_legacy(self.root):
-            try:
+        try:   # 添える部分が読めなくても（git が読めない 等）、手順は出す
+            if not self.repository.git.is_linked_worktree() and not _workspaces.is_legacy(self.root):
                 found = {n: str(p) for n, p in self.task_workspaces().items() if not _workspaces.same(p, self.root)}
-            except WorkError:   # 一覧を読めなくても、手順は出す
-                found = {}
-            text += _docs.workspaces_here(str(self.root), found)
+                text += _docs.workspaces_here(str(self.root), found)
+        except (WorkError, OSError):
+            pass
         return AgentGuide(text)
 
     def write_ci(self, settings: _config.CiSettings | None = None, *, force: bool = False) -> CiInitResult:
@@ -2307,15 +2307,19 @@ def _github_state(github: _github.GitHub, name: str) -> tuple[str, str | None]:
     return ("archived" if info.archived else "ok"), None
 
 
-def _in_use(root: Path, details=None) -> EcoBuildError:
-    """作業空間 root を、他のプログラムが使っていて消せない。呼んだシェルの今のフォルダーがその中なら、それが理由と言う
-    （AI のシェルが作業空間の中から finish 等を呼ぶことが多く、「エディター・端末を閉じて」では自分のことと気づかない）。"""
-    if _workspaces.caller_inside(root):
+def _in_use(root: Path, details=None, *, caller: bool = True) -> EcoBuildError:
+    """作業空間 root を、他のプログラムが使っていて消せない。呼んだシェルの今のフォルダーがその中なら、それが理由と言い、
+    移る先を文そのものに書く（AI のシェルが作業空間の中から finish 等を呼ぶことが多く、「エディター・端末を閉じて」では
+    自分のことと気づかない。finish・drop・prune は残したわけとして文だけを伝えるので、案内も文に入れる）。
+    caller：呼んだシェルを理由にしてよいか（一度脇へ移せた後なら、シェルは理由ではない）。"""
+    if caller and _workspaces.caller_inside(root):
         original = _workspaces.original_of(root)
         return EcoBuildError(ErrorCode.IN_USE,
-                             f"作業空間 {root} は、このコマンドを呼んだシェルの今のフォルダーがその中にあるため消せません。",
-                             hint=f"シェルを元の clone へ移して（cd \"{original}\"）から、もう一度実行してください"
-                                  "（ほかにエディター・エクスプローラー等で開いていれば、それも閉じます）。", details=details)
+                             f"作業空間 {root} は、このコマンドを呼んだシェルの今のフォルダーがその中にあるため消せません。"
+                             f"シェルを元の clone（{original}）へ移してから、そこで片付けてください",
+                             hint=f"cd \"{original}\" してから、タスクの作業空間なら {operation(Module.command, 'task prune')} --task "
+                                  f"<番号>、ほかは {operation(Module.command, 'workspace close')} \"{root}\"（ほかにエディター・"
+                                  "エクスプローラー等で開いていれば、それも閉じます）。", details=details)
     return EcoBuildError(ErrorCode.IN_USE, f"作業空間 {root} は、他のプログラムが使っているため消せません。",
                          hint="エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、もう一度"
                               "実行してください。", details=details)

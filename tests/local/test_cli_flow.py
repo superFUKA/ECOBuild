@@ -792,6 +792,41 @@ def test_finish_tells_how_to_remove_a_kept_workspace(cli, module, parallel, monk
     assert "注意：手元のタスクブランチ" in finished.output and "ecobuild task prune --task 1" in finished.output  # 注意（標準エラー）で
 
 
+def test_finish_from_inside_the_workspace_names_the_calling_shell(cli, module, parallel, monkeypatch):
+    """作業空間の中のシェルから finish して消せなかったら、残したわけに「呼んだシェル」と移る先（元の clone）を書く
+    （finish は残したわけの文だけを伝えるので、案内も文に入る）。"""
+    from ecobuild import workspaces
+    real = Path.rename
+
+    def held(self, target):
+        if self == parallel:
+            raise PermissionError("使用中")
+        return real(self, target)
+    write(parallel / "a.txt", "a\n")
+    git(parallel, "add", "a.txt")
+    git(parallel, "commit", "--quiet", "-m", "a")
+    git(parallel, "push", "--quiet")
+    monkeypatch.setattr(Path, "rename", held)
+    monkeypatch.setattr(workspaces, "caller_directory", parallel)
+    finished = cli("task", "finish", "1", "--no-wait")
+    assert finished.exit_code == 0 and parallel.exists()
+    assert "呼んだシェル" in finished.output and f"元の clone（{module.root}）へ移して" in finished.output
+    assert "ecobuild task prune --task 1" in finished.output
+
+
+def test_main_records_the_calling_shell_before_moving_with_C(module, parallel, monkeypatch):
+    """ecobuild の入口は、-C で移る前の場所（呼んだシェルの今のフォルダー）を覚える。"""
+    import ecobuild_cli
+    from ecobuild import workspaces
+    monkeypatch.setattr(workspaces, "caller_directory", None)
+    monkeypatch.setattr(_github, "default", lambda: module.repository.github)
+    monkeypatch.chdir(parallel)
+    with pytest.raises(SystemExit):
+        ecobuild_cli.main(["-C", str(module.root), "status", "--json"])
+    assert workspaces.caller_directory == parallel and workspaces.caller_inside(parallel)
+    assert not workspaces.caller_inside(module.root / ".ecobuild" / "w" / "other")
+
+
 def _dependency_with_local_work(workspace: Path) -> Path:
     """作業空間の中の依存先の clone（deps/<名前>）に、GitHubにないコミットを置く。"""
     lib = workspace / "deps" / "Lib"

@@ -87,7 +87,7 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
     hand_edit = f"- {generated}は手で編集しません。\n" if generated else ""
     return f"""# AGENTS.md
 
-このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています。
+このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています（このファイルは ECOBuild が作り直します。モジュールだけの決まりは CLAUDE.md 等に書きます）。
 
 - 作業を始める前に `ecobuild agent guide` を実行し、手順を読んでください（このPCの ECOBuild に合った手順が出ます）。
 - gitを直接使わず `ecobuild` コマンドを使います（コミットは `ecobuild task commit`、テストは `ecobuild test`）。
@@ -108,7 +108,8 @@ CLAUDE_MD = "CLAUDE.md"
 def claude() -> str:
     """CLAUDE.md：AGENTS.md を読み込むだけ（Claude Code は CLAUDE.md だけを自動で読み、AGENTS.md は読まないため）。"""
     return ("# CLAUDE.md\n\n"
-            "このリポジトリの決まりは AGENTS.md にあります（ECOBuild が置いたファイルです。決まりは AGENTS.md に書きます）。\n\n"
+            "ECOBuild の決まりは AGENTS.md にあります（下の行で読み込みます）。AGENTS.md は ECOBuild が作り直すので書き足しません。\n"
+            "このモジュールだけの決まりは、このファイル（ECOBuild は変えません）に書きます。\n\n"
             "@AGENTS.md\n")
 
 

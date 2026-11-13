@@ -13,7 +13,7 @@ export default {
     };
     const s = props.status || {}, remote = props.remote || {};
     const onTask = Boolean(s.task && !s.reviewing);
-    const hidden = Boolean(props.output_hidden);
+    const hidden = !props.output_shown;
 
     const output = h('button', { type: 'button', class: 'status-item', 'aria-pressed': String(!hidden), title: '出力を出す・しまう' }, svg(OUTPUT_ICON), h('span', {}, '出力'));
     // 試験の失敗・0 でない終了コード・通らなかった確認は、コマンドが成功でも「失敗」と出す（出力欄と同じ）

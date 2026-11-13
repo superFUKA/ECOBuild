@@ -117,6 +117,10 @@ html.eco-frameless body[data-gf-screen^="hub"]::before, html.eco-frameless body[
 #runs > div::before { content: ""; flex: none; width: 12px; height: 12px; border: 2px solid var(--gf-border); border-top-color: var(--gf-accent); border-radius: 50%;
   animation: eco-spin .8s linear infinite; }
 #runs button { margin: 0 0 0 auto; padding: 2px 10px; font-size: 12px; }
+/* 読み込み中：今までの GUI の「更新中」と同じ、小さな札 */
+#runs > .gf-reading { justify-self: start; gap: 7px; padding: 5px 11px; border-radius: 14px; background: #1c2128e6; border-color: #3a424c; color: #a5aeba;
+  font-size: 11px; box-shadow: 0 4px 14px #0005; cursor: default; }
+#runs > .gf-reading::before { width: 10px; height: 10px; }
 body:has([data-gf-look="shell"]) #runs { left: 196px; }
 /* 知らせ：右下 */
 #notices { right: 16px; bottom: 16px; width: min(420px, calc(100% - 32px)); max-width: none; gap: 8px; }

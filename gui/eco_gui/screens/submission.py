@@ -26,7 +26,8 @@ SCREEN = {
         {"on": "detail.action", "when": {"action": "refresh"}, "refresh": True},
         {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
-        {"on": "detail.action", "when": {"action": "task"}, "open": "task", "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
+        # タスク：モジュールの窓のタスク管理で、そのタスクを選んで右に詳細
+        {"on": "detail.action", "when": {"action": "task"}, "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},
         {"on": "detail.action", "when": {"action": "open_review"}, "open": "workspace", "args": {"module": {"payload": "workspace"}}},
         # 手元で確認（ecobuild task review --task <番号> [--done]）・取り下げ（ecobuild task withdraw --task <番号>。確かめてから）
         {"on": "detail.action", "when": {"action": "review"}, "run": "task review", "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "workspace"}}},

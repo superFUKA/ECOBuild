@@ -1,8 +1,8 @@
 // 部品「タスク管理の概要」。数は届いたまま（数えるのは ecobuild）。タイル・バーの幅と色は見せ方だけ。押すと、その表示へ（go）。
 export default {
-  render(root, props, { h, lib, emit, menu }) {
+  render(root, props, { h, lib, emit, menu, open_url }) {
     const { STAGES } = lib.task;
-    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     const { md, open, deleted } = marks;
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('集計しています…'));

@@ -31,7 +31,9 @@ SCREEN = {
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
         {"on": "form.submitted", "run": "task apply", "confirmed": True, "notify": "反映しました。", "close": True,
-         "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "subject": {"payload": "values.subject"}, "partial": {"payload": "values.partial"}}},
+         "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "subject": {"payload": "values.subject"}, "partial": {"payload": "values.partial"}},
+         "instead": {"when": {"code": "merge_conflict"}, "open": "task-conflict-fix", "here": True,
+                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "title": "反映できません"}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

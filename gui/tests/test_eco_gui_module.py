@@ -73,7 +73,7 @@ class FakeModule(FakeEcobuild):
             "branch list": [dict(branch) for branch in BRANCHES],
             "task list": [{"number": 12, "title": "ログイン画面", "submission": {"number": 40, "state": "open", "draft": False, "base": "feature/mvp"}}],
             "account show": {"login": "superFUKA", "role": "admin", "admin": True, "owner": "superFUKA", "owner_type": "User",
-                             "default_base": "main", "creators": {"feature/mvp": "octocat"}},
+                             "default_base": "main", "creators": {"feature/mvp": "octocat"}, "manage": {"can": True, "reason": ""}},
             "module protection": {"branch": "main", "approvals": 1, "checks": ["build"]},
             "module readme": self.readme,
             "module show": {"name": "Calc", "type": "python", "root": "C:/work/Calc", "repository": "octocat/Calc",
@@ -132,6 +132,8 @@ def test_branches_show_the_tree_and_the_detail_of_the_selected_branch(relay):
     relay.idle()
     view = nodes(relay, window)
     assert view["tree"]["props"]["selected"] == "feature/mvp" and view["detail"]["props"]["selected"] == "feature/mvp"
+    # できること（管理者か）は account show の答え：詳細の「削除…」と「＋ ブランチ」の灰色と理由
+    assert view["detail"]["props"]["access"]["admin"] is True and view["create"]["props"]["answer"] == {"can": True, "reason": ""}
 
 
 def test_branch_actions_run_the_same_commands_a_person_types(relay):
@@ -150,8 +152,8 @@ def test_branch_actions_run_the_same_commands_a_person_types(relay):
     assert ("log", {"all": True, "gui": True}) in relay.backend.calls
     relay.input(window, "detail", "action", {"action": "task", "name": "feature/mvp", "task": 12}, human=True)
     relay.idle()
-    # タスクは、同じモジュールの窓で開く（モジュールごとに窓は1つ）
-    assert relay.display.tree(window)["screen"] == "task" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc", "issue": 12}
+    # このブランチから作ったタスクブランチを開く：その作業空間を、同じモジュールの窓で（手元になければ task start で取り出す）
+    assert ("task start", {"issue": 12}) in relay.backend.calls and relay.display.tree(window)["screen"] == "frame-workspace"
     relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}, "window": window})
     relay.idle()
     relay.input(window, "detail", "action", {"action": "merge", "name": "feature/mvp"}, human=True)  # 取り込み・提出の画面へ（同じ窓）
@@ -172,6 +174,7 @@ def test_a_branch_is_created_from_the_form_with_the_selected_branch_as_the_base(
     relay.idle()
     assert ("branch create", {"name": "release", "base": "feature/mvp"}) in relay.backend.calls
     assert not [w for w in relay.display.windows() if w["screen"] == "mod-branch-new"]  # うまくいったら閉じる
+    assert nodes(relay, window)["tree"]["props"]["selected"] == "release"  # 作ったブランチを選ぶ
     relay.input(window, "create", "pressed", {}, human=True)
     relay.idle()
     form = inside(relay, "mod-branch-new")

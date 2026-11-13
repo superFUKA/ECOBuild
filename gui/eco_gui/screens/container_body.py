@@ -73,6 +73,12 @@ SCREEN = {
         {"read": "container recipe", "args": {"module": {"arg": "module"}}, "to": "summary.recipe"},
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "summary.status"},
         {"read": "container image list", "args": {"module": {"arg": "module"}}, "to": "summary.images"},
+        # 環境の作り方：Dockerfile のエディター（窓の中に重ねて）・場所を開く（ecobuild open <Dockerfile> --app explorer）・
+        # リポジトリに置く（変えるファイルを下見で確かめてから ecobuild module upgrade）
+        {"on": "summary.action", "when": {"name": "edit"}, "open": "container-dockerfile", "args": {"module": {"arg": "module"}}, "inside": True},
+        {"on": "summary.action", "when": {"name": "reveal"}, "run": "open",
+         "args": {"module": {"arg": "module"}, "path": [".ecobuild/container/Dockerfile"], "app": "explorer"}},
+        {"on": "summary.action", "when": {"name": "place"}, "open": "mod-upgrade", "args": {"module": {"arg": "module"}}, "inside": True},
         # 状態（container status は1回だけ実行され、2つの部品へ出る）
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "status.data"},
         {"read": "container status", "args": {"module": {"arg": "module"}}, "to": "own_now.data"},

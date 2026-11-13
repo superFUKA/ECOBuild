@@ -11,6 +11,9 @@ SAMPLES = [
     {"name": "設定と違う", "props": {"data": {
         "path": ".github/workflows/ecobuild.yml", "supported": True, "exists": True, "edited": False, "current": False,
         "os": ["linux"], "configurations": ["Debug"], "shared": False, "branches": None, "default_base": "main"}}},
+    {"name": "管理者でない（変える操作は灰色）・非公開の依存先がある", "props": {"admin": False, "private": ["Secret"], "data": {
+        "path": ".github/workflows/ecobuild.yml", "supported": True, "exists": True, "edited": False, "current": True,
+        "os": ["linux"], "configurations": ["Debug"], "shared": False, "branches": None, "default_base": "main"}}},
     {"name": "型が非対応", "props": {"data": {"path": ".github/workflows/ecobuild.yml", "supported": False}}},
     {"name": "読み込み中", "props": {"loading": True}},
     {"name": "誤り", "props": {"error": "モジュールではありません"}},

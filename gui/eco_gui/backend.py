@@ -19,6 +19,7 @@ FROM_STANDARD_INPUT = {
     "agent skill set": "document", "agent skill add": "document",
     "agent skill preset set": "document", "agent skill preset add": "document",
     "agent rules set": "common",
+    "container dockerfile": "write",  # 環境の Dockerfile の中身（--write -）
     "sync resolve": "text",  # 衝突を直した、ファイルの中身
     "gui ask": "text",  # オペレーターに話しかける文
 }

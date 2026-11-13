@@ -34,7 +34,7 @@ const usageText = (node) => {
 };
 
 export default {
-  render(root, props, { h, state, memory }) {
+  render(root, props, { h, state, memory, keys }) {
     if (props.error) return root.replaceChildren(h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, `読めませんでした：${props.error}`)));
     const entries = collect(props.catalog || {});
     const types = Object.keys((props.catalog || {}).types || {});
@@ -333,10 +333,17 @@ export default {
     commands.append(h('div', { class: 'toolbar' }, h('label', { class: 'search' }, search, count), filters), typeNote, h('div', { class: 'panes' }, list, detail));
     const page = h('div', { class: 'help' },
       h('div', { class: 'heading' }, h('h2', {}, 'ヘルプ'), h('div', { class: 'tabs', role: 'tablist' }, tabGuide, tabCommands)), guide, commands);
-    // 「/」で、探す欄へ（欄に打っているときを除く）
-    page.addEventListener('keydown', (event) => {
-      if (event.key !== '/' || commands.hidden || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
-      event.preventDefault();
+    // 「/」で、窓のどこからでも探す欄へ（keys。欄に打っているときは、その欄に「/」を入れる）
+    page.addEventListener('focusin', (event) => { state.typing = /^(INPUT|TEXTAREA)$/.test(event.target.tagName) ? event.target : null; });
+    page.addEventListener('focusout', () => { state.typing = null; });
+    keys('/', () => {
+      const field = state.typing;
+      if (field && field.isConnected && typeof field.setRangeText === 'function') {
+        field.setRangeText('/', field.selectionStart, field.selectionEnd, 'end');
+        field.dispatchEvent(new Event('input'));
+        return;
+      }
+      if (commands.hidden) showTab('commands');
       search.focus();
     });
     drawFilters();

@@ -9,6 +9,7 @@ export default {
       const list = h('ul', { class: 'secrets' });
       for (const name of props.names) {
         const remove = h('button', { type: 'button', class: 'small danger-text' }, '削除…');
+        if (props.admin === false) { remove.disabled = true; remove.title = '管理者だけが行えます'; }
         remove.addEventListener('click', () => emit('removed', { name }));
         list.append(h('li', {}, h('code', {}, name), remove));
       }

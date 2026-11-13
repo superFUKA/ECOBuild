@@ -7,6 +7,10 @@
 - general：ほかのモジュールからリンクされる Project（main）・MSVC の C ランタイム・ソリューションフォルダー。
 - templates：ファイルテンプレート（既定の印）。
 
+管理ファイル（ecobuild.toml・CMake）を変える操作は、タスクブランチの作業空間で行う。作業空間（workspaces）が1つもなければ、
+そのボタンを理由付きの灰色にし、上に「今は見るだけです」の帯と「タスク管理を開く」（action の open_tasks）を出す。
+行の右クリックで、その行のボタンと ⋯ の項目をメニューに出す。
+
 見せ方だけ。押した操作は action で出す（何が起きるかは、つないだコマンドと、開く入力の窓が決める）。
 """
 from typing import Annotated, Literal
@@ -20,6 +24,7 @@ def part(
     settings: Annotated[dict | None, "モジュールの設定（ecobuild module settings：main_project・msvc_runtime・folders・templates）"] = None,
     fetched: Annotated[bool | None, "依存先を GitHub と照らし合わせて読んだか（列を足す）"] = False,
     versions: Annotated[dict | None, "選べる版（ecobuild deps versions：name・recorded・branch・branches・default_branch・tags・commits）。読むまで null"] = None,
+    workspaces: Annotated[list[dict] | None, "このモジュールの作業空間（ecobuild module show の workspaces：path・branch・task・review）。読むまで null"] = None,
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",
 ) -> None: ...
@@ -28,7 +33,7 @@ def part(
 def on_action(
     name: Annotated[str, "押した操作：project_add・project_settings・project_link・project_unlink・project_pch・project_move・project_remove／"
                          "deps_fetch・deps_sync・deps_update・dep_add・dep_update・dep_versions・dep_use・dep_versions_close・dep_remove／"
-                         "module_settings／template_add・template_replace・template_remove"],
+                         "module_settings／template_add・template_replace・template_remove／open_tasks（タスク管理を開く）"],
     target: Annotated[str, "対象の名前（Project・依存先・テンプレート）"] = "",
     value: Annotated[str, "dep_versions：ブランチ（空なら既定）／dep_use：版（タグの名前かコミット）"] = "",
 ) -> None:

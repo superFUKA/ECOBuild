@@ -12,9 +12,11 @@ export default {
     const state = !s.exists ? ['ワークフローはありません', 'warn'] : s.edited ? ['手で編集されています', 'warn']
       : s.current ? ['今の設定のとおり', 'ok'] : ['今の設定と違います（作り直すと合います）', 'warn'];
     const configurations = s.configurations || [];
-    const now = { os: (s.os || []).join(','), configuration: configurations.join(','), shared: s.shared ? 'on' : 'off', branches: (s.branches || []).join(',') };
+    const now = { os: (s.os || []).join(','), configuration: configurations.join(','), shared: s.shared ? 'on' : 'off', branches: (s.branches || []).join(','),
+      edited: !!s.edited };
     const button = (action, label, cls) => {
       const item = h('button', { type: 'button', class: cls }, label);
+      if (props.admin === false) { item.disabled = true; item.title = '管理者だけが行えます'; }
       item.addEventListener('click', () => emit('action', { action, ...now }));
       return item;
     };
@@ -27,7 +29,12 @@ export default {
     row('共有ライブラリ', s.shared ? 'その構成でもビルド・テストする' : 'しない');
     row('push で動かすブランチ', s.branches ? s.branches.join('、') : (s.default_base || '') + '（既定）');
     row('提出（PR）・手動', '常に動く');
-    root.replaceChildren(h('div', { class: 'ci-card' },
+    const notes = [];
+    if ((props.private || []).length) {
+      notes.push(h('div', { class: 'banner info', role: 'status' }, h('span', {}, `非公開の依存先（${props.private.join('、')}）は CI の GITHUB_TOKEN では取得できません。`
+        + '読めるトークンをシークレット ECOBUILD_DEPS_TOKEN に登録してください（ecobuild ci secret set ECOBUILD_DEPS_TOKEN）。')));
+    }
+    root.replaceChildren(...notes, h('div', { class: 'ci-card' },
       h('div', { class: 'head' }, h('div', {}, h('strong', {}, s.path), ' ', h('span', { class: 'pill ' + state[1] }, state[0])), actions), list));
   },
 };

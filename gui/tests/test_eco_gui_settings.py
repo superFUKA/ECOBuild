@@ -105,6 +105,8 @@ class FakeSettings(FakeEcobuild):
                 {"name": "ecobuild-calc:bbb", "module": "calc", "size": "1GB", "created": "2 days ago", "current": True,
                  "used_by": [], "environment": False}]},
             "installer show": {"version": "0.1.0", "ref": "main", "commit": "abc", "editable": False},
+            # 新しい版がある（「最新に更新する」と「版を選んで入れ直す」が出る）
+            "installer check": {"ref": "main", "current": "abc", "latest": "fff", "up_to_date": False, "gui": True},
             "installer versions": {"ref": plain.get("ref", "main"), "branches": ["main", "dev"], "commits": [
                 {"sha": "abc", "date": "2026-11-01", "subject": "今の版", "current": True, "latest": True},
                 {"sha": "def", "date": "2026-10-01", "subject": "前の版", "current": False, "latest": False}]},
@@ -148,6 +150,12 @@ def wraps(relay, window, *ids):
     """部品の包み（None＝出ていて押せる／unavailable＝灰色／hidden＝出していない）。"""
     view = nodes(relay, window)
     return [(view[node]["wrap"] or {}).get("kind") for node in ids]
+
+
+def tab(relay, window, name):
+    """ハブの設定のタブを選ぶ（選んでいないタブの中身は、出ていない＝押せない）。"""
+    relay.input(window, "tabs", "selected", {"id": name}, human=True)
+    relay.idle()
 
 
 def typed(relay, window, **texts):
@@ -403,6 +411,7 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     typed(relay, window, config_value="octo-org")
     press(relay, window, "config_set")
     press(relay, window, "config_unset")
+    tab(relay, window, "images")
     typed(relay, window, claude_version="stable")
     assert nodes(relay, window)["version_now"]["props"]["text"] == "stable"
     press(relay, window, "version_set")
@@ -416,6 +425,7 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
     for call in [("config set", {"key": "owner", "value": "octo-org"}), ("config unset", {"key": "owner"}),
                  ("config set", {"key": "agent_claude_version", "value": "stable"}), ("config unset", {"key": "agent_claude_version"})]:
         assert call in relay.backend.calls
+    tab(relay, window, "general")
     relay.input(window, "setup_fields", "changed", {"name": "Octo Cat", "email": "", "install": False}, human=True)
     relay.idle()
     press(relay, window, "setup", confirm=True)
@@ -425,39 +435,44 @@ def test_hub_settings_reads_this_pc_and_changes_the_tool_settings(relay):
 
 def test_hub_settings_token_images_and_update_ask_before_they_run(relay):
     window = opened(relay, "hub-settings")
+    tab(relay, window, "ai")
     assert wraps(relay, window, "token_login", "token_remove") == [None, "hidden"]  # トークンがない：消すボタンは出さない
     press(relay, window, "token_login", confirm=True)
     assert wraps(relay, window, "token_remove") == [None]
     press(relay, window, "token_remove", confirm=False)
     assert ("agent token login", {}) in relay.backend.calls and ("agent token remove", {}) not in relay.backend.calls
     assert not [name for name, _ in relay.backend.calls if name == "agent token set"]  # 値を入れる口は、画面にない
+    tab(relay, window, "images")
     press(relay, window, "images_build")
     assert ("container image build", {}) in relay.backend.calls
     assert nodes(relay, window)["images_out"]["props"]["lines"] == ["イメージを作っています…"]
     press(relay, window, "images_prune", confirm=True)
     assert ("container image prune", {}) in relay.backend.calls
 
+    # 入れ直すのは ecobuild gui update（installer update の後、GUI を起動し直す）
+    tab(relay, window, "ecobuild")
     press(relay, window, "update", confirm=False)
-    assert not [call for call in relay.backend.calls if call[0] == "installer update"]
+    assert not [call for call in relay.backend.calls if call[0] == "gui update"]
     press(relay, window, "update", confirm=True)
-    assert ("installer update", {}) in relay.backend.calls
+    assert ("gui update", {}) in relay.backend.calls
     assert wraps(relay, window, "update_ref", "update_branch") == ["unavailable", "unavailable"]  # 版・ブランチを決めるまで押せない
     typed(relay, window, ref="main")
     press(relay, window, "update_ref", confirm=True)
     relay.input(window, "versions", "action", {"id": "def", "action": "install"}, human=True)
     answer(relay, window, True)
-    assert ("installer update", {"ref": "main"}) in relay.backend.calls and ("installer update", {"ref": "def"}) in relay.backend.calls
+    assert ("gui update", {"ref": "main"}) in relay.backend.calls and ("gui update", {"ref": "def"}) in relay.backend.calls
 
 
 def test_hub_settings_picks_a_branch_from_the_list_and_reads_its_versions(relay):
     window = opened(relay, "hub-settings")
     assert nodes(relay, window)["branch"]["props"]["options"] == ["main", "dev"]
     assert relay.backend.calls.count(("installer versions", {})) == 1  # 選ぶ前：入れたときのブランチ
+    tab(relay, window, "ecobuild")
     relay.input(window, "branch", "changed", {"value": "dev"}, human=True)
     relay.idle()
     assert ("installer versions", {"ref": "dev"}) in relay.backend.calls  # 選んだブランチの版を読む
     assert nodes(relay, window)["branch"]["props"]["value"] == "dev"
     press(relay, window, "update_branch", confirm=True)
-    assert ("installer update", {"ref": "dev"}) in relay.backend.calls
+    assert ("gui update", {"ref": "dev"}) in relay.backend.calls
 
 

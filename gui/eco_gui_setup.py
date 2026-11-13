@@ -102,21 +102,32 @@ def make_shortcut(place: Path, venv: Path) -> Path:
 
     窓と同じ AppUserModelID を書く：タスクバーで窓がこのショートカットとまとまり、ピン留めすると「ECOBuild GUI」になる
     （書かないと、ピン留めが Electron の実行ファイルになる）。書き方は、今までの GUI のショートカットと同じ（app.py）。"""
-    from app import _SET_APP_ID
-
-    link = place / f"{NAME}.lnk"
     for former in FORMER_NAMES:
         try:
             (place / f"{former}.lnk").unlink()
         except OSError:
             pass
+    return _write_shortcut(place / f"{NAME}.lnk", venv, [], str(HERE / "icon.ico"), APP_ID, "ECOBuild GUI")
+
+
+def make_module_shortcut(root: Path, place: Path, venv: Path, icon: str, app_id: str) -> Path:
+    """モジュールの窓だけを開くショートカット（ECOBuildGUINext.pyw --module <場所>。ハブは開かない）。
+    app_id：そのモジュールの窓と同じ AppUserModelID（タスクバーで、モジュールごとに別のアプリ。ピン留めすると、そのモジュールを開く）。"""
+    name = re.sub(r'[\\/:*?"<>|]', "_", root.name)
+    return _write_shortcut(place / f"{name} - ECOBuild.lnk", venv, ["--module", str(root)], icon, app_id,
+                           f"{root.name}（ECOBuild の開発環境）")
+
+
+def _write_shortcut(link: Path, venv: Path, arguments: list[str], icon: str, app_id: str, description: str) -> Path:
+    from app import _SET_APP_ID
+
     script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:EG_LINK); $s.TargetPath = $env:EG_TARGET; "
               "$s.Arguments = $env:EG_ARGS; $s.WorkingDirectory = $env:EG_DIR; $s.IconLocation = $env:EG_ICON + ',0'; "
               "$s.Description = $env:EG_DESCRIPTION; $s.Save(); "
               "Add-Type -TypeDefinition $env:EG_CS; [EcoShortcut]::SetAppId($env:EG_LINK, $env:EG_APPID)")
     env = dict(os.environ, EG_LINK=str(link), EG_TARGET=str(python_of(venv, windowless=True)),
-               EG_ARGS=subprocess.list2cmdline([str(HERE / "ECOBuildGUINext.pyw")]), EG_DIR=str(HERE),
-               EG_ICON=str(HERE / "icon.ico"), EG_DESCRIPTION="ECOBuild GUI", EG_CS=_SET_APP_ID, EG_APPID=APP_ID)
+               EG_ARGS=subprocess.list2cmdline([str(HERE / "ECOBuildGUINext.pyw"), *arguments]), EG_DIR=str(HERE),
+               EG_ICON=icon, EG_DESCRIPTION=description, EG_CS=_SET_APP_ID, EG_APPID=app_id)
     done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
                           stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
     if done.returncode != 0 or not link.is_file():

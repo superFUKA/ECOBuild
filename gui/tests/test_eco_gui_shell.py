@@ -18,9 +18,21 @@ def test_opens_in_electron_when_it_is_installed(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_GUI_ELECTRON", str(exe))
     monkeypatch.setenv("ELECTRON_RUN_AS_NODE", "1")
     monkeypatch.setattr(shell.subprocess, "Popen", lambda command, **options: started.append((command, options)))
+    monkeypatch.setattr(shell, "type_icons", lambda: {})
+
+    class Now:  # 別の流れで起こすところを、すぐに
+        def __init__(self, target, args, daemon):
+            self.run = lambda: target(*args)
+
+        def start(self):
+            self.run()
+
+    monkeypatch.setattr(shell.threading, "Thread", Now)
     shell.open_window("http://127.0.0.1:5000/w/w1#t.s", "ハブ", [900, 720])
     command, options = started[0]
-    assert command == [str(exe), str(shell.APP), "--url=http://127.0.0.1:5000/w/w1#t.s", "--title=ハブ", "--size=900x720"]
+    assert command[:5] == [str(exe), str(shell.APP), "--url=http://127.0.0.1:5000/w/w1#t.s", "--title=ハブ", "--size=900x720"]
+    # モジュールの窓をタスクバーでモジュールごとのアプリにする材料（開き直し方・型のアイコン）
+    assert [word.split("=")[0] for word in command[5:]] == ["--launch", "--type-icons", "--module-icon"]
     assert "ELECTRON_RUN_AS_NODE" not in options["env"]
     assert (shell.APP / "main.js").is_file() and (shell.APP / "package.json").is_file()
 

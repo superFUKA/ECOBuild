@@ -125,7 +125,7 @@ def test_the_tab_menu_opens_the_folder_and_removes_the_workspace(relay):
     press(relay, window, "bar:tabs", "action", name="explorer", path=OTHER)
     assert last(relay) == ("open", {"app": "explorer"}) and relay.backend.modules[0] == OTHER  # その作業空間のフォルダーを開く
     press(relay, window, "bar:tabs", "action", name="vs", path=OTHER, version="2026")
-    assert last(relay) == ("open", {"app": "vs", "vs_version": "2026"})
+    assert last(relay) == ("open", {"app": "vs", "vs_version": "2026", "solution": True})  # ソリューションで（なければビルドしてから）
     # 作業空間を削除：確かめてから、モジュールの側で ecobuild workspace close --at <場所>
     relay.backend.modules.clear()
     relay.input(window, "bar:tabs", "action", {"name": "remove", "path": OTHER}, human=True)

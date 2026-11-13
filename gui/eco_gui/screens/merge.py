@@ -8,7 +8,7 @@ ARGS = {"module": ".", "name": ""}  # モジュールのフォルダー・取り
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "ブランチの取り込み・提出", "width": 1280, "height": 820},
+    "window": {"one_per": "module", "title": "ブランチの取り込み・提出", "width": 1360, "height": 880},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "own", "card"]},

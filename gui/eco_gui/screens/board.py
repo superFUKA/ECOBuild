@@ -8,7 +8,7 @@ ARGS = {"module": ".", "filter": {}, "all": False, "ready": False}
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "ボード", "width": 1280, "height": 820, "refresh": {"focus": True, "every": 180}},
+    "window": {"one_per": "module", "title": "ボード", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "board", "module": {"arg": "module"}}},

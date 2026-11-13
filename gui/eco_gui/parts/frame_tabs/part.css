@@ -3,6 +3,7 @@
 .tabs { display: flex; flex: 1; min-width: 0; gap: 4px; overflow-x: auto; padding: 3px 8px 0; }
 .tab-group { display: flex; flex-shrink: 0; align-items: center; border: 1px solid transparent; border-bottom: 2px solid transparent; border-radius: 7px 7px 0 0; }
 .tab-group:hover { background: #1f262d; }
+.tab-group.dragging { opacity: .45; }
 .tab-group.on { background: #232c32; border-color: #35443e; border-bottom-color: #9ee4d3; }
 .tab-group > [role=tab] { flex-shrink: 0; border: 0; border-radius: 7px 7px 0 0; background: transparent; color: #9eaab8; padding: 3px 8px 3px 12px; font-size: 13px; }
 .tab-group > [role=tab]:hover:not(:disabled) { background: transparent; border: 0; }

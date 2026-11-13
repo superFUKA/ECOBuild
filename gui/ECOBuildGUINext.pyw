@@ -1,6 +1,8 @@
 """ダブルクリックで、GUIFrameWork の上の新しい GUI（eco_gui）のハブを開く（コマンドプロンプトを出さない）。
 
 中継地点を裏で起こし、ハブの窓を開く。もう動いていれば、ハブを前に出すだけ。
+--module <モジュールのフォルダか名前>：ハブではなく、そのモジュールの窓を開く（開いていれば、今のページのまま前に出す）。
+モジュールのショートカット・タスクバーにピン留めしたモジュールの窓は、これで開く（next_commands.py の shortcut・electron/main.js）。
 起こす前に、拡張コマンド ecobuild gui の入口（ecobuild-gui）がなければ置く（オペレーターとの会話・外からの GUI の操作に使う）。
 開けなかったときは、理由を窓で知らせる（GUIFrameWork が入っていない・ecobuild の版が合わない 等）。
 """
@@ -23,7 +25,28 @@ def tell(message: str) -> None:
         print(message, file=sys.stderr)
 
 
-def main() -> int:
+def module_of(given: str) -> str:
+    """--module の場所：フォルダならそのまま。名前なら、この PC のモジュールの一覧から（next_gui.module_folder）。"""
+    import next_gui
+
+    def ecobuild(args):
+        done = subprocess.run([shutil.which("ecobuild") or "ecobuild", *args, "--json"], capture_output=True, encoding="utf-8",
+                              errors="replace", stdin=subprocess.DEVNULL, creationflags=0x08000000 if sys.platform == "win32" else 0)
+        return json.loads(done.stdout.strip().splitlines()[-1])
+
+    return next_gui.module_folder(given, ecobuild)
+
+
+def open_module(root: str) -> None:
+    """モジュールの窓を開く（そのモジュールの窓が開いていれば、切り替えずに前に出す：ハブの一覧から開くのと同じ）。"""
+    from guiframework import client
+
+    client.send("ecobuild-gui-next", {"command": "open", "screen": "frame-workspaces", "args": {"module": root}, "keep": True})
+
+
+def main(argv: list[str] | None = None) -> int:
+    words = list(sys.argv[1:] if argv is None else argv)
+    module = words[words.index("--module") + 1] if "--module" in words[:-1] else ""
     try:
         import guiframework  # noqa: F401
     except ImportError:
@@ -41,7 +64,15 @@ def main() -> int:
     # 窓のない pythonw のままでは、ecobuild を呼ぶたびにコマンドプロンプトの窓が出る。隣の python を、窓のないコンソールで起こす
     # （その先の中継地点・ecobuild は、この見えないコンソールを受け継ぐ）
     flags = 0x08000000 if sys.platform == "win32" else 0
-    done = subprocess.run([console_python(sys.executable), "-m", "eco_gui.app", "serve", "--background", "--screen", "hub", "--json"],
+    if module:
+        try:
+            module = module_of(module)
+        except Exception as error:  # 見つからない・ecobuild を呼べない
+            tell(f"モジュールの窓を開けませんでした。
+{getattr(error, 'message', None) or error}")
+            return 1
+    done = subprocess.run([console_python(sys.executable), "-m", "eco_gui.app", "serve", "--background",
+                           *(() if module else ("--screen", "hub")), "--json"],
                           cwd=HERE, creationflags=flags, stdin=subprocess.DEVNULL, capture_output=True, encoding="utf-8", errors="replace")
     if done.returncode != 0:
         try:

@@ -82,6 +82,17 @@ def test_open_with_visual_studio_opens_the_solution_or_the_folder(cli, module, s
     assert done["opened"] == "solution" and started == [[studio, str(root / "build" / "x64" / "Calc.sln")]]
 
 
+def test_open_with_the_solution_refuses_until_a_build_made_one(cli, module, started, studio):
+    # C++（ソリューションを作る型）：まだなければ開かずに no_solution（画面は「ビルドしてから開きますか？」を出す）
+    root = Path(module.root).resolve()
+    done = cli("open", "--app", "vs", "--solution", "--json")
+    assert done.exit_code == 1 and result(done)["error"]["code"] == "no_solution" and started == []
+    write(root / "build" / "x64" / "Calc.slnx", "")
+    done = result(cli("open", "--app", "vs", "--solution", "--json"))["result"]
+    assert done["opened"] == "solution" and done["name"] == "Calc.slnx" and started == [[studio, str(root / "build" / "x64" / "Calc.slnx")]]
+    assert cli("open", "--app", "explorer", "--solution", "--json").exit_code == 2   # vs のときだけ
+
+
 def test_open_a_file_with_visual_studio_goes_to_the_line(cli, module, started, studio):
     target = str((Path(module.root) / "README.md").resolve())
     done = result(cli("open", "README.md", "--app", "vs", "--line", "12", "--json"))["result"]

@@ -16,6 +16,7 @@
 .item:hover:not(:disabled) { background: #222930; color: var(--gf-fg); border-color: transparent; }
 .item[aria-current=page] { background: var(--eco-sel-bg); border-color: var(--eco-sel-line); color: var(--eco-sel-fg); }
 .item span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.item.dragging { opacity: .45; }
 .bottom { margin-top: auto; padding-top: 8px; }
 .account { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 8px; row-gap: 1px; align-items: center; width: 100%; margin-top: 8px; padding: 12px 6px 4px;
   border: 0; border-top: 1px solid var(--eco-line); border-radius: 0 0 8px 8px; background: transparent; color: var(--gf-muted); font-size: 13px; text-align: left; }

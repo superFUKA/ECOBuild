@@ -1,5 +1,6 @@
 // 部品「左のメニュー」。上に窓の題（モジュールの名前）、まとまりごとの項目（アイコン付き）、下にアカウント。
 // 折りたたむとアイコンだけになる（この PC に覚える）。今の項目に印を付ける。
+// 上の項目は、ドラッグ（キーボードなら Alt+↑／↓）で並べ替えられる（この PC に覚える。下の設定・ヘルプは動かさない）。
 const ICONS = {
   module: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
@@ -23,7 +24,7 @@ const ICONS = {
 const ROLES = { admin: '管理者', maintain: '管理', write: '書き込み', triage: '整理', read: '読み取り' };
 
 export default {
-  render(root, props, { h, emit, memory, redraw }) {
+  render(root, props, { h, emit, memory, state, redraw }) {
     const icon = (name) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
@@ -40,15 +41,22 @@ export default {
     if (props.title) top.append(h('strong', { title: props.title }, props.title));
     nav.append(top);
 
+    // 並べ替えた順は、項目の組（ハブ・モジュールの窓）ごとに覚える（どの画面に置いても同じ）
+    const tops = props.items.filter((item) => !item.bottom);
+    const orderKey = 'order:' + tops.map((item) => item.id).sort().join(',');
+    const saved = memory.shared.get(orderKey, []) || [];
+    const rank = (item) => { const at = saved.indexOf(item.id); return at < 0 ? saved.length : at; };
+    const ordered = tops.map((item, i) => [item, i]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([item]) => item);
+    const keep = (ids) => { memory.shared.set(orderKey, ids); redraw(); };
+
     let group = null;
     const list = h('div', { class: 'items' });
-    for (const item of props.items) {
-      if (item.bottom) continue;
+    for (const item of ordered) {
       if (item.group && item.group !== group) {
         group = item.group;
         list.append(h('div', { class: 'group' }, group));
       }
-      list.append(entry(item));
+      list.append(movable(entry(item), item));
     }
     nav.append(list);
 
@@ -66,9 +74,46 @@ export default {
     }
     nav.append(bottom);
     root.replaceChildren(nav);
+    if (state.refocus) { state.refocus.focus(); state.refocus = null; }  // Alt+↑／↓ で動かした項目に、フォーカスを残す
+
+    // ドラッグで並べ替え・Alt+↑／↓ で1つ動かす
+    function movable(button, item) {
+      button.draggable = true;
+      button.addEventListener('dragstart', (event) => {
+        state.dragged = item.id;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', item.id);
+        button.classList.add('dragging');
+      });
+      button.addEventListener('dragend', () => { state.dragged = null; button.classList.remove('dragging'); });
+      button.addEventListener('dragover', (event) => { if (state.dragged && state.dragged !== item.id) event.preventDefault(); });
+      button.addEventListener('drop', (event) => {
+        if (!state.dragged || state.dragged === item.id) return;
+        event.preventDefault();
+        const box = button.getBoundingClientRect();
+        const ids = ordered.map((x) => x.id).filter((id) => id !== state.dragged);
+        ids.splice(ids.indexOf(item.id) + (event.clientY < box.top + box.height / 2 ? 0 : 1), 0, state.dragged);
+        state.dragged = null;
+        keep(ids);
+      });
+      button.addEventListener('keydown', (event) => {
+        if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        event.preventDefault();
+        const ids = ordered.map((x) => x.id);
+        const at = ids.indexOf(item.id);
+        const to = at + (event.key === 'ArrowUp' ? -1 : 1);
+        if (to < 0 || to >= ids.length) return;
+        ids.splice(at, 1);
+        ids.splice(to, 0, item.id);
+        state.focus = item.id;
+        keep(ids);
+      });
+      if (state.focus === item.id) { state.focus = null; state.refocus = button; }
+      return button;
+    }
 
     function entry(item) {
-      const button = h('button', { type: 'button', class: 'item', title: item.label }, icon(item.icon), h('span', {}, item.label));
+      const button = h('button', { type: 'button', class: 'item', title: item.bottom ? item.label : item.label + '（ドラッグか Alt+↑／↓ で並べ替え）' }, icon(item.icon), h('span', {}, item.label));
       if (item.id === props.current) button.setAttribute('aria-current', 'page');
       button.addEventListener('click', () => emit('selected', { id: item.id }));
       return button;

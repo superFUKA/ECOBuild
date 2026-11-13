@@ -37,6 +37,7 @@ class ErrorCode(_WorkErrorCode):
     NOT_SUPPORTED = "not_supported"     # モジュールの型が対応しない操作
     WORKSPACE_NOT_RECORDED = "workspace_not_recorded"   # workspace forget・close：その場所は記録にない
     IN_USE = "in_use"                   # 他のプログラム（エディター・端末等）が使っているため、フォルダーを動かせない
+    NO_SOLUTION = "no_solution"         # open --app vs --solution：ソリューションを作る型なのに、まだない（ビルドすると作られる）
 
 
 class EcoBuildError(WorkError):

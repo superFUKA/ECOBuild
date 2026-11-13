@@ -1,12 +1,13 @@
 """モジュール › 作業空間（出している作業空間がないとき）：左のメニュー、作業空間のタブ、案内。
 
-タブがあれば、その1つを出した画面（frame-workspace）へ、同じ窓ですぐに切り替わる。"""
+タブがあれば、その1つを出した画面（frame-workspace）へ、同じ窓ですぐに切り替わる。
+見えているあいだ 20 秒ごとに読み直す（ほかの窓・端末・エージェントが作った作業空間のタブを出す。前の GUI と同じ）。"""
 
 ARGS = {"module": ".", "closed": []}  # モジュールのフォルダー・閉じたタブ
 
 SCREEN = {
     "root": "page",
-    "window": {"one_per": "module", "title": "ECOBuild", "width": 1280, "height": 860, "refresh": {"focus": True}},
+    "window": {"one_per": "module", "title": "ECOBuild", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 20}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "frame-workspaces", "module": {"arg": "module"}}},

@@ -108,7 +108,7 @@ def test_submit_window_lists_the_commits_and_makes_a_draft_ready(relay):
                                  "show_if": {"pull_request.state": "open", "pull_request.draft": True}}]
     assert props["values"]["pull_request"]["draft"] is True
     relay.input(window, "form", "action", {"name": "ready", "values": {"title": "打ちかけ"}}, human=True)
-    assert answer(relay, window, True)["part"] == "confirm-box"
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     relay.idle()
     assert calls(relay, "task submit") == [{"check": False}] and relay.backend.modules[-1] == PLACE
     assert window not in [w["id"] for w in relay.display.windows()]

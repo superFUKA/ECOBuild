@@ -42,9 +42,9 @@ SCREEN = {
         # GitHub の最新を見てから（衝突の警告は、今の作成元との比べ）
         {"read": "status", "args": {"module": {"arg": "module"}, "fetch": True}, "to": "form.values"},
         {"read": "task status", "args": {"module": {"arg": "module"}}, "to": "form.also"},  # 提出に入るコミット（commits）
-        {"on": "form.action", "when": {"name": "ready"}, "run": "task submit", "notify": "下書きを解除しました。", "close": True,
+        {"on": "form.action", "when": {"name": "ready"}, "run": "task submit", "confirmed": True, "notify": "下書きを解除しました。", "close": True,
          "args": {"module": {"arg": "module"}, "check": False}},
-        {"on": "form.submitted", "run": "task submit", "notify": "提出しました。", "close": True,
+        {"on": "form.submitted", "run": "task submit", "confirmed": True, "notify": "提出しました。", "close": True,
          "args": {"module": {"arg": "module"}, "title": {"payload": "values.title"}, "draft": {"payload": "values.draft"},
                   "reviewer": {"payload": "values.reviewer"}, "partial": {"payload": "values.partial"}, "complete": {"payload": "values.complete"},
                   "check": {"payload": "values.check"}}},

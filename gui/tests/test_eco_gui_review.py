@@ -321,19 +321,18 @@ def test_submission_opens_the_forms_with_what_they_need(relay):
 def test_forms_approve_reject_and_comment(relay):
     window = submission(relay)
     opened = form(relay, window, "approve")
-    submit(relay, opened, yes=False)  # 承認は、確かめてから。やめたら、窓は開いたまま
-    assert last(relay, "task approve") is None and opened["id"] in [w["id"] for w in relay.display.windows()]
-    submit(relay, opened, yes=True, message="よいと思います", subject="検索を足す", ignore_checks=True)
+    # 承認の窓で押したら、それが確認を兼ねる（もう一度「はい／いいえ」は出さない）
+    submit(relay, opened, message="よいと思います", subject="検索を足す", ignore_checks=True)
     assert last(relay, "task approve") == {"task": 20, "message": "よいと思います", "subject": "検索を足す", "ignore_checks": True}
     assert opened["id"] not in [w["id"] for w in relay.display.windows()]  # うまくいったら閉じる
     assert notices(relay)[-1] == "承認して取り込みました。"
 
     opened = form(relay, window, "approve")
-    submit(relay, opened, yes=True, message="", subject="", ignore_checks=False)
+    submit(relay, opened, message="", subject="", ignore_checks=False)
     assert last(relay, "task approve") in ({"task": 20}, {"task": 20, "ignore_checks": False})  # 書かなかった欄は渡さない
 
     opened = form(relay, window, "reject")
-    submit(relay, opened, yes=True, message="試験を足してください")
+    submit(relay, opened, message="試験を足してください")
     assert last(relay, "task reject") == {"task": 20, "message": "試験を足してください"}
 
     opened = form(relay, window, "comment")
@@ -345,14 +344,14 @@ def test_forms_approve_reject_and_comment(relay):
 def test_forms_finish_and_apply(relay):
     window = submission(relay, 12)
     opened = form(relay, window, "finish", 12)
-    submit(relay, opened, yes=True, subject="ログイン画面を足す", ignore_checks=True, complete=False, partial=True)
+    submit(relay, opened, subject="ログイン画面を足す", ignore_checks=True, complete=False, partial=True)
     assert last(relay, "task finish") == {"number": 12, "subject": "ログイン画面を足す", "ignore_checks": True, "partial": True, "complete": False}
     opened = form(relay, window, "finish", 12)
-    submit(relay, opened, yes=True, subject="", ignore_checks=False, complete=True, partial=False)
+    submit(relay, opened, subject="", ignore_checks=False, complete=True, partial=False)
     assert last(relay, "task finish") == {"number": 12, "ignore_checks": False, "partial": False, "complete": True}
 
     opened = form(relay, window, "apply", 12)
-    submit(relay, opened, yes=True, subject="", complete=False, partial=True)
+    submit(relay, opened, subject="", complete=False, partial=True)
     assert last(relay, "task apply") == {"task": 12, "partial": True}
 
 
@@ -360,7 +359,7 @@ def test_forms_merge_a_branch_submission(relay):
     detail = relay.execute({"command": "open", "screen": "review-branch", "args": {"module": "C:/work/Calc", "branch": "dev"}})["window"]
     relay.idle()
     opened = form(relay, detail, "merge", "dev")
-    submit(relay, opened, yes=True, ignore_checks=True)
+    submit(relay, opened, ignore_checks=True)
     assert last(relay, "branch merge") == {"name": "dev", "ignore_checks": True}  # 取り込み先を付けない：作ってある提出を取り込む
 
 

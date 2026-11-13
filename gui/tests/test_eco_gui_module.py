@@ -150,7 +150,10 @@ def test_branch_actions_run_the_same_commands_a_person_types(relay):
     assert ("log", {"all": True, "gui": True}) in relay.backend.calls
     relay.input(window, "detail", "action", {"action": "task", "name": "feature/mvp", "task": 12}, human=True)
     relay.idle()
-    assert [w["args"] for w in relay.display.windows() if w["screen"] == "task"] == [{"module": "C:/work/Calc", "issue": 12}]
+    # タスクは、同じモジュールの窓で開く（モジュールごとに窓は1つ）
+    assert relay.display.tree(window)["screen"] == "task" and relay.display.tree(window)["args"] == {"module": "C:/work/Calc", "issue": 12}
+    relay.execute({"command": "open", "screen": "branches", "args": {"module": "C:/work/Calc"}, "window": window})
+    relay.idle()
     relay.input(window, "detail", "action", {"action": "merge", "name": "feature/mvp"}, human=True)  # 取り込み・提出の画面へ（同じ窓）
     relay.idle()
     assert relay.display.tree(window)["screen"] == "merge" and relay.display.tree(window)["args"]["name"] == "feature/mvp"
@@ -239,7 +242,7 @@ def test_ci_is_set_up_and_removed_in_the_chosen_workspace(relay):
     relay.idle()
     form = inside(relay, "mod-ci-remove")
     relay.input(form, "form", "submitted", {"values": {"place": "C:/work/Calc/.ecobuild/w/12"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert relay.backend.modules[relay.backend.calls.index(("ci remove", {}))] == "C:/work/Calc/.ecobuild/w/12"
 
 
@@ -330,20 +333,17 @@ def test_members_show_the_account_and_invite_change_and_remove(relay):
     relay.idle()
     form = inside(relay, "mod-member-invite")
     relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": ""}}, human=True)
-    answer(relay, form, True)  # 招待は、確かめてから（ほかの人に届く）
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("module members add", {"user": "newbie"}) in relay.backend.calls  # 役割を選ばなければ、渡さない
     relay.input(window, "members", "action", {"action": "role", "login": "octocat", "role": "write", "organization": True}, human=True)
     relay.idle()
     form = inside(relay, "mod-member-role")
     assert nodes(relay, form)["form"]["props"]["subject"] == "octocat" and nodes(relay, form)["form"]["props"]["initial"] == {"role": "write"}
     relay.input(form, "form", "submitted", {"values": {"role": "admin"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("module members add", {"user": "octocat", "role": "admin"}) in relay.backend.calls
-    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
-    answer(relay, window, False)
-    assert ("module members remove", {"user": "octocat"}) not in relay.backend.calls
-    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
-    answer(relay, window, True)
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)  # 前の GUI と同じく、確かめずに外す
+    relay.idle()
     assert ("module members remove", {"user": "octocat"}) in relay.backend.calls
     assert [m["login"] for m in nodes(relay, window)["members"]["props"]["members"]] == ["hubot"]  # 変えたら読み直す
 

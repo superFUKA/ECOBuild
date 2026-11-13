@@ -169,7 +169,7 @@ def test_workspace_stages_unstages_and_discards_the_checked_changes(relay):
     press(relay, window, "changes", "action", name="stage", paths=["a.py", "new.txt"])
     assert ("task add", {"paths": ["a.py", "new.txt"]}) in relay.backend.calls
     relay.input(window, "changes", "action", {"name": "unstage", "paths": ["a.py", "new.txt"]}, human=True)
-    answer(relay, window, True)  # restore は、確かめてから
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("restore", {"paths": ["a.py", "new.txt"], "staged": True}) in relay.backend.calls
     relay.input(window, "changes", "action", {"name": "discard", "paths": ["a.py", "new.txt"]}, human=True)
     answer(relay, window, False)  # いいえ：捨てない

@@ -19,10 +19,12 @@ export default {
     root.gfText = props.text || '';
     amend.checked = Boolean(props.amend);
     const count = (props.checked || []).length;
+    const s = props.status || {};
+    const locked = s.task && !s.reviewing ? '' : s.reviewing ? '提出を確認している間はコミットできません。' : 'コミットはタスクブランチで行います（タスク管理で「作業を開始」）。';
     root.gfSync = () => {
       commit.textContent = count ? `コミット（${count}件）` : 'コミット';
-      commit.disabled = !area.value.trim() || (!count && !amend.checked);
-      commit.title = !area.value.trim() ? 'コミットメッセージを書いてください' : !count && !amend.checked ? 'コミットするファイルに印を付けてください' : '';
+      commit.disabled = Boolean(locked) || !area.value.trim() || (!count && !amend.checked);
+      commit.title = locked || (!area.value.trim() ? 'コミットメッセージを書いてください' : !count && !amend.checked ? 'コミットするファイルに印を付けてください' : '');
     };
     root.gfSync();
   },

@@ -18,7 +18,7 @@ SCREEN = {
             ]}},
     ],
     "bindings": [
-        {"on": "form.submitted", "run": "task drop", "notify": "作業を捨てました。", "close": True,
+        {"on": "form.submitted", "run": "task drop", "confirmed": True, "notify": "作業を捨てました。", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "close": {"payload": "values.close"}}},
         {"on": "form.cancelled", "close": True},
     ],

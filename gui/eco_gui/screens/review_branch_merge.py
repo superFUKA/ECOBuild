@@ -46,7 +46,7 @@ SCREEN = {
         {"show": "resolve", "when": {"merge_method": "conflict"}},
         # 取り込む（ecobuild branch merge <ブランチ> --into <先>。確認は本体が出す）。取り込み先は、コマンドでは任意でも、選ぶまで実行しない
         # （省くと、branch merge は「提出を取り込む」になるため）。取り込んだ後は、読み直した下見が「取り込み済み」になる
-        {"on": "merge.pressed", "run": "branch merge", "require": ["name", "into"],
+        {"on": "merge.pressed", "run": "branch merge", "confirmed": True, "require": ["name", "into"],
          "args": {"module": {"arg": "module"}, "name": {"value": "merge_source"}, "into": {"value": "merge_into"}}, "notify": "ブランチを取り込みました。"},
         # 衝突を直す：何をするかを書いた入力の窓を重ねて開く（ecobuild branch resolve <ブランチ> --into <先>）
         {"on": "resolve.pressed", "open": "review-branch-resolve", "inside": True,

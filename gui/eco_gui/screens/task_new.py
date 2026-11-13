@@ -19,7 +19,12 @@ SCREEN = {
         {"read": "account show", "args": {"module": {"arg": "module"}}, "to": "form.account"},
         # GitHub のメンバー（担当者の候補に足す。届くのを待たずに窓を出す）
         {"read": "module members", "args": {"module": {"arg": "module"}}, "lazy": True, "to": "form.members"},
-        {"on": "form.new", "run": "task new", "notify": "タスク #{task.number} を作成しました。", "close": True,
+        {"on": "form.new", "when": {"start": [None, False]}, "run": "task new", "notify": "タスク #{task.number} を作成しました。", "close": True,
+         "parent": {"selected": {"result": "task.number"}, "detail": "open"},  # 作ったタスクを、外の一覧で選ぶ（右に詳細が出る）
+         "args": {"module": {"arg": "module"}, "title": {"payload": "title"}, "body": {"payload": "body"}, "stage": {"payload": "stage"}, "assignee": {"payload": "assignee"}, "priority": {"payload": "priority"}, "estimate": {"payload": "estimate"}, "sprint": {"payload": "sprint"}, "planned_start": {"payload": "planned_start"}, "planned_end": {"payload": "planned_end"}, "due": {"payload": "due"},
+                  "label": {"payload": "label"}, "milestone": {"payload": "milestone"}, "parent": {"payload": "parent"}, "blocked_by": {"payload": "blocked_by"}, "start": {"payload": "start"}, "name": {"payload": "name"}}},
+        # 作って始めたら、その作業空間を開く
+        {"on": "form.new", "when": {"start": True}, "run": "task new", "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "task_branch.workspace"}}}, "notify": "タスク #{task.number} を作成しました。", "close": True,
          "parent": {"selected": {"result": "task.number"}, "detail": "open"},  # 作ったタスクを、外の一覧で選ぶ（右に詳細が出る）
          "args": {"module": {"arg": "module"}, "title": {"payload": "title"}, "body": {"payload": "body"}, "stage": {"payload": "stage"}, "assignee": {"payload": "assignee"}, "priority": {"payload": "priority"}, "estimate": {"payload": "estimate"}, "sprint": {"payload": "sprint"}, "planned_start": {"payload": "planned_start"}, "planned_end": {"payload": "planned_end"}, "due": {"payload": "due"},
                   "label": {"payload": "label"}, "milestone": {"payload": "milestone"}, "parent": {"payload": "parent"}, "blocked_by": {"payload": "blocked_by"}, "start": {"payload": "start"}, "name": {"payload": "name"}}},

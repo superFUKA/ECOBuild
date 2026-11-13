@@ -17,7 +17,7 @@ SCREEN = {
     "bindings": [
         {"on": "form.cancelled", "close": True},
         # ecobuild agent skill preset add <名前> --from-module <スキルの名前>
-        {"on": "form.submitted", "run": "agent skill preset add",
+        {"on": "form.submitted", "run": "agent skill preset add", "confirmed": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "from_module": {"arg": "name"}},
          "notify": "このPCのスキルにしました。", "close": True},
     ],

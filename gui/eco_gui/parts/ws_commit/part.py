@@ -8,6 +8,7 @@ def part(
     text: Annotated[str | None, "コミットメッセージ（共有の値。空で届いたら欄を空にする）"] = None,
     amend: Annotated[bool | None, "「直前のコミットを修正」に印が付いているか"] = None,
     checked: Annotated[list[str] | None, "コミットするファイル（数をボタンに出す）"] = None,
+    status: Annotated[dict, "状態（ecobuild status：task・reviewing）。タスクブランチでない・確認中は、コミットを押せない"] = {},
 ) -> None: ...
 
 

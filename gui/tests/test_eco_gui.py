@@ -222,12 +222,16 @@ def test_hub_opens_a_window_per_module_and_commands_run_in_that_module(relay):
     assert [row["path"] for row in nodes(relay, hub)["modules"]["props"]["rows"]] == ["C:/work/Calc", "C:/work/Game"]
     relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "open"}, human=True)
     relay.idle()
-    opened = [w for w in relay.display.windows() if w["screen"] == "overview"]
+    opened = [w for w in relay.display.windows() if w["screen"] == "frame-workspaces"]  # 最初は作業空間（前の GUI と同じ）
     assert [w["args"] for w in opened] == [{"module": "C:/work/Game"}]
     assert relay.backend.modules[-1] == "C:/work/Game"  # そのモジュールで読む
-    relay.input(opened[0]["id"], "nav", "selected", {"id": "tasks"}, human=True)  # メニューで切り替えても、同じモジュール
+    relay.input(opened[0]["id"], "nav", "selected", {"id": "board"}, human=True)  # メニューで切り替えても、同じモジュール
     relay.idle()
     assert relay.display.tree(opened[0]["id"])["args"] == {"module": "C:/work/Game"} and relay.backend.modules[-1] == "C:/work/Game"
+    # 開いているモジュールをもう一度開く：2つ目の窓は開かず、今のページのまま前に出す
+    relay.input(hub, "modules", "action", {"id": "C:/work/Game", "action": "open"}, human=True)
+    relay.idle()
+    assert len(relay.display.windows()) == 2 and relay.display.tree(opened[0]["id"])["screen"] == "board"
     relay.input(hub, "modules", "action", {"id": "C:/work/Calc", "action": "open"}, human=True)
     relay.idle()
     assert len(relay.display.windows()) == 3  # モジュールごとに窓
@@ -277,7 +281,7 @@ def test_workspace_commits_the_checked_files_with_the_same_command_a_person_type
     dialog = next(w["id"] for w in relay.display.windows() if w["screen"] == "task-submit" and w.get("parent") == window)
     assert ("task submit", {}) not in relay.backend.calls  # 押しただけでは、提出しない
     relay.input(dialog, "form", "submitted", {"values": {"title": "", "draft": False, "reviewer": "", "complete": True, "partial": False, "check": True}}, human=True)
-    assert answer(relay, dialog, True)["part"] == "confirm-box"  # 提出は、確かめてから
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     relay.idle()
     assert [args for name, args in relay.backend.calls if name == "task submit"] == [{"draft": False, "partial": False, "complete": True, "check": True}]
 
@@ -330,7 +334,7 @@ def test_the_menu_switches_screens_in_the_same_window(relay):
     # 左は、今の GUI と同じ6つ（モジュール・作業空間・タスク管理・ブランチ／設定・ヘルプ）。まとまりの見出しはない
     items = nodes(relay, window)["nav"]["props"]["items"]
     assert [(item["id"], item["label"]) for item in items] == [
-        ("overview", "モジュール"), ("frame-workspaces", "作業空間"), ("tasks", "タスク管理"), ("branches", "ブランチ"), ("settings", "設定"), ("help", "ヘルプ")]
+        ("overview", "モジュール"), ("frame-workspaces", "作業空間"), ("board", "タスク管理"), ("branches", "ブランチ"), ("settings", "設定"), ("help", "ヘルプ")]
     assert not [item for item in items if item.get("group")]
     for screen in [item["id"] for item in items]:
         relay.input(window, "nav", "selected", {"id": screen}, human=True)
@@ -388,20 +392,17 @@ def test_members_screen_reads_and_runs_the_same_commands_a_person_types(relay):
     relay.idle()
     form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-member-invite")
     relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": ""}}, human=True)
-    assert answer(relay, form, True)["part"] == "confirm-box"  # 変える前に、窓の前の人に確かめる
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("module members add", {"user": "newbie"}) in relay.backend.calls  # 役割（任意）は決めなくてよい
 
     relay.input(window, "members", "action", {"action": "invite"}, human=True)
     relay.idle()
     form = next(w["id"] for w in relay.display.windows() if w["screen"] == "mod-member-invite")
     relay.input(form, "form", "submitted", {"values": {"user": "newbie", "role": "admin"}}, human=True)
-    answer(relay, form, True)
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     assert ("module members add", {"user": "newbie", "role": "admin"}) in relay.backend.calls
 
-    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
-    answer(relay, window, False)
-    assert ("module members remove", {"user": "octocat"}) not in relay.backend.calls
-    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)
-    answer(relay, window, True)
+    relay.input(window, "members", "action", {"action": "remove", "login": "octocat"}, human=True)  # 前の GUI と同じく、確かめずに外す
+    relay.idle()
     assert ("module members remove", {"user": "octocat"}) in relay.backend.calls
     assert [row["login"] for row in nodes(relay, window)["members"]["props"]["members"]] == ["hubot"]  # 変えたら読み直す

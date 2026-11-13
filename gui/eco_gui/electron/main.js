@@ -6,8 +6,10 @@
 // - 窓をすべて閉じると、アプリも終わる（中継地点は別のプロセス。窓がなくなって少しすると、自分で終わる）。
 // - 窓の上の帯は、アプリのもの（Windows・Linux）：OS の題の帯を隠し、閉じる・最大化・最小化のボタンだけをアプリの色で残す。
 //   帯そのもの（アイコンと題・つかんで動かす所）はページが描く（theme.css の eco-frameless）。ここは、その印と題をページに付ける。
+// - 窓の大きさの下限：これより小さいと、左のメニューと中身が崩れる（前の GUI と同じ）。
+// - F5・Ctrl+R で読み直し、F12・Ctrl+Shift+I で開発の道具（メニューは出さないので、キーだけ残す）。
 // - --smoke：窓を見せずに読み込み、題を標準出力に出して終わる（試験用）。
-const {app, BrowserWindow, Menu, shell} = require('electron');
+const {app, BrowserWindow, Menu, ipcMain, shell} = require('electron');
 const path = require('path');
 
 const ICON = path.join(__dirname, '..', '..', 'icon.ico');
@@ -15,6 +17,7 @@ const LOCAL = /^http:\/\/127\.0\.0\.1:\d+\//;
 const FRAMELESS = process.platform !== 'darwin';
 // 39px：ページの帯は 40px で、下に線が1本ある。ボタンの下にも線が見えるように
 const TITLE_BAR = {color: '#14171b', symbolColor: '#a5aeba', height: 39};
+const MIN_WIDTH = 760, MIN_HEIGHT = 480;
 const MARK = `document.documentElement.classList.add('eco-frameless'); document.body.dataset.ecoTitle = document.title.replace(/ — ECOBuild$/, '');`;
 
 function request(argv) {
@@ -27,9 +30,10 @@ function request(argv) {
 function open({url, title, width, height, smoke}) {
   if (!LOCAL.test(url)) return null;
   const window = new BrowserWindow({
-    width, height, title, icon: ICON, show: !smoke, autoHideMenuBar: true, backgroundColor: '#14171b',
+    width, height, minWidth: Math.min(MIN_WIDTH, width), minHeight: Math.min(MIN_HEIGHT, height),
+    title, icon: ICON, show: !smoke, autoHideMenuBar: true, backgroundColor: '#14171b',
     ...(FRAMELESS ? {titleBarStyle: 'hidden', titleBarOverlay: TITLE_BAR} : {}),
-    webPreferences: {contextIsolation: true, sandbox: true},
+    webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
   });
   // 外へのリンクは、いつものブラウザーで。窓の中では、中継地点のページだけ
   window.webContents.setWindowOpenHandler(({url: target}) => {
@@ -37,6 +41,12 @@ function open({url, title, width, height, smoke}) {
     return {action: 'deny'};
   });
   window.webContents.on('will-navigate', (event, target) => { if (!LOCAL.test(target)) event.preventDefault(); });
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = input.key.toLowerCase();
+    if (input.key === 'F12' || (input.control && input.shift && key === 'i')) window.webContents.toggleDevTools();
+    else if (input.key === 'F5' || (input.control && !input.shift && key === 'r')) window.webContents.reload();
+  });
   if (FRAMELESS) {
     const mark = () => { window.webContents.executeJavaScript(MARK).catch(() => {}); };  // 読み込むたび・題が変わるたび
     window.webContents.on('dom-ready', mark);
@@ -56,6 +66,14 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId('ECOBuild.GUI.Next');
   app.on('second-instance', (event, argv) => { open(request(argv)); });
   app.on('window-all-closed', () => app.quit());
+  // 開いている画面をもう一度開くよう頼まれた（preload.js の gf-raise）：その窓を前に出す
+  ipcMain.on('raise', (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     if (!open(request(process.argv))) app.quit();   // 開く窓がない（URL がない・この PC の中継地点でない）

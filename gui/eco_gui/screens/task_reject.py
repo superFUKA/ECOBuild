@@ -18,7 +18,7 @@ SCREEN = {
             ]}},
     ],
     "bindings": [
-        {"on": "form.submitted", "run": "task reject", "notify": "差し戻しました。", "close": True, "require": ["message"],
+        {"on": "form.submitted", "run": "task reject", "confirmed": True, "notify": "差し戻しました。", "close": True, "require": ["message"],
          "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "message": {"payload": "values.message"}}},
         {"on": "form.cancelled", "close": True},
     ],

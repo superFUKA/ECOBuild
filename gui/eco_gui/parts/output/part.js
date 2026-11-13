@@ -45,7 +45,7 @@ function shownState(state, kind, r) {
 }
 
 export default {
-  render(root, props, { h, emit, state, redraw, menu }) {
+  render(root, props, { h, emit, state, redraw, menu, notice }) {
     // 実行の移り変わりを覚える（秒数・履歴）。窓を開き直すと空に戻る
     if (!state.runs) { state.runs = []; state.wrap = true; state.query = ''; }
     const now = Date.now();
@@ -139,7 +139,7 @@ export default {
       tool('折り返し', state.wrap, '', () => { state.wrap = !state.wrap; redraw(); }),
       history,
       tool('コピー', null, '出力をコピー', () => {
-        try { navigator.clipboard.writeText(run.lines.map((l) => l.text).join('\n')); } catch { /* 写せない環境 */ }
+        try { navigator.clipboard.writeText(run.lines.map((l) => l.text).join('\n')).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ }
         emit('copied', { count: run.lines.length });
       })));
     box.append(head, text);

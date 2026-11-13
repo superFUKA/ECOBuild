@@ -4,7 +4,7 @@ ARGS = {"module": "."}  # モジュールのフォルダー（変えるときは
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "エージェント", "width": 1280, "height": 820},
+    "window": {"one_per": "module", "title": "エージェント", "width": 1280, "height": 820},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "cfg-fill-page", "children": ["head", "section", "where", "editor"]},
@@ -39,7 +39,7 @@ SCREEN = {
         {"read": "agent registry fit", "require": ["name"],
          "args": {"module": {"arg": "module"}, "name": {"value": "registration"}, "tools": {"value": "reg_fit_tools"}}, "to": "editor.fit"},
         # 役：変えた項目だけを渡す（ecobuild agent registry set <名前> --title … --tools … --document -）
-        {"on": "editor.save", "run": "agent registry set",
+        {"on": "editor.save", "run": "agent registry set", "confirmed": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "name"},
                   "title": {"payload": "title"}, "model": {"payload": "model"}, "human_start": {"payload": "human_start"},
                   "tools": {"payload": "tools"}, "skills": {"payload": "skills"}, "children": {"payload": "children"},
@@ -53,7 +53,7 @@ SCREEN = {
         {"on": "editor.to_preset", "open": "cfg-agent-to-preset", "args": {"module": {"arg": "module"}, "name": {"payload": "name"}}, "inside": True},
         {"on": "editor.add", "open": "cfg-agent-add", "args": {"module": {"arg": "module"}}, "inside": True},
         # スキル（ecobuild agent skill set <名前> --description … --document -）
-        {"on": "editor.save_skill", "run": "agent skill set",
+        {"on": "editor.save_skill", "run": "agent skill set", "confirmed": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "name"}, "description": {"payload": "description"},
                   "document": {"payload": "document"}},
          "notify": "スキルを保存してコミットしました。提出して取り込まれると渡ります。"},
@@ -62,7 +62,7 @@ SCREEN = {
         {"on": "editor.skill_to_preset", "open": "cfg-skill-to-preset", "args": {"module": {"arg": "module"}, "name": {"payload": "name"}}, "inside": True},
         {"on": "editor.add_skill", "open": "cfg-skill-add", "args": {"module": {"arg": "module"}}, "inside": True},
         # 全エージェント共通の文（ecobuild agent rules set -。文は標準入力で渡る。空なら消す）
-        {"on": "editor.save_rules", "run": "agent rules set", "args": {"module": {"arg": "module"}, "common": {"payload": "common"}},
+        {"on": "editor.save_rules", "run": "agent rules set", "confirmed": True, "args": {"module": {"arg": "module"}, "common": {"payload": "common"}},
          "notify": "全エージェント共通の文を保存しました。"},
     ],
 }

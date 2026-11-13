@@ -176,7 +176,7 @@ def test_bindings_match_the_backend_commands(relay):
 def test_tasks_shows_the_list_the_bar_and_no_detail_until_a_task_is_selected(relay):
     window = open_screen(relay, "tasks")
     view = nodes(relay, window)
-    assert view["nav"]["props"]["current"] == "tasks" and view["head:bar"]["props"]["view"] == "tasks"
+    assert view["nav"]["props"]["current"] == "board" and view["head:bar"]["props"]["view"] == "tasks"
     assert [task["number"] for task in view["list"]["props"]["tasks"]] == [12, 13] and view["list"]["props"]["foot"] is True
     assert view["list"]["props"]["me"] == "superFUKA" and [s["name"] for s in view["list"]["props"]["sprints"]] == ["Sprint 1", "Sprint 2"]
     assert [task["number"] for task in view["head:bar"]["props"]["tasks"]] == [12, 13] and view["head:bar"]["props"]["milestones"][0]["title"] == "v1"
@@ -247,7 +247,7 @@ def test_the_filter_is_kept_in_the_window_and_carried_to_the_next_view(relay):
     relay.idle()
     tree = relay.display.tree(window)
     assert tree["screen"] == "board" and tree["args"]["filter"]["assignee"] == "@me" and tree["args"]["all"] is True
-    assert nodes(relay, window)["board"]["props"]["start"]["search"] == "ログ" and nodes(relay, window)["nav"]["props"]["current"] == "tasks"
+    assert nodes(relay, window)["board"]["props"]["start"]["search"] == "ログ" and nodes(relay, window)["nav"]["props"]["current"] == "board"
     assert [w["id"] for w in relay.display.windows()] == [window]  # 窓は増えない
     with pytest.raises(Exception):
         relay.input(window, "head:bar", "changed", {"filter": {"assignee": 3}}, human=True)  # 絞り込みの値は文字
@@ -317,12 +317,15 @@ def test_start_dialog_reads_the_choices_and_starts(relay):
     relay.idle()
     assert calls(relay, "task start") == [{"issue": 13, "name": "log", "base": "dev", "ignore_blocked": True}]
     assert [w["id"] for w in relay.display.windows()] == [window] and "作業を開始しました。" in notices(relay)
-    assert nodes(relay, window)["list"]["props"]["selected"] == "13" and nodes(relay, window)["pane"]["props"]["status"]["number"] == 13  # 始めたタスクを選ぶ
+    assert relay.display.tree(window)["screen"] == "frame-workspace"  # 始めたら、同じ窓でその作業空間を開く（前の GUI と同じ）
+    relay.execute({"command": "open", "screen": "tasks", "args": {"module": "C:/work/Calc"}, "window": window})
+    relay.idle()
     relay.input(window, "list", "dialog", {"screen": "task-start", "id": "14", "text": ""}, human=True)
     relay.idle()
     relay.input(inside(relay, window)["id"], "form", "start", {"id": "14", "no_branch": True}, human=True)  # タスクブランチを作らない
     relay.idle()
     assert calls(relay, "task start")[-1] == {"issue": 14, "no_branch": True}
+    assert relay.display.tree(window)["screen"] == "tasks"  # タスクブランチを作らない：作業空間はないので、一覧のまま
 
 
 @pytest.mark.parametrize("screen, output, payload, command, expected, confirm", [
@@ -395,7 +398,7 @@ def test_board_shows_the_recently_done_and_changes_the_stage(relay):
 def test_schedule_saves_the_dates_a_bar_was_dragged_to(relay):
     window = open_screen(relay, "schedule")
     view = nodes(relay, window)
-    assert [row["number"] for row in view["timeline"]["props"]["tasks"]] == [12, 13] and view["nav"]["props"]["current"] == "tasks"
+    assert [row["number"] for row in view["timeline"]["props"]["tasks"]] == [12, 13] and view["nav"]["props"]["current"] == "board"
     relay.input(window, "timeline", "edit", {"id": "12", "planned_start": "2026-11-10", "planned_end": "2026-11-14"}, human=True)
     relay.idle()
     assert calls(relay, "task edit") == [{"issue": 12, "planned_start": "2026-11-10", "planned_end": "2026-11-14"}]
@@ -504,6 +507,10 @@ def test_detail_handles_the_submission(relay):
     relay.input(window, "pane", "review", {"id": "12"}, human=True)
     relay.idle()
     assert calls(relay, "task review") == [{"number": 12}]
+    assert relay.display.tree(window)["screen"] == "frame-workspace"  # 取り出したら、同じ窓で確認用の作業空間を開く
+    relay.execute({"command": "open", "screen": "tasks", "args": {"module": "C:/work/Calc"}, "window": window})
+    relay.input(window, "list", "selected", {"id": "12"}, human=True)
+    relay.idle()
     relay.input(window, "pane", "withdraw", {"id": "12"}, human=True)
     assert answer(relay, window, True)["part"] == "confirm-box" and calls(relay, "task withdraw") == [{"number": 12}]
     relay.input(window, "pane", "revert", {"id": "12"}, human=True)
@@ -514,9 +521,9 @@ def test_detail_handles_the_submission(relay):
     assert inside(relay, window)["screen"] == "task-finish"
     relay.input(inside(relay, window)["id"], "form", "cancelled", {}, human=True)
     relay.idle()
-    relay.input(window, "pane", "submission", {"id": "12"}, human=True)  # 差分：提出の画面へ
+    relay.input(window, "pane", "submission", {"id": "12"}, human=True)  # 差分：TortoiseGit で（前の GUI と同じ）
     relay.idle()
-    assert relay.display.tree(window)["screen"] == "submission" and str(relay.display.tree(window)["args"]["task"]) == "12"
+    assert calls(relay, "task diff")[-1] == {"task": 12, "gui": True}
 
 
 def test_detail_greys_the_submission_buttons_by_what_ecobuild_answers(relay):
@@ -539,7 +546,7 @@ def test_task_screen_shows_one_task_in_the_whole_window(relay):
     window = open_screen(relay, "task", issue=12)
     view = nodes(relay, window)
     assert view["detail"]["props"]["status"]["title"] == "ログイン画面" and view["detail"]["props"]["closable"] is False
-    assert view["nav"]["props"]["current"] == "tasks" and calls(relay, "task status") == [{"number": 12, "body": True}]
+    assert view["nav"]["props"]["current"] == "board" and calls(relay, "task status") == [{"number": 12, "body": True}]
     assert ("task approve", {"task": 12}) in relay.backend.asked and view["detail"]["props"]["can_approve"]["can"] is True
     relay.input(window, "detail", "reopen", {"id": "12"}, human=True)
     relay.idle()

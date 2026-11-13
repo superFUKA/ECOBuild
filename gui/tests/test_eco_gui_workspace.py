@@ -113,7 +113,7 @@ def test_unpushed_commits_are_undone_with_task_reset(relay):
     window = opened(relay, "workspace", PLACE)
     press(relay, window, "tabs", "selected", tab="push")
     relay.input(window, "push_list", "action", {"name": "undo", "sha": "bbb222", "before": "bbb222~1"}, human=True)
-    answer(relay, window, True)  # task reset は、確かめてから
+    relay.idle()  # 入力の窓が確認を兼ねる（もう一度は確かめない）
     relay.idle()
     assert last(relay) == ("task reset", {"commit": "bbb222~1", "keep": True}) and relay.display.values(window)["tab"] == "commit"
     press(relay, window, "tabs", "selected", tab="push")
@@ -329,7 +329,10 @@ def test_the_changes_menu_and_the_stash_menu_run_their_commands(relay):
     assert last(relay) == ("stash drop", {})
     press(relay, window, "changes", "action", name="ignore", path="new.txt", paths=["new.txt"])
     assert last(relay) == ("ignore", {"patterns": ["new.txt"]})
-    press(relay, window, "changes", "action", name="diff_dialog", path="", paths=[])  # 選んでいなければ、全部のファイル
+    press(relay, window, "changes", "action", name="diff_dialog", path="", paths=[])  # 選んでいなければ、全部のファイル（TortoiseGit で）
+    assert relay.backend.calls[-1] == ("diff", {"paths": [], "gui": True})
+    without_tortoisegit(relay)  # なければ、窓の中に比べ方ごとのタブで
+    press(relay, window, "changes", "action", name="diff_dialog", path="", paths=[])
     dialog = inside(relay, window, "ws-file-diff")
     assert nodes(relay, dialog)["target"]["props"]["items"] == [] and ("diff", {"paths": [], "staged": True}) in relay.backend.calls
 

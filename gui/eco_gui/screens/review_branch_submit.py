@@ -21,7 +21,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "branch list", "args": {"module": {"arg": "module"}}, "to": "form.rows"},
-        {"on": "form.submitted", "run": "branch submit", "notify": "提出しました。", "close": True,
+        {"on": "form.submitted", "run": "branch submit", "confirmed": True, "notify": "提出しました。", "close": True,
          "args": {"module": {"arg": "module"}, "name": {"arg": "name"}, "into": {"payload": "values.into"}, "title": {"payload": "values.title"}}},
         {"on": "form.cancelled", "close": True},
     ],

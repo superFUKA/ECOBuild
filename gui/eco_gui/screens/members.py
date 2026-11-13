@@ -4,7 +4,7 @@ ARGS = {"module": "."}  # モジュールのフォルダー
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "メンバー", "width": 1280, "height": 820, "refresh": {"focus": True}},
+    "window": {"one_per": "module", "title": "メンバー", "width": 1280, "height": 820, "refresh": {"focus": True}},
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "body"]},
@@ -25,7 +25,7 @@ SCREEN = {
         {"on": "members.action", "when": {"action": "invite"}, "open": "mod-member-invite", "inside": True, "args": {"module": {"arg": "module"}}},
         {"on": "members.action", "when": {"action": "role"}, "open": "mod-member-role", "inside": True,
          "args": {"module": {"arg": "module"}, "user": {"payload": "login"}, "role": {"payload": "role"}}},
-        {"on": "members.action", "when": {"action": "remove"}, "run": "module members remove",
+        {"on": "members.action", "when": {"action": "remove"}, "run": "module members remove", "confirmed": True,
          "args": {"module": {"arg": "module"}, "user": {"payload": "login"}}, "notify": "外しました。"},
     ],
 }

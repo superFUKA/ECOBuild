@@ -1,7 +1,7 @@
 // 部品「差分」。今までの GUI（gui/static/common.js の diffHtml・logview.js の右側）と同じ見え方。
 // ファイルごとに畳む。小さい差分（12 ファイル・1500 行まで）は初めから開く。開閉は窓の中だけの状態。
 export default {
-  render(root, props, { h, emit, state, redraw }) {
+  render(root, props, { h, emit, state, redraw, notice }) {
     const box = h('div', { class: 'log-main' + (props.fill ? ' fill' : '') });
     if (props.error) { box.append(h('p', { role: 'alert' }, props.error)); return root.replaceChildren(box); }
     if (props.loading && !props.text) { box.append(h('p', { class: 'muted' }, '読み込んでいます…')); return root.replaceChildren(box); }
@@ -11,7 +11,7 @@ export default {
     const parts = String(props.text).split(/^(?=diff --git )/m);
     const head = parts[0].startsWith('diff --git ') ? '' : parts.shift();
     const size = parts.reduce((n, p) => n + p.split('\n').length, 0), openAll = !props.focus && size <= 1500 && parts.length <= 12;
-    const copy = (text, what) => { try { navigator.clipboard.writeText(text); } catch { /* 写せない環境 */ } emit('copied', { what }); };
+    const copy = (text, what) => { try { navigator.clipboard.writeText(text).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ } emit('copied', { what }); };
     const tool = (label, action) => { const button = h('button', { type: 'button' }, label); button.addEventListener('click', action); return button; };
     const bar = h('div', { class: 'log-commit' }, h('strong', {}, props.title || ''));
     if (props.sha) bar.append(tool('SHAをコピー', () => copy(props.sha, 'sha')));

@@ -6,7 +6,7 @@
 
 SCREEN = {
     "root": "page",
-    "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720},
+    "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720, "refresh": {"focus": True}},  # 戻ってきたら読み直す（端末で足したモジュール等）
     "nodes": [
         {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "hub"}},
@@ -23,7 +23,7 @@ SCREEN = {
     "bindings": [
         {"read": "workspace list", "to": "modules.rows", "from": "modules"},
         {"read": "workspace list", "to": "modules.legacy", "from": "legacy"},
-        {"read": "doctor", "to": "setup.items", "from": "items"},
+        {"read": "doctor", "lazy": True, "to": "setup.items", "from": "items"},  # 遅い（数十秒）：戻ってくるたびには読まない
         # GitHub に聞くもの（遅い）は後から：アーカイブ済みか・型、新しい版があるか
         {"read": "module list", "args": {"all": True}, "lazy": True, "to": "modules.known"},
         {"read": "installer check", "lazy": True, "to": "update.check"},
@@ -33,8 +33,8 @@ SCREEN = {
         # 足す：窓の中に、入力の窓を重ねる
         {"on": "add.pressed", "open": "hub-add", "inside": True},
         {"on": "modules.add", "open": "hub-add", "inside": True},
-        # 選んだモジュールの窓を開く（モジュールごとに1つ。開いていれば前に出る）
-        {"on": "modules.action", "when": {"action": "open"}, "open": "overview", "args": {"module": {"payload": "id"}}},
+        # 選んだモジュールの窓を開く（最初は作業空間。モジュールごとに1つ。開いていれば、今のページのまま前に出る）
+        {"on": "modules.action", "when": {"action": "open"}, "open": "frame-workspaces", "args": {"module": {"payload": "id"}}, "keep": True},
         # 一覧から外す：理由（フォルダがない等）と、残るものを見せてから（ecobuild workspace forget <フォルダー>）
         {"on": "modules.action", "when": {"action": "forget"}, "open": "hub-forget", "inside": True,
          "args": {"path": {"payload": "id"}, "name": {"payload": "name"}, "reason": {"payload": "reason"}}},

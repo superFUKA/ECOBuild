@@ -128,7 +128,7 @@ def test_each_task_window_runs_its_command_with_what_was_entered(relay, screen, 
     board = opened(relay, "board")
     window = opened(relay, screen, inside=board, issue=12)
     assert nodes(relay, window)["form"]["part"] == "form"
-    decide(relay, window, yes=True if confirm else None, **values)  # 重いコマンドは、本体が確かめる
+    decide(relay, window, **values)  # 入力の窓が確認を兼ねる（重いコマンドでも、もう一度は確かめない）
     assert calls(relay, command) == [expected]
     assert [w["id"] for w in relay.display.windows()] == [board]  # うまくいったら閉じる
     assert [event for event in relay.display.events_after(0) if event["command"] == "notify" and event.get("level") == "error"] == []
@@ -175,9 +175,8 @@ def test_submit_window_warns_about_conflicts_with_the_base_before_submitting(rel
     assert {"fetch": True} in calls(relay, "status") and props["values"]["base_conflicts"] == ["src/app.py", "README.md"]
     warning = props["fields"][0]
     assert (warning["type"], warning["tone"], warning["list_from"]) == ("note", "bad", "base_conflicts") and "衝突するファイル" in warning["label"]
-    decide(relay, window, yes=False, title="", draft=False, reviewer="", complete=True, partial=False, check=True)
-    assert calls(relay, "task submit") == [] and window in [w["id"] for w in relay.display.windows()]  # やめたら、窓は開いたまま
-    decide(relay, window, yes=True, title="ログイン画面", draft=True, reviewer="octocat", complete=False, partial=True, check=False)
+    # 提出の窓で「提出」を押したら、それが確認を兼ねる（もう一度は確かめない）
+    decide(relay, window, title="ログイン画面", draft=True, reviewer="octocat", complete=False, partial=True, check=False)
     assert calls(relay, "task submit") == [{"title": "ログイン画面", "draft": True, "reviewer": "octocat", "partial": True, "complete": False, "check": False}]
     assert relay.backend.modules[-1] == PLACE and window not in [w["id"] for w in relay.display.windows()]
 

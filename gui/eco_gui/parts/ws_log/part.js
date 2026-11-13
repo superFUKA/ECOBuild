@@ -8,7 +8,7 @@ function localTime(iso) {
 }
 
 export default {
-  render(root, props, { h, emit, state, redraw, menu }) {
+  render(root, props, { h, emit, state, redraw, menu, notice }) {
     if (state.query === undefined) state.query = '';
     const box = h('div', { class: 'log-side' + (props.short ? ' log-short' : '') });
     const search = h('input', { type: 'search', class: 'log-search', placeholder: '件名・作成者・SHA・#タスクで絞り込み', 'aria-label': 'ログを絞り込む', value: state.query });
@@ -34,7 +34,7 @@ export default {
 
     const q = state.query.trim().toLowerCase();
     const visible = props.commits.filter((c) => !q || [c.sha, c.subject, c.author, c.issue ? '#' + c.issue : ''].some((v) => String(v || '').toLowerCase().includes(q)));
-    const copy = (text) => { try { navigator.clipboard.writeText(text); } catch { /* 写せない環境 */ } };
+    const copy = (text) => { try { navigator.clipboard.writeText(text).then(() => notice('コピーしました。'), () => notice('コピーできませんでした。', 'error')); } catch { /* 写せない環境 */ } };
     const openMenu = async (c, event) => {
       const index = props.commits.findIndex((e) => e.sha === c.sha), before = c.sha + '~1';
       const later = index === 0 ? 'このコミット' : `このコミットから後（${index + 1}件）`;

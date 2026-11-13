@@ -134,9 +134,7 @@ def test_merge_card_reads_the_plan_for_the_pair_and_takes_in(relay):
     assert nodes(relay, window)["pick"]["props"]["open"] is True
     assert [wrap(relay, window, node) for node in ("plan", "go", "merge", "resolve")] == [None, None, None, "hidden"]
 
-    shown = put(relay, window, "merge", yes=False)  # 取り込む：確かめてから
-    assert shown["part"] == "confirm-box" and not called(relay, "branch merge")
-    put(relay, window, "merge", yes=True)
+    put(relay, window, "merge")  # 取り込む：何が起きるかを見せたカードで押したら、それが確認を兼ねる
     assert called(relay, "branch merge") == [{"name": "dev", "into": "main"}] and relay.backend.modules[-1] == CALC
     assert relay.display.values(window)["merge_into"] == "main"  # 組はそのまま（読み直した下見が出る）
     assert "ブランチを取り込みました。" in notices(relay)
@@ -185,13 +183,13 @@ def test_merge_page_holds_the_card_and_the_forms_of_the_submission(relay):
     assert form["args"] == {"module": CALC, "name": "dev", "into": "main"}
     props = nodes(relay, form["id"])["form"]["props"]
     assert props["initial"] == {"into": "main"} and [row["name"] for row in props["rows"]][:2] == ["main", "dev"]
-    put(relay, form["id"], "form", "submitted", yes=True, values={"into": "release", "title": "11月の分"})
+    put(relay, form["id"], "form", "submitted", values={"into": "release", "title": "11月の分"})  # 入力の窓が確認を兼ねる
     assert called(relay, "branch submit") == [{"name": "dev", "into": "release", "title": "11月の分"}]
 
     put(relay, window, "merge_submission")  # 作ってある提出の取り込み：入力の窓（CI が失敗していても取り込むか）
     form = inside(relay, "review-merge")
     assert form["args"] == {"module": CALC, "name": "dev"}
-    put(relay, form["id"], "form", "submitted", yes=True, values={"ignore_checks": True})
+    put(relay, form["id"], "form", "submitted", values={"ignore_checks": True})  # 入力の窓が確認を兼ねる
     assert called(relay, "branch merge")[-1] == {"name": "dev", "ignore_checks": True}  # 取り込み先を付けない：提出を取り込む
 
     put(relay, window, "back")  # ブランチの一覧へ戻る（同じ窓）
@@ -285,7 +283,7 @@ def test_cpp_projects_are_added_changed_linked_moved_and_removed_in_a_workspace(
 
     remove = form(relay, window, "projects", "project_remove", "mod-cpp-project-remove", target="CalcTest")
     assert nodes(relay, remove["id"])["form"]["props"]["danger"] is True
-    decide(relay, remove, yes=True)  # 削除は、本体が確かめてから
+    decide(relay, remove)  # 削除の入力の窓が、確認を兼ねる（もう一度は確かめない）
     assert called(relay, "project remove") == [{"name": "CalcTest"}]
     for name in ("project set", "project link", "project unlink", "project pch", "project move", "project remove"):
         assert ran_in(relay, name) == PLACE

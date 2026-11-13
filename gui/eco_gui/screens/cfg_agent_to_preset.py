@@ -17,7 +17,7 @@ SCREEN = {
     "bindings": [
         {"on": "form.cancelled", "close": True},
         # ecobuild agent preset add <名前> --from-module <役の名前>
-        {"on": "form.submitted", "run": "agent preset add",
+        {"on": "form.submitted", "run": "agent preset add", "confirmed": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "values.name"}, "from_module": {"arg": "name"}},
          "notify": "プリセットにしました。", "close": True},
     ],

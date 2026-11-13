@@ -1,8 +1,13 @@
 // 部品「タスクの一覧」。並べ替え・絞り込み・色分けは見せ方だけ。選ぶ・メニューは出力を出す。
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw }) {
+  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
     const { STAGES, PRIORITIES } = lib.task;
-    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me);
+    const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
+    // ほかの画面から開いたタスク：選んで、右に詳細を出す（窓を開いて1回だけ）
+    if (props.pick && String(props.pick) !== '0' && state.picked !== String(props.pick)) {
+      state.picked = String(props.pick);
+      Promise.resolve().then(() => emit('selected', { id: state.picked }));
+    }
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     if (props.loading && props.tasks.length === 0) return root.replaceChildren(marks.loading('タスクを読み込んでいます…'));
     const sort = state.sort || (state.sort = { key: 'number', dir: 1 });

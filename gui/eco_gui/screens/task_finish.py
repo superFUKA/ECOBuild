@@ -29,7 +29,9 @@ SCREEN = {
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
         {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "subject": {"payload": "values.subject"},
-                  "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}}},
+                  "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}},
+         "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
+                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

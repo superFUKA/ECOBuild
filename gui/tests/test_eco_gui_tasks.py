@@ -58,7 +58,7 @@ class FakeTasks(FakeEcobuild):
                 "add_assignee", "remove_assignee", "add_label", "remove_label", "add_blocked_by", "remove_blocked_by", "clear")}}, ["issue"]),
             "task close": spec("confirm", {"issue": number, "not_planned": flag}, ["issue"]),
             "task comment": spec("change", {"number": number, "issue": number, "message": text}),
-            "task reopen": spec("change", {"issue": number}, ["issue"]),
+            "task reopen": spec("change", {"issue": number, "stage": text}, ["issue"]),
             "task finish": {**spec("confirm", {"number": number, "subject": text, "ignore_checks": flag, "complete": flag, "partial": flag}), "can": True},
             "task drop": spec("confirm", {"number": number, "close": flag}),
             "task prune": {**spec("change", {"number": number}), "dry_run": True},
@@ -216,8 +216,15 @@ def test_the_menu_of_a_row_changes_only_what_was_chosen(relay):
     relay.input(window, "list", "reopen", {"id": "13"}, human=True)
     relay.idle()
     assert calls(relay, "task reopen") == [{"issue": 13}]
-    relay.input(window, "list", "remove", {"id": "13"}, human=True)  # 削除＝「対応しない」で閉じる
-    answer(relay, window, True)
+    relay.input(window, "list", "remove", {"id": "13"}, human=True)  # 削除＝「対応しない」で閉じる：専用の入力の窓で確かめる
+    relay.idle()
+    form = inside(relay, window)
+    assert form["screen"] == "task-delete" and form["args"]["issue"] == 13
+    props = nodes(relay, form["id"])["form"]["props"]
+    assert "あとで「元に戻す」で戻せます" in props["intro"] and props["danger"] is True
+    assert all(field["show_if"].get("task_branch") is True or field["show_if"].get("remote") is True for field in props["fields"])  # 作業が消える警告は、タスクブランチがあるときだけ
+    relay.input(form["id"], "form", "submitted", {"values": {}}, human=True)  # 入力の窓が確認を兼ねる
+    relay.idle()
     assert calls(relay, "task close")[-1] == {"issue": 13, "not_planned": True}
     relay.input(window, "list", "workspace", {"path": "C:/work/Calc/.ecobuild/w/12"}, human=True)  # タスクブランチを開く
     relay.idle()
@@ -473,6 +480,15 @@ def test_person_dialog_shows_the_account(relay):
     relay.input(dialog["id"], "person", "closed", {}, human=True)
     relay.idle()
     assert [w["id"] for w in relay.display.windows()] == [window]
+
+    # 行を選ぶ：同じモジュールの窓のタスク管理で、そのタスクを選んで右に詳細（人の画面は閉じる）
+    relay.input(window, "list", "dialog", {"screen": "task-person", "id": "0", "text": "octocat"}, human=True)
+    relay.idle()
+    relay.input(inside(relay, window)["id"], "person", "selected", {"id": "12"}, human=True)
+    relay.idle()
+    assert [w["id"] for w in relay.display.windows()] == [window]
+    tree = relay.display.tree(window)
+    assert tree["screen"] == "tasks" and tree["args"]["pick"] == 12 and nodes(relay, window)["list"]["props"]["pick"] == 12
 
 
 # --- 詳細 ---------------------------------------------------------------------------------------------

@@ -14,6 +14,7 @@ def part(
     filter: Annotated[dict | None, "絞り込み（task-bar が出した値。なければ start）"] = None,
     start: Annotated[dict, "開いたときの絞り込み"] = {},
     selected: Annotated[Any, "選んでいるタスクの番号（文字でも数でも）"] = None,
+    pick: Annotated[Any, "開いたときに選ぶタスクの番号（ほかの画面から、このタスクを開いたとき。0 か空なら選ばない）"] = None,
     filtered: Annotated[bool, "絞り込みを当てる（当てなければ、渡したタスクを全部出す）"] = True,
     assignee: Annotated[bool, "担当の列を出す"] = True,
     foot: Annotated[bool, "下に「完了したタスクブランチを片付ける…」を出す"] = False,

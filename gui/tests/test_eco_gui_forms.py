@@ -28,6 +28,7 @@ class FakeForms(FakeEcobuild):
         self.plans = []  # 下見を読んだコマンド
         self.partial = False  # 出している提出が、中間提出か
         self.clashes = ["src/app.py", "README.md"]  # 作成元の最新を取り込むと衝突するファイル
+        self.conflicting = False  # 提出が作成元と衝突している（取り込み・承認・反映が、何も変えずに止まる）
 
     def _specs(self, text):
         number, flag = {"type": "integer"}, {"type": "boolean"}
@@ -41,6 +42,8 @@ class FakeForms(FakeEcobuild):
             "task comment": _spec("change", number=number, issue=number, message=text),
             "task apply": _spec("confirm", number=number, task=number, subject=text, partial=flag),
             "task drop": _spec("confirm", number=number, close=flag),
+            "task close": _spec("confirm", ["issue"], issue=number, not_planned=flag),
+            "task reopen": _spec("change", ["issue"], issue=number, stage=text),
             "task prune": {**_spec("change", number=number), "dry_run": True},
             "task edit": _spec("change", ["issue"], issue=number, add_label=text),
             "task submit": _spec("confirm", title=text, draft=flag, reviewer=text, partial=flag, complete=flag, check=flag),
@@ -54,6 +57,13 @@ class FakeForms(FakeEcobuild):
             super().run(name, args, context, on_event)
             return {"ok": True, "result": {"number": given.get("number"), "title": "ログイン画面", "base": "main", "branch": "task/12-login",
                                            "pull_request": {"number": 13, "state": "open", "draft": False, "partial": self.partial}}}
+        if self.conflicting and name in ("task finish", "task approve", "task apply"):
+            super().run(name, args, context, on_event)
+            code = "merge_conflict" if name == "task apply" else "pull_request_conflict"
+            return {"ok": False, "error": {"code": code, "message": "作成元と衝突しています。", "details": list(self.clashes)}}
+        if name == "task start":
+            super().run(name, args, context, on_event)
+            return {"ok": True, "result": {"branch": "task/12-login", "base": "main", "workspace": PLACE}}
         if name == "status":
             super().run(name, args, context, on_event)
             return {"ok": True, "result": {"branch": "task/12-login", "task": 12, "base": "main", "ahead": 0, "behind": 0, "staged": [], "unstaged": [],
@@ -230,3 +240,55 @@ def test_backend_reads_a_preview_as_the_json_of_dry_run():
     backend.ask = broken
     failed = backend.preview("branch merge", {"name": "dev", "into": "main"})
     assert failed["ok"] is False and "起動できません" in failed["error"]["message"]
+
+
+# --- 衝突で止まったとき・削除・開き直す（前の GUI と同じ案内） ------------------------------------------
+
+@pytest.mark.parametrize("screen, values, command, guide", [
+    ("task-finish", {"complete": True}, "task finish", "task-conflict-fix"),     # 自分の提出：取り込んで直す
+    ("task-complete", {}, "task finish", "task-conflict-fix"),
+    ("task-apply", {"complete": True}, "task apply", "task-conflict-fix"),       # 反映も同じ（作成元の最新を取り込んで直す）
+    ("task-approve", {"message": ""}, "task approve", "task-conflict-reject"),  # ほかの人の提出：差し戻す
+])
+def test_a_conflict_with_the_base_turns_the_window_into_the_guide(relay, screen, values, command, guide):
+    relay.backend.conflicting = True
+    board = opened(relay, "board")
+    window = opened(relay, screen, inside=board, issue=12)
+    decide(relay, window, **values)
+    assert len(calls(relay, command)) == 1
+    found = [w for w in relay.display.windows() if w.get("parent") == board]
+    assert [w["screen"] for w in found] == [guide] and found[0]["id"] == window  # 同じ窓が、案内に替わる（失敗の知らせは出さない）
+    assert [e for e in relay.display.events_after(0) if e["command"] == "notify" and e.get("level") == "error"] == []
+    props = nodes(relay, window)["form"]["props"]
+    assert "衝突" in props["intro"] and props["vars"]["issue"] == 12
+    if guide == "task-conflict-fix":
+        assert props["ok"] == "取り込んで直す" and props["vars"]["title"] == ("反映できません" if command == "task apply" else "取り込めません")
+        decide(relay, window)  # タスクブランチの作業空間を開く（手元になければ GitHub から取り出す）
+        assert calls(relay, "task start") == [{"issue": 12}]
+        assert relay.display.tree(board)["screen"] == "frame-workspace" and relay.display.tree(board)["args"]["space"] == PLACE
+    else:
+        assert props["ok"] == "差し戻す" and "作成元の最新を取り込んで直して" in props["initial"]["message"]
+        decide(relay, window, message="直してください")  # 入力の窓が確認を兼ねる
+        assert calls(relay, "task reject") == [{"task": 12, "message": "直してください"}]
+        assert [w["id"] for w in relay.display.windows()] == [board]
+
+
+def test_delete_window_says_the_task_can_be_restored_and_warns_about_the_work(relay):
+    board = opened(relay, "board")
+    window = opened(relay, "task-delete", inside=board, issue=12)
+    props = nodes(relay, window)["form"]["props"]
+    assert props["title"] == "#{issue} を削除" and props["danger"] is True and "あとで「元に戻す」で戻せます" in props["intro"]
+    assert [field["tone"] for field in props["fields"]] == ["bad", "bad"]  # タスクブランチ（手元か GitHub）があるときの赤い警告
+    assert "作業は戻せません" in props["fields"][0]["label"]
+    decide(relay, window)  # 入力の窓が確認を兼ねる
+    assert calls(relay, "task close") == [{"issue": 12, "not_planned": True}] and [w["id"] for w in relay.display.windows()] == [board]
+
+
+@pytest.mark.parametrize("stage", ["planned", "todo"])
+def test_reopen_window_reopens_into_the_column_it_was_dropped_on(relay, stage):
+    board = opened(relay, "board")
+    window = opened(relay, "task-reopen", inside=board, issue=9, text=stage)
+    props = nodes(relay, window)["form"]["props"]
+    assert props["vars"] == {"issue": 9, "stage": stage} and props["ok"] == "開き直す"
+    decide(relay, window)
+    assert calls(relay, "task reopen") == [{"issue": 9, "stage": stage}]  # 開き直して、落とした列（計画中・未着手）に

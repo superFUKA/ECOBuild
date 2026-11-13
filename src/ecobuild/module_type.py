@@ -163,7 +163,11 @@ class ModuleType:
 # 能力 ---------------------------------------------------------------------------
 
 class Builds(ABC):
-    """ビルド・テスト・実行ができる型。"""
+    """ビルド・テスト・実行ができる型。
+
+    test・run で動かす子プロセス（ビルドの道具・テスト・プログラム）は、このプロセスの環境（os.environ）を受け継ぐ
+    （環境を作り直すときも os.environ に足す形で）。test・run の --env は、その間だけ os.environ に足して渡す
+    （execution.added_environment）。"""
 
     @abstractmethod
     def build_options(self, profile: "Profile | None", configuration: str) -> "BuildOptions":

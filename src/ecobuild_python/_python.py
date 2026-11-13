@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ecobuild.errors import EcoBuildError
+from ecobuild.execution import added_variables
 from ecobuild.fsutil import remove_tree
 from ecobuild.results import TestCaseResult
 
@@ -41,8 +42,9 @@ NO_TESTS = 5            # pytest の終了コード：テストが1件も集ま�
 
 
 def _environment() -> dict[str, str]:
-    # 出力はUTF-8（Windows の既定 cp932 での文字化けを避ける）。pip の更新の案内は出さない
-    return {**os.environ, "PYTHONUTF8": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1"}
+    # 出力はUTF-8（Windows の既定 cp932 での文字化けを避ける）。pip の更新の案内は出さない。利用者が --env で書いた
+    # もの（execution.added_variables）は、こちらの決まった値で上書きしない
+    return {**os.environ, "PYTHONUTF8": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1", **added_variables()}
 
 
 def run(args: list[str], root: Path, code: str, message: str) -> subprocess.CompletedProcess:
@@ -235,6 +237,27 @@ class PythonTestCase(TestCaseResult):
 
 
 REPORT_PLUGIN = "ecobuild_pytest_report"   # .venv の pytest に -p で読み込ませる名前（_pytest_report.py の写し）
+
+
+def last_failed_record(root: Path) -> Path:
+    """pytest の前回の失敗の記録（--lf が読む。run_tests の cache_dir の中）。"""
+    return root / VENV / ".pytest_cache" / "v" / "cache" / "lastfailed"
+
+
+def keep_last_failed(root: Path):
+    """今の前回の失敗の記録を覚え、戻す関数を返す（test --last-failed --repeat：各回の前に戻し、どの回も同じものを
+    --lf で流す。pytest は回ごとに記録を書き換える）。記録がなければ、戻すと記録がない状態に。"""
+    path = last_failed_record(root)
+    saved = path.read_bytes() if path.is_file() else None
+
+    def restore() -> None:
+        if saved is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(saved)
+
+    return restore
 
 
 def run_tests(root: Path, python: Path, tests: tuple[str, ...] = (), *, filter: str | None = None,

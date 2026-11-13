@@ -13,7 +13,7 @@ from cli_framework import create_cli
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError
 
-from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _suggest, _types, commands
+from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _repeat, _suggest, _types, commands
 from ._output import use_utf8_when_redirected
 
 
@@ -207,7 +207,9 @@ def _main(args: list[str]) -> None:
             path.append(arg)
         sys.exit(_catalog.emit(build_cli, path, {("task",): TASK_SECTIONS}))
     try:
-        code = build_cli().main(args, prog_name="ecobuild", standalone_mode=False)
+        # 何度でも書けるオプション（--env）を1つにまとめる（中の ecobuild へ渡した後で。区切りの文字は引数に置けない）
+        merged = _repeat.merge(args, lambda words: _catalog.find_longest(build_cli(), words)[0] if words else None)
+        code = build_cli().main(merged, prog_name="ecobuild", standalone_mode=False)
     except click.UsageError as error:
         guess = _suggest.suggestion(args) if error.message.startswith("No such command") else None
         if json_output:

@@ -14,14 +14,15 @@ from ecobuild.errors import EcoBuildError
 
 from . import _events
 from ._output import (
-    Invocation, build_like, lines, missing, optional_argument, run_command, split_list, split_numbers,
-    split_semicolons, usage_error,
+    Invocation, build_like, check_repeat, lines, missing, optional_argument, run_command, split_environment, split_list,
+    split_numbers, split_repeated, split_semicolons, usage_error,
 )
 
 __all__ = [
-    "Invocation", "ProgramOutput", "add_files", "add_folders", "build_like", "lines", "missing", "move_file", "move_files",
-    "optional_argument", "remove_files", "render_profiles", "run_command", "run_like", "split_list", "split_numbers",
-    "split_semicolons", "list_tests_like", "test_like", "usage_error",
+    "Invocation", "ProgramOutput", "add_files", "add_folders", "build_like", "check_repeat", "lines", "missing",
+    "move_file", "move_files", "optional_argument", "remove_files", "render_profiles", "render_tests", "run_command",
+    "run_like", "split_environment", "split_list", "split_numbers", "split_repeated", "split_semicolons",
+    "list_tests_like", "test_like", "usage_error",
 ]
 
 
@@ -47,10 +48,13 @@ class ProgramOutput:
 
 
 def test_like(project: str, configuration: str, profile: str, json_output: bool, *, empty: str,
-              tests: tuple[str, ...] = (), names: bool = False) -> int:
+              tests: tuple[str, ...] = (), names: bool = False, env: str = "", repeat: int = 1) -> int:
     """test の共通の入口。empty：テストが1件もないときの表示（型ごとに次の一手が違う）。
     tests：流すテスト（今いるディレクトリからの相対。:: の後ろはそのまま）。モジュールの root からの相対にして渡す。
-    names：tests はパスでなく名前（そのまま渡す。今いる Project を既定の対象にしない）。"""
+    names：tests はパスでなく名前（そのまま渡す。今いる Project を既定の対象にしない）。
+    env：--env の値（split_environment）。repeat：流す回数（--repeat。2以上なら result.runs に回ごとの結果）。"""
+    environment = split_environment(env, json_output)
+    check_repeat(repeat, json_output)
 
     def action(inv):
         module = inv.module
@@ -58,13 +62,21 @@ def test_like(project: str, configuration: str, profile: str, json_output: bool,
         options, name = module.build_options(configuration, profile or None)
         selected = tuple(tests) if names else tuple(_from_root(inv.cwd, module.root, t) for t in tests)
         chosen = "、".join(([target] if target else []) + list(selected))
-        inv.info(f"テスト中：{chosen or '全体'}（{options.configuration}" + (f"、{name}" if name else "") + "）")
-        return module.test(project=target, configuration=configuration, profile=profile or None, tests=selected)
+        inv.info(f"テスト中：{chosen or '全体'}（{options.configuration}" + (f"、{name}" if name else "")
+                 + (f"、{repeat} 回" if repeat > 1 else "") + "）")
+        return module.test(project=target, configuration=configuration, profile=profile or None, tests=selected,
+                           env=environment, repeat=repeat, on_run=lambda n, total: inv.info(f"（{n}/{total} 回目）"))
 
     return run_command("test", action,
-                       lambda r: f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}"
-                       if r.passed + r.failed + r.skipped or project else "当てはまるテストがありません" if tests else empty,
+                       lambda r: render_tests(r) if r.passed + r.failed + r.skipped or project else
+                       "当てはまるテストがありません" if tests else empty,
                        json_output=json_output)
+
+
+def render_tests(r) -> str:
+    """テストの結果（件数。何度も流したら、何回とも成功したか）。"""
+    return f"テスト：成功 {r.passed}、失敗 {r.failed}、スキップ {r.skipped}" + (
+        f"（{len(r.runs)} 回とも成功）" if r.runs else "")
 
 
 def list_tests_like(project: str, configuration: str, profile: str, json_output: bool, *, command: str = "test") -> int:
@@ -90,17 +102,19 @@ def _from_root(cwd: Path, root: Path, test: str) -> str:
 
 
 def run_like(project: str, configuration: str, profile: str, arguments: str, json_output: bool, *,
-             streamed: bool = False) -> int:
+             streamed: bool = False, env: str = "") -> int:
     """run の共通の入口（プログラムの出力は人向けにはそのまま、--json では result.output）。
 
-    streamed：プログラムの出力を実行中に流している（ProgramOutput）。人向けには終わってからもう一度は出さない。"""
+    streamed：プログラムの出力を実行中に流している（ProgramOutput）。人向けには終わってからもう一度は出さない。
+    env：--env の値（split_environment）。"""
+    environment = split_environment(env, json_output)
 
     def action(inv):
         module = inv.module
         target = project or module.executable_at(inv.cwd)
         try:
             return module.run(project=target, configuration=configuration, profile=profile or None,
-                              arguments=arguments)
+                              arguments=arguments, env=environment)
         except EcoBuildError as error:
             if streamed and not json_output and isinstance(error.details, dict) and "output" in error.details:
                 error.details["output"] = "（出力は上に流しました）"

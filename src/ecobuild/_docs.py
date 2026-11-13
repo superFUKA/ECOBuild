@@ -178,6 +178,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
   `ecobuild <コマンド> --help` で使い方）。ECOBuild のコマンドは、関係するもの（テスト・生成ファイル・管理ファイル・Issue）も一緒に直します。
 - ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`（提出の前の確認は `ecobuild check`）。型のツール
   （ビルド・テストの道具）を直接使いません。ECOBuild がビルド設定・依存先・コンテナに合わせて動かします。
+  ビルドしたものも直接起動しません（環境変数を足すなら `--env 名前=値`〔何度でも〕、何度も流すなら `ecobuild test --repeat N`）。
 {files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
 - コードの中身は Edit／Write で書きます。Bash のリダイレクト・heredoc・`cat >>` でファイルを書きません。
 - ビルド・テストは終わるまで待ちます。裏で動かしたまま返答を終えません。

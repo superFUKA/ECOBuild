@@ -252,7 +252,10 @@ class Module:
              registry: Registry | None = None) -> "Module":
         """pathから上へecobuild.tomlを探し、最も近いモジュールを返す（I-027）。"""
         root = _config.find_root(Path(path), command=cls.command)
-        return cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
+        module = cls(root, _config.load(root / _config.FILE_NAME), github=github, registry=registry)
+        # 作業空間・エージェント用の置き場所を git に見せない（前からある作業空間にも。行があれば何もしない）
+        _workspaces.exclude_area(module.root)   # 共通の info/exclude（git を呼ばずに .git から見つける）
+        return module
 
     def _open_workspace(self, root: Path) -> "Module":
         """作業空間 root そのものを、このモジュールとして開く。上へはたどらない：作業空間は元の clone の中（.ecobuild/w）に

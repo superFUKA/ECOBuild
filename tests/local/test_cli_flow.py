@@ -711,6 +711,32 @@ def test_close_workspace(cli, module, parallel, monkeypatch):
     assert refused["error"]["code"] == "invalid_argument" and module.root.exists()
 
 
+def test_agent_area_is_not_seen_by_git(cli, module, parallel, monkeypatch):
+    """作業空間の中のエージェント用の置き場所（.ecobuild/ai/）に AI が手でメモを置いても、git には見えず、提出が
+    「未コミットの変更」で止まらない（エージェントを起動していなくても）。"""
+    write(parallel / ".ecobuild" / "ai" / "memo.md", "メモ\n")
+    write(parallel / "a.txt", "a\n")
+    monkeypatch.chdir(parallel)
+    assert git(parallel, "status", "--porcelain").strip() == "?? a.txt"
+    assert cli("task", "commit", "--message", "a", "a.txt").exit_code == 0
+    assert as_json(cli("task", "submit", "--no-check", "--json"))["ok"]
+
+
+def test_agent_area_is_excluded_in_an_older_workspace(cli, module, parallel, monkeypatch):
+    """除外の行がまだない（以前の ECOBuild で作った）作業空間でも、コマンドを使えば .ecobuild/ai/ が除外される。"""
+    exclude = Path(git(parallel, "rev-parse", "--git-common-dir").strip())
+    exclude = (exclude if exclude.is_absolute() else parallel / exclude) / "info" / "exclude"
+    exclude.write_text("\n".join(line for line in exclude.read_text(encoding="utf-8").splitlines()
+                                  if line != "/.ecobuild/ai/") + "\n", encoding="utf-8")
+    write(parallel / ".ecobuild" / "ai" / "memo.md", "メモ\n")
+    assert ".ecobuild/" in git(parallel, "status", "--porcelain")
+    monkeypatch.chdir(parallel)
+    assert cli("status", "--json").exit_code == 0
+    assert git(parallel, "status", "--porcelain").strip() == ""
+    exclude.write_bytes("# 日本語\n".encode("cp932"))   # UTF-8 でない除外のファイルでも、コマンドは止まらない
+    assert cli("status", "--json").exit_code == 0
+
+
 def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
     """他のプログラムが使っていて動かせなければ、何も消さずに断る（git の記録が残るので、途中まで消さない）。"""
     real = Path.rename

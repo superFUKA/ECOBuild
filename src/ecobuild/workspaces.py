@@ -219,9 +219,14 @@ def area(root: Path | str) -> Path:
     return Path(root) / AREA
 
 
+AI_AREA = f"{_config.DIRECTORY}/ai"   # エージェント用の置き場所（メモ・下書き。コミットしない。agent guide が案内する）
+
+
 def exclude_area(root: Path | str) -> None:
-    """作業空間の置き場所（/.ecobuild/w/）を git に見せない（共通の info/exclude に、なければ1度だけ書く）。"""
-    exclude(Path(root), f"/{AREA}/")
+    """作業空間の置き場所（/.ecobuild/w/）と、エージェント用の置き場所（/.ecobuild/ai/。どの作業空間の中でも）を git に
+    見せない（共通の info/exclude に、なければ1度だけ書く）。AI が手でメモを置いても、提出が「未コミットの変更」で止まらない
+    ように（以前はエージェントを起動したときだけ足していた）。"""
+    exclude(Path(root), f"/{AREA}/", f"/{AI_AREA}/")
 
 
 def exclude(root: Path, *wanted: str) -> None:
@@ -235,7 +240,7 @@ def exclude(root: Path, *wanted: str) -> None:
         if missing:
             path.write_text(text + ("" if not text or text.endswith("\n") else "\n") + "\n".join(missing) + "\n",
                                encoding="utf-8", newline="\n")
-    except OSError:
+    except (OSError, ValueError):   # 読めない（UTF-8 でない 等）・書けない：除外は足さない（コマンドは止めない）
         pass
 
 

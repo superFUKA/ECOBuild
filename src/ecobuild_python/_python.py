@@ -239,6 +239,27 @@ class PythonTestCase(TestCaseResult):
 REPORT_PLUGIN = "ecobuild_pytest_report"   # .venv の pytest に -p で読み込ませる名前（_pytest_report.py の写し）
 
 
+def last_failed_record(root: Path) -> Path:
+    """pytest の前回の失敗の記録（--lf が読む。run_tests の cache_dir の中）。"""
+    return root / VENV / ".pytest_cache" / "v" / "cache" / "lastfailed"
+
+
+def keep_last_failed(root: Path):
+    """今の前回の失敗の記録を覚え、戻す関数を返す（test --last-failed --repeat：各回の前に戻し、どの回も同じものを
+    --lf で流す。pytest は回ごとに記録を書き換える）。記録がなければ、戻すと記録がない状態に。"""
+    path = last_failed_record(root)
+    saved = path.read_bytes() if path.is_file() else None
+
+    def restore() -> None:
+        if saved is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(saved)
+
+    return restore
+
+
 def run_tests(root: Path, python: Path, tests: tuple[str, ...] = (), *, filter: str | None = None,
               last_failed: bool = False) -> list[PythonTestCase]:
     """pytest を実行して、テストごとの結果を返す。失敗があれば TEST_FAILED。0件なら空。

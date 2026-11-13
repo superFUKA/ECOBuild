@@ -134,35 +134,63 @@ def test_failed_run_without_cases_counts_as_one_failure():
     assert (error.value.details["runs"][0].passed, error.value.details["runs"][0].failed) == (4, 2)
 
 
-def test_python_last_failed_reruns_the_cases_of_the_first_run():
-    """python の test --last-failed --repeat：2回目からは1回目に流したケースを名前で（--last-failed は外す）。"""
+def test_python_last_failed_record_is_put_back_before_each_run(tmp_path):
+    """python の test --last-failed --repeat：各回の前に、前回の失敗の記録を1回目の前のものに戻す（--lf のまま流す）。
+    記録がなかったなら、記録がない状態に。"""
+    from ecobuild_python import _python
     from ecobuild_python.cli.test import rerun_same
+    record = _python.last_failed_record(tmp_path)
+    record.parent.mkdir(parents=True)
+    record.write_text('{"tests/a.py::test_x": true}', encoding="utf-8")
+    seen = []
+
+    def test():   # pytest の代わり：流すたびに記録を書き換える
+        seen.append(record.read_text(encoding="utf-8"))
+        record.write_text("{}", encoding="utf-8")
+        return results.TestResult(None, "Debug", 1, 0, 0, ())
+
+    once = rerun_same(test, _python.keep_last_failed(tmp_path))
+    once(), once(), once()
+    assert seen == ['{"tests/a.py::test_x": true}'] * 3
+
+    record.unlink()
+    seen.clear()
+
+    def first_time():
+        seen.append(record.is_file())
+        record.write_text("{}", encoding="utf-8")
+        return results.TestResult(None, "Debug", 1, 0, 0, ())
+
+    once = rerun_same(first_time, _python.keep_last_failed(tmp_path))
+    once(), once()
+    assert seen == [False, False]
+    calls = []
+    rerun_same(lambda: calls.append(1), None)()          # --last-failed でなければ何も戻さない
+    assert calls == [1]
+
+
+def test_crash_without_failing_cases_is_counted_and_repeated():
+    """実行ファイルが途中で落ちて、通ったケースだけが残った失敗は、失敗1件の回として数え、残りの回も流す。"""
+    crash = EcoBuildError(ErrorCode.TEST_FAILED, "テストに失敗しました。",
+                          details={"cases": [{"name": "T.A.Ok", "status": "passed"}], "diagnostics": ["exit code 3"]})
     calls = []
 
-    def test(tests, last_failed):
-        calls.append((tests, last_failed))
-        return results.TestResult(None, "Debug", 1, 0, 0, (results.TestCaseResult("tests/a.py::test_x", "passed"),))
+    def once():
+        calls.append(1)
+        if len(calls) == 2:
+            raise crash
+        return _passed("T.A.Ok")
 
-    once = rerun_same(test, (), True)
-    once(), once(), once()
-    assert calls == [((), True), (("tests/a.py::test_x",), False), (("tests/a.py::test_x",), False)]
-    # 1回目が失敗でも（details の cases から）
-    calls.clear()
-
-    def failing(tests, last_failed):
-        calls.append((tests, last_failed))
-        raise EcoBuildError(ErrorCode.TEST_FAILED, "失敗", details={"cases": [results.TestCaseResult("t.py::b", "failed")]})
-
-    once = rerun_same(failing, ("t.py",), True)
-    for _ in range(2):
-        with pytest.raises(EcoBuildError):
-            once()
-    assert calls == [(("t.py",), True), (("t.py::b",), False)]
-    # --last-failed でなければ、いつも同じ指定
-    calls.clear()
-    once = rerun_same(test, ("t.py",), False)
-    once(), once()
-    assert calls == [(("t.py",), False), (("t.py",), False)]
+    with pytest.raises(EcoBuildError) as error:
+        repeat_tests(once, 3)
+    assert len(calls) == 3
+    assert [(r.ok, r.passed, r.failed) for r in error.value.details["runs"]] == [(True, 1, 0), (False, 1, 1), (True, 1, 0)]
+    none_matched = EcoBuildError(ErrorCode.TEST_FAILED, "当てはまるテストがありません（T）。",
+                                 details={"cases": [{"name": "T.A.Ok", "status": "passed"}],
+                                          "diagnostics": ["No tests match the pattern"]})
+    with pytest.raises(EcoBuildError) as error:
+        repeat_tests(lambda: (_ for _ in ()).throw(none_matched), 3)
+    assert error.value is none_matched
 
 
 def test_python_keeps_what_the_user_added(monkeypatch):

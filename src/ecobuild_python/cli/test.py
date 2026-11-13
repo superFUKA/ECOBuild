@@ -2,8 +2,8 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from ecobuild.errors import EcoBuildError
 from ecobuild.execution import added_environment, repeat_tests
+from ecobuild_python import _python
 from ecobuild_cli.kit import check_repeat, list_tests_like, render_tests, run_command, split_environment
 
 AGENT = "change"
@@ -37,8 +37,8 @@ def command(
         chosen = [*selected, *([f"-k {filter}"] if filter else []), *(["前回の失敗"] if last_failed else [])]
         inv.info(f"テスト中：{'、'.join(chosen) or '全体'}（{options.configuration}" + (f"、{name}" if name else "")
                  + (f"、{repeat} 回" if repeat > 1 else "") + "）")
-        once = rerun_same(lambda chosen, lf: module.type.test(None, options, chosen, filter=filter or None, last_failed=lf),
-                          selected, last_failed)
+        once = rerun_same(lambda: module.type.test(None, options, selected, filter=filter or None, last_failed=last_failed),
+                          _python.keep_last_failed(module.root) if last_failed and repeat > 1 else None)
         with added_environment(environment):
             return repeat_tests(once, repeat, lambda n, total: inv.info(f"（{n}/{total} 回目）"))
 
@@ -50,26 +50,15 @@ def command(
                        json_output=json)
 
 
-def rerun_same(test, tests: tuple[str, ...], last_failed: bool):
-    """1回のテスト（--repeat の各回）。test(tests, last_failed) → TestResult。
-
-    --last-failed は、1回目に流したケース（nodeid）を2回目からそのまま流す（pytest の前回の失敗の記録は回ごとに
-    書き換わり、1回目で全部通ると2回目から全部を流してしまう）。1回目にケースがなければ、2回目からも同じ指定。"""
-    chosen = {"tests": tuple(tests), "last_failed": last_failed}
-
-    def narrow(cases) -> None:
-        names = tuple(getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else None) for c in cases or ())
-        if chosen["last_failed"] and names and all(names):
-            chosen.update(tests=names, last_failed=False)
+def rerun_same(test, restore):
+    """1回のテスト（--repeat の各回）。test() → TestResult。restore：各回の前に呼ぶもの（--last-failed では
+    _python.keep_last_failed：前回の失敗の記録を1回目の前のものに戻す。pytest は回ごとに記録を書き換えるので、
+    戻さないと2回目からは別のもの〔1回目で全部通れば全部〕を流す）。None なら何もしない。"""
 
     def once():
-        try:
-            result = test(chosen["tests"], chosen["last_failed"])
-        except EcoBuildError as error:
-            narrow(error.details.get("cases") if isinstance(error.details, dict) else None)
-            raise
-        narrow(result.cases)
-        return result
+        if restore is not None:
+            restore()
+        return test()
 
     return once
 

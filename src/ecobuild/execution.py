@@ -95,18 +95,21 @@ def repeat_tests(once: Callable[[], TestResult], repeat: int,
 
 
 def _failed_run(number: int, error: EcoBuildError) -> TestRun | None:
-    """失敗した回。details にケースの結果（cases）があれば、そこから（失敗したケースが1件もなければ None：テストの
-    失敗ではない）。なければ（型 generic 等）counts から、それもなければ全体を失敗1件と数える。"""
+    """失敗した回。details にケースの結果（cases）があれば、そこから。None（その回で止める）は、テストの失敗ではないと
+    確かなときだけ：cases が空（テストを集められない等）か、diagnostics に "No tests match"（C++ の当てはまるテストなし）。
+    失敗したケースが残らなかった失敗（実行ファイルが途中で落ちた等）は失敗1件と数える。cases がなければ（型 generic 等）
+    counts から、それもなければ全体を失敗1件と数える。"""
     details = error.details if isinstance(error.details, dict) else {}
     message = error.message.splitlines()[0] if error.message else None
     counts = details.get("counts") if isinstance(details.get("counts"), dict) else None
     if "cases" in details:
         status = [(_field(c, "name"), _field(c, "status")) for c in details.get("cases") or []]
         failed = tuple(name for name, state in status if state not in ("passed", "skipped") and name)
-        if not failed:
+        diagnostics = details.get("diagnostics") or ()
+        if not failed and (not status or any("No tests match" in str(d) for d in diagnostics)):
             return None
         count = lambda state: sum(1 for _, s in status if s == state)  # noqa: E731
-        return TestRun(number, False, count("passed"), len(failed), count("skipped"), failed, message)
+        return TestRun(number, False, count("passed"), len(failed) or 1, count("skipped"), failed, message)
     if counts is not None:
         return TestRun(number, False, counts.get("passed", 0), counts.get("failed", 0) or 1, counts.get("skipped", 0),
                        (), message)

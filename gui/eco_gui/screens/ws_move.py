@@ -25,8 +25,8 @@ SCREEN = {
         {"on": "test.changed", "set": {"with_test": {"payload": "on"}}},
         {"on": "destination.changed", "set": {"destination": {"payload": "text"}}},
         {"on": "move.pressed", "run": "file move",
-         "args": {"module": {"arg": "module"}, "source": {"arg": "path"}, "destination": {"value": "destination"}, "test": {"value": "with_test"}},
-         "require": ["destination"], "parent": {"moved": {"value": "destination"}}, "notify": "移動しました。", "close": True},
+         "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}, {"value": "destination"}], "test": {"value": "with_test"}},
+         "require": ["paths"], "parent": {"moved": {"value": "destination"}}, "notify": "移動しました。", "close": True},
         {"on": "cancel.pressed", "close": True},
     ],
 }

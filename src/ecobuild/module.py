@@ -823,12 +823,12 @@ class Module:
     def status(self, *, fetch: bool = False) -> ModuleStatus:
         """excluded：新しいファイルのうち、管理するファイルの対象外のもの（task commit が含めない）。
         dependencies：手元の版が記録と違う依存先（依存先の依存先も。dependency_mismatches）。
-        format・latest_format：モジュールの仕様の版と、この ECOBuild の版（古ければ module upgrade）。"""
+        format・latest_format：モジュールの仕様の版と、この ECOBuild の版（古ければ module upgrade）。module：モジュールの名前。"""
         status = self.repository.status(fetch=fetch)
         return ModuleStatus(**{f.name: getattr(status, f.name) for f in fields(status)} | {
             "excluded": tuple(p for p in status.untracked if not self.is_tracked(p)),
             "dependencies": self.dependency_mismatches(),
-            "format": self.config.format, "latest_format": _config.FORMAT})
+            "format": self.config.format, "latest_format": _config.FORMAT, "module": self.name})
 
     def tasks(self, *, closed: bool = False, label: str | None = None, assignee: str | None = None,
               search: str | None = None, milestone: str | None = None, ready: bool = False,
@@ -1522,6 +1522,18 @@ class Module:
         """複数のファイルをまとめて足す（C++：ヘッダーを先に作り、一緒に足したヘッダーをソースが読み込む）。"""
         self.require_task_branch("ファイルの追加")
         return self._created(self._files("ファイルの追加").add_files([Path(p) for p in paths], test=test, template=template))
+
+    def add_folder(self, path: Path | str) -> FilesChanged:
+        """空のフォルダーを作る（git は空のフォルダーを記録しない：中にファイルを足すと、そのファイルと一緒にコミットに入る）。"""
+        self.require_task_branch("フォルダーの作成")
+        relative = self.relative_path(path, self.root)
+        target = self.root / relative
+        if relative == "." or relative.split("/")[0] == ".git":
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{path} にはフォルダーを作れません。")
+        if target.exists():
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{relative} は既にあります。")
+        target.mkdir(parents=True)
+        return FilesChanged("add_folder", (relative,))
 
     def remove_file(self, path: Path | str, *, test: bool = True) -> FilesChanged:
         self.require_task_branch("ファイルの削除")

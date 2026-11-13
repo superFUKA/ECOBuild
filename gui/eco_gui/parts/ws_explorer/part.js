@@ -98,20 +98,23 @@ export default {
     if (!state.folded) state.folded = new Set(memory.get('folded', []));
     if (!state.seen) state.seen = new Set(memory.get('seen', []));
     if (!state.chosen) state.chosen = new Set();
-    if (!state.folders) state.folders = new Set();  // 新しいフォルダ（中にファイルを作ると、git の一覧に出る）
     const keep = () => { memory.set('folded', [...state.folded]); memory.set('seen', [...state.seen]); };
     const unfold = (path) => { const names = path.split('/'); for (let i = 1; i < names.length; i += 1) state.folded.delete(names.slice(0, i).join('/')); };
     if (state.unfoldFor !== undefined) { if (state.unfoldFor) unfold(state.unfoldFor + '/x'); state.unfoldFor = undefined; }
     // 作った（made：選んで開く）・動かした（moved：選ぶ）ファイルを、木で選ぶ（前の GUI と同じ）。済んだら知らせて、値を空にしてもらう
-    const made = (props.made || []).filter(Boolean), moved = props.moved || '';
+    const made = (props.made || []).filter(Boolean), moved = props.moved && props.moved !== '.' ? props.moved : '';
     const told = JSON.stringify([made, moved]);
     if ((made.length || moved) && state.told !== told) {
       const path = made.length ? made[made.length - 1] : moved;
       state.told = told;
-      state.chosen = new Set(['f:' + path]); state.anchor = 'f:' + path; state.followed = path; state.directory = dirOf(path); state.reveal = path;
-      unfold(path);
+      // 動かした先がフォルダー（いくつものものをフォルダーへ・新しいフォルダ）なら、そのフォルダーを選ぶ
+      const folder = !made.length && !props.files.includes(path);
+      const key = (folder ? 'd:' : 'f:') + path;
+      state.chosen = new Set([key]); state.anchor = key; state.directory = folder ? path : dirOf(path); state.reveal = key;
+      if (!folder) state.followed = path;
+      unfold(folder ? path + '/x' : path);
       emit('action', { name: 'revealed', path, paths: [path] });
-      emit('selected', { path });
+      if (!folder) emit('selected', { path });
       if (made.length) emit('action', { name: 'open', path, paths: [path] });
     }
     if (!made.length && !moved) state.told = '';
@@ -130,7 +133,9 @@ export default {
     };
     const all = new Set([...props.files, ...[...kinds.keys()].filter((path) => !path.endsWith('/'))]);
     for (const path of all) if (shown(path) && (showGenerated || !generated.has(path))) nodeFor(dirOf(path)).files.push(path);
-    for (const dir of state.folders) { if (props.files.some((path) => path.startsWith(dir + '/'))) state.folders.delete(dir); else nodeFor(dir); }
+    // 中にファイルのないフォルダー（git は記録しない。新しいフォルダで作ったもの等）
+    const empty = new Set((props.folders || []).filter((dir) => shown(dir + '/x')));
+    for (const dir of empty) nodeFor(dir);
     const changedDirs = new Set();
     for (const path of kinds.keys()) path.split('/').slice(0, -1).forEach((_, i, names) => changedDirs.add(names.slice(0, i + 1).join('/')));
     const goneDirs = new Set();
@@ -168,10 +173,11 @@ export default {
         if (!validName(name)) { error.textContent = '有効な名前を入力してください。'; return; }
         if (folder) {
           const dir = join(path, name);
-          if (all.has(dir) || [...all].some((p) => p.startsWith(dir + '/')) || state.folders.has(dir)) { error.textContent = `${dir} は既にあります。`; return; }
-          state.folders.add(dir); state.creating = null; unfold(dir + '/x');
-          state.chosen = new Set(['d:' + dir]); state.anchor = 'd:' + dir; state.directory = dir;
-          notice(`フォルダ ${dir} を用意しました。中にファイルを作ると、できます。`);
+          if (all.has(dir) || [...all].some((p) => p.startsWith(dir + '/')) || [...empty].some((p) => p === dir || p.startsWith(dir + '/'))) {
+            error.textContent = `${dir} は既にあります。`; return;
+          }
+          state.creating = null;
+          emit('action', { name: 'make_folder', path: dir, paths: [dir] });  // ディスクに作る（ecobuild file add --folder）
           redraw();
           return;
         }
@@ -238,12 +244,16 @@ export default {
     const chosenMenu = async (event) => {
       const { dirs, files } = chosenItems(), paths = [...dirs, ...files], changed = changesIn(paths);
       const existing = files.filter((path) => !missing.has(path));
+      const movable = [...dirs.filter((dir) => !projects.has(dir)), ...existing];
+      const testable = existing.filter((path) => lib.ws.testable(projectList, path));
       const restorable = changed.filter((path) => !(kinds.get(path) || []).includes('untracked'));
       const none = { disabled: existing.length === 0, reason: '選んだ中にファイルがありません（フォルダだけ）。' };
       const id = await menu(event, [
         { id: 'open_all', label: `Visual Studio${props.vs_version ? ' ' + props.vs_version : ''} で開く（${existing.length} 件）`, ...none },
         { id: 'open_default_all', label: `既定のアプリで開く（${existing.length} 件）`, ...none }, { separator: true },
+        { id: 'move_into', label: '移動先を指定…', disabled: movable.length === 0, reason: 'Projectのフォルダは「移動…」で移します。', ...locked },
         { id: 'remove', label: `選んだ ${state.chosen.size} 件を削除`, hint: 'Delete', danger: true, ...locked },
+        ...(testable.length ? [{ id: 'make_tests', label: `テストを作成（${testable.length} 件）…`, ...locked }] : []),
         { id: 'restore', label: `変更を元に戻す（${restorable.length} 件）…`, disabled: restorable.length === 0, reason: '変更がありません。', ...locked },
         { separator: true },
         { id: 'commit', label: `コミットの対象にする（${changed.length} 件）`, disabled: changed.length === 0, reason: '変更がありません。', ...locked },
@@ -252,6 +262,8 @@ export default {
       if (id === 'copy') return copy(paths.join('\n'));
       if (id === 'open_all' || id === 'open_default_all') emit('action', { name: id, path: '', paths: existing });
       if (id === 'remove') emit('action', { name: 'remove', path: '', paths: chosenPaths() });
+      if (id === 'move_into') emit('action', { name: 'move_into', path: '', paths: movable });
+      if (id === 'make_tests') emit('action', { name: 'make_tests', path: '', paths: testable });
       if (id === 'restore') emit('action', { name: 'restore', path: '', paths: restorable });
       if (id === 'commit') emit('action', { name: 'commit', path: '', paths: changed });
     };
@@ -287,24 +299,24 @@ export default {
       if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(key, { ...below(element), preventDefault() {}, stopPropagation() {} });
     };
 
-    // ドラッグで動かす（ファイル・フォルダーを、別のフォルダーへ。1つずつ。サブプロジェクトのフォルダーは「移動…」で）
+    // ドラッグで動かす（ファイル・フォルダーを、別のフォルダーへ。選んだものをまとめても。サブプロジェクトのフォルダーは「移動…」で）
     const dragStart = (key) => (event) => {
       const path = key.slice(2);
       if (lockReason || state.renaming || (key.startsWith('f:') && isReadme(path)) || projects.has(path)) { event.preventDefault(); return; }
       clearTimeout(state.timer);
-      if (state.chosen.size > 1 && state.chosen.has(key)) {
-        event.preventDefault();
-        notice('ドラッグで動かせるのは1つずつです（選んだものをまとめて動かすことは、まだできません）。', 'error');
-        return;
-      }
-      state.dragging = path;
-      try { event.dataTransfer.setData('text/plain', path); event.dataTransfer.effectAllowed = 'move'; } catch { /* 写せない環境 */ }
+      if (!state.chosen.has(key)) { state.chosen = new Set([key]); state.anchor = key; paint(); }
+      const { dirs, files } = chosenItems();
+      const dragging = [...dirs.filter((dir) => !projects.has(dir)), ...files.filter((file) => !missing.has(file))];
+      if (!dragging.length) { event.preventDefault(); return; }
+      state.dragging = dragging;
+      try { event.dataTransfer.setData('text/plain', dragging.join('\n')); event.dataTransfer.effectAllowed = 'move'; } catch { /* 写せない環境 */ }
     };
     const dropInto = (dir) => {
-      const path = state.dragging;
-      if (path === null || path === undefined || dir === null) return null;
-      if (dir === path || dir.startsWith(path + '/') || dirOf(path) === dir || (roots.length && !shown(dir)) || goneDirs.has(dir)) return null;
-      return dir;
+      const dragging = state.dragging;
+      if (!dragging || dir === null) return null;
+      if ((roots.length && !shown(dir + '/x')) || goneDirs.has(dir)) return null;
+      if (dragging.some((path) => dir === path || dir.startsWith(path + '/'))) return null;  // 自分の中へは動かせない
+      return dragging.some((path) => dirOf(path) !== dir) ? dir : null;
     };
     const clearTargets = () => { for (const element of tree.querySelectorAll('.drop-target')) element.classList.remove('drop-target'); };
     const dropTarget = (dir, element) => {
@@ -318,9 +330,11 @@ export default {
       element.addEventListener('drop', (event) => {
         event.preventDefault(); event.stopPropagation(); clearTargets();
         if (![...((event.dataTransfer && event.dataTransfer.types) || [])].includes('Files')) {
-          const into = dropInto(dir), path = state.dragging;
+          const into = dropInto(dir), dragging = (state.dragging || []).filter((path) => dirOf(path) !== into);
           state.dragging = null;
-          if (into !== null) emit('action', { name: 'drop_move', path, paths: [path], to: join(into, baseOf(path)) });
+          if (into === null || !dragging.length) return;
+          if (dragging.length === 1) emit('action', { name: 'drop_move', path: dragging[0], paths: dragging, to: join(into, baseOf(dragging[0])) });
+          else emit('action', { name: 'drop_move_into', path: '', paths: dragging, to: into || '.' });  // 一番上は「.」（空だと引数が渡らない）
           return;
         }
         notice('外からのファイルの取り込みは、まだできません。Windows のエクスプローラーで、作業空間のフォルダーに置いてください。', 'error');
@@ -341,8 +355,8 @@ export default {
         const folder = h('details', {});
         folder.open = !state.folded.has(dir);
         const project = projects.get(dir);
-        const pending = state.folders.has(dir);
-        const title = h('summary', { title: (project ? `サブプロジェクト ${project.name}：` : 'フォルダ：') + dir + (pending ? '（中にファイルを作ると、できます）' : '') });
+        const pending = empty.has(dir);  // 中にファイルのないフォルダー（git は記録しない）
+        const title = h('summary', { title: (project ? `サブプロジェクト ${project.name}：` : 'フォルダ：') + dir + (pending ? '（空のフォルダー。中にファイルを足すと、コミットに入ります）' : '') });
         const caret = h('span', { class: 'tree-caret', 'aria-hidden': 'true' }, '▸');
         if (project) {
           const kind = PROJECT_KINDS[project.kind] || project.kind || '';
@@ -358,13 +372,13 @@ export default {
         }
         if (changedDirs.has(dir)) title.classList.add('has-changes');
         if (goneDirs.has(dir)) { title.classList.add('deleted'); title.title += '（削除）'; }
-        title.draggable = !project && !goneDirs.has(dir) && !lockReason && !pending;
+        title.draggable = !project && !goneDirs.has(dir) && !lockReason;
         order.push(key); rows.set(key, title);
         title.addEventListener('click', (event) => {
           state.directory = dir;
           if (event.detail > 0 && !event.target.closest('.tree-caret')) {  // 三角の外：選ぶだけ（開閉は三角かダブルクリック）
             event.preventDefault();
-            if (!project && !pending) slowRename(key, event);
+            if (!project) slowRename(key, event);
             choose(key, event); paint();
           }
         });
@@ -420,7 +434,7 @@ export default {
     finish();
     tree.scrollTop = scroll;
     if (state.reveal) {  // 作った・動かしたファイルを見えるところへ
-      const at = rows.get('f:' + state.reveal);
+      const at = rows.get(state.reveal);
       if (at) { state.reveal = null; at.scrollIntoView({ block: 'nearest' }); }
     }
   },

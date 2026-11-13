@@ -72,3 +72,21 @@ def test_files_tells_the_files_the_tool_makes_again(cli, module, monkeypatch):
 def test_module_show_lists_the_kinds_of_the_projects(cli, module):
     result = json.loads(cli("module", "show", "--json").stdout)["result"]
     assert result["projects"] == [p["name"] for p in result["project_list"]]   # 名前の並びと、1件ずつの種類・場所
+
+
+def test_file_add_folder_makes_an_empty_folder_and_files_lists_it(cli, module):
+    """file add --folder：空のフォルダーを作る（git は記録しない）。files は、中にファイルのないフォルダーを folders に出す。"""
+    root = module.root
+    module.repository.create_task("フォルダー").start()
+    result = json.loads(cli("file", "add", "--folder", "docs/memo", "notes", "--json").stdout)["result"]
+    assert result["paths"] == ["docs/memo", "notes"] and (root / "docs" / "memo").is_dir()
+    assert json.loads(cli("files", "--json").stdout)["result"]["folders"] == ["docs/memo", "notes"]
+    assert "notes/（空のフォルダー）" in cli("files").output.split()
+    again = json.loads(cli("file", "add", "--folder", "notes", "--json").stdout)
+    assert again["ok"] is False and again["error"]["code"] == "already_exists"
+    write(root / "notes" / "a.md", "x\n")  # 中にファイルを足すと、空のフォルダーではなくなる
+    assert json.loads(cli("files", "--json").stdout)["result"]["folders"] == ["docs/memo"]
+
+
+def test_status_tells_the_module_name(cli, module):
+    assert json.loads(cli("status", "--json").stdout)["result"]["module"] == module.name

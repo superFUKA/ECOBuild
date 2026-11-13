@@ -56,6 +56,8 @@ SCREEN = {
     ],
     "bindings": [
         # --- 読む（同じコマンドは1回だけ実行され、いくつもの部品へ出る） ---
+        # 窓の題：「モジュール — ブランチ」（前の GUI と同じ。モジュールの窓の中に置いたときは、外の窓の題のつなぎが使われる）
+        {"read": "status", "args": {"module": {"arg": "module"}}, "title": "{module}[ — {branch}]"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "state.data"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "toolbar.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "tabs.status"},
@@ -91,6 +93,7 @@ SCREEN = {
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "explorer.missing", "from": "missing"},
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "changes.missing", "from": "missing"},
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "explorer.generated", "from": "generated"},
+        {"read": "files", "args": {"module": {"arg": "module"}}, "to": "explorer.folders", "from": "folders"},
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "changes.generated", "from": "generated"},
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "state.name", "from": "name"},
         # サブプロジェクト（名前・種類・場所）：エクスプローラーの ◆ と種類の印、変更の一覧のまとまり、▶ の対象
@@ -330,12 +333,25 @@ SCREEN = {
         # --- エクスプローラーの操作（ecobuild file move・file remove・restore・ignore・file test・test・sync take・project …） ---
         {"on": "explorer.action", "when": {"name": "reload"}, "refresh": True},
         {"on": "explorer.action", "when": {"name": "rename"}, "run": "file move",
-         "args": {"module": {"arg": "module"}, "source": {"payload": "path"}, "destination": {"payload": "to"}},
+         "args": {"module": {"arg": "module"}, "paths": [{"payload": "path"}, {"payload": "to"}]},
          "set": {"moved": {"payload": "to"}}, "notify": "名前を変えました。"},
         # ドラッグで、別のフォルダーへ（前の GUI と同じ：対応するテストも一緒に動く）
         {"on": "explorer.action", "when": {"name": "drop_move"}, "run": "file move",
-         "args": {"module": {"arg": "module"}, "source": {"payload": "path"}, "destination": {"payload": "to"}},
+         "args": {"module": {"arg": "module"}, "paths": [{"payload": "path"}, {"payload": "to"}]},
          "set": {"moved": {"payload": "to"}}, "notify": "移動しました。"},
+        # いくつものものを1つのフォルダーへ：ドラッグはそのまま、メニューからは移動先を選ぶ窓（1回の ecobuild file move … --into）
+        {"on": "explorer.action", "when": {"name": "drop_move_into"}, "run": "file move",
+         "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "into": {"payload": "to"}},
+         "set": {"moved": {"payload": "to"}}, "notify": "移動しました。"},
+        {"on": "explorer.action", "when": {"name": "move_into"}, "open": "ws-move-into", "inside": True,
+         "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
+        # 新しいフォルダ：ディスクに作る（ecobuild file add <フォルダー> --folder）
+        {"on": "explorer.action", "when": {"name": "make_folder"}, "run": "file add",
+         "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "folder": True},
+         "set": {"moved": {"payload": "path"}}, "notify": "フォルダを作りました：{paths.0}"},
+        # 選んだいくつものファイルのテストを作る（1回の ecobuild file test <ファイル…>）
+        {"on": "explorer.action", "when": {"name": "make_tests"}, "open": "ws-make-tests", "inside": True,
+         "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
         # 作った・動かしたファイルを、木で選んだ（もう一度は選ばない）
         {"on": "explorer.action", "when": {"name": "revealed"}, "set": {"made": None, "moved": None}},
         {"value": "made", "to": "explorer.made"},

@@ -19,7 +19,7 @@ from ._output import (
 )
 
 __all__ = [
-    "Invocation", "ProgramOutput", "add_files", "build_like", "lines", "missing", "move_file",
+    "Invocation", "ProgramOutput", "add_files", "add_folders", "build_like", "lines", "missing", "move_file", "move_files",
     "optional_argument", "remove_files", "render_profiles", "run_command", "run_like", "split_list", "split_numbers",
     "split_semicolons", "list_tests_like", "test_like", "usage_error",
 ]
@@ -110,8 +110,10 @@ def run_like(project: str, configuration: str, profile: str, arguments: str, jso
                        json_output=json_output)
 
 
-def add_files(paths: tuple[str, ...], test: bool, template: str, json_output: bool) -> int:
-    """file add の共通の入口。"""
+def add_files(paths: tuple[str, ...], test: bool, template: str, json_output: bool, *, folder: bool = False) -> int:
+    """file add の共通の入口。folder：ファイルではなく、空のフォルダーを作る（add_folders）。"""
+    if folder:
+        return add_folders(paths, json_output)
 
     def action(inv):
         changed = inv.module.add_files([inv.cwd / path for path in paths], test=test, template=template or None)
@@ -121,16 +123,47 @@ def add_files(paths: tuple[str, ...], test: bool, template: str, json_output: bo
                        json_output=json_output)
 
 
-def move_file(source: str, destination: str, test: bool, json_output: bool) -> int:
-    """file move の共通の入口。"""
+def add_folders(paths: tuple[str, ...], json_output: bool) -> int:
+    """file add --folder：空のフォルダーを作る（中にファイルを足すと、そのファイルと一緒にコミットに入る）。"""
+    if not paths:
+        return missing("<フォルダー>", json_output)
 
     def action(inv):
-        return inv.module.move_file(inv.cwd / source, inv.cwd / destination, test=test)
+        return {"paths": [p for path in paths for p in inv.module.add_folder(inv.cwd / path).paths]}
+
+    return run_command("file add", action, lambda r: "フォルダーを作りました：\n" + "\n".join(f"  {p}/" for p in r["paths"]),
+                       json_output=json_output)
+
+
+def move_file(source: str, destination: str, test: bool, json_output: bool) -> int:
+    """file move の共通の入口（1つ）。"""
+    return move_files((source, destination), "", test, json_output)
+
+
+def move_files(paths: tuple[str, ...], into: str, test: bool, json_output: bool) -> int:
+    """file move の共通の入口。paths：移動元と移動先（2つ）。into を書いたら、paths は移動元（いくつでも）で、
+    into のフォルダーへ名前を変えずに移す。"""
+    if into:
+        if not paths:
+            return missing("<移動元>", json_output)
+        pairs = [(path, os.path.join(into, Path(path.rstrip("/\\")).name)) for path in paths]
+    elif len(paths) == 2:
+        pairs = [(paths[0], paths[1])]
+    else:
+        return usage_error("移動元と移動先の2つを書きます（いくつものファイルを1つのフォルダーへ移すなら --into <フォルダー>）。", json_output)
+
+    def action(inv):
+        moved, edited = [], []
+        for source, destination in pairs:
+            changed = inv.module.move_file(inv.cwd / source, inv.cwd / destination, test=test)
+            moved += changed.paths
+            edited += [p for p in changed.edited if p not in edited]
+        return {"paths": moved, "edited": edited}
 
     def render(r):
-        pairs = zip(r.paths[0::2], r.paths[1::2])
-        return "移動しました：\n" + "\n".join(f"  {a} → {b}" for a, b in pairs) \
-            + ("\n読み込み（#include）を直しました：\n" + "\n".join(f"  {p}" for p in r.edited) if r.edited else "")
+        pairs_moved = zip(r["paths"][0::2], r["paths"][1::2])
+        return "移動しました：\n" + "\n".join(f"  {a} → {b}" for a, b in pairs_moved) \
+            + ("\n読み込み（#include）を直しました：\n" + "\n".join(f"  {p}" for p in r["edited"]) if r["edited"] else "")
 
     return run_command("file move", action, render, json_output=json_output)
 

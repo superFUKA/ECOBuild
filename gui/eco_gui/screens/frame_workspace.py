@@ -14,5 +14,8 @@ SCREEN = {
         {"id": "bar", "screen": "frame-bar", "args": {"module": {"arg": "module"}, "space": {"arg": "space"}, "closed": {"arg": "closed"}}},
         {"id": "ws", "screen": "workspace", "args": {"module": {"arg": "space"}}},
     ],
-    "bindings": [],
+    "bindings": [
+        # 窓の題：「モジュール — 出している作業空間のブランチ」（前の GUI と同じ。中に置いたメニューの題より、こちらが使われる）
+        {"read": "status", "args": {"module": {"arg": "space"}}, "require": ["module"], "title": "{module}[ — {branch}]"},
+    ],
 }

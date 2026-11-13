@@ -54,9 +54,10 @@ class ModuleInfo:
 
 @dataclass(frozen=True)
 class ModuleStatus(wm.Status):
-    """状態（status）に、モジュールの仕様の版を足したもの（ModuleInfo と同じ意味）。"""
+    """状態（status）に、モジュールの名前と、モジュールの仕様の版を足したもの（ModuleInfo と同じ意味）。"""
     format: int = 0
     latest_format: int = 0
+    module: str = ""                 # モジュールの名前（どの作業空間でも同じ。窓の題などに）
 
 
 @dataclass(frozen=True)

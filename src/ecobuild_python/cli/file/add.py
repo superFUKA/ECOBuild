@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Annotated
 
-from ecobuild_cli.kit import run_command
+from ecobuild_cli.kit import add_folders, run_command
 
 AGENT = "change"
 
@@ -10,6 +10,7 @@ AGENT = "change"
 def command(
     *paths: Annotated[str, "追加するファイル（今いるディレクトリからの相対）"],
     test: Annotated[bool, "src/<パッケージ>/ のソースなら、tests/ の同じ構成の場所にテストも作る"] = True,
+    folder: Annotated[bool, "ファイルではなく、空のフォルダーを作る（git は空のフォルダーを記録しない。中にファイルを足すとコミットに入る）"] = False,
     json: Annotated[bool, "結果をJSONで出力する（作った __init__.py は result.packages にも入る）"] = False,
 ) -> int:
     """ファイルを作ります。src/<パッケージ>/ にソースを足すと、tests/ にテストも作ります。
@@ -17,6 +18,8 @@ def command(
     例：src/<パッケージ>/a/b.py を足すと、テスト tests/a/test_b.py も作ります。ビルドが setuptools のときだけ、
     新しいフォルダーに __init__.py も作ります（ひな形の hatchling は要りません）。
     """
+    if folder:
+        return add_folders(paths, json)
 
     def action(inv):
         module = inv.module

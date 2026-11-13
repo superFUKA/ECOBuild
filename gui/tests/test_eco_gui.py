@@ -63,8 +63,8 @@ class FakeEcobuild:
                 "paths": {"type": "array", "items": text}}}},
             "file remove": {"description": "ファイルを消します", "weight": "confirm", "args": {"type": "object", "required": [], "properties": {
                 "paths": {"type": "array", "items": text}}}},
-            "file move": {"description": "ファイルを動かします", "weight": "change", "args": {"type": "object", "required": ["source", "destination"], "properties": {
-                "source": text, "destination": text}}},
+            "file move": {"description": "ファイルを動かします", "weight": "change", "args": {"type": "object", "required": [], "properties": {
+                "paths": {"type": "array", "items": text}, "into": text}}},
             "task new": {"description": "タスクを作ります", "weight": "change", "args": {"type": "object", "required": ["title"], "properties": {"title": text}}},
             "task start": {"description": "タスクを始めます", "weight": "change", "args": {"type": "object", "required": ["issue"], "properties": {
                 "issue": {"type": "integer"}, "name": text}}},

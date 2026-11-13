@@ -12,9 +12,9 @@ SCREEN = {
         {"id": "form", "part": "ws-file-test", "props": {"path": {"arg": "path"}}},
     ],
     "bindings": [
-        {"read": "file test", "preview": True, "args": {"module": {"arg": "module"}, "path": {"arg": "path"}}, "to": "form.plan"},
+        {"read": "file test", "preview": True, "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}]}, "to": "form.plan"},
         {"read": "files", "args": {"module": {"arg": "module"}}, "to": "form.files", "from": "files"},
-        {"on": "form.make", "run": "file test", "args": {"module": {"arg": "module"}, "path": {"arg": "path"}, "to": {"payload": "to"}},
+        {"on": "form.make", "run": "file test", "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}], "to": {"payload": "to"}},
          "parent": {"made": {"result": "paths"}}, "notify": "テストを作りました：{paths.0}", "close": True},
         {"on": "form.cancel", "close": True},
     ],

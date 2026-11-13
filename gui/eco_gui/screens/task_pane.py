@@ -30,7 +30,10 @@ SCREEN = {
         {"on": "detail.withdraw", "run": "task withdraw", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "提出を取り下げました。"},
         {"on": "detail.review", "run": "task review", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "提出を、確認用の作業空間に取り出しました。",
          "after": {"open": "frame-workspace", "args": {"module": {"arg": "module"}, "space": {"result": "workspace"}}}},
-        {"on": "detail.revert", "run": "task revert", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "取り込みを取り消すタスクを作りました。"},
+        {"on": "detail.revert", "run": "task revert", "args": {"module": {"arg": "module"}, "number": {"payload": "id"}}, "notify": "取り込みを取り消すタスクを作りました。",
+         # 取り消しが衝突で止まった：止まっている作業空間を開く（衝突の帯で、直して「続ける」と案内する）
+         "instead": {"when": {"code": "merge_conflict"}, "open": "frame-workspace",
+                     "args": {"module": {"arg": "module"}, "space": {"error": "details.workspace"}}}},
         # 差分：TortoiseGit で（前の GUI と同じ）。なければ、窓の中に文字で
         {"on": "detail.submission", "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},

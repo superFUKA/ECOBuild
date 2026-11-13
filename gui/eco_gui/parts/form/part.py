@@ -53,6 +53,7 @@ def part(
     outcome: Annotated[list[dict], "「何が起きるか」の表（{label, text, show_if, hide_if}）"] = [],
     actions: Annotated[list[dict], "決めるほかにできること（{name, label, hint, primary, show_if, hide_if}。ボタンの行の左に置く）"] = [],
     ok: Annotated[str, "決めるボタンの文字"] = "OK",
+    tag: Annotated[str, "決めたときに、値と一緒に出す印（どこから開いた窓か等。つなぎが、それで分ける）"] = "",
     danger: Annotated[bool, "決めるボタンを、戻せない操作として赤く見せる"] = False,
     sticky: Annotated[bool, "欄が長いとき、ボタンの行を見えたままにする"] = False,
     initial: Annotated[dict, "初めの値（名前 → 値）"] = {},
@@ -68,7 +69,8 @@ def part(
 ) -> None: ...
 
 
-def on_submitted(values: Annotated[dict[str, Any], "欄の名前 → 値（出ている欄だけ）"]) -> None: ...
+def on_submitted(values: Annotated[dict[str, Any], "欄の名前 → 値（出ている欄だけ）"],
+                 tag: Annotated[str, "props の tag（あれば）"] = "") -> None: ...
 
 
 def on_action(name: Annotated[str, "押したボタン（actions の name）"], values: Annotated[dict[str, Any], "欄の名前 → 値（出ている欄だけ）"] = {}) -> None: ...

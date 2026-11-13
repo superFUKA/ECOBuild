@@ -563,7 +563,7 @@ function formRender(root, props, { h, emit, state }, extra = {}) {
       const label = fill(missing.label).replace(/（[^（）]*）$/, '');
       return fail(missing.type === 'checks' ? `${label}を、1つ以上選んでください。` : `${label}を入力してください。`);
     }
-    if (!extra.submit) return emit('submitted', { values: collect() });
+    if (!extra.submit) return emit('submitted', props.tag ? { values: collect(), tag: props.tag } : { values: collect() });
     const problem = extra.submit(all());
     fail(typeof problem === 'string' ? problem : '');
   };

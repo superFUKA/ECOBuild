@@ -29,6 +29,7 @@ class FakeForms(FakeEcobuild):
         self.partial = False  # 出している提出が、中間提出か
         self.clashes = ["src/app.py", "README.md"]  # 作成元の最新を取り込むと衝突するファイル
         self.conflicting = False  # 提出が作成元と衝突している（取り込み・承認・反映が、何も変えずに止まる）
+        self.next_task = None  # 完了した後の、次のタスクの候補（task next の1番目）
 
     def _specs(self, text):
         number, flag = {"type": "integer"}, {"type": "boolean"}
@@ -61,6 +62,9 @@ class FakeForms(FakeEcobuild):
             super().run(name, args, context, on_event)
             code = "merge_conflict" if name == "task apply" else "pull_request_conflict"
             return {"ok": False, "error": {"code": code, "message": "作成元と衝突しています。", "details": list(self.clashes)}}
+        if name == "task finish":
+            super().run(name, args, context, on_event)
+            return {"ok": True, "result": {"task": 12, "partial": False, "next": self.next_task}}
         if name == "task start":
             super().run(name, args, context, on_event)
             return {"ok": True, "result": {"branch": "task/12-login", "base": "main", "workspace": PLACE}}
@@ -261,6 +265,7 @@ def test_a_conflict_with_the_base_turns_the_window_into_the_guide(relay, screen,
     assert [e for e in relay.display.events_after(0) if e["command"] == "notify" and e.get("level") == "error"] == []
     props = nodes(relay, window)["form"]["props"]
     assert "衝突" in props["intro"] and props["vars"]["issue"] == 12
+    assert props["vars"]["files"] == ["src/app.py", "README.md"]  # 衝突するファイル（誤りの details）を並べる
     if guide == "task-conflict-fix":
         assert props["ok"] == "取り込んで直す" and props["vars"]["title"] == ("反映できません" if command == "task apply" else "取り込めません")
         decide(relay, window)  # タスクブランチの作業空間を開く（手元になければ GitHub から取り出す）
@@ -292,3 +297,26 @@ def test_reopen_window_reopens_into_the_column_it_was_dropped_on(relay, stage):
     assert props["vars"] == {"issue": 9, "stage": stage} and props["ok"] == "開き直す"
     decide(relay, window)
     assert calls(relay, "task reopen") == [{"issue": 9, "stage": stage}]  # 開き直して、落とした列（計画中・未着手）に
+
+
+def test_taking_in_someone_elses_submission_without_approving_guides_to_send_it_back(relay):
+    """他人の提出を「承認せずに取り込む」（text が other）で衝突したら、差し戻しの案内に。"""
+    relay.backend.conflicting = True
+    board = opened(relay, "board")
+    window = opened(relay, "task-finish", inside=board, issue=12, text="other")
+    assert nodes(relay, window)["form"]["props"]["tag"] == "other"
+    relay.input(window, "form", "submitted", {"values": {"complete": True}, "tag": "other"}, human=True)
+    relay.idle()
+    assert [w["screen"] for w in relay.display.windows() if w.get("parent") == board] == ["task-conflict-reject"]
+
+
+@pytest.mark.parametrize("next_task, said", [
+    ({"number": 14, "title": "次の仕事"}, "取り込みました。次の候補：#14 次の仕事"),
+    (None, "取り込みました。"),  # 候補がなければ、その部分ごと出さない
+])
+def test_taking_in_tells_the_next_candidate_when_there_is_one(relay, next_task, said):
+    relay.backend.next_task = next_task
+    board = opened(relay, "board")
+    window = opened(relay, "task-finish", inside=board, issue=12)
+    decide(relay, window, complete=True)
+    assert said in [e["message"] for e in relay.display.events_after(0) if e["command"] == "notify"]

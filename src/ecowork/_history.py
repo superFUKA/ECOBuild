@@ -133,7 +133,9 @@ class History:
                 raise WorkError(ErrorCode.MERGE_CONFLICT, "取り消しで衝突しました。",
                                 hint=f"タスクブランチ {task_branch.branch} で、衝突したファイルを直して "
                                      f"{self._op('sync continue')}（残りの取り消しも続けます。やめるなら "
-                                     f"{self._op('sync abort')}）。", details=list(conflicted))
+                                     f"{self._op('sync abort')}）。",
+                                details={"files": list(conflicted), "workspace": str(self.root), "branch": task_branch.branch,
+                                         "task": created.number})
             raise _git._git_error(completed)
         self.hooks.prepare_workspace(self)  # 取り消しで依存先の記録等が戻ることがある
         return wm.RevertResult(pulls[-1].number, created.number, task_branch.branch, self.git.output("rev-parse", "HEAD"),

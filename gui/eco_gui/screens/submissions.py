@@ -99,6 +99,9 @@ SCREEN = {
         {"value": "revert_task", "to": "revert_task.text"},
         {"on": "do_revert.pressed", "run": "task revert", "require": ["task"],
          "args": {"module": {"arg": "module"}, "task": {"value": "revert_task"}}, "set": {"revert_task": None},
-         "notify": "取り込みを取り消すタスクを作りました。"},
+         "notify": "取り込みを取り消すタスクを作りました。",
+         # 取り消しが衝突で止まった：止まっている作業空間を開く（衝突の帯で、直して「続ける」と案内する）
+         "instead": {"when": {"code": "merge_conflict"}, "open": "frame-workspace",
+                     "args": {"module": {"arg": "module"}, "space": {"error": "details.workspace"}}}},
     ],
 }

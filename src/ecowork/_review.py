@@ -412,7 +412,7 @@ class Reviewing:
             self.git.delete_branch(branch, force=True)
             self.git.unset_config(wm.base_key(branch))
         elif local:
-            self.notices.append(f"手元のタスクブランチ {branch} は残しました（{released.kept}）。GitHub のブランチは消しました。")
+            self.notices.append(f"注意：手元のタスクブランチ {branch} は残しました（{released.kept}）。GitHub のブランチは消しました。")
         else:
             self.git.unset_config(wm.base_key(branch))
         return wm.DropResult(number, branch, lost, pulls, released.switched_to, close and opened, False,

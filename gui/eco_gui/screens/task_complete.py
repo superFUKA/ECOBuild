@@ -25,10 +25,10 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "完了にしました。", "close": True,
+        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "完了にしました。[次の候補：#{next.number} {next.title}]", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "ignore_checks": {"payload": "values.ignore_checks"}, "complete": True},
          "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
-                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}}}},
+                     "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "files": {"error": "details"}}}},
         {"on": "form.cancelled", "close": True},
     ],
 }

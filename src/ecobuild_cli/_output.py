@@ -148,7 +148,7 @@ def execute(
         "command": command, "result": to_data(result), "notices": _notices(invocation)}})
     if invocation.json_output:
         for notice in _notices(invocation):
-            _events.emit("notice", notice, json_output=True)
+            _events.emit(_notice_kind(notice), notice, json_output=True)
         _emit_json(command, invocation, result, None)
     else:
         if render is not None:
@@ -156,7 +156,7 @@ def execute(
             if text:
                 click.echo(text)
         for notice in _notices(invocation):
-            _events.emit("notice", notice, json_output=False)
+            _events.emit(_notice_kind(notice), notice, json_output=False)
     return SUCCESS
 
 
@@ -219,6 +219,12 @@ def _repository_state(error: WorkError) -> WorkError:
                              hint="ecobuild module list で確かめてください。削除したリポジトリは、90日以内なら"
                                   "GitHubのアカウントの設定から戻せます。", details=error.details)
     return error
+
+
+def _notice_kind(notice: str) -> str:
+    """知らせの出来事の種類。頭が「注意：」の知らせは注意（warning：続けたが確かめてほしいこと。残した作業空間等）。
+    経過の「注意：」と同じ決まり（_events.progress）。"""
+    return "warning" if notice.startswith("注意：") else "notice"
 
 
 def _notices(invocation: Invocation) -> list[str]:
@@ -353,6 +359,8 @@ def _detail_text(details: Any) -> str:
         return ""
     if isinstance(details, (list, tuple)):
         return "\n".join(f"  {_item_text(item)}" for item in details)
+    if isinstance(details, dict) and isinstance(details.get("files"), (list, tuple)):  # 衝突したファイル等（ほかは --json で）
+        return "\n".join(f"  {_item_text(item)}" for item in details["files"])
     if isinstance(details, dict):
         details = details.get("output") or json.dumps(to_data(details), ensure_ascii=False)
     text_lines = str(details).rstrip().splitlines()

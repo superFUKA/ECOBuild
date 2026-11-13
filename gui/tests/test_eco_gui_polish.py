@@ -33,7 +33,7 @@ class PolishEcobuild(FakeEcobuild):
         return {
             **super()._specs(text),
             "profile add": spec("change", ["name"], name=text, configuration=text, parallel={"type": "integer"}, shared=flag),
-            "file add": spec("change", paths=many, template=text, test=flag),
+            "file add": spec("change", paths=many, template=text, test=flag, folder=flag),
             "task commit": spec("change", paths=many, message=text, all=flag, amend=flag),
             "project show": spec("read", projects=text, project=text),
             "project set": spec("change", projects=text, project=text, kind=text, add_define=text, remove_define=text,
@@ -63,8 +63,8 @@ class PolishEcobuild(FakeEcobuild):
             "task push": spec("change", force=flag),
             "show": spec("read", commit=text, gui=flag),
             "diff": spec("read", paths=many, staged=flag, base=flag, gui=flag),
-            "file test": {**spec("change", ["path"], path=text, to=text), "dry_run": True},  # 本物と同じく、下見（--dry-run）ができる
-            "file move": spec("change", ["source", "destination"], source=text, destination=text, test=flag),
+            "file test": {**spec("change", paths=many, to=text), "dry_run": True},  # 本物と同じく、下見（--dry-run）ができる
+            "file move": spec("change", paths=many, into=text, test=flag),
             "file remove": spec("confirm", paths=many, test=flag),
             "task withdraw": spec("confirm", number={"type": "integer"}, task={"type": "integer"}),
             "task submit": spec("confirm", title=text, partial=flag, complete=flag, check=flag, draft=flag, reviewer=text),

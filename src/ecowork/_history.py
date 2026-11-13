@@ -5,6 +5,9 @@ Repository（repository.py）がこのクラスを継承する。self は Reposi
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from . import git as _git
 from . import model as wm
 from .errors import ErrorCode, WorkError
@@ -77,6 +80,17 @@ class History:
         """管理しているファイルと、まだ管理していない新しいファイル（.gitignore の対象は除く）。パスの順。"""
         listed = self.git.output("ls-files", "-z", "--cached", "--others", "--exclude-standard")
         return sorted({name for name in listed.split("\0") if name})
+
+    def empty_folders(self) -> list[str]:
+        """中にファイルのないフォルダー（git は記録しない。作ったばかりのフォルダー等）。.gitignore の対象は除く。
+        いちばん下のものだけ（上のフォルダーは、その道筋で分かる）。/ 区切り、パスの順。"""
+        listed = self.git.output("ls-files", "-z", "--others", "--exclude-standard", "--directory")
+        found = []
+        for name in (entry for entry in listed.split("\0") if entry.endswith("/")):
+            for folder, folders, files in os.walk(self.root / name):
+                if not files and not folders:
+                    found.append(Path(folder).relative_to(self.root).as_posix())
+        return sorted(found)
 
     def diff(self, paths: tuple[str, ...] = (), *, staged: bool = False, base: bool = False) -> str:
         """未コミットの変更の差分。staged：ステージ済みだけ。base：タスクブランチの作成元との差分（PRの差分）。

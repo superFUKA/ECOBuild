@@ -7,7 +7,8 @@ AGENT = "change"
 
 def command(
     *paths: Annotated[str, "作るファイル（拡張子込み。今いるディレクトリからの相対）"],
+    folder: Annotated[bool, "ファイルではなく、空のフォルダーを作る（git は空のフォルダーを記録しない。中にファイルを足すとコミットに入る）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """書いた名前のファイルを空で作ります（例：ecobuild file add docs/memo.md）。"""
-    return add_files(paths, False, "", json)
+    return add_files(paths, False, "", json, folder=folder)

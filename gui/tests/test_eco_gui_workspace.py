@@ -23,7 +23,7 @@ class WorkspaceEcobuild(PolishEcobuild):
 
     def __init__(self):
         super().__init__()
-        self.status = {"branch": "task/12-login", "task": 12, "base": "main", "base_at": "0123abcdef", "ahead": 2, "behind": 0, "merging": False,
+        self.status = {"module": "Calc", "branch": "task/12-login", "task": 12, "base": "main", "base_at": "0123abcdef", "ahead": 2, "behind": 0, "merging": False,
                        "stopped": None, "reviewing": None, "reviewing_task": None, "upstream_gone": False, "finished": False,
                        "staged": [], "unstaged": ["a.py", "b.py"], "untracked": ["new.txt"], "conflicted": [], "eol_only": [], "excluded": [],
                        "pull_request": None, "format": 5, "latest_format": 5}
@@ -38,7 +38,8 @@ class WorkspaceEcobuild(PolishEcobuild):
             return {"ok": True, "result": {"number": args.get("number") or args.get("issue"), "title": "ログイン画面を作る", "state": "open",
                                            "base": "main", "commits": ["bbb222 2つ目", "aaa111 1つ目"], "assignees": ["octocat"]}}
         if name == "files":
-            return {"ok": True, "result": {"files": ["README.md", "a.py", "b.py", "gone.py", "new.txt", "tests/test_a.py"], "missing": ["gone.py"]}}
+            return {"ok": True, "result": {"files": ["README.md", "a.py", "b.py", "gone.py", "new.txt", "tests/test_a.py"], "missing": ["gone.py"],
+                                           "folders": ["docs/empty"]}}
         if name == "log":
             if args.get("unpushed"):
                 return {"ok": True, "result": [{"sha": "bbb222", "subject": "2つ目", "author": "octocat", "date": "2026-11-02T10:00:00+09:00"},
@@ -258,7 +259,7 @@ def test_the_explorer_renames_removes_and_runs_with_the_file_commands(relay):
     view = nodes(relay, window)
     assert view["explorer"]["props"]["selected"] == "a.py" and view["changes"]["props"]["selected"] == "a.py"  # 変更の一覧でも同じファイルを強調
     press(relay, window, "explorer", "action", name="rename", path="a.py", paths=["a.py"], to="src/c.py")  # その場で名前を変える
-    assert last(relay) == ("file move", {"source": "a.py", "destination": "src/c.py"})
+    assert last(relay) == ("file move", {"paths": ["a.py", "src/c.py"]})
     # 削除：入力の窓（対応するテストも削除するか。窓が確認を兼ねる）
     press(relay, window, "explorer", "action", name="remove", path="", paths=["a.py", "tests"])
     dialog = inside(relay, window, "ws-remove")
@@ -279,7 +280,7 @@ def test_the_explorer_renames_removes_and_runs_with_the_file_commands(relay):
     dialog = inside(relay, window, "ws-file-test")
     assert nodes(relay, dialog)["form"]["props"]["plan"] == {"paths": ["CalcTest/src/AddTest.cpp"]}
     press(relay, dialog, "form", "make", to="CalcTest/src/parse/AddTest.cpp")
-    assert last(relay) == ("file test", {"path": "Calc/src/Add.cpp", "to": "CalcTest/src/parse/AddTest.cpp"})
+    assert last(relay) == ("file test", {"paths": ["Calc/src/Add.cpp"], "to": "CalcTest/src/parse/AddTest.cpp"})
     press(relay, window, "explorer", "action", name="take_incoming", path="a.py", paths=["a.py"])
     assert last(relay) == ("sync take", {"paths": ["a.py"], "side": "incoming"})
     press(relay, window, "explorer", "action", name="run_test", path="tests/test_a.py", paths=["tests/test_a.py"])
@@ -303,7 +304,7 @@ def test_the_explorer_opens_the_new_file_the_diff_the_log_and_the_move_dialogs(r
     assert nodes(relay, dialog)["move"]["wrap"]["kind"] == "unavailable"  # 移動先を書くまで押せない
     press(relay, dialog, "destination", "changed", text="src/a.py")
     press(relay, dialog, "move")
-    assert last(relay) == ("file move", {"source": "a.py", "destination": "src/a.py"})
+    assert last(relay) == ("file move", {"paths": ["a.py", "src/a.py"]})
     # 差分・注釈履歴：TortoiseGit で開く（前の GUI と同じ）
     told = len(notices(relay))
     press(relay, window, "explorer", "action", name="diff", path="a.py", paths=["a.py"])
@@ -431,11 +432,11 @@ def test_made_and_moved_files_are_chosen_in_the_explorer(relay):
     press(relay, dialog, "destination", "changed", text="src/a.py")
     press(relay, dialog, "test", "changed", on=False)
     press(relay, dialog, "move")
-    assert last(relay) == ("file move", {"source": "a.py", "destination": "src/a.py", "test": False})
+    assert last(relay) == ("file move", {"paths": ["a.py", "src/a.py"], "test": False})
     assert nodes(relay, window)["explorer"]["props"]["moved"] == "src/a.py"
     # ドラッグで、別のフォルダーへ
     press(relay, window, "explorer", "action", name="drop_move", path="b.py", paths=["b.py"], to="tests/b.py")
-    assert last(relay) == ("file move", {"source": "b.py", "destination": "tests/b.py"})
+    assert last(relay) == ("file move", {"paths": ["b.py", "tests/b.py"]})
     assert nodes(relay, window)["explorer"]["props"]["moved"] == "tests/b.py"
     # 一緒に開く・選んだものを開く（ecobuild open にいくつものパス）
     press(relay, window, "explorer", "action", name="open_all", path="", paths=["a.py", "tests/test_a.py"])
@@ -483,6 +484,38 @@ def test_the_log_menu_greys_going_back_off_a_task_branch(relay):
     relay.backend.status.update(task=None, branch="main")
     window = opened(relay, "workspace", PLACE)
     assert nodes(relay, window)["log:list"]["props"]["status"]["branch"] == "main"  # 戻す操作は、部品が灰色と理由にする
+
+
+def test_the_window_title_is_the_module_and_the_branch(relay):
+    window = opened(relay, "workspace", PLACE)
+    assert next(w["title"] for w in relay.display.windows() if w["id"] == window) == "Calc — task/12-login"
+    # モジュールの窓の中に置いたとき：外の窓（frame-workspace）の題のつなぎが使われる（メニューの「Calc — ECOBuild」ではない）
+    frame = opened(relay, "frame-workspace", "C:/work/Calc", space=PLACE)
+    assert next(w["title"] for w in relay.display.windows() if w["id"] == frame) == "Calc — task/12-login"
+
+
+def test_several_files_move_and_get_tests_in_one_command_and_a_new_folder_is_made_on_disk(relay):
+    window = opened(relay, "workspace", PLACE)
+    # 選んだものを、移動先を選んで1回で（ecobuild file move <移動元…> --into <フォルダー>）
+    press(relay, window, "explorer", "action", name="move_into", path="", paths=["a.py", "b.py"])
+    dialog = inside(relay, window, "ws-move-into")
+    assert nodes(relay, dialog)["form"]["props"]["paths"] == ["a.py", "b.py"] and "a.py" in nodes(relay, dialog)["form"]["props"]["files"]
+    press(relay, dialog, "form", "move", into="tests")
+    assert last(relay) == ("file move", {"paths": ["a.py", "b.py"], "into": "tests"})
+    assert nodes(relay, window)["explorer"]["props"]["moved"] == "tests"  # 移動先のフォルダーを選ぶ
+    # いくつものドラッグも1回で
+    press(relay, window, "explorer", "action", name="drop_move_into", path="", paths=["a.py", "new.txt"], to=".")
+    assert last(relay) == ("file move", {"paths": ["a.py", "new.txt"], "into": "."})  # 一番上は「.」
+    # テストを作成（いくつも）：確かめてから1回で（ecobuild file test <ファイル…>）。作ったものを木で選んで開く
+    press(relay, window, "explorer", "action", name="make_tests", path="", paths=["Calc/src/Add.cpp", "Calc/src/Sub.cpp"])
+    dialog = inside(relay, window, "ws-make-tests")
+    press(relay, dialog, "make")
+    assert last(relay) == ("file test", {"paths": ["Calc/src/Add.cpp", "Calc/src/Sub.cpp"]})
+    # 新しいフォルダ：ディスクに作る（ecobuild file add <フォルダー> --folder）。空のフォルダーは files の folders から木へ
+    press(relay, window, "explorer", "action", name="make_folder", path="docs/new", paths=["docs/new"])
+    assert last(relay) == ("file add", {"paths": ["docs/new"], "folder": True})
+    assert nodes(relay, window)["explorer"]["props"]["moved"] == "docs/new"
+    assert nodes(relay, window)["explorer"]["props"]["folders"] == ["docs/empty"]
 
 
 def test_the_parts_refuse_inputs_they_do_not_declare(relay):

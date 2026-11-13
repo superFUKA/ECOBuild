@@ -9,6 +9,7 @@ def command(
     *paths: Annotated[str, "追加するファイル（Projectのディレクトリの中。今いるディレクトリからの相対）"],
     test: Annotated[bool, "ライブラリのヘッダー・ソースなら、テスト用Projectにテストも作る"] = True,
     template: Annotated[str, "使うファイルテンプレート（ecobuild template list。既定は拡張子で選ぶ。指定するとテストは作らない）"] = "",
+    folder: Annotated[bool, "ファイルではなく、空のフォルダーを作る（git は空のフォルダーを記録しない。中にファイルを足すとコミットに入る）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """ファイルをテンプレートから作ります。ライブラリにヘッダー・ソースを足すと、テスト用Projectにテストも作ります。
@@ -18,4 +19,4 @@ def command(
     同じ名前のヘッダーがあればそれを読み込みます。include/<Project>/ は使う側に見せるヘッダー、src/ は実装用
     （ヘッダーとソースを並べる）です。同じ名前のヘッダーとソースのテストは1つです。
     """
-    return add_files(paths, test, template, json)
+    return add_files(paths, test, template, json, folder=folder)

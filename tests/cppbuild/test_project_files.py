@@ -115,6 +115,39 @@ def test_file_test_makes_the_test_of_a_file(module):
     (root / "Geo/include/Geo/calc/Add.h").unlink()
 
 
+def test_file_test_and_move_take_several_files_on_the_command_line(module, monkeypatch, capsys):
+    """CLI：file test <ファイル…>（それぞれの既定の場所。作れないものは飛ばして知らせる）・file move <移動元…> --into <フォルダー>。"""
+    import json
+
+    from ecobuild_cli import main
+
+    def run(*args):
+        capsys.readouterr()
+        with pytest.raises(SystemExit) as exited:
+            main(list(args) + ["--json"])
+        return exited.value.code, json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+
+    root = module.root
+    monkeypatch.chdir(root)
+    write(root / "Geo/src/Sub.h", "#pragma once\nint sub(int a, int b);\n")
+    write(root / "Geo/src/Sub.cpp", '#include "Sub.h"\nint sub(int a, int b) { return a - b; }\n')
+    write(root / "Geo/src/Div.cpp", "int div2(int a) { return a / 2; }\n")
+    code, out = run("file", "test", "Geo/src/Sub.cpp", "Geo/src/Div.cpp", "GeoApp/src/main.cpp")
+    assert code == 0 and out["result"]["paths"] == ["GeoTest/src/SubTest.cpp", "GeoTest/src/DivTest.cpp"]
+    assert [s["path"] for s in out["result"]["skipped"]] == ["GeoApp/src/main.cpp"]  # 組のテストがない：飛ばして知らせる
+    code, out = run("file", "test", "GeoApp/src/main.cpp", "Geo/src/Sub.cpp")  # 1つも作れなければ失敗
+    assert code != 0 and out["ok"] is False
+    code, out = run("file", "test", "Geo/src/Sub.cpp", "Geo/src/Div.cpp", "--to", "GeoTest/src/X.cpp")
+    assert code != 0  # --to は1つのときだけ
+    code, out = run("file", "move", "Geo/src/Sub.h", "Geo/src/Sub.cpp", "Geo/src/Div.cpp", "--into", "Geo/src/calc")
+    assert code == 0 and out["result"]["paths"][:2] == ["Geo/src/Sub.h", "Geo/src/calc/Sub.h"]
+    assert (root / "Geo/src/calc/Div.cpp").exists() and (root / "GeoTest/src/calc/DivTest.cpp").exists()  # テストも一緒に動く
+    code, out = run("file", "move", "Geo/src/calc/Sub.h", "Geo/src/calc/Sub.cpp", "Geo/src")  # --into なしで3つは使い方の誤り
+    assert code != 0
+    for path in ("Geo/src/calc/Sub.cpp", "Geo/src/calc/Sub.h", "Geo/src/calc/Div.cpp"):
+        module.remove_file(root / path)
+
+
 def test_removing_the_last_source_changes_nothing(module):
     """Projectの最後の .cpp を消すと構成に失敗する（ソースがない）。消したファイルを戻し、分かる言葉で断る。"""
     root = module.root

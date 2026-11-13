@@ -77,8 +77,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             module = module_of(module)
         except Exception as error:  # 見つからない・ecobuild を呼べない
-            tell(f"モジュールの窓を開けませんでした。
-{getattr(error, 'message', None) or error}")
+            tell(f"モジュールの窓を開けませんでした。\n{getattr(error, 'message', None) or error}")
             return 1
     done = subprocess.run([console_python(sys.executable), "-m", "eco_gui.app", "serve", "--background",
                            *(() if module else ("--screen", "hub")), "--json"],

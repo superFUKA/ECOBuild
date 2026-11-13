@@ -11,4 +11,9 @@ SAMPLES = [
     {"name": "ほかのブランチ", "props": {"status": {"branch": "main", "task": None}, "account": {"login": "octocat"}, "container": {"container": False, "docker_ready": False, "docker_detail": "Docker がありません"}}},
     {"name": "衝突で止まっている", "props": {"status": {"branch": "task/12-login", "task": 12, "base": "main", "merging": True}}},
     {"name": "まだ読めていない", "props": {}},
+    {"name": "C++：実行の対象と引数を選んだ", "props": {
+    "status": {"branch": "task/12-login", "task": 12, "base": "main", "base_at": "0123abcdef"}, "module_type": "cpp",
+    "projects": [{"name": "Calc", "kind": "static_library"}, {"name": "CalcTest", "kind": "test"}, {"name": "CalcApp", "kind": "executable"}],
+    "run_project": "CalcApp", "run_args": "--size 3"}},
+    {"name": "汎用の型（テストの ▾ はない）", "props": {"status": {"branch": "task/12-login", "task": 12, "base": "main"}, "module_type": "generic"}},
 ]

@@ -14,3 +14,17 @@
 .link-button { background: none; border: none; padding: 0 4px; color: #8fb8ff; font-size: 12px; cursor: pointer; }
 .link-button:hover { text-decoration: underline; border: none; }
 .muted { font-size: 13px; }
+.pr-act { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.pr-act button { padding: 5px 14px; }
+.pr-look { display: flex; gap: 2px; flex-wrap: wrap; }
+.check.ok, .merge.ok { color: #9fe0a8; }
+.check.bad, .merge.bad { color: #f3a5a5; }
+.check.wait { color: #efc389; }
+.pr-why { margin: 8px 0 0; font-size: 12px; color: var(--gf-muted); }
+.talk { margin-top: 8px; }
+.entry { border-top: 1px solid #303640; padding: 6px 0; font-size: 12px; }
+.entry b { color: #cdd5df; }
+.entry .mark { color: var(--gf-muted); }
+.entry .body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pr-commits-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; font-size: 12px; color: #a5aeba; }
+button.danger-text { color: #f3a5a5; }

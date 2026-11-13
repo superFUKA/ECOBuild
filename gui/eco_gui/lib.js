@@ -589,7 +589,102 @@ function formRender(root, props, { h, emit, state }, extra = {}) {
   return { raw: all() };
 }
 
+// --- 作業空間（ws）：エクスプローラーと変更の一覧の、ファイルのメニュー --------------------------------
+// 前の GUI（gui/static/explorer.js の fileMenu・pairItems・testable・testPlaces）と同じ。メニューの中身を決めるだけ（実行は画面のつなぎ）。
+const WS_CPP_FILE = /\.(h|hpp|hh|hxx|c|cc|cpp|cxx)$/i;
+const wsIsReadme = (path) => /^readme(\.[^/]*)?$/i.test(path);
+// テストのファイル・フォルダー（ファイルやフォルダーを指して流す型：python の tests/）
+const wsIsTest = (path, folder) => (path === 'tests' || path.startsWith('tests/')) && (folder || /(^|\/)test_[^/]*\.py$|_test\.py$/.test(path));
+// サブプロジェクト（名前か {name, kind, directory}）を、場所（top：/ で終わらない。一番上なら ''）付きの並びに
+function wsProjects(list) {
+  return (list || []).map((item) => {
+    const project = typeof item === 'string' ? { name: item, directory: item } : item;
+    const top = String(project.directory || project.name || '').replace(/\/+$/, '');
+    return { ...project, top: top === '.' ? '' : top };
+  });
+}
+// そのパスのサブプロジェクト（いちばん深いフォルダーのもの）
+function wsProjectOf(projects, path) {
+  let best = null;
+  for (const project of projects) {
+    if ((project.top === '' || path === project.top || path.startsWith(project.top + '/')) && (best === null || project.top.length > best.top.length)) best = project;
+  }
+  return best;
+}
+// テストを作れるか：テスト用のサブプロジェクト（<名前>Test）のあるライブラリの、ヘッダー・ソース
+function wsTestable(projects, path) {
+  const project = wsProjectOf(projects, path);
+  if (!projects.length || !WS_CPP_FILE.test(path) || !project || !/library/.test(project.kind || '')) return false;
+  return projects.some((p) => p.name === project.name + 'Test' && p.kind === 'test');
+}
+// ファイルのテストの場所（file add・file test が使う場所）。C++：ライブラリの <P>/include/<P>/a/B.h・<P>/src/a/B.cpp → <P>Test/src/a/BTest.cpp。
+// Python：src/<パッケージ>/a/b.py → tests/a/test_b.py
+function wsTestPlaces(projects, path) {
+  if (projects.length) {
+    const project = wsProjectOf(projects, path);
+    if (!project || !WS_CPP_FILE.test(path)) return [];
+    const test = projects.find((p) => p.name === project.name + 'Test' && p.kind === 'test');
+    if (!test) return [];
+    const parts = path.slice(project.top ? project.top.length + 1 : 0).split('/');
+    const inner = parts[0] === 'include' && parts[1] === project.name ? parts.slice(2) : ['src', 'include'].includes(parts[0]) ? parts.slice(1) : null;
+    if (!inner || !inner.length) return [];
+    const name = inner.pop(), dot = name.lastIndexOf('.'), stem = name.slice(0, dot), ext = name.slice(dot);
+    return [...new Set(['.cpp', ext].filter((e) => !/^\.h/i.test(e)))].map((e) => [test.top, 'src', ...inner, `${stem}Test${e}`].filter(Boolean).join('/'));
+  }
+  const parts = path.split('/');
+  if (parts[0] !== 'src' || parts.length < 3 || !path.endsWith('.py')) return [];
+  const stem = parts[parts.length - 1].slice(0, -3);
+  return ['__init__', '__main__'].includes(stem) ? [] : [['tests', ...parts.slice(2, -1), `test_${stem}.py`].join('/')];
+}
+// 組になるファイル：このファイルのテスト（あるもの）か、テストなら、そのテストの対象
+function wsPaired(projects, files, path) {
+  const tests = wsTestPlaces(projects, path).filter((p) => files.includes(p));
+  const subjects = files.filter((f) => f !== path && wsTestPlaces(projects, f).includes(path));
+  return { tests, subjects };
+}
+// ファイルのメニュー。ctx：kinds（変更の種類）・exists（フォルダーにあるか）・locked（ファイルを変える操作の灰色と理由）・
+// projects（wsProjects）・files（今あるファイル）・vs（Visual Studio の版）。決めたもの（id）は wsFileAction で出力にする
+function wsFileMenu(path, ctx) {
+  const kinds = ctx.kinds || [], tracked = !kinds.includes('untracked'), exists = ctx.exists !== false, conflicted = kinds.includes('conflicted');
+  const gone = exists ? {} : { disabled: true, reason: 'このファイルは、もうフォルダーにありません。' };
+  const change = exists ? ctx.locked || {} : gone;
+  const readme = wsIsReadme(path);
+  const { tests, subjects } = wsPaired(ctx.projects || [], ctx.files || [], path);
+  const short = (p) => p.split('/').pop();
+  const pairs = tests.length + subjects.length ? [
+    ...tests.map((p) => ({ id: 'pair:' + p, label: `テストを開く：${short(p)}` })), ...subjects.map((p) => ({ id: 'pair:' + p, label: `テストの対象を開く：${short(p)}` })),
+    { id: 'pair_all', label: tests.length ? 'このファイルとテストを一緒に開く' : 'このテストと対象を一緒に開く' }, { separator: true }] : [];
+  return [
+    { id: 'open_vs', label: `Visual Studio${ctx.vs ? ' ' + ctx.vs : ''} で開く`, ...gone }, { id: 'open_default', label: '既定のアプリで開く', ...gone },
+    { id: 'reveal', label: 'エクスプローラーで表示', ...gone }, { separator: true },
+    ...(readme ? [] : [
+      { id: 'rename', label: '名前の変更', hint: ctx.inline ? 'F2' : '', ...change }, { id: 'move', label: '移動先を指定…', ...change },
+      { id: 'remove', label: '削除', hint: ctx.inline ? 'Delete' : '', danger: true, ...change }, { separator: true }]),
+    ...pairs,
+    ...(wsIsTest(path, false) ? [{ id: 'run_test', label: 'テストを実行', ...gone }] : []),
+    ...(wsTestable(ctx.projects || [], path) ? [{ id: 'make_test', label: 'テストを作成…', ...change }] : []),
+    ...(conflicted ? [{ id: 'resolve', label: '衝突を直す…' }, { id: 'take_current', label: '今の側を採る' }, { id: 'take_incoming', label: '入ってくる側を採る' }, { separator: true }] : []),
+    { id: 'restore', label: '変更を元に戻す', disabled: !tracked || kinds.length === 0 || conflicted, reason: conflicted ? '衝突は「衝突を直す」で直します。' : !tracked ? 'まだ git の管理に入っていないファイルです（消すなら「削除」）。' : '変更がありません。', ...(ctx.locked || {}) },
+    { id: 'ignore', label: '除外パターンに追加', ...(ctx.locked || {}) }, { separator: true },
+    { id: 'diff', label: conflicted ? 'TortoiseGit で衝突を直す（差分）' : tracked ? '差分' : '中身を見る（新しいファイル）', disabled: kinds.length === 0, reason: '変更がありません。' },
+    { id: 'log', label: 'ログ', disabled: !tracked, reason: 'まだ git の管理に入っていないファイルです。' },
+    { id: 'blame', label: '注釈履歴', disabled: !tracked || !exists, reason: 'まだ git の管理に入っていないファイルです。' },
+    { separator: true }, { id: 'copy', label: 'パスをコピー' },
+  ];
+}
+// メニューで決めたものを、出力（action）にする。新しいファイルの「差分」は中身を見る（view_new）。copy と rename は呼ぶ側が先に扱う
+function wsFileAction(id, path, ctx, emit) {
+  const act = (name, paths = [path]) => emit('action', { name, path: paths.length === 1 ? paths[0] : '', paths });
+  if (!id) return;
+  if (id.startsWith('pair:')) return act('open', [id.slice(5)]);
+  if (id === 'pair_all') { const { tests, subjects } = wsPaired(ctx.projects || [], ctx.files || [], path); return act('open_all', [path, ...tests, ...subjects]); }
+  if (id === 'diff' && (ctx.kinds || []).length && !(ctx.kinds || []).some((k) => k !== 'untracked')) return act('view_new');
+  return act(id);
+}
+
 export default {
+  ws: { isReadme: wsIsReadme, isTest: wsIsTest, projects: wsProjects, projectOf: wsProjectOf, testable: wsTestable, testPlaces: wsTestPlaces,
+    paired: wsPaired, fileMenu: wsFileMenu, fileAction: wsFileAction },
   form: { render: formRender, options: formOptions },
   task: { STAGES, STAGE, PRIORITIES, marks: taskMarks, filter: taskFilter, today: taskToday, md: taskMd, currentSprint: taskCurrentSprint },
 };

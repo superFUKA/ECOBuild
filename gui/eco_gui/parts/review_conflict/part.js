@@ -38,6 +38,8 @@ export default {
       if (done && !done.remaining && next) state.current = next.path;
       state.saving = null;
     }
+    // 初めは、頼まれたファイル（右クリックしたファイル）から
+    if (props.first && state.first !== props.first && files.some((file) => file.path === props.first)) { state.first = props.first; state.current = props.first; }
     if (!files.some((file) => file.path === state.current)) state.current = files.length ? files[0].path : null;
     const current = files.find((file) => file.path === state.current);
     const unsaved = files.filter((file) => dirty(file.path)).map((file) => file.path);
@@ -112,11 +114,12 @@ export default {
         emit('taken', { paths: [current.path], side });
       };
       const takeButtons = h('div', { class: 'take' }, 'ファイル全体を：',
-        button(`${sides[0]}を採る`, 'small', (event) => take(event, 'current')), button(`${sides[1]}を採る`, 'small', (event) => take(event, 'incoming')));
+        button(`${sides[0]}を採る`, 'small', (event) => take(event, 'current')), button(`${sides[1]}を採る`, 'small', (event) => take(event, 'incoming')),
+        button('TortoiseGit で直す', 'small', () => emit('tortoise', { path: current.path }), 'TortoiseGitMerge で、このファイルの衝突を直します（ecobuild diff --gui）'));
       main.append(h('h3', { class: 'path' }, current.path));
       if (current.reason) {
         main.append(h('p', { class: 'banner bad' },
-          `${current.reason_text || 'このファイルは箇所に分けられません'}。ここでは直せません。ファイル全体をどちらかの側にしてください。`), takeButtons);
+          `${current.reason_text || 'このファイルは箇所に分けられません'}。ここでは直せません。ファイル全体をどちらかの側にするか、TortoiseGit で直してください。`), takeButtons);
       } else {
         const hunks = current.pieces.filter((piece) => piece.conflict);
         // 側を選ぶと、結果を選んだ側から作り直す（手で直したところは消えるので、先に確かめる）

@@ -17,14 +17,18 @@ def part(
     vs2026: Annotated[dict, "Visual Studio 2026 で開けるか（ecobuild open --app vs --vs-version 2026 --can：can・reason）"] = {},
     vs2022: Annotated[dict, "Visual Studio 2022 で開けるか（同じ）"] = {},
     vs_version: Annotated[str | None, "ファイルを開くときに使う Visual Studio の版（この窓で選んでいるもの）"] = "",
+    projects: Annotated[list | None, "サブプロジェクト（名前か {name, kind}）。▶ の ▾ で、ビルド・テスト・実行の対象を選ぶ"] = None,
+    run_project: Annotated[str | None, "対象に選んでいるサブプロジェクト（空ならすべて）"] = "",
+    run_args: Annotated[str | None, "実行時の引数（この窓で決めたもの）"] = "",
 ) -> None: ...
 
 
 def on_action(
     name: Annotated[str, "押したもの（build・rebuild・clean・check・test・test_failed・test_pick・run・sync・sync_pick・fetch・"
-                         "configuration・profile・build_settings・account・container・agents・open_folder・open_vs・vs_version）"],
+                         "configuration・profile・build_settings・account・container・agents・open_folder・open_vs・vs_version・"
+                         "run_target・run_args）"],
     value: Annotated[str, "configuration：構成の名前（空ならビルド設定のまま）／profile：ビルド設定の名前（none なら使わない）／"
-                          "open_vs・vs_version：Visual Studio の版"] = "",
+                          "open_vs・vs_version：Visual Studio の版／run_target：対象のサブプロジェクト（空ならすべて）／run_args：実行時の引数"] = "",
     tests: Annotated[list[str], "test_failed：流す試験"] = [],
 ) -> None:
     if not name:

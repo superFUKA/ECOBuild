@@ -54,7 +54,7 @@ class PolishEcobuild(FakeEcobuild):
             "task add": spec("change", paths=many, all=flag),
             "ignore": spec("change", patterns=many),
             "blame": spec("read", ["path"], path=text, gui=flag),
-            "log": spec("read", paths=many, count={"type": "integer"}, branch=text, unpushed=flag),
+            "log": spec("read", paths=many, count={"type": "integer"}, branch=text, unpushed=flag, not_in=text),
             # 作業空間の窓が呼ぶもの
             "status": spec("read", fetch=flag), "files": spec("read"), "check": spec("read"),
             "sync": spec("change", from_branch=text, at=text),
@@ -63,7 +63,11 @@ class PolishEcobuild(FakeEcobuild):
             "task push": spec("change", force=flag),
             "show": spec("read", commit=text, gui=flag),
             "diff": spec("read", paths=many, staged=flag, base=flag, gui=flag),
-            "file test": spec("change", ["path"], path=text, to=text),
+            "file test": {**spec("change", ["path"], path=text, to=text), "dry_run": True},  # 本物と同じく、下見（--dry-run）ができる
+            "file move": spec("change", ["source", "destination"], source=text, destination=text, test=flag),
+            "file remove": spec("confirm", paths=many, test=flag),
+            "task withdraw": spec("confirm", number={"type": "integer"}, task={"type": "integer"}),
+            "task submit": spec("confirm", title=text, partial=flag, complete=flag, check=flag, draft=flag, reviewer=text),
             "module settings": spec("read"),
             "project list": spec("read"), "project update": spec("change"),
             "project add": spec("change", ["name"], name=text, kind=text, link=text, no_test=flag),

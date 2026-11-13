@@ -10,9 +10,10 @@ const ICONS = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
 };
 const ROLES = { admin: '管理者', maintain: '管理', write: '書き込み', triage: '整理', read: '読み取り' };
+const KINDS = { static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定' };
 
 export default {
-  render(root, props, { h, emit, menu, memory, state }) {
+  render(root, props, { h, emit, menu, memory, state, redraw }) {
     const svg = (name, size = 15, width = 2) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;
@@ -63,14 +64,56 @@ export default {
       { id: 'check', label: '提出前の確認（生成ファイル・ビルド・テスト）' }]);
     const failedTests = ((props.last_test && props.last_test.cases) || []).filter((c) => !['passed', 'skipped'].includes(c.status)).map((c) => c.name);
     const failed = failedTests.length;
-    const test = group('テスト', 'test', 'test', 'テスト（すべて）', () => [
+    // テストを選んで流せる型（C++：名前、Python：ファイル・フォルダー）だけ、▾ を出す（前の GUI と同じ）
+    const pickable = !props.module_type || ['cpp', 'python'].includes(props.module_type);
+    const test = pickable ? group('テスト', 'test', 'test', 'テスト（すべて）', () => [
       { id: 'test', label: 'すべてのテスト' },
       { id: 'test_failed', label: failed ? `失敗したテストだけ再実行（${failed} 件）` : '失敗したテストだけ再実行', disabled: failed === 0, reason: 'この画面で流したテストに、失敗したものはありません' },
-      { id: 'test_pick', label: 'テストを選んで実行…' }]);
+      { id: 'test_pick', label: 'テストを選んで実行…' }])
+      : (() => { const b = h('button', { type: 'button', class: 'tool-button', 'aria-label': 'テスト', 'data-tip': 'テスト（すべて）' }, svg('test')); b.addEventListener('click', () => act('test')); return h('span', { class: 'build-group', role: 'group', 'aria-label': 'テスト' }, b); })();
+
+    // ▶ 実行と、▾（実行の対象のサブプロジェクト・実行時の引数。Visual Studio のスタートアップ プロジェクトと同じ）
+    const projects = (props.projects || []).map((item) => (typeof item === 'string' ? { name: item } : item)).filter((item) => item && item.name);
+    const target = projects.find((item) => item.name === props.run_project) || null;
+    const runArgs = props.run_args || '';
     const runIcon = h('span', { class: 'icon', 'aria-hidden': 'true' });
     runIcon.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24"><path d="M6 3.5l15 8.5-15 8.5z" fill="currentColor" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>';
-    const run = h('button', { type: 'button', class: 'run-button', 'aria-label': '実行', 'data-tip': '実行' }, runIcon);
-    run.addEventListener('click', () => act('run'));
+    const runTip = ['実行', target ? `対象：${target.name}` : '', runArgs ? `引数：${runArgs}` : ''].filter(Boolean).join('　');
+    const run = h('button', { type: 'button', class: 'run-button', 'aria-label': '実行', 'data-tip': runTip }, runIcon);
+    // テストのサブプロジェクトを対象にしたら、▶ はそのテストを流す（Visual Studio と同じ。ecobuild run は実行ファイルだけ）
+    run.addEventListener('click', () => act(target && target.kind === 'test' ? 'test' : 'run'));
+    const pick = h('button', { type: 'button', class: 'run-target' + (target || runArgs ? ' chosen' : ''), 'aria-haspopup': 'menu', 'aria-label': '実行の設定',
+      'data-tip': [target ? `対象：${target.name}` : '実行の設定', runArgs ? `引数：${runArgs}` : ''].filter(Boolean).join('　') });
+    if (target) pick.append(h('span', { class: 'run-target-name' }, target.name));
+    pick.append(down());
+    pick.addEventListener('click', async () => {
+      const mark = (on) => (on ? '✓ ' : '　');
+      const id = await menu(under(pick), [
+        ...(projects.length ? [{ heading: '対象（ビルド・テスト・実行）' }, { id: 'p:', label: mark(!target) + 'すべてのProject' },
+          ...projects.map((item) => ({ id: 'p:' + item.name, label: mark(target && target.name === item.name) + item.name, hint: KINDS[item.kind] || item.kind || '' })),
+          { separator: true }] : []),
+        { id: 'args', label: runArgs ? `実行時の引数：${runArgs}…` : '実行時の引数…' },
+      ]);
+      if (id === 'args') { state.editing = true; redraw(); }
+      else if (id) act('run_target', { value: id.slice(2) });
+    });
+    const runGroup = h('span', { class: 'run-group', role: 'group', 'aria-label': '実行' }, run, pick);
+    // 実行時の引数（この窓を閉じるまで使う）：▾ の下に、その場で打つ欄
+    if (state.editing) {
+      const input = h('input', { type: 'text', value: runArgs, placeholder: '例：--size 3', 'aria-label': '実行時の引数' });
+      const done = (keep) => { state.editing = false; if (keep) act('run_args', { value: input.value.trim() }); redraw(); };
+      const ok = h('button', { type: 'button', class: 'primary' }, '決定');
+      const cancel = h('button', { type: 'button' }, 'キャンセル');
+      ok.addEventListener('click', () => done(true));
+      cancel.addEventListener('click', () => done(false));
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); done(true); }
+        if (event.key === 'Escape') { event.preventDefault(); done(false); }
+      });
+      runGroup.append(h('div', { class: 'run-args', role: 'dialog', 'aria-label': '実行時の引数' },
+        h('label', {}, '実行時の引数（この画面を閉じるまで使います）', input), h('div', { class: 'run-args-actions' }, cancel, ok)));
+      setTimeout(() => { input.focus(); input.select(); }, 0);
+    }
 
     // 取り込む（提出の確認中は、取り込むものがないので出さない）
     const right = h('div', { class: 'bar-right' });
@@ -144,6 +187,6 @@ export default {
 
     root.replaceChildren(h('div', { class: 'build-bar', role: 'toolbar', 'aria-label': 'ビルド・テスト・実行' },
       h('div', { class: 'bar-left' }, config, h('span', { class: 'bar-separator', 'aria-hidden': 'true' }), build, test),
-      h('div', { class: 'bar-center' }, h('span', { class: 'run-group', role: 'group', 'aria-label': '実行' }, run)), right));
+      h('div', { class: 'bar-center' }, runGroup), right));
   },
 };

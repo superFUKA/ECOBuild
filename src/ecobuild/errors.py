@@ -38,6 +38,13 @@ class ErrorCode(_WorkErrorCode):
     WORKSPACE_NOT_RECORDED = "workspace_not_recorded"   # workspace forget・close：その場所は記録にない
     IN_USE = "in_use"                   # 他のプログラム（エディター・端末等）が使っているため、フォルダーを動かせない
     NO_SOLUTION = "no_solution"         # open --app vs --solution：ソリューションを作る型なのに、まだない（ビルドすると作られる）
+    FLOW_NOT_FOUND = "flow_not_found"   # 流れの定義（.ecobuild/flows/<名前>.toml）がない
+    INVALID_FLOW = "invalid_flow"       # 流れの定義の誤り（details に誤りの一覧）
+    FLOW_RUN_NOT_FOUND = "flow_run_not_found"   # 流れの実行がない
+    FLOW_RUN_LOCKED = "flow_run_locked"         # 流れの実行を、ほかのプロセスが動かしている
+    FLOW_RUN_STATE = "flow_run_state"           # 流れの実行が、その操作のできない状態（details の actions が次にできること）
+    FLOW_RUN_BROKEN = "flow_run_broken"         # 流れの実行の記録が壊れている
+    FLOW_FAILED = "flow_failed"                 # 流れの実行が失敗・取り消しで止まった（details に実行の要約）
 
 
 class EcoBuildError(WorkError):

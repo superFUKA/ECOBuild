@@ -1979,7 +1979,7 @@ class Module:
                 except EcoBuildError as error:
                     if error.code == ErrorCode.NOT_SUPPORTED and not (name == "test" and tests):
                         continue  # ビルド・テストのない型（流す試験を指定したのに絞れない型は失敗にする）
-                    items.append(CheckItem(name, False, error.message))
+                    items.append(CheckItem(name, False, error.message, _failure_output(error.details)))
                     break
         report = CheckReport(tuple(items))
         if only is None and not tests:   # 一部だけの確認は、全部を通った記録を消しも残しもしない
@@ -1988,7 +1988,8 @@ class Module:
             raise EcoBuildError(ErrorCode.CHECK_FAILED, "確認で問題が見つかりました：" +
                                 "、".join(i.name for i in items if not i.ok),
                                 hint=f"内容を直して、もう一度 {self.op('check')} を実行してください。",
-                                details=[{"name": i.name, "ok": i.ok, "detail": i.detail} for i in items])
+                                details=[{"name": i.name, "ok": i.ok, "detail": i.detail,
+                                          **({"output": i.output} if i.output else {})} for i in items])
         return report
 
     # パイプライン：名前を付けた確認の並び。単体で走らせるか、操作のタイミング（config.TIMINGS）に当てる。
@@ -2093,6 +2094,24 @@ class Module:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"パイプライン {name} はありません。",
                                 hint=f"{self.op('pipeline list')} で一覧を見られます。")
         return pipeline
+
+    # 流れ（ecobuild flow）：.ecobuild/flows/<名前>.toml の定義を、作業空間で実行する（ecobuild.flows）。
+    # 操作のタイミングには当てない（人が flow run で動かす）。
+
+    def flow_kinds(self, program: tuple[str, ...]) -> dict:
+        """流れの工程の種類（名前 → ecoflow.Kind）。拡張は広げて足す（super() の結果に）。program：ecobuild の工程で呼ぶもの。"""
+        from . import flows as _flows
+        return _flows.kinds(self, program)
+
+    def flow_command(self, command, *, cwd: Path, shell: bool, progress: Callable[[str], None] = lambda message: None):
+        """流れの command の工程を動かすしかた：(コマンド, 環境〔None ならこのまま〕, shell, 止める口〔なければ None〕)。
+        本体はこのPCでそのまま。拡張（コンテナ）は、コンテナにした作業空間なら中で動かすものに替える。"""
+        return command, None, shell, None
+
+    def flows(self, *, program: tuple[str, ...] = (), progress: Callable[[str], None] | None = None):
+        """このモジュール（作業空間）の流れ（ecobuild.flows.Flows）。"""
+        from . import flows as _flows
+        return _flows.Flows(self, program=program, progress=progress)
 
     def _check_generated(self) -> list[CheckItem]:
         try:
@@ -2276,6 +2295,17 @@ def mismatch_text(states) -> str:
             notes.append(f"{d.via} 経由")
         return f"{d.name}（{'、'.join(notes)}）"
     return "、".join(one(d) for d in states)
+
+
+OUTPUT_TAIL = 4000   # 確認の項目に残す、失敗の出力の末尾の長さ
+
+
+def _failure_output(details) -> str:
+    """ビルド・テストの失敗の出力（型の誤りの details：文字か、output・stdout・stderr を持つ表）の末尾。"""
+    if isinstance(details, dict):
+        details = details.get("output") or "\n".join(str(details.get(k) or "") for k in ("stdout", "stderr")).strip()
+    text = details if isinstance(details, str) else ""
+    return text[-OUTPUT_TAIL:]
 
 
 def _check_line(item: CheckItem) -> str:

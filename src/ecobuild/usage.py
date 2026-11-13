@@ -38,7 +38,8 @@ LOCK_NAME = f"{_config.DIRECTORY}/running.lock"   # running.json を読んで書
 
 # 実行中は使用中とみなすコマンド（ビルド・テスト・実行・確認〔task submit は中で check を行う〕：作業空間のファイルを使って
 # 長く動くので、その間に作業空間が消えたり切り替わったりすると困る。ほかは短いので対象にしない）
-COMMANDS = ("build", "clean", "rebuild", "test", "run", "check", "task submit")
+COMMANDS = ("build", "clean", "rebuild", "test", "run", "check", "task submit",
+            "flow run", "flow resume", "flow approve", "flow reject", "flow retry")
 
 # 拡張の口：作業空間の一覧 → それぞれを使っているもの（日本語の文。同じ順）
 Source = Callable[[Sequence[Path]], list[list[str]]]

@@ -8,6 +8,7 @@
   （AI が起動したもの。claude -p の stream-json）。status：エージェントごとの状態の置き場所（画面を持つアプリへ知らせる）。
   inside：コンテナの中のエージェント（コンテナに足すもの FEATURE）。
   tokens：中のエージェントのログイン。
+- flow：流れ（ecobuild flow）の agent の工程（画面なしで動かし、返答の終わりを待つ）。
 - 作業空間のコンテナ（ecobuild_container）は公開の口だけを使う（向きはエージェント → コンテナ。コンテナはエージェントを知らない）。
 """
 
@@ -87,6 +88,20 @@ def resumed_session(command: tuple[str, ...], latest) -> str | None:
     return None
 
 
+def stop_agent(agent_id: str, progress=lambda message: None) -> dict:
+    """エージェントを止める（ID で）。係が画面なしで動かしているもの（アプリ用の起動）は係に頼み、人の画面で動いている
+    ものはそのプロセスを止める。動いていなければ agent_error。"""
+    record = agents.load(agent_id)
+    folder = record.folder
+    if status.running_mode(folder) == status.APP:
+        return children.ask_serve(record, ["agent", "stop", record.id], progress) or {"id": record.id, "stopped": True}
+    pid = status.running_pid(folder)
+    if pid is None:
+        raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント「{record.name}」（{record.id}）は動いていません。")
+    status.stop(pid)
+    return {"id": record.id, "path": record.workspace, "stopped": True}
+
+
 class AgentModule:
     """作業空間のエージェント。いつもコンテナの中で確認なしに起動する（コンテナにしていない作業空間は、起動の前に自動で
     コンテナにする。使わせないものは設定 agent_deny）。1つの作業空間に、タスクの持ち主と手伝いが何人もいてよい
@@ -98,26 +113,36 @@ class AgentModule:
             progress("エージェントはコンテナの中で動かすので、この作業空間をコンテナにします（container on）")
             container.choose(self.root, True, command=self.command)
 
+    def flow_kinds(self, program: tuple[str, ...]) -> dict:
+        """流れの工程の種類（本体のものに agent を足す。ecobuild_agent.flow）。"""
+        from . import flow
+        found = dict(super().flow_kinds(program)) if hasattr(super(), "flow_kinds") else {}
+        return {**found, "agent": flow.kind(self)}
+
     # ---- 起動 ---------------------------------------------------------------------------------------------
     def start_agent(self, registration: str = "", *, task: int | None = None, parent: str | None = None,
                     kind: str = agents.OWNER, here: bool = False, app: bool = False, program=None,
-                    prompt: str | None = None, source=None, progress=lambda message: None) -> AgentRecord:
+                    prompt: str | None = None, source=None, progress=lambda message: None,
+                    recorded=None) -> AgentRecord:
         """登録 registration のエージェントを、タスクの作業空間のルートで起動する。タスクブランチでだけ（エージェントは
         タスクの作業をするもの）。task：タスクの番号（省けば今の作業空間のタスク。ほかのタスクならその作業空間で）。
         parent：親のエージェントの ID。kind：owner（タスクの持ち主）か helper（手伝い：同じ作業空間・コミットしない）。
         既定は新しい画面で起動して戻る。here：この端末で動かして終わるまで待つ（run_agent）。app：画面なしで、このPCの
         係に動かしてもらう（係が持つ）。program：起動するコマンド（既定は claude。claude --resume <会話> なら、その会話の
-        エージェントを続きから）。prompt：最初の発言（省けば登録の first_prompt）。source：コンテナのイメージに入れる ECOBuild。"""
+        エージェントを続きから）。prompt：最初の発言（省けば登録の first_prompt）。source：コンテナのイメージに入れる ECOBuild。
+        recorded：app のとき、記録を作った直後（係に起動を頼む前）に記録を渡して呼ぶ（起動の途中で止まっても、だれを
+        起動したかを呼んだ側が残せる）。"""
         other = self._task_module(task)
         if other is not None:
             return other.start_agent(registration, parent=parent, kind=kind, here=here, app=app, program=program,
-                                     prompt=prompt, source=source, progress=progress)
+                                     prompt=prompt, source=source, progress=progress, recorded=recorded)
         if here:
             record, _ = self._run_here(registration, parent=parent, kind=kind, program=program, prompt=prompt,
                                        source=source, progress=progress)
             return record
         if app:
-            return self._start_app(registration, parent=parent, kind=kind, prompt=prompt, progress=progress)
+            return self._start_app(registration, parent=parent, kind=kind, prompt=prompt, progress=progress,
+                                   recorded=recorded)
         task_branch = self._task_for_agent()
         self._ensure_container(progress)
         record, command, folder, _ = self._prepared(registration, task_branch, parent, kind, program, prompt, source,
@@ -158,11 +183,13 @@ class AgentModule:
                 status.ended(folder, os.getpid())
         return record, code
 
-    def _start_app(self, registration, *, parent, kind, prompt, progress) -> AgentRecord:
+    def _start_app(self, registration, *, parent, kind, prompt, progress, recorded=None) -> AgentRecord:
         """画面なし（アプリ用の起動）：記録を作り、このPCの係に起動を頼む（係が app_launch で起動して持つ）。"""
         task_branch = self._task_for_agent()
         self._ensure_container(progress)
         record = self._record(registration, task_branch, parent, kind, None)
+        if recorded is not None:
+            recorded(record)
         args = ["agent", "start", "--app", "--id", record.id, *(["--prompt", prompt] if prompt else [])]
         doc = children.forward(children.human_requests(record.id), {"args": [*args, "--json"], "cwd": "."},
                                progress=progress)

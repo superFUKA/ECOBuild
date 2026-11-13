@@ -11,18 +11,7 @@ def command(id: Annotated[str, "止めるエージェントの ID（a- で始ま
     は、そのプロセスを止めます。
     """
     def action(inv):
-        from ecobuild.errors import EcoBuildError
-        from ecobuild_agent import agents, children, status
-        from ecobuild_agent.errors import ErrorCode
-        record = agents.load(id)
-        folder = record.folder
-        mode = status.running_mode(folder)
-        if mode == status.APP:
-            return children.ask_serve(record, ["agent", "stop", record.id], inv.info) or {"id": record.id, "stopped": True}
-        pid = status.running_pid(folder)
-        if pid is None:
-            raise EcoBuildError(ErrorCode.AGENT_ERROR, f"エージェント「{record.name}」（{record.id}）は動いていません。")
-        status.stop(pid)
-        return {"id": record.id, "path": record.workspace, "stopped": True}
+        from ecobuild_agent import stop_agent
+        return stop_agent(id, inv.info)
 
     return run_command("agent stop", action, lambda r: f"エージェント {r.get('id')} を止めました。", json_output=json)

@@ -6,6 +6,7 @@
 （ecobuild_container・ecobuild_agent。このPC・作業空間ごと）。拡張どうしは知らない。例外は1つだけで、エージェントは
 コンテナの公開の口を使う（向きは agent → container。コンテナはエージェントを知らない）。
 ecoagent（AI）は ecotask・ecowork と並ぶ下の層で、エージェントの拡張だけが使う（本体・CLI は使わない）。
+ecoflow（流れの状態機械）も同じ並びの下の層で、本体・拡張・CLI が使う。
 
 あわせて、ecobuild 系は作業の流れを ecowork からだけ使う（ecotask を直接使わない）、他のパッケージの
 非公開のもの（_ で始まるモジュール・名前）は使わない、を確かめる。
@@ -30,6 +31,8 @@ ECOBUILD = {"ecobuild"} | UPPER_THAN_CORE
 # パッケージ → import してはいけないもの（パッケージの先頭の名前）
 FORBIDDEN = {
     "ecoagent": {"ecotask", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
+    # 流れ（順番・判定・ループ）の汎用の部品：ECOBuild もほかの下の層も知らない
+    "ecoflow": {"ecoagent", "ecotask", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecotask": {"ecoagent", "ecowork", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecowork": {"ecoagent", "cppbuild"} | ECOBUILD | CLI_LIBRARIES,
     "ecobuild": {"ecoagent", "ecotask", "cppbuild"} | UPPER_THAN_CORE | CLI_LIBRARIES,

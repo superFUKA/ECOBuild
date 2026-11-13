@@ -15,7 +15,7 @@ from ecobuild_agent import CHANGE, CONFIRM, HUMAN, READ
 EFFECTS = {
     READ: (
         "account list", "account show", "agent conversations", "agent guide", "agent log", "agent registry list", "agent registry show", "agent registry tools", "agent registry fit", "agent rules show", "agent preset list", "agent preset show", "agent skill list", "agent skill show", "agent skill preset list", "agent skill preset show", "agent status", "agent list", "agent children", "agent token status", "agent version list", "agent version status", "blame", "branch list", "check", "ci logs", "ci secret list", "ci show", "ci status", "ci wait",
-        "config get", "config list", "files", "help", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
+        "config get", "config list", "files", "flow list", "flow show", "flow status", "help", "container dockerfile", "container image list", "container recipe", "container status", "deps list", "deps tree", "diff", "doctor",
         "installer check", "installer show", "installer versions", "log", "milestone list", "milestone status", "module list", "module members", "module protection", "module readme", "module settings",
         "module show", "module types", "pipeline list", "profile list", "project list", "project show", "release list", "show",
         "sprint list", "sprint status", "stash list", "status", "sync conflicts", "task diff", "task list", "task next",
@@ -25,11 +25,11 @@ EFFECTS = {
         "branch delete", "branch merge", "branch submit", "ci remove", "ci secret remove", "container image prune", "container off",
         "agent registry remove", "agent preset remove", "agent skill remove", "agent skill preset remove", "agent close", "container remove", "file remove", "module adopt", "module archive", "module delete", "module members add",
         "module members remove", "module protect", "module unarchive", "project remove", "release create",
-        "restore", "stash drop", "sync abort", "task apply", "task approve", "task close", "task drop", "task finish",
+        "flow cancel", "restore", "stash drop", "sync abort", "task apply", "task approve", "task close", "task drop", "task finish",
         "task reject", "task reset", "task revert", "task submit", "task withdraw", "workspace close",
     ),
     HUMAN: (
-        "agent guard", "agent registry add", "agent registry set", "agent preset add", "agent preset set", "agent skill add", "agent skill set", "agent skill preset add", "agent skill preset set", "agent rules set", "agent serve", "agent handback", "agent takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "init", "installer add",
+        "agent guard", "agent registry add", "agent registry set", "agent preset add", "agent preset set", "agent skill add", "agent skill set", "agent skill preset add", "agent skill preset set", "agent rules set", "agent serve", "agent handback", "agent takeover", "agent token capture", "agent token login", "agent token remove", "agent token set", "ci secret set", "flow approve", "flow reject", "init", "installer add",
         "installer update", "setup",
     ),
 }

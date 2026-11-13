@@ -40,13 +40,17 @@ def emit(build_cli: Callable[..., click.Command], path: list[str], sections: dic
     """一覧のJSONを1つ出す。ない名前を指定したら usage_error と同じ形で失敗する（終了コード2）。"""
     if path:
         cli = build_cli()
-        command, ctx = _find(cli, path)
+        command, ctx, length = find_longest(cli, path)
+        if command is not None and length < len(path) and isinstance(command, click.Group):
+            command = None   # グループの下の、ない名前（後ろの言葉は位置引数ではない）
+        path = path[:length] if command is not None else path   # 後ろの言葉は位置引数（task status 252 --help --json）
         owners = _types.owners(command)
         if owners:
             return _unavailable(path, owners)
         if command is None:
+            from . import _suggest
             return _output.usage_error(f"不明なコマンドです: '{' '.join(path)}'", True,
-                                       hint="ecobuild --help で使い方を確認してください。")
+                                       hint=_suggest.suggestion(path) or "ecobuild --help で使い方を確認してください。")
         result = _node(command, ctx, tuple(path), sections)
     else:
         result = catalog(build_cli, sections)
@@ -88,6 +92,16 @@ OUTPUT_KEYS = {
     "error": "誤り（{code, message, hint, details, retryable}。成功なら null）",
     "log": "このコマンドのログ（{run：ログの行の run, file：その行のあるファイル}。ログを書いていなければ null）",
 }
+
+
+def find_longest(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None, int]:
+    """path の先頭から、いちばん長くコマンドとして読める所（コマンド・その文脈・言葉の数）。読めなければ (None, None, 0)。
+    後ろに残った言葉は、コマンドなら位置引数、グループならない名前。"""
+    for length in range(len(path), 0, -1):
+        command, ctx = _find(cli, path[:length])
+        if command is not None:
+            return command, ctx, length
+    return None, None, 0
 
 
 def _find(cli: click.Command, path: list[str]) -> tuple[click.Command | None, click.Context | None]:

@@ -13,7 +13,7 @@ from cli_framework import create_cli
 from ecobuild import workspaces as _workspaces
 from ecobuild.errors import EcoBuildError
 
-from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _types, commands
+from . import _catalog, _effects, _errors, _extensions, _help, _inside, _log, _output, _suggest, _types, commands
 from ._output import use_utf8_when_redirected
 
 
@@ -181,6 +181,7 @@ def _main(args: list[str]) -> None:
         except OSError as error:
             _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
         args = args[2:]
+    args = _suggest.rewrite(args, lambda words: _catalog.find_longest(build_cli(), words)[0] if words else None)   # -m → --message
     _output.attempted = _attempted(args)
     if args[:1] == ["--version"]:
         found = version()
@@ -208,10 +209,13 @@ def _main(args: list[str]) -> None:
     try:
         code = build_cli().main(args, prog_name="ecobuild", standalone_mode=False)
     except click.UsageError as error:
+        guess = _suggest.suggestion(args) if error.message.startswith("No such command") else None
         if json_output:
-            _usage_error(_usage_message(error), json_output)
-        # 人向け：使い方と日本語の説明は CLIFrameWork の表示のまま。ログには誤りとして残す
+            _usage_error(_usage_message(error), json_output, hint=guess)
+        # 人向け：使い方と日本語の説明は CLIFrameWork の表示のまま（もしかして、があれば添える）。ログには誤りとして残す
         _show_error(error)
+        if guess:
+            click.echo(guess, err=True)
         _output.log_error(_output.attempted, EcoBuildError(_errors.ErrorCode.USAGE_ERROR, _usage_message(error)))
         sys.exit(error.exit_code)
     except click.ClickException as error:
@@ -266,6 +270,6 @@ def _usage_message(error: click.UsageError) -> str:
         return error.format_message()
 
 
-def _usage_error(message: str, json_output: bool) -> None:
-    """引数の誤り。--json なら、エージェントが読めるようにJSONで返す（終了コードは2）。"""
-    sys.exit(_output.usage_error(message, json_output))
+def _usage_error(message: str, json_output: bool, *, hint: str | None = None) -> None:
+    """引数の誤り。--json なら、エージェントが読めるようにJSONで返す（終了コードは2）。hint：もしかして 等（なければ使い方の案内）。"""
+    sys.exit(_output.usage_error(message, json_output, **({"hint": hint} if hint else {})))

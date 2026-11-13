@@ -3,7 +3,7 @@
 const FILE = '.ecobuild/container/Dockerfile';
 
 export default {
-  render(root, props, { h, memory }) {
+  render(root, props, { h, emit, memory }) {
     if (props.error) return root.replaceChildren(h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, `読めませんでした：${props.error}`)));
     const r = props.recipe, st = props.status;
     if (!r) return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込み中…'));
@@ -18,7 +18,7 @@ export default {
     };
     const rows = [
       row('環境の作り方', inRepo ? tag(FILE) : sub('型のひな型（まだリポジトリにありません）'),
-        inRepo ? '' : '今の仕様に合わせる（ecobuild module upgrade）と、ひな型がリポジトリに置かれ、モジュールに合わせて書き換えられます。'),
+        inRepo ? '' : '「リポジトリに置く」でひな型を置くと、モジュールに合わせて書き換えられます（module upgrade）。'),
       row('環境のイメージ', tag(r.environment)),
       row('コンテナのイメージ', tag(r.image)),
     ];
@@ -46,6 +46,16 @@ export default {
         + '解析ツール等は環境に足し、タスクブランチでコミットして PR で反映します。イメージの名前は作り方のハッシュで、環境か ECOBuild が変わると新しく作ります。'
         + '下の「イメージの作り方」で、今の作り方のイメージを作れます。'));
     how.addEventListener('toggle', () => memory.set('how', how.open));
-    root.replaceChildren(h('table', { class: 'table' }, h('tbody', {}, ...rows)), how);
+    // 環境の作り方を変える：エディター（作業空間で）・リポジトリの場所／まだなければ、ひな型をリポジトリに置く
+    const button = (label, name, primary, title) => {
+      const b = h('button', { type: 'button', class: primary ? 'primary' : '', title }, label);
+      b.addEventListener('click', () => emit('action', { name }));
+      return b;
+    };
+    const actions = h('div', { class: 'actions' },
+      button('作業空間で編集', 'edit', inRepo, '環境の Dockerfile を書き直して、試しに作ります（保存はタスクブランチでだけ）'),
+      inRepo ? button('場所を開く', 'reveal', false, `${FILE} を選んだ状態でエクスプローラーを開きます`)
+        : button('リポジトリに置く', 'place', true, '型のひな型を .ecobuild/container/Dockerfile に置き、モジュールを今の ECOBuild の仕様にそろえます（変えるファイルを確かめてから。module upgrade）'));
+    root.replaceChildren(actions, h('table', { class: 'table' }, h('tbody', {}, ...rows)), how);
   },
 };

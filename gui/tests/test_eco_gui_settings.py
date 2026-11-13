@@ -40,6 +40,7 @@ class FakeSettings(FakeEcobuild):
             **{name: spec("read") for name in (
                 "profile list", "track", "release list", "container status", "container recipe", "agent version status",
                 "account list", "config list", "agent token status", "container image list", "installer show")},
+            "container dockerfile": spec("read", write=text),
             "agent version list": spec("read", limit=number),
             "installer versions": spec("read", ref=text, count=number),
             "module list": spec("read", owner=text, archived=flag, all=flag),
@@ -97,6 +98,9 @@ class FakeSettings(FakeEcobuild):
                                  "custom_image": "", "deny": ["WebFetch"], "docker_ready": True},
             "container recipe": {"module": "calc", "environment": "ecobuild-env-calc:aaa", "image": "ecobuild-calc:bbb",
                                  "context": "", "dockerfile": "FROM ubuntu:24.04\n", "layer": "RUN echo layer\n"},
+            "container dockerfile": {"text": plain.get("write", "FROM ubuntu:24.04\n"), "exists": True, "hash": "aaa", "image": "ecobuild-env-calc:aaa",
+                                     "image_ready": False, "outdated": False, "container_image": "", "editable": True, "reason": "",
+                                     "docker_ready": True, "docker_detail": "", **({"changed": True} if "write" in plain else {})},
             "agent version status": {"setting": "stable", "installed": None, "reason": "コンテナが動いていません"},
             "agent version list": {"channels": {"stable": "2.1.1", "latest": "2.1.9"}, "versions": ["2.1.9", "2.1.1"]},
             "account list": [{"login": "octocat", "active": True}, {"login": "hubot", "active": False}],
@@ -377,6 +381,32 @@ def test_container_screen_shows_the_state_and_only_the_buttons_that_fit_it(relay
     press(relay, window, "body:on")
     for call in [("container start", {}), ("container stop", {}), ("container remove", {}), ("container off", {}), ("container on", {})]:
         assert call in relay.backend.calls
+
+
+def test_container_summary_edits_the_dockerfile_opens_its_place_and_puts_the_template_in_the_repository(relay):
+    window = opened(relay, "container", module="C:/work/Calc/.ecobuild/w/12")
+    relay.input(window, "body:summary", "action", {"name": "edit"}, human=True)  # 作業空間で編集：Dockerfile のエディター
+    relay.idle()
+    editor = inside(relay, window, "container-dockerfile")
+    props = nodes(relay, editor)["editor"]["props"]
+    assert props["data"]["editable"] is True and props["layer"].startswith("RUN echo")
+    relay.input(editor, "editor", "save", {"text": "FROM ubuntu:24.04\nRUN true\n"}, human=True)  # 保存（中身は標準入力で）
+    relay.idle()
+    call = ("container dockerfile", {"write": "FROM ubuntu:24.04\nRUN true\n"})
+    assert call in relay.backend.calls and relay.backend.modules[relay.backend.calls.index(call)] == "C:/work/Calc/.ecobuild/w/12"
+    assert nodes(relay, editor)["editor"]["props"]["saved"]["changed"] is True and "保存しました" in notices(relay)[-1]
+    relay.input(editor, "editor", "build", {}, human=True)  # 試しに作る
+    relay.idle()
+    assert ("container image build", {"workspace": "C:/work/Calc/.ecobuild/w/12"}) in relay.backend.calls
+    relay.input(editor, "editor", "close", {}, human=True)
+    relay.idle()
+    assert editor not in [w["id"] for w in relay.display.windows()]
+    relay.input(window, "body:summary", "action", {"name": "reveal"}, human=True)  # 場所を開く：エクスプローラーで Dockerfile を選んで
+    relay.idle()
+    assert ("open", {"path": [".ecobuild/container/Dockerfile"], "app": "explorer"}) in relay.backend.calls
+    relay.input(window, "body:summary", "action", {"name": "place"}, human=True)  # リポジトリに置く：下見で確かめてから module upgrade
+    relay.idle()
+    inside(relay, window, "mod-upgrade")
 
 
 def test_container_screen_sets_the_image_and_what_agents_may_not_use(relay):

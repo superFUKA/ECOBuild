@@ -63,6 +63,28 @@ def test_old_module_is_upgraded(tmp_path):
     assert again.paths == () and again.commit is None   # 今の版なら変えるものはない（コミットもしない）
 
 
+def test_agent_entry_files_are_placed_when_missing(tmp_path):
+    """AGENTS.md・CLAUDE.md（AGENTS.md を読み込む）がなければ置く。モジュールが自分で書いた CLAUDE.md は変えない。"""
+    module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
+    root, github = module.root, module.repository.github
+    assert "@AGENTS.md" in (root / "CLAUDE.md").read_text(encoding="utf-8")   # 作るときに置く
+    (root / "AGENTS.md").unlink()
+    (root / "CLAUDE.md").unlink()
+    git(root, "add", "--all")
+    git(root, "commit", "--quiet", "-m", "入口のない以前のモジュール")
+    git(root, "push", "--quiet", "origin", "main")
+    old = Module.find(root, github=github)
+    assert {"AGENTS.md", "CLAUDE.md"} <= set(old.upgrade(dry_run=True).paths)
+    assert {"AGENTS.md", "CLAUDE.md"} <= set(old.upgrade().paths)
+    assert "ecobuild agent guide" in (root / "AGENTS.md").read_text(encoding="utf-8")
+
+    (root / "CLAUDE.md").write_text("# 自分の決まり\n", encoding="utf-8")
+    git(root, "commit", "--quiet", "-am", "自分の CLAUDE.md")
+    git(root, "push", "--quiet", "origin", "main")
+    assert "CLAUDE.md" not in Module.find(root, github=github).upgrade(dry_run=True).paths
+    assert (root / "CLAUDE.md").read_text(encoding="utf-8") == "# 自分の決まり\n"
+
+
 def test_branch_not_checked_out_is_upgraded(tmp_path):
     """管理用のブランチ（作業空間で開かない）は --branch で：手元の作業ツリーに触れず、GitHub のそのブランチを更新する。"""
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))

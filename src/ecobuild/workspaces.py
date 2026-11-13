@@ -44,6 +44,21 @@ AREA = f"{_config.DIRECTORY}/w"   # 元の clone の中の、作業空間の置�
 _REVIEW_KEY = "ecowork.review"    # 確認用の作業空間の印（ecowork が作業空間だけの設定に書く）
 _ACCOUNT_KEY = "ecowork.account"
 
+# コマンドを呼んだシェルの今のフォルダー（CLI が、-C で移る前に入れる。ライブラリとして使うときは None）。作業空間を
+# 消せないとき、呼んだシェルがその中にいることが理由なら、そう知らせるため（Windows では、プロセスの今のフォルダーは
+# 動かせない・消せない）
+caller_directory: Path | None = None
+
+
+def caller_inside(root: Path | str) -> bool:
+    """コマンドを呼んだシェルの今のフォルダーが root の中か（caller_directory が分かるときだけ）。"""
+    if caller_directory is None:
+        return False
+    try:
+        return Path(caller_directory).resolve().is_relative_to(Path(root).resolve())
+    except OSError:
+        return False
+
 
 @dataclass(frozen=True)
 class ModuleRecord:

@@ -90,13 +90,41 @@ def agents(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 このリポジトリ（{config.name}、型：{module_type.name}）は ECOBuild で管理しています。
 
 - 作業を始める前に `ecobuild agent guide` を実行し、手順を読んでください（このPCの ECOBuild に合った手順が出ます）。
-- gitを直接使わず `ecobuild` コマンドを使います。ファイルを変えるのは、タスクの作業空間（`ecobuild task start <番号>` が作る
-  `.ecobuild/w/` の中）でだけです。元の clone は既定のブランチのままにします。
+- gitを直接使わず `ecobuild` コマンドを使います（コミットは `ecobuild task commit`、テストは `ecobuild test`）。
+- ファイルを変えるのは、タスクの作業空間（`ecobuild task start <番号>` が作る `.ecobuild/w/<番号>`）の中でだけです。元の clone（`.ecobuild/w/` の外）
+  では作業しません。元の clone で始めたら、`ecobuild agent guide` が示す今ある作業空間を見て、続きの作業ならその中へ移ります。
+- 作業空間を消す操作（`ecobuild task finish`・`task drop`・`task prune` 等）は、シェルを元の clone へ移してから行います（中にいると消せずに残ります）。
 - ECOBuild が起動したエージェント（MCP のツール `ecobuild` を渡されたもの）は、この手順の `ecobuild` コマンドの代わりに
   そのツールを使います。
 - コミットのメッセージ・PR・Issue・コメントに、AIの署名（`Co-Authored-By: <AI>`・`Generated with …` 等）を書きません。
 - 文書（AGENTS.md・README・コメント 等）と今のコードで書き方が食い違うときはコードに従い、見つけた食い違いは最後の報告（提出の説明 `--note`）にすべて書きます。
 {hand_edit}- 失敗したら、結果の `error.code` と `error.hint` に従ってください。
+"""
+
+
+CLAUDE_MD = "CLAUDE.md"
+
+
+def claude() -> str:
+    """CLAUDE.md：AGENTS.md を読み込むだけ（Claude Code は CLAUDE.md だけを自動で読み、AGENTS.md は読まないため）。"""
+    return ("# CLAUDE.md\n\n"
+            "このリポジトリの決まりは AGENTS.md にあります（ECOBuild が置いたファイルです。決まりは AGENTS.md に書きます）。\n\n"
+            "@AGENTS.md\n")
+
+
+def workspaces_here(original: str, workspaces: dict[int, str]) -> str:
+    """agent guide を元の clone で読んだときに添える、今ある作業空間（タスクの番号 → 場所）の案内。"""
+    lines = [f"- #{number}：`{place}`" for number, place in sorted(workspaces.items())]
+    listed = "\n".join(lines) if lines else "- （今はありません。`ecobuild task start <番号>` で作ります）"
+    return f"""
+## 今いる場所：元の clone
+
+ここ（`{original}`）は元の clone です。ここではファイルを変えず、作業はタスクの作業空間の中で行います。
+今ある作業空間（タスクの番号：場所）：
+
+{listed}
+
+続きの作業なら、その作業空間へ移ってから `ecobuild task status` で目的と申し送りを読みます。新しい作業なら、上の「作業の流れ」の 1. から始めます。
 """
 
 
@@ -129,6 +157,8 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
              "タスクブランチは作業空間（`.ecobuild/w/<番号>`）に置かれるので、2. からはその中で行います")
     finish = ("6. `ecobuild task finish`（CIを待って取り込み、提出のとおりタスクを閉じてタスクブランチと作業空間を片付けるか、"
               "作り直して続けます。提出と違う形にするなら `--complete`／`--partial`。中間提出の後で変更がなければ、そのまま閉じます）。"
+              "作業空間を消すので、シェルを元の clone へ移してから（`cd <元の clone>` して `ecobuild task finish <番号>`）実行します"
+              "（シェルの今のフォルダーが作業空間の中にあると、作業空間を消せずに残ります）。"
               "見てもらうモジュールでは、見る人が `ecobuild task review <番号>` で確かめて `ecobuild task approve <番号>`"
               "（承認して完了）か `ecobuild task reject <番号> --message \"<内容>\"`\n")
     workspace = WORKSPACES_NOTE

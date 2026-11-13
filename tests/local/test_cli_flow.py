@@ -723,6 +723,32 @@ def test_close_workspace_in_use(cli, module, parallel, monkeypatch):
     refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))
     assert refused["error"]["code"] == "in_use" and (parallel / ".git").is_file()
     assert "locked" in git(module.root, "worktree", "list", "--porcelain")   # ロックも戻した
+    assert "呼んだシェル" not in refused["error"]["message"]
+
+
+def test_close_workspace_held_by_the_calling_shell(cli, module, parallel, monkeypatch):
+    """呼んだシェルの今のフォルダーが作業空間の中なら、それが消せないわけと言い、元の clone へ移るよう案内する
+    （AI のシェルが作業空間の中から finish 等を呼ぶことが多い）。"""
+    from ecobuild import workspaces
+    real = Path.rename
+
+    def held(self, target):
+        if self == parallel:
+            raise PermissionError("使用中")
+        return real(self, target)
+    monkeypatch.setattr(Path, "rename", held)
+    monkeypatch.setattr(workspaces, "caller_directory", parallel / "src")   # 呼んだシェルは作業空間の中の場所
+    refused = as_json(cli("workspace", "close", ".ecobuild/w/1", "--json"))["error"]
+    assert refused["code"] == "in_use" and "呼んだシェル" in refused["message"]
+    assert f'cd "{module.root}"' in refused["hint"]
+
+
+def test_guide_in_the_original_clone_lists_the_workspaces(cli, module, parallel, monkeypatch):
+    """元の clone で読む agent guide は、今ある作業空間と「ここでは作業しない」を添える。作業空間の中では添えない。"""
+    here = as_json(cli("agent", "guide", "--json"))["result"]["text"]
+    assert "今いる場所：元の clone" in here and f"#1：`{parallel}`" in here
+    monkeypatch.chdir(parallel)
+    assert "今いる場所：元の clone" not in as_json(cli("agent", "guide", "--json"))["result"]["text"]
 
 
 def test_finish_removes_the_workspace(cli, module, parallel, monkeypatch):

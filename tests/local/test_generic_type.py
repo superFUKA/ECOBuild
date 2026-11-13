@@ -27,7 +27,7 @@ def python(code: str) -> str:
 def test_generic_module(tmp_path):
     module = Module.create("Plain", directory=tmp_path, type="generic", github=FakeGitHub(tmp_path / "gh"))
     root = module.root
-    assert sorted(p.name for p in root.iterdir() if p.name != ".git") == [".ecobuild", "README.md"]
+    assert sorted(p.name for p in root.iterdir() if p.name != ".git") == [".ecobuild", "AGENTS.md", "CLAUDE.md", "README.md"]
     assert sorted(p.name for p in (root / ".ecobuild").iterdir()) == [".gitattributes", ".gitignore", "README.md", "container",
                                                                     "ecobuild.toml"]
     assert "[commands]" in (root / ".ecobuild" / "README.md").read_text(encoding="utf-8")

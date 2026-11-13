@@ -41,7 +41,7 @@ def test_a_plain_repository_becomes_a_module(plain):
     _, planned = Module.adopt(work / "notes", type="generic", dry_run=True, github=github)   # 中のフォルダーからでもよい
     assert planned.dry_run and planned.root == work and planned.branch == "main" and planned.name == "remote"
     assert planned.paths == (".ecobuild/.gitattributes", ".ecobuild/.gitignore", ".ecobuild/README.md", container.DOCKERFILE,
-                             config.FILE_NAME)
+                             config.FILE_NAME, "AGENTS.md", "CLAUDE.md")   # エージェントの入口は、なければ置く
     assert not (work / ".ecobuild").exists()   # 何も変えない
 
     module, done = Module.adopt(work, type="generic", github=github)

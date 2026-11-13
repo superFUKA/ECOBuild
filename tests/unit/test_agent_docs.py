@@ -46,7 +46,7 @@ def test_agents_md_points_to_the_guide(name):
     documents = _documents(name)
     assert "`ecobuild agent guide`" in documents["AGENTS.md"]
     assert "## 作業の流れ" not in documents["AGENTS.md"] and "## 作業の流れ" in documents["agent guide"]
-    assert len(documents["AGENTS.md"].splitlines()) <= 13
+    assert len(documents["AGENTS.md"].splitlines()) <= 15
 
 
 def test_guide_follows_the_type():

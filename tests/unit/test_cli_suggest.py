@@ -16,8 +16,8 @@ def _run(capsys, *args):
 
 
 @pytest.mark.parametrize(("typed", "told"), [
-    (("task", "create", "x"), "もしかして：ecobuild task new"),
-    (("task", "show", "1"), "もしかして：ecobuild task status"),
+    (("task", "create", "x"), "もしかして：ecobuild task new x"),
+    (("task", "show", "1"), "もしかして：ecobuild task status 1"),
     (("profile", "show"), "もしかして：ecobuild profile list"),
     (("member", "list"), "もしかして：ecobuild module members"),
     (("commit",), "もしかして：ecobuild task commit"),
@@ -40,7 +40,7 @@ def test_file_contents_are_not_a_command(tmp_path, monkeypatch, capsys):
 def test_suggestion_is_shown_to_people_too(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     code, _, err = _run(capsys, "task", "create", "x")
-    assert code == 2 and "もしかして：ecobuild task new" in err
+    assert code == 2 and "もしかして：ecobuild task new x" in err
 
 
 def test_m_is_read_as_message_only_where_there_is_one():
@@ -53,6 +53,30 @@ def test_m_is_read_as_message_only_where_there_is_one():
     assert _suggest.rewrite(["task", "commit", "--message", "a", "--", "-m"], find)[-1] == "-m"
     assert _suggest.rewrite(["task", "list", "-m"], find) == ["task", "list", "-m"]     # --message がない
     assert _suggest.rewrite(["status"], find) == ["status"]
+    assert _suggest.rewrite(["task", "commit", "--message", "-m"], find) == ["task", "commit", "--message", "-m"]   # 値
+    assert _suggest.rewrite(["task", "comment", "1", "-m", "a"], find)[3] == "--message"
+
+
+def test_m_through_the_entry(tmp_path, monkeypatch, capsys):
+    """入口（main）を通しても読み替える（--json を前に置いても）。モジュールの外なので、その理由で止まる（-m の誤りではない）。"""
+    monkeypatch.chdir(tmp_path)
+    code, document, _ = _run(capsys, "--json", "task", "commit", "-m", "直した")
+    assert document["error"]["code"] != "usage_error"
+
+
+def test_type_commands_that_no_type_has(tmp_path, monkeypatch, capsys):
+    """file list（どの型にもない）は、モジュールの外でも、もしかして。project add x --help --json は位置引数を外す。"""
+    monkeypatch.chdir(tmp_path)
+    code, document, _ = _run(capsys, "file", "list", "--json")
+    assert document["error"]["hint"] == "もしかして：ecobuild files"
+    code, document, _ = _run(capsys, "file", "list", "--help", "--json")
+    assert code == 2 and document["error"]["hint"] == "もしかして：ecobuild files"
+    code, document, _ = _run(capsys, "project", "add", "x", "--help", "--json")
+    assert document["error"]["code"] == "not_supported" and "project add は型" in document["error"]["message"]
+
+
+def test_guess_keeps_the_typed_arguments(tmp_path, monkeypatch, capsys):
+    assert _suggest.suggestion(["task", "show", "252"]) == "もしかして：ecobuild task status 252"
 
 
 def test_help_json_with_positional_arguments(tmp_path, monkeypatch, capsys):

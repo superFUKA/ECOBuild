@@ -39,7 +39,7 @@ GUESSES: dict[tuple[str, ...], str] = {
 }
 
 
-def _known() -> set[tuple[str, ...]]:
+def known() -> set[tuple[str, ...]]:
     """コマンドの道筋（共通と、どの型のものも）。"""
     return set(_types.routes(commands)).union(*_types.all_routes().values())
 
@@ -57,17 +57,21 @@ def words_of(args: list[str]) -> list[str]:
 def suggestion(args: list[str]) -> str | None:
     """ない名前を打ったときの「もしかして」の文（なければ None）。args：ecobuild の後ろの引数。"""
     words = words_of(args)
-    known = _known()
+    routes = known()
     length = 0
-    while length < len(words) and tuple(words[:length + 1]) in known:
+    while length < len(words) and tuple(words[:length + 1]) in routes:
         length += 1
     if length == len(words):
         return None
     tried = tuple(words[:length + 1])
     guessed = GUESSES.get(tried)
-    if guessed is not None:
-        return guessed[1:] if guessed.startswith("…") else f"もしかして：ecobuild {guessed}"
-    siblings = sorted({route[length] for route in known if len(route) > length and route[:length] == tried[:-1]})
+    if guessed is not None:   # 案内先が末端のコマンドなら、打った位置引数も付ける（task show 252 → task status 252）
+        if guessed.startswith("…"):
+            return guessed[1:]
+        target = tuple(guessed.split())
+        leaf = not any(len(route) > len(target) and route[:len(target)] == target for route in routes)
+        return f"もしかして：ecobuild {' '.join([guessed, *(words[length + 1:] if leaf else ())])}"
+    siblings = sorted({route[length] for route in routes if len(route) > length and route[:length] == tried[:-1]})
     close = difflib.get_close_matches(tried[-1], siblings, n=3, cutoff=0.6)
     if not close:
         return None
@@ -76,12 +80,25 @@ def suggestion(args: list[str]) -> str | None:
 
 
 def rewrite(args: list[str], find) -> list[str]:
-    """-m を --message に読み替える（-- より前で、打ったコマンドに --message があるときだけ）。find(道筋) → click のコマンド。"""
-    end = args.index("--") if "--" in args else len(args)
-    if "-m" not in args[:end]:
+    """-m を --message に読み替える（-- より前で、打ったコマンドに --message があるときだけ。値を取るオプションの値としての
+    -m〔--message -m〕は読み替えない）。find(道筋) → click のコマンド。読めなければ（読み込みの失敗も）読み替えない。"""
+    if "-m" not in args:
         return args
-    command = find(words_of(args))
-    params = command.get_params(click.Context(command)) if command is not None else []   # 遅れて読み込むコマンドも
-    if not any(isinstance(p, click.Option) and "--message" in p.opts for p in params):
+    try:
+        command = find(words_of(args))
+        params = command.get_params(click.Context(command)) if command is not None else []   # 遅れて読み込むコマンドも
+    except Exception:   # 読み替えのためだけの読み込みでは止めない（実行のときに同じ誤りが出る）
         return args
-    return [("--message" if arg == "-m" and index < end else arg) for index, arg in enumerate(args)]
+    options = [p for p in params if isinstance(p, click.Option)]
+    if not any("--message" in p.opts for p in options):
+        return args
+    valued = {name for p in options if not p.is_flag for name in p.opts}   # 後ろに値を取るオプション
+    result, value_next, ended = [], False, False
+    for arg in args:
+        if not ended and not value_next and arg == "-m":
+            arg = "--message"
+        elif not ended and not value_next and arg == "--":
+            ended = True
+        result.append(arg)
+        value_next = not ended and not value_next and arg in valued
+    return result

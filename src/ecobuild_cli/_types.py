@@ -163,6 +163,12 @@ class _Unavailable(click.Command):
         command = " ".join(self.route)
 
         def action(inv):
+            from . import _suggest
+            typed = [*self.route, *_suggest.words_of(ctx.args)[:1]]   # どの型にもない名前（file list 等）なら、もしかして
+            guess = _suggest.suggestion(typed)
+            if guess:
+                from ._errors import ErrorCode as CliCode
+                raise EcoBuildError(CliCode.USAGE_ERROR, f"不明なコマンドです: '{' '.join(typed)}'", hint=guess)
             module = inv.module      # モジュールの外・ecobuild.toml を読めない・型が登録されていない：その理由で止まる
             raise EcoBuildError(
                 ErrorCode.NOT_SUPPORTED,

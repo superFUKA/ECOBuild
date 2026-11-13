@@ -45,8 +45,14 @@ def emit(build_cli: Callable[..., click.Command], path: list[str], sections: dic
             command = None   # グループの下の、ない名前（後ろの言葉は位置引数ではない）
         path = path[:length] if command is not None else path   # 後ろの言葉は位置引数（task status 252 --help --json）
         owners = _types.owners(command)
-        if owners:
-            return _unavailable(path, owners)
+        if owners:   # ほかの型のコマンド：どの型にもある所まで（後ろは位置引数）。グループの下のない名前なら、もしかして
+            from . import _suggest
+            routes = _suggest.known()
+            length = max((k for k in range(1, len(path) + 1) if tuple(path[:k]) in routes), default=0)
+            if length < len(path) and any(len(r) > length and r[:length] == tuple(path[:length]) for r in routes):
+                return _output.usage_error(f"不明なコマンドです: '{' '.join(path)}'", True,
+                                           hint=_suggest.suggestion(path) or "ecobuild --help で使い方を確認してください。")
+            return _unavailable(path[:length] or path, owners)
         if command is None:
             from . import _suggest
             return _output.usage_error(f"不明なコマンドです: '{' '.join(path)}'", True,

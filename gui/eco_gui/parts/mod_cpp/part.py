@@ -3,7 +3,7 @@
 - projects：Project の木（テスト・性能測定は、リンクするライブラリの下に段を付ける。main の印、種類の印、場所、リンクの印＝依存先は緑）と凡例。
   行に「設定…」と ⋯（リンクを足す…・リンクを外す…・PCH…・移動…・削除…）。
 - deps：依存先の表（記録の版・手元の版・状態の印：記録の版＝緑／別の版・未コミットの変更＝黄／clone なし＝赤。GitHub と照らし合わせた列、
-  使っている Project）と、依存関係の図（依存先の依存先も。「上に同じ」「clone なし」の印）。版を選ぶ所（タグ・コミットの新しい順）。
+  リンク〔どの Project が依存先のどのライブラリに〕）と、依存関係の図（依存先の依存先も。リンクされているライブラリ・「上に同じ」「clone なし」の印）。版を選ぶ所（タグ・コミットの新しい順）。
 - general：ほかのモジュールからリンクされる Project（main）・MSVC の C ランタイム・ソリューションフォルダー。
 - templates：ファイルテンプレート（既定の印）。
 
@@ -19,8 +19,8 @@ from typing import Annotated, Literal
 def part(
     view: Annotated[Literal["projects", "deps", "general", "templates"], "描くもの"],
     projects: Annotated[list[dict], "Project（ecobuild project list：name・kind・directory・links）"] = [],
-    deps: Annotated[list[dict], "依存先（ecobuild deps list：name・url・recorded・local・branch・state。--fetch なら remote・moved_to・latest も）"] = [],
-    tree: Annotated[dict | None, "依存関係（ecobuild deps tree：module・direct・nodes）"] = None,
+    deps: Annotated[list[dict], "依存先（ecobuild deps list：name・url・recorded・local・branch・state・links〔project・library〕。--fetch なら remote・moved_to・latest も）"] = [],
+    tree: Annotated[dict | None, "依存関係（ecobuild deps tree：module・direct・nodes〔libraries も〕）"] = None,
     settings: Annotated[dict | None, "モジュールの設定（ecobuild module settings：main_project・msvc_runtime・folders・templates）"] = None,
     fetched: Annotated[bool | None, "依存先を GitHub と照らし合わせて読んだか（列を足す）"] = False,
     versions: Annotated[dict | None, "選べる版（ecobuild deps versions：name・recorded・branch・branches・default_branch・tags・commits）。読むまで null"] = None,

@@ -19,6 +19,7 @@ from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, 
                       SubprojectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
 from cppbuild import engine as _engine
+from cppbuild.models import LIBRARY_TYPES as _LINKABLE_TYPES
 from cppbuild import execution as _execution
 from cppbuild import logs as _logs
 from cppbuild import workspace as _workspace
@@ -950,6 +951,25 @@ def all_git_sources(root: Path) -> tuple[tuple, ...]:
     return tuple((s, recorder(s)) for s in sources)
 
 
+def dependency_libraries_in_use(root: Path) -> dict[str, tuple[str, ...]]:
+    """依存先の名前（依存先の依存先も）→ リンクされているライブラリ（このモジュールと、手元に clone のある依存先から）。"""
+    solution = open_solution(root)
+    try:
+        sources = [s for s in solution.git_sources() if s.present]
+        opened = {s.name: Solution.open(s.config) for s in sources}
+        owner = {guid: (name, library) for name, other in opened.items() for guid, library in _guid_names(other).items()}
+        result: dict[str, set[str]] = {}
+        for each in (solution, *opened.values()):
+            for project in each.subprojects():
+                for dependency in project.settings.get().dependencies.values():
+                    found = owner.get(getattr(dependency, "subproject_guid", None))
+                    if found is not None:
+                        result.setdefault(found[0], set()).add(found[1])
+    except Exception as error:
+        raise _cppbuild_error("依存先を読み込めません。", error) from error
+    return {name: tuple(sorted(libraries)) for name, libraries in result.items()}
+
+
 def dependency_graph(root: Path) -> tuple[tuple, dict[str, tuple[str, ...]]]:
     """依存先すべて（依存先の依存先も。CppBuildのGitSourceStatus）と、それぞれが直接記録する依存先の名前。
 
@@ -970,24 +990,131 @@ def dependency_graph(root: Path) -> tuple[tuple, dict[str, tuple[str, ...]]]:
     return sources, edges
 
 
-def link(root: Path, project: str, url: str, *, shared: bool, revision: str | None = None) -> str:
-    """Projectから、gitのリポジトリにあるモジュールのライブラリをリンクする（revision：ブランチ・タグ・コミット。None は
-    既定のブランチの最新）。依存先の名前を返す。"""
+@dataclass(frozen=True)
+class Library:
+    """モジュール（Solution）の Project のうちの1つ（deps libraries・deps add --library で選ぶもの）。"""
+    name: str
+    kind: str          # 作成時の種類（static_library・executable 等）
+    main: bool         # 既定でリンクされるもの（CppBuild の main_subproject）
+    linkable: bool     # ライブラリ（リンクできる形がある）
+    guid: str
+
+
+def libraries_of(solution: Solution) -> tuple[Library, ...]:
+    """Solution の Project の一覧（リンクできるものが先、その中は名前の順）。"""
+    data = solution.settings.get()
+    result = []
+    for name in data.subprojects:
+        values = solution.get_subproject(name).settings.get()
+        result.append(Library(name, values.initial_type.value, name == data.main_subproject,
+                              any(kind in _LINKABLE_TYPES for kind in values.types), values.guid))
+    return tuple(sorted(result, key=lambda library: (not library.linkable, library.name)))
+
+
+def dependency_libraries(root: Path, name: str) -> tuple[object, tuple[Library, ...]]:
+    """依存先 name（依存先の依存先も）の (CppBuild の GitSourceStatus, ライブラリの一覧)。手元の clone から読む。"""
+    solution = open_solution(root)
+    source = next((s for s in solution.git_sources() if s.name == name), None)
+    if source is None:
+        raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+    return source, _libraries_at(solution, source)
+
+
+def _libraries_at(solution: Solution, source) -> tuple[Library, ...]:
+    if _migrate.is_old(Path(source.directory) / source.path):
+        check_dependency_formats(solution)   # 古い形式の clone：同じ案内で止める
+    if not source.present:
+        raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {source.name} の clone がありません。",
+                            hint="ecobuild deps sync で取得してから読めます。")
+    try:
+        return libraries_of(Solution.open(source.config))
+    except Exception as error:
+        raise _cppbuild_error(f"依存先 {source.name} を読み込めません。", error) from error
+
+
+def repository_libraries(url: str, revision: str | None, directory: Path) -> tuple[str, tuple[Library, ...]]:
+    """リポジトリ url の revision（None は既定のブランチの最新）を directory（まだない一時的な場所）に取り、
+    (読んだコミット, ライブラリの一覧) を返す。取り出すのは CppBuild の管理ファイル（.ecobuild/.cppbuild）だけ。"""
+    with _clone_config():
+        cloned = Git(directory.parent).run("clone", "--quiet", "--no-checkout", "--", url, str(directory), check=False)
+    if not cloned.ok:
+        raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"{url} を取得できません。", details=cloned.output)
+    clone = Git(directory)
+    commit = clone.run("rev-parse", "--verify", "--quiet", f"{revision or 'HEAD'}^{{commit}}", check=False)
+    if not commit.ok and revision:
+        commit = clone.run("rev-parse", "--verify", "--quiet", f"origin/{revision}^{{commit}}", check=False)
+    if not commit.ok:
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{url} に版 {revision} はありません。",
+                            hint="ブランチ・タグ・コミットを指定してください（候補は GitHub のリポジトリで確かめられます）。")
+    sha = commit.stdout.strip()
+    taken = clone.run("checkout", "--quiet", sha, "--", CONFIG_DIRECTORY, check=False)
+    config = directory / CONFIG_DIRECTORY
+    if not taken.ok or not config.is_dir():
+        raise EcoBuildError(ErrorCode.NOT_LINKABLE,
+                            f"{url} は C++（CppBuild）のモジュールではありません（{CONFIG_DIRECTORY} がありません）。",
+                            details=taken.output)
+    if _migrate.is_old(config):
+        raise EcoBuildError(ErrorCode.DEPENDENCY_OLD_FORMAT,
+                            f"{url} の版 {sha[:7]} は、CppBuild の管理ファイルが古い形式です。",
+                            hint="そのモジュールで ecobuild module upgrade をして取り込んでから、リンクしてください。")
+    try:
+        return sha, libraries_of(Solution.open(config))
+    except Exception as error:
+        raise _cppbuild_error(f"{url} を読み込めません。", error) from error
+
+
+def dependency_links(root: Path) -> dict[str, list[tuple[str, str]]]:
+    """直接の依存先の名前 → [(このモジュールの Project, 依存先のライブラリ)]。clone のない依存先のライブラリは GUID のまま。"""
+    solution = open_solution(root)
+    sources = [s for s in solution.git_sources() if s.recorded_by is None]
+    owner, names = {}, {}
+    for source in sources:
+        if source.present:
+            for guid, library in _guid_names(Solution.open(source.config)).items():
+                owner[guid], names[guid] = source.name, library
+    places = {(Path(s.directory) / s.path).resolve(): s.name for s in sources}
+    for guid, reference in solution.settings.get().references.items():   # clone のないもの：記録の置き場所から
+        owner.setdefault(guid, places.get((solution.root / reference.solution_directory).resolve()))
+    result: dict[str, list[tuple[str, str]]] = {s.name: [] for s in sources}
+    for project in solution.subprojects():
+        for dependency in project.settings.get().dependencies.values():
+            guid = getattr(dependency, "subproject_guid", None)
+            if owner.get(guid) in result:
+                result[owner[guid]].append((project.name, names.get(guid, guid)))
+    return {name: sorted(links) for name, links in result.items()}
+
+
+def link(root: Path, project: str, url: str, *, shared: bool, revision: str | None = None,
+         library: str | None = None) -> tuple[str, str]:
+    """Projectから、gitのリポジトリにあるモジュールのライブラリ library（None は相手の main）をリンクする
+    （revision：ブランチ・タグ・コミット。None は既定のブランチの最新、既にある依存先なら記録の版）。
+    (依存先の名前, リンクしたライブラリ) を返す。"""
     solution = open_solution(root)
     _require_project(solution, project)
     before = {s.name for s in solution.git_sources()}
     message = f"{url} をリンクできません。"
+    link_type = SubprojectType.SHARED_LIBRARY if shared else SubprojectType.STATIC_LIBRARY
     try:
         # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。_clone_config は外側に：
         # トランザクションの終わりの構成でも、依存先の依存先を clone する。
         with _clone_config(), _transaction(solution, message):
             solution.get_subproject(project).settings.link_git(
-                url, revision, solution_path=CONFIG_DIRECTORY, link_type=SubprojectType.SHARED_LIBRARY if shared else SubprojectType.STATIC_LIBRARY)
+                url, revision, solution_path=CONFIG_DIRECTORY, link_type=link_type, subproject=library)
     except EcoBuildError:
         raise
     except AlreadyRegisteredError as error:
-        raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{url} は既にリンクしています。") from error
+        raise EcoBuildError(ErrorCode.ALREADY_EXISTS,
+                            f"{project} は {url}{'' if library is None else ' の ' + library} に既にリンクしています。") from error
+    except NotRegisteredError as error:
+        if error.kind != "subproject" or library is None or error.name != library:
+            raise _cppbuild_error(message, error) from error
+        raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"{url} に {library} というProjectはありません。",
+                            hint=f"リンクできるライブラリ：{_choices_after_failure(url, revision)}"
+                                 "（ecobuild deps libraries <リポジトリ> で一覧）。",
+                            details=str(error)) from error
     except InvalidValueError as error:
+        if error.field == "link_type":
+            raise _link_type_error(url, library, shared, revision, error) from error
         if error.field != "revision":
             raise _cppbuild_error(message, error) from error
         # 既に記録している依存先を別のProjectからリンクするときは、記録の版のまま（CppBuild は記録を動かさない）
@@ -1000,14 +1127,83 @@ def link(root: Path, project: str, url: str, *, shared: bool, revision: str | No
                             details=str(error)) from error
     except NoMainSubprojectError as error:
         raise EcoBuildError(ErrorCode.NOT_LINKABLE, f"{url} のモジュールは、リンクできる形になっていません。",
-                            hint="他のモジュールからリンクされるのは、そのモジュールで最初に作ったProject（main）"
-                                 "だけで、それがライブラリである必要があります。",
+                            hint="--library を省くと、相手のモジュールの main（最初に作ったProject）にリンクします。main がないか"
+                                 "ライブラリでなければ、--library でリンクするライブラリを選んでください"
+                                 "（ecobuild deps libraries <リポジトリ> で一覧）。",
                             details=str(error)) from error
     except Exception as error:
         raise _cppbuild_error(message, error) from error
     _write_clone_config(Path(s.directory) for s in solution.git_sources() if s.name not in before)
-    added = [s.name for s in solution.git_sources() if s.name not in before]
-    return added[0] if added else next(s.name for s in solution.git_sources() if s.url == url)
+    sources = solution.git_sources()
+    added = [s.name for s in sources if s.name not in before]
+    name = added[0] if added else next(s.name for s in sources if s.recorded_by is None and _same_url(s.url, url))
+    if library is None:   # 相手の main
+        source = next(s for s in sources if s.name == name)
+        library = next((l.name for l in _libraries_at(solution, source) if l.main), "")
+    return name, library
+
+
+_KIND_WORDS = {"executable": "実行ファイル", "test": "テスト用", "static_library": "静的ライブラリ",
+               "shared_library": "共有ライブラリ", "interface_library": "ヘッダーだけのライブラリ"}
+
+
+def _link_type_error(url: str, library: str | None, shared: bool, revision: str | None, error) -> EcoBuildError:
+    """選んだ Project が、求めた形（静的・共有）でリンクできない（CppBuild の InvalidValueError(field="link_type")）。"""
+    allowed = [str(getattr(kind, "value", kind)) for kind in error.allowed or ()]
+    words = "・".join(_KIND_WORDS.get(kind, kind) for kind in allowed)
+    if not any(kind in {k.value for k in _LINKABLE_TYPES} for kind in allowed):
+        return EcoBuildError(ErrorCode.NOT_LINKABLE, f"{library} は{words or 'ライブラリでない Project'}なので、リンクできません。",
+                             hint=f"リンクできるのはライブラリだけです（リンクできるライブラリ：{_choices_after_failure(url, revision)}）。",
+                             details=str(error))
+    switch = ("--shared を外してください" if shared else
+              "--shared を付けてください" if SubprojectType.SHARED_LIBRARY.value in allowed else "")
+    return EcoBuildError(ErrorCode.NOT_LINKABLE, f"{library} は{'共有' if shared else '静的'}ライブラリとしてはリンクできません。",
+                         hint=f"{library} の形式：{words}" + (f"（{switch}）。" if switch else "。"), details=str(error))
+
+
+def _same_url(one: str, other: str) -> bool:
+    from cppbuild.git_sources import identity
+    return identity(one) == identity(other)
+
+
+def _choices_after_failure(url: str, revision: str | None) -> str:
+    """リンクに失敗した後の案内に出す、相手のリンクできるライブラリ（読めなければ「分かりません」）。"""
+    import tempfile
+    try:
+        with tempfile.TemporaryDirectory(prefix="ecobuild-") as temporary:
+            _, libraries = repository_libraries(url, revision, Path(temporary) / "r")
+    except Exception:   # 案内のためだけに読むので、読めなくても元の誤りを出す
+        return "分かりません"
+    return "、".join(l.name + ("（main）" if l.main else "") for l in libraries if l.linkable) or "なし"
+
+
+def unlink_library(root: Path, name: str, library: str) -> tuple[str, ...]:
+    """依存先 name のライブラリ library へのリンクだけを、すべての Project から外す（記録と clone は残す）。
+    外した Project を返す。"""
+    solution = open_solution(root)
+    source = next((s for s in solution.git_sources() if s.name == name and s.recorded_by is None), None)
+    if source is None:
+        raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+    linked = dependency_links(root).get(name, [])
+    target = next((l for l in _libraries_at(solution, source) if l.name == library), None)
+    if target is None or not any(each == library for _, each in linked):
+        raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"依存先 {name} の {library} には、リンクしていません。",
+                            hint=f"リンクしているライブラリ：{'、'.join(sorted({each for _, each in linked})) or 'なし'}"
+                                 f"（依存先ごと外すなら --library を省きます）。")
+    message = f"依存先 {name} の {library} へのリンクを外せません。"
+    removed = []
+    try:
+        with _transaction(solution, message):
+            for project in solution.subprojects():
+                for key, dependency in list(project.settings.get().dependencies.items()):
+                    if getattr(dependency, "subproject_guid", None) == target.guid:
+                        project.settings.unlink(key)
+                        removed.append(project.name)
+    except EcoBuildError:
+        raise
+    except Exception as error:
+        raise _cppbuild_error(message, error) from error
+    return tuple(dict.fromkeys(removed))
 
 
 def unlink(root: Path, name: str) -> tuple[str, ...]:

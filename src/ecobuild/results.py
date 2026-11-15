@@ -196,6 +196,7 @@ class DependencyNode:
     revision: str                    # 記録の版
     present: bool                    # 手元にcloneがある（なければ、その先の依存先は分からない）
     depends_on: tuple[str, ...]      # このモジュールが依存する先（名前）
+    libraries: tuple[str, ...] = ()  # この依存先のうち、リンクされているライブラリ（このモジュールと、依存先の依存先を記録するものから）
 
 
 @dataclass(frozen=True)
@@ -246,6 +247,32 @@ class DependencyState:
     latest: str | None = None        # GitHubの既定のブランチの最新の版
     moved_to: str | None = None      # remote が moved：新しい 所有者/名前
     via: str | None = None           # 依存先の依存先なら、それを記録している依存先の名前
+    links: tuple["DependencyLink", ...] = ()   # このモジュールのどの Project が、依存先のどのライブラリにリンクしているか（直接の依存先）
+
+
+@dataclass(frozen=True)
+class DependencyLink:
+    project: str                     # このモジュールの Project
+    library: str                     # 依存先のライブラリ（Project）。clone がなく分からなければ、相手の識別子
+
+
+@dataclass(frozen=True)
+class DependencyLibrary:
+    """依存先（になりうるモジュール）の Project のうちの1つ（deps libraries）。"""
+    name: str
+    kind: str                        # 型が決める種類（cpp：static_library・executable 等）
+    main: bool                       # 既定でリンクされるもの（deps add で --library を省いたとき）
+    linkable: bool                   # リンクできる（ライブラリ）
+    linked: tuple[str, ...] = ()     # これにリンクしている、このモジュールの Project（既にある依存先のとき）
+
+
+@dataclass(frozen=True)
+class DependencyLibraries:
+    """deps libraries：依存先（name。まだ依存先でなければ None）か、GitHub のリポジトリの、リンクできるものの一覧。"""
+    name: str | None
+    url: str
+    revision: str                    # 読んだ版（コミット）
+    libraries: tuple[DependencyLibrary, ...]
 
 
 @dataclass(frozen=True)
@@ -282,6 +309,7 @@ class LinkResult:
     url: str
     revision: str
     projects: tuple[str, ...]        # リンクした（外した）Project
+    libraries: tuple[str, ...] = ()  # リンクした（外した）依存先のライブラリ（全部を外したときは空）
     clone_removed: bool = False      # unlink：手元のcloneを消したか（作業中・変更ありなら残す）
     clone: DependencyChange | None = None     # link：手元のcloneを記録の版に合わせた結果（既にcloneがあったとき）
 

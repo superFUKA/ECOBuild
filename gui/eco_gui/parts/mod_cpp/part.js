@@ -124,11 +124,13 @@ export default {
       if (props.error) out.push(failed());
       else if (!deps.length) out.push(props.loading ? waiting() : h('p', { class: 'empty' }, '依存先はありません。'));
       else {
-        const columns = ['名前', '記録の版', '手元の版', '状態', ...(fetched ? ['GitHub'] : []), '使っているProject', h('span', { class: 'sr' }, '操作')];
+        const columns = ['名前', '記録の版', '手元の版', '状態', ...(fetched ? ['GitHub'] : []), 'リンク（Project → ライブラリ）', h('span', { class: 'sr' }, '操作')];
         out.push(table('table', columns, deps.map((d) => {
           const [label, tone] = DEP_STATE[d.state] || [d.state, ''];
           const users = h('td', {});
-          for (const p of projects.filter((x) => (x.links || []).some((l) => linksTo(l, d.name)))) users.append(pill(p.name), ' ');
+          // どの Project が、依存先のどのライブラリにリンクしているか（deps list の links。古い出力なら project list の links から）
+          if ((d.links || []).length) for (const l of d.links) users.append(pill(l.project + ' → ' + l.library), ' ');
+          else for (const p of projects.filter((x) => (x.links || []).some((l) => linksTo(l, d.name)))) users.append(pill(p.name), ' ');
           const cells = [h('td', {}, h('strong', {}, d.name), sub(d.url || '')), h('td', { class: 'mono' }, short(d.recorded)),
             h('td', { class: 'mono' }, short(d.local), d.branch ? sub(d.branch) : ''), h('td', {}, pill(label, tone))];
           if (fetched) {
@@ -187,7 +189,8 @@ export default {
           const again = shown.has(name) && (n.depends_on || []).length > 0;
           shown.add(name);
           const note = !n.present ? pill('cloneなし（その先は不明）', 'bad') : again ? pill('上に同じ') : '';
-          return h('li', {}, h('div', { class: 'branch' }, h('span', { class: 'branch-name' }, name), h('span', { class: 'mono dimmed' }, short(n.revision)), note),
+          const libraries = (n.libraries || []).length && !(n.libraries.length === 1 && n.libraries[0] === name) ? h('span', { class: 'dimmed' }, '[' + n.libraries.join(', ') + ']') : '';
+          return h('li', {}, h('div', { class: 'branch' }, h('span', { class: 'branch-name' }, name), libraries, h('span', { class: 'mono dimmed' }, short(n.revision)), note),
             !again && (n.depends_on || []).length ? walk(n.depends_on) : '');
         }));
         out.push(h('h4', { class: 'subhead' }, '依存関係の図'),

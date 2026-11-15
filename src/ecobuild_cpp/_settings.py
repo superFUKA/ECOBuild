@@ -479,7 +479,10 @@ def _names(solution: Solution) -> dict[str, tuple[str, str]]:
 def _link_view(key: str, value, names: dict) -> dict:
     if isinstance(value, Dependency):
         kind, label = names.get(value.subproject_guid, ("module", value.subproject_guid))
-        return {"id": key, "kind": kind, "name": label, "as": _type_name(value.subproject_type)}
+        view = {"id": key, "kind": kind, "name": label, "as": _type_name(value.subproject_type)}
+        if kind == "module" and "/" in label:   # 依存先のどのライブラリか（「依存先/ライブラリ」）
+            view["dependency"], view["library"] = label.split("/", 1)
+        return view
     if isinstance(value, CMakePackage):
         return {"id": key, "kind": "package", "name": value.name, "target": value.target, "directory": value.directory}
     if isinstance(value, CMakeSource):

@@ -37,7 +37,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
+from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyLibraries, DependencyState,
                       DependencyTree, DependencyVersions, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
@@ -1567,23 +1567,36 @@ class Module:
     # 依存先（型） -----------------------------------------------------------------
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False,
-             revision: str | None = None) -> LinkResult:
+             revision: str | None = None, library: str | None = None) -> LinkResult:
         """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。revision：リンクする版（ブランチ・タグ・
-        コミット。省くと既定のブランチの最新）。"""
+        コミット。省くと既定のブランチの最新）。library：相手のどれにリンクするか（省くと相手の既定。dependency_libraries
+        で選べるもの）。既にある依存先の別のものにも足せる（記録の版のまま）。"""
         self.require_task_branch("依存先のリンク")
         dependencies = self._dependencies("依存先")
         url = self.repository.github.get_repository(repository).clone_url
         before = self.own_changes()
-        result = dependencies.link(url, project=project, shared=shared, revision=revision)
-        self.commit_own_changes(f"{'・'.join(result.projects)} に {result.name}（{result.revision[:7]}）をリンク", before)
+        result = dependencies.link(url, project=project, shared=shared, revision=revision, library=library)
+        target = f"{result.name}/{'・'.join(result.libraries)}" if result.libraries else result.name
+        self.commit_own_changes(f"{'・'.join(result.projects)} に {target}（{result.revision[:7]}）をリンク", before)
         return result
 
-    def unlink(self, name: str) -> LinkResult:
+    def unlink(self, name: str, library: str | None = None) -> LinkResult:
+        """依存先 name のリンクを外す。library：そのライブラリへのリンクだけ（記録と clone は残す）。"""
         self.require_task_branch("依存先のリンクの解除")
         before = self.own_changes()
-        result = self._dependencies("依存先").unlink(name)
-        self.commit_own_changes(f"{result.name} のリンクを外す", before)
+        result = self._dependencies("依存先").unlink(name, library)
+        self.commit_own_changes(f"{result.name}/{library} のリンクを外す" if library else f"{result.name} のリンクを外す", before)
         return result
+
+    def dependency_libraries(self, target: str, *, revision: str | None = None) -> DependencyLibraries:
+        """リンクできるものの一覧（読むだけ）。target：依存先の名前（手元の clone から読む）か、GitHub のリポジトリ
+        （「名前」か「所有者/名前」。一時的に取って読む）。revision：リポジトリのその版（省くと既定のブランチの最新）。"""
+        dependencies = self._dependencies("依存先のライブラリの一覧")
+        if revision is None and target in {d.name for d in dependencies.all_dependencies()}:
+            return dependencies.dependency_libraries(target)
+        from .settings import qualify
+        url = self.repository.github.get_repository(qualify(target)).clone_url
+        return dependencies.repository_libraries(url, revision)
 
     def dependencies(self, *, fetch: bool = False, all: bool = False) -> tuple[DependencyState, ...]:
         """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。

@@ -267,10 +267,10 @@ function formRender(root, props, { h, emit, state }, extra = {}) {
     return blank(value) ? '' : Array.isArray(value) ? value.join('、') : String(value);
   }).replace(/（）|\(\)/g, ''));
 
-  // 読んだ一覧（rows・more）から、選べるもの・候補を作る
+  // 読んだ一覧（rows・more・choices）から、選べるもの・候補を作る
   const fromRows = (from) => {
     const key = from.value || 'name', where = from.where || {};
-    const source = (from.source === 'more' ? props.more : props.rows) || [];
+    const source = (from.source === 'more' ? props.more : from.source === 'choices' ? props.choices : props.rows) || [];
     return source.filter((row) => Object.keys(where).every((name) => same(row[name], where[name]))).map((row) => {
       const value = String(row[key] ?? ''), label = String(row[from.label || key] ?? '');
       const notes = [].concat(from.note || []).map((name) => {

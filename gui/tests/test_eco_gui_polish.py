@@ -74,8 +74,9 @@ class PolishEcobuild(FakeEcobuild):
             "project move": spec("change", ["name", "destination"], name=text, destination=text),
             "project remove": spec("confirm", ["name"], name=text),
             "deps list": spec("read", fetch=flag, all=flag), "deps sync": spec("change"),
-            "deps add": spec("change", ["repository"], repository=text, project=text, shared=flag, at=text),
-            "deps remove": spec("change", ["name"], name=text),
+            "deps add": spec("change", ["repository"], repository=text, project=text, library=text, shared=flag, at=text),
+            "deps remove": spec("change", ["name"], name=text, library=text),
+            "deps libraries": spec("read", ["target"], target=text, at=text),
             "deps update": spec("change", names=many, name=text, at=text),
             "template list": spec("read"), "template remove": spec("change", ["name"], name=text),
             "template add": spec("change", ["name", "source"], name=text, source=text),
@@ -101,6 +102,14 @@ class PolishEcobuild(FakeEcobuild):
             return {"ok": True, "result": {"module": "Game", "direct": ["Math"], "nodes": [
                 {"name": "Math", "url": "https://example.invalid/Math", "revision": "abc", "present": True, "depends_on": ["Core"]},
                 {"name": "Core", "url": "https://example.invalid/Core", "revision": "def", "present": False, "depends_on": []}]}}
+        if name == "deps libraries":
+            if args["target"] == "acme/Nope":
+                return {"ok": False, "error": {"code": "repository_not_found", "message": "acme/Nope は GitHub にありません"}}
+            return {"ok": True, "result": {"name": None if "/" in args["target"] else args["target"], "url": "https://example.invalid/Net",
+                                           "revision": "abc", "libraries": [
+                {"name": "Net", "kind": "static_library", "main": True, "linkable": True, "linked": ["Calc"]},
+                {"name": "Http", "kind": "shared_library", "main": False, "linkable": True, "linked": []},
+                {"name": "NetTest", "kind": "test", "main": False, "linkable": False, "linked": []}]}}
         if name == "deps versions":
             return {"ok": True, "result": {"name": args["name"], "url": "https://example.invalid/Math", "recorded": "abc", "default_branch": "main",
                                            "branch": "main", "branches": ["main", "dev"], "tags": [{"name": "v1.2.0", "sha": "abc"}],

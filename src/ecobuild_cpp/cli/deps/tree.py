@@ -6,7 +6,10 @@ AGENT = "read"
 
 
 def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> int:
-    """依存関係の図（依存先の依存先も）をツリーで表示します。2回目以降に出てくる依存先は、その先を省きます。"""
+    """依存関係の図（依存先の依存先も）をツリーで表示します。2回目以降に出てくる依存先は、その先を省きます。
+
+    名前の後の [ ] は、その依存先のうちリンクされているライブラリです（依存先と同じ名前のものだけなら省きます）。
+    """
 
     def render(r):
         if not r.direct:
@@ -20,7 +23,9 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
                 node = nodes[name]
                 note = ("（cloneなし：ecobuild deps sync で取得すると、その先も分かります）" if not node.present
                         else "（上に同じ）" if name in shown and node.depends_on else "")
-                out.append(f"{indent}{'└─ ' if last else '├─ '}{name} {node.revision[:7]}{note}")
+                # リンクされているライブラリ（依存先と同じ名前の1つだけ〔ふつうの main〕なら省く）
+                libraries = f" [{', '.join(node.libraries)}]" if node.libraries and tuple(node.libraries) != (name,) else ""
+                out.append(f"{indent}{'└─ ' if last else '├─ '}{name}{libraries} {node.revision[:7]}{note}")
                 if name in shown:
                     continue
                 shown.add(name)

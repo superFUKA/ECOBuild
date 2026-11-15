@@ -28,7 +28,7 @@ from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, D
                               DependencyTag, DependencyTree, DependencyVersions, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestEntry, TestResult)
 
-from . import _cppbuild, _migrate, _settings
+from . import _cppbuild, _migrate, _revisions, _settings
 
 _INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILINE)   # #include "…"（<…> は直さない）
 
@@ -902,7 +902,18 @@ jobs:
         """project を省くと、テスト用を除いてProjectが1つならそれ。library を省くと相手の main。
         既にある依存先の別のライブラリにも足せる（記録の版のまま）。"""
         target = project or self._only_project()
-        name, library = _cppbuild.link(self.root, target, url, shared=shared, revision=revision, library=library)
+        given = revision
+        # 既にある依存先なら、その手元の clone で（短いハッシュも解けるよう取り込み直して）。GitHub のブランチにないなら断る
+        existing = next((s for s in _cppbuild.git_sources(self.root) if _cppbuild._same_url(s.url, url)), None)
+        revision = _revisions.commit_for(url, revision, existing.directory if existing else None,
+                                         command=self.module.command) or revision
+        try:
+            name, library = _cppbuild.link(self.root, target, url, shared=shared, revision=revision, library=library)
+        except EcoBuildError as error:
+            if given is None or error.code != ErrorCode.CPPBUILD_ERROR:
+                raise
+            raise _revisions.unresolved(existing.name if existing else None, url, given, error,
+                                        command=self.module.command) from error
         revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
         # 依存先の依存先として既にcloneがあると、CppBuildは記録だけ進める。手元も記録の版に合わせる（作業版は触らない）。
         clone = next((c for c in self._align_dependencies() if c.name == name), None)
@@ -975,6 +986,8 @@ jobs:
     def repository_libraries(self, url: str, revision: str | None = None) -> DependencyLibraries:
         """一時的な場所に取って読む（CppBuild の管理ファイルだけを取り出す。終われば消す）。"""
         import tempfile
+        # 取った写しには GitHub のブランチが全部ある。手元にだけある（push していない）コミットなら、どこにあるかを添えて断る
+        revision = _revisions.commit_for(url, revision, command=self.module.command) or revision
         with tempfile.TemporaryDirectory(prefix="ecobuild-", ignore_cleanup_errors=True) as temporary:
             sha, libraries = _cppbuild.repository_libraries(url, revision, Path(temporary) / "r")
         return DependencyLibraries(None, url, sha, tuple(DependencyLibrary(l.name, l.kind, l.main, l.linkable)
@@ -999,8 +1012,17 @@ jobs:
             self._source(name)
         updated = {}
         for each in names:
-            before = self._source(each).revision
-            updated[each] = (before, _cppbuild.record_revision(self.root, each, revision))
+            source = self._source(each)
+            before = source.revision
+            # コミットのハッシュなら、手元の clone を取り込み直して長いハッシュに（CppBuild は短いハッシュを手元の clone の
+            # 中だけで解く）。GitHub のブランチにない（push していない）なら、どこにあるかを添えて断る
+            at = _revisions.commit_for(source.url, revision, source.directory, command=self.module.command) or revision
+            try:
+                updated[each] = (before, _cppbuild.record_revision(self.root, each, at))
+            except EcoBuildError as error:
+                if revision is None or error.code != ErrorCode.CPPBUILD_ERROR:
+                    raise
+                raise _revisions.unresolved(each, source.url, revision, error, command=self.module.command) from error
         changes = []
         for change in self._align_dependencies():
             if change.name not in updated:
@@ -1029,8 +1051,9 @@ jobs:
         default = found.group(1) if found else (branches[0] if branches else "")
         shown = branch or default
         if shown not in branches:
-            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"依存先 {name} にブランチ {shown} はありません。",
-                                hint=f"ブランチ：{'、'.join(branches) or 'なし'}")
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"依存先 {name} の GitHub にブランチ {shown} はありません。",
+                                hint=(_revisions.branch_hint(source.url, shown, command=self.module.command) or "")
+                                + f"GitHub のブランチ：{'、'.join(branches) or 'なし'}")
         # タグの指すコミット：注釈付きのタグは *objectname、軽いタグは objectname
         tags = tuple(DependencyTag(tag, peeled or sha, date) for tag, peeled, sha, date in _fields(clone.output(
             "for-each-ref", "--sort=-creatordate",

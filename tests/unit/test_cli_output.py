@@ -1,5 +1,6 @@
 """CLI の共通の出力：--help（テキスト・JSON）、誤りの JSON の形、ログ（時刻・長い引数・頼んだ側の run・誤りの記録）。"""
 
+import errno
 import io
 import json
 
@@ -140,6 +141,30 @@ def test_unreachable_directory_keeps_the_reason():
     from ecobuild_cli import _directory_problem
     message = _directory_problem("//server/share", PermissionError(errno.EACCES, "アクセスが拒否されました"))
     assert message == "-C の場所 //server/share へ移れません：アクセスが拒否されました"
+
+
+class _LostWrite(io.StringIO):
+    """Windows で 8KB を超える書き込みが、読む側が閉じたパイプで失敗した：データは残らず、後の flush は成功する。"""
+
+    def write(self, text):
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    def fileno(self):
+        raise io.UnsupportedOperation("fileno")
+
+
+class _NoDescriptor(io.StringIO):
+    def fileno(self):
+        raise io.UnsupportedOperation("fileno")
+
+
+def test_lost_large_write_ends_quietly(outside, monkeypatch):
+    monkeypatch.setattr("sys.stdout", _LostWrite())
+    monkeypatch.setattr("sys.stderr", _NoDescriptor())   # 終わりに出力を捨てる先へ付け替える（_quiet_output）のを、試験の出力に及ぼさない
+    with pytest.raises(SystemExit):
+        main(["--help", "--json"])
+    events = [e["event"] for e in log_entries()]
+    assert "command.output_closed" in events and "command.crash" not in events and "command.error" not in events
 
 
 def test_broken_pipe_to_a_child_is_not_a_closed_output():

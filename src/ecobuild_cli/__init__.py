@@ -119,6 +119,7 @@ def main(argv: list[str] | None = None) -> None:
     （Ctrl+C の command.interrupted・出力の先が閉じた command.output_closed）は誤りではないので、command.error を書かず、
     command.end を warning にする。"""
     use_utf8_when_redirected()
+    unguard = _output.guard_output()
     _help.install()
     args = list(sys.argv[1:] if argv is None else argv)
     _log.start(args)
@@ -148,6 +149,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(code) from None
     finally:
         _log.finish(code)
+        unguard()
 
 
 def _quiet_output() -> None:

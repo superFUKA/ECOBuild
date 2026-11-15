@@ -68,9 +68,22 @@ def test_unpushed_commit_says_where_it_is(short_tmp):
     assert "push" in error.value.hint and str(engine.root) in error.value.hint
 
 
-def test_unknown_commit_explains_in_japanese(short_tmp):
+def test_unknown_commit_is_refused_and_the_record_is_kept(short_tmp):
     _, game = _game_with_engine(short_tmp)
-    with pytest.raises(Exception) as error:
-        game.update_dependencies("Engine", "abcdef12")
-    assert error.value.message.startswith("依存先 Engine の版 abcdef12 を、GitHub の")
-    assert "deps versions Engine" in error.value.hint and "長いハッシュ" in error.value.hint
+    before = next(d for d in game.dependencies() if d.name == "Engine").recorded
+    for revision in ("abcdef12", "1" * 40):   # 依存先の clone を取り込み直しても、ない
+        with pytest.raises(Exception) as error:
+            game.update_dependencies("Engine", revision)
+        assert error.value.code == "dependency_revision_not_found" and "deps versions" in error.value.hint
+    assert next(d for d in game.dependencies() if d.name == "Engine").recorded == before
+
+
+def test_hex_like_branch_name_is_a_branch(short_tmp):
+    """16進に見えるブランチ名（cafe1234 等）は、ハッシュではなくブランチとして選ぶ。"""
+    engine, game = _game_with_engine(short_tmp)
+    name = git(engine.root, "rev-parse", "HEAD")[:8]   # 今のコミットの短いハッシュと同じ名前
+    tip = _commit(engine.root, name, "#pragma once\n// branch\n")
+    git(engine.root, "push", "--quiet", "origin", name)
+    git(engine.root, "branch", "-D", name)
+    game.update_dependencies("Engine", name)
+    assert next(d for d in game.dependencies() if d.name == "Engine").recorded == tip

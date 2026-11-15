@@ -905,12 +905,13 @@ jobs:
         given = revision
         # 既にある依存先なら、その手元の clone で（短いハッシュも解けるよう取り込み直して）。GitHub のブランチにないなら断る
         existing = next((s for s in _cppbuild.git_sources(self.root) if _cppbuild._same_url(s.url, url)), None)
-        revision = _revisions.commit_for(url, revision, existing.directory if existing else None,
-                                         command=self.module.command) or revision
+        resolved = _revisions.commit_for(url, revision, existing.directory if existing else None, command=self.module.command)
         try:
-            name, library = _cppbuild.link(self.root, target, url, shared=shared, revision=revision, library=library)
+            name, library = _cppbuild.link(self.root, target, url, shared=shared, revision=resolved or revision,
+                                           library=library)
         except EcoBuildError as error:
-            if given is None or error.code != ErrorCode.CPPBUILD_ERROR:
+            # 版を確かめられた（resolved）なら、失敗はほかの理由（構成の失敗等）：そのまま
+            if given is None or resolved is not None or error.code != ErrorCode.CPPBUILD_ERROR:
                 raise
             raise _revisions.unresolved(existing.name if existing else None, url, given, error,
                                         command=self.module.command) from error
@@ -1016,11 +1017,12 @@ jobs:
             before = source.revision
             # コミットのハッシュなら、手元の clone を取り込み直して長いハッシュに（CppBuild は短いハッシュを手元の clone の
             # 中だけで解く）。GitHub のブランチにない（push していない）なら、どこにあるかを添えて断る
-            at = _revisions.commit_for(source.url, revision, source.directory, command=self.module.command) or revision
+            resolved = _revisions.commit_for(source.url, revision, source.directory, command=self.module.command)
             try:
-                updated[each] = (before, _cppbuild.record_revision(self.root, each, at))
+                updated[each] = (before, _cppbuild.record_revision(self.root, each, resolved or revision))
             except EcoBuildError as error:
-                if revision is None or error.code != ErrorCode.CPPBUILD_ERROR:
+                # 版を確かめられた（resolved）なら、失敗はほかの理由：そのまま
+                if revision is None or resolved is not None or error.code != ErrorCode.CPPBUILD_ERROR:
                     raise
                 raise _revisions.unresolved(each, source.url, revision, error, command=self.module.command) from error
         changes = []

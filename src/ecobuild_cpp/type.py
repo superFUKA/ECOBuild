@@ -25,10 +25,10 @@ from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
 from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, DependencyLibraries, DependencyLibrary,
                               DependencyLink, DependencyNode, DependencyState,
-                              DependencyTag, DependencyTree, DependencyVersions, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
+                              DependencyTag, DependencyTree, DependencyVersions, DependencyWorkResult, DependencyWorkSource, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestEntry, TestResult)
 
-from . import _cppbuild, _migrate, _revisions, _settings
+from . import _cppbuild, _migrate, _revisions, _settings, _work
 
 _INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILINE)   # #include "…"（<…> は直さない）
 
@@ -1001,7 +1001,8 @@ jobs:
         sources, edges = _cppbuild.dependency_graph(self.root)
         libraries = _cppbuild.dependency_libraries_in_use(self.root)
         nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name], libraries.get(s.name, ()),
-                                     not s.present and _migrate.is_old(Path(s.directory) / s.path))
+                                     not s.present and _migrate.is_old(Path(s.directory) / s.path),
+                                     _work.read(Git(Path(s.directory))) if s.present else None)
                       for s in sources)
         return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 
@@ -1083,8 +1084,8 @@ jobs:
             clone = Git(source.directory, command=self.module.command)
             head = clone.rev_parse("HEAD")
             branch = clone.current_branch()
-            if branch is not None and wm.is_task_branch(branch):
-                # 依存先の中で task start をした作業版（I-019）。記録の版へ切り替えない。
+            if _work.read(clone) is not None:
+                # 作業版（deps work・依存先の中で task start をしたもの〔I-019〕）。記録の版へ切り替えない。
                 changes.append(DependencyChange(source.name, "skipped", f"作業版です（{branch}）"))
                 continue
             if head == source.revision and branch is None:
@@ -1116,10 +1117,74 @@ jobs:
         clone = Git(directory, command=self.module.command)
         head = clone.rev_parse("HEAD")
         branch = clone.current_branch()
-        if branch is not None and wm.is_task_branch(branch):
+        work = _work.read(clone)
+        if work is not None:
             state = "working"
         elif not clone.working_tree().clean:
             state = "modified"
         else:
             state = "aligned" if head == source.revision else "differs"
-        return DependencyState(source.name, source.url, source.revision, head, state, branch)
+        return DependencyState(source.name, source.url, source.revision, head, state, branch, work=work)
+
+    def work_dependency(self, name: str, *, task: int | None = None, branch: str | None = None,
+                        done: bool = False) -> DependencyWorkResult:
+        """依存先の手元の clone を作業版にする・取り直す・記録の版に戻す（_work）。記録（git_sources の版）は変えない。"""
+        source = self._any_source(name)
+        directory = Path(source.directory)
+        command = self.module.command
+        if not (directory / ".git").exists():
+            if done:
+                return DependencyWorkResult(name, "done", None, source.revision, None, self.sync_dependencies())
+            _cppbuild.fetch_dependencies(self.root)   # 記録の版で clone してから切り替える
+        clone = Git(directory, command=command)
+        current = _work.read(clone)
+        previous = clone.rev_parse("HEAD")
+        if not clone.working_tree().clean:
+            raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"依存先 {name} の手元の clone（{directory}）に、未コミットの変更があります。",
+                                hint="deps/ の中で直したものを消さないよう止めました。依存先を変えるなら、依存先のモジュールの"
+                                     f"タスクで直してください（要らない変更なら、その clone の中で消してから、もう一度）。")
+        if done:
+            return self._end_work(source, clone, current, previous)
+        if task is None and branch is None:
+            if current is None:
+                raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"依存先 {name} は作業版ではありません。",
+                                    hint=f"作業版にするには {self.module.op('deps work')} {name} --task <依存先のタスクの番号>"
+                                         "（か --branch <ブランチ>）。")
+            branch = current.branch
+        wanted, origin, place = _work.locate(name, source.url, task=task, branch=branch, command=command)
+        commit = _work.fetch(clone, place, wanted)
+        # deps/ の中でコミットしたもの（取ってきた先にないもの）を、切り替えで消さない
+        if (current is not None and previous != commit and previous != current.commit
+                and not clone.is_ancestor(previous, commit)):
+            raise EcoBuildError(ErrorCode.COMMITS_WOULD_BE_LOST,
+                                f"依存先 {name} の手元の clone（{current.branch}）に、取ってくる先にないコミットがあります。",
+                                hint="依存先を変えるのは、依存先のモジュールのタスク（その作業空間）でしてください。"
+                                     "この clone のコミットが要らなければ、その clone の中で消してから、もう一度。")
+        clone.run("switch", "--quiet", "--force-create", wanted, commit)
+        work = DependencyWorkSource(wanted, wm.task_number(wanted), origin, place, commit)
+        _work.remember(clone, work)
+        fetched, _ = _cppbuild.fetch_dependencies(self.root)   # 作業版が足した依存先の依存先
+        self._update()
+        if current is not None and current.branch == wanted:
+            action = "unchanged" if previous == commit else "refreshed"
+        else:
+            action = "switched"
+        return DependencyWorkResult(name, action, work, source.revision, previous,
+                                    tuple(DependencyChange(each, "cloned") for each in fetched))
+
+    def _end_work(self, source, clone: Git, current, previous: str | None) -> DependencyWorkResult:
+        """作業版をやめ、記録の版に戻す（deps sync と同じく、ほかの依存先も記録の版に合わせる）。"""
+        if current is not None and previous != current.commit:
+            clone.fetch()
+            if not clone.output("branch", "--remotes", "--contains", previous):
+                raise EcoBuildError(ErrorCode.COMMITS_WOULD_BE_LOST,
+                                    f"依存先 {source.name} の手元の clone（{current.branch}）に、GitHub にもこのPCの作業空間から"
+                                    "取ったものにもないコミットがあります。",
+                                    hint="依存先の中で task start をして作業したなら、その clone から push してから戻してください。")
+        if clone.rev_parse(f"{source.revision}^{{commit}}") is None:
+            clone.fetch()
+        clone.run("switch", "--quiet", "--detach", source.revision)
+        if current is not None and current.origin is not None:   # deps work が作ったブランチ（取ってきたものだけ）は消す
+            clone.run("branch", "--quiet", "--delete", "--force", current.branch, check=False)
+        _work.forget(clone)
+        return DependencyWorkResult(source.name, "done", None, source.revision, previous, self.sync_dependencies())

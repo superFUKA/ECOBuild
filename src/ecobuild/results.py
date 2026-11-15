@@ -198,6 +198,7 @@ class DependencyNode:
     depends_on: tuple[str, ...]      # このモジュールが依存する先（名前）
     libraries: tuple[str, ...] = ()  # この依存先のうち、リンクされているライブラリ（このモジュールと、依存先の依存先を記録するものから）
     outdated: bool = False           # 手元の clone が、型の古い形式（present は偽。新しくすれば、その先も分かる）
+    work: "DependencyWorkSource | None" = None   # 手元の clone が作業版（deps work）なら、どのブランチをどこから取ったか
 
 
 @dataclass(frozen=True)
@@ -249,6 +250,28 @@ class DependencyState:
     moved_to: str | None = None      # remote が moved：新しい 所有者/名前
     via: str | None = None           # 依存先の依存先なら、それを記録している依存先の名前
     links: tuple["DependencyLink", ...] = ()   # このモジュールのどの Project が、依存先のどのライブラリにリンクしているか（直接の依存先）
+    work: "DependencyWorkSource | None" = None   # state が working：どのブランチを、どこから取ったか（deps work）
+
+
+@dataclass(frozen=True)
+class DependencyWorkSource:
+    """依存先の作業版（deps work）：手元の clone に取ってきたブランチと、その取ってきた先。"""
+    branch: str                      # 依存先のブランチ（タスクブランチ task/<番号>-<名前> 等）
+    task: int | None = None          # 依存先のリポジトリのタスク（Issue）の番号（タスクブランチなら）
+    origin: str | None = None        # local：このPCの依存先のモジュール（その作業空間）／github：GitHub／None：分からない（手で切り替えた等）
+    place: str | None = None         # 取ってきた場所（local なら作業空間・clone のパス、github なら URL）
+    commit: str | None = None        # 最後に取ってきたコミット
+
+
+@dataclass(frozen=True)
+class DependencyWorkResult:
+    """deps work の結果。"""
+    name: str
+    action: str                      # switched（作業版にした）／refreshed（取り直した）／unchanged（取り直したが同じ）／done（記録の版に戻した）
+    work: DependencyWorkSource | None   # 作業版（done なら None）
+    recorded: str                    # 記録の版（変えない）
+    previous: str | None = None      # 前の手元の版
+    changes: tuple["DependencyChange", ...] = ()   # done：記録の版に合わせた結果（deps sync と同じ）。ほかは、新しく取った依存先の依存先
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ from .errors import EcoBuildError, ErrorCode, operation
 if TYPE_CHECKING:
     from .config import ModuleConfig, Profile
     from .module import Module
-    from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, DependencyTree, FilesChanged,
+    from .results import (BuildOptions, BuildResult, DependencyChange, DependencyState, DependencyTree, DependencyWorkResult, FilesChanged,
                           LinkResult, PrepareResult, ProjectSummary, RunResult, TestEntry, TestResult)
     from .results import DoctorItem
 
@@ -323,6 +323,13 @@ class HasDependencies(ABC):
     @abstractmethod
     def sync_dependencies(self) -> tuple["DependencyChange", ...]:
         ...
+
+    def work_dependency(self, name: str, *, task: int | None = None, branch: str | None = None,
+                        done: bool = False) -> "DependencyWorkResult":
+        """依存先 name の手元の clone を、依存先のブランチ（task：依存先のリポジトリのタスクのブランチ、branch：任意の
+        ブランチ）の最新にする（作業版）。記録の版は変えない。どちらも省くと今の作業版の取り直し。done：作業版をやめ、
+        記録の版に戻す。"""
+        raise self.not_supported("依存先の作業版")   # type: ignore[attr-defined]
 
 
 # 登録 ----------------------------------------------------------------------------

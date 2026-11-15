@@ -348,6 +348,15 @@ def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
     put(relay, sync["id"], "form", "submitted", values={})
     assert called(relay, "deps sync") == [{}] and ran_in(relay, "deps sync") == GAME  # 手元を合わせるだけ：モジュールの場所で
 
+    # 作業版にする：番号を入れる窓（今の作業版の番号が入っている）。記録を変えないので、作業空間を選ばず表で見ている場所で
+    work = form(relay, window, "deps", "dep_work", "mod-cpp-dep-work", target="Math", value="12")
+    assert work["args"] == {"module": GAME, "name": "Math", "task": "12"}
+    assert nodes(relay, work["id"])["form"]["props"]["initial"] == {"task": "12"}
+    put(relay, work["id"], "form", "submitted", values={"task": 12, "branch": ""})
+    assert called(relay, "deps work") == [{"name": "Math", "task": 12}] and ran_in(relay, "deps work") == GAME
+    put(relay, window, "deps", "action", name="dep_work_done", target="Math")   # 記録の版に戻す：窓を開かずに
+    assert called(relay, "deps work")[-1] == {"name": "Math", "done": True}
+
     remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")
     # 外すライブラリを選べる：リンクしているものだけ（リンクしている Project を添えて）
     assert called(relay, "deps libraries")[-1] == {"target": "Math", "linked": True}

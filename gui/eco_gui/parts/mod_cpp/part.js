@@ -5,6 +5,9 @@ const KIND = { static_library: 'ライブラリ', shared_library: '共有ライ�
 const DEP_STATE = { aligned: ['記録の版', 'ok'], differs: ['記録と別の版', 'warn'], modified: ['未コミットの変更あり', 'warn'], working: ['作業版', ''], missing: ['cloneなし', 'bad'] };
 const DEP_REMOTE = { ok: ['GitHubにある', 'ok'], archived: ['アーカイブ済み（更新されない）', 'warn'], moved: ['名前が変わった', 'warn'], gone: ['GitHubにない', 'bad'], unknown: ['確認できない', ''] };
 const ATTACHED = ['test', 'bench', 'benchmark'];
+// 作業版（deps work）の説明：「Engine #12・このPCの作業空間」（分からなければブランチ）
+const WORK_FROM = { local: 'このPCの作業空間', github: 'GitHub' };
+const workText = (name, w) => [w.task != null ? name + ' #' + w.task : '', WORK_FROM[w.origin] || ''].filter(Boolean).join('・') || w.branch || '';
 const short = (sha) => (sha ? String(sha).slice(0, 8) : '-');
 const two = (n) => String(n).padStart(2, '0');
 const localTime = (iso) => {
@@ -63,7 +66,8 @@ export default {
       row.addEventListener('contextmenu', async (event) => {
         event.preventDefault();
         const id = await menu(event, items.map((i) => (i.separator ? i : { ...i, ...(locked(i.id) ? { disabled: true, reason: NO_WS } : {}) })));
-        if (id) act(id, target);
+        const chosen = items.find((i) => i.id === id);
+        if (id) act(id, target, chosen && chosen.value);
       });
       return row;
     };
@@ -132,7 +136,7 @@ export default {
           if ((d.links || []).length) for (const l of d.links) users.append(pill(l.project + ' → ' + (l.library || String(l.id || '').slice(0, 8) + '（clone なし）')), ' ');
           else for (const p of projects.filter((x) => (x.links || []).some((l) => linksTo(l, d.name)))) users.append(pill(p.name), ' ');
           const cells = [h('td', {}, h('strong', {}, d.name), sub(d.url || '')), h('td', { class: 'mono' }, short(d.recorded)),
-            h('td', { class: 'mono' }, short(d.local), d.branch ? sub(d.branch) : ''), h('td', {}, pill(label, tone))];
+            h('td', { class: 'mono' }, short(d.local), d.branch ? sub(d.branch) : ''), h('td', {}, pill(label, tone), d.work ? sub(workText(d.name, d.work)) : '')];
           if (fetched) {
             const cell = h('td', {});
             if (d.remote) {
@@ -147,8 +151,11 @@ export default {
           const remove = button('リンクを外す…', 'dep_remove', d.name, 'small danger-text');
           cells.push(users, h('td', { class: 'row-actions' }, button('更新', 'dep_update', d.name, 'small', 'GitHub の既定のブランチの最新にします'),
             button('版を選ぶ…', 'dep_versions', d.name, 'small', 'ブランチ・タグ・コミットから選んで記録します（前の版に戻すのにも）'), remove));
+          // 作業版（記録を変えず、手元の clone だけを依存先の作りかけの版に）：作業空間がなくてもできる
+          const work = [{ id: 'dep_work', label: d.state === 'working' ? '作業版を取り直す・変える…' : '作業版にする…', value: d.work && d.work.task != null ? String(d.work.task) : '' },
+            ...(d.state === 'working' ? [{ id: 'dep_work_done', label: '記録の版に戻す' }] : [])];
           return rowMenu(h('tr', {}, ...cells), d.name, [{ id: 'dep_update', label: '更新' }, { id: 'dep_versions', label: '版を選ぶ…' },
-            { id: 'dep_remove', label: 'リンクを外す…', danger: true }]);
+            { separator: true }, ...work, { separator: true }, { id: 'dep_remove', label: 'リンクを外す…', danger: true }]);
         })));
       }
       // 版を選ぶ（押した依存先の、タグと、ブランチのコミットの新しい順）
@@ -189,8 +196,9 @@ export default {
           const again = shown.has(name) && (n.depends_on || []).length > 0;
           shown.add(name);
           const note = n.outdated ? pill('古い形式の clone（その先は不明）', 'bad') : !n.present ? pill('cloneなし（その先は不明）', 'bad') : again ? pill('上に同じ') : '';
+          const working = n.work ? pill('作業版：' + workText(name, n.work)) : '';
           const libraries = (n.libraries || []).length && !(n.libraries.length === 1 && n.libraries[0] === name) ? h('span', { class: 'dimmed' }, '[' + n.libraries.join(', ') + ']') : '';
-          return h('li', {}, h('div', { class: 'branch' }, h('span', { class: 'branch-name' }, name), libraries, h('span', { class: 'mono dimmed' }, short(n.revision)), note),
+          return h('li', {}, h('div', { class: 'branch' }, h('span', { class: 'branch-name' }, name), libraries, h('span', { class: 'mono dimmed' }, short(n.revision)), working, note),
             !again && (n.depends_on || []).length ? walk(n.depends_on) : '');
         }));
         out.push(h('h4', { class: 'subhead' }, '依存関係の図'),

@@ -1,4 +1,4 @@
-"""モジュール › 依存先：C++ のモジュールの依存先の状態と依存関係の図。足す・更新・版を選ぶ・外す。
+"""モジュール › 依存先：C++ のモジュールの依存先の状態と依存関係の図。足す・更新・版を選ぶ・作業版にする・外す。
 
 部品 mod-cpp が表を描く。変える操作は、入力の窓（mod-cpp-…：共通の部品 form）を重ねて開く。管理ファイル（ecobuild.toml・CMake）が
 変わる操作は、窓の中で選んだタスクブランチの作業空間で実行する。同じコマンドの読みは1回だけ実行され、いくつもの要る情報へ出る。
@@ -46,6 +46,9 @@ SCREEN = {
         {"on": "deps.action", "when": {"name": "dep_remove"}, "open": "mod-cpp-dep-remove", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}}},
         {"on": "deps.action", "when": {"name": "dep_versions"}, "run": "deps versions", "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "branch": {"payload": "value"}}, "set": {"cpp_versions": {"result": ""}}},
         {"on": "deps.action", "when": {"name": "dep_versions_close"}, "set": {"cpp_versions": None}},
+        # 作業版（記録は変えない。表で見ている場所の deps/ で）
+        {"on": "deps.action", "when": {"name": "dep_work"}, "open": "mod-cpp-dep-work", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "task": {"payload": "value"}}},
+        {"on": "deps.action", "when": {"name": "dep_work_done"}, "run": "deps work", "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "done": True}, "notify": "依存先を記録の版に戻しました。"},
         {"on": "deps.action", "when": {"name": "dep_use"}, "open": "mod-cpp-dep-update", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "at": {"payload": "value"}}},
     ],
 }

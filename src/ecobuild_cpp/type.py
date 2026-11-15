@@ -924,27 +924,35 @@ jobs:
         （記録と clone は残す）。"""
         source = self._source(name)
         if library is not None:
-            projects = _cppbuild.unlink_library(self.root, name, library)
-            if _cppbuild.dependency_links(self.root).get(name):
+            projects, whole = _cppbuild.unlink_library(self.root, name, library)
+            if not whole:
                 return LinkResult(name, source.url, source.revision, projects, (library,))
-            # 最後の1つだった：リンクのない記録と clone を残さないよう、依存先ごと外す
-            whole = self.unlink(name)
-            return replace(whole, projects=tuple(dict.fromkeys((*projects, *whole.projects))), libraries=(library,),
-                           dependency_removed=True)
+            # 最後の1つだった：記録も外した（リンクのない記録と clone を残さない）
+            return LinkResult(name, source.url, source.revision, projects, (library,), self._remove_clone(source),
+                              dependency_removed=True)
         projects = _cppbuild.unlink(self.root, name)
+        return LinkResult(name, source.url, source.revision, projects, self._remove_clone(source))
+
+    def _remove_clone(self, source) -> bool:
+        """外した依存先の clone を、記録の版のままなら消す（作業中・変更ありなら残す）。消したら True。"""
         directory = Path(source.directory)
         removable = directory.is_dir() and self._dependency_state(source).state == "aligned"
         if removable:
             remove_tree(directory)
-        return LinkResult(name, source.url, source.revision, projects, removable)
+        return removable
 
     def dependencies(self) -> tuple[DependencyState, ...]:
         links = _cppbuild.dependency_links(self.root)
         return tuple(replace(self._dependency_state(s), links=tuple(DependencyLink(p, l, g) for p, l, g in links.get(s.name, ())))
                      for s in _cppbuild.git_sources(self.root))
 
-    def dependency_libraries(self, name: str, revision: str | None = None) -> DependencyLibraries:
-        """revision：記録の版でなく、その版（GitHub から一時的に取って読む）。"""
+    def dependency_libraries(self, name: str, revision: str | None = None, linked_only: bool = False) -> DependencyLibraries:
+        """revision：記録の版でなく、その版（GitHub から一時的に取って読む）。linked_only：リンクしているものだけを、記録から
+        （clone がなくても・古い形式でも読める）。"""
+        if linked_only:
+            source, linked = _cppbuild.linked_libraries_of(self.root, name)
+            return DependencyLibraries(name, source.url, source.revision, tuple(
+                DependencyLibrary(label, kind, main, True, projects) for label, kind, main, projects in linked))
         users: dict[str, list[str]] = {}
         for project, library, guid in _cppbuild.dependency_links(self.root).get(name, ()):
             users.setdefault(library or guid, []).append(project)

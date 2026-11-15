@@ -19,7 +19,8 @@ SCREEN = {
                  "options_from": {"source": "rows", "value": "name", "label": "name", "note": ["kind", "linked"],
                                   "note_labels": {
                      "static_library": "静的ライブラリ", "shared_library": "共有ライブラリ", "interface_library": "ヘッダーだけのライブラリ"}},
-                 "help": "ライブラリを選ぶと、そのライブラリへのリンクだけを外します（かっこの中は、リンクしている Project）。記録と clone は残ります。"},
+                 "help": "ライブラリを選ぶと、そのライブラリへのリンクだけを外します（かっこの中は、リンクしている Project）。記録と clone は"
+                         "残ります。ただし、それが最後のリンクなら依存先ごと外します。"},
                 {"name": "place", "label": "変更するタスクブランチ（作業空間）", "type": "select", "required": True,
                  "options_from": {"source": "more", "value": "path", "label": "branch", "note": "path", "where": {"review": None}},
                  "empty_text": "タスクブランチの作業空間がありません（タスク管理で「作業を開始」）",

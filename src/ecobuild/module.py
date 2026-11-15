@@ -1585,7 +1585,8 @@ class Module:
         self.require_task_branch("依存先のリンクの解除")
         before = self.own_changes()
         result = self._dependencies("依存先").unlink(name, library)
-        self.commit_own_changes(f"{result.name}/{library} のリンクを外す" if library else f"{result.name} のリンクを外す", before)
+        self.commit_own_changes(f"{result.name}/{library} のリンクを外す" if library and not result.dependency_removed
+                                else f"{result.name} のリンクを外す", before)
         return result
 
     def dependency_libraries(self, target: str, *, revision: str | None = None, linked_only: bool = False) -> DependencyLibraries:
@@ -1594,8 +1595,7 @@ class Module:
         ブランチの最新）。linked_only：依存先のときだけ読む（ほかは空。リンクを外す画面など）。"""
         dependencies = self._dependencies("依存先のライブラリの一覧")
         if target in {d.name for d in dependencies.all_dependencies()}:   # 依存先の名前：記録の url（--at ならその版）
-            found = dependencies.dependency_libraries(target, revision)
-            return replace(found, libraries=tuple(l for l in found.libraries if l.linked)) if linked_only else found
+            return dependencies.dependency_libraries(target, revision, linked_only)
         if linked_only:   # 依存先でなければ、リンクしているものはない（GitHub へは行かない）
             return DependencyLibraries(None, "", "", ())
         from .settings import qualify

@@ -1075,7 +1075,7 @@ def repository_libraries(url: str, revision: str | None, directory: Path) -> tup
     """リポジトリ url の revision（None は既定のブランチの最新）を directory（まだない一時的な場所）に取り、
     (読んだコミット, ライブラリの一覧) を返す。取り出すのは CppBuild の管理ファイル（.ecobuild/.cppbuild）だけ。"""
     with _clone_config():
-        cloned = Git(directory.parent).run("clone", "--quiet", "--no-checkout", "--filter=blob:none", "--no-tags", "--",
+        cloned = Git(directory.parent).run("clone", "--quiet", "--no-checkout", "--filter=blob:none", "--",
                                            url, str(directory), check=False)
     if not cloned.ok:
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"{url} を取得できません。", details=cloned.output)
@@ -1251,9 +1251,10 @@ def _choices_after_failure(url: str, revision: str | None, solution: Solution | 
     return "、".join(l.name + ("（main）" if l.main else "") for l in libraries if l.linkable) or "なし"
 
 
-def unlink_library(root: Path, name: str, library: str) -> tuple[str, ...]:
+def unlink_library(root: Path, name: str, library: str) -> tuple[tuple[str, ...], bool]:
     """依存先 name のライブラリ library へのリンクだけを、すべての Project から外す（記録と clone は残す）。
-    外した Project を返す。"""
+    それが最後のリンクなら、同じ1つのトランザクションの中で記録も外す（リンクのない記録を残さない。clone は残す）。
+    (外した Project, 依存先ごと外したか) を返す。"""
     solution = open_solution(root)
     if not any(s.name == name and s.recorded_by is None for s in solution.git_sources()):
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
@@ -1267,20 +1268,50 @@ def unlink_library(root: Path, name: str, library: str) -> tuple[str, ...]:
                             hint=f"リンクしているライブラリ：{'、'.join(shown) or 'なし'}（依存先ごと外すなら --library を省きます。"
                                  f"名前の代わりの8文字は、clone がないため名前が分からないライブラリの識別子です）。")
     [target] = guids
+    whole = not ({guid for _, _, guid in linked} - {target})
     message = f"依存先 {name} の {library} へのリンクを外せません。"
     removed = []
     try:
-        with _transaction(solution, message):
+        # 依存先ごと外すときは、古い形式の依存先も外せるように形式を確かめない（unlink と同じ）
+        with _transaction(solution, message, check_formats=not whole):
             for project in solution.subprojects():
                 for key, dependency in list(project.settings.get().dependencies.items()):
                     if getattr(dependency, "subproject_guid", None) == target:
                         project.settings.unlink(key)
                         removed.append(project.name)
+            if whole:
+                solution.unlink_git_source(name)   # 残りのリンクはないので、記録だけ外れる（clone は残る）
     except EcoBuildError:
         raise
     except Exception as error:
         raise _cppbuild_error(message, error) from error
-    return tuple(dict.fromkeys(removed))
+    return tuple(dict.fromkeys(removed)), whole
+
+
+def linked_libraries_of(root: Path, name: str) -> tuple[object, list[tuple[str, str, bool, tuple[str, ...]]]]:
+    """直接の依存先 name のうち、このモジュールがリンクしているもの（記録から。形式は確かめない）。
+    (CppBuild の GitSourceStatus, [(名前, 種類, main か, リンクしている Project)])。名前は clone がなければ識別子の頭8文字と
+    「（clone なし）」、種類・main は clone があるときだけ。"""
+    solution = open_solution(root)
+    source = next((s for s in solution.git_sources() if s.name == name and s.recorded_by is None), None)
+    if source is None:
+        raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+    known = {}
+    if source.present:
+        try:
+            known = {l.guid: l for l in libraries_of(Solution.open(source.config))}
+        except Exception:   # 読めなければ名前だけ（種類は補わない）
+            known = {}
+    users: dict[str, list[str]] = {}
+    labels: dict[str, str] = {}
+    for project, library, guid in dependency_links(root).get(name, ()):
+        users.setdefault(guid, []).append(project)
+        labels[guid] = library or f"{guid[:8]}（clone なし）"
+    result = []
+    for guid, projects in users.items():
+        library = known.get(guid)
+        result.append((labels[guid], library.kind if library else "", bool(library and library.main), tuple(projects)))
+    return source, sorted(result)
 
 
 def unlink(root: Path, name: str) -> tuple[str, ...]:

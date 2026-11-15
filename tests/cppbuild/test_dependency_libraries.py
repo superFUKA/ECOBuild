@@ -28,6 +28,8 @@ def _engine(base):
     git(engine.root, "add", "-A")
     git(engine.root, "commit", "--quiet", "-m", "Physics・Tool")
     git(engine.root, "push", "--quiet", "origin", "main")
+    git(engine.root, "tag", "v1")
+    git(engine.root, "push", "--quiet", "origin", "v1")
     return github
 
 
@@ -40,6 +42,7 @@ def test_choose_libraries_of_a_dependency(short_tmp):
 
     # まだ依存先でないリポジトリ：一時的に取って読む
     found = game.dependency_libraries("Engine")
+    assert game.dependency_libraries("Engine", revision="v1").revision == found.revision   # タグの版（まだ依存先でない）
     assert found.name is None and len(found.revision) == 40
     assert [(l.name, l.kind, l.main, l.linkable) for l in found.libraries] == [
         ("Engine", "static_library", True, True), ("Physics", "static_library", False, True),
@@ -92,12 +95,15 @@ def test_choose_libraries_of_a_dependency(short_tmp):
     # 依存先の名前と版：記録の url のその版を読み、リンクしているものを添える
     at = game.dependency_libraries("Engine", revision="main")
     assert at.name == "Engine" and {l.name: l.linked for l in at.libraries}["Engine"] == ("Game",)
+    tagged = game.dependency_libraries("Engine", revision="v1")   # タグの版も読める
+    assert tagged.name == "Engine" and "Physics" in [l.name for l in tagged.libraries]
     assert [l.name for l in game.dependency_libraries("Engine", linked_only=True).libraries] == ["Engine"]
     assert game.dependency_libraries("Nope", linked_only=True).libraries == ()   # 依存先でなければ GitHub へ行かない
 
     # 最後の1つ：リンクのない記録と clone を残さず、依存先ごと外す
     last = game.unlink("Engine", "Engine")
     assert (last.dependency_removed, last.libraries) == (True, ("Engine",)) and game.dependencies() == ()
+    assert git(game.root, "log", "-1", "--format=%s") == "Engine のリンクを外す"
 
     # clone がなくても外せる（名前が分からないものは識別子の頭で）
     game.link("Engine", library="Physics")
@@ -106,6 +112,8 @@ def test_choose_libraries_of_a_dependency(short_tmp):
     [state] = game.dependencies()
     assert sorted(l.library for l in state.links) == ["", ""] and all(len(l.id) == 36 for l in state.links)
     physics = _cppbuild.open_solution(short_tmp / "Engine").get_subproject("Physics").settings.get().guid
+    listed = game.dependency_libraries("Engine", linked_only=True)   # 外す窓の候補：clone がなくても記録から
+    assert sorted(l.name for l in listed.libraries) == sorted(f"{l.id[:8]}（clone なし）" for l in state.links)
     assert physics in {l.id for l in state.links}
     assert game.unlink("Engine", physics[:8]).libraries == (physics[:8],)
     [state] = game.dependencies()

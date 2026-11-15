@@ -3,6 +3,7 @@
 型ごとのコマンド（build・file・project 等）は型の拡張の cli パッケージにあり、今いるモジュールの型のものを重ねる（_types）。
 """
 
+import errno
 import os
 import sys
 import types
@@ -114,8 +115,11 @@ def _format_sections(sections):
 
 def main(argv: list[str] | None = None) -> None:
     """入口。-C <パス>（--directory）は、コマンドの前に書いて別のディレクトリで実行する（git -C と同じ）。
-    実行したことはログに残す（_log）。終了コードが0でなければ、どの出口でもログに command.error がある。"""
+    実行したことはログに残す（_log）。終了コードが0でなければ、どの出口でもログに command.error がある。ただし中断
+    （Ctrl+C の command.interrupted・出力の先が閉じた command.output_closed）は誤りではないので、command.error を書かず、
+    command.end を warning にする。"""
     use_utf8_when_redirected()
+    unguard = _output.guard_output()
     _help.install()
     args = list(sys.argv[1:] if argv is None else argv)
     _log.start(args)
@@ -128,13 +132,13 @@ def main(argv: list[str] | None = None) -> None:
         raise
     except KeyboardInterrupt:
         code = 130
-        _log.logger.warning("中断しました", extra={"event": "command.interrupted"})
+        _log.stopped("command.interrupted", "中断しました")
         raise
     except BaseException as error:
         code = 1
         if _output.output_closed(error):
             # 読む側が先に終わった（| head 等）：traceback を出さずに終える
-            _log.logger.warning("出力の先が閉じました", extra={"event": "command.output_closed"})
+            _log.stopped("command.output_closed", "出力の先が閉じました")
             _quiet_output()
             raise SystemExit(code) from None
         _log.logger.critical("予期しないエラー", exc_info=True, extra={"event": "command.crash"})
@@ -145,6 +149,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(code) from None
     finally:
         _log.finish(code)
+        unguard()
 
 
 def _quiet_output() -> None:
@@ -179,7 +184,7 @@ def _main(args: list[str]) -> None:
         try:
             os.chdir(args[1])
         except OSError as error:
-            _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
+            _usage_error(_directory_problem(args[1], error), json_output)
         args = args[2:]
     args = _suggest.rewrite(args, lambda words: _catalog.find_longest(build_cli(), words)[0] if words else None)   # -m → --message
     _output.attempted = _attempted(args)
@@ -270,6 +275,23 @@ def _usage_message(error: click.UsageError) -> str:
         return localized(error)
     except ImportError:  # 日本語化のない版
         return error.format_message()
+
+
+def _directory_problem(path: str, error: OSError) -> str:
+    """-C の場所へ移れなかった理由の文（OS の文は Windows では「指定されたファイルが見つかりません」等で、何のことか分かりにくい）。
+    ないと言うのは、その場所がない（ENOENT）ときだけ。届かないネットワークの場所・権限がない等は、OS の理由を添える。"""
+    if _missing(error):
+        return (f"-C の場所 {path} がありません（作業空間なら、片付けられた可能性があります。"
+                f"ecobuild workspace list で確かめてください）。")
+    if isinstance(error, NotADirectoryError):
+        return f"-C の場所 {path} はフォルダーではありません。"
+    return f"-C の場所 {path} へ移れません：{error.strerror or error}"
+
+
+def _missing(error: OSError) -> bool:
+    """その場所がないための失敗か（Windows では、ファイル・パスが見つからない〔2・3〕だけ。ネットワークの名前が見つからない等は
+    ENOENT になっても、ないとは限らない）。"""
+    return error.errno == errno.ENOENT and getattr(error, "winerror", None) in (None, 2, 3)
 
 
 def _usage_error(message: str, json_output: bool, *, hint: str | None = None) -> None:

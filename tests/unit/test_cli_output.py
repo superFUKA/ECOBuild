@@ -1,5 +1,6 @@
 """CLI の共通の出力：--help（テキスト・JSON）、誤りの JSON の形、ログ（時刻・長い引数・頼んだ側の run・誤りの記録）。"""
 
+import errno
 import io
 import json
 
@@ -123,6 +124,55 @@ def test_usage_error_has_the_same_shape(outside, capsys):
     assert [e for e in log_entries() if e["event"] == "command.error"][-1]["data"]["code"] == "usage_error"
 
 
+def test_missing_directory_is_said_in_japanese(outside, capsys):
+    gone = (outside / "w" / "1").as_posix()
+    code, found = document(capsys, "-C", gone, "status", "--json")
+    assert code == 2 and found["error"]["code"] == "usage_error"
+    assert found["error"]["message"].startswith(f"-C の場所 {gone} がありません")
+    (outside / "file.txt").write_text("", encoding="utf-8")
+    code, found = document(capsys, "-C", (outside / "file.txt").as_posix(), "status", "--json")
+    assert "フォルダーではありません" in found["error"]["message"]
+
+
+def test_unreachable_directory_keeps_the_reason():
+    """ない（ENOENT）とき以外（権限がない・届かないネットワークの場所等）は、ないと言わずに OS の理由を添える。"""
+    import errno
+
+    from ecobuild_cli import _directory_problem
+    message = _directory_problem("//server/share", PermissionError(errno.EACCES, "アクセスが拒否されました"))
+    assert message == "-C の場所 //server/share へ移れません：アクセスが拒否されました"
+
+
+class _LostWrite(io.StringIO):
+    """Windows で 8KB を超える書き込みが、読む側が閉じたパイプで失敗した：データは残らず、後の flush は成功する。"""
+
+    def write(self, text):
+        raise OSError(errno.EINVAL, "Invalid argument")
+
+    def fileno(self):
+        raise io.UnsupportedOperation("fileno")
+
+
+class _NoDescriptor(io.StringIO):
+    def fileno(self):
+        raise io.UnsupportedOperation("fileno")
+
+
+def test_lost_large_write_ends_quietly(outside, monkeypatch):
+    monkeypatch.setattr("sys.stdout", _LostWrite())
+    monkeypatch.setattr("sys.stderr", _NoDescriptor())   # 終わりに出力を捨てる先へ付け替える（_quiet_output）のを、試験の出力に及ぼさない
+    with pytest.raises(SystemExit):
+        main(["--help", "--json"])
+    events = [e["event"] for e in log_entries()]
+    assert "command.output_closed" in events and "command.crash" not in events and "command.error" not in events
+
+
+def test_broken_pipe_to_a_child_is_not_a_closed_output():
+    """自分の出力へは書ける：子プロセスの標準入力へ書けなかった等の BrokenPipeError は、中断ではなく誤り。"""
+    from ecobuild_cli._output import output_closed
+    assert output_closed(BrokenPipeError(32, "Broken pipe")) is False
+
+
 def test_unexpected_exception_is_returned_as_json_and_logged(outside, capsys):
     def action(inv):
         raise ValueError("No closing quotation")
@@ -169,6 +219,18 @@ def test_closed_output_ends_quietly(outside, monkeypatch, capsys):
     assert stop.value.code == 1
     events = [e["event"] for e in log_entries()]
     assert "command.output_closed" in events and "command.crash" not in events
+    assert "command.error" not in events      # 失敗ではなく中断（GUI が読みをやめた等）
+    end = next(e for e in log_entries() if e["event"] == "command.end")
+    assert end["level"] == "warning" and end["data"]["stopped"] == "command.output_closed"
+
+
+def test_interrupted_command_is_not_logged_as_an_error(outside):
+    _log.start(["sample"])
+    _log.stopped("command.interrupted", "中断しました")
+    _log.finish(130)
+    entries = log_entries()
+    assert "command.error" not in [e["event"] for e in entries]
+    assert next(e for e in entries if e["event"] == "command.end")["level"] == "warning"
 
 
 # ログ（23・50・51） -------------------------------------------------------------------

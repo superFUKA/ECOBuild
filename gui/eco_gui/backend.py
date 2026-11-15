@@ -7,7 +7,8 @@ ecobuild の CLI を構造化出力に載せ替えたら、この読み替えは
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Callable
 
 from guiframework import MachineBackend
 
@@ -101,6 +102,30 @@ def merge(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(merged.values())
 
 
+FOLDER_MISSING = "folder_missing"  # 画面の引数 module のフォルダーがない（ecobuild を起こさずに答えた誤りのコード）
+
+
+def missing_folder(args: Any) -> str:
+    """引数 module（-C に渡すフォルダー）が、もうないときの文（あれば空）。
+
+    作業空間は、ほかの窓・端末・エージェントの task finish・workspace close で消える。消えた後も、その作業空間を出していた窓は
+    読み直しのたびに読む（モジュールの窓では、作業空間のタブが一覧を読み直して切り替わるまで）。そのたびに ecobuild を起こして
+    「-C の場所がありません」の誤りをログに積まないよう、ここで答える。帯（状態を取得できませんでした）にこの文が出る。
+    答えるのは、その場所がない（ENOENT）ときだけ。届かないネットワークの場所・権限がない等は ecobuild に任せる（理由を添えて答える）。"""
+    module = args.get("module") if isinstance(args, dict) else None
+    if not isinstance(module, str) or not module:
+        return ""
+    try:
+        os.stat(module)
+        return ""
+    except FileNotFoundError as error:
+        if getattr(error, "winerror", None) not in (None, 2, 3):   # ネットワークの名前が見つからない等：ないとは限らない
+            return ""
+    except OSError:
+        return ""
+    return f"この場所はもうありません：{module}（作業空間なら、片付けられた可能性があります。この窓・タブを閉じてください）"
+
+
 class EcobuildBackend(MachineBackend):
     """ecobuild とのつなぎ。どのコマンドも、引数 module（モジュールのフォルダー）を受ける。
 
@@ -125,6 +150,23 @@ class EcobuildBackend(MachineBackend):
         module = args.get("module")
         return [*self.argv, "-C", str(module), *line[len(self.argv):]] if module else line
 
+    def run(self, name: str, args: dict[str, Any], context: dict[str, Any],
+            on_event: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+        gone = missing_folder(args)
+        if gone:  # 消えた作業空間（task finish・workspace close の後）の窓の読み直し：ecobuild を起こさずに答える
+            return {"ok": False, "error": {"code": FOLDER_MISSING, "message": gone}}
+        return super().run(name, args, context, on_event)
+
+    def can(self, name: str, args: dict[str, Any]) -> tuple[bool, str]:
+        gone = missing_folder(args)
+        return (False, gone) if gone else super().can(name, args)
+
+    def preview(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        gone = missing_folder(args)
+        if gone:
+            return {"ok": False, "error": {"code": FOLDER_MISSING, "message": gone}}
+        return super().preview(name, args)
+
     def standard_input(self, name: str, args: Any) -> str | None:
         """標準入力へ渡す文字：長い文を `-` で受けるコマンドの、その引数の文（ほかのコマンドは None）。"""
         value = args.get(FROM_STANDARD_INPUT.get(name, ""))
@@ -142,6 +184,9 @@ class EcobuildBackend(MachineBackend):
         from guiframework import GuiFrameworkError
         from guiframework.procs import hidden
 
+        gone = missing_folder(args)
+        if gone:
+            return gone
         try:
             line = self.command_line(name, args, ["dry_run"])
             # 人が打つのと同じにする：機械向けの --json（オプションの後ろ、位置引数の「--」の前に1つだけ付く）を外す

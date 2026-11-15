@@ -12,3 +12,4 @@ class ErrorCode(_ErrorCode):
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
     OLD_FORMAT = "old_format"           # CppBuildの管理ファイルが古い形式（module upgrade で新しくする）
     DEPENDENCY_OLD_FORMAT = "dependency_old_format"   # 依存先の clone の管理ファイルが古い形式（依存先を新しくして deps update）
+    DEPENDENCY_REVISION_NOT_FOUND = "dependency_revision_not_found"   # --at のコミットが GitHub のブランチにない（push していない等）

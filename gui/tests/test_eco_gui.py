@@ -249,6 +249,27 @@ def test_the_module_argument_becomes_ecobuild_dash_c():
     assert backend.command_line("status", {}) == ["ecobuild", "status", "--json"]
 
 
+def test_gone_workspace_is_answered_without_starting_ecobuild(tmp_path, monkeypatch):
+    """消えた作業空間（task finish・workspace close の後）の窓が読み直しても、ecobuild を起こさずに「もうありません」と答える。"""
+    import subprocess
+
+    from eco_gui.backend import FOLDER_MISSING, EcobuildBackend
+
+    def started(*args, **kwargs):
+        raise AssertionError("ecobuild を起こしました")
+
+    monkeypatch.setattr(subprocess, "Popen", started)
+    monkeypatch.setattr(subprocess, "run", started)
+    backend = EcobuildBackend(["ecobuild"])
+    backend.ask = started
+    gone = (tmp_path / "w" / "1").as_posix()
+    answer = backend.run("status", {"module": gone}, {"run": None}, lambda event: None)
+    assert answer["ok"] is False and answer["error"]["code"] == FOLDER_MISSING and gone in answer["error"]["message"]
+    assert backend.can("build", {"module": gone}) == (False, answer["error"]["message"])
+    assert backend.preview("build", {"module": gone})["error"]["code"] == FOLDER_MISSING
+    assert gone in backend.dry_run("build", {"module": gone})
+
+
 def test_workspace_commits_the_checked_files_with_the_same_command_a_person_types(relay):
     overview = relay.execute({"command": "open", "screen": "overview", "args": {"module": "C:/work/Calc"}})["window"]
     relay.idle()

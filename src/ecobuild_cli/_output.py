@@ -191,16 +191,77 @@ def error_data(error: WorkError) -> dict:
             "details": to_data(error.details), "retryable": _errors.retryable(error.code)}
 
 
+_CLOSED_ERRNOS = (errno.EPIPE, errno.EINVAL)   # 読む側が閉じたパイプへ書いた（Windows では EINVAL になる）
+_output_failed = False   # 自分の標準出力・標準エラーへの書き込みが、読む側が閉じたために失敗した
+
+
+class _Guarded:
+    """標準出力・標準エラーを包み、書き込みが読む側が閉じたために失敗したことを覚える（output_closed が見る）。
+
+    Windows では 8KB を超える1回の書き込みが失敗すると、データがバッファーに残らず、後の flush は成功する。flush で確かめる
+    だけでは見分けられないので、失敗したときに覚える。ほかの属性（buffer・fileno・encoding 等）は、包んだものをそのまま見せる。"""
+
+    def __init__(self, stream):
+        object.__setattr__(self, "_stream", stream)
+
+    def _guard(self, action, *args):
+        global _output_failed
+        try:
+            return action(*args)
+        except OSError as error:
+            if error.errno in _CLOSED_ERRNOS:
+                _output_failed = True
+            raise
+
+    def write(self, text):
+        return self._guard(self._stream.write, text)
+
+    def writelines(self, lines):
+        return self._guard(self._stream.writelines, lines)
+
+    def flush(self):
+        return self._guard(self._stream.flush)
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._stream, name, value)
+
+
+def guard_output() -> Callable[[], None]:
+    """標準出力・標準エラーを包む（入口で。output_closed のため）。戻すための関数を返す（入口の終わりで呼ぶ）。"""
+    global _output_failed
+    _output_failed = False
+    wrapped = {}
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is not None and not isinstance(stream, _Guarded):
+            wrapped[name] = _Guarded(stream)
+            setattr(sys, name, wrapped[name])
+
+    def restore() -> None:
+        global _output_failed
+        _output_failed = False
+        for name, guard in wrapped.items():
+            if getattr(sys, name) is guard:
+                setattr(sys, name, guard._stream)
+    return restore
+
+
 def output_closed(error: BaseException) -> bool:
-    """出力の先（パイプ）が閉じたための失敗か（| head・読む側が先に終わった。Windows では EINVAL になる）。"""
-    if not isinstance(error, OSError) or error.errno not in (errno.EPIPE, errno.EINVAL):
+    """出力の先（パイプ）が閉じたための失敗か（| head・読む側が先に終わった。Windows では EINVAL になる）。
+    自分の標準出力・標準エラーへ書けないときだけ True（子プロセスの標準入力へ書けなかった等の BrokenPipeError は誤り）。"""
+    if not isinstance(error, OSError) or error.errno not in _CLOSED_ERRNOS:
         return False
+    if _output_failed:   # 自分の書き込みが失敗した（guard_output で包んだもの）
+        return True
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.flush()
         except (OSError, ValueError):
             return True
-    return isinstance(error, BrokenPipeError)
+    return False
 
 
 def _repository_state(error: WorkError) -> WorkError:

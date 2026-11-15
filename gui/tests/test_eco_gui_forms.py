@@ -215,8 +215,10 @@ def test_a_preview_that_fails_is_shown_in_the_window(relay):
     assert "未コミットの変更があります。" in nodes(relay, window)["form"]["props"]["error"]
 
 
-def test_backend_reads_a_preview_as_the_json_of_dry_run():
-    """下見は、人が打つ <コマンド> --dry-run --json の結果そのもの（確認に出す dry_run は人向けの文。こちらは部品が描く情報）。"""
+def test_backend_reads_a_preview_as_the_json_of_dry_run(tmp_path):
+    """下見は、人が打つ <コマンド> --dry-run --json の結果そのもの（確認に出す dry_run は人向けの文。こちらは部品が描く情報）。
+    モジュールの場所はあるもの（ない場所は ecobuild を起こさずに答える：missing_folder）。"""
+    module = tmp_path.as_posix()
     from eco_gui.backend import EcobuildBackend
 
     asked = []
@@ -234,8 +236,8 @@ def test_backend_reads_a_preview_as_the_json_of_dry_run():
     backend = EcobuildBackend(["ecobuild"])
     backend.ask = ask
     assert backend.commands()["branch merge"]["dry_run"] is True
-    assert backend.preview("branch merge", {"module": "C:/work/Calc", "name": "dev", "into": "main"}) == plan
-    assert asked[-1] == ["-C", "C:/work/Calc", "branch", "merge", "--into", "main", "--dry-run", "--json", "--", "dev"]  # --yes は付けない（何も変えない）
+    assert backend.preview("branch merge", {"module": module, "name": "dev", "into": "main"}) == plan
+    assert asked[-1] == ["-C", module, "branch", "merge", "--into", "main", "--dry-run", "--json", "--", "dev"]  # --yes は付けない（何も変えない）
 
     def broken(argv):
         from guiframework.backend import BackendError

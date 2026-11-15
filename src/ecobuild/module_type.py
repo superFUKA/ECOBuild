@@ -145,6 +145,16 @@ class ModuleType:
         """生成ファイルを作り直す。作り直したらTrue。"""
         return False
 
+    def upgrade(self) -> None:
+        """module upgrade で、型の管理ファイルを今の形式にし、生成ファイルを作り直す（版ごとの移行の、型の分）。
+        型が使う外の部品（ライブラリ等）の保存の形が変わったら、型がここで移す。既定は refresh だけ。
+        例外を出せば、module upgrade は書いたものを戻して止まる。"""
+        self.refresh()
+
+    def upgrade_paths(self) -> tuple[str, ...]:
+        """upgrade で動かす型の管理ファイル（ルートからの場所。module upgrade --dry-run に出す）。既定はなし。"""
+        return ()
+
     def prepare(self) -> "PrepareResult":
         """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。"""
         from .results import PrepareResult
@@ -269,12 +279,23 @@ class HasDependencies(ABC):
     module: "Module"
 
     @abstractmethod
-    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None) -> "LinkResult":
-        """revision：リンクする版（ブランチ・タグ・コミット。None は既定のブランチの最新）。記録はコミット。"""
+    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None,
+             library: str | None = None) -> "LinkResult":
+        """revision：リンクする版（ブランチ・タグ・コミット。None は既定のブランチの最新）。記録はコミット。
+        library：相手のどれにリンクするか（None は相手の既定〔main〕）。同じ依存先の別のものにも足せる。"""
 
     @abstractmethod
-    def unlink(self, name: str) -> "LinkResult":
-        ...
+    def unlink(self, name: str, library: str | None = None) -> "LinkResult":
+        """library：そのライブラリへのリンクだけを外す（記録と clone は残す。最後の1つなら依存先ごと外す）。None はすべて（記録も）。"""
+
+    def dependency_libraries(self, name: str, revision: str | None = None, linked_only: bool = False) -> "DependencyLibraries":
+        """依存先 name（手元の clone。revision があれば、記録の url のその版）の、リンクできるものの一覧。
+        linked_only：このモジュールがリンクしているものだけ（記録から。clone がなくても読める）。"""
+        raise self.not_supported("依存先のライブラリの一覧")   # type: ignore[attr-defined]
+
+    def repository_libraries(self, url: str, revision: str | None = None) -> "DependencyLibraries":
+        """まだ依存先でないリポジトリ url（revision の版。None は既定のブランチの最新）の、リンクできるものの一覧。"""
+        raise self.not_supported("依存先のライブラリの一覧")   # type: ignore[attr-defined]
 
     @abstractmethod
     def dependencies(self) -> tuple["DependencyState", ...]:

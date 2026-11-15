@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-from cppbuild import ProjectType
+from cppbuild import SubprojectType
 
 from helpers import git, write, remove_tree, short_temporary_directory
 from fakes import FakeGitHub
@@ -35,7 +35,7 @@ def test_sync_aligns_dependencies(short_tmp):
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh2"))
     solution = _cppbuild.open_solution(ecs.root)
-    solution.get_project("ECS").settings.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
+    solution.get_subproject("ECS").settings.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=SubprojectType.STATIC_LIBRARY)
     clone = ecs.root / "deps" / "STL"
     first = git(clone, "rev-parse", "HEAD")
 
@@ -177,8 +177,8 @@ def test_clone_module_prepares_dependencies(short_tmp):
     ecs_github = FakeGitHub(short_tmp / "gh2")
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=ecs_github)
     task_branch = ecs.repository.create_task("STLを使う").start()
-    _cppbuild.open_solution(ecs.root).get_project("ECS").settings.link_git(
-        url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
+    _cppbuild.open_solution(ecs.root).get_subproject("ECS").settings.link_git(
+        url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=SubprojectType.STATIC_LIBRARY)
     _cppbuild.update(ecs.root)
     task_branch.stage(all=True)
     task_branch.commit("STLを依存先にする")
@@ -288,6 +288,10 @@ def test_choose_the_version_of_a_dependency(short_tmp):
     assert [(c.name, c.action) for c in changes] == [("STL", "aligned")] and "→" in changes[0].reason
     assert ecs.dependencies()[0].recorded == second and git(ecs.root / "deps" / "STL", "rev-parse", "HEAD") == second
     assert "その版です" in ecs.update_dependencies("STL", second)[0].reason
+    with pytest.raises(Exception) as error:   # 記録済みの依存先を別のProjectから、記録と違う版でリンクする
+        ecs.link("STL", project="ECSTest", revision="v1")
+    assert error.value.code == "invalid_argument" and "記録しています" in error.value.message
+    assert "deps update STL --at v1" in error.value.hint and ecs.dependencies()[0].recorded == second
     with pytest.raises(Exception) as error:
         ecs.update_dependencies(None, "v1")   # 版を選ぶときは依存先を1つ
     assert error.value.code == "invalid_argument"
@@ -302,8 +306,8 @@ def test_link_aligns_existing_clone(short_tmp):
     base = Module.create("Base", directory=short_tmp, kind="library", github=base_github)
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     solution = _cppbuild.open_solution(stl.root)
-    solution.get_project("STL").settings.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY,
-                                            link_type=ProjectType.STATIC_LIBRARY)
+    solution.get_subproject("STL").settings.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY,
+                                            link_type=SubprojectType.STATIC_LIBRARY)
     solution.update()
     git(stl.root, "add", "--all")
     git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
@@ -348,8 +352,8 @@ def test_working_dependency_is_reported(short_tmp):
     Module.create("Base", directory=short_tmp, kind="library", github=base_github)
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
     solution = _cppbuild.open_solution(stl.root)
-    solution.get_project("STL").settings.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY,
-                                            link_type=ProjectType.STATIC_LIBRARY)
+    solution.get_subproject("STL").settings.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY,
+                                            link_type=SubprojectType.STATIC_LIBRARY)
     solution.update()
     git(stl.root, "add", "--all")
     git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
@@ -383,16 +387,16 @@ def test_dependency_tree(short_tmp, monkeypatch):
     base_github, stl_github = FakeGitHub(short_tmp / "gh1"), FakeGitHub(short_tmp / "gh2")
     Module.create("Base", directory=short_tmp, kind="library", github=base_github)
     stl = Module.create("STL", directory=short_tmp, kind="library", github=stl_github)
-    _cppbuild.open_solution(stl.root).get_project("STL").settings.link_git(
-        url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
+    _cppbuild.open_solution(stl.root).get_subproject("STL").settings.link_git(
+        url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=SubprojectType.STATIC_LIBRARY)
     git(stl.root, "add", "--all")
     git(stl.root, "commit", "--quiet", "-m", "Baseを使う")
     git(stl.root, "push", "--quiet", "origin", "main")
     ecs = Module.create("ECS", directory=short_tmp, kind="library", github=FakeGitHub(short_tmp / "gh3"))
     assert ecs.dependency_tree().direct == ()
-    project = _cppbuild.open_solution(ecs.root).get_project("ECS").settings
-    project.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
-    project.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=ProjectType.STATIC_LIBRARY)
+    project = _cppbuild.open_solution(ecs.root).get_subproject("ECS").settings
+    project.link_git(url(stl_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=SubprojectType.STATIC_LIBRARY)
+    project.link_git(url(base_github.bare), solution_path=_cppbuild.CONFIG_DIRECTORY, link_type=SubprojectType.STATIC_LIBRARY)
 
     tree = ecs.dependency_tree()
     assert tree.module == "ECS" and tree.direct == ("Base", "STL")

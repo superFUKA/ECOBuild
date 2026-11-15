@@ -10,7 +10,7 @@ import re
 import shlex
 from pathlib import Path
 
-from cppbuild import MSVC_RUNTIMES, AlreadyRegisteredError, BuildEvents, BuildOption, ProjectType, Solution
+from cppbuild import MSVC_RUNTIMES, AlreadyRegisteredError, BuildEvents, BuildOption, SubprojectType, Solution
 from cppbuild.core import STANDARD_ENTRY_POINTS
 from cppbuild.models import CMakePackage, CMakeSource, Dependency, ImportedLibrary
 
@@ -35,11 +35,11 @@ def module_settings(root: Path) -> dict:
     data = _cppbuild.open_solution(root).settings.get()
     folders = data.solution_folders
     return {
-        "main_project": data.main_project,
+        "main_project": data.main_subproject,
         "msvc_runtime": data.msvc_runtime,
         "folders": None if folders is None else {
-            "projects": folders.projects, "linked_projects": folders.linked_projects,
-            "external": folders.external, "project_folders": dict(sorted(folders.project_folders.items()))},
+            "projects": folders.subprojects, "linked_projects": folders.linked_subprojects,
+            "external": folders.external, "project_folders": dict(sorted(folders.subproject_folders.items()))},
         "templates": {name: {"path": _cppbuild.template_path(root, path), "builtin": name in _cppbuild.TEMPLATES}
                       for name, path in sorted(data.file_templates.items())},
     }
@@ -58,18 +58,18 @@ def set_module_settings(root: Path, *, main: str | None = None, clear_main: bool
         data.msvc_runtime = msvc_runtime
     if main is not None:
         _require(solution, main)
-        data.main_project = main
+        data.main_subproject = main
     if clear_main:
-        data.main_project = None
+        data.main_subproject = None
     if any(v is not None for v in (projects_folder, linked_folder, external_folder)):
         folders = data.solution_folders
         for value in (projects_folder, linked_folder, external_folder):
             if value is not None:
                 _folder_name(value)
         if projects_folder is not None:
-            folders.projects = projects_folder
+            folders.subprojects = projects_folder
         if linked_folder is not None:
-            folders.linked_projects = linked_folder
+            folders.linked_subprojects = linked_folder
         if external_folder is not None:
             folders.external = external_folder
     _save(solution, lambda: solution.settings.save(data), "モジュールの設定を変えられません。")
@@ -156,16 +156,16 @@ def project_details(root: Path, name: str) -> dict:
     return {
         "name": name,
         "kind": data.initial_type.value,
-        "directory": module.projects[name],
-        "main": module.main_project == name,
-        "folder": None if folders is None else folders.project_folders.get(name, folders.projects),
+        "directory": module.subprojects[name],
+        "main": module.main_subproject == name,
+        "folder": None if folders is None else folders.subproject_folders.get(name, folders.subprojects),
         "source_directories": list(data.source_directories),
         "types": {_type_name(kind): {"defines": list(t.compile_definitions),
                                      "public_defines": list(t.public_definitions),
                                      "include_directories": list(t.include_directories)}
                   for kind, t in data.types.items()},
         "links": [_link_view(key, value, _names(solution)) for key, value in data.dependencies.items()],
-        "pch": {"headers": list(data.project_headers), "system_headers": list(data.system_headers)},
+        "pch": {"headers": list(data.subproject_headers), "system_headers": list(data.system_headers)},
         "export_all_symbols": data.windows_export_all_symbols,
         "entry_point": data.entry_point or "main",
         "gui": data.gui,
@@ -227,7 +227,7 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--export-all はライブラリのProjectでだけ使えます。")
         data.windows_export_all_symbols = export_all_symbols
     if entry_point is not None or gui is not None:
-        if data.initial_type != ProjectType.EXECUTABLE:
+        if data.initial_type != SubprojectType.EXECUTABLE:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "入口の関数・GUIアプリは、実行ファイルのProjectでだけ設定できます。")
         function = entry_point or data.entry_point or "main"
         data.entry_point = None if function == "main" else function
@@ -256,9 +256,9 @@ def set_project(root: Path, name: str, *, types: tuple[str, ...] = (),
         if module.solution_folders is None:
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "このモジュールはソリューションフォルダーを使っていません。")
         if folder is not None:
-            module.solution_folders.project_folders[name] = _folder_name(folder, nested=True)
+            module.solution_folders.subproject_folders[name] = _folder_name(folder, nested=True)
         else:
-            module.solution_folders.project_folders.pop(name, None)
+            module.solution_folders.subproject_folders.pop(name, None)
 
     def change():
         project.settings.save(data)
@@ -360,7 +360,7 @@ def set_pch(root: Path, name: str, *, headers: tuple[str, ...], system_headers: 
         if not (project.root / header).is_file():
             raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{name}/{header} がありません。",
                                 hint="Projectのディレクトリからの相対パスで、あるヘッダーを指定してください。")
-    _save(solution, lambda: project.settings.set_pch(project_headers=headers, system_headers=system_headers),
+    _save(solution, lambda: project.settings.set_pch(subproject_headers=headers, system_headers=system_headers),
           f"Project {name} のPCHを設定できません。")
     return project_details(root, name)
 
@@ -372,13 +372,13 @@ def move_project(root: Path, name: str, destination: str, *, command: str = "") 
     if (Path(root) / destination).exists():
         raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{destination} は既にあります。")
     try:
-        report = solution.move_project(name, destination)
+        report = solution.move_subproject(name, destination)
     except Exception as error:
         raise _cppbuild._cppbuild_error(f"Project {name} を移せません。", error) from error
     if not report.success:
         raise EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"Project {name} を移しましたが、構成の作り直しに失敗しました。",
                             hint=f"原因を直してから {operation(command, 'build')} で作り直してください。", details=str(report.update_error))
-    return solution.settings.get().projects[name]
+    return solution.settings.get().subprojects[name]
 
 
 # リンク ---------------------------------------------------------------------------------
@@ -393,7 +393,7 @@ def link_project(root: Path, name: str, library: str, as_type: str | None) -> di
     kind = _cppbuild.LIBRARY_TYPES[_library_type(as_type)] if as_type else other.settings.get().initial_type
     if name == library:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "自分自身はリンクできません。")
-    _save(solution, lambda: project.settings.link_project(other, kind), f"{name} から {library} をリンクできません。")
+    _save(solution, lambda: project.settings.link_subproject(other, kind), f"{name} から {library} をリンクできません。")
     return project_details(root, name)
 
 
@@ -419,7 +419,7 @@ def link_library_file(root: Path, name: str, kind: str, locations: dict[str, str
         if configuration not in _cppbuild.CONFIGURATIONS:
             raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {configuration} はありません。",
                                 hint=f"{'・'.join(_cppbuild.CONFIGURATIONS)} のどれかを指定してください。")
-    if kind_value != ProjectType.INTERFACE_LIBRARY and not locations:
+    if kind_value != SubprojectType.INTERFACE_LIBRARY and not locations:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "ライブラリのファイルを指定してください（--file Debug=…,Release=…）。")
     return _link(root, name, ImportedLibrary(kind_value, dict(locations), list(include_directories),
                                              dict(import_libraries)), "ビルド済みのライブラリ")
@@ -440,7 +440,7 @@ def unlink(root: Path, name: str, link: str, *, command: str = "") -> dict:
     view = found[0]
     if view["kind"] == "module":
         source = view["name"].split("/")[0]
-        others = [p.name for p in solution.projects() if p.name != name and any(
+        others = [p.name for p in solution.subprojects() if p.name != name and any(
             _link_view(k, v, names)["kind"] == "module" and _link_view(k, v, names)["name"].split("/")[0] == source
             for k, v in p.settings.get().dependencies.items())]
         if not others:
@@ -478,8 +478,11 @@ def _names(solution: Solution) -> dict[str, tuple[str, str]]:
 
 def _link_view(key: str, value, names: dict) -> dict:
     if isinstance(value, Dependency):
-        kind, label = names.get(value.project_guid, ("module", value.project_guid))
-        return {"id": key, "kind": kind, "name": label, "as": _type_name(value.project_type)}
+        kind, label = names.get(value.subproject_guid, ("module", value.subproject_guid))
+        view = {"id": key, "kind": kind, "name": label, "as": _type_name(value.subproject_type)}
+        if kind == "module" and "/" in label:   # 依存先のどのライブラリか（「依存先/ライブラリ」）
+            view["dependency"], view["library"] = label.split("/", 1)
+        return view
     if isinstance(value, CMakePackage):
         return {"id": key, "kind": "package", "name": value.name, "target": value.target, "directory": value.directory}
     if isinstance(value, CMakeSource):
@@ -487,17 +490,17 @@ def _link_view(key: str, value, names: dict) -> dict:
     if isinstance(value, ImportedLibrary):
         files = list(value.locations.values())
         return {"id": key, "kind": "file", "name": Path(files[0]).stem if files else "(interface)",
-                "as": _type_name(value.project_type), "files": dict(value.locations),
+                "as": _type_name(value.subproject_type), "files": dict(value.locations),
                 "import_libraries": dict(value.import_libraries), "include_directories": list(value.include_directories)}
     return {"id": key, "kind": "other", "name": key}
 
 
 def _require(solution: Solution, name: str):
-    projects = solution.settings.get().projects
+    projects = solution.settings.get().subprojects
     if name not in projects:
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {name} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects) or 'なし'}")
-    return solution.get_project(name)
+    return solution.get_subproject(name)
 
 
 def _save(solution: Solution, change, message: str, *, update: bool = True) -> None:
@@ -533,7 +536,7 @@ def _library_type(value: str) -> str:
     return value
 
 
-def _type_name(kind: ProjectType) -> str:
+def _type_name(kind: SubprojectType) -> str:
     return KIND_NAMES.get(kind, kind.value)
 
 

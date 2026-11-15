@@ -21,10 +21,22 @@ def command(
         return "\n".join(
             f"{d.name}：記録 {d.recorded[:7]}、手元 {(d.local or '-')[:7]}、{STATES[d.state]}"
             + (f"（{d.branch}）" if d.branch else "") + (f"、{d.via} が記録" if d.via else "")
-            + f"\n  {d.url}" + _remote(d) for d in r)
+            + f"\n  {d.url}" + _links(d) + _remote(d) for d in r)
 
     return run_command("deps list", lambda inv: list(inv.module.dependencies(fetch=fetch, all=all)), render,
                        json_output=json)
+
+
+def _links(d) -> str:
+    """このモジュールのどの Project が、依存先のどのライブラリにリンクしているか。"""
+    if not d.links:
+        return ""
+    by_library: dict[str, list[str]] = {}
+    for link in d.links:
+        # clone がなく名前が分からないものは、識別子の頭（deps remove --library に渡せる）
+        label = link.library or f"{link.id[:8]}（名前は deps sync で clone を取ると分かります）"
+        by_library.setdefault(label, []).append(link.project)
+    return "".join(f"\n  ライブラリ {library} ← {'・'.join(projects)}" for library, projects in by_library.items())
 
 
 def _remote(d) -> str:

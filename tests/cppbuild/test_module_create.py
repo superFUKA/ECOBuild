@@ -36,7 +36,7 @@ def test_create_module(short_tmp):
     # 初回コミットがGitHub（bare）のmainにある
     assert git(github.bare, "log", "--format=%s", "main") == "ECOBuildでモジュールを作成"
     files = git(github.bare, "ls-tree", "-r", "--name-only", "main").splitlines()
-    assert ".ecobuild/.cppbuild/CMakeLists.txt" in files and ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in files
+    assert ".ecobuild/.cppbuild/CMakeLists.txt" in files and ".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt" in files
     assert not any(f.startswith(".ecobuild/.cppbuild/output") for f in files)
     # ルートには、ECOBuild・CppBuildの内部のファイルを置かない（.ecobuild/ にまとめる）
     # エージェントの入口（AGENTS.md・それを読み込む CLAUDE.md）も置く
@@ -86,16 +86,16 @@ def test_submit_commits_the_generated_files(short_tmp):
     module = Module.create("Calc", directory=short_tmp, github=github)
     task_branch = module.repository.create_task("生成ファイルの確認").start()
     # 生成ファイルを手で書き換えてコミットした（作り直すと戻る）
-    generated = module.root / ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt"
+    generated = module.root / ".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt"
     generated.write_text(generated.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
     (module.root / "Calc" / "src" / "Extra.cpp").write_text("int extra() { return 1; }\n", encoding="utf-8")
-    task_branch.stage(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
+    task_branch.stage(".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt", "Calc/src/Extra.cpp")
     task_branch.commit("生成ファイルを書き換え")
     pr = task_branch.submit()
     assert pr.head == "task/1"
     git = module.repository.git
     assert git.output("log", "-1", "--format=%s") == "生成ファイルを作り直す（提出の前）"
-    assert ".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt" in git.output("show", "--name-only", "--format=", "HEAD").splitlines()
+    assert ".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt" in git.output("show", "--name-only", "--format=", "HEAD").splitlines()
     assert not module.repository.status().unstaged
 
 
@@ -108,7 +108,7 @@ def test_only_link_commits_the_ecobuild_files(short_tmp):
     first = git_.output("rev-parse", "HEAD")
     (module.root / "Calc" / "src" / "Work.cpp").write_text("int work() { return 1; }\n", encoding="utf-8")   # 作業者の変更
     module.add_project("Lib", "library", test=False)   # .ecobuild の中と Lib/ を書き換える
-    assert git_.output("rev-parse", "HEAD") == first and ".ecobuild/.cppbuild/projects/Lib/project.json" in module.own_changes()
+    assert git_.output("rev-parse", "HEAD") == first and ".ecobuild/.cppbuild/subprojects/Lib/subproject.json" in module.own_changes()
     module.commit("Lib を追加", (".ecobuild", "Lib"))
     module.link_project("Calc", "Lib")
     assert git_.output("log", "-1", "--format=%s") == "Calc に Lib をリンク"

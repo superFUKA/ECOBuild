@@ -1,0 +1,27 @@
+{
+  "data": {
+    "dependencies": {
+      "c00b3398e05c4d68adaae70309be9ecd": {
+        "kind": "project",
+        "values": {
+          "project_guid": "3895ee29-f17d-48d7-977a-c9e597be279d",
+          "project_type": "static_library"
+        }
+      }
+    },
+    "guid": "97a28a91-b623-4b9a-a1e6-e19f41d2af1d",
+    "initial_type": "executable",
+    "name": "ECOJobBench",
+    "project_headers": [],
+    "source_directories": [
+      "src",
+      "include"
+    ],
+    "system_headers": [],
+    "types": {
+      "executable": "executable-8848ded3be73bc6bd820244b1cec0b6b459348f6dbd4e312ad6f2805afd0666b.json"
+    }
+  },
+  "kind": "project",
+  "schema_version": 5
+}

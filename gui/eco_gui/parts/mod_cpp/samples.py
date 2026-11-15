@@ -41,7 +41,7 @@ SAMPLES = [
     {"name": "依存先（なし）", "props": {"view": "deps", "deps": []}},
     {"name": "全般", "props": {"view": "general", "settings": {
         "main_project": "Engine", "msvc_runtime": "dll",
-        "folders": {"projects": "Projects", "linked_projects": "LinkedProjects", "external": "External"}, "templates": {}}}},
+        "folders": {"projects": "Subprojects", "linked_projects": "LinkedSubprojects", "external": "External"}, "templates": {}}}},
     {"name": "全般（main なし）", "props": {"view": "general", "settings": {"main_project": None, "msvc_runtime": None, "folders": None, "templates": {}}}},
     {"name": "ファイルテンプレート", "props": {"view": "templates", "settings": {"main_project": "Engine", "templates": {
         "header": {"path": ".ecobuild/.cppbuild/templates/header.h", "builtin": True},

@@ -10,3 +10,5 @@ class ErrorCode(_ErrorCode):
     DEPENDENCY_NOT_FOUND = "dependency_not_found"
     NOT_IN_PROJECT = "not_in_project"
     NOT_LINKABLE = "not_linkable"       # リンク先のモジュールに、リンクできるProject（ライブラリの main）がない
+    OLD_FORMAT = "old_format"           # CppBuildの管理ファイルが古い形式（module upgrade で新しくする）
+    DEPENDENCY_OLD_FORMAT = "dependency_old_format"   # 依存先の clone の管理ファイルが古い形式（依存先を新しくして deps update）

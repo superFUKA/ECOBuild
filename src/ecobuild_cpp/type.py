@@ -23,11 +23,12 @@ from ecobuild.errors import EcoBuildError
 from .errors import ErrorCode
 from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasDependencies, HasFiles, HasProjects, ModuleType
-from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, DependencyNode, DependencyState,
+from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, DependencyLibraries, DependencyLibrary,
+                              DependencyLink, DependencyNode, DependencyState,
                               DependencyTag, DependencyTree, DependencyVersions, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestEntry, TestResult)
 
-from . import _cppbuild, _settings
+from . import _cppbuild, _migrate, _settings
 
 _INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILINE)   # #include "…"（<…> は直さない）
 
@@ -292,6 +293,40 @@ jobs:
         self._update()
         return True
 
+    def upgrade(self) -> None:
+        """CppBuild の管理ファイルが古い形式なら今の形式にしてから（_migrate）、生成ファイルを作り直す。
+
+        移したのに作り直せなければ（依存先がまだ古い形式の版・CMake の構成の失敗等）、タスクブランチでは止めずに案内を残す：
+        移した分はコミットさせる（このモジュールの形式が新しくないと deps update 等ができない。生成ファイルは次の操作・提出の前に
+        作り直される）。タスクブランチでなければ（push まで行くので）止める（module upgrade が書いたものを戻す）。"""
+        config = self.root / _cppbuild.CONFIG_DIRECTORY
+        if _migrate.needs_cleanup(config):   # 前に移したときに片付けられなかった古い置き場所
+            _migrate.cleanup(config)
+        if not _migrate.is_old(config):
+            self.refresh()
+            return
+        _migrate.convert(config)
+        try:
+            self.refresh()
+        except EcoBuildError as error:
+            if self.module.repository.current_task_branch() is None:
+                raise
+            self.module.repository.notices.append(
+                f"CppBuild の管理ファイルを新しい形式にしましたが、生成ファイルは作り直せませんでした：{error.message}"
+                + (f"\n{error.hint}" if error.hint else ""))
+        if _migrate.needs_cleanup(config):
+            self.module.repository.notices.append(
+                f"{_cppbuild.CONFIG_DIRECTORY}/{_migrate.OLD_SUBPROJECTS}/ を消せませんでした（Visual Studio 等が使っていないか"
+                f"確かめてください）。もう一度 {self.module.op('module upgrade')} をすると片付けます。")
+
+    def upgrade_paths(self) -> tuple[str, ...]:
+        """古い形式なら、移す管理ファイル（移す元と先）。"""
+        config = self.root / _cppbuild.CONFIG_DIRECTORY
+        if not _migrate.is_old(config):
+            return ()
+        _, moves = _migrate.plan(config)
+        return tuple(sorted({f"{_cppbuild.CONFIG_DIRECTORY}/{path}" for move in moves for path in move if path}))
+
     def update_solution(self) -> dict:
         """構成（Visual Studio のソリューション・プロジェクト等）を今のファイルに合わせる。ビルドはしない。file add 等と
         同じビルドツリーで、ファイルが変わっていなければ CMake は動かない（約0.1秒）。コンテナの中やエディターで足した・
@@ -301,6 +336,12 @@ jobs:
 
     def prepare(self) -> PrepareResult:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
+            return PrepareResult((), False)
+        if _migrate.is_old(self.root / _cppbuild.CONFIG_DIRECTORY):
+            # 古い形式：作業を始める・取り込むこと（その後の module upgrade のため）は止めず、案内だけ残す
+            self.module.repository.notices.append(
+                f"CppBuild の管理ファイルが古い形式です。{self.module.op('module upgrade')} で新しい形式にしてください"
+                "（それまで依存先・生成ファイルはそろえません）。")
             return PrepareResult((), False)
         changes = self._align_dependencies()
         self._update()
@@ -856,16 +897,18 @@ jobs:
 
     # 依存先 ------------------------------------------------------------------------
 
-    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None) -> LinkResult:
-        """project を省くと、テスト用を除いてProjectが1つならそれ。"""
+    def link(self, url: str, *, project: str | None, shared: bool, revision: str | None = None,
+             library: str | None = None) -> LinkResult:
+        """project を省くと、テスト用を除いてProjectが1つならそれ。library を省くと相手の main。
+        既にある依存先の別のライブラリにも足せる（記録の版のまま）。"""
         target = project or self._only_project()
-        name = _cppbuild.link(self.root, target, url, shared=shared, revision=revision)
+        name, library = _cppbuild.link(self.root, target, url, shared=shared, revision=revision, library=library)
         revision = next(s.revision for s in _cppbuild.git_sources(self.root) if s.name == name)
         # 依存先の依存先として既にcloneがあると、CppBuildは記録だけ進める。手元も記録の版に合わせる（作業版は触らない）。
         clone = next((c for c in self._align_dependencies() if c.name == name), None)
         if clone is not None and clone.action == "aligned":
             self._update()
-        return LinkResult(name, url, revision, (target,), clone=clone)
+        return LinkResult(name, url, revision, (target,), (library,) if library else (), clone=clone)
 
     def _only_project(self) -> str:
         """テスト用を除いて、Projectが1つならそれ（ライブラリと組のテスト用だけなら、ライブラリ）。"""
@@ -876,25 +919,76 @@ jobs:
                                      f"（Project：{'、'.join(names) or 'なし'}）。")
         return names[0]
 
-    def unlink(self, name: str) -> LinkResult:
-        """手元のcloneは、記録の版のままなら消す（作業中・変更ありなら残す）。"""
+    def unlink(self, name: str, library: str | None = None) -> LinkResult:
+        """手元のcloneは、記録の版のままなら消す（作業中・変更ありなら残す）。library：そのライブラリへのリンクだけを外す
+        （記録と clone は残す）。"""
         source = self._source(name)
+        if library is not None:
+            projects, whole = _cppbuild.unlink_library(self.root, name, library)
+            if not whole:
+                return LinkResult(name, source.url, source.revision, projects, (library,))
+            # 最後の1つだった：記録も外した（リンクのない記録と clone を残さない）
+            return LinkResult(name, source.url, source.revision, projects, (library,), self._remove_clone(source),
+                              dependency_removed=True)
         projects = _cppbuild.unlink(self.root, name)
+        return LinkResult(name, source.url, source.revision, projects, self._remove_clone(source))
+
+    def _remove_clone(self, source) -> bool:
+        """外した依存先の clone を、記録の版のままなら消す（作業中・変更ありなら残す）。消したら True。"""
         directory = Path(source.directory)
         removable = directory.is_dir() and self._dependency_state(source).state == "aligned"
         if removable:
             remove_tree(directory)
-        return LinkResult(name, source.url, source.revision, projects, removable)
+        return removable
 
     def dependencies(self) -> tuple[DependencyState, ...]:
-        return tuple(self._dependency_state(s) for s in _cppbuild.git_sources(self.root))
+        links = _cppbuild.dependency_links(self.root)
+        return tuple(replace(self._dependency_state(s), links=tuple(DependencyLink(p, l, g) for p, l, g in links.get(s.name, ())))
+                     for s in _cppbuild.git_sources(self.root))
+
+    def dependency_libraries(self, name: str, revision: str | None = None, linked_only: bool = False) -> DependencyLibraries:
+        """revision：記録の版でなく、その版（GitHub から一時的に取って読む）。linked_only：リンクしているものだけを、記録から
+        （clone がなくても・古い形式でも読める）。"""
+        if linked_only:
+            source, linked = _cppbuild.linked_libraries_of(self.root, name)
+            return DependencyLibraries(name, source.url, source.revision, tuple(
+                DependencyLibrary(label, kind, main, True, projects) for label, kind, main, projects in linked))
+        users: dict[str, list[str]] = {}
+        for project, library, guid in _cppbuild.dependency_links(self.root).get(name, ()):
+            users.setdefault(library or guid, []).append(project)
+        if revision is not None:
+            url = self._any_source(name).url
+            found = self.repository_libraries(url, revision)
+            return replace(found, name=name, libraries=tuple(replace(l, linked=tuple(users.get(l.name, ())))
+                                                             for l in found.libraries))
+        source, libraries = _cppbuild.dependency_libraries(self.root, name)
+        return DependencyLibraries(name, source.url, source.revision, tuple(
+            DependencyLibrary(l.name, l.kind, l.main, l.linkable, tuple(users.get(l.name, ()))) for l in libraries))
+
+    def _any_source(self, name: str):
+        """依存先 name（依存先の依存先も）。"""
+        source = next((s for s, _ in _cppbuild.all_git_sources(self.root) if s.name == name), None)
+        if source is None:
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+        return source
+
+    def repository_libraries(self, url: str, revision: str | None = None) -> DependencyLibraries:
+        """一時的な場所に取って読む（CppBuild の管理ファイルだけを取り出す。終われば消す）。"""
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="ecobuild-", ignore_cleanup_errors=True) as temporary:
+            sha, libraries = _cppbuild.repository_libraries(url, revision, Path(temporary) / "r")
+        return DependencyLibraries(None, url, sha, tuple(DependencyLibrary(l.name, l.kind, l.main, l.linkable)
+                                                         for l in libraries))
 
     def all_dependencies(self) -> tuple[DependencyState, ...]:
         return tuple(replace(self._dependency_state(s), via=via) for s, via in _cppbuild.all_git_sources(self.root))
 
     def dependency_tree(self) -> DependencyTree:
         sources, edges = _cppbuild.dependency_graph(self.root)
-        nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name]) for s in sources)
+        libraries = _cppbuild.dependency_libraries_in_use(self.root)
+        nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name], libraries.get(s.name, ()),
+                                     not s.present and _migrate.is_old(Path(s.directory) / s.path))
+                      for s in sources)
         return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 
     def update_dependencies(self, name: str | None, revision: str | None = None) -> tuple[DependencyChange, ...]:

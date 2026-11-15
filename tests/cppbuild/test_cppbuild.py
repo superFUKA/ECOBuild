@@ -33,7 +33,7 @@ def test_layout_and_templates(module_root):
     assert set(templates) == set(_cppbuild.TEMPLATES)
     assert not list(module_root.glob(".ecobuild-template-*"))
     folders = _cppbuild.open_solution(module_root).settings.get().solution_folders
-    assert (folders.projects, folders.linked_projects, folders.external) == ("Projects", "LinkedProjects", "External")
+    assert (folders.subprojects, folders.linked_subprojects, folders.external) == ("Subprojects", "LinkedSubprojects", "External")
     top_level = (module_root / ".ecobuild/.cppbuild/CppBuildTopLevel.cmake").read_text(encoding="utf-8")
     assert "USE_FOLDERS ON" in top_level and 'set(CPPBUILD_EXTERNAL_FOLDER "External")' in top_level   # External/GoogleTest
     assert 'PREDEFINED_TARGETS_FOLDER "External/CMake"' in top_level           # ALL_BUILD・ZERO_CHECK 等
@@ -101,8 +101,8 @@ def test_run_failure_reports_exit_code(module_root):
 
 def test_generated_file_classification():
     assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/CMakeLists.txt")
-    assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt")
-    assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/project.json")
+    assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt")
+    assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/solution.json")
     assert _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/templates/header.h")
     assert not _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/output/intermediate/x")
     assert not _cppbuild.is_generated_or_managed(".ecobuild/.cppbuild/operations/lock")
@@ -110,5 +110,5 @@ def test_generated_file_classification():
     assert not _cppbuild.is_generated_or_managed("Calc/src/Calc.cpp")
     assert not _cppbuild.is_generated_or_managed("Calc/CMakeLists.txt")       # 生成ファイルは .cppbuild の中だけ
     assert not _cppbuild.is_generated_or_managed(".ecobuild/ecobuild.toml")
-    assert _cppbuild.is_generated(".ecobuild/.cppbuild/projects/Calc/CMakeLists.txt")
-    assert not _cppbuild.is_generated(".ecobuild/.cppbuild/projects/Calc/project.json")
+    assert _cppbuild.is_generated(".ecobuild/.cppbuild/subprojects/Calc/CMakeLists.txt")
+    assert not _cppbuild.is_generated(".ecobuild/.cppbuild/subprojects/Calc/subproject.json")

@@ -9,8 +9,8 @@ from . import render
 def command(
     main: Annotated[str, "他のモジュールからリンクされるProject（main）を変える（ライブラリであること）"] = "",
     no_main: Annotated[bool, "main をなしにする（他のモジュールからリンクできなくなる）"] = False,
-    projects_folder: Annotated[str, "Visual Studio で自分のProjectを入れるソリューションフォルダー（既定 Projects）"] = "",
-    linked_folder: Annotated[str, "リンク先のモジュールのProjectを入れるソリューションフォルダー（既定 LinkedProjects）"] = "",
+    projects_folder: Annotated[str, "Visual Studio で自分のProjectを入れるソリューションフォルダー（既定 Subprojects）"] = "",
+    linked_folder: Annotated[str, "リンク先のモジュールのProjectを入れるソリューションフォルダー（既定 LinkedSubprojects）"] = "",
     external_folder: Annotated[str, "CMake・GoogleTest 等、自分で作っていないものを入れるソリューションフォルダー（既定 External）"] = "",
     msvc_runtime: Annotated[str, "MSVCのCランタイム（dll＝/MD〔既定〕・static＝/MT）。このモジュールを頂点にしたビルド全体に効く"] = "",
     json: Annotated[bool, "結果をJSONで出力する"] = False,

@@ -37,7 +37,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyState,
+from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyLibraries, DependencyState,
                       DependencyTree, DependencyVersions, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
@@ -1567,23 +1567,40 @@ class Module:
     # 依存先（型） -----------------------------------------------------------------
 
     def link(self, repository: str, *, project: str | None = None, shared: bool = False,
-             revision: str | None = None) -> LinkResult:
+             revision: str | None = None, library: str | None = None) -> LinkResult:
         """GitHubにあるモジュール（「名前」か「所有者/名前」）を依存先にする。revision：リンクする版（ブランチ・タグ・
-        コミット。省くと既定のブランチの最新）。"""
+        コミット。省くと既定のブランチの最新）。library：相手のどれにリンクするか（省くと相手の既定。dependency_libraries
+        で選べるもの）。既にある依存先の別のものにも足せる（記録の版のまま）。"""
         self.require_task_branch("依存先のリンク")
         dependencies = self._dependencies("依存先")
         url = self.repository.github.get_repository(repository).clone_url
         before = self.own_changes()
-        result = dependencies.link(url, project=project, shared=shared, revision=revision)
-        self.commit_own_changes(f"{'・'.join(result.projects)} に {result.name}（{result.revision[:7]}）をリンク", before)
+        result = dependencies.link(url, project=project, shared=shared, revision=revision, library=library)
+        target = f"{result.name}/{'・'.join(result.libraries)}" if result.libraries else result.name
+        self.commit_own_changes(f"{'・'.join(result.projects)} に {target}（{result.revision[:7]}）をリンク", before)
         return result
 
-    def unlink(self, name: str) -> LinkResult:
+    def unlink(self, name: str, library: str | None = None) -> LinkResult:
+        """依存先 name のリンクを外す。library：そのライブラリへのリンクだけ（記録と clone は残す）。"""
         self.require_task_branch("依存先のリンクの解除")
         before = self.own_changes()
-        result = self._dependencies("依存先").unlink(name)
-        self.commit_own_changes(f"{result.name} のリンクを外す", before)
+        result = self._dependencies("依存先").unlink(name, library)
+        self.commit_own_changes(f"{result.name}/{library} のリンクを外す" if library and not result.dependency_removed
+                                else f"{result.name} のリンクを外す", before)
         return result
+
+    def dependency_libraries(self, target: str, *, revision: str | None = None, linked_only: bool = False) -> DependencyLibraries:
+        """リンクできるものの一覧（読むだけ）。target：依存先の名前（手元の clone から読む）か、GitHub のリポジトリ
+        （「名前」か「所有者/名前」。一時的に取って読む）。revision：その版（省くと、依存先は記録の版、リポジトリは既定の
+        ブランチの最新）。linked_only：依存先のときだけ読む（ほかは空。リンクを外す画面など）。"""
+        dependencies = self._dependencies("依存先のライブラリの一覧")
+        if target in {d.name for d in dependencies.all_dependencies()}:   # 依存先の名前：記録の url（--at ならその版）
+            return dependencies.dependency_libraries(target, revision, linked_only)
+        if linked_only:   # 依存先でなければ、リンクしているものはない（GitHub へは行かない）
+            return DependencyLibraries(None, "", "", ())
+        from .settings import qualify
+        url = self.repository.github.get_repository(qualify(target)).clone_url
+        return dependencies.repository_libraries(url, revision)
 
     def dependencies(self, *, fetch: bool = False, all: bool = False) -> tuple[DependencyState, ...]:
         """依存先の状態。fetch：GitHubの側も確かめる（まだあるか・アーカイブ・名前の変更・新しい版）。
@@ -1660,7 +1677,7 @@ class Module:
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
         .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md（なければ置き、あれば作り直す）・CLAUDE.md（なければ
-        置く。あればモジュールのもの）・CIのワークフロー（あれば作り直す。手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        置く。あればモジュールのもの）・CIのワークフロー（あれば作り直す。手で編集したワークフローは作り直さず skipped に）、型の管理ファイル・生成ファイル（型の upgrade）。README は書き換えない。
         この作業空間の git の設定も、clone するときと同じにする（改行コードの扱い〔ecowork の CLONE_CONFIG〕。コミットしない。
         以前に clone した作業空間で、改行コードだけの差が出ないように）。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
@@ -1692,24 +1709,45 @@ class Module:
         planned, skipped = self._ecobuild_files()
         if self.config.format != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える
+        for path in self.type.upgrade_paths():   # 型の管理ファイルの移動（中身は型が作るので空）
+            planned.setdefault(path, "")
         return planned, skipped
 
     def _apply_upgrade(self) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
         """版ごとの移行・ECOBuild が作るファイル・版・型の生成ファイルを今のものにする（コミットはしない）。
         返り値：(前の版, 変わったファイル, 手で編集してあるため作り直さなかったファイル)。"""
-        start = self.config.format
+        start, original = self.config.format, self.config
         before = set(self._changed_paths())
-        for version in range(start, _config.FORMAT):
-            if version in _MIGRATIONS:
-                _MIGRATIONS[version](self)
-        planned, skipped = self._planned_upgrade()
-        for path, text in planned.items():
-            if path != _config.FILE_NAME:
+        try:
+            for version in range(start, _config.FORMAT):
+                if version in _MIGRATIONS:
+                    _MIGRATIONS[version](self)
+            planned, skipped = self._ecobuild_files()
+            for path, text in planned.items():
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
                 (self.root / path).write_text(text, encoding="utf-8", newline="\n")
-        self._save_config(replace(self.config, format=_config.FORMAT))
-        self.type.refresh()
-        return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned))), tuple(skipped)
+            self._save_config(replace(self.config, format=_config.FORMAT))
+            self.type.upgrade()
+        except BaseException:
+            # 途中で止まったら、書いたものを戻す（未コミットの変更が残ると、直してもう一度 module upgrade できない）
+            self._undo_changes(before)
+            self.config = original
+            raise
+        version_file = {_config.FILE_NAME} if start != _config.FORMAT else set()
+        return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned) | version_file)), tuple(skipped)
+
+    def _undo_changes(self, before: set[str]) -> None:
+        """before（その時の未コミットの変更）より後に変わったファイルを、HEAD の状態に戻す（新しいファイルは消す）。"""
+        git = self.repository.git
+        tree = git.working_tree()
+        tracked = tuple(sorted({*tree.staged, *tree.unstaged} - before))
+        if tracked:
+            git.restore(tracked, source="HEAD")
+        for path in set(tree.untracked) - before:
+            try:
+                (self.root / path).unlink()
+            except OSError:
+                pass
 
     def _upgrade_branch(self, name: str, *, dry_run: bool) -> ModuleUpgraded:
         """管理用のブランチ name（GitHub の最新）を今の仕様に合わせ、「ECOBuild の更新」として GitHub の name へ push する。
@@ -1738,7 +1776,10 @@ class Module:
                 planned, skipped = there._planned_upgrade()
                 return ModuleUpgraded(there.config.format, _config.FORMAT, tuple(sorted(planned)), tuple(skipped),
                                       dry_run=True, branch=name)
-            start, changed, skipped = there._apply_upgrade()
+            try:
+                start, changed, skipped = there._apply_upgrade()
+            finally:
+                self.repository.notices.extend(there.repository.notices)   # 型の案内は、こちらの結果に出す
             if not changed:
                 return ModuleUpgraded(start, _config.FORMAT, changed, skipped, branch=name)
             there.repository.git.add(changed, all=True)

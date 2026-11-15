@@ -33,13 +33,13 @@ def code_of(action):
 
 
 def entry(module, project):
-    return (module.root / ".ecobuild/.cppbuild/projects" / project / "CMakeLists.txt").read_text(encoding="utf-8")
+    return (module.root / ".ecobuild/.cppbuild/subprojects" / project / "CMakeLists.txt").read_text(encoding="utf-8")
 
 
 def test_project_settings_reach_the_build(module):
     """定義・公開する定義・インクルード・ソースディレクトリ・関数の書き出し・フォルダーは管理ファイルに残り、ビルドに効く。"""
     details = module.project_details("Shape")
-    assert (details["kind"], details["main"], details["folder"]) == ("static_library", True, "Projects")
+    assert (details["kind"], details["main"], details["folder"]) == ("static_library", True, "Subprojects")
     assert set(details["types"]) == {"static", "shared", "interface"}
     assert details["source_directories"] == ["src", "include"]
 
@@ -71,7 +71,7 @@ def test_project_settings_reach_the_build(module):
     assert code_of(lambda: module.set_project("Viewer", types=("static",))) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: module.set_project("Viewer", export_all_symbols=True)) == ErrorCode.INVALID_ARGUMENT
     assert code_of(lambda: module.set_project("Nope")) == ErrorCode.PROJECT_NOT_FOUND
-    assert module.set_project("Shape", clear_folder=True)["folder"] == "Projects"
+    assert module.set_project("Shape", clear_folder=True)["folder"] == "Subprojects"
 
 
 def test_links_inside_the_module_and_to_external_libraries(module):
@@ -100,10 +100,10 @@ def test_links_inside_the_module_and_to_external_libraries(module):
           "if(NOT TARGET fmt::fmt)\n  add_library(fmt::fmt INTERFACE IMPORTED)\nendif()\n")
     for name in ("old_d.lib", "old.lib", "include/old.h"):
         write(module.root / "Viewer/vendor/old" / name, "")
-    before = (module.root / ".ecobuild/.cppbuild/projects/Viewer/project.json").read_text(encoding="utf-8")
+    before = (module.root / ".ecobuild/.cppbuild/subprojects/Viewer/subproject.json").read_text(encoding="utf-8")
     error = code_of(lambda: cpp(module).link_cmake("Viewer", "vendor/none", target="none"))   # 構成に失敗したら元に戻す
     assert error == ErrorCode.CPPBUILD_ERROR
-    assert (module.root / ".ecobuild/.cppbuild/projects/Viewer/project.json").read_text(encoding="utf-8") == before
+    assert (module.root / ".ecobuild/.cppbuild/subprojects/Viewer/subproject.json").read_text(encoding="utf-8") == before
     package = cpp(module).link_package("Viewer", "fmt", target="fmt::fmt", directory="vendor/fmt/lib/cmake/fmt")
     assert any(l["kind"] == "package" and l["target"] == "fmt::fmt" for l in package["links"])
     library = cpp(module).link_library_file("Viewer", kind="static", locations={"Debug": "vendor/old/old_d.lib",
@@ -130,7 +130,7 @@ def test_links_inside_the_module_and_to_external_libraries(module):
 def test_module_settings_templates_and_move(module):
     """main・ソリューションフォルダーの名前・ファイルテンプレート・Projectの移動。"""
     settings = module.module_settings()
-    assert settings["main_project"] == "Shape" and settings["folders"]["projects"] == "Projects"
+    assert settings["main_project"] == "Shape" and settings["folders"]["projects"] == "Subprojects"
     assert settings["templates"]["source"]["builtin"]
 
     changed = module.set_module_settings(projects_folder="Code", external_folder="ThirdParty")
@@ -139,7 +139,7 @@ def test_module_settings_templates_and_move(module):
     assert module.set_module_settings(main="Shape")["main_project"] == "Shape"
     assert code_of(lambda: module.set_module_settings(main="Nope")) == ErrorCode.PROJECT_NOT_FOUND
     assert code_of(lambda: module.set_module_settings(projects_folder="a/b")) == ErrorCode.INVALID_ARGUMENT
-    module.set_module_settings(projects_folder="Projects", external_folder="External")
+    module.set_module_settings(projects_folder="Subprojects", external_folder="External")
 
     material = module.root.parent / "class.h"
     write(material, "#pragma once\n// {{project}}: {{name}}\nclass {{name}} {};\n")
@@ -270,7 +270,7 @@ def test_settings_cli(module, monkeypatch, capsys):
     code, out = run("project", "set", "--add-define", "A=1,B", "--folder", "Apps")
     assert code == 0 and out["result"]["types"]["executable"]["defines"] == ["A=1", "B"]
     code, out = run("project", "set", "--remove-define", "A=1,B", "--clear-folder")
-    assert code == 0 and out["result"]["folder"] == "Projects"
+    assert code == 0 and out["result"]["folder"] == "Subprojects"
     write(module.root / "Viewer/vendor/z/zlibConfig.cmake",
           "if(NOT TARGET ZLIB::ZLIB)\n  add_library(ZLIB::ZLIB INTERFACE IMPORTED)\nendif()\n")
     write(module.root / "Viewer/a.lib", "")
@@ -305,7 +305,7 @@ def test_settings_cli(module, monkeypatch, capsys):
 
 def test_change_project_kind(monkeypatch, capsys):
     """project set --kind：作り直しても、ソース・設定・リンク（依存先のモジュールも）・main・フォルダーを保つ。"""
-    from cppbuild import ProjectType
+    from cppbuild import SubprojectType
     from ecobuild_cpp import _cppbuild
 
     base = short_temporary_directory()
@@ -314,9 +314,9 @@ def test_change_project_kind(monkeypatch, capsys):
         Module.create("STL", directory=base, kind="library", github=stl_github)
         module = Module.create("Tool", directory=base, github=FakeGitHub(base / "gh2"), kind="app", project="Tool")
         module.repository.create_task("種類の試験").start()
-        _cppbuild.open_solution(module.root).get_project("Tool").settings.link_git(
+        _cppbuild.open_solution(module.root).get_subproject("Tool").settings.link_git(
             "file:///" + stl_github.bare.as_posix(), solution_path=_cppbuild.CONFIG_DIRECTORY,
-            link_type=ProjectType.STATIC_LIBRARY)
+            link_type=SubprojectType.STATIC_LIBRARY)
         module.set_project("Tool", add_defines=("TOOL=1",), folder="Apps", entry_point="wmain")
         main = (module.root / "Tool/src/main.cpp").read_text(encoding="utf-8")
 

@@ -304,8 +304,21 @@ def test_cpp_projects_are_added_changed_linked_moved_and_removed_in_a_workspace(
 def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
     window = opened(relay, "cpp-deps", GAME)
     add = form(relay, window, "deps", "dep_add", "mod-cpp-dep-add")
-    decide(relay, add, repository="acme/Net", project="", shared=True, at="v1.2.0")
-    assert called(relay, "deps add") == [{"repository": "acme/Net", "shared": True, "at": "v1.2.0"}]
+    decide(relay, add, repository="acme/Net", project="", library="", shared=True, at="v1.2.0")
+    assert called(relay, "deps add") == [{"repository": "acme/Net", "shared": True, "at": "v1.2.0"}]   # ライブラリを選ばなければ相手の main
+    # 「ライブラリを読む」：リポジトリ（と版）の一覧を読み、リンクできるものから選ぶ
+    add = form(relay, window, "deps", "dep_add", "mod-cpp-dep-add")
+    assert not called(relay, "deps libraries")   # 開いただけでは読まない（GitHub から取るので）
+    put(relay, add["id"], "form", "action", name="libraries", values={"repository": "acme/Net", "at": "v1.2.0"})
+    assert called(relay, "deps libraries") == [{"target": "acme/Net", "at": "v1.2.0"}]
+    props = nodes(relay, add["id"])["form"]["props"]
+    assert [row["name"] for row in props["choices"]] == ["Net", "Http", "NetTest"]
+    library = next(f for f in props["fields"] if f["name"] == "library")
+    assert library["options_from"]["source"] == "choices" and library["options_from"]["where"] == {"linkable": True}
+    put(relay, add["id"], "form", "action", name="libraries", values={"repository": "acme/Nope", "at": ""})
+    assert "GitHub にありません" in nodes(relay, add["id"])["form"]["props"]["problem"]   # 読めなければ、窓の中に理由
+    decide(relay, add, repository="acme/Net", project="", library="Http", shared=True, at="")
+    assert called(relay, "deps add")[-1] == {"repository": "acme/Net", "library": "Http", "shared": True}
 
     update = form(relay, window, "deps", "dep_update", "mod-cpp-dep-update", target="Math")
     assert nodes(relay, update["id"])["form"]["props"]["initial"] == {"place": GAME, "name": "Math", "at": ""}
@@ -336,8 +349,14 @@ def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
     assert called(relay, "deps sync") == [{}] and ran_in(relay, "deps sync") == GAME  # 手元を合わせるだけ：モジュールの場所で
 
     remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")
-    decide(relay, remove)
+    # 外すライブラリを選べる：リンクしているものだけ（リンクしている Project を添えて）
+    assert called(relay, "deps libraries")[-1] == {"target": "Math", "linked": True}
+    assert [row["name"] for row in nodes(relay, remove["id"])["form"]["props"]["rows"]] == ["Net"]
+    decide(relay, remove, library="")
     assert called(relay, "deps remove") == [{"name": "Math"}]
+    remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")
+    decide(relay, remove, library="Net")
+    assert called(relay, "deps remove")[-1] == {"name": "Math", "library": "Net"}
 
 
 def test_cpp_settings_and_templates_are_changed_with_their_forms(relay):

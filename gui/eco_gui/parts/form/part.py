@@ -11,7 +11,7 @@
   edit（{add, remove}）：並びを直接直す欄。読んだ今の値との差を、足すもの・外すものとして、その名前で出す（欄の名前では出さない）。
   changed_only：触っていなければ出さない（読んだ今の値を、そのまま送り直さない）。checkbox の on_value／off_value：読んだ値がこれと同じなら、印を付ける／外す。
 - select・radio・checks の選べるもの：options（[{value, label, help}]）か、options_from（読んだ一覧から）：
-  {"source": "rows" か "more", "value": 値にする項目, "label": 見せる項目, "note": かっこで添える項目（並びでもよい）,
+  {"source": "rows"・"more"・"choices", "value": 値にする項目, "label": 見せる項目, "note": かっこで添える項目（並びでもよい）,
    "note_labels": {値: 見せる言葉}, "where": {項目: 値}（合う行だけ）}
   select の none_label：いちばん上に置く「選ばない」。empty_text：選べるものがないときの文。
 - radio の inline：横に並べる。columns：この数の列に並べる。strong：選ぶものの名前を太字に。label_hidden：題を見せない（読み上げにだけ出す）。
@@ -63,6 +63,7 @@ def part(
     also: Annotated[dict | None, "読んだ値（もう1つ。values にない道筋は、ここから探す）"] = None,
     rows: Annotated[list[dict], "読んだ一覧（options_from の source が rows の欄の選べるもの）"] = [],
     more: Annotated[list[dict], "読んだ一覧（options_from の source が more の欄の選べるもの）"] = [],
+    choices: Annotated[list[dict], "読んだ一覧（options_from の source が choices の欄の選べるもの。押して読むものなど、3つ目の一覧）"] = [],
     problem: Annotated[str, "実行できなかった理由（窓の中に出す。入れた値は残る）"] = "",
     loading: Annotated[bool, "読み込み中"] = False,
     error: Annotated[str, "読めなかった理由"] = "",

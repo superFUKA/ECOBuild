@@ -33,7 +33,9 @@ def _links(d) -> str:
         return ""
     by_library: dict[str, list[str]] = {}
     for link in d.links:
-        by_library.setdefault(link.library, []).append(link.project)
+        # clone がなく名前が分からないものは、識別子の頭（deps remove --library に渡せる）
+        label = link.library or f"{link.id[:8]}（名前は deps sync で clone を取ると分かります）"
+        by_library.setdefault(label, []).append(link.project)
     return "".join(f"\n  ライブラリ {library} ← {'・'.join(projects)}" for library, projects in by_library.items())
 
 

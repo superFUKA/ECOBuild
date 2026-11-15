@@ -129,7 +129,7 @@ export default {
           const [label, tone] = DEP_STATE[d.state] || [d.state, ''];
           const users = h('td', {});
           // どの Project が、依存先のどのライブラリにリンクしているか（deps list の links。古い出力なら project list の links から）
-          if ((d.links || []).length) for (const l of d.links) users.append(pill(l.project + ' → ' + l.library), ' ');
+          if ((d.links || []).length) for (const l of d.links) users.append(pill(l.project + ' → ' + (l.library || String(l.id || '').slice(0, 8) + '（clone なし）')), ' ');
           else for (const p of projects.filter((x) => (x.links || []).some((l) => linksTo(l, d.name)))) users.append(pill(p.name), ' ');
           const cells = [h('td', {}, h('strong', {}, d.name), sub(d.url || '')), h('td', { class: 'mono' }, short(d.recorded)),
             h('td', { class: 'mono' }, short(d.local), d.branch ? sub(d.branch) : ''), h('td', {}, pill(label, tone))];

@@ -286,10 +286,10 @@ class HasDependencies(ABC):
 
     @abstractmethod
     def unlink(self, name: str, library: str | None = None) -> "LinkResult":
-        """library：そのライブラリへのリンクだけを外す（記録と clone は残す）。None はすべて（記録も）。"""
+        """library：そのライブラリへのリンクだけを外す（記録と clone は残す。最後の1つなら依存先ごと外す）。None はすべて（記録も）。"""
 
-    def dependency_libraries(self, name: str) -> "DependencyLibraries":
-        """依存先 name（手元の clone）の、リンクできるものの一覧。"""
+    def dependency_libraries(self, name: str, revision: str | None = None) -> "DependencyLibraries":
+        """依存先 name（手元の clone。revision があれば、記録の url のその版）の、リンクできるものの一覧。"""
         raise self.not_supported("依存先のライブラリの一覧")   # type: ignore[attr-defined]
 
     def repository_libraries(self, url: str, revision: str | None = None) -> "DependencyLibraries":

@@ -11,6 +11,7 @@ KINDS = {"static_library": "静的ライブラリ", "shared_library": "共有ラ
 def command(
     target: Annotated[str, "依存先の名前（deps list の名前）か、GitHubのリポジトリ（名前、または 所有者/名前）"],
     at: Annotated[str, "リポジトリのこの版（ブランチ・タグ・コミット）で読む（既定：依存先なら記録の版、リポジトリなら既定のブランチの最新）"] = "",
+    linked: Annotated[bool, "このモジュールがリンクしているものだけ（依存先でなければ空。GitHub へは行かない）"] = False,
     json: Annotated[bool, "結果をJSONで出力する"] = False,
 ) -> int:
     """依存先（になるモジュール）の、リンクできるライブラリの一覧（名前・種類・main か）を表示します。
@@ -20,6 +21,8 @@ def command(
     """
 
     def render(r):
+        if not r.url:
+            return f"{target} は依存先ではありません（リンクしているものはありません）"
         head = f"{r.name or r.url}：{r.revision[:7]}" + (f"（{r.url}）" if r.name else "")
         if not r.libraries:
             return head + "\nProject がありません"
@@ -35,5 +38,5 @@ def command(
             rows.append(f"  {library.name}（{'、'.join(notes)}）")
         return "\n".join([head, *rows])
 
-    return run_command("deps libraries", lambda inv: inv.module.dependency_libraries(target, revision=at or None),
+    return run_command("deps libraries", lambda inv: inv.module.dependency_libraries(target, revision=at or None, linked_only=linked),
                        render, json_output=json)

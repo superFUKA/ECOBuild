@@ -250,3 +250,20 @@ def test_failed_upgrade_leaves_nothing_behind(short_tmp, monkeypatch):
     done = task.upgrade()   # タスクブランチ：移した分をコミットし、作り直せなかったことを案内する
     assert done.commit is not None and not _migrate.is_old(root / CONFIG)
     assert any("作り直せませんでした" in notice for notice in task.repository.notices)
+
+
+def test_advice_follows_recorders_to_the_direct_dependency(tmp_path):
+    """3段以上の依存先の依存先：記録している依存先を、直接の依存先までたどって案内する。"""
+    from types import SimpleNamespace
+    deps = tmp_path / "deps"
+
+    def source(name, by):
+        return SimpleNamespace(name=name, directory=str(deps / name), revision="r", recorded_by=by and str(deps / by / ".ecobuild/.cppbuild"))
+
+    sources = {s.name: s for s in (source("A", None), source("B", "A"), source("C", "B"))}
+    for name in sources:
+        (deps / name).mkdir(parents=True)
+    assert _cppbuild._recorders(sources["C"], sources) == ["B", "A"]
+    advice = _cppbuild._old_format_advice(sources["C"], sources)
+    assert "B のモジュールで ecobuild deps update C" in advice and "A のモジュールで ecobuild deps update B" in advice
+    assert advice.endswith("このモジュールで ecobuild deps update A を実行してください。")

@@ -349,8 +349,9 @@ def test_cpp_dependencies_are_linked_updated_picked_and_removed(relay):
     assert called(relay, "deps sync") == [{}] and ran_in(relay, "deps sync") == GAME  # 手元を合わせるだけ：モジュールの場所で
 
     remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")
-    assert called(relay, "deps libraries")[-1] == {"target": "Math"}   # 外すライブラリを選べる（リンクしている Project を添えて）
-    assert [row["name"] for row in nodes(relay, remove["id"])["form"]["props"]["rows"]] == ["Net", "Http", "NetTest"]
+    # 外すライブラリを選べる：リンクしているものだけ（リンクしている Project を添えて）
+    assert called(relay, "deps libraries")[-1] == {"target": "Math", "linked": True}
+    assert [row["name"] for row in nodes(relay, remove["id"])["form"]["props"]["rows"]] == ["Net"]
     decide(relay, remove, library="")
     assert called(relay, "deps remove") == [{"name": "Math"}]
     remove = form(relay, window, "deps", "dep_remove", "mod-cpp-dep-remove", target="Math")

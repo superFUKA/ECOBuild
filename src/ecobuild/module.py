@@ -1588,12 +1588,16 @@ class Module:
         self.commit_own_changes(f"{result.name}/{library} のリンクを外す" if library else f"{result.name} のリンクを外す", before)
         return result
 
-    def dependency_libraries(self, target: str, *, revision: str | None = None) -> DependencyLibraries:
+    def dependency_libraries(self, target: str, *, revision: str | None = None, linked_only: bool = False) -> DependencyLibraries:
         """リンクできるものの一覧（読むだけ）。target：依存先の名前（手元の clone から読む）か、GitHub のリポジトリ
-        （「名前」か「所有者/名前」。一時的に取って読む）。revision：リポジトリのその版（省くと既定のブランチの最新）。"""
+        （「名前」か「所有者/名前」。一時的に取って読む）。revision：その版（省くと、依存先は記録の版、リポジトリは既定の
+        ブランチの最新）。linked_only：依存先のときだけ読む（ほかは空。リンクを外す画面など）。"""
         dependencies = self._dependencies("依存先のライブラリの一覧")
-        if revision is None and target in {d.name for d in dependencies.all_dependencies()}:
-            return dependencies.dependency_libraries(target)
+        if target in {d.name for d in dependencies.all_dependencies()}:   # 依存先の名前：記録の url（--at ならその版）
+            found = dependencies.dependency_libraries(target, revision)
+            return replace(found, libraries=tuple(l for l in found.libraries if l.linked)) if linked_only else found
+        if linked_only:   # 依存先でなければ、リンクしているものはない（GitHub へは行かない）
+            return DependencyLibraries(None, "", "", ())
         from .settings import qualify
         url = self.repository.github.get_repository(qualify(target)).clone_url
         return dependencies.repository_libraries(url, revision)

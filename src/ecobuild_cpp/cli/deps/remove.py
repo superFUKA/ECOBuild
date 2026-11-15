@@ -15,6 +15,9 @@ def command(
     タスクブランチで行い、変えた ECOBuild のファイル（.ecobuild の中）は、リンクを外したこととしてコミットします（Push はしません）。
     """
     def render(r):
+        if r.libraries and r.dependency_removed:
+            return lines(f"{r.name} の {r.libraries[0]} が最後のリンクだったので、依存先 {r.name} ごと外しました（{', '.join(r.projects)}）",
+                         f"deps/{r.name} を消しました" if r.clone_removed else f"deps/{r.name} は残しました（作業中・変更あり）")
         if r.libraries:
             return f"{r.name} の {r.libraries[0]} へのリンクを外しました（{', '.join(r.projects)}）。記録と deps/{r.name} は残しています"
         return lines(

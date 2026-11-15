@@ -925,7 +925,12 @@ jobs:
         source = self._source(name)
         if library is not None:
             projects = _cppbuild.unlink_library(self.root, name, library)
-            return LinkResult(name, source.url, source.revision, projects, (library,))
+            if _cppbuild.dependency_links(self.root).get(name):
+                return LinkResult(name, source.url, source.revision, projects, (library,))
+            # 最後の1つだった：リンクのない記録と clone を残さないよう、依存先ごと外す
+            whole = self.unlink(name)
+            return replace(whole, projects=tuple(dict.fromkeys((*projects, *whole.projects))), libraries=(library,),
+                           dependency_removed=True)
         projects = _cppbuild.unlink(self.root, name)
         directory = Path(source.directory)
         removable = directory.is_dir() and self._dependency_state(source).state == "aligned"
@@ -935,21 +940,34 @@ jobs:
 
     def dependencies(self) -> tuple[DependencyState, ...]:
         links = _cppbuild.dependency_links(self.root)
-        return tuple(replace(self._dependency_state(s), links=tuple(DependencyLink(p, l) for p, l in links.get(s.name, ())))
+        return tuple(replace(self._dependency_state(s), links=tuple(DependencyLink(p, l, g) for p, l, g in links.get(s.name, ())))
                      for s in _cppbuild.git_sources(self.root))
 
-    def dependency_libraries(self, name: str) -> DependencyLibraries:
-        source, libraries = _cppbuild.dependency_libraries(self.root, name)
+    def dependency_libraries(self, name: str, revision: str | None = None) -> DependencyLibraries:
+        """revision：記録の版でなく、その版（GitHub から一時的に取って読む）。"""
         users: dict[str, list[str]] = {}
-        for project, library in _cppbuild.dependency_links(self.root).get(name, ()):
-            users.setdefault(library, []).append(project)
+        for project, library, guid in _cppbuild.dependency_links(self.root).get(name, ()):
+            users.setdefault(library or guid, []).append(project)
+        if revision is not None:
+            url = self._any_source(name).url
+            found = self.repository_libraries(url, revision)
+            return replace(found, name=name, libraries=tuple(replace(l, linked=tuple(users.get(l.name, ())))
+                                                             for l in found.libraries))
+        source, libraries = _cppbuild.dependency_libraries(self.root, name)
         return DependencyLibraries(name, source.url, source.revision, tuple(
             DependencyLibrary(l.name, l.kind, l.main, l.linkable, tuple(users.get(l.name, ()))) for l in libraries))
+
+    def _any_source(self, name: str):
+        """依存先 name（依存先の依存先も）。"""
+        source = next((s for s, _ in _cppbuild.all_git_sources(self.root) if s.name == name), None)
+        if source is None:
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+        return source
 
     def repository_libraries(self, url: str, revision: str | None = None) -> DependencyLibraries:
         """一時的な場所に取って読む（CppBuild の管理ファイルだけを取り出す。終われば消す）。"""
         import tempfile
-        with tempfile.TemporaryDirectory(prefix="ecobuild-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="ecobuild-", ignore_cleanup_errors=True) as temporary:
             sha, libraries = _cppbuild.repository_libraries(url, revision, Path(temporary) / "r")
         return DependencyLibraries(None, url, sha, tuple(DependencyLibrary(l.name, l.kind, l.main, l.linkable)
                                                          for l in libraries))

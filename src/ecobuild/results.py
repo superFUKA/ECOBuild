@@ -254,7 +254,8 @@ class DependencyState:
 @dataclass(frozen=True)
 class DependencyLink:
     project: str                     # このモジュールの Project
-    library: str                     # 依存先のライブラリ（Project）。clone がなく分からなければ、相手の識別子
+    library: str                     # 依存先のライブラリ（Project）の名前。clone がなく分からなければ空
+    id: str = ""                     # 依存先のライブラリの識別子（名前が分からなくても、記録から分かる）
 
 
 @dataclass(frozen=True)
@@ -313,6 +314,7 @@ class LinkResult:
     libraries: tuple[str, ...] = ()  # リンクした（外した）依存先のライブラリ（全部を外したときは空）
     clone_removed: bool = False      # unlink：手元のcloneを消したか（作業中・変更ありなら残す）
     clone: DependencyChange | None = None     # link：手元のcloneを記録の版に合わせた結果（既にcloneがあったとき）
+    dependency_removed: bool = False  # unlink --library：最後のリンクだったので、依存先ごと（記録も）外した
 
 
 @dataclass(frozen=True)

@@ -101,11 +101,7 @@ function guard(window, icon) {
   window.webContents.on('did-create-window', (child) => {
     // 親が最小化していると、親が持つ子の窓も隠れる（CLI からの open・時間のかかる実行の後に開くとき）。親を戻して子を見せる
     if (window.isMinimized()) window.restore();
-    // window.open の幅・高さは外枠の大きさ。題の帯（eco-frameless の 40px）の分、中身が低くならないよう足す
-    if (FRAMELESS) {
-      const [width, height] = child.getContentSize();
-      child.setContentSize(width, height + TITLE_BAR.height + 1);
-    }
+    // 高さは GUIFrameWork が中身（題の帯を含む）に合わせて変える（tellHeight）ので、ここでは変えない
     child.show();
     child.focus();
     child.once('closed', () => { if (!window.isDestroyed()) window.focus(); });   // 閉じたら親を前に（ほかのアプリの後ろに回らない）

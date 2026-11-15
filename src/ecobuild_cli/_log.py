@@ -112,10 +112,14 @@ class _Handler(logging.Handler):
         self.module_root: Path | None = None
         self.early: list[str] | None = []   # モジュールが決まる前に書いた行（決まったら写す。写したら None）
         self.errors = 0          # 書いた command.error の数
+        self.stopped: str | None = None   # 中断したなら、その event（command.interrupted・command.output_closed）
 
     def emit(self, record: logging.LogRecord) -> None:
-        if getattr(record, "event", None) == "command.error":
+        event = getattr(record, "event", None)
+        if event == "command.error":
             self.errors += 1
+        elif event in STOPPED_EVENTS:
+            self.stopped = event
         try:
             self.write(self.line(record))
         except Exception:
@@ -290,14 +294,21 @@ def use_module(root: Path) -> None:
         _current.use_module(root)
 
 
+STOPPED_EVENTS = ("command.interrupted", "command.output_closed")   # 失敗ではなく中断（Ctrl+C・読む側が先に閉じた）
+
+
 def finish(exit_code: int | None) -> None:
-    """コマンドの終わり。終了コードと所要時間を書き、ログのファイルを閉じる。"""
+    """コマンドの終わり。終了コードと所要時間を書き、ログのファイルを閉じる。中断（STOPPED_EVENTS）で終わったものは、
+    誤りではなく warning の command.end（data の stopped にその event）。"""
     global _current
     handler = _current
     if handler is None:
         return
     data = {"exit_code": exit_code, "seconds": round(time.monotonic() - _started, 3)}
     level = logging.INFO if exit_code in (0, None) else logging.ERROR
+    if level == logging.ERROR and handler.stopped and not handler.errors:
+        level = logging.WARNING
+        data["stopped"] = handler.stopped
     if level == logging.ERROR and not handler.errors:
         # 理由を書かずに失敗した出口（中の ecobuild・外部のコマンド・直に終了コードを返したもの）
         logger.error("終了コード %s（理由の記録なし）", exit_code, extra={"event": "command.error", "data": {

@@ -123,6 +123,16 @@ def test_usage_error_has_the_same_shape(outside, capsys):
     assert [e for e in log_entries() if e["event"] == "command.error"][-1]["data"]["code"] == "usage_error"
 
 
+def test_missing_directory_is_said_in_japanese(outside, capsys):
+    gone = (outside / "w" / "1").as_posix()
+    code, found = document(capsys, "-C", gone, "status", "--json")
+    assert code == 2 and found["error"]["code"] == "usage_error"
+    assert found["error"]["message"].startswith(f"-C の場所 {gone} がありません")
+    (outside / "file.txt").write_text("", encoding="utf-8")
+    code, found = document(capsys, "-C", (outside / "file.txt").as_posix(), "status", "--json")
+    assert "フォルダーではありません" in found["error"]["message"]
+
+
 def test_unexpected_exception_is_returned_as_json_and_logged(outside, capsys):
     def action(inv):
         raise ValueError("No closing quotation")
@@ -169,6 +179,18 @@ def test_closed_output_ends_quietly(outside, monkeypatch, capsys):
     assert stop.value.code == 1
     events = [e["event"] for e in log_entries()]
     assert "command.output_closed" in events and "command.crash" not in events
+    assert "command.error" not in events      # 失敗ではなく中断（GUI が読みをやめた等）
+    end = next(e for e in log_entries() if e["event"] == "command.end")
+    assert end["level"] == "warning" and end["data"]["stopped"] == "command.output_closed"
+
+
+def test_interrupted_command_is_not_logged_as_an_error(outside):
+    _log.start(["sample"])
+    _log.logger.warning("中断しました", extra={"event": "command.interrupted"})
+    _log.finish(130)
+    entries = log_entries()
+    assert "command.error" not in [e["event"] for e in entries]
+    assert next(e for e in entries if e["event"] == "command.end")["level"] == "warning"
 
 
 # ログ（23・50・51） -------------------------------------------------------------------

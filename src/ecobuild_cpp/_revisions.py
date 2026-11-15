@@ -45,11 +45,14 @@ def commit_for(url: str, revision: str | None, clone: Path | str | None = None, 
     if named is not False:
         return named or None
     revision = revision.lower()
-    if not HEX.fullmatch(revision):
-        return None
+    if not HEX.fullmatch(revision):   # 名前でない4〜6文字：CppBuild は手元の clone の中だけで解く（push していないものも当たる）
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"版 {revision} は、GitHub の {_shown(url)} のブランチ・タグの名前ではありません。",
+                            hint="コミットなら、7文字以上のハッシュで指定してください。")
     own = Path(clone) if clone is not None and (Path(clone) / ".git").exists() else None
-    missing_on_github = False   # 依存先の clone を取り込み直して、なかった
+    missing_on_github = False   # 依存先の clone（なければ一時的に取った写し）を取り込み直して、なかった
+    searched = False
     for place in _places(url, own):
+        searched = True
         git = Git(place, command=command)
         fetched = False
         sha = _lookup(git, revision)
@@ -66,12 +69,37 @@ def commit_for(url: str, revision: str | None, clone: Path | str | None = None, 
         if _on_github(git, sha):
             return sha
         raise _not_pushed(url, revision, sha, place, git, is_clone=place is own, command=command)
+    if not searched:   # 依存先の clone も、このPCの同じリポジトリもない：一時的に取って確かめる（できなければ CppBuild に任せる）
+        found = _in_fresh_clone(url, revision)
+        if found is None:
+            return None
+        if found:
+            return found
+        missing_on_github = True
     if missing_on_github:
         raise EcoBuildError(
             ErrorCode.DEPENDENCY_REVISION_NOT_FOUND,
             f"コミット {revision} は、GitHub の {_shown(url)} のブランチにありません（このPCのモジュールにも見つかりません）。",
             hint=f"ハッシュを確かめてください（候補は {operation(command, 'deps versions')} <依存先>）。" + PUSH_RULE)
     return None
+
+
+def _in_fresh_clone(url: str, revision: str) -> str | bool | None:
+    """GitHub から一時的な場所に取った写し（中身は取らない）で、GitHub のブランチにあるコミットか。あればその長いハッシュ、
+    なければ False、取れなければ None。"""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="ecobuild-", ignore_cleanup_errors=True) as temporary:
+        directory = Path(temporary) / "r"
+        try:
+            cloned = Git(Path(temporary)).run("clone", "--quiet", "--no-checkout", "--filter=blob:none", "--", url,
+                                              str(directory), check=False)
+        except Exception:
+            return None
+        if not cloned.ok:
+            return None
+        git = Git(directory)
+        sha = _lookup(git, revision)
+        return sha if sha is not None and _on_github(git, sha) else False
 
 
 def _places(url: str, own: Path | None):

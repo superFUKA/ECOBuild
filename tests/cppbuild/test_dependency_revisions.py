@@ -87,3 +87,26 @@ def test_hex_like_branch_name_is_a_branch(short_tmp):
     git(engine.root, "branch", "-D", name)
     game.update_dependencies("Engine", name)
     assert next(d for d in game.dependencies() if d.name == "Engine").recorded == tip
+
+
+def test_short_non_name_is_refused(short_tmp):
+    """名前でない4〜6文字は、CppBuild に渡さずに断る（手元の clone の中だけで解かれ、push していないものも当たる）。"""
+    engine, game = _game_with_engine(short_tmp)
+    local = _commit(engine.root, "task/7-local", "#pragma once\n// local\n")
+    with pytest.raises(Exception) as error:
+        game.update_dependencies("Engine", local[:5])
+    assert error.value.code == "invalid_argument" and "7文字以上" in error.value.hint
+
+
+def test_unknown_long_hash_of_a_new_dependency_is_refused(short_tmp):
+    """依存先の clone も、このPCの同じリポジトリもない：一時的に取って確かめる（記録しない）。"""
+    engine_github = FakeGitHub(short_tmp / "gh1")
+    Module.create("Engine", directory=short_tmp, kind="library", github=engine_github)   # 一覧には入れない
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["Engine"] = engine_github.bare
+    game = Module.create("Game", directory=short_tmp, kind="app", github=github)
+    game.repository.create_task("Engine を使う").start()
+    with pytest.raises(Exception) as error:
+        game.link("Engine", revision="1" * 40)
+    assert error.value.code == "dependency_revision_not_found"
+    assert not game.dependencies()

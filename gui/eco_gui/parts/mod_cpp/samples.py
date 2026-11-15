@@ -20,10 +20,14 @@ SAMPLES = [
             {"name": "Math", "url": "https://github.com/acme/Math.git", "recorded": "abc1234567", "local": "abc1234567", "branch": None, "state": "aligned"},
             {"name": "Net", "url": "https://github.com/acme/Net.git", "recorded": "def1234567", "local": "999aaa1234", "branch": "main", "state": "differs"},
             {"name": "Draw", "url": "https://github.com/acme/Draw.git", "recorded": "777bbb1234", "local": "777bbb1234", "branch": "task/3-fix", "state": "modified"},
+            {"name": "Physics", "url": "https://github.com/acme/Physics.git", "recorded": "333ddd1234", "local": "444eee5678", "branch": "task/12-fg", "state": "working",
+             "work": {"branch": "task/12-fg", "task": 12, "origin": "local", "place": "C:/m/Physics/.ecobuild/w/12", "commit": "444eee5678"}},
             {"name": "Audio", "url": "https://github.com/acme/Audio.git", "recorded": "555ccc1234", "local": None, "branch": None, "state": "missing"}],
-        "tree": {"module": "Game", "direct": ["Math", "Net", "Audio"], "nodes": [
+        "tree": {"module": "Game", "direct": ["Math", "Net", "Physics", "Audio"], "nodes": [
             {"name": "Math", "revision": "abc1234567", "present": True, "depends_on": ["Core"]},
             {"name": "Net", "revision": "def1234567", "present": True, "depends_on": ["Core", "Math"]},
+            {"name": "Physics", "revision": "333ddd1234", "present": True, "depends_on": [],
+             "work": {"branch": "task/12-fg", "task": 12, "origin": "local"}},
             {"name": "Core", "revision": "0123456789", "present": True, "depends_on": []},
             {"name": "Audio", "revision": "555ccc1234", "present": False, "depends_on": []}]}}},
     {"name": "依存先（GitHub と照らし合わせた・版を選ぶ）", "props": {

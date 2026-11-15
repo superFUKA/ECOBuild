@@ -78,6 +78,7 @@ class PolishEcobuild(FakeEcobuild):
             "deps remove": spec("change", ["name"], name=text, library=text),
             "deps libraries": spec("read", ["target"], target=text, at=text, linked=flag),
             "deps update": spec("change", names=many, name=text, at=text),
+            "deps work": spec("change", ["name"], name=text, task={"type": "integer"}, branch=text, done=flag),
             "template list": spec("read"), "template remove": spec("change", ["name"], name=text),
             "template add": spec("change", ["name", "source"], name=text, source=text),
         }

@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+from .work import work_text
+
 AGENT = "read"
 
 STATES = {"aligned": "記録の版", "differs": "記録と別の版", "modified": "未コミットの変更あり",
@@ -20,7 +22,8 @@ def command(
             return "依存先はありません（ecobuild deps add で追加できます）"
         return "\n".join(
             f"{d.name}：記録 {d.recorded[:7]}、手元 {(d.local or '-')[:7]}、{STATES[d.state]}"
-            + (f"（{d.branch}）" if d.branch else "") + (f"、{d.via} が記録" if d.via else "")
+            + (f"（{work_text(d.name, d.work)}）" if d.work else f"（{d.branch}）" if d.branch else "")
+            + (f"、{d.via} が記録" if d.via else "")
             + f"\n  {d.url}" + _links(d) + _remote(d) for d in r)
 
     return run_command("deps list", lambda inv: list(inv.module.dependencies(fetch=fetch, all=all)), render,

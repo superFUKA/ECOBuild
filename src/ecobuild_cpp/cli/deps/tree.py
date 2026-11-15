@@ -2,6 +2,8 @@ from typing import Annotated
 
 from ecobuild_cli.kit import run_command
 
+from .work import work_text
+
 AGENT = "read"
 
 
@@ -24,6 +26,8 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
                 note = ("（古い形式の clone：ecobuild deps list・deps sync で確かめてください）" if node.outdated
                         else "（cloneなし：ecobuild deps sync で取得すると、その先も分かります）" if not node.present
                         else "（上に同じ）" if name in shown and node.depends_on else "")
+                if node.work is not None:   # 手元の clone が作業版（deps work）
+                    note = f"（作業版：{work_text(name, node.work)}）" + note
                 # リンクされているライブラリ（依存先と同じ名前の1つだけ〔ふつうの main〕なら省く）
                 libraries = f" [{', '.join(node.libraries)}]" if node.libraries and tuple(node.libraries) != (name,) else ""
                 out.append(f"{indent}{'└─ ' if last else '├─ '}{name}{libraries} {node.revision[:7]}{note}")

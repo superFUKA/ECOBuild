@@ -142,6 +142,9 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
              "一緒に直します）。シェルの `mv`・`rm` やエディターで直接しません。\n" if has_files else
              "- この型にはファイルの操作のコマンドがないので、ファイルの追加・移動・削除は直接して構いません。\n")
     regenerate = f"{generated}は直さなくて構いません。" if generated else ""
+    work = ("- 作りかけの依存先（依存先のモジュールのタスク）をこのモジュールで試すときは `ecobuild deps work <依存先> --task <番号>`"
+            "（記録の版は変えません。終えたら `--done`）。`ecobuild deps update --at` に push していないコミットを渡しません。\n"
+            if issubclass(module_type, HasDependencies) else "")
     review = ("   このモジュールでは、提出すると CI で Claude が見直し、PR のコメントに指摘を書きます（まとめは "
               "`ecobuild task status` で読めます）。正しい指摘は直して出し直し（`ecobuild task commit` → `ecobuild task submit`）、"
               "違うと思う指摘は `ecobuild task comment` で理由を返します。見直しは承認ではありません。\n"
@@ -179,7 +182,7 @@ def agent_guide(config: ModuleConfig, module_type: "type[ModuleType]") -> str:
 - ビルド・テスト・実行は `ecobuild build`・`ecobuild test`・`ecobuild run`（提出の前の確認は `ecobuild check`）。型のツール
   （ビルド・テストの道具）を直接使いません。ECOBuild がビルド設定・依存先・コンテナに合わせて動かします。
   ビルドしたものも直接起動しません（環境変数を足すなら `--env 名前=値`〔何度でも〕、何度も流すなら `ecobuild test --repeat N`）。
-{files}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
+{files}{work}- 合うコマンドがないとき・コマンドでは足りないときだけ、直接して構いません（下の「守ること」は同じ）。
 - コードの中身は Edit／Write で書きます。Bash のリダイレクト・heredoc・`cat >>` でファイルを書きません。
 - ビルド・テストは終わるまで待ちます。裏で動かしたまま返答を終えません。
 {usage}

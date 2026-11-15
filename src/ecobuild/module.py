@@ -37,7 +37,7 @@ from . import workspaces as _workspaces
 from .module_type import Builds, HasDependencies, HasFiles, HasProjects, Registry
 from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
-from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyLibraries, DependencyState,
+from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyLibraries, DependencyState, DependencyWorkResult,
                       DependencyTree, DependencyVersions, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
                       ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
@@ -1378,21 +1378,34 @@ class Module:
         return self.type.executable_at(Path(path)) if isinstance(self.type, Builds) else None
 
     def build(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
-              action: str = "build") -> BuildResult:
-        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。"""
+              action: str = "build", note_dependencies: bool = True) -> BuildResult:
+        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。
+        note_dependencies：手元の依存先が記録と違えば知らせる（check は依存先の項目で見るので知らせない）。"""
         options, name = self.build_options(configuration, profile)
-        result = self._builds(action).build(project, options, action)
+        builds = self._builds(action)
+        if action != "clean" and note_dependencies:
+            self._note_dependency_mismatches()
+        result = builds.build(project, options, action)
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
              tests: tuple[str, ...] = (), env: dict[str, str] | None = None, repeat: int = 1,
-             on_run=None) -> TestResult:
+             on_run=None, note_dependencies: bool = True) -> TestResult:
         """env：テスト（とその前のビルド）の環境に足す環境変数。repeat：流す回数（2以上なら result.runs に回ごとの結果。
         1回でも失敗したら TEST_FAILED。execution.repeat_tests）。on_run(何回目, repeat)：各回の前に（進み具合の表示）。"""
         options, _ = self.build_options(configuration, profile)
         builds = self._builds("テスト")
+        if note_dependencies:
+            self._note_dependency_mismatches()
         with _execution.added_environment(env):
             return _execution.repeat_tests(lambda: builds.test(project, options, tuple(tests)), repeat, on_run)
+
+    def _note_dependency_mismatches(self) -> None:
+        """手元の版が記録と違う依存先（deps work の作業版等）があれば知らせる（止めない。CI・取り込んだ後は記録の版を使う）。"""
+        mismatches = self.dependency_mismatches()
+        if mismatches:
+            self.repository.notices.append("注意：手元の依存先が記録の版と違います（このビルドは手元の版を使います。提出の前の"
+                                           "確かめ・CI は記録の版を使います）：" + mismatch_text(mismatches))
 
     def list_tests(self, *, project: str | None = None, configuration: str = "", profile: str | None = None) -> TestList:
         """流せるテストの一覧（test --list。名前はそのまま test に渡せる）。"""
@@ -1664,6 +1677,18 @@ class Module:
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
         """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
         return self.type.sync_dependencies() if isinstance(self.type, HasDependencies) else ()
+
+    def work_dependency(self, name: str, *, task: int | None = None, branch: str | None = None,
+                        done: bool = False) -> DependencyWorkResult:
+        """依存先 name の手元の clone を、作りかけの版（依存先のタスク task のブランチ・ブランチ branch の最新）にする
+        （作業版）。記録の版は変えないので、タスクブランチでなくてもよい（コミットしない）。どちらも省くと今の作業版の
+        取り直し。done：作業版をやめ、記録の版に戻す。依存先の側を変えるのは、依存先のモジュールのタスクで。"""
+        if task is not None and branch:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--task と --branch は、どちらか1つにしてください。")
+        if done and (task is not None or branch):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, "--done は、--task・--branch と一緒には使えません。",
+                                hint=f"作業版をやめるだけなら {self.op('deps work')} {name} --done")
+        return self._dependencies("依存先の作業版").work_dependency(name, task=task, branch=branch or None, done=done)
 
     def _direct_dependencies(self) -> tuple[DependencyState, ...]:
         """直接の依存先（型が依存先を持たなければ空）。"""
@@ -2011,7 +2036,8 @@ class Module:
                 items.append(CheckItem("dependencies", allow_dependency_mismatch,
                                        "記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches)))
         if build:
-            steps = (("build", lambda: self.build()), ("test", lambda: self.test(tests=tests)))
+            steps = (("build", lambda: self.build(note_dependencies=False)),
+                     ("test", lambda: self.test(tests=tests, note_dependencies=False)))
             for name, action in (step for step in steps if wanted(step[0])):
                 try:
                     result = action()

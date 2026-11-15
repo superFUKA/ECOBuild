@@ -145,6 +145,11 @@ class ModuleType:
         """生成ファイルを作り直す。作り直したらTrue。"""
         return False
 
+    def upgrade(self) -> None:
+        """module upgrade で、型の管理ファイルを今の形式にし、生成ファイルを作り直す（版ごとの移行の、型の分）。
+        型が使う外の部品（ライブラリ等）の保存の形が変わったら、型がここで移す。既定は refresh だけ。"""
+        self.refresh()
+
     def prepare(self) -> "PrepareResult":
         """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。"""
         from .results import PrepareResult

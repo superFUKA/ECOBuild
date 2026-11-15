@@ -1,0 +1,27 @@
+{
+  "data": {
+    "dependencies": {
+      "c47ac62c9506416097d61ade91a11d80": {
+        "kind": "project",
+        "values": {
+          "project_guid": "3895ee29-f17d-48d7-977a-c9e597be279d",
+          "project_type": "static_library"
+        }
+      }
+    },
+    "guid": "be78bd5d-d152-41f7-865a-f02885e452a4",
+    "initial_type": "test",
+    "name": "ECOJobTest",
+    "project_headers": [],
+    "source_directories": [
+      "src",
+      "include"
+    ],
+    "system_headers": [],
+    "types": {
+      "test": "test-cb97757dce14a7fcd02273a6393472c0601d65cce77befd067c610bc2ec5d99b.json"
+    }
+  },
+  "kind": "project",
+  "schema_version": 5
+}

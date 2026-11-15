@@ -185,10 +185,10 @@ def test_projects_bench_pch_and_remove(module):
 
     pch = cpp(module).set_pch("Geo")
     assert pch.paths == ("Geo/include/Geo/pch.h",)
-    assert "target_precompile_headers" in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "target_precompile_headers" in (module.root / ".ecobuild/.cppbuild/subprojects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
     module.build(project="Geo")
     cpp(module).set_pch("Geo", enable=False)
-    assert "target_precompile_headers" not in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert "target_precompile_headers" not in (module.root / ".ecobuild/.cppbuild/subprojects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
 
     for name in ("GeoBench", "GeoExtraBench", "GeoExtraTest", "GeoExtra", "GeoAlone"):
         module.remove_project(name)
@@ -299,10 +299,10 @@ def test_update_is_skipped_when_nothing_changed(module, monkeypatch):
     # ソースの追加は作り直さない（生成ファイルに一覧はなく、CMakeがビルドのたびに集める）
     (module.root / "Geo/src/Skip.cpp").write_text('#include "Geo/Geo.h"\n', encoding="utf-8")
     module.type.refresh()
-    assert calls == [] and "Skip.cpp" not in (module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
+    assert calls == [] and "Skip.cpp" not in (module.root / ".ecobuild/.cppbuild/subprojects/Geo/CMakeLists.txt").read_text(encoding="utf-8")
     (module.root / "Geo/src/Skip.cpp").unlink()
     # 生成ファイルが書き換えられていれば作り直す
-    generated = module.root / ".ecobuild/.cppbuild/projects/Geo/CMakeLists.txt"
+    generated = module.root / ".ecobuild/.cppbuild/subprojects/Geo/CMakeLists.txt"
     original_text = generated.read_text(encoding="utf-8")
     generated.write_text(original_text + "# edited\n", encoding="utf-8")
     module.type.refresh()

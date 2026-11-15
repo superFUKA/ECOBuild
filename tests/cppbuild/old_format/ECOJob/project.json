@@ -1,0 +1,45 @@
+{
+  "data": {
+    "base_directory": "../..",
+    "dependency_directories": [
+      "../../deps"
+    ],
+    "file_templates": {
+      "app": "app.cpp",
+      "bench": "bench.cpp",
+      "header": "header.h",
+      "main": "main.cpp",
+      "pch": "pch.h",
+      "source": "source.cpp",
+      "test": "test.cpp",
+      "unit_test": "unit_test.cpp"
+    },
+    "git_sources": {
+      "ECOSTL": {
+        "path": ".ecobuild/.cppbuild",
+        "revision": "97ee66e473bc66fcbe3d49e0bf0392ad57dfe788",
+        "url": "https://github.com/superFUKA/ECOSTL.git"
+      }
+    },
+    "main_project": "ECOJob",
+    "name": "ECOJob",
+    "projects": {
+      "ECOJob": "../../ECOJob",
+      "ECOJobBench": "../../ECOJobBench",
+      "ECOJobTest": "../../ECOJobTest"
+    },
+    "references": {
+      "6610f855-4b8a-4f59-99cf-ac4f07a52119": {
+        "project_guid": "6610f855-4b8a-4f59-99cf-ac4f07a52119",
+        "solution_directory": "../../deps/ECOSTL/.ecobuild/.cppbuild"
+      }
+    },
+    "solution_folders": {
+      "linked_projects": "LinkedProjects",
+      "project_folders": {},
+      "projects": "Projects"
+    }
+  },
+  "kind": "solution",
+  "schema_version": 5
+}

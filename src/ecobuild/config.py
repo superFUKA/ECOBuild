@@ -22,7 +22,9 @@ LOCAL_FILE_NAME = f"{DIRECTORY}/ecobuild.local.toml"   # このPC用（.ecobuild
 # 5：AGENTS.md に「文書とコードが食い違うときはコードに従い、食い違いを報告に書く」（古い指示ファイルが動くコードを書き換えさせないため）。
 # 6：CLAUDE.md（AGENTS.md を読み込むだけ。Claude Code は AGENTS.md を自動では読まない）を置き、AGENTS.md もなければ置く。
 #    AGENTS.md に、元の clone では作業しないこと・作業空間を消す操作は作業空間の外から行うこと。
-FORMAT = 6
+# 7：型の管理ファイルの形式が変わった（型の upgrade で移す。cpp：CppBuild の Project が Subproject に改名され、
+#    .cppbuild の中の置き場所・キーが変わった。前の ECOBuild が新しい形式のモジュールを開いたら、ECOBuild の更新を案内できるように）。
+FORMAT = 7
 
 
 @dataclass(frozen=True)

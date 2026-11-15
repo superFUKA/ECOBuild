@@ -15,8 +15,8 @@ from importlib import resources
 from pathlib import Path
 
 from cppbuild import (ARCHITECTURES, CONFIGURATIONS, CPP_STANDARDS, GENERATORS, INHERIT, AlreadyRegisteredError,
-                      CMakeSettings, InvalidValueError, NoMainProjectError, NotRegisteredError, ProjectBuildSettings,
-                      ProjectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
+                      CMakeSettings, GitFetchError, InvalidValueError, NoMainSubprojectError, NotRegisteredError, SubprojectBuildSettings,
+                      SubprojectType, Solution, SolutionBuildSettings, SolutionFolderSettings, ToolSettings)
 
 from cppbuild import engine as _engine
 from cppbuild import execution as _execution
@@ -29,6 +29,7 @@ from ecobuild.config import DIRECTORY
 from ecobuild.errors import EcoBuildError, operation
 
 from .errors import ErrorCode
+from . import _migrate
 from ecobuild.fsutil import remove_tree
 from ecobuild.results import ProjectSummary
 
@@ -63,11 +64,11 @@ NEW_KINDS = ("app", "library", "shared", "none")
 
 # project add の種類 → CppBuildの種類
 PROJECT_KINDS = {
-    "library": ProjectType.STATIC_LIBRARY,
-    "shared": ProjectType.SHARED_LIBRARY,
-    "app": ProjectType.EXECUTABLE,
-    "test": ProjectType.TEST,
-    "bench": ProjectType.EXECUTABLE,
+    "library": SubprojectType.STATIC_LIBRARY,
+    "shared": SubprojectType.SHARED_LIBRARY,
+    "app": SubprojectType.EXECUTABLE,
+    "test": SubprojectType.TEST,
+    "bench": SubprojectType.EXECUTABLE,
 }
 # 種類のうちライブラリ（組のテスト用Projectを作る・--link は使えない）
 LIBRARY_KINDS = ("library", "shared")
@@ -75,9 +76,9 @@ LIBRARY_KINDS = ("library", "shared")
 CHANGEABLE_KINDS = ("app", "library", "shared")
 # ライブラリの形式（project set --for・project link --as・ビルド設定の type）→ CppBuildの種類
 LIBRARY_TYPES = {
-    "static": ProjectType.STATIC_LIBRARY,
-    "shared": ProjectType.SHARED_LIBRARY,
-    "interface": ProjectType.INTERFACE_LIBRARY,
+    "static": SubprojectType.STATIC_LIBRARY,
+    "shared": SubprojectType.SHARED_LIBRARY,
+    "interface": SubprojectType.INTERFACE_LIBRARY,
 }
 # 構成・C++の規格（既定は20）・アーキテクチャ（省略時はホスト・コンパイラの既定）・生成器（省略時はOSごとの既定）は、
 # CppBuildが受け付ける値そのもの（CppBuildが増やしても、ここは書き換えない）。
@@ -148,12 +149,45 @@ class TestOutcome:
 
 
 def open_solution(root: Path) -> Solution:
+    if _migrate.is_old(root / CONFIG_DIRECTORY):
+        raise old_format_error()
     try:
         solution = Solution.open(root / CONFIG_DIRECTORY)
         solution.set_build_settings(_solution_settings())
         return solution
     except Exception as error:  # CppBuildの例外は種類が多いので、まとめて変換する
         raise _cppbuild_error("CppBuildのSolutionを開けません。", error) from error
+
+
+def old_format_error() -> EcoBuildError:
+    return EcoBuildError(ErrorCode.OLD_FORMAT,
+                         f"このモジュールの CppBuild の管理ファイル（{CONFIG_DIRECTORY}）は古い形式です（今の CppBuild では読めません）。",
+                         hint="ecobuild module upgrade で新しい形式にしてください（タスクブランチで実行し、提出してください）。")
+
+
+def old_dependencies(solution: Solution) -> tuple[str, ...]:
+    """手元の clone（依存先の依存先も）のうち、CppBuild の管理ファイルが古い形式のものの名前。
+
+    CppBuild は古い形式の clone を「ない」とみなし、その先（依存先の依存先）もたどらない。古い形式を新しくすれば
+    その先も見える。"""
+    try:
+        sources = solution.git_sources()
+    except Exception:   # 記録の食い違い等は、操作の側がいつもどおりに誤りを出す
+        return ()
+    return tuple(s.name for s in sources if not s.present and _migrate.is_old(Path(s.directory) / s.path))
+
+
+def check_dependency_formats(solution: Solution) -> None:
+    """依存先に古い形式の clone があれば止める（CppBuild の英語の誤りの代わりに、どれをどうするかを示す）。"""
+    old = old_dependencies(solution)
+    if old:
+        names = "、".join(old)
+        raise EcoBuildError(
+            ErrorCode.DEPENDENCY_OLD_FORMAT,
+            f"依存先 {names} の CppBuild の管理ファイルが古い形式です（手元の clone が古いコミットです）。",
+            hint=f"その依存先のモジュールで ecobuild module upgrade をして取り込んでから、このモジュールで "
+                 f"ecobuild deps update {old[0] if len(old) == 1 else '<名前>'} を実行してください。",
+            details=[f"{DEPENDENCY_DIRECTORY}/{name}" for name in old])
 
 
 def create_module_solution(root: Path, name: str, kind: str, project: str | None = None, *,
@@ -163,7 +197,7 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
     none＝Projectを作らない。
     Project名は project（省略時はモジュール名）。
 
-    CppBuildは最初に作ったProjectを main_project にし、他のモジュールからリンクされるのはそれだけ
+    CppBuildは最初に作ったProjectを main_subproject にし、他のモジュールからリンクされるのはそれだけ
     （実行ファイル・なしなら、他のモジュールからはリンクできない）。
     """
     try:
@@ -187,7 +221,7 @@ def create_module_solution(root: Path, name: str, kind: str, project: str | None
 def _create_library(solution: Solution, name: str, *, test: bool, kind: str = "library") -> list[str]:
     """ライブラリ（ヘッダー include/<名前>/<名前>.h と src/<名前>.cpp）と、test ならテスト用 <名前>Test。
     kind：library＝静的、shared＝共有（どちらも Windows で関数を書き出す設定にする。_add_library_header）。"""
-    project = solution.add_project(name, name, PROJECT_KINDS[kind])
+    project = solution.add_subproject(name, name, PROJECT_KINDS[kind])
     header = library_header(name)
     _add_library_header(project, f"include/{header}")
     project.add_file(f"src/{name}.cpp", template_name="source", replacements={"header": header}, auto_update=False)
@@ -199,12 +233,12 @@ def _create_library(solution: Solution, name: str, *, test: bool, kind: str = "l
 
 def _create_linked(solution: Solution, name: str, kind: str, library: str | None, *, suite: str | None = None) -> list[str]:
     """実行ファイル・テスト・性能測定のProject。library があればリンクし、そのヘッダーを読み込む素材を置く。"""
-    project = solution.add_project(name, name, PROJECT_KINDS[kind])
+    project = solution.add_subproject(name, name, PROJECT_KINDS[kind])
     if library is None:   # app だけ（test・bench はライブラリが要る）
         project.add_file("src/main.cpp", template_name="app", auto_update=False)
         return [f"{name}/src/main.cpp"]
-    other = solution.get_project(library)   # ライブラリの作成時の形式（静的・共有）でリンクする
-    project.settings.link_project(other, other.settings.get().initial_type)
+    other = solution.get_subproject(library)   # ライブラリの作成時の形式（静的・共有）でリンクする
+    project.settings.link_subproject(other, other.settings.get().initial_type)
     template, file_name = {"app": ("main", "main.cpp"), "test": ("test", f"{name}.cpp"),
                            "bench": ("bench", "bench.cpp")}[kind]
     replacements = {"header": library_header(library)}
@@ -251,6 +285,7 @@ def update(root: Path, options: BuildOptions | None = None) -> BuildOutcome:
     solution = open_solution(root)
     if options is not None:
         _apply_options(solution, options)
+    check_dependency_formats(solution)
     if options is None or options.fetch_git:
         _fetch_missing(solution)
     try:
@@ -297,14 +332,14 @@ def test(root: Path, *, project: str | None, options: BuildOptions, tests: tuple
         report = target.test()
     except Exception as error:
         raise _cppbuild_error("テストを実行できません。", error) from error
-    reports = report.projects if report.projects else (report,)
-    cases = tuple(TestCase(f"{r.project}.{c.name}" if r.project else c.name, c.status) for r in reports for c in r.cases)
+    reports = report.subprojects if report.subprojects else (report,)
+    cases = tuple(TestCase(f"{r.subproject}.{c.name}" if r.subproject else c.name, c.status) for r in reports for c in r.cases)
     processes = tuple(_process(p) for r in reports for p in r.processes)
     diagnostics = tuple(d for r in reports for d in r.diagnostics)
     outcome = TestOutcome(report.success, cases, processes, diagnostics)
     if not outcome.success:
         failed = [c.name for c in cases if c.status not in {"passed", "skipped"}]
-        unmatched = [r.project for r in reports if any(d.startswith("No tests match") for d in r.diagnostics)]
+        unmatched = [r.subproject for r in reports if any(d.startswith("No tests match") for d in r.diagnostics)]
         message = ("テストに失敗しました。" + (f"（{', '.join(failed)}）" if failed else "") if failed or not unmatched
                    else f"当てはまるテストがありません（{'、'.join(unmatched)}）。")
         raise EcoBuildError(ErrorCode.TEST_FAILED, message,
@@ -359,8 +394,8 @@ def list_tests(root: Path, *, project: str | None) -> list[tuple[str, str, int]]
                             hint=f"テスト用のProject：{'、'.join(names) or 'なし'}")
     found = []
     for name in [project] if project else names:
-        base = Path(solution.get_project(name).root)
-        for directory in solution.get_project(name).settings.get().source_directories:
+        base = Path(solution.get_subproject(name).root)
+        for directory in solution.get_subproject(name).settings.get().source_directories:
             for path in sorted((base / directory).rglob("*")):
                 if path.suffix.lower() not in SOURCE_SUFFIXES + HEADER_SUFFIXES or not path.is_file():
                     continue
@@ -379,8 +414,8 @@ def list_tests(root: Path, *, project: str | None) -> list[tuple[str, str, int]]
 def run(root: Path, *, project: str | None, options: BuildOptions, arguments: str) -> BuildOutcome:
     solution = open_solution(root)
     name = project or _single_executable(solution)
-    if (project is not None and project in solution.settings.get().projects
-            and ProjectType.EXECUTABLE not in solution.get_project(project).settings.get().types):
+    if (project is not None and project in solution.settings.get().subprojects
+            and SubprojectType.EXECUTABLE not in solution.get_subproject(project).settings.get().types):
         raise EcoBuildError(ErrorCode.RUN_FAILED, f"Project {project} は実行ファイルではありません。",
                             hint=f"実行ファイルのProject：{'、'.join(_executables(solution)) or 'なし'}")
     target = _target(root, name, options, run_arguments=shlex.split(arguments))
@@ -465,8 +500,16 @@ class DependencySource:
 
 
 def fetch_dependencies(root: Path) -> tuple[tuple[str, ...], tuple[DependencySource, ...]]:
-    """足りない依存先を記録の版でcloneし、（今回cloneした名前, 全依存先）を返す。"""
+    """足りない依存先を記録の版でcloneし、（今回cloneした名前, 全依存先）を返す。
+
+    古い形式の clone（old_dependencies）があれば clone はしない（CppBuild は置き場所があるので断る）。それも依存先に
+    含めて返すので、記録の版に切り替えられる（記録が新しい形式の版なら、それで新しくなる）。"""
     solution = open_solution(root)
+    old = old_dependencies(solution)
+    if old:
+        sources = tuple(DependencySource(s.name, Path(s.directory), s.revision, True) for s in solution.git_sources()
+                        if s.present or s.name in old)
+        return (), sources
     try:
         with _clone_config():
             report = solution.fetch_git_sources()
@@ -481,8 +524,8 @@ def project_at(root: Path, path: Path) -> str | None:
     """pathが属するProjectの名前。どのProjectにも属さなければNone。"""
     solution = open_solution(root)
     path = path.resolve()
-    for name in solution.settings.get().projects:
-        directory = Path(solution.get_project(name).root).resolve()
+    for name in solution.settings.get().subprojects:
+        directory = Path(solution.get_subproject(name).root).resolve()
         if path == directory or directory in path.parents:
             return name
     return None
@@ -511,10 +554,10 @@ def list_projects(root: Path) -> tuple[ProjectSummary, ...]:
             by_guid.update({guid: f"{source.name}/{name}"
                             for guid, name in _guid_names(Solution.open(source.config)).items()})
     result = []
-    for name, directory in solution.settings.get().projects.items():
-        data = solution.get_project(name).settings.get()
-        links = tuple(by_guid.get(d.project_guid, d.project_guid) for d in data.dependencies.values()
-                      if hasattr(d, "project_guid"))
+    for name, directory in solution.settings.get().subprojects.items():
+        data = solution.get_subproject(name).settings.get()
+        links = tuple(by_guid.get(d.subproject_guid, d.subproject_guid) for d in data.dependencies.values()
+                      if hasattr(d, "subproject_guid"))
         result.append(ProjectSummary(name, data.initial_type.value, directory, links, tuple(data.source_directories)))
     return tuple(result)
 
@@ -529,7 +572,7 @@ def add_project(root: Path, name: str, kind: str, *, link: str | None = None, te
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"種類 {kind} はありません。",
                             hint=f"{'・'.join(PROJECT_KINDS)} のどれかを指定してください。")
     solution = open_solution(root)
-    existing = solution.settings.get().projects
+    existing = solution.settings.get().subprojects
     for each in [name] + ([test_project_of(name)] if kind in LIBRARY_KINDS and test else []):
         check_project_name(each)
         if each in existing:
@@ -560,8 +603,8 @@ def add_project(root: Path, name: str, kind: str, *, link: str | None = None, te
 
 def _library_to_link(solution: Solution, link: str | None) -> str | None:
     """リンクするライブラリ：指定があればそれ（ライブラリか確かめる）、なければライブラリが1つならそれ。"""
-    libraries = [name for name in solution.settings.get().projects
-                 if ProjectType.STATIC_LIBRARY in solution.get_project(name).settings.get().types]
+    libraries = [name for name in solution.settings.get().subprojects
+                 if SubprojectType.STATIC_LIBRARY in solution.get_subproject(name).settings.get().types]
     if link:
         _require_project(solution, link)
         if link not in libraries:
@@ -577,26 +620,26 @@ def _library_to_link(solution: Solution, link: str | None) -> str | None:
 def remove_project(root: Path, name: str) -> bool:
     """Projectを、他のProjectからのリンクごと外す（ファイルは呼び出し側が消す）。
 
-    main_project（他のモジュールからリンクされるもの）なら、先に main_project をなしにする（CppBuildは
-    main_project のままでは外せない）。そうしたら True。
+    main_subproject（他のモジュールからリンクされるもの）なら、先に main_subproject をなしにする（CppBuildは
+    main_subproject のままでは外せない）。そうしたら True。
     """
     solution = open_solution(root)
     _require_project(solution, name)
     try:
         with _transaction(solution, f"Project {name} を外せません。"):
             data = solution.settings.get()
-            was_main = data.main_project == name
+            was_main = data.main_subproject == name
             if was_main:
-                data.main_project = None
+                data.main_subproject = None
                 solution.settings.save(data)
-            guid = solution.get_project(name).settings.get().guid
-            for other in solution.projects():
+            guid = solution.get_subproject(name).settings.get().guid
+            for other in solution.subprojects():
                 if other.name == name:
                     continue
                 for key, dependency in list(other.settings.get().dependencies.items()):
-                    if getattr(dependency, "project_guid", None) == guid:
+                    if getattr(dependency, "subproject_guid", None) == guid:
                         other.settings.unlink(key)
-            solution.remove_project(name)
+            solution.remove_subproject(name)
     except EcoBuildError:
         raise
     except Exception as error:
@@ -623,21 +666,21 @@ def change_kind(root: Path, name: str, kind: str, *, test: bool = True, command:
                             hint=f"{'・'.join(CHANGEABLE_KINDS)} のどれかを指定してください。")
     solution = open_solution(root)
     _require_project(solution, name)
-    project = solution.get_project(name)
+    project = solution.get_subproject(name)
     data = project.settings.get()
     target = PROJECT_KINDS[kind]
     if data.initial_type == target:
         return ()
-    if data.initial_type == ProjectType.TEST:
+    if data.initial_type == SubprojectType.TEST:
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"{name} はテスト用のProjectなので、種類を変えられません。")
     module = solution.settings.get()
     library = data.initial_type in LIBRARY_TYPES.values()
     to_library = kind in LIBRARY_KINDS
-    main = module.main_project
+    main = module.main_subproject
     is_main = main == name
-    users = [(other, key, dependency) for other in solution.projects() if other.name != name
+    users = [(other, key, dependency) for other in solution.subprojects() if other.name != name
              for key, dependency in other.settings.get().dependencies.items()
-             if getattr(dependency, "project_guid", None) == data.guid]
+             if getattr(dependency, "subproject_guid", None) == data.guid]
     if not to_library and users:
         names = sorted({other.name for other, _, _ in users})
         raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
@@ -667,13 +710,13 @@ def change_kind(root: Path, name: str, kind: str, *, test: bool = True, command:
     # 依存先のモジュールへのリンクは、外すとそのモジュールの記録（references）も消えるので、作り直した後に張り直す。
     references = module.references
     external = {key: dependency for key, dependency in data.dependencies.items()
-                if getattr(dependency, "project_guid", None) in references}
+                if getattr(dependency, "subproject_guid", None) in references}
     fresh.dependencies = {key: value for key, value in data.dependencies.items() if key not in external}
     folders = module.solution_folders
-    folder = None if folders is None else folders.project_folders.get(name)
-    directory = module.projects[name]
+    folder = None if folders is None else folders.subproject_folders.get(name)
+    directory = module.subprojects[name]
     test_name = test_project_of(name)
-    make_test = to_library and not library and test and test_name not in module.projects and not (root / test_name).exists()
+    make_test = to_library and not library and test and test_name not in module.subprojects and not (root / test_name).exists()
     if make_test:
         check_project_name(test_name)
     message = f"Project {name} の種類を変えられません。"
@@ -682,24 +725,24 @@ def change_kind(root: Path, name: str, kind: str, *, test: bool = True, command:
         _ensure_templates(solution)
         with _transaction(solution, message):
             if is_main:
-                module.main_project = None
+                module.main_subproject = None
                 solution.settings.save(module)
             for other, key, _ in users:
                 other.settings.unlink(key)
-            solution.remove_project(name)
-            remade = solution.add_project(directory, name, target, settings=fresh)
+            solution.remove_subproject(name)
+            remade = solution.add_subproject(directory, name, target, settings=fresh)
             for dependency in external.values():
-                place = solution.root / references[dependency.project_guid].solution_directory
-                remade.settings.link_solution(place, dependency.project_type)
+                place = solution.root / references[dependency.subproject_guid].solution_directory
+                remade.settings.link_solution(place, dependency.subproject_type)
             for other, _, dependency in users:   # 作成時の形式でリンクしていたものは、新しい形式で
-                as_type = target if dependency.project_type == data.initial_type else dependency.project_type
-                other.settings.link_project(remade, as_type)
+                as_type = target if dependency.subproject_type == data.initial_type else dependency.subproject_type
+                other.settings.link_subproject(remade, as_type)
             # main は元のとおりに（CppBuildは、Projectがほかにない Solution に足したProjectを main にする）。
             module = solution.settings.get()
-            if module.main_project != main or folder is not None:
-                module.main_project = main
+            if module.main_subproject != main or folder is not None:
+                module.main_subproject = main
                 if folder is not None:
-                    module.solution_folders.project_folders[name] = folder
+                    module.solution_folders.subproject_folders[name] = folder
                 solution.settings.save(module)
             files = _place_kind_files(solution, remade, name, to_library)
             if make_test:
@@ -720,7 +763,7 @@ def _place_kind_files(solution: Solution, project, name: str, to_library: bool) 
     for path, template, replacements in wanted:
         if not (project.root / path).exists():
             project.add_file(path, template_name=template, replacements=replacements, auto_update=False)
-            files.append(f"{solution.settings.get().projects[name]}/{path}")
+            files.append(f"{solution.settings.get().subprojects[name]}/{path}")
     return files
 
 
@@ -728,7 +771,7 @@ def set_pch(root: Path, project: str, *, enable: bool) -> str | None:
     """PCHを有効にする（include/<Project>/pch.h をテンプレートから作る）か、外す。PCHのパスを返す。"""
     solution = open_solution(root)
     _require_project(solution, project)
-    target = solution.get_project(project)
+    target = solution.get_subproject(project)
     message = f"Project {project} のPCHを設定できません。"
     try:
         with _transaction(solution, message):
@@ -739,7 +782,7 @@ def set_pch(root: Path, project: str, *, enable: bool) -> str | None:
             header = f"include/{project}/pch.h"
             if not (target.root / header).exists():
                 target.add_file(header, template_name="pch", auto_update=False)
-            target.settings.set_pch(project_headers=[header])
+            target.settings.set_pch(subproject_headers=[header])
             return f"{project}/{header}"
     except EcoBuildError:
         raise
@@ -752,14 +795,14 @@ def set_pch(root: Path, project: str, *, enable: bool) -> str | None:
 def project_root(root: Path, project: str) -> Path:
     solution = open_solution(root)
     _require_project(solution, project)
-    return Path(solution.get_project(project).root)
+    return Path(solution.get_subproject(project).root)
 
 
 def source_directories(root: Path, project: str) -> tuple[str, ...]:
     """Projectのソースフォルダー（Projectからの相対、既定は src・include）。この外のファイルはビルドに入らない。"""
     solution = open_solution(root)
     _require_project(solution, project)
-    return tuple(solution.get_project(project).settings.get().source_directories)
+    return tuple(solution.get_subproject(project).settings.get().source_directories)
 
 
 def add_file(root: Path, project: str, path: str, *, replacements: dict | None = None,
@@ -767,7 +810,7 @@ def add_file(root: Path, project: str, path: str, *, replacements: dict | None =
     """Projectにファイルを足す（拡張子でテンプレートを選ぶ）。モジュールからの相対パスを返す。"""
     solution = open_solution(root)
     _require_project(solution, project)
-    target = solution.get_project(project)
+    target = solution.get_subproject(project)
     suffix = Path(path).suffix.lower()
     if template is None:
         template = "header" if suffix in HEADER_SUFFIXES else "source" if suffix in SOURCE_SUFFIXES else None
@@ -795,7 +838,7 @@ def move_files(root: Path, moves: list[tuple[str, str, str]]) -> tuple[str, ...]
     done = []
     try:
         for project, source, destination in moves:
-            target = solution.get_project(project)
+            target = solution.get_subproject(project)
             target.move_file(source, destination, auto_update=False)
             base = Path(target.root)
             done += [(base / source).relative_to(root).as_posix(), (base / destination).relative_to(root).as_posix()]
@@ -817,7 +860,7 @@ def remove_files(root: Path, removals: list[tuple[str, str]]) -> tuple[str, ...]
     削除と構成は一体：構成に失敗したら（Projectの最後の .cpp を消してソースがなくなった等）、管理ファイルは
     CppBuildの transaction が、消したファイルは消す前の中身から戻し、何も変えずにエラーにする。"""
     solution = open_solution(root)
-    files = [(project, path, Path(solution.get_project(project).root) / path) for project, path in removals]
+    files = [(project, path, Path(solution.get_subproject(project).root) / path) for project, path in removals]
     for _, _, file in files:
         if not file.is_file():
             raise EcoBuildError(ErrorCode.FILE_NOT_FOUND, f"{file} がありません。")
@@ -826,7 +869,7 @@ def remove_files(root: Path, removals: list[tuple[str, str]]) -> tuple[str, ...]
     try:
         with solution.transaction() as report:
             for project, path, _ in files:
-                solution.get_project(project).remove_file(path, auto_update=False)
+                solution.get_subproject(project).remove_file(path, auto_update=False)
         if report.update.success:
             return tuple(file.relative_to(root).as_posix() for _, _, file in files)
         failure = EcoBuildError(ErrorCode.CPPBUILD_ERROR, f"{message}CMakeの構成に失敗したので、元に戻しました。",
@@ -851,9 +894,9 @@ def _without_sources(solution: Solution, files: list[tuple[str, str, Path]]) -> 
     gone = {file.resolve() for _, _, file in files}
     names = []
     for name in dict.fromkeys(project for project, _, _ in files):
-        project = solution.get_project(name)
+        project = solution.get_subproject(name)
         settings = project.settings.get()
-        if settings.initial_type == ProjectType.INTERFACE_LIBRARY:
+        if settings.initial_type == SubprojectType.INTERFACE_LIBRARY:
             continue
         root = Path(project.root)
         left = [p for directory in settings.source_directories if (root / directory).is_dir()
@@ -865,7 +908,7 @@ def _without_sources(solution: Solution, files: list[tuple[str, str, Path]]) -> 
 
 def move_file(root: Path, project: str, source: str, destination: str) -> tuple[str, str]:
     solution = open_solution(root)
-    target = solution.get_project(project)
+    target = solution.get_subproject(project)
     try:
         target.move_file(source, destination, auto_update=False)
         solution.update()
@@ -938,13 +981,24 @@ def link(root: Path, project: str, url: str, *, shared: bool, revision: str | No
         # 失敗したら、記録も、今cloneした相手も元に戻る（CppBuildのトランザクション）。_clone_config は外側に：
         # トランザクションの終わりの構成でも、依存先の依存先を clone する。
         with _clone_config(), _transaction(solution, message):
-            solution.get_project(project).settings.link_git(
-                url, revision, solution_path=CONFIG_DIRECTORY, link_type=ProjectType.SHARED_LIBRARY if shared else ProjectType.STATIC_LIBRARY)
+            solution.get_subproject(project).settings.link_git(
+                url, revision, solution_path=CONFIG_DIRECTORY, link_type=SubprojectType.SHARED_LIBRARY if shared else SubprojectType.STATIC_LIBRARY)
     except EcoBuildError:
         raise
     except AlreadyRegisteredError as error:
         raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{url} は既にリンクしています。") from error
-    except NoMainProjectError as error:
+    except InvalidValueError as error:
+        if error.field != "revision":
+            raise _cppbuild_error(message, error) from error
+        # 既に記録している依存先を別のProjectからリンクするときは、記録の版のまま（CppBuild は記録を動かさない）
+        name = next((s.name for s in solution.git_sources() if s.recorded_by is None and s.revision in error.allowed), "")
+        recorded = error.allowed[0] if error.allowed else ""
+        raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                            f"{url} は依存先 {name} として {recorded[:7]} を記録しています。指定した版 {revision} はそれと違います。",
+                            hint=f"版を省けば記録の版でリンクします。記録の版を変えるなら ecobuild deps update {name or '<名前>'} "
+                                 f"--at {revision} を使ってください（このモジュールのすべてのリンクが、その版になります）。",
+                            details=str(error)) from error
+    except NoMainSubprojectError as error:
         raise EcoBuildError(ErrorCode.NOT_LINKABLE, f"{url} のモジュールは、リンクできる形になっていません。",
                             hint="他のモジュールからリンクされるのは、そのモジュールで最初に作ったProject（main）"
                                  "だけで、それがライブラリである必要があります。",
@@ -991,14 +1045,14 @@ def record_revision(root: Path, name: str, revision: str | None = None) -> str:
 # 内部 ----------------------------------------------------------------------
 
 def _require_project(solution: Solution, project: str) -> None:
-    projects = solution.settings.get().projects
+    projects = solution.settings.get().subprojects
     if project not in projects:
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects)}")
 
 
 def _guid_names(solution: Solution) -> dict[str, str]:
-    return {solution.get_project(name).settings.get().guid: name for name in solution.settings.get().projects}
+    return {solution.get_subproject(name).settings.get().guid: name for name in solution.settings.get().subprojects}
 
 
 def _add_library_header(project, path: str) -> None:
@@ -1018,7 +1072,7 @@ def _ensure_templates(solution: Solution) -> None:
 
 def _ensure_solution_folders(solution: Solution) -> None:
     """Visual Studio のソリューションで、Projectをソリューションフォルダーに分ける（CppBuildの既定の名前：
-    自分のProjectは Projects、リンク先は LinkedProjects/<Solution名>）。フォルダーなしで作った古いモジュールにも入れる。"""
+    自分のProjectは Subprojects、リンク先は LinkedSubprojects/<Solution名>）。フォルダーなしで作った古いモジュールにも入れる。"""
     data = solution.settings.get()
     if data.solution_folders is None:
         data.solution_folders = SolutionFolderSettings()
@@ -1047,14 +1101,15 @@ def _target(root: Path, project: str | None, options: BuildOptions, *, run_argum
     if configuration not in CONFIGURATIONS:
         raise EcoBuildError(ErrorCode.INVALID_CONFIGURATION, f"構成 {configuration} はありません。",
                             hint=f"{'・'.join(CONFIGURATIONS)} のどれかを指定してください。")
-    projects = solution.settings.get().projects
+    projects = solution.settings.get().subprojects
     if project is not None and project not in projects:
         raise EcoBuildError(ErrorCode.PROJECT_NOT_FOUND, f"Project {project} はありません。",
                             hint=f"モジュールのProject：{'、'.join(projects)}")
     _apply_options(solution, options, run_project=project, run_arguments=run_arguments, test_selection=test_selection)
+    check_dependency_formats(solution)
     if options.fetch_git:
         _fetch_missing(solution)
-    return solution if project is None else solution.get_project(project)
+    return solution if project is None else solution.get_subproject(project)
 
 
 @contextmanager
@@ -1119,13 +1174,13 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
     ライブラリの形式・C++の規格・成果物の置き場所・テストの並列数・GoogleTestのZIP。
     """
     overrides = dict(options.projects)
-    names = solution.settings.get().projects
+    names = solution.settings.get().subprojects
     unknown = [name for name in overrides if name not in names]
     if unknown:
         raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定に、ない Project {'、'.join(unknown)} の設定があります。",
                             hint=f"{operation(options.command, 'profile add')} で、その Project の設定を外してください（--clear-project）。")
     for name, own in overrides.items():
-        if own.type and LIBRARY_TYPES[own.type] not in solution.get_project(name).settings.get().types:
+        if own.type and LIBRARY_TYPES[own.type] not in solution.get_subproject(name).settings.get().types:
             raise EcoBuildError(ErrorCode.INVALID_CONFIG, f"ビルド設定で、ライブラリでない Project {name} の形式を変えています。",
                                 hint="形式（type）を変えられるのはライブラリだけです。")
     try:
@@ -1135,16 +1190,16 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
             configuration=options.configuration, parallel=options.parallel, shared_libraries=options.shared,
             architecture=options.architecture, cpp_standard=options.cpp_standard or 20,
             test_continue_on_failure=options.test_continue_on_failure, fetch_git=options.fetch_git,
-            test_projects=list(test_selection) if test_selection else None,
+            test_subprojects=list(test_selection) if test_selection else None,
             tools=ToolSettings(cmake=options.cmake or "cmake", ctest=options.ctest or "ctest"),
             cmake=CMakeSettings(generator=options.generator, toolset=options.toolset, c_compiler=options.c_compiler,
                                 cxx_compiler=options.cxx_compiler, toolchain_file=options.toolchain_file,
                                 windows_sdk=options.windows_sdk)))
         for name in names:
             own = overrides.get(name, ProjectOptions())
-            settings = ProjectBuildSettings(
+            settings = SubprojectBuildSettings(
                 parallel=options.parallel,
-                project_type=LIBRARY_TYPES[own.type] if own.type else None,
+                subproject_type=LIBRARY_TYPES[own.type] if own.type else None,
                 cpp_standard=own.cpp_standard or INHERIT,
                 artifact_directory=own.artifact_directory,
                 test_parallel=own.test_parallel or options.test_parallel,
@@ -1153,14 +1208,14 @@ def _apply_options(solution: Solution, options: BuildOptions, *, run_project: st
                 settings.run_arguments = list(run_arguments)
             if test_selection and test_selection.get(name) is not None:
                 settings.test_cases = list(test_selection[name])
-            solution.get_project(name).set_build_settings(settings)
+            solution.get_subproject(name).set_build_settings(settings)
     except Exception as error:
         raise _cppbuild_error("ビルド設定を渡せません。", error) from error
 
 
 def _tests(solution: Solution) -> list[str]:
-    return [name for name in solution.settings.get().projects
-            if ProjectType.TEST in solution.get_project(name).settings.get().types]
+    return [name for name in solution.settings.get().subprojects
+            if SubprojectType.TEST in solution.get_subproject(name).settings.get().types]
 
 
 def linked_libraries(root: Path, project: str) -> list[str]:
@@ -1168,9 +1223,9 @@ def linked_libraries(root: Path, project: str) -> list[str]:
     solution = open_solution(root)
     _require_project(solution, project)
     by_guid = _guid_names(solution)
-    names = [by_guid[d.project_guid] for d in solution.get_project(project).settings.get().dependencies.values()
-             if getattr(d, "project_guid", None) in by_guid]
-    return [n for n in names if ProjectType.STATIC_LIBRARY in solution.get_project(n).settings.get().types]
+    names = [by_guid[d.subproject_guid] for d in solution.get_subproject(project).settings.get().dependencies.values()
+             if getattr(d, "subproject_guid", None) in by_guid]
+    return [n for n in names if SubprojectType.STATIC_LIBRARY in solution.get_subproject(n).settings.get().types]
 
 
 def is_test_project(root: Path, project: str) -> bool:
@@ -1179,8 +1234,8 @@ def is_test_project(root: Path, project: str) -> bool:
 
 
 def _executables(solution: Solution) -> list[str]:
-    return [name for name in solution.settings.get().projects
-            if ProjectType.EXECUTABLE in solution.get_project(name).settings.get().types]
+    return [name for name in solution.settings.get().subprojects
+            if SubprojectType.EXECUTABLE in solution.get_subproject(name).settings.get().types]
 
 
 def _single_executable(solution: Solution) -> str:
@@ -1206,10 +1261,21 @@ def _joined(processes) -> str:
 def _cppbuild_error(message: str, error: Exception) -> EcoBuildError:
     """CppBuildの例外を、ECOBuildのエラーにする（CppBuildの例外の型で決める。文面は見ない）。"""
     details = f"{type(error).__name__}: {error}"
+    if isinstance(error, GitFetchError):
+        # 記録の版に今の形式の Solution がない（CppBuild はこれを型で分けないので、理由の書き出しで見分ける）：
+        # 古い形式の版を記録している依存先。clone は CppBuild が消すので、手元では確かめられない
+        old = [f.name for f in error.failures if f.reason.startswith("no CppBuild Solution")]
+        if old:
+            return EcoBuildError(
+                ErrorCode.DEPENDENCY_OLD_FORMAT,
+                f"{message}（依存先 {'、'.join(old)} の記録の版に、今の形式の CppBuild の管理ファイルがありません）",
+                hint=f"古い形式の版を記録しているなら、その依存先のモジュールで ecobuild module upgrade をして取り込んでから、"
+                     f"このモジュールで ecobuild deps update {old[0] if len(old) == 1 else '<名前>'} を実行してください。",
+                details=details)
     if isinstance(error, AlreadyRegisteredError):
         return EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{message}（{error.name} は既にあります）", details=details)
     if isinstance(error, NotRegisteredError):
-        code = {"project": ErrorCode.PROJECT_NOT_FOUND, "git_source": ErrorCode.DEPENDENCY_NOT_FOUND,
+        code = {"subproject": ErrorCode.PROJECT_NOT_FOUND, "git_source": ErrorCode.DEPENDENCY_NOT_FOUND,
                 "dependency": ErrorCode.DEPENDENCY_NOT_FOUND}.get(error.kind)
         if code is not None:
             return EcoBuildError(code, f"{message}（{error.name} はありません）", details=details)
@@ -1227,6 +1293,7 @@ def _transaction(solution: Solution, message: str):
     中で例外が起きるか、更新に失敗したら、書いた管理ファイル・生成ファイルと、今cloneした依存先を元に戻す
     （CppBuildの Solution.transaction）。ソースファイルとビルドツリーは戻さない。更新の失敗は EcoBuildError にする。
     """
+    check_dependency_formats(solution)
     with solution.transaction() as report:
         yield report
     if not report.success:

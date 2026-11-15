@@ -27,7 +27,7 @@ from ecobuild.results import (BuildResult, DependencyChange, DependencyCommit, D
                               DependencyTag, DependencyTree, DependencyVersions, FilesChanged, LinkResult, PrepareResult, ProjectSummary, RunResult, TestCaseResult,
                               TestEntry, TestResult)
 
-from . import _cppbuild, _settings
+from . import _cppbuild, _migrate, _settings
 
 _INCLUDE = re.compile(r'^([ \t]*#[ \t]*include[ \t]*)"([^"\r\n]+)"', re.MULTILINE)   # #include "…"（<…> は直さない）
 
@@ -291,6 +291,23 @@ jobs:
             return False
         self._update()
         return True
+
+    def upgrade(self) -> None:
+        """CppBuild の管理ファイルが古い形式なら今の形式にしてから（_migrate）、生成ファイルを作り直す。
+
+        移したのに作り直せなければ（依存先がまだ古い形式の版・CMake の構成の失敗等）、止めずに案内を残す：移した分は
+        コミットさせる（このモジュールの形式が新しくないと deps update 等ができない。生成ファイルは次の操作で作り直される）。"""
+        config = self.root / _cppbuild.CONFIG_DIRECTORY
+        if not _migrate.is_old(config):
+            self.refresh()
+            return
+        _migrate.convert(config)
+        try:
+            self.refresh()
+        except EcoBuildError as error:
+            self.module.repository.notices.append(
+                f"CppBuild の管理ファイルを新しい形式にしましたが、生成ファイルは作り直せませんでした：{error.message}"
+                + (f"\n{error.hint}" if error.hint else ""))
 
     def update_solution(self) -> dict:
         """構成（Visual Studio のソリューション・プロジェクト等）を今のファイルに合わせる。ビルドはしない。file add 等と

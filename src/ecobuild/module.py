@@ -1660,7 +1660,7 @@ class Module:
         版ごとの移行（_MIGRATIONS：置き場所の変更等）を順に行ったうえで、ECOBuild が作ったファイルを今の中身にする：
         .gitignore・.gitattributes（足りない行を足す。足した行は残す）、拡張が置くファイル（environment_files。なければ置く）、
         .ecobuild/README.md（なければ置き、あれば作り直す）、AGENTS.md（なければ置き、あれば作り直す）・CLAUDE.md（なければ
-        置く。あればモジュールのもの）・CIのワークフロー（あれば作り直す。手で編集したワークフローは作り直さず skipped に）、型の生成ファイル（型の refresh）。README は書き換えない。
+        置く。あればモジュールのもの）・CIのワークフロー（あれば作り直す。手で編集したワークフローは作り直さず skipped に）、型の管理ファイル・生成ファイル（型の upgrade）。README は書き換えない。
         この作業空間の git の設定も、clone するときと同じにする（改行コードの扱い〔ecowork の CLONE_CONFIG〕。コミットしない。
         以前に clone した作業空間で、改行コードだけの差が出ないように）。
         今の版でも同じことをする（同じ版の中で変わった分もそろう）。
@@ -1708,7 +1708,7 @@ class Module:
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
                 (self.root / path).write_text(text, encoding="utf-8", newline="\n")
         self._save_config(replace(self.config, format=_config.FORMAT))
-        self.type.refresh()
+        self.type.upgrade()
         return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned))), tuple(skipped)
 
     def _upgrade_branch(self, name: str, *, dry_run: bool) -> ModuleUpgraded:

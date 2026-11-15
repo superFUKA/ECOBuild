@@ -1073,13 +1073,16 @@ jobs:
         self._update()
         return changes
 
-    def _align_dependencies(self) -> tuple[DependencyChange, ...]:
-        """依存先を記録の版に合わせる。作業版（task/のブランチ）・手元で変更やコミットのあるものは触らない。"""
+    def _align_dependencies(self, only: set[str] | None = None) -> tuple[DependencyChange, ...]:
+        """依存先を記録の版に合わせる。作業版（task/のブランチ）・手元で変更やコミットのあるものは触らない。
+        only：合わせる依存先をこれに絞る（新しく clone したものは、いつも含める）。"""
         fetched, sources = _cppbuild.fetch_dependencies(self.root)
         changes = []
         for source in sources:
             if source.name in fetched:
                 changes.append(DependencyChange(source.name, "cloned"))
+                continue
+            if only is not None and source.name not in only:
                 continue
             clone = Git(source.directory, command=self.module.command)
             head = clone.rev_parse("HEAD")
@@ -1089,6 +1092,7 @@ jobs:
                 # 作業版（deps work・依存先の中で task start をしたもの〔I-019〕）。記録の版へ切り替えない。
                 changes.append(DependencyChange(source.name, "skipped", f"作業版です（{work.branch}）"))
                 continue
+            _work.forget(clone)   # 作業版でない：残った作業版の設定（手で切り替えた等）は古いので消す
             if head == source.revision and branch is None:
                 changes.append(DependencyChange(source.name, "unchanged"))
                 continue
@@ -1171,13 +1175,30 @@ jobs:
                 f"GitHub の {wanted} には、このPCの作業空間（{place}）にないコミットがあります。作業空間で取り込む"
                 f"（{self.module.op('sync')}）と、それも使えます。")
         # 作業版が記録する依存先の依存先（新しく足したもの・版を上げたもの）も、その記録に合わせる
-        changes = tuple(c for c in self._align_dependencies() if c.name != name and c.action != "unchanged")
+        # ほかの依存先（手で別の版にしたもの等）は触らない
+        changes = tuple(c for c in self._align_dependencies(self._recorded_under(name))
+                        if c.name != name and c.action != "unchanged")
         self._update()
         if current is not None and current.branch == wanted:
             action = "unchanged" if previous == commit else "refreshed"
         else:
             action = "switched"
         return DependencyWorkResult(name, action, work, source.revision, previous, changes)
+
+    def _recorded_under(self, name: str) -> set[str]:
+        """依存先 name が記録する依存先（その先も）の名前。"""
+        recorders = {source.name: via for source, via in _cppbuild.all_git_sources(self.root)}
+        found: set[str] = set()
+        for each in recorders:
+            at = recorders[each]
+            seen = set()
+            while at is not None and at not in seen:
+                if at == name:
+                    found.add(each)
+                    break
+                seen.add(at)
+                at = recorders.get(at)
+        return found
 
     def _end_work(self, source, clone: Git, current, previous: str | None) -> DependencyWorkResult:
         """作業版をやめ、記録の版に戻す（deps sync と同じく、ほかの依存先も記録の版に合わせる）。"""

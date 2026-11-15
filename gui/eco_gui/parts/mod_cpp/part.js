@@ -137,7 +137,7 @@ export default {
           if ((d.links || []).length) for (const l of d.links) users.append(pill(l.project + ' → ' + (l.library || String(l.id || '').slice(0, 8) + '（clone なし）')), ' ');
           else for (const p of projects.filter((x) => (x.links || []).some((l) => linksTo(l, d.name)))) users.append(pill(p.name), ' ');
           const cells = [h('td', {}, h('strong', {}, d.name), sub(d.url || '')), h('td', { class: 'mono' }, short(d.recorded)),
-            h('td', { class: 'mono' }, short(d.local), d.branch ? sub(d.branch) : ''), h('td', {}, pill(label, tone), d.work ? sub(workText(d.name, d.work)) : '')];
+            h('td', { class: 'mono' }, short(d.local), d.branch && !d.work ? sub(d.branch) : ''), h('td', {}, pill(label, tone), d.work ? sub(workText(d.name, d.work)) : '')];
           if (fetched) {
             const cell = h('td', {});
             if (d.remote) {

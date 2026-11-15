@@ -34,11 +34,14 @@ def read(clone: Git) -> DependencyWorkSource | None:
     分からない）。作業版でなければ None。"""
     branch = clone.current_branch()
     recorded = clone.get_config(f"{SECTION}.branch")
-    if recorded and branch is None:
+    commit = clone.get_config(f"{SECTION}.commit")
+    head = clone.rev_parse("HEAD") if recorded and commit and branch is None else None
+    # 設定が効くのは、取ってきたコミット（かその上に足したもの）にいる間だけ。手で記録の版等へ切り替えた後は古い設定
+    if head is not None and (head == commit or clone.is_ancestor(commit, head)):
         task = clone.get_config(f"{SECTION}.task")
         return DependencyWorkSource(recorded, int(task) if task and task.isdigit() else wm.task_number(recorded),
                                     clone.get_config(f"{SECTION}.origin"), clone.get_config(f"{SECTION}.place"),
-                                    clone.get_config(f"{SECTION}.commit"))
+                                    commit)
     if branch is not None and wm.is_task_branch(branch):
         return DependencyWorkSource(branch, wm.task_number(branch))
     return None

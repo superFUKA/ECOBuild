@@ -200,11 +200,24 @@ def test_work_aligns_what_the_working_version_records(short_tmp):
     engine.repository.create_task("Core を使う").start()
     engine.link("Core")
     git(engine.root, "push", "--quiet", "origin", "HEAD:main")
+    tool_github = FakeGitHub(short_tmp / "gh3")
+    tool = Module.create("Tool", directory=short_tmp, kind="library", github=tool_github)
     github = FakeGitHub(short_tmp / "gh2")
     github.others["Engine"] = engine_github.bare
+    github.others["Tool"] = tool_github.bare
     game = Module.create("Game", directory=short_tmp, kind="app", github=github)
     game.repository.create_task("Engine を使う").start()
     game.link("Engine")
+    game.link("Tool")
+    # 利用者が手で別の版にした、ほかの依存先（Tool）：deps work Engine では触らない
+    write(tool.root / "Tool" / "include" / "Tool" / "Tool.h", "#pragma once\n// tool 2\n")
+    git(tool.root, "commit", "--quiet", "-am", "Tool 2")
+    git(tool.root, "push", "--quiet", "origin", "main")
+    tool_clone = game.root / "deps" / "Tool"
+    git(tool_clone, "fetch", "--quiet", "origin")
+    git(tool_clone, "switch", "--quiet", "--detach", "origin/main")
+    tool_head = git(tool_clone, "rev-parse", "HEAD")
+    assert next(d for d in game.dependencies() if d.name == "Tool").state == "differs"
     core_clone = next(s for s, _ in _cppbuild.all_git_sources(game.root) if s.name == "Core").directory
     old_core = git(core_clone, "rev-parse", "HEAD")
 
@@ -219,6 +232,7 @@ def test_work_aligns_what_the_working_version_records(short_tmp):
     result = game.work_dependency("Engine", task=task.number)
     assert git(core_clone, "rev-parse", "HEAD") == new_core != old_core
     assert ("Core", "aligned") in [(c.name, c.action) for c in result.changes]
+    assert git(tool_clone, "rev-parse", "HEAD") == tool_head and "Tool" not in [c.name for c in result.changes]
 
 
 def test_work_chooses_the_exact_task_and_one_way(short_tmp):
@@ -263,3 +277,26 @@ def test_work_keeps_commits_made_in_a_detached_clone(short_tmp):
     with pytest.raises(Exception) as error:
         game.work_dependency("Engine", task=3)
     assert error.value.code == "commits_would_be_lost" and git(clone, "rev-parse", "HEAD") == mine
+
+
+def test_a_stale_work_setting_does_not_keep_the_clone_working(short_tmp):
+    """手で記録の版・ブランチへ切り替えたら、残った作業版の設定は効かない（sync で記録の版に合わせられる）。"""
+    engine, game = _game_with_engine(short_tmp)
+    recorded = _state(game).recorded
+    task = engine.repository.create_task("x")
+    workspace = engine.start_task(task.number, name="x")
+    _change(workspace.root, "#pragma once\n// w\n")
+    clone = game.root / "deps" / "Engine"
+
+    game.work_dependency("Engine", task=task.number)
+    git(clone, "switch", "--quiet", "--detach", recorded)   # 1. 手で記録の版に戻す
+    assert _state(game).state == "aligned" and _state(game).work is None
+
+    game.work_dependency("Engine", task=task.number)
+    git(clone, "switch", "--quiet", "main")   # 2. 手でブランチへ → sync で記録の版に（古い設定は生き返らない）
+    assert _state(game).work is None
+    assert [(c.name, c.action) for c in game.sync_dependencies()] == [("Engine", "aligned")]
+    state = _state(game)
+    assert (state.state, state.work, git(clone, "rev-parse", "HEAD")) == ("aligned", None, recorded)
+    assert Git(clone).get_config("ecobuild-work.branch") is None
+    assert [(c.name, c.action) for c in game.sync_dependencies()] == [("Engine", "unchanged")]

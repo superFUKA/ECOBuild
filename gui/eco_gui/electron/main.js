@@ -84,16 +84,33 @@ function look(icon) {
 
 // 窓の決まり：外へのリンクはいつものブラウザーで、窓の中は中継地点のページだけ。中継地点が「窓の中に重ねて開く画面」を
 // 子の窓で開くとき（window.open。名前が gf- で始まる）は、親付き・モーダルの窓で開く（親が閉じれば閉じる・親を操作できない）。
+function sameOrigin(target, page) {
+  try { return new URL(target).origin === new URL(page).origin; } catch (e) { return false; }
+}
+
 function guard(window, icon) {
   window.webContents.setWindowOpenHandler(({url: target, frameName}) => {
-    if (LOCAL.test(target) && new URL(target).origin === new URL(window.webContents.getURL()).origin
-        && /^gf-/.test(frameName || '')) {
-      return {action: 'allow', overrideBrowserWindowOptions: {parent: window, modal: true, minWidth: 320, minHeight: 160, ...look(icon)}};
+    if (LOCAL.test(target) && sameOrigin(target, window.webContents.getURL()) && /^gf-/.test(frameName || '')) {
+      // 子の窓は親が持つ（タスクバーに出ない）ので、最小化させない（戻せなくなる）
+      return {action: 'allow', overrideBrowserWindowOptions: {parent: window, modal: true, minimizable: false,
+                                                               minWidth: 320, minHeight: 160, ...look(icon)}};
     }
     if (/^https?:\/\//.test(target) && !LOCAL.test(target)) shell.openExternal(target);
     return {action: 'deny'};
   });
-  window.webContents.on('did-create-window', (child) => guard(child, icon));   // 子の窓から開く孫の窓も同じ決まりで
+  window.webContents.on('did-create-window', (child) => {
+    // 親が最小化していると、親が持つ子の窓も隠れる（CLI からの open・時間のかかる実行の後に開くとき）。親を戻して子を見せる
+    if (window.isMinimized()) window.restore();
+    // window.open の幅・高さは外枠の大きさ。題の帯（eco-frameless の 40px）の分、中身が低くならないよう足す
+    if (FRAMELESS) {
+      const [width, height] = child.getContentSize();
+      child.setContentSize(width, height + TITLE_BAR.height + 1);
+    }
+    child.show();
+    child.focus();
+    child.once('closed', () => { if (!window.isDestroyed()) window.focus(); });   // 閉じたら親を前に（ほかのアプリの後ろに回らない）
+    guard(child, icon);   // 子の窓から開く孫の窓も同じ決まりで
+  });
   window.webContents.on('will-navigate', (event, target) => { if (!LOCAL.test(target)) event.preventDefault(); });
   window.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;

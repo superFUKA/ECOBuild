@@ -179,7 +179,7 @@ def _main(args: list[str]) -> None:
         try:
             os.chdir(args[1])
         except OSError as error:
-            _usage_error(f"-C {args[1]}：{error.strerror}", json_output)
+            _usage_error(_directory_problem(args[1], error), json_output)
         args = args[2:]
     args = _suggest.rewrite(args, lambda words: _catalog.find_longest(build_cli(), words)[0] if words else None)   # -m → --message
     _output.attempted = _attempted(args)
@@ -270,6 +270,16 @@ def _usage_message(error: click.UsageError) -> str:
         return localized(error)
     except ImportError:  # 日本語化のない版
         return error.format_message()
+
+
+def _directory_problem(path: str, error: OSError) -> str:
+    """-C の場所へ移れなかった理由の文（OS の文は Windows では「指定されたファイルが見つかりません」等で、何のことか分かりにくい）。"""
+    if not os.path.exists(path):
+        return (f"-C の場所 {path} がありません（作業空間なら、片付けられた可能性があります。"
+                f"ecobuild workspace list で確かめてください）。")
+    if not os.path.isdir(path):
+        return f"-C の場所 {path} はフォルダーではありません。"
+    return f"-C の場所 {path} へ移れません：{error.strerror}"
 
 
 def _usage_error(message: str, json_output: bool, *, hint: str | None = None) -> None:

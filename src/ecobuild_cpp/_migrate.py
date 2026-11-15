@@ -36,6 +36,7 @@ _SOLUTION_KEYS = {"projects": "subprojects", "main_project": "main_subproject"}
 _FOLDER_KEYS = {"projects": "subprojects", "linked_projects": "linked_subprojects", "project_folders": "subproject_folders"}
 _FOLDER_DEFAULTS = {"subprojects": ("Projects", "Subprojects"), "linked_subprojects": ("LinkedProjects", "LinkedSubprojects")}
 _SUBPROJECT_KEYS = {"project_headers": "subproject_headers"}
+_TEMPORARY = ".ecobuild-tmp"   # 書きかけの一時ファイル（残っていれば、次に移すときに消す）
 _DEPENDENCY_KEYS = {"project_guid": "subproject_guid", "project_type": "subproject_type"}
 
 
@@ -44,12 +45,14 @@ def is_old(config: Path) -> bool:
     return (Path(config) / OLD_SOLUTION).is_file()
 
 
-def convert(config: Path) -> tuple[tuple[str, str], ...]:
-    """config（.cppbuild）を今の形式にする。移したファイル（.cppbuild からの相対の 元, 先。消しただけなら 先 は空）を返す。
+def needs_cleanup(config: Path) -> bool:
+    """移し終えた（solution.json がある・project.json がない）のに、古い置き場所（projects/）が残っているか。"""
+    config = Path(config)
+    return not is_old(config) and (config / SOLUTION).is_file() and (config / OLD_SUBPROJECTS).is_dir()
 
-    全部を読んで変換してから書く（読めなければ何も変えない）。新しいファイルを書いてから古いものを消すので、
-    途中で止まっても、もう一度行えば最後まで移る（古いファイルが残っている間は古い形式とみなす）。
-    """
+
+def plan(config: Path) -> tuple[dict[str, bytes], tuple[tuple[str, str], ...]]:
+    """移したあとのファイル（.cppbuild からの相対 → 中身）と、移すファイル（元, 先。消すだけなら 先 は空）。何も変えない。"""
     config = Path(config)
     solution = _envelope(config / OLD_SOLUTION, "solution")
     documents: dict[str, bytes] = {}
@@ -70,35 +73,59 @@ def convert(config: Path) -> tuple[tuple[str, str], ...]:
 
     # 古い形式の場所にあるほかのファイル（生成ファイル・登録されていない Project や型の設定）は消す。分からないものは移す
     moved = {old for old, _ in moves}
-    leftovers = []
     old_root = config / OLD_SUBPROJECTS
     if old_root.is_dir():
-        for path in sorted(p for p in old_root.rglob("*") if p.is_file()):
+        for path in sorted(p for p in old_root.rglob("*") if p.is_file() and p.name != _TEMPORARY):
             relative = path.relative_to(config).as_posix()
             if relative in moved:
                 continue
             parts = path.relative_to(old_root).parts
             if parts[-1] in ("CMakeLists.txt", OLD_SUBPROJECT) or (len(parts) == 3 and parts[1] == "types"):
-                leftovers.append((relative, ""))
+                moves.append((relative, ""))
             else:
                 target = f"{SUBPROJECTS}/{'/'.join(parts)}"
                 documents.setdefault(target, path.read_bytes())
-                leftovers.append((relative, target))
+                moves.append((relative, target))
+    return documents, tuple(moves)
 
-    # 書く（solution.json は最後に）→ 古いものを消す
-    for relative in sorted(documents, key=lambda r: r == SOLUTION):
+
+def convert(config: Path) -> tuple[tuple[str, str], ...]:
+    """config（.cppbuild）を今の形式にする。移したファイル（.cppbuild からの相対の 元, 先。消しただけなら 先 は空）を返す。
+
+    全部を読んで変換してから書く（読めなければ何も変えない）。新しいファイルを全部書いたら、まず project.json を消す
+    （ここで移し終わり。それまでに止まれば、もう一度行えば最後まで移る）。古い置き場所の片付けはその後で、失敗しても
+    止めない（残れば needs_cleanup が真になり、cleanup でやり直す）。
+    """
+    config = Path(config)
+    _remove_temporaries(config)
+    documents, moves = plan(config)
+    for relative in documents:
         path = config / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         _write(path, documents[relative])
-    for relative, _ in leftovers:
-        (config / relative).unlink(missing_ok=True)
-    for old, _ in moves:
-        if old != OLD_SOLUTION:
-            (config / old).unlink(missing_ok=True)
-    if old_root.is_dir():
-        shutil.rmtree(old_root)
     (config / OLD_SOLUTION).unlink()
-    return tuple(moves + leftovers)
+    cleanup(config)
+    return moves
+
+
+def cleanup(config: Path) -> bool:
+    """移し終えた後の古い置き場所（projects/）と、書きかけの一時ファイルを消す。消せなければ False（止めない）。"""
+    config = Path(config)
+    _remove_temporaries(config)
+    try:
+        if (config / OLD_SUBPROJECTS).is_dir():
+            shutil.rmtree(config / OLD_SUBPROJECTS)
+    except OSError:   # 他のプログラム（Visual Studio 等）がつかんでいる。次の module upgrade で片付ける
+        return False
+    return True
+
+
+def _remove_temporaries(config: Path) -> None:
+    for path in config.rglob(_TEMPORARY):
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def _solution(data: dict) -> dict:
@@ -161,7 +188,7 @@ def _encoded(value) -> bytes:
 
 
 def _write(path: Path, data: bytes) -> None:
-    temporary = path.with_name(".ecobuild-tmp")   # 長い名前（型の設定は hash 入り）をさらに長くしない
+    temporary = path.with_name(_TEMPORARY)   # 長い名前（型の設定は hash 入り）をさらに長くしない
     temporary.write_bytes(data)
     os.replace(temporary, path)
 

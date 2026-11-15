@@ -147,8 +147,13 @@ class ModuleType:
 
     def upgrade(self) -> None:
         """module upgrade で、型の管理ファイルを今の形式にし、生成ファイルを作り直す（版ごとの移行の、型の分）。
-        型が使う外の部品（ライブラリ等）の保存の形が変わったら、型がここで移す。既定は refresh だけ。"""
+        型が使う外の部品（ライブラリ等）の保存の形が変わったら、型がここで移す。既定は refresh だけ。
+        例外を出せば、module upgrade は書いたものを戻して止まる。"""
         self.refresh()
+
+    def upgrade_paths(self) -> tuple[str, ...]:
+        """upgrade で動かす型の管理ファイル（ルートからの場所。module upgrade --dry-run に出す）。既定はなし。"""
+        return ()
 
     def prepare(self) -> "PrepareResult":
         """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。"""

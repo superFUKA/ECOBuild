@@ -179,16 +179,37 @@ def old_dependencies(solution: Solution) -> tuple[str, ...]:
 
 
 def check_dependency_formats(solution: Solution) -> None:
-    """依存先に古い形式の clone があれば止める（CppBuild の英語の誤りの代わりに、どれをどうするかを示す）。"""
+    """依存先に古い形式の clone があれば止める（CppBuild の英語の誤りの代わりに、どれをどうするかを示す）。
+
+    案内は場合で分ける：手元の clone が記録の版と違う（他の人が記録を進めたのを取り込んだ後など）なら deps sync、
+    直接の依存先の記録の版が古い形式なら、その依存先を新しくして deps update、依存先の依存先なら、それを記録している
+    直接の依存先を新しくする（deps update が受けるのは直接の記録だけ）。"""
     old = old_dependencies(solution)
-    if old:
-        names = "、".join(old)
-        raise EcoBuildError(
-            ErrorCode.DEPENDENCY_OLD_FORMAT,
-            f"依存先 {names} の CppBuild の管理ファイルが古い形式です（手元の clone が古いコミットです）。",
-            hint=f"その依存先のモジュールで ecobuild module upgrade をして取り込んでから、このモジュールで "
-                 f"ecobuild deps update {old[0] if len(old) == 1 else '<名前>'} を実行してください。",
-            details=[f"{DEPENDENCY_DIRECTORY}/{name}" for name in old])
+    if not old:
+        return
+    sources = {s.name: s for s in solution.git_sources()}
+    advice = [_old_format_advice(sources[name], sources) for name in old]
+    raise EcoBuildError(
+        ErrorCode.DEPENDENCY_OLD_FORMAT,
+        f"依存先 {'、'.join(old)} の CppBuild の管理ファイルが古い形式です（手元の clone が古いコミットです）。",
+        hint="\n".join(advice), details=[f"{DEPENDENCY_DIRECTORY}/{name}" for name in old])
+
+
+def _old_format_advice(source, sources: dict) -> str:
+    name = source.name
+    head = Git(Path(source.directory)).run("rev-parse", "HEAD", check=False)
+    if head.ok and head.stdout.strip() != source.revision:
+        return (f"{name}：手元の clone が記録の版と違います。まず ecobuild deps sync で記録の版にしてください"
+                f"（記録の版が新しい形式なら、それで直ります）。")
+    if source.recorded_by is None:
+        return (f"{name}：記録の版が古い形式です。{name} のモジュールで ecobuild module upgrade をして取り込んでから、"
+                f"このモジュールで ecobuild deps update {name} を実行してください。")
+    by = Path(source.recorded_by).resolve()
+    direct = next((s.name for s in sources.values() if s.recorded_by is None
+                   and Path(s.directory).resolve() in (by, *by.parents)), "<直接の依存先>")
+    return (f"{name}：依存先 {direct} が、{name} の古い形式の版を記録しています。{name} のモジュールで ecobuild module upgrade、"
+            f"{direct} のモジュールで ecobuild deps update {name} をしてそれぞれ取り込んでから、このモジュールで "
+            f"ecobuild deps update {direct} を実行してください。")
 
 
 def create_module_solution(root: Path, name: str, kind: str, project: str | None = None, *,
@@ -1112,6 +1133,15 @@ def link(root: Path, project: str, url: str, *, shared: bool, revision: str | No
                             hint=f"リンクできるライブラリ：{_choices_after_failure(url, revision)}"
                                  "（ecobuild deps libraries <リポジトリ> で一覧）。",
                             details=str(error)) from error
+    except GitFetchError as error:
+        if not _no_solution(error):
+            raise _cppbuild_error(message, error) from error
+        raise EcoBuildError(ErrorCode.NOT_LINKABLE,
+                            f"{url} の{'版 ' + revision if revision else '既定のブランチの最新'}に、今の形式の CppBuild の管理ファイル"
+                            f"（{CONFIG_DIRECTORY}/solution.json）がありません。C++ のモジュールでないか、古い形式です。",
+                            hint="C++ の ECOBuild のモジュールのリポジトリか確かめてください。古い形式なら、そのモジュールで "
+                                 "ecobuild module upgrade をして取り込んでから、もう一度リンクしてください。",
+                            details=str(error)) from error
     except InvalidValueError as error:
         if error.field == "link_type":
             raise _link_type_error(url, library, shared, revision, error) from error
@@ -1159,6 +1189,14 @@ def _link_type_error(url: str, library: str | None, shared: bool, revision: str 
               "--shared を付けてください" if SubprojectType.SHARED_LIBRARY.value in allowed else "")
     return EcoBuildError(ErrorCode.NOT_LINKABLE, f"{library} は{'共有' if shared else '静的'}ライブラリとしてはリンクできません。",
                          hint=f"{library} の形式：{words}" + (f"（{switch}）。" if switch else "。"), details=str(error))
+
+
+def _no_solution(error) -> list[str]:
+    """CppBuild の GitFetchError のうち、取った版に Solution（solution.json）がなかった依存先の名前。
+
+    CppBuild はこの理由を型で分けないので、理由の書き出しで見分ける。古い形式の版か、CppBuild のモジュールでない
+    リポジトリ（clone は CppBuild が消すので、手元ではどちらか確かめられない）。"""
+    return [f.name for f in error.failures if f.reason.startswith("no CppBuild Solution")]
 
 
 def _same_url(one: str, other: str) -> bool:
@@ -1213,7 +1251,8 @@ def unlink(root: Path, name: str) -> tuple[str, ...]:
         raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
     message = f"依存先 {name} を外せません。"
     try:
-        with _transaction(solution, message):
+        # 古い形式の依存先も、ただ外せるように（形式は確かめない）
+        with _transaction(solution, message, check_formats=False):
             report = solution.unlink_git_source(name)   # すべてのProjectからのリンクと、記録（cloneは残る）
     except EcoBuildError:
         raise
@@ -1458,15 +1497,16 @@ def _cppbuild_error(message: str, error: Exception) -> EcoBuildError:
     """CppBuildの例外を、ECOBuildのエラーにする（CppBuildの例外の型で決める。文面は見ない）。"""
     details = f"{type(error).__name__}: {error}"
     if isinstance(error, GitFetchError):
-        # 記録の版に今の形式の Solution がない（CppBuild はこれを型で分けないので、理由の書き出しで見分ける）：
-        # 古い形式の版を記録している依存先。clone は CppBuild が消すので、手元では確かめられない
-        old = [f.name for f in error.failures if f.reason.startswith("no CppBuild Solution")]
+        old = _no_solution(error)
         if old:
             return EcoBuildError(
                 ErrorCode.DEPENDENCY_OLD_FORMAT,
-                f"{message}（依存先 {'、'.join(old)} の記録の版に、今の形式の CppBuild の管理ファイルがありません）",
+                f"{message}（依存先 {'、'.join(old)} の記録の版に、今の形式の CppBuild の管理ファイルがありません。"
+                f"古い形式か、CppBuild のモジュールではありません）",
                 hint=f"古い形式の版を記録しているなら、その依存先のモジュールで ecobuild module upgrade をして取り込んでから、"
-                     f"このモジュールで ecobuild deps update {old[0] if len(old) == 1 else '<名前>'} を実行してください。",
+                     f"このモジュールで ecobuild deps update {old[0] if len(old) == 1 else '<名前>'} を実行してください"
+                     f"（依存先の依存先なら、それを記録している直接の依存先を新しくします）。C++ のモジュールでなければ、"
+                     f"ecobuild deps remove で外してください。",
                 details=details)
     if isinstance(error, AlreadyRegisteredError):
         return EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{message}（{error.name} は既にあります）", details=details)
@@ -1483,13 +1523,15 @@ def _cppbuild_error(message: str, error: Exception) -> EcoBuildError:
 
 
 @contextmanager
-def _transaction(solution: Solution, message: str):
+def _transaction(solution: Solution, message: str, *, check_formats: bool = True):
     """設定の変更と、それを反映する更新（生成ファイルの作り直しとCMakeの構成）を一体にする。
 
     中で例外が起きるか、更新に失敗したら、書いた管理ファイル・生成ファイルと、今cloneした依存先を元に戻す
     （CppBuildの Solution.transaction）。ソースファイルとビルドツリーは戻さない。更新の失敗は EcoBuildError にする。
+    check_formats：先に依存先の形式を確かめる（古い依存先を外すときは確かめない）。
     """
-    check_dependency_formats(solution)
+    if check_formats:
+        check_dependency_formats(solution)
     with solution.transaction() as report:
         yield report
     if not report.success:

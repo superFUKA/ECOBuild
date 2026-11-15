@@ -1705,24 +1705,45 @@ class Module:
         planned, skipped = self._ecobuild_files()
         if self.config.format != _config.FORMAT:
             planned[_config.FILE_NAME] = ""   # 版を書き換える
+        for path in self.type.upgrade_paths():   # 型の管理ファイルの移動（中身は型が作るので空）
+            planned.setdefault(path, "")
         return planned, skipped
 
     def _apply_upgrade(self) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
         """版ごとの移行・ECOBuild が作るファイル・版・型の生成ファイルを今のものにする（コミットはしない）。
         返り値：(前の版, 変わったファイル, 手で編集してあるため作り直さなかったファイル)。"""
-        start = self.config.format
+        start, original = self.config.format, self.config
         before = set(self._changed_paths())
-        for version in range(start, _config.FORMAT):
-            if version in _MIGRATIONS:
-                _MIGRATIONS[version](self)
-        planned, skipped = self._planned_upgrade()
-        for path, text in planned.items():
-            if path != _config.FILE_NAME:
+        try:
+            for version in range(start, _config.FORMAT):
+                if version in _MIGRATIONS:
+                    _MIGRATIONS[version](self)
+            planned, skipped = self._ecobuild_files()
+            for path, text in planned.items():
                 (self.root / path).parent.mkdir(parents=True, exist_ok=True)
                 (self.root / path).write_text(text, encoding="utf-8", newline="\n")
-        self._save_config(replace(self.config, format=_config.FORMAT))
-        self.type.upgrade()
-        return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned))), tuple(skipped)
+            self._save_config(replace(self.config, format=_config.FORMAT))
+            self.type.upgrade()
+        except BaseException:
+            # 途中で止まったら、書いたものを戻す（未コミットの変更が残ると、直してもう一度 module upgrade できない）
+            self._undo_changes(before)
+            self.config = original
+            raise
+        version_file = {_config.FILE_NAME} if start != _config.FORMAT else set()
+        return start, tuple(sorted((set(self._changed_paths()) - before) | set(planned) | version_file)), tuple(skipped)
+
+    def _undo_changes(self, before: set[str]) -> None:
+        """before（その時の未コミットの変更）より後に変わったファイルを、HEAD の状態に戻す（新しいファイルは消す）。"""
+        git = self.repository.git
+        tree = git.working_tree()
+        tracked = tuple(sorted({*tree.staged, *tree.unstaged} - before))
+        if tracked:
+            git.restore(tracked, source="HEAD")
+        for path in set(tree.untracked) - before:
+            try:
+                (self.root / path).unlink()
+            except OSError:
+                pass
 
     def _upgrade_branch(self, name: str, *, dry_run: bool) -> ModuleUpgraded:
         """管理用のブランチ name（GitHub の最新）を今の仕様に合わせ、「ECOBuild の更新」として GitHub の name へ push する。
@@ -1751,7 +1772,10 @@ class Module:
                 planned, skipped = there._planned_upgrade()
                 return ModuleUpgraded(there.config.format, _config.FORMAT, tuple(sorted(planned)), tuple(skipped),
                                       dry_run=True, branch=name)
-            start, changed, skipped = there._apply_upgrade()
+            try:
+                start, changed, skipped = there._apply_upgrade()
+            finally:
+                self.repository.notices.extend(there.repository.notices)   # 型の案内は、こちらの結果に出す
             if not changed:
                 return ModuleUpgraded(start, _config.FORMAT, changed, skipped, branch=name)
             there.repository.git.add(changed, all=True)

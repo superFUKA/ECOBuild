@@ -197,6 +197,7 @@ class DependencyNode:
     present: bool                    # 手元にcloneがある（なければ、その先の依存先は分からない）
     depends_on: tuple[str, ...]      # このモジュールが依存する先（名前）
     libraries: tuple[str, ...] = ()  # この依存先のうち、リンクされているライブラリ（このモジュールと、依存先の依存先を記録するものから）
+    outdated: bool = False           # 手元の clone が、型の古い形式（present は偽。新しくすれば、その先も分かる）
 
 
 @dataclass(frozen=True)

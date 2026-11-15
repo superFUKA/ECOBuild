@@ -188,7 +188,7 @@ export default {
           const n = nodes.get(name) || { name, revision: '', present: false, depends_on: [] };
           const again = shown.has(name) && (n.depends_on || []).length > 0;
           shown.add(name);
-          const note = !n.present ? pill('cloneなし（その先は不明）', 'bad') : again ? pill('上に同じ') : '';
+          const note = n.outdated ? pill('古い形式の clone（その先は不明）', 'bad') : !n.present ? pill('cloneなし（その先は不明）', 'bad') : again ? pill('上に同じ') : '';
           const libraries = (n.libraries || []).length && !(n.libraries.length === 1 && n.libraries[0] === name) ? h('span', { class: 'dimmed' }, '[' + n.libraries.join(', ') + ']') : '';
           return h('li', {}, h('div', { class: 'branch' }, h('span', { class: 'branch-name' }, name), libraries, h('span', { class: 'mono dimmed' }, short(n.revision)), note),
             !again && (n.depends_on || []).length ? walk(n.depends_on) : '');

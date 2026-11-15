@@ -296,9 +296,12 @@ jobs:
     def upgrade(self) -> None:
         """CppBuild の管理ファイルが古い形式なら今の形式にしてから（_migrate）、生成ファイルを作り直す。
 
-        移したのに作り直せなければ（依存先がまだ古い形式の版・CMake の構成の失敗等）、止めずに案内を残す：移した分は
-        コミットさせる（このモジュールの形式が新しくないと deps update 等ができない。生成ファイルは次の操作で作り直される）。"""
+        移したのに作り直せなければ（依存先がまだ古い形式の版・CMake の構成の失敗等）、タスクブランチでは止めずに案内を残す：
+        移した分はコミットさせる（このモジュールの形式が新しくないと deps update 等ができない。生成ファイルは次の操作・提出の前に
+        作り直される）。タスクブランチでなければ（push まで行くので）止める（module upgrade が書いたものを戻す）。"""
         config = self.root / _cppbuild.CONFIG_DIRECTORY
+        if _migrate.needs_cleanup(config):   # 前に移したときに片付けられなかった古い置き場所
+            _migrate.cleanup(config)
         if not _migrate.is_old(config):
             self.refresh()
             return
@@ -306,9 +309,23 @@ jobs:
         try:
             self.refresh()
         except EcoBuildError as error:
+            if self.module.repository.current_task_branch() is None:
+                raise
             self.module.repository.notices.append(
                 f"CppBuild の管理ファイルを新しい形式にしましたが、生成ファイルは作り直せませんでした：{error.message}"
                 + (f"\n{error.hint}" if error.hint else ""))
+        if _migrate.needs_cleanup(config):
+            self.module.repository.notices.append(
+                f"{_cppbuild.CONFIG_DIRECTORY}/{_migrate.OLD_SUBPROJECTS}/ を消せませんでした（Visual Studio 等が使っていないか"
+                f"確かめてください）。もう一度 {self.module.op('module upgrade')} をすると片付けます。")
+
+    def upgrade_paths(self) -> tuple[str, ...]:
+        """古い形式なら、移す管理ファイル（移す元と先）。"""
+        config = self.root / _cppbuild.CONFIG_DIRECTORY
+        if not _migrate.is_old(config):
+            return ()
+        _, moves = _migrate.plan(config)
+        return tuple(sorted({f"{_cppbuild.CONFIG_DIRECTORY}/{path}" for move in moves for path in move if path}))
 
     def update_solution(self) -> dict:
         """構成（Visual Studio のソリューション・プロジェクト等）を今のファイルに合わせる。ビルドはしない。file add 等と
@@ -319,6 +336,12 @@ jobs:
 
     def prepare(self) -> PrepareResult:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir():
+            return PrepareResult((), False)
+        if _migrate.is_old(self.root / _cppbuild.CONFIG_DIRECTORY):
+            # 古い形式：作業を始める・取り込むこと（その後の module upgrade のため）は止めず、案内だけ残す
+            self.module.repository.notices.append(
+                f"CppBuild の管理ファイルが古い形式です。{self.module.op('module upgrade')} で新しい形式にしてください"
+                "（それまで依存先・生成ファイルはそろえません）。")
             return PrepareResult((), False)
         changes = self._align_dependencies()
         self._update()
@@ -937,7 +960,8 @@ jobs:
     def dependency_tree(self) -> DependencyTree:
         sources, edges = _cppbuild.dependency_graph(self.root)
         libraries = _cppbuild.dependency_libraries_in_use(self.root)
-        nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name], libraries.get(s.name, ()))
+        nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name], libraries.get(s.name, ()),
+                                     not s.present and _migrate.is_old(Path(s.directory) / s.path))
                       for s in sources)
         return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 

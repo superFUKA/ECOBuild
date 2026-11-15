@@ -179,3 +179,74 @@ def test_module_upgrade_converts(short_tmp):
     assert any(line.startswith("R") and line.endswith(f"{CONFIG}/solution.json") for line in renames)
     assert any(line.startswith("R") and f"{CONFIG}/subprojects/ECOSTL/types/static_library-" in line for line in renames)
     assert [p.name for p in Module.find(root, github=github).projects()] == ["ECOSTL", "ECOSTLTest"]
+
+
+def test_interrupted_cleanup_finishes_later(tmp_path, monkeypatch):
+    """古い置き場所を消せなくても（Visual Studio がつかんでいる等）移し終わり、後で片付けをやり直せる。"""
+    config_directory = _place(tmp_path / "ECOJob", "ECOJob")
+    (config_directory / "projects/ECOJob/.ecobuild-tmp").write_text("書きかけ", encoding="utf-8")   # 前に止まった一時ファイル
+
+    def locked(*args, **kwargs):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(_migrate.shutil, "rmtree", locked)
+    _migrate.convert(config_directory)
+    assert not _migrate.is_old(config_directory) and _migrate.needs_cleanup(config_directory)
+    Solution.open(config_directory)   # 移し終わっている
+    monkeypatch.undo()
+    assert _migrate.cleanup(config_directory) and not _migrate.needs_cleanup(config_directory)
+    assert not list(config_directory.rglob(".ecobuild-tmp"))
+
+
+@pytest.mark.cppbuild
+def test_advice_depends_on_why_the_clone_is_old(short_tmp):
+    """手元の clone だけが記録より古いなら deps sync を案内する。古い依存先は、ただ外せる。"""
+    root = short_tmp / "ECOJob"
+    _migrate.convert(_place(root, "ECOJob"))
+    clone = root / "deps" / "ECOSTL"
+    _place(clone, "ECOSTL")
+    git(clone, "init", "-q")
+    git(clone, "add", "-A")
+    git(clone, "commit", "-q", "-m", "古い形式")   # 記録の版（97ee66e…）とは違うコミット
+    with pytest.raises(EcoBuildError) as raised:
+        _cppbuild.update(root)
+    assert raised.value.code == ErrorCode.DEPENDENCY_OLD_FORMAT and "deps sync" in raised.value.hint
+    assert _cppbuild.unlink(root, "ECOSTL") == ("ECOJob",)   # 古い形式のままでも外せる
+    assert _cppbuild.git_sources(root) == ()
+
+
+@pytest.mark.cppbuild
+@pytest.mark.local
+def test_failed_upgrade_leaves_nothing_behind(short_tmp, monkeypatch):
+    """作り直せなければ、タスクブランチでないとき（push まで行く）は止めて、書いたものを戻す。タスクブランチなら移した分を
+    コミットして案内を残す。--dry-run には移すファイルが出る。"""
+    from ecobuild_cpp.type import CppType
+
+    github = FakeGitHub(short_tmp / "gh")
+    module = Module.create("ECOSTL", directory=short_tmp, kind="library", github=github)
+    root = module.root
+    remove_tree(root / CONFIG)
+    shutil.copytree(MATERIAL / "ECOSTL", root / CONFIG)
+    path = root / config.FILE_NAME
+    path.write_text(path.read_text(encoding="utf-8").replace(f"format = {config.FORMAT}", "format = 6"), encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "古い形式")
+    git(root, "push", "-q", "origin", "HEAD")
+    old = Module.find(root, github=github)
+    planned = old.upgrade(dry_run=True).paths
+    assert f"{CONFIG}/project.json" in planned and f"{CONFIG}/solution.json" in planned
+
+    def broken(self):
+        raise EcoBuildError(ErrorCode.CPPBUILD_ERROR, "CMake の構成に失敗しました。")
+
+    monkeypatch.setattr(CppType, "refresh", broken)
+    with pytest.raises(EcoBuildError):
+        old.upgrade()   # main：止めて戻す
+    assert git(root, "status", "--porcelain") == "" and _migrate.is_old(root / CONFIG)
+    assert "format = 6" in path.read_text(encoding="utf-8")
+
+    old.repository.create_task("形式を新しく").start()
+    task = Module.find(root, github=github)
+    done = task.upgrade()   # タスクブランチ：移した分をコミットし、作り直せなかったことを案内する
+    assert done.commit is not None and not _migrate.is_old(root / CONFIG)
+    assert any("作り直せませんでした" in notice for notice in task.repository.notices)

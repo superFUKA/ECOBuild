@@ -21,7 +21,8 @@ def command(json: Annotated[bool, "結果をJSONで出力する"] = False) -> in
             for i, name in enumerate(names):
                 last = i == len(names) - 1
                 node = nodes[name]
-                note = ("（cloneなし：ecobuild deps sync で取得すると、その先も分かります）" if not node.present
+                note = ("（古い形式の clone：ecobuild deps list・deps sync で確かめてください）" if node.outdated
+                        else "（cloneなし：ecobuild deps sync で取得すると、その先も分かります）" if not node.present
                         else "（上に同じ）" if name in shown and node.depends_on else "")
                 # リンクされているライブラリ（依存先と同じ名前の1つだけ〔ふつうの main〕なら省く）
                 libraries = f" [{', '.join(node.libraries)}]" if node.libraries and tuple(node.libraries) != (name,) else ""

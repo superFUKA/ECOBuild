@@ -28,16 +28,19 @@ SECTION = "ecobuild-work"   # 依存先の clone の git の設定の節（branc
 LOCAL, GITHUB = "local", "github"
 
 
-def read(clone: Git) -> DependencyWorkSource | None:
+def read(clone: Git, recorded_revision: str | None = None) -> DependencyWorkSource | None:
     """手元の clone が作業版なら、そのブランチと取ってきた先。deps work で切り替えた（取ってきたコミットで切り離し、
     どのブランチかは設定にだけある）か、タスクブランチを出している（依存先の中で task start した〔I-019〕。取ってきた先は
-    分からない）。作業版でなければ None。"""
+    分からない）。作業版でなければ None。recorded_revision：記録の版。取ってきたコミットがそれと同じかその祖先なら、作業は
+    記録に入った（依存先のタスクが取り込まれ deps update した）ので、設定は古いものとして無視する（sync・update が消して合わせる）。"""
     branch = clone.current_branch()
     recorded = clone.get_config(f"{SECTION}.branch")
     commit = clone.get_config(f"{SECTION}.commit")
     head = clone.rev_parse("HEAD") if recorded and commit and branch is None else None
     # 設定が効くのは、取ってきたコミット（かその上に足したもの）にいる間だけ。手で記録の版等へ切り替えた後は古い設定
-    if head is not None and (head == commit or clone.is_ancestor(commit, head)):
+    merged = recorded_revision is not None and commit is not None and (
+        commit == recorded_revision or clone.is_ancestor(commit, recorded_revision))
+    if head is not None and not merged and (head == commit or clone.is_ancestor(commit, head)):
         task = clone.get_config(f"{SECTION}.task")
         return DependencyWorkSource(recorded, int(task) if task and task.isdigit() else wm.task_number(recorded),
                                     clone.get_config(f"{SECTION}.origin"), clone.get_config(f"{SECTION}.place"),

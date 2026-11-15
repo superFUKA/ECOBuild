@@ -1002,7 +1002,7 @@ jobs:
         libraries = _cppbuild.dependency_libraries_in_use(self.root)
         nodes = tuple(DependencyNode(s.name, s.url, s.revision, s.present, edges[s.name], libraries.get(s.name, ()),
                                      not s.present and _migrate.is_old(Path(s.directory) / s.path),
-                                     _work.read(Git(Path(s.directory))) if s.present else None)
+                                     _work.read(Git(Path(s.directory)), s.revision) if s.present else None)
                       for s in sources)
         return DependencyTree(self.module.name, tuple(s.name for s in sources if s.recorded_by is None), nodes)
 
@@ -1087,7 +1087,11 @@ jobs:
             clone = Git(source.directory, command=self.module.command)
             head = clone.rev_parse("HEAD")
             branch = clone.current_branch()
-            work = _work.read(clone)
+            work = _work.read(clone, source.revision)
+            if work is not None and work.commit is not None and clone.rev_parse(source.revision) is None:
+                # 記録の版がまだ手元にない（取り込まれて deps update した直後等）：取り込んで、作業が記録に入ったかを確かめ直す
+                clone.fetch()
+                work = _work.read(clone, source.revision)
             if work is not None:
                 # 作業版（deps work・依存先の中で task start をしたもの〔I-019〕）。記録の版へ切り替えない。
                 changes.append(DependencyChange(source.name, "skipped", f"作業版です（{work.branch}）"))
@@ -1121,7 +1125,7 @@ jobs:
         clone = Git(directory, command=self.module.command)
         head = clone.rev_parse("HEAD")
         branch = clone.current_branch()
-        work = _work.read(clone)
+        work = _work.read(clone, source.revision)
         clean = clone.working_tree().clean
         if work is not None:
             state = "working"
@@ -1147,7 +1151,7 @@ jobs:
                 return DependencyWorkResult(name, "done", None, source.revision, None, self.sync_dependencies())
             _cppbuild.fetch_dependencies(self.root)   # 記録の版で clone してから切り替える
         clone = Git(directory, command=command)
-        current = _work.read(clone)
+        current = _work.read(clone, source.revision)
         previous = clone.rev_parse("HEAD")
         if not clone.working_tree().clean:
             raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, f"依存先 {name} の手元の clone（{directory}）に、未コミットの変更があります。",

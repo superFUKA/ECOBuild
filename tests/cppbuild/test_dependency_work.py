@@ -300,3 +300,23 @@ def test_a_stale_work_setting_does_not_keep_the_clone_working(short_tmp):
     assert (state.state, state.work, git(clone, "rev-parse", "HEAD")) == ("aligned", None, recorded)
     assert Git(clone).get_config("ecobuild-work.branch") is None
     assert [(c.name, c.action) for c in game.sync_dependencies()] == [("Engine", "unchanged")]
+
+
+def test_work_ends_when_the_task_is_merged_and_recorded(short_tmp):
+    """依存先のタスクが取り込まれ、こちらで deps update したら、作業版は終わり（--done なしで記録の版に合わせる）。"""
+    engine, game = _game_with_engine(short_tmp)
+    task = engine.repository.create_task("速くする")
+    workspace = engine.start_task(task.number, name="fast")
+    work = _change(workspace.root, "#pragma once\n// merged\n")
+    clone = game.root / "deps" / "Engine"
+    game.work_dependency("Engine", task=task.number)
+    assert _state(game).state == "working"
+
+    git(engine.root, "merge", "--quiet", "--no-ff", "-m", "取り込み", f"task/{task.number}-fast")   # 依存先で取り込む
+    git(engine.root, "push", "--quiet", "origin", "main")
+    merged = git(engine.root, "rev-parse", "HEAD")
+    assert [(c.name, c.action) for c in game.update_dependencies("Engine")] == [("Engine", "aligned")]
+    state = _state(game)
+    assert (state.state, state.recorded, state.local, state.work) == ("aligned", merged, merged, None)
+    assert git(clone, "merge-base", "--is-ancestor", work, "HEAD") == ""
+    assert Git(clone).get_config("ecobuild-work.branch") is None

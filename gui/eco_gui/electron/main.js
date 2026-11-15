@@ -73,21 +73,39 @@ function asModuleApp(window, root, request) {
   });
 }
 
-async function open(request) {
-  const {url, title, width, height, smoke} = request;
-  if (!LOCAL.test(url)) return null;
-  const root = await moduleOf(url);
-  const window = new BrowserWindow({
-    width, height, minWidth: Math.min(MIN_WIDTH, width), minHeight: Math.min(MIN_HEIGHT, height),
-    title, icon: root ? moduleIconOf(root, request) : ICON, show: !smoke, autoHideMenuBar: true, backgroundColor: '#14171b',
+// 窓の見た目（題の帯・色・アイコン）とページの設定。最初の窓も、そこから開く子の窓も同じ
+function look(icon) {
+  return {
+    icon, autoHideMenuBar: true, backgroundColor: '#14171b',
     ...(FRAMELESS ? {titleBarStyle: 'hidden', titleBarOverlay: TITLE_BAR} : {}),
     webPreferences: {preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true},
-  });
-  asModuleApp(window, root, request);   // タスクバーで、モジュールごとのアプリに（読み込む前に：最初のアイコンが残るため）
-  // 外へのリンクは、いつものブラウザーで。窓の中では、中継地点のページだけ
-  window.webContents.setWindowOpenHandler(({url: target}) => {
+  };
+}
+
+// 窓の決まり：外へのリンクはいつものブラウザーで、窓の中は中継地点のページだけ。中継地点が「窓の中に重ねて開く画面」を
+// 子の窓で開くとき（window.open。名前が gf- で始まる）は、親付き・モーダルの窓で開く（親が閉じれば閉じる・親を操作できない）。
+function sameOrigin(target, page) {
+  try { return new URL(target).origin === new URL(page).origin; } catch (e) { return false; }
+}
+
+function guard(window, icon) {
+  window.webContents.setWindowOpenHandler(({url: target, frameName}) => {
+    if (LOCAL.test(target) && sameOrigin(target, window.webContents.getURL()) && /^gf-/.test(frameName || '')) {
+      // 子の窓は親が持つ（タスクバーに出ない）ので、最小化させない（戻せなくなる）
+      return {action: 'allow', overrideBrowserWindowOptions: {parent: window, modal: true, minimizable: false,
+                                                               minWidth: 320, minHeight: 160, ...look(icon)}};
+    }
     if (/^https?:\/\//.test(target) && !LOCAL.test(target)) shell.openExternal(target);
     return {action: 'deny'};
+  });
+  window.webContents.on('did-create-window', (child) => {
+    // 親が最小化していると、親が持つ子の窓も隠れる（CLI からの open・時間のかかる実行の後に開くとき）。親を戻して子を見せる
+    if (window.isMinimized()) window.restore();
+    // 高さは GUIFrameWork が中身（題の帯を含む）に合わせて変える（tellHeight）ので、ここでは変えない
+    child.show();
+    child.focus();
+    child.once('closed', () => { if (!window.isDestroyed()) window.focus(); });   // 閉じたら親を前に（ほかのアプリの後ろに回らない）
+    guard(child, icon);   // 子の窓から開く孫の窓も同じ決まりで
   });
   window.webContents.on('will-navigate', (event, target) => { if (!LOCAL.test(target)) event.preventDefault(); });
   window.webContents.on('before-input-event', (event, input) => {
@@ -101,6 +119,19 @@ async function open(request) {
     window.webContents.on('dom-ready', mark);
     window.on('page-title-updated', () => setTimeout(mark, 0));
   }
+}
+
+async function open(request) {
+  const {url, title, width, height, smoke} = request;
+  if (!LOCAL.test(url)) return null;
+  const root = await moduleOf(url);
+  const icon = root ? moduleIconOf(root, request) : ICON;
+  const window = new BrowserWindow({
+    width, height, minWidth: Math.min(MIN_WIDTH, width), minHeight: Math.min(MIN_HEIGHT, height),
+    title, show: !smoke, ...look(icon),
+  });
+  asModuleApp(window, root, request);   // タスクバーで、モジュールごとのアプリに（読み込む前に：最初のアイコンが残るため）
+  guard(window, icon);
   if (smoke) {
     window.webContents.once('did-finish-load', () => {
       console.log(`loaded: ${window.webContents.getTitle()}`);

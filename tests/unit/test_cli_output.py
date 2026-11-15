@@ -133,6 +133,21 @@ def test_missing_directory_is_said_in_japanese(outside, capsys):
     assert "フォルダーではありません" in found["error"]["message"]
 
 
+def test_unreachable_directory_keeps_the_reason():
+    """ない（ENOENT）とき以外（権限がない・届かないネットワークの場所等）は、ないと言わずに OS の理由を添える。"""
+    import errno
+
+    from ecobuild_cli import _directory_problem
+    message = _directory_problem("//server/share", PermissionError(errno.EACCES, "アクセスが拒否されました"))
+    assert message == "-C の場所 //server/share へ移れません：アクセスが拒否されました"
+
+
+def test_broken_pipe_to_a_child_is_not_a_closed_output():
+    """自分の出力へは書ける：子プロセスの標準入力へ書けなかった等の BrokenPipeError は、中断ではなく誤り。"""
+    from ecobuild_cli._output import output_closed
+    assert output_closed(BrokenPipeError(32, "Broken pipe")) is False
+
+
 def test_unexpected_exception_is_returned_as_json_and_logged(outside, capsys):
     def action(inv):
         raise ValueError("No closing quotation")
@@ -186,7 +201,7 @@ def test_closed_output_ends_quietly(outside, monkeypatch, capsys):
 
 def test_interrupted_command_is_not_logged_as_an_error(outside):
     _log.start(["sample"])
-    _log.logger.warning("中断しました", extra={"event": "command.interrupted"})
+    _log.stopped("command.interrupted", "中断しました")
     _log.finish(130)
     entries = log_entries()
     assert "command.error" not in [e["event"] for e in entries]

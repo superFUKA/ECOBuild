@@ -112,14 +112,11 @@ class _Handler(logging.Handler):
         self.module_root: Path | None = None
         self.early: list[str] | None = []   # モジュールが決まる前に書いた行（決まったら写す。写したら None）
         self.errors = 0          # 書いた command.error の数
-        self.stopped: str | None = None   # 中断したなら、その event（command.interrupted・command.output_closed）
+        self.stopped: str | None = None   # 中断で終わるなら、その event（stopped で立てる）
 
     def emit(self, record: logging.LogRecord) -> None:
-        event = getattr(record, "event", None)
-        if event == "command.error":
+        if getattr(record, "event", None) == "command.error":
             self.errors += 1
-        elif event in STOPPED_EVENTS:
-            self.stopped = event
         try:
             self.write(self.line(record))
         except Exception:
@@ -295,6 +292,13 @@ def use_module(root: Path) -> None:
 
 
 STOPPED_EVENTS = ("command.interrupted", "command.output_closed")   # 失敗ではなく中断（Ctrl+C・読む側が先に閉じた）
+
+
+def stopped(event: str, message: str) -> None:
+    """中断で終わる（入口の例外の出口で呼ぶ。event は STOPPED_EVENTS）：warning を書き、終わりを誤りにしない。"""
+    if _current is not None:
+        _current.stopped = event
+    logger.warning(message, extra={"event": event})
 
 
 def finish(exit_code: int | None) -> None:

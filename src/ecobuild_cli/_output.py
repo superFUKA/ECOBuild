@@ -192,7 +192,8 @@ def error_data(error: WorkError) -> dict:
 
 
 def output_closed(error: BaseException) -> bool:
-    """出力の先（パイプ）が閉じたための失敗か（| head・読む側が先に終わった。Windows では EINVAL になる）。"""
+    """出力の先（パイプ）が閉じたための失敗か（| head・読む側が先に終わった。Windows では EINVAL になる）。
+    自分の標準出力・標準エラーへ書けないときだけ True（子プロセスの標準入力へ書けなかった等の BrokenPipeError は誤り）。"""
     if not isinstance(error, OSError) or error.errno not in (errno.EPIPE, errno.EINVAL):
         return False
     for stream in (sys.stdout, sys.stderr):
@@ -200,7 +201,7 @@ def output_closed(error: BaseException) -> bool:
             stream.flush()
         except (OSError, ValueError):
             return True
-    return isinstance(error, BrokenPipeError)
+    return False
 
 
 def _repository_state(error: WorkError) -> WorkError:

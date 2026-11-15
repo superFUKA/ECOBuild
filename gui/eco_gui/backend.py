@@ -110,9 +110,18 @@ def missing_folder(args: Any) -> str:
 
     作業空間は、ほかの窓・端末・エージェントの task finish・workspace close で消える。消えた後も、その作業空間を出していた窓は
     読み直しのたびに読む（モジュールの窓では、作業空間のタブが一覧を読み直して切り替わるまで）。そのたびに ecobuild を起こして
-    「-C の場所がありません」の誤りをログに積まないよう、ここで答える。帯（状態を取得できませんでした）にこの文が出る。"""
+    「-C の場所がありません」の誤りをログに積まないよう、ここで答える。帯（状態を取得できませんでした）にこの文が出る。
+    答えるのは、その場所がない（ENOENT）ときだけ。届かないネットワークの場所・権限がない等は ecobuild に任せる（理由を添えて答える）。"""
     module = args.get("module") if isinstance(args, dict) else None
-    if not isinstance(module, str) or not module or os.path.isdir(module):
+    if not isinstance(module, str) or not module:
+        return ""
+    try:
+        os.stat(module)
+        return ""
+    except FileNotFoundError as error:
+        if getattr(error, "winerror", None) not in (None, 2, 3):   # ネットワークの名前が見つからない等：ないとは限らない
+            return ""
+    except OSError:
         return ""
     return f"この場所はもうありません：{module}（作業空間なら、片付けられた可能性があります。この窓・タブを閉じてください）"
 

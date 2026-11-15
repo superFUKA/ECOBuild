@@ -1378,23 +1378,25 @@ class Module:
         return self.type.executable_at(Path(path)) if isinstance(self.type, Builds) else None
 
     def build(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
-              action: str = "build") -> BuildResult:
-        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。"""
+              action: str = "build", note_dependencies: bool = True) -> BuildResult:
+        """build・clean・rebuild。configurationを省略すると、名前付きビルド設定（なければ型の既定）の構成。
+        note_dependencies：手元の依存先が記録と違えば知らせる（check は依存先の項目で見るので知らせない）。"""
         options, name = self.build_options(configuration, profile)
         builds = self._builds(action)
-        if action != "clean":
+        if action != "clean" and note_dependencies:
             self._note_dependency_mismatches()
         result = builds.build(project, options, action)
         return BuildResult(result.project, result.configuration, result.artifacts, name, result.action)
 
     def test(self, *, project: str | None = None, configuration: str = "", profile: str | None = None,
              tests: tuple[str, ...] = (), env: dict[str, str] | None = None, repeat: int = 1,
-             on_run=None) -> TestResult:
+             on_run=None, note_dependencies: bool = True) -> TestResult:
         """env：テスト（とその前のビルド）の環境に足す環境変数。repeat：流す回数（2以上なら result.runs に回ごとの結果。
         1回でも失敗したら TEST_FAILED。execution.repeat_tests）。on_run(何回目, repeat)：各回の前に（進み具合の表示）。"""
         options, _ = self.build_options(configuration, profile)
         builds = self._builds("テスト")
-        self._note_dependency_mismatches()
+        if note_dependencies:
+            self._note_dependency_mismatches()
         with _execution.added_environment(env):
             return _execution.repeat_tests(lambda: builds.test(project, options, tuple(tests)), repeat, on_run)
 
@@ -2034,7 +2036,8 @@ class Module:
                 items.append(CheckItem("dependencies", allow_dependency_mismatch,
                                        "記録の版と違います（CIは記録の版を使います）：" + mismatch_text(mismatches)))
         if build:
-            steps = (("build", lambda: self.build()), ("test", lambda: self.test(tests=tests)))
+            steps = (("build", lambda: self.build(note_dependencies=False)),
+                     ("test", lambda: self.test(tests=tests, note_dependencies=False)))
             for name, action in (step for step in steps if wanted(step[0])):
                 try:
                     result = action()

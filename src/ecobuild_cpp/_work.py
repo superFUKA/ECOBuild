@@ -5,7 +5,9 @@
 等があればそこ（push していないコミットも使える）。なければ GitHub のブランチ（push 済みのものだけ）。コンテナの中
 （エージェント）では元の clone が見えないので、GitHub から取る。remote は足さず `git fetch <場所> <ブランチ>` で取る。
 
-どこから何を取ったかは、依存先の clone の git の設定（ecobuild-work.*。コミットされない）に覚える。依存先の側を変えるのは、
+作業版の clone はブランチを作らず、取ってきたコミットで切り離す（deps/ の中で ecobuild を動かしても依存先のタスクブランチに
+見えず、task commit・push で作りかけが依存先の GitHub に出ない）。どこから何を取ったかは、依存先の clone の git の設定
+（ecobuild-work.*。コミットされない）にだけ覚える。依存先の側を変えるのは、
 依存先のモジュールの自分のタスク（その作業空間）でだけ。deps/ の中でコミット・push する道は作らない。
 """
 
@@ -27,18 +29,17 @@ LOCAL, GITHUB = "local", "github"
 
 
 def read(clone: Git) -> DependencyWorkSource | None:
-    """手元の clone が作業版なら、そのブランチと取ってきた先。deps work で切り替えた（設定のブランチを今も出している）か、
-    タスクブランチを出している（依存先の中で task start した等。取ってきた先は分からない）。作業版でなければ None。"""
+    """手元の clone が作業版なら、そのブランチと取ってきた先。deps work で切り替えた（取ってきたコミットで切り離し、
+    どのブランチかは設定にだけある）か、タスクブランチを出している（依存先の中で task start した〔I-019〕。取ってきた先は
+    分からない）。作業版でなければ None。"""
     branch = clone.current_branch()
-    if branch is None:
-        return None
     recorded = clone.get_config(f"{SECTION}.branch")
-    if recorded == branch:
+    if recorded and branch is None:
         task = clone.get_config(f"{SECTION}.task")
-        return DependencyWorkSource(branch, int(task) if task and task.isdigit() else wm.task_number(branch),
+        return DependencyWorkSource(recorded, int(task) if task and task.isdigit() else wm.task_number(recorded),
                                     clone.get_config(f"{SECTION}.origin"), clone.get_config(f"{SECTION}.place"),
                                     clone.get_config(f"{SECTION}.commit"))
-    if wm.is_task_branch(branch):
+    if branch is not None and wm.is_task_branch(branch):
         return DependencyWorkSource(branch, wm.task_number(branch))
     return None
 
@@ -110,6 +111,15 @@ def _ambiguous(name: str, task: int | None, names: list[str], command: str) -> E
     return EcoBuildError(ErrorCode.INVALID_ARGUMENT,
                          f"依存先 {name} のタスク #{task} のブランチが {len(names)} つあります（{'、'.join(names)}）。",
                          hint=f"{operation(command, 'deps work')} {name} --branch <ブランチ> で選んでください。")
+
+
+def github_ahead(clone: Git, url: str, branch: str, commit: str) -> bool:
+    """GitHub の branch の先が、取ってきた commit に含まれない（GitHub の方が新しい・別の履歴）。読めなければ False。"""
+    listed = clone.run("ls-remote", "--heads", "--", url, f"refs/heads/{branch}", check=False)
+    tip = listed.stdout.split()[0] if listed.ok and listed.stdout.strip() else None
+    if tip is None or tip == commit:
+        return False
+    return clone.rev_parse(tip) is None or not clone.is_ancestor(tip, commit)
 
 
 def fetch(clone: Git, place: str, branch: str) -> str:

@@ -3,6 +3,8 @@
 このPCに依存先のモジュールとそのタスクの作業空間があればそこから（push していないコミットも）、なければ GitHub から。
 """
 
+import json
+
 import pytest
 from click.testing import CliRunner
 
@@ -11,6 +13,7 @@ from fakes import FakeGitHub
 from ecowork.git import Git
 from ecobuild import workspaces as _workspaces
 from ecobuild_bundle import Module
+from ecobuild_cpp import _cppbuild
 
 pytestmark = [pytest.mark.cppbuild, pytest.mark.local]
 
@@ -47,13 +50,17 @@ def _state(game):
     return next(d for d in game.dependencies() if d.name == "Engine")
 
 
-def _deps_list(game, monkeypatch, *args):
+def _cli(game, monkeypatch, *args):
     from ecobuild_cli import build_cli
     with monkeypatch.context() as patch:   # 終われば元の場所へ（片付けで Game を消せるように）
         patch.chdir(game.root)
-        result = CliRunner().invoke(build_cli("cpp"), ["deps", *args])
+        result = CliRunner().invoke(build_cli("cpp"), list(args))
     assert result.exit_code == 0, result.output
-    return result.output
+    return result.stdout
+
+
+def _deps_list(game, monkeypatch, *args):
+    return _cli(game, monkeypatch, "deps", *args)
 
 
 def test_work_takes_unpushed_commits_from_the_task_workspace(short_tmp, monkeypatch):
@@ -69,6 +76,8 @@ def test_work_takes_unpushed_commits_from_the_task_workspace(short_tmp, monkeypa
         "switched", f"task/{task.number}-fast", task.number, "local", first)
     clone = game.root / "deps" / "Engine"
     assert git(clone, "rev-parse", "HEAD") == first
+    # ブランチを作らず切り離す（deps/ の中の ecobuild が依存先のタスクブランチと見なさない）
+    assert git(clone, "branch", "--show-current") == "" and not git(clone, "branch", "--list", "task/*")
     state = _state(game)
     assert (state.state, state.recorded, state.local, state.work.task) == ("working", recorded, first, task.number)
     assert git(game.root, "rev-parse", "HEAD") == managed and not git(game.root, "status", "--porcelain")   # 記録は変えない
@@ -79,9 +88,17 @@ def test_work_takes_unpushed_commits_from_the_task_workspace(short_tmp, monkeypa
     assert [d.name for d in game.status().dependencies] == ["Engine"]   # 記録と違うと知らせる
 
     # 作業版のままビルドできる（止めず、記録と違うことを知らせる）
+    built = json.loads(_cli(game, monkeypatch, "build", "--json"))
+    assert built["ok"] and any("手元の依存先が記録の版と違います" in n and "Engine" in n for n in built["notices"])
+    # check の中の build では知らせない（依存先の項目と二重にしない）
     game.repository.notices.clear()
-    game.build()
-    assert any("手元の依存先が記録の版と違います" in n and "Engine" in n for n in game.repository.notices)
+    game.build(note_dependencies=False)
+    assert not any("手元の依存先" in n for n in game.repository.notices)
+
+    # 作業版の clone の未コミットの変更も見える
+    write(clone / "note.txt", "x")
+    assert _state(game).work.modified and "未コミットの変更あり" in _deps_list(game, monkeypatch, "list")
+    (clone / "note.txt").unlink()
 
     # sync は作業版に触らない
     assert [(c.name, c.action) for c in game.sync_dependencies()] == [("Engine", "skipped")]
@@ -93,12 +110,19 @@ def test_work_takes_unpushed_commits_from_the_task_workspace(short_tmp, monkeypa
     assert (again.action, again.previous, again.work.commit) == ("refreshed", first, second)
     assert game.work_dependency("Engine").action == "unchanged"
 
-    # --done：記録の版に戻し、作業版のブランチと覚えたものを消す
+    # 別のタスクに切り替える（12→13 等）
+    other = engine.repository.create_task("別の作業")
+    other_workspace = engine.start_task(other.number, name="other")
+    third = _change(other_workspace.root, "#pragma once\n// other\n")
+    moved = game.work_dependency("Engine", task=other.number)
+    assert (moved.action, moved.work.task, moved.work.commit) == ("switched", other.number, third)
+    assert not git(clone, "branch", "--list", "task/*")   # 前の作業版のブランチも残らない
+
+    # --done：記録の版に戻し、覚えたものを消す
     done = game.work_dependency("Engine", done=True)
     assert done.action == "done" and done.work is None
     assert git(clone, "rev-parse", "HEAD") == recorded
     assert _state(game).state == "aligned" and _state(game).work is None
-    assert not git(clone, "branch", "--list", f"task/{task.number}-fast")
     assert Git(clone).get_config("ecobuild-work.branch") is None
     assert git(game.root, "rev-parse", "HEAD") == managed
 
@@ -163,3 +187,79 @@ def test_work_refuses_what_it_would_lose_or_cannot_find(short_tmp):
         assert error.value.code == "commits_would_be_lost"
         assert git(clone, "rev-parse", "HEAD") == mine
     assert _state(game).recorded == recorded   # 記録はずっと変わらない
+
+
+def test_work_aligns_what_the_working_version_records(short_tmp):
+    """依存先のタスクが、依存先の依存先（Core）の記録を上げていれば、作業版にするとき deps/Core もその版に。"""
+    core_github = FakeGitHub(short_tmp / "gh0")
+    core = Module.create("Core", directory=short_tmp, kind="library", github=core_github)
+    engine_github = FakeGitHub(short_tmp / "gh1")
+    engine_github.others["Core"] = core_github.bare
+    engine = Module.create("Engine", directory=short_tmp, kind="library", github=engine_github)
+    _workspaces.record(engine.root)
+    engine.repository.create_task("Core を使う").start()
+    engine.link("Core")
+    git(engine.root, "push", "--quiet", "origin", "HEAD:main")
+    github = FakeGitHub(short_tmp / "gh2")
+    github.others["Engine"] = engine_github.bare
+    game = Module.create("Game", directory=short_tmp, kind="app", github=github)
+    game.repository.create_task("Engine を使う").start()
+    game.link("Engine")
+    core_clone = next(s for s, _ in _cppbuild.all_git_sources(game.root) if s.name == "Core").directory
+    old_core = git(core_clone, "rev-parse", "HEAD")
+
+    write(core.root / "Core" / "include" / "Core" / "Core.h", "#pragma once\n// core 2\n")
+    git(core.root, "commit", "--quiet", "-am", "Core 2")
+    git(core.root, "push", "--quiet", "origin", "main")
+    new_core = git(core.root, "rev-parse", "HEAD")
+    task = engine.repository.create_task("Core を上げる")
+    workspace = engine.start_task(task.number, name="core")
+    workspace.update_dependencies("Core")   # 依存先のタスクで Core の記録を上げる（コミットだけ。push しない）
+
+    result = game.work_dependency("Engine", task=task.number)
+    assert git(core_clone, "rev-parse", "HEAD") == new_core != old_core
+    assert ("Core", "aligned") in [(c.name, c.action) for c in result.changes]
+
+
+def test_work_chooses_the_exact_task_and_one_way(short_tmp):
+    """--task 12 は task/12-… だけ（task/120-… は別）。--task と --branch は一緒に使えない。"""
+    engine, game = _game_with_engine(short_tmp, recorded=False)
+    tips = {}
+    for branch in ("task/12-a", "task/120-b"):
+        git(engine.root, "switch", "--quiet", "-c", branch, "main")
+        tips[branch] = _change(engine.root, f"#pragma once\n// {branch}\n")
+        git(engine.root, "push", "--quiet", "origin", branch)
+    git(engine.root, "switch", "--quiet", "main")
+    assert game.work_dependency("Engine", task=12).work.commit == tips["task/12-a"]
+    assert game.work_dependency("Engine", task=120).work.commit == tips["task/120-b"]
+    with pytest.raises(Exception) as error:
+        game.work_dependency("Engine", task=12, branch="task/12-a")
+    assert error.value.code == "invalid_argument"
+
+
+def test_work_says_when_github_is_ahead_of_the_workspace(short_tmp):
+    engine, game = _game_with_engine(short_tmp)
+    task = engine.repository.create_task("速くする")
+    workspace = engine.start_task(task.number, name="fast")
+    first = _change(workspace.root, "#pragma once\n// 1\n")
+    _change(workspace.root, "#pragma once\n// 2\n")
+    git(workspace.root, "push", "--quiet", "origin", f"task/{task.number}-fast")
+    git(workspace.root, "reset", "--quiet", "--hard", first)   # 作業空間の方が古い
+    game.repository.notices.clear()
+    assert game.work_dependency("Engine", task=task.number).work.commit == first
+    assert any("GitHub の" in n and "にないコミット" in n for n in game.repository.notices)
+
+
+def test_work_keeps_commits_made_in_a_detached_clone(short_tmp):
+    """作業版でない（記録と別の版に切り離した）clone でコミットしたものも、切り替えで消さない。"""
+    engine, game = _game_with_engine(short_tmp, recorded=False)
+    git(engine.root, "switch", "--quiet", "-c", "task/3-x")
+    _change(engine.root, "#pragma once\n// x\n")
+    git(engine.root, "push", "--quiet", "origin", "task/3-x")
+    clone = game.root / "deps" / "Engine"
+    git(clone, "commit", "--quiet", "--allow-empty", "-m", "deps の中でコミット")
+    mine = git(clone, "rev-parse", "HEAD")
+    assert _state(game).state == "differs"
+    with pytest.raises(Exception) as error:
+        game.work_dependency("Engine", task=3)
+    assert error.value.code == "commits_would_be_lost" and git(clone, "rev-parse", "HEAD") == mine

@@ -261,6 +261,7 @@ class DependencyWorkSource:
     origin: str | None = None        # local：このPCの依存先のモジュール（その作業空間）／github：GitHub／None：分からない（手で切り替えた等）
     place: str | None = None         # 取ってきた場所（local なら作業空間・clone のパス、github なら URL）
     commit: str | None = None        # 最後に取ってきたコミット
+    modified: bool = False           # 手元の clone に未コミットの変更がある（deps list 等の状態で）
 
 
 @dataclass(frozen=True)

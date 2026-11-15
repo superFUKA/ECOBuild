@@ -7,7 +7,8 @@ const DEP_REMOTE = { ok: ['GitHubにある', 'ok'], archived: ['アーカイブ�
 const ATTACHED = ['test', 'bench', 'benchmark'];
 // 作業版（deps work）の説明：「Engine #12・このPCの作業空間」（分からなければブランチ）
 const WORK_FROM = { local: 'このPCの作業空間', github: 'GitHub' };
-const workText = (name, w) => [w.task != null ? name + ' #' + w.task : '', WORK_FROM[w.origin] || ''].filter(Boolean).join('・') || w.branch || '';
+const workText = (name, w) => ([w.task != null ? name + ' #' + w.task : '', WORK_FROM[w.origin] || ''].filter(Boolean).join('・') || w.branch || '')
+  + (w.modified ? '、未コミットの変更あり' : '');
 const short = (sha) => (sha ? String(sha).slice(0, 8) : '-');
 const two = (n) => String(n).padStart(2, '0');
 const localTime = (iso) => {

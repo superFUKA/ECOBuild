@@ -48,7 +48,7 @@ SCREEN = {
         {"on": "deps.action", "when": {"name": "dep_versions_close"}, "set": {"cpp_versions": None}},
         # 作業版（記録は変えない。表で見ている場所の deps/ で）
         {"on": "deps.action", "when": {"name": "dep_work"}, "open": "mod-cpp-dep-work", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "task": {"payload": "value"}}},
-        {"on": "deps.action", "when": {"name": "dep_work_done"}, "run": "deps work", "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "done": True}, "notify": "依存先を記録の版に戻しました。"},
+        {"on": "deps.action", "when": {"name": "dep_work_done"}, "run": "deps work", "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "done": True}, "notify": "依存先を記録の版に戻しました（ほかの依存先も記録の版に合わせました）。"},
         {"on": "deps.action", "when": {"name": "dep_use"}, "open": "mod-cpp-dep-update", "inside": True, "args": {"module": {"value": "place", "else": {"arg": "module"}}, "name": {"payload": "target"}, "at": {"payload": "value"}}},
     ],
 }

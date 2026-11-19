@@ -28,7 +28,7 @@ SCREEN = {
         {"on": "conflict.taken", "run": "sync take",
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "side": {"payload": "side"}}},
         # TortoiseGit で直す（ecobuild diff <ファイル> --gui：衝突したファイルは TortoiseGitMerge の直す画面）
-        {"on": "conflict.tortoise", "run": "diff", "args": {"module": {"arg": "module"}, "paths": [{"payload": "path"}], "gui": True}},
+        {"on": "conflict.tortoise", "run": "diff", "busy": False, "args": {"module": {"arg": "module"}, "paths": [{"payload": "path"}], "gui": True}},
         # 続ける・やめる（ecobuild sync continue・ecobuild sync abort）。終わったら、この窓を閉じる
         {"on": "conflict.continued", "run": "sync continue", "args": {"module": {"arg": "module"}},
          "notify": "止まっていた操作を完了しました。", "close": True},

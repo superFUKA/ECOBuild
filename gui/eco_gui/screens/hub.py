@@ -37,8 +37,8 @@ SCREEN = {
         {"on": "modules.action", "when": {"action": "open"}, "open": "frame-workspaces", "args": {"module": {"payload": "id"}}, "keep": True},
         # カードのメニュー：エクスプローラー（ecobuild open --app explorer）・Visual Studio（open --app vs --solution。
         # ソリューションがまだなければ「ビルドしてから開きますか？」）・ショートカット（ecobuild gui shortcut --module … --pick）
-        {"on": "modules.action", "when": {"action": "explorer"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "explorer"}},
-        {"on": "modules.action", "when": {"action": "vs"}, "run": "open", "args": {"module": {"payload": "id"}, "app": "vs", "solution": True},
+        {"on": "modules.action", "when": {"action": "explorer"}, "run": "open", "busy": False, "args": {"module": {"payload": "id"}, "app": "explorer"}},
+        {"on": "modules.action", "when": {"action": "vs"}, "run": "open", "busy": False, "args": {"module": {"payload": "id"}, "app": "vs", "solution": True},
          "notify": "Visual Studio[ {version}] で開きます[：{name}]",
          "instead": {"when": {"code": "no_solution"}, "open": "frame-vs-build", "inside": True, "args": {"module": {"payload": "id"}, "version": ""}}},
         {"on": "modules.action", "when": {"action": "shortcut"}, "run": "gui shortcut", "args": {"module": {"payload": "id"}, "pick": True},
@@ -54,11 +54,11 @@ SCREEN = {
          "notify": "アーカイブしました（読み取り専用）。「アーカイブ済み」に移動しました。"},
         {"on": "modules.archived", "when": {"action": "unarchive"}, "run": "module unarchive", "args": {"name": {"payload": "repository"}},
          "notify": "アーカイブを解除しました。"},
-        {"on": "modules.archived", "when": {"action": "folder"}, "run": "open", "args": {"module": {"payload": "folder"}, "app": "explorer"}},
+        {"on": "modules.archived", "when": {"action": "folder"}, "run": "open", "busy": False, "args": {"module": {"payload": "folder"}, "app": "explorer"}},
         {"on": "modules.archived", "when": {"action": "delete"}, "open": "hub-delete", "inside": True,
          "args": {"repository": {"payload": "repository"}, "local": {"payload": "local"}}},
         # 前の版の作業空間（ecobuild workspace close <フォルダー>・workspace forget <フォルダー>）
-        {"on": "modules.legacy", "when": {"action": "folder"}, "run": "open", "args": {"module": {"payload": "path"}, "app": "explorer"}},
+        {"on": "modules.legacy", "when": {"action": "folder"}, "run": "open", "busy": False, "args": {"module": {"payload": "path"}, "app": "explorer"}},
         {"on": "modules.legacy", "when": {"action": "close"}, "run": "workspace close", "args": {"path": {"payload": "path"}},
          "notify": "前の作業空間を閉じました。"},
         {"on": "modules.legacy", "when": {"action": "forget"}, "run": "workspace forget", "args": {"path": {"payload": "path"}},

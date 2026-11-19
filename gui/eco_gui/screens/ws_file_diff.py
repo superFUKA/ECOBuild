@@ -26,7 +26,7 @@ SCREEN = {
         {"read": "diff", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "staged": True}, "to": "staged.text"},
         {"read": "diff", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "base": True}, "to": "base.text"},
         # この PC の道具で見る（ecobuild diff --gui：TortoiseGit を開く。なければ、ecobuild がそう答える）
-        {"on": "external.pressed", "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "gui": True}},
+        {"on": "external.pressed", "run": "diff", "busy": False, "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}, "gui": True}},
         {"on": "close.pressed", "close": True},
     ],
 }

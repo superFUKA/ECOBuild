@@ -47,9 +47,9 @@ SCREEN = {
         {"read": "module show", "args": {"module": {"arg": "module"}}, "to": "detail.spaces", "from": "workspaces"},
         # 詳細のボタンと、一覧の行の右クリック（同じ操作）
         {"on": "detail.action", "when": {"action": "refresh"}, "refresh": True},
-        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
-        {"on": "list.action", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "list.action", "when": {"action": "diff"}, "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
         # タスク：この窓のタスク管理で、そのタスクを選んで右に詳細
         {"on": "detail.action", "when": {"action": "task"}, "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},

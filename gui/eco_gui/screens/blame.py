@@ -24,9 +24,9 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "lines.selected", "set": {"blame_commit": {"payload": "commit"}}},
         {"value": "blame_commit", "to": "lines.selected"},
-        {"on": "lines.opened", "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "commit"}, "gui": True},
+        {"on": "lines.opened", "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"payload": "commit"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "commit"}}, "inside": True}},
         {"on": "log.pressed", "open": "ws-log", "args": {"module": {"arg": "module"}, "paths": [{"arg": "path"}]}},
-        {"on": "external.pressed", "run": "blame", "args": {"module": {"arg": "module"}, "path": {"arg": "path"}, "gui": True}},
+        {"on": "external.pressed", "run": "blame", "busy": False, "args": {"module": {"arg": "module"}, "path": {"arg": "path"}, "gui": True}},
     ],
 }

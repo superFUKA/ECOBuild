@@ -76,7 +76,7 @@ SCREEN = {
         # 環境の作り方：Dockerfile のエディター（窓の中に重ねて）・場所を開く（ecobuild open <Dockerfile> --app explorer）・
         # リポジトリに置く（変えるファイルを下見で確かめてから ecobuild module upgrade）
         {"on": "summary.action", "when": {"name": "edit"}, "open": "container-dockerfile", "args": {"module": {"arg": "module"}}, "inside": True},
-        {"on": "summary.action", "when": {"name": "reveal"}, "run": "open",
+        {"on": "summary.action", "when": {"name": "reveal"}, "run": "open", "busy": False,
          "args": {"module": {"arg": "module"}, "path": [".ecobuild/container/Dockerfile"], "app": "explorer"}},
         {"on": "summary.action", "when": {"name": "place"}, "open": "mod-upgrade", "args": {"module": {"arg": "module"}}, "inside": True},
         # 状態（container status は1回だけ実行され、2つの部品へ出る）

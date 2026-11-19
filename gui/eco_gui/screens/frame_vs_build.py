@@ -30,7 +30,7 @@ SCREEN = {
         {"show": "build", "when": {"vs_built": [None, False]}},
         {"show": "built", "when": {"vs_built": True}},
         {"show": "open", "when": {"vs_built": True}},
-        {"on": "open.pressed", "run": "open", "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"arg": "version"}, "solution": True},
+        {"on": "open.pressed", "run": "open", "busy": False, "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"arg": "version"}, "solution": True},
          "notify": "Visual Studio[ {version}] で開きます[：{name}]", "close": True},
     ],
 }

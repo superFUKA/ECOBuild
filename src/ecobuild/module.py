@@ -1669,13 +1669,28 @@ class Module:
         self.require_task_branch("依存先の更新")
         before = self.own_changes()
         dependencies = self._dependencies("依存先")
-        moved = self._follow_moved(name)   # GitHub で名前が変わった依存先は、先に新しい名前に
-        if name is not None:
-            name = next((m.name for m, old in moved if old == name and m.action == "moved"), name)
-        result = dependencies.update_dependencies(name, revision)
-        self.commit_own_changes(f"依存先 {name} を {revision} に" if revision else
-                                f"依存先 {name} を最新に" if name else "依存先を最新に", before)
-        return tuple(m for m, _ in moved) + result
+        try:
+            moved = self._follow_moved(name)   # GitHub で名前が変わった依存先は、先に新しい名前に
+            if name is not None:
+                name = next((m.name for m, old in moved if old == name and m.action == "moved"), name)
+            try:
+                result = dependencies.update_dependencies(name, revision)
+            except WorkError:
+                # 更新した依存先が、名前の変わった依存先を新しい名前で記録していた：同じリポジトリが前の場所と新しい場所の
+                # 2つになり、構成が止まる。前の名前の記録を直せれば（新しい場所の clone を使う）、作り直して続ける
+                again = [m for m in self._follow_moved() if m[0].action == "moved"] if moved else []
+                if not again:
+                    raise
+                self.type.refresh()
+                result = tuple(DependencyChange(d.name, "updated", "記録を最新にしました") for d in self._direct_dependencies()
+                               if (name is None or d.name == name) and d.name not in {m.name for m, _ in again})
+                return tuple(m for m, _ in moved) + result + tuple(m for m, _ in again)
+            # 更新で依存先の依存先が新しい名前を記録したら、同じ実行の中で残りも直せる
+            again = [] if name is not None else [m for m in self._follow_moved() if m[0].action == "moved"]
+        finally:   # 途中で止まっても、済んだ分は自分のコミットに（未コミットのまま残さない）
+            self.commit_own_changes(f"依存先 {name} を {revision} に" if revision else
+                                    f"依存先 {name} を最新に" if name else "依存先を最新に", before)
+        return tuple(m for m, _ in moved) + result + tuple(m for m, _ in again)
 
     def _follow_moved(self, name: str | None = None) -> list[tuple[DependencyChange, str]]:
         """直接の依存先のうち GitHub で名前が変わったもの（moved。name があればそれだけ）を、型に新しい名前へ直させる
@@ -1689,11 +1704,14 @@ class Module:
                 continue
             try:
                 found.append((self._dependencies("依存先").move_dependency(dependency.name, url), dependency.name))
-            except EcoBuildError as error:
-                if error.code != ErrorCode.NOT_SUPPORTED:
-                    raise
-                self.repository.notices.append(f"依存先 {dependency.name} は GitHub で {url} に名前が変わっています"
-                                               "（記録は前の URL のまま。GitHub の転送で使えます）。")
+            except WorkError as error:
+                if error.code == ErrorCode.NOT_SUPPORTED:
+                    self.repository.notices.append(f"依存先 {dependency.name} は GitHub で {url} に名前が変わっています"
+                                                   "（記録は前の URL のまま。GitHub の転送で使えます）。")
+                else:   # 1つが直せなくても、ほかは続ける（記録は前の URL のまま。GitHub の転送で使える）
+                    found.append((DependencyChange(dependency.name, "skipped",
+                                                   f"GitHub で {url} に名前が変わっていますが、直せませんでした（{error.message}）"),
+                                  dependency.name))
         return found
 
     def _moved_url(self, url: str) -> str | None:
@@ -1721,10 +1739,12 @@ class Module:
         if not isinstance(self.type, HasDependencies):
             return ()
         moved: list[tuple[DependencyChange, str]] = []
-        if self.repository.current_task_branch() is not None:
+        repository = self.repository
+        if repository.current_task_branch() is not None and repository._reviewing() is None and repository.git.stopped() is None:
             before = self.own_changes()
-            moved = self._follow_moved()
-            if any(m.action == "moved" for m, _ in moved):
+            try:
+                moved = self._follow_moved()
+            finally:
                 self.commit_own_changes("依存先の名前の変更に合わせる", before)
         else:
             for dependency in self._direct_dependencies():

@@ -65,3 +65,50 @@ def test_moved_dependency_is_followed(short_tmp, monkeypatch):
     # もう一度：直すものはない。deps update も新しい名前で
     assert not any(c.action == "moved" for c in game.update_dependencies())
     assert [c.name for c in game.update_dependencies("Motor")] == ["Motor"]
+
+
+def test_dependency_of_dependency_with_the_old_url(short_tmp, monkeypatch):
+    """依存先 Lib も前の URL で Engine を記録していれば直さない（同じリポジトリが2つになる）。Lib が先に直して取り込まれたら、
+    deps update の1回で Lib を進め、Lib が取った deps/Motor を使って Engine も直す（前の clone は消す）。"""
+    place = short_tmp / "gh"
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{place.as_uri()}/.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "https://github.com/tester/")
+    engine_github = FakeGitHub(place)
+    Module.create("Engine", directory=short_tmp, kind="library", github=engine_github)
+    lib_github = FakeGitHub(place)
+    lib_github.github_urls = True
+    lib_github.others["Engine"] = engine_github.bare
+    lib = Module.create("Lib", directory=short_tmp, kind="library", github=lib_github)
+    lib.repository.create_task("Engine を使う").start()
+    lib.link("Engine", project="Lib")
+    git(lib.root, "push", "--quiet", "origin", "HEAD:main")
+    github = FakeGitHub(place)
+    github.github_urls = True
+    github.others.update({"Engine": engine_github.bare, "Lib": lib_github.bare})
+    game = Module.create("Game", directory=short_tmp, kind="app", github=github)
+    game.repository.create_task("使う").start()
+    game.link("Engine")
+    game.link("Lib")
+
+    for fake in (engine_github, lib_github, github):   # Engine を Motor に（どの偽の GitHub からも同じに見える）
+        fake.moved["Engine"] = "Motor"
+    engine_github.bare = engine_github.bare.rename(engine_github.bare.with_name("Motor.git"))
+    for fake in (lib_github, github):
+        fake.others["Motor"] = fake.others.pop("Engine").with_name("Motor.git")
+    # GitHub と同じく、前の URL も新しいリポジトリへ転送する（長い方の insteadOf が勝つ）
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
+    monkeypatch.setenv("GIT_CONFIG_KEY_1", f"url.{(place / 'Motor.git').as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_1", "https://github.com/tester/Engine.git")
+    skipped = next(c for c in game.sync_dependencies() if c.name == "Engine")
+    assert skipped.action == "skipped" and "Lib" in skipped.reason
+    assert "Engine" in _solution(game.root)["git_sources"]
+
+    moved = next(c for c in Module.find(lib.root, github=lib_github).sync_dependencies() if c.action == "moved")
+    assert moved.name == "Motor"
+    git(lib.root, "push", "--quiet", "origin", "HEAD:main")   # Lib の直しが取り込まれた
+    changes = Module.find(game.root, github=github).update_dependencies()
+    assert any(c.name == "Motor" and c.action == "moved" for c in changes)
+    assert set(_solution(game.root)["git_sources"]) == {"Motor", "Lib"}
+    assert not (game.root / "deps" / "Engine").exists() and (game.root / "deps" / "Motor" / ".git").exists()
+    assert git(game.root, "status", "--porcelain") == ""

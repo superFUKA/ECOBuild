@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
@@ -1372,7 +1373,7 @@ def rename_git_source(root: Path, name: str, url: str) -> tuple[str, Path, Path]
     書き出しを直接使う（CppBuild 依頼の下書き：memo の CppBuild依頼 17）。"""
     from copy import deepcopy
     from cppbuild import storage
-    from cppbuild.git_sources import base, default_name, unique_name
+    from cppbuild.git_sources import base, default_name, identity, unique_name
     from cppbuild.models import GitSource
     from cppbuild.paths import relative
     solution = open_solution(root)
@@ -1383,7 +1384,8 @@ def rename_git_source(root: Path, name: str, url: str) -> tuple[str, Path, Path]
         if record is None:
             raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
         others = set(values.git_sources) - {name}
-        default = name in (default_name(record.url), unique_name(record.url, others))
+        hashed = f"{default_name(record.url)}-{hashlib.sha256(identity(record.url).encode()).hexdigest()[:8]}"
+        default = name in (default_name(record.url), hashed)   # 前の URL から作った名前（衝突でハッシュを付けたものも）
         new_name = unique_name(url, others) if default else name
         place = base(solution.root, values)
         before, after = place / name, place / new_name

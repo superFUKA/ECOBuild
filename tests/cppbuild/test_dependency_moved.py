@@ -112,3 +112,7 @@ def test_dependency_of_dependency_with_the_old_url(short_tmp, monkeypatch):
     assert set(_solution(game.root)["git_sources"]) == {"Motor", "Lib"}
     assert not (game.root / "deps" / "Engine").exists() and (game.root / "deps" / "Motor" / ".git").exists()
     assert git(game.root, "status", "--porcelain") == ""
+    states = {d.name: d for d in Module.find(game.root, github=github).dependencies()}
+    assert states["Lib"].state == "aligned" and states["Lib"].recorded == git(lib.root, "rev-parse", "HEAD")
+    assert states["Motor"].state == "aligned"
+    assert Module.find(game.root, github=github).build().configuration == "Debug"

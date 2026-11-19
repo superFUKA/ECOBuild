@@ -1681,10 +1681,8 @@ class Module:
                 again = [m for m in self._follow_moved() if m[0].action == "moved"] if moved else []
                 if not again:
                     raise
-                self.type.refresh()
-                result = tuple(DependencyChange(d.name, "updated", "記録を最新にしました") for d in self._direct_dependencies()
-                               if (name is None or d.name == name) and d.name not in {m.name for m, _ in again})
-                return tuple(m for m, _ in moved) + result + tuple(m for m, _ in again)
+                result = dependencies.update_dependencies(name, revision)   # もう一度（記録は済んだ分だけ軽い）。本当の結果を返す
+                return tuple(m for m, _ in moved) + tuple(m for m, _ in again) + result
             # 更新で依存先の依存先が新しい名前を記録したら、同じ実行の中で残りも直せる
             again = [] if name is not None else [m for m in self._follow_moved() if m[0].action == "moved"]
         finally:   # 途中で止まっても、済んだ分は自分のコミットに（未コミットのまま残さない）

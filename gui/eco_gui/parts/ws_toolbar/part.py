@@ -33,3 +33,12 @@ def on_action(
 ) -> None:
     if not name:
         raise ValueError("操作の名前が要ります")
+
+
+def on_view(
+    name: Annotated[str, "見るだけの操作（open_folder・open_vs）。実行中もツールバーを止めない"],
+    value: Annotated[str, "open_vs：Visual Studio の版"] = "",
+) -> None:
+    if not name:
+        raise ValueError("操作の名前が要ります")
+

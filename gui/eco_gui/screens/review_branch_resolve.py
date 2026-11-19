@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "衝突を直す", "width": 600, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "衝突を直す", "ok": "タスクを作る", "vars": {"name": {"arg": "name"}, "into": {"arg": "into"}},
             "intro": "{into} を {name} へ取り込むタスクを作り、作業空間に取り出して {into} を取り込みます（衝突したところで止まります）。",

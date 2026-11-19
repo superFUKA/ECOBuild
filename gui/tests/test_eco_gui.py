@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 
 class FakeEcobuild:
     """ecobuild の代わり。呼ばれたコマンドを覚える。"""
@@ -183,7 +185,7 @@ def test_ecobuild_catalog_is_converted_to_the_form_guiframework_reads():
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeEcobuild(), **LOOK)
     return app.relay(threaded=True)
 
 

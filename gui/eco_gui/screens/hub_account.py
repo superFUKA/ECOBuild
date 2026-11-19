@@ -7,10 +7,10 @@ SCREEN = {
     "root": "page",
     "window": {"title": "アカウント", "width": 560, "height": 600},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["title", "account", "actions"]},
+        {"id": "page", "part": "column", "children": ["title", "account", "actions"]},
         {"id": "title", "part": "note", "props": {"text": "アカウント", "heading": True}},
         {"id": "account", "part": "hub-account", "look": "grow"},
-        {"id": "actions", "layout": "row", "look": "actions", "children": ["reload", "close"]},
+        {"id": "actions", "part": "row", "look": "actions", "children": ["reload", "close"]},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "hint": "ログインし直した・権限を足した後に"}},
         {"id": "close", "part": "button", "props": {"label": "閉じる", "primary": True}},
     ],

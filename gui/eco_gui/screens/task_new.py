@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "新しいタスク", "width": 620, "height": 780},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "task-form", "props": {"kind": "new", "issue": {"arg": "issue"}, "text": {"arg": "text"}}},
     ],
     "bindings": [

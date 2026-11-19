@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "新しいファイル", "width": 640, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["form"]},
         {"id": "form", "part": "ws-new-file", "props": {"folder": {"arg": "folder"}}},
     ],
     "bindings": [

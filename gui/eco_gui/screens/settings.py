@@ -6,22 +6,21 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "設定", "width": 1360, "height": 880},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "tabs"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "page", "children": ["head", "tabs"]},
         {"id": "nav", "screen": "menu", "args": {"current": "settings", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "設定", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
-        {"id": "tabs", "layout": "tabs", "children": ["general", "profiles", "cpp_general", "cpp_templates", "protect", "track", "releases", "container", "account", "put_away"],
-         "props": {"labels": ["全般", "ビルド設定", "C++ の設定", "ファイルテンプレート", "ブランチの保護", "管理するファイル", "リリース", "コンテナ", "アカウント",
-                              "片付け"]}},
+        {"id": "tabs", "part": "tabs", "children": ["general", "profiles", "cpp_general", "cpp_templates", "protect", "track", "releases", "container", "account", "put_away"],
+         "props": {"labels": {"general": "全般", "profiles": "ビルド設定", "cpp_general": "C++ の設定", "cpp_templates": "ファイルテンプレート", "protect": "ブランチの保護", "track": "管理するファイル", "releases": "リリース", "container": "コンテナ", "account": "アカウント", "put_away": "片付け"}}},
         # C++ のモジュールだけのタブ（中身は画面 cpp-general・cpp-templates）と、コンテナ（画面 container-body）
         {"id": "cpp_general", "screen": "cpp-general", "args": {"module": {"arg": "module"}}},
         {"id": "cpp_templates", "screen": "cpp-templates", "args": {"module": {"arg": "module"}}},
         {"id": "container", "screen": "container-body", "args": {"module": {"arg": "module"}}},
 
         # 全般：モジュールの今の姿と、今の ECOBuild の仕様に合わせる（module upgrade）
-        {"id": "general", "layout": "column", "children": ["info", "upgrade_note", "upgrade_row"]},
+        {"id": "general", "part": "column", "children": ["info", "upgrade_note", "upgrade_row"]},
         {"id": "info", "part": "facts", "props": {
             "items": [
                 {"key": "name", "label": "名前"}, {"key": "type", "label": "型"}, {"key": "root", "label": "場所"},
@@ -33,22 +32,22 @@ SCREEN = {
         }},
         {"id": "upgrade_note", "part": "note", "props": {
             "text": "仕様の版が古いときは、今の ECOBuild の仕様に合わせます（「ECOBuild の更新」としてコミット。タスクブランチでなければ GitHub へ push も）。"}},
-        {"id": "upgrade_row", "layout": "row", "children": ["upgrade_branch", "upgrade"]},
+        {"id": "upgrade_row", "part": "row", "children": ["upgrade_branch", "upgrade"]},
         {"id": "upgrade_branch", "part": "text-input", "props": {"title": "合わせるブランチ（空なら今いるブランチ）", "placeholder": "例：main"}},
         {"id": "upgrade", "part": "button", "props": {"label": "今の仕様に合わせる…", "hint": "変えるファイルを確かめてから合わせます"}},
 
         # ビルド設定（profile list・use・add・project・remove）。追加・編集・Project ごとの上書きは、入力の窓（cfg-profile-…）
-        {"id": "profiles", "layout": "column", "children": ["profile_table"]},
+        {"id": "profiles", "part": "column", "children": ["profile_table"]},
         {"id": "profile_table", "part": "cfg-profiles"},
 
         # ブランチの保護（module protect）
-        {"id": "protect", "layout": "column", "children": ["protect_note", "protect_now", "protect_form", "unprotect"]},
+        {"id": "protect", "part": "column", "children": ["protect_note", "protect_now", "protect_form", "unprotect"]},
         {"id": "protect_now", "part": "facts", "props": {"items": [
             {"key": "branch", "label": "保護しているブランチ"}, {"key": "approvals", "label": "要る承認の数"},
             {"key": "checks", "label": "通っていること（CI）"}]}},
         {"id": "protect_note", "part": "note", "props": {
             "text": "作成元のブランチを、GitHub のブランチの保護で守ります（提出以外での変更・強制 push・削除を止める）。"}},
-        {"id": "protect_form", "layout": "row", "children": ["approvals", "require_ci", "do_protect"]},
+        {"id": "protect_form", "part": "row", "children": ["approvals", "require_ci", "do_protect"]},
         {"id": "approvals", "part": "text-input", "props": {"title": "取り込みに要る承認の数（空なら既定）", "placeholder": "例：1"}},
         {"id": "require_ci", "part": "select", "props": {"title": "CI", "options": [
             {"value": "", "label": "見ない"}, {"value": "true", "label": "通っていることも必須にする"}]}},
@@ -56,7 +55,7 @@ SCREEN = {
         {"id": "unprotect", "part": "button", "props": {"label": "保護を外す"}},
 
         # 管理するファイル（track・track add・track remove・ignore）
-        {"id": "track", "layout": "column", "children": ["track_note", "patterns", "pattern_form"]},
+        {"id": "track", "part": "column", "children": ["track_note", "patterns", "pattern_form"]},
         {"id": "track_note", "part": "note", "props": {
             "text": "新しいファイルのうち、コミットに自動で含めるもの。変えたら、タスクブランチでコミットします。"}},
         {"id": "patterns", "part": "table", "props": {
@@ -66,28 +65,28 @@ SCREEN = {
                        "excluded": {"true": "外している", "false": ""}},
             "empty_text": "パターンはありません。",
         }},
-        {"id": "pattern_form", "layout": "row", "children": ["pattern", "track_add", "ignore_add"]},
+        {"id": "pattern_form", "part": "row", "children": ["pattern", "track_add", "ignore_add"]},
         {"id": "pattern", "part": "text-input", "props": {"title": "パターン（.gitignore と同じ書き方）", "placeholder": "例：data/**"}},
         {"id": "track_add", "part": "button", "props": {"label": "＋ 管理に足す", "primary": True}},
         {"id": "ignore_add", "part": "button", "props": {"label": ".gitignore に足す", "hint": "git の管理から外す"}},
 
         # リリース（release list・release create）
-        {"id": "releases", "layout": "column", "children": ["release_list", "release_form", "release_more"]},
+        {"id": "releases", "part": "column", "children": ["release_list", "release_form", "release_more"]},
         {"id": "release_list", "part": "table", "props": {
             "columns": [{"key": "tag", "label": "タグ"}, {"key": "name", "label": "題名"}, {"key": "latest", "label": ""}, {"key": "url", "label": "場所"}],
             "key": "tag", "labels": {"latest": {"true": "最新", "false": ""}},
             "empty_text": "リリースはまだありません。",
         }},
-        {"id": "release_form", "layout": "row", "children": ["release_tag", "release_title", "release_target"]},
+        {"id": "release_form", "part": "row", "children": ["release_tag", "release_title", "release_target"]},
         {"id": "release_tag", "part": "text-input", "props": {"title": "タグ", "placeholder": "例：v1.0.0"}},
         {"id": "release_title", "part": "text-input", "props": {"title": "題名（空ならタグ）"}},
         {"id": "release_target", "part": "text-input", "props": {"title": "タグを付けるブランチ（空なら作成元）"}},
-        {"id": "release_more", "layout": "row", "children": ["release_notes", "release_create"]},
+        {"id": "release_more", "part": "row", "children": ["release_notes", "release_create"]},
         {"id": "release_notes", "part": "text-input", "props": {"title": "説明"}},
         {"id": "release_create", "part": "button", "props": {"label": "＋ リリースを作る", "primary": True}},
 
         # アカウント（account show・account use）
-        {"id": "account", "layout": "column", "children": ["me", "account_note", "account_form", "account_clear"]},
+        {"id": "account", "part": "column", "children": ["me", "account_note", "account_form", "account_clear"]},
         {"id": "me", "part": "facts", "props": {
             "items": [{"key": "login", "label": "あなた"}, {"key": "role", "label": "役割"}, {"key": "owner", "label": "リポジトリの所有者"},
                       {"key": "workspace_account", "label": "この作業空間に結び付けたアカウント"}],
@@ -95,24 +94,24 @@ SCREEN = {
         }},
         {"id": "account_note", "part": "note", "props": {
             "text": "この作業空間を、別の GitHub のアカウント（AI 用など）として動かせます。先に gh auth login でログインしておきます。"}},
-        {"id": "account_form", "layout": "row", "children": ["account_name", "account_use"]},
+        {"id": "account_form", "part": "row", "children": ["account_name", "account_use"]},
         {"id": "account_name", "part": "text-input", "props": {"title": "GitHub のアカウント", "placeholder": "例：octocat"}},
         {"id": "account_use", "part": "button", "props": {"label": "このアカウントで動かす"}},
         {"id": "account_clear", "part": "button", "props": {"label": "結び付けを外す"}},
 
         # 片付け（module archive・unarchive・delete）。どのモジュールかは、module show で読んだリポジトリ（人は打たない）
-        {"id": "put_away", "layout": "column", "children": ["away_note", "away_now", "away_row", "delete_note", "delete_row"]},
+        {"id": "put_away", "part": "column", "children": ["away_note", "away_now", "away_row", "delete_note", "delete_row"]},
         {"id": "away_note", "part": "note", "props": {
             "text": "使わなくなったモジュールは、まずアーカイブ（読み取り専用）にします。削除できるのは、アーカイブしたものだけです。"}},
         {"id": "away_now", "part": "facts", "props": {
             "items": [{"key": "repository", "label": "片付けるモジュール"}, {"key": "archived", "label": "今の状態"}],
             "labels": {"archived": {"true": "アーカイブ済み（読み取り専用）", "false": "アーカイブしていない"}}}},
-        {"id": "away_row", "layout": "row", "children": ["archive", "unarchive"]},
+        {"id": "away_row", "part": "row", "children": ["archive", "unarchive"]},
         {"id": "archive", "part": "button", "props": {"label": "アーカイブする"}},
         {"id": "unarchive", "part": "button", "props": {"label": "アーカイブを解除"}},
         {"id": "delete_note", "part": "note", "props": {
             "text": "削除すると、GitHub のリポジトリを Issue・PR ごと消します（90日以内なら GitHub のアカウントの設定から戻せます）。アーカイブ済みのときだけ、下に削除の欄が出ます。"}},
-        {"id": "delete_row", "layout": "row", "children": ["delete_confirm", "remove_workspaces", "delete"]},
+        {"id": "delete_row", "part": "row", "children": ["delete_confirm", "remove_workspaces", "delete"]},
         {"id": "delete_confirm", "part": "text-input", "props": {
             "title": "削除の確かめ（取り違えないように、所有者/名前 を入力）", "placeholder": "例：owner/name"}},
         {"id": "remove_workspaces", "part": "select", "props": {"title": "この PC の作業空間", "options": [

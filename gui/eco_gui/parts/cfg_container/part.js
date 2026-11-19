@@ -2,8 +2,12 @@
 // 「古い」「今の作り方」は、届いた状態（outdated・current）をそのまま印にする（この部品では決めない）。
 const FILE = '.ecobuild/container/Dockerfile';
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['reveal']);
 export default {
-  render(root, props, { h, emit, memory }) {
+  render(root, props, { h, emit: toOutput, memory }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
     if (props.error) return root.replaceChildren(h('div', { class: 'banner bad', role: 'alert' }, h('span', {}, `読めませんでした：${props.error}`)));
     const r = props.recipe, st = props.status;
     if (!r) return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込み中…'));

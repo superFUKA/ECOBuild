@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "作業を捨てる", "width": 560, "height": 340},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "作業を捨てる：#{issue}", "ok": "作業を捨てる", "danger": True, "vars": {"issue": {"arg": "issue"}},
             "intro": "作業を取り込まずに捨てます。提出を閉じ、タスクブランチをこのPCとGitHubから消して、その作業空間も消します。捨てた作業は戻せません。",

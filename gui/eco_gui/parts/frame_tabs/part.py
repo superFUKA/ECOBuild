@@ -46,3 +46,13 @@ def on_action(
         raise ValueError(f"知らない操作です：{name}")
     if name in ("explorer", "vs", "remove") and not path:
         raise ValueError("作業空間の場所が要ります")
+
+
+def on_view(
+    name: Annotated[str, "見るだけの操作（explorer：フォルダーを開く・vs：Visual Studio で開く）。実行中もタブを止めない"],
+    path: Annotated[str, "相手の作業空間の場所"],
+    version: Annotated[str, "vs：Visual Studio の版"] = "",
+) -> None:
+    if name not in ("explorer", "vs") or not path:
+        raise ValueError("explorer・vs と、作業空間の場所が要ります")
+

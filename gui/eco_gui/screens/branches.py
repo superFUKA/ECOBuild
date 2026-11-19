@@ -6,20 +6,20 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "ブランチ", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "body"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "page", "children": ["head", "section", "body"]},
         {"id": "section", "screen": "branch-tabs", "args": {"current": "branches", "module": {"arg": "module"}}},
         {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "tools"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "tools"]},
         {"id": "title", "part": "note", "props": {"text": "ブランチ", "heading": True}},
-        {"id": "tools", "layout": "row", "look": "tools", "children": ["log", "reload", "create"]},
-        {"id": "log", "part": "button", "props": {"label": "ログ", "quiet": True, "hint": "すべてのブランチの履歴を、ログの画面で開く"}},
+        {"id": "tools", "part": "row", "look": "tools", "children": ["log", "reload", "create"]},
+        {"id": "log", "part": "button", "look": "nowait", "props": {"label": "ログ", "quiet": True, "hint": "すべてのブランチの履歴を、ログの画面で開く"}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         {"id": "create", "part": "button", "props": {"label": "＋ ブランチ", "primary": True}},
         # 左：共有ブランチの木（幅は変えられる）。右：選んだブランチ
-        {"id": "body", "layout": "split", "look": "mod-branches", "props": {"direction": "row", "sizes": [240, None]}, "children": ["tree", "side"]},
+        {"id": "body", "part": "split", "look": "mod-branches", "props": {"direction": "row", "sizes": {"tree": 240}}, "children": ["tree", "side"]},
         {"id": "tree", "part": "mod-branch-tree"},
-        {"id": "side", "layout": "column", "look": "mod-branch-side", "children": ["detail", "merge"]},
+        {"id": "side", "part": "column", "look": "mod-branch-side", "children": ["detail", "merge"]},
         # ブランチ同士の取り込み（選んだブランチの。選んでいなければ既定のブランチ）
         {"id": "merge", "screen": "review-branch-merge", "args": {"module": {"arg": "module"}}},
         {"id": "detail", "part": "mod-branch-detail"},
@@ -43,7 +43,7 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "tree.reload", "refresh": True},
         {"on": "detail.reload", "refresh": True},
-        {"on": "log.pressed", "run": "log", "busy": False, "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
+        {"on": "log.pressed", "run": "log", "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
         # 作る：入力の窓（作成元の初めの値は、選んでいるブランチ）
         {"on": "create.pressed", "open": "mod-branch-new", "args": {"module": {"arg": "module"}, "base": {"value": "branch"}}, "inside": True},
         # 選んだブランチの操作

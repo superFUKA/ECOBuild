@@ -11,6 +11,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 
 TASKS = [
@@ -139,7 +141,7 @@ class FakeTasks(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeTasks(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeTasks(), **LOOK)
     return app.relay(threaded=True)
 
 

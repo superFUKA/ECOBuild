@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "Projectを追加", "width": 600, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "Projectを追加", "ok": "追加", "initial": {"place": {"arg": "module"}},
             "fields": [

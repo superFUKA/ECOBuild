@@ -14,6 +14,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import answer, nodes  # noqa: E402
 from test_eco_gui_forms import FakeForms, _spec, calls, opened  # noqa: E402
 
@@ -38,7 +40,7 @@ class FakeTidy(FakeForms):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeTidy(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeTidy(), **LOOK)
     return app.relay(threaded=True)
 
 

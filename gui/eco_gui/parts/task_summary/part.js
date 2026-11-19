@@ -1,6 +1,7 @@
 // 部品「タスク管理の概要」。数は届いたまま（数えるのは ecobuild）。タイル・バーの幅と色は見せ方だけ。押すと、その表示へ（go）。
 export default {
-  render(root, props, { h, lib, emit, menu, open_url }) {
+  render(root, props, { h, lib, emit, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { STAGES } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     const { md, open, deleted } = marks;

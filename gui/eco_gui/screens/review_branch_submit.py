@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "提出する", "width": 560, "height": 380},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "提出する", "subject": {"arg": "name"}, "ok": "提出", "initial": {"into": {"arg": "into"}},
             "intro": "取り込み先への提出（PR）を作ります。見てもらってから取り込みます。",

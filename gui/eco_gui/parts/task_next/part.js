@@ -1,6 +1,7 @@
 // 部品「次にやる」。並びと理由は届いたまま（決めるのは ecobuild）。色と印は見せ方だけ。
 export default {
-  render(root, props, { h, lib, emit, menu, open_url }) {
+  render(root, props, { h, lib, emit, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     if (props.error) return root.replaceChildren(marks.failed(props.error));
     const mine = ((props.filter || props.start || {}).assignee || '') === '@me';

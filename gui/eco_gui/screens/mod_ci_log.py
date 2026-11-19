@@ -6,8 +6,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "失敗した手順のログ", "width": 980, "height": 640},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "log"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "close"]},
+        {"id": "page", "part": "column", "children": ["head", "log"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "close"]},
         {"id": "title", "part": "note", "props": {"text": "失敗した手順のログ", "heading": True}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
         {"id": "log", "part": "text-view", "props": {"empty_text": "（ログはありません）"}},

@@ -11,15 +11,15 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ビルドと試験", "width": 900, "height": 860},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-page", "children": ["head", "place", "setting_card", "test_card", "out"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "page", "part": "column", "look": "ws-page", "children": ["head", "place", "setting_card", "test_card", "out"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "ビルドと試験", "heading": True}},
         {"id": "place", "part": "note", "props": {"text": {"arg": "module"}, "tone": "muted"}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         # 構成・ビルド設定と、動かすボタン
-        {"id": "setting_card", "layout": "column", "look": "card", "children": ["setting", "tools"]},
+        {"id": "setting_card", "part": "column", "look": "card", "children": ["setting", "tools"]},
         {"id": "setting", "part": "ws-build-setting"},
-        {"id": "tools", "layout": "row", "look": "ws-build-tools", "children": ["build", "rebuild", "clean", "check", "run", "test"]},
+        {"id": "tools", "part": "row", "look": "ws-build-tools", "children": ["build", "rebuild", "clean", "check", "run", "test"]},
         {"id": "build", "part": "button", "props": {"label": "ビルド", "primary": True}},
         {"id": "rebuild", "part": "button", "props": {"label": "リビルド", "hint": "クリーンしてからビルドし直す"}},
         {"id": "clean", "part": "button", "props": {"label": "クリーン", "hint": "ビルドで作ったものを消す"}},
@@ -27,10 +27,10 @@ SCREEN = {
         {"id": "run", "part": "button", "props": {"label": "▶ 実行", "hint": "対象の Project を、実行時の引数で動かす"}},
         {"id": "test", "part": "button", "props": {"label": "すべてのテスト"}},
         # テストを選んで実行（ecobuild tests で集め、ecobuild test <試験…> で流す）
-        {"id": "test_card", "layout": "column", "look": "card", "children": ["test_head", "tests", "named_title", "named", "filtered"]},
-        {"id": "test_head", "layout": "row", "look": "bar", "children": ["test_title", "test_tools"]},
+        {"id": "test_card", "part": "column", "look": "card", "children": ["test_head", "tests", "named_title", "named", "filtered"]},
+        {"id": "test_head", "part": "row", "look": "bar", "children": ["test_title", "test_tools"]},
         {"id": "test_title", "part": "note", "props": {"text": "テストを選んで実行", "tone": "section"}},
-        {"id": "test_tools", "layout": "row", "look": "tools", "children": ["tests_load", "test_checked"]},
+        {"id": "test_tools", "part": "row", "look": "tools", "children": ["tests_load", "test_checked"]},
         # 一覧を読むのは押したとき（Python は pytest が集めるので時間がかかり、コンテナの作業空間ではコンテナを動かす。窓を開くたびには読まない）
         {"id": "tests_load", "part": "button", "props": {"label": "テストの一覧を読む", "hint": "流さずに、流せるテストを集める（ecobuild tests）"}},
         {"id": "test_checked", "part": "button", "props": {"label": "選んだテストを実行", "primary": True, "hint": "チェックを付けたテストを流す（1つも選ばなければ、全部を流す）"}},
@@ -38,8 +38,8 @@ SCREEN = {
         {"id": "tests", "part": "ws-test-tree", "props": {
             "empty_text": "「テストの一覧を読む」を押すと、流せるテストが出ます。流すテストにチェックを付けます（まとまりのチェックで、中の全部）。"}},
         {"id": "named_title", "part": "note", "props": {"text": "名前で指定", "tone": "section"}},
-        {"id": "named", "layout": "row", "look": "ws-build-named", "children": ["test_name", "test_named"]},
-        {"id": "filtered", "layout": "row", "look": "ws-build-named", "children": ["filter", "last_failed", "test_filtered"]},
+        {"id": "named", "part": "row", "look": "ws-build-named", "children": ["test_name", "test_named"]},
+        {"id": "filtered", "part": "row", "look": "ws-build-named", "children": ["filter", "last_failed", "test_filtered"]},
         {"id": "test_name", "part": "text-input", "props": {
             "title": "テストの名前（ファイル・フォルダー・<Project>.<Suite>.<Test>。* ? が使えます）", "placeholder": "例：tests/test_calc.py ／ CalcTest.Add.*"}},
         {"id": "filter", "part": "text-input", "props": {"title": "名前で選ぶ式（Python：pytest の -k）", "placeholder": "例：add and not slow"}},

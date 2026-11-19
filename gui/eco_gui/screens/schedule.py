@@ -10,13 +10,13 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "日程", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "board", "module": {"arg": "module"}}},
-        {"id": "main", "layout": "column", "look": "tk-page", "children": ["head", "body"]},
+        {"id": "main", "part": "column", "look": "tk-page", "children": ["head", "body"]},
         {"id": "head", "screen": "task-head", "args": {"module": {"arg": "module"}, "view": "schedule", "scope": "all",
                                                      "filter": {"arg": "filter"}, "all": {"arg": "all"}, "ready": {"arg": "ready"}}},
         # 左に表示、右に選んだタスクの詳細（選ぶまでは出ない。境目は動かせる）
-        {"id": "body", "layout": "split", "look": "tk-body", "props": {"direction": "row", "sizes": [None, 380]}, "children": ["timeline", "pane"]},
+        {"id": "body", "part": "split", "look": "tk-body", "props": {"direction": "row", "sizes": {"pane": 380}}, "children": ["timeline", "pane"]},
         {"id": "timeline", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "timeline", "props": {"start": {"arg": "filter"}}}},
         {"id": "pane", "screen": "task-pane", "args": {"module": {"arg": "module"}}},
     ],

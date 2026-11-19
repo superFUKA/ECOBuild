@@ -322,7 +322,7 @@ export default {
 
     search.addEventListener('input', () => { state.query = search.value.trim(); drawList(); });
     search.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') { search.value = ''; state.query = ''; drawList(); return; }
+      if (event.key === 'Escape') { event.preventDefault(); search.value = ''; state.query = ''; drawList(); return; }  // 子の窓を閉じない
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Enter') return;
       if (!rows.length) return;
       event.preventDefault();

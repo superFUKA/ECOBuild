@@ -4,11 +4,11 @@ SCREEN = {
     "root": "page",
     "window": {"title": "モジュールを追加", "width": 640, "height": 720},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["title", "form", "actions"]},
+        {"id": "page", "part": "column", "children": ["title", "form", "actions"]},
         {"id": "title", "part": "note", "props": {"text": "モジュールを追加", "heading": True}},
         {"id": "form", "part": "hub-add-form", "look": "grow"},
         # 選んでいる方法のボタンだけを出す
-        {"id": "actions", "layout": "row", "look": "actions", "children": ["cancel", "create", "clone", "register", "adopt"]},
+        {"id": "actions", "part": "row", "look": "actions", "children": ["cancel", "create", "clone", "register", "adopt"]},
         {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
         {"id": "create", "part": "button", "props": {"label": "作成する", "primary": True}},
         {"id": "clone", "part": "button", "props": {"label": "取得する", "primary": True}},

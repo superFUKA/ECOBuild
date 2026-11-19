@@ -10,12 +10,12 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "ブランチの取り込み・提出", "width": 1360, "height": 880},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "own", "card"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "page", "children": ["head", "own", "card"]},
         {"id": "nav", "screen": "menu", "args": {"current": "branches", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "tools"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "tools"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "name"}, "prefix": "ブランチの取り込み・提出：", "heading": True}},
-        {"id": "tools", "layout": "row", "look": "tools", "children": ["back", "reload"]},
+        {"id": "tools", "part": "row", "look": "tools", "children": ["back", "reload"]},
         {"id": "back", "part": "button", "props": {"label": "← ブランチ", "quiet": True, "hint": "ブランチの一覧へ戻る"}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         # このブランチの提出：出ていれば「取り込む…」、出ていなければ「提出する…」（既定のブランチは提出しない）

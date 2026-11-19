@@ -28,3 +28,15 @@ def on_action(
 ) -> None:
     if not id:
         raise ValueError("どの提出かが要ります")
+
+
+def on_view(
+    action: Annotated[Literal["diff"], "見るだけの操作（diff：TortoiseGit で差分）。実行中も止めない"],
+    id: Annotated[str, "タスクの番号（ブランチ同士の提出なら、ブランチの名前）"],
+    base: Annotated[str, "取り込み先のブランチ"] = "",
+    partial: Annotated[bool, "中間提出か（取り込んでもタスクを続ける）"] = False,
+    workspace: Annotated[str, "確認中の作業空間（あれば）"] = "",
+) -> None:
+    if not id:
+        raise ValueError("どの提出かが要ります")
+

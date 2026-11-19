@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "反映", "width": 560, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "反映：#{issue}", "ok": "反映", "vars": {"issue": {"arg": "issue"}},
             "outcome": [
@@ -30,7 +30,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task apply", "confirmed": True, "notify": "反映しました。[次の候補：#{next.number} {next.title}]", "close": True,
+        {"on": "form.submitted", "run": "task apply", "confirmed": True, "notify": "反映しました。{next_note}", "close": True,
          "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "subject": {"payload": "values.subject"}, "partial": {"payload": "values.partial"}},
          "instead": {"when": {"code": "merge_conflict"}, "open": "task-conflict-fix", "here": True,
                      "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "title": "反映できません", "files": {"error": "details"}}}},

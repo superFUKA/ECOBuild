@@ -45,7 +45,8 @@ function shownState(state, kind, r) {
 }
 
 export default {
-  render(root, props, { h, emit, state, redraw, menu, notice }) {
+  render(root, props, { h, emit, state, redraw, notice, lib }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     // 実行の移り変わりを覚える（秒数・履歴）。窓を開き直すと空に戻る
     if (!state.runs) { state.runs = []; state.wrap = true; state.query = ''; }
     const now = Date.now();

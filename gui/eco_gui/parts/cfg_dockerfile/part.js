@@ -69,6 +69,16 @@ export default {
     save.addEventListener('click', doSave);
     keys('Ctrl+S', doSave);
     keys('Escape', doClose);  // Esc も「閉じる」と同じ（保存していない変更があれば確かめる）
+    // 部品の中で押した Esc は、ここで受けて preventDefault する（子の窓の枠の「Esc で閉じる」が、確かめずに閉じないように）
+    state.close = doClose;
+    if (!state.escape) {
+      state.escape = true;
+      root.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+        event.preventDefault();
+        state.close();
+      });
+    }
     update();
 
     const out = [

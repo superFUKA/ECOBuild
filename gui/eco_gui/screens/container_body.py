@@ -5,14 +5,14 @@ ARGS = {"module": "."}  # モジュール（作業空間）のフォルダー
 SCREEN = {
     "root": "box",
     "nodes": [
-        {"id": "box", "layout": "column", "children": ["summary", "tabs"]},
+        {"id": "box", "part": "column", "children": ["summary", "tabs"]},
         # 要約：環境の作り方・イメージ・この作業空間のコンテナ（古い／今の作り方）・この PC のイメージ・しくみ
         {"id": "summary", "part": "cfg-container"},
-        {"id": "tabs", "layout": "tabs", "children": ["state", "own", "recipe"],
-         "props": {"labels": ["状態", "この作業空間だけの設定", "イメージの作り方"]}},
+        {"id": "tabs", "part": "tabs", "children": ["state", "own", "recipe"],
+         "props": {"labels": {"state": "状態", "own": "この作業空間だけの設定", "recipe": "イメージの作り方"}}},
 
         # 状態（container status・on・off・start・stop・remove）
-        {"id": "state", "layout": "column", "children": ["status", "switch", "run", "claude_title", "claude"]},
+        {"id": "state", "part": "column", "children": ["status", "switch", "run", "claude_title", "claude"]},
         {"id": "status", "part": "facts", "props": {
             "items": [
                 {"key": "path", "label": "作業空間"}, {"key": "container", "label": "コンテナ"},
@@ -29,10 +29,10 @@ SCREEN = {
                 "docker_ready": {"true": "使える", "false": "まだ使えない"},
             },
         }},
-        {"id": "switch", "layout": "row", "children": ["on", "off"]},
+        {"id": "switch", "part": "row", "children": ["on", "off"]},
         {"id": "on", "part": "button", "props": {"label": "コンテナにする"}},
         {"id": "off", "part": "button", "props": {"label": "コンテナにしない", "hint": "この PC で動かす"}},
-        {"id": "run", "layout": "row", "children": ["start", "stop", "remove"]},
+        {"id": "run", "part": "row", "children": ["start", "stop", "remove"]},
         {"id": "start", "part": "button", "props": {"label": "動かす"}},
         {"id": "stop", "part": "button", "props": {"label": "止める"}},
         {"id": "remove", "part": "button", "props": {"label": "コンテナを消す", "hint": "作業空間のファイルはそのまま"}},
@@ -42,14 +42,14 @@ SCREEN = {
                       {"key": "reason", "label": "補足"}]}},
 
         # この作業空間だけの設定（container set）
-        {"id": "own", "layout": "column", "children": ["own_now", "image_row", "image_default", "deny_row", "deny_clear"]},
+        {"id": "own", "part": "column", "children": ["own_now", "image_row", "image_default", "deny_row", "deny_clear"]},
         {"id": "own_now", "part": "facts", "props": {
             "items": [{"key": "custom_image", "label": "使うイメージ（空なら型のイメージ）"}, {"key": "deny", "label": "エージェントに使わせないもの"}]}},
-        {"id": "image_row", "layout": "row", "children": ["image", "image_set"]},
+        {"id": "image_row", "part": "row", "children": ["image", "image_set"]},
         {"id": "image", "part": "text-input", "props": {"title": "使うイメージ", "placeholder": "例：ubuntu:24.04"}},
         {"id": "image_set", "part": "button", "props": {"label": "このイメージにする"}},
         {"id": "image_default", "part": "button", "props": {"label": "型のイメージに戻す"}},
-        {"id": "deny_row", "layout": "row", "children": ["deny", "deny_set"]},
+        {"id": "deny_row", "part": "row", "children": ["deny", "deny_set"]},
         {"id": "deny", "part": "list-input", "props": {
             "title": "エージェントに使わせないもの（Claude Code の許可の規則を ; で区切る）", "separator": ";",
             "placeholder": "例：Bash(git push --force:*);WebFetch"}},
@@ -57,7 +57,7 @@ SCREEN = {
         {"id": "deny_clear", "part": "button", "props": {"label": "使わせないものの設定を消す", "hint": "この PC の設定（agent_deny）だけになる"}},
 
         # イメージの作り方（container recipe・container image build）
-        {"id": "recipe", "layout": "column", "children": ["names", "build", "out", "dockerfile_title", "dockerfile", "layer_title", "layer"]},
+        {"id": "recipe", "part": "column", "children": ["names", "build", "out", "dockerfile_title", "dockerfile", "layer_title", "layer"]},
         {"id": "names", "part": "facts", "props": {
             "items": [{"key": "module", "label": "モジュール"}, {"key": "environment", "label": "環境のイメージ"},
                       {"key": "image", "label": "コンテナのイメージ"}, {"key": "context", "label": "環境の作り方の場所（空なら型のひな型）"}]}},
@@ -76,7 +76,7 @@ SCREEN = {
         # 環境の作り方：Dockerfile のエディター（窓の中に重ねて）・場所を開く（ecobuild open <Dockerfile> --app explorer）・
         # リポジトリに置く（変えるファイルを下見で確かめてから ecobuild module upgrade）
         {"on": "summary.action", "when": {"name": "edit"}, "open": "container-dockerfile", "args": {"module": {"arg": "module"}}, "inside": True},
-        {"on": "summary.action", "when": {"name": "reveal"}, "run": "open", "busy": False,
+        {"on": "summary.view", "when": {"name": "reveal"}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": [".ecobuild/container/Dockerfile"], "app": "explorer"}},
         {"on": "summary.action", "when": {"name": "place"}, "open": "mod-upgrade", "args": {"module": {"arg": "module"}}, "inside": True},
         # 状態（container status は1回だけ実行され、2つの部品へ出る）

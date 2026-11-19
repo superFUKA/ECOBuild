@@ -4,7 +4,8 @@
 const RECENT_DONE = 15;
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
+  render(root, props, { h, lib, emit, state, redraw, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { STAGES } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     if (props.error) return root.replaceChildren(marks.failed(props.error));

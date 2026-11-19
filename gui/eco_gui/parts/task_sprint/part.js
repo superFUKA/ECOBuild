@@ -1,6 +1,7 @@
 // 部品「スプリントの進み具合」。数は届いたまま（数えるのは ecobuild）。バーの幅・色は見せ方だけ。
 export default {
-  render(root, props, { h, lib, emit, menu, state, open_url }) {
+  render(root, props, { h, lib, emit, state, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { STAGES } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     const { md } = marks;

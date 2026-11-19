@@ -12,8 +12,13 @@ const ICONS = {
 const ROLES = { admin: '管理者', maintain: '管理', write: '書き込み', triage: '整理', read: '読み取り' };
 const KINDS = { static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定' };
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['open_folder', 'open_vs']);
 export default {
-  render(root, props, { h, emit, menu, memory, state, redraw }) {
+  render(root, props, { h, emit: toOutput, lib, memory, state, redraw }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const svg = (name, size = 15, width = 2) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
       box.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`;

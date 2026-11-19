@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "取り込む", "width": 560, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "取り込む：#{issue}", "ok": "取り込む", "vars": {"issue": {"arg": "issue"}}, "tag": {"arg": "text"},
             "outcome": [
@@ -27,7 +27,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。[次の候補：#{next.number} {next.title}]", "close": True,
+        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "取り込みました。{next_note}", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "subject": {"payload": "values.subject"},
                   "ignore_checks": {"payload": "values.ignore_checks"}, "complete": {"payload": "values.complete"}, "partial": {"payload": "values.partial"}},
          # 作成元と衝突して止まった：自分の提出は「取り込んで直す」、他人の提出（承認せずに取り込む）は「差し戻す」の案内に

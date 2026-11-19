@@ -13,11 +13,11 @@ SCREEN = {
     "root": "card",
     "window": {"title": "ブランチ同士の取り込み", "width": 860, "height": 620},
     "nodes": [
-        {"id": "card", "layout": "column", "look": "review-merge-card", "children": ["pick", "plan", "go"]},
+        {"id": "card", "part": "column", "look": "review-merge-card", "children": ["pick", "plan", "go"]},
         {"id": "pick", "part": "review-merge-pick", "props": {"name": {"arg": "name"}, "side": {"arg": "side"}, "foldable": {"arg": "fold"}}},
         # 取り込む前の確かめ（下見の結果）
         {"id": "plan", "part": "review-merge-plan"},
-        {"id": "go", "layout": "row", "look": "review-merge-go", "children": ["merge", "resolve"]},
+        {"id": "go", "part": "row", "look": "review-merge-go", "children": ["merge", "resolve"]},
         {"id": "merge", "part": "button", "props": {
             "label": "取り込む", "primary": True, "hint": "提出（PR）を作らずに、取り込み先へ直接取り込む（GitHub の取り込み先が変わります）"}},
         {"id": "resolve", "part": "button", "props": {

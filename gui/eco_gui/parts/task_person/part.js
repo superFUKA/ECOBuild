@@ -1,6 +1,7 @@
 // 部品「人の画面（上の部分）」。数は task workload のまま（なければ、渡されたタスクから数える見せ方）。行を選ぶと selected。
 export default {
-  render(root, props, { h, lib, emit, menu, open_url }) {
+  render(root, props, { h, lib, emit, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const marks = lib.task.marks(h, emit, menu, [], props.me, open_url);
     const who = props.who;
     const close = h('button', { type: 'button', class: 'd-close', title: '閉じる', 'aria-label': '閉じる' }, '×');

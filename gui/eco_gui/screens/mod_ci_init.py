@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "CIの設定", "width": 620, "height": 640},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "CIの設定", "ok": "作る（作り直す）",
             "intro": "ワークフロー（.github/workflows/ecobuild.yml）を、この設定で作り直します。設定は ecobuild.toml の [ci] に残ります。"

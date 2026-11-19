@@ -4,8 +4,13 @@ const DOWN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke
 const FOLDER = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
 const keyOf = (path) => String(path || '').replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['explorer', 'vs']);
 export default {
-  render(root, props, { h, emit, state, memory, menu, redraw }) {
+  render(root, props, { h, emit: toOutput, lib, state, memory, redraw }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     // Visual Studio の版：作業空間の道具の帯で選んだもの（窓の共有の値）。なければ、この PC に覚えた版（既定 2026）
     const studio = props.vs_version || memory.shared.get('vs', '2026');
     if (props.vs_version && props.vs_version !== memory.shared.get('vs', '2026')) memory.shared.set('vs', props.vs_version);
@@ -164,7 +169,7 @@ export default {
       const done = h('button', { type: 'button' }, '閉じる');
       done.addEventListener('click', shut);
       const picker = h('div', { class: 'picker', role: 'dialog', 'aria-label': '作業空間' }, h('h2', {}, '作業空間'), rows, h('div', { class: 'picker-actions' }, tasks, done));
-      picker.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.stopPropagation(); shut(); } });
+      picker.addEventListener('keydown', (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); shut(); } });
       const veil = h('div', { class: 'veil' }, picker);
       veil.addEventListener('click', (event) => { if (event.target === veil) shut(); });
       box.append(veil);

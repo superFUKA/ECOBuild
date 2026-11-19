@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "イメージ（Dockerfile）", "width": 820, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["editor", "out"]},
+        {"id": "page", "part": "column", "children": ["editor", "out"]},
         {"id": "editor", "part": "cfg-dockerfile"},
         {"id": "out", "part": "output"},
     ],

@@ -9,16 +9,16 @@ SCREEN = {
     "root": "page",
     "window": {"title": "作業空間", "width": 1280, "height": 860, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-window", "children": ["state", "toolbar", "body", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-window", "children": ["state", "toolbar", "body", "foot"]},
         {"id": "state", "part": "ws-header", "props": {"module": {"arg": "module"}}},
         {"id": "toolbar", "part": "ws-toolbar"},
         # 上（左：エクスプローラー／右：コミット・共有）と、下（出力欄）。境目は動かせる
-        {"id": "body", "layout": "split", "props": {"direction": "column", "sizes": [None, 230]}, "children": ["upper", "out"]},
-        {"id": "upper", "layout": "split", "props": {"direction": "row", "sizes": [290, None]}, "children": ["explorer", "work"]},
+        {"id": "body", "part": "split", "props": {"direction": "column", "sizes": {"out": 230}}, "children": ["upper", "out"]},
+        {"id": "upper", "part": "split", "props": {"direction": "row", "sizes": {"explorer": 290}}, "children": ["explorer", "work"]},
         {"id": "explorer", "part": "ws-explorer", "look": "ws-fill"},
-        {"id": "work", "layout": "column", "look": "ws-work", "children": ["banners", "tabs", "commit_panel", "push_panel", "submit_panel", "log_panel"]},
+        {"id": "work", "part": "column", "look": "ws-work", "children": ["banners", "tabs", "commit_panel", "push_panel", "submit_panel", "log_panel"]},
         # 帯：状況の知らせと、そこでできる操作
-        {"id": "banners", "layout": "column", "look": "ws-banners", "children": [
+        {"id": "banners", "part": "column", "look": "ws-banners", "children": [
             "b_unreadable", "b_conflict", "b_review", "b_notask", "b_archived", "b_gone", "b_behind", "b_left", "b_format"]},
         {"id": "b_unreadable", "part": "ws-banner", "props": {"kind": "unreadable"}},  # 状態を読めなかった（理由は読みの error）
         {"id": "b_conflict", "part": "ws-banner", "props": {"kind": "conflict"}},
@@ -31,24 +31,24 @@ SCREEN = {
         {"id": "b_format", "part": "ws-banner", "props": {"kind": "format"}},
         {"id": "tabs", "part": "ws-tabs"},
         # コミット：メッセージ・コミットのボタン・変更の一覧（チェックしたものがコミットに入る）
-        {"id": "commit_panel", "layout": "column", "look": "ws-panel-fill", "children": ["commit_box", "changes"]},
+        {"id": "commit_panel", "part": "column", "look": "ws-panel-fill", "children": ["commit_box", "changes"]},
         {"id": "commit_box", "part": "ws-commit"},
         {"id": "changes", "part": "changes", "look": "ws-fill", "props": {"none_when_empty": True, "tools": True}},
         # Push：まだ送っていないコミットの一覧
-        {"id": "push_panel", "layout": "column", "look": "ws-panel", "children": ["push_state", "push_list", "push_row"]},
+        {"id": "push_panel", "part": "column", "look": "ws-panel", "children": ["push_state", "push_list", "push_row"]},
         {"id": "push_state", "part": "facts", "props": {"items": [{"key": "ahead", "label": "未Pushのコミット"}], "labels": {"ahead": {"0": "すべてPush済み"}}}},
         {"id": "push_list", "part": "ws-log", "props": {"mode": "push", "search": False, "short": True, "empty_text": "Pushするコミットはありません。"}},
-        {"id": "push_row", "layout": "row", "look": "end", "children": ["force_push", "push"]},
+        {"id": "push_row", "part": "row", "look": "end", "children": ["force_push", "push"]},
         {"id": "force_push", "part": "button", "props": {"label": "強制Push…", "quiet": True,
                                                          "hint": "Push 済みのコミットを直した（修正・取り消し）ときに、GitHub の側を上書きします"}},
         {"id": "push", "part": "button", "props": {"label": "Push", "primary": True, "hint": "コミットを GitHub へ送る（ecobuild task push）"}},
         # 提出：この作業空間のタスクの提出（状態・CI・担当・すること）と、提出に入るコミット
-        {"id": "submit_panel", "layout": "column", "look": "ws-panel-fill", "children": ["pull_request", "pr_commits"]},
+        {"id": "submit_panel", "part": "column", "look": "ws-panel-fill", "children": ["pull_request", "pr_commits"]},
         {"id": "pull_request", "part": "ws-submission"},
         {"id": "pr_commits", "part": "ws-log", "look": "ws-fill", "props": {
             "mode": "log", "search": False, "short": True, "empty_text": "提出に入るコミットはありません（作成元と同じです）。"}},
         # ログ（タスクブランチ以外）
-        {"id": "log_panel", "layout": "column", "look": "ws-panel-fill", "children": ["log"]},
+        {"id": "log_panel", "part": "column", "look": "ws-panel-fill", "children": ["log"]},
         {"id": "log", "screen": "ws-log", "args": {"module": {"arg": "module"}}},
         # 出力欄・ステータスバー
         {"id": "out", "part": "output", "look": "ws-fill", "props": {"fill": True, "empty_text": "ビルド・テスト・実行の出力が、ここに出ます。"}},
@@ -57,7 +57,7 @@ SCREEN = {
     "bindings": [
         # --- 読む（同じコマンドは1回だけ実行され、いくつもの部品へ出る） ---
         # 窓の題：「モジュール — ブランチ」（前の GUI と同じ。モジュールの窓の中に置いたときは、外の窓の題のつなぎが使われる）
-        {"read": "status", "args": {"module": {"arg": "module"}}, "title": "{module}[ — {branch}]"},
+        {"read": "status", "args": {"module": {"arg": "module"}}, "title": "{module} — {branch}"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "state.data"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "toolbar.status"},
         {"read": "status", "args": {"module": {"arg": "module"}}, "to": "tabs.status"},
@@ -170,27 +170,27 @@ SCREEN = {
          "notify": "変更を元に戻しました。"},
         {"on": "changes.action", "when": {"name": "ignore"}, "run": "ignore", "args": {"module": {"arg": "module"}, "patterns": {"payload": "paths"}},
          "notify": ".gitignore に追加しました。"},
-        {"on": "changes.action", "when": {"name": "diff"}, "run": "diff", "busy": False, "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
+        {"on": "changes.view", "when": {"name": "diff"}, "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True}},
-        {"on": "changes.action", "when": {"name": "diff_dialog"}, "run": "diff", "busy": False, "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
+        {"on": "changes.view", "when": {"name": "diff_dialog"}, "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True}},
         # 新しいファイル（まだ git の管理に入っていない）：比べる前がないので、中身をこの GUI で見せる（前の GUI と同じ）
         {"on": "changes.action", "when": {"name": "view_new"}, "open": "ws-untracked", "inside": True,
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
         {"on": "changes.action", "when": {"name": "log"}, "open": "ws-log", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
-        {"on": "changes.action", "when": {"name": "blame"}, "run": "blame", "busy": False, "args": {"module": {"arg": "module"}, "path": {"payload": "path"}, "gui": True},
+        {"on": "changes.view", "when": {"name": "blame"}, "run": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}}},
         {"on": "changes.action", "when": {"name": "resolve"}, "open": "conflicts", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}},
         {"on": "changes.action", "when": {"name": "take_current"}, "run": "sync take",
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "side": "current"}, "notify": "今の側で解決しました。"},
         {"on": "changes.action", "when": {"name": "take_incoming"}, "run": "sync take",
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "side": "incoming"}, "notify": "入ってくる側で解決しました。"},
-        {"on": "changes.action", "when": {"name": "open"}, "run": "open", "busy": False,
+        {"on": "changes.view", "when": {"name": "open"}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "editor", "vs_version": {"value": "vs_version"}}},
-        {"on": "changes.action", "when": {"name": ["open_vs", "open_all"]}, "run": "open", "busy": False,
+        {"on": "changes.view", "when": {"name": ["open_vs", "open_all"]}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "vs", "vs_version": {"value": "vs_version"}}},
-        {"on": "changes.action", "when": {"name": "open_default"}, "run": "open", "busy": False, "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "default"}},
-        {"on": "changes.action", "when": {"name": "reveal"}, "run": "open", "busy": False, "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "explorer"}},
+        {"on": "changes.view", "when": {"name": "open_default"}, "run": "open", "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "default"}},
+        {"on": "changes.view", "when": {"name": "reveal"}, "run": "open", "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "explorer"}},
         {"on": "changes.action", "when": {"name": "move"}, "open": "ws-move", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}, "inside": True},
         {"on": "changes.action", "when": {"name": "remove"}, "open": "ws-remove", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True},
         {"on": "changes.action", "when": {"name": "make_test"}, "open": "ws-file-test", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}, "inside": True},
@@ -207,7 +207,7 @@ SCREEN = {
         {"on": "push.pressed", "run": "task push", "args": {"module": {"arg": "module"}}, "set": {"tab": "submit"}, "notify": "Pushしました。"},
         {"on": "force_push.pressed", "open": "ws-force-push", "args": {"module": {"arg": "module"}}, "inside": True},
         {"on": "push_list.more", "set": {"push_count": {"payload": "count"}}},
-        {"on": "push_list.action", "when": {"name": "show"}, "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
+        {"on": "push_list.view", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},
         # まだ送っていないコミットは取り消せる：1つ前まで戻す（--keep：変更は残す／なし：変更も捨てる。捨てる方は確かめてから）
         {"on": "push_list.action", "when": {"name": "undo"}, "run": "task reset", "confirmed": True,
@@ -218,7 +218,7 @@ SCREEN = {
 
         # --- 提出（前の GUI の「提出」のタブと同じ。入力の要る操作は、入力の窓を重ねて開く） ---
         {"on": "pull_request.action", "when": {"action": "refresh"}, "refresh": True},
-        {"on": "pull_request.action", "when": {"action": "diff"}, "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "pull_request.view", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
         {"on": "pull_request.action", "when": {"action": "comment"}, "open": "task-comment", "inside": True,
          "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
@@ -238,7 +238,7 @@ SCREEN = {
          "args": {"module": {"arg": "module"}, "issue": {"payload": "id"}}},
         {"on": "pull_request.action", "when": {"action": "full_log"}, "open": "ws-log", "args": {"module": {"arg": "module"}}},
         # 提出に入るコミットのメニュー（ログと同じ：変更を見る・この版の状態に戻す・ここまで戻す）
-        {"on": "pr_commits.action", "when": {"name": "show"}, "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
+        {"on": "pr_commits.view", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},
         {"on": "pr_commits.action", "when": {"name": "restore"}, "run": "restore", "args": {"module": {"arg": "module"}, "source": {"payload": "sha"}},
          "notify": "その版の状態に戻しました。内容を確かめてコミットしてください。"},
@@ -322,8 +322,8 @@ SCREEN = {
         {"on": "toolbar.action", "when": {"name": "container"}, "open": "container", "args": {"module": {"arg": "module"}}},
         {"on": "toolbar.action", "when": {"name": "agents"}, "open": "agents", "args": {"module": {"arg": "module"}}},
         # この PC の道具で開く（ecobuild open）。Visual Studio の版は、ツールバーで選んだもの（ファイルを開くときも同じ版）
-        {"on": "toolbar.action", "when": {"name": "open_folder"}, "run": "open", "busy": False, "args": {"module": {"arg": "module"}, "app": "explorer"}},
-        {"on": "toolbar.action", "when": {"name": "open_vs"}, "run": "open", "busy": False,
+        {"on": "toolbar.view", "when": {"name": "open_folder"}, "run": "open", "args": {"module": {"arg": "module"}, "app": "explorer"}},
+        {"on": "toolbar.view", "when": {"name": "open_vs"}, "run": "open",
          "args": {"module": {"arg": "module"}, "app": "vs", "vs_version": {"payload": "value"}}, "notify": "Visual Studio で開きました。"},
         {"on": "toolbar.action", "when": {"name": "vs_version"}, "set": {"vs_version": {"payload": "value"}}},
         {"value": "vs_version", "to": "toolbar.vs_version"},
@@ -376,12 +376,12 @@ SCREEN = {
          "set": {"run_state": "ok", "run_result": {"result": ""}, "test_result": {"result": ""}}, "failed": {"run_state": "bad"}},
         {"on": "explorer.action", "when": {"name": "commit"}, "set": {"paths": {"payload": "paths"}, "tab": "commit"}},
         {"on": "explorer.action", "when": {"name": "resolve"}, "open": "conflicts", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}},
-        {"on": "explorer.action", "when": {"name": "diff"}, "run": "diff", "busy": False, "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
+        {"on": "explorer.view", "when": {"name": "diff"}, "run": "diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "ws-file-diff", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}, "inside": True}},
         {"on": "explorer.action", "when": {"name": "view_new"}, "open": "ws-untracked", "inside": True,
          "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
         {"on": "explorer.action", "when": {"name": "log"}, "open": "ws-log", "args": {"module": {"arg": "module"}, "paths": {"payload": "paths"}}},
-        {"on": "explorer.action", "when": {"name": "blame"}, "run": "blame", "busy": False, "args": {"module": {"arg": "module"}, "path": {"payload": "path"}, "gui": True},
+        {"on": "explorer.view", "when": {"name": "blame"}, "run": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "blame", "args": {"module": {"arg": "module"}, "path": {"payload": "path"}}}},
         {"on": "explorer.action", "when": {"name": "new_file"}, "open": "ws-new-file",
          "args": {"module": {"arg": "module"}, "folder": {"payload": "path"}}, "inside": True},
@@ -390,13 +390,13 @@ SCREEN = {
         {"on": "explorer.action", "when": {"name": "sln"}, "run": "project update", "args": {"module": {"arg": "module"}},
          "notify": "SLN（生成ファイル）を今の構成で作り直しました。"},
         # 開く：ダブルクリックは開発の道具で（Visual Studio が使えればそれで、なければ既定のアプリで）。メニューからは道具を選べる
-        {"on": "explorer.action", "when": {"name": "open"}, "run": "open", "busy": False,
+        {"on": "explorer.view", "when": {"name": "open"}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "editor", "vs_version": {"value": "vs_version"}}},
-        {"on": "explorer.action", "when": {"name": ["open_vs", "open_all"]}, "run": "open", "busy": False,
+        {"on": "explorer.view", "when": {"name": ["open_vs", "open_all"]}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "vs", "vs_version": {"value": "vs_version"}}},
-        {"on": "explorer.action", "when": {"name": ["open_default", "open_default_all"]}, "run": "open", "busy": False,
+        {"on": "explorer.view", "when": {"name": ["open_default", "open_default_all"]}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "default"}},
-        {"on": "explorer.action", "when": {"name": "reveal"}, "run": "open", "busy": False,
+        {"on": "explorer.view", "when": {"name": "reveal"}, "run": "open",
          "args": {"module": {"arg": "module"}, "path": {"payload": "paths"}, "app": "explorer"}},
         # サブプロジェクトのフォルダーのメニュー：そのサブプロジェクトだけをビルド・テスト・実行（▶ の対象は変えない）・▶ の対象にする・移動・削除・設定
         {"on": "explorer.action", "when": {"name": "run_target"}, "set": {"run_project": {"payload": "project"}}},
@@ -428,7 +428,7 @@ SCREEN = {
         {"on": "explorer.action", "when": {"name": "project_settings"}, "open": "mod-cpp-project-settings", "inside": True,
          "args": {"module": {"arg": "module"}, "name": {"payload": "project"}}},
         # 出力の「ファイル(行)」のリンク
-        {"on": "out.opened", "run": "open", "busy": False, "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "editor",
+        {"on": "out.opened", "run": "open", "args": {"module": {"arg": "module"}, "path": [{"payload": "path"}], "app": "editor",
                                                       "line": {"payload": "line"}, "vs_version": {"value": "vs_version"}}},
 
         # --- ステータスバー ---

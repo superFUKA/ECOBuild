@@ -49,3 +49,13 @@ def on_action(
         raise ValueError("動かす相手と、新しい名前が要ります")
     if (name.startswith("project_") or name == "run_target") and not project:
         raise ValueError("サブプロジェクトの名前が要ります")
+
+
+def on_view(
+    name: Annotated[str, "見るだけの操作（diff・blame・open・open_all・open_vs・open_default・open_default_all・reveal）。実行中も木を止めない"],
+    path: Annotated[str, "相手のファイル・フォルダー（1つのとき）"] = "",
+    paths: Annotated[list[str], "相手のファイル・フォルダー（いくつものとき。1つのときも入る）"] = [],
+) -> None:
+    if not name:
+        raise ValueError("操作の名前が要ります")
+

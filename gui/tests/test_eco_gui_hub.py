@@ -12,6 +12,8 @@ pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 from test_eco_gui_settings import FakeSettings, opened, press, spec, typed, wraps  # noqa: E402
 
@@ -111,7 +113,7 @@ class FakeHub(FakeSettings):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeHub(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeHub(), **LOOK)
     return app.relay(threaded=True)
 
 
@@ -313,7 +315,7 @@ def test_hub_settings_shows_the_cards_of_each_tab(relay):
     window = opened(relay, "hub-settings")
     view = nodes(relay, window)
     assert view["nav"]["props"]["current"] == "hub-settings"
-    assert view["tabs"]["props"]["labels"] == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
+    assert list(view["tabs"]["props"]["labels"].values()) == ["全般", "AI", "エージェント", "コンテナ", "ECOBuild"]
     assert view["owner"]["props"]["text"] == "acme"  # 今の値が欄に入っている
     assert [item["id"] for item in view["doctor"]["props"]["items"]] == ["git", "gh_auth", "git_identity", "docker"]
     assert view["images"]["props"]["data"]["images"][0]["name"] == "ecobuild-calc:bbb"
@@ -352,7 +354,7 @@ def test_operator_talks_through_the_conversation_commands(relay):
     """会話：ecobuild gui conversation で読み、送ると gui ask --continue（文と「続き」）。途中の道具は会話へ続けて届く。"""
     window = opened(relay, "operator")
     view = nodes(relay, window)
-    assert view["main"]["look"] == "hub-fill-page" and view["tabs"]["props"]["labels"] == ["会話", "エージェント", "話し方"]
+    assert view["main"]["look"] == "hub-fill-page" and list(view["tabs"]["props"]["labels"].values()) == ["会話", "エージェント", "話し方"]
     assert view["chat"]["props"]["conversation"]["messages"] == [] and view["chat"]["props"]["intro"].startswith("AI はコードを書かず")
     assert ("gui conversation", {}) in relay.backend.calls
     emit(relay, window, "input", "sent", text="タスクを見せて\n2行目")

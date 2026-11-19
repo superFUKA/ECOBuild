@@ -34,8 +34,13 @@ function initialsOf(name, modules) {
   return (rest[0] || '?').toUpperCase() + second;
 }
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['explorer', 'vs']);
 export default {
-  render(root, props, { h, emit, menu, memory, state, redraw }) {
+  render(root, props, { h, emit: toOutput, lib, memory, state, redraw }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.action) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     if (props.rows === null) {
       return root.replaceChildren(h('p', { class: 'empty', role: 'status' }, h('span', { class: 'spinner' }), ' 読み込んでいます…'));
     }
@@ -168,7 +173,7 @@ export default {
         const actions = h('span', { class: 'fold-actions' });
         if (m.clones.length) {
           const open = h('button', { type: 'button' }, 'フォルダを開く');
-          open.addEventListener('click', () => emit('archived', { repository: m.repository, action: 'folder', local: m.clones.join('、'), folder: m.clones[0] }));
+          open.addEventListener('click', () => emit('view', { id: m.clones[0], action: 'explorer', repository: m.repository }));
           actions.append(open);
         }
         const undo = h('button', { type: 'button' }, '解除');
@@ -190,7 +195,7 @@ export default {
         const actions = h('span', { class: 'fold-actions' });
         if (exists) {
           const open = h('button', { type: 'button' }, 'フォルダを開く');
-          open.addEventListener('click', () => emit('legacy', { path: c.path, action: 'folder' }));
+          open.addEventListener('click', () => emit('view', { id: c.path, action: 'explorer' }));
           actions.append(open);
           const close = h('button', { type: 'button', class: 'danger-text' }, '閉じる…');
           close.addEventListener('click', () => emit('legacy', { path: c.path, action: 'close' }));

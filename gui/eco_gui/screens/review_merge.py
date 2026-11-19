@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "提出を取り込む", "width": 560, "height": 320},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "{name} の提出を取り込む", "ok": "取り込む", "vars": {"name": {"arg": "name"}},
             "intro": "ブランチ同士の提出を、マージコミットで取り込みます。",

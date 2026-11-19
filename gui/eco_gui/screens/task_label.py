@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ラベルを付ける", "width": 560, "height": 300},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "ラベルを付ける：#{issue}", "ok": "付ける", "vars": {"issue": {"arg": "issue"}},
             "fields": [

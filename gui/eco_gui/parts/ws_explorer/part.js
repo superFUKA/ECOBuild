@@ -22,8 +22,13 @@ const baseOf = (path) => path.split('/').pop();
 const join = (dir, name) => (dir ? dir + '/' + name : name);
 const validName = (name) => name && !BAD_NAME.test(name) && !/[. ]$/.test(name);
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['diff', 'blame', 'open', 'open_all', 'open_vs', 'open_default', 'open_default_all', 'reveal']);
 export default {
-  render(root, props, { h, emit, state, redraw, memory, menu, notice, lib }) {
+  render(root, props, { h, emit: toOutput, state, redraw, memory, notice, lib }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { isReadme, isTest } = lib.ws;
     const svg = (inner, size = 15) => {
       const box = h('span', { class: 'icon', 'aria-hidden': 'true' });
@@ -295,7 +300,7 @@ export default {
       }
       // Enter：ダブルクリックと同じ（開発の道具で開く。もうフォルダーにないファイルは、差分）
       if (event.key === 'Enter' && file) { event.preventDefault(); if (!missing.has(path)) act('open', path); else if (kinds.has(path)) act('diff', path); }
-      if (event.key === 'Escape') { state.chosen = new Set(); state.anchor = ''; paint(); }
+      if (event.key === 'Escape' && state.chosen.size) { event.preventDefault(); state.chosen = new Set(); state.anchor = ''; paint(); }  // 選びを外す（窓は閉じない）
       if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) openMenu(key, { ...below(element), preventDefault() {}, stopPropagation() {} });
     };
 

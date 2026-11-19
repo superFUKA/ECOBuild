@@ -11,6 +11,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import answer, nodes, without_tortoisegit  # noqa: E402
 from test_eco_gui_polish import PolishEcobuild, spec  # noqa: E402
 from test_eco_gui_review import FakeReview  # noqa: E402
@@ -70,7 +72,7 @@ class OldEcobuild(PolishEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=OldEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=OldEcobuild(), **LOOK)
     relay = app.relay(threaded=True)
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     return relay
@@ -506,7 +508,7 @@ def test_blame_window_marks_a_commit_and_opens_its_change_and_the_log(relay):
 
 
 def test_the_removed_screens_are_gone_and_the_new_parts_declare_their_outputs():
-    app = create_app(importlib.import_module("eco_gui"), backend=OldEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(importlib.import_module("eco_gui"), backend=OldEcobuild(), **LOOK)
     described = app.describe()
     screens = {screen["name"] for screen in described["screens"]}
     assert not {"files", "hub-archive"} & screens  # 入口のなくなった画面（役目は、作業空間のエクスプローラーとハブのカードのメニュー）

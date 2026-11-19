@@ -3,7 +3,8 @@
 const BODY_FOLD = 220;  // 本文を折りたたむ高さ（part.css と同じ）
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
+  render(root, props, { h, lib, emit, state, redraw, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { PRIORITIES } = lib.task;
     const d = props.status;
     const me = props.me || '';

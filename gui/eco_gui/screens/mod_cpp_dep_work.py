@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "作業版にする", "width": 600, "height": 440},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "依存先を作業版にする", "subject": {"arg": "name"}, "ok": "作業版にする",
             "initial": {"task": {"arg": "task"}},

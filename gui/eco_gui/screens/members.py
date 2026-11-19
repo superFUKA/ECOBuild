@@ -6,14 +6,14 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "メンバー", "width": 1360, "height": 880, "refresh": {"focus": True}},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "section", "body"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "page", "children": ["head", "section", "body"]},
         {"id": "section", "screen": "mod-tabs", "args": {"current": "members", "module": {"arg": "module"}}},
         {"id": "nav", "screen": "menu", "args": {"current": "overview", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "モジュール", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
-        {"id": "body", "layout": "column", "look": "mod-narrow", "children": ["members"]},
+        {"id": "body", "part": "column", "look": "mod-narrow", "children": ["members"]},
         {"id": "members", "part": "mod-members"},
     ],
     "bindings": [

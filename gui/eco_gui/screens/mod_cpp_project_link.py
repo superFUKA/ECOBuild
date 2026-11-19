@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "リンク", "width": 680, "height": 700},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "リンクを足す", "subject": {"arg": "name"}, "ok": "保存", "initial": {"place": {"arg": "module"}},
             "fields": [

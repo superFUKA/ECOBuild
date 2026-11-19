@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "削除", "width": 560, "height": 340},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "#{issue} を削除", "ok": "削除", "danger": True, "vars": {"issue": {"arg": "issue"}},
             "intro": "「{title}」を削除します。タスクは、あとで「元に戻す」で戻せます。",

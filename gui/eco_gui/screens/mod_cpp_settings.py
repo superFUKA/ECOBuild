@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "モジュールの設定", "width": 640, "height": 620},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "モジュールの設定", "ok": "保存", "initial": {"place": {"arg": "module"}},
             "fields": [

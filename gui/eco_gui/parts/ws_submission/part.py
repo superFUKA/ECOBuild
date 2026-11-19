@@ -24,3 +24,12 @@ def on_action(
 ) -> None:
     if not id:
         raise ValueError("どのタスクかが要ります")
+
+
+def on_view(
+    action: Annotated[Literal["diff"], "見るだけの操作（diff：TortoiseGit で差分）。実行中も止めない"],
+    id: Annotated[str, "タスクの番号"],
+) -> None:
+    if not id:
+        raise ValueError("どのタスクかが要ります")
+

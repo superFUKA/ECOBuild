@@ -8,14 +8,14 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "ECOBuild", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "menu", "args": {"current": "frame-workspaces", "module": {"arg": "module"}}},
-        {"id": "main", "layout": "column", "look": "frame-main", "children": ["bar", "ws"]},
+        {"id": "main", "part": "column", "look": "frame-main", "children": ["bar", "ws"]},
         {"id": "bar", "screen": "frame-bar", "args": {"module": {"arg": "module"}, "space": {"arg": "space"}, "closed": {"arg": "closed"}}},
         {"id": "ws", "screen": "workspace", "args": {"module": {"arg": "space"}}},
     ],
     "bindings": [
         # 窓の題：「モジュール — 出している作業空間のブランチ」（前の GUI と同じ。中に置いたメニューの題より、こちらが使われる）
-        {"read": "status", "args": {"module": {"arg": "space"}}, "require": ["module"], "title": "{module}[ — {branch}]"},
+        {"read": "status", "args": {"module": {"arg": "space"}}, "require": ["module"], "title": "{module} — {branch}"},
     ],
 }

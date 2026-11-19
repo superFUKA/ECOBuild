@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ブランチを作成", "width": 560, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "ブランチを作成", "ok": "作成", "initial": {"base": {"arg": "base"}},
             "fields": [

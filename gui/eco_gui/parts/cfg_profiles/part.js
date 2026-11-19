@@ -13,7 +13,8 @@ const NO_WS = 'タスクブランチの作業空間がありません（タス�
 const optionsText = (options) => Object.entries(options || {}).map(([key, value]) => optionText(key, value)).filter(Boolean);
 
 export default {
-  render(root, props, { h, emit, menu }) {
+  render(root, props, { h, emit, lib }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     // 追加・編集・上書き・削除は ecobuild.toml を変える：タスクブランチの作業空間がなければ灰色と理由（使うものは選べる）
     const spaces = props.workspaces;
     const readOnly = Array.isArray(spaces) && !spaces.some((w) => w.task != null && w.review == null);

@@ -12,8 +12,8 @@ ARGS = {"module": ".", "view": "tasks", "scope": "all", "filter": {}, "all": Fal
 SCREEN = {
     "root": "head",
     "nodes": [
-        {"id": "head", "layout": "column", "look": "tk-head", "children": ["top", "bar"]},
-        {"id": "top", "layout": "row", "look": "tk-top", "children": ["title", "reload", "new"]},
+        {"id": "head", "part": "column", "look": "tk-head", "children": ["top", "bar"]},
+        {"id": "top", "part": "row", "look": "tk-top", "children": ["title", "reload", "new"]},
         {"id": "title", "part": "note", "props": {"text": "タスク管理", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "更新"}},
         {"id": "new", "part": "button", "props": {"label": "＋ 新しいタスク", "primary": True}},

@@ -8,7 +8,7 @@ ARGS = {"module": ".", "space": "", "closed": []}  # モジュールのフォル
 SCREEN = {
     "root": "bar",
     "nodes": [
-        {"id": "bar", "layout": "column", "look": "frame-bar", "children": ["band", "tabs"]},
+        {"id": "bar", "part": "column", "look": "frame-bar", "children": ["band", "tabs"]},
         {"id": "band", "part": "frame-band", "props": {"module": {"arg": "module"}}},
         {"id": "tabs", "part": "frame-tabs", "props": {"current": {"arg": "space"}, "closed": {"arg": "closed"}, "module": {"arg": "module"}}},
     ],
@@ -28,11 +28,11 @@ SCREEN = {
          "args": {"module": {"arg": "module"}, "space": {"payload": "path"}, "closed": {"payload": "closed"}}, "here": True},
         {"on": "tabs.emptied", "open": "frame-workspaces", "args": {"module": {"arg": "module"}, "closed": {"payload": "closed"}}, "here": True},
         # 右クリックのメニュー・一覧（この PC の道具で開く＝ecobuild open、作業空間を削除＝ecobuild workspace close）
-        {"on": "tabs.action", "when": {"name": "explorer"}, "run": "open", "busy": False, "args": {"module": {"payload": "path"}, "app": "explorer"}},
+        {"on": "tabs.view", "when": {"name": "explorer"}, "run": "open", "args": {"module": {"payload": "path"}, "app": "explorer"}},
         # Visual Studio：ソリューションで開く（ecobuild open --app vs --solution）。まだなければ「ビルドしてから開きますか？」
-        {"on": "tabs.action", "when": {"name": "vs"}, "run": "open", "busy": False,
+        {"on": "tabs.view", "when": {"name": "vs"}, "run": "open",
          "args": {"module": {"payload": "path"}, "app": "vs", "vs_version": {"payload": "version"}, "solution": True},
-         "notify": "Visual Studio[ {version}] で開きます[：{name}]",
+         "notify": "Visual Studio {version} で開きます：{name}",
          "instead": {"when": {"code": "no_solution"}, "open": "frame-vs-build", "inside": True,
                      "args": {"module": {"payload": "path"}, "version": {"payload": "version"}}}},
         {"on": "tabs.action", "when": {"name": "reload"}, "refresh": True},

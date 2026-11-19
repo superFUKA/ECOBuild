@@ -11,6 +11,9 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.backend import notes  # noqa: E402
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 
 PLACE = "C:/work/Calc/.ecobuild/w/12"  # タスクブランチの作業空間
@@ -64,7 +67,7 @@ class FakeForms(FakeEcobuild):
             return {"ok": False, "error": {"code": code, "message": "作成元と衝突しています。", "details": list(self.clashes)}}
         if name == "task finish":
             super().run(name, args, context, on_event)
-            return {"ok": True, "result": {"task": 12, "partial": False, "next": self.next_task}}
+            return notes({"ok": True, "result": {"task": 12, "partial": False, "next": self.next_task}})  # 知らせの文の材料は、本物のつなぎと同じに
         if name == "task start":
             super().run(name, args, context, on_event)
             return {"ok": True, "result": {"branch": "task/12-login", "base": "main", "workspace": PLACE}}
@@ -85,7 +88,7 @@ class FakeForms(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeForms(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeForms(), **LOOK)
     return app.relay(threaded=True)
 
 

@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "担当者", "width": 820, "height": 700},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["person", "list"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["person", "list"]},
         {"id": "person", "part": "task-person", "props": {"who": {"arg": "text"}}},
         # 担当タスク：その人のタスクだけ（一覧と同じ表。担当の列は出さない）
         {"id": "list", "screen": "task-view", "args": {"module": {"arg": "module"}, "part": "task-list", "look": "tk-part", "props": {

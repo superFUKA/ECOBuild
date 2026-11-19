@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "Projectを削除", "width": 600, "height": 400},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "Projectを削除", "subject": {"arg": "name"}, "ok": "削除", "danger": True, "initial": {"place": {"arg": "module"}},
             "intro": "Projectを外し、そのディレクトリを削除します。他のProjectからのリンクも外します。"

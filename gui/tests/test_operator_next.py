@@ -238,6 +238,7 @@ def test_the_display_cli_of_a_running_relay(tmp_path, monkeypatch):
 
     from guiframework import create_app
 
+    from eco_gui.look import LOOK
     from test_eco_gui_hub import FakeHub
 
     monkeypatch.setenv("GUIFRAMEWORK_STATE_DIR", str(tmp_path / "state"))
@@ -245,8 +246,7 @@ def test_the_display_cli_of_a_running_relay(tmp_path, monkeypatch):
     monkeypatch.setenv("ECOBUILD_GUI_TARGET", "next")
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(p for p in sys.path if p))     # 表示の CLI も、同じ GUIFrameWork で
     backend = FakeHub()
-    server = create_app(importlib.import_module("eco_gui"), name="ecobuild-gui-next", backend=backend,
-                        roles={"confirm": "confirm-box"}).server(opener=None)
+    server = create_app(importlib.import_module("eco_gui"), name="ecobuild-gui-next", backend=backend, **LOOK).server(opener=None)
     server.start()
     try:
         assert next_gui.running()

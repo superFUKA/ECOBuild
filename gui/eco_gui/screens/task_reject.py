@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "差し戻す", "width": 560, "height": 400},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "差し戻す：#{issue}", "ok": "差し戻す", "danger": True, "vars": {"issue": {"arg": "issue"}},
             "intro": "タスクは作業中に戻ります。",

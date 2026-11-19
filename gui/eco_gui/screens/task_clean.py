@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "完了したタスクブランチを片付ける", "width": 560, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "task-clean"},
     ],
     "bindings": [

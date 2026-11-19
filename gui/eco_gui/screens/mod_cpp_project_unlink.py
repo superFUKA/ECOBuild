@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "リンクを外す", "width": 600, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "リンクを外す", "subject": {"arg": "name"}, "ok": "外す", "danger": True, "initial": {"place": {"arg": "module"}},
             "intro": "依存先のモジュールを丸ごと外すには「依存先」タブの「リンクを外す…」を使います。",

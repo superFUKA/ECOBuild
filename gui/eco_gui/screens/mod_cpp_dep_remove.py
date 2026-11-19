@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "リンクを外す", "width": 600, "height": 400},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "リンクを外す", "subject": {"arg": "name"}, "ok": "外す", "danger": True, "initial": {"place": {"arg": "module"}},
             "intro": "依存先のリンクを外します。手元のcloneは、記録の版のままなら削除します（作業中や変更がある場合は残します）。",

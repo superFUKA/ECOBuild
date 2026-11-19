@@ -11,7 +11,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "提出", "width": 600, "height": 640},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "提出：#{task}", "ok": "提出",
             "outcome": [

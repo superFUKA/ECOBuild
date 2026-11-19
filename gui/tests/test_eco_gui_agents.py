@@ -12,6 +12,8 @@ from test_eco_gui import FakeEcobuild, answer, nodes
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 TEXT = {"type": "string"}
 SETTINGS = {"title": TEXT, "human_start": {"type": "boolean"}, "model": TEXT, "tools": TEXT, "children": TEXT, "skills": TEXT,
             "max_children": {"type": "integer"}, "first_prompt": TEXT, "evaluation": TEXT, "max_rounds": {"type": "integer"},
@@ -154,7 +156,7 @@ class FakeAgents(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeAgents(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeAgents(), **LOOK)
     return app.relay(threaded=True)
 
 

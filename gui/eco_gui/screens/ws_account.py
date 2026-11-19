@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "この作業空間のアカウント", "width": 600, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["title", "now", "list_title", "list", "other", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["title", "now", "list_title", "list", "other", "foot"]},
         {"id": "title", "part": "note", "props": {"text": "この作業空間のアカウント", "heading": True}},
         {"id": "now", "part": "facts", "props": {
             "items": [{"key": "login", "label": "今のアカウント"}, {"key": "workspace_account", "label": "この作業空間だけの結び付け"}, {"key": "role", "label": "役割"}],
@@ -20,10 +20,10 @@ SCREEN = {
             "columns": [{"key": "login", "label": "アカウント"}, {"key": "active", "label": "gh"}], "key": "login",
             "labels": {"active": {"true": "使用中", "false": ""}}, "tones": {"active": {"true": "ok"}},
             "actions": [{"name": "use", "label": "この作業空間で使う"}], "empty_text": "ログインしてあるアカウントはありません（gh auth login）。"}},
-        {"id": "other", "layout": "row", "children": ["other_name", "other_use"]},
+        {"id": "other", "part": "row", "children": ["other_name", "other_use"]},
         {"id": "other_name", "part": "text-input", "props": {"title": "ほかのアカウント（先に、そのアカウントで gh auth login しておく）", "placeholder": "例：my-ai-account"}},
         {"id": "other_use", "part": "button", "props": {"label": "結び付ける"}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["clear", "close"]},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["clear", "close"]},
         {"id": "clear", "part": "button", "props": {"label": "結び付けを外す", "hint": "gh の使用中のアカウントに戻す（ecobuild account use --clear）"}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
     ],

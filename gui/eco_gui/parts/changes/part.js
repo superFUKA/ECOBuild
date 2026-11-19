@@ -6,8 +6,13 @@ const KIND_LABEL = { conflicted: '衝突', staged: 'ステージ済み', unstage
 const PROJECT_KINDS = { static_library: '静的ライブラリ', shared_library: '共有ライブラリ', library: 'ライブラリ', executable: '実行ファイル', test: 'テスト', benchmark: '性能測定' };
 const FOLDER_ICON = '<svg viewBox="0 0 16 16" width="13" height="13"><path d="M1.5 3.5h4.2l1.5 1.5h7.3v8.5h-13z" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-linejoin="round"/></svg>';
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['diff', 'diff_dialog', 'blame', 'open', 'open_all', 'open_vs', 'open_default', 'reveal']);
 export default {
-  render(root, props, { h, emit, state, menu, notice, lib }) {
+  render(root, props, { h, emit: toOutput, state, notice, lib }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const s = props.status || {};
     const all = new Map();  // パス → 種類（出す順）

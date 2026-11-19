@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "プリセットにする", "width": 560, "height": 320},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "プリセットにする", "ok": "保存",
             "intro": "この役を、このPCのプリセットとして保存します（「このPCのプリセット」に入り、ほかのモジュールに写せます）。保存していない変更は入りません。",

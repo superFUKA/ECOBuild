@@ -6,6 +6,8 @@
 - 中継地点が、人が打つのと同じ `ecobuild -C <モジュール> <コマンド> --json` を呼びます。
 - ecobuild のコマンドの一覧は、今は自前の形で出るので、`backend.py` が GUIFrameWork の約束の形（CLIFrameWork の構造化出力の形）に直しています。フレームワークの側は ecobuild の形を知りません。
 - 表示の CLI（`python -m eco_gui.app <命令>`）で、端末・スクリプト・AI から同じ表示を出せ、今の表示の状況を読めます。
+- 窓の枠・重ねた箱の枠・並べる部品（`row`・`column`・`tabs`・`split`）・メニュー（`lib.menu`）は、GUIFrameWork の見本 `guiframework_basic` を使い（`look.py`）、見た目は `theme.css` で ECOBuild のものにしています（`lib.js` の `menu` は、窓の端からはみ出さないように寄せる版）。
+- 実行中の部品は止めて薄くします（二度押しを防ぐ）。外の道具で開く・差分・注釈履歴・表示など見るだけの操作は、部品が出力 `view` で出し（ボタンは look `nowait`）、`theme.css` が止めないようにしています（ファイルを開いている間も一覧を触れる）。
 
 ## インストーラーで入れる
 
@@ -60,7 +62,7 @@ python -m eco_gui.app samples                  :: 部品の見本を並べた画
 | `conflicts`（衝突を直す） | `static/conflicts.js` | 衝突したファイルの一覧と差分。片方の側を採る・続ける・やめる。箇所ごとに直すのは、エディターで |
 | `settings`（設定。入力の窓は `cfg-profile-edit`・`cfg-profile-edit-python`・`cfg-profile-edit-cpp`・`cfg-profile-project`） | `static/modinfo.js` | 全般・ビルド設定（部品 `cfg-profiles`：この PC で使うラジオ・型で変わる列・C++ のオプション・Project ごとの上書き）・ブランチの保護・管理するファイル・リリース・アカウント・片付け |
 | `container`（コンテナ） | `static/modinfo.js` | 要約（部品 `cfg-container`：作り方・古い／今の作り方の印・この PC のイメージ・しくみ）・状態・入・切・起こす・止める・イメージ・レシピ |
-| `hub-settings` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す・この GUI のショートカットと終了）。最後に見ていたタブを覚える（配置 tabs）。更新は新しい版があるときだけ出し、入れ直した後に GUI を起動し直す（`ecobuild gui update`） |
+| `hub-settings` | `static/hub.js` の設定 | タブ：全般（既定の所有者・環境チェック・環境の準備・アカウント・そのほかの設定）・AI（トークン）・エージェント（`pc-agents`）・コンテナ（イメージのまとめ・Claude Code の版）・ECOBuild（版・更新の確かめ・版を選んで入れ直す・この GUI のショートカットと終了）。最後に見ていたタブを覚える（部品 tabs）。更新は新しい版があるときだけ出し、入れ直した後に GUI を起動し直す（`ecobuild gui update`） |
 | `agents`・`agent-presets`・`pc-agents`（入力の窓は `cfg-agent-add`・`cfg-agent-to-preset`・`cfg-skill-add`・`cfg-skill-to-preset`） | `static/agenteditor.js`・`agentrules.js` | 左に一覧（全エージェント共通 → 役 → スキル）、右に選んだものをその場で直す（部品 `cfg-agent-editor`）。選んだツールの確かめは `ecobuild agent registry fit`。プリセット・Claude Code の版。文書・本文も画面から保存（標準入力で渡す） |
 | `operator`（オペレーター） | `static/operator.js` | エージェントの一覧・様子・止める・起こし直す・閉じる・言付け。会話の窓は今の GUI に |
 | `help`・`help-guide`（ヘルプ） | `static/help.js` | 使い方の手順と用語、コマンドの一覧と検索（`ecobuild help`）。モジュールの窓の `help` は部品 `cfg-help`（手順のコマンドからコマンド一覧へ飛ぶ・用途ごとの見出し・探した文字の印・パンくず・使い方の行のコピー） |

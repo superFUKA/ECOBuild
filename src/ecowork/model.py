@@ -247,7 +247,8 @@ class TaskBranch:
         """変更をコミットする（ステージを意識しない形。task commit）。
 
         paths なし：追跡中のファイルの変更・削除すべてと、新しいファイルのうち include に当たるもの（None ならすべて）、
-        ステージ済みのもの。paths あり：そのパスだけ（新しいファイルも）。衝突の解決中は、登録した内容すべて。
+        ステージ済みのもの。paths あり：そのパスだけ。新しいファイルは、名前を書いたものと、書いたフォルダーの下で include に
+        当たるもの（フォルダーを書いただけで対象外のファイルまで入らないように）。衝突の解決中は、登録した内容すべて。
         """
         repo = self._repository.git
         tree = repo.working_tree()
@@ -260,6 +261,11 @@ class TaskBranch:
         eol_only: tuple[str, ...] = ()
         if paths:
             repo.run("add", "--all", "--", *paths)
+            if include is not None and not merging:
+                skipped = tuple(p for p in tree.untracked if p not in paths and not include(p)
+                                and any(r == "." or p.startswith(r + "/") for r in paths))
+                if skipped:
+                    repo.run("reset", "--quiet", "--", *skipped)
         else:
             repo.run("add", "--update")
             if not merging and repo.rev_parse("HEAD"):

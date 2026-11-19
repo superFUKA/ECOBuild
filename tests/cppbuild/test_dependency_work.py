@@ -320,3 +320,24 @@ def test_work_ends_when_the_task_is_merged_and_recorded(short_tmp):
     assert (state.state, state.recorded, state.local, state.work) == ("aligned", merged, merged, None)
     assert git(clone, "merge-base", "--is-ancestor", work, "HEAD") == ""
     assert Git(clone).get_config("ecobuild-work.branch") is None
+
+
+def test_update_keeps_the_record_of_a_working_version(short_tmp):
+    """作業版の作業がまだ取り込まれていなければ、deps update は記録を進めない（コミットもしない）。
+    名前を省けば飛ばして知らせ、名前を書けば断る。"""
+    engine, game = _game_with_engine(short_tmp)
+    task = engine.repository.create_task("試す")
+    workspace = engine.start_task(task.number, name="try")
+    _change(workspace.root, "#pragma once\n// working\n")
+    game.work_dependency("Engine", task=task.number)
+    _change(engine.root, "#pragma once\n// main moved\n")   # 依存先の main は進んだが、作業は入っていない
+    git(engine.root, "push", "--quiet", "origin", "main")
+    recorded, managed = _state(game).recorded, git(game.root, "rev-parse", "HEAD")
+
+    changes = game.update_dependencies()
+    assert [(c.name, c.action) for c in changes] == [("Engine", "skipped")] and "作業版" in changes[0].reason
+    with pytest.raises(Exception) as refused:
+        game.update_dependencies("Engine")
+    assert "作業版" in str(refused.value)
+    assert _state(game).recorded == recorded and _state(game).state == "working"
+    assert git(game.root, "rev-parse", "HEAD") == managed and git(game.root, "status", "--porcelain") == ""

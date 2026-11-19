@@ -1067,7 +1067,7 @@ class Module:
     def commit(self, message: str, paths: tuple[str, ...] = (), *, amend: bool = False,
                progress: Callable[[str], None] | None = None, pipelines: bool = True) -> wm.RecordResult:
         """変更をコミットする（task commit）。パスなし：追跡中のファイルの変更・削除と、管理するファイルに当たる新しい
-        ファイル。パスあり：そのパスだけ（対象外の新しいファイルも、名前を書いたものは含める）。
+        ファイル。パスあり：そのパスだけ（対象外の新しいファイルは、名前を書いたものだけ含める。フォルダーの下のものは含めない）。
         pipelines：コミットの前・後のパイプラインを走らせる。"""
         task_branch = self.require_task_branch("コミット")
         if not message.strip() and not amend:
@@ -1078,8 +1078,7 @@ class Module:
         if paths:
             paths = tuple(p.replace("\\", "/").strip("/") or "." for p in paths)
             untracked = self.repository.git.working_tree().untracked
-            outside = tuple(p for p in untracked
-                            if any(r == "." or p == r or p.startswith(r + "/") for r in paths) and not self.is_tracked(p))
+            outside = tuple(p for p in untracked if p in paths and not self.is_tracked(p))
         result = task_branch.record(message, paths, include=self.is_tracked, amend=amend)
         self._forget_created(result.files)
         if pipelines:

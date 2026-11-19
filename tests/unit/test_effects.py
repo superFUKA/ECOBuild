@@ -30,6 +30,7 @@ def test_catalog_shows_the_effect(tmp_path, monkeypatch):
     nodes = {n["path"]: n for n in _catalog.catalog(build_cli, {})["commands"]}
     task = {c["name"]: c for c in nodes["task"]["commands"]}
     assert task["list"]["effect"] == "read" and task["finish"]["effect"] == "confirm"
+    assert nodes["open"]["effect"] == "read"   # 開くだけ：GUI が開くたびに全部を読み直さない
     assert "effect" not in nodes["task"]
 
 

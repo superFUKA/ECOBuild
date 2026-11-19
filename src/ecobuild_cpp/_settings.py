@@ -503,6 +503,19 @@ def _require(solution: Solution, name: str):
     return solution.get_subproject(name)
 
 
+def solution_name(root: Path) -> str:
+    """Solution の名前（CMake の project()・Visual Studio のソリューションの名前になる）。"""
+    return _cppbuild.open_solution(root).settings.get().name
+
+
+def set_solution_name(root: Path, name: str) -> None:
+    """Solution の名前を変え、生成ファイルを作り直す（module rename。CppBuild は solution.settings の name で変える）。"""
+    solution = _cppbuild.open_solution(root)
+    data = solution.settings.get()
+    data.name = name
+    _save(solution, lambda: solution.settings.save(data), f"Solution の名前を {name} にできません。")
+
+
 def _save(solution: Solution, change, message: str, *, update: bool = True) -> None:
     """設定を変え、生成ファイルを作り直してCMakeで構成する。失敗したら管理ファイル・生成ファイルを元に戻す
     （ビルドできない設定を残さない。例：ないインクルードディレクトリ・見つからないパッケージ）。

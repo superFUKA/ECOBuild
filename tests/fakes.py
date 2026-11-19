@@ -50,6 +50,8 @@ class FakeGitHub:
         self.shared_boards: dict[str, tuple[str, ...]] = {}
         self.deleted_repositories: list[str] = []
         self.archived_repositories: list[str] = []
+        self.moved: dict[str, str] = {}                     # 改名した古い名前 → 新しい名前（GitHub の転送）
+        self.renamed_repositories: list[tuple[str, str]] = []   # rename_repository の呼び出し（所有者/名前, 新しい名前）
         self.collaborator_roles: dict[str, str] = {}        # 共同作業者 → 役割（members）
         self.invited: dict[str, str] = {}                   # 招待中の人 → 役割
         self.protections: dict = {}                         # ブランチ → Protection
@@ -69,6 +71,8 @@ class FakeGitHub:
 
     def get_repository(self, name):
         short = name.split("/")[-1]
+        if short in self.moved:   # 古い名前：GitHub と同じく新しい名前へ転送する
+            return self.get_repository(f"{name.split('/')[0]}/{self.moved[short]}" if "/" in name else self.moved[short])
         if short in self.others:  # 試験で登録した別のリポジトリ（link の相手等）
             full = name if "/" in name else f"{self.owner}/{short}"
             return RepositoryInfo(full, "file:///" + self.others[short].as_posix(), f"https://example.invalid/{full}")
@@ -93,6 +97,27 @@ class FakeGitHub:
 
     def delete_repository(self, name):
         self.deleted_repositories.append(name)
+
+    def rename_repository(self, name, new_name):
+        """bare のフォルダーも新しい名前へ移す（古い URL は使えなくなる。名前の転送は get_repository だけ）。"""
+        self.renamed_repositories.append((name, new_name))
+        short = name.split("/")[-1]
+        short = self.moved.get(short, short)
+        if short in self.others:
+            bare = self.others.pop(short)
+            self.others[new_name] = bare.rename(bare.with_name(f"{new_name}.git"))
+        else:
+            bare = getattr(self, "bare", None)
+            if bare is None or bare.stem != short:
+                raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。")
+            if new_name != short and self.root.joinpath(f"{new_name}.git").exists() and new_name.casefold() != short.casefold():
+                raise WorkError(ErrorCode.ALREADY_EXISTS, f"GitHubにリポジトリ {new_name} が既にあります。")
+            self.bare = bare.rename(bare.with_name(f"{new_name}.git"))
+        self.moved = {old: (new_name if new == short else new) for old, new in self.moved.items()}
+        if new_name != short:
+            self.moved[short] = new_name
+        self.moved.pop(new_name, None)
+        return self.get_repository(f"{name.split('/')[0]}/{new_name}" if "/" in name else new_name)
 
     def archive_repository(self, name, *, archived=True):
         if archived:

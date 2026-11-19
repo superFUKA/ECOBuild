@@ -11,6 +11,7 @@ close・workspace close で消える。作業空間は記録せず、そのつ�
 
 記録するとき：module new・module clone・module adopt、モジュール（作業空間の中でも）でコマンドを実行したとき、
 workspace add。外すとき：workspace forget、module delete --remove-workspaces、legacy を workspace close したとき。
+付け替えるとき：module rename で元の clone のフォルダーを移したとき（relocate）。
 フォルダを移動・削除しても記録は消さない（外付けのドライブを外しているだけのこともある）。一覧では「見つからない」と出す。
 
 以前の記録（workspaces.json・clones.json）は読むだけで、消しも書き換えもしない（入っている古い ECOBuild・GUI がまだ
@@ -306,6 +307,35 @@ def forget(path: Path) -> bool:
         if len(kept) == len(modules) and len(kept_legacy) == len(legacy_items):
             return False
         _save(kept, kept_legacy)
+    return True
+
+
+def relocate(previous: Path, root: Path) -> bool:
+    """元の clone を previous から root へ移した（module rename）：記録の場所を付け替え、リポジトリ・URL を読み直す。
+    中にあった前の版の作業空間（.ecobuild/ の中）の記録も付け替える。順番は変えない。記録を変えたら True。"""
+    def moved(item: ModuleRecord) -> ModuleRecord | None:
+        try:
+            inner = Path(item.path).resolve().relative_to(Path(previous).resolve())
+        except (OSError, ValueError):
+            return None
+        place = Path(root) / inner
+        url, _ = _read_origin(place)
+        return ModuleRecord(place, github_name(url) if url else item.repository, url or item.url)
+
+    with _changing():
+        modules, legacy_items = _load(write=False)
+        changed = False
+        found = []
+        for items in (modules, legacy_items):
+            result = []
+            for item in items:
+                new = moved(item)
+                changed |= new is not None
+                result.append(item if new is None else new)
+            found.append(result)
+        if not changed:
+            return False
+        _save(found[0], found[1])
     return True
 
 

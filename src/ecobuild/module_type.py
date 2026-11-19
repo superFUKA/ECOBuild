@@ -155,6 +155,19 @@ class ModuleType:
         """upgrade で動かす型の管理ファイル（ルートからの場所。module upgrade --dry-run に出す）。既定はなし。"""
         return ()
 
+    def rename(self, previous: str, *, dry_run: bool = False) -> tuple[str, ...]:
+        """module rename で、型の中の名前のうちモジュール名に合わせるもの（C++ の Solution 名・Python のパッケージ名等）を
+        新しい名前（self.module.name。ecobuild.toml は本体が書き換えた後）にする。previous：前の名前。
+        モジュール名と違う名前にしてあるものは変えない。変えた（dry_run なら変える）ファイルを返す（ルートからの場所。移す・消す
+        ものは元の場所も）。生成ファイルの作り直しで変わったものは書かなくてよい（本体が git で集める）。コミットは本体がする。
+        既定は何もしない。"""
+        return ()
+
+    def relocated(self) -> tuple[str, ...]:
+        """module rename でモジュールのフォルダーを移した後、前の場所に結び付いた作り直せるもの（絶対パスを持つビルドの
+        構成・仮想環境等）を片付ける（次のビルドで作り直す）。消したもの（ルートからの場所）を返す。既定は何もしない。"""
+        return ()
+
     def prepare(self) -> "PrepareResult":
         """取り込み・切り替えの後、手元（依存先・生成ファイル）を記録にそろえる。"""
         from .results import PrepareResult

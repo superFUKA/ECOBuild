@@ -327,6 +327,23 @@ jobs:
         _, moves = _migrate.plan(config)
         return tuple(sorted({f"{_cppbuild.CONFIG_DIRECTORY}/{path}" for move in moves for path in move if path}))
 
+    def rename(self, previous: str, *, dry_run: bool = False) -> tuple[str, ...]:
+        """Solution の名前（CMake の project()・.sln）がモジュール名と同じなら、新しい名前にする。main の Project の名前・
+        include/<名前>/・<名前>Test は変えない（依存元の #include・リンクが使う）。"""
+        if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir() or _settings.solution_name(self.root) != previous:
+            return ()
+        if not dry_run:
+            _settings.set_solution_name(self.root, self.module.name)   # 生成ファイルも作り直す（CppBuild の構成まで）
+        return (f"{_cppbuild.CONFIG_DIRECTORY}/solution.json",)
+
+    def relocated(self) -> tuple[str, ...]:
+        """CMake のビルドツリー（build/。CMakeCache に前の場所が入っている）を消す。依存先の clone（deps/）はそのまま使える。"""
+        build = self.root / _cppbuild.BUILD_DIRECTORY
+        if not build.is_dir():
+            return ()
+        remove_tree(build)
+        return (_cppbuild.BUILD_DIRECTORY,)
+
     def update_solution(self) -> dict:
         """構成（Visual Studio のソリューション・プロジェクト等）を今のファイルに合わせる。ビルドはしない。file add 等と
         同じビルドツリーで、ファイルが変わっていなければ CMake は動かない（約0.1秒）。コンテナの中やエディターで足した・

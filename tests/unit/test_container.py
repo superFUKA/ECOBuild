@@ -484,3 +484,24 @@ def test_the_account_of_a_worktree_is_read_from_its_own_config(monkeypatch, work
         real(args) if args[0] == "git" else ""))
     container.credentials(place)
     assert ["gh", "auth", "token", "--user", "bot-account"] in asked
+
+
+def test_renaming_removes_the_containers_of_the_old_place(monkeypatch, root, tmp_path):
+    """module rename：中で動いているものがあれば移せない。移す前にコンテナを消す（名前・ボリュームが前の場所のもの）。"""
+    import ecobuild
+    monkeypatch.setenv("ECOBUILD_HOME", str(tmp_path / "home"))
+    fake = FakeDocker(monkeypatch)
+    monkeypatch.setattr(docker, "run", fake.run)
+    container.choose(root, True, fake.run)
+    started = container.start(root, fake.run, source=("https://example.com/ECOBuild", "v1"))
+
+    class Renamed(container.ContainerModule, ecobuild.Module):
+        pass
+    module = object.__new__(Renamed)   # フックだけを使う（作業空間は root）
+    assert module.before_rename(root) == []          # 待っているだけのコンテナは移すのを止めない
+    fake.busy = ["Ssl+ claude --resume abc"]
+    assert started.name in module.before_rename(root)[0]
+    fake.busy = []
+    assert module.before_rename(tmp_path) == []      # コンテナにしていない場所は見ない
+    said = module.before_relocate([root, tmp_path])
+    assert len(said) == 1 and started.name in said[0] and not fake.containers

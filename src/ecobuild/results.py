@@ -99,6 +99,28 @@ class ModuleUpgraded:
 
 
 @dataclass(frozen=True)
+class ModuleRenamed:
+    """module rename：モジュールの名前を変えた結果（dry_run なら変えるもの）。済んでいた段階（やり直したとき）は変えるものに
+    入れない。"""
+    name: str                        # 前の名前（ecobuild.toml の [module] name）
+    new_name: str
+    repository: str                  # GitHub のリポジトリ（前の 所有者/名前）
+    new_repository: str              # 新しい 所有者/名前
+    github: bool                     # GitHub のリポジトリの名前を変える（変えた）
+    origins: tuple[Path, ...]        # origin を新しい URL にする（した）clone（元の clone・このPCのほかの clone）
+    paths: tuple[str, ...]           # 作成元のブランチで変えるファイル（モジュールからの相対パス）
+    branch: str                      # 作成元のブランチ（コミットするところ）
+    root: Path                       # 元の clone の前の場所
+    new_root: Path | None            # 移す先（フォルダー名がモジュール名と違えば None：移さない）
+    dry_run: bool = False
+    commit: str | None = None        # 「モジュールの改名」のコミット（作成元のブランチ。変えるものがなければ None）
+    pushed: bool = False
+    moved: bool = False              # フォルダーを移した
+    cleaned: tuple[str, ...] = ()    # 移すために片付けたもの（コンテナ・ビルドの構成・仮想環境。日本語の文）
+    workspaces: tuple[Path, ...] = ()   # 一緒に動いた作業空間（移した後の場所。dry_run なら今の場所）
+
+
+@dataclass(frozen=True)
 class ModuleBranch(wm.Branch):
     """branch list：ブランチに、そのモジュールの仕様の版を添えたもの（Module.branches）。"""
     format: int | None = None        # そのブランチの ecobuild.toml の format（モジュールでなければ None）

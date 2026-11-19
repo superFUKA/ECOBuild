@@ -39,7 +39,7 @@ from .errors import EcoBuildError, ErrorCode, operation
 from .fsutil import remove_tree
 from .results import (AgentGuide, BranchResolve, BuildResult, CheckItem, CheckReport, CiInitResult, CiState, DependencyChange, DependencyLibraries, DependencyState, DependencyWorkResult,
                       DependencyTree, DependencyVersions, FilesChanged, LinkResult, ModuleAdopted, ModuleArchived, ModuleCloned, ModuleCreated,
-                      ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleStatus, ModuleUpgraded, PipelineRun,
+                      ModuleBranch, ModuleDeleted, ModuleEntry, ModuleInfo, ModuleRenamed, ModuleStatus, ModuleUpgraded, PipelineRun,
                       PrepareResult, ProfileList,
                       ProjectSummary, RunResult, SyncResult, TestList, TestResult, WorkspaceClosed, WorkspaceList)
 
@@ -94,6 +94,10 @@ GITATTRIBUTES = """\
 
 UPGRADE_MESSAGE = "ECOBuild の更新"   # module upgrade のコミット（ECOBuild 自身が作る）
 ADOPT_MESSAGE = "ECOBuild のモジュールにする"   # module adopt のコミット
+RENAME_MESSAGE = "モジュールの改名（{old} → {new}）"   # module rename のコミット（作成元のブランチ）
+_RENAMING_KEY = "ecobuild.renaming"   # module rename の途中の印（git の設定。前の名前。移せずに止まったとき、やり直しで移す）
+# module rename で書き換える、ECOBuild が作る文書（モジュール名が入る）
+_RENAMED_DOCUMENTS = frozenset({_docs.ECOBUILD_README, "AGENTS.md", _docs.CI_WORKFLOW, _ci_review.REVIEW_WORKFLOW})
 
 # モジュールの仕様の版ごとの移行（版 → その版のモジュールを次の版にする処理）。ECOBuild が作るファイルの中身を
 # 変えただけなら要らない（Module.upgrade が毎回作り直す）。置き場所を変えた・設定の書き方を変えた等のときに足す。
@@ -1820,6 +1824,259 @@ class Module:
             git.run("update-ref", f"refs/heads/{name}", commit)
         return ModuleUpgraded(start, _config.FORMAT, changed, skipped, commit=commit, branch=name, pushed=True)
 
+    # 改名 ---------------------------------------------------------------------
+
+    def rename(self, new_name: str, *, dry_run: bool = False,
+               progress: Callable[[str], None] | None = None) -> ModuleRenamed:
+        """モジュールの名前を new_name にする（module rename）。どの作業空間で呼んでも、その元の clone のモジュールを変える。
+
+        順に：作成元のブランチ（default_base。GitHub の最新）で ecobuild.toml の [module] name・ECOBuild が作る文書
+        （.ecobuild/README.md・AGENTS.md・CI のワークフロー）・型の名前（ModuleType.rename）を書き換えて「モジュールの改名」と
+        してコミットしておく（手元の作業ツリーに触れず、一時的な作業ツリーで。module upgrade --branch と同じ）→ GitHub の
+        リポジトリの名前 → 手元の origin（元の clone。作業空間は共有。このPCのほかの clone も）→ そのコミットを push して
+        手元の作成元を進める → 元の clone のフォルダーの名前がモジュール名なら、新しい名前へ移す（作業空間は中にあるので一緒に
+        動く）→ このPCのモジュールの一覧を付け替える。移す前に場所に結び付いたもの（拡張のコンテナ：before_relocate）を
+        片付け、移した後に型が前の場所に結び付いたもの（ビルドの構成・仮想環境：ModuleType.relocated）を片付ける。
+        依存元（ほかのモジュール）には触らない（依存元で deps update・deps sync すると直る）。
+
+        前もって断る（何も変えない）：名前が使えない・仕様の版が古い・管理者でない・作成元へ取り込めない・GitHub に同じ名前が
+        ある・元の clone や作業空間に未コミットの変更・取り込みの途中・使用中（実行中のコマンド・エージェント・拡張が言うもの）・
+        移す先がある・フォルダーを移せない（ほかのプログラムが使っている・呼んだシェルがその中にいる）。型の書き換えが失敗しても
+        何も変わらない（GitHub の名前を変える前に行う）。GitHub の名前を変えた後で止まったら（push を断られた・フォルダーを
+        移せない等）、origin は合わせてあるので、直してからもう一度呼べば、済んだ段階を飛ばして続きから行う。
+        dry_run：確かめて、変えるものを返すだけ。progress：経過を知らせる口。
+        """
+        say = progress or _quiet
+        if not _NAME.fullmatch(new_name or ""):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT, f"モジュール名 {new_name!r} は使えません。",
+                                hint="英字で始まり、英数字と _ だけからなる名前にしてください。")
+        original = Path(self.workspace_root)
+        if _workspaces.nested(original) or _workspaces.is_legacy(original):
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                f"{original} はモジュールの元の clone ではありません（依存先の clone・前の版の作業空間）。",
+                                hint=f"元の clone（{self.op('workspace list')}）か、その中の作業空間で実行してください。")
+        here = self if _workspaces.same(self.root, original) else self._module_at(original)
+        repository, git, github = here.repository, here.repository.git, here.repository.github
+        if here.config.format != _config.FORMAT:
+            raise EcoBuildError(ErrorCode.INVALID_CONFIG,
+                                f"モジュールの仕様の版が古いため（{here.config.format}。今は {_config.FORMAT}）、名前を変えられません。",
+                                hint=f"先に {self.op('module upgrade')} で今の仕様に合わせてください。")
+        # 所有者/名前（GitHub で変わっていれば今の名前。clone が覚えた名前が古くても、GitHub の転送で今の名前に）
+        current = github.get_repository(github.repository_name(original)).full_name
+        owner, _, short = current.partition("/")
+        target = f"{owner}/{new_name}"
+        old_name = here.config.name
+        remembered = git.get_config(_RENAMING_KEY) or ""   # 前の module rename が途中で止まったときの、前の名前
+        repository.require_admin("モジュールの改名")
+        base = here.config.default_base
+        git.fetch()
+        if not git.has_remote_branch(base):
+            raise EcoBuildError(ErrorCode.BRANCH_NOT_FOUND, f"GitHub に作成元のブランチ {base} がありません。",
+                                hint=f"モジュールの設定の作成元を合わせてから実行してください（{self.op('module settings')}）。")
+        if not repository.can_take_in(base):
+            raise EcoBuildError(ErrorCode.PERMISSION_DENIED,
+                                f"改名は作成元 {base} にコミットするので、{repository.take_in_owners(base)}だけが行えます。",
+                                hint=f"{repository.take_in_owners(base)}に頼んでください。")
+        rename_github = short != new_name
+        if rename_github:
+            try:
+                found = github.get_repository(target)
+            except WorkError as error:
+                if error.code != ErrorCode.REPOSITORY_NOT_FOUND:
+                    raise
+                found = None
+            # 見つかっても、このリポジトリ（大文字・小文字だけの違い・前の名前からの転送）なら使える
+            if found is not None and found.full_name.casefold() != current.casefold():
+                raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"GitHub にリポジトリ {found.full_name} が既にあります。",
+                                    hint="別の名前にしてください。")
+        names = {n.casefold() for n in (old_name, short, remembered) if n}
+        new_root = original.with_name(new_name) if original.name.casefold() in names and original.name != new_name else None
+        if new_root is not None and new_root.exists() and not _workspaces.same(new_root, original):
+            raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"移す先 {new_root} が既にあります。",
+                                hint="そのフォルダーを片付けるか、別の名前にしてください。")
+        workspaces = [w.path for w in _workspaces.task_workspaces(original)]
+        others = [w.path for w in git.worktrees() if not w.main and not w.prunable
+                  and not any(_workspaces.same(w.path, p) for p in workspaces)
+                  and not _is_inside(w.path, git.common_directory())]   # 一時的な作業ツリー（.git の中）は除く
+        if others and new_root is not None:
+            raise EcoBuildError(ErrorCode.INVALID_ARGUMENT,
+                                "ECOBuild の作業空間（.ecobuild/w/）でない作業ツリーがあるため、フォルダーを移せません。",
+                                hint="git worktree remove で外してから実行してください（移すとその作業ツリーの記録が壊れます）。",
+                                details=[str(p) for p in others])
+        places = [original, *workspaces]
+        self._check_renamable(places, moving=new_root is not None)
+        recorded = _workspaces.github_name(here.remote_url or "")
+        origins = [c for c in [original, *self._clones_of(original, {current, recorded or ""})]
+                   if (_workspaces.github_name(_Git(c).get_config("remote.origin.url") or "") or "").casefold()
+                   != target.casefold()]
+
+        say("作成元のブランチで名前を書き換え中…")
+        head = git.output("rev-parse", f"{_REMOTE}/{base}").strip()
+        commit = None
+        with git.temporary_worktree(head) as place:
+            if (reason := repository.hooks.unusable(repository, [head]).get(head)) is not None:
+                raise EcoBuildError(ErrorCode.NOT_IN_MODULE, f"{base} は{reason}。")
+            there = self._module_at(place)
+            previous = there.config.name
+            if previous != new_name and there.config.format != _config.FORMAT:
+                raise EcoBuildError(ErrorCode.INVALID_CONFIG,
+                                    f"作成元 {base} の仕様の版が古いため（{there.config.format}。今は {_config.FORMAT}）、"
+                                    "名前を変えられません。",
+                                    hint=f"先に {self.op('module upgrade')} --branch {base} で今の仕様に合わせてください。")
+            try:
+                paths = () if previous == new_name else there._apply_rename(new_name, dry_run=dry_run)
+            finally:
+                self.repository.notices.extend(n for n in there.repository.notices if n not in self.repository.notices)
+            if paths and not dry_run:
+                there.repository.git.add(paths, all=True)
+                commit = there.repository.git.commit(RENAME_MESSAGE.format(old=previous, new=new_name))
+        result = ModuleRenamed(old_name, new_name, current, target, rename_github, tuple(origins), paths, base, original,
+                               new_root, dry_run=True, workspaces=tuple(workspaces))
+        if dry_run:
+            return result
+        if new_root is not None:
+            _probe_move(original, command=self.command)
+        pushed = False
+        if commit is not None:   # GitHub の名前を変える前に（断られたら何も変わっていない）
+            say(f"{base} へ push 中…")
+            sent = git.run("push", "--quiet", _REMOTE, f"{commit}:refs/heads/{base}", check=False)
+            if not sent.ok:
+                raise EcoBuildError(ErrorCode.PROTECTED_BRANCH, f"GitHub が {base} への push を断りました（何も変えていません）。",
+                                    hint=f"{base} のブランチの保護が直接の push を断っているか、その間に {base} が進みました。"
+                                         f"保護を一時的に外すか、もう一度実行してください。", details=sent.output)
+            pushed = True
+        if old_name != new_name or not remembered:
+            git.set_config(_RENAMING_KEY, old_name if old_name != new_name else short)
+        if rename_github:
+            say("GitHub のリポジトリの名前を変更中…")
+            try:
+                info = github.rename_repository(current, new_name)
+            except WorkError as error:
+                raise EcoBuildError(error.code, f"GitHub のリポジトリの名前を変えられませんでした（{error.message}）。"
+                                    + (f"作成元 {base} への書き換えは push 済みです。" if pushed else ""),
+                                    hint=f"直してから、もう一度 {self.op('module rename')} {new_name} を実行すると、"
+                                         "続きから行います。", details=error.details) from error
+        else:
+            info = github.get_repository(target)
+        for clone in origins:
+            _Git(clone).set_config("remote.origin.url", _renamed_url(_Git(clone).get_config("remote.origin.url") or "",
+                                                                     info.full_name, info.clone_url))
+        git.fetch()
+        here._advance_base(base)
+        cleaned: list[str] = []
+        moved = False
+        if new_root is not None:
+            cleaned += self.before_relocate(places)
+            say(f"フォルダーを {new_root} へ移動中…")
+            inner = [_inside(p, original) for p in places]   # 移す前に（移した後は前の場所を解決できない）
+            _move_folder(original, new_root, new_name, command=self.command)
+            moved = True
+            places = [new_root / p for p in inner]
+            _Git(new_root).run("worktree", "repair", *map(str, places[1:]),
+                               check=False)   # 前の版の作業空間は絶対パスで記録していることがある（今は相対パス）
+        _workspaces.relocate(original, places[0])   # 移さなくても、記録のリポジトリ・URL を読み直す
+        _Git(places[0]).run("config", "--local", "--unset", _RENAMING_KEY, check=False)
+        for place in places if moved else ():
+            try:
+                cleaned += [f"{place}：{p} を消しました（次のビルドで作り直します）"
+                            for p in self._module_at(place).type.relocated()]
+            except (EcoBuildError, OSError) as error:
+                self.repository.notices.append(f"{place} の前の場所に結び付いたものを片付けられませんでした（{error}）。")
+        return replace(result, dry_run=False, commit=commit, pushed=pushed, moved=moved, cleaned=tuple(cleaned),
+                       workspaces=tuple(places[1:]))
+
+    def _apply_rename(self, new_name: str, *, dry_run: bool) -> tuple[str, ...]:
+        """この作業ツリー（一時的な作業ツリー）で、名前を書き換える（コミットはしない）。変えた（dry_run なら変える）ファイル。"""
+        previous = self.config.name
+        renamed = replace(self.config, name=new_name)
+        if dry_run:
+            self.config = renamed
+            planned, _ = self._ecobuild_files()
+            return tuple(sorted({_config.FILE_NAME, *(p for p in planned if p in _RENAMED_DOCUMENTS),
+                                 *self.type.rename(previous, dry_run=True)}))
+        before = set(self._changed_paths())
+        self._save_config(renamed)
+        planned, _ = self._ecobuild_files()
+        for path, text in planned.items():
+            if path in _RENAMED_DOCUMENTS:
+                (self.root / path).parent.mkdir(parents=True, exist_ok=True)
+                (self.root / path).write_text(text, encoding="utf-8", newline="\n")
+        typed = self.type.rename(previous)
+        return tuple(sorted((set(self._changed_paths()) - before) | set(typed) | {_config.FILE_NAME}))
+
+    def _advance_base(self, base: str) -> None:
+        """手元の作成元 base を GitHub のもの（改名のコミット）へ進める。元の clone が取り出していれば早送りで取り込み、
+        どこでも取り出していなければ指す先を進める。進められなければ知らせる（その場所の sync で取り込む）。"""
+        git = self.repository.git
+        latest = git.rev_parse(f"{_REMOTE}/{base}")
+        if latest is None:
+            return
+        if git.current_branch() == base:
+            if git.rev_parse("HEAD") == latest:
+                return
+            if git.is_ancestor("HEAD", latest) and git.run("merge", "--ff-only", "--quiet", latest, check=False).ok:
+                return
+        elif not git.has_local_branch(base):
+            return
+        elif base not in git.checked_out_branches():
+            if git.is_ancestor(f"refs/heads/{base}", latest):
+                git.run("update-ref", f"refs/heads/{base}", latest)
+            return
+        self.repository.notices.append(f"手元の {base} を改名のコミットへ進められませんでした。{base} を取り出している場所で "
+                                       f"{self.op('sync')} してください。")
+
+    def _check_renamable(self, places: list[Path], *, moving: bool) -> None:
+        """改名を前もって断る条件（使用中・未コミットの変更・取り込みの途中・呼んだシェルが移すフォルダーの中）。"""
+        busy = [f"{place}：{text}" for place, texts in zip(places, _usage.reasons_of(places)) for text in texts]
+        busy += [f"{place}：{text}" for place in places for text in self.before_rename(place)]
+        if busy:
+            raise EcoBuildError(ErrorCode.WORKSPACE_IN_USE, "使用中の作業空間があるため、名前を変えられません。",
+                                hint="使っているもの（エージェント・実行中のコマンド・コンテナの中のもの）が終わってから、"
+                                     "もう一度実行してください。", details=busy)
+        dirty = []
+        for place in places:
+            git = _Git(place)
+            tree = git.working_tree()
+            if tree.staged or tree.unstaged or tree.conflicted or git.is_merging():
+                dirty.append(str(place))
+        if dirty:
+            raise EcoBuildError(ErrorCode.DIRTY_WORKING_TREE, "未コミットの変更（取り込みの途中も）がある作業空間があるため、"
+                                "名前を変えられません。",
+                                hint=f"コミットするか、{self.op('stash')} で退避するか、元に戻してから実行してください。",
+                                details=dirty)
+        if moving and _workspaces.caller_inside(places[0]):
+            raise EcoBuildError(ErrorCode.IN_USE,
+                                f"このコマンドを呼んだシェルの今のフォルダーが {places[0]} の中にあるため、フォルダーを移せません。",
+                                hint=f"シェルを {places[0].parent} へ移し、そこから元の clone を指して "
+                                     f"{self.op('module rename')} <新しい名前> を実行してください。")
+
+    def before_rename(self, path: Path) -> list[str]:
+        """module rename で、作業空間 path を動かせないわけ（中で動いているもの。なければ空）。本体はない：拡張（コンテナ等）が足す。"""
+        return []
+
+    def before_relocate(self, places: list[Path]) -> list[str]:
+        """module rename でフォルダーを移す直前に、拡張が作業空間の場所に結び付けたもの（コンテナ等）を片付ける。片付けたものの
+        文を返す。本体はない。"""
+        return []
+
+    @staticmethod
+    def _clones_of(original: Path, names: set[str]) -> list[Path]:
+        """このPCに記録した、original と同じリポジトリのほかの clone（前の版の作業空間等。origin が names のどれか・同じ URL）。"""
+        wanted = {n.casefold() for n in names if n}
+        mine = _workspaces.identity(_Git(original).get_config("remote.origin.url"))
+        found = []
+        for path in [item.path for item in _workspaces.recorded()] + _workspaces.legacy():
+            if _workspaces.same(path, original) or not (path / _config.FILE_NAME).is_file():
+                continue
+            try:
+                url = _Git(path).get_config("remote.origin.url") or ""
+            except Exception:   # gitで読めない（壊れたclone 等）
+                continue
+            name = _workspaces.github_name(url)
+            if (name is not None and name.casefold() in wanted) or (mine is not None and _workspaces.identity(url) == mine):
+                found.append(path)
+        return found
+
     def _module_at(self, root: Path) -> "Module":
         """同じリポジトリのほかの作業ツリー root（一時的な作業ツリー等）の Module（同じ型の登録・GitHub で）。"""
         return type(self)(root, _config.load(root / _config.FILE_NAME), github=self.repository.github, registry=self.registry)
@@ -2453,6 +2710,88 @@ def _set_aside(roots: list[Path]) -> list[tuple[Path, Path]]:
                                 details=str(error)) from None
         moved.append((root, target))
     return moved
+
+
+def _renamed_url(url: str, full_name: str, clone_url: str) -> str:
+    """origin の URL url を、GitHub のリポジトリ full_name のものにする。末尾が「所有者/名前（.git）」のリモートの URL なら
+    形（https・ssh・ssh の別名のホスト）を保ってそこだけ変え、手元の場所（試験の bare 等）・ほかは clone_url。"""
+    if re.match(r"[A-Za-z]:[\\/]", url) or url.startswith(("/", ".", "file:")):
+        return clone_url
+    found = re.search(r"[:/]([^/:]+/[^/:]+?)(?:\.git)?/?$", url)
+    if found is None:
+        return clone_url
+    return url[:found.start(1)] + full_name + url[found.end(1):]
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    try:
+        return Path(path).resolve().is_relative_to(Path(root).resolve())
+    except OSError:
+        return False
+
+
+def _inside(path: Path, root: Path) -> Path:
+    """path の root からの場所（git が書いた場所はドライブの大文字・小文字等が違うことがあるので、解決して比べる）。"""
+    try:
+        return Path(path).relative_to(root)
+    except ValueError:
+        return Path(path).resolve().relative_to(Path(root).resolve())
+
+
+def _probe_move(root: Path, *, command: str = "") -> None:
+    """root を移せるか（ほかのプログラムが使っていないか）を、脇へ移して戻して確かめる。移せなければ IN_USE（何も変えない）。"""
+    aside = _aside(root)
+    try:
+        root.rename(aside)
+    except OSError as error:
+        raise _not_movable(root, error, command=command) from None
+    try:
+        aside.rename(root)
+    except OSError as error:   # 戻せない（まれ）：脇の場所を知らせる
+        raise EcoBuildError(ErrorCode.IN_USE, f"{root} を確かめのために {aside} へ移しましたが、戻せませんでした。",
+                            hint=f"{aside} を {root} へ手で戻してください（何も変えていません）。",
+                            details=str(error)) from None
+
+
+def _move_folder(root: Path, target: Path, name: str, *, command: str = "") -> None:
+    """元の clone root を target へ移す（脇の名前を通る：大文字・小文字だけの違いでも移せるように）。移せなければ元のまま。"""
+    aside = _aside(root)
+    try:
+        root.rename(aside)
+    except OSError as error:
+        raise _not_movable(root, error, command=command, renamed=name) from None
+    try:
+        aside.rename(target)
+    except OSError as error:
+        try:
+            aside.rename(root)
+        except OSError:
+            raise EcoBuildError(ErrorCode.IN_USE, f"{root} を {target} へ移せず、脇に置いた {aside} からも戻せませんでした。",
+                                hint=f"{aside} を {target} へ手で移してから、もう一度 {operation(command, 'module rename')} "
+                                     f"{name} を実行してください。", details=str(error)) from None
+        raise _not_movable(root, error, command=command, renamed=name) from None
+
+
+def _aside(root: Path) -> Path:
+    target = root.with_name(f".{root.name}.renaming")
+    number = 1
+    while target.exists():
+        number += 1
+        target = root.with_name(f".{root.name}.renaming{number}")
+    return target
+
+
+def _not_movable(root: Path, error: OSError, *, command: str = "", renamed: str = "") -> EcoBuildError:
+    if renamed:   # GitHub の名前は変えた後
+        return EcoBuildError(ErrorCode.IN_USE,
+                             f"{root} は、ほかのプログラムが使っているため移せませんでした（GitHub のリポジトリの名前・origin・"
+                             "作成元のコミットは済んでいます）。",
+                             hint="Visual Studio・エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、"
+                                  f"もう一度 {operation(command, 'module rename')} {renamed} を実行すると、フォルダーを移します。",
+                             details=str(error))
+    return EcoBuildError(ErrorCode.IN_USE, f"{root} は、ほかのプログラムが使っているため移せません（何も変えていません）。",
+                         hint="Visual Studio・エディター・端末・エクスプローラー等でそのフォルダーを開いていれば閉じてから、"
+                              "もう一度実行してください。", details=str(error))
 
 
 def _put_back(moved: list[tuple[Path, Path]]) -> None:

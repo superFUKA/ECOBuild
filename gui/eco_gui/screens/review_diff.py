@@ -6,8 +6,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "提出の差分", "width": 1000, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "diff"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "close"]},
+        {"id": "page", "part": "column", "children": ["head", "diff"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "close"]},
         {"id": "title", "part": "note", "props": {"prefix": "差分：#", "text": {"arg": "task"}, "heading": True}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
         {"id": "diff", "part": "text-view", "props": {"empty_text": "差分はありません。"}},

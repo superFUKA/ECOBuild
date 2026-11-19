@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "承認して取り込む", "width": 560, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "承認して取り込む：#{issue}", "ok": "承認して取り込む", "vars": {"issue": {"arg": "issue"}},
             "intro": "CIが終わるのを待ちます。タスクは提出のとおり閉じるか続けます。",
@@ -27,7 +27,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task approve", "confirmed": True, "notify": "承認して取り込みました。[次の候補：#{next.number} {next.title}]", "close": True,
+        {"on": "form.submitted", "run": "task approve", "confirmed": True, "notify": "承認して取り込みました。{next_note}", "close": True,
          "args": {"module": {"arg": "module"}, "task": {"arg": "issue"}, "message": {"payload": "values.message"},
                   "subject": {"payload": "values.subject"}, "ignore_checks": {"payload": "values.ignore_checks"}},
          "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-reject", "here": True,

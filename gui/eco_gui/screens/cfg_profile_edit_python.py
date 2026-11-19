@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ビルド設定", "width": 560, "height": 480},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "ビルド設定", "ok": "保存",
             "intro": "同じ名前のビルド設定があれば置き換えます。ecobuild.toml が変わるので、タスクブランチでコミットしてください。",

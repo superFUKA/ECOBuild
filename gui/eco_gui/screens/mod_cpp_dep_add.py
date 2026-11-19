@@ -11,7 +11,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "モジュールをリンク", "width": 640, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "モジュールをリンク", "ok": "リンク", "initial": {"place": {"arg": "module"}},
             "actions": [{"name": "libraries", "label": "ライブラリを読む", "hint": "リポジトリ（と版）の、リンクできるライブラリの一覧を読みます"}],

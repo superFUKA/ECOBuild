@@ -6,10 +6,10 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "コンテナ", "width": 1360, "height": 880},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "page", "children": ["head", "body"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "page", "children": ["head", "body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "settings", "module": {"arg": "module"}}},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "コンテナ", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す"}},
         {"id": "body", "screen": "container-body", "args": {"module": {"arg": "module"}}},

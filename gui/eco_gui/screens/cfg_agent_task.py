@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "新しいタスクを作る", "width": 560, "height": 380},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "新しいタスクを作る", "ok": "作る",
             "intro": "エージェントの設定はリポジトリのファイルなので、タスクブランチでコミットします（提出して取り込まれると効きます）。"

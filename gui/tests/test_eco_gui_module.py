@@ -11,6 +11,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 
 BRANCHES = [
@@ -106,7 +108,7 @@ class FakeModule(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeModule(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeModule(), **LOOK)
     return app.relay(threaded=True)
 
 
@@ -396,7 +398,7 @@ def test_history_lists_the_commits_of_a_branch_and_shows_the_selected_one(relay)
 # --- 部品 -------------------------------------------------------------------
 def test_the_parts_of_the_module_pages_are_defined_with_samples():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeModule(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeModule(), **LOOK)
     parts = app.relay(threaded=True).parts
     for name in ("mod-branch-tree", "mod-branch-detail", "form", "mod-ci-config", "mod-runs", "mod-secrets", "mod-readme", "mod-about",
                  "mod-pipeline-cards", "mod-timings", "mod-members", "mod-commits", "mod-commit-files"):

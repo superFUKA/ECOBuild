@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ビルド設定を削除", "width": 600, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "ビルド設定を削除", "subject": {"arg": "name"}, "ok": "削除", "danger": True, "initial": {"place": {"arg": "module"}},
             "intro": "ecobuild.toml からビルド設定を消します。タスクブランチでコミットし、PRで反映してください。",

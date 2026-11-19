@@ -12,6 +12,8 @@ pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 from test_eco_gui_polish import last, notices, opened, press, spec  # noqa: E402
 from test_eco_gui_workspace import WorkspaceEcobuild  # noqa: E402
@@ -61,7 +63,7 @@ class FrameEcobuild(WorkspaceEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FrameEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FrameEcobuild(), **LOOK)
     relay = app.relay(threaded=True)
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     return relay
@@ -122,9 +124,9 @@ def test_the_workspace_in_the_tab_works_in_its_own_folder(relay):
 def test_the_tab_menu_opens_the_folder_and_removes_the_workspace(relay):
     window = opened(relay, "frame-workspace", MODULE, space=PLACE)
     relay.backend.modules.clear()
-    press(relay, window, "bar:tabs", "action", name="explorer", path=OTHER)
+    press(relay, window, "bar:tabs", "view", name="explorer", path=OTHER)
     assert last(relay) == ("open", {"app": "explorer"}) and relay.backend.modules[0] == OTHER  # その作業空間のフォルダーを開く
-    press(relay, window, "bar:tabs", "action", name="vs", path=OTHER, version="2026")
+    press(relay, window, "bar:tabs", "view", name="vs", path=OTHER, version="2026")
     assert last(relay) == ("open", {"app": "vs", "vs_version": "2026", "solution": True})  # ソリューションで（なければビルドしてから）
     # 作業空間を削除：確かめてから、モジュールの側で ecobuild workspace close --at <場所>
     relay.backend.modules.clear()
@@ -143,21 +145,21 @@ def test_the_workspace_opens_files_with_the_tools_of_this_pc(relay):
     window = opened(relay, "workspace", PLACE)
     bar = nodes(relay, window)["toolbar"]["props"]
     assert bar["vs2026"]["can"] is True and bar["vs2022"]["can"] is False  # ▾ で、入っていない版は灰色と理由
-    press(relay, window, "toolbar", "action", name="open_folder")
+    press(relay, window, "toolbar", "view", name="open_folder")
     assert last(relay) == ("open", {"app": "explorer"})
-    press(relay, window, "toolbar", "action", name="open_vs", value="2026")
+    press(relay, window, "toolbar", "view", name="open_vs", value="2026")
     assert last(relay) == ("open", {"app": "vs", "vs_version": "2026"})
     # ダブルクリック：開発の道具で（版は、まだ選んでいなければ渡さない＝この PC のいちばん新しい版）
-    press(relay, window, "explorer", "action", name="open", path="src/app.py", paths=["src/app.py"])
+    press(relay, window, "explorer", "view", name="open", path="src/app.py", paths=["src/app.py"])
     assert last(relay) == ("open", {"path": ["src/app.py"], "app": "editor"})
     # ツールバーで版を選ぶと、ファイルを開くときも、その版
     press(relay, window, "toolbar", "action", name="vs_version", value="2026")
     assert nodes(relay, window)["toolbar"]["props"]["vs_version"] == "2026"
-    press(relay, window, "explorer", "action", name="open_vs", path="src/app.py", paths=["src/app.py"])
+    press(relay, window, "explorer", "view", name="open_vs", path="src/app.py", paths=["src/app.py"])
     assert last(relay) == ("open", {"path": ["src/app.py"], "app": "vs", "vs_version": "2026"})
-    press(relay, window, "explorer", "action", name="open_default", path="README.md", paths=["README.md"])
+    press(relay, window, "explorer", "view", name="open_default", path="README.md", paths=["README.md"])
     assert last(relay) == ("open", {"path": ["README.md"], "app": "default"})
-    press(relay, window, "explorer", "action", name="reveal", path="src", paths=["src"])
+    press(relay, window, "explorer", "view", name="reveal", path="src", paths=["src"])
     assert last(relay) == ("open", {"path": ["src"], "app": "explorer"})
     # 出力の「ファイル(行)」のリンク：その行を開く
     press(relay, window, "foot", "action", name="show_output")  # 出力欄は、最初はしまってある

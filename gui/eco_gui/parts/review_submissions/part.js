@@ -3,8 +3,13 @@
 const stateText = (s) => (!s ? '未提出' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み')
   : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`);
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['diff']);
 export default {
-  render(root, props, { h, emit, menu, state, open_url }) {
+  render(root, props, { h, emit: toOutput, lib, state, open_url }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.action) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const open = (s) => s && s.state === 'open';
     const tasks = (props.tasks || []).filter((t) => open(t.submission));

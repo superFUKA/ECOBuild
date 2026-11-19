@@ -126,6 +126,28 @@ def missing_folder(args: Any) -> str:
     return f"この場所はもうありません：{module}（作業空間なら、片付けられた可能性があります。この窓・タブを閉じてください）"
 
 
+def notes(result: dict[str, Any]) -> dict[str, Any]:
+    """知らせの文に足す、あるときだけの文（GUIFrameWork の知らせの文には「なければ出さない」部分がないので、ここで作る）。
+
+    実行の結果に、次の候補（next：task finish・approve・apply）・作らなかったもの（skipped：file test --all）があれば、
+    その文を next_note・skipped_note に入れる（なければ空。画面の知らせは「取り込みました。{next_note}」の形）。
+    """
+    value = result.get("result") if result.get("ok") else None
+    if not isinstance(value, dict):
+        return result
+    extra = {}
+    if "next" in value:
+        upcoming = value["next"]
+        good = isinstance(upcoming, dict) and upcoming.get("number")
+        extra["next_note"] = f"次の候補：#{upcoming['number']} {upcoming.get('title') or ''}".rstrip() if good else ""
+    if "skipped" in value:
+        skipped = value["skipped"]
+        good = isinstance(skipped, list) and skipped and isinstance(skipped[0], dict)
+        extra["skipped_note"] = (f"作らなかったもの：{skipped[0].get('path', '')}（{skipped[0].get('reason', '')}）"
+                                 + ("など" if len(skipped) > 1 else "")) if good else ""
+    return {**result, "result": {**value, **{key: text for key, text in extra.items() if key not in value}}} if extra else result
+
+
 class EcobuildBackend(MachineBackend):
     """ecobuild とのつなぎ。どのコマンドも、引数 module（モジュールのフォルダー）を受ける。
 
@@ -155,7 +177,7 @@ class EcobuildBackend(MachineBackend):
         gone = missing_folder(args)
         if gone:  # 消えた作業空間（task finish・workspace close の後）の窓の読み直し：ecobuild を起こさずに答える
             return {"ok": False, "error": {"code": FOLDER_MISSING, "message": gone}}
-        return super().run(name, args, context, on_event)
+        return notes(super().run(name, args, context, on_event))
 
     def can(self, name: str, args: dict[str, Any]) -> tuple[bool, str]:
         gone = missing_folder(args)

@@ -10,8 +10,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ブランチの提出", "width": 760, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "detail"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "close"]},
+        {"id": "page", "part": "column", "children": ["head", "detail"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "close"]},
         {"id": "title", "part": "note", "props": {"text": "ブランチの提出", "heading": True}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
         {"id": "detail", "part": "review-submission", "props": {"name": {"arg": "branch"}}},

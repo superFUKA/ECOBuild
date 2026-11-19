@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "パイプラインを削除", "width": 560, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "パイプラインを削除", "subject": {"arg": "name"}, "ok": "削除する", "danger": True,
             "intro": "このパイプラインを消します。当てているタイミングからも外れます。", "detail": {"arg": "used"},

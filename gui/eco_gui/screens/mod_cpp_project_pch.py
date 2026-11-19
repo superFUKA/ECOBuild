@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "プリコンパイル済みヘッダー", "width": 640, "height": 520},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "プリコンパイル済みヘッダー", "subject": {"arg": "name"}, "ok": "保存", "initial": {"place": {"arg": "module"}},
             "intro": "ヘッダーを書かなければ、include/{name}/pch.h を作って使います。", "vars": {"name": {"arg": "name"}},

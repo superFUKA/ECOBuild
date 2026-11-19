@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "テンプレート", "width": 600, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "テンプレートを登録", "subject": {"arg": "name"}, "ok": "登録", "initial": {"place": {"arg": "module"}, "name": {"arg": "name"}},
             "vars": {"marks": "{{header}}・{{name}}・{{suite}}・{{project}}"},  # 文の中の {…} は置き換わるので、波かっこの文字は値として渡す

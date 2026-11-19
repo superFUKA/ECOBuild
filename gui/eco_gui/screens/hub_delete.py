@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "モジュールを削除", "width": 580, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["title", "note", "local", "remove_workspaces", "discard_local", "confirm", "problem", "permission", "actions"]},
+        {"id": "page", "part": "column", "children": ["title", "note", "local", "remove_workspaces", "discard_local", "confirm", "problem", "permission", "actions"]},
         {"id": "title", "part": "note", "props": {"text": {"arg": "repository"}, "prefix": "モジュールを削除：", "heading": True}},
         {"id": "note", "part": "note", "props": {"text": "アーカイブ済みのモジュールです。削除すると、GitHub のリポジトリを Issue・PR ごと消します。削除したリポジトリは、90日以内なら GitHub のアカウント設定から復元できます。タスク管理の情報は削除せずに閉じ、復元したときに引き継ぎます。"}},
         {"id": "local", "part": "note", "props": {"text": {"arg": "local"}, "prefix": "この PC の clone：", "tone": "muted"}},
@@ -18,7 +18,7 @@ SCREEN = {
         {"id": "problem", "part": "note", "props": {"tone": "bad"}},
         # GitHub の権限（delete_repo）が足りないとき：足し方を案内する
         {"id": "permission", "part": "note", "props": {"tone": "warn", "text": "ログイン中の GitHub アカウントに、リポジトリを削除する権限（delete_repo）がありません。端末で gh auth refresh -h github.com -s delete_repo を実行し、ブラウザで承認してから、もう一度「削除する」を押してください（今の権限は、左下のアカウントで確かめられます）。"}},
-        {"id": "actions", "layout": "row", "look": "actions", "children": ["cancel", "delete"]},
+        {"id": "actions", "part": "row", "look": "actions", "children": ["cancel", "delete"]},
         {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
         {"id": "delete", "part": "button", "props": {"label": "削除する", "danger": True}},
     ],

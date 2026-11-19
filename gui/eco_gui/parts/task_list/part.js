@@ -1,6 +1,7 @@
 // 部品「タスクの一覧」。並べ替え・絞り込み・色分けは見せ方だけ。選ぶ・メニューは出力を出す。
 export default {
-  render(root, props, { h, lib, emit, menu, state, redraw, open_url }) {
+  render(root, props, { h, lib, emit, state, redraw, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { STAGES, PRIORITIES } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     // ほかの画面から開いたタスク：選んで、右に詳細を出す（窓を開いて1回だけ）

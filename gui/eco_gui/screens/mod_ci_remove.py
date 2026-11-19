@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "CIをやめる", "width": 560, "height": 320},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "CIをやめる", "ok": "消す", "danger": True,
             "intro": "ワークフロー（.github/workflows/ecobuild.yml）を消します。コミットして提出し、取り込むと反映されます。",

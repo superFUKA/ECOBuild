@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "移動", "width": 560, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["form", "test"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["form", "test"]},
         {"id": "form", "part": "ws-folder-pick", "props": {"paths": {"arg": "paths"}}},
         {"id": "test", "part": "toggle", "props": {"label": "ライブラリのヘッダー・ソース、src/ のソースなら、対応するテストも移動する", "on": True}},
     ],

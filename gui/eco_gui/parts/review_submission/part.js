@@ -18,8 +18,12 @@ const stateText = (s) => (!s ? '未提出' : s.state === 'merged' ? (s.partial ?
   : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`);
 const statePill = (s) => (!s ? '' : s.state === 'merged' ? 'ok' : s.state === 'closed' ? 'dim' : s.draft ? 'warn' : 'purple');
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['diff']);
 export default {
-  render(root, props, { h, emit }) {
+  render(root, props, { h, emit: toOutput }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.action) ? 'view' : output, payload);
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const t = props.task, access = props.access;
     const b = props.branch || (props.name ? (props.branches || []).find((one) => one.name === props.name) : null) || null;

@@ -7,7 +7,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "上書きを外す", "width": 600, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "上書きを外す", "subject": {"arg": "project"}, "ok": "外す", "initial": {"place": {"arg": "module"}},
             "intro": "ビルド設定の、この Project だけの上書きを外します（ビルド設定のとおりに戻ります）。",

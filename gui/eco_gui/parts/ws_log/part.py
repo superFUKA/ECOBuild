@@ -35,6 +35,15 @@ def on_action(
         raise ValueError("操作の名前とコミットが要ります")
 
 
+def on_view(
+    name: Annotated[str, "見るだけの操作（show：TortoiseGit で表示）。実行中も一覧を止めない"],
+    sha: Annotated[str, "相手のコミットの SHA"],
+    before: Annotated[str, "その1つ前のコミット（<SHA>~1）"] = "",
+) -> None:
+    if not name or not sha:
+        raise ValueError("操作の名前とコミットが要ります")
+
+
 def on_branch(name: Annotated[str, "ログを見るブランチ（空なら、今のブランチ）"] = "") -> None: ...
 
 

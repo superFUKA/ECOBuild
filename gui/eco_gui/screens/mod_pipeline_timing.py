@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "走らせるパイプライン", "width": 600, "height": 520},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "走らせるパイプライン", "subject": {"arg": "label"}, "ok": "決める",
             "intro": "選んだものを、並んでいる順に走らせます。「前」のタイミングは、どれかが失敗したら、その操作を止めます。"

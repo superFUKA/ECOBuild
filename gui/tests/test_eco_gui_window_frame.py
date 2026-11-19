@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
 from test_eco_gui_frame import MODULE, PLACE, FrameEcobuild  # noqa: E402
 from test_eco_gui_hub import CHECK, FakeHub, emit, inside  # noqa: E402
@@ -103,7 +105,7 @@ class WindowFrame(FrameEcobuild):
 
 
 def make(backend):
-    app = create_app(importlib.import_module("eco_gui"), backend=backend, roles={"confirm": "confirm-box"})
+    app = create_app(importlib.import_module("eco_gui"), backend=backend, **LOOK)
     relay = app.relay(threaded=True)
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     return relay
@@ -143,7 +145,7 @@ def test_the_account_at_the_bottom_left_of_a_module_window_opens_the_account_win
 
 def test_visual_studio_from_a_tab_offers_to_build_when_there_is_no_solution(frame):
     window = opened(frame, "frame-workspace", module=MODULE, space=PLACE)
-    emit(frame, window, "bar:tabs", "action", name="vs", path=PLACE, version="2026")
+    emit(frame, window, "bar:tabs", "view", name="vs", path=PLACE, version="2026")
     assert ("open", {"app": "vs", "vs_version": "2026", "solution": True}) in frame.backend.calls
     build = inside(frame, "frame-vs-build")   # 「ビルドしてから開きますか？」
     assert frame.display.tree(build)["args"] == {"module": PLACE, "version": "2026"}
@@ -187,22 +189,22 @@ def test_the_module_window_is_as_large_as_before_and_rereads_the_tabs_every_20_s
 # ハブ ------------------------------------------------------------------------------------------------------------------
 def test_the_card_menu_opens_the_folder_visual_studio_and_makes_a_shortcut(hub):
     window = opened(hub, "hub")
-    emit(hub, window, "modules", "action", id="C:/work/Game", action="explorer", name="Game")
+    emit(hub, window, "modules", "view", id="C:/work/Game", action="explorer", name="Game")
     emit(hub, window, "modules", "action", id="C:/work/Game", action="shortcut", name="Game")
-    emit(hub, window, "modules", "action", id="C:/work/Game", action="vs", name="Game")
+    emit(hub, window, "modules", "view", id="C:/work/Game", action="vs", name="Game")
     assert hub.backend.done == [("open", {"app": "explorer"}, "C:/work/Game"), ("gui shortcut", {"pick": True}, "C:/work/Game"),
                                 ("open", {"app": "vs", "solution": True}, "C:/work/Game")]
     assert "ショートカットを作りました：x.lnk" in notices(hub)
     assert inside(hub, "frame-vs-build")   # ソリューションがない：ビルドしてから
     hub.backend.no_solution = False
-    emit(hub, window, "modules", "action", id="C:/work/Game", action="vs", name="Game")
+    emit(hub, window, "modules", "view", id="C:/work/Game", action="vs", name="Game")
     assert "Visual Studio 2026 で開きます：Game.slnx" in notices(hub)
 
 
 def test_folders_open_from_the_archived_the_former_workspaces_and_an_unusable_module(hub):
     window = opened(hub, "hub")
-    emit(hub, window, "modules", "archived", repository="acme/Old", action="folder", local="C:/work/Old", folder="C:/work/Old")
-    emit(hub, window, "modules", "legacy", path="C:/work/Calc-2", action="folder")
+    emit(hub, window, "modules", "view", id="C:/work/Old", action="explorer", repository="acme/Old")  # アーカイブ済みの clone（見るだけ）
+    emit(hub, window, "modules", "view", id="C:/work/Calc-2", action="explorer")  # 前の作業空間
     emit(hub, window, "modules", "action", id="C:/work/NotClone", action="unusable", name="NotClone", reason="git の clone ではなくなっています")
     unusable = inside(hub, "hub-unusable")
     emit(hub, unusable, "folder", "pressed")
@@ -245,7 +247,7 @@ def press_and_confirm(relay, window, node):
 
 def test_settings_remember_the_tab_and_tell_how_many_images_were_made(hub):
     window = opened(hub, "hub-settings")
-    assert nodes(hub, window)["tabs"]["layout"] == "tabs"   # 最後に見ていたタブは、配置 tabs が覚える
+    assert nodes(hub, window)["tabs"]["part"] == "tabs"   # 最後に見ていたタブは、部品 tabs（見本の guiframework_basic）が覚える
     emit(hub, window, "images_build", "pressed")
     assert nodes(hub, window)["images"]["props"]["done"] == {"built": ["ecobuild-calc:1", "ecobuild-game:2"]}
     js = (GUI / "eco_gui" / "parts" / "hub_images" / "part.js").read_text(encoding="utf-8")

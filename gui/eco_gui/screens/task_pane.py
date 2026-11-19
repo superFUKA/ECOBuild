@@ -35,7 +35,7 @@ SCREEN = {
          "instead": {"when": {"code": "merge_conflict"}, "open": "frame-workspace",
                      "args": {"module": {"arg": "module"}, "space": {"error": "details.workspace"}}}},
         # 差分：TortoiseGit で（前の GUI と同じ）。なければ、窓の中に文字で
-        {"on": "detail.submission", "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "detail.submission", "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
     ],
 }

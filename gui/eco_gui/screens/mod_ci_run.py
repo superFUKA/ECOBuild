@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "CIを手動で実行", "width": 560, "height": 320},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "CIを手動で実行", "ok": "実行", "initial": {"branch": {"arg": "branch"}},
             "intro": "GitHub にあるブランチの内容で CI を動かします（手元の未Pushのコミットは入りません）。",

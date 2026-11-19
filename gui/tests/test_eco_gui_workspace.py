@@ -12,6 +12,8 @@ pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 from test_eco_gui import answer, nodes, without_tortoisegit  # noqa: E402
 from test_eco_gui_polish import PolishEcobuild, last, notices, opened, press  # noqa: E402
 
@@ -56,7 +58,7 @@ class WorkspaceEcobuild(PolishEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=WorkspaceEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=WorkspaceEcobuild(), **LOOK)
     relay = app.relay(threaded=True)
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     return relay
@@ -75,8 +77,8 @@ def test_the_window_has_the_explorer_the_work_area_the_output_and_the_status_bar
     window = opened(relay, "workspace", PLACE)
     view = nodes(relay, window)
     assert view["page"]["children"] == ["state", "toolbar", "body", "foot"]
-    assert (view["body"]["layout"], view["body"]["props"]) == ("split", {"direction": "column", "sizes": [None, 230]})  # 上と、下の出力欄
-    assert (view["upper"]["layout"], view["upper"]["children"]) == ("split", ["explorer", "work"])  # 左：エクスプローラー／右：コミット・共有
+    assert (view["body"]["part"], view["body"]["props"]) == ("split", {"direction": "column", "sizes": {"out": 230}})  # 上と、下の出力欄
+    assert (view["upper"]["part"], view["upper"]["children"]) == ("split", ["explorer", "work"])  # 左：エクスプローラー／右：コミット・共有
     assert (view["explorer"]["part"], view["out"]["part"], view["foot"]["part"]) == ("ws-explorer", "output", "ws-statusbar")
     # 状態は1回だけ読み、見出し・ツールバー・タブ・変更の一覧・エクスプローラー・ステータスバー・帯へ出す
     assert relay.backend.calls.count(("status", {})) == 1 and relay.backend.calls.count(("status", {"fetch": True})) == 1
@@ -137,10 +139,10 @@ def test_unpushed_commits_are_undone_with_task_reset(relay):
     relay.input(window, "push_list", "action", {"name": "drop", "sha": "aaa111", "before": "aaa111~1"}, human=True)
     answer(relay, window, False)
     assert ("task reset", {"commit": "aaa111~1"}) not in relay.backend.calls
-    press(relay, window, "push_list", "action", name="show", sha="aaa111", before="aaa111~1")  # 変更を見る：TortoiseGit で
+    press(relay, window, "push_list", "view", name="show", sha="aaa111", before="aaa111~1")  # 変更を見る：TortoiseGit で
     assert relay.backend.calls[-1] == ("show", {"commit": "aaa111", "gui": True})
     without_tortoisegit(relay)  # なければ、窓の中に重ねて開く
-    press(relay, window, "push_list", "action", name="show", sha="aaa111", before="aaa111~1")
+    press(relay, window, "push_list", "view", name="show", sha="aaa111", before="aaa111~1")
     dialog = inside(relay, window, "ws-show")
     assert nodes(relay, dialog)["detail"]["props"]["text"].startswith("commit aaa111") and ("show", {"commit": "aaa111"}) in relay.backend.calls
     press(relay, window, "push_list", "more", count=60)
@@ -307,13 +309,13 @@ def test_the_explorer_opens_the_new_file_the_diff_the_log_and_the_move_dialogs(r
     assert last(relay) == ("file move", {"paths": ["a.py", "src/a.py"]})
     # 差分・注釈履歴：TortoiseGit で開く（前の GUI と同じ）
     told = len(notices(relay))
-    press(relay, window, "explorer", "action", name="diff", path="a.py", paths=["a.py"])
-    press(relay, window, "explorer", "action", name="blame", path="a.py", paths=["a.py"])
+    press(relay, window, "explorer", "view", name="diff", path="a.py", paths=["a.py"])
+    press(relay, window, "explorer", "view", name="blame", path="a.py", paths=["a.py"])
     assert relay.backend.calls[-2:] == [("diff", {"paths": ["a.py"], "gui": True}), ("blame", {"path": "a.py", "gui": True})]
     assert not [w for w in relay.display.windows() if w["screen"] in ("ws-file-diff", "blame")] and len(notices(relay)) == told
     # TortoiseGit がなければ、GUI の中で：差分は比べ方ごと（ステージしていない／ステージ済み／作成元との差分）
     without_tortoisegit(relay)
-    press(relay, window, "explorer", "action", name="diff", path="a.py", paths=["a.py"])
+    press(relay, window, "explorer", "view", name="diff", path="a.py", paths=["a.py"])
     dialog = inside(relay, window, "ws-file-diff")
     assert nodes(relay, dialog)["unstaged"]["props"]["text"].startswith("diff --git a/a.py")
     for args in ({"paths": ["a.py"]}, {"paths": ["a.py"], "staged": True}, {"paths": ["a.py"], "base": True}):
@@ -322,7 +324,7 @@ def test_the_explorer_opens_the_new_file_the_diff_the_log_and_the_move_dialogs(r
     press(relay, window, "explorer", "action", name="log", path="tests", paths=["tests"])
     log = next(w for w in relay.display.windows() if w["screen"] == "ws-log")
     assert log["args"] == {"module": PLACE, "paths": ["tests"]} and ("log", {"paths": ["tests"]}) in relay.backend.calls
-    press(relay, window, "explorer", "action", name="blame", path="a.py", paths=["a.py"])
+    press(relay, window, "explorer", "view", name="blame", path="a.py", paths=["a.py"])
     assert [w["args"] for w in relay.display.windows() if w["screen"] == "blame"] == [{"module": PLACE, "path": "a.py"}]
 
 
@@ -355,10 +357,10 @@ def test_the_changes_menu_and_the_stash_menu_run_their_commands(relay):
     assert last(relay) == ("stash drop", {})
     press(relay, window, "changes", "action", name="ignore", path="new.txt", paths=["new.txt"])
     assert last(relay) == ("ignore", {"patterns": ["new.txt"]})
-    press(relay, window, "changes", "action", name="diff_dialog", path="", paths=[])  # 選んでいなければ、全部のファイル（TortoiseGit で）
+    press(relay, window, "changes", "view", name="diff_dialog", path="", paths=[])  # 選んでいなければ、全部のファイル（TortoiseGit で）
     assert relay.backend.calls[-1] == ("diff", {"paths": [], "gui": True})
     without_tortoisegit(relay)  # なければ、窓の中に比べ方ごとのタブで
-    press(relay, window, "changes", "action", name="diff_dialog", path="", paths=[])
+    press(relay, window, "changes", "view", name="diff_dialog", path="", paths=[])
     dialog = inside(relay, window, "ws-file-diff")
     assert nodes(relay, dialog)["target"]["props"]["items"] == [] and ("diff", {"paths": [], "staged": True}) in relay.backend.calls
 
@@ -439,9 +441,9 @@ def test_made_and_moved_files_are_chosen_in_the_explorer(relay):
     assert last(relay) == ("file move", {"paths": ["b.py", "tests/b.py"]})
     assert nodes(relay, window)["explorer"]["props"]["moved"] == "tests/b.py"
     # 一緒に開く・選んだものを開く（ecobuild open にいくつものパス）
-    press(relay, window, "explorer", "action", name="open_all", path="", paths=["a.py", "tests/test_a.py"])
+    press(relay, window, "explorer", "view", name="open_all", path="", paths=["a.py", "tests/test_a.py"])
     assert last(relay) == ("open", {"path": ["a.py", "tests/test_a.py"], "app": "vs"})
-    press(relay, window, "changes", "action", name="open_default", path="a.py", paths=["a.py"])
+    press(relay, window, "changes", "view", name="open_default", path="a.py", paths=["a.py"])
     assert last(relay) == ("open", {"path": ["a.py"], "app": "default"})
 
 

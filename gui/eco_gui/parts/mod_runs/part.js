@@ -14,7 +14,8 @@ const localTime = (iso) => {
 };
 
 export default {
-  render(root, props, { h, emit, state, redraw, menu, open_url }) {
+  render(root, props, { h, emit, state, redraw, open_url, lib }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const branch = props.branch || '';
     const admin = props.admin !== false;
     // 再実行・手動で実行の後：GitHub の一覧に出るまで少しかかるので、少しして読み直す

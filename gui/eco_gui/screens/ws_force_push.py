@@ -8,13 +8,13 @@ SCREEN = {
     "root": "page",
     "window": {"title": "強制Push", "width": 560, "height": 300},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["title", "about", "caution", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["title", "about", "caution", "foot"]},
         {"id": "title", "part": "note", "props": {"text": "強制Push", "heading": True}},
         {"id": "about", "part": "note", "props": {
             "text": "このタスクブランチの GitHub の側を、手元のコミットで上書きします。Push 済みのコミットを「直前のコミットを修正」で直した・取り消したときに使います。"}},
         {"id": "caution", "part": "note", "props": {
             "text": "GitHub にだけあるコミット（ほかの人・ほかの PC が Push したもの）は失われます。先に「取り込む」で確かめてください。", "tone": "warn"}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["cancel", "push"]},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["cancel", "push"]},
         {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
         {"id": "push", "part": "button", "props": {"label": "強制Push", "danger": True}},
     ],

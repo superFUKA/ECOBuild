@@ -17,3 +17,9 @@ def part(
 def on_action(name: Annotated[str, "押したもの：edit（作業空間で編集）・reveal（場所を開く）・place（リポジトリに置く）"]) -> None:
     if name not in ("edit", "reveal", "place"):
         raise ValueError("edit・reveal・place のどれかです")
+
+
+def on_view(name: Annotated[str, "見るだけの操作：reveal（場所を開く）"]) -> None:
+    if name != "reveal":
+        raise ValueError("reveal だけです")
+

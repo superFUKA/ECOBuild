@@ -7,8 +7,13 @@ function localTime(iso) {
   return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['show']);
 export default {
-  render(root, props, { h, emit, state, redraw, menu, notice }) {
+  render(root, props, { h, emit: toOutput, state, redraw, notice, lib }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.name) ? 'view' : output, payload);
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     if (state.query === undefined) state.query = '';
     const box = h('div', { class: 'log-side' + (props.short ? ' log-short' : '') });
     const search = h('input', { type: 'search', class: 'log-search', placeholder: '件名・作成者・SHA・#タスクで絞り込み', 'aria-label': 'ログを絞り込む', value: state.query });

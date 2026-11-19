@@ -47,7 +47,8 @@ function projectTree(projects, main) {
 }
 
 export default {
-  render(root, props, { h, emit, menu, state }) {
+  render(root, props, { h, emit, state, lib }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const act = (name, target, value) => emit('action', { name, target: target || '', value: value || '' });
     const pill = (text, tone) => h('span', { class: tone ? 'pill ' + tone : 'pill' }, text);
     const sub = (...kids) => h('div', { class: 'sub' }, ...kids);

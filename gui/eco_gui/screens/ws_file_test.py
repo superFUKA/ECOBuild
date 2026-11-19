@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "テストを作成", "width": 640, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["form"]},
         {"id": "form", "part": "ws-file-test", "props": {"path": {"arg": "path"}}},
     ],
     "bindings": [

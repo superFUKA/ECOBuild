@@ -8,8 +8,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ログ", "width": 1180, "height": 780},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-log", "children": ["body"]},
-        {"id": "body", "layout": "split", "props": {"direction": "row", "sizes": [380, None]}, "children": ["list", "detail"]},
+        {"id": "page", "part": "column", "look": "ws-log", "children": ["body"]},
+        {"id": "body", "part": "split", "props": {"direction": "row", "sizes": {"list": 380}}, "children": ["list", "detail"]},
         {"id": "list", "part": "ws-log", "look": "ws-fill"},
         {"id": "detail", "part": "ws-diff", "look": "ws-fill", "props": {"fill": True, "empty_text": "コミットを選ぶと、その変更が出ます。"}},
     ],
@@ -30,7 +30,7 @@ SCREEN = {
         {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"value": "log_commit"}}, "require": ["commit"], "to": "detail.text"},
         # コミットの操作：変更を別に開く／ファイルをその版の状態に戻す（restore --source）／タスクブランチをそこまで戻す（task reset。タスクブランチで）。
         # 戻す操作は、確かめてから（ecobuild の重さのとおり）
-        {"on": "list.action", "when": {"name": "show"}, "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
+        {"on": "list.view", "when": {"name": "show"}, "run": "show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}, "gui": True},
          "instead": {"when": {"code": ["tool_missing", "revision_not_found"]}, "open": "ws-show", "args": {"module": {"arg": "module"}, "commit": {"payload": "sha"}}, "inside": True}},
         {"on": "list.action", "when": {"name": "restore"}, "run": "restore", "args": {"module": {"arg": "module"}, "source": {"payload": "sha"}},
          "notify": "その版の状態に戻しました。内容を確かめてコミットしてください。"},

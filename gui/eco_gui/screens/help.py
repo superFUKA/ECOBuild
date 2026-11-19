@@ -6,8 +6,8 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "ヘルプ", "width": 1360, "height": 880},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "cfg-fill-page", "children": ["body"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "cfg-fill-page", "children": ["body"]},
         {"id": "nav", "screen": "menu", "args": {"current": "help", "module": {"arg": "module"}}},
         {"id": "body", "part": "cfg-help", "look": "cfg-fill", "props": {
             "intro": "ECOBuild の作業は、タスク（GitHub の Issue）ごとに進めます。GUI のボタンは、ecobuild のコマンドを実行しています。",

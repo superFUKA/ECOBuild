@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "開き直す", "width": 520, "height": 280},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "#{issue} を開き直す", "ok": "開き直す", "vars": {"issue": {"arg": "issue"}, "stage": {"arg": "text"}},
             "fields": [

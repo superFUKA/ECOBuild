@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "Projectを移動", "width": 600, "height": 400},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "Projectを移動", "subject": {"arg": "name"}, "ok": "移動", "initial": {"place": {"arg": "module"}}, "vars": {"name": {"arg": "name"}},
             "intro": "Projectのディレクトリを移します（名前は変わりません）。",

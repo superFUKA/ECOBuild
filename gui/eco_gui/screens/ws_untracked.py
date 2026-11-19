@@ -9,11 +9,11 @@ SCREEN = {
     "root": "page",
     "window": {"title": "新しいファイル", "width": 1040, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["title", "target", "content", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["title", "target", "content", "foot"]},
         {"id": "title", "part": "note", "props": {"text": "新しいファイル", "heading": True}},
         {"id": "target", "part": "string-list", "props": {"items": {"arg": "paths"}}},
         {"id": "content", "part": "ws-diff", "props": {"title": "中身（まだ git の管理に入っていません）", "empty_text": "中身は空です。"}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["close"]},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["close"]},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
     ],
     "bindings": [

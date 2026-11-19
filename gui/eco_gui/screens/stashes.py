@@ -10,8 +10,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "退避の一覧", "width": 720, "height": 520, "refresh": {"focus": True}},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-page", "children": ["head", "place", "list"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "page", "part": "column", "look": "ws-page", "children": ["head", "place", "list"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "退避の一覧", "heading": True}},
         {"id": "place", "part": "note", "props": {"text": {"arg": "module"}, "tone": "muted"}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},

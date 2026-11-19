@@ -12,7 +12,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "Projectの設定", "width": 760, "height": 780},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "Projectの設定", "subject": {"arg": "name"}, "ok": "保存", "sticky": True, "initial": {"place": {"arg": "module"}},
             "intro": "今の設定が入っています。変えた所だけを保存します。値をいくつも書くときは、カンマで区切ります。",

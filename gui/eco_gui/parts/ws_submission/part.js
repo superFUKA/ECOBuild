@@ -14,8 +14,12 @@ const REVIEW = { APPROVED: '承認', CHANGES_REQUESTED: '差し戻し', COMMENTE
 const stateText = (s) => (!s ? '未提出' : s.state === 'merged' ? (s.partial ? '中間提出は取り込み済み' : '取り込み済み')
   : s.state === 'closed' ? '取り下げ済み' : `${s.draft ? '下書きの' : ''}${s.partial ? '中間提出' : '提出'}中`);
 
+// 見るだけの操作（外の道具で開く・差分・注釈履歴・表示）。出力 view で出す
+const VIEW = new Set(['diff']);
 export default {
-  render(root, props, { h, emit }) {
+  render(root, props, { h, emit: toOutput }) {
+    // 見るだけの操作（VIEW）は出力 view で出す（実行中も、この部品を止めない。theme.css の --gf-stop）
+    const emit = (output, payload) => toOutput(output === 'action' && VIEW.has(payload.action) ? 'view' : output, payload);
     const s = props.status || {}, t = s.reviewing ? props.review : props.task;  // 確認中なら、確認している提出
     const box = h('div', { class: 'pr' });
     if (props.error) { box.append(h('p', { role: 'alert' }, props.error)); return root.replaceChildren(box); }

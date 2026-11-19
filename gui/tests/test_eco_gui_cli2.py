@@ -12,13 +12,15 @@ pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
 
+from eco_gui.look import LOOK  # noqa: E402
+
 from test_eco_gui import answer, nodes  # noqa: E402
 from test_eco_gui_agents import FakeAgents  # noqa: E402
 from test_eco_gui_polish import PolishEcobuild, last, notices, opened, press  # noqa: E402
 
 
 def _relay(backend):
-    app = create_app(importlib.import_module("eco_gui"), backend=backend, roles={"confirm": "confirm-box"})
+    app = create_app(importlib.import_module("eco_gui"), backend=backend, **LOOK)
     relay = app.relay(threaded=True)
     relay.verify()  # どの画面のつなぎも、バックエンドのコマンドと合っている
     return relay
@@ -44,7 +46,7 @@ def test_help_reads_the_commands_once_with_the_help_command():
 
 def test_command_list_part_declares_no_output_and_has_every_state_sample():
     """コマンドの一覧の部品：探す・絞る・選ぶは部品の中（出力なし＝何も実行しない）。読み込み中・誤りの見本がある。"""
-    app = create_app(importlib.import_module("eco_gui"), backend=PolishEcobuild(), roles={"confirm": "confirm-box"})
+    app = create_app(importlib.import_module("eco_gui"), backend=PolishEcobuild(), **LOOK)
     parts = {part["name"]: part for part in app.describe()["parts"]}
     assert parts["command-list"]["outputs"] in ({}, [])
     assert set(parts["pick-list"]["outputs"]) == {"selected"} and set(parts["check-list"]["outputs"]) == {"changed"}

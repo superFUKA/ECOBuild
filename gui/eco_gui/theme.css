@@ -1,6 +1,9 @@
 /* ECOBuild の見た目。窓と、部品の中の両方に当たる（GUIFrameWork の theme.css）。
    色・角・文字は、今までの GUI（gui/static）と同じ。部品だけの見た目は parts/<名前>/part.css に書く。
-   ここに書くのは、どの画面・どの部品でも同じに見せるもの：色の変数、ボタン・入力欄・表・印（pill）・帯（banner）、窓の枠。 */
+   ここに書くのは、どの画面・どの部品でも同じに見せるもの：色の変数、ボタン・入力欄・表・印（pill）・帯（banner）、窓の枠。
+   見本（guiframework_basic）の theme.css の後に重なる。窓の枠（役 window）・重ねた箱の枠（役 dialog）・並べる部品
+   （row・column・tabs・split）・メニュー（lib.menu）は見本の部品で、その見た目をここで ECOBuild のものに変える。
+   部品の外側は <gf-part>（data-gf-part・data-gf-look・data-gf-node・状態の data-gf-*）。並べる部品の子は、その中（light DOM）に並ぶ。 */
 
 /* --- 色（暗い色だけ。今までの GUI と同じ） --- */
 :root, :host {
@@ -106,39 +109,49 @@ html.eco-frameless body::before { content: attr(data-eco-title); flex: none; box
   -webkit-app-region: drag; user-select: none; }
 html.eco-frameless body[data-gf-screen^="hub"]::before, html.eco-frameless body[data-gf-screen="operator"]::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Cdefs%3E%3ClinearGradient id=%22b%22 x1=%220%22 y1=%220%22 x2=%220%22 y2=%221%22%3E%3Cstop offset=%220%22 stop-color=%22%232a343c%22/%3E%3Cstop offset=%221%22 stop-color=%22%2314171b%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x=%222%22 y=%222%22 width=%2260%22 height=%2260%22 rx=%2214%22 fill=%22url%28%23b%29%22 stroke=%22%2346515e%22 stroke-width=%222%22/%3E%3Crect x=%2214%22 y=%2213%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%23a8ead9%22/%3E%3Crect x=%2214%22 y=%2227%22 width=%2227%22 height=%2210%22 rx=%223%22 fill=%22%238bd7c2%22/%3E%3Crect x=%2214%22 y=%2240%22 width=%2236%22 height=%2211%22 rx=%223%22 fill=%22%235fb8a0%22/%3E%3C/svg%3E"); }
-#frame { flex: none; padding: 0 14px; color: var(--eco-dim); font-size: 11px; min-height: 0; }
-#frame:not(:empty) { padding: 3px 14px; background: var(--eco-side); border-bottom: 1px solid var(--eco-line); }
-#stage { flex: 1; min-height: 0; overflow: auto; }
-#stage > .gf-column { padding: 20px 24px; min-height: 100%; }
+/* 窓の枠（役 window の部品。見本の window）：body の残りの高さを使い、上の依頼元（.gf-frame）・画面（.gf-stage）を縦に並べる。
+   実行中（.gf-runs）・知らせ（.gf-notices）は、窓の上に重ねる。窓の中の場所は、画面の作り（根の look）で変える（--eco-*） */
+[data-gf-role="window"] { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+:host([data-gf-role="window"]) > div { display: contents; }
+.gf-frame { flex: none; padding: 0 14px; color: var(--eco-dim); font-size: 11px; min-height: 0; }
+.gf-frame:not(:empty) { padding: 3px 14px; background: var(--eco-side); border-bottom: 1px solid var(--eco-line); }
+.gf-stage { flex: 1; min-height: 0; overflow: var(--eco-stage-overflow, auto); display: var(--eco-stage-display, block); }
+[data-gf-role="window"] > [data-gf-part="column"] { padding: 20px 24px; min-height: 100%; }
+/* 窓いっぱいを区画に分けて、区画ごとにスクロールする画面（左のメニューつき・作業空間・ログ・退避）：窓は自分ではスクロールしない */
+[data-gf-role="window"]:has(> :is([data-gf-look="shell"], [data-gf-look="ws-window"], [data-gf-look="ws-log"], [data-gf-look="ws-fill-page"])) {
+  --eco-stage-overflow: hidden; --eco-stage-display: flex; }
 /* 実行中のコマンド：左下に（今までの GUI と同じ場所） */
-#runs { position: fixed; left: 12px; bottom: 12px; z-index: 9; display: grid; gap: 6px; max-width: min(520px, calc(100% - 24px)); font-size: 12px; }
-#runs > div { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; background: #252b33ee; border: 1px solid var(--gf-border);
+.gf-runs { position: fixed; left: var(--eco-runs-left, 12px); bottom: var(--eco-runs-bottom, 12px); z-index: 9; display: grid; gap: 6px;
+  max-width: min(520px, calc(100% - 24px)); font-size: 12px; color: var(--gf-muted); }
+.gf-runs > div { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 8px; background: #252b33ee; border: 1px solid var(--gf-border);
   color: #cdd5df; box-shadow: 0 6px 18px #0006; }
-#runs > div::before { content: ""; flex: none; width: 12px; height: 12px; border: 2px solid var(--gf-border); border-top-color: var(--gf-accent); border-radius: 50%;
+.gf-runs > div::before { content: ""; flex: none; width: 12px; height: 12px; border: 2px solid var(--gf-border); border-top-color: var(--gf-accent); border-radius: 50%;
   animation: eco-spin .8s linear infinite; }
-#runs button { margin: 0 0 0 auto; padding: 2px 10px; font-size: 12px; }
+.gf-runs button { margin: 0 0 0 auto; padding: 2px 10px; font-size: 12px; }
 /* 読み込み中：今までの GUI の「更新中」と同じ、小さな札 */
-#runs > .gf-reading { justify-self: start; gap: 7px; padding: 5px 11px; border-radius: 14px; background: #1c2128e6; border-color: #3a424c; color: #a5aeba;
+.gf-runs > .gf-reading { justify-self: start; gap: 7px; padding: 5px 11px; border-radius: 14px; background: #1c2128e6; border-color: #3a424c; color: #a5aeba;
   font-size: 11px; box-shadow: 0 4px 14px #0005; cursor: default; }
-#runs > .gf-reading::before { width: 10px; height: 10px; }
-body:has([data-gf-look="shell"]) #runs { left: 196px; }
+.gf-runs > .gf-reading::before { width: 10px; height: 10px; }
+[data-gf-role="window"]:has([data-gf-look="shell"]) { --eco-runs-left: 196px; }
 /* 知らせ：右下 */
-#notices { right: 16px; bottom: 16px; width: min(420px, calc(100% - 32px)); max-width: none; gap: 8px; }
-#notices > div { padding: 10px 14px; border-radius: 8px; background: var(--gf-surface); color: #dbe3eb; border: 1px solid var(--gf-border); box-shadow: 0 8px 24px #0007;
+.gf-notices { right: 16px; bottom: var(--eco-notices-bottom, 16px); width: min(420px, calc(100% - 32px)); max-width: none; gap: 8px; }
+.gf-notices > div { padding: 10px 14px; border-radius: 8px; background: var(--gf-surface); color: #dbe3eb; border: 1px solid var(--gf-border); box-shadow: 0 8px 24px #0007;
   font-size: 13px; line-height: 1.6; }
-#notices > div[data-level="ok"] { background: var(--eco-ok-bg); color: #c8f3e6; border-color: var(--eco-ok-line); }
-#notices > div[data-level="error"] { background: var(--eco-bad-bg); color: #ffd0d0; border-color: var(--eco-bad-line); }
-#notices > div[data-level="warn"] { background: #3d3522; color: #f3e2b5; border-color: #66573a; }
-#notices button { border: 0; background: transparent; padding: 0 6px; font-size: 16px; }
-/* 重ねた表示・中に重ねた窓 */
-dialog { padding: 24px; background: var(--eco-panel); color: var(--gf-fg); border: 1px solid var(--gf-border); border-radius: 12px; box-shadow: 0 24px 80px #0008;
-  width: min(560px, calc(100% - 32px)); max-height: 88vh; }
+.gf-notices > div[data-level="ok"] { background: var(--eco-ok-bg); color: #c8f3e6; border-color: var(--eco-ok-line); }
+.gf-notices > div[data-level="error"] { background: var(--eco-bad-bg); color: #ffd0d0; border-color: var(--eco-bad-line); }
+.gf-notices > div[data-level="warn"] { background: #3d3522; color: #f3e2b5; border-color: #66573a; }
+.gf-notices button { border: 0; background: transparent; padding: 0 6px; font-size: 16px; }
+/* 重ねた箱（本体が出し入れする dialog[data-gf-dialog]：答えを待つ部品・確認は overlay、子の窓の幕は shade、重ねた子の窓は inside）。
+   中の枠は役 dialog の部品（見本の dialog：依頼元 .gf-requester・幕の文と「前に出す」・中身） */
+dialog, dialog[data-gf-dialog] { padding: 24px; background: var(--eco-panel); color: var(--gf-fg); border: 1px solid var(--gf-border); border-radius: 12px; box-shadow: 0 24px 80px #0008; }
+dialog:not([data-gf-dialog="inside"]) { width: min(560px, calc(100% - 32px)); max-height: 88vh; }  /* 重ねた子の窓の大きさは、本体が --gf-width・--gf-height で渡す */
 dialog::backdrop { background: #0009; }
-dialog > small { color: var(--eco-dim); font-size: 11px; }
-dialog.gf-inside { padding: 0; background: var(--eco-panel); }
+:host([data-gf-role="dialog"]) > div { display: contents; }
+.gf-requester { display: block; margin-bottom: .4rem; color: var(--eco-dim); font-size: 11px; }
+dialog[data-gf-dialog="inside"] { padding: 0; background: var(--eco-panel); }
 body[data-gf-framed] { background: var(--eco-panel); }
-body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
-/* メニュー（右クリック・⋯） */
+body[data-gf-framed] [data-gf-role="window"] > [data-gf-part="column"] { padding: 22px 24px; min-height: 0; }
+/* メニュー（右クリック・⋯。lib.js の menu。部品の中の popover） */
 .gf-menu { min-width: 210px; max-width: 320px; padding: 6px; border: 1px solid var(--gf-border); border-radius: 8px; background: #252b33; box-shadow: 0 12px 32px #0008;
   font-size: 13px; }
 .gf-menu button { border: 0; border-radius: 5px; background: transparent; padding: 7px 10px; white-space: normal; }
@@ -148,6 +161,15 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
 .gf-menu button[data-danger]:hover:not(:disabled), .gf-menu button[data-danger]:focus-visible { background: var(--eco-bad-bg); }
 .gf-menu > div { padding: 6px 10px 2px; color: var(--eco-dim); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
 .gf-menu > hr { border-top-color: #3a424c; margin: 4px 0; }
+/* 並べる部品（見本の row・column・split・tabs）：子は部品の外側（<gf-part>）の中に並ぶ。中の箱（.gf-row 等）は透かし、
+   外側そのものを並べの箱にする（look の見た目を、外側に書けるように）。split の区画と境目・tabs の帯は部品の中 */
+[data-gf-part="row"], [data-gf-part="column"] { display: flex; gap: var(--gf-gap); }
+[data-gf-part="row"] { flex-direction: row; align-items: flex-end; flex-wrap: wrap; }
+[data-gf-part="column"] { flex-direction: column; }
+:host(:is([data-gf-part="row"], [data-gf-part="column"], [data-gf-part="tabs"])) > div, .gf-row, .gf-column, .gf-tabs { display: contents; }
+[data-gf-part="split"] { display: flex; min-width: 0; min-height: 0; }
+:host([data-gf-part="split"]) > div { display: contents; gap: inherit; }
+.gf-split { flex: 1 1 0; gap: inherit; }
 /* 配置：タブ */
 .gf-tabs-strip { gap: 2px; border-bottom: 1px solid var(--eco-line); }
 .gf-tabs-strip > button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--gf-muted);
@@ -155,15 +177,27 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
 .gf-tabs-strip > button:hover { color: var(--gf-fg); }
 .gf-tabs-strip > button[aria-selected="true"] { color: #b0efdd; border-bottom-color: var(--gf-accent); }
 .gf-tabs-body { padding-top: 14px; }
-.gf-row { align-items: flex-end; flex-wrap: wrap; }
-.gf-loading { color: var(--gf-muted); font-size: 13px; }
-/* 押せない理由は、ツールチップで出す（包みの title。ボタンの下に長い文を出すと行が崩れる。今までの GUI と同じ） */
-.gf-wrap > small { display: none; }
+/* 部品の状態（本体が外側に付ける data-gf-*）。止めるか（--gf-stop）・実行中の薄さは見本のまま（実行中は止める） */
+gf-part[data-gf-missing]::before { display: block; color: var(--gf-muted); font-size: 13px; line-height: 1.7; }
+/* 見るだけの実行（外の道具で開く・差分・注釈履歴・表示）は止めない・薄くしない（開いている間も、一覧を触れる）。
+   部品が出力 view（部品ごとの見るだけの出力）で出したものと、見るだけの出力しか実行に結ばない部品・ボタン（look nowait） */
+gf-part:is([data-gf-running="view"], [data-gf-part="mod-files"][data-gf-running="opened"], [data-gf-part="mod-readme"][data-gf-running="edit"],
+  [data-gf-part="output"][data-gf-running="opened"], [data-gf-part="ws-blame"][data-gf-running="opened"],
+  [data-gf-part="review-conflict"][data-gf-running="tortoise"], [data-gf-part="task-detail"][data-gf-running="submission"],
+  [data-gf-look="nowait"][data-gf-running]):not([data-gf-unavailable]) { opacity: 1; --gf-stop: 0; }
+/* 使えない部品：今までの GUI と同じく、中身を薄くして乗せても反応させない（旧の inert と同じ手触り）。
+   押せない理由は部品の下に並べず（ボタンの下に長い文を出すと行が崩れる）、乗せたときだけ浮かせて出す（旧の包みの title の代わり） */
+@layer gf-unavailable { gf-part[data-gf-unavailable]:not(:is([data-gf-part="row"], [data-gf-part="column"], [data-gf-part="tabs"], [data-gf-part="split"])) { opacity: 1; } }
+:host([data-gf-unavailable]:not(:is([data-gf-part="row"], [data-gf-part="column"], [data-gf-part="tabs"], [data-gf-part="split"]))) > div { opacity: .5; pointer-events: none; }
+gf-part[data-gf-unavailable] { position: relative; cursor: default; }
+gf-part[data-gf-unavailable]::after { display: none; }
+gf-part[data-gf-unavailable]:not([data-gf-unavailable=""]):hover::after { display: block; position: absolute; left: 0; top: calc(100% + 4px); z-index: 30;
+  width: max-content; max-width: 320px; padding: 6px 10px; border-radius: 6px; background: #252b33; border: 1px solid var(--gf-border);
+  box-shadow: 0 6px 18px #0006; color: #dbe3eb; font-size: 12px; line-height: 1.6; white-space: normal; pointer-events: none; }
 
 /* --- 窓の作り（look） ---
    shell：左のメニュー＋右のページ（モジュールの窓・ハブ）。page：ページ（縦に並べ、自分でスクロールする）。
    bar：見出しの行（左に題、右にボタン）。tools：ボタンの並び。card：箱。grow：残りの幅・高さを使う。 */
-#stage:has(> [data-gf-look="shell"]) { overflow: hidden; display: flex; }
 [data-gf-look="shell"] { flex: 1; min-width: 0; min-height: 0; flex-wrap: nowrap; align-items: stretch; gap: 0; }
 [data-gf-look="shell"] > [data-gf-part="menu"] { flex: none; }
 [data-gf-look="page"] { flex: 1; min-width: 0; padding: 20px 24px 64px; overflow: auto; }
@@ -195,26 +229,23 @@ body[data-gf-framed] #stage > .gf-column { padding: 22px 24px; min-height: 0; }
 /* 設定のカードの中で、入力欄とボタンを1行に並べる（欄が残りの幅を使い、ボタンは欄の下端にそろう） */
 [data-gf-look="hub-inline"] { flex-wrap: nowrap; align-items: flex-start; gap: 8px; }
 [data-gf-look="hub-inline"] > [data-gf-part="button"] { flex: none; max-width: 320px; margin-top: 25px; }
-[data-gf-look="hub-inline"] > [data-gf-part="button"] > small { white-space: normal; overflow-wrap: anywhere; }
-/* 設定のタブの中：カードを、読みやすい幅で縦に並べる（今までの GUI の .settings-card と同じ幅） */
-[data-gf-look="hub-settings"] .gf-tabs-body > .gf-column { max-width: 820px; gap: 16px; }
+/* 設定のタブの中のカード */
 [data-gf-look="hub-settings"] [data-gf-look="card"] { padding: 18px 22px; gap: 10px; }
 /* 窓の中に重ねた入力の窓（モジュールを追加・アカウント等）：中身が長いときは、ボタンの行を残して中だけスクロールする */
-body[data-gf-screen="hub-add"] #stage > .gf-column, body[data-gf-screen="hub-account"] #stage > .gf-column { height: 100%; }
+body:is([data-gf-screen="hub-add"], [data-gf-screen="hub-account"]) [data-gf-role="window"] > [data-gf-part="column"] { height: 100%; }
 body[data-gf-screen="hub-add"] [data-gf-look="grow"], body[data-gf-screen="hub-account"] [data-gf-look="grow"] { overflow: auto; }
-/* その窓のボタンの行：押せない理由が下に出ても、ボタンの上端はそろえる */
+/* その窓のボタンの行：ボタンの上端はそろえる */
 body[data-gf-screen="hub-add"] [data-gf-look="actions"], body[data-gf-screen="hub-delete"] [data-gf-look="actions"] { align-items: flex-start; flex-wrap: nowrap; }
-body[data-gf-screen="hub-add"] [data-gf-look="actions"] .gf-wrap > small { max-width: 260px; text-align: right; }
 /* オペレーター：ページ自身はスクロールせず、タブの中身が残りの高さを使う（hub-fill-page・hub-fill-tabs）。
    会話のタブは、会話（hub-chat-log）が残りの高さを使って自分でスクロールし、入力欄は下に残る */
 [data-gf-look="hub-fill-page"] { flex: 1; min-width: 0; min-height: 0; padding: 20px 24px 20px; overflow: hidden; flex-wrap: nowrap; }
 [data-gf-look="hub-fill-tabs"] { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-[data-gf-look="hub-fill-tabs"] > .gf-tabs-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-[data-gf-look="hub-fill-tabs"] > .gf-tabs-body > [role="tabpanel"] { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+/* タブの帯と中身（部品 tabs の中） */
+:host([data-gf-look="hub-fill-tabs"]) .gf-tabs-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+:host([data-gf-look="hub-fill-tabs"]) .gf-tabs-body > [role="tabpanel"] { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
 [data-gf-look="hub-chat"] { flex: 1; min-height: 0; flex-wrap: nowrap; }
-[data-gf-look="hub-chat-log"] { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-[data-gf-look="hub-chat-log"] > gf-part { flex: 1; min-height: 0; display: block; }
-body:has([data-gf-look="hub-chat"]) #notices { bottom: 96px; }
+[data-gf-look="hub-chat-log"] { flex: 1; min-height: 0; }
+[data-gf-role="window"]:has([data-gf-look="hub-chat"]) { --eco-notices-bottom: 96px; }
 
 /* （ハブの節の終わり） */
 
@@ -229,7 +260,7 @@ body:has([data-gf-look="hub-chat"]) #notices { bottom: 96px; }
 [data-gf-look="tk-top"] > :first-child { flex: 1; min-width: 0; }
 [data-gf-look="tk-head"] { flex: none; gap: 0; }  /* 上の部分（画面 task-head）：題とボタン、その下に表示のタブと絞り込み */
 [data-gf-look="tk-body"] { flex: 1; min-height: 0; min-width: 0; }
-[data-gf-look="tk-body"] > * { min-height: 0; }
+:host([data-gf-look="tk-body"]) .gf-split > * { min-height: 0; }
 [data-gf-look="tk-main"] { min-height: 100%; min-width: 0; padding: 16px 20px 28px; }
 [data-gf-look="tk-detail"] { min-height: 100%; border-left: 1px solid var(--eco-line); background: #171c22; padding: 18px 18px 56px; }
 /* 入力の窓（中に重ねた画面）：部品 task-form が題・欄・ボタンを描く */
@@ -321,24 +352,18 @@ button.tk-sort span { font-size: 9px; color: var(--gf-accent); }
 
 /* 作業空間の窓：上に見出しとツールバー、真ん中は分割（左エクスプローラー／右コミット・共有、その下に出力欄）、下端にステータスバー。
    窓は自分ではスクロールしない（区画ごとにスクロールする）。 */
-#stage:has(> [data-gf-look="ws-window"]) { overflow: hidden; display: flex; }
-#stage > [data-gf-look="ws-window"] { flex: 1; min-width: 0; min-height: 0; padding: 0; gap: 0; }
-[data-gf-look="ws-window"] > .gf-split { flex: 1; min-height: 0; }
-[data-gf-look="ws-window"] .gf-split > .gf-split { min-height: 0; }
-[data-gf-look="ws-window"] .gf-pane > .gf-split { height: 100%; }
-[data-gf-look="ws-window"] .gf-split-bar { background: var(--eco-line); background-clip: content-box; padding: 0 3px; opacity: 1; }
-[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar { padding: 3px 0; }
-[data-gf-look="ws-window"] .gf-split-bar:hover, [data-gf-look="ws-window"] .gf-split-bar:focus-visible,
-[data-gf-look="ws-window"] .gf-split-bar[data-gf-dragging] { background-color: #5b8def; padding: 0 2px; }
-[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar:hover,
-[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar:focus-visible,
-[data-gf-look="ws-window"] .gf-split[data-gf-direction="column"] > .gf-split-bar[data-gf-dragging] { padding: 2px 0; }
-[data-gf-look="ws-window"] .gf-pane:has(> [data-gf-look="ws-fill"]) { overflow: hidden; }
-body:has([data-gf-look="ws-window"]) #runs { bottom: 34px; }
-body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
-/* ws-fill：置いた区画の高さいっぱいに広げる部品（中で自分がスクロールする） */
+[data-gf-role="window"] > [data-gf-look="ws-window"] { flex: 1; min-width: 0; min-height: 0; padding: 0; gap: 0; }
+[data-gf-look="ws-window"] > [data-gf-part="split"] { flex: 1; min-height: 0; }
+[data-gf-look="ws-window"] [data-gf-part="split"] > [data-gf-part="split"] { height: 100%; }
+/* 境目（部品 split の中）：線を見せ、乗せると青く */
+:host-context([data-gf-look="ws-window"]) .gf-split-bar { background: var(--eco-line); background-clip: content-box; padding: 0 3px; opacity: 1; }
+:host-context([data-gf-look="ws-window"]) .gf-split[data-gf-direction="column"] > .gf-split-bar { padding: 3px 0; }
+:host-context([data-gf-look="ws-window"]) .gf-split-bar:is(:hover, :focus-visible, [data-gf-dragging]) { background-color: #5b8def; padding: 0 2px; }
+:host-context([data-gf-look="ws-window"]) .gf-split[data-gf-direction="column"] > .gf-split-bar:is(:hover, :focus-visible, [data-gf-dragging]) { padding: 2px 0; }
+[data-gf-role="window"]:has([data-gf-look="ws-window"]) { --eco-runs-bottom: 34px; --eco-notices-bottom: 40px; }
+/* ws-fill：置いた区画の高さいっぱいに広げる部品（中で自分がスクロールする）。分割の区画に置いたときは、はみ出させない */
 [data-gf-look="ws-fill"] { height: 100%; min-height: 0; }
-[data-gf-look="ws-fill"] > gf-part { display: block; height: 100%; }
+[data-gf-part="split"] > [data-gf-look="ws-fill"] { overflow: hidden; }
 /* ws-work：右の「コミット・共有」。帯・タブ・今のタブのパネルを縦に並べる。パネルが残りの高さを使う */
 [data-gf-look="ws-work"] { min-height: 100%; padding: 0 14px 14px; gap: 0; }
 [data-gf-look="ws-banners"] { gap: 0; padding-top: 10px; }
@@ -346,15 +371,12 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 [data-gf-look="ws-panel"] { padding: 14px 16px; background: var(--eco-panel); border: 1px solid #343c46; border-top: 0; border-radius: 0 0 10px 10px; gap: 10px; }
 [data-gf-look="ws-panel-fill"] { flex: 1 1 0; min-height: 320px; padding: 14px 16px; background: var(--eco-panel); border: 1px solid #343c46; border-top: 0;
   border-radius: 0 0 10px 10px; gap: 0; }
-[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-fill"] { flex: 1 1 0; height: auto; display: flex; flex-direction: column; }
-[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-fill"] > gf-part { flex: 1 1 0; min-height: 0; height: auto; }
-[data-gf-look="ws-panel-fill"] > .gf-split { flex: 1 1 0; min-height: 0; }
+[data-gf-look="ws-panel-fill"] > [data-gf-look="ws-fill"] { flex: 1 1 0; min-height: 0; height: auto; }
+[data-gf-look="ws-panel-fill"] > [data-gf-part="split"] { flex: 1 1 0; min-height: 0; }
 /* ws-log：ログ（左に一覧、右に選んだコミットの変更）。タブの中でも、自分の窓でも、高さいっぱいに使う */
-#stage:has(> [data-gf-look="ws-log"]) { overflow: hidden; display: flex; }
-#stage > [data-gf-look="ws-log"] { flex: 1; min-width: 0; min-height: 0; padding: 12px 16px 16px; }
+[data-gf-role="window"] > [data-gf-look="ws-log"] { flex: 1; min-width: 0; min-height: 0; padding: 12px 16px 16px; }
 [data-gf-look="ws-panel-fill"] > [data-gf-look="ws-log"] { flex: 1 1 0; min-height: 0; }
-[data-gf-look="ws-log"] > .gf-split { flex: 1 1 0; min-height: 0; gap: 6px; }
-[data-gf-look="ws-log"] .gf-pane:has(> [data-gf-look="ws-fill"]) { overflow: hidden; }
+[data-gf-look="ws-log"] > [data-gf-part="split"] { flex: 1 1 0; min-height: 0; gap: 6px; }
 /* ws-dialog：窓の中に重ねて開く入力の窓・差分 */
 [data-gf-look="ws-dialog"] { gap: 12px; }
 
@@ -376,8 +398,7 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 [data-gf-look="ws-build-named"] { align-items: flex-end; gap: 10px; }
 [data-gf-look="ws-build-named"] > [data-gf-part="text-input"] { flex: 1; min-width: 220px; }
 /* 退避・注釈履歴の窓：一覧・本文が、残りの高さを使う */
-#stage:has(> [data-gf-look="ws-fill-page"]) { overflow: hidden; display: flex; }
-#stage > [data-gf-look="ws-fill-page"] { flex: 1; min-width: 0; min-height: 0; gap: 12px; flex-wrap: nowrap; }
+[data-gf-role="window"] > [data-gf-look="ws-fill-page"] { flex: 1; min-width: 0; min-height: 0; gap: 12px; flex-wrap: nowrap; }
 [data-gf-look="ws-fill-page"] > [data-gf-look="ws-fill"] { flex: 1 1 0; min-height: 0; height: auto; }
 
 /* （作業空間の節の終わり） */
@@ -389,8 +410,8 @@ body:has([data-gf-look="ws-window"]) #notices { bottom: 40px; }
 
 /* ブランチ：左の木と右の詳細（split）。高さいっぱいに使い、それぞれが自分でスクロールする */
 [data-gf-look="mod-branches"] { flex: 1; min-height: 320px; }
-[data-gf-look="mod-branches"] > .gf-pane { min-width: 0; min-height: 0; overflow: auto; }
-[data-gf-look="mod-branches"] > .gf-pane:first-child > * { height: 100%; }
+:host([data-gf-look="mod-branches"]) .gf-pane { min-width: 0; min-height: 0; overflow: auto; }
+[data-gf-look="mod-branches"] > :first-child { height: 100%; }
 [data-gf-look="mod-branch-side"] { padding: 2px 4px 20px 16px; gap: 18px; }
 /* 節の見出しの行（左に見出し・絞り込み、右にボタン）と、幅を抑えたページ */
 [data-gf-look="mod-section"] { align-items: center; flex-wrap: nowrap; gap: 10px; margin-top: 8px; }

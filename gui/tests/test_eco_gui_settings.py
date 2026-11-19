@@ -10,6 +10,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from guiframework.errors import RelayError  # noqa: E402
 
 from test_eco_gui import FakeEcobuild, answer, nodes  # noqa: E402
@@ -130,7 +132,7 @@ class FakeSettings(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeSettings(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeSettings(), **LOOK)
     return app.relay(threaded=True)
 
 
@@ -409,7 +411,7 @@ def test_container_summary_edits_the_dockerfile_opens_its_place_and_puts_the_tem
     relay.input(editor, "editor", "close", {}, human=True)
     relay.idle()
     assert editor not in [w["id"] for w in relay.display.windows()]
-    relay.input(window, "body:summary", "action", {"name": "reveal"}, human=True)  # 場所を開く：エクスプローラーで Dockerfile を選んで
+    relay.input(window, "body:summary", "view", {"name": "reveal"}, human=True)  # 場所を開く：エクスプローラーで Dockerfile を選んで
     relay.idle()
     assert ("open", {"path": [".ecobuild/container/Dockerfile"], "app": "explorer"}) in relay.backend.calls
     relay.input(window, "body:summary", "action", {"name": "place"}, human=True)  # リポジトリに置く：下見で確かめてから module upgrade

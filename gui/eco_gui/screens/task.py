@@ -6,14 +6,14 @@ SCREEN = {
     "root": "page",
     "window": {"one_per": "module", "title": "タスクの詳細", "width": 1360, "height": 880, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
-        {"id": "main", "layout": "column", "look": "tk-page", "children": ["top", "scroll"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "main", "part": "column", "look": "tk-page", "children": ["top", "scroll"]},
         {"id": "nav", "screen": "menu", "args": {"current": "board", "module": {"arg": "module"}}},
-        {"id": "top", "layout": "row", "look": "tk-top", "children": ["title", "back", "reload"]},
+        {"id": "top", "part": "row", "look": "tk-top", "children": ["title", "back", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "タスク管理", "heading": True}},
         {"id": "back", "part": "button", "props": {"label": "‹ 一覧へ"}},
         {"id": "reload", "part": "button", "props": {"label": "更新"}},
-        {"id": "scroll", "layout": "column", "look": "tk-single", "children": ["detail"]},
+        {"id": "scroll", "part": "column", "look": "tk-single", "children": ["detail"]},
         {"id": "detail", "screen": "task-pane", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "look": "tk-part", "closable": False}},
     ],
     "bindings": [

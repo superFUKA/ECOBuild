@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "このPCで足すパイプライン", "width": 600, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "このPCで足すパイプライン", "subject": {"arg": "label"}, "ok": "決める",
             "intro": "モジュールの当て方に足すだけで、外せません。コミットせず、この PC のこのモジュールのすべての場所（元の clone とすべての作業空間）に入れます。"

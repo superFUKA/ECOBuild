@@ -6,16 +6,16 @@ SCREEN = {
     "root": "page",
     "window": {"title": "コミットの変更", "width": 1040, "height": 760},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["detail", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["detail", "foot"]},
         {"id": "detail", "part": "ws-diff", "props": {"title": "コミットの変更", "sha": {"arg": "commit"}}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["external", "close"]},
-        {"id": "external", "part": "button", "props": {"label": "TortoiseGit で表示", "hint": "ecobuild show --gui（TortoiseGit が要ります）"}},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["external", "close"]},
+        {"id": "external", "part": "button", "look": "nowait", "props": {"label": "TortoiseGit で表示", "hint": "ecobuild show --gui（TortoiseGit が要ります）"}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
     ],
     "bindings": [
         {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}}, "to": "detail.text"},
         # この PC の道具で見る（ecobuild show --gui：TortoiseGit を開く。なければ、ecobuild がそう答える）
-        {"on": "external.pressed", "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}, "gui": True}},
+        {"on": "external.pressed", "run": "show", "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}, "gui": True}},
         {"on": "close.pressed", "close": True},
     ],
 }

@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "メンバーを招待", "width": 560, "height": 420},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "メンバーを招待", "ok": "招待",
             "intro": "GitHub のアカウントを共同作業者に招待します。相手が GitHub の通知・メールから受けると加わり、タスク管理の情報も共有されます。",

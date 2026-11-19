@@ -7,7 +7,8 @@ const CHOICES = ['current', 'incoming', 'both', 'both_incoming_first'];
 const START = /^<{7}(?: |\r?\n|$)/;
 
 export default {
-  render(root, props, { h, emit, state, redraw, menu }) {
+  render(root, props, { h, emit, state, redraw, lib }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     if (props.error) return root.replaceChildren(h('p', { role: 'alert' }, props.error));
     const data = props.data;
     if (!data) return root.replaceChildren(h('p', { role: 'status' }, h('span', { class: 'spinner' }), ' 読み込んでいます…'));

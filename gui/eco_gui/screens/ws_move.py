@@ -9,13 +9,13 @@ SCREEN = {
     "root": "page",
     "window": {"title": "移動", "width": 560, "height": 360},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["title", "source", "destination", "test", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["title", "source", "destination", "test", "foot"]},
         {"id": "title", "part": "note", "props": {"text": "名前の変更・移動", "heading": True}},
         {"id": "source", "part": "note", "props": {"text": {"arg": "path"}, "prefix": "動かすもの："}},
         {"id": "destination", "part": "text-input", "props": {
             "title": "移動先（モジュールからのパス。名前も書く）", "text": {"arg": "path"}, "placeholder": "例：src/util/text.py"}},
         {"id": "test", "part": "toggle", "props": {"label": "ライブラリのヘッダー・ソース、src/ のソースなら、対応するテストも移動する", "on": True}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["cancel", "move"]},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["cancel", "move"]},
         {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
         {"id": "move", "part": "button", "props": {"label": "移動", "primary": True}},
     ],

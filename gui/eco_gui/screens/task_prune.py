@@ -9,7 +9,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "このPCから片付ける", "width": 560, "height": 320},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "このPCから片付ける：#{issue}", "ok": "消す", "danger": True, "vars": {"issue": {"arg": "issue"}},
             "intro": "このPCのタスクブランチだけを消します。GitHubのブランチ・提出・タスクは残るので、「作業を再開」でPushしたところから続けられます。\n"

@@ -695,6 +695,7 @@ function wsFileAction(id, path, ctx, emit) {
   return act(id);
 }
 
+// 見本（guiframework_basic）の lib.js の上に、名前ごとに重なる。メニュー（lib.menu）は見本のもの
 export default {
   ws: { isReadme: wsIsReadme, isTest: wsIsTest, projects: wsProjects, projectOf: wsProjectOf, testable: wsTestable, testPlaces: wsTestPlaces,
     paired: wsPaired, fileMenu: wsFileMenu, fileAction: wsFileAction },

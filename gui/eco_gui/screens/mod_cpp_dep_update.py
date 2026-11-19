@@ -8,7 +8,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "依存先を更新", "width": 600, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "依存先を更新", "subject": {"arg": "name"}, "ok": "更新",
             "initial": {"place": {"arg": "module"}, "name": {"arg": "name"}, "at": {"arg": "at"}},

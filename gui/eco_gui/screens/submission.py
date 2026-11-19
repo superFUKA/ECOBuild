@@ -10,8 +10,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "提出", "width": 900, "height": 820, "refresh": {"focus": True, "every": 180}},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "detail"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "close"]},
+        {"id": "page", "part": "column", "children": ["head", "detail"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "close"]},
         {"id": "title", "part": "note", "props": {"text": "提出", "heading": True}},
         {"id": "close", "part": "button", "props": {"label": "閉じる"}},
         {"id": "detail", "part": "review-submission"},
@@ -24,7 +24,7 @@ SCREEN = {
         {"on": "close.pressed", "close": True},
         # 見る
         {"on": "detail.action", "when": {"action": "refresh"}, "refresh": True},
-        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "detail.view", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
         # タスク：モジュールの窓のタスク管理で、そのタスクを選んで右に詳細
         {"on": "detail.action", "when": {"action": "task"}, "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},

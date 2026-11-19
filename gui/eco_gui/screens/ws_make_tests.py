@@ -8,18 +8,18 @@ SCREEN = {
     "root": "page",
     "window": {"title": "テストを作成", "width": 560, "height": 380},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "ws-dialog", "children": ["title", "targets", "text", "foot"]},
+        {"id": "page", "part": "column", "look": "ws-dialog", "children": ["title", "targets", "text", "foot"]},
         {"id": "title", "part": "note", "props": {"text": "テストを作成", "heading": True}},
         {"id": "targets", "part": "string-list", "props": {"items": {"arg": "paths"}}},
         {"id": "text", "part": "note", "props": {"text": "のテストを、組のテスト用Projectの同じ構成の場所に作ります（テストが既にあるファイルは、そのままにします）。"}},
-        {"id": "foot", "layout": "row", "look": "actions", "children": ["cancel", "make"]},
+        {"id": "foot", "part": "row", "look": "actions", "children": ["cancel", "make"]},
         {"id": "cancel", "part": "button", "props": {"label": "キャンセル"}},
         {"id": "make", "part": "button", "props": {"label": "作成", "primary": True}},
     ],
     "bindings": [
         {"on": "make.pressed", "run": "file test", "args": {"module": {"arg": "module"}, "paths": {"arg": "paths"}},
          "parent": {"made": {"result": "paths"}}, "close": True,
-         "notify": "テストを作りました。[作らなかったもの：{skipped.0.path}（{skipped.0.reason}）など]"},
+         "notify": "テストを作りました。{skipped_note}"},
         {"on": "cancel.pressed", "close": True},
     ],
 }

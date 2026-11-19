@@ -7,7 +7,8 @@ const weekday = (n) => new Date(n * DAY).getUTCDay();
 const dateOf = (n) => new Date(n * DAY).toISOString().slice(0, 10);
 
 export default {
-  render(root, props, { h, lib, emit, menu, state, memory, redraw, open_url }) {
+  render(root, props, { h, lib, emit, state, memory, redraw, open_url }) {
+    const menu = (at, items) => lib.menu(root, at, items);  // 右クリック・⋯ のメニュー（lib.js）
     const { STAGE } = lib.task;
     const marks = lib.task.marks(h, emit, menu, props.sprints, props.me, open_url);
     if (props.error) return root.replaceChildren(marks.failed(props.error));

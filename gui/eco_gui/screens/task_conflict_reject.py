@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "衝突しています", "width": 560, "height": 460},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "取り込めません：#{issue}", "ok": "差し戻す", "danger": True, "vars": {"issue": {"arg": "issue"}, "files": {"arg": "files"}},
             "intro": "作成元（{base}）と衝突しているので、止めました（何も変えていません）。",

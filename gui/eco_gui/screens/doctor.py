@@ -4,8 +4,8 @@ SCREEN = {
     "root": "page",
     "window": {"title": "環境チェック", "width": 900, "height": 640},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["head", "items"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload"]},
+        {"id": "page", "part": "column", "children": ["head", "items"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload"]},
         {"id": "title", "part": "note", "props": {"text": "環境チェック", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "チェックする"}},
         {"id": "items", "part": "hub-doctor"},

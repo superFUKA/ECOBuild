@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "最新の仕様にする", "width": 600, "height": 560},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "最新の仕様にする", "subject": {"arg": "branch"}, "ok": "最新の仕様にする", "vars": {"branch": {"arg": "branch"}},
             "fields": [

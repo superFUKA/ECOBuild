@@ -6,7 +6,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "スキルを追加", "width": 560, "height": 680},
     "nodes": [
-        {"id": "page", "layout": "column", "children": ["form"]},
+        {"id": "page", "part": "column", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "スキルを追加", "ok": "追加",
             "intro": "このモジュールのスキルを足します。保存するとリポジトリにコミットし、提出して取り込まれるとエージェントに渡ります（役の「使えるスキル」に合うもの）。",

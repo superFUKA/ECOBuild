@@ -10,7 +10,7 @@ SCREEN = {
     "root": "page",
     "window": {"title": "完了にする", "width": 560, "height": 380},
     "nodes": [
-        {"id": "page", "layout": "column", "look": "tk-dialog", "children": ["form"]},
+        {"id": "page", "part": "column", "look": "tk-dialog", "children": ["form"]},
         {"id": "form", "part": "form", "props": {
             "title": "完了にする：#{issue}", "ok": "完了にする", "vars": {"issue": {"arg": "issue"}},
             "outcome": [
@@ -25,7 +25,7 @@ SCREEN = {
     ],
     "bindings": [
         {"read": "task status", "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}}, "to": "form.values"},
-        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "完了にしました。[次の候補：#{next.number} {next.title}]", "close": True,
+        {"on": "form.submitted", "run": "task finish", "confirmed": True, "notify": "完了にしました。{next_note}", "close": True,
          "args": {"module": {"arg": "module"}, "number": {"arg": "issue"}, "ignore_checks": {"payload": "values.ignore_checks"}, "complete": True},
          "instead": {"when": {"code": "pull_request_conflict"}, "open": "task-conflict-fix", "here": True,
                      "args": {"module": {"arg": "module"}, "issue": {"arg": "issue"}, "files": {"error": "details"}}}},

@@ -10,6 +10,8 @@ import pytest
 pytest.importorskip("guiframework")
 
 from guiframework import create_app  # noqa: E402
+
+from eco_gui.look import LOOK  # noqa: E402
 from test_eco_gui import FakeEcobuild, answer, nodes, without_tortoisegit  # noqa: E402
 
 
@@ -138,7 +140,7 @@ class FakeReview(FakeEcobuild):
 @pytest.fixture
 def relay():
     eco_gui = importlib.import_module("eco_gui")
-    app = create_app(eco_gui, backend=FakeReview(), roles={"confirm": "confirm-box"})
+    app = create_app(eco_gui, backend=FakeReview(), **LOOK)
     return app.relay(threaded=True)
 
 
@@ -231,7 +233,8 @@ def submission(relay, task=20):
 
 
 def act(relay, window, action, task=20, **more):
-    relay.input(window, "detail", "action", {"action": action, "id": str(task), "base": "main", "partial": False, "workspace": "", **more}, human=True)
+    output = "view" if action == "diff" else "action"  # 見るだけの操作（差分）は出力 view
+    relay.input(window, "detail", output, {"action": action, "id": str(task), "base": "main", "partial": False, "workspace": "", **more}, human=True)
     relay.idle()
 
 

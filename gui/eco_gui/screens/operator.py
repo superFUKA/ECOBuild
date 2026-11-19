@@ -8,25 +8,25 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "operator"}},
-        {"id": "main", "layout": "column", "look": "hub-fill-page", "children": ["head", "tabs"]},
-        {"id": "head", "layout": "row", "look": "bar", "children": ["title", "reload", "new"]},
+        {"id": "main", "part": "column", "look": "hub-fill-page", "children": ["head", "tabs"]},
+        {"id": "head", "part": "row", "look": "bar", "children": ["title", "reload", "new"]},
         {"id": "title", "part": "note", "props": {"text": "オペレーター", "heading": True}},
         {"id": "reload", "part": "button", "props": {"label": "読み直す", "quiet": True}},
         {"id": "new", "part": "button", "props": {"label": "新しい会話", "hint": "今の会話を終えて、新しく始めます"}},
-        {"id": "tabs", "layout": "tabs", "look": "hub-fill-tabs", "props": {"labels": ["会話", "エージェント", "話し方"]},
+        {"id": "tabs", "part": "tabs", "look": "hub-fill-tabs", "props": {"labels": {"talk": "会話", "agents": "エージェント", "style": "話し方"}},
          "children": ["talk", "agents", "style"]},
 
         # --- 会話（ecobuild gui conversation・gui ask --continue・gui conversation-new） ---
-        {"id": "talk", "layout": "column", "look": "hub-chat", "children": ["chat", "input"]},
+        {"id": "talk", "part": "column", "look": "hub-chat", "children": ["chat", "input"]},
         {"id": "chat", "part": "hub-operator-chat", "look": "hub-chat-log", "props": {
             "intro": "AI はコードを書かず、ecobuild のコマンドで操作します。消す・取り返しのつかない操作は、実行する前に確認します。"}},
         {"id": "input", "part": "hub-operator-input", "props": {
             "placeholder": "例：Calc の新しいタスク「ログを出す」を作って開始して（Enter で送る、Shift+Enter で改行）"}},
 
         # --- このPCのエージェント（ecobuild agent list・status・children・stop・restart・close・send） ---
-        {"id": "agents", "layout": "column", "children": ["list", "selected", "status", "children_title", "children", "send"]},
+        {"id": "agents", "part": "column", "children": ["list", "selected", "status", "children_title", "children", "send"]},
         {"id": "list", "part": "pick-rows", "props": {
             "columns": [{"key": "title", "label": "役"}, {"key": "name", "label": "名前"}, {"key": "task.number", "label": "タスク"},
                         {"key": "branch", "label": "タスクブランチ"}, {"key": "state", "label": "様子"},
@@ -59,15 +59,15 @@ SCREEN = {
                        "reported": {"true": "あり", "false": ""}},
             "empty_text": "子はいません（「見る」で選ぶと出ます）。",
         }},
-        {"id": "send", "layout": "row", "children": ["message", "do_send"]},
+        {"id": "send", "part": "row", "children": ["message", "do_send"]},
         {"id": "message", "part": "text-input", "props": {"title": "選んだエージェントへの言付け", "placeholder": "伝えること（作業中でも、次の区切りで届きます）"}},
         {"id": "do_send", "part": "button", "props": {"label": "送る", "primary": True}},
 
         # --- オペレーターの話し方（設定 operator_style） ---
-        {"id": "style", "layout": "column", "children": ["style_note", "style_text", "style_actions"]},
+        {"id": "style", "part": "column", "children": ["style_note", "style_text", "style_actions"]},
         {"id": "style_note", "part": "note", "props": {"text": "オペレーター（GUI の案内・操作係のエージェント）の口調・答え方です。口調・言い回しだけが変わります（結果・エラー・数字はそのまま）。次の発言から効きます。"}},
         {"id": "style_text", "part": "text-area", "props": {"title": "口調・答え方", "rows": 5, "placeholder": "例：やさしい敬語で、短く。結果は最初に一言で"}},
-        {"id": "style_actions", "layout": "row", "children": ["style_save", "style_unset"]},
+        {"id": "style_actions", "part": "row", "children": ["style_save", "style_unset"]},
         {"id": "style_save", "part": "button", "props": {"label": "保存", "primary": True, "hint": "書き直してから押します"}},
         {"id": "style_unset", "part": "button", "props": {"label": "指定をやめる"}},
     ],

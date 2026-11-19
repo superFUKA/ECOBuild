@@ -4,9 +4,9 @@ SCREEN = {
     "root": "page",
     "window": {"title": "ECOBuild Hub", "width": 1000, "height": 720},
     "nodes": [
-        {"id": "page", "layout": "row", "look": "shell", "children": ["nav", "main"]},
+        {"id": "page", "part": "row", "look": "shell", "children": ["nav", "main"]},
         {"id": "nav", "screen": "hub-menu", "args": {"current": "hub-help"}},
-        {"id": "main", "layout": "column", "look": "cfg-fill-page", "children": ["guide"]},
+        {"id": "main", "part": "column", "look": "cfg-fill-page", "children": ["guide"]},
         {"id": "guide", "screen": "help-guide"},
     ],
     "bindings": [],

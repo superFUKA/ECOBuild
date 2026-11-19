@@ -213,6 +213,30 @@ class ContainerModule:
         self.require_task_branch("コンテナの環境（Dockerfile）の変更")
         return save_environment_dockerfile(self.root, text, source or self.container_source() or SOURCE, runner)
 
+    def before_rename(self, path) -> list[str]:
+        """module rename：コンテナにした作業空間のコンテナの中で、何かが動いていれば移せない（エージェント・端末等）。
+        コンテナの名前・ボリュームは場所から作るので、移す前に消す（before_relocate）。"""
+        found = list(super().before_rename(path))
+        if not enabled(Path(path)):
+            return found
+        status = docker.status(docker.run)
+        if not status.ready:
+            return found
+        if container_state(Path(path), None, status.command) == "running" and _in_use(Path(path), None, status.command):
+            found.append(f"コンテナ {name(Path(path))} の中で動いているものがあります")
+        return found
+
+    def before_relocate(self, places) -> list[str]:
+        """module rename：フォルダーを移す前に、コンテナにした作業空間のコンテナを消す（名前・ボリュームが前の場所のもの
+        になるため。次に使うときに作り直す）。コンテナの中の記録（エージェントの会話等）も消える。"""
+        found = list(super().before_relocate(places))
+        for place in places:
+            if enabled(Path(place)):
+                shown = name(Path(place))
+                if discard(Path(place)):
+                    found.append(f"コンテナ {shown} を消しました（中の記録・会話も。次に使うときに作り直します）")
+        return found
+
     @classmethod
     def close_workspace(cls, path, **options):
         """閉じたら、その作業空間のコンテナも消す（Docker が使えなければそのまま。中のものは作業空間にない）。

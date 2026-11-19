@@ -160,6 +160,7 @@ class GitHub(TaskGitHub, Protocol):
     def open_counts(self, name: str) -> tuple[int, int]: ...
     def delete_repository(self, name: str) -> None: ...
     def archive_repository(self, name: str, *, archived: bool = True) -> None: ...
+    def rename_repository(self, name: str, new_name: str) -> RepositoryInfo: ...
     def owner_repositories(self, owner: str | None, file: str) -> list[OwnedRepository]: ...
     def delete_secret(self, repo: Path, name: str) -> None: ...
     def pull_request_activity(self, repo: Path, number: int) -> PullRequestActivity: ...
@@ -272,6 +273,18 @@ class GhCli(_TaskGhCli):
         completed = self._gh(args, cwd=None, check=False)
         if not completed.ok:
             raise gh_error(args, completed)
+
+    def rename_repository(self, name, new_name):
+        """リポジトリ name（所有者/名前）の名前を new_name（所有者は同じ）にする。GitHub は古い名前からの転送を残す。
+        新しい名前のリポジトリを返す。"""
+        args = ["repo", "rename", new_name, "--repo", name, "--yes"]
+        completed = self._gh(args, cwd=None, check=False)
+        if not completed.ok:
+            if re.search(r"already exists|name already", completed.output, re.IGNORECASE):
+                raise WorkError(ErrorCode.ALREADY_EXISTS, f"GitHubにリポジトリ {name.partition('/')[0]}/{new_name} が既にあります。",
+                                hint="別の名前にしてください。", details=completed.output)
+            raise gh_error(args, completed)
+        return self.get_repository(f"{name.partition('/')[0]}/{new_name}")
 
     def owner_repositories(self, owner, file):
         """所有者のリポジトリ（owner が None ならログイン中のユーザー）。既定のブランチの file（リポジトリの

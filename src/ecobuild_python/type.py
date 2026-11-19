@@ -18,7 +18,7 @@ from ecobuild.fsutil import remove_tree
 from ecobuild.module_type import Builds, HasFiles, ModuleType
 from ecobuild.results import BuildResult, FilesChanged, RunResult, TestEntry, TestResult
 
-from . import _python, _scaffold
+from . import _python, _rename, _scaffold
 
 TABLE = "python"
 DEFAULT_VERSIONS = ("3.12",)
@@ -245,6 +245,21 @@ python3 -m venv .venv
         from ecobuild import settings
         return _python.ensure_environment(self.root, _python.base_python(settings.load_config().get("python")),
                                           force=force)
+
+    # 改名 ---------------------------------------------------------------------
+
+    def rename(self, previous: str, *, dry_run: bool = False) -> tuple[str, ...]:
+        """パッケージ名（前の名前の小文字）も新しい名前にする：pyproject の name・scripts、src/<パッケージ>/、import、
+        tests/test_<パッケージ>.py（_rename）。"""
+        return _rename.rename(self.root, previous, self.module.name, dry_run=dry_run)
+
+    def relocated(self) -> tuple[str, ...]:
+        """仮想環境（.venv。中のスクリプト・editable の記録に前の場所が入っている）を消す。次のビルドで作り直す。"""
+        venv = self.root / _python.VENV
+        if not venv.is_dir():
+            return ()
+        remove_tree(venv)
+        return (_python.VENV,)
 
     # ファイル ---------------------------------------------------------------------
 

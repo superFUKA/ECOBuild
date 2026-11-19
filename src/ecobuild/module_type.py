@@ -337,6 +337,12 @@ class HasDependencies(ABC):
     def sync_dependencies(self) -> tuple["DependencyChange", ...]:
         ...
 
+    def move_dependency(self, name: str, url: str) -> "DependencyChange":
+        """依存先 name が GitHub で名前を変えた（moved）：記録の URL を新しい url にし、場所の名前・手元の clone（origin も）
+        を新しい名前に合わせる（版は変えない）。deps update・deps sync がタスクブランチで呼ぶ（コミットは本体）。
+        直せなければ action skipped で理由を返す。対応しない型は not_supported（本体は知らせるだけにする）。"""
+        raise self.not_supported("依存先の名前の変更")   # type: ignore[attr-defined]
+
     def work_dependency(self, name: str, *, task: int | None = None, branch: str | None = None,
                         done: bool = False) -> "DependencyWorkResult":
         """依存先 name の手元の clone を、依存先のブランチ（task：依存先のリポジトリのタスクのブランチ、branch：任意の

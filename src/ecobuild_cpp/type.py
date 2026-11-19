@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
@@ -1127,6 +1128,64 @@ jobs:
         self._update()
         return changes
 
+    def move_dependency(self, name: str, url: str) -> DependencyChange:
+        """記録の URL・場所の名前（deps/<名前>。前の URL の既定の名前なら新しい既定の名前に）・references・手元の clone
+        （場所と origin）を新しい名前に合わせ、生成ファイルを作り直す。ほかの依存先が前の URL で記録していれば、同じ
+        リポジトリが2つになるので直さない（skipped。そちらを先に直す）。途中で失敗したら記録と clone を戻す。"""
+        _cppbuild.fetch_dependencies(self.root)   # 依存先の依存先の記録を読むため、足りない clone を取る
+        source = self._source(name)
+        users = _cppbuild.recorders_of(self.root, source.url)
+        if users:
+            return DependencyChange(name, "skipped", f"GitHub で {url} に名前が変わっていますが、依存先 {'、'.join(users)} も"
+                                                     "前の URL で記録しているため、そのままにしました（そちらを先に新しい名前に）")
+        kept = _snapshot(self.root / _cppbuild.CONFIG_DIRECTORY)
+        state = self._dependency_state(source).state
+        new_name, before, after = _cppbuild.rename_git_source(self.root, name, url)
+        moved = False
+        aside = None   # 新しい場所の clone を使うとき、前の clone を脇へ（同じ Project が2つあると構成が止まる）
+        try:
+            if before != after and before.exists() and after.exists() and _same_repository(after, url):
+                # 新しい場所に同じリポジトリの clone がある（依存先の依存先として先に取られた）：そちらを使う。前の clone は
+                # 記録の版のままなら消す。作業版・変更があれば、失わないよう直さない
+                if state != "aligned":
+                    _restore(kept)
+                    return DependencyChange(name, "skipped",
+                                            f"GitHub で {url} に名前が変わり、新しい場所 {after} に clone がありますが、前の clone "
+                                            f"{before} が作業版か変更ありのため直しませんでした（片付けてから、もう一度）")
+                aside = self.root / _cppbuild.BUILD_DIRECTORY / f"moved-{before.name}"   # 依存先の置き場所の外（build/ は除外済み）
+                if aside.exists():
+                    remove_tree(aside)
+                aside.parent.mkdir(parents=True, exist_ok=True)
+                before.rename(aside)
+            elif before != after and before.exists():
+                if after.exists():
+                    raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"依存先の新しい場所 {after} が既にあります。",
+                                        hint="そのフォルダーを片付けてから、もう一度実行してください。")
+                before.rename(after)
+                moved = True
+            if (after / ".git").exists():
+                Git(after, command=self.module.command).set_config("remote.origin.url", url)
+            self._update()
+        except BaseException as error:
+            for origin, target in [(after, before)] * moved + [(aside, before)] * (aside is not None):
+                try:
+                    origin.rename(target)
+                except OSError:
+                    self.module.repository.notices.append(f"依存先の clone を {origin} から {target} へ戻せませんでした。手で戻してください。")
+            if moved and (before / ".git").exists():
+                with contextlib.suppress(Exception):
+                    Git(before, command=self.module.command).set_config("remote.origin.url", source.url)
+            _restore(kept)
+            if isinstance(error, OSError):
+                raise EcoBuildError(ErrorCode.IN_USE, f"依存先の clone {before} は、ほかのプログラムが使っているため移せません。",
+                                    hint="Visual Studio・エディター・端末等で開いていれば閉じてから、もう一度実行してください。",
+                                    details=str(error)) from None
+            raise
+        if aside is not None:
+            remove_tree(aside)
+        place = f"（場所 {name} → {new_name}）" if new_name != name else ""
+        return DependencyChange(new_name, "moved", f"GitHub で名前が変わったため {source.url} → {url}{place}")
+
     def _align_dependencies(self, only: set[str] | None = None) -> tuple[DependencyChange, ...]:
         """依存先を記録の版に合わせる。作業版（task/のブランチ）・手元で変更やコミットのあるものは触らない。
         only：合わせる依存先をこれに絞る（新しく clone したものは、いつも含める）。"""
@@ -1267,6 +1326,16 @@ jobs:
         clone.run("switch", "--quiet", "--detach", source.revision)
         _work.forget(clone)
         return DependencyWorkResult(source.name, "done", None, source.revision, previous, self.sync_dependencies())
+
+
+def _same_repository(clone: Path, url: str) -> bool:
+    """clone の origin が url と同じリポジトリか（末尾の / ・.git の違い、大文字・小文字は同じとみなす）。"""
+    try:
+        origin = Git(clone).get_config("remote.origin.url") or ""
+    except Exception:
+        return False
+    from ecobuild.workspaces import identity
+    return bool(origin) and identity(origin) == identity(url)   # GitHub なら 所有者/名前 で（https・ssh の違いは同じ）
 
 
 def _snapshot(directory: Path) -> dict[Path, tuple[bytes, int, int]]:

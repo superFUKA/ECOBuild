@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shlex
@@ -1345,6 +1346,65 @@ def record_revision(root: Path, name: str, revision: str | None = None) -> str:
     except Exception as error:
         raise _cppbuild_error(f"依存先 {name} の{'最新' if revision is None else ' ' + revision + ' '}を取得できません。",
                               error) from error
+
+
+def recorders_of(root: Path, url: str) -> tuple[str, ...]:
+    """手元に clone のある依存先のうち、url（同じリポジトリ）を自分でも記録しているものの名前。"""
+    from cppbuild.git_sources import _records, identity
+    solution = open_solution(root)
+    try:
+        return tuple(sorted(s.name for s in solution.git_sources() if s.present and s.name != _name_of(solution, url)
+                            and any(identity(r.url) == identity(url) for r in _records(s.config).values())))
+    except Exception as error:
+        raise _cppbuild_error("依存先を読み込めません。", error) from error
+
+
+def _name_of(solution: Solution, url: str) -> str | None:
+    from cppbuild.git_sources import identity
+    return next((n for n, r in solution.settings.get().git_sources.items() if identity(r.url) == identity(url)), None)
+
+
+def rename_git_source(root: Path, name: str, url: str) -> tuple[str, Path, Path]:
+    """依存先 name の記録を、GitHub で名前が変わった先の url にする（版は同じ）。場所の名前が前の URL から作った既定の
+    名前なら、新しい URL の既定の名前にし、その中を指す references も付け替える。clone は動かさない（呼ぶ側が移す）。
+    返り値：(新しい場所の名前, 前の clone の場所, 新しい clone の場所)。
+
+    CppBuild に場所の名前を変える API がないので、設定の保存（references は link・unlink だけが変えられる）の中の
+    書き出しを直接使う（CppBuild 依頼の下書き：memo の CppBuild依頼 17）。"""
+    from copy import deepcopy
+    from cppbuild import storage
+    from cppbuild.git_sources import base, default_name, identity, unique_name
+    from cppbuild.models import GitSource
+    from cppbuild.paths import relative
+    solution = open_solution(root)
+    settings = solution.settings
+    try:
+        values = deepcopy(settings.get())
+        record = values.git_sources.get(name)
+        if record is None:
+            raise EcoBuildError(ErrorCode.DEPENDENCY_NOT_FOUND, f"依存先 {name} はありません。")
+        others = set(values.git_sources) - {name}
+        hashed = f"{default_name(record.url)}-{hashlib.sha256(identity(record.url).encode()).hexdigest()[:8]}"
+        default = name in (default_name(record.url), hashed)   # 前の URL から作った名前（衝突でハッシュを付けたものも）
+        new_name = unique_name(url, others) if default else name
+        place = base(solution.root, values)
+        before, after = place / name, place / new_name
+        del values.git_sources[name]
+        values.git_sources[new_name] = GitSource(url, record.revision, record.path)
+        if new_name != name:
+            for reference in values.references.values():
+                found = (solution.root / reference.solution_directory).resolve()
+                if found.is_relative_to(before.resolve()):
+                    reference.solution_directory = relative(solution.root, after / found.relative_to(before.resolve()))
+        settings._validate(values)
+        with storage.write_lock(settings.path.parent):
+            settings._assert_unchanged()
+            settings._publish(values)
+    except EcoBuildError:
+        raise
+    except Exception as error:
+        raise _cppbuild_error(f"依存先 {name} の記録を新しい名前にできません。", error) from error
+    return new_name, before, after
 
 
 # 内部 ----------------------------------------------------------------------

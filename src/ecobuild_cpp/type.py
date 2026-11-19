@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
@@ -1126,6 +1127,45 @@ jobs:
         changes = self._align_dependencies()
         self._update()
         return changes
+
+    def move_dependency(self, name: str, url: str) -> DependencyChange:
+        """記録の URL・場所の名前（deps/<名前>。前の URL の既定の名前なら新しい既定の名前に）・references・手元の clone
+        （場所と origin）を新しい名前に合わせ、生成ファイルを作り直す。ほかの依存先が前の URL で記録していれば、同じ
+        リポジトリが2つになるので直さない（skipped。そちらを先に直す）。途中で失敗したら記録と clone を戻す。"""
+        source = self._source(name)
+        users = _cppbuild.recorders_of(self.root, source.url)
+        if users:
+            return DependencyChange(name, "skipped", f"GitHub で {url} に名前が変わっていますが、依存先 {'、'.join(users)} も"
+                                                     "前の URL で記録しているため、そのままにしました（そちらを先に新しい名前に）")
+        kept = _snapshot(self.root / _cppbuild.CONFIG_DIRECTORY)
+        new_name, before, after = _cppbuild.rename_git_source(self.root, name, url)
+        moved = False
+        try:
+            if before != after and before.exists():
+                if after.exists():
+                    raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"依存先の新しい場所 {after} が既にあります。",
+                                        hint="そのフォルダーを片付けてから、もう一度実行してください。")
+                try:
+                    before.rename(after)
+                except OSError as error:
+                    raise EcoBuildError(ErrorCode.IN_USE, f"依存先の clone {before} は、ほかのプログラムが使っているため移せません。",
+                                        hint="Visual Studio・エディター・端末等で開いていれば閉じてから、もう一度実行してください。",
+                                        details=str(error)) from None
+                moved = True
+            if (after / ".git").exists():
+                Git(after, command=self.module.command).set_config("remote.origin.url", url)
+            self._update()
+        except BaseException:
+            if moved:
+                with contextlib.suppress(OSError):
+                    after.rename(before)
+            if (before / ".git").exists():
+                with contextlib.suppress(Exception):
+                    Git(before, command=self.module.command).set_config("remote.origin.url", source.url)
+            _restore(kept)
+            raise
+        place = f"（場所 {name} → {new_name}）" if new_name != name else ""
+        return DependencyChange(new_name, "moved", f"GitHub で名前が変わったため {source.url} → {url}{place}")
 
     def _align_dependencies(self, only: set[str] | None = None) -> tuple[DependencyChange, ...]:
         """依存先を記録の版に合わせる。作業版（task/のブランチ）・手元で変更やコミットのあるものは触らない。

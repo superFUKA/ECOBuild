@@ -233,7 +233,7 @@ class DependencyTree:
 @dataclass(frozen=True)
 class DependencyChange:
     name: str
-    action: str                      # cloned / aligned / unchanged / skipped
+    action: str                      # cloned / aligned / unchanged / skipped / moved（GitHub の名前の変更に合わせた）
     reason: str | None = None
 
 

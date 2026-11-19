@@ -50,6 +50,7 @@ class FakeGitHub:
         self.shared_boards: dict[str, tuple[str, ...]] = {}
         self.deleted_repositories: list[str] = []
         self.archived_repositories: list[str] = []
+        self.github_urls = False   # others の clone の URL を GitHub の形に（試験が git の url.<…>.insteadOf で bare へ向ける）
         self.moved: dict[str, str] = {}                     # 改名した古い名前 → 新しい名前（GitHub の転送）
         self.renamed_repositories: list[tuple[str, str]] = []   # rename_repository の呼び出し（所有者/名前, 新しい名前）
         self.collaborator_roles: dict[str, str] = {}        # 共同作業者 → 役割（members）
@@ -75,7 +76,8 @@ class FakeGitHub:
             return self.get_repository(f"{name.split('/')[0]}/{self.moved[short]}" if "/" in name else self.moved[short])
         if short in self.others:  # 試験で登録した別のリポジトリ（link の相手等）
             full = name if "/" in name else f"{self.owner}/{short}"
-            return RepositoryInfo(full, "file:///" + self.others[short].as_posix(), f"https://example.invalid/{full}")
+            clone_url = f"https://github.com/{full}.git" if self.github_urls else "file:///" + self.others[short].as_posix()
+            return RepositoryInfo(full, clone_url, f"https://example.invalid/{full}")
         bare = getattr(self, "bare", None)
         if bare is None or name.split("/")[-1] != bare.stem:
             raise WorkError(ErrorCode.REPOSITORY_NOT_FOUND, f"GitHubにリポジトリ {name} が見つかりません。")

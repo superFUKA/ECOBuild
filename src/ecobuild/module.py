@@ -1668,18 +1668,71 @@ class Module:
                                 hint=f"{self.op('deps update')} <依存先> --at <版>")
         self.require_task_branch("依存先の更新")
         before = self.own_changes()
-        result = self._dependencies("依存先").update_dependencies(name, revision)
+        dependencies = self._dependencies("依存先")
+        moved = self._follow_moved(name)   # GitHub で名前が変わった依存先は、先に新しい名前に
+        if name is not None:
+            name = next((m.name for m, old in moved if old == name and m.action == "moved"), name)
+        result = dependencies.update_dependencies(name, revision)
         self.commit_own_changes(f"依存先 {name} を {revision} に" if revision else
                                 f"依存先 {name} を最新に" if name else "依存先を最新に", before)
-        return result
+        return tuple(m for m, _ in moved) + result
+
+    def _follow_moved(self, name: str | None = None) -> list[tuple[DependencyChange, str]]:
+        """直接の依存先のうち GitHub で名前が変わったもの（moved。name があればそれだけ）を、型に新しい名前へ直させる
+        （記録の URL・場所の名前・手元の clone）。返り値：(変化, 前の名前) の一覧。型が対応しなければ知らせるだけ。"""
+        found = []
+        for dependency in self._direct_dependencies():
+            if name is not None and dependency.name != name:
+                continue
+            url = self._moved_url(dependency.url)
+            if url is None:
+                continue
+            try:
+                found.append((self._dependencies("依存先").move_dependency(dependency.name, url), dependency.name))
+            except EcoBuildError as error:
+                if error.code != ErrorCode.NOT_SUPPORTED:
+                    raise
+                self.repository.notices.append(f"依存先 {dependency.name} は GitHub で {url} に名前が変わっています"
+                                               "（記録は前の URL のまま。GitHub の転送で使えます）。")
+        return found
+
+    def _moved_url(self, url: str) -> str | None:
+        """GitHub のリポジトリ url の名前が変わっていれば、新しい名前の URL（形は保つ）。変わっていない・GitHub でない・
+        問い合わせられなければ None。"""
+        name = _workspaces.github_name(url)
+        if name is None:
+            return None
+        try:
+            info = self.repository.github.get_repository(name)
+        except WorkError:
+            return None
+        if info.full_name.casefold() == name.casefold():
+            return None
+        return _renamed_url(url, info.full_name, info.clone_url)
 
     def dependency_versions(self, name: str, *, branch: str | None = None, count: int = 30) -> DependencyVersions:
         """依存先 name の選べる版（deps update --at・deps add --at で選ぶもの）。"""
         return self._dependencies("依存先の版の一覧").dependency_versions(name, branch=branch, count=count)
 
     def sync_dependencies(self) -> tuple[DependencyChange, ...]:
-        """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。"""
-        return self.type.sync_dependencies() if isinstance(self.type, HasDependencies) else ()
+        """手元の依存先を記録の版に合わせる（作業版・変更のあるものは触らない）。GitHub で名前が変わった依存先（moved）は、
+        タスクブランチなら新しい名前に直して「依存先の名前の変更に合わせる」としてコミットする（ほかのブランチでは知らせる
+        だけ。記録は前の URL のまま、GitHub の転送で使える）。"""
+        if not isinstance(self.type, HasDependencies):
+            return ()
+        moved: list[tuple[DependencyChange, str]] = []
+        if self.repository.current_task_branch() is not None:
+            before = self.own_changes()
+            moved = self._follow_moved()
+            if any(m.action == "moved" for m, _ in moved):
+                self.commit_own_changes("依存先の名前の変更に合わせる", before)
+        else:
+            for dependency in self._direct_dependencies():
+                if (url := self._moved_url(dependency.url)) is not None:
+                    self.repository.notices.append(
+                        f"依存先 {dependency.name} は GitHub で {url} に名前が変わっています。タスクブランチで "
+                        f"{self.op('deps sync')}（か {self.op('deps update')}）すると、記録と手元の clone を新しい名前に直します。")
+        return tuple(m for m, _ in moved) + self.type.sync_dependencies()
 
     def work_dependency(self, name: str, *, task: int | None = None, branch: str | None = None,
                         done: bool = False) -> DependencyWorkResult:

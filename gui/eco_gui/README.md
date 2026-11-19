@@ -6,7 +6,7 @@
 - 中継地点が、人が打つのと同じ `ecobuild -C <モジュール> <コマンド> --json` を呼びます。
 - ecobuild のコマンドの一覧は、今は自前の形で出るので、`backend.py` が GUIFrameWork の約束の形（CLIFrameWork の構造化出力の形）に直しています。フレームワークの側は ecobuild の形を知りません。
 - 表示の CLI（`python -m eco_gui.app <命令>`）で、端末・スクリプト・AI から同じ表示を出せ、今の表示の状況を読めます。
-- 窓の枠・重ねた箱の枠・並べる部品（`row`・`column`・`tabs`・`split`）・メニュー（`lib.menu`）は、GUIFrameWork の見本 `guiframework_basic` を使い（`look.py`）、見た目は `theme.css` で ECOBuild のものにしています（`lib.js` の `menu` は、窓の端からはみ出さないように寄せる版）。
+- 窓の枠・重ねた箱の枠・並べる部品（`row`・`column`・`tabs`・`split`）・メニュー（`lib.menu`）は、GUIFrameWork の見本 `guiframework_basic` を使い（`look.py`）、見た目は `theme.css` で ECOBuild のものにしています。
 - 実行中の部品は止めて薄くします（二度押しを防ぐ）。外の道具で開く・差分・注釈履歴・表示など見るだけの操作は、部品が出力 `view` で出し（ボタンは look `nowait`）、`theme.css` が止めないようにしています（ファイルを開いている間も一覧を触れる）。
 
 ## インストーラーで入れる

@@ -695,61 +695,10 @@ function wsFileAction(id, path, ctx, emit) {
   return act(id);
 }
 
-// --- メニュー（menu） ---------------------------------------------------------------
-// 右クリック・⋯ のメニュー。見本（guiframework_basic の lib.js）の menu と同じ使い方（lib.menu(root, 出来事, 項目)）で、
-// 窓の端からはみ出さないように寄せる（右下で開いても全部見える。今までの GUI と同じ）。選んだ項目の id（選ばなければ null）を返す。
-// 項目：{ id, label, hint（右に出す文字）, disabled, reason（使えない理由）, danger } ／ { separator: true } ／ { heading: 文 }
-// Esc は、このメニューだけを閉じる（preventDefault するので、子の窓は閉じない）。外を押したときに閉じるのは popover（auto）。
-function menuOf(h) {
-  return (root, at, items) => new Promise((resolve) => {
-    const box = h('div', { class: 'gf-menu', role: 'menu', popover: 'auto' });
-    let done = false;
-    const finish = (id) => {
-      if (done) return;
-      done = true;
-      clearInterval(watch);
-      if (box.matches(':popover-open')) box.hidePopover();
-      box.remove();
-      resolve(id);
-    };
-    box.addEventListener('toggle', (event) => { if (event.newState === 'closed') finish(null); });
-    const watch = setInterval(() => { if (!box.isConnected) finish(null); }, 500);  // 部品が描き直して消した
-    for (const item of items || []) {
-      if (item.separator) { box.append(h('hr', {})); continue; }
-      if (item.heading) { box.append(h('div', {}, item.heading)); continue; }
-      const button = h('button', { type: 'button', role: 'menuitem' }, h('span', {}, item.label));
-      if (item.hint) button.append(h('small', {}, item.hint));
-      if (item.danger) button.dataset.danger = '';
-      if (item.disabled) { button.disabled = true; button.title = item.reason || ''; }
-      button.addEventListener('click', () => finish(item.id));
-      box.append(button);
-    }
-    box.addEventListener('keydown', (event) => {
-      const buttons = [...box.querySelectorAll('button:not(:disabled)')];
-      const index = buttons.indexOf(event.target);
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(null); }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-        event.preventDefault();
-        const next = buttons[(index + (event.key === 'ArrowDown' ? 1 : buttons.length - 1)) % buttons.length];
-        if (next) next.focus();
-      }
-    });
-    root.append(box);
-    box.showPopover();
-    const x = at && typeof at.clientX === 'number' ? at.clientX : 0;
-    const y = at && typeof at.clientY === 'number' ? at.clientY : 0;
-    box.style.left = `${Math.max(4, Math.min(x, innerWidth - box.offsetWidth - 4))}px`;
-    box.style.top = `${Math.max(4, Math.min(y, innerHeight - box.offsetHeight - 4))}px`;
-    const first = box.querySelector('button:not(:disabled)');
-    if (first) first.focus();
-  });
-}
-
-// 本体が { h } を渡して呼ぶ（メニューが要素を作るため）。見本の lib.js の上に、名前ごとに重なる（menu はこちらが勝つ）
-export default ({ h }) => ({
-  menu: menuOf(h),
+// 見本（guiframework_basic）の lib.js の上に、名前ごとに重なる。メニュー（lib.menu）は見本のもの
+export default {
   ws: { isReadme: wsIsReadme, isTest: wsIsTest, projects: wsProjects, projectOf: wsProjectOf, testable: wsTestable, testPlaces: wsTestPlaces,
     paired: wsPaired, fileMenu: wsFileMenu, fileAction: wsFileAction },
   form: { render: formRender, options: formOptions },
   task: { STAGES, STAGE, PRIORITIES, marks: taskMarks, filter: taskFilter, today: taskToday, md: taskMd, currentSprint: taskCurrentSprint },
-});
+};

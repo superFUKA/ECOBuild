@@ -99,23 +99,58 @@ def test_rename_refuses_beforehand(tmp_path):
     assert github.renamed_repositories == [] and root.is_dir()
 
 
-def test_rename_continues_after_a_refused_push(tmp_path):
-    """GitHub の名前を変えた後で push を断られたら、直してからもう一度呼ぶと続きから行う（フォルダーも移す）。"""
+def test_a_refused_push_changes_nothing(tmp_path):
+    """作成元への push を断られたら（ブランチの保護等）、GitHub の名前を変える前なので何も変わっていない。"""
     module, github = made(tmp_path)
     root = module.root
     hook = github.bare / "hooks" / "pre-receive"
-    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
+    hook.write_bytes(b"#!/bin/sh" + b"\n" + b"exit 1" + b"\n")
     assert code_of(lambda: module.rename("Tool")) == ErrorCode.PROTECTED_BRANCH
-    assert github.renamed_repositories == [("tester/Plain", "Tool")]
-    assert git(root, "config", "--get", "remote.origin.url").strip() == str(github.bare)   # origin は合わせてある
-    assert root.is_dir() and config.load(root / config.FILE_NAME).name == "Plain"
+    assert github.renamed_repositories == [] and root.is_dir()
+    assert "ecobuild.renaming" not in git(root, "config", "--local", "--list")
+    hook.unlink()
+    assert module.rename("Tool").moved
 
-    (github.bare / "hooks" / "pre-receive").unlink()
-    done = Module.find(root, github=github).rename("Tool")
-    assert not done.github and done.commit and done.moved
-    assert github.renamed_repositories == [("tester/Plain", "Tool")]
-    new_root = root.with_name("Tool")
-    assert config.load(new_root / config.FILE_NAME).name == "Tool" and not root.exists()
+
+def test_rename_continues_after_stopping_midway(tmp_path, monkeypatch):
+    """GitHub の名前を変えるところで止まっても（push は済み）、もう一度呼ぶと続きから行う。フォルダーを移せずに止まっても同じ。"""
+    module, github = made(tmp_path)
+    root = module.root
+    real = github.rename_repository
+
+    def broken(name, new_name):
+        raise EcoBuildError(ErrorCode.GIT_ERROR, "つながりません")
+    monkeypatch.setattr(github, "rename_repository", broken)
+    assert code_of(lambda: module.rename("Tool")) == ErrorCode.GIT_ERROR
+    assert git(root, "show", "origin/main:.ecobuild/ecobuild.toml").count('name = "Tool"') == 1   # push は済み
+    pushed = git(root, "rev-parse", "origin/main")
+    monkeypatch.setattr(github, "rename_repository", real)
+
+    import ecobuild.module as core
+    monkeypatch.setattr(core, "_move_folder", lambda *a, **k: (_ for _ in ()).throw(
+        EcoBuildError(ErrorCode.IN_USE, "使われています")))
+    assert code_of(lambda: Module.find(root, github=github).rename("Tool")) == ErrorCode.IN_USE
+    assert github.renamed_repositories == [("tester/Plain", "Tool")] and root.is_dir()
+    assert config.load(root / config.FILE_NAME).name == "Tool"   # 手元の main は進んだ（フォルダーはまだ）
+    monkeypatch.undo()
+
+    done = Module.find(root, github=github).rename("Tool")   # 前の名前は途中の印から分かる
+    assert done.moved and done.commit is None and not done.github
+    assert git(root.with_name("Tool"), "rev-parse", "origin/main") == pushed and not root.exists()
+
+
+def test_only_case_changes(tmp_path):
+    module, github = made(tmp_path)
+    done = module.rename("PLAIN")
+    assert done.moved and github.bare.name == "PLAIN.git"
+    assert [p.name for p in (tmp_path / "mods").iterdir()] == ["PLAIN"]
+
+
+def test_worktree_outside_the_workspaces_is_refused(tmp_path):
+    module, _ = made(tmp_path)
+    git(module.root, "worktree", "add", "--quiet", "-b", "mine", str(tmp_path / "mine"))
+    assert code_of(lambda: module.rename("Tool")) == ErrorCode.INVALID_ARGUMENT
+    assert module.root.is_dir()
 
 
 def test_folder_with_another_name_stays(tmp_path):
@@ -136,7 +171,10 @@ def test_python_package_is_renamed(tmp_path):
     root = module.root
     (root / "src" / "calc" / "core.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
     (root / "tests" / "test_core.py").write_text(
-        "from calc.core import add\nimport calc\n\n\ndef test_add():\n    assert add(1, 2) == 3 and calc.__doc__\n",
+        "from calc.core import add\nimport calc\n\n\ndef test_add(monkeypatch):\n    assert add(1, 2) == 3 and calc.__doc__\n"
+        "    monkeypatch.setattr(\"calc.core.add\", add)\n", encoding="utf-8")
+    (root / "src" / "calc" / "files.py").write_text(   # 関係のない文字列・名前・コメントは変えない
+        "def save(calc):\n    # calc の結果を書く\n    open(\"calc.csv\", \"w\").write(\"calc: done\")\n    return calc\n",
         encoding="utf-8")
     git(root, "add", "--all")
     git(root, "commit", "--quiet", "-m", "足し算")
@@ -153,4 +191,7 @@ def test_python_package_is_renamed(tmp_path):
     assert "import adder" in (new_root / "tests" / "test_adder.py").read_text(encoding="utf-8")
     core_test = (new_root / "tests" / "test_core.py").read_text(encoding="utf-8")
     assert "from adder.core import add" in core_test and "adder.__doc__" in core_test and "calc" not in core_test
+    assert '"adder.core.add"' in core_test
+    files = (new_root / "src" / "adder" / "files.py").read_text(encoding="utf-8")
+    assert files.count("calc") == 5 and "adder" not in files
     assert git(new_root, "show", "--name-status", "--format=", done.commit).count("R") >= 2   # 移したものは移動として

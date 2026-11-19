@@ -55,6 +55,7 @@ def command(
             *r.cleaned,
             "作業空間のタスクブランチは、ecobuild sync で新しい名前を取り込みます" if r.workspaces else None,
             "依存元（このモジュールを使うモジュール）は、そちらで ecobuild deps update すると新しい名前に直ります",
+            "Claude Code の会話の一覧・エージェントと流れの記録は前の場所のものなので、移した先には出ません" if r.moved else None,
             f"cd \"{r.new_root}\" で移った先へ" if r.moved else None,
         )
 

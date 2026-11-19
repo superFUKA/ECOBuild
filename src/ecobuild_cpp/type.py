@@ -333,8 +333,7 @@ jobs:
         if not (self.root / _cppbuild.CONFIG_DIRECTORY).is_dir() or _settings.solution_name(self.root) != previous:
             return ()
         if not dry_run:
-            _settings.set_solution_name(self.root, self.module.name)
-            self.refresh()
+            _settings.set_solution_name(self.root, self.module.name)   # 生成ファイルも作り直す（CppBuild の構成まで）
         return (f"{_cppbuild.CONFIG_DIRECTORY}/solution.json",)
 
     def relocated(self) -> tuple[str, ...]:

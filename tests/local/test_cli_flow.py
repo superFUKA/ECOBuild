@@ -107,13 +107,19 @@ def test_cli_full_cycle(cli, module):
 
 
 def test_commit_paths_and_track(cli, module):
-    """パスを書けば対象外のファイルも含める。管理するファイルは ecobuild track で足せる。"""
+    """ファイルの名前を書けば対象外のファイルも含める（フォルダーを書いただけでは含めない）。管理するファイルは
+    ecobuild track で足せる。"""
     work = start(cli, "task", "new", "記録", "--start", "--name", "作業")
     write(work / "data" / "a.json", "{}\n")
     write(work / "b.json", "{}\n")
     nothing = as_json(cli("task", "commit", "--message", "x", "--json"))
     assert nothing["error"]["code"] == "nothing_to_commit" and "data/a.json" in nothing["error"]["hint"]
-    chosen = as_json(cli("task", "commit", "data", "--message", "データ", "--json"))["result"]
+    write(work / "data" / "x.cpp", "int x;\n")
+    folder = as_json(cli("task", "commit", "data", "--message", "フォルダー", "--json"))["result"]
+    assert folder["files"] == ["data/x.cpp"] and folder["skipped"] == ["data/a.json"] and folder["outside"] == []
+    only = as_json(cli("task", "commit", "data", "--message", "x", "--json"))
+    assert only["error"]["code"] == "nothing_to_commit" and "data/a.json" in only["error"]["hint"]
+    chosen = as_json(cli("task", "commit", "data/a.json", "--message", "データ", "--json"))["result"]
     assert chosen["files"] == ["data/a.json"] and chosen["outside"] == ["data/a.json"]
     listed = as_json(cli("track", "--json"))["result"]
     assert {"pattern": "*.cpp", "source": "type", "excluded": False} in listed["patterns"]

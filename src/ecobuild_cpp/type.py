@@ -1013,9 +1013,12 @@ jobs:
         if name:
             self._source(name)
         updated = {}
+        working = []   # 作業版のため記録を進めなかった依存先
         for each in names:
             source = self._source(each)
             before = source.revision
+            work = self._work_of(source)
+            kept = _snapshot(self.root / _cppbuild.CONFIG_DIRECTORY) if work is not None else None
             # コミットのハッシュなら、手元の clone を取り込み直して長いハッシュに（CppBuild は短いハッシュを手元の clone の
             # 中だけで解く）。GitHub のブランチにない（push していない）なら、どこにあるかを添えて断る
             resolved = _revisions.commit_for(source.url, revision, source.directory, command=self.module.command)
@@ -1026,7 +1029,25 @@ jobs:
                 if revision is None or resolved is not None or error.code != ErrorCode.CPPBUILD_ERROR:
                     raise
                 raise _revisions.unresolved(each, source.url, revision, error, command=self.module.command) from error
-        changes = []
+            try:
+                recorded = kept is None or self._work_recorded(source, work, updated[each][1])
+            except BaseException:
+                _restore(kept)
+                raise
+            if not recorded:
+                # 作業版のまま記録を進めない（作業が新しい版に入って＝取り込まれてから。設計_依存先を変える流れ）。
+                # 書く前の中身と更新時刻に戻す（GitHub に問い合わせ直さない。前からの未コミットの変更もコミットされない）
+                _restore(kept)
+                del updated[each]
+                if name:
+                    raise EcoBuildError(
+                        ErrorCode.INVALID_ARGUMENT,
+                        f"依存先 {each} は作業版（{work.branch}）で、その作業は{'その版' if revision else 'GitHub の最新'}に"
+                        "まだ入っていません。記録は変えませんでした。",
+                        hint=f"作業が取り込まれてから {self.module.op('deps update')} {each}。squash・rebase で取り込んだ・"
+                             f"作業版をやめて記録を進めるなら {self.module.op('deps work')} {each} --done の後に。")
+                working.append(DependencyChange(each, "skipped", f"作業版です（{work.branch}）。記録はそのまま"))
+        changes = list(working)
         for change in self._align_dependencies():
             if change.name not in updated:
                 continue
@@ -1037,6 +1058,22 @@ jobs:
                                             note if change.reason is None else f"{note}（{change.reason}）"))
         self._update()
         return tuple(changes)
+
+    def _work_of(self, source) -> DependencyWorkSource | None:
+        """依存先の手元の clone が作業版なら、その作業（_work.read）。"""
+        if not (Path(source.directory) / ".git").exists():
+            return None
+        return _work.read(Git(Path(source.directory), command=self.module.command), source.revision)
+
+    def _work_recorded(self, source, work: DependencyWorkSource, recorded: str) -> bool:
+        """作業版の作業（取ってきたコミット。依存先の中で task start したものは今のコミット）が、新しい記録の版に入ったか。"""
+        clone = Git(Path(source.directory), command=self.module.command)
+        commit = work.commit or clone.rev_parse("HEAD")
+        if commit is None:
+            return False
+        if clone.rev_parse(recorded) is None:
+            clone.fetch()
+        return commit == recorded or clone.is_ancestor(commit, recorded)
 
     def dependency_versions(self, name: str, *, branch: str | None = None, count: int = 30) -> DependencyVersions:
         """手元の clone（deps/<名前>）に GitHub から取り込み直して読む（clone がなければ deps sync を案内）。"""
@@ -1213,6 +1250,28 @@ jobs:
         clone.run("switch", "--quiet", "--detach", source.revision)
         _work.forget(clone)
         return DependencyWorkResult(source.name, "done", None, source.revision, previous, self.sync_dependencies())
+
+
+def _snapshot(directory: Path) -> dict[Path, tuple[bytes, int, int]]:
+    """directory の下のファイルの中身と更新時刻（_restore で書き戻す）。"""
+    kept = {}
+    for path in directory.rglob("*"):
+        if path.is_file():
+            stat = path.stat()
+            kept[path] = (path.read_bytes(), stat.st_atime_ns, stat.st_mtime_ns)
+    return kept
+
+
+def _restore(kept: dict[Path, tuple[bytes, int, int]] | None) -> None:
+    """_snapshot の中身と更新時刻に戻す（変わったものだけ）。"""
+    for path, (data, atime, mtime) in (kept or {}).items():
+        try:
+            if path.read_bytes() == data:
+                continue
+        except OSError:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        os.utime(path, ns=(atime, mtime))
 
 
 def _unpublished(clone: Git, head: str | None) -> bool:

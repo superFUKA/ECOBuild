@@ -17,7 +17,8 @@ def command(
 
     パスを省くと、変更・削除したファイルすべてと、管理するファイル（ecobuild track）に当たる新しいファイルを含めます。
     当たらない新しいファイルと、改行コード（CRLF／LF）だけが変わったファイルは含めず、一覧で知らせます。
-    パスを書くと、そのファイルだけをコミットします（改行コードだけの変更も含めます）。
+    パスを書くと、そのファイル・フォルダーだけをコミットします（改行コードだけの変更も含めます）。対象外の新しいファイルは、
+    ファイルの名前を書いたものだけ含めます（フォルダーを書いても、その下の対象外のファイルは含めず、一覧で知らせます）。
     コミットの前・後に当てたパイプライン（ecobuild pipeline on）があれば走らせます。前のものが失敗したらコミットしません。
     """
     if not message and not amend:
@@ -33,7 +34,7 @@ def command(
             "\n".join(f"  {p}" for p in r.files) or None,
             f"管理するファイルの対象外ですが、指定どおり含めました：{', '.join(r.outside)}" if r.outside else None,
             f"含めなかった新しいファイル：{', '.join(r.skipped)}（管理するファイルの対象外。"
-            "含めるなら ecobuild track add \"<パターン>\"、今回だけなら ecobuild task commit <パス> --message …）"
+            "含めるなら ecobuild track add \"<パターン>\"、今回だけならファイルの名前を書いて ecobuild task commit <ファイル> --message …）"
             if r.skipped else None,
             f"注意：改行コード（CRLF／LF）だけが変わったファイルは含めませんでした：{', '.join(r.eol_only)}"
             "（含めるなら ecobuild task commit <パス> --message …）" if r.eol_only else None,

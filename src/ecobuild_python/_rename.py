@@ -140,10 +140,15 @@ def _imports(text: str, old: str, new: str, package: Path) -> str:
             continue
         before, first = code[index - 1], starts[index]
         after = code[index + 1] if index + 1 < len(code) else None
-        if before.type == tokenize.NAME and before.string in ("import", "from") and first.string in ("import", "from"):
+        # from calc… の from の直後（from tools import calc の後ろの名前は別のもの）と、import calc… ・import os, calc の段の頭
+        in_from = first.string == "from" and before is first
+        in_import = first.string == "import" and before.string in ("import", ",")
+        if in_from or in_import:
             imported.append(index)
-            if before.string == "import" and first.string == "import" and not (after and after.string == "as"):
+            if in_import and not (after and after.string in ("as", ".")):
                 plain = True
+            elif in_import and after and after.string == ".":
+                plain = True   # import calc.core も calc を名前にする
     edits = list(imported)
     if plain:   # import calc の後の calc.…（ほかのものの属性 x.calc は除く）
         edits += [index for index, t in enumerate(code) if t.type == tokenize.NAME and t.string == old

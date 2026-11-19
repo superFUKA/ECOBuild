@@ -1949,7 +1949,13 @@ class Module:
             git.set_config(_RENAMING_KEY, old_name if old_name != new_name else short)
         if rename_github:
             say("GitHub のリポジトリの名前を変更中…")
-            info = github.rename_repository(current, new_name)
+            try:
+                info = github.rename_repository(current, new_name)
+            except WorkError as error:
+                raise EcoBuildError(error.code, f"GitHub のリポジトリの名前を変えられませんでした（{error.message}）。"
+                                    + (f"作成元 {base} への書き換えは push 済みです。" if pushed else ""),
+                                    hint=f"直してから、もう一度 {self.op('module rename')} {new_name} を実行すると、"
+                                         "続きから行います。", details=error.details) from error
         else:
             info = github.get_repository(target)
         for clone in origins:
@@ -2709,7 +2715,7 @@ def _set_aside(roots: list[Path]) -> list[tuple[Path, Path]]:
 def _renamed_url(url: str, full_name: str, clone_url: str) -> str:
     """origin の URL url を、GitHub のリポジトリ full_name のものにする。末尾が「所有者/名前（.git）」のリモートの URL なら
     形（https・ssh・ssh の別名のホスト）を保ってそこだけ変え、手元の場所（試験の bare 等）・ほかは clone_url。"""
-    if re.match(r"[A-Za-z]:[\/]", url) or url.startswith(("/", ".", "file:")):
+    if re.match(r"[A-Za-z]:[\\/]", url) or url.startswith(("/", ".", "file:")):
         return clone_url
     found = re.search(r"[:/]([^/:]+/[^/:]+?)(?:\.git)?/?$", url)
     if found is None:

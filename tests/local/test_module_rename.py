@@ -174,8 +174,9 @@ def test_python_package_is_renamed(tmp_path):
         "from calc.core import add\nimport calc\n\n\ndef test_add(monkeypatch):\n    assert add(1, 2) == 3 and calc.__doc__\n"
         "    monkeypatch.setattr(\"calc.core.add\", add)\n", encoding="utf-8")
     (root / "src" / "calc" / "files.py").write_text(   # 関係のない文字列・名前・コメントは変えない
-        "def save(calc):\n    # calc の結果を書く\n    open(\"calc.csv\", \"w\").write(\"calc: done\")\n    return calc\n",
-        encoding="utf-8")
+        "from tools import calc\n\n\ndef save(calc):\n    # calc の結果を書く\n    open(\"calc.csv\", \"w\").write(\"calc: done\")\n"
+        "    return calc\n", encoding="utf-8")
+    (root / "tests" / "test_more.py").write_text("import os, calc\nfrom calc import core\n", encoding="utf-8")
     git(root, "add", "--all")
     git(root, "commit", "--quiet", "-m", "足し算")
     git(root, "push", "--quiet", "origin", "main")
@@ -193,5 +194,6 @@ def test_python_package_is_renamed(tmp_path):
     assert "from adder.core import add" in core_test and "adder.__doc__" in core_test and "calc" not in core_test
     assert '"adder.core.add"' in core_test
     files = (new_root / "src" / "adder" / "files.py").read_text(encoding="utf-8")
-    assert files.count("calc") == 5 and "adder" not in files
+    assert files.count("calc") == 6 and "adder" not in files
+    assert (new_root / "tests" / "test_more.py").read_text(encoding="utf-8") == "import os, adder\nfrom adder import core\n"
     assert git(new_root, "show", "--name-status", "--format=", done.commit).count("R") >= 2   # 移したものは移動として

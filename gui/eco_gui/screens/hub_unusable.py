@@ -20,7 +20,7 @@ SCREEN = {
     ],
     "bindings": [
         {"on": "cancel.pressed", "close": True},
-        {"on": "folder.pressed", "run": "open", "args": {"module": {"arg": "path"}, "app": "explorer"}},
+        {"on": "folder.pressed", "run": "open", "busy": False, "args": {"module": {"arg": "path"}, "app": "explorer"}},
         {"on": "forget.pressed", "run": "workspace forget", "args": {"path": {"arg": "path"}}, "notify": "一覧から外しました。", "close": True},
     ],
 }

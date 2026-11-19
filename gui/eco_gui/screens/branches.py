@@ -43,7 +43,7 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "tree.reload", "refresh": True},
         {"on": "detail.reload", "refresh": True},
-        {"on": "log.pressed", "run": "log", "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
+        {"on": "log.pressed", "run": "log", "busy": False, "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
         # 作る：入力の窓（作成元の初めの値は、選んでいるブランチ）
         {"on": "create.pressed", "open": "mod-branch-new", "args": {"module": {"arg": "module"}, "base": {"value": "branch"}}, "inside": True},
         # 選んだブランチの操作

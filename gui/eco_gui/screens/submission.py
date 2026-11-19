@@ -24,7 +24,7 @@ SCREEN = {
         {"on": "close.pressed", "close": True},
         # 見る
         {"on": "detail.action", "when": {"action": "refresh"}, "refresh": True},
-        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
+        {"on": "detail.action", "when": {"action": "diff"}, "run": "task diff", "busy": False, "args": {"module": {"arg": "module"}, "task": {"payload": "id"}, "gui": True},
          "instead": {"when": {"code": "tool_missing"}, "open": "review-diff", "args": {"module": {"arg": "module"}, "task": {"payload": "id"}}, "inside": True}},
         # タスク：モジュールの窓のタスク管理で、そのタスクを選んで右に詳細
         {"on": "detail.action", "when": {"action": "task"}, "open": "tasks", "args": {"module": {"arg": "module"}, "pick": {"payload": "id"}}},

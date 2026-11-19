@@ -32,6 +32,6 @@ SCREEN = {
         {"on": "reload.pressed", "refresh": True},
         {"on": "log.reload", "refresh": True},
         {"on": "detail.reload", "refresh": True},
-        {"on": "graph.pressed", "run": "log", "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
+        {"on": "graph.pressed", "run": "log", "busy": False, "args": {"module": {"arg": "module"}, "all": True, "gui": True}},
     ],
 }

@@ -15,7 +15,7 @@ SCREEN = {
     "bindings": [
         {"read": "show", "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}}, "to": "detail.text"},
         # この PC の道具で見る（ecobuild show --gui：TortoiseGit を開く。なければ、ecobuild がそう答える）
-        {"on": "external.pressed", "run": "show", "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}, "gui": True}},
+        {"on": "external.pressed", "run": "show", "busy": False, "args": {"module": {"arg": "module"}, "commit": {"arg": "commit"}, "gui": True}},
         {"on": "close.pressed", "close": True},
     ],
 }

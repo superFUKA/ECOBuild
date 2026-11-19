@@ -143,8 +143,8 @@ html.eco-frameless body[data-gf-screen^="hub"]::before, html.eco-frameless body[
 .gf-notices button { border: 0; background: transparent; padding: 0 6px; font-size: 16px; }
 /* 重ねた箱（本体が出し入れする dialog[data-gf-dialog]：答えを待つ部品・確認は overlay、子の窓の幕は shade、重ねた子の窓は inside）。
    中の枠は役 dialog の部品（見本の dialog：依頼元 .gf-requester・幕の文と「前に出す」・中身） */
-dialog { padding: 24px; background: var(--eco-panel); color: var(--gf-fg); border: 1px solid var(--gf-border); border-radius: 12px; box-shadow: 0 24px 80px #0008;
-  width: min(560px, calc(100% - 32px)); max-height: 88vh; }
+dialog, dialog[data-gf-dialog] { padding: 24px; background: var(--eco-panel); color: var(--gf-fg); border: 1px solid var(--gf-border); border-radius: 12px; box-shadow: 0 24px 80px #0008; }
+dialog:not([data-gf-dialog="inside"]) { width: min(560px, calc(100% - 32px)); max-height: 88vh; }  /* 重ねた子の窓の大きさは、本体が --gf-width・--gf-height で渡す */
 dialog::backdrop { background: #0009; }
 :host([data-gf-role="dialog"]) > div { display: contents; }
 .gf-requester { display: block; margin-bottom: .4rem; color: var(--eco-dim); font-size: 11px; }
@@ -185,8 +185,15 @@ gf-part:is([data-gf-running="view"], [data-gf-part="mod-files"][data-gf-running=
   [data-gf-part="output"][data-gf-running="opened"], [data-gf-part="ws-blame"][data-gf-running="opened"],
   [data-gf-part="review-conflict"][data-gf-running="tortoise"], [data-gf-part="task-detail"][data-gf-running="submission"],
   [data-gf-look="nowait"][data-gf-running]):not([data-gf-unavailable]) { opacity: 1; --gf-stop: 0; }
-/* 押せない理由は、部品の下に並べない（ボタンの下に長い文を出すと行が崩れる。今までの GUI と同じ） */
+/* 使えない部品：今までの GUI と同じく、中身を薄くして乗せても反応させない（旧の inert と同じ手触り）。
+   押せない理由は部品の下に並べず（ボタンの下に長い文を出すと行が崩れる）、乗せたときだけ浮かせて出す（旧の包みの title の代わり） */
+@layer gf-unavailable { gf-part[data-gf-unavailable]:not(:is([data-gf-part="row"], [data-gf-part="column"], [data-gf-part="tabs"], [data-gf-part="split"])) { opacity: 1; } }
+:host([data-gf-unavailable]:not(:is([data-gf-part="row"], [data-gf-part="column"], [data-gf-part="tabs"], [data-gf-part="split"]))) > div { opacity: .5; pointer-events: none; }
+gf-part[data-gf-unavailable] { position: relative; cursor: default; }
 gf-part[data-gf-unavailable]::after { display: none; }
+gf-part[data-gf-unavailable]:not([data-gf-unavailable=""]):hover::after { display: block; position: absolute; left: 0; top: calc(100% + 4px); z-index: 30;
+  width: max-content; max-width: 320px; padding: 6px 10px; border-radius: 6px; background: #252b33; border: 1px solid var(--gf-border);
+  box-shadow: 0 6px 18px #0006; color: #dbe3eb; font-size: 12px; line-height: 1.6; white-space: normal; pointer-events: none; }
 
 /* --- 窓の作り（look） ---
    shell：左のメニュー＋右のページ（モジュールの窓・ハブ）。page：ページ（縦に並べ、自分でスクロールする）。

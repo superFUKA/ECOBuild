@@ -845,6 +845,47 @@ def source_directories(root: Path, project: str) -> tuple[str, ...]:
     return tuple(solution.get_subproject(project).settings.get().source_directories)
 
 
+_batch = threading.local()   # one_update の中：作り直しを待っているモジュール（root）と、足したファイル
+
+
+@contextmanager
+def one_update(root: Path) -> Iterator[None]:
+    """この中の add_file の構成の作り直し（cmake の構成）を、最後に1回にする（ヘッダーとそのテストを続けて足すと、
+    1つ足すたびに構成を作り直していた）。途中で失敗しても、それまでに足したファイルの分は作り直す（1つずつのときと同じ）。"""
+    if getattr(_batch, "root", None) is not None:   # 入れ子：外側がまとめて作り直す
+        yield
+        return
+    _batch.root, _batch.paths = Path(root), []
+    failed = interrupted = False
+    try:
+        yield
+    except Exception:
+        failed = True
+        raise
+    except BaseException:   # Ctrl+C 等：作り直しを待たせない（1つずつのときも、中断の後は作り直さない）
+        interrupted = True
+        raise
+    finally:
+        paths, _batch.root, _batch.paths = _batch.paths, None, []
+        if paths and not interrupted:
+            try:
+                open_solution(root).update()
+            except EcoBuildError:
+                if not failed:   # 先の誤りがあれば、そちらを出す
+                    raise
+            except Exception as error:
+                if not failed:   # 1つずつのときと同じ文（作り直しに失敗したのは、最初に足したファイルの後）
+                    raise _cppbuild_error(f"{paths[0]} を追加できません。", error) from error
+
+
+def _update_after_add(root: Path, solution, path: str) -> None:
+    """add_file の後の構成の作り直し。one_update の中なら、最後に1回にまとめる。"""
+    if getattr(_batch, "root", None) == Path(root):
+        _batch.paths.append(path)
+    else:
+        solution.update()
+
+
 def add_file(root: Path, project: str, path: str, *, replacements: dict | None = None,
              template: str | None = None) -> str:
     """Projectにファイルを足す（拡張子でテンプレートを選ぶ）。モジュールからの相対パスを返す。"""
@@ -864,7 +905,7 @@ def add_file(root: Path, project: str, path: str, *, replacements: dict | None =
             target.add_file(path, content="", auto_update=False)
         else:
             target.add_file(path, template_name=template, replacements=replacements, auto_update=False)
-        solution.update()
+        _update_after_add(root, solution, path)
     except FileExistsError:
         raise EcoBuildError(ErrorCode.ALREADY_EXISTS, f"{path} は既に存在します。") from None
     except Exception as error:

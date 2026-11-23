@@ -549,14 +549,15 @@ jobs:
         ordered = headers + [p for p in paths if p not in headers]
         sources = {p.stem for p in paths if p.suffix.lower() in _cppbuild.SOURCE_SUFFIXES}
         changed = []
-        for path in ordered:
-            pair = None
-            if path.suffix.lower() in _cppbuild.SOURCE_SUFFIXES:
-                same = [h for h in headers if h.stem == path.stem]
-                pair = next((h for h in same if h.parent == path.parent), same[0] if same else None)
-            # ヘッダーのテストは、同じ名前のソースを一緒に足すならそちら（テストは1つ）
-            changed.append(self.add_file(path, test=test and not (path in headers and path.stem in sources),
-                                         template=template, pair_header=pair))
+        with _cppbuild.one_update(self.root):   # 構成の作り直しは最後に1回
+            for path in ordered:
+                pair = None
+                if path.suffix.lower() in _cppbuild.SOURCE_SUFFIXES:
+                    same = [h for h in headers if h.stem == path.stem]
+                    pair = next((h for h in same if h.parent == path.parent), same[0] if same else None)
+                # ヘッダーのテストは、同じ名前のソースを一緒に足すならそちら（テストは1つ）
+                changed.append(self.add_file(path, test=test and not (path in headers and path.stem in sources),
+                                             template=template, pair_header=pair))
         return changed
 
     def add_file(self, path: Path, *, test: bool, template: str | None = None,
@@ -565,6 +566,10 @@ jobs:
         テストはそれを読み込む）。同じ場所のテストが既にあれば（同じ名前のヘッダー・ソースを先に足した）作らない。
         template を指定すると、そのテンプレートから作る（テストは作らない）。pair_header：一緒に足したヘッダー
         （ソースはそれを相対パスで読み込む）。"""
+        with _cppbuild.one_update(self.root):   # ファイルとそのテストを足しても、構成の作り直しは1回
+            return self._add_file(path, test=test, template=template, pair_header=pair_header)
+
+    def _add_file(self, path: Path, *, test: bool, template: str | None, pair_header: Path | None) -> FilesChanged:
         project, relative = self._in_project(path)
         self._require_source_directory(path, project, relative)
         header = self._header_for(project, relative)

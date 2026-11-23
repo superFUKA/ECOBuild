@@ -34,8 +34,14 @@ def test_file_add_mirrors_test_and_builds(module, monkeypatch):
     write(root / "Geo/include/Geo/shape/Circle.h",
           "#pragma once\nnamespace geo { inline double area(double r) { return 3.0 * r * r; } }\n")
     monkeypatch.chdir(root / "Geo")
+    from ecobuild_cpp import _cppbuild
+    updates = []
+    real_update = _cppbuild.Solution.update
+    monkeypatch.setattr(_cppbuild.Solution, "update", lambda self, *a, **k: updates.append(1) or real_update(self, *a, **k))
     changed = module.add_file("src/shape/Circle.cpp")
     assert changed.paths == ("Geo/src/shape/Circle.cpp", "GeoTest/src/shape/CircleTest.cpp")
+    assert len(updates) == 1   # ソースとそのテストを足しても、構成の作り直しは1回
+    monkeypatch.setattr(_cppbuild.Solution, "update", real_update)
     assert '#include "Geo/shape/Circle.h"' in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
     assert "TEST(Circle, Works)" in (root / "GeoTest/src/shape/CircleTest.cpp").read_text(encoding="utf-8")
     result = module.test()

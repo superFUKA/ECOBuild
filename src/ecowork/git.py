@@ -5,6 +5,7 @@ git のメッセージで状況を判定する箇所があるため、メッセ�
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import tempfile
@@ -16,6 +17,8 @@ from pathlib import Path
 
 from ecotask import process as _process
 from .errors import ErrorCode, WorkError, operation
+
+_logger = logging.getLogger(__name__)
 
 # ECOWORK_ALLOW：ecowork 自身の呼び出しは、タスクブランチを守るフック（hooks）を通す。
 _ENV = {"LANGUAGE": "en", "LC_ALL": "C.UTF-8", "GIT_TERMINAL_PROMPT": "0", "GIT_EDITOR": "true", "ECOWORK_ALLOW": "1"}
@@ -29,6 +32,7 @@ FETCHED_MARK = "ecowork-fetched"
 # FETCH_LOCK・FETCHED_MARK は共有の .git（--git-common-dir）に置く：作業空間（worktree）どうしは refs を共有する
 FETCH_LOCK = "ecowork-fetch.lock"
 FETCH_LOCK_TIMEOUT = 120
+FETCH_WAIT_LOGGED = 0.1   # これ以上ロックを待ったら、ログに出す（秒）
 _CONFIG_LOCKED = re.compile(r"could not lock config file", re.IGNORECASE)
 _CONFIG_LOCK_WAITS = (0.05, 0.1, 0.2, 0.4, 0.8, 1.6)   # 共有の設定の書き込みの取り合いを待つ（秒）
 _DUBIOUS = re.compile(r"detected dubious ownership in repository at '([^']*)'")
@@ -210,8 +214,13 @@ class Git:
             yield
             return
         with file:
+            started = time.monotonic()
             held = _lock_file(file, FETCH_LOCK_TIMEOUT)
+            waited = time.monotonic() - started
             try:
+                if waited >= FETCH_WAIT_LOGGED:  # ほかのコマンドの fetch を待った（ログに出さないと、遅さの原因が見えない）
+                    _logger.debug("fetch のロックを %.2f 秒待ちました", waited, extra={"event": "fetch.wait", "data": {
+                        "seconds": round(waited, 3), "held": held, "cwd": str(self.root)}})
                 yield
             finally:
                 if held:

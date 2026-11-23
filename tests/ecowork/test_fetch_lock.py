@@ -104,3 +104,20 @@ def test_reading_commands_answer_from_the_local_copy_when_fetch_fails(repository
     assert status.number == task.number
     assert [t.number for t in repository.tasks()] == [task.number]
     assert any("手元の写しで表示しています" in n for n in repository.notices)
+
+
+def test_waiting_for_the_fetch_lock_is_logged(remote_and_clone, monkeypatch, caplog):
+    """ほかのコマンドの fetch を待った時間をログに出す（出さないと、遅さの原因がログから見えない）。"""
+    import logging
+
+    _, work = remote_and_clone
+    monkeypatch.setattr(_git, "FETCH_LOCK_TIMEOUT", 0.3)
+    held = _hold_lock(work)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="ecowork.git"):
+            Git(work).fetch()
+    finally:
+        _git._unlock_file(held)
+        held.close()
+    waits = [record for record in caplog.records if getattr(record, "event", None) == "fetch.wait"]
+    assert len(waits) == 1 and waits[0].data["seconds"] >= 0.3 and waits[0].data["held"] is False

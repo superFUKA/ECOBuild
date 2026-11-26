@@ -12,6 +12,8 @@
 //   帯そのもの（アイコンと題・つかんで動かす所）はページが描く（theme.css の eco-frameless）。ここは、その印と題をページに付ける。
 // - 窓の大きさの下限：これより小さいと、左のメニューと中身が崩れる（前の GUI と同じ）。
 // - F5・Ctrl+R で読み直し、F12・Ctrl+Shift+I で開発の道具（メニューは出さないので、キーだけ残す）。
+// - 窓のページを描くプロセスが落ちたら（メモリーが尽きた等）、理由を記録して読み直す（枠だけ残って中身が空にならない）。
+//   記録は <アプリのデータ>/logs/windows.jsonl。続けて落ちるときは読み直さない（1分に3回まで）。
 // - --smoke：窓を見せずに読み込み、題（モジュールの窓なら、そのモジュール・AppUserModelID・アイコンも）を標準出力に出して終わる（試験用）。
 const {app, BrowserWindow, Menu, ipcMain, shell} = require('electron');
 const crypto = require('crypto');
@@ -88,7 +90,31 @@ function sameOrigin(target, page) {
   try { return new URL(target).origin === new URL(page).origin; } catch (e) { return false; }
 }
 
+// 窓のページを描くプロセスが落ちた -------------------------------------------------------------------------------
+const RELOADS_PER_MINUTE = 3;
+function note(record) {
+  try {
+    const folder = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(folder, {recursive: true});
+    fs.appendFileSync(path.join(folder, 'windows.jsonl'), JSON.stringify({time: new Date().toISOString(), ...record}) + '\n');
+  } catch (e) { /* 書けなくても窓は続ける */ }
+}
+function recover(window) {
+  const reloads = [];
+  window.webContents.on('render-process-gone', (event, details) => {
+    const now = Date.now();
+    while (reloads.length && now - reloads[0] > 60000) reloads.shift();
+    const again = details.reason !== 'clean-exit' && reloads.length < RELOADS_PER_MINUTE;
+    note({event: 'render-process-gone', reason: details.reason, exit_code: details.exitCode,
+          url: window.webContents.getURL().split('#')[0], title: window.getTitle(), reload: again});
+    if (!again || window.isDestroyed()) return;
+    reloads.push(now);
+    window.webContents.reload();
+  });
+}
+
 function guard(window, icon) {
+  recover(window);
   window.webContents.setWindowOpenHandler(({url: target, frameName}) => {
     if (LOCAL.test(target) && sameOrigin(target, window.webContents.getURL()) && /^gf-/.test(frameName || '')) {
       // 子の窓は親が持つ（タスクバーに出ない）ので、最小化させない（戻せなくなる）
